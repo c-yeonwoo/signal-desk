@@ -275,6 +275,13 @@ def bot_preview():
     return bot.run_once(dry_run=True)
 
 
+@app.post("/api/bot/reset")
+def bot_reset():
+    """봇 포지션·거래내역 초기화(설정 유지) — 과거 유령거래 등 정합성 깨진 상태 정리용."""
+    db.bot_reset()
+    return {"ok": True}
+
+
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------
 @app.get("/api/cycle")
 def cycle_get():

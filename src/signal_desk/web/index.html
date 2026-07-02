@@ -277,6 +277,7 @@
           <button class="btn primary" id="bot-toggle-btn" onclick="toggleBot()">켜기</button>
           <button class="btn" onclick="runBotNow()">지금 실행</button>
           <button class="btn" onclick="previewBot()">판단 미리보기</button>
+          <button class="btn" onclick="resetBot()">기록 초기화</button>
           <span class="stat-label" id="bot-kis-status" style="margin-left:auto"></span>
         </div>
         <div class="stat-label" id="bot-rules" style="margin:10px 0 0"></div>
@@ -291,7 +292,7 @@
           <div id="bot-trades-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
         </div>
         <div class="card">
-          <b style="font-size:14px">배분 현황</b>
+          <b style="font-size:14px">포트폴리오</b>
           <div id="bot-allocation-chart" style="height:360px"></div>
         </div>
       </div>
@@ -829,8 +830,9 @@ async function loadBotState(){
     document.getElementById('bot-kis-status').textContent = d.kis_connected ? 'KIS 모의계좌 연결됨' : 'KIS 연결 안 됨(.env 확인)';
     const cfg = d.config || {};
     document.getElementById('bot-rules').innerHTML =
-      `매매 규칙 · 실주문은 <b>평일 09:00~15:20</b>만 · 매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · `
-      + `한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · 최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`;
+      `<b>ON이면 장중 5분마다</b> 현재 계좌 기준으로 자동 판단·매매 · 실주문은 <b>평일 09:00~15:20</b>만 · `
+      + `매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · 한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · `
+      + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`;
 
     const hEl = document.getElementById('bot-holdings-body');
     if (!d.positions.length) {
@@ -916,6 +918,13 @@ async function previewBot(){
     const d = await (await fetch('/api/bot/preview', { method: 'POST' })).json();
     renderBotPlan(d, true);
   } finally { btn.disabled = false; btn.textContent = t; }
+}
+
+async function resetBot(){
+  if (!confirm('봇 보유종목·거래내역 기록을 초기화할까요? (KIS 계좌 잔고는 그대로, 우리 DB 기록만 삭제 — 과거 유령거래 정리용)')) return;
+  await fetch('/api/bot/reset', { method: 'POST' });
+  document.getElementById('bot-plan').style.display = 'none';
+  loadBotState();
 }
 
 // ===== 인증 게이트 =====
