@@ -296,6 +296,16 @@
     <p class="page-desc">시그널을 근거로 봇이 KIS 모의계좌를 실시간 운용합니다. 모든 매매는 타이밍·수량 근거를
       남기고, 안전장치(장 시간·손절·개수 제한)는 항상 강제됩니다. 관심종목은 시그널 탭의 ⭐로 관리하세요.</p>
 
+    <div class="row" style="margin-bottom:16px">
+      <span class="stat-label" style="margin:0">트레이딩 성향</span>
+      <div class="seg-toggle" id="style-toggle">
+        <button data-style="conservative" onclick="setStyle('conservative')">안정형</button>
+        <button data-style="balanced" onclick="setStyle('balanced')">균형형</button>
+        <button data-style="aggressive" onclick="setStyle('aggressive')">공격형</button>
+      </div>
+      <span class="stat-label" id="style-desc" style="margin:0"></span>
+    </div>
+
     <div id="portfolio-bot">
       <div class="card-row">
         <div class="card"><div class="stat-label">현금</div><div class="stat-value" id="bot-cash">-</div></div>
@@ -881,6 +891,10 @@ async function loadBotState(){
       + `매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · 한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · `
       + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`;
 
+    document.querySelectorAll('#style-toggle button').forEach(b => b.classList.toggle('on', b.dataset.style === cfg.trading_style));
+    const styleDesc = (d.styles || []).find(s => s.key === cfg.trading_style);
+    document.getElementById('style-desc').textContent = styleDesc ? styleDesc.desc : '';
+
     const rEl = document.getElementById('bot-reservations');
     if (d.reservations && d.reservations.length) {
       rEl.style.display = '';
@@ -979,6 +993,11 @@ async function resetBot(){
   if (!confirm('봇 보유종목·거래내역 기록을 초기화할까요? (KIS 계좌 잔고는 그대로, 우리 DB 기록만 삭제 — 과거 유령거래 정리용)')) return;
   await fetch('/api/bot/reset', { method: 'POST' });
   document.getElementById('bot-plan').style.display = 'none';
+  loadBotState();
+}
+
+async function setStyle(style){
+  await fetch('/api/bot/style', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style }) });
   loadBotState();
 }
 

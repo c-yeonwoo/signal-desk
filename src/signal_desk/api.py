@@ -311,6 +311,13 @@ def bot_toggle(data: dict = Body(...)):
     return {"ok": True, "enabled": bool(data.get("enabled"))}
 
 
+@app.post("/api/bot/style")
+def bot_style(data: dict = Body(...)):
+    """트레이딩 성향(안정형/균형형/공격형) 변경 — 봇 파라미터·리스크 룰이 프리셋으로 바뀐다."""
+    style = bot.set_style(str(data.get("style", "balanced")))
+    return {"ok": True, "style": style}
+
+
 @app.post("/api/bot/run")
 def bot_run():
     """수동 1회 실행 — 실주문은 장 시간(평일 09:00~15:20 KST)에만 나간다."""

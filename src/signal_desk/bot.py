@@ -14,7 +14,7 @@ import datetime
 import logging
 from zoneinfo import ZoneInfo
 
-from signal_desk import config, db, kb, llm, store
+from signal_desk import config, db, kb, llm, store, strategy
 from signal_desk.broker import kis
 from signal_desk.reference import cycle
 from signal_desk.signals import advisor, engine, macro, regime, risk
@@ -106,11 +106,20 @@ def get_state() -> dict:
         "recent_trades": db.bot_trades_recent(20),
         "reservations": db.bot_reservations_pending(),
         "llm_enabled": llm.available(),
+        "style_label": strategy.STYLE_LABEL.get(cfg["trading_style"], cfg["trading_style"]),
+        "styles": [{"key": k, "label": strategy.STYLE_LABEL[k], "desc": strategy.STYLE_DESC[k]} for k in strategy.STYLES],
     }
 
 
 def set_enabled(enabled: bool) -> None:
     db.bot_config_set_enabled(enabled)
+
+
+def set_style(style: str) -> str:
+    """트레이딩 성향 변경(프리셋 파라미터 함께 적용). 정규화된 style 반환."""
+    style = strategy.normalize(style)
+    db.bot_config_set_style(style, strategy.bot_params(style))
+    return style
 
 
 def run_once(dry_run: bool = False) -> dict:
@@ -149,7 +158,7 @@ def run_once(dry_run: bool = False) -> dict:
         for ticker in {p["ticker"] for p in db.bot_positions_all()} - held_tickers:
             db.bot_position_delete(ticker)
 
-    risk_cfg = risk.RiskConfig()
+    risk_cfg = strategy.risk_config(cfg["trading_style"])  # 성향별 손절/익절/트레일링
     sells: list[dict] = []
     for h in bal["holdings"]:
         ticker, qty, avg_price = h["ticker"], h["qty"], h["avg_price"]
