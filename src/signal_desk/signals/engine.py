@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from signal_desk.signals import fundamental as fnd
 from signal_desk.signals import indicators as ind
+from signal_desk.signals import narrative as narr
 
 
 @dataclass
@@ -51,6 +52,7 @@ class SignalResult:
     fundamental_score: float
     has_fundamental: bool
     reasons: list[str] = field(default_factory=list)
+    narrative: str = ""
 
 
 def compute_indicator_series(closes: list[float], config: SignalConfig | None = None) -> dict:
@@ -170,15 +172,48 @@ def evaluate(
         fund = fnd.score(fundamentals.get(ticker, {}))
         combined = combine(tech_score, tech_reasons, fund, config)
 
-        results.append(SignalResult(
+        result = SignalResult(
             ticker=ticker, name=name, score=combined["score"], kind=combined["kind"],
             confidence=combined["confidence"], technical_score=round(tech_score, 2),
             fundamental_score=round(fund.score, 2), has_fundamental=fund.has_data,
             reasons=combined["reasons"],
-        ))
+        )
+        result.narrative = narr.explain(result)
+        results.append(result)
 
     results.sort(key=lambda r: r.score, reverse=True)
     return results
+
+
+def replay_signal_kinds(closes: list[float], config: SignalConfig | None = None) -> list[str]:
+    """전 구간 매 시점 기술 시그널 재현(backtest_summary와 동일 방법론) — 차트 구간 표시용."""
+    config = config or SignalConfig()
+    series = compute_indicator_series(closes, config)
+    kinds = []
+    for i in range(len(closes)):
+        tech_score, tech_reasons = technical_score_at(closes, series, i, config)
+        combined = combine(tech_score, tech_reasons, fnd.score({}), config)
+        kinds.append(combined["kind"])
+    return kinds
+
+
+def signal_zones(
+    dates: list[str], closes: list[float], config: SignalConfig | None = None
+) -> list[dict]:
+    """연속된 동일 시그널(BUY/SELL) 구간을 [{start,end,kind}]로 압축 — 차트 markArea용. HOLD는 제외."""
+    kinds = replay_signal_kinds(closes, config)
+    zones = []
+    i, n = 0, len(kinds)
+    while i < n:
+        if kinds[i] == "HOLD":
+            i += 1
+            continue
+        j = i
+        while j < n and kinds[j] == kinds[i]:
+            j += 1
+        zones.append({"start": dates[i], "end": dates[j - 1], "kind": kinds[i]})
+        i = j
+    return zones
 
 
 def backtest_summary(

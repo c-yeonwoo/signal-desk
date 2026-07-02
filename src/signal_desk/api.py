@@ -16,7 +16,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from signal_desk import auth, config, db, store
 from signal_desk.signals import valuation
-from signal_desk.signals.engine import backtest_summary, compute_indicator_series, evaluate
+from signal_desk.signals.engine import backtest_summary, compute_indicator_series, evaluate, signal_zones
 
 config.load_env()
 
@@ -152,16 +152,18 @@ def signal_chart_get(ticker: str):
     if not history:
         return {"ready": False, "dates": []}
     closes = [h["close"] for h in history]
+    dates = [h["date"] for h in history]
     series = compute_indicator_series(closes)
     return {
         "ready": True,
         "ticker": ticker,
-        "dates": [h["date"] for h in history],
+        "dates": dates,
         "close": closes,
         "ma20": series["ma_short"],
         "ma60": series["ma_mid"],
         "ma120": series["ma_long"],
         "rsi": series["rsi"],
+        "zones": signal_zones(dates, closes),
         "macd": series["macd"]["macd"],
         "macd_signal": series["macd"]["signal"],
         "macd_hist": series["macd"]["histogram"],

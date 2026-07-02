@@ -82,3 +82,16 @@ def test_backtest_summary_structure():
 def test_backtest_summary_ignores_short_series():
     out = engine.backtest_summary({"SHORT": [100.0] * 10})
     assert all(row["n"] == 0 for row in out["by_signal"])
+
+
+def test_signal_zones_compresses_consecutive_buy_days():
+    # 20일 연속 하락 -> RSI(14)가 정의되는 인덱스 14부터 계속 과매도(0) -> BUY 구간 하나로 압축
+    closes = [100 - i for i in range(20)]
+    dates = [f"2026-01-{i + 1:02d}" for i in range(20)]
+    zones = engine.signal_zones(dates, closes)
+    assert zones == [{"start": "2026-01-15", "end": "2026-01-20", "kind": "BUY"}]
+
+
+def test_signal_zones_empty_for_flat_series():
+    zones = engine.signal_zones(["2026-01-0" + str(i) for i in range(1, 6)], [100.0] * 5)
+    assert zones == []

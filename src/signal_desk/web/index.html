@@ -36,7 +36,11 @@
   .chip { padding:3px 9px; border:1px solid var(--line); border-radius:12px; cursor:pointer;
           background:var(--panel); color:var(--dim); font-size:11px; user-select:none; }
   .chip.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-  main { max-width:980px; margin:0 auto; padding:28px 18px 60px; }
+  main { max-width:1240px; margin:0 auto; padding:28px 18px 60px; }
+  .split { display:flex; gap:16px; align-items:flex-start; }
+  .split > .card { flex:1 1 50%; min-width:0; }
+  #signal-list-pane { max-height:760px; overflow-y:auto; overflow-x:auto; }
+  table.dtable tr.selected-row { background:var(--accent-weak); }
   .card { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:20px; }
   .card:hover { box-shadow:var(--shadow); }
   .placeholder { color:var(--dim); font-size:13px; padding:32px 0; text-align:center; }
@@ -103,15 +107,16 @@
   <div id="view-signal" style="display:none">
     <h2 class="page-head">시그널</h2>
     <p class="page-desc">시장 국면 + 종목/섹터 매수·매도 시그널. 백테스트 성적표로 적중률을 검증합니다.
-      종목을 클릭하면 가격·RSI·MACD 차트를 볼 수 있습니다.</p>
-    <div class="card" id="signal-chart-card" style="display:none;margin-bottom:16px">
-      <div class="row" style="justify-content:space-between;margin-bottom:8px">
-        <b id="signal-chart-title"></b>
-        <span class="btn" style="cursor:pointer;padding:2px 10px" onclick="closeSignalChart()">✕</span>
+      왼쪽 목록에서 종목을 클릭하면 오른쪽에 가격·RSI·MACD 차트와 해설이 표시됩니다.</p>
+    <div class="split">
+      <div class="card" id="signal-list-pane"><div id="signal-body" class="placeholder">불러오는 중…</div></div>
+      <div class="card" id="signal-chart-pane">
+        <div id="signal-chart-title" style="font-weight:700;font-size:15px;margin-bottom:8px">종목을 선택하세요</div>
+        <div id="signal-narrative" class="placeholder" style="display:none;background:var(--accent-weak);
+          border-radius:var(--r-md);padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:12px;text-align:left"></div>
+        <div id="signal-chart" style="height:480px"></div>
       </div>
-      <div id="signal-chart" style="height:420px"></div>
     </div>
-    <div class="card"><div id="signal-body" class="placeholder">불러오는 중…</div></div>
   </div>
 
   <div id="view-valuation" style="display:none">
@@ -271,6 +276,8 @@ async function loadStub(key, url){
 function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmtNum(n, digits){ return (n == null) ? '-' : n.toFixed(digits ?? 2); }
 
+let _signalItems = {};
+
 async function loadSignals(){
   const el = document.getElementById('signal-body');
   el.textContent = '불러오는 중…';
@@ -278,7 +285,8 @@ async function loadSignals(){
     const d = await (await fetch('/api/signals')).json();
     if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
     if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
-    const rows = d.items.map((r, i) => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}" data-name="${esc(r.name)}">
+    _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
+    const rows = d.items.map((r, i) => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}">
       <td>${i + 1}</td>
       <td>${esc(r.name)}<div style="color:var(--dim);font-size:11px">${esc(r.ticker)}</div></td>
       <td><span class="sig-pill ${r.kind}">${r.kind}</span></td>
@@ -292,53 +300,77 @@ async function loadSignals(){
       <th class="num">신뢰도</th><th>근거</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
     el.querySelectorAll('tr.clickable-row').forEach(tr => {
-      tr.addEventListener('click', () => showSignalChart(tr.dataset.ticker, tr.dataset.name));
+      tr.addEventListener('click', () => selectSignalRow(tr.dataset.ticker));
     });
+    selectSignalRow(d.items[0].ticker);  // 기본 선택: 1위 종목
   } catch (e) {
     el.textContent = '불러오지 못했습니다.';
   }
 }
 
-let _signalChart = null;
-function closeSignalChart(){
-  document.getElementById('signal-chart-card').style.display = 'none';
+function selectSignalRow(ticker){
+  document.querySelectorAll('#signal-body tr.clickable-row').forEach(tr => {
+    tr.classList.toggle('selected-row', tr.dataset.ticker === ticker);
+  });
+  const item = _signalItems[ticker];
+  showSignalChart(ticker, item);
 }
-async function showSignalChart(ticker, name){
-  const card = document.getElementById('signal-chart-card');
-  card.style.display = '';
-  document.getElementById('signal-chart-title').textContent = `${name} (${ticker})`;
+
+const _ZONE_COLOR = { BUY: '#22c55e', SELL: '#dc2626' };
+
+let _signalChart = null;
+async function showSignalChart(ticker, item){
+  document.getElementById('signal-chart-title').textContent = item ? `${item.name} (${ticker})` : ticker;
+  const narrEl = document.getElementById('signal-narrative');
+  if (item && item.narrative) {
+    narrEl.style.display = '';
+    narrEl.innerHTML = `<span class="sig-pill ${item.kind}">${item.kind}</span> &nbsp;${esc(item.narrative)}`;
+  } else {
+    narrEl.style.display = 'none';
+  }
   const holder = document.getElementById('signal-chart');
-  holder.innerHTML = '';
   try {
     const d = await (await fetch(`/api/signals/${encodeURIComponent(ticker)}/chart`)).json();
-    if (!d.ready) { holder.textContent = '차트 데이터가 없습니다.'; return; }
+    if (!d.ready) { holder.innerHTML = ''; holder.textContent = '차트 데이터가 없습니다.'; return; }
     if (!_signalChart) _signalChart = echarts.init(holder);
+    const markArea = (d.zones || []).length ? {
+      itemStyle: { opacity: 0.10 },
+      data: d.zones.map(z => [
+        { xAxis: z.start, itemStyle: { color: _ZONE_COLOR[z.kind] } },
+        { xAxis: z.end },
+      ]),
+    } : undefined;
     _signalChart.setOption({
       animation: false,
       tooltip: { trigger: 'axis' },
       legend: { top: 0, data: ['종가', 'MA20', 'MA60', 'MA120'] },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       title: [
-        { text: 'RSI', left: 55, top: '57%', textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
-        { text: 'MACD', left: 55, top: '77%', textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
+        { text: 'RSI', left: 55, top: '50%', textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
+        { text: 'MACD', left: 55, top: '68%', textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
       ],
       grid: [
-        { left: 55, right: 20, top: 34, height: '46%' },
-        { left: 55, right: 20, top: '62%', height: '14%' },
-        { left: 55, right: 20, top: '82%', height: '14%' },
+        { left: 55, right: 20, top: 34, height: '38%' },
+        { left: 55, right: 20, top: '54%', height: '13%' },
+        { left: 55, right: 20, top: '72%', height: '13%' },
       ],
       xAxis: [
         { type: 'category', data: d.dates, gridIndex: 0, axisLabel: { show: false } },
         { type: 'category', data: d.dates, gridIndex: 1, axisLabel: { show: false } },
-        { type: 'category', data: d.dates, gridIndex: 2 },
+        { type: 'category', data: d.dates, gridIndex: 2, axisLabel: { show: false } },
       ],
       yAxis: [
         { gridIndex: 0, scale: true },
         { gridIndex: 1, min: 0, max: 100 },
         { gridIndex: 2, scale: true },
       ],
+      dataZoom: [
+        { type: 'slider', xAxisIndex: [0, 1, 2], bottom: 4, height: 20 },
+        { type: 'inside', xAxisIndex: [0, 1, 2] },
+      ],
       series: [
-        { name: '종가', type: 'line', data: d.close, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 2, color: '#4f46e5' } },
+        { name: '종가', type: 'line', data: d.close, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+          lineStyle: { width: 2, color: '#4f46e5' }, markArea },
         { name: 'MA20', type: 'line', data: d.ma20, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 1 } },
         { name: 'MA60', type: 'line', data: d.ma60, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 1 } },
         { name: 'MA120', type: 'line', data: d.ma120, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false, lineStyle: { width: 1 } },
