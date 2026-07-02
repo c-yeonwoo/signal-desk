@@ -88,6 +88,8 @@
   .sig-chart-pane .pane-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
   #signal-chart { flex:1 1 auto; min-height:0; width:100%; }
   table.dtable tr.selected-row { background:var(--accent-weak); }
+  .fav-star { cursor:pointer; color:var(--sig-neutral); font-size:15px; user-select:none; }
+  .fav-star.on { color:#f59e0b; }
 
   /* ===== 사이클 ===== */
   .phase-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
@@ -163,6 +165,8 @@
     .tab { padding:6px 10px; font-size:12px; white-space:nowrap; }
     .macro-chip { flex:1 1 44%; min-width:0; }
     .view-doc, .view-app { padding-left:14px; padding-right:14px; }
+    .card-row { flex-wrap:wrap; }
+    .card-row > .card { flex:1 1 42%; }
   }
 
   #authGate { position:fixed; inset:0; z-index:9999; display:none; align-items:center; justify-content:center;
@@ -187,7 +191,7 @@
   <h1>Signal Desk</h1>
   <div class="tabs">
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
-    <button class="tab" data-tab="portfolio" onclick="switchTab('portfolio')">포트폴리오</button>
+    <button class="tab" data-tab="trading" onclick="switchTab('trading')">트레이딩</button>
     <button class="tab" data-tab="valuation" onclick="switchTab('valuation')">저평가</button>
     <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">사이클</button>
     <button class="tab" data-tab="valuechain" onclick="switchTab('valuechain')">밸류체인</button>
@@ -250,13 +254,10 @@
     <div id="vc-detail"><div class="placeholder">불러오는 중…</div></div>
   </div>
 
-  <div id="view-portfolio" class="view-app" style="display:none">
-    <h2 class="page-head">포트폴리오</h2>
-    <p class="page-desc">시그널 기반 자동매매(KIS 모의투자)와 관심종목을 한 곳에서 관리합니다.</p>
-    <div class="seg-toggle">
-      <button class="on" id="seg-bot-btn" onclick="switchPortfolioSegment('bot')">자동매매</button>
-      <button id="seg-watch-btn" onclick="switchPortfolioSegment('watch')">관심종목</button>
-    </div>
+  <div id="view-trading" class="view-app" style="display:none">
+    <h2 class="page-head">트레이딩 <span style="color:var(--dim);font-size:14px;font-weight:600">· 시그널 기반 자동매매 봇</span></h2>
+    <p class="page-desc">시그널을 근거로 봇이 KIS 모의계좌를 실시간 운용합니다. 모든 매매는 타이밍·수량 근거를
+      남기고, 안전장치(장 시간·손절·개수 제한)는 항상 강제됩니다. 관심종목은 시그널 탭의 ⭐로 관리하세요.</p>
 
     <div id="portfolio-bot">
       <div class="card-row">
@@ -289,17 +290,6 @@
           <b style="font-size:14px">배분 현황</b>
           <div id="bot-allocation-chart" style="height:360px"></div>
         </div>
-      </div>
-    </div>
-
-    <div id="portfolio-watch" style="display:none">
-      <div class="card">
-        <div class="row" style="margin-bottom:14px">
-          <input id="wl_ticker" type="text" placeholder="종목코드 또는 티커 (예: 005930)" class="ctrl">
-          <input id="wl_label" type="text" placeholder="메모(선택)" class="ctrl">
-          <button class="btn primary" onclick="addWatch()">추가</button>
-        </div>
-        <ul class="watchlist" id="watchlist-body"></ul>
       </div>
     </div>
   </div>
@@ -390,9 +380,8 @@
 </dialog>
 
 <script>
-const _ROUTES = ['signal','portfolio','valuation','cycle','valuechain','mypage'];
+const _ROUTES = ['signal','trading','valuation','cycle','valuechain','mypage'];
 let _userEmail = '', _profile = {};
-let _portfolioSegment = 'bot';
 
 function switchTab(t){
   if(!_ROUTES.includes(t)) t = 'signal';
@@ -402,19 +391,9 @@ function switchTab(t){
   if (t === 'valuation') loadValuation();
   if (t === 'cycle') loadCycle();
   if (t === 'valuechain') loadValuechain();
-  if (t === 'portfolio') switchPortfolioSegment(_portfolioSegment);
+  if (t === 'trading') loadBotState();
   if (t === 'mypage') fillMyPage();
   if (location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
-}
-
-function switchPortfolioSegment(seg){
-  _portfolioSegment = seg;
-  document.getElementById('seg-bot-btn').classList.toggle('on', seg === 'bot');
-  document.getElementById('seg-watch-btn').classList.toggle('on', seg === 'watch');
-  document.getElementById('portfolio-bot').style.display = seg === 'bot' ? '' : 'none';
-  document.getElementById('portfolio-watch').style.display = seg === 'watch' ? '' : 'none';
-  if (seg === 'bot') loadBotState();
-  if (seg === 'watch') loadWatchlist();
 }
 
 function routeFromHash(){
@@ -431,6 +410,12 @@ window.addEventListener('resize', () => {
 
 function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmtNum(n, digits){ return (n == null) ? '-' : n.toFixed(digits ?? 2); }
+function fmtKRW(n){  // 큰 금액은 억/만 단위로 압축(카드 넘침 방지)
+  if (n == null) return '-';
+  if (n >= 1e8) return (n / 1e8).toFixed(2) + '억원';
+  if (n >= 1e4) return Math.round(n / 1e4).toLocaleString() + '만원';
+  return Math.round(n).toLocaleString() + '원';
+}
 
 // ===== 탭 간 이동(사이클 → 밸류체인 → 시그널) =====
 let _pendingSignalTicker = null, _vcData = null, _vcCurrent = null;
@@ -580,27 +565,36 @@ async function loadMacro(){
   } catch (e) { hide(); }
 }
 
-let _signalItems = {};
+let _signalItems = {}, _favorites = new Set();
 
 async function loadSignals(){
   const el = document.getElementById('signal-body');
   el.textContent = '불러오는 중…';
   try {
-    const d = await (await fetch('/api/signals')).json();
+    const [d, fav] = await Promise.all([
+      (await fetch('/api/signals')).json(),
+      (await fetch('/api/favorites')).json(),
+    ]);
+    _favorites = new Set((fav.favorites || []).filter(f => f.kind === 'ticker').map(f => f.key));
     if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
     if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
     _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
+    const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
     const rows = d.items.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}">
+      <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div style="color:var(--dim);font-size:11px">${esc(r.ticker)}</div></td>
       <td style="font-size:12px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}</td>
       <td><span class="sig-pill ${r.kind}">${r.kind}</span></td>
     </tr>`).join('');
     el.className = '';
     el.innerHTML = `<table class="dtable"><thead><tr>
-      <th>종목</th><th>섹터</th><th>시그널</th>
+      <th></th><th>종목</th><th>섹터</th><th>시그널</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
     el.querySelectorAll('tr.clickable-row').forEach(tr => {
       tr.addEventListener('click', () => selectSignalRow(tr.dataset.ticker));
+    });
+    el.querySelectorAll('.fav-star').forEach(s => {
+      s.addEventListener('click', (ev) => { ev.stopPropagation(); toggleFav(s.dataset.fav, s); });
     });
     // 밸류체인에서 넘어온 종목이 유니버스에 있으면 그걸, 없으면 1위 종목 선택
     const target = (_pendingSignalTicker && _signalItems[_pendingSignalTicker]) ? _pendingSignalTicker : d.items[0].ticker;
@@ -740,8 +734,8 @@ const _REASON_LABEL = { STOP_LOSS: '손절', TAKE_PROFIT: '익절', TRAILING: '�
 async function loadBotState(){
   try {
     const d = await (await fetch('/api/bot/state')).json();
-    document.getElementById('bot-cash').textContent = d.cash == null ? '-' : Math.round(d.cash).toLocaleString() + '원';
-    document.getElementById('bot-total').textContent = d.total_eval == null ? '-' : Math.round(d.total_eval).toLocaleString() + '원';
+    document.getElementById('bot-cash').textContent = fmtKRW(d.cash);
+    document.getElementById('bot-total').textContent = fmtKRW(d.total_eval);
     document.getElementById('bot-count').textContent = d.positions.length;
 
     const investedCost = d.positions.reduce((s, p) => s + p.qty * p.avg_price, 0);
@@ -912,27 +906,19 @@ function saveProfile(){
   fetch('/api/profile', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_profile)});
 }
 
-// ===== 워치리스트 =====
-async function loadWatchlist(){
-  const ul = document.getElementById('watchlist-body');
-  ul.innerHTML = '불러오는 중…';
-  const d = await (await fetch('/api/favorites')).json();
-  const items = (d.favorites || []).filter(f => f.kind === 'ticker');
-  ul.innerHTML = items.length ? items.map(f =>
-    `<li><span>${f.key}${f.label ? ' · ' + f.label : ''}</span><button onclick="removeWatch('${f.key}')">삭제</button></li>`
-  ).join('') : '<li style="border:none;color:var(--dim)">관심 종목이 없습니다.</li>';
-}
-async function addWatch(){
-  const key = document.getElementById('wl_ticker').value.trim();
-  const label = document.getElementById('wl_label').value.trim();
-  if (!key) return;
-  await fetch('/api/favorites', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({kind: 'ticker', key, label})});
-  document.getElementById('wl_ticker').value = ''; document.getElementById('wl_label').value = '';
-  loadWatchlist();
-}
-async function removeWatch(key){
-  await fetch('/api/favorites?kind=ticker&key=' + encodeURIComponent(key), {method: 'DELETE'});
-  loadWatchlist();
+// ===== 관심종목(⭐, 시그널 리스트에서 토글) =====
+async function toggleFav(ticker, el){
+  const on = _favorites.has(ticker);
+  if (on) {
+    await fetch('/api/favorites?kind=ticker&key=' + encodeURIComponent(ticker), {method: 'DELETE'});
+    _favorites.delete(ticker);
+  } else {
+    await fetch('/api/favorites', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({kind: 'ticker', key: ticker, label: ''})});
+    _favorites.add(ticker);
+  }
+  el.classList.toggle('on', !on);
+  el.textContent = on ? '☆' : '★';
 }
 
 // ===== 부팅 =====
