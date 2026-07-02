@@ -15,6 +15,21 @@ def test_derive_metrics_from_sample_items():
     assert metrics["roe"] == round(60_000 / 600_000 * 100, 2)
     assert metrics["debt_ratio"] == round(400_000 / 600_000 * 100, 2)
     assert metrics["revenue_growth"] == round((300_000 - 250_000) / 250_000 * 100, 2)
+    assert metrics["net_income"] == 60_000
+    assert metrics["equity"] == 600_000
+
+
+def test_derive_metrics_prefers_consolidated_over_separate():
+    # 삼성전자 실응답 패턴: 같은 계정명이 CFS(연결)·OFS(별도)로 값이 다르게 옴 -> CFS를 써야 함
+    items = [
+        {"fs_div": "OFS", "account_nm": "자본총계", "thstrm_amount": "254,330,083"},
+        {"fs_div": "CFS", "account_nm": "자본총계", "thstrm_amount": "436,320,337"},
+        {"fs_div": "OFS", "account_nm": "당기순이익(손실)", "thstrm_amount": "33,686,601"},
+        {"fs_div": "CFS", "account_nm": "당기순이익(손실)", "thstrm_amount": "45,206,805"},
+    ]
+    metrics = dart._derive_metrics(items)
+    assert metrics["equity"] == 436_320_337
+    assert metrics["net_income"] == 45_206_805
 
 
 def test_derive_metrics_missing_fields_are_skipped():

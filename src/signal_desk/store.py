@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from signal_desk.ingest import dart, krx
+from signal_desk.ingest import dart, krx, krx_open_api
 
 log = logging.getLogger("signal_desk.store")
 
@@ -57,6 +57,12 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
 
 
 def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None = None) -> dict:
+    """DART 재무데이터(ROE/부채비율/매출성장) + KRX 시가총액을 결합해 PER/PBR까지 채운다.
+
+    PER = 시가총액 / 당기순이익, PBR = 시가총액 / 자본총계 — 주당 지표(EPS/BPS)로 나눴다 곱하는
+    것과 수학적으로 동일하지만 발행주식수 없이 바로 계산 가능해 더 안정적이다. 순이익이 적자면
+    PER은 의미가 없어 계산하지 않는다(업계 관례).
+    """
     universe = universe if universe is not None else load_universe()
     bsns_year = bsns_year or str(datetime.date.today().year - 1)  # 최신 사업보고서는 보통 전년도분
 
@@ -66,6 +72,10 @@ def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None
         _write_json(FUNDAMENTALS_FILE, {})
         return {}
 
+    mktcaps = krx_open_api.market_caps()
+    if not mktcaps:
+        log.warning("KRX 시가총액 조회 실패(키 없음/서비스 미승인) — PER/PBR 생략, ROE 등만 사용")
+
     out: dict[str, dict] = {}
     for item in universe:
         ticker = item["ticker"]
@@ -73,8 +83,18 @@ def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None
         if not corp_code:
             continue
         metrics = dart.fundamentals(ticker, corp_code, bsns_year)
-        if metrics:
-            out[ticker] = metrics
+        if not metrics:
+            continue
+
+        mktcap = mktcaps.get(ticker)
+        net_income = metrics.get("net_income")
+        equity = metrics.get("equity")
+        if mktcap:
+            if net_income and net_income > 0:
+                metrics["per"] = round(mktcap / net_income, 2)
+            if equity and equity > 0:
+                metrics["pbr"] = round(mktcap / equity, 2)
+        out[ticker] = metrics
     _write_json(FUNDAMENTALS_FILE, out)
     return out
 

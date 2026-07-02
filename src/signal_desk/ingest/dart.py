@@ -92,12 +92,22 @@ def _find(by_name: dict[str, dict], prefix: str) -> dict | None:
 
 
 def _derive_metrics(items: list[dict]) -> dict:
-    """DART fnlttSinglAcnt 응답의 list 항목에서 ROE/부채비율/매출성장을 계산 (순수함수, 테스트용 분리)."""
+    """DART fnlttSinglAcnt 응답의 list 항목에서 ROE/부채비율/매출성장(+PER/PBR 계산용 원자재인
+    net_income/equity)을 계산 (순수함수, 테스트용 분리).
+
+    응답에 연결재무제표(CFS)와 별도재무제표(OFS)가 같은 계정명으로 섞여 온다(실응답 fs_div
+    필드로 확인, 삼성전자 기준 자본총계 CFS 436.3조 vs OFS 254.3조로 값 자체가 다름) — 투자자가
+    보는 헤드라인 수치는 보통 연결 기준이라 CFS를 우선하고, 없으면 OFS로 폴백한다."""
     by_name: dict[str, dict] = {}
-    for it in items:
-        name = it.get("account_nm")
-        if name and name not in by_name:  # 최초(연결재무제표 우선 가정) 값 사용
-            by_name[name] = it
+    for fs_div in ("OFS", "CFS"):  # CFS를 나중에 덮어써서 최종적으로 CFS 우선
+        for it in items:
+            if it.get("fs_div") == fs_div and it.get("account_nm"):
+                by_name[it["account_nm"]] = it
+    if not by_name:  # fs_div 필드가 없는 응답 형태 대비 폴백(최초 등장 값 사용)
+        for it in items:
+            name = it.get("account_nm")
+            if name and name not in by_name:
+                by_name[name] = it
 
     equity = _to_float((_find(by_name, "자본총계") or {}).get("thstrm_amount"))
     liabilities = _to_float((_find(by_name, "부채총계") or {}).get("thstrm_amount"))
@@ -112,6 +122,11 @@ def _derive_metrics(items: list[dict]) -> dict:
         metrics["debt_ratio"] = round(liabilities / equity * 100, 2)
     if revenue_cur is not None and revenue_prev:
         metrics["revenue_growth"] = round((revenue_cur - revenue_prev) / revenue_prev * 100, 2)
+    # PER/PBR은 시가총액이 필요해 여기선 계산 못 함 — store.py가 KRX 시가총액과 결합해 채운다.
+    if net_income is not None:
+        metrics["net_income"] = net_income
+    if equity is not None:
+        metrics["equity"] = equity
     return metrics
 
 

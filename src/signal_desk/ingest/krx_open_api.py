@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import urllib.error
@@ -117,3 +118,27 @@ def universe_by_marketcap(bas_dd: str, limit: int = 200) -> list[dict]:
 
     ranked.sort(key=lambda r: r["mktcap"], reverse=True)
     return [{"ticker": r["ticker"], "name": r["name"]} for r in ranked[:limit]]
+
+
+def market_caps(max_lookback_days: int = 5) -> dict[str, float]:
+    """최근 영업일 기준 ticker -> 시가총액. PER/PBR 계산용(MKTCAP/순이익, MKTCAP/자본총계).
+    키 없음/서비스 미승인/휴장일 연속 등으로 못 구하면 빈 dict(호출부가 그레이스풀하게 처리)."""
+    today = datetime.date.today()
+    for delta in range(max_lookback_days):
+        bas_dd = (today - datetime.timedelta(days=delta)).strftime("%Y%m%d")
+        rows = daily_trading(bas_dd)
+        if not rows:
+            continue
+        out = {}
+        for row in rows:
+            code = _pick(row, _CODE_FIELDS)
+            mktcap_raw = _pick(row, _MKTCAP_FIELDS)
+            if not code or mktcap_raw is None:
+                continue
+            try:
+                out[code] = float(str(mktcap_raw).replace(",", ""))
+            except ValueError:
+                continue
+        if out:
+            return out
+    return {}
