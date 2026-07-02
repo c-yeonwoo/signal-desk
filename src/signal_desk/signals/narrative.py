@@ -13,30 +13,44 @@ from __future__ import annotations
 _KIND_WORD = {"BUY": "매수", "SELL": "매도", "HOLD": "관망"}
 
 
-def _strip_tag(reason: str, tag: str) -> str:
-    prefix = f"[{tag}] "
-    return reason[len(prefix):] if reason.startswith(prefix) else reason
+def _group_by_tag(reasons: list[str]) -> dict[str, list[str]]:
+    """"[태그] 내용" 형식의 reason들을 태그별로 묶는다 — 새 팩터(저평가/낙폭과대 등)가 추가돼도
+    이 함수는 손댈 필요 없이 자동으로 포함된다."""
+    groups: dict[str, list[str]] = {}
+    for r in reasons:
+        if r.startswith("[") and "]" in r:
+            tag, _, rest = r[1:].partition("]")
+            groups.setdefault(tag, []).append(rest.strip())
+    return groups
 
 
 def explain(result) -> str:
-    """result: engine.SignalResult (덕타이핑 — ticker/name/kind/score/confidence/reasons/has_fundamental)."""
-    tech = [_strip_tag(r, "기술") for r in result.reasons if r.startswith("[기술]")]
-    fund = [_strip_tag(r, "기본") for r in result.reasons if r.startswith("[기본]")]
+    """result: engine.SignalResult (덕타이핑 — ticker/name/kind/score/confidence/reasons/has_fundamental).
 
-    parts = []
+    기술/기본은 항상 먼저 다루고(데이터 유무에 따른 문구가 있어서), 그 외 태그(저평가/고평가/
+    낙폭과대/단기과열 등 — 종합 시그널에 팩터가 추가될 때마다 자동으로 반영됨)는 있는 만큼 덧붙인다.
+    """
+    groups = _group_by_tag(result.reasons)
+    tech = groups.pop("기술", [])
+    fund = groups.pop("기본", [])
+
+    clauses = []
     if tech:
-        parts.append("기술적으로는 " + ", ".join(tech) + " 상황이고")
+        clauses.append("기술적으로는 " + ", ".join(tech) + " 상황")
     else:
-        parts.append("기술 지표상 뚜렷한 신호는 없고")
+        clauses.append("기술 지표상 뚜렷한 신호는 없는 상황")
 
     if result.has_fundamental and fund:
-        parts.append("기본적으로는 " + ", ".join(fund) + "인 점이 반영됐습니다.")
+        clauses.append("기본적으로는 " + ", ".join(fund) + "인 점")
     elif result.has_fundamental:
-        parts.append("기본적분석은 중립 수준입니다.")
+        clauses.append("기본적분석은 중립 수준")
     else:
-        parts.append("재무데이터는 아직 없어 기술 지표만으로 판단했습니다.")
+        clauses.append("재무데이터는 아직 없어 기술 지표 위주로 판단")
 
-    body = " ".join(parts)
+    for tag, items in groups.items():
+        clauses.append(f"{tag} 측면에서는 " + ", ".join(items))
+
+    body = ", ".join(clauses) + "이 반영됐습니다."
     kind_word = _KIND_WORD[result.kind]
     conf_word = "높은" if result.confidence >= 0.6 else "보통" if result.confidence >= 0.3 else "낮은"
 

@@ -35,4 +35,19 @@ def test_explain_hold_no_reasons():
     )
     text = narrative.explain(r)
     assert "관망" in text
-    assert "뚜렷한 신호는 없고" in text
+    assert "뚜렷한 신호는 없는" in text
+
+
+def test_explain_includes_extra_factor_tags_generically():
+    r = SignalResult(
+        ticker="005930", name="삼성전자", score=1.5, kind="BUY", confidence=0.7,
+        technical_score=2.0, fundamental_score=0.0, has_fundamental=False,
+        reasons=[
+            "[기술] MACD 골든크로스",
+            "[저평가] PER·PBR 상대순위 상위 10% — 저평가 구간",
+            "[낙폭과대] 최근 10일 -20.0% 급락 + RSI 25.0 과매도 — 반등 기대",
+        ],
+    )
+    text = narrative.explain(r)
+    assert "PER·PBR 상대순위 상위 10%" in text
+    assert "반등 기대" in text

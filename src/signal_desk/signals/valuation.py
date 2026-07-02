@@ -53,3 +53,9 @@ def screen(universe: list[dict], fundamentals: dict[str, dict]) -> list[dict]:
         })
     rows.sort(key=lambda r: r["valuation_score"])
     return rows
+
+
+def scores(universe: list[dict], fundamentals: dict[str, dict]) -> dict[str, float]:
+    """ticker -> valuation_score(0=가장 저평가, 100=가장 고평가). screen()과 동일 계산이지만
+    종합 시그널(signals/engine.py)이 종목별로 바로 조회해 쓸 수 있게 dict로 반환한다."""
+    return {row["ticker"]: row["valuation_score"] for row in screen(universe, fundamentals)}

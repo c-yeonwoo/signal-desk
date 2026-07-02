@@ -79,6 +79,11 @@
   .sig-pill.BUY { background:var(--sig-buy); }
   .sig-pill.SELL { background:var(--sig-sell); }
   .sig-pill.HOLD { background:var(--sig-neutral); }
+  .sig-pill.강세 { background:var(--sig-buy); }
+  .sig-pill.과열 { background:var(--sig-watch); }
+  .sig-pill.중립 { background:var(--sig-neutral); }
+  .sig-pill.약세 { background:var(--sig-watch); }
+  .sig-pill.조정 { background:var(--sig-sell); }
   footer { border-top:1px solid var(--line); padding:12px 18px; display:flex; gap:18px; flex-wrap:wrap;
     align-items:center; font-size:12px; color:var(--dim); background:var(--panel); }
   footer b { color:var(--txt); }
@@ -121,6 +126,13 @@
     <h2 class="page-head">시그널</h2>
     <p class="page-desc">시장 국면 + 종목/섹터 매수·매도 시그널. 백테스트 성적표로 적중률을 검증합니다.
       왼쪽 목록에서 종목을 클릭하면 오른쪽에 가격·RSI·MACD 차트와 해설이 표시됩니다.</p>
+    <div class="card bleed" id="regime-banner" style="margin-bottom:16px;display:none">
+      <div class="row" style="gap:10px">
+        <span class="stat-label" style="margin:0">시장 국면</span>
+        <span id="regime-pill" class="sig-pill">-</span>
+        <span id="regime-detail" style="color:var(--dim);font-size:12px"></span>
+      </div>
+    </div>
     <div class="split bleed">
       <div class="card" id="signal-list-pane"><div id="signal-body" class="placeholder">불러오는 중…</div></div>
       <div class="card" id="signal-chart-pane">
@@ -298,7 +310,7 @@ function switchTab(t){
   if(!_ROUTES.includes(t)) t = 'signal';
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
-  if (t === 'signal') loadSignals();
+  if (t === 'signal') { loadSignals(); loadRegime(); }
   if (t === 'valuation') loadValuation();
   if (t === 'candidates') loadStub('candidates', '/api/candidates/all');
   if (t === 'portfolio') switchPortfolioSegment(_portfolioSegment);
@@ -336,6 +348,22 @@ async function loadStub(key, url){
 
 function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmtNum(n, digits){ return (n == null) ? '-' : n.toFixed(digits ?? 2); }
+
+async function loadRegime(){
+  const banner = document.getElementById('regime-banner');
+  try {
+    const d = await (await fetch('/api/regime')).json();
+    if (!d.ready) { banner.style.display = 'none'; return; }
+    banner.style.display = '';
+    const pill = document.getElementById('regime-pill');
+    pill.textContent = d.regime;
+    pill.className = 'sig-pill ' + d.regime;
+    document.getElementById('regime-detail').textContent =
+      `MA60 상회 종목 ${fmtNum(d.breadth_pct, 1)}% · 평균 20일 모멘텀 ${d.avg_momentum_pct > 0 ? '+' : ''}${fmtNum(d.avg_momentum_pct, 1)}% (표본 ${d.n}종목)`;
+  } catch (e) {
+    banner.style.display = 'none';
+  }
+}
 
 let _signalItems = {};
 
