@@ -45,7 +45,11 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 - [x] 통합 시그널(`signals/engine.py`) — 가용 컴포넌트만 재정규화해 결합, `/api/signals` 실데이터
 - [x] 백테스트 성적표 1차(기술점수 단독) — `/api/backtest`, 200종목 표본으로 BUY 승률 50.8%
 - [x] 밸류에이션(저평가) 스크리닝(BACKLOG #13) — `signals/valuation.py`, `/api/valuation`, 저평가 탭 실데이터
-- [ ] 시장 국면 + 매크로 미니차트, 후보 유형+기회도, phase2 나머지 — [BACKLOG.md](BACKLOG.md) 참고
+- [x] 시그널 탭 차트 UI — apt-signal 스타일 좌:우 5:5(종목리스트/차트), dataZoom 기간조절,
+  과거 시그널 구간 markArea, 규칙기반 해설(`signals/narrative.py`, v1 — v2는 BACKLOG #17)
+- [x] 리스크 엔진(BACKLOG #8) — `signals/risk.py`, stop-loss/take-profit/trailing 순수 함수
+  (포지션 모델은 #7 자동매매봇과 함께 올 예정)
+- [ ] 시장 국면 + 매크로 미니차트(#5·#6), 자동매매봇(#7, KIS 키 대기), phase2 나머지 — [BACKLOG.md](BACKLOG.md) 참고
 
 다음에 붙일 기능의 상세 우선순위·범위·의존관계는 [BACKLOG.md](BACKLOG.md) 참고.
 
