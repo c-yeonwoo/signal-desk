@@ -27,6 +27,24 @@ def krx_key() -> str | None:
     return os.environ.get("KRX_API_KEY")
 
 
+def kis_credentials() -> dict | None:
+    """KIS 자동매매봇 인증정보. 하나라도 없으면 None(그레이스풀 폴백).
+
+    KIS_ENV는 반드시 'demo'(모의투자)여야 주문이 안전 — 'prod'면 실계좌 주문 API를 호출한다."""
+    app_key = os.environ.get("KIS_APP_KEY")
+    app_secret = os.environ.get("KIS_APP_SECRET")
+    account_no = os.environ.get("KIS_ACCOUNT_NO")
+    if not (app_key and app_secret and account_no):
+        return None
+    return {
+        "app_key": app_key,
+        "app_secret": app_secret,
+        "account_no": account_no,
+        "product_cd": os.environ.get("KIS_ACCOUNT_PRODUCT_CD", "01"),
+        "env": os.environ.get("KIS_ENV", "demo"),
+    }
+
+
 def dart_key() -> str | None:
     return os.environ.get("DART_API_KEY")
 

@@ -49,7 +49,9 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
   과거 시그널 구간 markArea, 규칙기반 해설(`signals/narrative.py`, v1 — v2는 BACKLOG #17)
 - [x] 리스크 엔진(BACKLOG #8) — `signals/risk.py`, stop-loss/take-profit/trailing 순수 함수
   (포지션 모델은 #7 자동매매봇과 함께 올 예정)
-- [ ] 시장 국면 + 매크로 미니차트(#5·#6), 자동매매봇(#7, KIS 키 대기), phase2 나머지 — [BACKLOG.md](BACKLOG.md) 참고
+- [x] KIS 모의투자 연동 — `broker/kis.py`(인증 토큰 캐시·잔고조회·주문실행) 실키 검증(잔고 1억원 확인)
+- [ ] 자동매매봇(#7) 나머지 — 시그널→주문 자동 루프, 포지션 추적, #8 리스크 엔진 연결
+- [ ] 시장 국면 + 매크로 미니차트(#5·#6), phase2 나머지 — [BACKLOG.md](BACKLOG.md) 참고
 
 다음에 붙일 기능의 상세 우선순위·범위·의존관계는 [BACKLOG.md](BACKLOG.md) 참고.
 
@@ -82,3 +84,5 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
   수동 다운로드로 교체 검토).
 - 시장 국면 판정 룰(강세/과열/조정/약세) — 지수·금리·거래대금 임계값 설계 필요.
 - 자동매매봇·전망 시나리오의 유사투자자문업 규제 해당 여부 — 법률 자문 필요(BACKLOG.md 하단 참고).
+- **KIS 토큰 발급(oauth2/tokenP) rate limit 주의** — 짧은 간격으로 재요청하면 HTTP 403.
+  `broker/kis.get_token()`을 거치지 않고 직접 발급 API를 호출하지 말 것(파일 캐시 우회 금지).
