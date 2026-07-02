@@ -1,7 +1,7 @@
-"""FastAPI 백엔드 — 인증/온보딩/워치리스트 + 향후 탭용 스텁 라우트, SPA 서빙.
+"""FastAPI 백엔드 — 인증/온보딩/워치리스트, 시그널/밸류에이션/국면 실데이터, SPA 서빙.
 
-1단계 스캐폴딩 범위. 시그널/밸류에이션/후보/국면/매크로는 프론트가 바로 붙을 수 있도록
-응답 스키마만 확정한 스텁이며, 실제 계산 로직은 2단계 이후(signals/, ingest/)에서 채운다.
+1단계 스캐폴딩 범위였던 스텁 라우트 중 후보(candidates)/매크로/AI리포트는 아직 스키마만
+확정한 스텁으로 남아 있고(phase3~6), 실제 계산 로직은 signals/, ingest/에서 채워 나간다.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from fastapi import Body, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from signal_desk import auth, bot, config, db, store
-from signal_desk.signals import valuation
+from signal_desk.signals import regime, valuation
 from signal_desk.signals.engine import backtest_summary, compute_indicator_series, evaluate, signal_zones
 
 config.load_env()
@@ -154,6 +154,11 @@ def _valuation():
     return valuation.screen(store.load_universe(), store.load_fundamentals())
 
 
+@lru_cache(maxsize=1)
+def _regime():
+    return regime.classify(store.load_price_series())
+
+
 @app.get("/api/signals")
 def signals_get():
     if not store.is_ready():
@@ -203,6 +208,7 @@ def refresh():
     _signals.cache_clear()
     _backtest.cache_clear()
     _valuation.cache_clear()
+    _regime.cache_clear()
     return {"ok": True, "universe_size": len(universe), "fundamentals_size": len(fundamentals)}
 
 
@@ -213,6 +219,14 @@ def valuation_get():
     if not store.is_ready():
         return {"ready": False, "items": []}
     return {"ready": True, "items": _valuation()}
+
+
+@app.get("/api/regime")
+def regime_get():
+    """시장 국면(강세·과열·조정·약세) — signals/regime.py 참고. 유니버스 breadth+모멘텀 근사."""
+    if not store.is_ready():
+        return {"ready": False, "regime": None}
+    return _regime()
 
 
 # ---------- 자동매매봇 (BACKLOG #7, KIS 모의투자) ----------
@@ -238,12 +252,6 @@ def bot_run():
 def candidates_stub():
     """TODO(phase4): 통합 후보 뷰(눌림목·낙폭과대·IPO·실적서프라이즈·턴어라운드) + 기회도."""
     return {"ready": False, "items": []}
-
-
-@app.get("/api/regime")
-def regime_stub():
-    """TODO(phase3): 시장 국면(강세·과열·조정·약세)."""
-    return {"ready": False, "regime": None}
 
 
 @app.get("/api/macro")

@@ -42,18 +42,25 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 - [x] 기술적분석(`signals/indicators.py`) — RSI14/MACD(12,26,9)/MA20,60,120, brightdesk 공식 그대로 이식
 - [x] 기본적분석(`signals/fundamental.py`) — DART(ROE·부채비율·매출성장) + DART×KRX 결합(PER·PBR)
   전부 실키 검증 완료. 키 없으면 자동 생략(그레이스풀 폴백)
-- [x] 통합 시그널(`signals/engine.py`) — 가용 컴포넌트만 재정규화해 결합, `/api/signals` 실데이터
-- [x] 백테스트 성적표 1차(기술점수 단독) — `/api/backtest`, 200종목 표본으로 BUY 승률 50.8%
-- [x] 밸류에이션(저평가) 스크리닝(BACKLOG #13) — `signals/valuation.py`, `/api/valuation`, 저평가 탭 실데이터
+- [x] 통합 시그널(`signals/engine.py`) — 기술·기본·저평가·낙폭과대 4팩터, 가용/무해당 컴포넌트는
+  가중치 0으로 재정규화, `/api/signals` 실데이터 (2026-07-02 "종합 분석" 확장 — LLM 필요한
+  정성적/시국/정세 등은 BACKLOG "아이디어" 참고, 이번 범위 밖)
+- [x] 낙폭과대 반등/단기과열 조정(`signals/reversion.py`) — N일 누적수익률+RSI 확인, 순수 가격 데이터
+- [x] 시장 국면(`signals/regime.py`) — 유니버스 breadth(MA60 상회 비율)+평균 20일 모멘텀 근사,
+  `/api/regime`, 시그널 탭 상단 배너. 지수 API 승인 없이 계산 가능
+- [x] 백테스트 성적표(`method: price_based_v2`, 기술+낙폭과대) — `/api/backtest`, 200종목 표본
+- [x] 밸류에이션(저평가) 스크리닝(BACKLOG #13) — `signals/valuation.py`, `/api/valuation`, 저평가 탭
+  실데이터. `valuation.scores()`로 종합 시그널(#3)에도 팩터로 반영
 - [x] 시그널 탭 차트 UI — apt-signal 스타일 좌:우 5:5(종목리스트/차트), dataZoom 기간조절,
-  과거 시그널 구간 markArea, 규칙기반 해설(`signals/narrative.py`, v1 — v2는 BACKLOG #17)
+  과거 시그널 구간 markArea, 규칙기반 해설(`signals/narrative.py`, 태그 제네릭 파싱이라 새 팩터
+  추가돼도 코드 수정 불필요, v1 — v2는 BACKLOG #17)
 - [x] 리스크 엔진(BACKLOG #8) — `signals/risk.py`, stop-loss/take-profit/trailing 순수 함수
   (포지션 모델은 #7 자동매매봇과 함께 올 예정)
 - [x] KIS 모의투자 연동 — `broker/kis.py`(인증 토큰 캐시·잔고조회·주문실행) 실키 검증(잔고 1억원 확인)
 - [x] 자동매매봇(BACKLOG #7) — `bot.py`(리스크→시그널 청산 우선순위, 동일가중 사이징, KIS 잔고
   재대사), FastAPI lifespan 백그라운드 루프(기본 OFF), `/api/bot/*`. **포트폴리오 탭**(관심·비교
   탭을 개편, 자동매매/관심종목 세그먼트)에서 현금·손익·보유종목·배분차트·거래내역 확인
-- [ ] 시장 국면 + 매크로 미니차트(#5·#6), phase2 나머지 — [BACKLOG.md](BACKLOG.md) 참고
+- [ ] 매크로 미니차트(#6 하반기 전망) 등 phase2 나머지 — [BACKLOG.md](BACKLOG.md) 참고
 
 다음에 붙일 기능의 상세 우선순위·범위·의존관계는 [BACKLOG.md](BACKLOG.md) 참고.
 
