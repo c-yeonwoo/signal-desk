@@ -28,6 +28,15 @@ CREATE TABLE IF NOT EXISTS bot_positions(ticker TEXT PRIMARY KEY, name TEXT, qty
     avg_price REAL, peak_price REAL, entry_date TEXT, updated INTEGER);
 CREATE TABLE IF NOT EXISTS bot_trades(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
     side TEXT, qty INTEGER, price REAL, reason TEXT, order_no TEXT, ts INTEGER);
+CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
+    summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER);
+CREATE TABLE IF NOT EXISTS kb_digest(ticker TEXT PRIMARY KEY, name TEXT, sentiment REAL, summary TEXT,
+    points TEXT, n_sources INTEGER, updated INTEGER);
+CREATE TABLE IF NOT EXISTS bot_decisions(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
+    action TEXT, score REAL, rationale TEXT, context TEXT, decided_price REAL, ts INTEGER,
+    outcome_pct REAL, outcome_ts INTEGER);
+CREATE TABLE IF NOT EXISTS bot_reservations(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
+    side TEXT, target_price REAL, max_chase_pct REAL, reason TEXT, status TEXT, created INTEGER, resolved INTEGER);
 """
 
 
@@ -247,3 +256,129 @@ def bot_trades_recent(limit: int = 20) -> list[dict]:
     return [{"ticker": t, "name": n, "side": s, "qty": q, "price": p, "reason": r, "order_no": o,
              "ts": ts, "score": sc, "note": nt}
             for t, n, s, q, p, r, o, ts, sc, nt in rows]
+
+
+# ---------- KB (뉴스·영상 가공 지식베이스) ----------
+def kb_entry_add_many(ticker: str, items: list[dict]) -> int:
+    """원자료 엔트리 저장(url UNIQUE로 중복 무시). 저장 건수 반환."""
+    c = conn()
+    added = 0
+    for it in items:
+        if not it.get("url"):
+            continue
+        cur = c.execute("INSERT OR IGNORE INTO kb_entries(ticker,title,summary,url,source,published,fetched) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (ticker, it.get("title", ""), it.get("summary", ""), it["url"],
+                         it.get("source", ""), it.get("published", ""), int(time.time())))
+        added += cur.rowcount
+    c.commit()
+    c.close()
+    return added
+
+
+def kb_entries_recent(ticker: str, limit: int = 12) -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT title,summary,url,source,published FROM kb_entries WHERE ticker=? "
+                     "ORDER BY id DESC LIMIT ?", (ticker, limit)).fetchall()
+    c.close()
+    return [{"title": t, "summary": s, "url": u, "source": src, "published": p} for t, s, u, src, p in rows]
+
+
+def kb_digest_set(ticker: str, name: str, sentiment: float, summary: str, points: list[str], n_sources: int) -> None:
+    c = conn()
+    c.execute("INSERT INTO kb_digest(ticker,name,sentiment,summary,points,n_sources,updated) "
+              "VALUES(?,?,?,?,?,?,?) ON CONFLICT(ticker) DO UPDATE SET "
+              "name=excluded.name, sentiment=excluded.sentiment, summary=excluded.summary, "
+              "points=excluded.points, n_sources=excluded.n_sources, updated=excluded.updated",
+              (ticker, name, sentiment, summary, json.dumps(points, ensure_ascii=False), n_sources, int(time.time())))
+    c.commit()
+    c.close()
+
+
+def kb_digest_get(ticker: str) -> dict | None:
+    c = conn()
+    row = c.execute("SELECT ticker,name,sentiment,summary,points,n_sources,updated FROM kb_digest "
+                    "WHERE ticker=?", (ticker,)).fetchone()
+    c.close()
+    if not row:
+        return None
+    t, n, s, sm, p, ns, up = row
+    return {"ticker": t, "name": n, "sentiment": s, "summary": sm,
+            "points": json.loads(p or "[]"), "n_sources": ns, "updated": up}
+
+
+def kb_digests_all() -> dict[str, dict]:
+    c = conn()
+    rows = c.execute("SELECT ticker,name,sentiment,summary,points,n_sources,updated FROM kb_digest").fetchall()
+    c.close()
+    return {t: {"ticker": t, "name": n, "sentiment": s, "summary": sm,
+                "points": json.loads(p or "[]"), "n_sources": ns, "updated": up}
+            for t, n, s, sm, p, ns, up in rows}
+
+
+# ---------- bot_decisions (의사결정 저널 — 학습용) ----------
+def bot_decision_log(ticker: str, name: str, action: str, score: float | None,
+                     rationale: str, context: dict, decided_price: float) -> int:
+    c = conn()
+    cur = c.execute("INSERT INTO bot_decisions(ticker,name,action,score,rationale,context,decided_price,ts) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
+                    (ticker, name, action, score, rationale, json.dumps(context, ensure_ascii=False),
+                     decided_price, int(time.time())))
+    c.commit()
+    rid = cur.lastrowid
+    c.close()
+    return rid
+
+
+def bot_decisions_recent(limit: int = 40) -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT ticker,name,action,score,rationale,context,decided_price,ts,outcome_pct,outcome_ts "
+                     "FROM bot_decisions ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    c.close()
+    return [{"ticker": t, "name": n, "action": a, "score": sc, "rationale": r,
+             "context": json.loads(cx or "{}"), "decided_price": dp, "ts": ts,
+             "outcome_pct": op, "outcome_ts": ot}
+            for t, n, a, sc, r, cx, dp, ts, op, ot in rows]
+
+
+def bot_decision_set_outcome(decision_id: int, outcome_pct: float) -> None:
+    c = conn()
+    c.execute("UPDATE bot_decisions SET outcome_pct=?, outcome_ts=? WHERE id=?",
+              (outcome_pct, int(time.time()), decision_id))
+    c.commit()
+    c.close()
+
+
+# ---------- bot_reservations (마감 후 예약 주문) ----------
+def bot_reservation_add(ticker: str, name: str, side: str, target_price: float,
+                        max_chase_pct: float, reason: str) -> None:
+    c = conn()
+    c.execute("INSERT INTO bot_reservations(ticker,name,side,target_price,max_chase_pct,reason,status,created) "
+              "VALUES(?,?,?,?,?,?, 'pending', ?)",
+              (ticker, name, side, target_price, max_chase_pct, reason, int(time.time())))
+    c.commit()
+    c.close()
+
+
+def bot_reservations_pending() -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT id,ticker,name,side,target_price,max_chase_pct,reason,created FROM bot_reservations "
+                     "WHERE status='pending' ORDER BY id").fetchall()
+    c.close()
+    return [{"id": i, "ticker": t, "name": n, "side": s, "target_price": tp, "max_chase_pct": mc,
+             "reason": r, "created": cr} for i, t, n, s, tp, mc, r, cr in rows]
+
+
+def bot_reservation_resolve(res_id: int, status: str) -> None:
+    c = conn()
+    c.execute("UPDATE bot_reservations SET status=?, resolved=? WHERE id=?", (status, int(time.time()), res_id))
+    c.commit()
+    c.close()
+
+
+def bot_reservations_clear_pending() -> None:
+    """미실행 예약 정리(새 마감 분석 전 pending을 만료 처리)."""
+    c = conn()
+    c.execute("UPDATE bot_reservations SET status='expired', resolved=? WHERE status='pending'", (int(time.time()),))
+    c.commit()
+    c.close()

@@ -14,15 +14,17 @@ import datetime
 import logging
 from zoneinfo import ZoneInfo
 
-from signal_desk import config, db, store
+from signal_desk import config, db, kb, llm, store
 from signal_desk.broker import kis
-from signal_desk.signals import engine, risk
+from signal_desk.reference import cycle
+from signal_desk.signals import advisor, engine, macro, regime, risk
 
 log = logging.getLogger("signal_desk.bot")
 
 _KST = ZoneInfo("Asia/Seoul")
 _MARKET_OPEN = datetime.time(9, 0)
 _MARKET_CLOSE = datetime.time(15, 20)  # 동시호가 등 마감 직전 여유 두고 컷오프
+_OUTCOME_AGE_SEC = 3 * 24 * 3600  # 의사결정 후 3일 지나면 사후수익 확정(학습 재료)
 
 
 def is_market_hours(now: datetime.datetime | None = None) -> bool:
@@ -35,6 +37,45 @@ def is_market_hours(now: datetime.datetime | None = None) -> bool:
 
 def _today() -> str:
     return datetime.date.today().isoformat()
+
+
+def _market_context(prices: dict[str, list[float]]) -> dict:
+    """LLM 자문·의사결정 저널에 실을 시장 맥락 — 국면·거시·경기사이클."""
+    reg = regime.classify(prices)
+    macro_ind = store.load_macro()
+    mread = macro.read(macro_ind)
+    cyc = cycle.position(macro_ind)
+    return {
+        "regime": reg.get("regime"),
+        "macro_bias": mread.get("bias"),
+        "cycle_phase": cyc.get("phase_name"),
+    }
+
+
+def _update_decision_outcomes(prices: dict[str, list[float]]) -> None:
+    """과거 매수 의사결정의 사후수익을 확정(3일 경과분) — advisor 학습 재료."""
+    now = int(datetime.datetime.now(_KST).timestamp())
+    for d in db.bot_decisions_recent(60):
+        if d.get("outcome_pct") is not None or d.get("action") != "buy":
+            continue
+        if now - d["ts"] < _OUTCOME_AGE_SEC:
+            continue
+        closes = prices.get(d["ticker"])
+        if not closes or not d.get("decided_price"):
+            continue
+        outcome = (closes[-1] / d["decided_price"] - 1) * 100
+        # bot_decisions_recent에 id가 없어 직접 갱신은 생략하지 않도록 id 포함 조회 필요 →
+        # 여기서는 최신 조회분에 id가 없으므로, kv 기반이 아닌 별도 경로로 갱신한다.
+        _set_outcome_by_match(d, outcome)
+
+
+def _set_outcome_by_match(decision: dict, outcome_pct: float) -> None:
+    """decisions_recent가 id를 안 주므로, ticker+ts로 정확히 한 건 갱신."""
+    c = db.conn()
+    c.execute("UPDATE bot_decisions SET outcome_pct=?, outcome_ts=? WHERE ticker=? AND ts=? AND outcome_pct IS NULL",
+              (round(outcome_pct, 2), int(datetime.datetime.now(_KST).timestamp()), decision["ticker"], decision["ts"]))
+    c.commit()
+    c.close()
 
 
 def _sell_note(reason: str, qty: int, avg_price: float, current_price: float,
@@ -63,6 +104,8 @@ def get_state() -> dict:
         "total_eval": bal["total_eval"] if bal else None,
         "positions": db.bot_positions_all(),
         "recent_trades": db.bot_trades_recent(20),
+        "reservations": db.bot_reservations_pending(),
+        "llm_enabled": llm.available(),
     }
 
 
@@ -93,9 +136,11 @@ def run_once(dry_run: bool = False) -> dict:
         return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요"}
 
     fundamentals = store.load_fundamentals()
-    signals = engine.evaluate(universe, prices, fundamentals)
+    signals = engine.evaluate(universe, prices, fundamentals, sentiment=kb.sentiment_map())
     signal_by_ticker = {s.ticker: s for s in signals}
     name_by_ticker = {u["ticker"]: u["name"] for u in universe}
+    if not dry_run:
+        _update_decision_outcomes(prices)  # 과거 결정 사후수익 확정(학습)
 
     cfg = db.bot_config_get()
     held_tickers = {h["ticker"] for h in bal["holdings"]}
@@ -151,12 +196,30 @@ def run_once(dry_run: bool = False) -> dict:
 
     buys: list[dict] = []
     skipped_weak = 0
+    advisor_used = False
     if slots > 0:
         # min_buy_score 이상인 강한 BUY만 후보 — 약한 BUY는 매수하지 않음
         eligible = [s for s in signals if s.kind == "BUY" and s.ticker not in held_after]
         strong = [s for s in eligible if s.score >= cfg["min_buy_score"]]
         skipped_weak = len(eligible) - len(strong)
-        candidates = sorted(strong, key=lambda s: s.score, reverse=True)[:slots]
+        pool = sorted(strong, key=lambda s: s.score, reverse=True)[:max(slots * 3, 6)]
+        pool_by = {s.ticker: s for s in pool}
+
+        # 하이브리드: 가드레일 통과 후보(pool) 안에서 LLM이 최종 선별(있으면). 없으면 점수순.
+        context = _market_context(prices)
+        rationale_by = {}
+        picks = advisor.select_buys(
+            [{"ticker": s.ticker, "name": s.name, "score": s.score, "confidence": s.confidence, "reasons": s.reasons}
+             for s in pool],
+            context, {t: db.kb_digest_get(t) for t in pool_by}, advisor.build_lessons(), slots,
+        ) if pool else None
+        if picks:
+            advisor_used = True
+            candidates = [pool_by[p["ticker"]] for p in picks if p["ticker"] in pool_by]
+            rationale_by = {p["ticker"]: p["rationale"] for p in picks}
+        else:
+            candidates = pool[:slots]
+
         cash = bal2["cash"]
         target_alloc = bal2["total_eval"] * cfg["position_pct"]
         for s in candidates:
@@ -168,16 +231,19 @@ def run_once(dry_run: bool = False) -> dict:
             qty = int(alloc // price)
             if qty < 1:
                 continue  # 배분금액보다 1주 가격이 비싸면 스킵(정수주 제약)
-            note = (f"BUY 점수 {s.score:+.2f}(≥{cfg['min_buy_score']:.1f} 기준·신뢰도 {s.confidence:.2f}) — "
-                    f"동일가중 {cfg['position_pct'] * 100:.0f}%(약 {int(alloc):,}원) ÷ {int(price):,}원 = {qty}주")
+            quant = (f"점수 {s.score:+.2f}(≥{cfg['min_buy_score']:.1f}·신뢰도 {s.confidence:.2f}) · "
+                     f"동일가중 {cfg['position_pct'] * 100:.0f}%(약 {int(alloc):,}원) ÷ {int(price):,}원 = {qty}주")
+            llm_reason = rationale_by.get(s.ticker)
+            note = (f"[AI] {llm_reason} · {quant}") if llm_reason else quant
             plan = {"ticker": s.ticker, "name": s.name, "qty": qty, "price": price,
-                    "reason": "SIGNAL", "note": note, "score": s.score}
+                    "reason": "SIGNAL", "note": note, "score": s.score, "ai": bool(llm_reason)}
             if not dry_run:
                 result = kis.place_order(s.ticker, "buy", qty, creds=creds)
                 if result is not None:  # 체결된 주문만 기록·반영
                     db.bot_trade_log(s.ticker, s.name, "buy", qty, price, "SIGNAL",
                                       result["order_no"], score=s.score, note=note)
                     db.bot_position_upsert(s.ticker, s.name, qty, price, price, _today())
+                    db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, context, price)  # 저널(학습)
                     cash -= qty * price
                     plan["ok"] = True
                 else:
@@ -189,7 +255,117 @@ def run_once(dry_run: bool = False) -> dict:
 
     final_bal = (kis.balance(creds) or bal2) if not dry_run else bal2
     return {
-        "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak, "sells": sells, "buys": buys,
+        "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak, "advisor_used": advisor_used,
+        "sells": sells, "buys": buys,
         "cash": final_bal["cash"], "total_eval": final_bal["total_eval"],
         "holdings": len(final_bal["holdings"]),
     }
+
+
+_MAX_CHASE_PCT = 0.02  # 예약 목표가 대비 +2%까지는 추격 매수, 그 이상 오르면 스킵(놓침)
+
+
+def generate_reservations(dry_run: bool = False) -> dict:
+    """장 마감 후: 종가·거시·KB를 종합해 '다음 개장 때 살' 예약 주문을 만든다(LLM 자문 우선).
+    목표가는 당일 종가, 추격 허용폭은 +2%. 기존 pending은 새로 만들기 전에 만료 처리."""
+    creds = config.kis_credentials()
+    if not creds:
+        return {"ok": False, "reason": "KIS 인증정보 없음"}
+    universe = store.load_universe()
+    prices = store.load_price_series()
+    if not universe or not prices:
+        return {"ok": False, "reason": "시세 데이터 없음"}
+
+    bal = kis.balance(creds)
+    held = {h["ticker"] for h in bal["holdings"]} if bal else set()
+    fundamentals = store.load_fundamentals()
+    signals = engine.evaluate(universe, prices, fundamentals, sentiment=kb.sentiment_map())
+    cfg = db.bot_config_get()
+    slots = min(max(0, cfg["max_positions"] - len(held)), cfg["max_new_buys_per_run"])
+    context = _market_context(prices)
+
+    strong = [s for s in signals if s.kind == "BUY" and s.score >= cfg["min_buy_score"] and s.ticker not in held]
+    pool = sorted(strong, key=lambda s: s.score, reverse=True)[:max(slots * 3, 6)]
+    pool_by = {s.ticker: s for s in pool}
+    picks = advisor.select_buys(
+        [{"ticker": s.ticker, "name": s.name, "score": s.score, "confidence": s.confidence, "reasons": s.reasons}
+         for s in pool],
+        context, {t: db.kb_digest_get(t) for t in pool_by}, advisor.build_lessons(), slots,
+    ) if (pool and slots > 0) else None
+
+    if picks:
+        chosen = [(pool_by[p["ticker"]], p["rationale"]) for p in picks if p["ticker"] in pool_by]
+    else:
+        chosen = [(s, None) for s in pool[:slots]]
+
+    reservations = []
+    if not dry_run:
+        db.bot_reservations_clear_pending()
+    for s, rationale in chosen:
+        closes = prices.get(s.ticker)
+        if not closes:
+            continue
+        target = closes[-1]
+        reason = (f"[AI] {rationale}" if rationale else f"점수 {s.score:+.2f}") + \
+                 f" · 국면 {context.get('regime')}/거시 {context.get('macro_bias')} · 목표가 {int(target):,}원(+{_MAX_CHASE_PCT*100:.0f}%까지 추격)"
+        reservations.append({"ticker": s.ticker, "name": s.name, "side": "buy", "target_price": target, "reason": reason})
+        if not dry_run:
+            db.bot_reservation_add(s.ticker, s.name, "buy", target, _MAX_CHASE_PCT, reason)
+    return {"ok": True, "dry_run": dry_run, "context": context, "reservations": reservations}
+
+
+def execute_reservations(dry_run: bool = False) -> dict:
+    """개장 시: pending 예약을 실행. 현재가가 목표가+추격허용폭 이내면 매수, 초과(급등해 놓침)면 스킵.
+    (고도화 여지: 놓친 종목 대신 다른 후보 물색 — 지금은 스킵/만료로 단순화)"""
+    creds = config.kis_credentials()
+    if not creds:
+        return {"ok": False, "reason": "KIS 인증정보 없음"}
+    if not dry_run and not is_market_hours():
+        return {"ok": False, "reason": "장 시간이 아님"}
+    pending = db.bot_reservations_pending()
+    if not pending:
+        return {"ok": True, "executed": [], "note": "대기 중인 예약 없음"}
+
+    prices = store.load_price_series()
+    bal = kis.balance(creds)
+    if bal is None:
+        return {"ok": False, "reason": "KIS 잔고조회 실패"}
+    cfg = db.bot_config_get()
+    cash = bal["cash"]
+    target_alloc = bal["total_eval"] * cfg["position_pct"]
+    executed = []
+    for r in pending:
+        closes = prices.get(r["ticker"])
+        if not closes:
+            if not dry_run:
+                db.bot_reservation_resolve(r["id"], "no_data")
+            continue
+        price = closes[-1]
+        ceiling = r["target_price"] * (1 + r["max_chase_pct"])
+        if price > ceiling:  # 개장가가 목표가+추격폭 초과 → 놓침, 스킵
+            executed.append({"ticker": r["ticker"], "name": r["name"], "status": "skipped_price",
+                             "note": f"개장가 {int(price):,}원 > 상한 {int(ceiling):,}원 — 추격 안 함"})
+            if not dry_run:
+                db.bot_reservation_resolve(r["id"], "skipped_price")
+            continue
+        qty = int(min(target_alloc, cash) // price)
+        if qty < 1:
+            executed.append({"ticker": r["ticker"], "name": r["name"], "status": "skipped_cash", "note": "잔고 부족"})
+            if not dry_run:
+                db.bot_reservation_resolve(r["id"], "skipped_cash")
+            continue
+        note = f"예약 실행 — {r['reason']} · 개장가 {int(price):,}원 × {qty}주"
+        if not dry_run:
+            result = kis.place_order(r["ticker"], "buy", qty, creds=creds)
+            if result is not None:
+                db.bot_trade_log(r["ticker"], r["name"], "buy", qty, price, "RESERVATION", result["order_no"], note=note)
+                db.bot_position_upsert(r["ticker"], r["name"], qty, price, price, _today())
+                db.bot_reservation_resolve(r["id"], "filled")
+                cash -= qty * price
+                executed.append({"ticker": r["ticker"], "name": r["name"], "status": "filled", "qty": qty, "note": note})
+            else:
+                db.bot_reservation_resolve(r["id"], "order_failed")
+                executed.append({"ticker": r["ticker"], "name": r["name"], "status": "order_failed"})
+        else:
+            executed.append({"ticker": r["ticker"], "name": r["name"], "status": "would_fill", "qty": qty, "note": note})
+    return {"ok": True, "dry_run": dry_run, "executed": executed}

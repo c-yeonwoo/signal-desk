@@ -7,16 +7,18 @@
 from __future__ import annotations
 
 import asyncio
+import datetime
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from signal_desk import auth, bot, config, db, store
+from signal_desk import auth, bot, config, db, kb, store
 from signal_desk.reference import cycle, valuechain
 from signal_desk.signals import macro, regime, valuation
 from signal_desk.signals.engine import (
@@ -39,16 +41,33 @@ def _uid(request: Request):
     return u["id"] if u else None
 
 
+def _kst_today() -> str:
+    return datetime.datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+
+
 async def _bot_loop():
-    """자동매매봇 백그라운드 루프 — apt-signal의 자동갱신 루프와 같은 패턴(최초 도입).
-    bot_config.enabled가 False면 조용히 skip(기본값 OFF — 사용자가 명시적으로 켜야 실행)."""
+    """자동매매봇 백그라운드 루프. enabled=False면 조용히 skip(기본 OFF).
+
+    장중(5분 주기): run_once로 매매. 마감 후 1회: 다음날 예약 생성. 개장 직후 1회: 예약 실행.
+    하루 1회성 작업은 kv에 마지막 실행일을 기록해 중복 방지."""
     interval = config.bot_run_interval_minutes() * 60
     while True:
         try:
             if db.bot_config_get()["enabled"]:
-                result = bot.run_once()
-                if not result.get("ok"):
-                    log.info("자동매매봇 실행 스킵: %s", result.get("reason"))
+                now = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
+                weekday = now.weekday() < 5
+                if bot.is_market_hours(now):
+                    # 개장 직후(09:00~09:10) 예약 먼저 실행 후, 평상시 매매
+                    if now.time() <= datetime.time(9, 10) and db.kv_get("bot_exec_resv_date") != _kst_today():
+                        bot.execute_reservations()
+                        db.kv_set("bot_exec_resv_date", _kst_today())
+                    result = bot.run_once()
+                    if not result.get("ok"):
+                        log.info("자동매매봇 실행 스킵: %s", result.get("reason"))
+                elif weekday and now.time() >= datetime.time(15, 40) and db.kv_get("bot_resv_date") != _kst_today():
+                    # 마감 후 1회: 다음 개장용 예약 생성(뉴스·거시 반영은 KB 갱신 후가 이상적)
+                    bot.generate_reservations()
+                    db.kv_set("bot_resv_date", _kst_today())
         except Exception as e:
             log.error("자동매매봇 루프 오류: %s", e)
         await asyncio.sleep(interval)
@@ -145,7 +164,8 @@ def favorites_del(request: Request, kind: str, key: str):
 # ---------- 시그널 (실데이터, store 캐시 기반) ----------
 @lru_cache(maxsize=1)
 def _signals():
-    return evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals())
+    return evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
+                    sentiment=kb.sentiment_map())
 
 
 @lru_cache(maxsize=1)
@@ -180,6 +200,8 @@ def signals_get():
         d["sector"] = pos["gics"] if pos else None  # 시그널 리스트 컬럼은 GICS 섹터
         d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
         d["intro_desc"] = pos["stage_desc"] if pos else None
+        dg = db.kb_digest_get(r.ticker)  # KB 정성 다이제스트(뉴스·영상 가공)
+        d["kb"] = {"sentiment": dg["sentiment"], "summary": dg["summary"], "points": dg["points"]} if dg else None
         items.append(d)
     return {"ready": True, "items": items}
 
@@ -306,6 +328,58 @@ def bot_reset():
     """봇 포지션·거래내역 초기화(설정 유지) — 과거 유령거래 등 정합성 깨진 상태 정리용."""
     db.bot_reset()
     return {"ok": True}
+
+
+@app.post("/api/bot/reserve")
+def bot_reserve(data: dict = Body(default={})):
+    """마감 후 예약 주문 생성(수동 트리거). dry_run이면 계획만."""
+    return bot.generate_reservations(dry_run=bool(data.get("dry_run")))
+
+
+@app.post("/api/bot/execute-reservations")
+def bot_execute_reservations(data: dict = Body(default={})):
+    """대기 중인 예약을 지금 실행(수동 트리거). dry_run이면 계획만."""
+    return bot.execute_reservations(dry_run=bool(data.get("dry_run")))
+
+
+@app.get("/api/bot/decisions")
+def bot_decisions_get():
+    """의사결정 저널(학습 기록) — 최근 결정 + 사후수익."""
+    return {"decisions": db.bot_decisions_recent(40)}
+
+
+# ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
+def _kb_targets(limit_candidates: int = 12) -> list[dict]:
+    """KB 갱신 대상 — 보유종목 + 상위 BUY 후보 + 관심종목. 리소스 절약 위해 전 종목 아님."""
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    targets, seen = [], set()
+    def add(ticker):
+        if ticker in names and ticker not in seen:
+            targets.append({"ticker": ticker, "name": names[ticker]}); seen.add(ticker)
+    if store.is_ready():
+        for s in _signals():
+            if s.kind == "BUY" and len([t for t in targets]) < limit_candidates:
+                add(s.ticker)
+    for p in db.bot_positions_all():
+        add(p["ticker"])
+    return targets
+
+
+@app.post("/api/kb/refresh")
+def kb_refresh():
+    """뉴스·영상 수집 → LLM 다이제스트 → KB 적재(대상: 보유+상위 BUY 후보). 시그널 캐시 무효화."""
+    targets = _kb_targets()
+    if not targets:
+        return {"ok": False, "reason": "대상 종목 없음 — /api/refresh로 유니버스 먼저 수집"}
+    out = kb.refresh(targets)
+    _signals.cache_clear()  # 정성 팩터 반영 위해
+    return {"ok": True, **out, "targets": len(targets)}
+
+
+@app.get("/api/kb/{ticker}")
+def kb_get(ticker: str):
+    """종목 KB 다이제스트 + 최근 원자료 헤드라인."""
+    return {"digest": db.kb_digest_get(ticker), "entries": db.kb_entries_recent(ticker, 8)}
 
 
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------

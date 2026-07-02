@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from signal_desk.signals import fundamental as fnd
 from signal_desk.signals import indicators as ind
 from signal_desk.signals import narrative as narr
+from signal_desk.signals import qualitative as qual
 from signal_desk.signals import reversion as rev
 from signal_desk.signals import valuation as val
 
@@ -31,6 +32,7 @@ class SignalConfig:
     weight_fundamental: float = 0.30
     weight_valuation: float = 0.15
     weight_reversion: float = 0.20
+    weight_qualitative: float = 0.15  # KB(뉴스·영상) 정성 — 데이터 있을 때만 포함(없으면 재정규화 제외)
 
     buy_threshold: float = 1.2
     sell_threshold: float = -1.2
@@ -69,6 +71,8 @@ class SignalResult:
     has_valuation: bool = False
     reversion_score: float = 0.0
     has_reversion: bool = False
+    qualitative_score: float | None = None
+    has_qualitative: bool = False
     reasons: list[str] = field(default_factory=list)
     narrative: str = ""
 
@@ -199,10 +203,13 @@ def evaluate(
     prices: dict[str, list[float]],
     fundamentals: dict[str, dict] | None = None,
     config: SignalConfig | None = None,
+    sentiment: dict[str, dict] | None = None,
 ) -> list[SignalResult]:
-    """universe: [{ticker, name}], prices: ticker -> 종가 리스트(오래된→최신), fundamentals: ticker -> metrics."""
+    """universe: [{ticker, name}], prices: ticker -> 종가 리스트(오래된→최신), fundamentals: ticker -> metrics.
+    sentiment: ticker -> {score[-1,1], reasons} (KB 정성 팩터, 있는 종목만 반영)."""
     config = config or SignalConfig()
     fundamentals = fundamentals or {}
+    sentiment = sentiment or {}
     val_scores = val.scores(universe, fundamentals)
     results: list[SignalResult] = []
 
@@ -220,12 +227,16 @@ def evaluate(
         rev_norm, rev_weight, rev_reasons, rev_score_raw, has_reversion = _reversion_component(
             closes, series["rsi"], config
         )
+        qual_norm, qual_weight, qual_reasons, qual_score, has_qualitative = qual.component(
+            sentiment.get(ticker), config.weight_qualitative
+        )
 
         components = [
             (tech_score / 3.0, config.weight_technical, tech_reasons),
             (fund.score / 2.0 if fund.has_data else 0.0, config.weight_fundamental if fund.has_data else 0.0, fund.reasons),
             (val_norm, val_weight, val_reasons),
             (rev_norm, rev_weight, rev_reasons),
+            (qual_norm, qual_weight, qual_reasons),
         ]
         combined = combine(components, config)
 
@@ -235,6 +246,7 @@ def evaluate(
             fundamental_score=round(fund.score, 2), has_fundamental=fund.has_data,
             valuation_percentile=val_pct, has_valuation=has_valuation,
             reversion_score=round(rev_score_raw, 2), has_reversion=has_reversion,
+            qualitative_score=qual_score, has_qualitative=has_qualitative,
             reasons=combined["reasons"],
         )
         result.narrative = narr.explain(result)

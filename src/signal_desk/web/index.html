@@ -238,6 +238,8 @@
         <div id="signal-intro" style="display:none;font-size:12px;color:var(--dim);margin:0 0 8px;line-height:1.5"></div>
         <div id="signal-narrative" class="placeholder" style="display:none;background:var(--accent-weak);
           border-radius:var(--r-md);padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:10px;text-align:left"></div>
+        <div id="signal-kb" style="display:none;font-size:12px;margin-bottom:8px;padding:8px 11px;
+          border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line);line-height:1.5"></div>
         <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin-bottom:4px">
           <span style="color:var(--sig-buy);font-weight:700">● B</span> Buy · <span style="color:var(--sig-sell);font-weight:700">● S</span> Sell — 지점에 호버하면 근거 표시 · 📍 = 현재 시그널(4팩터) · 음영 = 시그널 유지 구간</div>
         <div id="signal-chart"></div>
@@ -288,10 +290,13 @@
           <button class="btn primary" id="bot-toggle-btn" onclick="toggleBot()">켜기</button>
           <button class="btn" onclick="runBotNow()">지금 실행</button>
           <button class="btn" onclick="previewBot()">판단 미리보기</button>
+          <button class="btn" onclick="refreshKb()">KB 갱신</button>
+          <button class="btn" onclick="makeReservations()">예약 생성</button>
           <button class="btn" onclick="resetBot()">기록 초기화</button>
           <span class="stat-label" id="bot-kis-status" style="margin-left:auto"></span>
         </div>
         <div class="stat-label" id="bot-rules" style="margin:10px 0 0"></div>
+        <div id="bot-reservations" style="display:none;margin-top:10px"></div>
         <div id="bot-plan" style="display:none;margin-top:10px;font-size:12px;background:var(--accent-weak);
           border-radius:var(--r-md);padding:10px 12px;line-height:1.6"></div>
       </div>
@@ -696,6 +701,13 @@ async function showSignalChart(ticker, item){
   const narrEl = document.getElementById('signal-narrative');
   if (item && item.narrative) { narrEl.style.display = ''; narrEl.textContent = item.narrative; }
   else narrEl.style.display = 'none';
+  const kbEl = document.getElementById('signal-kb');
+  if (item && item.kb) {
+    const s = item.kb.sentiment, cls = s > 0.15 ? 'var(--sig-buy)' : s < -0.15 ? 'var(--sig-sell)' : 'var(--dim)';
+    kbEl.style.display = '';
+    kbEl.innerHTML = `🗞️ <b>정성(뉴스·영상)</b> 심리 <b style="color:${cls}">${s > 0 ? '+' : ''}${fmtNum(s, 2)}</b> · ${esc(item.kb.summary || '')}`
+      + (item.kb.points && item.kb.points.length ? `<div style="color:var(--dim);margin-top:3px">· ${item.kb.points.map(esc).join(' · ')}</div>` : '');
+  } else kbEl.style.display = 'none';
   const holder = document.getElementById('signal-chart');
   try {
     const chartUrl = ticker === INDEX_TICKER ? '/api/market/chart' : `/api/signals/${encodeURIComponent(ticker)}/chart`;
@@ -817,7 +829,7 @@ async function loadValuation(){
 
 // ===== 포트폴리오 — 자동매매봇 =====
 let _botChart = null;
-const _REASON_LABEL = { STOP_LOSS: '손절', TAKE_PROFIT: '익절', TRAILING: '트레일링', SIGNAL: '시그널' };
+const _REASON_LABEL = { STOP_LOSS: '손절', TAKE_PROFIT: '익절', TRAILING: '트레일링', SIGNAL: '시그널', RESERVATION: '예약' };
 
 async function loadBotState(){
   try {
@@ -839,12 +851,23 @@ async function loadBotState(){
 
     document.getElementById('bot-status-label').textContent = d.enabled ? '실행 중' : '꺼짐';
     document.getElementById('bot-toggle-btn').textContent = d.enabled ? '끄기' : '켜기';
-    document.getElementById('bot-kis-status').textContent = d.kis_connected ? 'KIS 모의계좌 연결됨' : 'KIS 연결 안 됨(.env 확인)';
+    document.getElementById('bot-kis-status').innerHTML =
+      (d.kis_connected ? 'KIS 모의계좌 연결됨' : 'KIS 연결 안 됨(.env 확인)')
+      + ` · <b style="color:${d.llm_enabled ? 'var(--sig-buy)' : 'var(--dim)'}">AI 판단 ${d.llm_enabled ? 'ON' : 'OFF'}</b>`;
     const cfg = d.config || {};
     document.getElementById('bot-rules').innerHTML =
-      `<b>ON이면 장중 5분마다</b> 현재 계좌 기준으로 자동 판단·매매 · 실주문은 <b>평일 09:00~15:20</b>만 · `
+      `<b>ON이면 장중 5분마다</b> 현재 계좌 기준으로 자동 판단·매매(강한 BUY 후보 → <b>AI 최종 선별</b>) · `
+      + `마감 후 다음날 <b>예약 생성</b> → 개장 시 실행 · 실주문은 <b>평일 09:00~15:20</b>만 · `
       + `매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · 한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · `
       + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`;
+
+    const rEl = document.getElementById('bot-reservations');
+    if (d.reservations && d.reservations.length) {
+      rEl.style.display = '';
+      rEl.innerHTML = `<div class="stat-label" style="margin:0 0 6px"><b>📅 다음 개장 예약 (${d.reservations.length}건)</b></div>`
+        + d.reservations.map(r => `<div style="font-size:12px;color:var(--dim);margin-bottom:3px">
+            · <b style="color:var(--txt)">${esc(r.name)}</b> ${r.side === 'buy' ? '매수' : '매도'} — ${esc(r.reason)}</div>`).join('');
+    } else rEl.style.display = 'none';
 
     const hEl = document.getElementById('bot-holdings-body');
     if (!d.positions.length) {
@@ -937,6 +960,30 @@ async function resetBot(){
   await fetch('/api/bot/reset', { method: 'POST' });
   document.getElementById('bot-plan').style.display = 'none';
   loadBotState();
+}
+
+async function refreshKb(){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = 'KB 수집 중…';
+  try {
+    const d = await (await fetch('/api/kb/refresh', { method: 'POST' })).json();
+    const el = document.getElementById('bot-plan'); el.style.display = '';
+    el.innerHTML = d.ok ? `<b>🗞️ KB 갱신 완료</b> — 대상 ${d.targets}종목 중 ${d.updated}종목 뉴스·영상 가공(정성 팩터·시그널에 반영)`
+      : `KB 갱신 실패: ${esc(d.reason || '')}`;
+  } finally { btn.disabled = false; btn.textContent = t; }
+}
+
+async function makeReservations(){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '예약 생성 중…';
+  try {
+    const d = await (await fetch('/api/bot/reserve', { method: 'POST' })).json();
+    const el = document.getElementById('bot-plan'); el.style.display = '';
+    if (!d.ok) { el.innerHTML = `예약 생성 실패: ${esc(d.reason || '')}`; }
+    else {
+      el.innerHTML = `<b>📅 다음 개장 예약 ${d.reservations.length}건 생성</b> (국면 ${esc(d.context.regime || '-')}/거시 ${esc(d.context.macro_bias || '-')})<br>`
+        + (d.reservations.map(r => `· <b>${esc(r.name)}</b> — ${esc(r.reason)}`).join('<br>') || '조건 맞는 후보 없음');
+    }
+    loadBotState();
+  } finally { btn.disabled = false; btn.textContent = t; }
 }
 
 // ===== 인증 게이트 =====
