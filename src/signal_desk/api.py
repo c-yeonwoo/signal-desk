@@ -19,7 +19,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from signal_desk import auth, bot, config, db, store
 from signal_desk.reference import cycle, valuechain
 from signal_desk.signals import macro, regime, valuation
-from signal_desk.signals.engine import backtest_summary, compute_indicator_series, evaluate, signal_zones
+from signal_desk.signals.engine import (
+    SignalConfig, _price_only_components, backtest_summary, combine,
+    compute_indicator_series, evaluate, signal_zones,
+)
 
 config.load_env()
 
@@ -214,6 +217,29 @@ def signal_chart_get(ticker: str):
     }
 
 
+@app.get("/api/market/chart")
+def market_chart_get():
+    """코스피200 근사 지수 차트 — 시그널 탭 최상단 고정. 종목 차트와 동일하게 MA/RSI/MACD +
+    매수/매도 구간 + 현재 시그널(가격기반)을 함께 준다."""
+    history = store.load_index_history()
+    if not history:
+        return {"ready": False, "dates": []}
+    closes = [h["close"] for h in history]
+    dates = [h["date"] for h in history]
+    series = compute_indicator_series(closes)
+    cfg = SignalConfig()
+    combined = combine(_price_only_components(closes, series, len(closes) - 1, cfg), cfg)
+    return {
+        "ready": True, "ticker": "KOSPI200X", "name": "코스피200 지수(근사)",
+        "dates": dates, "close": closes,
+        "ma20": series["ma_short"], "ma60": series["ma_mid"], "ma120": series["ma_long"],
+        "rsi": series["rsi"], "zones": signal_zones(dates, closes),
+        "macd": series["macd"]["macd"], "macd_signal": series["macd"]["signal"], "macd_hist": series["macd"]["histogram"],
+        "kind": combined["kind"], "score": combined["score"], "confidence": combined["confidence"],
+        "reasons": combined["reasons"],
+    }
+
+
 @app.post("/api/refresh")
 def refresh():
     """유니버스+시세(+DART 키 있으면 재무)를 재수집하고 시그널/백테스트/밸류에이션 캐시를 무효화."""
@@ -273,6 +299,13 @@ def bot_run():
 def bot_preview():
     """판단 미리보기(dry-run) — 주문 없이 '지금 무엇을 왜 매매할지' 계획만 계산. 장 시간 무관."""
     return bot.run_once(dry_run=True)
+
+
+@app.post("/api/bot/reset")
+def bot_reset():
+    """봇 포지션·거래내역 초기화(설정 유지) — 과거 유령거래 등 정합성 깨진 상태 정리용."""
+    db.bot_reset()
+    return {"ok": True}
 
 
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------

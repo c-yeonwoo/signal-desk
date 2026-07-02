@@ -92,6 +92,7 @@
   table.dtable tr.selected-row { background:var(--accent-weak); }
   .fav-star { cursor:pointer; color:var(--sig-neutral); font-size:15px; user-select:none; }
   .fav-star.on { color:#f59e0b; }
+  .sig-list table.dtable tr.idx-row td { background:rgba(79,70,229,.06); border-bottom:2px solid var(--line); }
 
   /* ===== 사이클 ===== */
   .phase-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
@@ -109,15 +110,25 @@
   .vc-sectors button { padding:7px 15px; border:1px solid var(--line); border-radius:999px;
     background:var(--panel); color:var(--dim); font-size:13px; font-weight:600; cursor:pointer; }
   .vc-sectors button.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-  .vc-stages { display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:16px; }
-  .vc-stage { border:1px solid var(--line); border-radius:var(--r-md); padding:16px; background:var(--panel); }
-  .vc-stage h4 { margin:0 0 4px; font-size:14px; }
-  .vc-stage .st-desc { font-size:12px; color:var(--dim); margin-bottom:12px; line-height:1.5; }
-  .vc-grp-label { font-size:11px; color:var(--dim); font-weight:700; margin:10px 0 6px; }
-  .vc-co { display:inline-block; padding:4px 10px; margin:0 5px 6px 0; border:1px solid var(--line);
-    border-radius:8px; font-size:12px; background:var(--bg); }
-  .vc-co.link { cursor:pointer; color:var(--accent); border-color:var(--ring); }
-  .vc-co.link:hover { background:var(--accent-weak); }
+  /* 타임라인/마인드맵: 가로 스파인(왼→오) + 각 단계 허브에서 위아래로 기업 노드 브랜치 */
+  .vc-flow { position:relative; overflow-x:auto; padding:6px 2px; }
+  .vc-spine { position:absolute; left:3%; right:3%; top:50%; height:2px; background:var(--line); z-index:0; }
+  .vc-cols { display:flex; align-items:stretch; min-width:min-content; }
+  .vc-col { position:relative; flex:1 1 0; min-width:190px; display:flex; flex-direction:column; padding:0 10px; }
+  .vc-col::before { content:''; position:absolute; left:50%; top:9%; bottom:9%; width:2px;
+    background:var(--line); transform:translateX(-1px); z-index:0; }
+  .vc-chips { display:flex; flex-direction:column; align-items:center; gap:7px; position:relative; z-index:2; }
+  .vc-chips.top { flex:1; justify-content:flex-end; padding-bottom:12px; }
+  .vc-chips.bot { flex:1; justify-content:flex-start; padding-top:12px; }
+  .vc-hub { flex:0 0 auto; align-self:center; background:var(--accent); color:#fff; border-radius:12px;
+    padding:9px 13px; text-align:center; min-width:120px; max-width:190px; box-shadow:var(--shadow); z-index:2; }
+  .vc-hub .hub-name { font-weight:700; font-size:13px; }
+  .vc-hub .hub-desc { font-size:11px; opacity:.92; margin-top:3px; line-height:1.45; }
+  .vc-node { border:1px solid var(--line); border-radius:8px; padding:4px 10px; font-size:12px;
+    background:var(--panel); white-space:nowrap; }
+  .vc-node.kr { color:var(--sig-buy); border-color:var(--ring); cursor:pointer; font-weight:600; }
+  .vc-node.kr:hover { background:var(--accent-weak); }
+  .vc-node.ov { color:var(--dim); }
   .card { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:20px; }
   .card:hover { box-shadow:var(--shadow); }
   .placeholder { color:var(--dim); font-size:13px; padding:32px 0; text-align:center; }
@@ -195,7 +206,7 @@
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')">트레이딩</button>
     <button class="tab" data-tab="valuation" onclick="switchTab('valuation')">저평가</button>
-    <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">사이클</button>
+    <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">경기사이클</button>
     <button class="tab" data-tab="valuechain" onclick="switchTab('valuechain')">밸류체인</button>
   </div>
   <div class="right">
@@ -242,7 +253,7 @@
   </div>
 
   <div id="view-cycle" class="view-app" style="display:none">
-    <h2 class="page-head">사이클</h2>
+    <h2 class="page-head">경기사이클</h2>
     <p class="page-desc">경기순환(회복→확장→둔화→수축)과 물가·금리 흐름에 따라 어떤 산업이 주도하는지 —
       현재 위치는 미 CPI·금리(FRED)로 근사 추정합니다. 주도섹터를 누르면 밸류체인으로 연결됩니다.</p>
     <div class="card" id="cycle-current" style="margin-bottom:16px"><div class="placeholder" style="padding:8px 0">불러오는 중…</div></div>
@@ -277,6 +288,7 @@
           <button class="btn primary" id="bot-toggle-btn" onclick="toggleBot()">켜기</button>
           <button class="btn" onclick="runBotNow()">지금 실행</button>
           <button class="btn" onclick="previewBot()">판단 미리보기</button>
+          <button class="btn" onclick="resetBot()">기록 초기화</button>
           <span class="stat-label" id="bot-kis-status" style="margin-left:auto"></span>
         </div>
         <div class="stat-label" id="bot-rules" style="margin:10px 0 0"></div>
@@ -291,7 +303,7 @@
           <div id="bot-trades-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
         </div>
         <div class="card">
-          <b style="font-size:14px">배분 현황</b>
+          <b style="font-size:14px">포트폴리오</b>
           <div id="bot-allocation-chart" style="height:360px"></div>
         </div>
       </div>
@@ -410,7 +422,6 @@ window.addEventListener('resize', () => {
   if (_signalChart) _signalChart.resize();
   if (_botChart) _botChart.resize();
   if (_cycleChart) _cycleChart.resize();
-  if (_vcChart) _vcChart.resize();
 });
 
 function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -440,6 +451,7 @@ function reasonEn(reasons){
 }
 
 // ===== 탭 간 이동(사이클 → 밸류체인 → 시그널) =====
+const INDEX_TICKER = 'KOSPI200X';  // 시그널 탭 최상단 고정 지수(근사)
 let _pendingSignalTicker = null, _vcData = null, _vcCurrent = null;
 function gotoValuechain(key){ _vcCurrent = key; switchTab('valuechain'); }
 function gotoSignal(ticker){ _pendingSignalTicker = ticker; switchTab('signal'); }
@@ -492,8 +504,8 @@ function drawCycleChart(phases, cur){
     type: 'line', data: pts, smooth: true, showSymbol: false, lineStyle: { width: 3, color: '#4f46e5' },
     markArea: { silent: true, data: areas },
     markPoint: cur.ready ? {
-      symbol: 'pin', symbolSize: 58, itemStyle: { color: '#4f46e5' },
-      label: { color: '#fff', fontSize: 11, fontWeight: 700, formatter: cur.phase_name },
+      symbol: 'pin', symbolSize: 48, itemStyle: { color: '#4f46e5' },
+      label: { color: '#fff', fontSize: 11, fontWeight: 700, formatter: '현재' },
       data: [{ coord: [cur.x, -Math.cos(2 * Math.PI * cur.x)] }],
     } : undefined,
   }];
@@ -518,57 +530,39 @@ async function loadValuechain(){
   selectVcSector(_vcCurrent || _vcData[0].key);
 }
 
-let _vcChart = null;
 function selectVcSector(key){
   _vcCurrent = key;
   document.querySelectorAll('#vc-sectors button').forEach(b => b.classList.toggle('on', b.dataset.k === key));
   const s = _vcData.find(x => x.key === key);
   if (!s) return;
   document.getElementById('vc-detail').innerHTML =
-    `<p class="page-desc" style="margin:0 0 8px"><b>${esc(s.name)}</b>${s.gics ? ` <span class="sector-chip">${esc(s.gics)}</span>` : ''} · ${esc(s.summary)}</p>
-     <div id="vc-diagram" style="width:100%"></div>
-     <div style="font-size:11px;color:var(--dim);margin-top:6px">
-       <span style="color:var(--sig-buy);font-weight:700">● 국내(코스피)</span> 클릭 시 시그널 이동 ·
-       <span style="color:var(--sig-neutral);font-weight:700">● 해외</span> · 왼쪽 업스트림 → 오른쪽 다운스트림</div>`;
+    `<p class="page-desc" style="margin:0 0 10px"><b>${esc(s.name)}</b>${s.gics ? ` <span class="sector-chip">${esc(s.gics)}</span>` : ''} · ${esc(s.summary)}</p>
+     <div id="vc-diagram"></div>
+     <div style="font-size:11px;color:var(--dim);margin-top:8px">
+       왼쪽 → 오른쪽: 원자재·소재에서 최종 제품·수요로 이어지는 흐름 ·
+       <span style="color:var(--sig-buy);font-weight:700">위 = 국내(코스피, 클릭 시 시그널)</span> ·
+       <span style="color:var(--dim);font-weight:700">아래 = 해외</span></div>`;
   drawVcDiagram(s);
 }
 
 function drawVcDiagram(s){
   const holder = document.getElementById('vc-diagram');
-  const leaves = s.stages.reduce((a, st) => a + st.domestic.length + st.overseas.length, 0);
-  holder.style.height = Math.min(880, Math.max(340, leaves * 27)) + 'px';
-  if (_vcChart) _vcChart.dispose();
-  _vcChart = echarts.init(holder);
+  const maxSide = Math.max(1, ...s.stages.map(st => Math.max(st.domestic.length, st.overseas.length)));
+  const h = Math.min(760, 200 + maxSide * 70);
   const isKr = (c) => c.ticker && /^\d{6}$/.test(c.ticker);
-  const co = (c) => ({
-    name: c.name, _ticker: isKr(c) ? c.ticker : null,
-    symbolSize: 9, itemStyle: { color: isKr(c) ? '#16a34a' : '#94a3b8' },
-    label: { color: '#1e293b', fontSize: 11 },
-    tooltip: { formatter: `${esc(c.name)}${c.ticker ? ' · ' + esc(c.ticker) : ''}${isKr(c) ? ' · 클릭하면 시그널' : ''}` },
-  });
-  const root = {
-    name: s.name, symbolSize: 20, itemStyle: { color: '#4f46e5' },
-    label: { color: '#4f46e5', fontWeight: 700, fontSize: 13 },
-    children: s.stages.map(st => ({
-      name: st.stage.replace(' · ', '\n'), symbolSize: 15, itemStyle: { color: '#334155' },
-      label: { color: '#334155', fontWeight: 600, fontSize: 11 },
-      children: [...st.domestic.map(co), ...st.overseas.map(co)],
-    })),
-  };
-  _vcChart.setOption({
-    tooltip: { trigger: 'item' },
-    series: [{
-      type: 'tree', data: [root], top: 12, bottom: 12, left: '14%', right: '18%',
-      orient: 'LR', edgeShape: 'curve', symbol: 'circle', expandAndCollapse: false,
-      label: { position: 'left', align: 'right', fontSize: 11 },
-      leaves: { label: { position: 'right', align: 'left' } },
-      lineStyle: { color: '#cbd5e1', width: 1.2, curveness: 0.5 },
-      initialTreeDepth: -1, animationDuration: 450,
-    }],
-  }, true);
-  _vcChart.off('click');
-  _vcChart.on('click', (p) => { if (p.data && p.data._ticker) gotoSignal(p.data._ticker); });
-  _vcChart.resize();
+  const chip = (c) => isKr(c)
+    ? `<span class="vc-node kr" onclick="gotoSignal('${c.ticker}')" title="${esc(c.name)} ${esc(c.ticker)} · 클릭 시 시그널">${esc(c.name)}</span>`
+    : `<span class="vc-node ov" title="${esc(c.name)}${c.ticker ? ' · ' + esc(c.ticker) : ''}">${esc(c.name)}</span>`;
+  const cols = s.stages.map(st => {
+    const role = st.stage.split(' · ')[1] || st.stage;  // '업스트림/미드/다운' 키워드 제거, 역할명만
+    return `<div class="vc-col">
+      <div class="vc-chips top">${st.domestic.map(chip).join('')}</div>
+      <div class="vc-hub"><div class="hub-name">${esc(role)}</div><div class="hub-desc">${esc(st.desc || '')}</div></div>
+      <div class="vc-chips bot">${st.overseas.map(chip).join('')}</div>
+    </div>`;
+  }).join('');
+  holder.innerHTML = `<div class="vc-flow" style="min-height:${h}px">
+    <div class="vc-spine"></div><div class="vc-cols">${cols}</div></div>`;
 }
 
 async function loadRegime(){
@@ -622,14 +616,31 @@ async function loadSignals(){
   const el = document.getElementById('signal-body');
   el.textContent = '불러오는 중…';
   try {
-    const [d, fav] = await Promise.all([
+    const [d, fav, mkt] = await Promise.all([
       (await fetch('/api/signals')).json(),
       (await fetch('/api/favorites')).json(),
+      (await fetch('/api/market/chart')).json().catch(() => ({ ready: false })),
     ]);
     _favorites = new Set((fav.favorites || []).filter(f => f.kind === 'ticker').map(f => f.key));
     if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
     if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
     _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
+    // 최상단 고정: 코스피200 근사 지수(항상 첫 행, default 차트)
+    let indexRow = '';
+    if (mkt.ready) {
+      _signalItems[INDEX_TICKER] = {
+        ticker: INDEX_TICKER, name: mkt.name, sector: '지수', kind: mkt.kind,
+        score: mkt.score, confidence: mkt.confidence, intro: null,
+        narrative: '코스피200 근사 지수(유니버스 동일가중) · 기술 신호: '
+          + (mkt.reasons && mkt.reasons.length ? mkt.reasons.map(r => r.replace(/^\[[^\]]+\]\s*/, '')).join(', ') : '뚜렷한 신호 없음'),
+      };
+      indexRow = `<tr class="clickable-row idx-row" data-ticker="${INDEX_TICKER}">
+        <td>📌</td>
+        <td><b>${esc(mkt.name)}</b><div style="color:var(--dim);font-size:11px">시장 지수</div></td>
+        <td style="font-size:12px;color:var(--dim)">지수</td>
+        <td><span class="sig-pill ${mkt.kind}">${mkt.kind}</span></td>
+      </tr>`;
+    }
     const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
     const rows = d.items.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}">
       <td>${star(r.ticker)}</td>
@@ -640,15 +651,16 @@ async function loadSignals(){
     el.className = '';
     el.innerHTML = `<table class="dtable"><thead><tr>
       <th></th><th>종목</th><th>섹터</th><th>시그널</th>
-    </tr></thead><tbody>${rows}</tbody></table>`;
+    </tr></thead><tbody>${indexRow}${rows}</tbody></table>`;
     el.querySelectorAll('tr.clickable-row').forEach(tr => {
       tr.addEventListener('click', () => selectSignalRow(tr.dataset.ticker));
     });
     el.querySelectorAll('.fav-star').forEach(s => {
       s.addEventListener('click', (ev) => { ev.stopPropagation(); toggleFav(s.dataset.fav, s); });
     });
-    // 밸류체인에서 넘어온 종목이 유니버스에 있으면 그걸, 없으면 1위 종목 선택
-    const target = (_pendingSignalTicker && _signalItems[_pendingSignalTicker]) ? _pendingSignalTicker : d.items[0].ticker;
+    // 기본 선택: 밸류체인에서 넘어온 종목 > 코스피 지수(고정 최상단) > 1위 종목
+    const target = (_pendingSignalTicker && _signalItems[_pendingSignalTicker]) ? _pendingSignalTicker
+      : (mkt.ready ? INDEX_TICKER : d.items[0].ticker);
     _pendingSignalTicker = null;
     selectSignalRow(target);
   } catch (e) {
@@ -686,7 +698,8 @@ async function showSignalChart(ticker, item){
   else narrEl.style.display = 'none';
   const holder = document.getElementById('signal-chart');
   try {
-    const d = await (await fetch(`/api/signals/${encodeURIComponent(ticker)}/chart`)).json();
+    const chartUrl = ticker === INDEX_TICKER ? '/api/market/chart' : `/api/signals/${encodeURIComponent(ticker)}/chart`;
+    const d = await (await fetch(chartUrl)).json();
     if (!d.ready) { holder.innerHTML = ''; holder.textContent = '차트 데이터가 없습니다.'; return; }
     if (!_signalChart) _signalChart = echarts.init(holder);
     // 기간: 최대 1년(거래일 ~252)까지만 보여주고, 기본 확대 구간은 최근 1개월(~21거래일)
@@ -829,8 +842,9 @@ async function loadBotState(){
     document.getElementById('bot-kis-status').textContent = d.kis_connected ? 'KIS 모의계좌 연결됨' : 'KIS 연결 안 됨(.env 확인)';
     const cfg = d.config || {};
     document.getElementById('bot-rules').innerHTML =
-      `매매 규칙 · 실주문은 <b>평일 09:00~15:20</b>만 · 매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · `
-      + `한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · 최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`;
+      `<b>ON이면 장중 5분마다</b> 현재 계좌 기준으로 자동 판단·매매 · 실주문은 <b>평일 09:00~15:20</b>만 · `
+      + `매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · 한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · `
+      + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`;
 
     const hEl = document.getElementById('bot-holdings-body');
     if (!d.positions.length) {
@@ -916,6 +930,13 @@ async function previewBot(){
     const d = await (await fetch('/api/bot/preview', { method: 'POST' })).json();
     renderBotPlan(d, true);
   } finally { btn.disabled = false; btn.textContent = t; }
+}
+
+async function resetBot(){
+  if (!confirm('봇 보유종목·거래내역 기록을 초기화할까요? (KIS 계좌 잔고는 그대로, 우리 DB 기록만 삭제 — 과거 유령거래 정리용)')) return;
+  await fetch('/api/bot/reset', { method: 'POST' });
+  document.getElementById('bot-plan').style.display = 'none';
+  loadBotState();
 }
 
 // ===== 인증 게이트 =====

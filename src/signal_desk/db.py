@@ -218,6 +218,15 @@ def bot_position_delete(ticker: str) -> None:
     c.close()
 
 
+def bot_reset() -> None:
+    """봇 포지션·거래내역 전부 삭제(설정은 유지). 과거 유령거래 등 정합성 깨진 상태 초기화용."""
+    c = conn()
+    c.execute("DELETE FROM bot_positions")
+    c.execute("DELETE FROM bot_trades")
+    c.commit()
+    c.close()
+
+
 # ---------- bot_trades ----------
 def bot_trade_log(ticker: str, name: str, side: str, qty: int, price: float, reason: str,
                    order_no: str | None, score: float | None = None, note: str | None = None) -> None:

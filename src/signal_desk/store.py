@@ -141,6 +141,27 @@ def load_price_history(ticker: str) -> list[dict]:
     return [{"date": row["date"], "close": float(row["close"])} for _, row in df.iterrows()]
 
 
+def load_index_history() -> list[dict]:
+    """유니버스 종가로 만든 동일가중 정규화 지수(코스피200 근사) — [{date, close}].
+
+    코스피 종합지수 원본 API가 없어, 전 구간 존재하는 종목들을 시작일 100으로 정규화해
+    평균낸 동일가중 지수로 근사한다(시장 전체 흐름 참고용). 정확한 지수가 필요하면
+    data.krx.co.kr 지수 데이터로 교체.
+    """
+    if not PRICES_FILE.exists():
+        return []
+    df = pd.read_parquet(PRICES_FILE)
+    if df.empty:
+        return []
+    piv = df.pivot_table(index="date", columns="ticker", values="close").sort_index()
+    piv = piv.dropna(axis=1)  # 전 구간 존재하는 종목만(정렬·정규화용)
+    if piv.empty:
+        return []
+    normalized = piv / piv.iloc[0] * 100.0
+    idx = normalized.mean(axis=1)
+    return [{"date": str(d), "close": round(float(v), 2)} for d, v in idx.items()]
+
+
 def load_fundamentals() -> dict[str, dict]:
     if not FUNDAMENTALS_FILE.exists():
         return {}
