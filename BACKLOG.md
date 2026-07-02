@@ -15,21 +15,27 @@
 | 소스 | 용도 | 비고 |
 |---|---|---|
 | [KIS Developers(한국투자증권 오픈API)](https://apiportal.koreainvestment.com/intro) | 실시간 시세(WebSocket)·주문·**모의투자 계좌** | 무료, REST+실시간 소켓. **모의투자 리그**로 실제 돈 없이 자동매매봇 검증 가능 — 신뢰성・법적 리스크 둘 다 낮춤 |
-| [KRX Data Marketplace / Open API](https://data.krx.co.kr/) | 과거 시세·거래대금·공매도·투자자별 매매동향(2010~) | 백테스트용 장기 시계열의 1차 소스 |
+| [KRX Open API](https://openapi.krx.co.kr/) | 종목기본정보·일별매매정보(시가총액 포함 기대) | 키 발급됨, **서비스별 개별 이용신청 필요**(신청 대기 중) — 카탈로그상 "지수 구성종목" 서비스 자체가 없어 시가총액 상위 200종목으로 근사 예정 |
 | DART 공시 API | 재무제표(ROE/부채비율/매출성장 산출 원천) | ✅ 키 발급·연동·실응답 검증 완료(2026-07-02). PER/PBR은 KRX 종가 결합 필요해 후속 작업 |
 | [pykrx](https://github.com/sharebook-kr/pykrx) | 위 API 공백 시 스크래핑 폴백 | 비공식, 최후 수단으로만 |
 
 미국주식은 위 스택이 자리잡은 뒤(phase1 후반~phase2) AlphaVantage 등으로 확장 — 지금은 범위에서 제외.
 
-**진행 상황(2026-07-02, 키 없이 구현 착수 시점 확인)**: `pykrx`의 시장 전체/지수구성종목 계열
-엔드포인트(`get_index_portfolio_deposit_file`, `get_market_cap_by_ticker`,
-`get_market_ohlcv_by_ticker`, `get_market_ticker_list`)가 전부 KRX 응답 스키마 변경으로 깨져 있음을
-직접 재현 확인(JSON 파싱 에러). 종목별 시계열(`get_market_ohlcv_by_date`)과 단일 종목명 조회는 정상.
-→ **실제 코스피200 편입종목을 프로그래밍적으로 가져올 방법이 현재 없어서, 1차 구현은 잘 알려진
-대형주 30종목을 임시 유니버스로 하드코딩**했다(`ingest/krx.py:_INTERIM_TICKERS`, 각 코드는
-`get_market_ticker_name`으로 실시간 검증). **KRX Data Marketplace 키가 오면 §0 표의 1차 소스로
-`universe()` 내부만 교체 — 상위 레이어는 영향 없음.** 진짜 코스피200 전체가 필요하면 이 교체가
-최우선 후속 작업.
+**진행 상황(2026-07-02)**:
+1. `pykrx`의 시장 전체/지수구성종목 계열 엔드포인트(`get_index_portfolio_deposit_file`,
+   `get_market_cap_by_ticker`, `get_market_ohlcv_by_ticker`, `get_market_ticker_list`)가 전부
+   KRX 응답 스키마 변경으로 깨져 있음을 직접 재현 확인(JSON 파싱 에러). 종목별 시계열
+   (`get_market_ohlcv_by_date`)과 단일 종목명 조회는 정상 — 계속 사용.
+2. KRX_API_KEY 발급받아 공식 Open API를 직접 호출해봄 — **키 발급과 별개로 서비스마다
+   openapi.krx.co.kr에서 개별 "API 이용신청" 승인이 필요**함을 확인(전 엔드포인트 401
+   Unauthorized). 또한 **공식 Open API 카탈로그에 "지수 구성종목"(코스피200 편입종목) 서비스가
+   아예 없음**도 확인 — 지수 시세(숫자)만 제공, 종목 리스트는 미제공.
+3. → 사용자 결정: **"유가증권 종목기본정보"+"유가증권 일별매매정보" 서비스 신청 후 시가총액
+   상위 200종목으로 코스피200 근사**. `ingest/krx_open_api.py` 구현 완료, `ingest/krx.py:universe()`가
+   이 경로를 우선 시도하고 실패(키 없음/서비스 미승인/응답 구조 불일치) 시 대형주 30종목
+   폴백으로 자동 전환하도록 배선함(실제 미승인 키로 폴백 동작까지 확인됨).
+   **⚠️ 필드명(시가총액 등)은 서비스 승인 전이라 실응답 미검증** — 승인되면 1회 실응답 검증
+   필요(DART 때 계정명이 달라 버그 났던 것과 같은 리스크, `ingest/krx_open_api.py` 상단 주석 참고).
 
 ## Phase 1 — 비로그인 (데이터·엔진 레이어)
 

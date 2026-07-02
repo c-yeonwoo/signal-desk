@@ -69,8 +69,9 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 ## 미해결 / 확인 필요
 
-- ~~KRX/한국 시장 데이터 커넥터~~ → [BACKLOG.md](BACKLOG.md) §0에서 KIS Developers(실시간+모의투자)
-  + KRX Data Marketplace(과거 시계열) 조합으로 확정. brightdesk 때는 미해결이었으나 이번에 리서치로 해소.
-- 재무 데이터(PER/PBR/ROE) 소스 확정 — DART 공시 vs 별도 유료 API.
+- **KRX_API_KEY 서비스 이용신청 승인 대기** — "유가증권 종목기본정보"·"유가증권 일별매매정보"를
+  openapi.krx.co.kr에서 신청해야 함(키 발급과 별개, 직접 확인). 승인되면 `ingest/krx_open_api.py`의
+  시가총액 필드명을 실응답으로 1회 검증 필요(BACKLOG.md §0 참고). 그때까지는 대형주 30종목 폴백.
+- 재무 데이터 중 PER/PBR — DART만으로 불가(시가·발행주식수 필요), KRX 종가 연동 후 계산 예정.
 - 시장 국면 판정 룰(강세/과열/조정/약세) — 지수·금리·거래대금 임계값 설계 필요.
 - 자동매매봇·전망 시나리오의 유사투자자문업 규제 해당 여부 — 법률 자문 필요(BACKLOG.md 하단 참고).
