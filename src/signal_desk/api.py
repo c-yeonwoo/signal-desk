@@ -18,9 +18,9 @@ from zoneinfo import ZoneInfo
 from fastapi import Body, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from signal_desk import auth, bot, config, db, kb, store
+from signal_desk import auth, bot, config, db, kb, store, strategy
 from signal_desk.reference import cycle, valuechain
-from signal_desk.signals import macro, regime, valuation
+from signal_desk.signals import macro, rebalance, regime, valuation
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, combine,
     compute_indicator_series, evaluate, signal_zones,
@@ -159,6 +159,48 @@ def favorites_add(request: Request, data: dict = Body(...)):
 def favorites_del(request: Request, kind: str, key: str):
     db.fav_remove(_uid(request), kind, key)
     return {"ok": True}
+
+
+# ---------- 실보유 종목 + 리밸런싱 ----------
+@app.get("/api/holdings")
+def holdings_get(request: Request):
+    return {"holdings": db.holdings_list(_uid(request))}
+
+
+@app.post("/api/holdings")
+def holdings_set(request: Request, data: dict = Body(...)):
+    ticker = str(data.get("ticker", "")).strip()
+    if not ticker:
+        return JSONResponse({"ok": False, "error": "종목코드 필요"}, status_code=400)
+    db.holdings_set(_uid(request), ticker, float(data.get("qty", 0)), float(data.get("avg_price", 0)))
+    return {"ok": True}
+
+
+@app.delete("/api/holdings")
+def holdings_del(request: Request, ticker: str):
+    db.holdings_remove(_uid(request), ticker)
+    return {"ok": True}
+
+
+@app.post("/api/rebalance")
+def rebalance_post(request: Request):
+    """내 보유종목을 시그널·성향 목표배분에 맞춰 리밸런싱 제안 + LLM 해설."""
+    holdings = db.holdings_list(_uid(request))
+    if not holdings:
+        return {"ready": False, "reason": "보유종목을 먼저 입력하세요."}
+    if not store.is_ready():
+        return {"ready": False, "reason": "시세 데이터가 없습니다 — /api/refresh 먼저."}
+    prices = store.load_price_series()
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    sigmap = {s.ticker: s for s in _signals()}
+    cfg = db.bot_config_get()
+    style = cfg["trading_style"]
+    plan = rebalance.propose(holdings, sigmap, prices, names, strategy.bot_params(style))
+    context = {"regime": _regime().get("regime"), "macro_bias": _macro().get("bias")}
+    plan["summary"] = rebalance.explain(plan, strategy.STYLE_LABEL.get(style, style), context)
+    plan["ready"] = True
+    plan["style_label"] = strategy.STYLE_LABEL.get(style, style)
+    return plan
 
 
 # ---------- 시그널 (실데이터, store 캐시 기반) ----------

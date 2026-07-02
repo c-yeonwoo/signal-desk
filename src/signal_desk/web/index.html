@@ -255,7 +255,8 @@
           <span id="signal-chart-title" style="font-weight:700;font-size:16px">종목을 선택하세요</span>
           <span id="signal-chart-sub" class="tb-detail"></span>
         </div>
-        <div id="signal-intro" style="display:none;font-size:12px;color:var(--dim);margin:0 0 8px;line-height:1.5"></div>
+        <div id="signal-intro" style="display:none;font-size:12px;color:var(--dim);margin:0 0 6px;line-height:1.5"></div>
+        <div id="signal-backtest" style="display:none;font-size:11px;margin:0 0 8px"></div>
         <div id="signal-narrative" class="placeholder" style="display:none;background:var(--accent-weak);
           border-radius:var(--r-md);padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:10px;text-align:left"></div>
         <div id="signal-kb" style="display:none;font-size:12px;margin-bottom:8px;padding:8px 11px;
@@ -293,9 +294,13 @@
 
   <div id="view-trading" class="view-app" style="display:none">
     <h2 class="page-head">트레이딩 <span style="color:var(--dim);font-size:14px;font-weight:600">· 시그널 기반 자동매매 봇</span></h2>
-    <p class="page-desc">시그널을 근거로 봇이 KIS 모의계좌를 실시간 운용합니다. 모든 매매는 타이밍·수량 근거를
-      남기고, 안전장치(장 시간·손절·개수 제한)는 항상 강제됩니다. 관심종목은 시그널 탭의 ⭐로 관리하세요.</p>
+    <p class="page-desc">시그널 기반 자동매매(KIS 모의계좌)와 내 실보유 종목 리밸런싱 제안을 한 곳에서.</p>
+    <div class="seg-toggle" id="trading-seg" style="margin-bottom:18px">
+      <button class="on" data-seg="bot" onclick="switchTradingSeg('bot')">자동매매 봇</button>
+      <button data-seg="rebal" onclick="switchTradingSeg('rebal')">내 리밸런싱</button>
+    </div>
 
+    <div id="trading-bot">
     <div class="row" style="margin-bottom:16px">
       <span class="stat-label" style="margin:0">트레이딩 성향</span>
       <div class="seg-toggle" id="style-toggle">
@@ -342,6 +347,24 @@
           <div id="bot-allocation-chart" style="height:360px"></div>
         </div>
       </div>
+    </div>
+    </div><!-- /#trading-bot -->
+
+    <div id="trading-rebal" style="display:none">
+      <div class="card" style="margin-bottom:16px">
+        <b style="font-size:14px">내 보유종목</b>
+        <p class="page-desc" style="margin:6px 0 12px">실제 보유 종목을 입력하면, 시그널·성향(<span id="rebal-style">균형형</span>) 목표배분에
+          맞춰 유지/축소/매도/추가를 제안하고 AI가 근거를 설명합니다.</p>
+        <div class="row" style="margin-bottom:12px">
+          <input id="hd_ticker" type="text" placeholder="종목코드 (예: 005930)" class="ctrl" style="max-width:170px">
+          <input id="hd_qty" type="number" placeholder="수량" class="ctrl" style="max-width:110px">
+          <input id="hd_avg" type="number" placeholder="평단가" class="ctrl" style="max-width:130px">
+          <button class="btn primary" onclick="addHolding()">추가</button>
+          <button class="btn" onclick="runRebalance()" style="margin-left:auto">리밸런싱 제안 받기</button>
+        </div>
+        <div id="holdings-body" class="placeholder" style="padding:12px 0">보유종목을 추가하세요.</div>
+      </div>
+      <div id="rebal-result"></div>
     </div>
   </div>
 
@@ -442,7 +465,7 @@ function switchTab(t){
   if (t === 'valuation') loadValuation();
   if (t === 'cycle') loadCycle();
   if (t === 'valuechain') loadValuechain();
-  if (t === 'trading') loadBotState();
+  if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'mypage') fillMyPage();
   if (location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
 }
@@ -645,17 +668,20 @@ async function loadMacro(){
   } catch (e) { hide(); }
 }
 
-let _signalItems = {}, _favorites = new Set();
+let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
 
 async function loadSignals(){
   const el = document.getElementById('signal-body');
   el.textContent = '불러오는 중…';
   try {
-    const [d, fav, mkt] = await Promise.all([
+    const [d, fav, mkt, bt] = await Promise.all([
       (await fetch('/api/signals')).json(),
       (await fetch('/api/favorites')).json(),
       (await fetch('/api/market/chart')).json().catch(() => ({ ready: false })),
+      (await fetch('/api/backtest')).json().catch(() => ({ ready: false })),
     ]);
+    _backtestByKind = {};
+    if (bt.ready) (bt.by_signal || []).forEach(r => { _backtestByKind[r.kind] = r; });
     _favorites = new Set((fav.favorites || []).filter(f => f.kind === 'ticker').map(f => f.key));
     if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
     if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
@@ -728,6 +754,14 @@ async function showSignalChart(ticker, item){
     introEl.style.display = '';
     introEl.innerHTML = `🏭 <b style="color:var(--txt)">${esc(item.intro)}</b>${item.intro_desc ? ' — ' + esc(item.intro_desc) : ''}`;
   } else introEl.style.display = 'none';
+  const btEl = document.getElementById('signal-backtest');
+  const bt = item && (item.kind === 'BUY' || item.kind === 'SELL') ? _backtestByKind[item.kind] : null;
+  if (bt && bt.n) {
+    const wr = bt.winrate, wrColor = wr >= 55 ? 'var(--sig-buy)' : wr < 45 ? 'var(--sig-sell)' : 'var(--dim)';
+    btEl.style.display = '';
+    btEl.innerHTML = `📊 과거 <b>${esc(item.kind)}</b> 시그널 적중률 <b style="color:${wrColor}">${fmtNum(wr, 1)}%</b>`
+      + `${bt.avg_ret_5d != null ? ` · 5일 평균 ${bt.avg_ret_5d > 0 ? '+' : ''}${fmtNum(bt.avg_ret_5d, 2)}%` : ''} <span style="color:var(--dim-2)">(표본 ${bt.n}, 가격기반 백테스트)</span>`;
+  } else btEl.style.display = 'none';
   const narrEl = document.getElementById('signal-narrative');
   if (item && item.narrative) { narrEl.style.display = ''; narrEl.textContent = item.narrative; }
   else narrEl.style.display = 'none';
@@ -999,6 +1033,68 @@ async function resetBot(){
 async function setStyle(style){
   await fetch('/api/bot/style', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style }) });
   loadBotState();
+}
+
+// ===== 트레이딩 세그먼트(자동봇 / 리밸런싱) =====
+let _tradingSeg = 'bot';
+function switchTradingSeg(seg){
+  _tradingSeg = seg;
+  document.querySelectorAll('#trading-seg button').forEach(b => b.classList.toggle('on', b.dataset.seg === seg));
+  document.getElementById('trading-bot').style.display = seg === 'bot' ? '' : 'none';
+  document.getElementById('trading-rebal').style.display = seg === 'rebal' ? '' : 'none';
+  if (seg === 'bot') loadBotState();
+  if (seg === 'rebal') loadHoldings();
+}
+
+async function loadHoldings(){
+  const el = document.getElementById('holdings-body');
+  const d = await (await fetch('/api/holdings')).json();
+  const hs = d.holdings || [];
+  if (!hs.length) { el.className = 'placeholder'; el.textContent = '보유종목을 추가하세요.'; return; }
+  el.className = '';
+  el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단가</th><th></th></tr></thead><tbody>`
+    + hs.map(h => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, 0)}</td>
+        <td class="num"><span style="color:var(--sig-sell);cursor:pointer" onclick="removeHolding('${esc(h.ticker)}')">삭제</span></td></tr>`).join('')
+    + `</tbody></table>`;
+}
+async function addHolding(){
+  const ticker = document.getElementById('hd_ticker').value.trim();
+  const qty = parseFloat(document.getElementById('hd_qty').value), avg = parseFloat(document.getElementById('hd_avg').value);
+  if (!ticker || !(qty > 0) || !(avg > 0)) { alert('종목코드·수량·평단가를 입력하세요'); return; }
+  await fetch('/api/holdings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker, qty, avg_price: avg }) });
+  document.getElementById('hd_ticker').value = ''; document.getElementById('hd_qty').value = ''; document.getElementById('hd_avg').value = '';
+  loadHoldings();
+}
+async function removeHolding(ticker){
+  await fetch('/api/holdings?ticker=' + encodeURIComponent(ticker), { method: 'DELETE' });
+  loadHoldings();
+}
+async function runRebalance(){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '분석 중…';
+  const box = document.getElementById('rebal-result');
+  try {
+    const d = await (await fetch('/api/rebalance', { method: 'POST' })).json();
+    if (!d.ready) { box.innerHTML = `<div class="card placeholder">${esc(d.reason || '제안 불가')}</div>`; return; }
+    document.getElementById('rebal-style').textContent = d.style_label;
+    const rows = (arr, isAdd) => arr.map(x => {
+      const kind = isAdd ? 'BUY' : (x.kind || 'HOLD');
+      const actColor = (x.action === '매도') ? 'var(--sig-sell)' : (isAdd || x.action === '비중확대') ? 'var(--sig-buy)' : 'var(--txt)';
+      return `<tr><td><b>${esc(x.name)}</b><div style="color:var(--dim);font-size:11px">${esc(x.ticker)}</div></td>
+        <td><span class="sig-pill ${kind}">${kind}</span></td>
+        <td><b style="color:${actColor}">${isAdd ? '신규매수' : esc(x.action)}</b></td>
+        <td class="reasons">${esc(x.reason)}${!isAdd && x.pl_pct != null ? ` · 손익 ${x.pl_pct > 0 ? '+' : ''}${x.pl_pct}%` : ''}</td></tr>`;
+    }).join('');
+    box.innerHTML = `<div class="card" style="margin-bottom:16px">
+        <b style="font-size:14px">리밸런싱 제안 · ${esc(d.style_label)} (목표 종목당 ${d.target_weight}%)</b>
+        <div style="margin:8px 0 0;padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">${esc(d.summary)}</div>
+      </div>
+      <div class="card">
+        <b style="font-size:14px">보유 조정</b>
+        <table class="dtable" style="margin-top:8px"><thead><tr><th>종목</th><th>시그널</th><th>제안</th><th>근거</th></tr></thead><tbody>${rows(d.actions, false)}</tbody></table>
+        ${d.adds.length ? `<b style="font-size:14px;display:block;margin-top:18px">신규 편입 제안</b>
+        <table class="dtable" style="margin-top:8px"><thead><tr><th>종목</th><th>시그널</th><th>제안</th><th>근거</th></tr></thead><tbody>${rows(d.adds, true)}</tbody></table>` : ''}
+      </div>`;
+  } finally { btn.disabled = false; btn.textContent = t; }
 }
 
 async function refreshKb(){

@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS bot_decisions(id INTEGER PRIMARY KEY AUTOINCREMENT, t
     outcome_pct REAL, outcome_ts INTEGER);
 CREATE TABLE IF NOT EXISTS bot_reservations(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
     side TEXT, target_price REAL, max_chase_pct REAL, reason TEXT, status TEXT, created INTEGER, resolved INTEGER);
+CREATE TABLE IF NOT EXISTS holdings(uid INTEGER, ticker TEXT, qty REAL, avg_price REAL, ts INTEGER,
+    PRIMARY KEY(uid, ticker));
 """
 
 
@@ -395,5 +397,28 @@ def bot_reservations_clear_pending() -> None:
     """미실행 예약 정리(새 마감 분석 전 pending을 만료 처리)."""
     c = conn()
     c.execute("UPDATE bot_reservations SET status='expired', resolved=? WHERE status='pending'", (int(time.time()),))
+    c.commit()
+    c.close()
+
+
+# ---------- holdings (유저 실제 보유종목 — 리밸런싱 대상) ----------
+def holdings_list(uid: int) -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT ticker,qty,avg_price FROM holdings WHERE uid=? ORDER BY ts DESC", (uid,)).fetchall()
+    c.close()
+    return [{"ticker": t, "qty": q, "avg_price": ap} for t, q, ap in rows]
+
+
+def holdings_set(uid: int, ticker: str, qty: float, avg_price: float) -> None:
+    c = conn()
+    c.execute("INSERT OR REPLACE INTO holdings(uid,ticker,qty,avg_price,ts) VALUES(?,?,?,?,?)",
+              (uid, ticker, qty, avg_price, int(time.time())))
+    c.commit()
+    c.close()
+
+
+def holdings_remove(uid: int, ticker: str) -> None:
+    c = conn()
+    c.execute("DELETE FROM holdings WHERE uid=? AND ticker=?", (uid, ticker))
     c.commit()
     c.close()
