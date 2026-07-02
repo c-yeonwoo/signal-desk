@@ -2,6 +2,10 @@
 
 apt-signal의 "종합 해설"(지수들을 묶어 사회·통계적 의미를 1~2문장으로 해석)과 같은 접근.
 `reasons`는 이미 "[기술]"/"[기본]" 태그가 붙어 있으므로 그대로 파싱해 문장으로 엮는다.
+
+이건 v1(폴백용)이다 — BACKLOG.md #17 계획: 종목별로 뉴스·증권사 리포트·개인분석 등을 크롤링해
+KB(brightdesk의 kb_facts/source_registry 패턴)를 만들고, 그 KB를 LLM에 넣어 시그널 근거를
+답변·해설로 생성한 뒤 캐시해서 쓰는 v2로 교체 예정. v2가 실패/미설정이면 이 v1로 폴백.
 """
 
 from __future__ import annotations
