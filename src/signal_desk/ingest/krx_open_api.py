@@ -1,19 +1,14 @@
 """KRX 공식 Open API(data-dbg.krx.co.kr, AUTH_KEY 인증) 클라이언트.
 
-⚠️ 필드명 미검증(2026-07-02): 발급받은 KRX_API_KEY가 아직 서비스별 이용신청 승인 전이라
-(KRX Open API는 AUTH_KEY 발급과 별개로 서비스마다 openapi.krx.co.kr에서 개별 신청·승인이
-필요 — 직접 호출해 401 Unauthorized 확인함) 실제 응답으로 필드명을 검증하지 못했다.
-아래 필드명은 KRX 데이터 체계의 통상 관례(ISU_SRT_CD/ISU_ABBRV/TDD_CLSPRC 등, 여러 공개
-레퍼런스에서 일관되게 쓰임)를 따른 추정치 — **승인 완료 후 1회 실응답 검증 필수**
-(DART 때 계정명이 "당기순이익(손실)"로 달라 버그가 났던 것과 같은 종류의 리스크).
-
-신청 필요 서비스(사용자가 openapi.krx.co.kr에서 로그인 후 직접 신청):
-  - "유가증권 종목기본정보" (stk_isu_base_info)
-  - "유가증권 일별매매정보" (stk_bydd_trd) — 시가총액 포함 여부 확인 필요
+서비스 이용신청 승인 완료(2026-07-02) 후 실응답으로 필드명 검증 완료 —
+`sto/stk_bydd_trd` 응답은 `{"OutBlock_1": [{"ISU_CD","ISU_NM","MKT_NM","MKTCAP","LIST_SHRS",...}]}`
+형태(추정 필드명 ISU_CD/ISU_NM/MKTCAP가 그대로 맞았음). 우선주(예: "005935 삼성전자우")가
+섞여 나오는 것도 확인해 `_is_common_share()`로 걸러낸다(코스피200은 보통주만 편입).
 
 공식 Open API에는 "지수 구성종목"(코스피200 편입종목 리스트) 서비스 자체가 없다(카탈로그
-확인됨) — 그래서 시가총액 상위 200종목으로 근사한다(진짜 편입종목과는 다를 수 있음, 리밸런싱
-시점 차이 등). 진짜 편입종목이 필요하면 data.krx.co.kr의 수동 다운로드가 유일한 경로.
+확인됨) — 그래서 시가총액 상위 200종목(보통주만)으로 근사한다. 진짜 편입종목과는 리밸런싱
+시점 차이 등으로 다를 수 있음 — 정확한 편입종목이 필요하면 data.krx.co.kr 수동 다운로드가
+유일한 경로.
 """
 
 from __future__ import annotations
@@ -73,6 +68,13 @@ def _pick(row: dict, candidates: tuple[str, ...]) -> str | None:
     return None
 
 
+def _is_common_share(code: str) -> bool:
+    """KRX 종목코드 마지막 자리 관례: 0=보통주, 5~9(+영문)=우선주 시리즈.
+    실응답으로 확인됨(예: 005930 삼성전자 vs 005935 삼성전자우, 001460 BYC vs 001465 BYC우).
+    코스피200은 보통주만 편입하므로 우선주는 유니버스에서 제외한다."""
+    return len(code) == 6 and code.endswith("0")
+
+
 def stock_base_info(bas_dd: str) -> list[dict]:
     """유가증권(KOSPI) 종목 기본정보. 서비스 미승인/키 없으면 빈 리스트."""
     rows = _request("sto/stk_isu_base_info", {"basDd": bas_dd})
@@ -97,6 +99,8 @@ def universe_by_marketcap(bas_dd: str, limit: int = 200) -> list[dict]:
         name = _pick(row, _NAME_FIELDS)
         mktcap_raw = _pick(row, _MKTCAP_FIELDS)
         if not code or mktcap_raw is None:
+            continue
+        if not _is_common_share(code):  # 우선주 제외 — 코스피200은 보통주만 편입
             continue
         try:
             mktcap = float(str(mktcap_raw).replace(",", ""))

@@ -36,11 +36,13 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 - [x] 워치리스트(즐겨찾기) CRUD API
 - [x] 단일 파일 SPA 셸: 브랜드 토큰 · 5탭 해시 라우팅 · 인증 게이트 · 온보딩 모달
 
-**BACKLOG #1~#4 — 시그널 엔진**
+**BACKLOG #0~#4 — 데이터 소스 + 시그널 엔진**
+- [x] 유니버스 — KRX Open API 시가총액 상위 200(보통주만, 코스피200 근사) 실키 검증 완료.
+  키 없거나 서비스 미승인이면 대형주 30종목 폴백(`ingest/krx.py`)
 - [x] 기술적분석(`signals/indicators.py`) — RSI14/MACD(12,26,9)/MA20,60,120, brightdesk 공식 그대로 이식
 - [x] 기본적분석(`signals/fundamental.py`) — DART 연동(실키로 검증 완료), 키 없으면 자동 생략(그레이스풀 폴백)
 - [x] 통합 시그널(`signals/engine.py`) — 가용 컴포넌트만 재정규화해 결합, `/api/signals` 실데이터
-- [x] 백테스트 성적표 1차(기술점수 단독) — `/api/backtest`
+- [x] 백테스트 성적표 1차(기술점수 단독) — `/api/backtest`, 200종목 표본으로 BUY 승률 50.8%
 - [ ] 시장 국면 + 매크로 미니차트, 후보 유형+기회도, 저평가 뷰, phase2 전체 — [BACKLOG.md](BACKLOG.md) 참고
 
 다음에 붙일 기능의 상세 우선순위·범위·의존관계는 [BACKLOG.md](BACKLOG.md) 참고.
@@ -69,9 +71,10 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 ## 미해결 / 확인 필요
 
-- **KRX_API_KEY 서비스 이용신청 승인 대기** — "유가증권 종목기본정보"·"유가증권 일별매매정보"를
-  openapi.krx.co.kr에서 신청해야 함(키 발급과 별개, 직접 확인). 승인되면 `ingest/krx_open_api.py`의
-  시가총액 필드명을 실응답으로 1회 검증 필요(BACKLOG.md §0 참고). 그때까지는 대형주 30종목 폴백.
-- 재무 데이터 중 PER/PBR — DART만으로 불가(시가·발행주식수 필요), KRX 종가 연동 후 계산 예정.
+- 재무 데이터 중 PER/PBR — DART만으로 불가(시가·발행주식수 필요). KRX Open API 응답에
+  `LIST_SHRS`(상장주식수)가 있어 종가와 결합하면 계산 가능 — 다음 작업.
+- 시가총액 상위 200은 실제 코스피200 편입종목과 리밸런싱 시점 등으로 소폭 다를 수 있음(진짜
+  편입종목 리스트는 공식 API에 없음 — BACKLOG.md §0 참고, 정확도가 중요해지면 data.krx.co.kr
+  수동 다운로드로 교체 검토).
 - 시장 국면 판정 룰(강세/과열/조정/약세) — 지수·금리·거래대금 임계값 설계 필요.
 - 자동매매봇·전망 시나리오의 유사투자자문업 규제 해당 여부 — 법률 자문 필요(BACKLOG.md 하단 참고).
