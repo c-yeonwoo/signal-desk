@@ -82,6 +82,60 @@ def _summarize_text(name: str, title: str, text: str) -> tuple[str, list[str]]:
     return f"{name} 문서 발췌: {excerpt}", []
 
 
+_MIN_PDF_TEXT = 200  # 이보다 짧으면 '스캔/이미지 PDF'로 보고 vision(OCR)으로 폴백
+
+
+def _pdf_text(data: bytes) -> str:
+    """네이티브 텍스트 PDF에서 본문 추출(pypdf). 스캔본이면 거의 빈 문자열이 나온다."""
+    try:
+        import io
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        return "\n".join((p.extract_text() or "") for p in reader.pages).strip()
+    except Exception as e:
+        log.warning("PDF 텍스트 추출 실패: %s", type(e).__name__)
+        return ""
+
+
+def _summarize_vision(name: str, title: str, data: bytes, media_type: str) -> tuple[str, list[str]]:
+    """스캔 PDF·이미지를 모델이 직접 읽어 요약(OCR 대체). 실패 시 빈 요약."""
+    import base64
+    if not llm.available():
+        return "", []
+    system = ("너는 한국 주식 애널리스트다. 첨부된 문서/이미지의 내용을 읽고 투자 관점에서 사실 기반으로 "
+              "요약한다. 과장·추천 금지, 문서에 없는 내용 금지.")
+    user = (f"종목: {name} / 제목: {title}\n첨부 문서를 요약해줘.\n"
+            'JSON으로만: {"summary": "한국어 1~2문장", "points": ["핵심 ≤3개"]}')
+    out = llm.complete_json_vision(system, user, media_type=media_type,
+                                   data_b64=base64.b64encode(data).decode("ascii"))
+    if out and out.get("summary"):
+        return str(out["summary"])[:300], [str(p) for p in (out.get("points") or [])][:3]
+    return "", []
+
+
+def import_file(ticker: str, name: str, filename: str, data: bytes, media_type: str) -> dict:
+    """업로드 파일(PDF/이미지)을 KB 문서로. 네이티브 텍스트 PDF는 pypdf로 싸게, 스캔·이미지는
+    vision(모델 OCR)으로 인식 → 요약·분류 후 적재. 반환: {ok, doc_class, summary, method}."""
+    if not ticker or not name or not data:
+        return {"ok": False, "reason": "ticker·name·파일 필요"}
+    title = filename or f"{name} 업로드"
+    text, method = "", ""
+    if media_type == "application/pdf":
+        text = _pdf_text(data)
+    if len(text) >= _MIN_PDF_TEXT:
+        summary, _ = _summarize_text(name, title, text)
+        raw, method = text, "pdf_text"
+    else:  # 스캔 PDF 또는 이미지 → 모델이 직접 인식(OCR)
+        summary, _ = _summarize_vision(name, title, data, media_type)
+        raw, method = "[스캔/이미지 문서 — 모델 인식]", "vision"
+        if not summary:
+            return {"ok": False, "reason": "문서 인식 실패(LLM 키 확인 또는 지원 형식인지 확인)"}
+    doc_class = classify_document({"title": title, "summary": summary}, "report")
+    db.kb_document_add(ticker, title, summary, "", "upload", "", doc_class, raw_text=raw)
+    _rebuild_digest(ticker, name)
+    return {"ok": True, "doc_class": doc_class, "summary": summary, "method": method}
+
+
 def _rebuild_digest(ticker: str, name: str) -> None:
     """해당 종목의 최근 KB 문서(뉴스+리포트)를 합쳐 다이제스트·이벤트·신선도를 재계산."""
     items = db.kb_entries_recent(ticker, 15)

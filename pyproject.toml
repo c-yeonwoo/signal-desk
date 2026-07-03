@@ -11,6 +11,8 @@ dependencies = [
     "pandas>=2.0",
     "pyarrow>=15.0",
     "pykrx>=1.0",
+    "pypdf>=4.0",              # PDF 텍스트 추출(네이티브 텍스트 PDF)
+    "python-multipart>=0.0.9",  # FastAPI 파일 업로드
 ]
 
 [project.optional-dependencies]

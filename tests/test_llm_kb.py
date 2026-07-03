@@ -62,6 +62,36 @@ def test_import_document_rejects_empty(tmp_path, monkeypatch):
     assert kb.import_document("005930", "삼성전자", "", "", "report")["ok"] is False
 
 
+def test_import_file_uses_pdf_text_when_extractable(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb, "_pdf_text", lambda data: "삼성 3분기 실적 개선 " * 40)  # 충분한 텍스트
+    monkeypatch.setattr(kb, "_summarize_text", lambda n, t, x: ("텍스트 요약", []))
+    out = kb.import_file("005930", "삼성전자", "report.pdf", b"%PDF...", "application/pdf")
+    assert out["ok"] and out["method"] == "pdf_text" and out["doc_class"] == "리포트"
+
+
+def test_import_file_falls_back_to_vision_for_scanned(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb, "_pdf_text", lambda data: "")  # 스캔본 — 텍스트 없음
+    monkeypatch.setattr(kb, "_summarize_vision", lambda n, t, d, m: ("비전 인식 요약", ["p"]))
+    out = kb.import_file("005930", "삼성전자", "scan.pdf", b"%PDF...", "application/pdf")
+    assert out["ok"] and out["method"] == "vision"
+
+
+def test_import_file_image_uses_vision(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb, "_summarize_vision", lambda n, t, d, m: ("이미지 요약", []))
+    out = kb.import_file("005930", "삼성전자", "chart.png", b"\x89PNG", "image/png")
+    assert out["ok"] and out["method"] == "vision"
+
+
+def test_import_file_vision_failure_reports(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb, "_summarize_vision", lambda n, t, d, m: ("", []))  # 인식 실패
+    out = kb.import_file("005930", "삼성전자", "x.png", b"\x89PNG", "image/png")
+    assert out["ok"] is False
+
+
 def test_rule_digest_sentiment_from_keywords():
     items = [{"title": "실적 급등 호재 신고가", "summary": ""}, {"title": "수주 개선 기대", "summary": ""}]
     d = kb._rule_digest("가나전자", items)
