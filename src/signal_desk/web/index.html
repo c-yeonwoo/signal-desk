@@ -248,8 +248,7 @@
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')">트레이딩</button>
     <button class="tab" data-tab="valuation" onclick="switchTab('valuation')">저평가</button>
-    <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">경기사이클</button>
-    <button class="tab" data-tab="valuechain" onclick="switchTab('valuechain')">밸류체인</button>
+    <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">산업 사이클</button>
   </div>
   <div class="right">
     <span id="myPageLabel" class="btn" onclick="switchTab('mypage')" style="cursor:pointer"></span>
@@ -308,18 +307,16 @@
   </div>
 
   <div id="view-cycle" class="view-app" style="display:none">
-    <h2 class="page-head">경기사이클</h2>
-    <p class="page-desc">경기순환(회복→확장→둔화→수축)과 물가·금리 흐름에 따라 어떤 산업이 주도하는지 —
-      현재 위치는 미 CPI·금리(FRED)로 근사 추정합니다. 주도섹터를 누르면 밸류체인으로 연결됩니다.</p>
+    <h2 class="page-head">산업 사이클</h2>
+    <p class="page-desc">경기순환(회복→확장→둔화→수축)에 따라 어떤 산업이 주도하는지, 그리고 그 산업의
+      밸류체인 기업까지 — 톱다운으로 봅니다. 현재 위치는 미 CPI·금리(FRED)로 근사 추정합니다.</p>
     <div class="card" id="cycle-current" style="margin-bottom:16px"><div class="placeholder" style="padding:8px 0">불러오는 중…</div></div>
     <div class="card" style="margin-bottom:16px"><div id="cycle-chart" style="height:300px"></div></div>
     <div class="phase-grid" id="cycle-phases"></div>
-  </div>
 
-  <div id="view-valuechain" class="view-app" style="display:none">
-    <h2 class="page-head">밸류체인</h2>
-    <p class="page-desc">섹터별 업스트림~다운스트림 구조와 국내(코스피)·해외(나스닥) 대표기업.
-      국내 기업을 누르면 시그널 차트로 이동합니다. (구성은 큐레이션 스냅샷 · 추천 아님)</p>
+    <h3 class="page-head" style="font-size:18px;margin-top:28px" id="vc-anchor">밸류체인 <span style="color:var(--dim);font-size:13px;font-weight:600">· 주도섹터를 누르면 여기로 연결</span></h3>
+    <p class="page-desc">섹터별 업스트림~다운스트림 구조와 국내(코스피)·해외 대표기업. 국내 기업의 현재
+      시그널(관망 제외)이 뱃지로 표시되며, 누르면 시그널 차트로 이동합니다. (큐레이션 스냅샷 · 추천 아님)</p>
     <div class="vc-sectors" id="vc-sectors"></div>
     <div id="vc-detail"><div class="placeholder">불러오는 중…</div></div>
   </div>
@@ -557,7 +554,7 @@
 </dialog>
 
 <script>
-const _ROUTES = ['signal','trading','valuation','cycle','valuechain','mypage'];
+const _ROUTES = ['signal','trading','valuation','cycle','mypage'];
 let _userEmail = '', _profile = {};
 
 function switchTab(t){
@@ -566,8 +563,7 @@ function switchTab(t){
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
   if (t === 'signal') loadSignals();  // 시황 리본은 전역(startApp에서 로드)
   if (t === 'valuation') loadValuation();
-  if (t === 'cycle') loadCycle();
-  if (t === 'valuechain') loadValuechain();
+  if (t === 'cycle') { loadCycle(); loadValuechain(); }  // 산업 사이클 = 경기사이클 + 밸류체인
   if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'mypage') fillMyPage();
   if (location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
@@ -614,7 +610,10 @@ function reasonEn(reasons){
 // ===== 탭 간 이동(사이클 → 밸류체인 → 시그널) =====
 const INDEX_TICKER = 'KOSPI200X';  // 시그널 탭 최상단 고정 지수(근사)
 let _pendingSignalTicker = null, _vcData = null, _vcCurrent = null;
-function gotoValuechain(key){ _vcCurrent = key; switchTab('valuechain'); }
+function gotoValuechain(key){  // 같은 '산업 사이클' 탭 내 밸류체인 섹션으로 이동
+  _vcCurrent = key; selectVcSector(key);
+  document.getElementById('vc-anchor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 function gotoSignal(ticker){ _pendingSignalTicker = ticker; switchTab('signal'); }
 
 // ===== 사이클 =====
@@ -681,11 +680,17 @@ function drawCycleChart(phases, cur){
 }
 
 // ===== 밸류체인 =====
+let _vcSignals = {};  // ticker -> kind (HOLD 제외) — 밸류체인 노드 시그널 뱃지용
 async function loadValuechain(){
   if (!_vcData) {
     try { _vcData = (await (await fetch('/api/valuechain')).json()).sectors; }
     catch (e) { document.getElementById('vc-detail').innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
   }
+  try {  // 현재 시그널을 노드 뱃지로(관망 제외)
+    const sig = await (await fetch('/api/signals')).json();
+    _vcSignals = {};
+    (sig.items || []).forEach(r => { if (r.kind && r.kind !== 'HOLD') _vcSignals[r.ticker] = r.kind; });
+  } catch (e) {}
   document.getElementById('vc-sectors').innerHTML = _vcData.map(s =>
     `<button data-k="${s.key}" onclick="selectVcSector('${s.key}')">${esc(s.name)}</button>`).join('');
   selectVcSector(_vcCurrent || _vcData[0].key);
@@ -711,8 +716,13 @@ function drawVcDiagram(s){
   const maxSide = Math.max(1, ...s.stages.map(st => Math.max(st.domestic.length, st.overseas.length)));
   const h = Math.min(760, 200 + maxSide * 70);
   const isKr = (c) => c.ticker && /^\d{6}$/.test(c.ticker);
+  const sigBadge = (t) => {
+    const k = _vcSignals[t];
+    if (!k) return '';
+    return ` <span style="display:inline-block;padding:0 5px;border-radius:6px;font-size:10px;font-weight:800;color:#fff;background:${_ZONE_COLOR[k]}" title="현재 시그널">${kindLabel(k)}</span>`;
+  };
   const chip = (c) => isKr(c)
-    ? `<span class="vc-node kr" onclick="gotoSignal('${c.ticker}')" title="${esc(c.name)} ${esc(c.ticker)} · 클릭 시 시그널">${esc(c.name)}</span>`
+    ? `<span class="vc-node kr" onclick="gotoSignal('${c.ticker}')" title="${esc(c.name)} ${esc(c.ticker)} · 클릭 시 시그널">${esc(c.name)}${sigBadge(c.ticker)}</span>`
     : `<span class="vc-node ov" title="${esc(c.name)}${c.ticker ? ' · ' + esc(c.ticker) : ''}">${esc(c.name)}</span>`;
   const cols = s.stages.map(st => {
     const role = st.stage.split(' · ')[1] || st.stage;  // '업스트림/미드/다운' 키워드 제거, 역할명만
