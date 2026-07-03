@@ -129,6 +129,43 @@ def test_backtest_summary_ignores_short_series():
     assert all(row["n"] == 0 for row in out["by_signal"])
 
 
+def test_pit_year_uses_only_disclosed_reports():
+    # 사업보고서는 이듬해 3~4월 공시 → 2026-05는 2025년 보고서까지, 2026-02는 2024년까지
+    years = [2023, 2024, 2025]
+    assert engine._pit_year("2026-05-10", years) == 2025
+    assert engine._pit_year("2026-02-10", years) == 2024
+    assert engine._pit_year("2025-06-10", years) == 2024  # 6월 → 전년(2024) 보고서까지 공시됨
+    assert engine._pit_year("2024-01-10", years) is None  # known=2022, 히스토리에 없음
+    assert engine._pit_year("2020-05-10", years) is None  # 그 시점엔 아직 아무 보고서도 없음
+
+
+def test_backtest_with_pit_reports_pit_method():
+    closes = [100 - i for i in range(40)]
+    dates = [f"2026-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}" for i in range(40)]
+    hist = {"AAA": {"2025": {"net_income": 100.0, "equity": 1000.0, "roe": 10.0}}}
+    out = engine.backtest_summary({"AAA": closes}, dates_by_ticker={"AAA": dates},
+                                  fundamentals_history=hist)
+    assert out["method"] == "pit_v3"
+
+
+def test_factor_contribution_reports_each_factor_and_baseline():
+    closes = [100 - i for i in range(40)]  # 하락 추세 → 낙폭/기술 매수 신호 다수
+    out = engine.factor_contribution({"AAA": closes})
+    labels = {f["factor"] for f in out["factors"]}
+    assert "all" in labels and "technical" in labels and "reversion" in labels
+    # 히스토리 없으면 fundamental 단독은 제외
+    assert "fundamental" not in labels
+    for f in out["factors"]:
+        assert f["winrate"] is None or 0 <= f["winrate"] <= 100
+
+
+def test_walk_forward_splits_into_windows():
+    closes = [100 + (i % 7) - 3 for i in range(120)]
+    out = engine.walk_forward({"AAA": closes}, windows=4)
+    assert len(out["windows"]) == 4
+    assert [s["window"] for s in out["windows"]] == [1, 2, 3, 4]
+
+
 def test_signal_zones_compresses_consecutive_buy_days():
     # 20일 연속 하락 -> RSI(14)가 정의되는 인덱스 14부터 계속 과매도(0) -> BUY 구간 하나로 압축
     closes = [100 - i for i in range(20)]

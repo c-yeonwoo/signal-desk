@@ -71,6 +71,18 @@ def test_load_quotes_computes_price_change_and_volume(tmp_path, monkeypatch):
     assert q["mktcap"] == 5.0e12
 
 
+def test_fetch_fundamentals_history_by_year(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    universe = [{"ticker": "005930", "name": "삼성전자"}]
+    monkeypatch.setattr(dart, "corp_codes", lambda: {"005930": "00126380"})
+    monkeypatch.setattr(dart, "fundamentals",
+                        lambda ticker, corp_code, y: {"roe": 10.0, "net_income": 100.0, "_y": y})
+    out = store.fetch_fundamentals_history(universe, years=["2024", "2025"])
+    assert set(out["005930"]) == {"2024", "2025"}
+    assert out["005930"]["2024"]["_y"] == "2024"
+    assert store.load_fundamentals_history() == out
+
+
 def test_load_quotes_graceful_without_volume_column(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_prices(tmp_path, [

@@ -20,6 +20,7 @@ CACHE_DIR = Path("data/cache")
 UNIVERSE_FILE = CACHE_DIR / "universe.json"
 PRICES_FILE = CACHE_DIR / "prices.parquet"
 FUNDAMENTALS_FILE = CACHE_DIR / "fundamentals.json"
+FUNDAMENTALS_HISTORY_FILE = CACHE_DIR / "fundamentals_history.json"  # point-in-time 백테스트용 연도별 재무
 MACRO_FILE = CACHE_DIR / "macro.json"
 
 PRICE_HISTORY_DAYS = 400  # MA120 워밍업 + 백테스트 여유분
@@ -101,6 +102,48 @@ def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None
     return out
 
 
+def fetch_fundamentals_history(universe: list[dict] | None = None,
+                               years: list[str] | None = None) -> dict:
+    """연도별 재무(ROE/부채/성장 + net_income/equity)를 수집 — point-in-time 백테스트용.
+
+    반환·저장 형태: {ticker: {year: metrics}}. 각 연도 사업보고서는 이듬해 초에 공시되므로
+    백테스트가 '그 시점에 알 수 있던' 재무만 쓰도록 backtest가 연도→가용일 매핑을 적용한다.
+    PER/PBR은 시점별 시가가 필요해 여기 저장하지 않는다(backtest에서 그때 가격으로 계산).
+    """
+    universe = universe if universe is not None else load_universe()
+    if years is None:
+        this_year = datetime.date.today().year
+        years = [str(this_year - n) for n in (1, 2, 3)]  # 최근 3개 사업연도
+
+    codes = dart.corp_codes()
+    if not codes:
+        log.warning("DART_API_KEY 미설정 — point-in-time 재무 수집 생략")
+        _write_json(FUNDAMENTALS_HISTORY_FILE, {})
+        return {}
+
+    out: dict[str, dict] = {}
+    for item in universe:
+        ticker = item["ticker"]
+        corp_code = codes.get(ticker)
+        if not corp_code:
+            continue
+        by_year: dict[str, dict] = {}
+        for y in years:
+            metrics = dart.fundamentals(ticker, corp_code, y)
+            if metrics:
+                by_year[y] = metrics
+        if by_year:
+            out[ticker] = by_year
+    _write_json(FUNDAMENTALS_HISTORY_FILE, out)
+    return out
+
+
+def load_fundamentals_history() -> dict[str, dict]:
+    if not FUNDAMENTALS_HISTORY_FILE.exists():
+        return {}
+    return json.loads(FUNDAMENTALS_HISTORY_FILE.read_text(encoding="utf-8"))
+
+
 def fetch_macro() -> list[dict]:
     """FRED 거시 지표(CPI/금리/나스닥/VIX)를 수집해 캐시. 키 없으면 빈 리스트."""
     items = fred.macro_indicators()
@@ -129,6 +172,17 @@ def load_price_series() -> dict[str, list[float]]:
         return {}
     df = df.sort_values(["ticker", "date"])
     return {ticker: g["close"].tolist() for ticker, g in df.groupby("ticker")}
+
+
+def load_dates_by_ticker() -> dict[str, list[str]]:
+    """ticker -> 날짜 리스트(오래된→최신) — load_price_series()와 동일 정렬. point-in-time 백테스트용."""
+    if not PRICES_FILE.exists():
+        return {}
+    df = pd.read_parquet(PRICES_FILE)
+    if df.empty:
+        return {}
+    df = df.sort_values(["ticker", "date"])
+    return {ticker: [str(d) for d in g["date"].tolist()] for ticker, g in df.groupby("ticker")}
 
 
 def load_price_history(ticker: str) -> list[dict]:

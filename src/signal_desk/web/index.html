@@ -459,6 +459,12 @@
         <button class="btn" onclick="resetEngine()">기본값</button>
       </div>
     </div>
+
+    <div class="card" style="margin-top:18px">
+      <b style="font-size:15px">백테스트 정밀 분석 <span style="color:var(--dim);font-weight:600;font-size:12px">· 어떤 팩터가 승률을 끌어올리나 (관리자)</span></b>
+      <p class="page-desc" style="margin:6px 0 14px">각 팩터를 단독으로 백테스트해 기여도를 비교하고(매수 시그널 기준), 시간 구간별로 나눠 과최적화·불안정성을 점검합니다. 기본적 팩터는 point-in-time(그 시점에 공시돼 있던 재무)으로 반영합니다.</p>
+      <div id="bt-analysis" class="placeholder" style="padding:20px 0">불러오는 중…</div>
+    </div>
   </div>
 </main>
 
@@ -1319,6 +1325,39 @@ function _fillEngine(cfg, winrate){
 async function loadEngine(){
   try { const d = await (await fetch('/api/engine/config')).json(); _fillEngine(d.config, d.winrate); }
   catch (e) {}
+  loadBacktestAnalysis();
+}
+
+// 팩터별 기여도 + 워크포워드 표를 그린다(관리자 정밀 분석).
+async function loadBacktestAnalysis(){
+  const el = document.getElementById('bt-analysis');
+  if (!el) return;
+  try {
+    const d = await (await fetch('/api/backtest/analysis')).json();
+    if (!d.ready) { el.textContent = '데이터 없음 — /api/refresh 먼저.'; return; }
+    const wrCell = (wr) => wr == null ? '<td style="color:var(--dim-2)">–</td>'
+      : `<td style="font-weight:700;color:${wr >= 55 ? 'var(--sig-buy)' : wr < 45 ? 'var(--sig-sell)' : 'var(--dim)'}">${fmtNum(wr, 1)}%</td>`;
+    const facs = (d.factors.factors || []);
+    const best = facs.filter(f => f.factor !== 'all' && f.winrate != null).sort((a, b) => b.winrate - a.winrate)[0];
+    const facRows = facs.map(f => `<tr${f.factor === 'all' ? ' style="border-top:2px solid var(--line-strong);font-weight:700"' : ''}>
+        <td>${esc(f.label)}${f.factor === best?.factor ? ' 🏆' : ''}</td>
+        <td style="color:var(--dim)">${f.n ? f.n.toLocaleString() : '–'}</td>
+        ${wrCell(f.winrate)}
+        <td style="color:${f.avg_ret > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">${f.avg_ret == null ? '–' : (f.avg_ret > 0 ? '+' : '') + fmtNum(f.avg_ret, 2) + '%'}</td>
+      </tr>`).join('');
+    const wf = d.walkforward.windows || [];
+    const wfRows = wf.map(s => `<tr><td>구간 ${s.window}</td><td style="color:var(--dim)">${s.n || '–'}</td>${wrCell(s.winrate)}</tr>`).join('');
+    const spread = d.walkforward.winrate_spread;
+    el.className = '';
+    el.innerHTML = `
+      <div style="font-size:13px;font-weight:700;margin:4px 0 6px">팩터별 기여도 <span style="color:var(--dim);font-weight:500">· 매수 시그널 ${d.factors.primary_horizon}일 기준</span></div>
+      <table class="dtable"><thead><tr><th>팩터</th><th>표본</th><th>적중률</th><th>평균수익</th></tr></thead><tbody>${facRows}</tbody></table>
+      ${best ? `<p class="page-desc" style="margin:8px 0 0">🏆 <b>${esc(best.label)}</b> 팩터가 단독 적중률 ${fmtNum(best.winrate, 1)}%로 가장 높습니다 — 이 팩터의 가중치를 높이면 승률 개선 여지가 있습니다.</p>` : ''}
+      <div style="font-size:13px;font-weight:700;margin:18px 0 6px">워크포워드 <span style="color:var(--dim);font-weight:500">· 시간 구간별 out-of-sample 안정성</span></div>
+      <table class="dtable"><thead><tr><th>구간</th><th>표본</th><th>적중률</th></tr></thead><tbody>${wfRows}</tbody></table>
+      ${spread != null ? `<p class="page-desc" style="margin:8px 0 0">구간 간 적중률 편차 <b>${fmtNum(spread, 1)}%p</b>${spread >= 15 ? ' — 편차가 커서 특정 시기에 치우친(과최적화 의심) 신호일 수 있습니다.' : ' — 구간 간 비교적 안정적입니다.'}</p>` : ''}
+      ${d.has_pit ? '' : '<p class="page-desc" style="margin:8px 0 0;color:var(--sell)">※ point-in-time 재무 미수집 — 기본적 팩터 제외. /api/refresh로 수집하세요.</p>'}`;
+  } catch (e) { el.textContent = '불러오지 못했습니다.'; }
 }
 async function saveEngine(){
   const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '적용 중…';

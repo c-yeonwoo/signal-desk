@@ -301,6 +301,39 @@ def _price_only_components(
     ]
 
 
+def _fundamental_component(
+    metrics: dict | None, config: SignalConfig
+) -> tuple[float, float, list[str]]:
+    """재무 metrics(ROE/부채/성장) → 컴포넌트. 데이터 없으면 가중치 0(제외). backtest의
+    point-in-time 재무 반영에 쓰인다 — evaluate()의 인라인 계산과 동일 규칙(fnd.score)."""
+    fund = fnd.score(metrics or {})
+    if not fund.has_data:
+        return 0.0, 0.0, fund.reasons
+    return fund.score / 2.0, config.weight_fundamental, fund.reasons
+
+
+def _pit_year(date_str: str, available_years: list[int]) -> int | None:
+    """date_str('YYYY-MM-DD') 시점에 '이미 공시돼 알 수 있던' 가장 최근 사업연도.
+    연간 사업보고서는 이듬해 3~4월 공시 → 4월 이후면 (연도-1), 이전이면 (연도-2)까지 가용."""
+    y, m = int(date_str[:4]), int(date_str[5:7])
+    known = y - 1 if m >= 4 else y - 2
+    avail = [hy for hy in available_years if hy <= known]
+    return max(avail) if avail else None
+
+
+def _replay_components(
+    closes: list[float], series: dict, i: int, config: SignalConfig,
+    fund_metrics: dict | None = None,
+) -> list[tuple[float, float, list[str]]]:
+    """backtest 재현용 컴포넌트 — 가격기반(기술+낙폭과대)에 point-in-time 재무를 선택적으로 더한다.
+    (저평가는 시점별 PER/PBR이 종목별 스케일 차이로 횡단면 비교가 왜곡돼 backtest에서 제외 — 기술/
+    낙폭/재무는 종목 내 상대·절대값이라 유효.)"""
+    comps = _price_only_components(closes, series, i, config)
+    if fund_metrics is not None:
+        comps.append(_fundamental_component(fund_metrics, config))
+    return comps
+
+
 def replay_signal_kinds(closes: list[float], config: SignalConfig | None = None) -> list[str]:
     """전 구간 매 시점 시그널 재현(backtest_summary와 동일 방법론) — 차트 구간 표시용."""
     config = config or SignalConfig()
@@ -338,65 +371,154 @@ def signal_zones(
     return zones
 
 
-def backtest_summary(
-    prices_by_ticker: dict[str, list[float]], config: SignalConfig | None = None
+def _run_backtest(
+    prices_by_ticker: dict[str, list[float]], config: SignalConfig,
+    dates_by_ticker: dict[str, list[str]] | None = None,
+    fundamentals_history: dict[str, dict] | None = None,
+    start_frac: float = 0.0, end_frac: float = 1.0,
 ) -> dict:
-    """가격 기반 팩터(기술+낙폭과대) 백테스트 — 종가 계열만으로 과거 매 시점의 시그널을
-    재현하고 이후 실현 수익률로 적중 여부를 검증한다. 기본/저평가는 시점별 재무 스냅샷이
-    없어 과거 재현이 더 복잡해 범위 밖(TODO).
+    """백테스트 코어 — 종가 계열로 과거 매 시점 시그널을 재현하고 이후 실현 수익률로 적중 검증.
+    fundamentals_history가 주어지면 각 시점의 '그때 알 수 있던' 연간 재무(point-in-time)를 반영한다.
+    start_frac/end_frac로 시계열 구간을 잘라 walk-forward에 재사용한다.
 
-    진입가는 시그널 다음 날의 종가로 근사한다(시가 데이터가 없는 경우의 근사치 — 실제 시가를
-    구하면 더 정확해지므로 TODO로 남겨둔다).
+    진입가는 시그널 다음 날의 종가로 근사(시가 미보유 시 근사치). 반환: {by_kind_counts}.
     """
-    config = config or SignalConfig()
     horizons = config.backtest_horizons
-    by_kind: dict[str, dict[str, list[float]]] = {
-        k: {f"ret_{h}d": [] for h in horizons} for k in ACTIONABLE_KINDS
-    }
-    hits: dict[str, int] = {k: 0 for k in ACTIONABLE_KINDS}
-    counted: dict[str, int] = {k: 0 for k in ACTIONABLE_KINDS}
+    primary_h = horizons[0]
+    by_kind = {k: {f"ret_{h}d": [] for h in horizons} for k in ACTIONABLE_KINDS}
+    hits = {k: 0 for k in ACTIONABLE_KINDS}
+    counted = {k: 0 for k in ACTIONABLE_KINDS}
 
-    for closes in prices_by_ticker.values():
-        if len(closes) < 30:
+    for ticker, closes in prices_by_ticker.items():
+        n_all = len(closes)
+        lo, hi = int(n_all * start_frac), int(n_all * end_frac)
+        window = closes[lo:hi]
+        if len(window) < 30:
             continue
-        series = compute_indicator_series(closes, config)
-        for i in range(len(closes) - 1):
-            entry_idx = i + 1  # 시그널 다음날 종가로 진입 근사
-            combined = combine(_price_only_components(closes, series, i, config), config)
+        dates = (dates_by_ticker or {}).get(ticker)
+        wdates = dates[lo:hi] if dates else None
+        hist = (fundamentals_history or {}).get(ticker) or {}
+        hist_years = sorted(int(y) for y in hist) if hist else []
+
+        series = compute_indicator_series(window, config)
+        for i in range(len(window) - 1):
+            entry_idx = i + 1
+            if entry_idx + primary_h >= len(window):
+                continue
+            fund_metrics = None
+            if hist_years and wdates:
+                py = _pit_year(wdates[i], hist_years)
+                fund_metrics = hist.get(str(py)) if py else None
+            combined = combine(_replay_components(window, series, i, config, fund_metrics), config)
             kind = combined["kind"]
             if kind == HOLD:
                 continue
 
-            entry_price = closes[entry_idx]
-            primary_h = horizons[0]
-            if entry_idx + primary_h >= len(closes):
-                continue
-            ret_primary = (closes[entry_idx + primary_h] - entry_price) / entry_price
+            entry_price = window[entry_idx]
+            ret_primary = (window[entry_idx + primary_h] - entry_price) / entry_price
             counted[kind] += 1
-            hit = ret_primary > config.backtest_hit_ret if is_buy(kind) else ret_primary < -config.backtest_hit_ret
-            if hit:
+            if (ret_primary > config.backtest_hit_ret if is_buy(kind) else ret_primary < -config.backtest_hit_ret):
                 hits[kind] += 1
-
             for h in horizons:
-                if entry_idx + h < len(closes):
-                    ret_h = (closes[entry_idx + h] - entry_price) / entry_price
-                    by_kind[kind][f"ret_{h}d"].append(ret_h)
+                if entry_idx + h < len(window):
+                    by_kind[kind][f"ret_{h}d"].append((window[entry_idx + h] - entry_price) / entry_price)
 
-    by_signal = []
+    return {"by_kind": by_kind, "hits": hits, "counted": counted}
+
+
+def _by_signal_rows(core: dict, horizons: tuple[int, ...]) -> list[dict]:
+    rows = []
     for kind in ACTIONABLE_KINDS:
-        n = counted[kind]
-        row = {
-            "kind": kind,
-            "n": n,
-            "winrate": round(hits[kind] / n * 100, 1) if n else None,
-        }
+        n = core["counted"][kind]
+        row = {"kind": kind, "n": n,
+               "winrate": round(core["hits"][kind] / n * 100, 1) if n else None}
         for h in horizons:
-            rets = by_kind[kind][f"ret_{h}d"]
+            rets = core["by_kind"][kind][f"ret_{h}d"]
             row[f"avg_ret_{h}d"] = round(sum(rets) / len(rets) * 100, 2) if rets else None
-        by_signal.append(row)
+        rows.append(row)
+    return rows
 
+
+def backtest_summary(
+    prices_by_ticker: dict[str, list[float]], config: SignalConfig | None = None,
+    dates_by_ticker: dict[str, list[str]] | None = None,
+    fundamentals_history: dict[str, dict] | None = None,
+) -> dict:
+    """시그널 적중률 성적표. fundamentals_history를 주면 point-in-time 재무까지 반영(method=pit_v3),
+    아니면 가격기반(기술+낙폭과대)만(method=price_based_v2)."""
+    config = config or SignalConfig()
+    core = _run_backtest(prices_by_ticker, config, dates_by_ticker, fundamentals_history)
     return {
-        "method": "price_based_v2",
+        "method": "pit_v3" if fundamentals_history else "price_based_v2",
         "hit_threshold_pct": config.backtest_hit_ret * 100,
-        "by_signal": by_signal,
+        "by_signal": _by_signal_rows(core, config.backtest_horizons),
     }
+
+
+# 팩터별 개별 백테스트를 위해 한 팩터만 남기고 나머지 가중치를 0으로
+_FACTOR_WEIGHTS = {
+    "technical": "weight_technical",
+    "reversion": "weight_reversion",
+    "fundamental": "weight_fundamental",
+}
+
+
+def factor_contribution(
+    prices_by_ticker: dict[str, list[float]], config: SignalConfig | None = None,
+    dates_by_ticker: dict[str, list[str]] | None = None,
+    fundamentals_history: dict[str, dict] | None = None,
+) -> dict:
+    """팩터별 기여도 — 각 팩터만 단독으로 켜고(나머지 가중치 0) 백테스트해, 어느 팩터가 매수
+    적중률을 끌어올리는지 비교한다. '전체'(모든 팩터)도 함께 반환해 기준선을 준다."""
+    from dataclasses import replace
+    config = config or SignalConfig()
+    zeroed = {w: 0.0 for w in _FACTOR_WEIGHTS.values()}
+    factors = []
+    # 전체(baseline)
+    base_core = _run_backtest(prices_by_ticker, config, dates_by_ticker, fundamentals_history)
+    factors.append({"factor": "all", "label": "전체", **_buy_stats(base_core)})
+    for name, wfield in _FACTOR_WEIGHTS.items():
+        # fundamental은 히스토리 없으면 스킵(단독으로 볼 게 없음)
+        if name == "fundamental" and not fundamentals_history:
+            continue
+        cfg = replace(config, **{**zeroed, wfield: 1.0})
+        hist = fundamentals_history if name == "fundamental" else None
+        core = _run_backtest(prices_by_ticker, cfg, dates_by_ticker, hist)
+        factors.append({"factor": name, "label": _FACTOR_LABEL[name], **_buy_stats(core)})
+    return {"factors": factors, "primary_horizon": config.backtest_horizons[0]}
+
+
+_FACTOR_LABEL = {"technical": "기술적", "reversion": "낙폭과대", "fundamental": "기본적(PIT)"}
+
+
+def _buy_stats(core: dict) -> dict:
+    """매수(강력매수+매수) 합산 적중률·표본·평균수익 — 팩터 비교 지표."""
+    n = core["counted"]["BUY"] + core["counted"]["STRONG_BUY"]
+    h = core["hits"]["BUY"] + core["hits"]["STRONG_BUY"]
+    rets = core["by_kind"]["BUY"]["ret_5d"] + core["by_kind"]["STRONG_BUY"]["ret_5d"] \
+        if "ret_5d" in core["by_kind"]["BUY"] else []
+    return {
+        "n": n,
+        "winrate": round(h / n * 100, 1) if n else None,
+        "avg_ret": round(sum(rets) / len(rets) * 100, 2) if rets else None,
+    }
+
+
+def walk_forward(
+    prices_by_ticker: dict[str, list[float]], config: SignalConfig | None = None,
+    dates_by_ticker: dict[str, list[str]] | None = None,
+    fundamentals_history: dict[str, dict] | None = None,
+    windows: int = 4,
+) -> dict:
+    """워크포워드 — 시계열을 windows개 구간으로 순차 분할해 각 구간에서 따로 백테스트한다.
+    특정 구간에서만 잘 맞고 다른 구간에선 무너지는(과최적화·불안정) 시그널을 드러내기 위함이다.
+    (우리 시그널은 학습 파라미터가 없어 별도 train은 없고, 구간별 out-of-sample 안정성 점검이다.)"""
+    config = config or SignalConfig()
+    segs = []
+    for w in range(windows):
+        core = _run_backtest(prices_by_ticker, config, dates_by_ticker, fundamentals_history,
+                             start_frac=w / windows, end_frac=(w + 1) / windows)
+        segs.append({"window": w + 1, **_buy_stats(core)})
+    valid = [s["winrate"] for s in segs if s["winrate"] is not None]
+    spread = round(max(valid) - min(valid), 1) if len(valid) >= 2 else None
+    return {"windows": segs, "winrate_spread": spread}

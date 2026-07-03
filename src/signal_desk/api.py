@@ -23,7 +23,7 @@ from signal_desk.reference import cycle, sectors, valuechain
 from signal_desk.signals import macro, rebalance, regime, valuation
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, combine,
-    compute_indicator_series, evaluate, signal_zones,
+    compute_indicator_series, evaluate, factor_contribution, signal_zones, walk_forward,
 )
 
 config.load_env()
@@ -217,6 +217,21 @@ def _backtest():
 
 
 @lru_cache(maxsize=1)
+def _backtest_analysis():
+    """point-in-time 재무 반영 요약 + 팩터별 기여도 + 워크포워드 — 관리자 정밀 분석용."""
+    cfg = signalcfg.get_config()
+    prices = store.load_price_series()
+    dates = store.load_dates_by_ticker()
+    hist = store.load_fundamentals_history()
+    return {
+        "pit": backtest_summary(prices, cfg, dates, hist),
+        "factors": factor_contribution(prices, cfg, dates, hist),
+        "walkforward": walk_forward(prices, cfg, dates, hist),
+        "has_pit": bool(hist),
+    }
+
+
+@lru_cache(maxsize=1)
 def _valuation():
     return valuation.screen(store.load_universe(), store.load_fundamentals())
 
@@ -263,10 +278,18 @@ def signals_get():
 
 @app.get("/api/backtest")
 def backtest_get():
-    """시그널 적중률 성적표 — 1차 버전은 기술점수 단독(engine.backtest_summary 참고)."""
+    """시그널 적중률 성적표 — 가격기반(기술+낙폭과대). 정밀 분석은 /api/backtest/analysis."""
     if not store.is_ready():
         return {"ready": False}
     return {"ready": True, **_backtest()}
+
+
+@app.get("/api/backtest/analysis")
+def backtest_analysis_get():
+    """정밀 분석 — point-in-time 재무 반영 성적표 + 팩터별 기여도 + 워크포워드 안정성."""
+    if not store.is_ready():
+        return {"ready": False}
+    return {"ready": True, **_backtest_analysis()}
 
 
 @app.get("/api/signals/{ticker}/chart")
@@ -324,9 +347,11 @@ def refresh():
     universe = store.fetch_universe()
     store.fetch_prices(universe)
     fundamentals = store.fetch_fundamentals(universe)
+    store.fetch_fundamentals_history(universe)  # point-in-time 백테스트용 연도별 재무
     macro_items = store.fetch_macro()
     _signals.cache_clear()
     _backtest.cache_clear()
+    _backtest_analysis.cache_clear()
     _valuation.cache_clear()
     _quotes.cache_clear()
     _regime.cache_clear()
@@ -490,6 +515,7 @@ def engine_config_set(data: dict = Body(...)):
     out = signalcfg.set_dict(data)
     _signals.cache_clear()
     _backtest.cache_clear()
+    _backtest_analysis.cache_clear()
     return {"ok": True, "config": out}
 
 
@@ -498,6 +524,7 @@ def engine_config_reset():
     out = signalcfg.reset()
     _signals.cache_clear()
     _backtest.cache_clear()
+    _backtest_analysis.cache_clear()
     return {"ok": True, "config": out}
 
 
