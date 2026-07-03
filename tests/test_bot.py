@@ -185,7 +185,8 @@ def test_buys_top_scored_signals_respecting_slots_and_lot_size(tmp_path, monkeyp
         _sig("CCC", "다", "BUY", score=1.3),
         _sig("EXP", "비싼종목", "BUY", score=3.0),  # 점수는 1등이지만 배분금액(800)보다 비싸 스킵
     ]
-    # position_pct=0.08(기본) * total_eval(10000) = 800원 배분 -> 100원 종목은 8주, EXP(999999원)는 스킵
+    # 목표배분 = 0.08*10000 = 800원. ① 분할매수: 균형형 3분할 → 1트랜치 ≈ 266원 → 100원 종목은 2주(신규 진입).
+    # EXP(999999원)는 1주도 못 사 스킵.
     bal = {"cash": 10_000.0, "total_eval": 10_000.0, "holdings": []}
     _setup_common(monkeypatch, universe, prices, signals, [bal, bal, bal])
     _set_cfg(min_buy_score=0.0, max_new_buys_per_run=10)  # 이 테스트는 점수순·정수주 검증 목적 → 선택성 완화
@@ -195,10 +196,10 @@ def test_buys_top_scored_signals_respecting_slots_and_lot_size(tmp_path, monkeyp
                          orders.append((ticker, side, qty)) or {"order_no": "1", "order_time": "t"})
 
     out = bot.run_once()
-    assert orders == [("BBB", "buy", 8), ("AAA", "buy", 8), ("CCC", "buy", 8)]  # 점수 내림차순
+    assert orders == [("BBB", "buy", 2), ("AAA", "buy", 2), ("CCC", "buy", 2)]  # 점수 내림차순, 1트랜치씩
     assert [b["ticker"] for b in out["buys"]] == ["BBB", "AAA", "CCC"]
     assert bot.db.bot_position_get("BBB") == {
-        "ticker": "BBB", "name": "나", "qty": 8, "avg_price": 100.0,
+        "ticker": "BBB", "name": "나", "qty": 2, "avg_price": 100.0,
         "peak_price": 100.0, "entry_date": bot._today(),
     }
 
@@ -222,6 +223,42 @@ def test_buy_drift_gate_skips_runup_and_crash(tmp_path, monkeypatch):
     assert [b["ticker"] for b in out["buys"]] == ["OK"]      # 갭 이탈 2건 스킵, 정상 1건만 매수
     assert out["skipped_gap_buys"] == 2
     assert orders[0][0] == "OK" and orders[0][3] == 102      # 지정가 = 종가 100 × (1+2%)
+
+
+def test_pyramid_adds_tranche_to_under_target_buy_holding(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    universe = [{"ticker": "AAA", "name": "가"}]
+    prices = {"AAA": [100.0]}
+    signals = [_sig("AAA", "가", "BUY", 2.0)]  # 여전히 BUY
+    # 보유 2주(평가 200) « 목표배분 800 → 미달 → 추가 트랜치 매수. 현재가 100 ≤ 평단 100(추격 아님)
+    bal = {"cash": 10_000.0, "total_eval": 10_000.0,
+           "holdings": [{"ticker": "AAA", "name": "가", "qty": 2, "avg_price": 100.0}]}
+    _setup_common(monkeypatch, universe, prices, signals, [bal, bal, bal])
+    _set_cfg(min_buy_score=0.0, max_positions=10, max_new_buys_per_run=2)
+    orders = []
+    monkeypatch.setattr(bot.kis, "place_order", lambda ticker, side, qty, price=None, creds=None:
+                         orders.append((ticker, side, qty)) or {"order_no": "1"})
+
+    out = bot.run_once()
+    adds = [b for b in out["buys"] if b["reason"] == "ADD"]
+    assert len(adds) == 1 and adds[0]["ticker"] == "AAA"  # 목표 미달 보유분에 분할 추가
+    assert orders and orders[0][1] == "buy"
+
+
+def test_pyramid_skips_when_extended_above_avg(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    universe = [{"ticker": "AAA", "name": "가"}]
+    prices = {"AAA": [100.0]}
+    signals = [_sig("AAA", "가", "BUY", 2.0)]
+    bal = {"cash": 10_000.0, "total_eval": 10_000.0,
+           "holdings": [{"ticker": "AAA", "name": "가", "qty": 2, "avg_price": 100.0}]}
+    _setup_common(monkeypatch, universe, prices, signals, [bal, bal, bal])
+    _set_cfg(min_buy_score=0.0, max_positions=10, max_new_buys_per_run=2)
+    monkeypatch.setattr(bot.kis, "current_price", lambda ticker, creds=None: 110.0)  # 평단+10% → 추격 안 함
+    monkeypatch.setattr(bot.kis, "place_order", lambda *a, **k: {"order_no": "1"})
+
+    out = bot.run_once()
+    assert [b for b in out["buys"] if b["reason"] == "ADD"] == []  # 평단보다 크게 위 → 추가 스킵
 
 
 def test_buys_respect_max_positions_slot_limit(tmp_path, monkeypatch):

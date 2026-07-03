@@ -23,3 +23,19 @@ def test_set_style_applies_preset(tmp_path, monkeypatch):
     cfg = db.bot_config_get()
     assert cfg["trading_style"] == "aggressive"
     assert cfg["max_positions"] == 6 and cfg["position_pct"] == 0.14 and cfg["min_buy_score"] == 1.3
+
+
+def test_risk_config_tightens_take_profit_in_choppy_regime():
+    # 추세(강세)면 넓은 익절(0.15), 횡보·약세면 중간 실현(0.09) — 균형형 기준
+    assert strategy.risk_config("balanced", "강세").take_profit_pct == 0.15
+    assert strategy.risk_config("balanced", "과열").take_profit_pct == 0.15
+    assert strategy.risk_config("balanced", "약세").take_profit_pct == 0.09
+    assert strategy.risk_config("balanced", "중립").take_profit_pct == 0.09
+    # regime 미지정이면 기본 익절 유지
+    assert strategy.risk_config("balanced").take_profit_pct == 0.15
+
+
+def test_entry_tranches_by_style():
+    assert strategy.entry_tranches("conservative") == 4
+    assert strategy.entry_tranches("balanced") == 3
+    assert strategy.entry_tranches("aggressive") == 2

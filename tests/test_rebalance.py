@@ -36,3 +36,24 @@ def test_propose_empty_adds_when_no_slots():
     plan = rebalance.propose(holdings, sigmap, prices, names, strategy.bot_params("balanced"))
     # 이미 목표 종목수(10)를 유지 중 → 신규 편입 슬롯 없음
     assert plan["adds"] == []
+
+
+def test_band_keeps_within_and_acts_outside():
+    # 균형형 목표비중 8%, 밴드 ±25% → 유지 구간 [6%, 10%]. 3종목 균등(각 33%)은 상단 초과 → 축소.
+    holdings = [{"ticker": t, "qty": 100, "avg_price": 100.0} for t in ("AAA", "BBB", "CCC")]
+    prices = {t: [100.0] for t in ("AAA", "BBB", "CCC")}
+    names = {t: t for t in ("AAA", "BBB", "CCC")}
+    sigmap = {t: _sig(t, "HOLD", 0.0) for t in ("AAA", "BBB", "CCC")}
+    plan = rebalance.propose(holdings, sigmap, prices, names, strategy.bot_params("balanced"))
+    assert {a["action"] for a in plan["actions"]} == {"축소"}  # 각 33% ≫ 밴드 상단 10% → 전부 축소
+
+
+def test_band_holds_when_near_target():
+    # 12종목 균등 → 각 ~8.3%, 목표 8% 밴드 [6%,10%] 내 → 전부 유지(리밸런싱 안 함)
+    tickers = [f"T{i}" for i in range(12)]
+    holdings = [{"ticker": t, "qty": 100, "avg_price": 100.0} for t in tickers]
+    prices = {t: [100.0] for t in tickers}
+    names = {t: t for t in tickers}
+    sigmap = {t: _sig(t, "HOLD", 0.0) for t in tickers}
+    plan = rebalance.propose(holdings, sigmap, prices, names, strategy.bot_params("balanced"))
+    assert {a["action"] for a in plan["actions"]} == {"유지"}

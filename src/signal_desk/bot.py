@@ -181,7 +181,8 @@ def run_once(dry_run: bool = False) -> dict:
         for ticker in {p["ticker"] for p in db.bot_positions_all()} - held_tickers:
             db.bot_position_delete(ticker)
 
-    risk_cfg = strategy.risk_config(cfg["trading_style"])  # 성향별 손절/익절/트레일링
+    # 성향별 손절/익절/트레일링 — 횡보·약세 국면이면 '중간 실현'용 타이트 익절(③)
+    risk_cfg = strategy.risk_config(cfg["trading_style"], market["context"].get("regime"))
     sells: list[dict] = []
     for h in bal["holdings"]:
         ticker, qty, avg_price = h["ticker"], h["qty"], h["avg_price"]
@@ -230,6 +231,11 @@ def run_once(dry_run: bool = False) -> dict:
     skipped_weak = 0
     skipped_gap = 0  # 신호가 대비 실시간가가 급등/급락 이탈해 스킵한 건수
     advisor_used = False
+    context = market["context"]  # 국면 스냅샷(1회 계산분 재사용)
+    cash = bal2["cash"]
+    target_alloc = bal2["total_eval"] * cfg["position_pct"]
+    tranches = strategy.entry_tranches(cfg["trading_style"])  # ① 분할매수 회차
+    tranche_alloc = target_alloc / tranches                  # 신규 진입은 1트랜치만(나머지는 다음 사이클에)
     if slots > 0:
         # min_buy_score 이상인 강한 BUY만 후보 — 약한 BUY는 매수하지 않음. 최근 악재(event_risk)는 제외
         eligible = [s for s in signals if engine.is_buy(s.kind) and s.ticker not in held_after and not s.event_risk]
@@ -239,7 +245,6 @@ def run_once(dry_run: bool = False) -> dict:
         pool_by = {s.ticker: s for s in pool}
 
         # 하이브리드: 가드레일 통과 후보(pool) 안에서 LLM이 최종 선별(있으면). 없으면 점수순.
-        context = market["context"]  # 위에서 1회 계산한 국면 스냅샷 재사용(중복 계상 방지)
         rationale_by = {}
         picks = advisor.select_buys(
             [{"ticker": s.ticker, "name": s.name, "score": s.score, "confidence": s.confidence, "reasons": s.reasons}
@@ -253,8 +258,6 @@ def run_once(dry_run: bool = False) -> dict:
         else:
             candidates = pool[:slots]
 
-        cash = bal2["cash"]
-        target_alloc = bal2["total_eval"] * cfg["position_pct"]
         for s in candidates:
             closes = prices.get(s.ticker)
             if not closes:
@@ -267,12 +270,12 @@ def run_once(dry_run: bool = False) -> dict:
                 skipped_gap += 1
                 continue
             limit_price = round(ref * (1 + _MAX_CHASE_PCT))    # 지정가 상한(종가+추격허용) → 상단 초과 체결 방지
-            alloc = min(target_alloc, cash)
+            alloc = min(tranche_alloc, cash)                   # ① 목표비중을 K분할 → 이번엔 1트랜치
             qty = int(alloc // live)                           # 수량은 실시간가 기준
             if qty < 1:
                 continue  # 배분금액보다 1주 가격이 비싸면 스킵(정수주 제약)
             quant = (f"점수 {s.score:+.2f}(≥{cfg['min_buy_score']:.1f}·신뢰도 {s.confidence:.2f}) · "
-                     f"동일가중 {cfg['position_pct'] * 100:.0f}%(약 {int(alloc):,}원) ÷ {int(live):,}원 = {qty}주 · "
+                     f"분할 1/{tranches}트랜치(약 {int(alloc):,}원) ÷ {int(live):,}원 = {qty}주 · "
                      f"지정가 {limit_price:,}원(종가 {int(ref):,}·현재 {int(live):,}, {drift * 100:+.1f}%)")
             llm_reason = rationale_by.get(s.ticker)
             note = (f"[AI] {llm_reason} · {quant}") if llm_reason else quant
@@ -293,6 +296,50 @@ def run_once(dry_run: bool = False) -> dict:
             else:
                 cash -= qty * live
             buys.append(plan)
+
+    # ① 분할매수 후속: 보유 중이고 여전히 BUY인데 목표비중 미달인 포지션에 다음 트랜치 추가.
+    #   평단 근처·이하에서만 담아 '물타기'가 아닌 목표까지의 규율적 분할(손절 대상은 위 매도에서 이미 처리됨).
+    for h in bal2["holdings"]:
+        t = h["ticker"]
+        sig = signal_by_ticker.get(t)
+        if not (sig and engine.is_buy(sig.kind)) or sig.event_risk:
+            continue
+        closes = prices.get(t)
+        if not closes:
+            continue
+        avg = h["avg_price"]
+        live = _live_price(t, creds, closes[-1], dry_run)
+        value = h["qty"] * live
+        if value >= target_alloc * 0.95:       # 이미 목표비중 도달 → 추가 없음
+            continue
+        if live > avg * (1 + _MAX_CHASE_PCT):   # 평단보다 크게 위면 추격 안 함(다음 눌림에)
+            continue
+        add_amt = min(tranche_alloc, target_alloc - value, cash)
+        qty = int(add_amt // live)
+        if qty < 1:
+            continue
+        limit_price = round(live * (1 + _MAX_CHASE_PCT))
+        note = (f"분할 추가매수(목표 {int(target_alloc):,}원 대비 {int(value):,}원) · "
+                f"평단 {int(avg):,}·현재 {int(live):,} · {qty}주 @지정가 {limit_price:,}")
+        plan = {"ticker": t, "name": h["name"], "qty": qty, "price": live, "limit_price": limit_price,
+                "reason": "ADD", "note": note, "score": sig.score, "ai": False}
+        if not dry_run:
+            result = kis.place_order(t, "buy", qty, price=limit_price, creds=creds)
+            if result is not None:
+                new_qty = h["qty"] + qty
+                new_avg = round((h["qty"] * avg + qty * live) / new_qty, 2)
+                pos = db.bot_position_get(t)
+                db.bot_trade_log(t, h["name"], "buy", qty, live, "ADD", result["order_no"], score=sig.score, note=note)
+                db.bot_position_upsert(t, h["name"], new_qty, new_avg,
+                                        max(pos["peak_price"] if pos else new_avg, live),
+                                        pos["entry_date"] if pos else _today())
+                cash -= qty * live
+                plan["ok"] = True
+            else:
+                plan["ok"] = False
+        else:
+            cash -= qty * live
+        buys.append(plan)
 
     final_bal = (kis.balance(creds) or bal2) if not dry_run else bal2
     return {

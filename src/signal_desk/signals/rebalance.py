@@ -10,11 +10,16 @@ from signal_desk import llm
 from signal_desk.signals import engine
 
 
+# 목표비중 ±밴드 — 이 안이면 유지(라오어 VR 응용: 밴드 벗어날 때만 리밸런싱 → 잦은 매매·노이즈 방지)
+REBAL_BAND = 0.25
+
+
 def propose(holdings: list[dict], signal_by_ticker: dict, prices: dict[str, list[float]],
             names: dict[str, str], style_params: dict) -> dict:
     """holdings: [{ticker, qty, avg_price}]. 반환: {actions, adds, total_value, target_weight, keep_n}."""
     target_w = style_params["position_pct"]
     target_n = style_params["max_positions"]
+    band_hi, band_lo = target_w * (1 + REBAL_BAND), target_w * (1 - REBAL_BAND)  # 밴드 상·하단
 
     rows = []
     total = 0.0
@@ -35,16 +40,17 @@ def propose(holdings: list[dict], signal_by_ticker: dict, prices: dict[str, list
         kind = sig.kind if sig else None
         score = sig.score if sig else None
         pl = (r["price"] / r["avg_price"] - 1) * 100 if r["avg_price"] else 0.0
+        band = f"목표 {target_w * 100:.0f}%±{REBAL_BAND * 100:.0f}%"
         if engine.is_sell(kind):
             action, reason = "매도", (f"시그널 {kind}(점수 {score:+.2f}) — 비중 정리 권고")
-        elif w > target_w * 1.6:
-            action, reason = "축소", (f"비중 과다({w * 100:.0f}% ≫ 목표 {target_w * 100:.0f}%) — 일부 차익/분산")
+        elif w > band_hi:  # 밴드 상단 초과 → 과다
+            action, reason = "축소", (f"비중 {w * 100:.0f}% > 밴드 상단({band}) — 일부 차익/분산")
             keep_n += 1
-        elif engine.is_buy(kind) and w < target_w * 0.7:
-            action, reason = "비중확대", (f"시그널 {kind}(점수 {score:+.2f}) + 저비중({w * 100:.0f}%) — 목표까지 추가 여지")
+        elif engine.is_buy(kind) and w < band_lo:  # 밴드 하단 미만 + BUY → 채움
+            action, reason = "비중확대", (f"시그널 {kind}(점수 {score:+.2f}) + 비중 {w * 100:.0f}% < 밴드 하단({band}) — 목표까지 분할 확대")
             keep_n += 1
-        else:
-            action, reason = "유지", (f"시그널 {kind or '정보없음'} · 비중 {w * 100:.0f}%(목표 {target_w * 100:.0f}%)")
+        else:  # 밴드 내 → 유지(리밸런싱 안 함)
+            action, reason = "유지", (f"시그널 {kind or '정보없음'} · 비중 {w * 100:.0f}% (밴드 {band} 내)")
             keep_n += 1
         actions.append({"ticker": r["ticker"], "name": r["name"], "kind": kind, "score": score,
                         "action": action, "reason": reason, "weight": round(w * 100, 1),
