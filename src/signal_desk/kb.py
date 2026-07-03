@@ -54,14 +54,15 @@ def build_digest(name: str, items: list[dict]) -> dict:
     return _rule_digest(name, items)
 
 
-def refresh(targets: list[dict], news_n: int = 5, video_n: int = 3) -> dict:
-    """targets: [{ticker, name}]. 각 종목 뉴스·영상 수집→저장→다이제스트 갱신. 갱신 건수 반환."""
+def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dict:
+    """targets: [{ticker, name}]. 각 종목 증권 뉴스 수집(신선도·관련성 필터)→저장→다이제스트 갱신.
+    유튜브는 화이트리스트 확보 전까지 보류. 갱신 건수 반환."""
     updated = 0
     for t in targets:
         ticker, name = t.get("ticker"), t.get("name", "")
         if not ticker or not name:
             continue
-        items = news.collect(name, news_n=news_n, video_n=video_n)
+        items = news.collect(name, news_n=news_n, lookback_days=lookback_days)
         if not items:
             continue
         db.kb_entry_add_many(ticker, items)
