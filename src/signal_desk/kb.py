@@ -42,9 +42,13 @@ _CLASS_RULES = [
 
 
 def classify_document(item: dict, source_type: str | None = None) -> str:
-    """문서를 유형으로 분류. source_type이 명시되면(report/disclosure) 우선. 아니면 키워드 규칙."""
+    """문서를 유형으로 분류. source_type이 명시되면(report/insight/disclosure) 우선. 아니면 키워드 규칙."""
     if source_type == "report":
         return "리포트"
+    if source_type == "insight":
+        return "전문가인사이트"
+    if source_type == "disclosure":
+        return "공시"
     text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
     for cls, terms in _CLASS_RULES:
         terms = _EVENT_TERMS if cls == "이벤트" else terms
