@@ -39,25 +39,24 @@ def _today() -> str:
     return datetime.date.today().isoformat()
 
 
-def _market_context(prices: dict[str, list[float]]) -> dict:
-    """LLM 자문·의사결정 저널에 실을 시장 맥락 — 국면·거시·경기사이클."""
+def _market_read(prices: dict[str, list[float]]) -> dict:
+    """시장 국면 단일 스냅샷 — 한 사이클에 한 번만 계산해 공유(중복 계상·중복 계산 방지).
+
+    거시(FRED)·국면(국내 breadth)은 여기서 '매수 임계값 게이트'로 딱 한 번 반영된다(eff_cfg).
+    context(regime/macro/cycle)는 LLM·저널에 넘기는 '참고 맥락'일 뿐, 게이트에서 이미 반영됐으므로
+    LLM이 이를 근거로 재차 감점하지 않도록 advisor 프롬프트가 명시한다(이중 반영 방지)."""
     reg = regime.classify(prices)
     macro_ind = store.load_macro()
     mread = macro.read(macro_ind)
     cyc = cycle.position(macro_ind)
-    return {
+    eff_cfg, adapt = signalcfg.effective_config(reg, mread)
+    context = {
         "regime": reg.get("regime"),
         "macro_bias": mread.get("bias"),
         "cycle_phase": cyc.get("phase_name"),
+        "gate_applied": bool(adapt.get("bump")),  # 매수 기준이 이미 상향됐는지(LLM에 알림)
     }
-
-
-def _eval_config(prices: dict[str, list[float]]) -> tuple:
-    """시그널 계산에 쓸 실효 설정 — 약세·비우호 국면이면 매수 임계값이 자동 상향된 config.
-    반환: (SignalConfig, adapt_info). api._signals와 동일 규칙(signalcfg.effective_config)."""
-    reg = regime.classify(prices)
-    mread = macro.read(store.load_macro())
-    return signalcfg.effective_config(reg, mread)
+    return {"eff_cfg": eff_cfg, "adapt": adapt, "context": context}
 
 
 def _update_decision_outcomes(prices: dict[str, list[float]]) -> None:
@@ -153,8 +152,8 @@ def run_once(dry_run: bool = False) -> dict:
         return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요"}
 
     fundamentals = store.load_fundamentals()
-    eff_cfg, _ = _eval_config(prices)  # 약세·비우호 국면이면 매수 기준 자동 상향
-    signals = engine.evaluate(universe, prices, fundamentals, config=eff_cfg, sentiment=kb.sentiment_map())
+    market = _market_read(prices)  # 국면 스냅샷 1회 — 거시는 여기 게이트에서만 매수 기준에 반영
+    signals = engine.evaluate(universe, prices, fundamentals, config=market["eff_cfg"], sentiment=kb.sentiment_map())
     signal_by_ticker = {s.ticker: s for s in signals}
     name_by_ticker = {u["ticker"]: u["name"] for u in universe}
     if not dry_run:
@@ -224,7 +223,7 @@ def run_once(dry_run: bool = False) -> dict:
         pool_by = {s.ticker: s for s in pool}
 
         # 하이브리드: 가드레일 통과 후보(pool) 안에서 LLM이 최종 선별(있으면). 없으면 점수순.
-        context = _market_context(prices)
+        context = market["context"]  # 위에서 1회 계산한 국면 스냅샷 재사용(중복 계상 방지)
         rationale_by = {}
         picks = advisor.select_buys(
             [{"ticker": s.ticker, "name": s.name, "score": s.score, "confidence": s.confidence, "reasons": s.reasons}
@@ -297,11 +296,11 @@ def generate_reservations(dry_run: bool = False) -> dict:
     bal = kis.balance(creds)
     held = {h["ticker"] for h in bal["holdings"]} if bal else set()
     fundamentals = store.load_fundamentals()
-    eff_cfg, _ = _eval_config(prices)  # 국면 적응 매수 기준(예약도 동일 규칙)
-    signals = engine.evaluate(universe, prices, fundamentals, config=eff_cfg, sentiment=kb.sentiment_map())
+    market = _market_read(prices)  # 국면 스냅샷 1회(예약도 동일 규칙 — 거시는 게이트에서만)
+    signals = engine.evaluate(universe, prices, fundamentals, config=market["eff_cfg"], sentiment=kb.sentiment_map())
     cfg = db.bot_config_get()
     slots = min(max(0, cfg["max_positions"] - len(held)), cfg["max_new_buys_per_run"])
-    context = _market_context(prices)
+    context = market["context"]
 
     strong = [s for s in signals if engine.is_buy(s.kind) and s.score >= cfg["min_buy_score"]
               and s.ticker not in held and not s.event_risk]

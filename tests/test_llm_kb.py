@@ -36,6 +36,32 @@ def test_detect_event_flags_negative_events():
     assert kb.detect_event([{"title": "B사 실적 발표", "summary": "영업이익 증가"}])[0] is False
 
 
+def test_classify_document_rules():
+    assert kb.classify_document({"title": "삼성 목표주가 상향 매수의견"}) == "리포트"
+    assert kb.classify_document({"title": "2분기 영업이익 급증"}) == "실적"
+    assert kb.classify_document({"title": "공급계약 공시"}) == "공시"
+    assert kb.classify_document({"title": "대표 횡령 혐의"}) == "이벤트"
+    assert kb.classify_document({"title": "코스피 환율 영향"}) == "시황"
+    assert kb.classify_document({"title": "그냥 일반 소식"}) == "뉴스"
+    assert kb.classify_document({"title": "아무거나"}, source_type="report") == "리포트"
+
+
+def test_import_document_stores_and_rebuilds(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb.llm, "available", lambda: False)  # 규칙 폴백(발췌 요약)
+    out = kb.import_document("005930", "삼성전자", "3분기 프리뷰", "반도체 업황 회복으로 목표주가 상향.", "report")
+    assert out["ok"] and out["doc_class"] == "리포트"
+    from signal_desk import db
+    docs = db.kb_documents(ticker="005930")
+    assert docs and docs[0]["doc_class"] == "리포트"
+    assert db.kb_digest_get("005930") is not None  # 다이제스트 재계산됨
+
+
+def test_import_document_rejects_empty(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert kb.import_document("005930", "삼성전자", "", "", "report")["ok"] is False
+
+
 def test_rule_digest_sentiment_from_keywords():
     items = [{"title": "실적 급등 호재 신고가", "summary": ""}, {"title": "수주 개선 기대", "summary": ""}]
     d = kb._rule_digest("가나전자", items)

@@ -55,8 +55,9 @@ def select_buys(candidates: list[dict], context: dict, digests: dict[str, dict],
         "정성 심리, 과거 성패 경향을 함께 고려하되, 단 한 번의 실패에 과도하게 반응하지 마라(표본이 적으면 경향만 참고). "
         "정성 판단은 제공된 KB 요약의 사실에만 근거하고, KB에 없는 내용은 추측·언급하지 마라(KB 없으면 정성은 중립). "
         "손절·익절·비중 같은 실행 규칙은 코드가 처리하니 너는 '무엇을 왜'만 정한다.")
+    gate_note = "이미 매수 기준(임계값)에 반영됨 — 재차 감점 말 것" if context.get("gate_applied") else "매수 기준 조정 없음"
     user = (
-        f"[시장 맥락] 국면={context.get('regime')} · 거시={context.get('macro_bias')} · "
+        f"[시장 맥락 · 참고용, {gate_note}] 국면={context.get('regime')} · 거시={context.get('macro_bias')} · "
         f"경기사이클={context.get('cycle_phase')}\n\n"
         f"[매수 후보(가드레일 통과)]\n" + "\n".join(cand_lines) + "\n\n"
         f"[과거 의사결정 성패(학습, 경향 참고용)]\n" + "\n".join(lesson_lines) + "\n\n"

@@ -30,6 +30,69 @@ _EVENT_TERMS = [
 EVENT_TTL_DAYS = 5  # 이 기간 지난 악재는 veto에서 해제(신선도)
 
 
+# 문서 유형 분류 — 규칙 기반(투명·무료). 우선순위 순으로 첫 매칭 채택.
+DOC_CLASSES = ("리포트", "공시", "실적", "이벤트", "시황", "뉴스")
+_CLASS_RULES = [
+    ("리포트", ["목표주가", "투자의견", "매수의견", "커버리지", "리포트", "적정주가", "투자등급"]),
+    ("공시", ["공시", "정정공시", "공급계약", "단일판매", "자기주식", "주주총회", "유상증자", "무상증자"]),
+    ("실적", ["실적", "영업이익", "잠정실적", "어닝", "컨센서스", "매출액", "당기순이익"]),
+    ("이벤트", None),  # _EVENT_TERMS 사용(아래에서 주입)
+    ("시황", ["코스피", "코스닥", "증시", "환율", "금리", "fomc", "국제유가", "거시", "나스닥"]),
+]
+
+
+def classify_document(item: dict, source_type: str | None = None) -> str:
+    """문서를 유형으로 분류. source_type이 명시되면(report/disclosure) 우선. 아니면 키워드 규칙."""
+    if source_type == "report":
+        return "리포트"
+    text = f"{item.get('title', '')} {item.get('summary', '')}".lower()
+    for cls, terms in _CLASS_RULES:
+        terms = _EVENT_TERMS if cls == "이벤트" else terms
+        if any(term.lower() in text for term in terms):
+            return cls
+    return "뉴스"
+
+
+def import_document(ticker: str, name: str, title: str, text: str,
+                    source_type: str = "report", url: str = "") -> dict:
+    """증권사 리포트·원문 텍스트를 받아 LLM 요약·분류 후 KB 문서로 추가하고 다이제스트 갱신.
+    반환: {ok, doc_class, summary}. 원문(raw_text)도 보존."""
+    text = (text or "").strip()
+    if not text or not ticker or not name:
+        return {"ok": False, "reason": "ticker·name·text 필요"}
+    doc_class = classify_document({"title": title, "summary": text[:500]}, source_type)
+    summary, points = _summarize_text(name, title, text)
+    db.kb_document_add(ticker, title or f"{name} {source_type}", summary, url,
+                       source_type, "", doc_class, raw_text=text)
+    _rebuild_digest(ticker, name)  # 뉴스+리포트 통합 재요약
+    return {"ok": True, "doc_class": doc_class, "summary": summary}
+
+
+def _summarize_text(name: str, title: str, text: str) -> tuple[str, list[str]]:
+    """긴 원문(리포트 등) → 투자관점 요약 1~2문장 + 핵심 포인트. LLM 없으면 앞부분 발췌."""
+    if llm.available():
+        system = ("너는 한국 주식 애널리스트다. 아래 문서를 투자 관점에서 사실 기반으로 요약한다. "
+                  "과장·추천 금지, 문서에 없는 내용 금지.")
+        user = (f"종목: {name}\n제목: {title}\n본문:\n{text[:6000]}\n\n"
+                'JSON으로만: {"summary": "한국어 1~2문장", "points": ["핵심 ≤3개"]}')
+        out = llm.complete_json(system, user, max_tokens=500)
+        if out and out.get("summary"):
+            return str(out["summary"])[:300], [str(p) for p in (out.get("points") or [])][:3]
+    excerpt = " ".join(text.split())[:200]
+    return f"{name} 문서 발췌: {excerpt}", []
+
+
+def _rebuild_digest(ticker: str, name: str) -> None:
+    """해당 종목의 최근 KB 문서(뉴스+리포트)를 합쳐 다이제스트·이벤트·신선도를 재계산."""
+    items = db.kb_entries_recent(ticker, 15)
+    if not items:
+        return
+    digest = build_digest(name, items)
+    event_flag, event_note = detect_event(items)
+    db.kb_digest_set(ticker, name, digest["sentiment"], digest["summary"], digest["points"],
+                     len(items), newest_ts=_newest_ts(items), event_flag=event_flag, event_note=event_note)
+
+
 def detect_event(items: list[dict]) -> tuple[bool, str]:
     """원자료 제목/요약에서 악재 이벤트 키워드를 찾아 (플래그, 사유) 반환. 없으면 (False, "")."""
     for it in items:
@@ -90,6 +153,8 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
         items = news.collect(name, news_n=news_n, lookback_days=lookback_days)
         if not items:
             continue
+        for it in items:  # 문서 유형 분류(뉴스/실적/공시/이벤트/시황)
+            it["doc_class"] = classify_document(it, "news")
         db.kb_entry_add_many(ticker, items)
         digest = build_digest(name, items)
         event_flag, event_note = detect_event(items)

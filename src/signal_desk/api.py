@@ -471,6 +471,32 @@ def kb_refresh():
     return {"ok": True, **out, "targets": len(targets)}
 
 
+# 주의: 아래 구체 경로들은 catch-all `/api/kb/{ticker}`보다 먼저 등록돼야 매칭된다.
+@app.get("/api/kb/documents")
+def kb_documents_get(ticker: str | None = None, doc_class: str | None = None, limit: int = 120):
+    """KB 문서 목록(관리자 대시보드) — 유형·종목 필터 + 유형별 건수."""
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    docs = db.kb_documents(ticker, doc_class, limit)
+    for d in docs:
+        d["name"] = names.get(d["ticker"], d["ticker"])
+    return {"documents": docs, "class_counts": db.kb_class_counts(), "classes": list(kb.DOC_CLASSES)}
+
+
+@app.post("/api/kb/import")
+def kb_import(data: dict = Body(...)):
+    """증권사 리포트·원문 텍스트를 KB 문서로 추가(LLM 요약·분류). {ticker, text, title?, source_type?, url?}."""
+    ticker = (data.get("ticker") or "").strip()
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    name = names.get(ticker) or (data.get("name") or "").strip()
+    if not ticker or not name:
+        return {"ok": False, "reason": "유니버스에 없는 종목코드입니다(ticker 확인)"}
+    out = kb.import_document(ticker, name, data.get("title", ""), data.get("text", ""),
+                            data.get("source_type", "report"), data.get("url", ""))
+    if out.get("ok"):
+        _signals.cache_clear()
+    return out
+
+
 @app.get("/api/kb/{ticker}")
 def kb_get(ticker: str):
     """종목 KB 다이제스트 + 최근 원자료 헤드라인."""

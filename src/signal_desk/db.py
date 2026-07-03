@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS bot_positions(ticker TEXT PRIMARY KEY, name TEXT, qty
 CREATE TABLE IF NOT EXISTS bot_trades(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
     side TEXT, qty INTEGER, price REAL, reason TEXT, order_no TEXT, ts INTEGER);
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
-    summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER);
+    summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
+    doc_class TEXT, raw_text TEXT);
 CREATE TABLE IF NOT EXISTS kb_digest(ticker TEXT PRIMARY KEY, name TEXT, sentiment REAL, summary TEXT,
     points TEXT, n_sources INTEGER, updated INTEGER, newest_ts INTEGER,
     event_flag INTEGER NOT NULL DEFAULT 0, event_note TEXT);
@@ -73,6 +74,11 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE kb_digest ADD COLUMN event_flag INTEGER NOT NULL DEFAULT 0")
     if "event_note" not in dcols:
         c.execute("ALTER TABLE kb_digest ADD COLUMN event_note TEXT")
+    ecols = {r[1] for r in c.execute("PRAGMA table_info(kb_entries)").fetchall()}
+    if "doc_class" not in ecols:  # 문서 유형(뉴스/리포트/공시/실적/이벤트/시황)
+        c.execute("ALTER TABLE kb_entries ADD COLUMN doc_class TEXT")
+    if "raw_text" not in ecols:  # 리포트·수동 입력 원문(뉴스는 NULL)
+        c.execute("ALTER TABLE kb_entries ADD COLUMN raw_text TEXT")
     c.commit()
 
 
@@ -296,14 +302,54 @@ def kb_entry_add_many(ticker: str, items: list[dict]) -> int:
         if title and title in seen_titles:  # 같은 기사 다른 URL(재발행·연합송고) 중복 제거
             continue
         seen_titles.add(title)
-        cur = c.execute("INSERT OR IGNORE INTO kb_entries(ticker,title,summary,url,source,published,fetched) "
-                        "VALUES(?,?,?,?,?,?,?)",
+        cur = c.execute("INSERT OR IGNORE INTO kb_entries(ticker,title,summary,url,source,published,fetched,doc_class) "
+                        "VALUES(?,?,?,?,?,?,?,?)",
                         (ticker, title, it.get("summary", ""), it["url"],
-                         it.get("source", ""), it.get("published", ""), int(time.time())))
+                         it.get("source", ""), it.get("published", ""), int(time.time()), it.get("doc_class")))
         added += cur.rowcount
     c.commit()
     c.close()
     return added
+
+
+def kb_document_add(ticker: str, title: str, summary: str, url: str, source: str,
+                    published: str, doc_class: str, raw_text: str | None = None) -> int:
+    """단일 문서 추가(리포트·수동 입력 등). url 없으면 유사고유키 생성. row id 반환(-1=중복)."""
+    c = conn()
+    key = url or f"manual:{ticker}:{title}:{int(time.time())}"
+    cur = c.execute("INSERT OR IGNORE INTO kb_entries(ticker,title,summary,url,source,published,fetched,doc_class,raw_text) "
+                    "VALUES(?,?,?,?,?,?,?,?,?)",
+                    (ticker, title, summary, key, source, published, int(time.time()), doc_class, raw_text))
+    c.commit()
+    rid = cur.lastrowid if cur.rowcount else -1
+    c.close()
+    return rid
+
+
+def kb_documents(ticker: str | None = None, doc_class: str | None = None, limit: int = 100) -> list[dict]:
+    """문서 대시보드용 — 전체(또는 필터) 문서 목록(최신순)."""
+    c = conn()
+    q = "SELECT id,ticker,title,summary,url,source,published,fetched,doc_class FROM kb_entries"
+    where, args = [], []
+    if ticker:
+        where.append("ticker=?"); args.append(ticker)
+    if doc_class:
+        where.append("doc_class=?"); args.append(doc_class)
+    if where:
+        q += " WHERE " + " AND ".join(where)
+    q += " ORDER BY id DESC LIMIT ?"; args.append(limit)
+    rows = c.execute(q, args).fetchall()
+    c.close()
+    cols = ["id", "ticker", "title", "summary", "url", "source", "published", "fetched", "doc_class"]
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def kb_class_counts() -> dict[str, int]:
+    """문서 유형별 건수(대시보드 필터 뱃지용)."""
+    c = conn()
+    rows = c.execute("SELECT COALESCE(doc_class,'미분류'), COUNT(*) FROM kb_entries GROUP BY doc_class").fetchall()
+    c.close()
+    return {k: n for k, n in rows}
 
 
 def kb_entries_recent(ticker: str, limit: int = 12) -> list[dict]:

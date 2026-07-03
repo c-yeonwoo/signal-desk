@@ -248,8 +248,7 @@
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')">트레이딩</button>
     <button class="tab" data-tab="valuation" onclick="switchTab('valuation')">저평가</button>
-    <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">경기사이클</button>
-    <button class="tab" data-tab="valuechain" onclick="switchTab('valuechain')">밸류체인</button>
+    <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">산업 사이클</button>
   </div>
   <div class="right">
     <span id="myPageLabel" class="btn" onclick="switchTab('mypage')" style="cursor:pointer"></span>
@@ -308,18 +307,16 @@
   </div>
 
   <div id="view-cycle" class="view-app" style="display:none">
-    <h2 class="page-head">경기사이클</h2>
-    <p class="page-desc">경기순환(회복→확장→둔화→수축)과 물가·금리 흐름에 따라 어떤 산업이 주도하는지 —
-      현재 위치는 미 CPI·금리(FRED)로 근사 추정합니다. 주도섹터를 누르면 밸류체인으로 연결됩니다.</p>
+    <h2 class="page-head">산업 사이클</h2>
+    <p class="page-desc">경기순환(회복→확장→둔화→수축)에 따라 어떤 산업이 주도하는지, 그리고 그 산업의
+      밸류체인 기업까지 — 톱다운으로 봅니다. 현재 위치는 미 CPI·금리(FRED)로 근사 추정합니다.</p>
     <div class="card" id="cycle-current" style="margin-bottom:16px"><div class="placeholder" style="padding:8px 0">불러오는 중…</div></div>
     <div class="card" style="margin-bottom:16px"><div id="cycle-chart" style="height:300px"></div></div>
     <div class="phase-grid" id="cycle-phases"></div>
-  </div>
 
-  <div id="view-valuechain" class="view-app" style="display:none">
-    <h2 class="page-head">밸류체인</h2>
-    <p class="page-desc">섹터별 업스트림~다운스트림 구조와 국내(코스피)·해외(나스닥) 대표기업.
-      국내 기업을 누르면 시그널 차트로 이동합니다. (구성은 큐레이션 스냅샷 · 추천 아님)</p>
+    <h3 class="page-head" style="font-size:18px;margin-top:28px" id="vc-anchor">밸류체인 <span style="color:var(--dim);font-size:13px;font-weight:600">· 주도섹터를 누르면 여기로 연결</span></h3>
+    <p class="page-desc">섹터별 업스트림~다운스트림 구조와 국내(코스피)·해외 대표기업. 국내 기업의 현재
+      시그널(관망 제외)이 뱃지로 표시되며, 누르면 시그널 차트로 이동합니다. (큐레이션 스냅샷 · 추천 아님)</p>
     <div class="vc-sectors" id="vc-sectors"></div>
     <div id="vc-detail"><div class="placeholder">불러오는 중…</div></div>
   </div>
@@ -357,7 +354,6 @@
           <button class="btn primary" id="bot-toggle-btn" onclick="toggleBot()">켜기</button>
           <button class="btn" onclick="runBotNow()">지금 실행</button>
           <button class="btn" onclick="previewBot()">판단 미리보기</button>
-          <button class="btn" onclick="refreshKb()">KB 갱신</button>
           <button class="btn" onclick="makeReservations()">예약 생성</button>
           <button class="btn" onclick="resetBot()">기록 초기화</button>
           <span class="stat-label" id="bot-kis-status" style="margin-left:auto"></span>
@@ -465,6 +461,31 @@
       <p class="page-desc" style="margin:6px 0 14px">각 팩터를 단독으로 백테스트해 기여도를 비교하고(매수 시그널 기준), 시간 구간별로 나눠 과최적화·불안정성을 점검합니다. 기본적 팩터는 point-in-time(그 시점에 공시돼 있던 재무)으로 반영합니다.</p>
       <div id="bt-analysis" class="placeholder" style="padding:20px 0">불러오는 중…</div>
     </div>
+
+    <div class="card" style="margin-top:18px">
+      <div class="row" style="align-items:baseline">
+        <b style="font-size:15px">KB 문서 <span style="color:var(--dim);font-weight:600;font-size:12px">· 지식베이스 원문·요약 (관리자)</span></b>
+        <button class="btn" onclick="refreshKb()" style="margin-left:auto">뉴스 갱신</button>
+      </div>
+      <p class="page-desc" style="margin:6px 0 12px">뉴스·리포트를 문서 단위로 수집·요약·분류해 KB에 쌓습니다. 시그널의 정성 판단(악재 veto)과 봇 자문이 이 KB만 근거로 씁니다.</p>
+
+      <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px">
+        <b style="font-size:13px">📄 리포트·원문 추가</b>
+        <p class="page-desc" style="margin:4px 0 8px">증권사 리포트나 기사 원문을 붙여넣으면 LLM이 요약·분류해 KB 문서로 보완합니다. (PDF 파일 업로드는 추후 지원)</p>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <input id="imp_ticker" class="ctrl" placeholder="종목코드 예:005930" style="flex:0 0 140px">
+          <input id="imp_title" class="ctrl" placeholder="제목(선택)" style="flex:1 1 200px">
+        </div>
+        <textarea id="imp_text" class="ctrl" placeholder="리포트/기사 원문 텍스트를 붙여넣으세요" style="width:100%;min-height:90px;margin-top:6px;resize:vertical"></textarea>
+        <div class="row" style="margin-top:6px">
+          <span id="imp-result" class="stat-label" style="margin:0"></span>
+          <button class="btn primary" onclick="importDoc()" style="margin-left:auto">KB에 추가</button>
+        </div>
+      </div>
+
+      <div id="kbdoc-filters" class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
+      <div id="kbdoc-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+    </div>
   </div>
 </main>
 
@@ -533,7 +554,7 @@
 </dialog>
 
 <script>
-const _ROUTES = ['signal','trading','valuation','cycle','valuechain','mypage'];
+const _ROUTES = ['signal','trading','valuation','cycle','mypage'];
 let _userEmail = '', _profile = {};
 
 function switchTab(t){
@@ -542,8 +563,7 @@ function switchTab(t){
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
   if (t === 'signal') loadSignals();  // 시황 리본은 전역(startApp에서 로드)
   if (t === 'valuation') loadValuation();
-  if (t === 'cycle') loadCycle();
-  if (t === 'valuechain') loadValuechain();
+  if (t === 'cycle') { loadCycle(); loadValuechain(); }  // 산업 사이클 = 경기사이클 + 밸류체인
   if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'mypage') fillMyPage();
   if (location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
@@ -590,7 +610,10 @@ function reasonEn(reasons){
 // ===== 탭 간 이동(사이클 → 밸류체인 → 시그널) =====
 const INDEX_TICKER = 'KOSPI200X';  // 시그널 탭 최상단 고정 지수(근사)
 let _pendingSignalTicker = null, _vcData = null, _vcCurrent = null;
-function gotoValuechain(key){ _vcCurrent = key; switchTab('valuechain'); }
+function gotoValuechain(key){  // 같은 '산업 사이클' 탭 내 밸류체인 섹션으로 이동
+  _vcCurrent = key; selectVcSector(key);
+  document.getElementById('vc-anchor').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 function gotoSignal(ticker){ _pendingSignalTicker = ticker; switchTab('signal'); }
 
 // ===== 사이클 =====
@@ -657,11 +680,17 @@ function drawCycleChart(phases, cur){
 }
 
 // ===== 밸류체인 =====
+let _vcSignals = {};  // ticker -> kind (HOLD 제외) — 밸류체인 노드 시그널 뱃지용
 async function loadValuechain(){
   if (!_vcData) {
     try { _vcData = (await (await fetch('/api/valuechain')).json()).sectors; }
     catch (e) { document.getElementById('vc-detail').innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
   }
+  try {  // 현재 시그널을 노드 뱃지로(관망 제외)
+    const sig = await (await fetch('/api/signals')).json();
+    _vcSignals = {};
+    (sig.items || []).forEach(r => { if (r.kind && r.kind !== 'HOLD') _vcSignals[r.ticker] = r.kind; });
+  } catch (e) {}
   document.getElementById('vc-sectors').innerHTML = _vcData.map(s =>
     `<button data-k="${s.key}" onclick="selectVcSector('${s.key}')">${esc(s.name)}</button>`).join('');
   selectVcSector(_vcCurrent || _vcData[0].key);
@@ -687,8 +716,13 @@ function drawVcDiagram(s){
   const maxSide = Math.max(1, ...s.stages.map(st => Math.max(st.domestic.length, st.overseas.length)));
   const h = Math.min(760, 200 + maxSide * 70);
   const isKr = (c) => c.ticker && /^\d{6}$/.test(c.ticker);
+  const sigBadge = (t) => {
+    const k = _vcSignals[t];
+    if (!k) return '';
+    return ` <span style="display:inline-block;padding:0 5px;border-radius:6px;font-size:10px;font-weight:800;color:#fff;background:${_ZONE_COLOR[k]}" title="현재 시그널">${kindLabel(k)}</span>`;
+  };
   const chip = (c) => isKr(c)
-    ? `<span class="vc-node kr" onclick="gotoSignal('${c.ticker}')" title="${esc(c.name)} ${esc(c.ticker)} · 클릭 시 시그널">${esc(c.name)}</span>`
+    ? `<span class="vc-node kr" onclick="gotoSignal('${c.ticker}')" title="${esc(c.name)} ${esc(c.ticker)} · 클릭 시 시그널">${esc(c.name)}${sigBadge(c.ticker)}</span>`
     : `<span class="vc-node ov" title="${esc(c.name)}${c.ticker ? ' · ' + esc(c.ticker) : ''}">${esc(c.name)}</span>`;
   const cols = s.stages.map(st => {
     const role = st.stage.split(' · ')[1] || st.stage;  // '업스트림/미드/다운' 키워드 제거, 역할명만
@@ -1234,13 +1268,53 @@ async function runRebalance(){
 }
 
 async function refreshKb(){
-  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = 'KB 수집 중…';
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '수집 중…';
   try {
     const d = await (await fetch('/api/kb/refresh', { method: 'POST' })).json();
-    const el = document.getElementById('bot-plan'); el.style.display = '';
-    el.innerHTML = d.ok ? `<b>🗞️ KB 갱신 완료</b> — 대상 ${d.targets}종목 중 ${d.updated}종목 뉴스·영상 가공(정성 팩터·시그널에 반영)`
-      : `KB 갱신 실패: ${esc(d.reason || '')}`;
+    const el = document.getElementById('imp-result');
+    el.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
+    el.textContent = d.ok ? `🗞️ 뉴스 갱신 완료 — 대상 ${d.targets}종목 중 ${d.updated}종목` : `실패: ${d.reason || ''}`;
+    loadKbDocs();
   } finally { btn.disabled = false; btn.textContent = t; }
+}
+
+let _kbDocClass = null;
+async function importDoc(){
+  const btn = event.target, res = document.getElementById('imp-result');
+  const ticker = document.getElementById('imp_ticker').value.trim();
+  const text = document.getElementById('imp_text').value.trim();
+  if (!ticker || !text) { res.style.color = 'var(--sell)'; res.textContent = '종목코드와 원문 텍스트가 필요합니다.'; return; }
+  btn.disabled = true; const t = btn.textContent; btn.textContent = '요약 중…';
+  try {
+    const d = await (await fetch('/api/kb/import', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticker, title: document.getElementById('imp_title').value.trim(), text }) })).json();
+    res.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
+    res.textContent = d.ok ? `✓ [${d.doc_class}] 추가됨 — ${(d.summary || '').slice(0, 60)}` : `실패: ${d.reason || ''}`;
+    if (d.ok) { document.getElementById('imp_text').value = ''; document.getElementById('imp_title').value = ''; loadKbDocs(); }
+  } finally { btn.disabled = false; btn.textContent = t; }
+}
+
+const _CLASS_COLOR = { 리포트: '#4f46e5', 실적: '#0369a1', 공시: '#0f766e', 이벤트: '#b3121a', 시황: '#b45309', 뉴스: '#64748b', 미분류: '#94a3b8' };
+const classBadge = (c) => `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#fff;background:${_CLASS_COLOR[c] || '#94a3b8'}">${esc(c || '미분류')}</span>`;
+async function loadKbDocs(){
+  const el = document.getElementById('kbdoc-body'), fEl = document.getElementById('kbdoc-filters');
+  try {
+    const q = _kbDocClass ? `?doc_class=${encodeURIComponent(_kbDocClass)}` : '';
+    const d = await (await fetch('/api/kb/documents' + q)).json();
+    const counts = d.class_counts || {};
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const chip = (label, val) => `<button class="btn${_kbDocClass === val ? ' primary' : ''}" style="padding:3px 10px;font-size:12px" onclick="_kbDocClass=${val ? `'${val}'` : 'null'};loadKbDocs()">${label}${val && counts[val] ? ` ${counts[val]}` : ''}</button>`;
+    fEl.innerHTML = chip(`전체 ${total}`, null) + (d.classes || []).map(c => counts[c] ? chip(c, c) : '').join('');
+    if (!d.documents.length) { el.className = ''; el.innerHTML = '<div class="placeholder" style="padding:16px 0">문서가 없습니다 — 뉴스 갱신 또는 리포트 추가로 채워집니다.</div>'; return; }
+    const rows = d.documents.map(doc => `<tr>
+      <td style="white-space:nowrap">${classBadge(doc.doc_class)}</td>
+      <td>${esc(doc.name || doc.ticker)}<div style="color:var(--dim);font-size:11px">${esc(doc.ticker)} · ${esc(doc.source || '')}</div></td>
+      <td>${doc.url ? `<a href="${esc(doc.url)}" target="_blank" rel="noopener">${esc(doc.title || '(제목없음)')}</a>` : esc(doc.title || '(제목없음)')}
+        <div style="color:var(--dim);font-size:11px;margin-top:2px">${esc((doc.summary || '').slice(0, 100))}</div></td>
+    </tr>`).join('');
+    el.className = '';
+    el.innerHTML = `<table class="dtable"><thead><tr><th>유형</th><th>종목</th><th>문서</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (e) { el.textContent = '불러오지 못했습니다.'; }
 }
 
 async function makeReservations(){
@@ -1312,6 +1386,7 @@ function fillMyPage(){
   document.getElementById('mp_style').value = _profile['투자성향'] || 'balanced';
   document.getElementById('mp_sector').value = (_profile['관심섹터'] || []).join(', ');
   loadEngine();
+  loadKbDocs();
 }
 
 // ===== 시그널 엔진 설정(관리자) =====
