@@ -109,6 +109,10 @@ def get_state() -> dict:
         "kis_connected": bal is not None,
         "cash": bal["cash"] if bal else None,
         "total_eval": bal["total_eval"] if bal else None,
+        "stock_eval": bal.get("stock_eval") if bal else None,
+        "invested": bal.get("invested") if bal else None,
+        "pnl": bal.get("pnl") if bal else None,
+        "pnl_pct": bal.get("pnl_pct") if bal else None,  # KIS 집계 기반 실제 총손익률
         "positions": db.bot_positions_all(),
         "recent_trades": db.bot_trades_recent(20),
         "reservations": db.bot_reservations_pending(),

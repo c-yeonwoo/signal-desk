@@ -129,7 +129,12 @@ def balance(creds: dict | None = None) -> dict | None:
         "FUND_STTL_ICLD_YN": "N", "FNCG_AMT_AUTO_RDPT_YN": "N", "PRCS_DVSN": "01",
         "CTX_AREA_FK100": "", "CTX_AREA_NK100": "",
     }
-    body = _request("/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, creds, params)
+    body = None
+    for attempt in range(3):  # KIS 간헐 500 대비 재시도
+        body = _request("/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, creds, params)
+        if body and body.get("rt_cd") == "0":
+            break
+        time.sleep(0.5)
     if not body or body.get("rt_cd") != "0":
         log.error("KIS 잔고조회 실패: %s", body.get("msg1") if body else "응답 없음")
         return None
@@ -142,9 +147,28 @@ def balance(creds: dict | None = None) -> dict | None:
         for h in body.get("output1", []) if int(h.get("hldg_qty", 0)) > 0
     ]
     summary = (body.get("output2") or [{}])[0]
+
+    def _f(key: str) -> float:
+        return float(summary.get(key, 0) or 0)
+
+    # 손익·현금은 KIS 자체 집계로 계산(클라이언트 산술 착오 방지):
+    #  - total_eval = 순자산(nass_amt) = 가용현금 + 유가증권평가
+    #  - 총손익률 = 평가손익합계 / 매입금액합계
+    #  - 가용현금 = 순자산 − 유가증권평가 (모의계좌 dnca_tot_amt가 매수 후에도 안 줄어드는
+    #    quirk가 있어 순자산에서 역산하는 게 정합적 — 봇 매수여력도 이 값을 써야 과대추정 방지)
+    net_asset = _f("nass_amt") or _f("tot_evlu_amt")
+    stock_eval = _f("evlu_amt_smtl_amt")
+    invested = _f("pchs_amt_smtl_amt")   # 매입금액합계
+    pnl = _f("evlu_pfls_smtl_amt")       # 평가손익합계
+    free_cash = round(net_asset - stock_eval) if net_asset else _f("dnca_tot_amt")
     return {
-        "cash": float(summary.get("dnca_tot_amt", 0)),
-        "total_eval": float(summary.get("tot_evlu_amt", 0)),
+        "cash": max(0.0, free_cash),                 # 가용현금(순자산−유가증권평가)
+        "deposit_raw": _f("dnca_tot_amt"),           # KIS 예수금총금액(참고)
+        "total_eval": net_asset,                     # 총평가금액(순자산)
+        "stock_eval": stock_eval,                    # 유가증권 평가금액
+        "invested": invested,                        # 매입금액합계
+        "pnl": pnl,                                  # 평가손익합계
+        "pnl_pct": round(pnl / invested * 100, 2) if invested else None,  # 실제 총손익률
         "holdings": holdings,
     }
 
