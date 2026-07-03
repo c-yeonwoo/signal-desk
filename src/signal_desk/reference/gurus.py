@@ -25,3 +25,47 @@ GURUS = [
 
 def all_gurus() -> list[dict]:
     return GURUS
+
+
+# 13F 발행사명 ↔ S&P500 종목명 매칭용 — 접미사·법인격 표기를 걷어내고 비교
+import re
+
+_SUFFIXES = [" INCORPORATED", " INC", " CORPORATION", " CORP", " COMPANY", " CO", " LTD",
+             " LLC", " PLC", " THE", " COM", " CLASS A", " CLASS B", " CLASS C", " CL A",
+             " CL B", " CL C", " HOLDINGS", " HLDGS", " GROUP", " SA", " NV", " AG", " & CO"]
+
+
+def _norm(name: str) -> str:
+    s = re.sub(r"[^A-Z0-9 ]", " ", (name or "").upper())  # 구두점 먼저 제거(INC. → INC)
+    s = " " + re.sub(r"\s+", " ", s).strip() + " "
+    changed = True
+    while changed:  # 접미사가 겹쳐 붙은 경우(… GROUP INC) 반복 제거
+        changed = False
+        for suf in _SUFFIXES:
+            if s.endswith(suf + " "):
+                s = s[: -len(suf) - 1] + " "
+                changed = True
+    return s.strip()
+
+
+def build_name_index(us_universe: list[dict]) -> dict[str, str]:
+    """S&P500 정규화종목명 → ticker 색인."""
+    idx = {}
+    for u in us_universe:
+        key = _norm(u.get("name", ""))
+        if key and key not in idx:
+            idx[key] = u["ticker"]
+    return idx
+
+
+def match_ticker(issuer_name: str, name_index: dict[str, str]) -> str | None:
+    """13F 발행사명 → S&P500 ticker. 정확 정규화 일치 우선, 없으면 접두 포함 매칭."""
+    key = _norm(issuer_name)
+    if not key:
+        return None
+    if key in name_index:
+        return name_index[key]
+    for nkey, tk in name_index.items():  # "ALPHABET" ⊂ "ALPHABET" 류 부분 매칭
+        if nkey.startswith(key) or key.startswith(nkey):
+            return tk
+    return None

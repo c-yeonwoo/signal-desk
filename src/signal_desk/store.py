@@ -23,6 +23,9 @@ FUNDAMENTALS_FILE = CACHE_DIR / "fundamentals.json"
 FUNDAMENTALS_HISTORY_FILE = CACHE_DIR / "fundamentals_history.json"  # point-in-time 백테스트용 연도별 재무
 MACRO_FILE = CACHE_DIR / "macro.json"
 GURUS_FILE = CACHE_DIR / "gurus.json"  # 거장 포트폴리오(SEC 13F) 스냅샷
+US_UNIVERSE_FILE = CACHE_DIR / "us_universe.json"   # S&P500 구성종목(datahub)
+US_PRICES_FILE = CACHE_DIR / "us_prices.parquet"    # 미국 종목 일봉(KIS 해외)
+US_EXCHANGES_FILE = CACHE_DIR / "us_exchanges.json"  # ticker→KIS 거래소코드 캐시(탐지 비용 절약)
 
 PRICE_HISTORY_DAYS = 400  # MA120 워밍업 + 백테스트 여유분
 
@@ -172,6 +175,73 @@ def load_gurus() -> list[dict]:
     if not GURUS_FILE.exists():
         return []
     return json.loads(GURUS_FILE.read_text(encoding="utf-8"))
+
+
+# ---------- 미국 주식(S&P500) — KIS 해외 시세, KOSPI와 별도 캐시로 격리 ----------
+def fetch_us_universe() -> list[dict]:
+    """S&P500 구성종목(datahub) 저장. [{ticker, name, sector}]."""
+    from signal_desk.ingest import us
+    items = us.sp500_constituents()
+    if items:
+        _write_json(US_UNIVERSE_FILE, items)
+    return items
+
+
+def load_us_universe() -> list[dict]:
+    if not US_UNIVERSE_FILE.exists():
+        return []
+    return json.loads(US_UNIVERSE_FILE.read_text(encoding="utf-8"))
+
+
+def _load_us_exchanges() -> dict:
+    if not US_EXCHANGES_FILE.exists():
+        return {}
+    return json.loads(US_EXCHANGES_FILE.read_text(encoding="utf-8"))
+
+
+def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
+    """지정 티커들의 미국 일봉을 KIS로 수집해 us_prices.parquet에 병합(upsert). 반환: 성공 종목 수.
+
+    거래소코드(EXCD)는 탐지 결과를 us_exchanges.json에 캐시해 재탐지를 피한다. 기존 parquet에
+    있던 다른 종목은 보존하고, 이번에 받은 종목만 갱신한다."""
+    import datetime
+    from signal_desk.ingest import us
+    exch = _load_us_exchanges()
+    existing = pd.read_parquet(US_PRICES_FILE) if US_PRICES_FILE.exists() else pd.DataFrame()
+    frames = [existing[existing["ticker"].isin(tickers) == False]] if not existing.empty else []
+    ok = 0
+    for t in tickers:
+        excd = exch.get(t) or us.detect_exchange(t)
+        if not excd:
+            log.warning("US 거래소 탐지 실패, 제외: %s", t)
+            continue
+        exch[t] = excd
+        bars = us.us_ohlcv(t, days=days, excd=excd)
+        if not bars:
+            continue
+        frames.append(pd.DataFrame([{"ticker": t, **b} for b in bars]))
+        ok += 1
+    if frames:
+        df = pd.concat(frames, ignore_index=True)[["date", "ticker", "open", "close", "volume"]]
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        df.to_parquet(US_PRICES_FILE, index=False)
+    _write_json(US_EXCHANGES_FILE, exch)
+    return ok
+
+
+def load_us_price_series() -> dict[str, list[float]]:
+    if not US_PRICES_FILE.exists():
+        return {}
+    df = pd.read_parquet(US_PRICES_FILE).sort_values(["ticker", "date"])
+    return {t: g["close"].tolist() for t, g in df.groupby("ticker")}
+
+
+def load_us_price_history(ticker: str) -> list[dict]:
+    if not US_PRICES_FILE.exists():
+        return []
+    df = pd.read_parquet(US_PRICES_FILE)
+    df = df[df["ticker"] == ticker].sort_values("date")
+    return [{"date": r["date"], "close": float(r["close"])} for _, r in df.iterrows()]
 
 
 def load_universe() -> list[dict]:

@@ -149,6 +149,9 @@
   .guru-desc { font-size:11px; color:var(--dim); margin-top:2px; }
   .guru-meta { font-size:11px; color:var(--dim-2); margin:8px 0 4px; }
   .guru-pie { height:220px; width:100%; }
+  .guru-sig { display:flex; flex-wrap:wrap; align-items:center; gap:5px; margin-top:8px; }
+  .guru-sig-k { font-size:10px; font-weight:700; color:var(--dim-2); letter-spacing:.03em; }
+  .guru-sig .sig-pill { font-size:10px; padding:2px 7px; }
 
   /* ===== 밸류체인 ===== */
   .vc-sectors { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
@@ -1236,15 +1239,22 @@ async function loadGurus(){
     el.innerHTML = '<div class="guru-grid">' + gurus.map((g, i) => `<div class="guru-card">
         <div class="guru-head"><b>${esc(g.name)}</b><div class="guru-desc">${esc(g.desc)}</div></div>
         <div class="guru-meta">기준 ${esc(g.period)} · ${g.n_holdings}종목 · ${_fmtUsd(g.total_usd)}</div>
-        <div class="guru-pie" id="guru-pie-${i}"></div></div>`).join('') + '</div>';
+        <div class="guru-pie" id="guru-pie-${i}"></div>
+        <div class="guru-sig" id="guru-sig-${i}"></div></div>`).join('') + '</div>';
     el.className = '';
     el.dataset.loaded = '1';
-    // 상위 보유 + '기타'(나머지 합) 조각으로 파이 구성
+    // 상위 보유 + '기타'(나머지 합) 조각으로 파이 구성 + 우리 시그널 뱃지(액션 종목만)
     gurus.forEach((g, i) => {
       const shown = g.holdings.reduce((s, h) => s + h.pct, 0);
       const data = g.holdings.map(h => ({ name: h.name, value: h.pct }));
       if (shown < 99) data.push({ name: '기타', value: Math.round((100 - shown) * 10) / 10 });
       drawPie(document.getElementById(`guru-pie-${i}`), data, v => fmtNum(v, 1) + '%');
+      const acted = g.holdings.filter(h => h.signal);  // HOLD·미매칭은 API에서 이미 제외
+      const sigEl = document.getElementById(`guru-sig-${i}`);
+      sigEl.innerHTML = acted.length
+        ? '<span class="guru-sig-k">우리 시그널</span>' + acted.map(h =>
+            `<span class="sig-pill ${h.signal.kind}" title="${esc(h.name)}">${esc(h.ticker)} ${kindLabel(h.signal.kind)}</span>`).join('')
+        : '';
     });
   } catch (e) { el.textContent = '불러오지 못했습니다.'; }
 }

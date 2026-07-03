@@ -21,7 +21,7 @@ from fastapi import Form, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from signal_desk import auth, bot, config, db, kb, signalcfg, store, strategy
-from signal_desk.reference import cycle, sectors, valuechain
+from signal_desk.reference import cycle, gurus as gurus_ref, sectors, valuechain
 from signal_desk.signals import macro, rebalance, regime, valuation
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, combine,
@@ -362,8 +362,14 @@ def refresh():
     macro_items = store.fetch_macro()
     try:
         store.fetch_gurus()  # 거장 포트폴리오(SEC 13F) — 실패해도 나머지 수집엔 영향 없음
+        us_uni = store.fetch_us_universe()  # S&P500 유니버스
+        idx = gurus_ref.build_name_index(us_uni)  # 거장 보유종목 → 시세 수집(뱃지용, 스로틀)
+        us_tks = sorted({t for g in store.load_gurus() for h in g.get("holdings", [])
+                         if (t := gurus_ref.match_ticker(h.get("name", ""), idx))})
+        if us_tks:
+            store.fetch_us_prices(us_tks)
     except Exception as e:
-        log.warning("거장 포트폴리오 수집 실패(무시): %s", e)
+        log.warning("거장/US 수집 실패(무시): %s", e)
     _signals.cache_clear()
     _backtest.cache_clear()
     _backtest_analysis.cache_clear()
@@ -371,6 +377,7 @@ def refresh():
     _quotes.cache_clear()
     _regime.cache_clear()
     _macro.cache_clear()
+    _us_signals.cache_clear()
     return {
         "ok": True,
         "universe_size": len(universe),
@@ -554,10 +561,30 @@ def valuechain_get():
     return {"sectors": valuechain.sectors()}
 
 
+@lru_cache(maxsize=1)
+def _us_signals():
+    """미국 종목 시그널 — US 유니버스 중 시세 있는 종목만(재무 없음 → 저평가·정성 팩터 자동 제외).
+    반환: {ticker: SignalResult}."""
+    prices = store.load_us_price_series()
+    if not prices:
+        return {}
+    return {s.ticker: s for s in evaluate(store.load_us_universe(), prices)}
+
+
 @app.get("/api/gurus")
 def gurus_get():
-    """거장 포트폴리오(SEC 13F 분기 스냅샷) — 내 포트폴리오 벤치마크 참고용. 캐시 기반."""
-    return {"gurus": store.load_gurus()}
+    """거장 포트폴리오(SEC 13F 스냅샷) + 보유종목에 우리 시그널 뱃지(S&P500 매칭분). 벤치마크 참고용."""
+    gurus = store.load_gurus()
+    idx = gurus_ref.build_name_index(store.load_us_universe())
+    us_sig = _us_signals()
+    for g in gurus:
+        for h in g.get("holdings", []):
+            tk = gurus_ref.match_ticker(h.get("name", ""), idx)
+            h["ticker"] = tk
+            sig = us_sig.get(tk) if tk else None
+            # HOLD·시세없음은 뱃지 생략(요청: HOLD 제외)
+            h["signal"] = {"kind": sig.kind, "score": round(sig.score, 2)} if (sig and sig.kind != "HOLD") else None
+    return {"gurus": gurus}
 
 
 @app.get("/api/macro")
