@@ -53,19 +53,68 @@ def classify_document(item: dict, source_type: str | None = None) -> str:
     return "뉴스"
 
 
+_TRUST_ACCEPT = 0.7  # 이상이면 confirmed(다이제스트 반영)
+_TRUST_REVIEW = 0.4  # 미만이면 reject(미저장), 사이면 pending(보류)
+
+
+def validate_import(ticker: str, name: str, text: str, title: str = "") -> dict:
+    """수동 입력 문서의 신뢰성 심사(KB 오염 방지). 반환: {verdict: accept|review|reject, trust, reasons}.
+
+    1) 규칙 선필터(무료·빠름): 길이·증권 관련성·종목 언급.
+    2) LLM 판단기(있으면 확정): 기존 confirmed KB와 대조해 과장·허위·조작·스팸·무관·근거없는 급변을
+       탐지하고 신뢰도(trust)를 매긴다. 규칙과 LLM 중 더 보수적인 판정을 채택한다."""
+    body = f"{title} {text}"
+    if len(text.strip()) < 40:
+        return {"verdict": "reject", "trust": 0.0, "reasons": ["본문이 너무 짧아 신뢰 불가(40자 미만)"]}
+    reasons = []
+    if not any(term in body for term in news.SECURITIES_TERMS):
+        reasons.append("증권 관련 키워드 없음")
+    if name not in body and ticker not in body:
+        reasons.append("종목명·코드 언급 없음(무관/오분류 의심)")
+    rule_verdict = "review" if reasons else "accept"
+
+    if llm.available():
+        prior = (db.kb_digest_get(ticker) or {}).get("summary") or "(없음)"
+        system = ("너는 주식 지식베이스(KB)의 품질 관리자다. 사용자가 수동 입력한 문서가 해당 종목의 "
+                  "신뢰할 만한 증권 정보인지 보수적으로 심사한다. 과장·허위·조작·스팸·광고·무관·근거 없는 주장, "
+                  "그리고 기존 KB 요약과 근거 없이 크게 모순·급변시키는지 본다.")
+        user = (f"종목: {name}({ticker})\n[기존 KB 요약] {prior}\n[입력 문서]\n{text[:4000]}\n\n"
+                'JSON으로만: {"trust": 0.0~1.0(신뢰도), "on_topic": true/false, '
+                '"issues": ["의심 사유 짧게"], "verdict": "accept|review|reject"}')
+        out = llm.complete_json(system, user, max_tokens=400)
+        if out and isinstance(out.get("trust"), (int, float)):
+            trust = max(0.0, min(1.0, float(out["trust"])))
+            issues = [str(i) for i in (out.get("issues") or [])][:4]
+            v = str(out.get("verdict", "")).lower()
+            if v not in ("accept", "review", "reject"):
+                v = "accept" if trust >= _TRUST_ACCEPT else "review" if trust >= _TRUST_REVIEW else "reject"
+            if rule_verdict == "review" and v == "accept":  # 규칙 의심이면 accept로 격상 금지(보수적)
+                v = "review"
+            return {"verdict": v, "trust": round(trust, 2), "reasons": reasons + issues}
+    # LLM 없음 → 규칙 결과(중립 신뢰도)
+    return {"verdict": rule_verdict, "trust": 0.5, "reasons": reasons}
+
+
 def import_document(ticker: str, name: str, title: str, text: str,
                     source_type: str = "report", url: str = "") -> dict:
-    """증권사 리포트·원문 텍스트를 받아 LLM 요약·분류 후 KB 문서로 추가하고 다이제스트 갱신.
-    반환: {ok, doc_class, summary}. 원문(raw_text)도 보존."""
+    """증권사 리포트·원문 텍스트 → 신뢰성 검증 → 통과분만 KB 반영. 반환: {ok, status, doc_class, summary, trust, reasons}.
+    accept=confirmed(시그널 반영) · review=pending(보류, 미반영) · reject=미저장."""
     text = (text or "").strip()
     if not text or not ticker or not name:
         return {"ok": False, "reason": "ticker·name·text 필요"}
+    v = validate_import(ticker, name, text, title)
+    if v["verdict"] == "reject":
+        return {"ok": False, "verdict": "reject", "trust": v["trust"], "reasons": v["reasons"],
+                "reason": "KB 오염 우려로 저장하지 않음: " + (", ".join(v["reasons"]) or "신뢰도 낮음")}
+    status = "confirmed" if v["verdict"] == "accept" else "pending"
     doc_class = classify_document({"title": title, "summary": text[:500]}, source_type)
     summary, points = _summarize_text(name, title, text)
     db.kb_document_add(ticker, title or f"{name} {source_type}", summary, url,
-                       source_type, "", doc_class, raw_text=text)
-    _rebuild_digest(ticker, name)  # 뉴스+리포트 통합 재요약
-    return {"ok": True, "doc_class": doc_class, "summary": summary}
+                       source_type, "", doc_class, raw_text=text, status=status)
+    if status == "confirmed":
+        _rebuild_digest(ticker, name)  # confirmed만 다이제스트에 반영
+    return {"ok": True, "status": status, "verdict": v["verdict"], "trust": v["trust"],
+            "reasons": v["reasons"], "doc_class": doc_class, "summary": summary}
 
 
 def _summarize_text(name: str, title: str, text: str) -> tuple[str, list[str]]:
@@ -130,15 +179,24 @@ def import_file(ticker: str, name: str, filename: str, data: bytes, media_type: 
         raw, method = "[스캔/이미지 문서 — 모델 인식]", "vision"
         if not summary:
             return {"ok": False, "reason": "문서 인식 실패(LLM 키 확인 또는 지원 형식인지 확인)"}
+    # 검증: 텍스트 PDF는 원문으로, 스캔/이미지는 모델 요약문으로 신뢰성 심사
+    v = validate_import(ticker, name, text if method == "pdf_text" else summary, title)
+    if v["verdict"] == "reject":
+        return {"ok": False, "verdict": "reject", "trust": v["trust"], "reasons": v["reasons"], "method": method,
+                "reason": "KB 오염 우려로 저장하지 않음: " + (", ".join(v["reasons"]) or "신뢰도 낮음")}
+    status = "confirmed" if v["verdict"] == "accept" else "pending"
     doc_class = classify_document({"title": title, "summary": summary}, "report")
-    db.kb_document_add(ticker, title, summary, "", "upload", "", doc_class, raw_text=raw)
-    _rebuild_digest(ticker, name)
-    return {"ok": True, "doc_class": doc_class, "summary": summary, "method": method}
+    db.kb_document_add(ticker, title, summary, "", "upload", "", doc_class, raw_text=raw, status=status)
+    if status == "confirmed":
+        _rebuild_digest(ticker, name)
+    return {"ok": True, "status": status, "verdict": v["verdict"], "trust": v["trust"],
+            "reasons": v["reasons"], "doc_class": doc_class, "summary": summary, "method": method}
 
 
 def _rebuild_digest(ticker: str, name: str) -> None:
-    """해당 종목의 최근 KB 문서(뉴스+리포트)를 합쳐 다이제스트·이벤트·신선도를 재계산."""
-    items = db.kb_entries_recent(ticker, 15)
+    """해당 종목의 최근 confirmed KB 문서(뉴스+리포트)를 합쳐 다이제스트·이벤트·신선도를 재계산.
+    pending(검토 보류) 문서는 제외해 시그널에 반영되지 않게 한다(오염 방지)."""
+    items = db.kb_entries_recent(ticker, 15, confirmed_only=True)
     if not items:
         return
     digest = build_digest(name, items)

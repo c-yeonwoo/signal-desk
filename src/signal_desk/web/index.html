@@ -1318,17 +1318,29 @@ async function refreshKb(){
 }
 
 let _kbDocClass = null;
+// 검증기 결과 렌더 — accept(확정)/pending(보류·미반영)/reject(거부) 구분
+function _renderImportResult(d, extra){
+  const el = document.getElementById('imp-result');
+  const rs = (d.reasons && d.reasons.length) ? ' · ' + d.reasons.join(', ') : '';
+  if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `✕ ${esc(d.reason || '실패')}`; return; }
+  if (d.status === 'pending') {
+    el.style.color = '#b45309';
+    el.textContent = `⚠ 보류 — 검토 필요(신뢰도 ${d.trust ?? '?'}), 시그널 미반영${rs}`;
+  } else {
+    el.style.color = 'var(--sig-buy)';
+    el.textContent = `✓ [${d.doc_class}] 확정 추가${extra || ''} — ${(d.summary || '').slice(0, 50)}`;
+  }
+}
 async function importDoc(){
   const btn = event.target, res = document.getElementById('imp-result');
   const ticker = document.getElementById('imp_ticker').value.trim();
   const text = document.getElementById('imp_text').value.trim();
   if (!ticker || !text) { res.style.color = 'var(--sell)'; res.textContent = '종목코드와 원문 텍스트가 필요합니다.'; return; }
-  btn.disabled = true; const t = btn.textContent; btn.textContent = '요약 중…';
+  btn.disabled = true; const t = btn.textContent; btn.textContent = '검증·요약 중…';
   try {
     const d = await (await fetch('/api/kb/import', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ticker, title: document.getElementById('imp_title').value.trim(), text }) })).json();
-    res.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
-    res.textContent = d.ok ? `✓ [${d.doc_class}] 추가됨 — ${(d.summary || '').slice(0, 60)}` : `실패: ${d.reason || ''}`;
+    _renderImportResult(d);
     if (d.ok) { document.getElementById('imp_text').value = ''; document.getElementById('imp_title').value = ''; loadKbDocs(); }
   } finally { btn.disabled = false; btn.textContent = t; }
 }
@@ -1338,13 +1350,11 @@ async function uploadDoc(){
   const ticker = document.getElementById('imp_ticker').value.trim();
   const f = document.getElementById('imp_file').files[0];
   if (!ticker || !f) { res.style.color = 'var(--sell)'; res.textContent = '종목코드와 파일이 필요합니다.'; return; }
-  btn.disabled = true; const t = btn.textContent; btn.textContent = '인식·요약 중…';
+  btn.disabled = true; const t = btn.textContent; btn.textContent = '인식·검증 중…';
   try {
     const fd = new FormData(); fd.append('ticker', ticker); fd.append('file', f);
     const d = await (await fetch('/api/kb/import-file', { method: 'POST', body: fd })).json();
-    res.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
-    res.textContent = d.ok ? `✓ [${d.doc_class}] 추가됨 (${d.method === 'vision' ? '모델 인식' : '텍스트 추출'}) — ${(d.summary || '').slice(0, 55)}`
-      : `실패: ${d.reason || ''}`;
+    _renderImportResult(d, d.method === 'vision' ? ' (모델 인식)' : ' (텍스트 추출)');
     if (d.ok) { document.getElementById('imp_file').value = ''; loadKbDocs(); }
   } finally { btn.disabled = false; btn.textContent = t; }
 }
@@ -1361,8 +1371,10 @@ async function loadKbDocs(){
     const chip = (label, val) => `<button class="btn${_kbDocClass === val ? ' primary' : ''}" style="padding:3px 10px;font-size:12px" onclick="_kbDocClass=${val ? `'${val}'` : 'null'};loadKbDocs()">${label}${val && counts[val] ? ` ${counts[val]}` : ''}</button>`;
     fEl.innerHTML = chip(`전체 ${total}`, null) + (d.classes || []).map(c => counts[c] ? chip(c, c) : '').join('');
     if (!d.documents.length) { el.className = ''; el.innerHTML = '<div class="placeholder" style="padding:16px 0">문서가 없습니다 — 뉴스 갱신 또는 리포트 추가로 채워집니다.</div>'; return; }
-    const rows = d.documents.map(doc => `<tr>
-      <td style="white-space:nowrap">${classBadge(doc.doc_class)}</td>
+    const pendBadge = (s) => s === 'pending'
+      ? ' <span style="display:inline-block;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700;color:#fff;background:#b45309" title="검토 보류 — 시그널 미반영">검토보류</span>' : '';
+    const rows = d.documents.map(doc => `<tr${doc.status === 'pending' ? ' style="opacity:.6"' : ''}>
+      <td style="white-space:nowrap">${classBadge(doc.doc_class)}${pendBadge(doc.status)}</td>
       <td>${esc(doc.name || doc.ticker)}<div style="color:var(--dim);font-size:11px">${esc(doc.ticker)} · ${esc(doc.source || '')}</div></td>
       <td>${doc.url ? `<a href="${esc(doc.url)}" target="_blank" rel="noopener">${esc(doc.title || '(제목없음)')}</a>` : esc(doc.title || '(제목없음)')}
         <div style="color:var(--dim);font-size:11px;margin-top:2px">${esc((doc.summary || '').slice(0, 100))}</div></td>

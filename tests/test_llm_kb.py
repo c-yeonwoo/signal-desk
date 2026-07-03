@@ -49,6 +49,7 @@ def test_classify_document_rules():
 def test_import_document_stores_and_rebuilds(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(kb.llm, "available", lambda: False)  # 규칙 폴백(발췌 요약)
+    monkeypatch.setattr(kb, "validate_import", lambda *a, **k: {"verdict": "accept", "trust": 0.9, "reasons": []})
     out = kb.import_document("005930", "삼성전자", "3분기 프리뷰", "반도체 업황 회복으로 목표주가 상향.", "report")
     assert out["ok"] and out["doc_class"] == "리포트"
     from signal_desk import db
@@ -74,6 +75,7 @@ def test_import_file_falls_back_to_vision_for_scanned(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(kb, "_pdf_text", lambda data: "")  # 스캔본 — 텍스트 없음
     monkeypatch.setattr(kb, "_summarize_vision", lambda n, t, d, m: ("비전 인식 요약", ["p"]))
+    monkeypatch.setattr(kb, "validate_import", lambda *a, **k: {"verdict": "accept", "trust": 0.9, "reasons": []})
     out = kb.import_file("005930", "삼성전자", "scan.pdf", b"%PDF...", "application/pdf")
     assert out["ok"] and out["method"] == "vision"
 
@@ -81,6 +83,7 @@ def test_import_file_falls_back_to_vision_for_scanned(tmp_path, monkeypatch):
 def test_import_file_image_uses_vision(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(kb, "_summarize_vision", lambda n, t, d, m: ("이미지 요약", []))
+    monkeypatch.setattr(kb, "validate_import", lambda *a, **k: {"verdict": "accept", "trust": 0.9, "reasons": []})
     out = kb.import_file("005930", "삼성전자", "chart.png", b"\x89PNG", "image/png")
     assert out["ok"] and out["method"] == "vision"
 
@@ -90,6 +93,46 @@ def test_import_file_vision_failure_reports(tmp_path, monkeypatch):
     monkeypatch.setattr(kb, "_summarize_vision", lambda n, t, d, m: ("", []))  # 인식 실패
     out = kb.import_file("005930", "삼성전자", "x.png", b"\x89PNG", "image/png")
     assert out["ok"] is False
+
+
+def test_validate_import_rejects_too_short(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb.llm, "available", lambda: False)
+    assert kb.validate_import("005930", "삼성전자", "짧음")["verdict"] == "reject"
+
+
+def test_validate_import_rule_review_when_irrelevant(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb.llm, "available", lambda: False)  # 규칙만
+    v = kb.validate_import("005930", "삼성전자", "오늘 점심은 김치찌개를 먹었고 날씨가 좋았다는 무관한 긴 문장입니다." * 2)
+    assert v["verdict"] == "review" and v["reasons"]  # 증권 무관 + 종목 미언급
+
+
+def test_validate_import_accepts_relevant(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb.llm, "available", lambda: False)
+    v = kb.validate_import("005930", "삼성전자", "삼성전자 3분기 영업이익이 반도체 업황 회복으로 컨센서스를 상회하며 목표주가 상향.")
+    assert v["verdict"] == "accept"
+
+
+def test_import_document_pending_excluded_from_digest(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb.llm, "available", lambda: False)
+    # 규칙상 review → pending 저장, 다이제스트(confirmed)엔 미반영
+    out = kb.import_document("005930", "삼성전자", "메모", "이것은 종목과 무관한 잡담 문장이 길게 이어지는 예시입니다." * 2)
+    assert out["ok"] is True and out["status"] == "pending"
+    from signal_desk import db
+    assert db.kb_digest_get("005930") is None  # confirmed 문서 없음 → 다이제스트 미생성
+
+
+def test_import_document_reject_not_stored(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(kb.llm, "available", lambda: True)
+    monkeypatch.setattr(kb.llm, "complete_json", lambda *a, **k: {"trust": 0.1, "verdict": "reject", "issues": ["조작 의심"]})
+    out = kb.import_document("005930", "삼성전자", "제목", "삼성전자 주가 관련 그럴듯한 긴 문장이지만 조작된 내용입니다." * 2)
+    assert out["ok"] is False
+    from signal_desk import db
+    assert db.kb_documents(ticker="005930") == []  # 저장 안 됨
 
 
 def test_rule_digest_sentiment_from_keywords():
