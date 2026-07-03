@@ -25,6 +25,10 @@ def _setup_common(monkeypatch, universe, prices, signals, balance_sequence):
     monkeypatch.setattr(bot.store, "load_fundamentals", lambda: {})
     monkeypatch.setattr(bot.engine, "evaluate", lambda *a, **k: signals)
 
+    # 기본: 실시간가 조회는 None → 캐시 종가로 폴백(네트워크 없이 기존 기대치 유지).
+    # 갭 게이트를 검증하는 테스트는 개별적으로 override 한다.
+    monkeypatch.setattr(bot.kis, "current_price", lambda ticker, creds=None: None)
+
     calls = iter(balance_sequence)
     monkeypatch.setattr(bot.kis, "balance", lambda creds=None: next(calls))
 
@@ -197,6 +201,27 @@ def test_buys_top_scored_signals_respecting_slots_and_lot_size(tmp_path, monkeyp
         "ticker": "BBB", "name": "나", "qty": 8, "avg_price": 100.0,
         "peak_price": 100.0, "entry_date": bot._today(),
     }
+
+
+def test_buy_drift_gate_skips_runup_and_crash(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    universe = [{"ticker": "UP", "name": "급등"}, {"ticker": "DN", "name": "급락"}, {"ticker": "OK", "name": "정상"}]
+    prices = {"UP": [100.0], "DN": [100.0], "OK": [100.0]}  # 신호 기준가(종가) 모두 100
+    signals = [_sig("UP", "급등", "BUY", 2.0), _sig("DN", "급락", "BUY", 2.0), _sig("OK", "정상", "BUY", 2.0)]
+    bal = {"cash": 10_000.0, "total_eval": 10_000.0, "holdings": []}
+    _setup_common(monkeypatch, universe, prices, signals, [bal, bal, bal])
+    _set_cfg(min_buy_score=0.0, max_new_buys_per_run=10)
+    # 실시간가: UP +5%(추격 상한 2% 초과), DN -8%(급락 하한 5% 초과), OK +1%(허용)
+    live = {"UP": 105.0, "DN": 92.0, "OK": 101.0}
+    monkeypatch.setattr(bot.kis, "current_price", lambda ticker, creds=None: live[ticker])
+    orders = []
+    monkeypatch.setattr(bot.kis, "place_order", lambda ticker, side, qty, price=None, creds=None:
+                         orders.append((ticker, side, qty, price)) or {"order_no": "1"})
+
+    out = bot.run_once()
+    assert [b["ticker"] for b in out["buys"]] == ["OK"]      # 갭 이탈 2건 스킵, 정상 1건만 매수
+    assert out["skipped_gap_buys"] == 2
+    assert orders[0][0] == "OK" and orders[0][3] == 102      # 지정가 = 종가 100 × (1+2%)
 
 
 def test_buys_respect_max_positions_slot_limit(tmp_path, monkeypatch):

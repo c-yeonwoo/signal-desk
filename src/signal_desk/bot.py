@@ -39,6 +39,17 @@ def _today() -> str:
     return datetime.date.today().isoformat()
 
 
+_CRASH_FLOOR_PCT = 0.05  # 신호 기준가(종가) 대비 실시간가 -5% 이상 급락이면 매수 스킵(악재 갭 의심)
+
+
+def _live_price(ticker: str, creds: dict, fallback: float, dry_run: bool) -> float:
+    """판단 시점 실시간 현재가(장중 갭 대응). dry_run·조회 실패 시 캐시 종가로 폴백."""
+    if dry_run:
+        return fallback
+    live = kis.current_price(ticker, creds)
+    return live if live else fallback
+
+
 def _market_read(prices: dict[str, list[float]]) -> dict:
     """시장 국면 단일 스냅샷 — 한 사이클에 한 번만 계산해 공유(중복 계상·중복 계산 방지).
 
@@ -177,7 +188,7 @@ def run_once(dry_run: bool = False) -> dict:
         closes = prices.get(ticker)
         if not closes:
             continue  # 유니버스 밖 종목(수동 보유 등) — 우리 봇 판단 대상 아님
-        current_price = closes[-1]
+        current_price = _live_price(ticker, creds, closes[-1], dry_run)  # 실시간가로 손절/익절/트레일링 판단
         pos = db.bot_position_get(ticker)
         peak = max(pos["peak_price"] if pos else avg_price, current_price)
 
@@ -217,6 +228,7 @@ def run_once(dry_run: bool = False) -> dict:
 
     buys: list[dict] = []
     skipped_weak = 0
+    skipped_gap = 0  # 신호가 대비 실시간가가 급등/급락 이탈해 스킵한 건수
     advisor_used = False
     if slots > 0:
         # min_buy_score 이상인 강한 BUY만 후보 — 약한 BUY는 매수하지 않음. 최근 악재(event_risk)는 제외
@@ -247,36 +259,45 @@ def run_once(dry_run: bool = False) -> dict:
             closes = prices.get(s.ticker)
             if not closes:
                 continue
-            price = closes[-1]
+            ref = closes[-1]                                   # 신호가 본 종가 = 기준가
+            live = _live_price(s.ticker, creds, ref, dry_run)  # 판단 시점 실시간가
+            drift = (live / ref - 1) if ref else 0.0
+            # 갭 게이트: 급등하면 추격 안 함, 급락하면 악재 의심 → 신호 무효 간주하고 스킵
+            if drift > _MAX_CHASE_PCT or drift < -_CRASH_FLOOR_PCT:
+                skipped_gap += 1
+                continue
+            limit_price = round(ref * (1 + _MAX_CHASE_PCT))    # 지정가 상한(종가+추격허용) → 상단 초과 체결 방지
             alloc = min(target_alloc, cash)
-            qty = int(alloc // price)
+            qty = int(alloc // live)                           # 수량은 실시간가 기준
             if qty < 1:
                 continue  # 배분금액보다 1주 가격이 비싸면 스킵(정수주 제약)
             quant = (f"점수 {s.score:+.2f}(≥{cfg['min_buy_score']:.1f}·신뢰도 {s.confidence:.2f}) · "
-                     f"동일가중 {cfg['position_pct'] * 100:.0f}%(약 {int(alloc):,}원) ÷ {int(price):,}원 = {qty}주")
+                     f"동일가중 {cfg['position_pct'] * 100:.0f}%(약 {int(alloc):,}원) ÷ {int(live):,}원 = {qty}주 · "
+                     f"지정가 {limit_price:,}원(종가 {int(ref):,}·현재 {int(live):,}, {drift * 100:+.1f}%)")
             llm_reason = rationale_by.get(s.ticker)
             note = (f"[AI] {llm_reason} · {quant}") if llm_reason else quant
-            plan = {"ticker": s.ticker, "name": s.name, "qty": qty, "price": price,
+            plan = {"ticker": s.ticker, "name": s.name, "qty": qty, "price": live, "limit_price": limit_price,
                     "reason": "SIGNAL", "note": note, "score": s.score, "ai": bool(llm_reason)}
             if not dry_run:
-                result = kis.place_order(s.ticker, "buy", qty, creds=creds)
+                result = kis.place_order(s.ticker, "buy", qty, price=limit_price, creds=creds)  # 지정가 주문
                 if result is not None:  # 체결된 주문만 기록·반영
-                    db.bot_trade_log(s.ticker, s.name, "buy", qty, price, "SIGNAL",
+                    db.bot_trade_log(s.ticker, s.name, "buy", qty, live, "SIGNAL",
                                       result["order_no"], score=s.score, note=note)
-                    db.bot_position_upsert(s.ticker, s.name, qty, price, price, _today())
-                    db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, context, price)  # 저널(학습)
-                    cash -= qty * price
+                    db.bot_position_upsert(s.ticker, s.name, qty, live, live, _today())
+                    db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, context, live)  # 저널(학습)
+                    cash -= qty * live
                     plan["ok"] = True
                 else:
                     log.warning("매수 주문 실패: %s", s.ticker)
                     plan["ok"] = False
             else:
-                cash -= qty * price
+                cash -= qty * live
             buys.append(plan)
 
     final_bal = (kis.balance(creds) or bal2) if not dry_run else bal2
     return {
-        "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak, "advisor_used": advisor_used,
+        "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak,
+        "skipped_gap_buys": skipped_gap, "advisor_used": advisor_used,
         "sells": sells, "buys": buys,
         "cash": final_bal["cash"], "total_eval": final_bal["total_eval"],
         "holdings": len(final_bal["holdings"]),

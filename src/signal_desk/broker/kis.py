@@ -173,6 +173,24 @@ def balance(creds: dict | None = None) -> dict | None:
     }
 
 
+def current_price(ticker: str, creds: dict | None = None) -> float | None:
+    """국내 종목 실시간 현재가. 봇이 장중 청산·진입 판단 시점에 조회(캐시 종가와의 갭 대응).
+    실패 시 None(호출부가 캐시 종가로 폴백). 간헐 500 대비 재시도."""
+    creds = creds or config.kis_credentials()
+    if not creds:
+        return None
+    params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker}
+    for attempt in range(3):
+        body = _request("/uapi/domestic-stock/v1/quotations/inquire-price", "FHKST01010100", creds, params)
+        if body and body.get("rt_cd") == "0":
+            try:
+                return float(body["output"]["stck_prpr"])
+            except (KeyError, TypeError, ValueError):
+                return None
+        time.sleep(0.3)
+    return None
+
+
 def place_order(
     ticker: str, side: str, qty: int, price: float | None = None, creds: dict | None = None
 ) -> dict | None:
