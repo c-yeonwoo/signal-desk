@@ -43,12 +43,16 @@ def test_balance_parses_response(monkeypatch):
             {"pdno": "005930", "prdt_name": "삼성전자", "hldg_qty": "10", "pchs_avg_pric": "70000"},
             {"pdno": "000660", "prdt_name": "SK하이닉스", "hldg_qty": "0", "pchs_avg_pric": "0"},
         ],
-        "output2": [{"dnca_tot_amt": "5000000", "tot_evlu_amt": "5700000"}],
+        "output2": [{"dnca_tot_amt": "5000000", "nass_amt": "5750000", "tot_evlu_amt": "5750000",
+                     "evlu_amt_smtl_amt": "750000", "pchs_amt_smtl_amt": "700000",
+                     "evlu_pfls_smtl_amt": "50000"}],
     }
     monkeypatch.setattr(kis, "_request", lambda *a, **k: fake_body)
     out = kis.balance(_creds())
-    assert out["cash"] == 5_000_000.0
-    assert out["total_eval"] == 5_700_000.0
+    assert out["cash"] == 5_000_000.0           # 순자산 5,750,000 − 유가증권평가 750,000
+    assert out["total_eval"] == 5_750_000.0     # 순자산
+    assert out["stock_eval"] == 750_000.0
+    assert out["pnl_pct"] == round(50000 / 700000 * 100, 2)  # 7.14%
     assert out["holdings"] == [{"ticker": "005930", "name": "삼성전자", "qty": 10, "avg_price": 70000.0}]
 
 

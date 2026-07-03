@@ -1083,13 +1083,13 @@ async function loadBotState(){
     document.getElementById('bot-total').textContent = fmtKRW(d.total_eval);
     document.getElementById('bot-count').textContent = d.positions.length;
 
-    const investedCost = d.positions.reduce((s, p) => s + p.qty * p.avg_price, 0);
-    const investedValue = d.total_eval != null && d.cash != null ? d.total_eval - d.cash : null;
+    // 총손익률: KIS 자체 집계(평가손익합계/매입금액합계) — 클라이언트 산술 대신 정확한 값
     const plEl = document.getElementById('bot-pl');
-    if (investedValue != null && investedCost > 0) {
-      const plPct = (investedValue / investedCost - 1) * 100;
-      plEl.textContent = (plPct >= 0 ? '+' : '') + plPct.toFixed(2) + '%';
-      plEl.className = 'stat-value ' + (plPct >= 0 ? 'pos' : 'neg');
+    if (d.pnl_pct != null) {
+      const p = d.pnl_pct;
+      plEl.textContent = (p >= 0 ? '+' : '') + p.toFixed(2) + '%';
+      plEl.className = 'stat-value ' + (p >= 0 ? 'pos' : 'neg');
+      plEl.title = `평가손익 ${fmtKRW(d.pnl)} · 매입 ${fmtKRW(d.invested)} · 유가증권평가 ${fmtKRW(d.stock_eval)}`;
     } else {
       plEl.textContent = '-'; plEl.className = 'stat-value';
     }
