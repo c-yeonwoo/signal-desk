@@ -360,6 +360,10 @@ def refresh():
     fundamentals = store.fetch_fundamentals(universe)
     store.fetch_fundamentals_history(universe)  # point-in-time 백테스트용 연도별 재무
     macro_items = store.fetch_macro()
+    try:
+        store.fetch_gurus()  # 거장 포트폴리오(SEC 13F) — 실패해도 나머지 수집엔 영향 없음
+    except Exception as e:
+        log.warning("거장 포트폴리오 수집 실패(무시): %s", e)
     _signals.cache_clear()
     _backtest.cache_clear()
     _backtest_analysis.cache_clear()
@@ -548,6 +552,12 @@ def cycle_get():
 def valuechain_get():
     """섹터별 밸류체인(업→다운스트림) 대표기업 큐레이션. 국내는 티커로 시그널 연결 가능."""
     return {"sectors": valuechain.sectors()}
+
+
+@app.get("/api/gurus")
+def gurus_get():
+    """거장 포트폴리오(SEC 13F 분기 스냅샷) — 내 포트폴리오 벤치마크 참고용. 캐시 기반."""
+    return {"gurus": store.load_gurus()}
 
 
 @app.get("/api/macro")

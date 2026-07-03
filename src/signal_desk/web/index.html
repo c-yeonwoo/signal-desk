@@ -142,6 +142,14 @@
   .wcfg { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px 14px; }
   .wcfg .field input { min-width:0; }
 
+  /* ===== 거장 포트폴리오 ===== */
+  .guru-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; }
+  .guru-card { border:1px solid var(--line); border-radius:var(--r-md); padding:14px 16px; background:var(--panel); }
+  .guru-head b { font-size:14px; }
+  .guru-desc { font-size:11px; color:var(--dim); margin-top:2px; }
+  .guru-meta { font-size:11px; color:var(--dim-2); margin:8px 0 4px; }
+  .guru-pie { height:220px; width:100%; }
+
   /* ===== 밸류체인 ===== */
   .vc-sectors { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
   .vc-sectors button { padding:7px 15px; border:1px solid var(--line-strong); border-radius:var(--r-pill);
@@ -246,7 +254,7 @@
   <h1>Signal Desk</h1>
   <div class="tabs">
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
-    <button class="tab" data-tab="trading" onclick="switchTab('trading')">트레이딩</button>
+    <button class="tab" data-tab="trading" onclick="switchTab('trading')">포트폴리오</button>
     <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">산업 사이클</button>
   </div>
   <div class="right">
@@ -315,11 +323,11 @@
   </div>
 
   <div id="view-trading" class="view-app" style="display:none">
-    <h2 class="page-head">트레이딩 <span style="color:var(--dim);font-size:14px;font-weight:600">· 시그널 기반 자동매매 봇</span></h2>
-    <p class="page-desc">시그널 기반 자동매매(KIS 모의계좌)와 내 실보유 종목 리밸런싱 제안을 한 곳에서.</p>
+    <h2 class="page-head">포트폴리오 <span style="color:var(--dim);font-size:14px;font-weight:600">· 시그널 기반 매매와 내 자산 관리</span></h2>
+    <p class="page-desc">시그널 기반 자동매매(KIS 모의계좌)와 내 실보유 종목 리밸런싱 제안, 그리고 거장들의 포트폴리오를 벤치마크로.</p>
     <div class="seg-toggle" id="trading-seg" style="margin-bottom:18px">
-      <button class="on" data-seg="bot" onclick="switchTradingSeg('bot')">자동매매 봇</button>
-      <button data-seg="rebal" onclick="switchTradingSeg('rebal')">내 리밸런싱</button>
+      <button class="on" data-seg="bot" onclick="switchTradingSeg('bot')">시그널 트레이딩</button>
+      <button data-seg="rebal" onclick="switchTradingSeg('rebal')">내 포트폴리오</button>
     </div>
 
     <div id="trading-bot">
@@ -386,6 +394,13 @@
         <div id="holdings-body" class="placeholder" style="padding:12px 0">보유종목을 추가하세요.</div>
       </div>
       <div id="rebal-result"></div>
+
+      <div class="card" style="margin-top:18px">
+        <b style="font-size:15px">거장의 포트폴리오 <span style="color:var(--dim);font-weight:600;font-size:12px">· 벤치마크 참고용</span></b>
+        <p class="page-desc" style="margin:6px 0 14px">유명 투자자들이 공개한 보유내역(미국 SEC 13F)입니다. 내 배분과 비교해 참고하세요.
+          <b>분기 공시 스냅샷이며 최대 45일 지연</b>, 미국 롱 포지션만 표시됩니다(현금·채권·해외주식 제외) · 추천 아님.</p>
+        <div id="gurus-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+      </div>
     </div>
   </div>
 
@@ -1186,7 +1201,52 @@ function switchTradingSeg(seg){
   document.getElementById('trading-bot').style.display = seg === 'bot' ? '' : 'none';
   document.getElementById('trading-rebal').style.display = seg === 'rebal' ? '' : 'none';
   if (seg === 'bot') loadBotState();
-  if (seg === 'rebal') loadHoldings();
+  if (seg === 'rebal') { loadHoldings(); loadGurus(); }
+}
+
+// ===== 포트폴리오 파이차트(봇·내꺼·거장 공용) =====
+const _PIE_COLORS = ['#4f46e5', '#22c55e', '#f59e0b', '#0ea5e9', '#ec4899', '#14b8a6', '#a855f7', '#ef4444', '#84cc16', '#eab308', '#64748b'];
+// data: [{name, value}], fmt: 값 포매터. 라벨은 큰 조각만(겹침 방지), 나머지는 호버 툴팁.
+function drawPie(holder, data, fmt){
+  if (!holder || !window.echarts) return null;
+  const ch = echarts.getInstanceByDom(holder) || echarts.init(holder);
+  ch.setOption({
+    color: _PIE_COLORS,
+    tooltip: { trigger: 'item', formatter: p => `${esc(p.name)}: ${fmt ? fmt(p.value) : p.value} (${p.percent}%)` },
+    series: [{
+      type: 'pie', radius: ['42%', '72%'], data,
+      label: { fontSize: 10, formatter: p => p.percent >= 8 ? p.name : '' },
+      labelLine: { length: 5, length2: 5 },
+      itemStyle: { borderColor: '#fff', borderWidth: 1.5 },
+    }],
+  }, true);
+  ch.resize();
+  return ch;
+}
+
+// ===== 거장의 포트폴리오(SEC 13F 벤치마크) =====
+function _fmtUsd(v){ return v >= 1e9 ? '$' + fmtNum(v / 1e9, 1) + 'B' : v >= 1e6 ? '$' + fmtNum(v / 1e6, 0) + 'M' : '$' + fmtNum(v, 0); }
+async function loadGurus(){
+  const el = document.getElementById('gurus-grid');
+  if (!el || el.dataset.loaded) return;  // 1회 로드(분기 데이터라 재조회 불필요)
+  try {
+    const d = await (await fetch('/api/gurus')).json();
+    const gurus = d.gurus || [];
+    if (!gurus.length) { el.innerHTML = '<div class="placeholder" style="padding:16px 0">거장 포트폴리오 데이터가 없습니다 — 관리자가 수집 후 표시됩니다.</div>'; return; }
+    el.innerHTML = '<div class="guru-grid">' + gurus.map((g, i) => `<div class="guru-card">
+        <div class="guru-head"><b>${esc(g.name)}</b><div class="guru-desc">${esc(g.desc)}</div></div>
+        <div class="guru-meta">기준 ${esc(g.period)} · ${g.n_holdings}종목 · ${_fmtUsd(g.total_usd)}</div>
+        <div class="guru-pie" id="guru-pie-${i}"></div></div>`).join('') + '</div>';
+    el.className = '';
+    el.dataset.loaded = '1';
+    // 상위 보유 + '기타'(나머지 합) 조각으로 파이 구성
+    gurus.forEach((g, i) => {
+      const shown = g.holdings.reduce((s, h) => s + h.pct, 0);
+      const data = g.holdings.map(h => ({ name: h.name, value: h.pct }));
+      if (shown < 99) data.push({ name: '기타', value: Math.round((100 - shown) * 10) / 10 });
+      drawPie(document.getElementById(`guru-pie-${i}`), data, v => fmtNum(v, 1) + '%');
+    });
+  } catch (e) { el.textContent = '불러오지 못했습니다.'; }
 }
 
 async function loadHoldings(){
@@ -1231,12 +1291,18 @@ async function runRebalance(){
         <b style="font-size:14px">리밸런싱 제안 · ${esc(d.style_label)} (목표 종목당 ${d.target_weight}%)</b>
         <div style="margin:8px 0 0;padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">${esc(d.summary)}</div>
       </div>
+      <div class="card" style="margin-bottom:16px">
+        <b style="font-size:14px">현재 배분 <span style="color:var(--dim);font-weight:600;font-size:12px">· 보유 평가금액 기준</span></b>
+        <div id="rebal-pie" style="height:300px;margin-top:8px"></div>
+      </div>
       <div class="card">
         <b style="font-size:14px">보유 조정</b>
         <table class="dtable" style="margin-top:8px"><thead><tr><th>종목</th><th>시그널</th><th>제안</th><th>근거</th></tr></thead><tbody>${rows(d.actions, false)}</tbody></table>
         ${d.adds.length ? `<b style="font-size:14px;display:block;margin-top:18px">신규 편입 제안</b>
         <table class="dtable" style="margin-top:8px"><thead><tr><th>종목</th><th>시그널</th><th>제안</th><th>근거</th></tr></thead><tbody>${rows(d.adds, true)}</tbody></table>` : ''}
       </div>`;
+    const pieData = (d.actions || []).filter(a => a.value > 0).map(a => ({ name: a.name, value: a.value }));
+    if (pieData.length) drawPie(document.getElementById('rebal-pie'), pieData, v => fmtNum(v, 0) + '원');
   } finally { btn.disabled = false; btn.textContent = t; }
 }
 

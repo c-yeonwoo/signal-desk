@@ -22,6 +22,7 @@ PRICES_FILE = CACHE_DIR / "prices.parquet"
 FUNDAMENTALS_FILE = CACHE_DIR / "fundamentals.json"
 FUNDAMENTALS_HISTORY_FILE = CACHE_DIR / "fundamentals_history.json"  # point-in-time 백테스트용 연도별 재무
 MACRO_FILE = CACHE_DIR / "macro.json"
+GURUS_FILE = CACHE_DIR / "gurus.json"  # 거장 포트폴리오(SEC 13F) 스냅샷
 
 PRICE_HISTORY_DAYS = 400  # MA120 워밍업 + 백테스트 여유분
 
@@ -149,6 +150,28 @@ def fetch_macro() -> list[dict]:
     items = fred.macro_indicators()
     _write_json(MACRO_FILE, items)
     return items
+
+
+def fetch_gurus(top: int = 10) -> list[dict]:
+    """거장 큐레이션의 최신 13F 보유내역을 수집·캐시. 조회 실패한 인물은 건너뛴다.
+    반환·저장: [{key, name, desc, period, total_usd, n_holdings, holdings:[...]}]."""
+    from signal_desk.ingest import edgar
+    from signal_desk.reference import gurus as gref
+    out = []
+    for g in gref.all_gurus():
+        h = edgar.holdings_13f(g["cik"], top=top)
+        if not h:
+            log.warning("거장 13F 조회 실패, 제외: %s", g["name"])
+            continue
+        out.append({"key": g["key"], "name": g["name"], "desc": g["desc"], **h})
+    _write_json(GURUS_FILE, out)
+    return out
+
+
+def load_gurus() -> list[dict]:
+    if not GURUS_FILE.exists():
+        return []
+    return json.loads(GURUS_FILE.read_text(encoding="utf-8"))
 
 
 def load_universe() -> list[dict]:
