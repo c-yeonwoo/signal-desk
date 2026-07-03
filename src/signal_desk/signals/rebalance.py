@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from signal_desk import llm
+from signal_desk.signals import engine
 
 
 def propose(holdings: list[dict], signal_by_ticker: dict, prices: dict[str, list[float]],
@@ -34,13 +35,13 @@ def propose(holdings: list[dict], signal_by_ticker: dict, prices: dict[str, list
         kind = sig.kind if sig else None
         score = sig.score if sig else None
         pl = (r["price"] / r["avg_price"] - 1) * 100 if r["avg_price"] else 0.0
-        if kind == "SELL":
-            action, reason = "매도", (f"시그널 SELL(점수 {score:+.2f}) — 비중 정리 권고")
+        if engine.is_sell(kind):
+            action, reason = "매도", (f"시그널 {kind}(점수 {score:+.2f}) — 비중 정리 권고")
         elif w > target_w * 1.6:
             action, reason = "축소", (f"비중 과다({w * 100:.0f}% ≫ 목표 {target_w * 100:.0f}%) — 일부 차익/분산")
             keep_n += 1
-        elif kind == "BUY" and w < target_w * 0.7:
-            action, reason = "비중확대", (f"시그널 BUY(점수 {score:+.2f}) + 저비중({w * 100:.0f}%) — 목표까지 추가 여지")
+        elif engine.is_buy(kind) and w < target_w * 0.7:
+            action, reason = "비중확대", (f"시그널 {kind}(점수 {score:+.2f}) + 저비중({w * 100:.0f}%) — 목표까지 추가 여지")
             keep_n += 1
         else:
             action, reason = "유지", (f"시그널 {kind or '정보없음'} · 비중 {w * 100:.0f}%(목표 {target_w * 100:.0f}%)")
@@ -53,10 +54,10 @@ def propose(holdings: list[dict], signal_by_ticker: dict, prices: dict[str, list
     held = {h["ticker"] for h in holdings}
     slots = max(0, target_n - keep_n)
     strong = sorted((s for t, s in signal_by_ticker.items()
-                     if s.kind == "BUY" and s.score >= style_params["min_buy_score"] and t not in held),
+                     if engine.is_buy(s.kind) and s.score >= style_params["min_buy_score"] and t not in held),
                     key=lambda s: s.score, reverse=True)[:slots]
-    adds = [{"ticker": s.ticker, "name": s.name, "score": s.score,
-             "reason": f"미보유 강한 BUY(점수 {s.score:+.2f}) — 목표배분 채움(약 {target_w * 100:.0f}%)"}
+    adds = [{"ticker": s.ticker, "name": s.name, "score": s.score, "kind": s.kind,
+             "reason": f"미보유 {s.kind}(점수 {s.score:+.2f}) — 목표배분 채움(약 {target_w * 100:.0f}%)"}
             for s in strong]
 
     return {"actions": actions, "adds": adds, "total_value": round(total),

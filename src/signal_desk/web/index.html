@@ -182,8 +182,10 @@
   table.dtable tr.clickable-row { cursor:pointer; transition:background .1s; }
   table.dtable tr.clickable-row:hover { background:var(--accent-weak); }
   .sig-pill { display:inline-block; padding:2px 9px; border-radius:var(--r-pill); font-size:var(--fs-xs); font-weight:700; color:#fff; }
+  .sig-pill.STRONG_BUY { background:#0b7a3b; }
   .sig-pill.BUY { background:var(--sig-buy); }
   .sig-pill.SELL { background:var(--sig-sell); }
+  .sig-pill.STRONG_SELL { background:#b3121a; }
   .sig-pill.HOLD { background:var(--sig-neutral); }
   .sig-pill.강세 { background:var(--sig-buy); }
   .sig-pill.과열 { background:var(--sig-watch); }
@@ -273,7 +275,7 @@
         <div id="signal-kb" style="display:none;font-size:12px;margin-bottom:8px;padding:8px 11px;
           border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line);line-height:1.5"></div>
         <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin-bottom:4px">
-          <span style="color:var(--sig-buy);font-weight:700">● B</span> Buy · <span style="color:var(--sig-sell);font-weight:700">● S</span> Sell — 지점에 호버하면 근거 표시 · 📍 = 현재 시그널(4팩터) · 음영 = 시그널 유지 구간</div>
+          <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수 · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도 · <b>+</b>는 강력 시그널 — 호버 시 근거 · 📍 = 현재 시그널(5단계) · 음영 = 유지 구간</div>
         <div id="signal-chart"></div>
       </div>
     </div>
@@ -408,7 +410,7 @@
         <span class="pipe-arrow">→</span>
         <div class="pipe-step"><div class="ps-n">3 · 결합</div><div class="ps-t">가중 결합</div><div class="ps-d">가중평균(없는 팩터는 재정규화 제외) → 종합점수</div></div>
         <span class="pipe-arrow">→</span>
-        <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">임계값 → 시그널</div><div class="ps-d">≥매수 → BUY · ≤매도 → SELL · 그 외 HOLD</div></div>
+        <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">임계값 → 5단계</div><div class="ps-d">강력매수·매수·관망·매도·강력매도</div></div>
         <span class="pipe-arrow">→</span>
         <div class="pipe-step"><div class="ps-n">5 · 검증</div><div class="ps-t">백테스트</div><div class="ps-d">과거 적중률·손익비로 신뢰도 검증</div></div>
         <span class="pipe-arrow">→</span>
@@ -423,8 +425,10 @@
         <div class="field">저평가 <input type="number" step="0.05" min="0" id="w_valuation" class="ctrl"></div>
         <div class="field">낙폭과대 <input type="number" step="0.05" min="0" id="w_reversion" class="ctrl"></div>
         <div class="field">정성(KB) <input type="number" step="0.05" min="0" id="w_qualitative" class="ctrl"></div>
+        <div class="field">강력매수 임계값 <input type="number" step="0.1" id="th_sbuy" class="ctrl"></div>
         <div class="field">매수 임계값 <input type="number" step="0.1" id="th_buy" class="ctrl"></div>
         <div class="field">매도 임계값 <input type="number" step="0.1" id="th_sell" class="ctrl"></div>
+        <div class="field">강력매도 임계값 <input type="number" step="0.1" id="th_ssell" class="ctrl"></div>
       </div>
       <div class="row" style="margin-top:14px">
         <span id="engine-winrate" class="stat-label" style="margin:0"></span>
@@ -745,7 +749,7 @@ async function loadSignals(){
         <td>📌</td>
         <td><b>${esc(mkt.name)}</b><div style="color:var(--dim);font-size:11px">시장 지수</div></td>
         <td style="font-size:12px;color:var(--dim)">지수</td>
-        <td><span class="sig-pill ${mkt.kind}">${mkt.kind}</span></td>
+        <td><span class="sig-pill ${mkt.kind}">${kindLabel(mkt.kind)}</span></td>
       </tr>`;
     }
     const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
@@ -753,7 +757,7 @@ async function loadSignals(){
       <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div style="color:var(--dim);font-size:11px">${esc(r.ticker)}</div></td>
       <td style="font-size:12px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}</td>
-      <td><span class="sig-pill ${r.kind}">${r.kind}</span></td>
+      <td><span class="sig-pill ${r.kind}">${kindLabel(r.kind)}</span></td>
     </tr>`).join('');
     el.className = '';
     el.innerHTML = `<table class="dtable"><thead><tr>
@@ -783,7 +787,11 @@ function selectSignalRow(ticker){
   showSignalChart(ticker, item);
 }
 
-const _ZONE_COLOR = { BUY: '#22c55e', SELL: '#dc2626' };
+const _ZONE_COLOR = { STRONG_BUY: '#0b7a3b', BUY: '#22c55e', SELL: '#dc2626', STRONG_SELL: '#b3121a' };
+const _KIND_LABEL = { STRONG_BUY: '강력매수', BUY: '매수', HOLD: '관망', SELL: '매도', STRONG_SELL: '강력매도' };
+const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
+const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';
+const kindLabel = (k) => _KIND_LABEL[k] || k;
 
 let _signalChart = null;
 async function showSignalChart(ticker, item){
@@ -792,7 +800,7 @@ async function showSignalChart(ticker, item){
   const sub = document.getElementById('signal-chart-sub');
   if (item) {
     sub.innerHTML = `<span style="color:var(--dim)">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}</span>`
-      + ` &nbsp;<span class="sig-pill ${item.kind}">${item.kind}</span>`
+      + ` &nbsp;<span class="sig-pill ${item.kind}">${kindLabel(item.kind)}</span>`
       + ` <span style="color:var(--dim)">점수 ${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)} · 신뢰도 ${fmtNum(item.confidence, 2)}</span>`;
   } else sub.textContent = '';
   const introEl = document.getElementById('signal-intro');
@@ -801,11 +809,11 @@ async function showSignalChart(ticker, item){
     introEl.innerHTML = `🏭 <b style="color:var(--txt)">${esc(item.intro)}</b>${item.intro_desc ? ' — ' + esc(item.intro_desc) : ''}`;
   } else introEl.style.display = 'none';
   const btEl = document.getElementById('signal-backtest');
-  const bt = item && (item.kind === 'BUY' || item.kind === 'SELL') ? _backtestByKind[item.kind] : null;
+  const bt = item && (_isBuy(item.kind) || _isSell(item.kind)) ? _backtestByKind[item.kind] : null;
   if (bt && bt.n) {
     const wr = bt.winrate, wrColor = wr >= 55 ? 'var(--sig-buy)' : wr < 45 ? 'var(--sig-sell)' : 'var(--dim)';
     btEl.style.display = '';
-    btEl.innerHTML = `📊 과거 <b>${esc(item.kind)}</b> 시그널 적중률 <b style="color:${wrColor}">${fmtNum(wr, 1)}%</b>`
+    btEl.innerHTML = `📊 과거 <b>${kindLabel(item.kind)}</b> 시그널 적중률 <b style="color:${wrColor}">${fmtNum(wr, 1)}%</b>`
       + `${bt.avg_ret_5d != null ? ` · 5일 평균 ${bt.avg_ret_5d > 0 ? '+' : ''}${fmtNum(bt.avg_ret_5d, 2)}%` : ''} <span style="color:var(--dim-2)">(표본 ${bt.n}, 가격기반 백테스트)</span>`;
   } else btEl.style.display = 'none';
   const narrEl = document.getElementById('signal-narrative');
@@ -846,19 +854,21 @@ async function showSignalChart(ticker, item){
     const idxOf = {}; dates.forEach((dt, i) => { idxOf[dt] = i; });
     const mkPts = rawZones.map(z => {
       const i = idxOf[z.start < first ? first : z.start]; if (i == null) return null;
-      const buy = z.kind === 'BUY';
+      const buy = _isBuy(z.kind);
       const why = reasonEn(z.reasons || []);
-      return { coord: [dates[i], close[i]], mk: buy ? 'B' : 'S',
-        tip: (buy ? 'Buy' : 'Sell') + (why ? ' — ' + why : ''),
-        symbol: 'circle', symbolSize: 16, symbolOffset: buy ? [0, 22] : [0, -22],
-        itemStyle: { color: buy ? '#16a34a' : '#dc2626' } };
+      const strong = z.kind === 'STRONG_BUY' || z.kind === 'STRONG_SELL';
+      return { coord: [dates[i], close[i]], mk: (buy ? 'B' : 'S') + (strong ? '+' : ''),
+        tip: kindLabel(z.kind) + (why ? ' — ' + why : ''),
+        symbol: 'circle', symbolSize: strong ? 19 : 16, symbolOffset: buy ? [0, 22] : [0, -22],
+        itemStyle: { color: _ZONE_COLOR[z.kind] } };
     }).filter(Boolean);
-    if (item && (item.kind === 'BUY' || item.kind === 'SELL')) {  // 현재 시점 시그널(4팩터)
-      const li = dates.length - 1, buy = item.kind === 'BUY', whyNow = reasonEn(item.reasons);
-      mkPts.push({ coord: [dates[li], close[li]], mk: buy ? 'B' : 'S',
-        tip: 'NOW · ' + (buy ? 'Buy' : 'Sell') + ' (score ' + (item.score > 0 ? '+' : '') + fmtNum(item.score, 2) + ')' + (whyNow ? ' — ' + whyNow : ''),
+    if (item && (_isBuy(item.kind) || _isSell(item.kind))) {  // 현재 시점 시그널(4팩터)
+      const li = dates.length - 1, buy = _isBuy(item.kind), whyNow = reasonEn(item.reasons);
+      const strong = item.kind === 'STRONG_BUY' || item.kind === 'STRONG_SELL';
+      mkPts.push({ coord: [dates[li], close[li]], mk: (buy ? 'B' : 'S') + (strong ? '+' : ''),
+        tip: 'NOW · ' + kindLabel(item.kind) + ' (score ' + (item.score > 0 ? '+' : '') + fmtNum(item.score, 2) + ')' + (whyNow ? ' — ' + whyNow : ''),
         symbol: 'pin', symbolSize: 46, symbolOffset: [0, -6],
-        itemStyle: { color: buy ? '#16a34a' : '#dc2626', borderColor: '#fff', borderWidth: 2 } });
+        itemStyle: { color: _ZONE_COLOR[item.kind] || '#4f46e5', borderColor: '#fff', borderWidth: 2 } });
     }
     const markPoint = mkPts.length ? {
       label: { show: true, color: '#fff', fontSize: 10, fontWeight: 700, formatter: (p) => p.data.mk },
@@ -1126,7 +1136,7 @@ async function runRebalance(){
       const kind = isAdd ? 'BUY' : (x.kind || 'HOLD');
       const actColor = (x.action === '매도') ? 'var(--sig-sell)' : (isAdd || x.action === '비중확대') ? 'var(--sig-buy)' : 'var(--txt)';
       return `<tr><td><b>${esc(x.name)}</b><div style="color:var(--dim);font-size:11px">${esc(x.ticker)}</div></td>
-        <td><span class="sig-pill ${kind}">${kind}</span></td>
+        <td><span class="sig-pill ${kind}">${kindLabel(kind)}</span></td>
         <td><b style="color:${actColor}">${isAdd ? '신규매수' : esc(x.action)}</b></td>
         <td class="reasons">${esc(x.reason)}${!isAdd && x.pl_pct != null ? ` · 손익 ${x.pl_pct > 0 ? '+' : ''}${x.pl_pct}%` : ''}</td></tr>`;
     }).join('');
@@ -1227,7 +1237,7 @@ function fillMyPage(){
 // ===== 시그널 엔진 설정(관리자) =====
 const _ENGINE_FIELDS = { w_technical: 'weight_technical', w_fundamental: 'weight_fundamental',
   w_valuation: 'weight_valuation', w_reversion: 'weight_reversion', w_qualitative: 'weight_qualitative',
-  th_buy: 'buy_threshold', th_sell: 'sell_threshold' };
+  th_sbuy: 'strong_buy_threshold', th_buy: 'buy_threshold', th_sell: 'sell_threshold', th_ssell: 'strong_sell_threshold' };
 function _fillEngine(cfg, winrate){
   for (const [id, key] of Object.entries(_ENGINE_FIELDS)) {
     const el = document.getElementById(id); if (el && cfg[key] != null) el.value = cfg[key];

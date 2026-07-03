@@ -10,7 +10,8 @@ KB(brightdesk의 kb_facts/source_registry 패턴)를 만들고, 그 KB를 LLM에
 
 from __future__ import annotations
 
-_KIND_WORD = {"BUY": "매수", "SELL": "매도", "HOLD": "관망"}
+_KIND_WORD = {"STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망",
+              "SELL": "매도", "STRONG_SELL": "강력 매도"}
 
 
 def _group_by_tag(reasons: list[str]) -> dict[str, list[str]]:

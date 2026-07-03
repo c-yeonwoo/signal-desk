@@ -12,7 +12,8 @@ from signal_desk.signals.engine import SignalConfig
 _KEY = "signal_config"
 # 관리자 조정 대상 필드(팩터 가중치 5종 + 매수/매도 임계값)
 FIELDS = ["weight_technical", "weight_fundamental", "weight_valuation",
-          "weight_reversion", "weight_qualitative", "buy_threshold", "sell_threshold"]
+          "weight_reversion", "weight_qualitative",
+          "strong_buy_threshold", "buy_threshold", "sell_threshold", "strong_sell_threshold"]
 
 
 def get_config() -> SignalConfig:
