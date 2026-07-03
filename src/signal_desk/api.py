@@ -222,6 +222,11 @@ def _valuation():
 
 
 @lru_cache(maxsize=1)
+def _quotes():
+    return store.load_quotes()
+
+
+@lru_cache(maxsize=1)
 def _regime():
     return regime.classify(store.load_price_series())
 
@@ -237,8 +242,15 @@ def signals_get():
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
+    quotes = _quotes()
     for r in _signals():
         d = asdict(r)
+        q = quotes.get(r.ticker) or {}
+        d["price"] = q.get("price")  # 현재가(최신 종가)
+        d["change_pct"] = q.get("change_pct")
+        d["mktcap"] = q.get("mktcap")  # 시가총액(정렬·표기용)
+        d["vol"] = q.get("vol")
+        d["vol_avg"] = q.get("vol_avg")  # 최근 20일 평균 거래량
         pos = valuechain.company_position(r.ticker)  # 밸류체인 큐레이션에서 소개 재활용
         d["sector"] = sectors.sector_of(r.ticker)  # 세분 섹터(조선·철강·화장품·로봇 등) 200종목 매핑
         d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
@@ -269,6 +281,7 @@ def signal_chart_get(ticker: str):
     return {
         "ready": True,
         "ticker": ticker,
+        "quote": _quotes().get(ticker),  # 현재가·시총·거래량(차트 헤더 표기)
         "dates": dates,
         "close": closes,
         "ma20": series["ma_short"],
@@ -315,6 +328,7 @@ def refresh():
     _signals.cache_clear()
     _backtest.cache_clear()
     _valuation.cache_clear()
+    _quotes.cache_clear()
     _regime.cache_clear()
     _macro.cache_clear()
     return {

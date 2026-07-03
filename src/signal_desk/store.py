@@ -51,7 +51,7 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
         for bar in bars:
             rows.append({"ticker": ticker, **bar})
 
-    df = pd.DataFrame(rows, columns=["date", "ticker", "open", "close"])
+    df = pd.DataFrame(rows, columns=["date", "ticker", "open", "close", "volume"])
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     df.to_parquet(PRICES_FILE, index=False)
     return df
@@ -91,6 +91,7 @@ def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None
         net_income = metrics.get("net_income")
         equity = metrics.get("equity")
         if mktcap:
+            metrics["mktcap"] = mktcap  # 현재 시가총액(원) — 시그널 리스트 정렬·차트 헤더 표기용
             if net_income and net_income > 0:
                 metrics["per"] = round(mktcap / net_income, 2)
             if equity and equity > 0:
@@ -166,6 +167,43 @@ def load_fundamentals() -> dict[str, dict]:
     if not FUNDAMENTALS_FILE.exists():
         return {}
     return json.loads(FUNDAMENTALS_FILE.read_text(encoding="utf-8"))
+
+
+def load_quotes(vol_window: int = 20) -> dict[str, dict]:
+    """종목별 시세 요약 — {ticker: {price, prev_close, change_pct, mktcap, vol, vol_avg}}.
+
+    price=최신 종가, change_pct=전일 대비, mktcap=fundamentals의 시가총액(원, 없으면 None),
+    vol=최신 거래량, vol_avg=최근 vol_window일 평균 거래량. 구 parquet(거래량 컬럼 없음)면
+    vol/vol_avg는 None으로 그레이스풀 폴백(재수집 전까지 UI는 '—' 표시).
+    """
+    if not PRICES_FILE.exists():
+        return {}
+    df = pd.read_parquet(PRICES_FILE)
+    if df.empty:
+        return {}
+    has_vol = "volume" in df.columns
+    fundamentals = load_fundamentals()
+    df = df.sort_values(["ticker", "date"])
+    out: dict[str, dict] = {}
+    for ticker, g in df.groupby("ticker"):
+        closes = g["close"].tolist()
+        price = float(closes[-1])
+        prev = float(closes[-2]) if len(closes) > 1 else price
+        vol = vol_avg = None
+        if has_vol:
+            vols = [float(v) for v in g["volume"].tolist() if v == v]  # NaN 제외
+            if vols:
+                vol = vols[-1]
+                vol_avg = round(sum(vols[-vol_window:]) / len(vols[-vol_window:]), 1)
+        out[ticker] = {
+            "price": round(price, 2),
+            "prev_close": round(prev, 2),
+            "change_pct": round((price / prev - 1) * 100, 2) if prev else 0.0,
+            "mktcap": (fundamentals.get(ticker) or {}).get("mktcap"),
+            "vol": vol,
+            "vol_avg": vol_avg,
+        }
+    return out
 
 
 def is_ready() -> bool:

@@ -63,12 +63,13 @@ def universe(limit: int = 200) -> list[dict]:
 
 
 def ohlcv(ticker: str, start: str, end: str) -> list[dict]:
-    """종목별 일봉(시가/종가). start/end는 'YYYYMMDD'. 오래된→최신 순 정렬."""
+    """종목별 일봉(시가/종가/거래량). start/end는 'YYYYMMDD'. 오래된→최신 순 정렬."""
     df = stock.get_market_ohlcv_by_date(start, end, ticker)
     if df is None or df.empty:
         return []
     df = df.sort_index()
     return [
-        {"date": idx.strftime("%Y-%m-%d"), "open": float(row["시가"]), "close": float(row["종가"])}
+        {"date": idx.strftime("%Y-%m-%d"), "open": float(row["시가"]), "close": float(row["종가"]),
+         "volume": float(row.get("거래량", 0) or 0)}
         for idx, row in df.iterrows()
     ]
