@@ -34,8 +34,11 @@ class SignalConfig:
     weight_reversion: float = 0.20
     weight_qualitative: float = 0.15  # KB(뉴스·영상) 정성 — 데이터 있을 때만 포함(없으면 재정규화 제외)
 
+    # 5단계 시그널 임계값(종합점수 범위 ~[-3,3]): 강력매수 ≥ 매수 ≥ (관망) ≥ 매도 ≥ 강력매도
+    strong_buy_threshold: float = 2.0
     buy_threshold: float = 1.2
     sell_threshold: float = -1.2
+    strong_sell_threshold: float = -2.0
 
     rsi_period: int = 14
     rsi_oversold: float = 30
@@ -173,6 +176,35 @@ def _reversion_component(
     return rev_score / rev_cfg.max_score, config.weight_reversion, reasons, rev_score, True
 
 
+# 5단계 시그널 종류
+STRONG_BUY, BUY, HOLD, SELL, STRONG_SELL = "STRONG_BUY", "BUY", "HOLD", "SELL", "STRONG_SELL"
+BUY_KINDS = (STRONG_BUY, BUY)
+SELL_KINDS = (STRONG_SELL, SELL)
+ACTIONABLE_KINDS = (STRONG_BUY, BUY, SELL, STRONG_SELL)
+
+
+def is_buy(kind: str) -> bool:
+    return kind in BUY_KINDS
+
+
+def is_sell(kind: str) -> bool:
+    return kind in SELL_KINDS
+
+
+def classify(score: float, config: SignalConfig | None = None) -> str:
+    """종합점수 → 5단계 시그널."""
+    config = config or SignalConfig()
+    if score >= config.strong_buy_threshold:
+        return STRONG_BUY
+    if score >= config.buy_threshold:
+        return BUY
+    if score <= config.strong_sell_threshold:
+        return STRONG_SELL
+    if score <= config.sell_threshold:
+        return SELL
+    return HOLD
+
+
 def combine(components: list[tuple[float, float, list[str]]], config: SignalConfig | None = None) -> dict:
     """(정규화 점수[-1,1], 가중치, 근거) 컴포넌트 리스트를 가중평균해 결합.
 
@@ -184,13 +216,7 @@ def combine(components: list[tuple[float, float, list[str]]], config: SignalConf
     weight_sum = sum(w for _, w, _ in components)
     weighted = sum(norm * w for norm, w, _ in components) / weight_sum if weight_sum else 0.0
     score = weighted * 3
-
-    if score >= config.buy_threshold:
-        kind = "BUY"
-    elif score <= config.sell_threshold:
-        kind = "SELL"
-    else:
-        kind = "HOLD"
+    kind = classify(score, config)
 
     confidence = round(abs(2 * ind.sigmoid(score) - 1) * 100) / 100
     reasons = [r for _, _, rs in components for r in rs]
@@ -321,11 +347,10 @@ def backtest_summary(
     config = config or SignalConfig()
     horizons = config.backtest_horizons
     by_kind: dict[str, dict[str, list[float]]] = {
-        "BUY": {f"ret_{h}d": [] for h in horizons},
-        "SELL": {f"ret_{h}d": [] for h in horizons},
+        k: {f"ret_{h}d": [] for h in horizons} for k in ACTIONABLE_KINDS
     }
-    hits: dict[str, int] = {"BUY": 0, "SELL": 0}
-    counted: dict[str, int] = {"BUY": 0, "SELL": 0}
+    hits: dict[str, int] = {k: 0 for k in ACTIONABLE_KINDS}
+    counted: dict[str, int] = {k: 0 for k in ACTIONABLE_KINDS}
 
     for closes in prices_by_ticker.values():
         if len(closes) < 30:
@@ -335,7 +360,7 @@ def backtest_summary(
             entry_idx = i + 1  # 시그널 다음날 종가로 진입 근사
             combined = combine(_price_only_components(closes, series, i, config), config)
             kind = combined["kind"]
-            if kind == "HOLD":
+            if kind == HOLD:
                 continue
 
             entry_price = closes[entry_idx]
@@ -344,7 +369,7 @@ def backtest_summary(
                 continue
             ret_primary = (closes[entry_idx + primary_h] - entry_price) / entry_price
             counted[kind] += 1
-            hit = ret_primary > config.backtest_hit_ret if kind == "BUY" else ret_primary < -config.backtest_hit_ret
+            hit = ret_primary > config.backtest_hit_ret if is_buy(kind) else ret_primary < -config.backtest_hit_ret
             if hit:
                 hits[kind] += 1
 
@@ -354,7 +379,7 @@ def backtest_summary(
                     by_kind[kind][f"ret_{h}d"].append(ret_h)
 
     by_signal = []
-    for kind in ("BUY", "SELL"):
+    for kind in ACTIONABLE_KINDS:
         n = counted[kind]
         row = {
             "kind": kind,

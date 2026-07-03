@@ -5,7 +5,7 @@ def test_bot_config_defaults_and_toggle(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = db.bot_config_get()
     assert cfg == {"enabled": False, "max_positions": 10, "position_pct": 0.08, "updated": cfg["updated"],
-                   "min_buy_score": 1.6, "max_new_buys_per_run": 2}
+                   "min_buy_score": 1.6, "max_new_buys_per_run": 2, "trading_style": "balanced"}
 
     db.bot_config_set_enabled(True)
     assert db.bot_config_get()["enabled"] is True

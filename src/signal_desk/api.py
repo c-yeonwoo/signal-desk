@@ -18,9 +18,9 @@ from zoneinfo import ZoneInfo
 from fastapi import Body, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from signal_desk import auth, bot, config, db, kb, store
-from signal_desk.reference import cycle, valuechain
-from signal_desk.signals import macro, regime, valuation
+from signal_desk import auth, bot, config, db, kb, signalcfg, store, strategy
+from signal_desk.reference import cycle, sectors, valuechain
+from signal_desk.signals import macro, rebalance, regime, valuation
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, combine,
     compute_indicator_series, evaluate, signal_zones,
@@ -161,16 +161,58 @@ def favorites_del(request: Request, kind: str, key: str):
     return {"ok": True}
 
 
+# ---------- 실보유 종목 + 리밸런싱 ----------
+@app.get("/api/holdings")
+def holdings_get(request: Request):
+    return {"holdings": db.holdings_list(_uid(request))}
+
+
+@app.post("/api/holdings")
+def holdings_set(request: Request, data: dict = Body(...)):
+    ticker = str(data.get("ticker", "")).strip()
+    if not ticker:
+        return JSONResponse({"ok": False, "error": "종목코드 필요"}, status_code=400)
+    db.holdings_set(_uid(request), ticker, float(data.get("qty", 0)), float(data.get("avg_price", 0)))
+    return {"ok": True}
+
+
+@app.delete("/api/holdings")
+def holdings_del(request: Request, ticker: str):
+    db.holdings_remove(_uid(request), ticker)
+    return {"ok": True}
+
+
+@app.post("/api/rebalance")
+def rebalance_post(request: Request):
+    """내 보유종목을 시그널·성향 목표배분에 맞춰 리밸런싱 제안 + LLM 해설."""
+    holdings = db.holdings_list(_uid(request))
+    if not holdings:
+        return {"ready": False, "reason": "보유종목을 먼저 입력하세요."}
+    if not store.is_ready():
+        return {"ready": False, "reason": "시세 데이터가 없습니다 — /api/refresh 먼저."}
+    prices = store.load_price_series()
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    sigmap = {s.ticker: s for s in _signals()}
+    cfg = db.bot_config_get()
+    style = cfg["trading_style"]
+    plan = rebalance.propose(holdings, sigmap, prices, names, strategy.bot_params(style))
+    context = {"regime": _regime().get("regime"), "macro_bias": _macro().get("bias")}
+    plan["summary"] = rebalance.explain(plan, strategy.STYLE_LABEL.get(style, style), context)
+    plan["ready"] = True
+    plan["style_label"] = strategy.STYLE_LABEL.get(style, style)
+    return plan
+
+
 # ---------- 시그널 (실데이터, store 캐시 기반) ----------
 @lru_cache(maxsize=1)
 def _signals():
     return evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
-                    sentiment=kb.sentiment_map())
+                    config=signalcfg.get_config(), sentiment=kb.sentiment_map())
 
 
 @lru_cache(maxsize=1)
 def _backtest():
-    return backtest_summary(store.load_price_series())
+    return backtest_summary(store.load_price_series(), config=signalcfg.get_config())
 
 
 @lru_cache(maxsize=1)
@@ -196,8 +238,8 @@ def signals_get():
     items = []
     for r in _signals():
         d = asdict(r)
-        pos = valuechain.company_position(r.ticker)  # 밸류체인 큐레이션에서 섹터·소개 재활용
-        d["sector"] = pos["gics"] if pos else None  # 시그널 리스트 컬럼은 GICS 섹터
+        pos = valuechain.company_position(r.ticker)  # 밸류체인 큐레이션에서 소개 재활용
+        d["sector"] = sectors.sector_of(r.ticker)  # 세분 섹터(조선·철강·화장품·로봇 등) 200종목 매핑
         d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
         d["intro_desc"] = pos["stage_desc"] if pos else None
         dg = db.kb_digest_get(r.ticker)  # KB 정성 다이제스트(뉴스·영상 가공)
@@ -311,6 +353,13 @@ def bot_toggle(data: dict = Body(...)):
     return {"ok": True, "enabled": bool(data.get("enabled"))}
 
 
+@app.post("/api/bot/style")
+def bot_style(data: dict = Body(...)):
+    """트레이딩 성향(안정형/균형형/공격형) 변경 — 봇 파라미터·리스크 룰이 프리셋으로 바뀐다."""
+    style = bot.set_style(str(data.get("style", "balanced")))
+    return {"ok": True, "style": style}
+
+
 @app.post("/api/bot/run")
 def bot_run():
     """수동 1회 실행 — 실주문은 장 시간(평일 09:00~15:20 KST)에만 나간다."""
@@ -408,6 +457,32 @@ def macro_get():
     if not data["indicators"]:
         return {"ready": False, "indicators": []}
     return {"ready": True, **data}
+
+
+# ---------- 시그널 엔진 설정(관리자) ----------
+@app.get("/api/engine/config")
+def engine_config_get():
+    """팩터 가중치·임계값 + 현재 백테스트 적중률(price_based) — 관리자 파이프라인 뷰."""
+    bt = _backtest() if store.is_ready() else {}
+    wr = {r["kind"]: r for r in bt.get("by_signal", [])}
+    return {"config": signalcfg.get_dict(), "winrate": wr, "method": bt.get("method")}
+
+
+@app.post("/api/engine/config")
+def engine_config_set(data: dict = Body(...)):
+    """가중치·임계값 저장 → 시그널/백테스트 캐시 무효화(즉시 반영)."""
+    out = signalcfg.set_dict(data)
+    _signals.cache_clear()
+    _backtest.cache_clear()
+    return {"ok": True, "config": out}
+
+
+@app.post("/api/engine/reset")
+def engine_config_reset():
+    out = signalcfg.reset()
+    _signals.cache_clear()
+    _backtest.cache_clear()
+    return {"ok": True, "config": out}
 
 
 # ---------- SPA 서빙 ----------

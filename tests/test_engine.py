@@ -105,11 +105,23 @@ def test_backtest_summary_structure():
         closes.append(price)
     out = engine.backtest_summary({"TEST": closes})
     assert out["method"] == "price_based_v2"
-    assert {row["kind"] for row in out["by_signal"]} == {"BUY", "SELL"}
+    # 5단계 중 실행 가능한 4종(강력매수/매수/매도/강력매도)이 성적표 행으로 나온다
+    assert {row["kind"] for row in out["by_signal"]} == {"STRONG_BUY", "BUY", "SELL", "STRONG_SELL"}
     for row in out["by_signal"]:
         assert row["n"] >= 0
         if row["n"]:
             assert 0 <= row["winrate"] <= 100
+
+
+def test_classify_five_tiers():
+    assert engine.classify(2.5) == "STRONG_BUY"
+    assert engine.classify(1.5) == "BUY"
+    assert engine.classify(0.0) == "HOLD"
+    assert engine.classify(-1.5) == "SELL"
+    assert engine.classify(-2.5) == "STRONG_SELL"
+    assert engine.is_buy("STRONG_BUY") and engine.is_buy("BUY")
+    assert engine.is_sell("STRONG_SELL") and engine.is_sell("SELL")
+    assert not engine.is_buy("HOLD") and not engine.is_sell("HOLD")
 
 
 def test_backtest_summary_ignores_short_series():

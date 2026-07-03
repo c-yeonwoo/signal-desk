@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS bot_decisions(id INTEGER PRIMARY KEY AUTOINCREMENT, t
     outcome_pct REAL, outcome_ts INTEGER);
 CREATE TABLE IF NOT EXISTS bot_reservations(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
     side TEXT, target_price REAL, max_chase_pct REAL, reason TEXT, status TEXT, created INTEGER, resolved INTEGER);
+CREATE TABLE IF NOT EXISTS holdings(uid INTEGER, ticker TEXT, qty REAL, avg_price REAL, ts INTEGER,
+    PRIMARY KEY(uid, ticker));
 """
 
 
@@ -61,6 +63,8 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE bot_config ADD COLUMN min_buy_score REAL NOT NULL DEFAULT 1.6")
     if "max_new_buys_per_run" not in ccols:  # 한 사이클에 신규 매수 최대 건수(한꺼번에 다 사지 않음)
         c.execute("ALTER TABLE bot_config ADD COLUMN max_new_buys_per_run INTEGER NOT NULL DEFAULT 2")
+    if "trading_style" not in ccols:  # 안정형/균형형/공격형 — 성향별 봇 파라미터 프리셋
+        c.execute("ALTER TABLE bot_config ADD COLUMN trading_style TEXT NOT NULL DEFAULT 'balanced'")
     c.commit()
 
 
@@ -175,11 +179,24 @@ def bot_config_get() -> dict:
     c.execute("INSERT OR IGNORE INTO bot_config(id,enabled,max_positions,position_pct,updated) "
               "VALUES(1,0,10,0.08,?)", (int(time.time()),))
     c.commit()
-    row = c.execute("SELECT enabled,max_positions,position_pct,updated,min_buy_score,max_new_buys_per_run "
+    row = c.execute("SELECT enabled,max_positions,position_pct,updated,min_buy_score,max_new_buys_per_run,trading_style "
                     "FROM bot_config WHERE id=1").fetchone()
     c.close()
     return {"enabled": bool(row[0]), "max_positions": row[1], "position_pct": row[2], "updated": row[3],
-            "min_buy_score": row[4], "max_new_buys_per_run": row[5]}
+            "min_buy_score": row[4], "max_new_buys_per_run": row[5], "trading_style": row[6]}
+
+
+def bot_config_set_style(style: str, params: dict) -> None:
+    """트레이딩 성향 저장 + 성향 프리셋 숫자 파라미터를 함께 반영."""
+    c = conn()
+    c.execute("INSERT OR IGNORE INTO bot_config(id,enabled,max_positions,position_pct,updated) "
+              "VALUES(1,0,10,0.08,?)", (int(time.time()),))
+    c.execute("UPDATE bot_config SET trading_style=?, max_positions=?, position_pct=?, min_buy_score=?, "
+              "max_new_buys_per_run=?, updated=? WHERE id=1",
+              (style, params["max_positions"], params["position_pct"], params["min_buy_score"],
+               params["max_new_buys_per_run"], int(time.time())))
+    c.commit()
+    c.close()
 
 
 def bot_config_set_enabled(enabled: bool) -> None:
@@ -380,5 +397,28 @@ def bot_reservations_clear_pending() -> None:
     """미실행 예약 정리(새 마감 분석 전 pending을 만료 처리)."""
     c = conn()
     c.execute("UPDATE bot_reservations SET status='expired', resolved=? WHERE status='pending'", (int(time.time()),))
+    c.commit()
+    c.close()
+
+
+# ---------- holdings (유저 실제 보유종목 — 리밸런싱 대상) ----------
+def holdings_list(uid: int) -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT ticker,qty,avg_price FROM holdings WHERE uid=? ORDER BY ts DESC", (uid,)).fetchall()
+    c.close()
+    return [{"ticker": t, "qty": q, "avg_price": ap} for t, q, ap in rows]
+
+
+def holdings_set(uid: int, ticker: str, qty: float, avg_price: float) -> None:
+    c = conn()
+    c.execute("INSERT OR REPLACE INTO holdings(uid,ticker,qty,avg_price,ts) VALUES(?,?,?,?,?)",
+              (uid, ticker, qty, avg_price, int(time.time())))
+    c.commit()
+    c.close()
+
+
+def holdings_remove(uid: int, ticker: str) -> None:
+    c = conn()
+    c.execute("DELETE FROM holdings WHERE uid=? AND ticker=?", (uid, ticker))
     c.commit()
     c.close()
