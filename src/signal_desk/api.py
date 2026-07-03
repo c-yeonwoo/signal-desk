@@ -19,7 +19,7 @@ from fastapi import Body, FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from signal_desk import auth, bot, config, db, kb, store, strategy
-from signal_desk.reference import cycle, valuechain
+from signal_desk.reference import cycle, sectors, valuechain
 from signal_desk.signals import macro, rebalance, regime, valuation
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, combine,
@@ -238,8 +238,8 @@ def signals_get():
     items = []
     for r in _signals():
         d = asdict(r)
-        pos = valuechain.company_position(r.ticker)  # 밸류체인 큐레이션에서 섹터·소개 재활용
-        d["sector"] = pos["gics"] if pos else None  # 시그널 리스트 컬럼은 GICS 섹터
+        pos = valuechain.company_position(r.ticker)  # 밸류체인 큐레이션에서 소개 재활용
+        d["sector"] = sectors.sector_of(r.ticker)  # 세분 섹터(조선·철강·화장품·로봇 등) 200종목 매핑
         d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
         d["intro_desc"] = pos["stage_desc"] if pos else None
         dg = db.kb_digest_get(r.ticker)  # KB 정성 다이제스트(뉴스·영상 가공)
