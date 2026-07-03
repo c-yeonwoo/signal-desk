@@ -865,6 +865,7 @@ function fmtVol(v){ if (v == null) return '–'; return v >= 1e8 ? fmtNum(v / 1e
 function renderSignalList(){
   const el = document.getElementById('signal-body');
   if (!_signalRows) return;
+  el.style.padding = '0';  // 로딩 플레이스홀더용 상하 패딩 제거(리스트 위 빈공간 제거)
   const q = (document.getElementById('sig-search').value || '').trim().toLowerCase();
   const sort = document.getElementById('sig-sort').value;
   let rows = _signalRows.filter(r =>
