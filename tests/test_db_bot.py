@@ -20,7 +20,8 @@ def test_bot_position_upsert_and_delete(tmp_path, monkeypatch):
     db.bot_position_upsert("005930", "삼성전자", 10, 70000.0, 72000.0, "2026-07-01")
     pos = db.bot_position_get("005930")
     assert pos == {"ticker": "005930", "name": "삼성전자", "qty": 10, "avg_price": 70000.0,
-                   "peak_price": 72000.0, "entry_date": "2026-07-01"}
+                   "peak_price": 72000.0, "entry_date": "2026-07-01",
+                   "last_price": None, "last_pnl_pct": None}
     assert db.bot_positions_all() == [pos]
 
     # upsert 덮어쓰기

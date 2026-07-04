@@ -144,6 +144,8 @@ def balance(creds: dict | None = None, retries: int = 3) -> dict | None:
         {
             "ticker": h["pdno"], "name": h["prdt_name"],
             "qty": int(h["hldg_qty"]), "avg_price": float(h["pchs_avg_pric"]),
+            "price": float(h.get("prpr") or 0),               # 현재가
+            "pnl_pct": float(h.get("evlu_pfls_rt") or 0),     # 평가손익률(%)
         }
         for h in body.get("output1", []) if int(h.get("hldg_qty", 0)) > 0
     ]

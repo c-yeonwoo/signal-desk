@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS bot_config(id INTEGER PRIMARY KEY CHECK (id=1),
     enabled INTEGER NOT NULL DEFAULT 0, max_positions INTEGER NOT NULL DEFAULT 10,
     position_pct REAL NOT NULL DEFAULT 0.08, updated INTEGER);
 CREATE TABLE IF NOT EXISTS bot_positions(ticker TEXT PRIMARY KEY, name TEXT, qty INTEGER,
-    avg_price REAL, peak_price REAL, entry_date TEXT, updated INTEGER);
+    avg_price REAL, peak_price REAL, entry_date TEXT, last_price REAL, last_pnl_pct REAL, updated INTEGER);
 CREATE TABLE IF NOT EXISTS bot_trades(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
     side TEXT, qty INTEGER, price REAL, reason TEXT, order_no TEXT, ts INTEGER);
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
@@ -67,6 +67,11 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE bot_config ADD COLUMN max_new_buys_per_run INTEGER NOT NULL DEFAULT 2")
     if "trading_style" not in ccols:  # 안정형/균형형/공격형 — 성향별 봇 파라미터 프리셋
         c.execute("ALTER TABLE bot_config ADD COLUMN trading_style TEXT NOT NULL DEFAULT 'balanced'")
+    pcols = {r[1] for r in c.execute("PRAGMA table_info(bot_positions)").fetchall()}
+    if "last_price" not in pcols:  # 최근(장 종료 등) 현재가 스냅샷 — 대시보드 표시용
+        c.execute("ALTER TABLE bot_positions ADD COLUMN last_price REAL")
+    if "last_pnl_pct" not in pcols:  # 최근 평가손익률(%) 스냅샷
+        c.execute("ALTER TABLE bot_positions ADD COLUMN last_pnl_pct REAL")
     dcols = {r[1] for r in c.execute("PRAGMA table_info(kb_digest)").fetchall()}
     if "newest_ts" not in dcols:  # 최신 원자료 발행 시각(신선도 판정용)
         c.execute("ALTER TABLE kb_digest ADD COLUMN newest_ts INTEGER")
@@ -227,28 +232,34 @@ def bot_config_set_enabled(enabled: bool) -> None:
 # ---------- bot_positions ----------
 def bot_positions_all() -> list[dict]:
     c = conn()
-    rows = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date FROM bot_positions").fetchall()
+    rows = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct "
+                     "FROM bot_positions").fetchall()
     c.close()
-    return [{"ticker": t, "name": n, "qty": q, "avg_price": ap, "peak_price": pk, "entry_date": ed}
-            for t, n, q, ap, pk, ed in rows]
+    return [{"ticker": t, "name": n, "qty": q, "avg_price": ap, "peak_price": pk, "entry_date": ed,
+             "last_price": lp, "last_pnl_pct": lr}
+            for t, n, q, ap, pk, ed, lp, lr in rows]
 
 
 def bot_position_get(ticker: str) -> dict | None:
     c = conn()
-    row = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date FROM bot_positions "
-                     "WHERE ticker=?", (ticker,)).fetchone()
+    row = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct "
+                     "FROM bot_positions WHERE ticker=?", (ticker,)).fetchone()
     c.close()
     if not row:
         return None
-    t, n, q, ap, pk, ed = row
-    return {"ticker": t, "name": n, "qty": q, "avg_price": ap, "peak_price": pk, "entry_date": ed}
+    t, n, q, ap, pk, ed, lp, lr = row
+    return {"ticker": t, "name": n, "qty": q, "avg_price": ap, "peak_price": pk, "entry_date": ed,
+            "last_price": lp, "last_pnl_pct": lr}
 
 
 def bot_position_upsert(ticker: str, name: str, qty: int, avg_price: float, peak_price: float,
-                         entry_date: str) -> None:
+                         entry_date: str, last_price: float | None = None,
+                         last_pnl_pct: float | None = None) -> None:
     c = conn()
-    c.execute("INSERT OR REPLACE INTO bot_positions(ticker,name,qty,avg_price,peak_price,entry_date,updated) "
-              "VALUES(?,?,?,?,?,?,?)", (ticker, name, qty, avg_price, peak_price, entry_date, int(time.time())))
+    c.execute("INSERT OR REPLACE INTO bot_positions"
+              "(ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct,updated) "
+              "VALUES(?,?,?,?,?,?,?,?,?)",
+              (ticker, name, qty, avg_price, peak_price, entry_date, last_price, last_pnl_pct, int(time.time())))
     c.commit()
     c.close()
 

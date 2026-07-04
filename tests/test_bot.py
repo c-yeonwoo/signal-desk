@@ -201,6 +201,7 @@ def test_buys_top_scored_signals_respecting_slots_and_lot_size(tmp_path, monkeyp
     assert bot.db.bot_position_get("BBB") == {
         "ticker": "BBB", "name": "나", "qty": 2, "avg_price": 100.0,
         "peak_price": 100.0, "entry_date": bot._today(),
+        "last_price": None, "last_pnl_pct": None,
     }
 
 
