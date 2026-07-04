@@ -592,12 +592,12 @@ def valuechain_get():
 
 @lru_cache(maxsize=1)
 def _us_signals():
-    """미국 종목 시그널 — US 유니버스 중 시세 있는 종목만(재무 없음 → 저평가·정성 팩터 자동 제외).
-    반환: {ticker: SignalResult}."""
+    """미국 종목 시그널 — US 유니버스 중 시세 있는 종목만(재무 없음 → 저평가 팩터 자동 제외).
+    KB 감성(미주은 등 전문가 인사이트)은 정성 팩터로 반영. 반환: {ticker: SignalResult}."""
     prices = store.load_us_price_series()
     if not prices:
         return {}
-    return {s.ticker: s for s in evaluate(store.load_us_universe(), prices)}
+    return {s.ticker: s for s in evaluate(store.load_us_universe(), prices, sentiment=kb.sentiment_map())}
 
 
 @app.get("/api/gurus")

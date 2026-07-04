@@ -321,13 +321,17 @@ def kb_document_add(ticker: str, title: str, summary: str, url: str, source: str
     다이제스트(시그널)에 반영되지 않는다. row id 반환(-1=중복)."""
     c = conn()
     key = url or f"manual:{ticker}:{title}:{int(time.time())}"
-    cur = c.execute("INSERT OR IGNORE INTO kb_entries(ticker,title,summary,url,source,published,fetched,doc_class,raw_text,status) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
-                    (ticker, title, summary, key, source, published, int(time.time()), doc_class, raw_text, status))
+    # 같은 url 재적재는 최신 내용·상태로 갱신(멱등 — 재크롤 시 freshness 반영, pending→confirmed 승격 포함)
+    c.execute("INSERT INTO kb_entries(ticker,title,summary,url,source,published,fetched,doc_class,raw_text,status) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?) "
+              "ON CONFLICT(url) DO UPDATE SET title=excluded.title, summary=excluded.summary, "
+              "source=excluded.source, published=excluded.published, fetched=excluded.fetched, "
+              "doc_class=excluded.doc_class, raw_text=excluded.raw_text, status=excluded.status",
+              (ticker, title, summary, key, source, published, int(time.time()), doc_class, raw_text, status))
     c.commit()
-    rid = cur.lastrowid if cur.rowcount else -1
+    row = c.execute("SELECT id FROM kb_entries WHERE url=?", (key,)).fetchone()
     c.close()
-    return rid
+    return row[0] if row else -1
 
 
 def kb_documents(ticker: str | None = None, doc_class: str | None = None, limit: int = 100) -> list[dict]:
