@@ -338,6 +338,12 @@
     </div>
 
     <div id="trading-bot">
+    <div class="seg-toggle" id="bot-market-seg" style="margin-bottom:14px">
+      <button class="on" data-bmkt="kospi" onclick="switchBotMarket('kospi')">국내 (KOSPI)</button>
+      <button data-bmkt="us" onclick="switchBotMarket('us')">해외 (S&P500)</button>
+    </div>
+
+    <div id="bot-kospi">
     <div class="row" style="margin-bottom:16px">
       <span class="stat-label" style="margin:0">트레이딩 성향</span>
       <div class="seg-toggle" id="style-toggle">
@@ -383,6 +389,20 @@
           <div id="bot-allocation-chart" style="height:360px"></div>
         </div>
       </div>
+    </div>
+    </div><!-- /#bot-kospi -->
+
+    <div id="bot-us" style="display:none">
+      <p class="page-desc" style="margin:0 0 12px">미국(S&P500) 종목을 <b>우리 시그널 + 미주은 KB</b>로 판단한 자동매매 계획 미리보기입니다.
+        국내와 동일한 규율(성향·분할 진입·최소 점수·악재 제외)을 적용합니다.
+        <b>⚠️ 실주문·잔고는 미국장 개장 중 KIS 해외 API 검증 후 연결 예정</b> — 현재는 계획 미리보기 전용입니다.</p>
+      <div class="row" style="margin-bottom:12px">
+        <span class="stat-label" style="margin:0">투입 자본(USD)</span>
+        <input id="us-capital" type="number" class="ctrl" value="10000" style="max-width:140px">
+        <button class="btn primary" onclick="previewUsBot()">US 판단 미리보기</button>
+        <span class="stat-label" id="us-bot-meta" style="margin-left:auto"></span>
+      </div>
+      <div id="us-bot-body" class="placeholder" style="padding:16px 0">투입 자본을 정하고 미리보기를 눌러주세요.</div>
     </div>
     </div><!-- /#trading-bot -->
 
@@ -1185,6 +1205,39 @@ function renderBotPlan(d, isPreview){
   el.innerHTML = `<b>${isPreview ? '📋 판단 미리보기 (실주문 없음)' : '✅ 실행 결과'}</b><br>`
     + `<b style="color:var(--sig-buy)">매수</b> (${d.buys.length}건${d.skipped_weak_buys ? `, 약한 BUY ${d.skipped_weak_buys}건 제외` : ''})<br>${line(d.buys)}<br>`
     + `<b style="color:var(--sig-sell)">매도</b> (${d.sells.length}건)<br>${line(d.sells)}`;
+}
+
+// 국내/해외 봇 세그먼트 전환
+function switchBotMarket(m){
+  document.querySelectorAll('#bot-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.bmkt === m));
+  document.getElementById('bot-kospi').style.display = m === 'kospi' ? '' : 'none';
+  document.getElementById('bot-us').style.display = m === 'us' ? '' : 'none';
+}
+
+async function previewUsBot(){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '계산 중…';
+  const el = document.getElementById('us-bot-body');
+  try {
+    const capital = parseFloat(document.getElementById('us-capital').value) || 10000;
+    const d = await (await fetch('/api/bot/us/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ capital }) })).json();
+    document.getElementById('us-bot-meta').textContent =
+      `${d.style_label} · 분할 ${d.tranches}회 · 매수기준 ≥${d.min_buy_score} · 후보 ${d.eligible}종목`;
+    if (!d.buys || !d.buys.length) {
+      el.className = 'placeholder'; el.textContent = '현재 매수 기준을 넘는 US 후보가 없습니다.'; return;
+    }
+    el.className = '';
+    el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th>시그널</th><th class="num">점수</th>
+        <th class="num">현재가</th><th class="num">1트랜치 수량</th><th class="num">배분(USD)</th><th>KB</th></tr></thead><tbody>`
+      + d.buys.map(b => `<tr>
+          <td>${esc(b.name)}<div style="color:var(--dim);font-size:11px">${esc(b.ticker)}</div></td>
+          <td><span class="sig-pill ${b.kind}">${kindLabel(b.kind)}</span></td>
+          <td class="num">${b.score > 0 ? '+' : ''}${fmtNum(b.score, 2)}</td>
+          <td class="num">$${fmtNum(b.price, 2)}</td>
+          <td class="num">${b.qty}</td>
+          <td class="num">$${fmtNum(b.alloc, 0)}</td>
+          <td>${b.qualitative ? '📰' : '–'}</td></tr>`).join('')
+      + `</tbody></table><div class="stat-label" style="margin-top:10px">${esc(d.note)}</div>`;
+  } catch (e) { el.textContent = '불러오지 못했습니다.'; } finally { btn.disabled = false; btn.textContent = t; }
 }
 
 async function runBotNow(){

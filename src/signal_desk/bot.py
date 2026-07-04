@@ -39,6 +39,63 @@ def _today() -> str:
     return datetime.date.today().isoformat()
 
 
+# 미국 정규장(대략) — 서머타임 EDT 기준 22:30~05:00 KST, EST면 23:30~06:00. 넉넉히 22:30~06:00로 근사.
+_US_OPEN = datetime.time(22, 30)
+_US_CLOSE = datetime.time(6, 0)
+
+
+def is_us_market_hours(now: datetime.datetime | None = None) -> bool:
+    """미국 정규장 시간(KST 근사 22:30~06:00, 미 평일)인지. 자정을 넘기므로 두 구간으로 판정.
+    실주문 야간 루프 게이트용(현재 US 실주문 미연결 — 미리보기만)."""
+    now = now or datetime.datetime.now(_KST)
+    t, wd = now.time(), now.weekday()
+    if t >= _US_OPEN:      # KST 밤(당일 저녁) = 미국장 시작 → 미 평일이면 KST 월~금
+        return wd < 5
+    if t <= _US_CLOSE:     # KST 새벽 = 전날 미국장 연장 → KST 화~토 새벽
+        return 1 <= wd <= 5
+    return False
+
+
+def us_signals() -> list:
+    """US(S&P500) 시그널 — 재무 없이 기술·낙폭 + KB 정성 팩터. 점수 내림차순."""
+    prices = store.load_us_price_series()
+    if not prices:
+        return []
+    sigs = engine.evaluate(store.load_us_universe(), prices, sentiment=kb.sentiment_map())
+    return sorted(sigs, key=lambda s: s.score, reverse=True)
+
+
+def us_preview(capital: float = 10000.0, style: str | None = None) -> dict:
+    """US 자동매매 '판단 미리보기'(주문 없음) — 시그널 기반 매수 후보 + 분할 진입 계획(USD).
+
+    ⚠️ US 실주문·잔고는 KIS 해외 API를 미국장 개장 중 검증한 뒤 연결 예정(현재 미연결). 이 함수는
+    국내 봇과 동일한 결정 로직(성향·분할·최소점수·악재 veto)을 US 시그널에 적용한 계획만 보여준다."""
+    style = strategy.normalize(style or db.bot_config_get()["trading_style"])
+    p = strategy.preset(style)
+    sigs = us_signals()
+    hist = store.load_us_price_series()
+    tranches = strategy.entry_tranches(style)
+    tranche_alloc = capital * p["position_pct"] / tranches  # 1트랜치 배분(USD)
+    eligible = [s for s in sigs if engine.is_buy(s.kind) and s.score >= p["min_buy_score"] and not s.event_risk]
+    buys = []
+    for s in eligible[:p["max_new_buys_per_run"] * 3]:
+        closes = hist.get(s.ticker) or []
+        price = closes[-1] if closes else None
+        if not price:
+            continue
+        qty = int(tranche_alloc // price)
+        if qty < 1:
+            continue
+        buys.append({"ticker": s.ticker, "name": s.name, "kind": s.kind, "score": round(s.score, 2),
+                     "price": round(price, 2), "qty": qty, "alloc": round(qty * price, 2),
+                     "qualitative": bool(s.has_qualitative)})
+    return {"ready": True, "style": style, "style_label": strategy.STYLE_LABEL.get(style, style),
+            "capital": capital, "tranches": tranches, "position_pct": p["position_pct"],
+            "min_buy_score": p["min_buy_score"], "eligible": len(eligible), "buys": buys,
+            "connected": False,
+            "note": "US 실주문·잔고는 미국장 개장 시 KIS 해외 API 검증 후 연결 예정 — 현재는 미리보기 전용"}
+
+
 _CRASH_FLOOR_PCT = 0.05  # 신호 기준가(종가) 대비 실시간가 -5% 이상 급락이면 매수 스킵(악재 갭 의심)
 
 
