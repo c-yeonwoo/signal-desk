@@ -99,6 +99,14 @@ def outstanding_cookie() -> str | None:
     return os.environ.get("OUTSTANDING_COOKIE") or None
 
 
+def youtube_channels() -> list[str]:
+    """유튜브 KB 수집 대상 채널 화이트리스트(핸들, @ 없이). 신뢰 채널만 수집(오염 방지).
+    YOUTUBE_CHANNELS(.env, 콤마구분) + 기본 sbs_explained(교양이를 부탁해·거시/자산시장 해설)."""
+    raw = os.environ.get("YOUTUBE_CHANNELS", "")
+    ids = [c.strip().lstrip("@") for c in raw.split(",") if c.strip()]
+    return ids or ["sbs_explained"]
+
+
 def bot_run_interval_minutes() -> int:
     """자동매매봇 백그라운드 루프 실행 간격(분). 기본 5분(장중 5분마다 시그널 점검·매매)."""
     return int(os.environ.get("BOT_RUN_INTERVAL_MINUTES", "5"))

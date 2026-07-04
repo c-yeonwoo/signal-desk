@@ -106,7 +106,7 @@ async def _auth_gate(request: Request, call_next):
 _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents",
-    "/api/kb/collect-fanding", "/api/kb/collect-outstanding",
+    "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube",
 }
 
 
@@ -592,6 +592,18 @@ def kb_collect_outstanding(data: dict = Body(default={})):
     """아웃스탠딩 화이트리스트 작가 최신 기고 → 거시 KB(상장사 특정 글은 종목 KB) 적재(수동 트리거)."""
     n = int(data.get("item_per_page", 15))
     out = kb.collect_outstanding(item_per_page=n, force=bool(data.get("force")))
+    if out.get("ok") and out.get("imported"):
+        _signals.cache_clear()
+    if out.get("ok") and out.get("macro"):
+        _macro.cache_clear()
+    return out
+
+
+@app.post("/api/kb/collect-youtube")
+def kb_collect_youtube(data: dict = Body(default={})):
+    """유튜브 화이트리스트 채널 최신 영상(자막 전문) → 거시 KB(상장사 특정 영상은 종목 KB) 적재."""
+    n = int(data.get("max_per_channel", 8))
+    out = kb.collect_youtube(max_per_channel=n, force=bool(data.get("force")))
     if out.get("ok") and out.get("imported"):
         _signals.cache_clear()
     if out.get("ok") and out.get("macro"):

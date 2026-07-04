@@ -270,16 +270,70 @@ def build_digest(name: str, items: list[dict]) -> dict:
     return _rule_digest(name, items)
 
 
-def import_macro(title: str, text: str, url: str = "", published: str = "") -> dict:
+def import_macro(title: str, text: str, url: str = "", published: str = "", summary: str = "") -> dict:
     """시황·거시 내러티브(단일 종목 특정 불가)를 거시 KB(_MARKET)에 적재한다.
-    개별 종목 검증(종목명 언급)은 적용하지 않되, 너무 짧은 글은 배제. 저장 후 거시 다이제스트 갱신."""
+    개별 종목 검증(종목명 언급)은 적용하지 않되, 너무 짧은 글은 배제. 저장 후 거시 다이제스트 갱신.
+    summary가 주어지면 다이제스트용 요약으로 쓴다(긴 자막 등은 미리 LLM 요약해 넘김). text=원문(raw)."""
     text = (text or "").strip()
     if len(text) < 40:
         return {"ok": False, "reason": "본문이 너무 짧아 시황 KB에 저장하지 않음"}
-    db.kb_document_add(MACRO_TICKER, title or "시황", text[:300], url, "insight",
+    db.kb_document_add(MACRO_TICKER, title or "시황", (summary or text)[:400], url, "insight",
                        published, "시황", raw_text=text, status="confirmed")
     _rebuild_macro_digest()
     return {"ok": True, "status": "confirmed", "doc_class": "시황"}
+
+
+def _macro_source_summary(title: str, text: str) -> str:
+    """긴 원문(자막 등)을 거시 KB 저장용 시장 관점 요약으로 압축. LLM 없거나 실패 시 앞부분 폴백."""
+    text = text.strip()
+    if len(text) <= 600 or not llm.available():
+        return text[:600]
+    system = ("너는 시황 데스크다. 아래 영상/글 스크립트를 '투자·시장 관점'에서 핵심만 요약한다. "
+              "거시 흐름·자산시장 시사점 위주로, 과장·추천 없이 사실 기반. 스크립트에 없는 내용은 지어내지 마라.")
+    user = (f"제목: {title}\n스크립트:\n{text[:9000]}\n\n"
+            'JSON으로만: {"summary": "한국어 2~4문장 핵심 요약", "points": ["핵심 포인트 최대 3개 짧게"]}')
+    out = llm.complete_json(system, user, max_tokens=500)
+    if out and out.get("summary"):
+        pts = [str(p) for p in (out.get("points") or [])][:3]
+        return (str(out["summary"]) + (" · " + " · ".join(pts) if pts else ""))[:600]
+    return text[:600]
+
+
+def collect_youtube(max_per_channel: int = 8, force: bool = False) -> dict:
+    """유튜브 화이트리스트 채널의 최신 영상을 자막 전문 기반으로 거시 KB(_MARKET)에 적재.
+    자막이 있으면 LLM으로 시장 관점 요약(다이제스트용) + 원문(raw) 보관, 없으면 설명으로 폴백.
+    거시 중심(상장사 특정 영상만 종목 KB). 증분: 이미 적재된 URL 스킵."""
+    from signal_desk.ingest import youtube
+    if not config.youtube_key():
+        return {"ok": False, "reason": "YOUTUBE_API_KEY 미설정(.env) — 유튜브 수집 건너뜀"}
+    seen = set() if force else db.kb_document_urls(source="insight")
+    macro, skipped, errors = [], [], []
+    # 화이트리스트 채널은 거시·시장 해설 전용 → 제목에 기업명이 있어도 항상 거시 KB로(개별 종목 경로 X).
+    for handle in config.youtube_channels():
+        res = youtube.channel_videos(handle, max_results=max_per_channel)
+        channel = res.get("channel") or handle
+        if not res.get("videos"):
+            errors.append({"channel": handle, "why": "영상 목록 조회 실패"})
+            continue
+        for v in res["videos"]:
+            title, vid = v.get("title") or "", v.get("video_id")
+            url = youtube.video_url(vid)
+            if url in seen:
+                skipped.append({"video_id": vid, "title": title, "why": "이미 수집됨"})
+                continue
+            raw = youtube.transcript(vid) or (v.get("description") or "")
+            if len(raw.strip()) < 60:
+                skipped.append({"video_id": vid, "title": title, "why": "자막·설명 없음"})
+                continue
+            pub = v.get("published") or ""
+            summary = _macro_source_summary(title, raw)  # 긴 자막은 LLM 요약, 원문은 raw 보관
+            r = import_macro(f"[{channel}] {title}", raw, url=url, published=pub, summary=summary)
+            if r.get("ok"):
+                macro.append({"channel": channel, "title": title, "published": pub, "chars": len(raw)})
+            else:
+                skipped.append({"video_id": vid, "title": title, "why": r.get("reason", "미저장")})
+    log.info("youtube 수집: 거시 %d · 스킵 %d · 오류 %d", len(macro), len(skipped), len(errors))
+    return {"ok": True, "imported": [], "macro": macro, "skipped": skipped, "errors": errors}
 
 
 def build_macro_digest(items: list[dict]) -> dict:
