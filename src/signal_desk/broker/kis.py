@@ -173,6 +173,60 @@ def balance(creds: dict | None = None) -> dict | None:
     }
 
 
+_US_EXCHANGES = ("NASD", "NYSE", "AMEX")  # 해외 잔고조회 거래소코드(미국)
+
+
+def _pick(d: dict, *keys, default=0.0) -> float:
+    """후보 필드명 중 먼저 잡히는 값을 float로. KIS 해외 응답 필드명이 문서·버전마다 달라 방어적."""
+    for k in keys:
+        if k in d and str(d[k]).strip() not in ("", "0"):
+            try:
+                return float(str(d[k]).replace(",", ""))
+            except ValueError:
+                continue
+    return default
+
+
+def overseas_balance(creds: dict | None = None) -> dict | None:
+    """미국 주식 잔고(USD) — 예수금·평가·손익·보유종목. 거래소별(NASD/NYSE/AMEX) 조회 후 병합.
+    KIS 미도달/실패 시 None(호출부가 빈 상태로 처리). 필드명은 방어적으로 후보 매칭.
+
+    ⚠️ US 실주문·잔고 필드는 미국장 개장 중 실응답으로 최종 검증 예정(현 환경 KIS 도메인 차단)."""
+    creds = creds or config.kis_credentials()
+    if not creds:
+        return None
+    tr = "VTTS3012R" if creds["env"] == "demo" else "TTTS3012R"
+    holdings, cash, invested, pnl = [], 0.0, 0.0, 0.0
+    reached = False
+    for excd in _US_EXCHANGES:
+        params = {"CANO": creds["account_no"], "ACNT_PRDT_CD": creds["product_cd"],
+                  "OVRS_EXCG_CD": excd, "TR_CRCY_CD": "USD", "CTX_AREA_FK200": "", "CTX_AREA_NK200": ""}
+        body = _request("/uapi/overseas-stock/v1/trading/inquire-balance", tr, creds, params)
+        if not body or body.get("rt_cd") != "0":
+            continue
+        reached = True
+        for h in body.get("output1", []):
+            qty = int(_pick(h, "ovrs_cblc_qty", "cblc_qty"))
+            if qty <= 0:
+                continue
+            holdings.append({"ticker": (h.get("ovrs_pdno") or h.get("pdno") or "").strip(),
+                             "name": (h.get("ovrs_item_name") or "").strip(),
+                             "qty": qty, "avg_price": _pick(h, "pchs_avg_pric"),
+                             "price": _pick(h, "now_pric2", "ovrs_now_pric1")})
+        o2 = body.get("output2")
+        summ = (o2[0] if isinstance(o2, list) and o2 else o2) or {}
+        if isinstance(summ, dict):
+            cash += _pick(summ, "frcr_dncl_amt_2", "frcr_dncl_amt1", "frcr_dncl_amt")
+            invested += _pick(summ, "frcr_pchs_amt1", "frcr_buy_amt_smtl1")
+            pnl += _pick(summ, "ovrs_tot_pfls", "tot_evlu_pfls_amt")
+    if not reached:
+        return None  # KIS 미도달
+    stock_eval = sum(h["qty"] * h["price"] for h in holdings)
+    return {"cash": cash, "stock_eval": round(stock_eval, 2), "invested": invested, "pnl": pnl,
+            "total_eval": round(cash + stock_eval, 2),
+            "pnl_pct": round(pnl / invested * 100, 2) if invested else None, "holdings": holdings}
+
+
 def current_price(ticker: str, creds: dict | None = None) -> float | None:
     """국내 종목 실시간 현재가. 봇이 장중 청산·진입 판단 시점에 조회(캐시 종가와의 갭 대응).
     실패 시 None(호출부가 캐시 종가로 폴백). 간헐 500 대비 재시도."""
