@@ -85,6 +85,20 @@ def fanding_cookie() -> str | None:
     return f"device_uid={dev}; tt={tt}"
 
 
+def outstanding_authors() -> list[str]:
+    """아웃스탠딩(outstanding.kr) 수집 대상 작가 화이트리스트(login_id). 신뢰 전문가만 골라
+    기고를 수집한다(오염 방지). OUTSTANDING_AUTHORS(.env, 콤마구분) + 기본 oky97(오건영·매크로)."""
+    raw = os.environ.get("OUTSTANDING_AUTHORS", "")
+    ids = [a.strip() for a in raw.split(",") if a.strip()]
+    return ids or ["oky97"]
+
+
+def outstanding_cookie() -> str | None:
+    """아웃스탠딩 로그인 쿠키 — 유료(isPrivate) 기고 본문 조회용(세션 토큰, 만료 시 갱신).
+    공개 기고는 쿠키 없이 수집되므로 미설정이면 유료글만 건너뛴다."""
+    return os.environ.get("OUTSTANDING_COOKIE") or None
+
+
 def bot_run_interval_minutes() -> int:
     """자동매매봇 백그라운드 루프 실행 간격(분). 기본 5분(장중 5분마다 시그널 점검·매매)."""
     return int(os.environ.get("BOT_RUN_INTERVAL_MINUTES", "5"))
