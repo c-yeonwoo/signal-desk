@@ -458,6 +458,17 @@ def bot_run():
     return bot.run_once(dry_run=False)
 
 
+@app.post("/api/bot/us/preview")
+def bot_us_preview(data: dict = Body(default={})):
+    """US 자동매매 판단 미리보기(주문 없음) — US 시그널+KB 기반 매수 후보·분할 계획(USD).
+    실주문·잔고는 미국장 개장 시 KIS 해외 API 검증 후 연결 예정."""
+    try:
+        capital = float(data.get("capital") or 10000)
+    except (TypeError, ValueError):
+        capital = 10000.0
+    return bot.us_preview(capital=capital, style=data.get("style"))
+
+
 @app.post("/api/bot/preview")
 def bot_preview():
     """판단 미리보기(dry-run) — 주문 없이 '지금 무엇을 왜 매매할지' 계획만 계산. 장 시간 무관."""
