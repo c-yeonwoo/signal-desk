@@ -34,6 +34,17 @@ EVENT_TTL_DAYS = 5  # 이 기간 지난 악재는 veto에서 해제(신선도)
 MACRO_TICKER = "_MARKET"
 MACRO_NAME = "시장 시황"
 
+# 외부 소스(미주은·오건영·유튜브) 수집 하한 연도 — 그 이전 콘텐츠는 시황·거시 가치 낮아 스킵.
+INGEST_MIN_YEAR = 2026
+
+
+def _year_ok(published: str | None) -> bool:
+    """발행일이 INGEST_MIN_YEAR 이상이면 True. 날짜 불명(빈값·비표준)은 포함(True)."""
+    s = (published or "").strip()
+    if len(s) >= 4 and s[:4].isdigit():
+        return int(s[:4]) >= INGEST_MIN_YEAR
+    return True
+
 
 # 문서 유형 분류 — 규칙 기반(투명·무료). 우선순위 순으로 첫 매칭 채택.
 DOC_CLASSES = ("리포트", "공시", "실적", "이벤트", "시황", "뉴스")
@@ -321,6 +332,9 @@ def collect_youtube(max_per_channel: int = 8, force: bool = False) -> dict:
             if url in seen:
                 skipped.append({"video_id": vid, "title": title, "why": "이미 수집됨"})
                 continue
+            if not _year_ok(v.get("published")):
+                skipped.append({"video_id": vid, "title": title, "why": f"{INGEST_MIN_YEAR} 이전(스킵)"})
+                continue
             raw = youtube.transcript(vid) or (v.get("description") or "")
             if len(raw.strip()) < 60:
                 skipped.append({"video_id": vid, "title": title, "why": "자막·설명 없음"})
@@ -457,6 +471,9 @@ def collect_fanding(limit: int = 15, force: bool = False) -> dict:
         if any(w in title for w in _FANDING_NOISE):
             skipped.append({"post_no": post.get("post_no"), "title": title, "why": "운영·홍보 공지(폐기)"})
             continue
+        if not _year_ok(post.get("published")):
+            skipped.append({"post_no": post.get("post_no"), "title": title, "why": f"{INGEST_MIN_YEAR} 이전(스킵)"})
+            continue
         hit = next(((tk, ko, en) for ko, tk, en in index if ko in title), None)
         detail = fanding.post_detail(post["post_no"])
         if not detail:
@@ -506,6 +523,9 @@ def collect_outstanding(item_per_page: int = 15, force: bool = False) -> dict:
                 continue
             if post.get("is_private") and not has_cookie:
                 skipped.append({"uri": uri, "title": title, "why": "유료글(로그인 쿠키 없음)"})
+                continue
+            if not _year_ok(post.get("datetime")):
+                skipped.append({"uri": uri, "title": title, "why": f"{INGEST_MIN_YEAR} 이전(스킵)"})
                 continue
             body = (post.get("body") or "").strip()
             if len(body) < 40:
