@@ -394,16 +394,33 @@
     </div><!-- /#bot-kospi -->
 
     <div id="bot-us" style="display:none">
-      <p class="page-desc" style="margin:0 0 12px">미국(S&P500) 종목을 <b>우리 시그널 + 미주은 KB</b>로 판단한 자동매매 계획 미리보기입니다.
-        국내와 동일한 규율(성향·분할 진입·최소 점수·악재 제외)을 적용합니다.
-        <b>⚠️ 실주문·잔고는 미국장 개장 중 KIS 해외 API 검증 후 연결 예정</b> — 현재는 계획 미리보기 전용입니다.</p>
-      <div class="row" style="margin-bottom:12px">
-        <span class="stat-label" style="margin:0">투입 자본(USD)</span>
-        <input id="us-capital" type="number" class="ctrl" value="10000" style="max-width:140px">
-        <button class="btn primary" onclick="previewUsBot()">US 판단 미리보기</button>
-        <span class="stat-label" id="us-bot-meta" style="margin-left:auto"></span>
+      <div class="card-row">
+        <div class="card"><div class="stat-label">현금(USD)</div><div class="stat-value" id="us-cash">-</div></div>
+        <div class="card"><div class="stat-label">총평가(USD)</div><div class="stat-value" id="us-total">-</div></div>
+        <div class="card"><div class="stat-label">총손익률</div><div class="stat-value" id="us-pl">-</div></div>
+        <div class="card"><div class="stat-label">보유종목수</div><div class="stat-value" id="us-count">-</div></div>
       </div>
-      <div id="us-bot-body" class="placeholder" style="padding:16px 0">투입 자본을 정하고 미리보기를 눌러주세요.</div>
+      <div class="card" style="margin-bottom:16px">
+        <div class="row" style="align-items:center">
+          <span class="stat-label" style="margin:0">투입 자본(USD)</span>
+          <input id="us-capital" type="number" class="ctrl" value="10000" style="max-width:130px">
+          <button class="btn primary" onclick="previewUsBot()">판단 미리보기</button>
+          <span class="stat-label" id="us-bot-meta" style="margin-left:auto"></span>
+        </div>
+        <div class="stat-label" id="us-bot-status" style="margin:10px 0 0"></div>
+      </div>
+      <div class="split">
+        <div class="card">
+          <b style="font-size:14px">보유종목</b>
+          <div id="us-holdings-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+          <b style="font-size:14px;display:block;margin-top:18px">시그널 매수 후보 (판단 미리보기)</b>
+          <div id="us-bot-body" class="placeholder" style="padding:16px 0">투입 자본을 정하고 미리보기를 눌러주세요.</div>
+        </div>
+        <div class="card">
+          <b style="font-size:14px">포트폴리오</b>
+          <div id="us-alloc-chart" style="height:360px"></div>
+        </div>
+      </div>
     </div>
     </div><!-- /#trading-bot -->
 
@@ -1211,14 +1228,57 @@ function renderBotPlan(d, isPreview){
 }
 
 // 국내/해외 봇 세그먼트 전환
+let _usAllocChart = null;
 function switchBotMarket(m){
   document.querySelectorAll('#bot-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.bmkt === m));
   document.getElementById('bot-kospi').style.display = m === 'kospi' ? '' : 'none';
   document.getElementById('bot-us').style.display = m === 'us' ? '' : 'none';
+  if (m === 'us') loadUsBotState();
 }
 
-async function previewUsBot(){
-  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '계산 중…';
+// 해외(US) 대시보드 — 국내와 동일 레이아웃(잔고 USD·보유·미리보기). 실주문은 미국장 개장 시 연결 예정.
+async function loadUsBotState(){
+  try {
+    const d = await (await fetch('/api/bot/us/state')).json();
+    const bal = d.balance;
+    document.getElementById('us-cash').textContent = bal ? '$' + fmtNum(bal.cash, 0) : '–';
+    document.getElementById('us-total').textContent = bal ? '$' + fmtNum(bal.total_eval, 0) : '–';
+    document.getElementById('us-count').textContent = bal ? bal.holdings.length : '–';
+    const plEl = document.getElementById('us-pl');
+    if (bal && bal.pnl_pct != null) {
+      plEl.textContent = (bal.pnl_pct >= 0 ? '+' : '') + fmtNum(bal.pnl_pct, 2) + '%';
+      plEl.className = 'stat-value ' + (bal.pnl_pct >= 0 ? 'pos' : 'neg');
+    } else { plEl.textContent = '–'; plEl.className = 'stat-value'; }
+
+    document.getElementById('us-bot-status').innerHTML =
+      (d.kis_connected ? 'KIS 해외 계좌 연결됨' : 'KIS 해외 미연결(도메인 차단/장외)')
+      + ` · 미국장 ${d.us_market_hours ? '<b style="color:var(--sig-buy)">개장</b>' : '휴장'}`
+      + ` · <b>실주문·야간 자동매매는 미국장 개장 중 검증 후 연결 예정</b>(현재 미리보기 전용)`;
+
+    const hEl = document.getElementById('us-holdings-body');
+    const hs = (bal && bal.holdings) || [];
+    if (!hs.length) { hEl.className = 'placeholder'; hEl.textContent = 'US 보유종목이 없습니다.'; }
+    else {
+      hEl.className = '';
+      hEl.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th></tr></thead><tbody>`
+        + hs.map(h => `<tr><td>${esc(h.name || h.ticker)}<div style="color:var(--dim);font-size:11px">${esc(h.ticker)}</div></td>
+            <td class="num">${h.qty}</td><td class="num">$${fmtNum(h.avg_price, 2)}</td><td class="num">$${fmtNum(h.price, 2)}</td></tr>`).join('')
+        + `</tbody></table>`;
+    }
+    // 파이: 보유 있으면 종목별, 없으면 안내
+    const pieEl = document.getElementById('us-alloc-chart');
+    if (hs.length) {
+      _usAllocChart = _usAllocChart || echarts.init(pieEl);
+      drawPie(pieEl, hs.map(h => ({ name: h.ticker, value: h.qty * h.price })), v => '$' + fmtNum(v, 0));
+    } else { pieEl.innerHTML = '<div class="placeholder" style="padding:40px 0">보유종목이 생기면 배분이 표시됩니다.</div>'; }
+    // 미리보기도 자동 1회
+    previewUsBot(true);
+  } catch (e) {}
+}
+
+async function previewUsBot(auto){
+  const btn = (auto === true) ? null : (typeof event !== 'undefined' && event.target);
+  let t; if (btn) { btn.disabled = true; t = btn.textContent; btn.textContent = '계산 중…'; }
   const el = document.getElementById('us-bot-body');
   try {
     const capital = parseFloat(document.getElementById('us-capital').value) || 10000;
@@ -1240,7 +1300,7 @@ async function previewUsBot(){
           <td class="num">$${fmtNum(b.alloc, 0)}</td>
           <td>${b.qualitative ? '📰' : '–'}</td></tr>`).join('')
       + `</tbody></table><div class="stat-label" style="margin-top:10px">${esc(d.note)}</div>`;
-  } catch (e) { el.textContent = '불러오지 못했습니다.'; } finally { btn.disabled = false; btn.textContent = t; }
+  } catch (e) { el.textContent = '불러오지 못했습니다.'; } finally { if (btn) { btn.disabled = false; btn.textContent = t; } }
 }
 
 async function runBotNow(){

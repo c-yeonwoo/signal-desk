@@ -458,6 +458,12 @@ def bot_run():
     return bot.run_once(dry_run=False)
 
 
+@app.get("/api/bot/us/state")
+def bot_us_state(capital: float = 10000.0):
+    """해외(US) 대시보드 상태 — 잔고(USD)·보유종목 + 판단 미리보기(국내와 동일 레이아웃)."""
+    return bot.us_state(capital=capital)
+
+
 @app.post("/api/bot/us/preview")
 def bot_us_preview(data: dict = Body(default={})):
     """US 자동매매 판단 미리보기(주문 없음) — US 시그널+KB 기반 매수 후보·분할 계획(USD).

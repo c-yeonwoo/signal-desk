@@ -65,6 +65,16 @@ def us_signals() -> list:
     return sorted(sigs, key=lambda s: s.score, reverse=True)
 
 
+def us_state(capital: float = 10000.0) -> dict:
+    """해외(US) 대시보드 상태 — 국내와 동일 레이아웃용. 잔고(USD)·보유종목 + 판단 미리보기.
+    KIS 미도달 시 balance=None(빈 상태). 실주문·야간루프는 미국장 개장 시 연결 예정(현재 미리보기 전용)."""
+    creds = config.kis_credentials()
+    bal = kis.overseas_balance(creds) if creds else None
+    return {"market": "us", "kis_connected": bal is not None, "balance": bal,
+            "us_market_hours": is_us_market_hours(), "preview": us_preview(capital),
+            "live_connected": False}
+
+
 def us_preview(capital: float = 10000.0, style: str | None = None) -> dict:
     """US 자동매매 '판단 미리보기'(주문 없음) — 시그널 기반 매수 후보 + 분할 진입 계획(USD).
 
