@@ -97,7 +97,17 @@
   .macro-chip .mc-value { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
   .macro-chip .mc-chg { font-size:10px; font-variant-numeric:tabular-nums; }
   .mc-bad { color:var(--sig-sell); } .mc-good { color:var(--sig-buy); } .mc-flat { color:var(--dim); }
-  .market-note { margin-top:7px; font-size:12px; color:var(--dim); line-height:1.5; }
+  .macro-callout { margin-top:9px; border:1px solid var(--line); border-left:3px solid var(--accent, #5b8def);
+    border-radius:var(--r-md); background:var(--bg); padding:10px 14px; }
+  .macro-callout .mco-head { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
+  .macro-callout .mco-title { font-size:12px; font-weight:700; color:var(--fg); }
+  .macro-callout .mco-date { font-size:11px; color:var(--dim); }
+  .macro-callout .mco-toggle { margin-left:auto; font-size:11px; color:var(--dim); transition:transform .15s; }
+  .macro-callout.collapsed .mco-toggle { transform:rotate(-90deg); }
+  .macro-callout.collapsed .mco-body { display:none; }
+  .macro-callout .mco-body { margin-top:7px; font-size:12.5px; color:var(--fg); line-height:1.6; }
+  .macro-callout .mco-body ul { margin:6px 0 0; padding-left:16px; color:var(--dim); }
+  .macro-callout .mco-body li { margin:2px 0; }
   .sig-workspace { display:flex; gap:16px; align-items:stretch;
     height:clamp(520px, 80vh, 980px); }
   .sig-list { flex:0 0 380px; min-width:0; overflow-y:auto; overflow-x:hidden; padding:0; }
@@ -299,7 +309,7 @@
   <span id="macro-bias" class="sig-pill" style="display:none">-</span>
   <div class="macro-chips" id="macro-chips"></div>
 </div>
-<div class="market-note" id="macro-narrative" style="display:none"></div>
+<div class="macro-callout" id="macro-narrative" style="display:none"></div>
 
 <main>
   <div id="view-signal" class="view-app" style="display:none">
@@ -667,7 +677,10 @@ function switchTab(t){
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
   document.getElementById('subnav-trading').style.display = (t === 'trading') ? '' : 'none';  // 포트폴리오 서브내비
-  document.getElementById('market-ribbon').style.display = (t === 'signal') ? '' : 'none';  // 시황 전광판은 시그널 탭에서만
+  const onSignal = (t === 'signal');  // 시황 전광판·코멘터리는 시그널 탭에서만
+  document.getElementById('market-ribbon').style.display = onSignal ? '' : 'none';
+  const _mn = document.getElementById('macro-narrative');
+  if (!onSignal) _mn.style.display = 'none';  // 표시 여부는 loadMacro가 내용 유무로 결정
   if (t === 'signal') loadSignals();
   if (t === 'cycle') { loadCycle(); loadValuechain(); }  // 산업 사이클 = 경기사이클 + 밸류체인
   if (t === 'trading') switchTradingSeg(_tradingSeg);
@@ -866,6 +879,12 @@ async function loadRegime(){
 
 // 거시 시황(FRED): 지표별 favor(+1 우호/-1 비우호)로 화살표 색을 정직하게 칠한다.
 const _PCT_CHG = new Set(['NASDAQCOM', 'VIXCLS', 'DEXKOUS']);  // % 등락(그 외 금리·CPI는 %p)
+let _macroCollapsed = false;
+function toggleMacroCallout(){
+  _macroCollapsed = !_macroCollapsed;
+  document.getElementById('macro-narrative').classList.toggle('collapsed', _macroCollapsed);
+}
+
 async function loadMacro(){
   const sep = document.getElementById('macro-sep');
   const bias = document.getElementById('macro-bias');
@@ -874,8 +893,17 @@ async function loadMacro(){
   const hide = () => { sep.style.display = 'none'; bias.style.display = 'none'; chips.innerHTML = ''; };
   const renderNote = (nar) => {
     if (nar && nar.summary) {
-      const pts = (nar.points || []).length ? ' · ' + nar.points.join(' · ') : '';
-      note.textContent = '🗣️ 시황 코멘터리 — ' + nar.summary + pts;
+      const d = nar.updated ? new Date(nar.updated * 1000) : null;
+      const dstr = d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} 판단` : '';
+      const pts = (nar.points || []).map(p => `<li>${esc(p)}</li>`).join('');
+      note.className = 'macro-callout' + (_macroCollapsed ? ' collapsed' : '');
+      note.innerHTML = `
+        <div class="mco-head" onclick="toggleMacroCallout()">
+          <span class="mco-title">🗣️ 시황 코멘터리</span>
+          <span class="mco-date">${dstr}${nar.count ? ` · 전문가 KB ${nar.count}건 종합` : ''}</span>
+          <span class="mco-toggle">▾</span>
+        </div>
+        <div class="mco-body">${esc(nar.summary)}${pts ? `<ul>${pts}</ul>` : ''}</div>`;
       note.style.display = '';
     } else { note.style.display = 'none'; }
   };

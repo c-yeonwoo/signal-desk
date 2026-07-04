@@ -322,7 +322,8 @@ def macro_digest() -> dict | None:
     now = time.time()
     fresh = dg.get("newest_ts") is None or (now - dg["newest_ts"]) <= 10 * 86400  # 10일 내
     return {"summary": dg["summary"], "points": dg.get("points") or [],
-            "count": dg.get("n_sources"), "newest_ts": dg.get("newest_ts"), "fresh": fresh}
+            "count": dg.get("n_sources"), "newest_ts": dg.get("newest_ts"),
+            "updated": dg.get("updated"), "fresh": fresh}
 
 
 def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dict:
