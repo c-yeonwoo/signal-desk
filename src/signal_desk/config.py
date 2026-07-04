@@ -78,3 +78,16 @@ def anthropic_key() -> str | None:
 def bot_run_interval_minutes() -> int:
     """자동매매봇 백그라운드 루프 실행 간격(분). 기본 5분(장중 5분마다 시그널 점검·매매)."""
     return int(os.environ.get("BOT_RUN_INTERVAL_MINUTES", "5"))
+
+
+def admin_emails() -> set[str]:
+    """관리자 화이트리스트(소문자). ADMIN_EMAILS(.env, 콤마구분) + 데모 계정 기본 포함.
+    관리자만 엔진 설정·KB 적재·데이터 갱신 등 관리 기능에 접근한다."""
+    raw = os.environ.get("ADMIN_EMAILS", "")
+    emails = {e.strip().lower() for e in raw.split(",") if e.strip()}
+    emails.add("devcheck@example.com")  # 데모/개발 계정
+    return emails
+
+
+def is_admin(email: str | None) -> bool:
+    return bool(email) and email.strip().lower() in admin_emails()

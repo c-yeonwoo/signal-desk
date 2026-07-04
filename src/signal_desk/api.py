@@ -97,7 +97,16 @@ async def _auth_gate(request: Request, call_next):
     if p.startswith("/api/") and not p.startswith(_OPEN_PREFIXES):
         if not _uid(request):
             return JSONResponse({"error": "인증이 필요합니다.", "auth": False}, status_code=401)
+        if p in _ADMIN_PATHS and not _require_admin(request):  # 관리자 전용(엔진·KB적재·갱신)
+            return JSONResponse({"error": "관리자 권한이 필요합니다.", "admin": False}, status_code=403)
     return await call_next(request)
+
+
+# 관리자만 접근 가능한 엔드포인트(정확 경로 매칭 — /api/kb/{ticker} 조회는 영향 없음)
+_ADMIN_PATHS = {
+    "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
+    "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents",
+}
 
 
 # ---------- 인증 ----------
@@ -135,7 +144,14 @@ def auth_me(request: Request):
     if not u:
         return JSONResponse({"auth": False}, status_code=401)
     profile = db.profile_get(u["id"])
-    return {"auth": True, "email": u["email"], "profile": profile, "onboarded": bool(profile)}
+    return {"auth": True, "email": u["email"], "profile": profile, "onboarded": bool(profile),
+            "is_admin": config.is_admin(u["email"])}
+
+
+def _require_admin(request: Request):
+    """관리자 전용 엔드포인트 가드 — 화이트리스트 밖이면 403."""
+    u = auth.current_user(request.cookies.get(auth.COOKIE))
+    return config.is_admin(u["email"]) if u else False
 
 
 # ---------- 프로필(온보딩) ----------

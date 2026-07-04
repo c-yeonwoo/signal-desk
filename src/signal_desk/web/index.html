@@ -269,6 +269,7 @@
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')">포트폴리오</button>
     <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">산업 사이클</button>
+    <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
   </div>
   <div class="right">
     <span id="myPageLabel" class="btn" onclick="switchTab('mypage')" style="cursor:pointer"></span>
@@ -454,23 +455,18 @@
   <div id="view-mypage" class="view-doc" style="display:none">
     <h2 class="page-head">마이페이지</h2>
     <p class="page-desc" id="mp_email"></p>
-    <div class="card">
-      <div class="row" style="gap:16px 20px">
-        <div class="field">투자성향
-          <select id="mp_style" class="ctrl">
-            <option value="conservative">안정형</option>
-            <option value="balanced">균형형</option>
-            <option value="aggressive">공격형</option>
-          </select>
-        </div>
-        <div class="field">관심 섹터
-          <input id="mp_sector" type="text" class="ctrl" placeholder="예: 반도체, 2차전지">
-        </div>
-      </div>
-      <button class="btn primary" style="margin-top:16px" onclick="saveProfile()">저장</button>
+    <p class="page-desc">관리 기능(엔진 설정·백테스트 분석·KB 문서)은 상단 <b>관리자</b> 메뉴에 있습니다(관리자 계정 전용).</p>
+  </div>
+
+  <div id="view-admin" class="view-doc" style="display:none">
+    <div class="seg-toggle" id="admin-seg" style="margin-bottom:16px">
+      <button class="on" data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 설정</button>
+      <button data-aseg="backtest" onclick="switchAdminSeg('backtest')">백테스트 분석</button>
+      <button data-aseg="kb" onclick="switchAdminSeg('kb')">KB 문서</button>
     </div>
 
-    <div class="card" style="margin-top:18px">
+    <div id="admin-engine">
+    <div class="card" style="margin-top:0">
       <b style="font-size:15px">시그널 엔진 <span style="color:var(--dim);font-weight:600;font-size:12px">· 계산 파이프라인 (관리자)</span></b>
       <p class="page-desc" style="margin:6px 0 14px">종합 시그널이 어떻게 계산되는지, 각 팩터의 신뢰도(가중치)와 임계값을 보고 조정합니다.</p>
       <div class="pipe">
@@ -511,13 +507,19 @@
       </div>
     </div>
 
-    <div class="card" style="margin-top:18px">
+    </div><!-- /#admin-engine -->
+
+    <div id="admin-backtest" style="display:none">
+    <div class="card" style="margin-top:0">
       <b style="font-size:15px">백테스트 정밀 분석 <span style="color:var(--dim);font-weight:600;font-size:12px">· 어떤 팩터가 승률을 끌어올리나 (관리자)</span></b>
       <p class="page-desc" style="margin:6px 0 14px">각 팩터를 단독으로 백테스트해 기여도를 비교하고(매수 시그널 기준), 시간 구간별로 나눠 과최적화·불안정성을 점검합니다. 기본적 팩터는 point-in-time(그 시점에 공시돼 있던 재무)으로 반영합니다.</p>
       <div id="bt-analysis" class="placeholder" style="padding:20px 0">불러오는 중…</div>
     </div>
 
-    <div class="card" style="margin-top:18px">
+    </div><!-- /#admin-backtest -->
+
+    <div id="admin-kb" style="display:none">
+    <div class="card" style="margin-top:0">
       <div class="row" style="align-items:baseline">
         <b style="font-size:15px">KB 문서 <span style="color:var(--dim);font-weight:600;font-size:12px">· 지식베이스 원문·요약 (관리자)</span></b>
         <button class="btn" onclick="refreshKb()" style="margin-left:auto">뉴스 갱신</button>
@@ -543,7 +545,8 @@
       <div id="kbdoc-filters" class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
       <div id="kbdoc-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
-  </div>
+    </div><!-- /#admin-kb -->
+  </div><!-- /view-admin -->
 </main>
 
 <footer>
@@ -626,11 +629,13 @@
 </dialog>
 
 <script>
-const _ROUTES = ['signal','trading','cycle','mypage'];
+const _ROUTES = ['signal','trading','cycle','admin','mypage'];
+let _isAdmin = false;
 let _userEmail = '', _profile = {};
 
 function switchTab(t){
   if(!_ROUTES.includes(t)) t = 'signal';
+  if (t === 'admin' && !_isAdmin) t = 'signal';  // 관리자만 접근
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
   document.getElementById('subnav-trading').style.display = (t === 'trading') ? '' : 'none';  // 포트폴리오 서브내비
@@ -638,6 +643,7 @@ function switchTab(t){
   if (t === 'signal') loadSignals();
   if (t === 'cycle') { loadCycle(); loadValuechain(); }  // 산업 사이클 = 경기사이클 + 밸류체인
   if (t === 'trading') switchTradingSeg(_tradingSeg);
+  if (t === 'admin') switchAdminSeg(_adminSeg);
   if (t === 'mypage') fillMyPage();
   if (location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
 }
@@ -1606,9 +1612,14 @@ async function authSubmit(){
   if (!d.ok) { document.getElementById('authErr').textContent = d.error || '실패'; return; }
   const signup = _authMode === 'signup';
   const me = await (await fetch('/api/auth/me')).json();
-  _userEmail = me.email || ''; _profile = me.profile || {};
+  _userEmail = me.email || ''; _profile = me.profile || {}; applyAdmin(me.is_admin);
   hideAuthGate();
   await startApp(signup || !me.onboarded);
+}
+
+function applyAdmin(isAdmin){
+  _isAdmin = !!isAdmin;
+  document.getElementById('tab-admin').style.display = _isAdmin ? '' : 'none';
 }
 async function logout(){ await fetch('/api/auth/logout', {method: 'POST'}); location.reload(); }
 
@@ -1637,10 +1648,19 @@ function applyProfileHeader(){
 
 function fillMyPage(){
   document.getElementById('mp_email').textContent = _userEmail || '';
-  document.getElementById('mp_style').value = _profile['투자성향'] || 'balanced';
-  document.getElementById('mp_sector').value = (_profile['관심섹터'] || []).join(', ');
-  loadEngine();
-  loadKbDocs();
+}
+
+// ===== 관리자 세부탭(엔진 설정 / 백테스트 분석 / KB 문서) =====
+let _adminSeg = 'engine';
+function switchAdminSeg(seg){
+  _adminSeg = seg;
+  document.querySelectorAll('#admin-seg button').forEach(b => b.classList.toggle('on', b.dataset.aseg === seg));
+  document.getElementById('admin-engine').style.display = seg === 'engine' ? '' : 'none';
+  document.getElementById('admin-backtest').style.display = seg === 'backtest' ? '' : 'none';
+  document.getElementById('admin-kb').style.display = seg === 'kb' ? '' : 'none';
+  if (seg === 'engine') loadEngine();
+  if (seg === 'backtest') loadBacktestAnalysis();
+  if (seg === 'kb') loadKbDocs();
 }
 
 // ===== 시그널 엔진 설정(관리자) =====
@@ -1660,7 +1680,6 @@ function _fillEngine(cfg, winrate){
 async function loadEngine(){
   try { const d = await (await fetch('/api/engine/config')).json(); _fillEngine(d.config, d.winrate); }
   catch (e) {}
-  loadBacktestAnalysis();
 }
 
 // 팩터별 기여도 + 워크포워드 표를 그린다(관리자 정밀 분석).
@@ -1708,14 +1727,6 @@ async function resetEngine(){
   const d = await (await fetch('/api/engine/reset', { method: 'POST' })).json();
   await loadEngine();
 }
-function saveProfile(){
-  _profile = {
-    투자성향: document.getElementById('mp_style').value,
-    관심섹터: document.getElementById('mp_sector').value.split(',').map(s => s.trim()).filter(Boolean),
-  };
-  fetch('/api/profile', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_profile)});
-}
-
 // ===== 관심종목(⭐, 시그널 리스트에서 토글) =====
 async function toggleFav(ticker, el){
   const on = _favorites.has(ticker);
@@ -1746,7 +1757,7 @@ async function startApp(needOnboard){
     const r = await fetch('/api/auth/me');
     if (!r.ok) { showAuthGate(); return; }
     const me = await r.json();
-    _userEmail = me.email; _profile = me.profile || {};
+    _userEmail = me.email; _profile = me.profile || {}; applyAdmin(me.is_admin);
     await startApp(!me.onboarded);
   } catch (e) { showAuthGate(); }
 })();
