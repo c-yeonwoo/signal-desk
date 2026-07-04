@@ -426,3 +426,50 @@ def collect_fanding(limit: int = 15, force: bool = False) -> dict:
     log.info("fanding 수집: 종목 %d · 시황 %d · 스킵 %d · 오류 %d",
              len(imported), len(macro), len(skipped), len(errors))
     return {"ok": True, "imported": imported, "macro": macro, "skipped": skipped, "errors": errors}
+
+
+def collect_outstanding(item_per_page: int = 15, force: bool = False) -> dict:
+    """아웃스탠딩(outstanding.kr) 화이트리스트 작가의 최신 기고를 수집.
+    콘텐츠가 대부분 거시·산업 해설이라 기본은 거시 KB(_MARKET), 상장사 특정 글만 종목 KB.
+    공개 기고만 수집(유료글은 로그인 쿠키 없으면 건너뜀). 증분: 이미 적재된 URL 스킵."""
+    from signal_desk.ingest import outstanding
+    index = _fanding_ticker_index()
+    has_cookie = bool(config.outstanding_cookie())
+    seen = set() if force else db.kb_document_urls(source="insight")
+    imported, macro, skipped, errors = [], [], [], []
+    for login_id in config.outstanding_authors():
+        res = outstanding.author_posts(login_id, item_per_page=item_per_page)
+        author = (res.get("author") or {}).get("name") or login_id
+        if not res.get("posts"):
+            errors.append({"author": login_id, "why": "기고 목록 조회 실패"})
+            continue
+        for post in res["posts"]:
+            title, uri = post.get("title") or "", post.get("uri") or ""
+            url = outstanding.post_url(uri)
+            if url in seen:
+                skipped.append({"uri": uri, "title": title, "why": "이미 수집됨"})
+                continue
+            if post.get("is_private") and not has_cookie:
+                skipped.append({"uri": uri, "title": title, "why": "유료글(로그인 쿠키 없음)"})
+                continue
+            body = (post.get("body") or "").strip()
+            if len(body) < 40:
+                skipped.append({"uri": uri, "title": title, "why": "본문 없음/너무 짧음"})
+                continue
+            pub = post.get("datetime") or ""
+            hit = next(((tk, ko, en) for ko, tk, en in index if ko in title), None)
+            if hit:
+                tk, ko, en = hit
+                r = import_document(tk, en, title, body, source_type="insight", url=url, published=pub)
+                (imported if r.get("ok") else skipped).append(
+                    {"ticker": tk, "name": ko, "title": title, "why": r.get("reason")} if not r.get("ok")
+                    else {"ticker": tk, "name": ko, "title": title, "status": r["status"], "published": pub})
+            else:  # 거시·산업 내러티브 — 작가 attribution 유지
+                r = import_macro(f"[{author}] {title}", body, url=url, published=pub)
+                if r.get("ok"):
+                    macro.append({"author": author, "title": title, "published": pub})
+                else:
+                    skipped.append({"uri": uri, "title": title, "why": r.get("reason", "미저장")})
+    log.info("outstanding 수집: 종목 %d · 거시 %d · 스킵 %d · 오류 %d",
+             len(imported), len(macro), len(skipped), len(errors))
+    return {"ok": True, "imported": imported, "macro": macro, "skipped": skipped, "errors": errors}

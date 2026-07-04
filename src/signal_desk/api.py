@@ -106,7 +106,7 @@ async def _auth_gate(request: Request, call_next):
 _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents",
-    "/api/kb/collect-fanding",
+    "/api/kb/collect-fanding", "/api/kb/collect-outstanding",
 }
 
 
@@ -584,6 +584,18 @@ def kb_collect_fanding(data: dict = Body(default={})):
         _signals.cache_clear()  # 새 정성 인사이트 반영
     if out.get("ok") and out.get("macro"):
         _macro.cache_clear()  # 시황 내러티브 갱신 반영(전광판·자문)
+    return out
+
+
+@app.post("/api/kb/collect-outstanding")
+def kb_collect_outstanding(data: dict = Body(default={})):
+    """아웃스탠딩 화이트리스트 작가 최신 기고 → 거시 KB(상장사 특정 글은 종목 KB) 적재(수동 트리거)."""
+    n = int(data.get("item_per_page", 15))
+    out = kb.collect_outstanding(item_per_page=n, force=bool(data.get("force")))
+    if out.get("ok") and out.get("imported"):
+        _signals.cache_clear()
+    if out.get("ok") and out.get("macro"):
+        _macro.cache_clear()
     return out
 
 
