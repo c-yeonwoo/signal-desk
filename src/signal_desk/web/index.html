@@ -144,7 +144,11 @@
 
   /* ===== 거장 포트폴리오 ===== */
   .guru-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:14px; }
-  .guru-card { border:1px solid var(--line); border-radius:var(--r-md); padding:14px 16px; background:var(--panel); }
+  .guru-card { border:1px solid var(--line); border-radius:var(--r-md); padding:14px 16px; background:var(--panel);
+    transition:border-color .12s, box-shadow .12s; }
+  .guru-card:hover { border-color:var(--accent); box-shadow:0 2px 10px rgba(79,70,229,.14); }
+  .guru-modal { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); color:var(--txt); padding:20px; }
+  .guru-modal::backdrop { background:rgba(15,23,42,.45); }
   .guru-head b { font-size:14px; }
   .guru-desc { font-size:11px; color:var(--dim); margin-top:2px; }
   .guru-meta { font-size:11px; color:var(--dim-2); margin:8px 0 4px; }
@@ -603,6 +607,21 @@
     <div style="text-align:center;margin-top:8px">
       <span onclick="skipOnboarding()" style="cursor:pointer;color:var(--dim);font-size:12px">나중에 하기</span>
     </div>
+  </div>
+</dialog>
+
+<dialog id="guruDlg" class="guru-modal">
+  <div style="width:640px;max-width:92vw">
+    <div class="row" style="align-items:flex-start;margin-bottom:4px">
+      <div>
+        <h3 id="guru-modal-name" style="margin:0"></h3>
+        <div id="guru-modal-meta" style="color:var(--dim);font-size:12px;margin-top:4px"></div>
+      </div>
+      <button class="btn" style="margin-left:auto;cursor:pointer" onclick="closeGuruModal()">닫기</button>
+    </div>
+    <div id="guru-modal-pie" style="height:300px;width:100%"></div>
+    <div id="guru-modal-rows" style="max-height:340px;overflow-y:auto;margin-top:8px"></div>
+    <div class="stat-label" style="margin-top:10px">분기 공시 스냅샷(최대 45일 지연) · 미국 롱 포지션만 · 추천 아님</div>
   </div>
 </dialog>
 
@@ -1361,14 +1380,40 @@ function drawPie(holder, data, fmt){
 
 // ===== 거장의 포트폴리오(SEC 13F 벤치마크) =====
 function _fmtUsd(v){ return v >= 1e9 ? '$' + fmtNum(v / 1e9, 1) + 'B' : v >= 1e6 ? '$' + fmtNum(v / 1e6, 0) + 'M' : '$' + fmtNum(v, 0); }
+let _gurus = [], _guruModalChart = null;
+function openGuruModal(i){
+  const g = _gurus[i]; if (!g) return;
+  document.getElementById('guru-modal-name').textContent = g.name;
+  document.getElementById('guru-modal-meta').textContent =
+    `${g.desc} · 기준 ${g.period} · ${g.n_holdings}종목 · ${_fmtUsd(g.total_usd)}`;
+  const shown = g.holdings.reduce((s, h) => s + h.pct, 0);
+  const data = g.holdings.map(h => ({ name: h.name, value: h.pct }));
+  if (shown < 99) data.push({ name: '기타', value: Math.round((100 - shown) * 10) / 10 });
+  document.getElementById('guruDlg').showModal();
+  const pieEl = document.getElementById('guru-modal-pie');
+  _guruModalChart = _guruModalChart || echarts.init(pieEl);
+  requestAnimationFrame(() => { _guruModalChart.resize(); drawPie(pieEl, data, v => fmtNum(v, 1) + '%'); });
+  document.getElementById('guru-modal-rows').innerHTML =
+    `<table class="dtable"><thead><tr><th>#</th><th>종목</th><th class="num">비중</th><th>우리 시그널</th></tr></thead><tbody>`
+    + g.holdings.map((h, r) => `<tr>
+        <td>${r + 1}</td>
+        <td>${esc(h.name)}${h.ticker ? `<div style="color:var(--dim);font-size:11px">${esc(h.ticker)}</div>` : ''}</td>
+        <td class="num">${fmtNum(h.pct, 1)}%</td>
+        <td>${h.signal ? `<span class="sig-pill ${h.signal.kind}">${kindLabel(h.signal.kind)} ${h.signal.score > 0 ? '+' : ''}${fmtNum(h.signal.score, 2)}</span>` : '<span style="color:var(--dim)">–</span>'}</td>
+      </tr>`).join('')
+    + `</tbody></table>`;
+}
+function closeGuruModal(){ document.getElementById('guruDlg').close(); }
+
 async function loadGurus(){
   const el = document.getElementById('gurus-grid');
   if (!el || el.dataset.loaded) return;  // 1회 로드(분기 데이터라 재조회 불필요)
   try {
     const d = await (await fetch('/api/gurus')).json();
     const gurus = d.gurus || [];
+    _gurus = gurus;
     if (!gurus.length) { el.innerHTML = '<div class="placeholder" style="padding:16px 0">거장 포트폴리오 데이터가 없습니다 — 관리자가 수집 후 표시됩니다.</div>'; return; }
-    el.innerHTML = '<div class="guru-grid">' + gurus.map((g, i) => `<div class="guru-card">
+    el.innerHTML = '<div class="guru-grid">' + gurus.map((g, i) => `<div class="guru-card" onclick="openGuruModal(${i})" title="클릭하면 상세 보기">
         <div class="guru-head"><b>${esc(g.name)}</b><div class="guru-desc">${esc(g.desc)}</div></div>
         <div class="guru-meta">기준 ${esc(g.period)} · ${g.n_holdings}종목 · ${_fmtUsd(g.total_usd)}</div>
         <div class="guru-pie" id="guru-pie-${i}"></div>
