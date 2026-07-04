@@ -578,7 +578,7 @@ def kb_refresh():
 def kb_collect_fanding(data: dict = Body(default={})):
     """fanding.kr 미주은 최신 포스트 → 종목 특정분만 전문가 인사이트 KB로 적재(수동 트리거)."""
     limit = int(data.get("limit", 15))
-    out = kb.collect_fanding(limit=limit)
+    out = kb.collect_fanding(limit=limit, force=bool(data.get("force")))
     if out.get("ok") and out.get("imported"):
         _signals.cache_clear()  # 새 정성 인사이트 반영
     return out

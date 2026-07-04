@@ -314,17 +314,23 @@ def _fanding_ticker_index() -> list[tuple[str, str, str]]:
     return idx
 
 
-def collect_fanding(limit: int = 15) -> dict:
+def collect_fanding(limit: int = 15, force: bool = False) -> dict:
     """fanding.kr 미주은 최신 포스트를 훑어 종목이 특정되는 글만 KB(전문가 인사이트)로 적재.
     시황·거시 요약(단일 종목 특정 불가)은 스킵해 리포트에만 남긴다(수동-우선, 오염 방지).
+    증분 수집: 이미 적재된 URL은 본문 조회·LLM 요약 없이 건너뛴다(force=True면 전량 재수집).
     반환: {imported:[...], skipped:[...], errors:[...]}."""
     from signal_desk.ingest import fanding
     if not config.fanding_cookie():
         return {"ok": False, "reason": "FANDING_TT 미설정(.env) — 자동수집 건너뜀"}
     index = _fanding_ticker_index()
+    seen = set() if force else db.kb_document_urls(source="insight")
     imported, skipped, errors = [], [], []
     for post in fanding.post_list(limit=limit):
         title = post.get("title") or ""
+        url = fanding.post_url(post.get("post_no"))
+        if url in seen:
+            skipped.append({"post_no": post.get("post_no"), "title": title, "why": "이미 수집됨"})
+            continue
         hit = next(((tk, ko, en) for ko, tk, en in index if ko in title), None)
         if not hit:
             skipped.append({"post_no": post.get("post_no"), "title": title, "why": "종목 특정 불가(시황·거시)"})
