@@ -247,6 +247,12 @@
   .auth-field label { display:block; font-size:12px; color:var(--dim); margin-bottom:4px; }
   .auth-field input { width:100%; }
 
+  .subnav { display:flex; gap:6px; padding:8px 22px; background:var(--panel); border-bottom:1px solid var(--line); }
+  .subnav .subtab { padding:5px 14px; border:0; background:transparent; color:var(--dim); font-size:13px;
+    font-weight:600; border-radius:var(--r-md); cursor:pointer; }
+  .subnav .subtab:hover { background:var(--bg); }
+  .subnav .subtab.on { background:var(--accent); color:#fff; }
+
   dialog { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); color:var(--txt); }
   dialog::backdrop { background:rgba(15,23,42,.45); }
 </style>
@@ -265,6 +271,11 @@
     <span class="btn" onclick="logout()" style="cursor:pointer">로그아웃</span>
   </div>
 </header>
+
+<nav class="subnav" id="subnav-trading" style="display:none">
+  <button class="subtab on" data-seg="bot" onclick="switchTradingSeg('bot')">시그널 트레이딩</button>
+  <button class="subtab" data-seg="rebal" onclick="switchTradingSeg('rebal')">내 포트폴리오</button>
+</nav>
 
 <div class="market-bar" id="market-ribbon">
   <span class="tb-label">시황</span>
@@ -315,9 +326,6 @@
 
 
   <div id="view-cycle" class="view-app" style="display:none">
-    <h2 class="page-head">산업 사이클</h2>
-    <p class="page-desc">경기순환(회복→확장→둔화→수축)에 따라 어떤 산업이 주도하는지, 그리고 그 산업의
-      밸류체인 기업까지 — 톱다운으로 봅니다. 현재 위치는 미 CPI·금리(FRED)로 근사 추정합니다.</p>
     <div class="card" id="cycle-current" style="margin-bottom:16px"><div class="placeholder" style="padding:8px 0">불러오는 중…</div></div>
     <div class="card" style="margin-bottom:16px"><div id="cycle-chart" style="height:300px"></div></div>
     <div class="phase-grid" id="cycle-phases"></div>
@@ -330,13 +338,6 @@
   </div>
 
   <div id="view-trading" class="view-app" style="display:none">
-    <h2 class="page-head">포트폴리오 <span style="color:var(--dim);font-size:14px;font-weight:600">· 시그널 기반 매매와 내 자산 관리</span></h2>
-    <p class="page-desc">시그널 기반 자동매매(KIS 모의계좌)와 내 실보유 종목 리밸런싱 제안, 그리고 거장들의 포트폴리오를 벤치마크로.</p>
-    <div class="seg-toggle" id="trading-seg" style="margin-bottom:18px">
-      <button class="on" data-seg="bot" onclick="switchTradingSeg('bot')">시그널 트레이딩</button>
-      <button data-seg="rebal" onclick="switchTradingSeg('rebal')">내 포트폴리오</button>
-    </div>
-
     <div id="trading-bot">
     <div class="seg-toggle" id="bot-market-seg" style="margin-bottom:14px">
       <button class="on" data-bmkt="kospi" onclick="switchBotMarket('kospi')">국내 (KOSPI)</button>
@@ -344,8 +345,8 @@
     </div>
 
     <div id="bot-kospi">
-    <div class="row" style="margin-bottom:16px">
-      <span class="stat-label" style="margin:0">트레이딩 성향</span>
+    <div class="row" style="margin-bottom:16px;align-items:center">
+      <span class="stat-label" style="margin:0;line-height:1">트레이딩 성향</span>
       <div class="seg-toggle" id="style-toggle">
         <button data-style="conservative" onclick="setStyle('conservative')">안정형</button>
         <button data-style="balanced" onclick="setStyle('balanced')">균형형</button>
@@ -598,6 +599,7 @@ function switchTab(t){
   if(!_ROUTES.includes(t)) t = 'signal';
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
+  document.getElementById('subnav-trading').style.display = (t === 'trading') ? '' : 'none';  // 포트폴리오 서브내비
   if (t === 'signal') loadSignals();  // 시황 리본은 전역(startApp에서 로드)
   if (t === 'cycle') { loadCycle(); loadValuechain(); }  // 산업 사이클 = 경기사이클 + 밸류체인
   if (t === 'trading') switchTradingSeg(_tradingSeg);
@@ -1273,7 +1275,7 @@ async function setStyle(style){
 let _tradingSeg = 'bot';
 function switchTradingSeg(seg){
   _tradingSeg = seg;
-  document.querySelectorAll('#trading-seg button').forEach(b => b.classList.toggle('on', b.dataset.seg === seg));
+  document.querySelectorAll('#subnav-trading .subtab').forEach(b => b.classList.toggle('on', b.dataset.seg === seg));
   document.getElementById('trading-bot').style.display = seg === 'bot' ? '' : 'none';
   document.getElementById('trading-rebal').style.display = seg === 'rebal' ? '' : 'none';
   if (seg === 'bot') loadBotState();
