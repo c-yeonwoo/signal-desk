@@ -40,7 +40,8 @@ def test_balance_parses_response(monkeypatch):
     fake_body = {
         "rt_cd": "0",
         "output1": [
-            {"pdno": "005930", "prdt_name": "삼성전자", "hldg_qty": "10", "pchs_avg_pric": "70000"},
+            {"pdno": "005930", "prdt_name": "삼성전자", "hldg_qty": "10", "pchs_avg_pric": "70000",
+             "prpr": "75000", "evlu_pfls_rt": "7.14"},
             {"pdno": "000660", "prdt_name": "SK하이닉스", "hldg_qty": "0", "pchs_avg_pric": "0"},
         ],
         "output2": [{"dnca_tot_amt": "5000000", "nass_amt": "5750000", "tot_evlu_amt": "5750000",
@@ -53,7 +54,8 @@ def test_balance_parses_response(monkeypatch):
     assert out["total_eval"] == 5_750_000.0     # 순자산
     assert out["stock_eval"] == 750_000.0
     assert out["pnl_pct"] == round(50000 / 700000 * 100, 2)  # 7.14%
-    assert out["holdings"] == [{"ticker": "005930", "name": "삼성전자", "qty": 10, "avg_price": 70000.0}]
+    assert out["holdings"] == [{"ticker": "005930", "name": "삼성전자", "qty": 10, "avg_price": 70000.0,
+                                "price": 75000.0, "pnl_pct": 7.14}]
 
 
 def test_balance_returns_none_on_error(monkeypatch):

@@ -628,30 +628,6 @@
   </div>
 </div>
 
-<dialog id="onbDlg">
-  <div style="width:420px;max-width:88vw">
-    <h3 style="margin:0 0 2px">1분 프로필 설정</h3>
-    <p style="color:var(--dim);font-size:13px;margin:0 0 16px">입력하면 후보·AI 리포트가 <b>내 투자성향</b>에 맞춰집니다. (나중에 변경 가능)</p>
-    <div class="field" style="margin-bottom:12px">투자성향
-      <select id="ob_style" class="ctrl">
-        <option value="conservative">안정형</option>
-        <option value="balanced" selected>균형형</option>
-        <option value="aggressive">공격형</option>
-      </select>
-    </div>
-    <div class="field" style="margin-bottom:12px">관심 섹터(쉼표 구분)
-      <input id="ob_sector" type="text" class="ctrl" placeholder="예: 반도체, 2차전지, 바이오">
-    </div>
-    <div class="field" style="margin-bottom:12px">초기 관심 종목(쉼표 구분, 선택)
-      <input id="ob_tickers" type="text" class="ctrl" placeholder="예: 005930, 000660">
-    </div>
-    <button class="btn primary" style="width:100%" onclick="saveOnboarding()">저장하고 시작</button>
-    <div style="text-align:center;margin-top:8px">
-      <span onclick="skipOnboarding()" style="cursor:pointer;color:var(--dim);font-size:12px">나중에 하기</span>
-    </div>
-  </div>
-</dialog>
-
 <dialog id="guruDlg" class="guru-modal">
   <div style="width:640px;max-width:92vw">
     <div class="row" style="align-items:flex-start;margin-bottom:4px">
@@ -1251,13 +1227,18 @@ async function loadBotState(){
     } else {
       hEl.className = '';
       const rows = d.positions.map(p => {
-        const pl = p.avg_price > 0 ? ((p.peak_price ?? p.avg_price) / p.avg_price - 1) * 100 : 0;
+        // 수익률: KIS 스냅샷 우선, 없으면 현재가/평단으로 계산
+        const pl = (p.last_pnl_pct != null) ? p.last_pnl_pct
+                 : (p.avg_price > 0 && p.last_price) ? (p.last_price / p.avg_price - 1) * 100 : null;
+        const plCls = pl == null ? '' : pl > 0 ? 'pos' : pl < 0 ? 'neg' : '';
+        const plTxt = pl == null ? '–' : `${pl > 0 ? '+' : ''}${fmtNum(pl, 2)}%`;
+        const cur = p.last_price ? fmtNum(p.last_price, 0) : '–';
         return `<tr><td>${esc(p.name)}<div style="color:var(--dim);font-size:11px">${esc(p.ticker)}</div></td>
           <td class="num">${p.qty}</td><td class="num">${fmtNum(p.avg_price, 0)}</td>
-          <td class="num">${fmtNum(p.peak_price, 0)}</td></tr>`;
+          <td class="num">${cur}</td><td class="num ${plCls}">${plTxt}</td></tr>`;
       }).join('');
       hEl.innerHTML = `<table class="dtable"><thead><tr>
-        <th>종목</th><th class="num">수량</th><th class="num">평단가</th><th class="num">진입후고점</th>
+        <th>종목</th><th class="num">수량</th><th class="num">평단가</th><th class="num">현재가</th><th class="num">수익률</th>
       </tr></thead><tbody>${rows}</tbody></table>`;
     }
 
@@ -1743,11 +1724,10 @@ async function authSubmit(){
   });
   const d = await r.json();
   if (!d.ok) { document.getElementById('authErr').textContent = d.error || '실패'; return; }
-  const signup = _authMode === 'signup';
   const me = await (await fetch('/api/auth/me')).json();
   _userEmail = me.email || ''; _profile = me.profile || {}; applyAdmin(me.is_admin);
   hideAuthGate();
-  await startApp(signup || !me.onboarded);
+  await startApp();
 }
 
 function applyAdmin(isAdmin){
@@ -1755,23 +1735,6 @@ function applyAdmin(isAdmin){
   document.getElementById('tab-admin').style.display = _isAdmin ? '' : 'none';
 }
 async function logout(){ await fetch('/api/auth/logout', {method: 'POST'}); location.reload(); }
-
-// ===== 온보딩 =====
-function saveOnboarding(){
-  _profile = {
-    투자성향: document.getElementById('ob_style').value,
-    관심섹터: document.getElementById('ob_sector').value.split(',').map(s => s.trim()).filter(Boolean),
-  };
-  const tickers = document.getElementById('ob_tickers').value.split(',').map(s => s.trim()).filter(Boolean);
-  fetch('/api/profile', {method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(_profile)})
-    .then(() => Promise.all(tickers.map(t => fetch('/api/favorites', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({kind: 'ticker', key: t, label: ''}),
-    }))))
-    .then(() => { document.getElementById('onbDlg').close(); afterOnboard(); });
-}
-function skipOnboarding(){ document.getElementById('onbDlg').close(); afterOnboard(); }
-function afterOnboard(){ applyProfileHeader(); routeFromHash() || switchTab('signal'); }
 
 function applyProfileHeader(){
   const nm = (_userEmail || '').split('@')[0] || '계정';
@@ -1876,14 +1839,10 @@ async function toggleFav(ticker, el){
 }
 
 // ===== 부팅 =====
-async function startApp(needOnboard){
+async function startApp(){
   applyProfileHeader();
   loadRegime(); loadMacro();  // 시황 리본은 전역 노출 — 어느 탭에서도 보이게 시작 시 로드
-  if (needOnboard) {
-    document.getElementById('onbDlg').showModal();
-  } else {
-    routeFromHash() || switchTab('signal');
-  }
+  routeFromHash() || switchTab('signal');
 }
 (async function init(){
   try {
@@ -1891,7 +1850,7 @@ async function startApp(needOnboard){
     if (!r.ok) { showAuthGate(); return; }
     const me = await r.json();
     _userEmail = me.email; _profile = me.profile || {}; applyAdmin(me.is_admin);
-    await startApp(!me.onboarded);
+    await startApp();
   } catch (e) { showAuthGate(); }
 })();
 </script>

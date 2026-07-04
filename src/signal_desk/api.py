@@ -73,6 +73,7 @@ async def _bot_loop():
                         _signals.cache_clear()
                     except Exception as e:
                         log.warning("마감후 KB 갱신 실패(예약은 계속): %s", e)
+                    bot.snapshot_positions()  # 종가 기준 보유종목 현재가·수익률 1회 갱신
                     bot.generate_reservations()
                     db.kv_set("bot_resv_date", _kst_today())
         except Exception as e:

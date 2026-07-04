@@ -150,6 +150,8 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
     context = {
         "regime": reg.get("regime"),
         "macro_bias": mread.get("bias"),
+        # FRED 정량 지표 근거(CPI·금리·나스닥·VIX) — KB엔 안 넣되 LLM이 시그널 판단 시 지표로 참고
+        "macro_detail": " / ".join((mread.get("reasons") or [])[:5]),
         "cycle_phase": cyc.get("phase_name"),
         "gate_applied": bool(adapt.get("bump")),  # 매수 기준이 이미 상향됐는지(LLM에 알림)
         # 미주은 시황 코멘터리(정성 내러티브) — 참고용 맥락, 개별 종목 점수엔 미반영
@@ -208,9 +210,28 @@ def reconcile_positions(bal: dict) -> None:
         db.bot_position_delete(t)  # KIS에서 사라진 포지션 정리
     for t, h in kis_h.items():
         pos = db.bot_position_get(t)
-        peak = max(pos["peak_price"] if pos else h["avg_price"], h["avg_price"])
+        price = h.get("price") or 0.0
+        peak = max(pos["peak_price"] if pos else h["avg_price"], h["avg_price"], price)
         entry = pos["entry_date"] if pos else _today()
-        db.bot_position_upsert(t, h["name"], h["qty"], h["avg_price"], peak, entry)
+        # 현재가·수익률 스냅샷(대시보드용) — KIS 제공값 우선, 없으면 평단 대비 계산
+        pnl_pct = h.get("pnl_pct")
+        if not pnl_pct and h["avg_price"] and price:
+            pnl_pct = round((price / h["avg_price"] - 1) * 100, 2)
+        db.bot_position_upsert(t, h["name"], h["qty"], h["avg_price"], peak, entry,
+                               last_price=price or None, last_pnl_pct=pnl_pct)
+
+
+def snapshot_positions() -> bool:
+    """보유종목 현재가·수익률 스냅샷 갱신(장 종료 후 1회 등) — KIS 잔고로 reconcile.
+    KIS 인증 없음·조회 실패 시 False(기존 스냅샷 유지)."""
+    creds = config.kis_credentials()
+    if not creds:
+        return False
+    bal = kis.balance(creds, retries=1)
+    if bal is None:
+        return False
+    reconcile_positions(bal)
+    return True
 
 
 def get_state() -> dict:
