@@ -560,6 +560,7 @@
         <span id="fanding-result" class="stat-label" style="margin:0 0 0 auto"></span>
         <button class="btn" onclick="collectFanding()" style="margin-left:8px">미주은 수집</button>
         <button class="btn" onclick="collectOutstanding()" style="margin-left:8px">아웃스탠딩 수집</button>
+        <button class="btn" onclick="collectYoutube()" style="margin-left:8px">유튜브 수집</button>
         <button class="btn" onclick="refreshKb()" style="margin-left:8px">뉴스 갱신</button>
       </div>
       <p class="page-desc" style="margin:6px 0 12px">뉴스·리포트를 문서 단위로 수집·요약·분류해 KB에 쌓습니다. 시그널의 정성 판단(악재 veto)과 봇 자문이 이 KB만 근거로 씁니다.</p>
@@ -1620,6 +1621,20 @@ async function collectOutstanding(){
   try {
     const d = await (await fetch('/api/kb/collect-outstanding', { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ item_per_page: 15 }) })).json();
+    if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `실패: ${d.reason || ''}`; return; }
+    el.style.color = 'var(--sig-buy)';
+    el.textContent = `📥 거시 ${(d.macro || []).length} · 종목 ${d.imported.length} · 스킵 ${d.skipped.length}${d.errors.length ? ` · 오류 ${d.errors.length}` : ''}`;
+    loadKbDocs();
+  } catch(e) { el.style.color = 'var(--sell)'; el.textContent = '요청 실패'; }
+  finally { btn.disabled = false; btn.textContent = t; }
+}
+
+async function collectYoutube(){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '수집 중…';
+  const el = document.getElementById('fanding-result');
+  try {
+    const d = await (await fetch('/api/kb/collect-youtube', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ max_per_channel: 8 }) })).json();
     if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `실패: ${d.reason || ''}`; return; }
     el.style.color = 'var(--sig-buy)';
     el.textContent = `📥 거시 ${(d.macro || []).length} · 종목 ${d.imported.length} · 스킵 ${d.skipped.length}${d.errors.length ? ` · 오류 ${d.errors.length}` : ''}`;

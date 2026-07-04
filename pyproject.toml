@@ -13,6 +13,7 @@ dependencies = [
     "pykrx>=1.0",
     "pypdf>=4.0",              # PDF 텍스트 추출(네이티브 텍스트 PDF)
     "python-multipart>=0.0.9",  # FastAPI 파일 업로드
+    "youtube-transcript-api>=1.0",  # 유튜브 자막 전문 수집(KB 소스)
 ]
 
 [project.optional-dependencies]
