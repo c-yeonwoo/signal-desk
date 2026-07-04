@@ -600,7 +600,8 @@ function switchTab(t){
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
   document.getElementById('subnav-trading').style.display = (t === 'trading') ? '' : 'none';  // 포트폴리오 서브내비
-  if (t === 'signal') loadSignals();  // 시황 리본은 전역(startApp에서 로드)
+  document.getElementById('market-ribbon').style.display = (t === 'signal') ? '' : 'none';  // 시황 전광판은 시그널 탭에서만
+  if (t === 'signal') loadSignals();
   if (t === 'cycle') { loadCycle(); loadValuechain(); }  // 산업 사이클 = 경기사이클 + 밸류체인
   if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'mypage') fillMyPage();
