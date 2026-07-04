@@ -291,7 +291,8 @@ def _regime():
 @lru_cache(maxsize=1)
 def _macro():
     indicators = store.load_macro()
-    return {"indicators": indicators, **macro.read(indicators)}
+    # 정량 지표(FRED) + 정성 내러티브(미주은 시황 코멘터리 — 시장흐름 트래킹용, 개별 종목엔 미반영)
+    return {"indicators": indicators, "narrative": kb.macro_digest(), **macro.read(indicators)}
 
 
 def _us_signal_items() -> list[dict]:
@@ -581,6 +582,8 @@ def kb_collect_fanding(data: dict = Body(default={})):
     out = kb.collect_fanding(limit=limit, force=bool(data.get("force")))
     if out.get("ok") and out.get("imported"):
         _signals.cache_clear()  # 새 정성 인사이트 반영
+    if out.get("ok") and out.get("macro"):
+        _macro.cache_clear()  # 시황 내러티브 갱신 반영(전광판·자문)
     return out
 
 
@@ -589,6 +592,7 @@ def kb_collect_fanding(data: dict = Body(default={})):
 def kb_documents_get(ticker: str | None = None, doc_class: str | None = None, limit: int = 120):
     """KB 문서 목록(관리자 대시보드) — 유형·종목 필터 + 유형별 건수."""
     names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    names[kb.MACRO_TICKER] = kb.MACRO_NAME  # 거시 내러티브 가상 종목
     docs = db.kb_documents(ticker, doc_class, limit)
     for d in docs:
         d["name"] = names.get(d["ticker"], d["ticker"])
@@ -689,7 +693,8 @@ def macro_get():
     signals/macro.py 참고. FRED_API_KEY 없으면 ready=False."""
     data = _macro()
     if not data["indicators"]:
-        return {"ready": False, "indicators": []}
+        # FRED 정량 지표는 없어도 미주은 시황 내러티브는 있을 수 있음(전광판 코멘터리)
+        return {"ready": False, "indicators": [], "narrative": data.get("narrative")}
     return {"ready": True, **data}
 
 

@@ -146,11 +146,14 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
     mread = macro.read(macro_ind)
     cyc = cycle.position(macro_ind)
     eff_cfg, adapt = signalcfg.effective_config(reg, mread)
+    macro_dg = kb.macro_digest()
     context = {
         "regime": reg.get("regime"),
         "macro_bias": mread.get("bias"),
         "cycle_phase": cyc.get("phase_name"),
         "gate_applied": bool(adapt.get("bump")),  # 매수 기준이 이미 상향됐는지(LLM에 알림)
+        # 미주은 시황 코멘터리(정성 내러티브) — 참고용 맥락, 개별 종목 점수엔 미반영
+        "macro_note": (macro_dg["summary"] if macro_dg and macro_dg.get("fresh") else ""),
     }
     return {"eff_cfg": eff_cfg, "adapt": adapt, "context": context}
 

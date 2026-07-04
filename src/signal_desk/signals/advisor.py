@@ -56,9 +56,11 @@ def select_buys(candidates: list[dict], context: dict, digests: dict[str, dict],
         "정성 판단은 제공된 KB 요약의 사실에만 근거하고, KB에 없는 내용은 추측·언급하지 마라(KB 없으면 정성은 중립). "
         "손절·익절·비중 같은 실행 규칙은 코드가 처리하니 너는 '무엇을 왜'만 정한다.")
     gate_note = "이미 매수 기준(임계값)에 반영됨 — 재차 감점 말 것" if context.get("gate_applied") else "매수 기준 조정 없음"
+    macro_note = context.get("macro_note")
+    macro_line = f"\n[시황 코멘터리 · 참고용] {macro_note}\n" if macro_note else ""
     user = (
         f"[시장 맥락 · 참고용, {gate_note}] 국면={context.get('regime')} · 거시={context.get('macro_bias')} · "
-        f"경기사이클={context.get('cycle_phase')}\n\n"
+        f"경기사이클={context.get('cycle_phase')}\n" + macro_line + "\n"
         f"[매수 후보(가드레일 통과)]\n" + "\n".join(cand_lines) + "\n\n"
         f"[과거 의사결정 성패(학습, 경향 참고용)]\n" + "\n".join(lesson_lines) + "\n\n"
         f"이 중 지금 매수하기 가장 좋은 종목을 최대 {max_new}개 골라라. "

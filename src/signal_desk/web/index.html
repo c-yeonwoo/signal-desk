@@ -97,6 +97,7 @@
   .macro-chip .mc-value { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
   .macro-chip .mc-chg { font-size:10px; font-variant-numeric:tabular-nums; }
   .mc-bad { color:var(--sig-sell); } .mc-good { color:var(--sig-buy); } .mc-flat { color:var(--dim); }
+  .market-note { margin-top:7px; font-size:12px; color:var(--dim); line-height:1.5; }
   .sig-workspace { display:flex; gap:16px; align-items:stretch;
     height:clamp(520px, 80vh, 980px); }
   .sig-list { flex:0 0 380px; min-width:0; overflow-y:auto; overflow-x:hidden; padding:0; }
@@ -298,6 +299,7 @@
   <span id="macro-bias" class="sig-pill" style="display:none">-</span>
   <div class="macro-chips" id="macro-chips"></div>
 </div>
+<div class="market-note" id="macro-narrative" style="display:none"></div>
 
 <main>
   <div id="view-signal" class="view-app" style="display:none">
@@ -867,9 +869,18 @@ async function loadMacro(){
   const sep = document.getElementById('macro-sep');
   const bias = document.getElementById('macro-bias');
   const chips = document.getElementById('macro-chips');
+  const note = document.getElementById('macro-narrative');
   const hide = () => { sep.style.display = 'none'; bias.style.display = 'none'; chips.innerHTML = ''; };
+  const renderNote = (nar) => {
+    if (nar && nar.summary) {
+      const pts = (nar.points || []).length ? ' · ' + nar.points.join(' · ') : '';
+      note.textContent = '🗣️ 시황 코멘터리 — ' + nar.summary + pts;
+      note.style.display = '';
+    } else { note.style.display = 'none'; }
+  };
   try {
     const d = await (await fetch('/api/macro')).json();
+    renderNote(d.narrative);
     if (!d.ready || !d.indicators.length) { hide(); return; }
     sep.style.display = ''; bias.style.display = '';
     bias.textContent = '거시 ' + (d.bias || '-');
@@ -888,7 +899,7 @@ async function loadMacro(){
         <span class="mc-label">${esc(m.label)}</span>
         <span class="mc-value">${val}</span>${chg}</div>`;
     }).join('');
-  } catch (e) { hide(); }
+  } catch (e) { hide(); note.style.display = 'none'; }
 }
 
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
@@ -1568,7 +1579,7 @@ async function collectFanding(){
       body: JSON.stringify({ limit: 15 }) })).json();
     if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `실패: ${d.reason || ''}`; return; }
     el.style.color = 'var(--sig-buy)';
-    el.textContent = `📥 미주은 적재 ${d.imported.length} · 스킵 ${d.skipped.length}${d.errors.length ? ` · 오류 ${d.errors.length}` : ''}`;
+    el.textContent = `📥 종목 ${d.imported.length} · 시황 ${(d.macro || []).length} · 스킵 ${d.skipped.length}${d.errors.length ? ` · 오류 ${d.errors.length}` : ''}`;
     loadKbDocs();
   } catch(e) { el.style.color = 'var(--sell)'; el.textContent = '요청 실패'; }
   finally { btn.disabled = false; btn.textContent = t; }

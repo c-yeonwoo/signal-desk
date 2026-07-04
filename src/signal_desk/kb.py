@@ -29,6 +29,11 @@ _EVENT_TERMS = [
 ]
 EVENT_TTL_DAYS = 5  # 이 기간 지난 악재는 veto에서 해제(신선도)
 
+# 거시·시황 내러티브 전용 가상 종목 — 개별 종목 KB와 격리(sentiment_map 등에서 '_' 접두 티커 제외).
+# 시장 흐름 트래킹 + 봇 자문 컨텍스트로만 쓰이고, 개별 종목 시그널엔 섞이지 않는다(이중계상 방지).
+MACRO_TICKER = "_MARKET"
+MACRO_NAME = "시장 시황"
+
 
 # 문서 유형 분류 — 규칙 기반(투명·무료). 우선순위 순으로 첫 매칭 채택.
 DOC_CLASSES = ("리포트", "공시", "실적", "이벤트", "시황", "뉴스")
@@ -265,6 +270,61 @@ def build_digest(name: str, items: list[dict]) -> dict:
     return _rule_digest(name, items)
 
 
+def import_macro(title: str, text: str, url: str = "", published: str = "") -> dict:
+    """시황·거시 내러티브(단일 종목 특정 불가)를 거시 KB(_MARKET)에 적재한다.
+    개별 종목 검증(종목명 언급)은 적용하지 않되, 너무 짧은 글은 배제. 저장 후 거시 다이제스트 갱신."""
+    text = (text or "").strip()
+    if len(text) < 40:
+        return {"ok": False, "reason": "본문이 너무 짧아 시황 KB에 저장하지 않음"}
+    db.kb_document_add(MACRO_TICKER, title or "시황", text[:300], url, "insight",
+                       published, "시황", raw_text=text, status="confirmed")
+    _rebuild_macro_digest()
+    return {"ok": True, "status": "confirmed", "doc_class": "시황"}
+
+
+def build_macro_digest(items: list[dict]) -> dict:
+    """시황·거시 원문 여러 건 → 현재 '시장 톤' 내러티브 {summary(1~2문장), points[≤3]}.
+    최신 글을 앞에 놓아 freshness를 반영(LLM엔 최신순으로 전달). LLM 없으면 최신 제목 나열."""
+    if not items:
+        return {"summary": "최근 수집된 시황 코멘터리가 없습니다.", "points": []}
+    if llm.available():
+        lines = "\n".join(f"- ({it.get('published', '')[:10]}) {it.get('title', '')} :: {(it.get('summary') or '')[:140]}"
+                          for it in items[:10])
+        system = ("너는 미국 증시 시황 데스크다. 아래는 최신순으로 정렬된 시장 해설·브리핑 모음이다. "
+                  "이를 근거로 '지금 시장 톤'을 요약한다. 최신 글에 더 무게를 두고, 개별 종목 추천은 하지 마라. "
+                  "제공된 내용에 없는 사실은 지어내지 마라.")
+        user = (f"[최신순 시황 코멘터리]\n{lines}\n\n"
+                'JSON으로만: {"summary": "한국어 1~2문장, 현재 시장 톤·핵심 이슈", '
+                '"points": ["핵심 포인트 최대 3개(한국어 짧게)"]}')
+        out = llm.complete_json(system, user, max_tokens=500)
+        if out and out.get("summary"):
+            pts = [str(p) for p in (out.get("points") or [])][:3]
+            return {"summary": str(out["summary"])[:240], "points": pts}
+    return {"summary": f"미주은 시황 코멘터리 {len(items)}건 수집(최신: {items[0].get('title', '')[:40]}).",
+            "points": [it["title"] for it in items[:3] if it.get("title")]}
+
+
+def _rebuild_macro_digest() -> None:
+    """최근 confirmed 시황 문서를 합쳐 거시 다이제스트(내러티브)를 재계산·저장(_MARKET)."""
+    items = db.kb_entries_recent(MACRO_TICKER, 12, confirmed_only=True)
+    if not items:
+        return
+    dg = build_macro_digest(items)
+    db.kb_digest_set(MACRO_TICKER, MACRO_NAME, 0.0, dg["summary"], dg["points"],
+                     len(items), newest_ts=_newest_ts(items), event_flag=False, event_note="")
+
+
+def macro_digest() -> dict | None:
+    """거시 KB 내러티브 다이제스트 — 시황 전광판·봇 자문 컨텍스트가 소비. 없으면 None."""
+    dg = db.kb_digest_get(MACRO_TICKER)
+    if not dg or not dg.get("summary"):
+        return None
+    now = time.time()
+    fresh = dg.get("newest_ts") is None or (now - dg["newest_ts"]) <= 10 * 86400  # 10일 내
+    return {"summary": dg["summary"], "points": dg.get("points") or [],
+            "count": dg.get("n_sources"), "newest_ts": dg.get("newest_ts"), "fresh": fresh}
+
+
 def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dict:
     """targets: [{ticker, name}]. 각 종목 증권 뉴스 수집(신선도·관련성 필터)→저장→다이제스트 갱신.
     유튜브는 화이트리스트 확보 전까지 보류. 갱신 건수 반환."""
@@ -293,6 +353,8 @@ def sentiment_map() -> dict[str, dict]:
     now = time.time()
     out = {}
     for ticker, dg in db.kb_digests_all().items():
+        if ticker.startswith("_"):  # 거시·시황 등 가상 종목은 개별 시그널에 반영 안 함(격리)
+            continue
         reasons = []
         if dg.get("summary"):
             reasons.append(f"[정성] {dg['summary']}")
@@ -314,41 +376,53 @@ def _fanding_ticker_index() -> list[tuple[str, str, str]]:
     return idx
 
 
+# 순수 운영·홍보 공지(투자 정보 아님) — 시황 KB에도 넣지 않고 버린다.
+_FANDING_NOISE = ("공지", "결제", "카드 등록", "회원권", "만화책", "질문 수집", "당첨", "이벤트 안내", "안내")
+
+
 def collect_fanding(limit: int = 15, force: bool = False) -> dict:
-    """fanding.kr 미주은 최신 포스트를 훑어 종목이 특정되는 글만 KB(전문가 인사이트)로 적재.
-    시황·거시 요약(단일 종목 특정 불가)은 스킵해 리포트에만 남긴다(수동-우선, 오염 방지).
+    """fanding.kr 미주은 최신 포스트를 훑어 KB로 적재.
+    - 종목 특정 글 → 종목 KB(전문가 인사이트, 검증기 게이트).
+    - 종목 불특정이라도 시황·거시·시장흐름 해설 → 거시 KB(_MARKET, 시장흐름 트래킹·봇 자문용).
+    - 순수 운영·홍보 공지(멤버십·결제·만화책 등)만 폐기.
     증분 수집: 이미 적재된 URL은 본문 조회·LLM 요약 없이 건너뛴다(force=True면 전량 재수집).
-    반환: {imported:[...], skipped:[...], errors:[...]}."""
+    반환: {imported:[...], macro:[...], skipped:[...], errors:[...]}."""
     from signal_desk.ingest import fanding
     if not config.fanding_cookie():
         return {"ok": False, "reason": "FANDING_TT 미설정(.env) — 자동수집 건너뜀"}
     index = _fanding_ticker_index()
     seen = set() if force else db.kb_document_urls(source="insight")
-    imported, skipped, errors = [], [], []
+    imported, macro, skipped, errors = [], [], [], []
     for post in fanding.post_list(limit=limit):
         title = post.get("title") or ""
         url = fanding.post_url(post.get("post_no"))
         if url in seen:
             skipped.append({"post_no": post.get("post_no"), "title": title, "why": "이미 수집됨"})
             continue
-        hit = next(((tk, ko, en) for ko, tk, en in index if ko in title), None)
-        if not hit:
-            skipped.append({"post_no": post.get("post_no"), "title": title, "why": "종목 특정 불가(시황·거시)"})
+        if any(w in title for w in _FANDING_NOISE):
+            skipped.append({"post_no": post.get("post_no"), "title": title, "why": "운영·홍보 공지(폐기)"})
             continue
-        tk, ko, en = hit
+        hit = next(((tk, ko, en) for ko, tk, en in index if ko in title), None)
         detail = fanding.post_detail(post["post_no"])
         if not detail:
             errors.append({"post_no": post.get("post_no"), "title": title, "why": "본문 조회 실패"})
             continue
-        res = import_document(tk, en, detail["title"], detail["content"],
-                              source_type="insight", url=detail["url"],
-                              published=detail.get("published") or "")
-        if res.get("ok"):
-            imported.append({"ticker": tk, "name": ko, "title": detail["title"],
-                             "status": res["status"], "trust": res.get("trust"),
-                             "published": detail.get("published")})
-        else:
-            skipped.append({"post_no": post.get("post_no"), "title": title,
-                            "why": res.get("reason", "미저장")})
-    log.info("fanding 수집: 적재 %d · 스킵 %d · 오류 %d", len(imported), len(skipped), len(errors))
-    return {"ok": True, "imported": imported, "skipped": skipped, "errors": errors}
+        pub = detail.get("published") or ""
+        if hit:
+            tk, ko, en = hit
+            res = import_document(tk, en, detail["title"], detail["content"],
+                                  source_type="insight", url=detail["url"], published=pub)
+            if res.get("ok"):
+                imported.append({"ticker": tk, "name": ko, "title": detail["title"],
+                                 "status": res["status"], "trust": res.get("trust"), "published": pub})
+            else:
+                skipped.append({"post_no": post.get("post_no"), "title": title, "why": res.get("reason", "미저장")})
+        else:  # 종목 불특정 → 시황·거시 내러티브로 적재
+            res = import_macro(detail["title"], detail["content"], url=detail["url"], published=pub)
+            if res.get("ok"):
+                macro.append({"title": detail["title"], "published": pub})
+            else:
+                skipped.append({"post_no": post.get("post_no"), "title": title, "why": res.get("reason", "미저장")})
+    log.info("fanding 수집: 종목 %d · 시황 %d · 스킵 %d · 오류 %d",
+             len(imported), len(macro), len(skipped), len(errors))
+    return {"ok": True, "imported": imported, "macro": macro, "skipped": skipped, "errors": errors}
