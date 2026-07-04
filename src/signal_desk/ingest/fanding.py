@@ -54,6 +54,11 @@ def post_list(member: str = "mijooeun", limit: int = 20) -> list[dict]:
     return out
 
 
+def post_url(post_no: int, member: str = "mijooeun") -> str:
+    """포스트 공개 URL — KB 문서의 고유키(증분 수집 dedup 기준)."""
+    return f"https://fanding.kr/@{member}/post/{post_no}/"
+
+
 def _clean_body(html: str) -> str:
     """HTML 태그 제거 + 공백 정리 + 하단 홍보 블록 컷."""
     txt = _TAG.sub(" ", html or "")
@@ -78,4 +83,4 @@ def post_detail(post_no: int) -> dict | None:
         return None
     return {"post_no": post_no, "title": (p.get("sTitle") or "").strip(), "content": content,
             "published": p.get("sInsDatetime"), "is_paid": p.get("sIsPaid") == "T",
-            "url": f"https://fanding.kr/@mijooeun/post/{post_no}/"}
+            "url": post_url(post_no)}

@@ -334,6 +334,17 @@ def kb_document_add(ticker: str, title: str, summary: str, url: str, source: str
     return row[0] if row else -1
 
 
+def kb_document_urls(source: str | None = None) -> set[str]:
+    """이미 적재된 문서 URL 집합 — 증분 수집(재수집 스킵)용. source로 필터 가능."""
+    c = conn()
+    if source:
+        rows = c.execute("SELECT url FROM kb_entries WHERE source=? AND url IS NOT NULL", (source,)).fetchall()
+    else:
+        rows = c.execute("SELECT url FROM kb_entries WHERE url IS NOT NULL").fetchall()
+    c.close()
+    return {r[0] for r in rows}
+
+
 def kb_documents(ticker: str | None = None, doc_class: str | None = None, limit: int = 100) -> list[dict]:
     """문서 대시보드용 — 전체(또는 필터) 문서 목록(최신순)."""
     c = conn()
