@@ -185,6 +185,21 @@ def favorites_del(request: Request, kind: str, key: str):
 
 
 # ---------- 실보유 종목 + 리밸런싱 ----------
+@lru_cache(maxsize=1)
+def _all_tickers():
+    """보유종목 검색용 국내+해외 통합 목록 [{ticker, name, market}]."""
+    out = [{"ticker": u["ticker"], "name": u["name"], "market": "국내"} for u in store.load_universe()]
+    out += [{"ticker": u["ticker"], "name": us_ko.name_ko(u["ticker"], u["name"]), "market": "해외"}
+            for u in store.load_us_universe()]
+    return out
+
+
+@app.get("/api/tickers")
+def tickers_get():
+    """보유종목 검색 자동완성용 통합 티커 목록(국내 KOSPI + 해외 S&P500)."""
+    return {"tickers": _all_tickers()}
+
+
 @app.get("/api/holdings")
 def holdings_get(request: Request):
     return {"holdings": db.holdings_list(_uid(request))}
@@ -206,18 +221,21 @@ def holdings_del(request: Request, ticker: str):
 
 
 @app.post("/api/rebalance")
-def rebalance_post(request: Request):
-    """내 보유종목을 시그널·성향 목표배분에 맞춰 리밸런싱 제안 + LLM 해설."""
+def rebalance_post(request: Request, data: dict = Body(default={})):
+    """내 보유종목(국내+해외 혼합)을 시그널·성향 목표배분에 맞춰 리밸런싱 제안 + LLM 해설.
+    성향은 요청에서 받는다(기본 균형형)."""
     holdings = db.holdings_list(_uid(request))
     if not holdings:
         return {"ready": False, "reason": "보유종목을 먼저 입력하세요."}
     if not store.is_ready():
         return {"ready": False, "reason": "시세 데이터가 없습니다 — /api/refresh 먼저."}
-    prices = store.load_price_series()
+    # 국내+해외 시그널·시세·종목명 병합(혼합 포트폴리오 지원)
+    prices = {**store.load_price_series(), **store.load_us_price_series()}
     names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    names.update({u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()})
     sigmap = {s.ticker: s for s in _signals()}
-    cfg = db.bot_config_get()
-    style = cfg["trading_style"]
+    sigmap.update(_us_signals())
+    style = strategy.normalize(data.get("style") or "balanced")
     plan = rebalance.propose(holdings, sigmap, prices, names, strategy.bot_params(style))
     context = {"regime": _regime().get("regime"), "macro_bias": _macro().get("bias")}
     plan["summary"] = rebalance.explain(plan, strategy.STYLE_LABEL.get(style, style), context)

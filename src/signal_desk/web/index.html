@@ -251,6 +251,13 @@
   .auth-field label { display:block; font-size:12px; color:var(--dim); margin-bottom:4px; }
   .auth-field input { width:100%; }
 
+  .ticker-results { position:absolute; top:100%; left:0; right:0; z-index:20; background:var(--panel);
+    border:1px solid var(--line-strong); border-radius:var(--r-md); margin-top:2px; max-height:280px; overflow-y:auto;
+    box-shadow:0 6px 20px rgba(15,23,42,.12); display:none; }
+  .ticker-results .tr-item { display:flex; justify-content:space-between; align-items:center; gap:8px;
+    padding:8px 12px; cursor:pointer; font-size:13px; }
+  .ticker-results .tr-item:hover { background:var(--bg); }
+
   .subnav { display:flex; gap:6px; padding:8px 22px; background:var(--panel); border-bottom:1px solid var(--line); }
   .subnav .subtab { padding:5px 14px; border:0; background:transparent; color:var(--dim); font-size:13px;
     font-weight:600; border-radius:var(--r-md); cursor:pointer; }
@@ -429,17 +436,33 @@
 
     <div id="trading-rebal" style="display:none">
       <div class="card" style="margin-bottom:16px">
-        <b style="font-size:14px">내 보유종목</b>
-        <p class="page-desc" style="margin:6px 0 12px">실제 보유 종목을 입력하면, 시그널·성향(<span id="rebal-style">균형형</span>) 목표배분에
-          맞춰 유지/축소/매도/추가를 제안하고 AI가 근거를 설명합니다.</p>
-        <div class="row" style="margin-bottom:12px">
-          <input id="hd_ticker" type="text" placeholder="종목코드 (예: 005930)" class="ctrl" style="max-width:170px">
-          <input id="hd_qty" type="number" placeholder="수량" class="ctrl" style="max-width:110px">
-          <input id="hd_avg" type="number" placeholder="평단가" class="ctrl" style="max-width:130px">
+        <b style="font-size:14px">내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:12px">· 국내·해외 혼합</span></b>
+        <p class="page-desc" style="margin:6px 0 12px">종목을 검색해 보유내역을 추가하고, 아래에서 성향을 골라 리밸런싱 제안을 받으세요.</p>
+        <div class="row" style="margin-bottom:6px">
+          <div style="position:relative;flex:1 1 200px;min-width:170px">
+            <input id="hd_search" type="text" placeholder="종목명·코드 검색 (국내·해외)" class="ctrl" style="width:100%"
+              oninput="searchTickers()" onfocus="searchTickers()" autocomplete="off">
+            <input id="hd_ticker" type="hidden">
+            <div id="hd_results" class="ticker-results"></div>
+          </div>
+          <input id="hd_qty" type="number" placeholder="수량" class="ctrl" style="max-width:100px">
+          <input id="hd_avg" type="number" placeholder="평단가" class="ctrl" style="max-width:120px">
           <button class="btn primary" onclick="addHolding()">추가</button>
-          <button class="btn" onclick="runRebalance()" style="margin-left:auto">리밸런싱 제안 받기</button>
         </div>
+        <div id="hd_selected" class="stat-label" style="margin:0 0 10px"></div>
         <div id="holdings-body" class="placeholder" style="padding:12px 0">보유종목을 추가하세요.</div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="row" style="align-items:center;gap:10px">
+          <span class="stat-label" style="margin:0;line-height:1">리밸런싱 성향</span>
+          <div class="seg-toggle" id="rebal-style-seg">
+            <button data-rstyle="conservative" onclick="setRebalStyle('conservative')">안정형</button>
+            <button class="on" data-rstyle="balanced" onclick="setRebalStyle('balanced')">균형형</button>
+            <button data-rstyle="aggressive" onclick="setRebalStyle('aggressive')">공격형</button>
+          </div>
+          <button class="btn primary" onclick="runRebalance()" style="margin-left:auto">리밸런싱 제안 받기</button>
+        </div>
       </div>
       <div id="rebal-result"></div>
 
@@ -1453,12 +1476,38 @@ async function loadHoldings(){
         <td class="num"><span style="color:var(--sig-sell);cursor:pointer" onclick="removeHolding('${esc(h.ticker)}')">삭제</span></td></tr>`).join('')
     + `</tbody></table>`;
 }
+// 보유종목 검색(국내+해외 통합) — 자동완성
+let _tickers = null, _rebalStyle = 'balanced';
+async function _loadTickers(){ if (_tickers) return _tickers; try { _tickers = (await (await fetch('/api/tickers')).json()).tickers || []; } catch (e) { _tickers = []; } return _tickers; }
+async function searchTickers(){
+  const q = document.getElementById('hd_search').value.trim().toLowerCase();
+  const box = document.getElementById('hd_results');
+  if (!q) { box.style.display = 'none'; return; }
+  const list = await _loadTickers();
+  const m = list.filter(x => x.name.toLowerCase().includes(q) || x.ticker.toLowerCase().includes(q)).slice(0, 8);
+  if (!m.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  box.innerHTML = m.map(x => `<div class="tr-item" onclick="pickTicker('${esc(x.ticker)}', '${esc(x.name)}', '${x.market}')">
+      <span>${esc(x.name)}</span><span style="color:var(--dim);font-size:11px">${esc(x.ticker)} · ${x.market}</span></div>`).join('');
+}
+function pickTicker(ticker, name, market){
+  document.getElementById('hd_ticker').value = ticker;
+  document.getElementById('hd_search').value = name;
+  document.getElementById('hd_results').style.display = 'none';
+  document.getElementById('hd_selected').textContent = `선택: ${name} (${ticker} · ${market}) — 수량·평단가 입력 후 추가`;
+}
+function setRebalStyle(s){
+  _rebalStyle = s;
+  document.querySelectorAll('#rebal-style-seg button').forEach(b => b.classList.toggle('on', b.dataset.rstyle === s));
+}
 async function addHolding(){
   const ticker = document.getElementById('hd_ticker').value.trim();
   const qty = parseFloat(document.getElementById('hd_qty').value), avg = parseFloat(document.getElementById('hd_avg').value);
-  if (!ticker || !(qty > 0) || !(avg > 0)) { alert('종목코드·수량·평단가를 입력하세요'); return; }
+  if (!ticker || !(qty > 0) || !(avg > 0)) { alert('종목을 검색해 선택하고 수량·평단가를 입력하세요'); return; }
   await fetch('/api/holdings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker, qty, avg_price: avg }) });
-  document.getElementById('hd_ticker').value = ''; document.getElementById('hd_qty').value = ''; document.getElementById('hd_avg').value = '';
+  document.getElementById('hd_ticker').value = ''; document.getElementById('hd_search').value = '';
+  document.getElementById('hd_qty').value = ''; document.getElementById('hd_avg').value = '';
+  document.getElementById('hd_selected').textContent = '';
   loadHoldings();
 }
 async function removeHolding(ticker){
@@ -1469,9 +1518,8 @@ async function runRebalance(){
   const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '분석 중…';
   const box = document.getElementById('rebal-result');
   try {
-    const d = await (await fetch('/api/rebalance', { method: 'POST' })).json();
+    const d = await (await fetch('/api/rebalance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: _rebalStyle }) })).json();
     if (!d.ready) { box.innerHTML = `<div class="card placeholder">${esc(d.reason || '제안 불가')}</div>`; return; }
-    document.getElementById('rebal-style').textContent = d.style_label;
     const rows = (arr, isAdd) => arr.map(x => {
       const kind = isAdd ? 'BUY' : (x.kind || 'HOLD');
       const actColor = (x.action === '매도') ? 'var(--sig-sell)' : (isAdd || x.action === '비중확대') ? 'var(--sig-buy)' : 'var(--txt)';
