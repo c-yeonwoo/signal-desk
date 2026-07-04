@@ -75,6 +75,16 @@ def anthropic_key() -> str | None:
     return os.environ.get("ANTHROPIC_API_KEY")
 
 
+def fanding_cookie() -> str | None:
+    """fanding.kr 앱 REST 인증 쿠키(device_uid + tt). 세션 토큰이라 만료 시 .env 갱신 필요.
+    미설정이면 None(자동수집 스킵)."""
+    tt = os.environ.get("FANDING_TT")
+    if not tt:
+        return None
+    dev = os.environ.get("FANDING_DEVICE_UID", "")
+    return f"device_uid={dev}; tt={tt}"
+
+
 def bot_run_interval_minutes() -> int:
     """자동매매봇 백그라운드 루프 실행 간격(분). 기본 5분(장중 5분마다 시그널 점검·매매)."""
     return int(os.environ.get("BOT_RUN_INTERVAL_MINUTES", "5"))

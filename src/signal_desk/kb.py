@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 
-from signal_desk import db, llm
+from signal_desk import config, db, llm
 from signal_desk.ingest import news
 
 log = logging.getLogger("signal_desk.kb")
@@ -107,9 +107,9 @@ def validate_import(ticker: str, name: str, text: str, title: str = "", trusted:
 
 
 def import_document(ticker: str, name: str, title: str, text: str,
-                    source_type: str = "report", url: str = "") -> dict:
+                    source_type: str = "report", url: str = "", published: str = "") -> dict:
     """증권사 리포트·원문 텍스트 → 신뢰성 검증 → 통과분만 KB 반영. 반환: {ok, status, doc_class, summary, trust, reasons}.
-    accept=confirmed(시그널 반영) · review=pending(보류, 미반영) · reject=미저장."""
+    accept=confirmed(시그널 반영) · review=pending(보류, 미반영) · reject=미저장. published=발행일(freshness)."""
     text = (text or "").strip()
     if not text or not ticker or not name:
         return {"ok": False, "reason": "ticker·name·text 필요"}
@@ -121,7 +121,7 @@ def import_document(ticker: str, name: str, title: str, text: str,
     doc_class = classify_document({"title": title, "summary": text[:500]}, source_type)
     summary, points = _summarize_text(name, title, text)
     db.kb_document_add(ticker, title or f"{name} {source_type}", summary, url,
-                       source_type, "", doc_class, raw_text=text, status=status)
+                       source_type, published, doc_class, raw_text=text, status=status)
     if status == "confirmed":
         _rebuild_digest(ticker, name)  # confirmed만 다이제스트에 반영
     return {"ok": True, "status": status, "verdict": v["verdict"], "trust": v["trust"],
@@ -303,3 +303,46 @@ def sentiment_map() -> dict[str, dict]:
             "event_note": dg.get("event_note") or "",
         }
     return out
+
+
+def _fanding_ticker_index() -> list[tuple[str, str, str]]:
+    """미주은 포스트 제목에서 종목을 짚기 위한 (한글명, 티커, 영문표기) 인덱스.
+    긴 이름 우선(부분일치 오탐 방지: '알파벳'이 'GOOG/GOOGL' 둘 다면 첫 매칭)."""
+    from signal_desk.reference import us_ko
+    idx = [(ko, tk, us_ko.name_ko(tk, ko)) for tk, ko in us_ko.NAME_KO.items()]
+    idx.sort(key=lambda x: len(x[0]), reverse=True)
+    return idx
+
+
+def collect_fanding(limit: int = 15) -> dict:
+    """fanding.kr 미주은 최신 포스트를 훑어 종목이 특정되는 글만 KB(전문가 인사이트)로 적재.
+    시황·거시 요약(단일 종목 특정 불가)은 스킵해 리포트에만 남긴다(수동-우선, 오염 방지).
+    반환: {imported:[...], skipped:[...], errors:[...]}."""
+    from signal_desk.ingest import fanding
+    if not config.fanding_cookie():
+        return {"ok": False, "reason": "FANDING_TT 미설정(.env) — 자동수집 건너뜀"}
+    index = _fanding_ticker_index()
+    imported, skipped, errors = [], [], []
+    for post in fanding.post_list(limit=limit):
+        title = post.get("title") or ""
+        hit = next(((tk, ko, en) for ko, tk, en in index if ko in title), None)
+        if not hit:
+            skipped.append({"post_no": post.get("post_no"), "title": title, "why": "종목 특정 불가(시황·거시)"})
+            continue
+        tk, ko, en = hit
+        detail = fanding.post_detail(post["post_no"])
+        if not detail:
+            errors.append({"post_no": post.get("post_no"), "title": title, "why": "본문 조회 실패"})
+            continue
+        res = import_document(tk, en, detail["title"], detail["content"],
+                              source_type="insight", url=detail["url"],
+                              published=detail.get("published") or "")
+        if res.get("ok"):
+            imported.append({"ticker": tk, "name": ko, "title": detail["title"],
+                             "status": res["status"], "trust": res.get("trust"),
+                             "published": detail.get("published")})
+        else:
+            skipped.append({"post_no": post.get("post_no"), "title": title,
+                            "why": res.get("reason", "미저장")})
+    log.info("fanding 수집: 적재 %d · 스킵 %d · 오류 %d", len(imported), len(skipped), len(errors))
+    return {"ok": True, "imported": imported, "skipped": skipped, "errors": errors}

@@ -106,6 +106,7 @@ async def _auth_gate(request: Request, call_next):
 _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents",
+    "/api/kb/collect-fanding",
 }
 
 
@@ -571,6 +572,16 @@ def kb_refresh():
     out = kb.refresh(targets)
     _signals.cache_clear()  # 정성 팩터 반영 위해
     return {"ok": True, **out, "targets": len(targets)}
+
+
+@app.post("/api/kb/collect-fanding")
+def kb_collect_fanding(data: dict = Body(default={})):
+    """fanding.kr 미주은 최신 포스트 → 종목 특정분만 전문가 인사이트 KB로 적재(수동 트리거)."""
+    limit = int(data.get("limit", 15))
+    out = kb.collect_fanding(limit=limit)
+    if out.get("ok") and out.get("imported"):
+        _signals.cache_clear()  # 새 정성 인사이트 반영
+    return out
 
 
 # 주의: 아래 구체 경로들은 catch-all `/api/kb/{ticker}`보다 먼저 등록돼야 매칭된다.
