@@ -1268,14 +1268,16 @@ async function loadBotState(){
     const connTxt = d.backend === 'paper'
       ? '🧪 자체 모의계좌(paper) — 종가 기준 가상 체결'
       : (d.kis_connected ? 'KIS 모의계좌 연결됨' : 'KIS 연결 안 됨(포트 29443 차단·.env 확인)');
+    const killTxt = d.kill_switch ? ` · <b style="color:var(--sig-sell)">🛑 긴급정지(주문 차단)</b>` : '';
     document.getElementById('bot-kis-status').innerHTML =
-      connTxt + ` · <b style="color:${d.llm_enabled ? 'var(--sig-buy)' : 'var(--dim)'}">AI 판단 ${d.llm_enabled ? 'ON' : 'OFF'}</b>`;
+      connTxt + ` · <b style="color:${d.llm_enabled ? 'var(--sig-buy)' : 'var(--dim)'}">AI 판단 ${d.llm_enabled ? 'ON' : 'OFF'}</b>` + killTxt;
     const cfg = d.config || {};
     document.getElementById('bot-rules').innerHTML =
       `<b>ON이면 장중 5분마다</b> 현재 계좌 기준으로 자동 판단·매매(강한 BUY 후보 → <b>AI 최종 선별</b>) · `
       + `마감 후 다음날 <b>예약 생성</b> → 개장 시 실행 · 실주문은 <b>평일 09:00~15:20</b>만 · `
       + `매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · 한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · `
-      + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`;
+      + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`
+      + (d.daily_loss_limit_pct ? ` · <b>일일 손실 -${Math.round(d.daily_loss_limit_pct * 100)}%</b> 초과 시 신규매수 중단` : '');
 
     document.querySelectorAll('#style-toggle button').forEach(b => b.classList.toggle('on', b.dataset.style === cfg.trading_style));
 

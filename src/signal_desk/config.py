@@ -125,6 +125,26 @@ def paper_seed_cash() -> float:
         return 10_000_000.0
 
 
+def bot_kill_switch() -> bool:
+    """긴급 정지 — BOT_KILL_SWITCH가 켜져 있으면 자동매매봇이 어떤 주문도 내지 않는다(하드 스톱)."""
+    return (os.environ.get("BOT_KILL_SWITCH", "") or "").strip().lower() in ("1", "true", "on", "yes")
+
+
+def bot_daily_loss_limit_pct() -> float:
+    """장중 일일 손실 한도(양수 비율). 당일 시작 평가액 대비 이 % 넘게 하락하면 신규 매수를 멈춘다
+    (리스크 청산 매도는 계속). BOT_DAILY_LOSS_LIMIT_PCT(.env), 기본 8%."""
+    try:
+        return abs(float(os.environ.get("BOT_DAILY_LOSS_LIMIT_PCT", "0.08")))
+    except ValueError:
+        return 0.08
+
+
+def allow_real_orders() -> bool:
+    """실계좌(KIS_ENV!='demo') 실주문 허용 여부 — 명시적으로 ALLOW_REAL_ORDERS를 켜야만 True.
+    실수로 실계좌에 주문 나가는 것을 막는 이중 안전장치(기본 False → 실계좌면 주문 거부)."""
+    return (os.environ.get("ALLOW_REAL_ORDERS", "") or "").strip().lower() in ("1", "true", "on", "yes")
+
+
 def bot_run_interval_minutes() -> int:
     """자동매매봇 백그라운드 루프 실행 간격(분). 기본 5분(장중 5분마다 시그널 점검·매매)."""
     return int(os.environ.get("BOT_RUN_INTERVAL_MINUTES", "5"))

@@ -56,6 +56,26 @@ def _paper() -> bool:
     return config.broker_backend() == "paper"
 
 
+def _daily_loss_breached(bal: dict, dry_run: bool) -> bool:
+    """당일 시작 평가액 대비 손실 한도 초과 여부. 초과면 신규 매수 중단(리스크 청산 매도는 유지).
+    당일 시작 평가액은 하루 1회 kv에 기록(장중 첫 실행 시점)."""
+    total = bal.get("total_eval")
+    if not total or total <= 0:
+        return False
+    key = f"bot_day_equity:{_today()}"
+    start = db.kv_get(key)
+    if start is None:
+        if not dry_run:
+            db.kv_set(key, total)  # 당일 기준선 기록
+        return False
+    limit = config.bot_daily_loss_limit_pct()
+    breached = total < float(start) * (1 - limit)
+    if breached:
+        log.warning("일일 손실 한도 초과 — 신규 매수 중단(시작 %.0f → 현재 %.0f, 한도 -%.0f%%)",
+                    float(start), total, limit * 100)
+    return breached
+
+
 # 미국 정규장(대략) — 서머타임 EDT 기준 22:30~05:00 KST, EST면 23:30~06:00. 넉넉히 22:30~06:00로 근사.
 _US_OPEN = datetime.time(22, 30)
 _US_CLOSE = datetime.time(6, 0)
@@ -275,6 +295,8 @@ def get_state() -> dict:
         "llm_enabled": llm.available(),
         "style_label": strategy.STYLE_LABEL.get(cfg["trading_style"], cfg["trading_style"]),
         "styles": [{"key": k, "label": strategy.STYLE_LABEL[k], "desc": strategy.STYLE_DESC[k]} for k in strategy.STYLES],
+        "kill_switch": config.bot_kill_switch(),           # 긴급정지 상태(표시용)
+        "daily_loss_limit_pct": config.bot_daily_loss_limit_pct(),
     }
 
 
@@ -299,6 +321,11 @@ def run_once(dry_run: bool = False) -> dict:
     creds = _dcreds()
     if not creds:
         return {"ok": False, "reason": "브로커 인증정보 없음(.env 확인)"}
+    if not dry_run and config.bot_kill_switch():
+        return {"ok": False, "reason": "긴급정지(BOT_KILL_SWITCH) 활성 — 주문을 내지 않습니다."}
+    # 실계좌 이중 안전장치: KIS 실계좌(env!=demo) 실주문은 ALLOW_REAL_ORDERS를 켜야만 허용
+    if not dry_run and not _paper() and creds.get("env") != "demo" and not config.allow_real_orders():
+        return {"ok": False, "reason": "실계좌 주문 차단 — ALLOW_REAL_ORDERS 미설정(모의계좌 KIS_ENV=demo 권장)."}
     # paper 백엔드는 종가 기준 가상 체결이라 장 시간과 무관하게 실행. KIS 실주문만 장 시간 제한.
     if not _paper() and not dry_run and not is_market_hours():
         return {"ok": False, "reason": "장 시간이 아닙니다(평일 09:00~15:20 KST에만 실주문). '판단 미리보기'로 계획만 확인하세요."}
@@ -306,6 +333,7 @@ def run_once(dry_run: bool = False) -> dict:
     bal = _dbroker().balance(creds)
     if bal is None:
         return {"ok": False, "reason": "잔고조회 실패"}
+    block_new_buys = _daily_loss_breached(bal, dry_run)  # 일일 손실 한도 초과 시 신규 매수 중단(청산은 계속)
 
     universe = store.load_universe()
     prices = store.load_price_series()
@@ -370,8 +398,9 @@ def run_once(dry_run: bool = False) -> dict:
     bal2 = (_dbroker().balance(creds) or bal) if not dry_run else bal
     held_after = {h["ticker"] for h in bal2["holdings"]}
     available_slots = max(0, cfg["max_positions"] - len(held_after))
-    # 한 사이클 신규 매수 개수 제한 — 시그널 BUY가 많아도 한꺼번에 다 사지 않는다
-    slots = min(available_slots, cfg["max_new_buys_per_run"])
+    # 한 사이클 신규 매수 개수 제한 — 시그널 BUY가 많아도 한꺼번에 다 사지 않는다.
+    # 일일 손실 한도 초과 시 신규 매수 0(위 리스크 청산 매도는 이미 수행됨).
+    slots = 0 if block_new_buys else min(available_slots, cfg["max_new_buys_per_run"])
 
     buys: list[dict] = []
     skipped_weak = 0
