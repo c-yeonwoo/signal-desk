@@ -259,6 +259,35 @@ def scenario_post(request: Request, data: dict = Body(default={})):
     return scenario.project(holdings, prices, years=years)
 
 
+@app.get("/api/portfolio/heatmap")
+def portfolio_heatmap(request: Request):
+    """내 보유종목을 섹터별로 묶은 히트맵(#12) — 평가액 크기 + 손익률 색상. 국내·해외 혼합."""
+    holdings = db.holdings_list(_uid(request))
+    if not holdings:
+        return {"ready": False, "reason": "보유종목을 먼저 입력하세요."}
+    prices = {**store.load_price_series(), **store.load_us_price_series()}
+    us_sec = {u["ticker"]: u.get("sector") for u in store.load_us_universe()}
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    names.update({u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()})
+    items = []
+    for h in holdings:
+        closes = prices.get(h["ticker"])
+        if not closes:
+            continue
+        px = float(closes[-1])
+        val = px * float(h.get("qty") or 0)
+        if val <= 0:
+            continue
+        sector = sectors.sector_of(h["ticker"]) or us_ko.sector_ko(us_sec.get(h["ticker"])) or "기타"
+        avg = float(h.get("avg_price") or 0)
+        pnl_pct = round((px / avg - 1) * 100, 2) if avg else 0.0
+        items.append({"ticker": h["ticker"], "name": names.get(h["ticker"], h["ticker"]),
+                      "sector": sector, "value": round(val, 2), "pnl_pct": pnl_pct})
+    if not items:
+        return {"ready": False, "reason": "시세가 있는 보유종목이 없습니다."}
+    return {"ready": True, "items": items}
+
+
 # ---------- 시그널 (실데이터, store 캐시 기반) ----------
 @lru_cache(maxsize=1)
 def _signals():

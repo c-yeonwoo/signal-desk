@@ -466,6 +466,11 @@
       </div>
 
       <div class="card" style="margin-bottom:16px">
+        <b style="font-size:15px">섹터 히트맵 <span style="color:var(--dim);font-weight:600;font-size:12px">· 크기=평가액 · 색=손익률</span></b>
+        <div id="heatmap-body" style="height:340px;margin-top:8px"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
         <div class="row" style="align-items:center;gap:10px">
           <span class="stat-label" style="margin:0;line-height:1">리밸런싱 성향</span>
           <div class="seg-toggle" id="rebal-style-seg">
@@ -1508,12 +1513,41 @@ async function loadHoldings(){
   const el = document.getElementById('holdings-body');
   const d = await (await fetch('/api/holdings')).json();
   const hs = d.holdings || [];
-  if (!hs.length) { el.className = 'placeholder'; el.textContent = '보유종목을 추가하세요.'; return; }
+  if (!hs.length) { el.className = 'placeholder'; el.textContent = '보유종목을 추가하세요.'; loadHeatmap(); return; }
   el.className = '';
   el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단가</th><th></th></tr></thead><tbody>`
     + hs.map(h => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, 0)}</td>
         <td class="num"><span style="color:var(--sig-sell);cursor:pointer" onclick="removeHolding('${esc(h.ticker)}')">삭제</span></td></tr>`).join('')
     + `</tbody></table>`;
+  loadHeatmap();
+}
+
+let _heatmapChart = null;
+async function loadHeatmap(){
+  const el = document.getElementById('heatmap-body');
+  if (!el || !window.echarts) return;
+  let d;
+  try { d = await (await fetch('/api/portfolio/heatmap')).json(); } catch(e) { return; }
+  if (!d.ready) { el.innerHTML = `<div class="placeholder" style="padding:24px 0">${esc(d.reason || '데이터 없음')}</div>`; return; }
+  // 섹터 → 자식 종목. 색은 손익률(빨강↓ 초록↑)로 개별 지정.
+  const bySector = {};
+  d.items.forEach(it => { (bySector[it.sector] ||= []).push(it); });
+  const clr = p => p >= 5 ? '#0ca678' : p > 0 ? '#63b39a' : p === 0 ? '#94a3b8' : p > -5 ? '#e08a8a' : '#e03131';
+  const data = Object.entries(bySector).map(([sec, arr]) => ({
+    name: sec, value: arr.reduce((s, x) => s + x.value, 0),
+    children: arr.map(x => ({ name: `${x.name}\n${x.pnl_pct > 0 ? '+' : ''}${fmtNum(x.pnl_pct, 1)}%`,
+      value: x.value, itemStyle: { color: clr(x.pnl_pct) }, _pnl: x.pnl_pct })),
+  }));
+  const ch = echarts.getInstanceByDom(el) || echarts.init(el);
+  ch.setOption({
+    tooltip: { formatter: p => `${esc(p.name)}<br/>평가액 ${fmtKRW(p.value)}` },
+    series: [{ type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: true },
+      levels: [{ itemStyle: { borderColor: 'var(--line)', borderWidth: 2, gapWidth: 2 } },
+               { itemStyle: { gapWidth: 1 }, label: { fontSize: 11 } }],
+      label: { fontSize: 11, overflow: 'truncate' }, data }],
+  }, true);
+  ch.resize();
+  _heatmapChart = ch;
 }
 // 보유종목 검색(국내+해외 통합) — 자동완성
 let _tickers = null, _rebalStyle = 'balanced';
