@@ -310,7 +310,7 @@ def _macro_source_summary(title: str, text: str) -> str:
     return text[:600]
 
 
-def collect_youtube(max_per_channel: int = 8, force: bool = False) -> dict:
+def collect_youtube(max_per_channel: int = 20, force: bool = False) -> dict:
     """유튜브 화이트리스트 채널의 최신 영상을 자막 전문 기반으로 거시 KB(_MARKET)에 적재.
     자막이 있으면 LLM으로 시장 관점 요약(다이제스트용) + 원문(raw) 보관, 없으면 설명으로 폴백.
     거시 중심(상장사 특정 영상만 종목 KB). 증분: 이미 적재된 URL 스킵."""
@@ -449,7 +449,7 @@ def _fanding_ticker_index() -> list[tuple[str, str, str]]:
 _FANDING_NOISE = ("공지", "결제", "카드 등록", "회원권", "만화책", "질문 수집", "당첨", "이벤트 안내", "안내")
 
 
-def collect_fanding(limit: int = 15, force: bool = False) -> dict:
+def collect_fanding(limit: int = 40, force: bool = False) -> dict:
     """fanding.kr 미주은 최신 포스트를 훑어 KB로 적재.
     - 종목 특정 글 → 종목 KB(전문가 인사이트, 검증기 게이트).
     - 종목 불특정이라도 시황·거시·시장흐름 해설 → 거시 KB(_MARKET, 시장흐름 트래킹·봇 자문용).
@@ -500,7 +500,7 @@ def collect_fanding(limit: int = 15, force: bool = False) -> dict:
     return {"ok": True, "imported": imported, "macro": macro, "skipped": skipped, "errors": errors}
 
 
-def collect_outstanding(item_per_page: int = 15, force: bool = False) -> dict:
+def collect_outstanding(item_per_page: int = 50, force: bool = False) -> dict:
     """아웃스탠딩(outstanding.kr) 화이트리스트 작가의 최신 기고를 수집.
     콘텐츠가 대부분 거시·산업 해설이라 기본은 거시 KB(_MARKET), 상장사 특정 글만 종목 KB.
     공개 기고만 수집(유료글은 로그인 쿠키 없으면 건너뜀). 증분: 이미 적재된 URL 스킵."""

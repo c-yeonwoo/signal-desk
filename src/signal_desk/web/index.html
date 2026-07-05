@@ -1784,7 +1784,7 @@ async function collectFanding(){
   const el = document.getElementById('fanding-result');
   try {
     const d = await (await fetch('/api/kb/collect-fanding', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ limit: 15 }) })).json();
+      body: JSON.stringify({ limit: 40 }) })).json();
     if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `실패: ${d.reason || ''}`; return; }
     el.style.color = 'var(--sig-buy)';
     el.textContent = `📥 종목 ${d.imported.length} · 시황 ${(d.macro || []).length} · 스킵 ${d.skipped.length}${d.errors.length ? ` · 오류 ${d.errors.length}` : ''}`;
@@ -1798,7 +1798,7 @@ async function collectOutstanding(){
   const el = document.getElementById('fanding-result');
   try {
     const d = await (await fetch('/api/kb/collect-outstanding', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ item_per_page: 15 }) })).json();
+      body: JSON.stringify({ item_per_page: 50 }) })).json();
     if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `실패: ${d.reason || ''}`; return; }
     el.style.color = 'var(--sig-buy)';
     el.textContent = `📥 거시 ${(d.macro || []).length} · 종목 ${d.imported.length} · 스킵 ${d.skipped.length}${d.errors.length ? ` · 오류 ${d.errors.length}` : ''}`;
@@ -1812,7 +1812,7 @@ async function collectYoutube(){
   const el = document.getElementById('fanding-result');
   try {
     const d = await (await fetch('/api/kb/collect-youtube', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ max_per_channel: 8 }) })).json();
+      body: JSON.stringify({ max_per_channel: 20 }) })).json();
     if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `실패: ${d.reason || ''}`; return; }
     el.style.color = 'var(--sig-buy)';
     el.textContent = `📥 거시 ${(d.macro || []).length} · 종목 ${d.imported.length} · 스킵 ${d.skipped.length}${d.errors.length ? ` · 오류 ${d.errors.length}` : ''}`;
