@@ -1,11 +1,11 @@
-"""자동매매봇 — 시그널 → 리스크 판정 → KIS 모의투자 주문 실행 (BACKLOG #7).
+"""자동매매봇 — 공용 시그널 → 리스크 판정 → 유저별 자체 모의계좌(paper) 가상 체결.
 
-KIS 모의계좌는 서비스 전체가 공유하는 단일 데모 계좌(brightdesk의 "Track A: 자동 운용"과 동일
-개념 — 유저별 계좌가 아니라 서버 env 하나). 그래서 `db.py`의 bot_* 테이블도 uid로 스코프하지 않는다.
+멀티테넌트: 시그널·국면·거시 '판단'은 공용(사이클당 1회 계산해 전 유저 공유), 계좌·on/off·성향·
+실행·리스크·사이징은 유저별. 각 유저는 자기 페이퍼 계좌(현금·보유·거래내역)를 갖고 원하는 시점에
+켜고 끄고 초기화하고 시드를 바꾼다. KIS 실계좌 연동은 제거(단일 계정이라 유저별 격리 불가).
 
-주문 실행 후에는 항상 KIS 잔고(`broker.kis.balance()`)를 다시 조회해 우리 DB의 포지션을
-덮어쓴다 — 우리 계산이 아니라 KIS를 source of truth로 삼는다. 진입 후 고점(peak_price)만은
-KIS가 안 줘서 우리가 매 회차 직접 갱신·보관한다(리스크 엔진의 트레일링스탑 판정에 필요).
+paper 계좌가 포지션의 진실원천(broker.paper). peak_price·entry_date만 트레일링스탑용으로
+bot_positions(uid)에 따로 보관한다(paper 잔고에서 매 회차 reconcile).
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import logging
 from zoneinfo import ZoneInfo
 
 from signal_desk import config, db, kb, llm, signalcfg, store, strategy
-from signal_desk.broker import kis
+from signal_desk.broker import paper
 from signal_desk.reference import cycle, us_ko
 from signal_desk.signals import advisor, engine, macro, regime, risk
 
@@ -28,7 +28,7 @@ _OUTCOME_AGE_SEC = 3 * 24 * 3600  # 의사결정 후 3일 지나면 사후수익
 
 
 def is_market_hours(now: datetime.datetime | None = None) -> bool:
-    """평일 09:00~15:20(KST)만 True — 장 시간 밖에서는 자동 루프가 조용히 스킵."""
+    """평일 09:00~15:20(KST)만 True — 참고용(paper는 종가 기준이라 장 시간 무관하게 돈다)."""
     now = now or datetime.datetime.now(_KST)
     if now.weekday() >= 5:  # 토(5)/일(6)
         return False
@@ -39,30 +39,18 @@ def _today() -> str:
     return datetime.date.today().isoformat()
 
 
-def _dbroker():
-    """국내 브로커 백엔드 — config.broker_backend()로 kis(모의투자 실계좌) 또는 paper(자체 모의계좌) 선택."""
-    if config.broker_backend() == "paper":
-        from signal_desk.broker import paper
-        return paper
-    return kis
+def _cfg(uid: int) -> dict:
+    """유저 봇 설정 + 성향 프리셋 숫자 파라미터(max_positions/position_pct/min_buy_score/max_new_buys_per_run)."""
+    u = db.user_bot_get(uid)
+    return {**u, **strategy.bot_params(u["trading_style"])}
 
 
-def _dcreds() -> dict | None:
-    """국내 브로커 자격증명 — paper는 외부 인증이 없으므로 sentinel(truthy)로 통과."""
-    return {"env": "paper"} if config.broker_backend() == "paper" else config.kis_credentials()
-
-
-def _paper() -> bool:
-    return config.broker_backend() == "paper"
-
-
-def _daily_loss_breached(bal: dict, dry_run: bool) -> bool:
-    """당일 시작 평가액 대비 손실 한도 초과 여부. 초과면 신규 매수 중단(리스크 청산 매도는 유지).
-    당일 시작 평가액은 하루 1회 kv에 기록(장중 첫 실행 시점)."""
+def _daily_loss_breached(uid: int, bal: dict, dry_run: bool) -> bool:
+    """유저의 당일 시작 평가액 대비 손실 한도 초과 여부. 초과면 신규 매수 중단(리스크 청산은 유지)."""
     total = bal.get("total_eval")
     if not total or total <= 0:
         return False
-    key = f"bot_day_equity:{_today()}"
+    key = f"bot_day_equity:{uid}:{_today()}"
     start = db.kv_get(key)
     if start is None:
         if not dry_run:
@@ -79,25 +67,6 @@ def _daily_loss_breached(bal: dict, dry_run: bool) -> bool:
 # 미국 정규장(대략) — 서머타임 EDT 기준 22:30~05:00 KST, EST면 23:30~06:00. 넉넉히 22:30~06:00로 근사.
 _US_OPEN = datetime.time(22, 30)
 _US_CLOSE = datetime.time(6, 0)
-
-# 표시용 잔고 캐시(대시보드 응답성) — KIS 잔고를 짧게 캐시해 반복 조회(탭 열기·성향 변경 등)가 매번
-# 네트워크를 치지 않게 한다. 실주문(run_once)은 캐시를 쓰지 않고 항상 최신 잔고를 조회한다.
-_BAL_TTL = 30
-_bal_cache: dict = {}
-
-
-def _display_balance(kind: str, fetch) -> dict | None:
-    """kind별 잔고를 _BAL_TTL초 캐시. fetch()는 성공 시 dict, 실패 시 None. 실패는 캐시 안 함."""
-    import time as _t
-    hit = _bal_cache.get(kind)
-    if hit and _t.time() - hit[1] < _BAL_TTL:
-        return hit[0]
-    bal = fetch()
-    if bal is not None:
-        _bal_cache[kind] = (bal, _t.time())
-        return bal
-    return hit[0] if hit else None  # 실패 시 직전 캐시라도(있으면)
-
 
 def is_us_market_hours(now: datetime.datetime | None = None) -> bool:
     """미국 정규장 시간(KST 근사 22:30~06:00, 미 평일)인지. 자정을 넘기므로 두 구간으로 판정.
@@ -121,11 +90,9 @@ def us_signals() -> list:
 
 
 def us_state(capital: float = 10000.0) -> dict:
-    """해외(US) 대시보드 상태 — 국내와 동일 레이아웃용. 잔고(USD)·보유종목 + 판단 미리보기.
-    KIS 미도달 시 balance=None(빈 상태). 실주문·야간루프는 미국장 개장 시 연결 예정(현재 미리보기 전용)."""
-    creds = config.kis_credentials()
-    bal = _display_balance("us", lambda: kis.overseas_balance(creds)) if creds else None  # 캐시(반복 조회 응답성)
-    return {"market": "us", "kis_connected": bal is not None, "balance": bal,
+    """해외(US) 대시보드 상태 — 판단 미리보기 전용(계좌 미연동). 국내 봇과 동일한 결정 로직을
+    US 시그널에 적용한 계획만 보여준다(실행 없음)."""
+    return {"market": "us", "kis_connected": False, "balance": None,
             "us_market_hours": is_us_market_hours(), "preview": us_preview(capital),
             "live_connected": False}
 
@@ -135,7 +102,7 @@ def us_preview(capital: float = 10000.0, style: str | None = None) -> dict:
 
     ⚠️ US 실주문·잔고는 KIS 해외 API를 미국장 개장 중 검증한 뒤 연결 예정(현재 미연결). 이 함수는
     국내 봇과 동일한 결정 로직(성향·분할·최소점수·악재 veto)을 US 시그널에 적용한 계획만 보여준다."""
-    style = strategy.normalize(style or db.bot_config_get()["trading_style"])
+    style = strategy.normalize(style or "balanced")
     p = strategy.preset(style)
     sigs = us_signals()
     hist = store.load_us_price_series()
@@ -161,14 +128,9 @@ def us_preview(capital: float = 10000.0, style: str | None = None) -> dict:
             "note": "US 실주문·잔고는 미국장 개장 시 KIS 해외 API 검증 후 연결 예정 — 현재는 미리보기 전용"}
 
 
-_CRASH_FLOOR_PCT = 0.05  # 신호 기준가(종가) 대비 실시간가 -5% 이상 급락이면 매수 스킵(악재 갭 의심)
-
-
-def _live_price(ticker: str, creds: dict, fallback: float, dry_run: bool) -> float:
-    """판단 시점 실시간 현재가(장중 갭 대응). dry_run·조회 실패 시 캐시 종가로 폴백."""
-    if dry_run:
-        return fallback
-    live = _dbroker().current_price(ticker, creds)
+def _live_price(ticker: str, fallback: float) -> float:
+    """현재가(가격캐시 종가). paper는 종가 기준이라 캐시가 곧 체결가. 없으면 fallback."""
+    live = paper.current_price(ticker)
     return live if live else fallback
 
 
@@ -236,104 +198,87 @@ def _sell_note(reason: str, qty: int, avg_price: float, current_price: float,
             f"({pl_pct:+.1f}%), 보유 전량 {qty}주 청산")
 
 
-def reconcile_positions(bal: dict) -> None:
-    """내부 DB 포지션을 KIS 잔고(= source of truth)에 맞춘다 — 종목·수량·평단은 KIS로 덮어쓰고,
-    트레일링용 peak_price만 우리가 유지(기존 peak과 현재 평단 중 큰 값). KIS에 없는 DB 포지션은 삭제.
-
-    매수 시 DB엔 주문 추정가를 기록하지만 실제 체결 평단은 KIS가 정확하므로, 이 재동기화로
-    대시보드·리스크 판단이 항상 KIS 실측과 일치하게 한다(봇이 꺼져 있어도 조회 시점에 맞춤)."""
-    kis_h = {h["ticker"]: h for h in bal.get("holdings", [])}
-    for t in {p["ticker"] for p in db.bot_positions_all()} - set(kis_h):
-        db.bot_position_delete(t)  # KIS에서 사라진 포지션 정리
-    for t, h in kis_h.items():
-        pos = db.bot_position_get(t)
+def reconcile_positions(uid: int, bal: dict) -> None:
+    """유저 bot_positions를 paper 잔고에 맞춘다 — 종목·수량·평단은 paper로 덮어쓰고, 트레일링용
+    peak_price·entry_date만 유지(paper엔 없음). paper에 없는 포지션은 삭제. 현재가·수익률 스냅샷도 갱신."""
+    ph = {h["ticker"]: h for h in bal.get("holdings", [])}
+    for t in {p["ticker"] for p in db.bot_positions_all(uid)} - set(ph):
+        db.bot_position_delete(uid, t)
+    for t, h in ph.items():
+        pos = db.bot_position_get(uid, t)
         price = h.get("price") or 0.0
         peak = max(pos["peak_price"] if pos else h["avg_price"], h["avg_price"], price)
         entry = pos["entry_date"] if pos else _today()
-        # 현재가·수익률 스냅샷(대시보드용) — KIS 제공값 우선, 없으면 평단 대비 계산
-        pnl_pct = h.get("pnl_pct")
-        if not pnl_pct and h["avg_price"] and price:
-            pnl_pct = round((price / h["avg_price"] - 1) * 100, 2)
-        db.bot_position_upsert(t, h["name"], h["qty"], h["avg_price"], peak, entry,
-                               last_price=price or None, last_pnl_pct=pnl_pct)
+        db.bot_position_upsert(uid, t, h["name"], h["qty"], h["avg_price"], peak, entry,
+                               last_price=price or None, last_pnl_pct=h.get("pnl_pct"))
 
 
-def snapshot_positions() -> bool:
-    """보유종목 현재가·수익률 스냅샷 갱신(장 종료 후 1회 등) — KIS 잔고로 reconcile.
-    KIS 인증 없음·조회 실패 시 False(기존 스냅샷 유지)."""
-    creds = _dcreds()
-    if not creds:
-        return False
-    bal = _dbroker().balance(creds, retries=1)
-    if bal is None:
-        return False
-    reconcile_positions(bal)
+def snapshot_positions(uid: int) -> bool:
+    """유저 보유종목 현재가·수익률 스냅샷 갱신(장 종료 후 1회 등) — paper 잔고로 reconcile."""
+    reconcile_positions(uid, paper.balance(uid))
     return True
 
 
-def get_state() -> dict:
-    """포트폴리오 탭용 종합 상태 — 봇 설정/현금·평가금액/보유종목/최근거래."""
-    cfg = db.bot_config_get()
-    creds = _dcreds()
-    bal = _display_balance("kospi", lambda: _dbroker().balance(creds, retries=1)) if creds else None  # 캐시·fail-fast
-    if bal is not None:
-        reconcile_positions(bal)  # 조회 시점에 DB를 브로커 실측과 일치시킴(평단 등)
+def get_state(uid: int) -> dict:
+    """유저 포트폴리오 탭용 종합 상태 — 봇 설정/현금·평가금액/보유종목/최근거래."""
+    cfg = _cfg(uid)
+    bal = paper.balance(uid)
+    reconcile_positions(uid, bal)
     return {
         "enabled": cfg["enabled"],
         "config": cfg,
-        "backend": config.broker_backend(),
-        "kis_connected": bal is not None,
-        "cash": bal["cash"] if bal else None,
-        "total_eval": bal["total_eval"] if bal else None,
-        "stock_eval": bal.get("stock_eval") if bal else None,
-        "invested": bal.get("invested") if bal else None,
-        "pnl": bal.get("pnl") if bal else None,
-        "pnl_pct": bal.get("pnl_pct") if bal else None,  # KIS 집계 기반 실제 총손익률
-        "positions": db.bot_positions_all(),
-        "recent_trades": db.bot_trades_recent(20),
-        "reservations": db.bot_reservations_pending(),
+        "seed_cash": cfg["seed_cash"],
+        "cash": bal["cash"],
+        "total_eval": bal["total_eval"],
+        "stock_eval": bal.get("stock_eval"),
+        "invested": bal.get("invested"),
+        "pnl": bal.get("pnl"),
+        "pnl_pct": bal.get("pnl_pct"),
+        "positions": db.bot_positions_all(uid),
+        "recent_trades": db.bot_trades_recent(uid, 20),
+        "reservations": db.bot_reservations_pending(uid),
         "llm_enabled": llm.available(),
         "style_label": strategy.STYLE_LABEL.get(cfg["trading_style"], cfg["trading_style"]),
         "styles": [{"key": k, "label": strategy.STYLE_LABEL[k], "desc": strategy.STYLE_DESC[k]} for k in strategy.STYLES],
-        "kill_switch": config.bot_kill_switch(),           # 긴급정지 상태(표시용)
+        "kill_switch": config.bot_kill_switch(),
         "daily_loss_limit_pct": config.bot_daily_loss_limit_pct(),
     }
 
 
-def set_enabled(enabled: bool) -> None:
-    db.bot_config_set_enabled(enabled)
+def set_enabled(uid: int, enabled: bool) -> None:
+    db.user_bot_set_enabled(uid, enabled)
 
 
-def set_style(style: str) -> str:
-    """트레이딩 성향 변경(프리셋 파라미터 함께 적용). 정규화된 style 반환."""
+def set_style(uid: int, style: str) -> str:
+    """유저 트레이딩 성향 변경. 정규화된 style 반환(숫자 파라미터는 조회 때 프리셋에서 파생)."""
     style = strategy.normalize(style)
-    db.bot_config_set_style(style, strategy.bot_params(style))
+    db.user_bot_set_style(uid, style)
     return style
 
 
-def run_once(dry_run: bool = False) -> dict:
-    """한 사이클 실행.
+def set_seed(uid: int, seed_cash: float) -> None:
+    """유저 초기 시드 변경. 다음 초기화 때 이 금액으로 리셋된다(기존 계좌엔 즉시 반영 안 됨)."""
+    db.user_bot_set_seed(uid, max(0.0, float(seed_cash)))
 
-    실주문은 항상 장 시간(평일 09:00~15:20 KST)에만 나간다 — force로 우회하지 않는다.
-    dry_run=True면 주문/DB기록 없이 '무엇을 왜 매매할지' 계획만 계산해 반환한다(장 시간 무관,
-    안전한 미리보기). 계획에는 정량 근거(점수·수량 산정)가 담긴다.
-    """
-    creds = _dcreds()
-    if not creds:
-        return {"ok": False, "reason": "브로커 인증정보 없음(.env 확인)"}
+
+def reset(uid: int) -> None:
+    """유저 봇 초기화 — 포지션·거래·예약·일일기준선 삭제 + 페이퍼 현금 시드로 리셋."""
+    db.bot_reset(uid)
+
+
+_MAX_CHASE_PCT = 0.02  # 지정가 상한(종가 대비 +2%) — 표시·계획용(paper는 종가 즉시 체결)
+
+
+def run_once(uid: int, dry_run: bool = False) -> dict:
+    """유저 한 사이클 실행 — 공용 시그널로 유저 페이퍼 계좌에 매매.
+    dry_run=True면 주문/DB기록 없이 '무엇을 왜 매매할지' 계획만 계산(미리보기)."""
     if not dry_run and config.bot_kill_switch():
         return {"ok": False, "reason": "긴급정지(BOT_KILL_SWITCH) 활성 — 주문을 내지 않습니다."}
-    # 실계좌 이중 안전장치: KIS 실계좌(env!=demo) 실주문은 ALLOW_REAL_ORDERS를 켜야만 허용
-    if not dry_run and not _paper() and creds.get("env") != "demo" and not config.allow_real_orders():
-        return {"ok": False, "reason": "실계좌 주문 차단 — ALLOW_REAL_ORDERS 미설정(모의계좌 KIS_ENV=demo 권장)."}
-    # paper 백엔드는 종가 기준 가상 체결이라 장 시간과 무관하게 실행. KIS 실주문만 장 시간 제한.
-    if not _paper() and not dry_run and not is_market_hours():
-        return {"ok": False, "reason": "장 시간이 아닙니다(평일 09:00~15:20 KST에만 실주문). '판단 미리보기'로 계획만 확인하세요."}
 
-    bal = _dbroker().balance(creds)
-    if bal is None:
-        return {"ok": False, "reason": "잔고조회 실패"}
-    block_new_buys = _daily_loss_breached(bal, dry_run)  # 일일 손실 한도 초과 시 신규 매수 중단(청산은 계속)
+    bal = paper.balance(uid)
+    if not dry_run:
+        reconcile_positions(uid, bal)  # bot_positions(peak·entry) 미러를 paper 실측과 일치시킴(stale 정리)
+    block_new_buys = _daily_loss_breached(uid, bal, dry_run)  # 일일 손실 한도 초과 시 신규 매수 중단
 
     universe = store.load_universe()
     prices = store.load_price_series()
@@ -341,30 +286,23 @@ def run_once(dry_run: bool = False) -> dict:
         return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요"}
 
     fundamentals = store.load_fundamentals()
-    market = _market_read(prices)  # 국면 스냅샷 1회 — 거시는 여기 게이트에서만 매수 기준에 반영
+    market = _market_read(prices)  # 공용 국면 스냅샷 — 거시는 여기 게이트에서만 매수 기준에 반영
     signals = engine.evaluate(universe, prices, fundamentals, config=market["eff_cfg"], sentiment=kb.sentiment_map())
     signal_by_ticker = {s.ticker: s for s in signals}
     name_by_ticker = {u["ticker"]: u["name"] for u in universe}
     if not dry_run:
-        _update_decision_outcomes(prices)  # 과거 결정 사후수익 확정(학습)
+        _update_decision_outcomes(prices)  # 과거 결정 사후수익 확정(공용 학습)
 
-    cfg = db.bot_config_get()
-    held_tickers = {h["ticker"] for h in bal["holdings"]}
-    # DB에는 있지만 KIS 잔고엔 없는 포지션(외부에서 청산됨 등) 정리 — KIS가 source of truth
-    if not dry_run:
-        for ticker in {p["ticker"] for p in db.bot_positions_all()} - held_tickers:
-            db.bot_position_delete(ticker)
-
-    # 성향별 손절/익절/트레일링 — 횡보·약세 국면이면 '중간 실현'용 타이트 익절(③)
+    cfg = _cfg(uid)
     risk_cfg = strategy.risk_config(cfg["trading_style"], market["context"].get("regime"))
     sells: list[dict] = []
     for h in bal["holdings"]:
         ticker, qty, avg_price = h["ticker"], h["qty"], h["avg_price"]
         closes = prices.get(ticker)
         if not closes:
-            continue  # 유니버스 밖 종목(수동 보유 등) — 우리 봇 판단 대상 아님
-        current_price = _live_price(ticker, creds, closes[-1], dry_run)  # 실시간가로 손절/익절/트레일링 판단
-        pos = db.bot_position_get(ticker)
+            continue  # 유니버스 밖 종목 — 봇 판단 대상 아님
+        current_price = _live_price(ticker, closes[-1])
+        pos = db.bot_position_get(uid, ticker)
         peak = max(pos["peak_price"] if pos else avg_price, current_price)
 
         reason = risk.check_exit(avg_price, current_price, peak, risk_cfg)
@@ -380,46 +318,39 @@ def run_once(dry_run: bool = False) -> dict:
             plan = {"ticker": ticker, "name": name_by_ticker.get(ticker, ticker), "qty": qty,
                     "reason": reason, "note": note, "price": current_price}
             if not dry_run:
-                result = _dbroker().place_order(ticker, "sell", qty, creds=creds)
-                if result is not None:  # 체결된 주문만 기록·반영(장 밖 유령거래 방지)
-                    db.bot_trade_log(ticker, plan["name"], "sell", qty, current_price, reason,
+                result = paper.place_order(uid, ticker, "sell", qty, price=current_price)
+                if result is not None:
+                    db.bot_trade_log(uid, ticker, plan["name"], "sell", qty, current_price, reason,
                                       result["order_no"], score=sig.score if sig else None, note=note)
-                    db.bot_position_delete(ticker)
+                    db.bot_position_delete(uid, ticker)
                     plan["ok"] = True
                 else:
-                    log.warning("매도 주문 실패: %s", ticker)
                     plan["ok"] = False
             sells.append(plan)
         elif not dry_run:
-            db.bot_position_upsert(ticker, name_by_ticker.get(ticker, ticker), qty, avg_price,
+            db.bot_position_upsert(uid, ticker, name_by_ticker.get(ticker, ticker), qty, avg_price,
                                     peak, pos["entry_date"] if pos else _today())
 
-    # 매도 반영된 최신 잔고로 매수 슬롯 계산(모의투자는 즉시체결 가정)
-    bal2 = (_dbroker().balance(creds) or bal) if not dry_run else bal
+    bal2 = paper.balance(uid) if not dry_run else bal
     held_after = {h["ticker"] for h in bal2["holdings"]}
     available_slots = max(0, cfg["max_positions"] - len(held_after))
-    # 한 사이클 신규 매수 개수 제한 — 시그널 BUY가 많아도 한꺼번에 다 사지 않는다.
-    # 일일 손실 한도 초과 시 신규 매수 0(위 리스크 청산 매도는 이미 수행됨).
     slots = 0 if block_new_buys else min(available_slots, cfg["max_new_buys_per_run"])
 
     buys: list[dict] = []
     skipped_weak = 0
-    skipped_gap = 0  # 신호가 대비 실시간가가 급등/급락 이탈해 스킵한 건수
     advisor_used = False
-    context = market["context"]  # 국면 스냅샷(1회 계산분 재사용)
+    context = market["context"]
     cash = bal2["cash"]
     target_alloc = bal2["total_eval"] * cfg["position_pct"]
     tranches = strategy.entry_tranches(cfg["trading_style"])  # ① 분할매수 회차
-    tranche_alloc = target_alloc / tranches                  # 신규 진입은 1트랜치만(나머지는 다음 사이클에)
+    tranche_alloc = target_alloc / tranches
     if slots > 0:
-        # min_buy_score 이상인 강한 BUY만 후보 — 약한 BUY는 매수하지 않음. 최근 악재(event_risk)는 제외
         eligible = [s for s in signals if engine.is_buy(s.kind) and s.ticker not in held_after and not s.event_risk]
         strong = [s for s in eligible if s.score >= cfg["min_buy_score"]]
         skipped_weak = len(eligible) - len(strong)
         pool = sorted(strong, key=lambda s: s.score, reverse=True)[:max(slots * 3, 6)]
         pool_by = {s.ticker: s for s in pool}
 
-        # 하이브리드: 가드레일 통과 후보(pool) 안에서 LLM이 최종 선별(있으면). 없으면 점수순.
         rationale_by = {}
         picks = advisor.select_buys(
             [{"ticker": s.ticker, "name": s.name, "score": s.score, "confidence": s.confidence, "reasons": s.reasons}
@@ -437,43 +368,33 @@ def run_once(dry_run: bool = False) -> dict:
             closes = prices.get(s.ticker)
             if not closes:
                 continue
-            ref = closes[-1]                                   # 신호가 본 종가 = 기준가
-            live = _live_price(s.ticker, creds, ref, dry_run)  # 판단 시점 실시간가
-            drift = (live / ref - 1) if ref else 0.0
-            # 갭 게이트: 급등하면 추격 안 함, 급락하면 악재 의심 → 신호 무효 간주하고 스킵
-            if drift > _MAX_CHASE_PCT or drift < -_CRASH_FLOOR_PCT:
-                skipped_gap += 1
-                continue
-            limit_price = round(ref * (1 + _MAX_CHASE_PCT))    # 지정가 상한(종가+추격허용) → 상단 초과 체결 방지
+            live = _live_price(s.ticker, closes[-1])
             alloc = min(tranche_alloc, cash)                   # ① 목표비중을 K분할 → 이번엔 1트랜치
-            qty = int(alloc // live)                           # 수량은 실시간가 기준
+            qty = int(alloc // live)
             if qty < 1:
-                continue  # 배분금액보다 1주 가격이 비싸면 스킵(정수주 제약)
+                continue  # 배분금액보다 1주가 비싸면 스킵(정수주 제약)
             quant = (f"점수 {s.score:+.2f}(≥{cfg['min_buy_score']:.1f}·신뢰도 {s.confidence:.2f}) · "
-                     f"분할 1/{tranches}트랜치(약 {int(alloc):,}원) ÷ {int(live):,}원 = {qty}주 · "
-                     f"지정가 {limit_price:,}원(종가 {int(ref):,}·현재 {int(live):,}, {drift * 100:+.1f}%)")
+                     f"분할 1/{tranches}트랜치(약 {int(alloc):,}원) ÷ {int(live):,}원 = {qty}주")
             llm_reason = rationale_by.get(s.ticker)
             note = (f"[AI] {llm_reason} · {quant}") if llm_reason else quant
-            plan = {"ticker": s.ticker, "name": s.name, "qty": qty, "price": live, "limit_price": limit_price,
+            plan = {"ticker": s.ticker, "name": s.name, "qty": qty, "price": live,
                     "reason": "SIGNAL", "note": note, "score": s.score, "ai": bool(llm_reason)}
             if not dry_run:
-                result = _dbroker().place_order(s.ticker, "buy", qty, price=limit_price, creds=creds)  # 지정가 주문
-                if result is not None:  # 체결된 주문만 기록·반영
-                    db.bot_trade_log(s.ticker, s.name, "buy", qty, live, "SIGNAL",
+                result = paper.place_order(uid, s.ticker, "buy", qty, price=live, name=s.name)
+                if result is not None:
+                    db.bot_trade_log(uid, s.ticker, s.name, "buy", qty, live, "SIGNAL",
                                       result["order_no"], score=s.score, note=note)
-                    db.bot_position_upsert(s.ticker, s.name, qty, live, live, _today())
-                    db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, context, live)  # 저널(학습)
+                    db.bot_position_upsert(uid, s.ticker, s.name, qty, live, live, _today())
+                    db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, context, live)  # 공용 저널(학습)
                     cash -= qty * live
                     plan["ok"] = True
                 else:
-                    log.warning("매수 주문 실패: %s", s.ticker)
                     plan["ok"] = False
             else:
                 cash -= qty * live
             buys.append(plan)
 
     # ① 분할매수 후속: 보유 중이고 여전히 BUY인데 목표비중 미달인 포지션에 다음 트랜치 추가.
-    #   평단 근처·이하에서만 담아 '물타기'가 아닌 목표까지의 규율적 분할(손절 대상은 위 매도에서 이미 처리됨).
     for h in bal2["holdings"]:
         t = h["ticker"]
         sig = signal_by_ticker.get(t)
@@ -483,7 +404,7 @@ def run_once(dry_run: bool = False) -> dict:
         if not closes:
             continue
         avg = h["avg_price"]
-        live = _live_price(t, creds, closes[-1], dry_run)
+        live = _live_price(t, closes[-1])
         value = h["qty"] * live
         if value >= target_alloc * 0.95:       # 이미 목표비중 도달 → 추가 없음
             continue
@@ -493,19 +414,18 @@ def run_once(dry_run: bool = False) -> dict:
         qty = int(add_amt // live)
         if qty < 1:
             continue
-        limit_price = round(live * (1 + _MAX_CHASE_PCT))
         note = (f"분할 추가매수(목표 {int(target_alloc):,}원 대비 {int(value):,}원) · "
-                f"평단 {int(avg):,}·현재 {int(live):,} · {qty}주 @지정가 {limit_price:,}")
-        plan = {"ticker": t, "name": h["name"], "qty": qty, "price": live, "limit_price": limit_price,
+                f"평단 {int(avg):,}·현재 {int(live):,} · {qty}주")
+        plan = {"ticker": t, "name": h["name"], "qty": qty, "price": live,
                 "reason": "ADD", "note": note, "score": sig.score, "ai": False}
         if not dry_run:
-            result = _dbroker().place_order(t, "buy", qty, price=limit_price, creds=creds)
+            result = paper.place_order(uid, t, "buy", qty, price=live, name=h["name"])
             if result is not None:
                 new_qty = h["qty"] + qty
                 new_avg = round((h["qty"] * avg + qty * live) / new_qty, 2)
-                pos = db.bot_position_get(t)
-                db.bot_trade_log(t, h["name"], "buy", qty, live, "ADD", result["order_no"], score=sig.score, note=note)
-                db.bot_position_upsert(t, h["name"], new_qty, new_avg,
+                pos = db.bot_position_get(uid, t)
+                db.bot_trade_log(uid, t, h["name"], "buy", qty, live, "ADD", result["order_no"], score=sig.score, note=note)
+                db.bot_position_upsert(uid, t, h["name"], new_qty, new_avg,
                                         max(pos["peak_price"] if pos else new_avg, live),
                                         pos["entry_date"] if pos else _today())
                 cash -= qty * live
@@ -516,36 +436,29 @@ def run_once(dry_run: bool = False) -> dict:
             cash -= qty * live
         buys.append(plan)
 
-    final_bal = (_dbroker().balance(creds) or bal2) if not dry_run else bal2
+    final_bal = paper.balance(uid) if not dry_run else bal2
     return {
         "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak,
-        "skipped_gap_buys": skipped_gap, "advisor_used": advisor_used,
+        "skipped_gap_buys": 0, "advisor_used": advisor_used,
         "sells": sells, "buys": buys,
         "cash": final_bal["cash"], "total_eval": final_bal["total_eval"],
         "holdings": len(final_bal["holdings"]),
     }
 
 
-_MAX_CHASE_PCT = 0.02  # 예약 목표가 대비 +2%까지는 추격 매수, 그 이상 오르면 스킵(놓침)
-
-
-def generate_reservations(dry_run: bool = False) -> dict:
-    """장 마감 후: 종가·거시·KB를 종합해 '다음 개장 때 살' 예약 주문을 만든다(LLM 자문 우선).
-    목표가는 당일 종가, 추격 허용폭은 +2%. 기존 pending은 새로 만들기 전에 만료 처리."""
-    creds = _dcreds()
-    if not creds:
-        return {"ok": False, "reason": "브로커 인증정보 없음"}
+def generate_reservations(uid: int, dry_run: bool = False) -> dict:
+    """유저: 종가·거시·KB를 종합해 '다음 개장 때 살' 예약을 만든다(LLM 자문 우선)."""
     universe = store.load_universe()
     prices = store.load_price_series()
     if not universe or not prices:
         return {"ok": False, "reason": "시세 데이터 없음"}
 
-    bal = _dbroker().balance(creds)
-    held = {h["ticker"] for h in bal["holdings"]} if bal else set()
+    bal = paper.balance(uid)
+    held = {h["ticker"] for h in bal["holdings"]}
     fundamentals = store.load_fundamentals()
-    market = _market_read(prices)  # 국면 스냅샷 1회(예약도 동일 규칙 — 거시는 게이트에서만)
+    market = _market_read(prices)
     signals = engine.evaluate(universe, prices, fundamentals, config=market["eff_cfg"], sentiment=kb.sentiment_map())
-    cfg = db.bot_config_get()
+    cfg = _cfg(uid)
     slots = min(max(0, cfg["max_positions"] - len(held)), cfg["max_new_buys_per_run"])
     context = market["context"]
 
@@ -566,7 +479,7 @@ def generate_reservations(dry_run: bool = False) -> dict:
 
     reservations = []
     if not dry_run:
-        db.bot_reservations_clear_pending()
+        db.bot_reservations_clear_pending(uid)
     for s, rationale in chosen:
         closes = prices.get(s.ticker)
         if not closes:
@@ -576,27 +489,19 @@ def generate_reservations(dry_run: bool = False) -> dict:
                  f" · 국면 {context.get('regime')}/거시 {context.get('macro_bias')} · 목표가 {int(target):,}원(+{_MAX_CHASE_PCT*100:.0f}%까지 추격)"
         reservations.append({"ticker": s.ticker, "name": s.name, "side": "buy", "target_price": target, "reason": reason})
         if not dry_run:
-            db.bot_reservation_add(s.ticker, s.name, "buy", target, _MAX_CHASE_PCT, reason)
+            db.bot_reservation_add(uid, s.ticker, s.name, "buy", target, _MAX_CHASE_PCT, reason)
     return {"ok": True, "dry_run": dry_run, "context": context, "reservations": reservations}
 
 
-def execute_reservations(dry_run: bool = False) -> dict:
-    """개장 시: pending 예약을 실행. 현재가가 목표가+추격허용폭 이내면 매수, 초과(급등해 놓침)면 스킵.
-    (고도화 여지: 놓친 종목 대신 다른 후보 물색 — 지금은 스킵/만료로 단순화)"""
-    creds = _dcreds()
-    if not creds:
-        return {"ok": False, "reason": "브로커 인증정보 없음"}
-    if not _paper() and not dry_run and not is_market_hours():
-        return {"ok": False, "reason": "장 시간이 아님"}
-    pending = db.bot_reservations_pending()
+def execute_reservations(uid: int, dry_run: bool = False) -> dict:
+    """유저: pending 예약을 실행. 현재가가 목표가+추격허용폭 이내면 매수, 초과면 스킵."""
+    pending = db.bot_reservations_pending(uid)
     if not pending:
         return {"ok": True, "executed": [], "note": "대기 중인 예약 없음"}
 
     prices = store.load_price_series()
-    bal = _dbroker().balance(creds)
-    if bal is None:
-        return {"ok": False, "reason": "잔고조회 실패"}
-    cfg = db.bot_config_get()
+    bal = paper.balance(uid)
+    cfg = _cfg(uid)
     cash = bal["cash"]
     target_alloc = bal["total_eval"] * cfg["position_pct"]
     executed = []
@@ -608,9 +513,9 @@ def execute_reservations(dry_run: bool = False) -> dict:
             continue
         price = closes[-1]
         ceiling = r["target_price"] * (1 + r["max_chase_pct"])
-        if price > ceiling:  # 개장가가 목표가+추격폭 초과 → 놓침, 스킵
+        if price > ceiling:
             executed.append({"ticker": r["ticker"], "name": r["name"], "status": "skipped_price",
-                             "note": f"개장가 {int(price):,}원 > 상한 {int(ceiling):,}원 — 추격 안 함"})
+                             "note": f"현재가 {int(price):,}원 > 상한 {int(ceiling):,}원 — 추격 안 함"})
             if not dry_run:
                 db.bot_reservation_resolve(r["id"], "skipped_price")
             continue
@@ -620,12 +525,12 @@ def execute_reservations(dry_run: bool = False) -> dict:
             if not dry_run:
                 db.bot_reservation_resolve(r["id"], "skipped_cash")
             continue
-        note = f"예약 실행 — {r['reason']} · 개장가 {int(price):,}원 × {qty}주"
+        note = f"예약 실행 — {r['reason']} · 현재가 {int(price):,}원 × {qty}주"
         if not dry_run:
-            result = kis.place_order(r["ticker"], "buy", qty, creds=creds)
+            result = paper.place_order(uid, r["ticker"], "buy", qty, price=price, name=r["name"])
             if result is not None:
-                db.bot_trade_log(r["ticker"], r["name"], "buy", qty, price, "RESERVATION", result["order_no"], note=note)
-                db.bot_position_upsert(r["ticker"], r["name"], qty, price, price, _today())
+                db.bot_trade_log(uid, r["ticker"], r["name"], "buy", qty, price, "RESERVATION", result["order_no"], note=note)
+                db.bot_position_upsert(uid, r["ticker"], r["name"], qty, price, price, _today())
                 db.bot_reservation_resolve(r["id"], "filled")
                 cash -= qty * price
                 executed.append({"ticker": r["ticker"], "name": r["name"], "status": "filled", "qty": qty, "note": note})

@@ -21,13 +21,13 @@ CREATE TABLE IF NOT EXISTS profile(uid INTEGER PRIMARY KEY, data TEXT);
 CREATE TABLE IF NOT EXISTS favorites(uid INTEGER, kind TEXT, key TEXT, label TEXT, ts INTEGER,
     PRIMARY KEY(uid, kind, key));
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT, ts INTEGER);
-CREATE TABLE IF NOT EXISTS bot_config(id INTEGER PRIMARY KEY CHECK (id=1),
-    enabled INTEGER NOT NULL DEFAULT 0, max_positions INTEGER NOT NULL DEFAULT 10,
-    position_pct REAL NOT NULL DEFAULT 0.08, updated INTEGER);
-CREATE TABLE IF NOT EXISTS bot_positions(ticker TEXT PRIMARY KEY, name TEXT, qty INTEGER,
-    avg_price REAL, peak_price REAL, entry_date TEXT, last_price REAL, last_pnl_pct REAL, updated INTEGER);
-CREATE TABLE IF NOT EXISTS bot_trades(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
-    side TEXT, qty INTEGER, price REAL, reason TEXT, order_no TEXT, ts INTEGER);
+CREATE TABLE IF NOT EXISTS user_bot(uid INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0,
+    trading_style TEXT NOT NULL DEFAULT 'balanced', seed_cash REAL NOT NULL DEFAULT 10000000, updated INTEGER);
+CREATE TABLE IF NOT EXISTS bot_positions(uid INTEGER, ticker TEXT, name TEXT, qty INTEGER,
+    avg_price REAL, peak_price REAL, entry_date TEXT, last_price REAL, last_pnl_pct REAL, updated INTEGER,
+    PRIMARY KEY(uid, ticker));
+CREATE TABLE IF NOT EXISTS bot_trades(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT, name TEXT,
+    side TEXT, qty INTEGER, price REAL, reason TEXT, order_no TEXT, ts INTEGER, score REAL, note TEXT);
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS kb_digest(ticker TEXT PRIMARY KEY, name TEXT, sentime
 CREATE TABLE IF NOT EXISTS bot_decisions(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
     action TEXT, score REAL, rationale TEXT, context TEXT, decided_price REAL, ts INTEGER,
     outcome_pct REAL, outcome_ts INTEGER);
-CREATE TABLE IF NOT EXISTS bot_reservations(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
+CREATE TABLE IF NOT EXISTS bot_reservations(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT, name TEXT,
     side TEXT, target_price REAL, max_chase_pct REAL, reason TEXT, status TEXT, created INTEGER, resolved INTEGER);
 CREATE TABLE IF NOT EXISTS holdings(uid INTEGER, ticker TEXT, qty REAL, avg_price REAL, ts INTEGER,
     PRIMARY KEY(uid, ticker));
@@ -59,23 +59,13 @@ def conn() -> sqlite3.Connection:
 def _migrate(c: sqlite3.Connection) -> None:
     """가벼운 ADD COLUMN 마이그레이션 — CREATE TABLE IF NOT EXISTS는 기존 테이블에 새 컬럼을
     안 붙여줘서, 이미 만들어진 DB에도 신규 컬럼을 채워준다."""
-    tcols = {r[1] for r in c.execute("PRAGMA table_info(bot_trades)").fetchall()}
-    if "score" not in tcols:
-        c.execute("ALTER TABLE bot_trades ADD COLUMN score REAL")
-    if "note" not in tcols:
-        c.execute("ALTER TABLE bot_trades ADD COLUMN note TEXT")
-    ccols = {r[1] for r in c.execute("PRAGMA table_info(bot_config)").fetchall()}
-    if "min_buy_score" not in ccols:  # 이 점수 이상인 BUY만 매수(약한 BUY는 제외)
-        c.execute("ALTER TABLE bot_config ADD COLUMN min_buy_score REAL NOT NULL DEFAULT 1.6")
-    if "max_new_buys_per_run" not in ccols:  # 한 사이클에 신규 매수 최대 건수(한꺼번에 다 사지 않음)
-        c.execute("ALTER TABLE bot_config ADD COLUMN max_new_buys_per_run INTEGER NOT NULL DEFAULT 2")
-    if "trading_style" not in ccols:  # 안정형/균형형/공격형 — 성향별 봇 파라미터 프리셋
-        c.execute("ALTER TABLE bot_config ADD COLUMN trading_style TEXT NOT NULL DEFAULT 'balanced'")
+    # 레거시 단일계좌 봇 스키마(uid 없음) → 유저별로 재작성. 기존 봇 데이터는 폐기(paper/demo라 무방).
     pcols = {r[1] for r in c.execute("PRAGMA table_info(bot_positions)").fetchall()}
-    if "last_price" not in pcols:  # 최근(장 종료 등) 현재가 스냅샷 — 대시보드 표시용
-        c.execute("ALTER TABLE bot_positions ADD COLUMN last_price REAL")
-    if "last_pnl_pct" not in pcols:  # 최근 평가손익률(%) 스냅샷
-        c.execute("ALTER TABLE bot_positions ADD COLUMN last_pnl_pct REAL")
+    if pcols and "uid" not in pcols:
+        for t in ("bot_positions", "bot_trades", "bot_reservations", "bot_config"):
+            c.execute(f"DROP TABLE IF EXISTS {t}")
+        c.execute("DELETE FROM kv WHERE k='paper_account' OR k LIKE 'paper_account:%' OR k LIKE 'bot_day_equity%'")
+        c.executescript(_SCHEMA)  # uid 스키마로 재생성
     dcols = {r[1] for r in c.execute("PRAGMA table_info(kb_digest)").fetchall()}
     if "newest_ts" not in dcols:  # 최신 원자료 발행 시각(신선도 판정용)
         c.execute("ALTER TABLE kb_digest ADD COLUMN newest_ts INTEGER")
@@ -246,56 +236,64 @@ def kv_set(k: str, v) -> None:
     c.close()
 
 
-# ---------- bot_config (서비스 전체 공유하는 단일 데모 계좌 — uid 스코프 없음) ----------
-def bot_config_get() -> dict:
+# ---------- user_bot (유저별 봇 설정 — enabled/성향/시드) ----------
+def user_bot_get(uid: int) -> dict:
     c = conn()
-    c.execute("INSERT OR IGNORE INTO bot_config(id,enabled,max_positions,position_pct,updated) "
-              "VALUES(1,0,10,0.08,?)", (int(time.time()),))
+    c.execute("INSERT OR IGNORE INTO user_bot(uid,enabled,trading_style,seed_cash,updated) "
+              "VALUES(?,0,'balanced',10000000,?)", (uid, int(time.time())))
     c.commit()
-    row = c.execute("SELECT enabled,max_positions,position_pct,updated,min_buy_score,max_new_buys_per_run,trading_style "
-                    "FROM bot_config WHERE id=1").fetchone()
+    row = c.execute("SELECT enabled,trading_style,seed_cash,updated FROM user_bot WHERE uid=?", (uid,)).fetchone()
     c.close()
-    return {"enabled": bool(row[0]), "max_positions": row[1], "position_pct": row[2], "updated": row[3],
-            "min_buy_score": row[4], "max_new_buys_per_run": row[5], "trading_style": row[6]}
+    return {"enabled": bool(row[0]), "trading_style": row[1], "seed_cash": row[2], "updated": row[3]}
 
 
-def bot_config_set_style(style: str, params: dict) -> None:
-    """트레이딩 성향 저장 + 성향 프리셋 숫자 파라미터를 함께 반영."""
+def user_bot_set_enabled(uid: int, enabled: bool) -> None:
+    user_bot_get(uid)
     c = conn()
-    c.execute("INSERT OR IGNORE INTO bot_config(id,enabled,max_positions,position_pct,updated) "
-              "VALUES(1,0,10,0.08,?)", (int(time.time()),))
-    c.execute("UPDATE bot_config SET trading_style=?, max_positions=?, position_pct=?, min_buy_score=?, "
-              "max_new_buys_per_run=?, updated=? WHERE id=1",
-              (style, params["max_positions"], params["position_pct"], params["min_buy_score"],
-               params["max_new_buys_per_run"], int(time.time())))
+    c.execute("UPDATE user_bot SET enabled=?, updated=? WHERE uid=?", (int(enabled), int(time.time()), uid))
     c.commit()
     c.close()
 
 
-def bot_config_set_enabled(enabled: bool) -> None:
+def user_bot_set_style(uid: int, style: str) -> None:
+    user_bot_get(uid)
     c = conn()
-    c.execute("INSERT OR IGNORE INTO bot_config(id,enabled,max_positions,position_pct,updated) "
-              "VALUES(1,0,10,0.08,?)", (int(time.time()),))
-    c.execute("UPDATE bot_config SET enabled=?, updated=? WHERE id=1", (int(enabled), int(time.time())))
+    c.execute("UPDATE user_bot SET trading_style=?, updated=? WHERE uid=?", (style, int(time.time()), uid))
     c.commit()
     c.close()
 
 
-# ---------- bot_positions ----------
-def bot_positions_all() -> list[dict]:
+def user_bot_set_seed(uid: int, seed_cash: float) -> None:
+    user_bot_get(uid)
+    c = conn()
+    c.execute("UPDATE user_bot SET seed_cash=?, updated=? WHERE uid=?", (seed_cash, int(time.time()), uid))
+    c.commit()
+    c.close()
+
+
+def user_bots_enabled() -> list[int]:
+    """봇이 켜진 유저 uid 목록 — 백그라운드 루프가 순회 대상."""
+    c = conn()
+    rows = c.execute("SELECT uid FROM user_bot WHERE enabled=1").fetchall()
+    c.close()
+    return [r[0] for r in rows]
+
+
+# ---------- bot_positions (유저별) ----------
+def bot_positions_all(uid: int) -> list[dict]:
     c = conn()
     rows = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct "
-                     "FROM bot_positions").fetchall()
+                     "FROM bot_positions WHERE uid=?", (uid,)).fetchall()
     c.close()
     return [{"ticker": t, "name": n, "qty": q, "avg_price": ap, "peak_price": pk, "entry_date": ed,
              "last_price": lp, "last_pnl_pct": lr}
             for t, n, q, ap, pk, ed, lp, lr in rows]
 
 
-def bot_position_get(ticker: str) -> dict | None:
+def bot_position_get(uid: int, ticker: str) -> dict | None:
     c = conn()
     row = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct "
-                     "FROM bot_positions WHERE ticker=?", (ticker,)).fetchone()
+                     "FROM bot_positions WHERE uid=? AND ticker=?", (uid, ticker)).fetchone()
     c.close()
     if not row:
         return None
@@ -304,54 +302,60 @@ def bot_position_get(ticker: str) -> dict | None:
             "last_price": lp, "last_pnl_pct": lr}
 
 
-def bot_position_upsert(ticker: str, name: str, qty: int, avg_price: float, peak_price: float,
+def bot_position_upsert(uid: int, ticker: str, name: str, qty: int, avg_price: float, peak_price: float,
                          entry_date: str, last_price: float | None = None,
                          last_pnl_pct: float | None = None) -> None:
     c = conn()
     c.execute("INSERT OR REPLACE INTO bot_positions"
-              "(ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct,updated) "
-              "VALUES(?,?,?,?,?,?,?,?,?)",
-              (ticker, name, qty, avg_price, peak_price, entry_date, last_price, last_pnl_pct, int(time.time())))
+              "(uid,ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct,updated) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?)",
+              (uid, ticker, name, qty, avg_price, peak_price, entry_date, last_price, last_pnl_pct, int(time.time())))
     c.commit()
     c.close()
 
 
-def bot_position_delete(ticker: str) -> None:
+def bot_position_delete(uid: int, ticker: str) -> None:
     c = conn()
-    c.execute("DELETE FROM bot_positions WHERE ticker=?", (ticker,))
+    c.execute("DELETE FROM bot_positions WHERE uid=? AND ticker=?", (uid, ticker))
     c.commit()
     c.close()
 
 
-def bot_reset() -> None:
-    """봇 상태 초기화(설정은 유지) — 포지션·거래내역·예약·일일기준선 + 자체 모의계좌(paper) 잔고.
-    paper 백엔드면 현금이 다음 조회 때 초기 시드로 리셋된다(KIS 실계좌 잔고는 건드리지 않음)."""
+def bot_position_tickers_all() -> set[str]:
+    """전 유저 보유 종목 티커(중복 제거) — KB 갱신 대상 집계용(공용)."""
     c = conn()
-    c.execute("DELETE FROM bot_positions")
-    c.execute("DELETE FROM bot_trades")
-    c.execute("DELETE FROM bot_reservations")
-    # 자체 모의계좌 상태 + 일일 손실기준선 초기화(paper는 이걸 지우면 seed로 리셋)
-    c.execute("DELETE FROM kv WHERE k='paper_account' OR k LIKE 'bot_day_equity:%'")
+    rows = c.execute("SELECT DISTINCT ticker FROM bot_positions").fetchall()
+    c.close()
+    return {r[0] for r in rows}
+
+
+def bot_reset(uid: int) -> None:
+    """유저 봇 상태 초기화(설정 유지) — 포지션·거래내역·예약·일일기준선 + 자체 모의계좌 현금(시드 리셋)."""
+    c = conn()
+    c.execute("DELETE FROM bot_positions WHERE uid=?", (uid,))
+    c.execute("DELETE FROM bot_trades WHERE uid=?", (uid,))
+    c.execute("DELETE FROM bot_reservations WHERE uid=?", (uid,))
+    c.execute("DELETE FROM kv WHERE k=? OR k LIKE ?", (f"paper_account:{uid}", f"bot_day_equity:{uid}:%"))
     c.commit()
     c.close()
 
 
-# ---------- bot_trades ----------
-def bot_trade_log(ticker: str, name: str, side: str, qty: int, price: float, reason: str,
+# ---------- bot_trades (유저별) ----------
+def bot_trade_log(uid: int, ticker: str, name: str, side: str, qty: int, price: float, reason: str,
                    order_no: str | None, score: float | None = None, note: str | None = None) -> None:
     """score=매매 시점 시그널 종합점수, note=타이밍·수량 산정 근거(사람이 읽는 한 줄)."""
     c = conn()
-    c.execute("INSERT INTO bot_trades(ticker,name,side,qty,price,reason,order_no,ts,score,note) "
-              "VALUES(?,?,?,?,?,?,?,?,?,?)",
-              (ticker, name, side, qty, price, reason, order_no, int(time.time()), score, note))
+    c.execute("INSERT INTO bot_trades(uid,ticker,name,side,qty,price,reason,order_no,ts,score,note) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+              (uid, ticker, name, side, qty, price, reason, order_no, int(time.time()), score, note))
     c.commit()
     c.close()
 
 
-def bot_trades_recent(limit: int = 20) -> list[dict]:
+def bot_trades_recent(uid: int, limit: int = 20) -> list[dict]:
     c = conn()
     rows = c.execute("SELECT ticker,name,side,qty,price,reason,order_no,ts,score,note FROM bot_trades "
-                      "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+                      "WHERE uid=? ORDER BY id DESC LIMIT ?", (uid, limit)).fetchall()
     c.close()
     return [{"ticker": t, "name": n, "side": s, "qty": q, "price": p, "reason": r, "order_no": o,
              "ts": ts, "score": sc, "note": nt}
@@ -520,21 +524,21 @@ def bot_decision_set_outcome(decision_id: int, outcome_pct: float) -> None:
     c.close()
 
 
-# ---------- bot_reservations (마감 후 예약 주문) ----------
-def bot_reservation_add(ticker: str, name: str, side: str, target_price: float,
+# ---------- bot_reservations (마감 후 예약 주문 — 유저별) ----------
+def bot_reservation_add(uid: int, ticker: str, name: str, side: str, target_price: float,
                         max_chase_pct: float, reason: str) -> None:
     c = conn()
-    c.execute("INSERT INTO bot_reservations(ticker,name,side,target_price,max_chase_pct,reason,status,created) "
-              "VALUES(?,?,?,?,?,?, 'pending', ?)",
-              (ticker, name, side, target_price, max_chase_pct, reason, int(time.time())))
+    c.execute("INSERT INTO bot_reservations(uid,ticker,name,side,target_price,max_chase_pct,reason,status,created) "
+              "VALUES(?,?,?,?,?,?,?, 'pending', ?)",
+              (uid, ticker, name, side, target_price, max_chase_pct, reason, int(time.time())))
     c.commit()
     c.close()
 
 
-def bot_reservations_pending() -> list[dict]:
+def bot_reservations_pending(uid: int) -> list[dict]:
     c = conn()
     rows = c.execute("SELECT id,ticker,name,side,target_price,max_chase_pct,reason,created FROM bot_reservations "
-                     "WHERE status='pending' ORDER BY id").fetchall()
+                     "WHERE uid=? AND status='pending' ORDER BY id", (uid,)).fetchall()
     c.close()
     return [{"id": i, "ticker": t, "name": n, "side": s, "target_price": tp, "max_chase_pct": mc,
              "reason": r, "created": cr} for i, t, n, s, tp, mc, r, cr in rows]
@@ -547,10 +551,11 @@ def bot_reservation_resolve(res_id: int, status: str) -> None:
     c.close()
 
 
-def bot_reservations_clear_pending() -> None:
-    """미실행 예약 정리(새 마감 분석 전 pending을 만료 처리)."""
+def bot_reservations_clear_pending(uid: int) -> None:
+    """유저의 미실행 예약 정리(새 마감 분석 전 pending을 만료 처리)."""
     c = conn()
-    c.execute("UPDATE bot_reservations SET status='expired', resolved=? WHERE status='pending'", (int(time.time()),))
+    c.execute("UPDATE bot_reservations SET status='expired', resolved=? WHERE uid=? AND status='pending'",
+              (int(time.time()), uid))
     c.commit()
     c.close()
 
