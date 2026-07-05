@@ -292,10 +292,21 @@
     <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
   </div>
   <div class="right">
+    <span id="alertBell" class="btn" onclick="openAlerts()" style="cursor:pointer;position:relative" title="관심종목 시그널 변동 알림">🔔<span id="alert-badge" style="display:none"></span></span>
     <span id="myPageLabel" class="btn" onclick="switchTab('mypage')" style="cursor:pointer"></span>
     <span class="btn" onclick="logout()" style="cursor:pointer">로그아웃</span>
   </div>
 </header>
+
+<dialog id="alertDlg">
+  <div style="width:460px;max-width:90vw">
+    <div class="row" style="align-items:center;margin-bottom:10px">
+      <h3 style="margin:0">🔔 알림 <span style="color:var(--dim);font-size:12px;font-weight:600">· 관심종목 시그널 변동</span></h3>
+      <button class="btn" style="margin-left:auto" onclick="document.getElementById('alertDlg').close()">닫기</button>
+    </div>
+    <div id="alert-list" style="max-height:60vh;overflow-y:auto"></div>
+  </div>
+</dialog>
 
 <nav class="subnav" id="subnav-trading" style="display:none">
   <button class="subtab on" data-seg="bot" onclick="switchTradingSeg('bot')">시그널 트레이딩</button>
@@ -1945,7 +1956,34 @@ async function toggleFav(ticker, el){
 async function startApp(){
   applyProfileHeader();
   loadRegime(); loadMacro();  // 시황 리본은 전역 노출 — 어느 탭에서도 보이게 시작 시 로드
+  loadAlertBadge();
   routeFromHash() || switchTab('signal');
+}
+
+// ===== 알림(#16) =====
+async function loadAlertBadge(){
+  const badge = document.getElementById('alert-badge');
+  try {
+    const d = await (await fetch('/api/alerts')).json();
+    window._alertsCache = d.alerts || [];
+    if (d.unread > 0) {
+      badge.textContent = d.unread > 9 ? '9+' : d.unread;
+      badge.style.cssText = 'display:inline-block;position:absolute;top:-4px;right:-4px;background:var(--sig-sell);color:#fff;font-size:9px;font-weight:700;min-width:15px;height:15px;line-height:15px;border-radius:8px;text-align:center;padding:0 3px';
+    } else { badge.style.display = 'none'; }
+  } catch(e) {}
+}
+async function openAlerts(){
+  const box = document.getElementById('alert-list');
+  const alerts = window._alertsCache || [];
+  box.innerHTML = alerts.length
+    ? alerts.map(a => `<div style="padding:8px 4px;border-bottom:1px solid var(--line);${a.read ? '' : 'font-weight:600'}">
+        <div>${a.read ? '' : '🔴 '}<b>${esc(a.name)}</b> <span style="color:var(--dim);font-size:11px">${esc(a.ticker)}</span></div>
+        <div style="font-size:13px;color:var(--txt)">${esc(a.message)}</div>
+        <div style="font-size:11px;color:var(--dim)">${new Date(a.ts * 1000).toLocaleString('ko-KR')}</div></div>`).join('')
+    : '<div class="placeholder" style="padding:24px 0">관심종목 시그널 변동 알림이 없습니다.<br>관심종목(★)을 추가하면 시그널이 바뀔 때 여기 표시됩니다.</div>';
+  document.getElementById('alertDlg').showModal();
+  await fetch('/api/alerts/read', { method: 'POST' });  // 열면 읽음 처리
+  document.getElementById('alert-badge').style.display = 'none';
 }
 (async function init(){
   try {

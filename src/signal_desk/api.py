@@ -186,6 +186,48 @@ def favorites_del(request: Request, kind: str, key: str):
     return {"ok": True}
 
 
+# ---------- 알림 (#16 관심종목 시그널 변동) ----------
+_KIND_KO = {"BUY": "매수", "SELL": "매도", "HOLD": "관망"}
+
+
+def _scan_alerts(uid: int) -> None:
+    """관심종목의 현재 시그널 kind를 직전 관측치와 비교해 변동 시 알림 생성(최초 관측은 기록만).
+    조회 시점에 계산 — 유저가 앱을 열 때 '마지막 확인 이후 바뀐 것'을 잡는다."""
+    favs = [f["key"] for f in db.fav_list(uid) if f["kind"] == "ticker"]
+    if not favs:
+        return
+    sigmap = {s.ticker: s for s in _signals()} if store.is_ready() else {}
+    sigmap.update(_us_signals())
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    names.update({u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()})
+    prev = db.alert_state_all(uid)
+    for t in favs:
+        sig = sigmap.get(t)
+        if not sig:
+            continue
+        cur, old = sig.kind, prev.get(t)
+        if old is None:
+            db.alert_state_set(uid, t, cur)  # 최초 관측은 기록만(알림 없음)
+        elif old != cur:
+            db.alert_add(uid, t, names.get(t, t),
+                         f"시그널 {_KIND_KO.get(old, old)} → {_KIND_KO.get(cur, cur)} (점수 {sig.score:+.2f})")
+            db.alert_state_set(uid, t, cur)
+
+
+@app.get("/api/alerts")
+def alerts_get(request: Request):
+    """관심종목 시그널 변동 알림 목록 + 안읽음 수. 조회 시 변동을 스캔해 새 알림을 만든다."""
+    uid = _uid(request)
+    _scan_alerts(uid)
+    return {"alerts": db.alerts_list(uid, 30), "unread": db.alerts_unread(uid)}
+
+
+@app.post("/api/alerts/read")
+def alerts_read(request: Request):
+    db.alerts_mark_read(_uid(request))
+    return {"ok": True}
+
+
 # ---------- 실보유 종목 + 리밸런싱 ----------
 @lru_cache(maxsize=1)
 def _all_tickers():

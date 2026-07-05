@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS bot_reservations(id INTEGER PRIMARY KEY AUTOINCREMENT
     side TEXT, target_price REAL, max_chase_pct REAL, reason TEXT, status TEXT, created INTEGER, resolved INTEGER);
 CREATE TABLE IF NOT EXISTS holdings(uid INTEGER, ticker TEXT, qty REAL, avg_price REAL, ts INTEGER,
     PRIMARY KEY(uid, ticker));
+CREATE TABLE IF NOT EXISTS alert_state(uid INTEGER, ticker TEXT, last_kind TEXT, updated INTEGER,
+    PRIMARY KEY(uid, ticker));
+CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT,
+    name TEXT, message TEXT, ts INTEGER, read INTEGER NOT NULL DEFAULT 0);
 """
 
 
@@ -169,6 +173,54 @@ def fav_add(uid: int, kind: str, key: str, label: str) -> None:
 def fav_remove(uid: int, kind: str, key: str) -> None:
     c = conn()
     c.execute("DELETE FROM favorites WHERE uid=? AND kind=? AND key=?", (uid, kind, key))
+    c.commit()
+    c.close()
+
+
+# ---------- alerts (#16 관심종목 시그널 변동 알림) ----------
+def alert_state_all(uid: int) -> dict[str, str]:
+    """uid의 종목별 마지막 관측 시그널 kind — 변동 감지 기준."""
+    c = conn()
+    rows = c.execute("SELECT ticker,last_kind FROM alert_state WHERE uid=?", (uid,)).fetchall()
+    c.close()
+    return {t: k for t, k in rows}
+
+
+def alert_state_set(uid: int, ticker: str, kind: str) -> None:
+    c = conn()
+    c.execute("INSERT OR REPLACE INTO alert_state(uid,ticker,last_kind,updated) VALUES(?,?,?,?)",
+              (uid, ticker, kind, int(time.time())))
+    c.commit()
+    c.close()
+
+
+def alert_add(uid: int, ticker: str, name: str, message: str) -> None:
+    c = conn()
+    c.execute("INSERT INTO alerts(uid,ticker,name,message,ts,read) VALUES(?,?,?,?,?,0)",
+              (uid, ticker, name, message, int(time.time())))
+    c.commit()
+    c.close()
+
+
+def alerts_list(uid: int, limit: int = 30) -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT id,ticker,name,message,ts,read FROM alerts WHERE uid=? "
+                     "ORDER BY id DESC LIMIT ?", (uid, limit)).fetchall()
+    c.close()
+    return [{"id": i, "ticker": t, "name": n, "message": m, "ts": ts, "read": bool(r)}
+            for i, t, n, m, ts, r in rows]
+
+
+def alerts_unread(uid: int) -> int:
+    c = conn()
+    n = c.execute("SELECT COUNT(*) FROM alerts WHERE uid=? AND read=0", (uid,)).fetchone()[0]
+    c.close()
+    return n
+
+
+def alerts_mark_read(uid: int) -> None:
+    c = conn()
+    c.execute("UPDATE alerts SET read=1 WHERE uid=? AND read=0", (uid,))
     c.commit()
     c.close()
 
