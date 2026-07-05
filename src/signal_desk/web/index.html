@@ -533,6 +533,15 @@
   </div>
 
   <div id="view-admin" class="view-doc" style="display:none">
+    <div class="card" style="margin-top:0;margin-bottom:16px">
+      <div class="row" style="align-items:baseline">
+        <b style="font-size:15px">📥 데이터 수집·갱신 <span style="color:var(--dim);font-weight:600;font-size:12px">· 시세·재무·거시·유니버스</span></b>
+        <span id="refresh-result" class="stat-label" style="margin:0 0 0 auto"></span>
+        <button class="btn primary" onclick="refreshData()" style="margin-left:8px">데이터 갱신</button>
+      </div>
+      <p class="page-desc" style="margin:6px 0 0">KOSPI 유니버스·시세·재무(DART)·거시(FRED/ECOS)·거장 13F·S&P500 유니버스를 한 번에 수집합니다.
+        <b>배포 후 최초 1회 필수</b> — 이걸 눌러야 시그널·백테스트·저평가가 실데이터로 채워집니다. (수십 초~수 분 소요)</p>
+    </div>
     <div class="seg-toggle" id="admin-seg" style="margin-bottom:16px">
       <button class="on" data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 설정</button>
       <button data-aseg="backtest" onclick="switchAdminSeg('backtest')">백테스트 분석</button>
@@ -1743,6 +1752,19 @@ async function runScenario(){
       <table class="dtable"><thead><tr><th class="num">시점</th><th class="num">비관(p10)</th><th class="num">중앙(p50)</th><th class="num">낙관(p90)</th></tr></thead><tbody>${fan}</tbody></table>
       <p class="page-desc" style="margin:12px 0 0;font-size:11px">⚠️ ${esc(d.disclaimer)}</p>`;
   } catch(e) { box.className = 'placeholder'; box.textContent = '요청 실패'; }
+  finally { btn.disabled = false; btn.textContent = t; }
+}
+
+async function refreshData(){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '수집 중… (수 분 소요)';
+  const el = document.getElementById('refresh-result'); el.style.color = 'var(--dim)'; el.textContent = '시세·재무·거시 수집 중…';
+  try {
+    const d = await (await fetch('/api/refresh', { method: 'POST' })).json();
+    el.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
+    el.textContent = d.ok
+      ? `✅ 갱신 완료 — 유니버스 ${d.universe_size ?? '?'}종목 · 재무 ${d.fundamentals_size ?? '?'} · 거시 ${d.macro_size ?? '?'}`
+      : `실패: ${d.error || d.reason || '오류'}`;
+  } catch (e) { el.style.color = 'var(--sell)'; el.textContent = '요청 실패(시간 초과일 수 있음 — 잠시 후 새로고침)'; }
   finally { btn.disabled = false; btn.textContent = t; }
 }
 
