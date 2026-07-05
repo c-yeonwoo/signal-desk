@@ -99,11 +99,10 @@
   .mc-bad { color:var(--sig-sell); } .mc-good { color:var(--sig-buy); } .mc-flat { color:var(--dim); }
   .opp-badge { display:inline-block; margin-left:5px; padding:1px 6px; border-radius:8px; font-size:10px;
     background:var(--accent-weak); color:var(--accent); font-weight:600; vertical-align:middle; }
-  .app-footer { max-width:1240px; margin:32px auto 0; padding:16px 20px 28px; border-top:1px solid var(--line);
-    font-size:11px; color:var(--dim); line-height:1.6; }
-  .app-footer .foot-link { color:var(--accent); cursor:pointer; }
-  .app-footer .foot-link:hover { text-decoration:underline; }
-  .macro-callout { margin-top:9px; border:1px solid var(--line); border-left:3px solid var(--accent, #5b8def);
+  .foot-link { color:var(--accent); cursor:pointer; }
+  .foot-link:hover { text-decoration:underline; }
+  footer .foot-disc { flex-basis:100%; font-size:11px; color:var(--dim); line-height:1.6; }
+  .macro-callout { margin:9px clamp(14px,2.5vw,34px) 0; border:1px solid var(--line); border-left:3px solid var(--accent, #5b8def);
     border-radius:var(--r-md); background:var(--bg); padding:12px 20px; }
   .macro-callout .mco-head { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
   .macro-callout .mco-title { font-size:12px; font-weight:700; color:var(--fg); }
@@ -631,15 +630,6 @@
   </div><!-- /view-admin -->
 </main>
 
-<footer class="app-footer">
-  <div>
-    <span class="foot-link" onclick="openLegal('terms')">이용약관</span> ·
-    <span class="foot-link" onclick="openLegal('privacy')">개인정보처리방침</span> ·
-    <span class="foot-link" onclick="openLegal('disclaimer')">투자 유의사항</span>
-  </div>
-  <div style="margin-top:8px">⚠️ 본 서비스의 시그널·백테스트·시나리오·자동매매는 <b>투자 참고용</b>이며, 수익을 보장하지 않습니다.
-    모든 투자 판단과 그 결과(손실 포함)의 책임은 이용자 본인에게 있습니다.</div>
-</footer>
 
 <dialog id="legalDlg">
   <div style="width:560px;max-width:92vw">
@@ -651,10 +641,26 @@
   </div>
 </dialog>
 
+<dialog id="kbDigestDlg">
+  <div style="width:600px;max-width:92vw">
+    <div class="row" style="align-items:flex-start;margin-bottom:10px">
+      <h3 id="kbd-title" style="margin:0"></h3>
+      <button class="btn" style="margin-left:auto" onclick="document.getElementById('kbDigestDlg').close()">닫기</button>
+    </div>
+    <div id="kbd-body" style="max-height:66vh;overflow-y:auto;font-size:13px"></div>
+  </div>
+</dialog>
+
 <footer>
   <b>Signal Desk</b>
   <span>감이 아니라 검증된 적중률로 찾는 주식 매매 타이밍</span>
-  <span style="margin-left:auto">지표는 참고용 · 투자 판단·실거래 확인은 이용자 책임</span>
+  <span style="margin-left:auto">
+    <span class="foot-link" onclick="openLegal('terms')">이용약관</span> ·
+    <span class="foot-link" onclick="openLegal('privacy')">개인정보처리방침</span> ·
+    <span class="foot-link" onclick="openLegal('disclaimer')">투자 유의사항</span>
+  </span>
+  <div class="foot-disc">⚠️ 본 서비스의 시그널·백테스트·시나리오·자동매매는 <b>투자 참고용</b>이며, 수익을 보장하지 않습니다.
+    모든 투자 판단과 그 결과(손실 포함)의 책임은 이용자 본인에게 있습니다.</div>
 </footer>
 
 <div id="authGate">
@@ -1845,19 +1851,43 @@ async function loadKbDigests(){
   try {
     const d = await (await fetch('/api/kb/digests')).json();
     const ds = d.digests || [];
+    _kbDigests = Object.fromEntries(ds.map(x => [x.ticker, x]));
     if (!ds.length) { el.className = ''; el.innerHTML = '<div class="placeholder" style="padding:16px 0">요약이 아직 없습니다 — 수집·갱신 후 생성됩니다.</div>'; return; }
     const rows = ds.map(x => {
       const s = x.sentiment, cls = s > 0.15 ? 'var(--sig-buy)' : s < -0.15 ? 'var(--sig-sell)' : 'var(--dim)';
       const senti = (s != null && !x.is_macro) ? `<span style="color:${cls};font-weight:700">${s > 0 ? '+' : ''}${fmtNum(s, 2)}</span>` : '–';
-      const pts = (x.points || []).length ? `<div style="color:var(--dim);font-size:11px;margin-top:2px">· ${x.points.map(esc).join(' · ')}</div>` : '';
-      return `<tr><td>${x.is_macro ? '🌐 ' : ''}<b>${esc(x.name)}</b>${x.event_flag ? ' <span style="color:var(--sig-sell)">⚠</span>' : ''}
+      const brief = esc((x.summary || '').slice(0, 60)) + ((x.summary || '').length > 60 ? '…' : '');
+      return `<tr class="clickable-row" onclick="openKbDigest('${esc(x.ticker)}')"><td>${x.is_macro ? '🌐 ' : ''}<b>${esc(x.name)}</b>${x.event_flag ? ' <span style="color:var(--sig-sell)">⚠</span>' : ''}
           <div style="color:var(--dim);font-size:11px">${esc(x.ticker)} · 원문 ${x.n_sources ?? 0}건</div></td>
         <td class="num">${senti}</td>
-        <td>${esc(x.summary || '')}${pts}</td></tr>`;
+        <td style="max-width:0;overflow:hidden;text-overflow:ellipsis">${brief}</td></tr>`;
     }).join('');
     el.className = '';
-    el.innerHTML = `<table class="dtable"><thead><tr><th>종목/거시</th><th class="num">심리</th><th>요약(종합)</th></tr></thead><tbody>${rows}</tbody></table>`;
+    el.innerHTML = `<table class="dtable"><thead><tr><th>종목/거시</th><th class="num">심리</th><th>요약(클릭 시 상세)</th></tr></thead><tbody>${rows}</tbody></table>`;
   } catch (e) { el.textContent = '불러오지 못했습니다.'; }
+}
+
+let _kbDigests = {};
+async function openKbDigest(ticker){
+  const x = _kbDigests[ticker];
+  if (!x) return;
+  document.getElementById('kbd-title').innerHTML = `${x.is_macro ? '🌐 ' : ''}${esc(x.name)} <span style="color:var(--dim);font-size:12px;font-weight:600">${esc(x.ticker)} · 원문 ${x.n_sources ?? 0}건 종합</span>`;
+  const s = x.sentiment;
+  const senti = (s != null && !x.is_macro) ? `<div class="stat-label" style="margin:0 0 8px">정성 심리 <b>${s > 0 ? '+' : ''}${fmtNum(s, 2)}</b></div>` : '';
+  const pts = (x.points || []).length ? `<ul style="margin:8px 0 0;padding-left:18px;line-height:1.7">${x.points.map(p => `<li>${esc(p)}</li>`).join('')}</ul>` : '';
+  const body = document.getElementById('kbd-body');
+  body.innerHTML = `${senti}<div style="line-height:1.7">${esc(x.summary || '')}</div>${pts}
+    <div class="stat-label" style="margin:14px 0 6px">원문 문서</div><div id="kbd-docs" class="placeholder" style="padding:8px 0">불러오는 중…</div>`;
+  document.getElementById('kbDigestDlg').showModal();
+  try {  // 이 종목의 원문 목록
+    const dd = await (await fetch('/api/kb/documents?ticker=' + encodeURIComponent(ticker) + '&limit=20')).json();
+    const docs = dd.documents || [];
+    document.getElementById('kbd-docs').outerHTML = docs.length
+      ? `<div id="kbd-docs">${docs.map(doc => `<div style="padding:6px 0;border-bottom:1px solid var(--line)">
+          ${doc.url ? `<a href="${esc(doc.url)}" target="_blank" rel="noopener">${esc(doc.title || '(제목없음)')}</a>` : esc(doc.title || '(제목없음)')}
+          <div style="color:var(--dim);font-size:11px">${esc(doc.source || '')} · ${esc((doc.published || '').slice(0, 10))}</div></div>`).join('')}</div>`
+      : '<div id="kbd-docs" class="placeholder" style="padding:8px 0">원문 문서가 없습니다.</div>';
+  } catch (e) {}
 }
 
 async function loadKbDocs(){
