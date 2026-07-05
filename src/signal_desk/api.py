@@ -74,34 +74,37 @@ def _daily_kb_collect():
 
 
 async def _bot_loop():
-    """자동매매봇 백그라운드 루프. enabled=False면 조용히 skip(기본 OFF).
+    """자동매매봇 백그라운드 루프 — 봇을 켠 유저별로 순회. 시그널은 공용(각 run_once 내 캐시 활용).
 
-    장중(5분 주기): run_once로 매매. 마감 후 1회: 다음날 예약 생성. 개장 직후 1회: 예약 실행.
-    하루 1회성 작업은 kv에 마지막 실행일을 기록해 중복 방지."""
+    장중(5분 주기): 유저별 run_once로 매매. 마감 후 1회: 공용 KB 갱신 + 유저별 예약 생성·스냅샷.
+    개장 직후 1회: 유저별 예약 실행. 하루 1회성 작업은 kv에 마지막 실행일을 기록해 중복 방지."""
     interval = config.bot_run_interval_minutes() * 60
     while True:
         try:
-            _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(봇 on/off 무관)
-            if db.bot_config_get()["enabled"]:
+            _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(공용)
+            enabled = db.user_bots_enabled()
+            if enabled:
                 now = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
                 weekday = now.weekday() < 5
                 if bot.is_market_hours(now):
-                    # 개장 직후(09:00~09:10) 예약 먼저 실행 후, 평상시 매매
-                    if now.time() <= datetime.time(9, 10) and db.kv_get("bot_exec_resv_date") != _kst_today():
-                        bot.execute_reservations()
+                    open_resv = now.time() <= datetime.time(9, 10) and db.kv_get("bot_exec_resv_date") != _kst_today()
+                    for uid in enabled:
+                        if open_resv:
+                            bot.execute_reservations(uid)
+                        result = bot.run_once(uid)
+                        if not result.get("ok"):
+                            log.info("봇 실행 스킵(uid=%s): %s", uid, result.get("reason"))
+                    if open_resv:
                         db.kv_set("bot_exec_resv_date", _kst_today())
-                    result = bot.run_once()
-                    if not result.get("ok"):
-                        log.info("자동매매봇 실행 스킵: %s", result.get("reason"))
                 elif weekday and now.time() >= datetime.time(15, 40) and db.kv_get("bot_resv_date") != _kst_today():
-                    # 마감 후 1회: KB(뉴스) 갱신 → 신선한 정성/이벤트 반영 후 다음 개장용 예약 생성
-                    try:
+                    try:  # 마감 후 1회: 공용 KB 갱신(신선한 정성/이벤트 반영)
                         kb.refresh(_kb_targets())
                         _signals.cache_clear()
                     except Exception as e:
                         log.warning("마감후 KB 갱신 실패(예약은 계속): %s", e)
-                    bot.snapshot_positions()  # 종가 기준 보유종목 현재가·수익률 1회 갱신
-                    bot.generate_reservations()
+                    for uid in enabled:  # 유저별 종가 스냅샷 + 다음 개장 예약
+                        bot.snapshot_positions(uid)
+                        bot.generate_reservations(uid)
                     db.kv_set("bot_resv_date", _kst_today())
         except Exception as e:
             log.error("자동매매봇 루프 오류: %s", e)
@@ -644,29 +647,42 @@ def regime_get():
     return {**_regime(), "adaptive": adapt}
 
 
-# ---------- 자동매매봇 (BACKLOG #7, KIS 모의투자) ----------
+# ---------- 자동매매봇 (유저별 자체 모의계좌 · 공용 시그널) ----------
 @app.get("/api/bot/state")
-def bot_state_get():
-    return bot.get_state()
+def bot_state_get(request: Request):
+    return bot.get_state(_uid(request))
 
 
 @app.post("/api/bot/toggle")
-def bot_toggle(data: dict = Body(...)):
-    bot.set_enabled(bool(data.get("enabled")))
+def bot_toggle(request: Request, data: dict = Body(...)):
+    bot.set_enabled(_uid(request), bool(data.get("enabled")))
     return {"ok": True, "enabled": bool(data.get("enabled"))}
 
 
 @app.post("/api/bot/style")
-def bot_style(data: dict = Body(...)):
-    """트레이딩 성향(안정형/균형형/공격형) 변경 — 봇 파라미터·리스크 룰이 프리셋으로 바뀐다."""
-    style = bot.set_style(str(data.get("style", "balanced")))
+def bot_style(request: Request, data: dict = Body(...)):
+    """내 봇 트레이딩 성향(안정형/균형형/공격형) 변경 — 파라미터·리스크 룰이 프리셋으로 바뀐다."""
+    style = bot.set_style(_uid(request), str(data.get("style", "balanced")))
     return {"ok": True, "style": style}
 
 
+@app.post("/api/bot/seed")
+def bot_seed(request: Request, data: dict = Body(...)):
+    """내 봇 초기 시드 금액 설정(다음 초기화 때 반영)."""
+    try:
+        seed = float(data.get("seed_cash") or 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "reason": "금액 오류"}
+    if seed <= 0:
+        return {"ok": False, "reason": "0보다 큰 금액을 입력하세요."}
+    bot.set_seed(_uid(request), seed)
+    return {"ok": True, "seed_cash": seed}
+
+
 @app.post("/api/bot/run")
-def bot_run():
-    """수동 1회 실행 — 실주문은 장 시간(평일 09:00~15:20 KST)에만 나간다."""
-    return bot.run_once(dry_run=False)
+def bot_run(request: Request):
+    """내 봇 수동 1회 실행 — 자체 모의계좌 종가 기준 가상 체결."""
+    return bot.run_once(_uid(request), dry_run=False)
 
 
 @app.get("/api/bot/us/state")
@@ -687,28 +703,28 @@ def bot_us_preview(data: dict = Body(default={})):
 
 
 @app.post("/api/bot/preview")
-def bot_preview():
-    """판단 미리보기(dry-run) — 주문 없이 '지금 무엇을 왜 매매할지' 계획만 계산. 장 시간 무관."""
-    return bot.run_once(dry_run=True)
+def bot_preview(request: Request):
+    """내 봇 판단 미리보기(dry-run) — 주문 없이 '지금 무엇을 왜 매매할지' 계획만."""
+    return bot.run_once(_uid(request), dry_run=True)
 
 
 @app.post("/api/bot/reset")
-def bot_reset():
-    """봇 포지션·거래내역 초기화(설정 유지) — 과거 유령거래 등 정합성 깨진 상태 정리용."""
-    db.bot_reset()
+def bot_reset(request: Request):
+    """내 봇 초기화 — 포지션·거래·예약 삭제 + 페이퍼 현금 시드로 리셋."""
+    bot.reset(_uid(request))
     return {"ok": True}
 
 
 @app.post("/api/bot/reserve")
-def bot_reserve(data: dict = Body(default={})):
-    """마감 후 예약 주문 생성(수동 트리거). dry_run이면 계획만."""
-    return bot.generate_reservations(dry_run=bool(data.get("dry_run")))
+def bot_reserve(request: Request, data: dict = Body(default={})):
+    """내 봇 예약 주문 생성(수동 트리거). dry_run이면 계획만."""
+    return bot.generate_reservations(_uid(request), dry_run=bool(data.get("dry_run")))
 
 
 @app.post("/api/bot/execute-reservations")
-def bot_execute_reservations(data: dict = Body(default={})):
-    """대기 중인 예약을 지금 실행(수동 트리거). dry_run이면 계획만."""
-    return bot.execute_reservations(dry_run=bool(data.get("dry_run")))
+def bot_execute_reservations(request: Request, data: dict = Body(default={})):
+    """내 봇 대기 예약을 지금 실행(수동 트리거). dry_run이면 계획만."""
+    return bot.execute_reservations(_uid(request), dry_run=bool(data.get("dry_run")))
 
 
 @app.get("/api/bot/decisions")
@@ -729,8 +745,8 @@ def _kb_targets(limit_candidates: int = 12) -> list[dict]:
         for s in _signals():
             if s.kind == "BUY" and len([t for t in targets]) < limit_candidates:
                 add(s.ticker)
-    for p in db.bot_positions_all():
-        add(p["ticker"])
+    for tk in db.bot_position_tickers_all():  # 전 유저 보유 종목(공용 KB 갱신 대상)
+        add(tk)
     return targets
 
 

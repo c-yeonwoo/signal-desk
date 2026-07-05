@@ -19,8 +19,9 @@ def test_normalize_and_risk_config():
 
 def test_set_style_applies_preset(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    db.bot_config_set_style("aggressive", strategy.bot_params("aggressive"))
-    cfg = db.bot_config_get()
+    from signal_desk import bot
+    bot.set_style(1, "aggressive")
+    cfg = bot._cfg(1)  # user_bot 설정 + 성향 프리셋 파라미터 병합
     assert cfg["trading_style"] == "aggressive"
     assert cfg["max_positions"] == 6 and cfg["position_pct"] == 0.14 and cfg["min_buy_score"] == 1.3
 
