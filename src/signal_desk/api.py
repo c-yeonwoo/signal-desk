@@ -10,6 +10,7 @@ import asyncio
 import datetime
 import hashlib
 import logging
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import lru_cache
@@ -113,23 +114,46 @@ _ADMIN_PATHS = {
 
 
 # ---------- 인증 ----------
+def _set_auth_cookie(r: JSONResponse, token: str) -> None:
+    # prod(HTTPS)에서는 secure 플래그로 평문 전송 차단. httponly로 JS 접근 차단(XSS 완화).
+    r.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax",
+                 secure=config.is_prod(), max_age=60 * 60 * 24 * 30)
+
+
+# 간단한 인메모리 레이트리밋(브루트포스 완화) — IP+동작별 슬라이딩 윈도우
+_rl_hits: dict[str, list[float]] = {}
+
+
+def _rate_limited(request: Request, action: str, limit: int = 8, window: int = 300) -> bool:
+    ip = (request.client.host if request.client else "?") + ":" + action
+    now = time.time()
+    hits = [t for t in _rl_hits.get(ip, []) if now - t < window]
+    hits.append(now)
+    _rl_hits[ip] = hits
+    return len(hits) > limit
+
+
 @app.post("/api/auth/signup")
-def auth_signup(data: dict = Body(...)):
+def auth_signup(request: Request, data: dict = Body(...)):
+    if _rate_limited(request, "signup", limit=5):
+        return JSONResponse({"ok": False, "error": "요청이 너무 잦습니다. 잠시 후 다시 시도하세요."}, status_code=429)
     token, err = auth.signup(data.get("email", ""), data.get("pw", ""))
     if err:
         return JSONResponse({"ok": False, "error": err}, status_code=400)
     r = JSONResponse({"ok": True})
-    r.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+    _set_auth_cookie(r, token)
     return r
 
 
 @app.post("/api/auth/login")
-def auth_login(data: dict = Body(...)):
+def auth_login(request: Request, data: dict = Body(...)):
+    if _rate_limited(request, "login", limit=8):
+        return JSONResponse({"ok": False, "error": "로그인 시도가 너무 잦습니다. 잠시 후 다시 시도하세요."}, status_code=429)
     token, err = auth.login(data.get("email", ""), data.get("pw", ""))
     if err:
         return JSONResponse({"ok": False, "error": err}, status_code=401)
     r = JSONResponse({"ok": True})
-    r.set_cookie(auth.COOKIE, token, httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+    _set_auth_cookie(r, token)
     return r
 
 
