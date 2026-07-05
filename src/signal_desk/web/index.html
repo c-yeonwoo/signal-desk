@@ -254,6 +254,8 @@
     .view-doc, .view-app { padding-left:14px; padding-right:14px; }
     .card-row { flex-wrap:wrap; }
     .card-row > .card { flex:1 1 42%; }
+    .card { overflow-x:auto; }        /* 넓은 표(보유·시그널·거래내역)는 카드 안에서 가로 스크롤 */
+    .macro-callout .mco-date { display:block; margin-top:2px; }  /* 좁은 화면에서 코멘터리 날짜 줄바꿈 */
   }
 
   #authGate { position:fixed; inset:0; z-index:9999; display:none; align-items:center; justify-content:center;
@@ -480,7 +482,7 @@
           <button class="btn primary" onclick="addHolding()">추가</button>
         </div>
         <div id="hd_selected" class="stat-label" style="margin:0 0 10px"></div>
-        <div id="holdings-body" class="placeholder" style="padding:12px 0">보유종목을 추가하세요.</div>
+        <div id="holdings-body" class="placeholder" style="padding:12px 0">위 검색창에서 종목을 찾아 보유종목을 추가하세요 — 추가하면 <b>리밸런싱·시나리오·섹터 히트맵</b>이 켜집니다.</div>
       </div>
 
       <div class="card" style="margin-bottom:16px">
@@ -1585,7 +1587,7 @@ async function loadHoldings(){
   const el = document.getElementById('holdings-body');
   const d = await (await fetch('/api/holdings')).json();
   const hs = d.holdings || [];
-  if (!hs.length) { el.className = 'placeholder'; el.textContent = '보유종목을 추가하세요.'; loadHeatmap(); return; }
+  if (!hs.length) { el.className = 'placeholder'; el.innerHTML = '위 검색창에서 종목을 찾아 보유종목을 추가하세요 — 추가하면 <b>리밸런싱·시나리오·섹터 히트맵</b>이 켜집니다.'; loadHeatmap(); return; }
   el.className = '';
   el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단가</th><th></th></tr></thead><tbody>`
     + hs.map(h => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, 0)}</td>
