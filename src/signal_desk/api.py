@@ -64,6 +64,12 @@ def _daily_kb_collect():
     if got:
         _signals.cache_clear()
         _macro.cache_clear()
+    try:  # US 발행주식수·PER 소량 백필(하루 25콜 한도 → 20개씩, S&P500 전량은 여러 날 걸쳐 채움)
+        us = [u["ticker"] for u in store.load_us_universe()]
+        if us:
+            store.fetch_us_fundamentals(us, max_calls=20)
+    except Exception as e:
+        log.warning("US 재무 백필 실패: %s", type(e).__name__)
     db.kv_set("kb_collect_date", _kst_today())
 
 
@@ -432,7 +438,8 @@ def _us_signal_items() -> list[dict]:
         return []
     sector_of = {u["ticker"]: u.get("sector") for u in store.load_us_universe()}
     hist = store.load_us_price_series()
-    quotes = store.load_us_quotes()  # 거래량·20일평균(정렬용) — 시총은 소스 없어 미제공
+    quotes = store.load_us_quotes()  # 거래량·20일평균(정렬용)
+    mcaps = store.us_marketcaps(hist)  # 시총(주식수×종가)·PER(Alpha Vantage 백필분, 없으면 빈 dict)
     items = []
     for r in sig.values():
         closes = hist.get(r.ticker) or []
@@ -445,7 +452,10 @@ def _us_signal_items() -> list[dict]:
         d["change_pct"] = round((price / prev - 1) * 100, 2) if (price and prev) else None
         d["vol"] = q.get("vol")
         d["vol_avg"] = q.get("vol_avg")               # 거래량순 정렬 반영
-        d["mktcap"] = d["per"] = d["pbr"] = None       # US 시총·재무는 미수집
+        mc = mcaps.get(r.ticker) or {}
+        d["mktcap"] = mc.get("mktcap")                # 시총순 정렬(백필된 종목만)
+        d["per"] = mc.get("per")                       # US PER(Alpha Vantage)
+        d["pbr"] = None                                # US PBR은 미수집(자본총계 소스 없음)
         d["sector"] = us_ko.sector_ko(sector_of.get(r.ticker))  # 한글 섹터
         d["intro"] = d["intro_desc"] = d["kb"] = None
         d["opp_tags"] = opportunity.classify(r)  # 기회 유형(#14)
