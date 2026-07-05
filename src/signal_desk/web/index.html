@@ -619,6 +619,11 @@
         </div>
       </div>
 
+      <div class="seg-toggle" id="kb-view-seg" style="margin-bottom:10px">
+        <button class="on" data-kbview="digest" onclick="setKbView('digest')">종목별 요약(시그널이 쓰는 것)</button>
+        <button data-kbview="docs" onclick="setKbView('docs')">원문 문서</button>
+      </div>
+      <p class="page-desc" id="kb-view-desc" style="margin:0 0 8px"></p>
       <div id="kbdoc-filters" class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
       <div id="kbdoc-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
@@ -627,13 +632,13 @@
 </main>
 
 <footer class="app-footer">
-  <div>⚠️ 본 서비스의 시그널·백테스트·시나리오·자동매매는 <b>투자 참고용</b>이며, 수익을 보장하지 않습니다.
-    모든 투자 판단과 그 결과(손실 포함)의 책임은 이용자 본인에게 있습니다.</div>
-  <div style="margin-top:4px">
+  <div>
     <span class="foot-link" onclick="openLegal('terms')">이용약관</span> ·
     <span class="foot-link" onclick="openLegal('privacy')">개인정보처리방침</span> ·
     <span class="foot-link" onclick="openLegal('disclaimer')">투자 유의사항</span>
   </div>
+  <div style="margin-top:8px">⚠️ 본 서비스의 시그널·백테스트·시나리오·자동매매는 <b>투자 참고용</b>이며, 수익을 보장하지 않습니다.
+    모든 투자 판단과 그 결과(손실 포함)의 책임은 이용자 본인에게 있습니다.</div>
 </footer>
 
 <dialog id="legalDlg">
@@ -1823,8 +1828,43 @@ async function uploadDoc(){
 
 const _CLASS_COLOR = { 리포트: '#4f46e5', 실적: '#0369a1', 공시: '#0f766e', 이벤트: '#b3121a', 시황: '#b45309', 뉴스: '#64748b', 미분류: '#94a3b8' };
 const classBadge = (c) => `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:700;color:#fff;background:${_CLASS_COLOR[c] || '#94a3b8'}">${esc(c || '미분류')}</span>`;
-async function loadKbDocs(){
+let _kbView = 'digest';
+function setKbView(v){
+  _kbView = v;
+  document.querySelectorAll('#kb-view-seg button').forEach(b => b.classList.toggle('on', b.dataset.kbview === v));
+  document.getElementById('kbdoc-filters').style.display = (v === 'docs') ? '' : 'none';
+  loadKbDocs();
+}
+
+async function loadKbDigests(){
   const el = document.getElementById('kbdoc-body'), fEl = document.getElementById('kbdoc-filters');
+  fEl.innerHTML = '';
+  document.getElementById('kb-view-desc').innerHTML =
+    'LLM이 원문(뉴스·인사이트·영상)을 <b>종목별/거시 1건으로 종합·축약</b>한 요약입니다. '
+    + '시그널·AI 자문·해설이 실제로 참고하는 건 <b>이 요약뿐</b>(원문은 요약 만들 때만 사용) — 토큰 절약.';
+  try {
+    const d = await (await fetch('/api/kb/digests')).json();
+    const ds = d.digests || [];
+    if (!ds.length) { el.className = ''; el.innerHTML = '<div class="placeholder" style="padding:16px 0">요약이 아직 없습니다 — 수집·갱신 후 생성됩니다.</div>'; return; }
+    const rows = ds.map(x => {
+      const s = x.sentiment, cls = s > 0.15 ? 'var(--sig-buy)' : s < -0.15 ? 'var(--sig-sell)' : 'var(--dim)';
+      const senti = (s != null && !x.is_macro) ? `<span style="color:${cls};font-weight:700">${s > 0 ? '+' : ''}${fmtNum(s, 2)}</span>` : '–';
+      const pts = (x.points || []).length ? `<div style="color:var(--dim);font-size:11px;margin-top:2px">· ${x.points.map(esc).join(' · ')}</div>` : '';
+      return `<tr><td>${x.is_macro ? '🌐 ' : ''}<b>${esc(x.name)}</b>${x.event_flag ? ' <span style="color:var(--sig-sell)">⚠</span>' : ''}
+          <div style="color:var(--dim);font-size:11px">${esc(x.ticker)} · 원문 ${x.n_sources ?? 0}건</div></td>
+        <td class="num">${senti}</td>
+        <td>${esc(x.summary || '')}${pts}</td></tr>`;
+    }).join('');
+    el.className = '';
+    el.innerHTML = `<table class="dtable"><thead><tr><th>종목/거시</th><th class="num">심리</th><th>요약(종합)</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (e) { el.textContent = '불러오지 못했습니다.'; }
+}
+
+async function loadKbDocs(){
+  if (_kbView === 'digest') return loadKbDigests();
+  const el = document.getElementById('kbdoc-body'), fEl = document.getElementById('kbdoc-filters');
+  document.getElementById('kb-view-desc').innerHTML =
+    '수집된 <b>원문 문서</b> 목록입니다(각 소스 1건 = 1행, 원문 보관). 아래 요약은 이들을 종합해 만듭니다.';
   try {
     const q = _kbDocClass ? `?doc_class=${encodeURIComponent(_kbDocClass)}` : '';
     const d = await (await fetch('/api/kb/documents' + q)).json();

@@ -133,7 +133,7 @@ async def _auth_gate(request: Request, call_next):
 # 관리자만 접근 가능한 엔드포인트(정확 경로 매칭 — /api/kb/{ticker} 조회는 영향 없음)
 _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
-    "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents",
+    "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents", "/api/kb/digests",
     "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube",
 }
 
@@ -791,6 +791,26 @@ def kb_documents_get(ticker: str | None = None, doc_class: str | None = None, li
     for d in docs:
         d["name"] = names.get(d["ticker"], d["ticker"])
     return {"documents": docs, "class_counts": db.kb_class_counts(), "classes": list(kb.DOC_CLASSES)}
+
+
+@app.get("/api/kb/digests")
+def kb_digests_get():
+    """종목별/거시 요약 다이제스트(관리자) — 원문이 아니라 LLM으로 종합·축약된 것.
+    시그널·자문·해설이 실제로 소비하는 건 이 요약뿐(원문은 요약 생성 때만 사용)."""
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    names[kb.MACRO_TICKER] = kb.MACRO_NAME
+    out = []
+    for ticker, dg in db.kb_digests_all().items():
+        out.append({
+            "ticker": ticker, "name": names.get(ticker, dg.get("name") or ticker),
+            "summary": dg.get("summary"), "points": dg.get("points") or [],
+            "sentiment": dg.get("sentiment"), "n_sources": dg.get("n_sources"),
+            "newest_ts": dg.get("newest_ts"), "event_flag": dg.get("event_flag"),
+            "is_macro": ticker.startswith("_"),
+        })
+    # 거시 먼저, 그다음 최신 원자료순
+    out.sort(key=lambda x: (not x["is_macro"], -(x["newest_ts"] or 0)))
+    return {"digests": out}
 
 
 @app.post("/api/kb/import")
