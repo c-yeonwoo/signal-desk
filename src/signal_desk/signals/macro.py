@@ -18,7 +18,7 @@ VIX_CALM = 20.0
 VIX_FEAR = 25.0
 
 
-def read(indicators: list[dict]) -> dict:
+def read(indicators: list[dict], extra: list[dict] | None = None) -> dict:
     """macro_indicators() 결과를 받아 {bias, score, reasons, indicators}로 요약. score는 [-1,1].
 
     각 지표가 주식시장에 우호(+1)/비우호(-1)/중립(0) 표를 던지고 평균낸다. 지표별 favor는
@@ -69,6 +69,14 @@ def read(indicators: list[dict]) -> dict:
             reasons.append(f"[거시] VIX {vix['value']:.1f} — 안도 구간")
 
     annotated = [{**i, "favor": favor.get(i["key"], 0)} for i in indicators]
+
+    # 사전 판정된 추가 지표(예: ECOS 한국 거시 — favor·reason 포함)를 그대로 합류시킨다.
+    for e in (extra or []):
+        annotated.append(e)
+        if e.get("favor"):
+            favor[e["key"]] = e["favor"]
+        if e.get("reason"):
+            reasons.append(e["reason"])
 
     if not favor:
         return {"ready": False, "bias": None, "score": None, "reasons": [], "indicators": annotated}

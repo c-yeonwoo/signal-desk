@@ -22,6 +22,7 @@ PRICES_FILE = CACHE_DIR / "prices.parquet"
 FUNDAMENTALS_FILE = CACHE_DIR / "fundamentals.json"
 FUNDAMENTALS_HISTORY_FILE = CACHE_DIR / "fundamentals_history.json"  # point-in-time 백테스트용 연도별 재무
 MACRO_FILE = CACHE_DIR / "macro.json"
+MACRO_KR_FILE = CACHE_DIR / "macro_kr.json"  # 한국은행 ECOS 거시(기준금리·국고채·CPI)
 GURUS_FILE = CACHE_DIR / "gurus.json"  # 거장 포트폴리오(SEC 13F) 스냅샷
 US_UNIVERSE_FILE = CACHE_DIR / "us_universe.json"   # S&P500 구성종목(datahub)
 US_PRICES_FILE = CACHE_DIR / "us_prices.parquet"    # 미국 종목 일봉(KIS 해외)
@@ -154,6 +155,20 @@ def fetch_macro() -> list[dict]:
     items = fred.macro_indicators()
     _write_json(MACRO_FILE, items)
     return items
+
+
+def fetch_macro_kr() -> list[dict]:
+    """한국은행 ECOS 거시(기준금리·국고채10년·CPI)를 수집해 캐시. 키 없으면 빈 리스트."""
+    from signal_desk.ingest import ecos
+    items = ecos.macro_indicators()
+    _write_json(MACRO_KR_FILE, items)
+    return items
+
+
+def load_macro_kr() -> list[dict]:
+    if not MACRO_KR_FILE.exists():
+        return []
+    return json.loads(MACRO_KR_FILE.read_text(encoding="utf-8"))
 
 
 def fetch_gurus(top: int = 10) -> list[dict]:

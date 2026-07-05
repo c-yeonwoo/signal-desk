@@ -425,9 +425,11 @@ def _regime():
 
 @lru_cache(maxsize=1)
 def _macro():
-    indicators = store.load_macro()
-    # 정량 지표(FRED) + 정성 내러티브(미주은 시황 코멘터리 — 시장흐름 트래킹용, 개별 종목엔 미반영)
-    return {"indicators": indicators, "narrative": kb.macro_digest(), **macro.read(indicators)}
+    indicators = store.load_macro()          # 미국(FRED)
+    kr = store.load_macro_kr()               # 한국(ECOS) — favor·reason 사전판정 포함
+    # 정량 지표(FRED+ECOS) + 정성 내러티브(미주은 시황 코멘터리 — 개별 종목엔 미반영)
+    return {"indicators": indicators, "narrative": kb.macro_digest(),
+            **macro.read(indicators, extra=kr)}
 
 
 def _us_signal_items() -> list[dict]:
@@ -597,6 +599,7 @@ def refresh():
     fundamentals = store.fetch_fundamentals(universe)
     store.fetch_fundamentals_history(universe)  # point-in-time 백테스트용 연도별 재무
     macro_items = store.fetch_macro()
+    store.fetch_macro_kr()  # 한국은행 ECOS 거시(키 있을 때만 채워짐)
     try:
         store.fetch_gurus()  # 거장 포트폴리오(SEC 13F) — 실패해도 나머지 수집엔 영향 없음
         us_uni = store.fetch_us_universe()  # S&P500 유니버스
