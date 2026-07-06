@@ -188,3 +188,32 @@ def test_rotation_skips_within_min_hold(tmp_path, monkeypatch):
     out = bot.run_once(UID)
     assert not any(s["reason"] == "ROTATE_OUT" for s in out["sells"])   # 교체 없음
     assert {p["ticker"] for p in db.bot_positions_all(UID, "kr")} == {"WEAK"}
+
+
+def _evsig(ticker, name, severity, note="악재"):
+    return SignalResult(ticker=ticker, name=name, score=0.0, kind="HOLD", confidence=0.5,
+                        technical_score=0.0, fundamental_score=0.0, has_fundamental=False,
+                        reasons=[], event_risk=True, event_note=note, event_severity=severity)
+
+
+def test_event_critical_sells_full(tmp_path, monkeypatch):
+    """critical 악재(상장폐지 등) → 보유 전량 즉시 청산(가격 하락 전이라도)."""
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0, 100.0]},
+           [_evsig("AAA", "가", "critical", "상장폐지 — 감사의견 거절")])
+    _seed(0.0, {"AAA": {"name": "가", "qty": 10, "avg_price": 100.0}})
+    out = bot.run_once(UID)
+    assert any(s["reason"] == "EVENT" and s["qty"] == 10 for s in out["sells"])
+    assert db.bot_positions_all(UID, "kr") == []  # 전량 청산
+
+
+def test_event_serious_trims_half(tmp_path, monkeypatch):
+    """serious 악재(어닝쇼크 등) → 절반만 부분 청산, 나머지는 보유 유지."""
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0, 100.0]},
+           [_evsig("AAA", "가", "serious", "어닝쇼크 — 4분기 적자")])
+    _seed(0.0, {"AAA": {"name": "가", "qty": 10, "avg_price": 100.0}})
+    out = bot.run_once(UID)
+    assert any(s["reason"] == "EVENT_TRIM" and s["qty"] == 5 for s in out["sells"])
+    pos = db.bot_positions_all(UID, "kr")
+    assert len(pos) == 1 and pos[0]["qty"] == 5  # 절반 잔여

@@ -1309,7 +1309,7 @@ async function showSignalChart(ticker, item){
 
 // ===== 포트폴리오 — 자동매매봇 =====
 let _botChart = null;
-const _REASON_LABEL = { STOP_LOSS: '손절', TAKE_PROFIT: '익절', TRAILING: '트레일링', SIGNAL: '시그널', RESERVATION: '예약', ADD: '분할추가', ROTATE_OUT: '로테이션매도', ROTATE_IN: '로테이션매수' };
+const _REASON_LABEL = { STOP_LOSS: '손절', TAKE_PROFIT: '익절', TRAILING: '트레일링', SIGNAL: '시그널', RESERVATION: '예약', ADD: '분할추가', ROTATE_OUT: '로테이션매도', ROTATE_IN: '로테이션매수', EVENT: '악재청산', EVENT_TRIM: '악재부분청산' };
 
 async function loadBotState(){
   try {

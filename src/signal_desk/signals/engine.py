@@ -82,6 +82,7 @@ class SignalResult:
     has_qualitative: bool = False
     event_risk: bool = False  # KB에서 최근 악재 이벤트 감지 — 매수 후보에서 제외(veto)
     event_note: str = ""
+    event_severity: str = ""  # 악재 강도: critical(전량 청산)|serious(부분 청산)|''
     reasons: list[str] = field(default_factory=list)
     narrative: str = ""
 
@@ -323,6 +324,7 @@ def evaluate(
             reversion_score=round(rev_score_raw, 2), has_reversion=has_reversion,
             qualitative_score=qual_score, has_qualitative=has_qualitative,
             event_risk=bool(entry.get("event_risk")), event_note=str(entry.get("event_note") or ""),
+            event_severity=str(entry.get("event_severity") or ""),
             reasons=combined["reasons"],
         )
         result.narrative = narr.explain(result)
