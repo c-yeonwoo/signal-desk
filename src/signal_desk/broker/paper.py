@@ -15,30 +15,32 @@ from signal_desk import db, store
 log = logging.getLogger("signal_desk.broker.paper")
 
 
-def _key(uid: int) -> str:
-    return f"paper_account:{uid}"
+def _key(uid: int, market: str = "kr") -> str:
+    return f"paper_account:{uid}" if market == "kr" else f"paper_account:{uid}:{market}"
 
 
-def _seed(uid: int) -> float:
-    return float((db.user_bot_get(uid) or {}).get("seed_cash") or 10_000_000)
+def _seed(uid: int, market: str = "kr") -> float:
+    u = db.user_bot_get(uid) or {}
+    return float((u.get("seed_cash_us") if market == "us" else u.get("seed_cash")) or (10_000 if market == "us" else 10_000_000))
 
 
-def _load(uid: int) -> dict:
-    raw = db.kv_get(_key(uid))
+def _load(uid: int, market: str = "kr") -> dict:
+    raw = db.kv_get(_key(uid, market))
     if not raw:
-        return {"cash": _seed(uid), "positions": {}}
+        return {"cash": _seed(uid, market), "positions": {}}
     acct = json.loads(raw) if isinstance(raw, str) else raw
-    acct.setdefault("cash", _seed(uid))
+    acct.setdefault("cash", _seed(uid, market))
     acct.setdefault("positions", {})
     return acct
 
 
-def _save(uid: int, acct: dict) -> None:
-    db.kv_set(_key(uid), json.dumps(acct, ensure_ascii=False))
+def _save(uid: int, acct: dict, market: str = "kr") -> None:
+    db.kv_set(_key(uid, market), json.dumps(acct, ensure_ascii=False))
 
 
-def _name_map() -> dict[str, str]:
-    return {u["ticker"]: u["name"] for u in store.load_universe()}
+def _name_map(market: str = "kr") -> dict[str, str]:
+    uni = store.load_us_universe() if market == "us" else store.load_universe()
+    return {u["ticker"]: u["name"] for u in uni}
 
 
 def current_price(ticker: str) -> float | None:
@@ -47,10 +49,10 @@ def current_price(ticker: str) -> float | None:
     return float(closes[-1]) if closes else None
 
 
-def balance(uid: int) -> dict:
-    """KIS balance와 동일 형태 — 유저 모의계좌 현금·보유·평가손익. 항상 성공."""
-    acct = _load(uid)
-    names = _name_map()
+def balance(uid: int, market: str = "kr") -> dict:
+    """KIS balance와 동일 형태 — 유저 모의계좌(시장별) 현금·보유·평가손익. 항상 성공."""
+    acct = _load(uid, market)
+    names = _name_map(market)
     holdings, stock_eval, invested = [], 0.0, 0.0
     for t, p in acct["positions"].items():
         price = current_price(t) or p["avg_price"]
@@ -70,8 +72,8 @@ def balance(uid: int) -> dict:
 
 
 def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None = None,
-                name: str = "") -> dict | None:
-    """유저 계좌 가상 체결. 실패(현금·수량 부족, 가격 없음) 시 None. 성공 시 order 유사 dict."""
+                name: str = "", market: str = "kr") -> dict | None:
+    """유저 계좌(시장별) 가상 체결. 실패(현금·수량 부족, 가격 없음) 시 None. 성공 시 order 유사 dict."""
     if side not in ("buy", "sell"):
         raise ValueError("side must be 'buy' or 'sell'")
     if qty <= 0:
@@ -79,7 +81,7 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
     px = float(price) if price else current_price(ticker)
     if not px or px <= 0:
         return None
-    acct = _load(uid)
+    acct = _load(uid, market)
     pos = acct["positions"].get(ticker)
     if side == "buy":
         if px * qty > acct["cash"]:
@@ -90,7 +92,7 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
             pos["avg_price"] = (pos["avg_price"] * pos["qty"] + px * qty) / total
             pos["qty"] = total
         else:
-            acct["positions"][ticker] = {"name": name or _name_map().get(ticker, ticker),
+            acct["positions"][ticker] = {"name": name or _name_map(market).get(ticker, ticker),
                                          "qty": qty, "avg_price": px}
     else:  # sell
         if not pos or pos["qty"] < qty:
@@ -99,5 +101,5 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
         pos["qty"] -= qty
         if pos["qty"] <= 0:
             del acct["positions"][ticker]
-    _save(uid, acct)
+    _save(uid, acct, market)
     return {"order_no": "PAPER", "order_time": "", "fill_price": round(px, 2)}

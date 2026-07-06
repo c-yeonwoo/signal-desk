@@ -45,12 +45,12 @@ def _cfg(uid: int) -> dict:
     return {**u, **strategy.bot_params(u["trading_style"])}
 
 
-def _daily_loss_breached(uid: int, bal: dict, dry_run: bool) -> bool:
-    """유저의 당일 시작 평가액 대비 손실 한도 초과 여부. 초과면 신규 매수 중단(리스크 청산은 유지)."""
+def _daily_loss_breached(uid: int, bal: dict, dry_run: bool, market: str = "kr") -> bool:
+    """유저의 당일 시작 평가액 대비 손실 한도 초과 여부(시장별). 초과면 신규 매수 중단(리스크 청산은 유지)."""
     total = bal.get("total_eval")
     if not total or total <= 0:
         return False
-    key = f"bot_day_equity:{uid}:{_today()}"
+    key = f"bot_day_equity:{uid}:{market}:{_today()}"
     start = db.kv_get(key)
     if start is None:
         if not dry_run:
@@ -198,11 +198,11 @@ def _sell_note(reason: str, qty: int, avg_price: float, current_price: float,
             f"({pl_pct:+.1f}%), 보유 전량 {qty}주 청산")
 
 
-def reconcile_positions(uid: int, bal: dict) -> None:
-    """유저 bot_positions를 paper 잔고에 맞춘다 — 종목·수량·평단은 paper로 덮어쓰고, 트레일링용
+def reconcile_positions(uid: int, bal: dict, market: str = "kr") -> None:
+    """유저 bot_positions(시장별)를 paper 잔고에 맞춘다 — 종목·수량·평단은 paper로 덮어쓰고, 트레일링용
     peak_price·entry_date만 유지(paper엔 없음). paper에 없는 포지션은 삭제. 현재가·수익률 스냅샷도 갱신."""
     ph = {h["ticker"]: h for h in bal.get("holdings", [])}
-    for t in {p["ticker"] for p in db.bot_positions_all(uid)} - set(ph):
+    for t in {p["ticker"] for p in db.bot_positions_all(uid, market)} - set(ph):
         db.bot_position_delete(uid, t)
     for t, h in ph.items():
         pos = db.bot_position_get(uid, t)
@@ -210,33 +210,35 @@ def reconcile_positions(uid: int, bal: dict) -> None:
         peak = max(pos["peak_price"] if pos else h["avg_price"], h["avg_price"], price)
         entry = pos["entry_date"] if pos else _today()
         db.bot_position_upsert(uid, t, h["name"], h["qty"], h["avg_price"], peak, entry,
-                               last_price=price or None, last_pnl_pct=h.get("pnl_pct"))
+                               last_price=price or None, last_pnl_pct=h.get("pnl_pct"), market=market)
 
 
-def snapshot_positions(uid: int) -> bool:
-    """유저 보유종목 현재가·수익률 스냅샷 갱신(장 종료 후 1회 등) — paper 잔고로 reconcile."""
-    reconcile_positions(uid, paper.balance(uid))
+def snapshot_positions(uid: int, market: str = "kr") -> bool:
+    """유저 보유종목 현재가·수익률 스냅샷 갱신(시장별) — paper 잔고로 reconcile."""
+    reconcile_positions(uid, paper.balance(uid, market), market)
     return True
 
 
-def get_state(uid: int) -> dict:
-    """유저 포트폴리오 탭용 종합 상태 — 봇 설정/현금·평가금액/보유종목/최근거래."""
+def get_state(uid: int, market: str = "kr") -> dict:
+    """유저 포트폴리오 탭용 종합 상태(시장별) — 봇 설정/현금·평가금액/보유종목/최근거래."""
     cfg = _cfg(uid)
-    bal = paper.balance(uid)
-    reconcile_positions(uid, bal)
+    bal = paper.balance(uid, market)
+    reconcile_positions(uid, bal, market)
     return {
         "enabled": cfg["enabled"],
         "config": cfg,
-        "seed_cash": cfg["seed_cash"],
+        "market": market,
+        "currency": "USD" if market == "us" else "KRW",
+        "seed_cash": cfg["seed_cash_us"] if market == "us" else cfg["seed_cash"],
         "cash": bal["cash"],
         "total_eval": bal["total_eval"],
         "stock_eval": bal.get("stock_eval"),
         "invested": bal.get("invested"),
         "pnl": bal.get("pnl"),
         "pnl_pct": bal.get("pnl_pct"),
-        "positions": db.bot_positions_all(uid),
-        "recent_trades": db.bot_trades_recent(uid, 20),
-        "reservations": db.bot_reservations_pending(uid),
+        "positions": db.bot_positions_all(uid, market),
+        "recent_trades": db.bot_trades_recent(uid, 20, market),
+        "reservations": db.bot_reservations_pending(uid) if market == "kr" else [],
         "llm_enabled": llm.available(),
         "style_label": strategy.STYLE_LABEL.get(cfg["trading_style"], cfg["trading_style"]),
         "styles": [{"key": k, "label": strategy.STYLE_LABEL[k], "desc": strategy.STYLE_DESC[k]} for k in strategy.STYLES],
@@ -256,9 +258,9 @@ def set_style(uid: int, style: str) -> str:
     return style
 
 
-def set_seed(uid: int, seed_cash: float) -> None:
-    """유저 초기 시드 변경. 다음 초기화 때 이 금액으로 리셋된다(기존 계좌엔 즉시 반영 안 됨)."""
-    db.user_bot_set_seed(uid, max(0.0, float(seed_cash)))
+def set_seed(uid: int, seed_cash: float, market: str = "kr") -> None:
+    """유저 초기 시드 변경(시장별). 다음 초기화 때 이 금액으로 리셋된다(기존 계좌엔 즉시 반영 안 됨)."""
+    db.user_bot_set_seed(uid, max(0.0, float(seed_cash)), market)
 
 
 def reset(uid: int) -> None:
@@ -269,32 +271,44 @@ def reset(uid: int) -> None:
 _MAX_CHASE_PCT = 0.02  # 지정가 상한(종가 대비 +2%) — 표시·계획용(paper는 종가 즉시 체결)
 
 
-def run_once(uid: int, dry_run: bool = False) -> dict:
-    """유저 한 사이클 실행 — 공용 시그널로 유저 페이퍼 계좌에 매매.
+def _market_signals(market: str, mr: dict):
+    """(universe, prices, signals, name_by_ticker) — 시장별. kr은 재무+국면게이트, us는 us_signals."""
+    if market == "us":
+        prices = store.load_us_price_series()
+        us_uni = store.load_us_universe()
+        sigs = us_signals()  # engine.evaluate(us universe, us prices, sentiment) — 재무 없음
+        names = {u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in us_uni}
+        return us_uni, prices, sigs, names
+    universe = store.load_universe()
+    prices = store.load_price_series()
+    fundamentals = store.load_fundamentals()
+    sigs = engine.evaluate(universe, prices, fundamentals, config=mr["eff_cfg"], sentiment=kb.sentiment_map())
+    return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}
+
+
+def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
+    """유저 한 사이클 실행(시장별 페이퍼 계좌) — 공용 시그널로 매매. market: 'kr'|'us'.
     dry_run=True면 주문/DB기록 없이 '무엇을 왜 매매할지' 계획만 계산(미리보기)."""
     if not dry_run and config.bot_kill_switch():
         return {"ok": False, "reason": "긴급정지(BOT_KILL_SWITCH) 활성 — 주문을 내지 않습니다."}
+    unit = "$" if market == "us" else "원"
 
-    bal = paper.balance(uid)
+    bal = paper.balance(uid, market)
     if not dry_run:
-        reconcile_positions(uid, bal)  # bot_positions(peak·entry) 미러를 paper 실측과 일치시킴(stale 정리)
-    block_new_buys = _daily_loss_breached(uid, bal, dry_run)  # 일일 손실 한도 초과 시 신규 매수 중단
+        reconcile_positions(uid, bal, market)  # bot_positions(peak·entry) 미러를 paper 실측과 일치(stale 정리)
+    block_new_buys = _daily_loss_breached(uid, bal, dry_run, market)
 
-    universe = store.load_universe()
-    prices = store.load_price_series()
+    kr_prices = store.load_price_series()
+    mr = _market_read(kr_prices) if kr_prices else {"eff_cfg": None, "context": {}}  # 공용 국면(거시·advisor 참고)
+    universe, prices, signals, name_by_ticker = _market_signals(market, mr)
     if not universe or not prices:
         return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요"}
-
-    fundamentals = store.load_fundamentals()
-    market = _market_read(prices)  # 공용 국면 스냅샷 — 거시는 여기 게이트에서만 매수 기준에 반영
-    signals = engine.evaluate(universe, prices, fundamentals, config=market["eff_cfg"], sentiment=kb.sentiment_map())
     signal_by_ticker = {s.ticker: s for s in signals}
-    name_by_ticker = {u["ticker"]: u["name"] for u in universe}
-    if not dry_run:
-        _update_decision_outcomes(prices)  # 과거 결정 사후수익 확정(공용 학습)
+    if not dry_run and market == "kr":
+        _update_decision_outcomes(prices)  # 과거 결정 사후수익 확정(공용 학습, 국내 기준)
 
     cfg = _cfg(uid)
-    risk_cfg = strategy.risk_config(cfg["trading_style"], market["context"].get("regime"))
+    risk_cfg = strategy.risk_config(cfg["trading_style"], mr["context"].get("regime"))
     sells: list[dict] = []
     for h in bal["holdings"]:
         ticker, qty, avg_price = h["ticker"], h["qty"], h["avg_price"]
@@ -318,10 +332,10 @@ def run_once(uid: int, dry_run: bool = False) -> dict:
             plan = {"ticker": ticker, "name": name_by_ticker.get(ticker, ticker), "qty": qty,
                     "reason": reason, "note": note, "price": current_price}
             if not dry_run:
-                result = paper.place_order(uid, ticker, "sell", qty, price=current_price)
+                result = paper.place_order(uid, ticker, "sell", qty, price=current_price, market=market)
                 if result is not None:
                     db.bot_trade_log(uid, ticker, plan["name"], "sell", qty, current_price, reason,
-                                      result["order_no"], score=sig.score if sig else None, note=note)
+                                      result["order_no"], score=sig.score if sig else None, note=note, market=market)
                     db.bot_position_delete(uid, ticker)
                     plan["ok"] = True
                 else:
@@ -329,9 +343,9 @@ def run_once(uid: int, dry_run: bool = False) -> dict:
             sells.append(plan)
         elif not dry_run:
             db.bot_position_upsert(uid, ticker, name_by_ticker.get(ticker, ticker), qty, avg_price,
-                                    peak, pos["entry_date"] if pos else _today())
+                                    peak, pos["entry_date"] if pos else _today(), market=market)
 
-    bal2 = paper.balance(uid) if not dry_run else bal
+    bal2 = paper.balance(uid, market) if not dry_run else bal
     held_after = {h["ticker"] for h in bal2["holdings"]}
     available_slots = max(0, cfg["max_positions"] - len(held_after))
     slots = 0 if block_new_buys else min(available_slots, cfg["max_new_buys_per_run"])
@@ -339,13 +353,13 @@ def run_once(uid: int, dry_run: bool = False) -> dict:
     buys: list[dict] = []
     skipped_weak = 0
     advisor_used = False
-    context = market["context"]
+    context = mr["context"]
     cash = bal2["cash"]
     target_alloc = bal2["total_eval"] * cfg["position_pct"]
     tranches = strategy.entry_tranches(cfg["trading_style"])  # ① 분할매수 회차
     tranche_alloc = target_alloc / tranches
     if slots > 0:
-        warned = store.load_warned_tickers()  # 토스 투자경고/거래정지/과열/VI → 매수 veto
+        warned = store.load_warned_tickers() if market == "kr" else set()  # 토스 경고 veto(국내)
         eligible = [s for s in signals if engine.is_buy(s.kind) and s.ticker not in held_after
                     and not s.event_risk and s.ticker not in warned]
         strong = [s for s in eligible if s.score >= cfg["min_buy_score"]]
@@ -376,17 +390,18 @@ def run_once(uid: int, dry_run: bool = False) -> dict:
             if qty < 1:
                 continue  # 배분금액보다 1주가 비싸면 스킵(정수주 제약)
             quant = (f"점수 {s.score:+.2f}(≥{cfg['min_buy_score']:.1f}·신뢰도 {s.confidence:.2f}) · "
-                     f"분할 1/{tranches}트랜치(약 {int(alloc):,}원) ÷ {int(live):,}원 = {qty}주")
+                     f"분할 1/{tranches}트랜치(약 {int(alloc):,}{unit}) ÷ {int(live):,}{unit} = {qty}주")
             llm_reason = rationale_by.get(s.ticker)
             note = (f"[AI] {llm_reason} · {quant}") if llm_reason else quant
-            plan = {"ticker": s.ticker, "name": s.name, "qty": qty, "price": live,
+            plan = {"ticker": s.ticker, "name": name_by_ticker.get(s.ticker, s.name), "qty": qty, "price": live,
                     "reason": "SIGNAL", "note": note, "score": s.score, "ai": bool(llm_reason)}
             if not dry_run:
-                result = paper.place_order(uid, s.ticker, "buy", qty, price=live, name=s.name)
+                result = paper.place_order(uid, s.ticker, "buy", qty, price=live, name=s.name, market=market)
                 if result is not None:
-                    db.bot_trade_log(uid, s.ticker, s.name, "buy", qty, live, "SIGNAL",
-                                      result["order_no"], score=s.score, note=note)
-                    db.bot_position_upsert(uid, s.ticker, s.name, qty, live, live, _today())
+                    db.bot_trade_log(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), "buy", qty, live, "SIGNAL",
+                                      result["order_no"], score=s.score, note=note, market=market)
+                    db.bot_position_upsert(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), qty, live, live,
+                                            _today(), market=market)
                     db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, context, live)  # 공용 저널(학습)
                     cash -= qty * live
                     plan["ok"] = True
@@ -416,20 +431,21 @@ def run_once(uid: int, dry_run: bool = False) -> dict:
         qty = int(add_amt // live)
         if qty < 1:
             continue
-        note = (f"분할 추가매수(목표 {int(target_alloc):,}원 대비 {int(value):,}원) · "
+        note = (f"분할 추가매수(목표 {int(target_alloc):,}{unit} 대비 {int(value):,}{unit}) · "
                 f"평단 {int(avg):,}·현재 {int(live):,} · {qty}주")
         plan = {"ticker": t, "name": h["name"], "qty": qty, "price": live,
                 "reason": "ADD", "note": note, "score": sig.score, "ai": False}
         if not dry_run:
-            result = paper.place_order(uid, t, "buy", qty, price=live, name=h["name"])
+            result = paper.place_order(uid, t, "buy", qty, price=live, name=h["name"], market=market)
             if result is not None:
                 new_qty = h["qty"] + qty
                 new_avg = round((h["qty"] * avg + qty * live) / new_qty, 2)
                 pos = db.bot_position_get(uid, t)
-                db.bot_trade_log(uid, t, h["name"], "buy", qty, live, "ADD", result["order_no"], score=sig.score, note=note)
+                db.bot_trade_log(uid, t, h["name"], "buy", qty, live, "ADD", result["order_no"],
+                                  score=sig.score, note=note, market=market)
                 db.bot_position_upsert(uid, t, h["name"], new_qty, new_avg,
                                         max(pos["peak_price"] if pos else new_avg, live),
-                                        pos["entry_date"] if pos else _today())
+                                        pos["entry_date"] if pos else _today(), market=market)
                 cash -= qty * live
                 plan["ok"] = True
             else:

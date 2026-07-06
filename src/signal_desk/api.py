@@ -84,10 +84,11 @@ async def _bot_loop():
         try:
             _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(공용)
             enabled = db.user_bots_enabled()
-            for uid in enabled:  # 시간 무관 매 주기 실행(paper)
-                result = bot.run_once(uid)
-                if not result.get("ok"):
-                    log.info("봇 실행 스킵(uid=%s): %s", uid, result.get("reason"))
+            for uid in enabled:  # 시간 무관 매 주기 실행(paper) — 국내+해외 각 시장
+                for mkt in ("kr", "us"):
+                    result = bot.run_once(uid, market=mkt)
+                    if not result.get("ok"):
+                        log.info("봇 실행 스킵(uid=%s, %s): %s", uid, mkt, result.get("reason"))
             # 하루 1회(평일 마감 후): 공용 KB 갱신 + 유저별 종가 스냅샷
             now = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
             if enabled and now.weekday() < 5 and now.time() >= datetime.time(15, 40) \
@@ -98,7 +99,8 @@ async def _bot_loop():
                 except Exception as e:
                     log.warning("마감후 KB 갱신 실패: %s", e)
                 for uid in enabled:
-                    bot.snapshot_positions(uid)
+                    bot.snapshot_positions(uid, "kr")
+                    bot.snapshot_positions(uid, "us")
                 db.kv_set("bot_daily_snap", _kst_today())
         except Exception as e:
             log.error("자동매매봇 루프 오류: %s", e)
@@ -649,10 +651,14 @@ def regime_get():
     return {**_regime(), "adaptive": adapt}
 
 
-# ---------- 자동매매봇 (유저별 자체 모의계좌 · 공용 시그널) ----------
+# ---------- 자동매매봇 (유저별 자체 모의계좌 · 공용 시그널 · 시장별 kr/us) ----------
+def _mkt(v) -> str:
+    return "us" if str(v or "kr").lower() == "us" else "kr"
+
+
 @app.get("/api/bot/state")
-def bot_state_get(request: Request):
-    return bot.get_state(_uid(request))
+def bot_state_get(request: Request, market: str = "kr"):
+    return bot.get_state(_uid(request), _mkt(market))
 
 
 @app.post("/api/bot/toggle")
@@ -670,21 +676,21 @@ def bot_style(request: Request, data: dict = Body(...)):
 
 @app.post("/api/bot/seed")
 def bot_seed(request: Request, data: dict = Body(...)):
-    """내 봇 초기 시드 금액 설정(다음 초기화 때 반영)."""
+    """내 봇 초기 시드 금액 설정(시장별, 다음 초기화 때 반영)."""
     try:
         seed = float(data.get("seed_cash") or 0)
     except (TypeError, ValueError):
         return {"ok": False, "reason": "금액 오류"}
     if seed <= 0:
         return {"ok": False, "reason": "0보다 큰 금액을 입력하세요."}
-    bot.set_seed(_uid(request), seed)
+    bot.set_seed(_uid(request), seed, _mkt(data.get("market")))
     return {"ok": True, "seed_cash": seed}
 
 
 @app.post("/api/bot/run")
-def bot_run(request: Request):
-    """내 봇 수동 1회 실행 — 자체 모의계좌 종가 기준 가상 체결."""
-    return bot.run_once(_uid(request), dry_run=False)
+def bot_run(request: Request, data: dict = Body(default={})):
+    """내 봇 수동 1회 실행(시장별) — 자체 모의계좌 종가 기준 가상 체결."""
+    return bot.run_once(_uid(request), dry_run=False, market=_mkt(data.get("market")))
 
 
 @app.get("/api/bot/us/state")
@@ -705,9 +711,9 @@ def bot_us_preview(data: dict = Body(default={})):
 
 
 @app.post("/api/bot/preview")
-def bot_preview(request: Request):
-    """내 봇 판단 미리보기(dry-run) — 주문 없이 '지금 무엇을 왜 매매할지' 계획만."""
-    return bot.run_once(_uid(request), dry_run=True)
+def bot_preview(request: Request, data: dict = Body(default={})):
+    """내 봇 판단 미리보기(dry-run, 시장별) — 주문 없이 '지금 무엇을 왜 매매할지' 계획만."""
+    return bot.run_once(_uid(request), dry_run=True, market=_mkt(data.get("market")))
 
 
 @app.post("/api/bot/reset")
