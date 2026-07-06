@@ -76,16 +76,19 @@ def _daily_kb_collect():
 async def _bot_loop():
     """자동매매봇 백그라운드 루프 — 봇을 켠 유저별로 순회. 시그널은 공용, 계좌는 paper(종가 기준).
 
-    paper는 종가 즉시 체결이라 장 시간과 무관 → interval(기본 5분)마다 유저별 run_once.
-    (분할매수는 여러 틱에 걸쳐 목표비중까지 담고, 손절/익절은 가격 변동 시 발동 — 시세는 데이터 갱신 때 바뀜.)
+    interval(기본 5분)마다 순회하되, 실제 체결은 각 시장 장중에만 한다 — KR은 KR장중(09:00~15:20 평일),
+    US는 US장중(KST 근사 22:30~06:00). 장외엔 비현실적 종가 체결을 피하려고 자동매매를 건너뛴다.
+    (수동 '지금 실행'은 장 시간과 무관하게 즉시 실행 — 테스트용 override.)
     KB 자동수집·종가 스냅샷은 하루 1회(kv 날짜 가드)."""
     interval = config.bot_run_interval_minutes() * 60
     while True:
         try:
             _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(공용)
             enabled = db.user_bots_enabled()
-            for uid in enabled:  # 시간 무관 매 주기 실행(paper) — 국내+해외 각 시장
-                for mkt in ("kr", "us"):
+            open_markets = [m for m, is_open in
+                            (("kr", bot.is_market_hours()), ("us", bot.is_us_market_hours())) if is_open]
+            for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
+                for mkt in open_markets:
                     result = bot.run_once(uid, market=mkt)
                     if not result.get("ok"):
                         log.info("봇 실행 스킵(uid=%s, %s): %s", uid, mkt, result.get("reason"))

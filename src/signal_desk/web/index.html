@@ -1340,7 +1340,7 @@ async function loadBotState(){
     const cfg = d.config || {};
     document.getElementById('bot-rules').innerHTML =
       `<b>ON이면 주기적으로</b> 공용 시그널로 내 모의계좌에 자동 판단·매매(강한 BUY 후보 → <b>AI 최종 선별</b>) · `
-      + `종가 기준 가상 체결(장 시간 무관) · `
+      + `종가 기준 가상 체결 · <b>장중에만 자동매매</b>(장외 스킵, 수동 '지금 실행'은 예외) · `
       + `매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · 한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · `
       + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`
       + ` · 슬롯이 꽉 차면 <b>컨빅션 로테이션</b>(약한 보유를 훨씬 강한 후보로 교체, 최소 5일 보유·큰 손실 제외)`
