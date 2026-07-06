@@ -74,38 +74,32 @@ def _daily_kb_collect():
 
 
 async def _bot_loop():
-    """자동매매봇 백그라운드 루프 — 봇을 켠 유저별로 순회. 시그널은 공용(각 run_once 내 캐시 활용).
+    """자동매매봇 백그라운드 루프 — 봇을 켠 유저별로 순회. 시그널은 공용, 계좌는 paper(종가 기준).
 
-    장중(5분 주기): 유저별 run_once로 매매. 마감 후 1회: 공용 KB 갱신 + 유저별 예약 생성·스냅샷.
-    개장 직후 1회: 유저별 예약 실행. 하루 1회성 작업은 kv에 마지막 실행일을 기록해 중복 방지."""
+    paper는 종가 즉시 체결이라 장 시간과 무관 → interval(기본 5분)마다 유저별 run_once.
+    (분할매수는 여러 틱에 걸쳐 목표비중까지 담고, 손절/익절은 가격 변동 시 발동 — 시세는 데이터 갱신 때 바뀜.)
+    KB 자동수집·종가 스냅샷은 하루 1회(kv 날짜 가드)."""
     interval = config.bot_run_interval_minutes() * 60
     while True:
         try:
             _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(공용)
             enabled = db.user_bots_enabled()
-            if enabled:
-                now = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
-                weekday = now.weekday() < 5
-                if bot.is_market_hours(now):
-                    open_resv = now.time() <= datetime.time(9, 10) and db.kv_get("bot_exec_resv_date") != _kst_today()
-                    for uid in enabled:
-                        if open_resv:
-                            bot.execute_reservations(uid)
-                        result = bot.run_once(uid)
-                        if not result.get("ok"):
-                            log.info("봇 실행 스킵(uid=%s): %s", uid, result.get("reason"))
-                    if open_resv:
-                        db.kv_set("bot_exec_resv_date", _kst_today())
-                elif weekday and now.time() >= datetime.time(15, 40) and db.kv_get("bot_resv_date") != _kst_today():
-                    try:  # 마감 후 1회: 공용 KB 갱신(신선한 정성/이벤트 반영)
-                        kb.refresh(_kb_targets())
-                        _signals.cache_clear()
-                    except Exception as e:
-                        log.warning("마감후 KB 갱신 실패(예약은 계속): %s", e)
-                    for uid in enabled:  # 유저별 종가 스냅샷 + 다음 개장 예약
-                        bot.snapshot_positions(uid)
-                        bot.generate_reservations(uid)
-                    db.kv_set("bot_resv_date", _kst_today())
+            for uid in enabled:  # 시간 무관 매 주기 실행(paper)
+                result = bot.run_once(uid)
+                if not result.get("ok"):
+                    log.info("봇 실행 스킵(uid=%s): %s", uid, result.get("reason"))
+            # 하루 1회(평일 마감 후): 공용 KB 갱신 + 유저별 종가 스냅샷
+            now = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
+            if enabled and now.weekday() < 5 and now.time() >= datetime.time(15, 40) \
+                    and db.kv_get("bot_daily_snap") != _kst_today():
+                try:
+                    kb.refresh(_kb_targets())
+                    _signals.cache_clear()
+                except Exception as e:
+                    log.warning("마감후 KB 갱신 실패: %s", e)
+                for uid in enabled:
+                    bot.snapshot_positions(uid)
+                db.kv_set("bot_daily_snap", _kst_today())
         except Exception as e:
             log.error("자동매매봇 루프 오류: %s", e)
         await asyncio.sleep(interval)
