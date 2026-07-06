@@ -182,6 +182,35 @@ def _reversion_component(
     return rev_score / rev_cfg.max_score, config.weight_reversion, reasons, rev_score, True
 
 
+def _downtrend_confirmed(
+    closes: list[float], series: dict, i: int, config: SignalConfig
+) -> bool:
+    """확인된 하락추세(=떨어지는 칼) 판정. 종가가 MA20·MA60 아래이고 역배열(MA20<MA60)이면
+    구조적 하락 국면으로 본다. 종가가 MA20를 회복하면(c>=MA20) 반등 신호로 간주해 해제한다.
+
+    이 국면에선 낙폭과대(반등 기대)·저평가(싸 보임)가 계속 매수를 부추기지만 주가는 더 싸지고
+    더 떨어진다(가치함정). 그래서 이 국면의 낙폭과대 매수기여를 무효화하고 종합 매수신호도
+    관망으로 강등한다 — backtest/live 공통 게이트."""
+    ma_s = series["ma_short"][i]
+    ma_m = series["ma_mid"][i]
+    if ma_s is None or ma_m is None:
+        return False
+    c = closes[i]
+    return c < ma_s and c < ma_m and ma_s < ma_m
+
+
+def _apply_trend_gate(
+    combined: dict, closes: list[float], series: dict, i: int, config: SignalConfig
+) -> dict:
+    """확인된 하락추세에서 종합 매수신호를 관망으로 강등(떨어지는 칼 차단). 낙폭과대 기여는
+    컴포넌트 단계(_price_only_components/evaluate)에서 이미 무효화됨."""
+    if combined["kind"] in BUY_KINDS and _downtrend_confirmed(closes, series, i, config):
+        combined["kind"] = HOLD
+        combined["reasons"] = [*combined["reasons"],
+                               "[추세] 하락추세 확인(종가<MA20<MA60) — 반등 전 매수 차단(관망)"]
+    return combined
+
+
 # 5단계 시그널 종류
 STRONG_BUY, BUY, HOLD, SELL, STRONG_SELL = "STRONG_BUY", "BUY", "HOLD", "SELL", "STRONG_SELL"
 BUY_KINDS = (STRONG_BUY, BUY)
@@ -263,6 +292,17 @@ def evaluate(
             sentiment.get(ticker), config.weight_qualitative
         )
 
+        # 확인된 하락추세(떨어지는 칼)에서는 낙폭과대·저평가 매수기여를 무효화한다 — 싸고
+        # 과매도여도 구조적 하락이면 계속 싸지고 떨어지는 가치함정. 종합 BUY도 아래서 관망 강등.
+        i_last = len(closes) - 1
+        if _downtrend_confirmed(closes, series, i_last, config):
+            if rev_weight and rev_norm > 0:
+                rev_norm, rev_weight = 0.0, 0.0
+                rev_reasons = [*rev_reasons, "[추세] 하락추세 — 낙폭과대 매수신호 무효화"]
+            if val_weight and val_norm > 0:
+                val_norm, val_weight = 0.0, 0.0
+                val_reasons = [*val_reasons, "[추세] 하락추세 — 저평가 매수기여 보류(가치함정 방지)"]
+
         # 정성(KB)은 점수 팩터가 아니라 '악재 이벤트 veto'로만 쓴다(백테스트상 점수 기여 미미 —
         # 대신 KB의 강점인 이벤트 리스크 회피에 집중). 감성 점수는 표시용으로만 보존.
         components = [
@@ -272,6 +312,7 @@ def evaluate(
             (rev_norm, rev_weight, rev_reasons),
         ]
         combined = combine(components, config)
+        _apply_trend_gate(combined, closes, series, i_last, config)
 
         entry = sentiment.get(ticker) or {}
         result = SignalResult(
@@ -300,6 +341,9 @@ def _price_only_components(
     rev_norm, rev_weight, rev_reasons, _, _ = _reversion_component(
         closes[: i + 1], series["rsi"][: i + 1], config
     )
+    if rev_weight and rev_norm > 0 and _downtrend_confirmed(closes, series, i, config):
+        rev_norm, rev_weight = 0.0, 0.0  # 하락추세 확인 시 낙폭과대 매수기여 무효화(떨어지는 칼)
+        rev_reasons = [*rev_reasons, "[추세] 하락추세 — 낙폭과대 매수신호 무효화"]
     return [
         (tech_score / 3.0, config.weight_technical, tech_reasons),
         (rev_norm, rev_weight, rev_reasons),
@@ -346,6 +390,7 @@ def replay_signal_kinds(closes: list[float], config: SignalConfig | None = None)
     kinds = []
     for i in range(len(closes)):
         combined = combine(_price_only_components(closes, series, i, config), config)
+        _apply_trend_gate(combined, closes, series, i, config)
         kinds.append(combined["kind"])
     return kinds
 
@@ -360,6 +405,7 @@ def signal_zones(
     kinds, reasons_at = [], []
     for k in range(len(closes)):
         combined = combine(_price_only_components(closes, series, k, config), config)
+        _apply_trend_gate(combined, closes, series, k, config)
         kinds.append(combined["kind"])
         reasons_at.append(combined["reasons"])
     zones = []
@@ -415,6 +461,7 @@ def _run_backtest(
                 py = _pit_year(wdates[i], hist_years)
                 fund_metrics = hist.get(str(py)) if py else None
             combined = combine(_replay_components(window, series, i, config, fund_metrics), config)
+            _apply_trend_gate(combined, window, series, i, config)
             kind = combined["kind"]
             if kind == HOLD:
                 continue
