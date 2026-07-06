@@ -242,6 +242,7 @@ def get_state(uid: int, market: str = "kr") -> dict:
         "llm_enabled": llm.available(),
         "style_label": strategy.STYLE_LABEL.get(cfg["trading_style"], cfg["trading_style"]),
         "styles": [{"key": k, "label": strategy.STYLE_LABEL[k], "desc": strategy.STYLE_DESC[k]} for k in strategy.STYLES],
+        "rotation": strategy.rotation_params(cfg["trading_style"]),
         "kill_switch": config.bot_kill_switch(),
         "daily_loss_limit_pct": config.bot_daily_loss_limit_pct(),
     }
@@ -288,9 +289,9 @@ def _market_signals(market: str, mr: dict):
 
 def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_after,
                        cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
-                       sells, buys, rotated_out, dry_run):
-    """약한 보유 → 훨씬 강한 후보 교체(보수적). 갱신된 cash 반환. sells/buys/held_after/rotated_out 갱신."""
-    rp = strategy.rotation_params()
+                       sells, buys, rotated_out, dry_run, rp):
+    """약한 보유 → 더 강한 후보 교체. rp=성향별 로테이션 정책. 갱신된 cash 반환.
+    sells/buys/held_after/rotated_out 갱신."""
     warned = store.load_warned_tickers() if market == "kr" else set()
     now_ts = int(datetime.datetime.now(_KST).timestamp())
     cooldown = rp["cooldown_days"] * 24 * 3600
@@ -309,6 +310,8 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
         sig = signal_by_ticker.get(h["ticker"])
         if sig is None:
             continue  # 유니버스 밖 — 판단 불가, 유지
+        if rp["only_cooled"] and engine.is_buy(sig.kind):
+            continue  # 아직 BUY면 순위 낮아도 유지(식은 것만 청산 후보 — 안정형)
         pos = db.bot_position_get(uid, h["ticker"])
         entry = pos["entry_date"] if pos else None
         if entry:
@@ -516,13 +519,15 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
                 cash -= qty * live
             buys.append(plan)
 
-    # 컨빅션 로테이션(보수적) — 포트폴리오가 꽉 찼고, 대기 후보가 보유 최약체보다 '훨씬' 강하면 1건 교체.
-    # 안전장치: 최소보유일 미달·큰 손실 종목은 교체 제외, 방금 판 종목 재매수 쿨다운, 사이클당 max_per_run건.
+    # 컨빅션 로테이션 — 약한 보유를 더 강한 후보로 교체. 기준·행동강령은 성향별(strategy.ROTATION_PRESETS).
+    # 자리가 꽉 찼을 때(모든 성향), 또는 자리 남아도 현금 부족 시 선제 교체(공격형 when_slots_free).
     rotated_out: set[str] = set()
-    if not block_new_buys and available_slots == 0:
+    rp = strategy.rotation_params(cfg["trading_style"])
+    want_rotation = available_slots == 0 or (rp["when_slots_free"] and cash < tranche_alloc)
+    if not block_new_buys and want_rotation:
         cash = _conviction_rotate(uid, market, signals, signal_by_ticker, bal2["holdings"], held_after,
                                   cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
-                                  sells, buys, rotated_out, dry_run)
+                                  sells, buys, rotated_out, dry_run, rp)
 
     # ① 분할매수 후속: 보유 중이고 여전히 BUY인데 목표비중 미달인 포지션에 다음 트랜치 추가.
     for h in bal2["holdings"]:

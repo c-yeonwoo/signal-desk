@@ -217,3 +217,31 @@ def test_event_serious_trims_half(tmp_path, monkeypatch):
     assert any(s["reason"] == "EVENT_TRIM" and s["qty"] == 5 for s in out["sells"])
     pos = db.bot_positions_all(UID, "kr")
     assert len(pos) == 1 and pos[0]["qty"] == 5  # 절반 잔여
+
+
+def test_rotation_conservative_keeps_low_buy(tmp_path, monkeypatch):
+    """안정형(only_cooled): 아직 BUY인 보유는 순위 낮아도 교체 안 함(식은 것만 청산 후보)."""
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "LOWBUY", "name": "약매수"}, {"ticker": "STRONG", "name": "강"}],
+           {"LOWBUY": [100.0, 100.0], "STRONG": [50.0, 50.0]},
+           [_sig("LOWBUY", "약매수", "BUY", 1.3), _sig("STRONG", "강", "BUY", 2.6)],
+           trading_style="conservative", max_positions=1, min_buy_score=1.0)
+    _seed(0.0, {"LOWBUY": {"name": "약매수", "qty": 100, "avg_price": 100.0}})
+    db.bot_position_upsert(UID, "LOWBUY", "약매수", 100, 100.0, 100.0, "2020-01-01")
+    out = bot.run_once(UID)
+    assert not any(s["reason"] == "ROTATE_OUT" for s in out["sells"])   # BUY라 유지
+    assert {p["ticker"] for p in db.bot_positions_all(UID, "kr")} == {"LOWBUY"}
+
+
+def test_rotation_aggressive_smaller_gap(tmp_path, monkeypatch):
+    """공격형(min_gap 0.6): 균형형(1.0)이면 안 갈 격차(0.7)에서도 교체."""
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "WEAK", "name": "약"}, {"ticker": "STRONG", "name": "강"}],
+           {"WEAK": [100.0, 100.0], "STRONG": [50.0, 50.0]},
+           [_sig("WEAK", "약", "HOLD", 0.5), _sig("STRONG", "강", "BUY", 1.2)],  # 격차 0.7
+           trading_style="aggressive", max_positions=1, min_buy_score=1.0)
+    _seed(0.0, {"WEAK": {"name": "약", "qty": 100, "avg_price": 100.0}})
+    db.bot_position_upsert(UID, "WEAK", "약", 100, 100.0, 100.0, "2020-01-01")
+    out = bot.run_once(UID)
+    assert any(s["reason"] == "ROTATE_OUT" and s["ticker"] == "WEAK" for s in out["sells"])
+    assert "STRONG" in {p["ticker"] for p in db.bot_positions_all(UID, "kr")}

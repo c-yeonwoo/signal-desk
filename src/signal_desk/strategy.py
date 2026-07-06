@@ -37,20 +37,30 @@ PRESETS = {
 # 추세 국면(여기선 익절을 넓게 두고 트레일링으로 수익 극대화). 그 외(횡보·약세·조정)는 중간 실현.
 TRENDING_REGIMES = ("강세", "과열")
 
-# 컨빅션 로테이션(보수적) — 포트폴리오가 꽉 찼을 때, 약한 보유를 '훨씬 강한' 후보로만 1건 교체.
-# 잦은 교체·왕복손실·손실확정을 막는 안전장치를 함께 둔다(웬만하면 유지, 확실히 우월할 때만 갈아탐).
-ROTATION = {
-    "min_gap": 1.0,          # (후보 최고점수 − 보유 최저점수) 격차가 이 이상일 때만 교체
-    "min_hold_days": 5,      # 최소 보유일 — 이전에는 교체 대상에서 제외(잦은 교체 방지)
-    "max_loss_pct": -0.03,   # 이보다 크게 손실 중인 보유는 교체 제외(손절선에 맡김 — 손실 확정 회피)
-    "cooldown_days": 5,      # 방금 판 종목 재매수 금지 기간(핑퐁 방지)
-    "max_per_run": 1,        # 한 사이클 최대 교체 건수
+# 컨빅션 로테이션 — 약한 보유를 더 강한 후보로 교체. 기준·행동강령을 투자 성향별로 나눈다.
+#   min_gap: (후보 최고점수 − 보유 최저점수) 격차가 이 이상일 때만 교체
+#   min_hold_days: 최소 보유일(이전엔 교체 대상 제외 — 잦은 교체 방지)
+#   max_loss_pct: 이보다 크게 손실 중인 보유는 교체 제외(손절선에 맡김 — 손실 확정 회피)
+#   cooldown_days: 방금 판 종목 재매수 금지(핑퐁 방지)
+#   max_per_run: 한 사이클 최대 교체 건수
+#   only_cooled: True면 'BUY→HOLD로 식은' 보유만 청산 후보(아직 BUY면 순위 낮아도 유지)
+#   when_slots_free: True면 자리가 남아도 현금이 부족할 때 약한 보유를 정리해 매수 자금을 마련(선제 교체)
+ROTATION_PRESETS = {
+    # 안정형: 웬만하면 유지. 식은(HOLD) 것만, 확실히 우월할 때만, 자리 꽉 찼을 때만.
+    "conservative": {"min_gap": 1.2, "min_hold_days": 7, "max_loss_pct": -0.02,
+                     "cooldown_days": 7, "max_per_run": 1, "only_cooled": True, "when_slots_free": False},
+    # 균형형: 식은 것 우선이되 하위 BUY도 격차 크면 교체. 자리 꽉 찼을 때만.
+    "balanced":     {"min_gap": 1.0, "min_hold_days": 5, "max_loss_pct": -0.03,
+                     "cooldown_days": 5, "max_per_run": 1, "only_cooled": False, "when_slots_free": False},
+    # 공격형: 자본을 계속 최강 후보로. 격차 작아도, 자주, 자리 없거나 현금 부족해도 선제 교체.
+    "aggressive":   {"min_gap": 0.6, "min_hold_days": 3, "max_loss_pct": -0.05,
+                     "cooldown_days": 3, "max_per_run": 2, "only_cooled": False, "when_slots_free": True},
 }
 
 
-def rotation_params() -> dict:
-    """컨빅션 로테이션 정책(보수적, 전 성향 공통)."""
-    return dict(ROTATION)
+def rotation_params(style: str = "balanced") -> dict:
+    """투자 성향별 컨빅션 로테이션 기준·행동강령."""
+    return dict(ROTATION_PRESETS[normalize(style)])
 
 
 def entry_tranches(style: str) -> int:
