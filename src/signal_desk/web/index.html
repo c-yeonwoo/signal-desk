@@ -362,7 +362,17 @@
         <div id="signal-kb" style="display:none;font-size:12px;margin-bottom:8px;padding:8px 11px;
           border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line);line-height:1.5"></div>
         <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin-bottom:4px">
-          <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수 · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도 · <b>+</b>는 강력 시그널 — 호버 시 근거 · 📍 = 현재 시그널(5단계) · 음영 = 유지 구간</div>
+          <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수 · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도 · <b>+</b>는 강력 시그널 — 호버 시 근거·점수 · 📍 = 현재 시그널(5단계) · 음영 = 유지 구간</div>
+        <details id="signal-help" style="font-size:11px;color:var(--dim);margin-bottom:8px">
+          <summary style="cursor:pointer;color:var(--accent);font-weight:600">시그널 계산 기준 · 용어 해설</summary>
+          <div style="margin-top:6px;line-height:1.7;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px">
+            <b>종합점수(−3 ~ +3)로 5단계 판정</b><br>
+            강력매수 ≥ <b>+2.0</b> · 매수 ≥ <b>+1.2</b> · <b>관망 −1.2 ~ +1.2</b> · 매도 ≤ <b>−1.2</b> · 강력매도 ≤ <b>−2.0</b><br>
+            <b>팩터 가중</b>: 기술 35% · 재무 30% · 저평가 15% · 낙폭과대 20% <span style="color:var(--dim-2)">(+ KB 악재 veto · 하락추세 게이트)</span><br>
+            <span style="color:var(--sell)">※ 약세·조정 국면이면 매수 기준이 자동 상향돼, 점수가 +1.2를 넘어도 관망일 수 있습니다.</span>
+            <div id="glossary" style="margin-top:7px;border-top:1px solid var(--line);padding-top:6px"></div>
+          </div>
+        </details>
         <div id="signal-chart"></div>
       </div>
     </div>
@@ -769,22 +779,37 @@ function fmtKRW(n){  // 큰 금액은 억/만 단위로 압축(카드 넘침 방
   return Math.round(n).toLocaleString() + '원';
 }
 // 시그널 근거(한국어 태그 문장) → 짧은 영어 요약(차트 마커 호버용)
-const _REASON_EN = [
-  ['골든크로스', 'MACD golden cross'], ['데드크로스', 'MACD dead cross'],
-  ['히스토그램 양전환', 'MACD turning up'], ['히스토그램 음전환', 'MACD turning down'],
-  ['과매도', 'RSI oversold'], ['과매수', 'RSI overbought'], ['약세권', 'RSI weak'], ['강세권', 'RSI strong'],
-  ['정배열', 'Uptrend (MA)'], ['역배열', 'Downtrend (MA)'],
-  ['낙폭과대', 'Oversold rebound'], ['단기과열', 'Overheated pullback'],
-  ['ROE', 'Strong ROE'], ['매출성장', 'Revenue growth'], ['부채비율', 'High debt'], ['배당', 'Dividend'],
-  ['PER', 'Low PER'], ['PBR', 'Low PBR'], ['저평가', 'Undervalued'], ['고평가', 'Overvalued'],
+// 국면 적응형 매수 기준(loadRegime에서 갱신) — 시그널 상세의 '왜 관망인가' 설명에 사용
+let _effBuyThreshold = 1.2, _adaptBump = 0, _adaptReasons = [];
+
+// 근거 문구 → 짧은 한글 라벨(차트 호버용). 원 근거가 이미 한글이지만 용어를 더 풀어 준다.
+const _REASON_KO = [
+  ['골든크로스', '골든크로스(상승 전환)'], ['데드크로스', '데드크로스(하락 전환)'],
+  ['히스토그램 양전환', 'MACD 상승세'], ['히스토그램 음전환', 'MACD 하락세'],
+  ['과매도', 'RSI 과매도(반등 기대)'], ['과매수', 'RSI 과매수(과열)'], ['약세권', 'RSI 약세'], ['강세권', 'RSI 강세'],
+  ['정배열', '정배열(상승 추세)'], ['역배열', '역배열(하락 추세)'],
+  ['낙폭과대', '낙폭과대(급락 반등 기대)'], ['단기과열', '단기 과열(조정)'],
+  ['ROE', '고ROE(수익성 양호)'], ['매출성장', '매출 성장'], ['부채비율', '높은 부채비율'], ['배당', '배당'],
+  ['PER', '저PER(저평가)'], ['PBR', '저PBR(저평가)'], ['저평가', '저평가 구간'], ['고평가', '고평가 구간'],
+  ['추세', '추세 필터'],
 ];
-function reasonEn(reasons){
+function reasonKo(reasons){
   const out = [];
   (reasons || []).forEach(r => {
-    for (const [ko, en] of _REASON_EN) { if (r.includes(ko)) { if (!out.includes(en)) out.push(en); break; } }
+    for (const [ko, label] of _REASON_KO) { if (r.includes(ko)) { if (!out.includes(label)) out.push(label); break; } }
   });
   return out.slice(0, 3).join(', ');
 }
+
+// 기술 용어 해설(차트 아래 '용어 해설' 토글)
+const _GLOSSARY = [
+  ['RSI', '상대강도지수(0~100). 30 이하 과매도(싸게 눌림), 70 이상 과매수(과열).'],
+  ['MACD', '단기·장기 이동평균의 차이로 추세 힘을 봄. 골든크로스=상승 전환, 데드크로스=하락 전환.'],
+  ['정배열 / 역배열', 'MA20>MA60이면 정배열(상승 추세), MA20<MA60이면 역배열(하락 추세).'],
+  ['MA20 / 60 / 120', '최근 20·60·120일 평균가(이동평균선) — 추세 방향을 보는 참고선.'],
+  ['낙폭과대', '단기 급락 + 과매도 → 기술적 반등 기대. 단 하락추세면 추세 게이트가 매수를 억제.'],
+  ['PER / PBR', 'PER=주가÷주당순이익, PBR=주가÷주당순자산. 낮을수록 저평가.'],
+];
 
 // ===== 탭 간 이동(사이클 → 밸류체인 → 시그널) =====
 const INDEX_TICKER = 'KOSPI200X';  // 시그널 탭 최상단 고정 지수(근사)
@@ -931,6 +956,9 @@ async function loadRegime(){
       adapt.style.color = 'var(--sell)';
       adapt.textContent = `⚙ 매수 기준 자동 상향 +${fmtNum(d.adaptive.bump, 1)} → ${fmtNum(d.adaptive.effective_buy_threshold, 1)} (${d.adaptive.reasons.join(', ')})`;
     } else { adapt.style.display = 'none'; }
+    _effBuyThreshold = (d.adaptive && d.adaptive.effective_buy_threshold) || 1.2;  // 현재 매수 기준(국면 상향 반영)
+    _adaptBump = (d.adaptive && d.adaptive.bump) || 0;
+    _adaptReasons = (d.adaptive && d.adaptive.reasons) || [];
   } catch (e) {
     pill.textContent = '-'; pill.className = 'sig-pill HOLD'; detail.textContent = '';
   }
@@ -1136,6 +1164,19 @@ const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
 const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';
 const kindLabel = (k) => _KIND_LABEL[k] || k;
 
+// '점수는 높은데 왜 관망?' 설명 — 추세 게이트 또는 국면 상향된 매수 기준 미달을 짚어 준다.
+function whyHoldNote(item){
+  if (!item || item.kind !== 'HOLD') return '';
+  const trendGated = (item.reasons || []).some(r => r.includes('추세') && r.includes('차단'));
+  if (trendGated)
+    return ` <span style="color:var(--sell);font-size:11px">ⓘ 하락추세로 매수 보류(종가<MA20<MA60) — 반등 확인 전 관망</span>`;
+  if (item.score >= 1.2) {  // 기본 매수 기준(+1.2)은 넘지만 관망 → 국면 상향된 기준 미달
+    const bumpTxt = _adaptBump > 0 ? ` (${_adaptReasons.join(', ')})` : '';
+    return ` <span style="color:var(--sell);font-size:11px">ⓘ 점수는 매수권이나 현재 매수 기준 +${fmtNum(_effBuyThreshold, 1)}${bumpTxt} 미달 → 관망</span>`;
+  }
+  return '';
+}
+
 let _signalChart = null;
 async function showSignalChart(ticker, item){
   // 드릴다운 헤더: 종목명(섹터)+시그널 점수 → 기업 소개(정적) → 시그널 해설
@@ -1144,7 +1185,8 @@ async function showSignalChart(ticker, item){
   if (item) {
     sub.innerHTML = `<span style="color:var(--dim)">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}</span>`
       + ` &nbsp;<span class="sig-pill ${item.kind}">${kindLabel(item.kind)}</span>`
-      + ` <span style="color:var(--dim)">점수 ${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)} · 신뢰도 ${fmtNum(item.confidence, 2)}</span>`;
+      + ` <span style="color:var(--dim)">점수 ${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)} · 신뢰도 ${fmtNum(item.confidence, 2)}</span>`
+      + whyHoldNote(item);
   } else sub.textContent = '';
   const qEl = document.getElementById('signal-quote');
   if (item && item.price != null) {
@@ -1178,15 +1220,17 @@ async function showSignalChart(ticker, item){
   } else btEl.style.display = 'none';
   const tgEl = document.getElementById('signal-target');
   const tg = item && item.target;
-  if (tg && _sigMarket !== 'us') {
+  if (tg && (tg.value_target != null || tg.resistance != null)) {
+    const isUS = _sigMarket === 'us';
+    const px = v => isUS ? '$' + fmtNum(v, 2) : fmtNum(v, 0) + '원';
     const parts = [];
     if (tg.value_target != null) {
       const up = tg.value_upside_pct, c = up > 0 ? 'var(--sig-buy)' : up < 0 ? 'var(--sig-sell)' : 'var(--dim)';
-      parts.push(`밸류 정상화 <b>${fmtNum(tg.value_target, 0)}원</b> <span style="color:${c}">(${up > 0 ? '+' : ''}${fmtNum(up, 1)}%)</span>`);
+      parts.push(`밸류 정상화 <b>${px(tg.value_target)}</b> <span style="color:${c}">(${up > 0 ? '+' : ''}${fmtNum(up, 1)}%)</span>`);
     }
     if (tg.resistance != null) {
       const up = tg.resistance_upside_pct, c = up > 0 ? 'var(--sig-buy)' : 'var(--dim)';
-      parts.push(`기술적 저항 <b>${fmtNum(tg.resistance, 0)}원</b> <span style="color:${c}">(${up > 0 ? '+' : ''}${fmtNum(up, 1)}%)</span>`);
+      parts.push(`기술적 저항 <b>${px(tg.resistance)}</b> <span style="color:${c}">(${up > 0 ? '+' : ''}${fmtNum(up, 1)}%)</span>`);
     }
     tgEl.style.display = '';
     tgEl.innerHTML = `🎯 <span style="color:var(--dim)">참고 목표가</span> ${parts.join(' · ')}`
@@ -1240,18 +1284,19 @@ async function showSignalChart(ticker, item){
     const mkPts = rawZones.map(z => {
       const i = idxOf[z.start < first ? first : z.start]; if (i == null) return null;
       const buy = _isBuy(z.kind);
-      const why = reasonEn(z.reasons || []);
+      const why = reasonKo(z.reasons || []);
       const strong = z.kind === 'STRONG_BUY' || z.kind === 'STRONG_SELL';
+      const sc = z.score != null ? ` (점수 ${z.score > 0 ? '+' : ''}${fmtNum(z.score, 2)})` : '';
       return { coord: [dates[i], close[i]], mk: (buy ? 'B' : 'S') + (strong ? '+' : ''),
-        tip: kindLabel(z.kind) + (why ? ' — ' + why : ''),
+        tip: kindLabel(z.kind) + sc + (why ? ' — ' + why : '') + ' · 과거(기술+낙폭 기준)',
         symbol: 'circle', symbolSize: strong ? 19 : 16, symbolOffset: buy ? [0, 22] : [0, -22],
         itemStyle: { color: _ZONE_COLOR[z.kind] } };
     }).filter(Boolean);
     if (item && (_isBuy(item.kind) || _isSell(item.kind))) {  // 현재 시점 시그널(4팩터)
-      const li = dates.length - 1, buy = _isBuy(item.kind), whyNow = reasonEn(item.reasons);
+      const li = dates.length - 1, buy = _isBuy(item.kind), whyNow = reasonKo(item.reasons);
       const strong = item.kind === 'STRONG_BUY' || item.kind === 'STRONG_SELL';
       mkPts.push({ coord: [dates[li], close[li]], mk: (buy ? 'B' : 'S') + (strong ? '+' : ''),
-        tip: 'NOW · ' + kindLabel(item.kind) + ' (score ' + (item.score > 0 ? '+' : '') + fmtNum(item.score, 2) + ')' + (whyNow ? ' — ' + whyNow : ''),
+        tip: '현재 · ' + kindLabel(item.kind) + ' (점수 ' + (item.score > 0 ? '+' : '') + fmtNum(item.score, 2) + ')' + (whyNow ? ' — ' + whyNow : ''),
         symbol: 'pin', symbolSize: 46, symbolOffset: [0, -6],
         itemStyle: { color: _ZONE_COLOR[item.kind] || '#4f46e5', borderColor: '#fff', borderWidth: 2 } });
     }
@@ -1261,6 +1306,11 @@ async function showSignalChart(ticker, item){
       data: mkPts,
     } : undefined;
     document.getElementById('signal-legend').style.display = '';
+    const glEl = document.getElementById('glossary');
+    if (glEl && !glEl.dataset.filled) {
+      glEl.innerHTML = _GLOSSARY.map(([t, d]) => `<div style="margin-bottom:2px"><b style="color:var(--txt)">${esc(t)}</b> — ${esc(d)}</div>`).join('');
+      glEl.dataset.filled = '1';
+    }
     _signalChart.setOption({
       animation: false,
       tooltip: { trigger: 'axis' },

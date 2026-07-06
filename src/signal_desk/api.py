@@ -444,6 +444,8 @@ def _us_signal_items() -> list[dict]:
     hist = store.load_us_price_series()
     quotes = store.load_us_quotes()  # 거래량·20일평균(정렬용)
     mcaps = store.us_marketcaps(hist)  # 시총(주식수×종가)·PER(Alpha Vantage 백필분, 없으면 빈 dict)
+    us_pers = sorted(mc["per"] for mc in mcaps.values() if mc.get("per") and mc["per"] > 0)
+    us_med_per = us_pers[len(us_pers) // 2] if us_pers else None  # US 밸류 정상화 기준(가용 PER 중앙값)
     items = []
     for r in sig.values():
         closes = hist.get(r.ticker) or []
@@ -461,7 +463,10 @@ def _us_signal_items() -> list[dict]:
         d["per"] = mc.get("per")                       # US PER(Alpha Vantage)
         d["pbr"] = None                                # US PBR은 미수집(자본총계 소스 없음)
         d["sector"] = us_ko.sector_ko(sector_of.get(r.ticker))  # 한글 섹터
-        d["intro"] = d["intro_desc"] = d["kb"] = None
+        d["intro"] = f"{d['sector']} 섹터" if d["sector"] else None  # US는 밸류체인 매핑 없음 → 섹터로 대체
+        d["intro_desc"] = None
+        d["kb"] = None
+        d["target"] = target.compute(price, mc.get("per"), us_med_per, closes)  # 참고 목표가(저항선 + 가능시 밸류)
         d["opp_tags"] = opportunity.classify(r)  # 기회 유형(#14)
         items.append(d)
     items.sort(key=lambda x: x["score"], reverse=True)
