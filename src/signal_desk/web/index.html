@@ -1938,14 +1938,21 @@ async function loadKbDocs(){
     if (!d.documents.length) { el.className = ''; el.innerHTML = '<div class="placeholder" style="padding:16px 0">문서가 없습니다 — 뉴스 갱신 또는 리포트 추가로 채워집니다.</div>'; return; }
     const pendBadge = (s) => s === 'pending'
       ? ' <span style="display:inline-block;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700;color:#fff;background:#b45309" title="검토 보류 — 시그널 미반영">검토보류</span>' : '';
+    const fmtDt = (ep) => {
+      if (!ep) return '–';
+      const dt = new Date(ep * 1000);
+      const p = (n) => String(n).padStart(2, '0');
+      return `${dt.getFullYear()}-${p(dt.getMonth()+1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}`;
+    };
     const rows = d.documents.map(doc => `<tr${doc.status === 'pending' ? ' style="opacity:.6"' : ''}>
       <td style="white-space:nowrap">${classBadge(doc.doc_class)}${pendBadge(doc.status)}</td>
       <td>${esc(doc.name || doc.ticker)}<div style="color:var(--dim);font-size:11px">${esc(doc.ticker)} · ${esc(doc.source || '')}</div></td>
       <td>${doc.url ? `<a href="${esc(doc.url)}" target="_blank" rel="noopener">${esc(doc.title || '(제목없음)')}</a>` : esc(doc.title || '(제목없음)')}
         <div style="color:var(--dim);font-size:11px;margin-top:2px">${esc((doc.summary || '').slice(0, 100))}</div></td>
+      <td class="num" style="white-space:nowrap;font-size:11px;color:var(--dim)" title="발행: ${esc((doc.published || '').slice(0, 16)) || '-'}">${fmtDt(doc.fetched)}</td>
     </tr>`).join('');
     el.className = '';
-    el.innerHTML = `<table class="dtable"><thead><tr><th>유형</th><th>종목</th><th>문서</th></tr></thead><tbody>${rows}</tbody></table>`;
+    el.innerHTML = `<table class="dtable"><thead><tr><th>유형</th><th>종목</th><th>문서</th><th class="num">수집일시</th></tr></thead><tbody>${rows}</tbody></table>`;
   } catch (e) { el.textContent = '불러오지 못했습니다.'; }
 }
 
