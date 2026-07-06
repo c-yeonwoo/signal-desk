@@ -1343,7 +1343,10 @@ async function loadBotState(){
       + `종가 기준 가상 체결 · <b>장중에만 자동매매</b>(장외 스킵, 수동 '지금 실행'은 예외) · `
       + `매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · 한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · `
       + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`
-      + ` · 슬롯이 꽉 차면 <b>컨빅션 로테이션</b>(약한 보유를 훨씬 강한 후보로 교체, 최소 5일 보유·큰 손실 제외)`
+      + (d.rotation ? ` · <b>컨빅션 로테이션(${esc(d.style_label)})</b>: `
+          + `${d.rotation.only_cooled ? '식은(HOLD) 보유만' : '약한 보유'} → 격차 +${d.rotation.min_gap} 이상 강한 후보로 교체`
+          + ` · 최소 ${d.rotation.min_hold_days}일 보유·손실 ${Math.round(d.rotation.max_loss_pct * 100)}% 초과 제외`
+          + `${d.rotation.when_slots_free ? ' · 현금 부족 시 선제 교체' : ' · 슬롯 꽉 찼을 때만'}` : '')
       + (d.daily_loss_limit_pct ? ` · <b>일일 손실 -${Math.round(d.daily_loss_limit_pct * 100)}%</b> 초과 시 신규매수 중단` : '');
 
     document.querySelectorAll('#style-toggle button').forEach(b => b.classList.toggle('on', b.dataset.style === cfg.trading_style));
