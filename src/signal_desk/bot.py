@@ -406,25 +406,42 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
         current_price = _live_price(ticker, closes[-1])
         pos = db.bot_position_get(uid, ticker)
         peak = max(pos["peak_price"] if pos else avg_price, current_price)
+        sig = signal_by_ticker.get(ticker)
 
-        reason = risk.check_exit(avg_price, current_price, peak, risk_cfg)
+        # 악재 강도 기반 청산(최우선) — 신선한 KB 악재면 가격 하락 전이라도 방어적으로 축소/청산.
+        # critical(존폐·신뢰 붕괴)=전량, serious(실적·제재 충격)=절반 부분청산. 그 외엔 아래 리스크/시그널.
+        sell_qty, reason = qty, None
+        ev_sev = sig.event_severity if sig else ""
+        if ev_sev == "critical":
+            reason, sell_qty = "EVENT", qty
+        elif ev_sev == "serious":
+            reason, sell_qty = "EVENT_TRIM", max(1, qty // 2)
         if not reason:
-            sig = signal_by_ticker.get(ticker)
-            if sig and engine.is_sell(sig.kind):
-                reason = "SIGNAL"
+            reason = risk.check_exit(avg_price, current_price, peak, risk_cfg)
+        if not reason and sig and engine.is_sell(sig.kind):
+            reason = "SIGNAL"
 
         if reason:
             pl_pct = (current_price / avg_price - 1) * 100 if avg_price else 0
-            sig = signal_by_ticker.get(ticker)
-            note = _sell_note(reason, qty, avg_price, current_price, pl_pct, risk_cfg)
-            plan = {"ticker": ticker, "name": name_by_ticker.get(ticker, ticker), "qty": qty,
+            if reason in ("EVENT", "EVENT_TRIM"):
+                kind_txt = "전량 청산" if reason == "EVENT" else "부분 청산(절반)"
+                note = (f"악재 이벤트 {kind_txt} — {sig.event_note if sig else ''} · "
+                        f"평단 {int(avg_price):,}→현재 {int(current_price):,}{unit}({pl_pct:+.1f}%), {sell_qty}주")
+            else:
+                note = _sell_note(reason, sell_qty, avg_price, current_price, pl_pct, risk_cfg)
+            plan = {"ticker": ticker, "name": name_by_ticker.get(ticker, ticker), "qty": sell_qty,
                     "reason": reason, "note": note, "price": current_price}
             if not dry_run:
-                result = paper.place_order(uid, ticker, "sell", qty, price=current_price, market=market)
+                result = paper.place_order(uid, ticker, "sell", sell_qty, price=current_price, market=market)
                 if result is not None:
-                    db.bot_trade_log(uid, ticker, plan["name"], "sell", qty, current_price, reason,
+                    db.bot_trade_log(uid, ticker, plan["name"], "sell", sell_qty, current_price, reason,
                                       result["order_no"], score=sig.score if sig else None, note=note, market=market)
-                    db.bot_position_delete(uid, ticker)
+                    remaining = qty - sell_qty
+                    if remaining > 0:  # 부분청산 — 잔여 포지션 유지(평단·진입일 보존)
+                        db.bot_position_upsert(uid, ticker, plan["name"], remaining, avg_price, peak,
+                                                pos["entry_date"] if pos else _today(), market=market)
+                    else:
+                        db.bot_position_delete(uid, ticker)
                     plan["ok"] = True
                 else:
                     plan["ok"] = False
