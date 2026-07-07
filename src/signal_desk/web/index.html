@@ -332,6 +332,7 @@
 
 <main>
   <div id="view-signal" class="view-app" style="display:none">
+    <div id="signal-scorecard" style="display:none;font-size:12px;background:var(--accent-weak);border-radius:var(--r-md);padding:9px 13px;margin-bottom:10px;line-height:1.5"></div>
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
         <div class="seg-toggle" id="sig-market-seg" style="margin:10px 10px 0">
@@ -1002,6 +1003,25 @@ async function loadRegime(){
     pill.textContent = '-'; pill.className = 'sig-pill HOLD'; detail.textContent = '';
   }
   loadLiveStatus();
+  loadScorecard();
+}
+
+// ③ 실현 시그널 성적표 — 봇의 실제 매수 판단이 3일 뒤 얼마나 맞았나(백테스트와 별개, 실제 결정 사후검증)
+async function loadScorecard(){
+  const el = document.getElementById('signal-scorecard');
+  if (!el) return;
+  try {
+    const d = await (await fetch('/api/signal-scorecard')).json();
+    if (!d.resolved) { el.style.display = 'none'; return; }
+    const wr = d.win_rate, wc = wr >= 55 ? 'var(--sig-buy)' : wr < 45 ? 'var(--sig-sell)' : 'var(--txt)';
+    const av = d.avg_outcome_pct, ac = av > 0 ? 'var(--sig-buy)' : av < 0 ? 'var(--sig-sell)' : 'var(--txt)';
+    el.style.display = '';
+    el.innerHTML = `📊 <b>실현 시그널 성적표</b> — 매수 판단 <b>${d.resolved}건</b> 실현`
+      + ` · 승률 <b style="color:${wc}">${fmtNum(wr, 1)}%</b>`
+      + ` · 평균 실현 <b style="color:${ac}">${av > 0 ? '+' : ''}${fmtNum(av, 2)}%</b>(3일)`
+      + (d.pending ? ` <span style="color:var(--dim)">· 미실현 ${d.pending}건</span>` : '')
+      + ` <span style="color:var(--dim-2);font-size:11px">· 백테스트(가상)와 달리 봇의 실제 결정 사후검증</span>`;
+  } catch (e) { el.style.display = 'none'; }
 }
 
 // 현재가(실시간 오버레이) 마지막 갱신 시각 — 왜 안 바뀌는지 진단용(장외/토스 미연동/갱신시각)

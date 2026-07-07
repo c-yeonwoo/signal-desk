@@ -563,6 +563,17 @@ def narrative_get(ticker: str):
     return {"ok": True, "narrative": sig.narrative, "source": "rule", "cached": False}  # v1 폴백
 
 
+@app.get("/api/signal-scorecard")
+def signal_scorecard_get():
+    """실현 시그널 성적표(③ track record) — 봇의 실제 매수 판단이 3일 뒤 얼마나 맞았나.
+    집계 + 최근 실현 판단 목록. 백테스트(가상 재현)와 달리 '실제 결정'의 사후검증."""
+    resolved = [d for d in db.bot_decisions_recent(80)
+                if d.get("action") == "buy" and d.get("outcome_pct") is not None]
+    return {**db.bot_decision_scorecard(),
+            "recent": [{"ticker": d["ticker"], "name": d["name"], "score": d["score"],
+                        "outcome_pct": d["outcome_pct"], "ts": d["ts"]} for d in resolved[:20]]}
+
+
 @app.get("/api/backtest")
 def backtest_get():
     """시그널 적중률 성적표 — 가격기반(기술+낙폭과대). 정밀 분석은 /api/backtest/analysis."""
