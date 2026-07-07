@@ -425,7 +425,16 @@ def load_macro() -> list[dict]:
 # 장중 실시간 현재가 오버레이 — 무거운 refresh 없이 종가 시계열 마지막에 '잠정봉' 1개를 얹어
 # 시그널·봇·페이퍼 체결가를 현재가 기준으로 돌린다(장 마감 후엔 clear → 종가 복귀). 파일엔 안 쓴다.
 _LIVE_QUOTES: dict[str, float] = {}
-_LIVE_TS: float | None = None  # 마지막 실시간가 갱신 시각(epoch) — 관리자 상태 표시용
+_LIVE_TS: float | None = None  # 마지막 '성공' 갱신 시각(epoch)
+_LIVE_ATTEMPT: dict = {"ts": None, "result": None, "markets": []}  # 마지막 '시도' 시각·결과(성공이든 실패든)
+
+
+def note_live_attempt(result: str, markets: list[str] | None = None) -> None:
+    """실시간가 갱신 '시도'를 기록 — 성공/실패 무관하게 언제 시도했고 결과가 뭔지 남긴다.
+    result: ok | no_quotes(토스 응답 빔·토큰실패) | toss_off(키 없음) | closed(장외)."""
+    _LIVE_ATTEMPT["ts"] = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    _LIVE_ATTEMPT["result"] = result
+    _LIVE_ATTEMPT["markets"] = list(markets or [])
 
 
 def set_live_quotes(quotes: dict[str, float]) -> None:
@@ -449,8 +458,10 @@ def clear_live_quotes() -> None:
 
 
 def live_status() -> dict:
-    """실시간가 오버레이 상태 — {on, count, updated(epoch|None)}. 관리자 화면 진단용."""
-    return {"on": bool(_LIVE_QUOTES), "count": len(_LIVE_QUOTES), "updated": _LIVE_TS}
+    """실시간가 오버레이 상태 — 성공 갱신 시각 + 마지막 시도 시각·결과. 왜 안 바뀌는지 진단용."""
+    return {"on": bool(_LIVE_QUOTES), "count": len(_LIVE_QUOTES), "updated": _LIVE_TS,
+            "attempt_ts": _LIVE_ATTEMPT["ts"], "attempt_result": _LIVE_ATTEMPT["result"],
+            "attempt_markets": _LIVE_ATTEMPT["markets"]}
 
 
 def _overlay_closes(series: dict[str, list[float]]) -> dict[str, list[float]]:
