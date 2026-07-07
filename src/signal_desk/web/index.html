@@ -557,6 +557,7 @@
       <button class="on" data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 설정</button>
       <button data-aseg="backtest" onclick="switchAdminSeg('backtest')">백테스트 분석</button>
       <button data-aseg="kb" onclick="switchAdminSeg('kb')">KB 문서</button>
+      <button data-aseg="shortform" onclick="switchAdminSeg('shortform')">숏폼</button>
     </div>
 
     <div id="admin-engine">
@@ -650,6 +651,25 @@
       <div id="kbdoc-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
     </div><!-- /#admin-kb -->
+
+    <div id="admin-shortform" style="display:none">
+    <div class="card" style="margin-top:0">
+      <div class="row" style="align-items:baseline">
+        <b style="font-size:15px">숏폼 콘텐츠 <span style="color:var(--dim);font-weight:600;font-size:12px">· 시그널→스크립트+카드 생성 및 검수 (관리자)</span></b>
+        <span id="sf-result" class="stat-label" style="margin:0 0 0 auto"></span>
+        <input id="sf-limit" type="number" class="ctrl" value="5" min="1" max="10" style="max-width:70px" title="생성 개수">
+        <button class="btn primary" onclick="genShortform()" style="margin-left:8px">초안 생성</button>
+      </div>
+      <p class="page-desc" style="margin:6px 0 12px">상위 매수 시그널로 <b>스크립트(자막·나레이션)+세로 데이터 카드</b>를 자동 생성합니다. 규제상 <b>정보 제공·교육 목적</b>(투자 권유·수치 보장 없음)으로만, <b>사람이 검수·승인한 뒤</b> 다운로드/발행합니다.</p>
+      <div class="seg-toggle" id="sf-view-seg" style="margin-bottom:10px">
+        <button class="on" data-sfview="draft" onclick="setSfView('draft')">검수 대기</button>
+        <button data-sfview="approved" onclick="setSfView('approved')">승인됨</button>
+        <button data-sfview="rejected" onclick="setSfView('rejected')">반려</button>
+        <button data-sfview="" onclick="setSfView('')">전체</button>
+      </div>
+      <div id="sf-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+    </div>
+    </div><!-- /#admin-shortform -->
   </div><!-- /view-admin -->
 </main>
 
@@ -2099,9 +2119,78 @@ function switchAdminSeg(seg){
   document.getElementById('admin-engine').style.display = seg === 'engine' ? '' : 'none';
   document.getElementById('admin-backtest').style.display = seg === 'backtest' ? '' : 'none';
   document.getElementById('admin-kb').style.display = seg === 'kb' ? '' : 'none';
+  document.getElementById('admin-shortform').style.display = seg === 'shortform' ? '' : 'none';
   if (seg === 'engine') loadEngine();
   if (seg === 'backtest') loadBacktestAnalysis();
   if (seg === 'kb') loadKbDocs();
+  if (seg === 'shortform') loadShortform();
+}
+
+// ===== 숏폼 콘텐츠(관리자) — 생성 → 검수 큐 → 승인/반려 =====
+let _sfView = 'draft';
+const _SF_STATUS = { draft: '검수 대기', approved: '승인됨', rejected: '반려', published: '발행됨' };
+function setSfView(v){
+  _sfView = v;
+  document.querySelectorAll('#sf-view-seg button').forEach(b => b.classList.toggle('on', b.dataset.sfview === v));
+  loadShortform();
+}
+async function genShortform(){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '생성 중…';
+  try {
+    const limit = parseInt(document.getElementById('sf-limit').value) || 5;
+    const d = await (await fetch('/api/shortform/generate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ limit }) })).json();
+    document.getElementById('sf-result').textContent = d.ok ? `${d.count}건 생성` : (d.reason || '생성 실패');
+    setSfView('draft');
+  } finally { btn.disabled = false; btn.textContent = t; }
+}
+async function loadShortform(){
+  const el = document.getElementById('sf-body');
+  const d = await (await fetch('/api/shortform/queue' + (_sfView ? '?status=' + _sfView : ''))).json();
+  const items = d.items || [];
+  if (!items.length) { el.className = 'placeholder'; el.textContent = '해당 상태의 숏폼이 없습니다.'; return; }
+  el.className = '';
+  el.innerHTML = items.map(it => `
+    <div class="card" style="margin:0 0 10px" id="sf-${it.id}">
+      <div class="row" style="align-items:baseline;gap:8px">
+        <b>${esc(it.name)}</b> <span style="color:var(--dim);font-size:12px">${esc(it.ticker)}</span>
+        <span class="sig-pill ${it.kind}">${kindLabel(it.kind)} ${it.score > 0 ? '+' : ''}${fmtNum(it.score, 2)}</span>
+        <span class="stat-label" style="margin:0 0 0 auto">${_SF_STATUS[it.status] || it.status}</span>
+      </div>
+      <div style="color:var(--dim);font-size:13px;margin:4px 0">${esc(it.title || '')}</div>
+      <div class="row" style="gap:6px;margin-top:6px">
+        <button class="btn" onclick="viewShortform('${it.id}')">미리보기(카드+스크립트)</button>
+        ${it.status === 'draft' ? `<button class="btn primary" onclick="reviewShortform('${it.id}','approved')">승인</button>
+        <button class="btn" onclick="reviewShortform('${it.id}','rejected')">반려</button>` : ''}
+        <button class="btn" onclick="delShortform('${it.id}')" style="margin-left:auto">삭제</button>
+      </div>
+      <div id="sf-detail-${it.id}" style="display:none;margin-top:10px"></div>
+    </div>`).join('');
+}
+async function viewShortform(id){
+  const box = document.getElementById('sf-detail-' + id);
+  if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+  box.style.display = ''; box.innerHTML = '불러오는 중…';
+  const it = await (await fetch('/api/shortform/' + id)).json();
+  const scriptRows = (it.script || []).map(l =>
+    `<tr><td style="color:var(--dim);white-space:nowrap">${esc(l.time || '')}</td>
+     <td><b>${esc(l.caption || '')}</b><div style="color:var(--dim);font-size:12px">${esc(l.narration || '')}</div></td></tr>`).join('');
+  box.innerHTML = `<div class="split">
+    <div style="flex:0 0 220px"><div style="border:1px solid var(--line);border-radius:8px;overflow:hidden;max-width:220px">${it.card_svg || ''}</div></div>
+    <div>
+      <b style="font-size:13px">스크립트 (자막 · 나레이션)</b>
+      <table class="dtable" style="margin-top:6px"><tbody>${scriptRows}</tbody></table>
+      <div style="margin-top:8px;font-size:12px"><b>게시물 설명</b><div style="color:var(--dim)">${esc(it.caption || '')}</div></div>
+      <div style="margin-top:4px;font-size:12px;color:var(--accent)">${(it.hashtags || []).map(esc).join(' ')}</div>
+    </div></div>`;
+}
+async function reviewShortform(id, status){
+  await fetch('/api/shortform/' + id + '/review', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
+  loadShortform();
+}
+async function delShortform(id){
+  if (!confirm('이 숏폼 초안을 삭제할까요?')) return;
+  await fetch('/api/shortform/' + id + '/delete', { method: 'POST' });
+  loadShortform();
 }
 
 // ===== 시그널 엔진 설정(관리자) =====

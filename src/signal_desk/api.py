@@ -22,7 +22,7 @@ from fastapi import File as FastFile
 from fastapi import Form, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from signal_desk import auth, bot, config, db, kb, signalcfg, store, strategy
+from signal_desk import auth, bot, config, db, kb, shortform, signalcfg, store, strategy
 from signal_desk.reference import cycle, gurus as gurus_ref, sectors, us_ko, valuechain
 from signal_desk.signals import macro, opportunity, rebalance, regime, scenario, target, valuation
 from signal_desk.signals.engine import (
@@ -162,6 +162,7 @@ _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents", "/api/kb/digests",
     "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube",
+    "/api/shortform/generate", "/api/shortform/queue",
 }
 
 
@@ -837,6 +838,56 @@ def kb_collect_youtube(data: dict = Body(default={})):
     if out.get("ok") and out.get("macro"):
         _macro.cache_clear()
     return out
+
+
+# ---------- 숏폼 콘텐츠 (관리자 전용 · 생성→검수→발행) ----------
+def _admin_or_403(request: Request):
+    if not _require_admin(request):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다.")
+
+
+@app.post("/api/shortform/generate")
+def shortform_generate(data: dict = Body(default={})):
+    """상위 매수 시그널로 숏폼 초안(스크립트+카드) 생성 → 검수 큐 적재(draft)."""
+    return shortform.generate(limit=int(data.get("limit", 5)),
+                              dry_run=bool(data.get("dry_run")))
+
+
+@app.get("/api/shortform/queue")
+def shortform_queue(status: str | None = None):
+    """검수 큐 목록(카드 SVG 제외, 가벼움). status=draft|approved|rejected|published."""
+    return {"items": db.shortform_list(status=status)}
+
+
+@app.get("/api/shortform/{sid}")
+def shortform_detail(sid: str, request: Request):
+    """단건 상세(스크립트 + 카드 SVG 포함) — 검수 미리보기용."""
+    _admin_or_403(request)
+    item = db.shortform_get(sid)
+    if not item:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="숏폼을 찾을 수 없습니다.")
+    return item
+
+
+@app.post("/api/shortform/{sid}/review")
+def shortform_review(sid: str, request: Request, data: dict = Body(default={})):
+    """검수 결과 반영 — status: approved|rejected(|published). note 선택."""
+    _admin_or_403(request)
+    status = str(data.get("status") or "").strip()
+    if status not in ("approved", "rejected", "published"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="status는 approved|rejected|published")
+    db.shortform_set_status(sid, status, str(data.get("note") or ""))
+    return {"ok": True, "id": sid, "status": status}
+
+
+@app.post("/api/shortform/{sid}/delete")
+def shortform_delete_ep(sid: str, request: Request):
+    _admin_or_403(request)
+    db.shortform_delete(sid)
+    return {"ok": True, "id": sid}
 
 
 # 주의: 아래 구체 경로들은 catch-all `/api/kb/{ticker}`보다 먼저 등록돼야 매칭된다.

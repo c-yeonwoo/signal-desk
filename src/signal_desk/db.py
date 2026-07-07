@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS alert_state(uid INTEGER, ticker TEXT, last_kind TEXT,
     PRIMARY KEY(uid, ticker));
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT,
     name TEXT, message TEXT, ts INTEGER, read INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS shortform(id TEXT PRIMARY KEY, ticker TEXT, name TEXT, kind TEXT, score REAL,
+    title TEXT, script TEXT, caption TEXT, hashtags TEXT, card_svg TEXT,
+    status TEXT NOT NULL DEFAULT 'draft', note TEXT, created INTEGER, reviewed INTEGER);
 """
 
 
@@ -599,3 +602,76 @@ def holdings_remove(uid: int, ticker: str) -> None:
     c.execute("DELETE FROM holdings WHERE uid=? AND ticker=?", (uid, ticker))
     c.commit()
     c.close()
+
+
+# ---------- shortform (숏폼 콘텐츠 초안 + 검수 큐 — 관리자 전용) ----------
+def _shortform_row(r) -> dict:
+    (sid, ticker, name, kind, score, title, script, caption, hashtags, card_svg,
+     status, note, created, reviewed) = r
+    return {"id": sid, "ticker": ticker, "name": name, "kind": kind, "score": score,
+            "title": title, "script": json.loads(script) if script else [],
+            "caption": caption, "hashtags": json.loads(hashtags) if hashtags else [],
+            "card_svg": card_svg, "status": status, "note": note,
+            "created": created, "reviewed": reviewed}
+
+
+_SHORTFORM_COLS = ("id,ticker,name,kind,score,title,script,caption,hashtags,card_svg,"
+                   "status,note,created,reviewed")
+
+
+def shortform_add(item: dict) -> None:
+    """숏폼 초안 저장(status='draft'). item: {id,ticker,name,kind,score,title,script[],caption,hashtags[],card_svg}."""
+    c = conn()
+    c.execute(f"INSERT OR REPLACE INTO shortform({_SHORTFORM_COLS}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+              (item["id"], item.get("ticker"), item.get("name"), item.get("kind"), item.get("score"),
+               item.get("title"), json.dumps(item.get("script") or [], ensure_ascii=False),
+               item.get("caption"), json.dumps(item.get("hashtags") or [], ensure_ascii=False),
+               item.get("card_svg"), item.get("status", "draft"), item.get("note"),
+               int(time.time()), None))
+    c.commit()
+    c.close()
+
+
+def shortform_list(status: str | None = None, limit: int = 100) -> list[dict]:
+    """검수 큐 목록(최신순). status 지정 시 해당 상태만. card_svg는 목록에선 제외(가벼움)."""
+    cols = _SHORTFORM_COLS.replace("card_svg", "'' as card_svg")  # 목록은 SVG 생략(용량)
+    c = conn()
+    if status:
+        rows = c.execute(f"SELECT {cols} FROM shortform WHERE status=? ORDER BY created DESC LIMIT ?",
+                         (status, limit)).fetchall()
+    else:
+        rows = c.execute(f"SELECT {cols} FROM shortform ORDER BY created DESC LIMIT ?", (limit,)).fetchall()
+    c.close()
+    return [_shortform_row(r) for r in rows]
+
+
+def shortform_get(sid: str) -> dict | None:
+    c = conn()
+    r = c.execute(f"SELECT {_SHORTFORM_COLS} FROM shortform WHERE id=?", (sid,)).fetchone()
+    c.close()
+    return _shortform_row(r) if r else None
+
+
+def shortform_set_status(sid: str, status: str, note: str = "") -> None:
+    """검수 결과 반영 — approved|rejected|published 등."""
+    c = conn()
+    c.execute("UPDATE shortform SET status=?, note=?, reviewed=? WHERE id=?",
+              (status, note or None, int(time.time()), sid))
+    c.commit()
+    c.close()
+
+
+def shortform_delete(sid: str) -> None:
+    c = conn()
+    c.execute("DELETE FROM shortform WHERE id=?", (sid,))
+    c.commit()
+    c.close()
+
+
+def shortform_recent_tickers(within_sec: int) -> set[str]:
+    """최근 within_sec 이내 생성된 숏폼의 종목 집합 — 중복 생성 방지용."""
+    c = conn()
+    rows = c.execute("SELECT DISTINCT ticker FROM shortform WHERE created >= ?",
+                     (int(time.time()) - within_sec,)).fetchall()
+    c.close()
+    return {t for (t,) in rows}
