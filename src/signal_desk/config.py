@@ -163,8 +163,9 @@ def allow_real_orders() -> bool:
 
 
 def bot_run_interval_minutes() -> int:
-    """자동매매봇 백그라운드 루프 실행 간격(분). 기본 5분(장중 5분마다 시그널 점검·매매)."""
-    return int(os.environ.get("BOT_RUN_INTERVAL_MINUTES", "5"))
+    """자동매매봇 백그라운드 루프 실행 간격(분). 기본 30분 — 장중 실시간가 오버레이 갱신 + 매매를
+    한 주기로 통일. 너무 잦으면 임계값 근처 신호가 깜빡이므로 30분 권장(흔들리면 60/120로 상향)."""
+    return int(os.environ.get("BOT_RUN_INTERVAL_MINUTES", "30"))
 
 
 def admin_emails() -> set[str]:

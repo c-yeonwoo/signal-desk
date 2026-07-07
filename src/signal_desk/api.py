@@ -73,6 +73,30 @@ def _daily_kb_collect():
     db.kv_set("kb_collect_date", _kst_today())
 
 
+def _refresh_live_quotes(open_markets: list[str]) -> None:
+    """열린 시장 종목의 토스 현재가를 배치 조회해 store에 실시간가 오버레이 설정 → 시그널·현재가
+    캐시 무효화. 봇 run_once는 store.load_price_series()를 읽으므로 자동으로 실시간가 기준이 된다.
+    열린 시장 없거나 토스 미가용 시 오버레이 해제(종가 복귀). best-effort(실패 무시)."""
+    from signal_desk.ingest import toss
+    if not open_markets or not toss.available():
+        store.clear_live_quotes()
+        _signals.cache_clear(); _us_signals.cache_clear(); _quotes.cache_clear(); _regime.cache_clear()
+        return
+    syms: list[str] = []
+    if "kr" in open_markets:
+        syms += [u["ticker"] for u in store.load_universe()]
+    if "us" in open_markets:
+        syms += [u["ticker"] for u in store.load_us_universe()]
+    try:
+        quotes = toss.prices(syms) if syms else {}
+    except Exception as e:
+        log.warning("실시간가 조회 실패(무시): %s", type(e).__name__)
+        return
+    if quotes:
+        store.set_live_quotes(quotes)
+        _signals.cache_clear(); _us_signals.cache_clear(); _quotes.cache_clear(); _regime.cache_clear()
+
+
 async def _bot_loop():
     """자동매매봇 백그라운드 루프 — 봇을 켠 유저별로 순회. 시그널은 공용, 계좌는 paper(종가 기준).
 
@@ -87,6 +111,7 @@ async def _bot_loop():
             enabled = db.user_bots_enabled()
             open_markets = [m for m, is_open in
                             (("kr", bot.is_market_hours()), ("us", bot.is_us_market_hours())) if is_open]
+            _refresh_live_quotes(open_markets)  # 장중 실시간가 오버레이 갱신(열린 시장만, 없으면 종가 복귀)
             for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
                 for mkt in open_markets:
                     result = bot.run_once(uid, market=mkt)

@@ -252,7 +252,7 @@ def load_us_price_series() -> dict[str, list[float]]:
     if not US_PRICES_FILE.exists():
         return {}
     df = pd.read_parquet(US_PRICES_FILE).sort_values(["ticker", "date"])
-    return {t: g["close"].tolist() for t, g in df.groupby("ticker")}
+    return _overlay_closes({t: g["close"].tolist() for t, g in df.groupby("ticker")})
 
 
 def load_us_quotes() -> dict[str, dict]:
@@ -369,15 +369,45 @@ def load_macro() -> list[dict]:
     return json.loads(MACRO_FILE.read_text(encoding="utf-8"))
 
 
+# 장중 실시간 현재가 오버레이 — 무거운 refresh 없이 종가 시계열 마지막에 '잠정봉' 1개를 얹어
+# 시그널·봇·페이퍼 체결가를 현재가 기준으로 돌린다(장 마감 후엔 clear → 종가 복귀). 파일엔 안 쓴다.
+_LIVE_QUOTES: dict[str, float] = {}
+
+
+def set_live_quotes(quotes: dict[str, float]) -> None:
+    """실시간 현재가 오버레이 설정(양수만). 빈 dict면 오버레이 없음."""
+    _LIVE_QUOTES.clear()
+    for k, v in (quotes or {}).items():
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if fv > 0:
+            _LIVE_QUOTES[k] = fv
+
+
+def clear_live_quotes() -> None:
+    _LIVE_QUOTES.clear()
+
+
+def _overlay_closes(series: dict[str, list[float]]) -> dict[str, list[float]]:
+    """live 현재가가 있으면 각 종목 종가열 끝에 잠정봉 1개 append(길이 +1). 없으면 원본."""
+    if not _LIVE_QUOTES:
+        return series
+    return {t: (closes + [_LIVE_QUOTES[t]]) if (_LIVE_QUOTES.get(t) and closes) else closes
+            for t, closes in series.items()}
+
+
 def load_price_series() -> dict[str, list[float]]:
-    """ticker -> 종가 리스트(오래된→최신). engine.evaluate()/backtest_summary()에 바로 투입 가능."""
+    """ticker -> 종가 리스트(오래된→최신). engine.evaluate()/backtest_summary()에 바로 투입 가능.
+    장중 실시간가가 설정돼 있으면 마지막에 잠정봉 1개를 얹는다(set_live_quotes)."""
     if not PRICES_FILE.exists():
         return {}
     df = pd.read_parquet(PRICES_FILE)
     if df.empty:
         return {}
     df = df.sort_values(["ticker", "date"])
-    return {ticker: g["close"].tolist() for ticker, g in df.groupby("ticker")}
+    return _overlay_closes({ticker: g["close"].tolist() for ticker, g in df.groupby("ticker")})
 
 
 def load_dates_by_ticker() -> dict[str, list[str]]:
@@ -388,7 +418,11 @@ def load_dates_by_ticker() -> dict[str, list[str]]:
     if df.empty:
         return {}
     df = df.sort_values(["ticker", "date"])
-    return {ticker: [str(d) for d in g["date"].tolist()] for ticker, g in df.groupby("ticker")}
+    dates = {ticker: [str(d) for d in g["date"].tolist()] for ticker, g in df.groupby("ticker")}
+    if _LIVE_QUOTES:  # load_price_series의 잠정봉과 길이 정합 유지(백테스트 date-close 짝 안 깨지게)
+        today = datetime.date.today().isoformat()
+        dates = {t: (ds + [today]) if (_LIVE_QUOTES.get(t) and ds) else ds for t, ds in dates.items()}
+    return dates
 
 
 def load_price_history(ticker: str) -> list[dict]:
@@ -447,8 +481,10 @@ def load_quotes(vol_window: int = 20) -> dict[str, dict]:
     out: dict[str, dict] = {}
     for ticker, g in df.groupby("ticker"):
         closes = g["close"].tolist()
-        price = float(closes[-1])
-        prev = float(closes[-2]) if len(closes) > 1 else price
+        # 장중 실시간가가 있으면 현재가=live, 전일=마지막 종가(오늘 잠정봉의 직전 = 어제 종가)
+        live = _LIVE_QUOTES.get(ticker)
+        price = float(live) if live else float(closes[-1])
+        prev = float(closes[-1]) if live else (float(closes[-2]) if len(closes) > 1 else price)
         vol = vol_avg = None
         if has_vol:
             vols = [float(v) for v in g["volume"].tolist() if v == v]  # NaN 제외
