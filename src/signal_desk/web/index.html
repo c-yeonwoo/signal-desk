@@ -549,10 +549,12 @@
       <div class="row" style="align-items:baseline">
         <b style="font-size:15px">📥 데이터 수집·갱신 <span style="color:var(--dim);font-weight:600;font-size:12px">· 시세·재무·거시·유니버스</span></b>
         <span id="refresh-result" class="stat-label" style="margin:0 0 0 auto"></span>
-        <button class="btn primary" onclick="refreshData()" style="margin-left:8px">데이터 갱신</button>
+        <button class="btn" onclick="checkDataHealth()" style="margin-left:8px">데이터 상태 점검</button>
+        <button class="btn primary" onclick="refreshData()" style="margin-left:4px">데이터 갱신</button>
       </div>
       <p class="page-desc" style="margin:6px 0 0">KOSPI 유니버스·시세·재무(DART)·거시(FRED/ECOS)·거장 13F·S&P500 유니버스를 한 번에 수집합니다.
         <b>배포 후 최초 1회 필수</b> — 이걸 눌러야 시그널·백테스트·저평가가 실데이터로 채워집니다. (수십 초~수 분 소요)</p>
+      <div id="data-health" style="display:none;margin-top:10px;font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px"></div>
     </div>
     <div class="seg-toggle" id="admin-seg" style="margin-bottom:16px">
       <button class="on" data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 설정</button>
@@ -1897,6 +1899,25 @@ async function refreshData(){
       : `실패: ${d.error || d.reason || '오류'}`;
   } catch (e) { el.style.color = 'var(--sell)'; el.textContent = '요청 실패(시간 초과일 수 있음 — 잠시 후 새로고침)'; }
   finally { btn.disabled = false; btn.textContent = t; }
+}
+
+async function checkDataHealth(){
+  const box = document.getElementById('data-health'); box.style.display = ''; box.innerHTML = '점검 중…';
+  try {
+    const d = await (await fetch('/api/data-health')).json();
+    if (!d.ok) { box.innerHTML = `⚠️ ${esc(d.reason || '점검 불가')}` +
+      (d.rows ? '<br>' + d.rows.map(r => `${esc(r.ticker)}: 캐시 ${r.cached ?? '–'}`).join(' · ') : ''); return; }
+    const bad = d.scaled_suspect;
+    const rows = d.rows.map(r => {
+      const off = r.ratio != null && Math.abs(r.ratio - 1) > 0.15;
+      return `<tr><td>${esc(r.ticker)}</td><td class="num">${r.cached ?? '–'}</td>
+        <td class="num">${r.live ?? '–'}</td>
+        <td class="num" style="color:${off ? 'var(--sell)' : 'var(--sig-buy)'}">${r.ratio != null ? '×' + r.ratio : '–'}</td></tr>`;
+    }).join('');
+    box.innerHTML = `<b style="color:${bad ? 'var(--sell)' : 'var(--sig-buy)'}">${bad ? '⚠️ ' : '✅ '}${esc(d.verdict)}</b>`
+      + `<table class="dtable" style="margin-top:6px"><thead><tr><th>종목</th><th class="num">캐시종가</th><th class="num">실시간가</th><th class="num">비율</th></tr></thead><tbody>${rows}</tbody></table>`
+      + `<div style="color:var(--dim);margin-top:4px">비율(캐시÷실시간)이 1에서 크게 벗어나면 스케일/합성 데이터 — track record 전에 실데이터 교체 필요.</div>`;
+  } catch (e) { box.innerHTML = '점검 요청 실패'; }
 }
 
 async function refreshKb(){
