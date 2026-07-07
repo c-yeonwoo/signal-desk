@@ -539,3 +539,36 @@ def load_quotes(vol_window: int = 20) -> dict[str, dict]:
 
 def is_ready() -> bool:
     return PRICES_FILE.exists() and UNIVERSE_FILE.exists()
+
+
+# 데이터 신뢰도 진단용 앵커(대형주) — 캐시 종가 vs 토스 실시간가 비율로 스케일/합성 여부 판정.
+_SANITY_TICKERS = ["005930", "000660", "005380", "035420", "005490"]
+
+
+def price_sanity(tickers: list[str] | None = None) -> dict:
+    """캐시 종가와 토스 실시간가의 비율로 시세 데이터가 '실제 스케일'인지 진단한다.
+    ratio(캐시/실시간)≈1이면 실데이터, 종목별로 크게(>15%) 벗어나면 스케일·합성 의심.
+    토스 미연동이면 비교 불가(캐시값만 반환). track record 신뢰의 전제 점검용."""
+    from signal_desk.ingest import toss
+    tickers = tickers or _SANITY_TICKERS
+    if not PRICES_FILE.exists():
+        return {"ok": False, "reason": "시세 캐시 없음"}
+    df = pd.read_parquet(PRICES_FILE)
+    if df.empty:
+        return {"ok": False, "reason": "시세 캐시 비어있음"}
+    df = df.sort_values(["ticker", "date"])
+    cached = {t: float(g["close"].tolist()[-1]) for t, g in df.groupby("ticker") if len(g)}
+    if not toss.available():
+        return {"ok": False, "toss": False, "reason": "토스 미연동 — 실시간가와 비교 불가(캐시값만 표시)",
+                "rows": [{"ticker": t, "cached": cached.get(t), "live": None, "ratio": None} for t in tickers]}
+    live = toss.prices(tickers)
+    rows = []
+    for t in tickers:
+        c, l = cached.get(t), live.get(t)
+        rows.append({"ticker": t, "cached": c, "live": l,
+                     "ratio": round(c / l, 3) if (c and l) else None})
+    ratios = [r["ratio"] for r in rows if r["ratio"]]
+    scaled_suspect = bool(ratios) and any(abs(x - 1) > 0.15 for x in ratios)  # 15%↑ 벗어나면 의심
+    return {"ok": True, "toss": True, "scaled_suspect": scaled_suspect,
+            "verdict": "스케일/합성 의심 — 실데이터 교체 필요" if scaled_suspect else "실데이터로 판단(비율≈1)",
+            "rows": rows}

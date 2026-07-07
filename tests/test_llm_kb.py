@@ -67,6 +67,7 @@ def test_import_file_uses_pdf_text_when_extractable(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(kb, "_pdf_text", lambda data: "삼성 3분기 실적 개선 " * 40)  # 충분한 텍스트
     monkeypatch.setattr(kb, "_summarize_text", lambda n, t, x: ("텍스트 요약", []))
+    monkeypatch.setattr(kb, "validate_import", lambda *a, **k: {"verdict": "accept", "trust": 0.9, "reasons": []})
     out = kb.import_file("005930", "삼성전자", "report.pdf", b"%PDF...", "application/pdf")
     assert out["ok"] and out["method"] == "pdf_text" and out["doc_class"] == "리포트"
 

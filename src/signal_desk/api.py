@@ -163,6 +163,7 @@ _ADMIN_PATHS = {
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents", "/api/kb/digests",
     "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube",
     "/api/shortform/generate", "/api/shortform/queue", "/api/shortform/candidates",
+    "/api/data-health",
 }
 
 
@@ -706,6 +707,13 @@ def regime_get():
         return {"ready": False, "regime": None}
     _, adapt = signalcfg.effective_config(_regime(), _macro())  # 국면 적응으로 상향된 매수 기준
     return {**_regime(), "adaptive": adapt}
+
+
+@app.get("/api/data-health")
+def data_health_get():
+    """시세 데이터 신뢰도 진단(관리자) — 캐시 종가 vs 토스 실시간가 비율로 스케일/합성 여부 판정.
+    track record가 의미를 가지려면 실데이터여야 하므로 그 전제를 확인한다."""
+    return store.price_sanity()
 
 
 @app.get("/api/live-status")
