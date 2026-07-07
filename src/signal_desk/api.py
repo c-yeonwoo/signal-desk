@@ -178,7 +178,7 @@ _ADMIN_PATHS = {
     "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube",
     "/api/shortform/generate", "/api/shortform/generate-performance",
     "/api/shortform/queue", "/api/shortform/candidates",
-    "/api/data-health",
+    "/api/data-health", "/api/egress-ip",
 }
 
 
@@ -733,6 +733,23 @@ def regime_get():
         return {"ready": False, "regime": None}
     _, adapt = signalcfg.effective_config(_regime(), _macro())  # 국면 적응으로 상향된 매수 기준
     return {**_regime(), "adaptive": adapt}
+
+
+@app.get("/api/egress-ip")
+def egress_ip_get():
+    """서버의 아웃바운드(공인) IP — 토스 등 외부 API IP 화이트리스트 등록용. 여러 소스로 시도.
+    ⚠️ Railway 등은 배포/인스턴스마다 이 IP가 바뀔 수 있음(고정 egress 아니면 화이트리스트가 깨짐)."""
+    import urllib.request
+    for url in ("https://api.ipify.org", "https://ifconfig.me/ip", "https://checkip.amazonaws.com"):
+        try:
+            with urllib.request.urlopen(url, timeout=5) as r:
+                ip = r.read().decode("utf-8", "replace").strip()
+            if ip:
+                return {"ok": True, "ip": ip, "source": url,
+                        "note": "Railway는 배포마다 IP가 바뀔 수 있어 화이트리스트가 깨질 수 있습니다(고정 egress 확인)."}
+        except Exception:
+            continue
+    return {"ok": False, "reason": "아웃바운드 IP 조회 실패(외부 IP 서비스 모두 응답 없음)"}
 
 
 @app.get("/api/data-health")
