@@ -203,25 +203,91 @@ def _summarize_vision(name: str, title: str, data: bytes, media_type: str) -> tu
     return "", []
 
 
-def import_file(ticker: str, name: str, filename: str, data: bytes, media_type: str) -> dict:
-    """업로드 파일(PDF/이미지)을 KB 문서로. 네이티브 텍스트 PDF는 pypdf로 싸게, 스캔·이미지는
-    vision(모델 OCR)으로 인식 → 요약·분류 후 적재. 반환: {ok, doc_class, summary, method}."""
-    if not ticker or not name or not data:
-        return {"ok": False, "reason": "ticker·name·파일 필요"}
-    title = filename or f"{name} 업로드"
+def _classify_scope(text: str) -> dict:
+    """문서 스코프 자동 판정 — 특정 종목(stock)/시황(market)/섹터(sector) 중 무엇인가.
+    반환 {scope, ticker, name, sector}. ticker는 코스피 유니버스에 실재하는 것만 채택(환각 차단)."""
+    from signal_desk import store
+    uni = store.load_universe()
+    by_name = {u["name"]: u["ticker"] for u in uni}
+    tk_to_name = {u["ticker"]: u["name"] for u in uni}
+    if not llm.available() or not text.strip():
+        return {"scope": "market", "ticker": None, "name": None, "sector": None}  # 폴백: 시황
+    system = ("너는 증권 문서 분류기다. 문서가 (1) 특정 상장사 한 곳 분석이면 stock, "
+              "(2) 거시·시황·시장 전반이면 market, (3) 특정 산업/섹터 전망이면 sector로 분류한다.")
+    user = (f"문서:\n{text[:4000]}\n\n"
+            'JSON으로만: {"scope":"stock|market|sector", "company":"회사명(stock일 때만, 아니면 null)", '
+            '"ticker":"6자리 코드(알면, 아니면 null)", "sector":"섹터명(sector일 때만, 아니면 null)"}')
+    out = llm.complete_json(system, user, max_tokens=200, model=llm.DIGEST_MODEL) or {}
+    scope = str(out.get("scope") or "market").lower()
+    tk, nm = out.get("ticker"), out.get("company")
+    if tk not in tk_to_name:                     # 코드 환각 방지 — 유니버스에 없으면 회사명으로 재매핑
+        tk = by_name.get(nm) if nm else None
+    if scope == "stock" and not tk:              # 종목 특정 실패 → 시황으로 안전 강등
+        scope = "market"
+    return {"scope": scope, "ticker": tk, "name": tk_to_name.get(tk) if tk else None,
+            "sector": out.get("sector")}
+
+
+def validate_macro(text: str, title: str = "") -> dict:
+    """시황·섹터 문서 안전망 — 증권·거시로서 신뢰할 콘텐츠인지(광고·스팸·무관·허위 차단). accept|reject."""
+    if len((text or "").strip()) < 40:
+        return {"verdict": "reject", "reasons": ["본문이 너무 짧음"]}
+    if not llm.available():
+        return {"verdict": "accept" if any(t in text for t in news.SECURITIES_TERMS) else "review", "reasons": []}
+    system = ("너는 KB 품질관리자다. 이 문서가 시황·거시·섹터 분석으로서 신뢰할 증권 콘텐츠인지 심사한다. "
+              "광고·스팸·무관·허위·근거 없는 주장은 reject.")
+    user = (f"제목:{title}\n문서:\n{text[:4000]}\n\n"
+            'JSON으로만: {"verdict":"accept|reject","reasons":["짧게"]}')
+    out = llm.complete_json(system, user, max_tokens=200, model=llm.DIGEST_MODEL) or {}
+    v = str(out.get("verdict", "accept")).lower()
+    return {"verdict": "reject" if v == "reject" else "accept",
+            "reasons": [str(r) for r in (out.get("reasons") or [])][:3]}
+
+
+def import_file(ticker: str | None, name: str, filename: str, data: bytes, media_type: str) -> dict:
+    """업로드 파일(PDF/이미지)을 KB 문서로. 텍스트 PDF는 pypdf로 싸게, 스캔·이미지는 vision(OCR)으로 인식.
+    ticker가 없으면 문서 내용을 이해해 종목/시황/섹터로 자동 분류·라우팅한다(종목 특정 시 종목 KB, 아니면
+    거시 KB). 검증 안전망은 두 경로 모두 유지. 반환: {ok, doc_class, summary, method, routed, ticker, name}."""
+    if not data:
+        return {"ok": False, "reason": "파일 필요"}
+    disp = name or "문서"
+    title = filename or f"{disp} 업로드"
     text, method = "", ""
     if media_type == "application/pdf":
         text = _pdf_text(data)
     if len(text) >= _MIN_PDF_TEXT:
-        summary, _ = _summarize_text(name, title, text)
+        summary, _ = _summarize_text(disp, title, text)
         raw, method = text, "pdf_text"
     else:  # 스캔 PDF 또는 이미지 → 모델이 직접 인식(OCR)
-        summary, _ = _summarize_vision(name, title, data, media_type)
+        summary, _ = _summarize_vision(disp, title, data, media_type)
         raw, method = "[스캔/이미지 문서 — 모델 인식]", "vision"
         if not summary:
             return {"ok": False, "reason": "문서 인식 실패(LLM 키 확인 또는 지원 형식인지 확인)"}
-    # 검증: 텍스트 PDF는 원문으로, 스캔/이미지는 모델 요약문으로 신뢰성 심사
-    v = validate_import(ticker, name, text if method == "pdf_text" else summary, title)
+    basis = text if method == "pdf_text" else summary  # 검증·분류에 쓸 본문
+
+    # 종목 미지정 → 자동 스코프 분류(종목/시황/섹터)
+    if not ticker:
+        sc = _classify_scope(basis)
+        if sc["scope"] == "stock" and sc["ticker"]:
+            ticker, name = sc["ticker"], sc["name"]   # 종목 KB 경로로 계속(아래)
+        else:
+            vm = validate_macro(basis, title)          # 시황/섹터 안전망
+            if vm["verdict"] == "reject":
+                return {"ok": False, "verdict": "reject", "method": method, "routed": sc["scope"],
+                        "reason": "KB 오염 우려로 저장하지 않음: " + (", ".join(vm["reasons"]) or "신뢰도 낮음")}
+            is_sector = sc["scope"] == "sector" and sc.get("sector")
+            label = (f"[섹터: {sc['sector']}] {title}" if is_sector else f"[시황] {title}")
+            db.kb_document_add(MACRO_TICKER, label, summary, "", "upload", "", "시황",
+                               raw_text=raw, status="confirmed")
+            _rebuild_macro_digest()
+            return {"ok": True, "status": "confirmed", "method": method,
+                    "routed": "sector" if is_sector else "market",
+                    "sector": sc.get("sector"), "doc_class": "시황", "summary": summary}
+
+    # 종목 KB 경로(명시 ticker 또는 자동 감지) — 검증 안전망 유지
+    if not name:
+        return {"ok": False, "reason": "종목명을 찾지 못했습니다(코드만으로는 검증 불가)"}
+    v = validate_import(ticker, name, basis, title)
     if v["verdict"] == "reject":
         return {"ok": False, "verdict": "reject", "trust": v["trust"], "reasons": v["reasons"], "method": method,
                 "reason": "KB 오염 우려로 저장하지 않음: " + (", ".join(v["reasons"]) or "신뢰도 낮음")}
@@ -231,7 +297,8 @@ def import_file(ticker: str, name: str, filename: str, data: bytes, media_type: 
     if status == "confirmed":
         _rebuild_digest(ticker, name)
     return {"ok": True, "status": status, "verdict": v["verdict"], "trust": v["trust"],
-            "reasons": v["reasons"], "doc_class": doc_class, "summary": summary, "method": method}
+            "reasons": v["reasons"], "doc_class": doc_class, "summary": summary, "method": method,
+            "routed": "stock", "ticker": ticker, "name": name}
 
 
 def _rebuild_digest(ticker: str, name: str) -> None:

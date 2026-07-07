@@ -1006,21 +1006,26 @@ _MAX_UPLOAD = 15 * 1024 * 1024  # 15MB
 
 
 @app.post("/api/kb/import-file")
-async def kb_import_file(ticker: str = Form(...), file: UploadFile = FastFile(...)):
-    """PDF·이미지 업로드 → (텍스트 PDF는 pypdf, 스캔·이미지는 모델 OCR) 요약·분류 후 KB 적재."""
-    names = {u["ticker"]: u["name"] for u in store.load_universe()}
-    name = names.get(ticker.strip())
-    if not name:
-        return {"ok": False, "reason": "유니버스에 없는 종목코드입니다(ticker 확인)"}
+async def kb_import_file(ticker: str = Form(""), file: UploadFile = FastFile(...)):
+    """PDF·이미지 업로드 → 요약·분류 후 KB 적재. ticker는 선택 — 비우면 문서 내용으로 종목/시황/섹터
+    자동 분류·라우팅. 지정 시 해당 종목에 강제 적재(유니버스 코드여야 함)."""
+    ticker = (ticker or "").strip()
+    name = ""
+    if ticker:  # 명시 지정 시에만 유니버스 검증(자동 모드는 kb가 판단)
+        names = {u["ticker"]: u["name"] for u in store.load_universe()}
+        name = names.get(ticker)
+        if not name:
+            return {"ok": False, "reason": "유니버스에 없는 종목코드입니다(ticker 확인 — 비우면 자동 분류)"}
     media_type = file.content_type or ""
     if media_type not in _UPLOAD_TYPES:
         return {"ok": False, "reason": f"지원 형식 아님({media_type}) — PDF·PNG·JPG만"}
     data = await file.read()
     if len(data) > _MAX_UPLOAD:
         return {"ok": False, "reason": "파일이 너무 큽니다(최대 15MB)"}
-    out = kb.import_file(ticker.strip(), name, file.filename or "", data, media_type)
+    out = kb.import_file(ticker or None, name, file.filename or "", data, media_type)
     if out.get("ok"):
         _signals.cache_clear()
+        _macro.cache_clear()  # 시황/섹터로 라우팅됐을 수 있음
     return out
 
 

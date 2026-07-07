@@ -639,15 +639,20 @@
 
       <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px">
         <b style="font-size:13px">📄 리포트·원문 추가</b>
-        <p class="page-desc" style="margin:4px 0 8px">증권사 리포트·기사 원문을 붙여넣거나 <b>PDF·이미지를 업로드</b>하면 LLM이 요약·분류해 KB 문서로 보완합니다. 스캔 PDF·이미지는 모델이 직접 인식(OCR)합니다.</p>
+        <p class="page-desc" style="margin:4px 0 8px">PDF·이미지를 <b>끌어다 놓거나</b> 원문을 붙여넣으면 LLM이 요약·분류해 KB에 보강합니다. <b>종목코드는 선택</b> — 비우면 문서 내용을 이해해 <b>종목/시황/섹터</b>를 알아서 판단해 라우팅합니다. 스캔·이미지는 모델이 직접 인식(OCR).</p>
         <div class="row" style="gap:6px;flex-wrap:wrap">
-          <input id="imp_ticker" class="ctrl" placeholder="종목코드 예:005930" style="flex:0 0 140px">
+          <input id="imp_ticker" class="ctrl" placeholder="종목코드(선택 — 비우면 자동)" style="flex:0 0 200px">
           <input id="imp_title" class="ctrl" placeholder="제목(선택)" style="flex:1 1 200px">
         </div>
-        <textarea id="imp_text" class="ctrl" placeholder="리포트/기사 원문 텍스트를 붙여넣으세요" style="width:100%;min-height:90px;margin-top:6px;resize:vertical"></textarea>
+        <div id="imp-dropzone" style="margin-top:8px;border:2px dashed var(--line);border-radius:var(--r-md);
+          padding:18px;text-align:center;color:var(--dim);font-size:13px;cursor:pointer;transition:.15s">
+          📎 <b>PDF·이미지를 여기로 끌어다 놓기</b> 또는 클릭해서 선택
+          <div id="imp-file-name" style="color:var(--accent);font-size:12px;margin-top:4px"></div>
+        </div>
+        <input id="imp_file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style="display:none">
+        <textarea id="imp_text" class="ctrl" placeholder="또는 리포트/기사 원문 텍스트를 붙여넣으세요" style="width:100%;min-height:80px;margin-top:8px;resize:vertical"></textarea>
         <div class="row" style="margin-top:6px;gap:8px;flex-wrap:wrap">
-          <input id="imp_file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style="font-size:12px;flex:1 1 200px">
-          <span id="imp-result" class="stat-label" style="margin:0"></span>
+          <span id="imp-result" class="stat-label" style="margin:0 auto 0 0"></span>
           <button class="btn" onclick="uploadDoc()">파일 업로드</button>
           <button class="btn primary" onclick="importDoc()">텍스트 추가</button>
         </div>
@@ -2062,18 +2067,44 @@ async function importDoc(){
   } finally { btn.disabled = false; btn.textContent = t; }
 }
 
+function _routeLabel(d){
+  const m = d.method === 'vision' ? ' (모델 인식)' : ' (텍스트 추출)';
+  if (d.routed === 'market') return ' → 시황 KB' + m;
+  if (d.routed === 'sector') return ` → 섹터 KB${d.sector ? '(' + esc(d.sector) + ')' : ''}` + m;
+  if (d.routed === 'stock' && d.name) return ` → ${esc(d.name)}(${esc(d.ticker || '')})` + m;
+  return m;
+}
 async function uploadDoc(){
   const btn = event.target, res = document.getElementById('imp-result');
   const ticker = document.getElementById('imp_ticker').value.trim();
   const f = document.getElementById('imp_file').files[0];
-  if (!ticker || !f) { res.style.color = 'var(--sell)'; res.textContent = '종목코드와 파일이 필요합니다.'; return; }
-  btn.disabled = true; const t = btn.textContent; btn.textContent = '인식·검증 중…';
+  if (!f) { res.style.color = 'var(--sell)'; res.textContent = '파일을 선택하거나 끌어다 놓으세요.'; return; }
+  btn.disabled = true; const t = btn.textContent; btn.textContent = ticker ? '인식·검증 중…' : '인식·분류 중…';
   try {
-    const fd = new FormData(); fd.append('ticker', ticker); fd.append('file', f);
+    const fd = new FormData(); if (ticker) fd.append('ticker', ticker); fd.append('file', f);
     const d = await (await fetch('/api/kb/import-file', { method: 'POST', body: fd })).json();
-    _renderImportResult(d, d.method === 'vision' ? ' (모델 인식)' : ' (텍스트 추출)');
-    if (d.ok) { document.getElementById('imp_file').value = ''; loadKbDocs(); }
+    _renderImportResult(d, _routeLabel(d));
+    if (d.ok) { document.getElementById('imp_file').value = ''; document.getElementById('imp-file-name').textContent = ''; loadKbDocs(); }
   } finally { btn.disabled = false; btn.textContent = t; }
+}
+
+// 드래그앤드롭 업로드 존 — 클릭·드롭 모두 imp_file에 반영(1회 초기화)
+let _dropzoneInit = false;
+function _initDropzone(){
+  if (_dropzoneInit) return;
+  const dz = document.getElementById('imp-dropzone'), fi = document.getElementById('imp_file');
+  if (!dz || !fi) return;
+  _dropzoneInit = true;
+  const nameEl = document.getElementById('imp-file-name');
+  const showName = () => { nameEl.textContent = fi.files[0] ? '선택됨: ' + fi.files[0].name : ''; };
+  dz.onclick = () => fi.click();
+  fi.onchange = showName;
+  dz.ondragover = (e) => { e.preventDefault(); dz.style.borderColor = 'var(--accent)'; dz.style.background = 'var(--accent-weak)'; };
+  dz.ondragleave = () => { dz.style.borderColor = 'var(--line)'; dz.style.background = ''; };
+  dz.ondrop = (e) => {
+    e.preventDefault(); dz.style.borderColor = 'var(--line)'; dz.style.background = '';
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) { fi.files = e.dataTransfer.files; showName(); }
+  };
 }
 
 const _CLASS_COLOR = { 리포트: '#4f46e5', 실적: '#0369a1', 공시: '#0f766e', 이벤트: '#b3121a', 시황: '#b45309', 뉴스: '#64748b', 미분류: '#94a3b8' };
@@ -2235,7 +2266,7 @@ function switchAdminSeg(seg){
   document.getElementById('admin-shortform').style.display = seg === 'shortform' ? '' : 'none';
   if (seg === 'engine') loadEngine();
   if (seg === 'backtest') loadBacktestAnalysis();
-  if (seg === 'kb') loadKbDocs();
+  if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
   if (seg === 'shortform') loadShortform();
 }
 
