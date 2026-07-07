@@ -539,6 +539,24 @@ def bot_decisions_recent(limit: int = 40) -> list[dict]:
             for t, n, a, sc, r, cx, dp, ts, op, ot in rows]
 
 
+def bot_decision_scorecard() -> dict:
+    """실현된 매수 판단 성적표 — 승률·평균/최고/최악 실현수익(3일). 미실현(outcome_pct NULL) 제외.
+    시그널이 실제로 맞았는지의 공개 증거(③ track record)."""
+    c = conn()
+    n, wins, avg, best, worst = c.execute(
+        "SELECT COUNT(*), SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END), "
+        "AVG(outcome_pct), MAX(outcome_pct), MIN(outcome_pct) "
+        "FROM bot_decisions WHERE action='buy' AND outcome_pct IS NOT NULL").fetchone()
+    total = c.execute("SELECT COUNT(*) FROM bot_decisions WHERE action='buy'").fetchone()[0] or 0
+    c.close()
+    n = n or 0
+    return {"resolved": n, "pending": total - n,
+            "win_rate": round(wins / n * 100, 1) if n else None,
+            "avg_outcome_pct": round(avg, 2) if avg is not None else None,
+            "best_pct": round(best, 2) if best is not None else None,
+            "worst_pct": round(worst, 2) if worst is not None else None}
+
+
 def bot_decision_set_outcome(decision_id: int, outcome_pct: float) -> None:
     c = conn()
     c.execute("UPDATE bot_decisions SET outcome_pct=?, outcome_ts=? WHERE id=?",
