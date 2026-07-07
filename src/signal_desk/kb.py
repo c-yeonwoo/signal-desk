@@ -558,7 +558,7 @@ def collect_outstanding(item_per_page: int = 50, force: bool = False) -> dict:
         res = outstanding.author_posts(login_id, item_per_page=item_per_page)
         author = (res.get("author") or {}).get("name") or login_id
         if not res.get("posts"):
-            errors.append({"author": login_id, "why": "기고 목록 조회 실패"})
+            errors.append({"author": login_id, "why": "사이트 개편으로 수집 불가(API 재연동 필요)"})
             continue
         for post in res["posts"]:
             title, uri = post.get("title") or "", post.get("uri") or ""

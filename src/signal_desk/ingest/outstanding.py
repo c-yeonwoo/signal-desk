@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import urllib.error
 import urllib.request
 
 from signal_desk import config
@@ -45,6 +46,11 @@ def _post(query: str, variables: dict) -> dict | None:
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             out = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        # 2026-07 outstanding.kr이 WordPress→Next.js로 개편되며 이 WP GraphQL 엔드포인트(index.php)가
+        # 폐기됨(모든 요청 500). 새 기고 API는 미확인 → graceful 스킵(전체 수집은 계속 진행).
+        log.warning("outstanding 수집 불가 — 사이트 개편으로 기존 API 폐기(HTTP %s, 재연동 필요)", e.code)
+        return None
     except Exception as e:
         log.warning("outstanding 요청 실패: %s", type(e).__name__)
         return None
