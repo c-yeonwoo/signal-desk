@@ -46,6 +46,14 @@ def _access_token() -> str | None:
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             body = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            pass
+        log.warning("토스 토큰 발급 실패: HTTP %s %s", e.code, detail)
+        return None
     except Exception as e:
         log.warning("토스 토큰 발급 실패: %s", type(e).__name__)
         return None
