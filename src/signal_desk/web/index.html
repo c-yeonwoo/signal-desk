@@ -445,6 +445,13 @@
           <div id="bot-allocation-chart" style="height:360px"></div>
         </div>
       </div>
+      <div class="card">
+        <div class="row" style="align-items:baseline">
+          <b style="font-size:14px">📈 성과 (track record)</b>
+          <span id="bot-perf-summary" class="stat-label" style="margin:0 0 0 auto"></span>
+        </div>
+        <div id="bot-equity-chart" style="height:260px;margin-top:8px"></div>
+      </div>
     </div>
     </div><!-- /#bot-kospi -->
 
@@ -1518,6 +1525,39 @@ async function loadBotState(){
   } catch (e) {
     console.error(e);
   }
+  loadBotPerformance();
+}
+
+let _botEquityChart = null;
+async function loadBotPerformance(){
+  const sumEl = document.getElementById('bot-perf-summary');
+  const holder = document.getElementById('bot-equity-chart');
+  if (!holder) return;
+  try {
+    const d = await (await fetch('/api/bot/performance?market=' + _botMarket)).json();
+    const usd = d.currency === 'USD';
+    const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));
+    const r = d.return_pct;
+    const rTxt = r == null ? '–' : `<b style="color:${r >= 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">${r > 0 ? '+' : ''}${fmtNum(r, 2)}%</b>`;
+    sumEl.innerHTML = `총수익률 ${rTxt} · 시드 ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최대낙폭 ${fmtNum(d.max_drawdown_pct, 1)}% · ${d.days}일 · 거래 ${d.n_trades}건`;
+    if (!_botEquityChart) _botEquityChart = echarts.init(holder);
+    const curve = d.curve || [];
+    if (!curve.length) {
+      _botEquityChart.clear();
+      holder.innerHTML = '<div class="placeholder" style="padding:24px 0">아직 자산 기록이 없습니다 — 봇이 실행되면 매일 1점씩 쌓입니다.</div>';
+      return;
+    }
+    holder.innerHTML = '';  _botEquityChart = echarts.init(holder);
+    _botEquityChart.setOption({
+      animation: false, grid: { left: 60, right: 16, top: 16, bottom: 28 },
+      tooltip: { trigger: 'axis', formatter: p => `${p[0].axisValue}<br/>${fmtM(p[0].data)}` },
+      xAxis: { type: 'category', data: curve.map(p => p.date), axisLabel: { fontSize: 10 } },
+      yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10, formatter: v => usd ? '$' + fmtNum(v, 0) : fmtNum(v / 10000, 0) + '만' } },
+      series: [{ type: 'line', data: curve.map(p => Math.round(p.total_eval)), smooth: true,
+        showSymbol: false, lineStyle: { color: '#4f46e5', width: 2 }, areaStyle: { opacity: 0.08, color: '#4f46e5' } }],
+    }, true);
+    _botEquityChart.resize();
+  } catch (e) { console.error(e); }
 }
 
 async function toggleBot(){

@@ -574,13 +574,42 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
             cash -= qty * live
         buys.append(plan)
 
-    final_bal = paper.balance(uid) if not dry_run else bal2
+    final_bal = paper.balance(uid, market) if not dry_run else bal2
+    if not dry_run:  # 일별 자산 스냅샷(track record 자산곡선) — 같은 날 재실행 시 마지막 값으로 갱신
+        db.bot_equity_record(uid, market, _today(), final_bal["total_eval"],
+                             final_bal["cash"], final_bal.get("invested") or 0.0)
     return {
         "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak,
         "skipped_gap_buys": 0, "advisor_used": advisor_used,
         "sells": sells, "buys": buys,
         "cash": final_bal["cash"], "total_eval": final_bal["total_eval"],
         "holdings": len(final_bal["holdings"]),
+    }
+
+
+def performance(uid: int, market: str = "kr") -> dict:
+    """봇 track record — 자산곡선 + 총수익률·기간·최대낙폭·거래수. seed 대비 성과(실현+미실현)."""
+    curve = db.bot_equity_curve(uid, market)
+    cfg = _cfg(uid)
+    seed = float(cfg["seed_cash_us"] if market == "us" else cfg["seed_cash"]) or 0.0
+    bal = paper.balance(uid, market)
+    total = bal["total_eval"]
+    ret_pct = round((total / seed - 1) * 100, 2) if seed else None
+    # 최대낙폭(자산곡선 기준)
+    mdd, peak = 0.0, None
+    for p in curve:
+        te = p["total_eval"]
+        peak = te if peak is None else max(peak, te)
+        if peak:
+            mdd = min(mdd, te / peak - 1)
+    trades = db.bot_trades_recent(uid, 500, market)
+    sells = [t for t in trades if t["side"] == "sell"]
+    return {
+        "market": market, "currency": "USD" if market == "us" else "KRW",
+        "seed": seed, "total_eval": total, "return_pct": ret_pct,
+        "max_drawdown_pct": round(mdd * 100, 2), "days": len(curve),
+        "n_trades": len(trades), "n_sells": len(sells),
+        "curve": curve,
     }
 
 

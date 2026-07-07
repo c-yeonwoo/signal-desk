@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTE
 CREATE TABLE IF NOT EXISTS shortform(id TEXT PRIMARY KEY, ticker TEXT, name TEXT, kind TEXT, score REAL,
     title TEXT, script TEXT, caption TEXT, hashtags TEXT, card_svg TEXT,
     status TEXT NOT NULL DEFAULT 'draft', note TEXT, created INTEGER, reviewed INTEGER);
+CREATE TABLE IF NOT EXISTS bot_equity(uid INTEGER, market TEXT NOT NULL DEFAULT 'kr', date TEXT,
+    total_eval REAL, cash REAL, invested REAL, PRIMARY KEY(uid, market, date));
 """
 
 
@@ -675,3 +677,24 @@ def shortform_recent_tickers(within_sec: int) -> set[str]:
                      (int(time.time()) - within_sec,)).fetchall()
     c.close()
     return {t for (t,) in rows}
+
+
+# ---------- bot_equity (봇 일별 자산 스냅샷 — track record 자산곡선) ----------
+def bot_equity_record(uid: int, market: str, date: str, total_eval: float,
+                      cash: float, invested: float) -> None:
+    """하루 1점(날짜별 upsert — 같은 날 여러 번 실행되면 마지막 값으로 갱신)."""
+    c = conn()
+    c.execute("INSERT OR REPLACE INTO bot_equity(uid,market,date,total_eval,cash,invested) "
+              "VALUES(?,?,?,?,?,?)", (uid, market, date, total_eval, cash, invested))
+    c.commit()
+    c.close()
+
+
+def bot_equity_curve(uid: int, market: str = "kr", limit: int = 365) -> list[dict]:
+    """자산곡선(오래된→최신) [{date,total_eval,cash,invested}]."""
+    c = conn()
+    rows = c.execute("SELECT date,total_eval,cash,invested FROM bot_equity WHERE uid=? AND market=? "
+                     "ORDER BY date DESC LIMIT ?", (uid, market, limit)).fetchall()
+    c.close()
+    return [{"date": d, "total_eval": te, "cash": ca, "invested": iv}
+            for d, te, ca, iv in reversed(rows)]

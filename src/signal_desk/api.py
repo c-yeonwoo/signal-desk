@@ -734,6 +734,12 @@ def bot_state_get(request: Request, market: str = "kr"):
     return bot.get_state(_uid(request), _mkt(market))
 
 
+@app.get("/api/bot/performance")
+def bot_performance_get(request: Request, market: str = "kr"):
+    """내 봇 track record — 자산곡선 + 총수익률·최대낙폭·거래수."""
+    return bot.performance(_uid(request), _mkt(market))
+
+
 @app.post("/api/bot/toggle")
 def bot_toggle(request: Request, data: dict = Body(...)):
     bot.set_enabled(_uid(request), bool(data.get("enabled")))
