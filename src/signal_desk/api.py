@@ -627,13 +627,36 @@ def market_chart_get():
     }
 
 
+_DART_TTL_DAYS = 80  # DART 연간 재무는 분기에나 바뀜 → 이 주기로만 재수집(그 외엔 시총만 매일 재계산)
+
+
+def _dart_stale(ttl_days: int = _DART_TTL_DAYS) -> bool:
+    """DART 재무를 다시 받아야 하나 — 캐시 없거나 마지막 수집이 ttl_days 이상 지났으면 True."""
+    if not store.load_fundamentals():
+        return True
+    last = db.kv_get("dart_fetch_date")
+    if not last:
+        return True
+    try:
+        return (datetime.date.today() - datetime.date.fromisoformat(str(last))).days >= ttl_days
+    except ValueError:
+        return True
+
+
 @app.post("/api/refresh")
-def refresh():
-    """유니버스+시세(+DART 키 있으면 재무)를 재수집하고 시그널/백테스트/밸류에이션 캐시를 무효화."""
+def refresh(data: dict = Body(default={})):
+    """유니버스+시세를 재수집하고 캐시 무효화. DART 재무는 분기(≈80일)마다만 재수집하고(연간 데이터라
+    거의 불변), 그 외엔 시총만 다시 받아 PER/PBR·시총을 매일 재계산한다. force_dart=true면 강제 재수집."""
     universe = store.fetch_universe()
     store.fetch_prices(universe)
-    fundamentals = store.fetch_fundamentals(universe)
-    store.fetch_fundamentals_history(universe)  # point-in-time 백테스트용 연도별 재무
+    if bool(data.get("force_dart")) or _dart_stale():
+        fundamentals = store.fetch_fundamentals(universe)      # DART 재무 + PER/PBR (분기 1회)
+        store.fetch_fundamentals_history(universe)             # point-in-time 백테스트용 연도별 재무
+        db.kv_set("dart_fetch_date", _kst_today())
+    else:
+        store.update_valuation()                               # 캐시 재무 + 오늘 시총 → PER/PBR·시총만 갱신(KRX 1콜)
+        fundamentals = store.load_fundamentals()
+        log.info("DART 재무 최신(분기 내) — 재수집 스킵, 시총만 갱신")
     macro_items = store.fetch_macro()
     store.fetch_macro_kr()  # 한국은행 ECOS 거시(키 있을 때만 채워짐)
     try:

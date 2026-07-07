@@ -109,6 +109,31 @@ def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None
     return out
 
 
+def update_valuation() -> int:
+    """캐시된 DART 재무(net_income/equity)에 '오늘 시총'만 다시 붙여 PER/PBR·시총을 재계산한다.
+    DART 재호출 없이 KRX 시총 1콜만 — 연간 재무는 분기에나 바뀌지만 PER/PBR·시총은 가격 따라
+    매일 변하므로, 무거운 DART 수집은 분기 1회로 두고 이 함수로 매일 밸류만 갱신한다. 반환: 갱신 종목 수."""
+    fund = load_fundamentals()
+    if not fund:
+        return 0
+    mktcaps = krx_open_api.market_caps()
+    if not mktcaps:
+        log.warning("KRX 시가총액 조회 실패 — PER/PBR·시총 갱신 스킵(기존값 유지)")
+        return 0
+    n = 0
+    for ticker, m in fund.items():
+        mc = mktcaps.get(ticker)
+        if not mc:
+            continue
+        m["mktcap"] = mc
+        ni, eq = m.get("net_income"), m.get("equity")
+        m["per"] = round(mc / ni, 2) if (ni and ni > 0) else None
+        m["pbr"] = round(mc / eq, 2) if (eq and eq > 0) else None
+        n += 1
+    _write_json(FUNDAMENTALS_FILE, fund)
+    return n
+
+
 def fetch_fundamentals_history(universe: list[dict] | None = None,
                                years: list[str] | None = None) -> dict:
     """연도별 재무(ROE/부채/성장 + net_income/equity)를 수집 — point-in-time 백테스트용.
