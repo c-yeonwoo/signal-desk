@@ -188,8 +188,9 @@
   .vc-col::before { content:''; position:absolute; left:50%; top:9%; bottom:9%; width:2px;
     background:var(--line); transform:translateX(-1px); z-index:0; }
   .vc-chips { display:flex; flex-direction:column; align-items:center; gap:7px; position:relative; z-index:2; }
-  .vc-chips.top { flex:1; justify-content:flex-end; padding-bottom:12px; }
-  .vc-chips.bot { flex:1; justify-content:flex-start; padding-top:12px; }
+  /* 고정 높이(최대 3노드) — 모든 허브가 가운데 스파인에 수평으로 정렬되도록 */
+  .vc-chips.top { height:132px; justify-content:flex-end; padding-bottom:12px; }
+  .vc-chips.bot { height:132px; justify-content:flex-start; padding-top:12px; }
   .vc-hub { flex:0 0 auto; align-self:center; background:var(--accent); color:#fff; border-radius:12px;
     padding:9px 13px; text-align:center; min-width:120px; max-width:190px; box-shadow:var(--shadow); z-index:2; }
   .vc-hub .hub-name { font-weight:700; font-size:13px; }
@@ -198,6 +199,8 @@
     background:var(--panel); white-space:nowrap; }
   .vc-node.kr { color:var(--sig-buy); border-color:var(--ring); cursor:pointer; font-weight:600; }
   .vc-node.kr:hover { background:var(--accent-weak); }
+  .vc-node.us { color:var(--accent); border-color:var(--accent); cursor:pointer; font-weight:600; }
+  .vc-node.us:hover { background:var(--brand-50); }
   .vc-node.ov { color:var(--dim); }
   .card { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:20px;
     box-shadow:var(--shadow-sm); transition:box-shadow .15s; }
@@ -881,7 +884,13 @@ function gotoValuechain(key){  // 같은 '산업 사이클' 탭 내 밸류체인
   _vcCurrent = key; selectVcSector(key);
   document.getElementById('vc-anchor').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-function gotoSignal(ticker){ _pendingSignalTicker = ticker; switchTab('signal'); }
+function gotoSignal(ticker, market){  // market: 'kr'|'us' — 시그널 탭 시장 전환 후 해당 종목 선택
+  _pendingSignalTicker = ticker;
+  const m = (market === 'us') ? 'us' : 'kospi';
+  _sigMarket = m;
+  document.querySelectorAll('#sig-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
+  switchTab('signal');  // → loadSignals(_sigMarket)가 _pendingSignalTicker 소비
+}
 
 // ===== 사이클 =====
 const _PHASE_AREA = {
@@ -947,16 +956,20 @@ function drawCycleChart(phases, cur){
 }
 
 // ===== 밸류체인 =====
-let _vcSignals = {};  // ticker -> kind (HOLD 제외) — 밸류체인 노드 시그널 뱃지용
+let _vcInfo = {};  // ticker -> {kind(HOLD 제외), mktcap, market} — 노드 뱃지·클릭·시총순 선택용(KR+US)
 async function loadValuechain(){
   if (!_vcData) {
     try { _vcData = (await (await fetch('/api/valuechain')).json()).sectors; }
     catch (e) { document.getElementById('vc-detail').innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
   }
-  try {  // 현재 시그널을 노드 뱃지로(관망 제외)
-    const sig = await (await fetch('/api/signals')).json();
-    _vcSignals = {};
-    (sig.items || []).forEach(r => { if (r.kind && r.kind !== 'HOLD') _vcSignals[r.ticker] = r.kind; });
+  try {  // 국내+해외 현재 시그널·시총(관망 제외 뱃지, 시총순 선택)
+    const [kr, us] = await Promise.all([
+      fetch('/api/signals').then(r => r.json()),
+      fetch('/api/signals?market=us').then(r => r.json()),
+    ]);
+    _vcInfo = {};
+    (kr.items || []).forEach(r => _vcInfo[r.ticker] = { kind: r.kind !== 'HOLD' ? r.kind : null, mktcap: r.mktcap, market: 'kr' });
+    (us.items || []).forEach(r => _vcInfo[r.ticker] = { kind: r.kind !== 'HOLD' ? r.kind : null, mktcap: r.mktcap, market: 'us' });
   } catch (e) {}
   document.getElementById('vc-sectors').innerHTML = _vcData.map(s =>
     `<button data-k="${s.key}" onclick="selectVcSector('${s.key}')">${esc(s.name)}</button>`).join('');
@@ -972,34 +985,46 @@ function selectVcSector(key){
     `<p class="page-desc" style="margin:0 0 10px"><b>${esc(s.name)}</b>${s.gics ? ` <span class="sector-chip">${esc(s.gics)}</span>` : ''} · ${esc(s.summary)}</p>
      <div id="vc-diagram"></div>
      <div style="font-size:11px;color:var(--dim);margin-top:8px">
-       왼쪽 → 오른쪽: 원자재·소재에서 최종 제품·수요로 이어지는 흐름 ·
-       <span style="color:var(--sig-buy);font-weight:700">위 = 국내(코스피, 클릭 시 시그널)</span> ·
-       <span style="color:var(--dim);font-weight:700">아래 = 해외</span></div>`;
+       왼쪽 → 오른쪽: 원자재·소재에서 최종 제품·수요로 이어지는 흐름 · 노드 클릭 시 시그널 차트 ·
+       <span style="color:var(--sig-buy);font-weight:700">위 = 국내(코스피)</span> ·
+       <span style="color:var(--accent);font-weight:700">아래 = 해외(S&P500)</span> ·
+       종목 많으면 시총 상위 2 + 시그널 1(최대 3)</div>`;
   drawVcDiagram(s);
 }
 
+// 노드가 많으면 가까운 곳부터 시총 상위 2개 + (시총 밖) 시그널 있는 1개 추가 → 최대 3개.
+function _vcPick(list){
+  const enr = (list || []).map(c => ({ ...c, info: _vcInfo[c.ticker] || {} }));
+  const byCap = enr.sort((a, b) => (b.info.mktcap || 0) - (a.info.mktcap || 0));
+  if (byCap.length <= 3) return byCap;
+  const picked = byCap.slice(0, 2);
+  const ids = new Set(picked.map(c => c.ticker));
+  const sigOne = byCap.find(c => c.info.kind && !ids.has(c.ticker));  // 시그널 있는 것 우선
+  picked.push(sigOne || byCap[2]);  // 없으면 시총 3위
+  return picked;
+}
 function drawVcDiagram(s){
   const holder = document.getElementById('vc-diagram');
-  const maxSide = Math.max(1, ...s.stages.map(st => Math.max(st.domestic.length, st.overseas.length)));
-  const h = Math.min(760, 200 + maxSide * 70);
-  const isKr = (c) => c.ticker && /^\d{6}$/.test(c.ticker);
-  const sigBadge = (t) => {
-    const k = _vcSignals[t];
-    if (!k) return '';
-    return ` <span style="display:inline-block;padding:0 5px;border-radius:6px;font-size:10px;font-weight:800;color:#fff;background:${_ZONE_COLOR[k]}" title="현재 시그널">${kindLabel(k)}</span>`;
+  const sigBadge = (info) => {
+    if (!info || !info.kind) return '';
+    return ` <span style="display:inline-block;padding:0 5px;border-radius:6px;font-size:10px;font-weight:800;color:#fff;background:${_ZONE_COLOR[info.kind]}" title="현재 시그널">${kindLabel(info.kind)}</span>`;
   };
-  const chip = (c) => isKr(c)
-    ? `<span class="vc-node kr" onclick="gotoSignal('${c.ticker}')" title="${esc(c.name)} ${esc(c.ticker)} · 클릭 시 시그널">${esc(c.name)}${sigBadge(c.ticker)}</span>`
-    : `<span class="vc-node ov" title="${esc(c.name)}${c.ticker ? ' · ' + esc(c.ticker) : ''}">${esc(c.name)}</span>`;
+  const chip = (c) => {
+    const info = c.info || _vcInfo[c.ticker] || {};
+    const mkt = info.market || (c.ticker && /^\d{6}$/.test(c.ticker) ? 'kr' : (c.ticker ? 'us' : null));
+    if (mkt === 'kr' || mkt === 'us')
+      return `<span class="vc-node ${mkt}" onclick="gotoSignal('${c.ticker}','${mkt}')" title="${esc(c.name)} ${esc(c.ticker)} · 클릭 시 시그널">${esc(c.name)}${sigBadge(info)}</span>`;
+    return `<span class="vc-node ov" title="${esc(c.name)}${c.ticker ? ' · ' + esc(c.ticker) : ''}">${esc(c.name)}</span>`;
+  };
   const cols = s.stages.map(st => {
-    const role = st.stage.split(' · ')[1] || st.stage;  // '업스트림/미드/다운' 키워드 제거, 역할명만
+    const role = st.stage.split(' · ')[1] || st.stage;  // 역할명만
     return `<div class="vc-col">
-      <div class="vc-chips top">${st.domestic.map(chip).join('')}</div>
+      <div class="vc-chips top">${_vcPick(st.domestic).map(chip).join('')}</div>
       <div class="vc-hub"><div class="hub-name">${esc(role)}</div><div class="hub-desc">${esc(st.desc || '')}</div></div>
-      <div class="vc-chips bot">${st.overseas.map(chip).join('')}</div>
+      <div class="vc-chips bot">${_vcPick(st.overseas).map(chip).join('')}</div>
     </div>`;
   }).join('');
-  holder.innerHTML = `<div class="vc-flow" style="min-height:${h}px">
+  holder.innerHTML = `<div class="vc-flow" style="min-height:360px">
     <div class="vc-spine"></div><div class="vc-cols">${cols}</div></div>`;
 }
 
