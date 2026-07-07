@@ -685,6 +685,14 @@ def regime_get():
     return {**_regime(), "adaptive": adapt}
 
 
+@app.get("/api/live-status")
+def live_status_get():
+    """실시간가 오버레이 상태 — 현재가가 언제 갱신됐는지·토스 연동·장중 여부 진단용."""
+    from signal_desk.ingest import toss
+    return {"toss": toss.available(), "kr_open": bot.is_market_hours(),
+            "us_open": bot.is_us_market_hours(), **store.live_status()}
+
+
 # ---------- 자동매매봇 (유저별 자체 모의계좌 · 공용 시그널 · 시장별 kr/us) ----------
 def _mkt(v) -> str:
     return "us" if str(v or "kr").lower() == "us" else "kr"

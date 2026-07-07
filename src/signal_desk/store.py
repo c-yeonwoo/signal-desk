@@ -372,10 +372,12 @@ def load_macro() -> list[dict]:
 # 장중 실시간 현재가 오버레이 — 무거운 refresh 없이 종가 시계열 마지막에 '잠정봉' 1개를 얹어
 # 시그널·봇·페이퍼 체결가를 현재가 기준으로 돌린다(장 마감 후엔 clear → 종가 복귀). 파일엔 안 쓴다.
 _LIVE_QUOTES: dict[str, float] = {}
+_LIVE_TS: float | None = None  # 마지막 실시간가 갱신 시각(epoch) — 관리자 상태 표시용
 
 
 def set_live_quotes(quotes: dict[str, float]) -> None:
     """실시간 현재가 오버레이 설정(양수만). 빈 dict면 오버레이 없음."""
+    global _LIVE_TS
     _LIVE_QUOTES.clear()
     for k, v in (quotes or {}).items():
         try:
@@ -384,10 +386,18 @@ def set_live_quotes(quotes: dict[str, float]) -> None:
             continue
         if fv > 0:
             _LIVE_QUOTES[k] = fv
+    _LIVE_TS = datetime.datetime.now(datetime.timezone.utc).timestamp() if _LIVE_QUOTES else None
 
 
 def clear_live_quotes() -> None:
+    global _LIVE_TS
     _LIVE_QUOTES.clear()
+    _LIVE_TS = None
+
+
+def live_status() -> dict:
+    """실시간가 오버레이 상태 — {on, count, updated(epoch|None)}. 관리자 화면 진단용."""
+    return {"on": bool(_LIVE_QUOTES), "count": len(_LIVE_QUOTES), "updated": _LIVE_TS}
 
 
 def _overlay_closes(series: dict[str, list[float]]) -> dict[str, list[float]]:

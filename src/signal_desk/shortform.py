@@ -43,20 +43,32 @@ def _reason_clean(reasons: list[str], n: int = 3) -> list[str]:
     return out
 
 
-def _pick_signals(limit: int) -> list:
+_RECENT_SEC = 20 * 3600  # 이 기간 내 이미 숏폼 만든 종목은 '중복'으로 표시(자동 모드에선 스킵)
+
+
+def _eligible_signals() -> list:
+    """매수 시그널(악재·경고 제외)을 점수 내림차순으로. 시그널 탭(_signals)과 동일 계산."""
     universe = store.load_universe()
     prices = store.load_price_series()
     if not universe or not prices:
         return []
-    # 시그널 탭(_signals)과 동일 계산 — 관리자 튜닝 + 국면 적응형 매수기준(effective_config).
-    # 이걸 빼면 기본 config로 계산돼 후보가 탭과 어긋난다.
+    # 관리자 튜닝 + 국면 적응형 매수기준(effective_config) — 이걸 빼면 후보가 시그널 탭과 어긋난다.
     reg = regime.classify(prices)
     mread = macro.read(store.load_macro(), extra=store.load_macro_kr())
     cfg, _ = signalcfg.effective_config(reg, mread)
     sigs = engine.evaluate(universe, prices, store.load_fundamentals(), config=cfg, sentiment=kb.sentiment_map())
     warned = store.load_warned_tickers()
     elig = [s for s in sigs if engine.is_buy(s.kind) and not s.event_risk and s.ticker not in warned]
-    return sorted(elig, key=lambda s: s.score, reverse=True)[:limit]
+    return sorted(elig, key=lambda s: s.score, reverse=True)
+
+
+def candidates(limit: int = 20) -> list[dict]:
+    """생성 전 '후보 목록' — 매수 시그널을 점수순으로 근거와 함께 보여준다(생성·저장 없음).
+    관리자가 여기서 고르면 generate(tickers=[...])로 카드+스크립트를 만든다."""
+    recent = db.shortform_recent_tickers(_RECENT_SEC)
+    return [{"ticker": s.ticker, "name": s.name, "kind": s.kind, "score": round(s.score, 2),
+             "reasons": _reason_clean(s.reasons, 3), "recent": s.ticker in recent}
+            for s in _eligible_signals()[:limit]]
 
 
 def _script_for(name: str, ticker: str, kind: str, reasons: list[str]) -> dict:
@@ -119,28 +131,16 @@ def _card_svg(name: str, ticker: str, kind: str, score: float, reasons: list[str
 </svg>'''
 
 
-def candidates(limit: int = 20) -> list[dict]:
-    """숏폼 후보 — 매수 시그널을 점수순으로(근거·섹터 포함) 보여준다. 생성은 안 함(선택 전 단계).
-    최근 생성된 종목은 recent=True로 표시(중복 방지 참고)."""
-    recent = db.shortform_recent_tickers(20 * 3600)
-    out = []
-    for s in _pick_signals(limit):
-        out.append({"ticker": s.ticker, "name": s.name, "kind": s.kind, "score": round(s.score, 2),
-                    "reasons": _reason_clean(s.reasons, 3), "sector": sectors.sector_of(s.ticker),
-                    "recent": s.ticker in recent})
-    return out
-
-
-def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = False,
-             skip_recent_hours: int = 20) -> dict:
+def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = False) -> dict:
     """숏폼 초안 생성 → 검수 큐 적재(draft). tickers 지정 시 그 종목만(선택 생성, 시그널 순 유지),
     없으면 상위 매수 시그널 top N(자동, 최근 생성 중복 제외)."""
+    elig = _eligible_signals()
     if tickers:
         want = set(tickers)
-        picks = [s for s in _pick_signals(60) if s.ticker in want]  # 선택분만(순서=시그널 순)
+        picks = [s for s in elig if s.ticker in want]  # 선택분만(순서=시그널 순)
     else:
-        recent = db.shortform_recent_tickers(skip_recent_hours * 3600) if not dry_run else set()
-        picks = [s for s in _pick_signals(max(limit * 3, 6)) if s.ticker not in recent][:limit]
+        recent = db.shortform_recent_tickers(_RECENT_SEC) if not dry_run else set()
+        picks = [s for s in elig if s.ticker not in recent][:limit]
     if not picks:
         return {"ok": False, "reason": "조건에 맞는 매수 시그널이 없거나 시세 데이터가 없습니다.",
                 "created": [], "count": 0}
