@@ -1053,16 +1053,20 @@ async function loadLiveStatus(){
   try {
     const d = await (await fetch('/api/live-status')).json();
     const open = d.kr_open || d.us_open;
+    const hm = (ts) => ts ? new Date(ts * 1000).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : null;
+    const att = hm(d.attempt_ts);  // 마지막 시도 시각(성공/실패 무관)
     if (d.on && d.updated) {
-      const t = new Date(d.updated * 1000).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
       el.style.color = 'var(--sig-buy)';
-      el.textContent = `🟢 현재가 ${t} 갱신 (${d.count}종목)`;
+      el.textContent = `🟢 현재가 ${hm(d.updated)} 갱신 (${d.count}종목)`;
     } else if (!d.toss) {
       el.style.color = 'var(--dim)';
       el.textContent = '⚪ 종가 기준 · 실시간 미연동(토스 키 없음)';
+    } else if (d.attempt_result === 'no_quotes') {
+      el.style.color = 'var(--sell)';
+      el.textContent = `🔴 실시간가 못 받음(토스 토큰/승인 확인)${att ? ' · 마지막 시도 ' + att : ''}`;
     } else {
       el.style.color = 'var(--dim)';
-      el.textContent = open ? '⚪ 종가 기준 · 실시간 대기' : '⚪ 종가 기준 · 장외';
+      el.textContent = open ? `⚪ 종가 기준 · 실시간 대기${att ? ' · 마지막 시도 ' + att : ''}` : '⚪ 종가 기준 · 장외';
     }
   } catch (e) { el.textContent = ''; }
 }

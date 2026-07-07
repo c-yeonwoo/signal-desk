@@ -80,8 +80,12 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
     캐시 무효화. 봇 run_once는 store.load_price_series()를 읽으므로 자동으로 실시간가 기준이 된다.
     열린 시장 없거나 토스 미가용 시 오버레이 해제(종가 복귀). best-effort(실패 무시)."""
     from signal_desk.ingest import toss
-    if not open_markets or not toss.available():
-        store.clear_live_quotes()
+    if not open_markets:
+        store.clear_live_quotes(); store.note_live_attempt("closed")
+        _signals.cache_clear(); _us_signals.cache_clear(); _quotes.cache_clear(); _regime.cache_clear()
+        return
+    if not toss.available():
+        store.clear_live_quotes(); store.note_live_attempt("toss_off", open_markets)
         _signals.cache_clear(); _us_signals.cache_clear(); _quotes.cache_clear(); _regime.cache_clear()
         return
     syms: list[str] = []
@@ -93,10 +97,14 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
         quotes = toss.prices(syms) if syms else {}
     except Exception as e:
         log.warning("실시간가 조회 실패(무시): %s", type(e).__name__)
+        store.note_live_attempt("no_quotes", open_markets)
         return
     if quotes:
         store.set_live_quotes(quotes)
+        store.note_live_attempt("ok", open_markets)
         _signals.cache_clear(); _us_signals.cache_clear(); _quotes.cache_clear(); _regime.cache_clear()
+    else:  # 토큰 실패 등으로 빈 응답 — 오버레이 유지 안 함, 시도 기록만
+        store.note_live_attempt("no_quotes", open_markets)
 
 
 async def _bot_loop():
