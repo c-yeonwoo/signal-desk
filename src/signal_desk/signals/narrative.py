@@ -76,5 +76,5 @@ def explain_llm(name: str, ticker: str, kind: str, score: float, reasons: list[s
               "투자 권유·매수 종용·수익 보장 표현을 쓰지 말고, 관찰된 근거를 중립적으로 설명만 한다.")
     user = (f"종목: {name}({ticker})\n시그널: {kind} (종합점수 {score:+.2f})\n"
             f"[시그널 근거]\n{reason_lines}\n{kb_block}\n한국어 해설 2~3문장:")
-    out = llm.complete(system, user, max_tokens=320)
+    out = llm.complete(system, user, max_tokens=320, model=llm.NARRATIVE_MODEL)
     return out.strip() if out else None

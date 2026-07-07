@@ -19,7 +19,9 @@ log = logging.getLogger("signal_desk.llm")
 
 _ENDPOINT = "https://api.anthropic.com/v1/messages"
 _VERSION = "2023-06-01"
-DEFAULT_MODEL = "claude-opus-4-8"
+DEFAULT_MODEL = "claude-opus-4-8"                  # 최상위 — 매수 자문·오염 검증 등 위험 판단
+DIGEST_MODEL = "claude-haiku-4-5-20251001"         # KB 다이제스트·요약(정형·대량) — 저비용·고속
+NARRATIVE_MODEL = "claude-sonnet-5"                # 사용자용 해설(캐시됨) — 가독성·뉘앙스
 _TIMEOUT = 60
 
 

@@ -165,7 +165,7 @@ def _summarize_text(name: str, title: str, text: str) -> tuple[str, list[str]]:
                   "과장·추천 금지, 문서에 없는 내용 금지.")
         user = (f"종목: {name}\n제목: {title}\n본문:\n{text[:6000]}\n\n"
                 'JSON으로만: {"summary": "한국어 1~2문장", "points": ["핵심 ≤3개"]}')
-        out = llm.complete_json(system, user, max_tokens=500)
+        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
         if out and out.get("summary"):
             return str(out["summary"])[:300], [str(p) for p in (out.get("points") or [])][:3]
     excerpt = " ".join(text.split())[:200]
@@ -286,7 +286,7 @@ def build_digest(name: str, items: list[dict]) -> dict:
         user = (f"종목: {name}\n최근 헤드라인:\n{headlines}\n\n"
                 'JSON으로만: {"sentiment": -1.0~1.0 사이 실수(투자심리), '
                 '"summary": "한국어 한 문장 요약", "points": ["핵심 포인트 최대 3개(한국어 짧게)"]}')
-        out = llm.complete_json(system, user, max_tokens=500)
+        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
         if out and isinstance(out.get("sentiment"), (int, float)):
             s = max(-1.0, min(1.0, float(out["sentiment"])))
             pts = [str(p) for p in (out.get("points") or [])][:3]
@@ -317,7 +317,7 @@ def _macro_source_summary(title: str, text: str) -> str:
               "거시 흐름·자산시장 시사점 위주로, 과장·추천 없이 사실 기반. 스크립트에 없는 내용은 지어내지 마라.")
     user = (f"제목: {title}\n스크립트:\n{text[:9000]}\n\n"
             'JSON으로만: {"summary": "한국어 2~4문장 핵심 요약", "points": ["핵심 포인트 최대 3개 짧게"]}')
-    out = llm.complete_json(system, user, max_tokens=500)
+    out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
     if out and out.get("summary"):
         pts = [str(p) for p in (out.get("points") or [])][:3]
         return (str(out["summary"]) + (" · " + " · ".join(pts) if pts else ""))[:600]
@@ -381,7 +381,7 @@ def build_macro_digest(items: list[dict]) -> dict:
         user = (f"[최신순 시황 코멘터리]\n{lines}\n\n"
                 'JSON으로만: {"summary": "한국어 1~2문장, 현재 시장 톤·핵심 이슈", '
                 '"points": ["핵심 포인트 최대 3개(한국어 짧게)"]}')
-        out = llm.complete_json(system, user, max_tokens=500)
+        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
         if out and out.get("summary"):
             pts = [str(p) for p in (out.get("points") or [])][:3]
             return {"summary": str(out["summary"])[:240], "points": pts}
