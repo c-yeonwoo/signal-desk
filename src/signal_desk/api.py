@@ -168,7 +168,8 @@ _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents", "/api/kb/digests",
     "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube",
-    "/api/shortform/generate", "/api/shortform/queue", "/api/shortform/candidates",
+    "/api/shortform/generate", "/api/shortform/generate-performance",
+    "/api/shortform/queue", "/api/shortform/candidates",
     "/api/data-health",
 }
 
@@ -928,6 +929,13 @@ def shortform_generate(data: dict = Body(default={})):
     tickers = [str(t) for t in tickers] if isinstance(tickers, list) else None
     return shortform.generate(tickers=tickers, limit=int(data.get("limit", 5)),
                               dry_run=bool(data.get("dry_run")))
+
+
+@app.post("/api/shortform/generate-performance")
+def shortform_generate_performance(data: dict = Body(default={})):
+    """레퍼런스 봇 성과(track record)를 숏폼 초안으로 → 검수 큐. style: conservative|balanced|aggressive."""
+    return shortform.generate_performance(style=str(data.get("style") or "balanced"),
+                                          market=_mkt(data.get("market")))
 
 
 @app.get("/api/shortform/queue")

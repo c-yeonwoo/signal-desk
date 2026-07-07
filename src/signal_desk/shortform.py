@@ -157,3 +157,55 @@ def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = F
         made.append({k: item[k] for k in ("id", "ticker", "name", "kind", "score", "title")})
     log.info("숏폼 초안 생성: %d건", len(made))
     return {"ok": True, "created": made, "count": len(made)}
+
+
+# ---------- 성과(track record) 숏폼 — 봇의 실제 성과를 콘텐츠로(봇↔숏폼 시너지) ----------
+_PERF_DISCLAIMER = ("모의투자(페이퍼) 성과이며 과거 성과가 미래 수익을 보장하지 않습니다. "
+                    "정보 제공용이며 투자 권유가 아닙니다.")
+
+
+def _perf_card_svg(label: str, ret_pct, days: int, mdd, n_trades: int, unit: str) -> str:
+    """세로 1080x1920 성과 카드 — 성향·수익률·기간·최대낙폭·거래수."""
+    color = "#22c55e" if (ret_pct or 0) >= 0 else "#ef4444"
+    ret_s = f"{ret_pct:+.1f}%" if ret_pct is not None else "–"
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" width="1080" height="1920">
+  <rect width="1080" height="1920" fill="#0b1220"/>
+  <rect x="0" y="0" width="1080" height="10" fill="{color}"/>
+  <text x="120" y="220" fill="#9ca3af" font-size="44">공용 자동매매 봇 성과</text>
+  <text x="120" y="340" fill="#ffffff" font-size="86" font-weight="800">{_esc(label)}</text>
+  <text x="120" y="640" fill="#9ca3af" font-size="52">최근 {days}일 수익률</text>
+  <text x="120" y="800" fill="{color}" font-size="200" font-weight="800">{ret_s}</text>
+  <text x="120" y="1000" fill="#e5e7eb" font-size="48">최대낙폭 {_esc(f"{mdd:.1f}%" if mdd is not None else "–")} · 거래 {n_trades}건</text>
+  <rect x="0" y="1720" width="1080" height="200" fill="#111827"/>
+  <text x="120" y="1795" fill="#9ca3af" font-size="30">⚠️ {_esc(_PERF_DISCLAIMER)}</text>
+</svg>'''
+
+
+def generate_performance(style: str = "balanced", market: str = "kr", dry_run: bool = False) -> dict:
+    """레퍼런스 봇의 track record를 숏폼 초안으로 → 검수 큐 적재. '이 시그널이 실제로 이렇게 됐다'를
+    콘텐츠화(봇↔숏폼 시너지). 모의투자·면책 명시."""
+    from signal_desk import bot, strategy
+    uid = {v: k for k, v in bot.REFERENCE_BOTS.items()}.get(style)
+    if not uid:
+        return {"ok": False, "reason": f"알 수 없는 성향: {style}", "count": 0, "created": []}
+    p = bot.performance(uid, market)
+    label = strategy.STYLE_LABEL.get(style, style)
+    unit = "$" if market == "us" else "원"
+    ret, days, mdd, n = p.get("return_pct"), p.get("days", 0), p.get("max_drawdown_pct"), p.get("n_trades", 0)
+    if not days:
+        return {"ok": False, "reason": "아직 성과 데이터가 없습니다(봇 운용 후 생성)", "count": 0, "created": []}
+    title = f"{label} 자동매매 봇 · 최근 {days}일 {ret:+.1f}%" if ret is not None else f"{label} 봇 성과"
+    script = [
+        {"time": "0-4s", "caption": f"{label} 자동매매 봇", "narration": f"공용 {label} 봇의 최근 성과입니다."},
+        {"time": "4-9s", "caption": f"{days}일 수익률 {ret:+.1f}%" if ret is not None else "성과 집계",
+         "narration": f"최근 {days}일 수익률은 {ret:+.1f}%," if ret is not None else "집계 기간입니다."},
+        {"time": "9-14s", "caption": f"최대낙폭 {mdd:.1f}%", "narration": f"최대낙폭 {mdd:.1f}%, 거래 {n}건이었습니다."},
+        {"time": "end", "caption": "⚠️ 모의투자 성과", "narration": _PERF_DISCLAIMER},
+    ]
+    item = {"id": uuid.uuid4().hex, "ticker": "_PERF", "name": f"{label} 봇", "kind": "PERF",
+            "score": ret, "title": title, "script": script, "caption": _PERF_DISCLAIMER,
+            "hashtags": ["#자동매매", "#퀀트", "#주식", f"#{label}", "#수익률공개"],
+            "card_svg": _perf_card_svg(label, ret, days, mdd, n, unit), "status": "draft"}
+    if not dry_run:
+        db.shortform_add(item)
+    return {"ok": True, "count": 1, "created": [{k: item[k] for k in ("id", "ticker", "name", "kind", "score", "title")}]}

@@ -692,6 +692,16 @@
         <div id="sf-candidates" class="placeholder" style="padding:12px 0">‘후보 불러오기’를 눌러주세요.</div>
       </div>
 
+      <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
+        <div class="row" style="align-items:baseline;gap:6px;flex-wrap:wrap">
+          <b style="font-size:13px">① 성과 숏폼</b>
+          <span class="stat-label" style="margin:0">레퍼런스 봇 track record를 콘텐츠로</span>
+          <button class="btn" onclick="genPerfShort('conservative')" style="margin-left:auto">안정형</button>
+          <button class="btn" onclick="genPerfShort('balanced')">균형형</button>
+          <button class="btn" onclick="genPerfShort('aggressive')">공격형</button>
+        </div>
+      </div>
+
       <b style="font-size:13px">② 검수 큐</b>
       <div class="seg-toggle" id="sf-view-seg" style="margin:8px 0 10px">
         <button class="on" data-sfview="draft" onclick="setSfView('draft')">검수 대기</button>
@@ -2337,6 +2347,14 @@ async function genSelected(){
   try {
     const d = await (await fetch('/api/shortform/generate', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tickers }) })).json();
     document.getElementById('sf-result').textContent = d.ok ? `${d.count}건 생성` : (d.reason || '생성 실패');
+    setSfView('draft');
+  } finally { btn.disabled = false; btn.textContent = t; }
+}
+async function genPerfShort(style){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '생성 중…';
+  try {
+    const d = await (await fetch('/api/shortform/generate-performance', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ style, market: _botMarket || 'kr' }) })).json();
+    document.getElementById('sf-result').textContent = d.ok ? '성과 숏폼 1건 생성' : (d.reason || '생성 실패');
     setSfView('draft');
   } finally { btn.disabled = false; btn.textContent = t; }
 }
