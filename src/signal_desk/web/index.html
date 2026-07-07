@@ -453,6 +453,13 @@
         </div>
         <div id="bot-equity-chart" style="height:260px;margin-top:8px"></div>
       </div>
+      <div class="card">
+        <div class="row" style="align-items:baseline">
+          <b style="font-size:14px">🏆 공용 레퍼런스 봇 성과</b>
+          <span class="stat-label" style="margin:0 0 0 auto">성향별 시스템 봇 — 시그널 신뢰의 공개 증거</span>
+        </div>
+        <div id="reference-perf" class="placeholder" style="padding:12px 0">불러오는 중…</div>
+      </div>
     </div>
     </div><!-- /#bot-kospi -->
 
@@ -1551,6 +1558,31 @@ async function loadBotState(){
     console.error(e);
   }
   loadBotPerformance();
+  loadReferencePerf();
+}
+
+async function loadReferencePerf(){
+  const el = document.getElementById('reference-perf');
+  if (!el) return;
+  try {
+    const d = await (await fetch('/api/reference-performance?market=' + _botMarket)).json();
+    const usd = d.currency === 'USD';
+    const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));
+    const rows = (d.bots || []).map(b => {
+      const r = b.return_pct;
+      const rc = r == null ? 'var(--dim)' : r >= 0 ? 'var(--sig-buy)' : 'var(--sig-sell)';
+      return `<tr><td><b>${esc(b.label)}</b></td>
+        <td class="num" style="color:${rc};font-weight:700">${r == null ? '–' : (r > 0 ? '+' : '') + fmtNum(r, 2) + '%'}</td>
+        <td class="num">${fmtM(b.total_eval)}</td>
+        <td class="num" style="color:var(--sig-sell)">${fmtNum(b.max_drawdown_pct, 1)}%</td>
+        <td class="num">${b.n_trades}</td><td class="num">${b.days}일</td></tr>`;
+    }).join('');
+    el.className = '';
+    el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num">총수익률</th>
+      <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
+      <tbody>${rows}</tbody></table>
+      <div style="color:var(--dim);font-size:11px;margin-top:6px">공용 시스템 봇이 매일 실행돼 쌓는 실제 성과 — 개인 봇과 별개(공개 track record).</div>`;
+  } catch (e) { el.className = 'placeholder'; el.textContent = '불러오지 못했습니다.'; }
 }
 
 let _botEquityChart = null;

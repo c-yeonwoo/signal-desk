@@ -614,6 +614,31 @@ def performance(uid: int, market: str = "kr") -> dict:
     }
 
 
+# 공용 레퍼런스 봇 — 성향별 시스템 계정(로그인 유저와 별개). track record를 공개로 쌓아 시그널 신뢰의
+# 증거로 쓴다(숏폼 소재·멤버십 세일즈). uid는 실유저(1부터 증가)와 안 겹치게 큰 값.
+REFERENCE_BOTS = {900001: "conservative", 900002: "balanced", 900003: "aggressive"}
+
+
+def ensure_reference_bots() -> None:
+    """레퍼런스 봇 부트스트랩 — 없으면 생성하고 성향 지정·활성화(백그라운드 루프가 자동 운용)."""
+    for uid, style in REFERENCE_BOTS.items():
+        u = db.user_bot_get(uid)  # 없으면 기본값으로 생성
+        if u["trading_style"] != style:
+            db.user_bot_set_style(uid, style)
+        if not u["enabled"]:
+            db.user_bot_set_enabled(uid, True)
+
+
+def reference_performance(market: str = "kr") -> dict:
+    """3개 레퍼런스 봇(안정·균형·공격)의 공개 track record — 자산곡선·수익률·MDD."""
+    ensure_reference_bots()
+    bots = []
+    for uid, style in REFERENCE_BOTS.items():
+        bots.append({"style": style, "label": strategy.STYLE_LABEL.get(style, style),
+                     **performance(uid, market)})
+    return {"market": market, "currency": "USD" if market == "us" else "KRW", "bots": bots}
+
+
 def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
     """유저: 종가·거시·KB를 종합해 '다음 개장 때 살' 예약을 만든다(LLM 자문 우선). 시장별(kr|us)."""
     unit = "$" if market == "us" else "원"

@@ -139,6 +139,10 @@ async def _bot_loop():
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    try:
+        bot.ensure_reference_bots()  # 공용 레퍼런스 봇(성향별) 부트스트랩 — 루프가 자동 운용
+    except Exception as e:
+        log.warning("레퍼런스 봇 부트스트랩 실패: %s", type(e).__name__)
     task = asyncio.create_task(_bot_loop())
     yield
     task.cancel()
@@ -751,6 +755,12 @@ def bot_state_get(request: Request, market: str = "kr"):
 def bot_performance_get(request: Request, market: str = "kr"):
     """내 봇 track record — 자산곡선 + 총수익률·최대낙폭·거래수."""
     return bot.performance(_uid(request), _mkt(market))
+
+
+@app.get("/api/reference-performance")
+def reference_performance_get(market: str = "kr"):
+    """공용 레퍼런스 봇(성향별) track record — 시그널 신뢰의 공개 증거."""
+    return bot.reference_performance(_mkt(market))
 
 
 @app.post("/api/bot/toggle")
