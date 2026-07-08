@@ -55,7 +55,7 @@ def _eligible_signals() -> list:
     # 관리자 튜닝 + 국면 적응형 매수기준(effective_config) — 이걸 빼면 후보가 시그널 탭과 어긋난다.
     reg = regime.classify(prices)
     mread = macro.read(store.load_macro(), extra=store.load_macro_kr())
-    cfg, _ = signalcfg.effective_config(reg, mread)
+    cfg, _ = signalcfg.effective_config(reg, mread, flow_result=store.load_market_flow())
     sigs = engine.evaluate(universe, prices, store.load_fundamentals(), config=cfg,
                            sentiment=kb.sentiment_map(), flows=store.load_flows())
     warned = store.load_warned_tickers()
