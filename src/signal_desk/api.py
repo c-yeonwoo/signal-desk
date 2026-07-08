@@ -670,10 +670,21 @@ def _dart_stale(ttl_days: int = _DART_TTL_DAYS) -> bool:
         return True
 
 
-@app.post("/api/refresh")
-def refresh(data: dict = Body(default={})):
-    """유니버스+시세를 재수집하고 캐시 무효화. DART 재무는 분기(≈80일)마다만 재수집하고(연간 데이터라
-    거의 불변), 그 외엔 시총만 다시 받아 PER/PBR·시총을 매일 재계산한다. force_dart=true면 강제 재수집."""
+def _clear_signal_caches() -> None:
+    """수집 후 파생 캐시 무효화 — 어느 scope를 돌려도 안전하게 매번 비운다."""
+    _signals.cache_clear()
+    _backtest.cache_clear()
+    _backtest_analysis.cache_clear()
+    _valuation.cache_clear()
+    _quotes.cache_clear()
+    _regime.cache_clear()
+    _macro.cache_clear()
+    _us_signals.cache_clear()
+
+
+def _refresh_kr(data: dict) -> dict:
+    """국내 유니버스+시세+재무(+PER/PBR·퀄리티·배당). DART 재무는 분기(≈80일)마다만 재수집하고
+    (연간 데이터라 거의 불변), 그 외엔 시총만 다시 받아 매일 재계산. force_dart=true면 강제."""
     universe = store.fetch_universe()
     store.fetch_prices(universe)
     if bool(data.get("force_dart")) or _dart_stale():
@@ -689,16 +700,32 @@ def refresh(data: dict = Body(default={})):
         store.update_valuation()                               # 캐시 재무 + 오늘 시총 → PER/PBR·시총만 갱신(KRX 1콜)
         fundamentals = store.load_fundamentals()
         log.info("DART 재무 최신(분기 내) — 재수집 스킵, 시총만 갱신")
+    return {"universe_size": len(universe), "fundamentals_size": len(fundamentals)}
+
+
+def _refresh_macro(data: dict) -> dict:
+    """거시(FRED)+한국은행 ECOS+토스 투자경고. 상대적으로 가벼운 그룹."""
     macro_items = store.fetch_macro()
     store.fetch_macro_kr()  # 한국은행 ECOS 거시(키 있을 때만 채워짐)
     try:
-        store.fetch_warnings([u["ticker"] for u in universe])  # 토스 투자경고/거래정지/VI → 매수 veto(키 있을 때만)
+        store.fetch_warnings([u["ticker"] for u in store.load_universe()])  # 투자경고/거래정지/VI → 매수 veto
     except Exception as e:
         log.warning("토스 경고 수집 실패(무시): %s", type(e).__name__)
+    return {"macro_size": len(macro_items)}
+
+
+def _refresh_flows(data: dict) -> dict:
+    """투자자별 수급(외국인·기관 순매수, KR) → 수급 팩터. pykrx per-ticker라 단독 분리."""
     try:
-        store.fetch_flows(universe)  # 투자자별 수급(외국인·기관 순매수, KR) → 수급 팩터
+        store.fetch_flows(store.load_universe())
     except Exception as e:
         log.warning("수급 수집 실패(무시): %s", type(e).__name__)
+        return {"flows_size": len(store.load_flows()), "flows_error": type(e).__name__}
+    return {"flows_size": len(store.load_flows())}
+
+
+def _refresh_us(data: dict) -> dict:
+    """미국: 거장 13F + S&P500 유니버스/발행주식수/EDGAR 재무(증분 백필) + 거장 보유종목 시세."""
     try:
         store.fetch_gurus()  # 거장 포트폴리오(SEC 13F) — 실패해도 나머지 수집엔 영향 없음
         us_uni = store.fetch_us_universe()  # S&P500 유니버스
@@ -715,24 +742,29 @@ def refresh(data: dict = Body(default={})):
             store.fetch_us_prices(us_tks)
     except Exception as e:
         log.warning("거장/US 수집 실패(무시): %s", e)
-    _signals.cache_clear()
-    _backtest.cache_clear()
-    _backtest_analysis.cache_clear()
-    _valuation.cache_clear()
-    _quotes.cache_clear()
-    _regime.cache_clear()
-    _macro.cache_clear()
-    _us_signals.cache_clear()
     us_fund = store.load_us_fundamentals()
     us_filled = sum(1 for f in us_fund.values() if f.get("net_income") is not None or f.get("equity") is not None)
-    return {
-        "ok": True,
-        "universe_size": len(universe),
-        "fundamentals_size": len(fundamentals),
-        "macro_size": len(macro_items),
-        "us_fund_filled": us_filled,        # EDGAR 재무 채워진 US 종목 수(진척도)
-        "us_universe_size": len(us_fund) or None,
-    }
+    return {"us_fund_filled": us_filled, "us_universe_size": len(us_fund) or None}
+
+
+_REFRESH_RUNNERS = {"kr": _refresh_kr, "macro": _refresh_macro, "flows": _refresh_flows, "us": _refresh_us}
+
+
+@app.post("/api/refresh")
+def refresh(data: dict = Body(default={})):
+    """데이터 재수집 + 파생 캐시 무효화. scope로 분할 호출해 요청당 타임아웃을 피한다:
+    kr(시세·재무·배당) / macro(거시·경고) / flows(수급) / us(EDGAR 등). scope 미지정=all(전부, 하위호환)."""
+    scope = str(data.get("scope") or "all").lower()
+    result: dict = {"ok": True, "scope": scope}
+    if scope == "all":
+        for fn in (_refresh_kr, _refresh_macro, _refresh_flows, _refresh_us):
+            result.update(fn(data))
+    elif scope in _REFRESH_RUNNERS:
+        result.update(_REFRESH_RUNNERS[scope](data))
+    else:
+        return {"ok": False, "reason": f"알 수 없는 scope: {scope} (kr|macro|flows|us|all)"}
+    _clear_signal_caches()
+    return result
 
 
 @app.get("/api/valuation")

@@ -2154,18 +2154,35 @@ async function runScenario(){
   finally { btn.disabled = false; btn.textContent = t; }
 }
 
+// 데이터 갱신을 scope별로 순차 호출 — 요청 하나에 전부 몰면 타임아웃 나므로 kr→macro→flows→us로 쪼갠다.
+// 각 단계는 독립적이라 하나가 실패해도 나머지는 계속 진행하고, 마지막에 요약을 합쳐서 보여준다.
+const _REFRESH_STEPS = [
+  ['kr', '국내 시세·재무·배당'],
+  ['macro', '거시·투자경고'],
+  ['flows', '수급(외국인·기관)'],
+  ['us', '미국 시세·재무(EDGAR)'],
+];
 async function refreshData(){
-  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '수집 중… (수 분 소요)';
-  const el = document.getElementById('refresh-result'); el.style.color = 'var(--dim)'; el.textContent = '시세·재무·거시 수집 중…';
-  try {
-    const d = await (await fetch('/api/refresh', { method: 'POST' })).json();
-    el.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
-    el.textContent = d.ok
-      ? `✅ 갱신 완료 — 유니버스 ${d.universe_size ?? '?'}종목 · 재무 ${d.fundamentals_size ?? '?'} · 거시 ${d.macro_size ?? '?'}`
-        + (d.us_universe_size ? ` · US재무 ${d.us_fund_filled ?? 0}/${d.us_universe_size}${d.us_fund_filled < d.us_universe_size ? ' (더 채우려면 다시 갱신)' : ''}` : '')
-      : `실패: ${d.error || d.reason || '오류'}`;
-  } catch (e) { el.style.color = 'var(--sell)'; el.textContent = '요청 실패(시간 초과일 수 있음 — 잠시 후 새로고침)'; }
-  finally { btn.disabled = false; btn.textContent = t; }
+  const btn = event.target; btn.disabled = true; const t = btn.textContent;
+  const el = document.getElementById('refresh-result'); el.style.color = 'var(--dim)';
+  const summary = {}; const failed = [];
+  for (let i = 0; i < _REFRESH_STEPS.length; i++){
+    const [scope, label] = _REFRESH_STEPS[i];
+    btn.textContent = `수집 중… ${i+1}/${_REFRESH_STEPS.length}`;
+    el.textContent = `(${i+1}/${_REFRESH_STEPS.length}) ${label} 수집 중…`;
+    try {
+      const d = await (await fetch('/api/refresh', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope }),
+      })).json();
+      if (d && d.ok) Object.assign(summary, d); else failed.push(`${label}: ${d.reason || d.error || '오류'}`);
+    } catch (e) { failed.push(`${label}: 시간 초과/네트워크`); }
+  }
+  const ok = failed.length === 0;
+  el.style.color = ok ? 'var(--sig-buy)' : 'var(--sell)';
+  el.textContent = (ok ? '✅ 갱신 완료 — ' : `⚠️ 일부 실패(${failed.join(' / ')}) — 나머지: `)
+    + `유니버스 ${summary.universe_size ?? '?'}종목 · 재무 ${summary.fundamentals_size ?? '?'} · 거시 ${summary.macro_size ?? '?'} · 수급 ${summary.flows_size ?? '?'}`
+    + (summary.us_universe_size ? ` · US재무 ${summary.us_fund_filled ?? 0}/${summary.us_universe_size}${summary.us_fund_filled < summary.us_universe_size ? ' (더 채우려면 다시 갱신)' : ''}` : '');
+  btn.disabled = false; btn.textContent = t;
 }
 
 async function checkDataHealth(){
