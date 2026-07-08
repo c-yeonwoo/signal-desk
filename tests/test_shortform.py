@@ -74,6 +74,33 @@ def test_candidates_signal_order(tmp_path, monkeypatch):
     assert shortform.db.shortform_list() == []
 
 
+def test_high_score_non_buy_is_candidate(tmp_path, monkeypatch):
+    # 매수가 아니어도(HOLD) 종합점수 1.5+ 면 숏폼 소재거리로 후보에 포함.
+    sigs = [_sig("005930", "삼성전자", "HOLD", 1.7), _sig("000660", "SK하이닉스", "HOLD", 0.9)]
+    _setup(monkeypatch, tmp_path, sigs)
+    cs = shortform.candidates()
+    assert [c["ticker"] for c in cs] == ["005930"]             # 1.7만 포함, 0.9 제외
+    assert cs[0]["basis"] == "고점수 +1.7"
+
+
+def test_qualitative_hozae_non_buy_is_candidate(tmp_path, monkeypatch):
+    # 매수도 아니고 점수도 낮지만(0.5) 정성 호재(KB 감성 0.6)가 크면 후보에 포함.
+    s = _sig("035720", "카카오", "HOLD", 0.5)
+    s.has_qualitative = True
+    s.qualitative_score = 0.6
+    _setup(monkeypatch, tmp_path, [s])
+    cs = shortform.candidates()
+    assert len(cs) == 1 and cs[0]["basis"] == "정성 호재"
+
+
+def test_high_score_but_event_risk_excluded(tmp_path, monkeypatch):
+    # 고점수라도 악재(event_risk)면 숏폼 부적합 → 제외.
+    s = _sig("005930", "삼성전자", "HOLD", 2.0)
+    s.event_risk = True
+    _setup(monkeypatch, tmp_path, [s])
+    assert shortform.candidates() == []
+
+
 def test_generate_selected_only(tmp_path, monkeypatch):
     sigs = [_sig("005930", "삼성전자", "STRONG_BUY", 2.3), _sig("000660", "SK하이닉스", "BUY", 1.9),
             _sig("035420", "NAVER", "BUY", 1.5)]

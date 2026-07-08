@@ -44,10 +44,25 @@ def _reason_clean(reasons: list[str], n: int = 3) -> list[str]:
 
 
 _RECENT_SEC = 20 * 3600  # 이 기간 내 이미 숏폼 만든 종목은 '중복'으로 표시(자동 모드에선 스킵)
+_SCORE_CANDIDATE = 1.5      # 매수 시그널이 아니어도 종합점수 이 이상이면 후보(숏폼 소재거리)
+_SENTIMENT_CANDIDATE = 0.5  # 정성 호재(KB 감성 점수)가 이 이상이면 후보(매수·점수와 무관하게)
+
+
+def _candidacy_basis(s) -> str | None:
+    """이 시그널이 숏폼 '소재거리'가 되는 이유(라벨). 아니면 None. 악재·경고는 호출측에서 이미 제외.
+    매수가 아니어도 (1) 종합점수 1.5+ (2) 정성 호재 0.5+ 면 '관심' 소재로 후보에 올린다."""
+    if engine.is_buy(s.kind):
+        return "매수 시그널"
+    if s.score >= _SCORE_CANDIDATE:
+        return f"고점수 {s.score:+.1f}"
+    if s.has_qualitative and (s.qualitative_score or 0) >= _SENTIMENT_CANDIDATE:
+        return "정성 호재"
+    return None
 
 
 def _eligible_signals() -> list:
-    """매수 시그널(악재·경고 제외)을 점수 내림차순으로. 시그널 탭(_signals)과 동일 계산."""
+    """숏폼 소재거리 시그널(악재·경고 제외)을 점수 내림차순으로. 시그널 탭(_signals)과 동일 계산.
+    매수뿐 아니라 고점수(1.5+)·정성 호재(0.5+)도 포함 — '만들 만한 소재'가 있으면 후보로."""
     universe = store.load_universe()
     prices = store.load_price_series()
     if not universe or not prices:
@@ -59,16 +74,18 @@ def _eligible_signals() -> list:
     sigs = engine.evaluate(universe, prices, store.load_fundamentals(), config=cfg,
                            sentiment=kb.sentiment_map(), flows=store.load_flows())
     warned = store.load_warned_tickers()
-    elig = [s for s in sigs if engine.is_buy(s.kind) and not s.event_risk and s.ticker not in warned]
+    # 악재(event_risk)·투자경고는 숏폼에 부적합 → 항상 제외. 그 외엔 소재거리가 있으면 포함.
+    elig = [s for s in sigs if not s.event_risk and s.ticker not in warned and _candidacy_basis(s)]
     return sorted(elig, key=lambda s: s.score, reverse=True)
 
 
 def candidates(limit: int = 20) -> list[dict]:
-    """생성 전 '후보 목록' — 매수 시그널을 점수순으로 근거와 함께 보여준다(생성·저장 없음).
-    관리자가 여기서 고르면 generate(tickers=[...])로 카드+스크립트를 만든다."""
+    """생성 전 '후보 목록' — 소재거리(매수·고점수·정성 호재)를 점수순으로 근거와 함께 보여준다
+    (생성·저장 없음). basis=후보가 된 이유. 관리자가 골라 generate(tickers=[...])로 만든다."""
     recent = db.shortform_recent_tickers(_RECENT_SEC)
     return [{"ticker": s.ticker, "name": s.name, "kind": s.kind, "score": round(s.score, 2),
-             "reasons": _reason_clean(s.reasons, 3), "recent": s.ticker in recent}
+             "basis": _candidacy_basis(s), "reasons": _reason_clean(s.reasons, 3),
+             "recent": s.ticker in recent}
             for s in _eligible_signals()[:limit]]
 
 
@@ -108,7 +125,8 @@ def _esc(s: str) -> str:
 def _card_svg(name: str, ticker: str, kind: str, score: float, reasons: list[str], sector: str | None) -> str:
     """세로 1080x1920 데이터 카드(SVG, 자기완결). 브라우저 미리보기·후속 래스터화 공용."""
     kind_ko = _KIND_KO.get(kind, "관심")
-    pill = "#0b7a3b" if kind == "STRONG_BUY" else "#22c55e"
+    # 매수=초록(강력=진초록), 매수 아님(관심 소재)=파랑 — 매수 아닌데 초록이면 매수로 오독될 수 있어 구분.
+    pill = "#0b7a3b" if kind == "STRONG_BUY" else "#22c55e" if kind == "BUY" else "#0ea5e9"
     clean = _reason_clean(reasons, 3)
     rows = ""
     for i, r in enumerate(clean):
@@ -143,7 +161,7 @@ def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = F
         recent = db.shortform_recent_tickers(_RECENT_SEC) if not dry_run else set()
         picks = [s for s in elig if s.ticker not in recent][:limit]
     if not picks:
-        return {"ok": False, "reason": "조건에 맞는 매수 시그널이 없거나 시세 데이터가 없습니다.",
+        return {"ok": False, "reason": "소재거리(매수·고점수·정성 호재)가 없거나 시세 데이터가 없습니다.",
                 "created": [], "count": 0}
     made = []
     for s in picks:
