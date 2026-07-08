@@ -429,6 +429,7 @@ def fetch_us_fundamentals_edgar(tickers: list[str], max_calls: int = 40) -> int:
         cache[t]["net_income"] = f.get("net_income")
         cache[t]["equity"] = f.get("equity")
         cache[t]["dps"] = f.get("dps")  # 주당 연배당(배당 플래너·수익률용)
+        cache[t]["div_months"] = f.get("div_months") or []  # 추정 배당 지급월(캘린더용)
     if done:
         _write_json(US_FUNDAMENTALS_FILE, cache)
     return done
@@ -467,7 +468,8 @@ def us_dividends(prices: dict[str, list[float]] | None = None) -> dict[str, dict
         closes = prices.get(t)
         price = float(closes[-1]) if closes else None
         out[t] = {"dps": round(float(dps), 4), "price": round(price, 2) if price else None,
-                  "div_yield": round(dps / price * 100, 2) if price else None}
+                  "div_yield": round(dps / price * 100, 2) if price else None,
+                  "div_months": f.get("div_months") or []}
     return out
 
 

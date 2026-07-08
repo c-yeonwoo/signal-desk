@@ -578,6 +578,11 @@
           <div id="div-chart" style="height:360px"></div>
         </div>
       </div>
+      <div class="card" style="margin-top:16px">
+        <b style="font-size:14px">월별 배당 유입 (지급월 추정)</b>
+        <span style="color:var(--dim-2);font-size:11px"> · EDGAR 공시 기간 기준 추정 — 실제 지급일과 다를 수 있음. 배당월 겹치지 않게 조합하면 매달 현금흐름.</span>
+        <div id="div-calendar" style="height:300px"></div>
+      </div>
     </div>
   </div>
 
@@ -1833,7 +1838,7 @@ function switchTradingSeg(seg){
 }
 
 // ===== 배당 플래너(US) — 배당주 리스트 + 담은 주수로 예상 연/월 배당 =====
-let _divItems = [], _divPlan = {}, _divChart = null;
+let _divItems = [], _divPlan = {}, _divChart = null, _divCalChart = null;
 async function loadDividends(){
   const el = document.getElementById('div-list');
   try {
@@ -1869,19 +1874,23 @@ function onDivQty(input){
 }
 function recalcDividends(){
   const by = Object.fromEntries(_divItems.map(i => [i.ticker, i]));
-  let annual = 0, cost = 0; const contrib = [];
+  let annual = 0, cost = 0; const contrib = []; const months = new Array(12).fill(0);
   for (const [t, q] of Object.entries(_divPlan)) {
     const it = by[t]; if (!it) continue;
     const a = (it.dps || 0) * q;
     annual += a; cost += (it.price || 0) * q;
     contrib.push({ name: it.name, value: Math.round(a * 100) / 100 });
+    // 지급월 캘린더: 연배당을 추정 지급월에 균등 분배(월 미상이면 12개월 균등)
+    const ms = (it.div_months && it.div_months.length) ? it.div_months : [1,2,3,4,5,6,7,8,9,10,11,12];
+    const per = a / ms.length;
+    ms.forEach(m => { if (m >= 1 && m <= 12) months[m - 1] += per; });
   }
   document.getElementById('div-annual').textContent = '$' + fmtNum(annual, 0);
   document.getElementById('div-monthly').textContent = '$' + fmtNum(annual / 12, 0);
   document.getElementById('div-count').textContent = contrib.length;
   document.getElementById('div-cost').textContent = '$' + fmtNum(cost, 0);
   const holder = document.getElementById('div-chart');
-  if (!contrib.length) { if (_divChart) _divChart.clear(); return; }
+  if (!contrib.length) { if (_divChart) _divChart.clear(); if (_divCalChart) _divCalChart.clear(); return; }
   if (!_divChart) _divChart = echarts.init(holder);
   contrib.sort((a, b) => b.value - a.value);
   _divChart.setOption({
@@ -1892,6 +1901,21 @@ function recalcDividends(){
     series: [{ type: 'bar', data: contrib.map(c => c.value), itemStyle: { color: '#22c55e' } }],
   }, true);
   _divChart.resize();
+  // 월별 유입 캘린더
+  const cal = document.getElementById('div-calendar');
+  if (!_divCalChart) _divCalChart = echarts.init(cal);
+  const gap = months.filter(v => v < 0.005).length;  // 배당 없는 달
+  _divCalChart.setOption({
+    tooltip: { trigger: 'axis', formatter: p => `${p[0].axisValue}: $${fmtNum(p[0].value, 1)}` },
+    grid: { left: 50, right: 20, top: 24, bottom: 24 },
+    title: { text: gap ? `배당 없는 달 ${gap}개 — 종목 추가로 채워보세요` : '12개월 모두 배당 유입 ✓',
+             textStyle: { fontSize: 11, color: gap ? '#b45309' : '#22c55e', fontWeight: 600 }, left: 'center', top: 0 },
+    xAxis: { type: 'category', data: ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'] },
+    yAxis: { type: 'value', name: '$' },
+    series: [{ type: 'bar', data: months.map(v => Math.round(v * 100) / 100),
+               itemStyle: { color: '#4f46e5' } }],
+  }, true);
+  _divCalChart.resize();
 }
 
 // ===== 포트폴리오 파이차트(봇·내꺼·거장 공용) =====
