@@ -24,7 +24,6 @@ from signal_desk.ingest import typecast
 log = logging.getLogger("signal_desk.shortform_render")
 
 _FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
-_VIDEO_DIR = store.CACHE_DIR / "shortform_video"
 _W, _H = 1080, 1920
 _font_ready = False
 
@@ -148,7 +147,6 @@ def render(sid: str) -> dict:
     if not item or not item.get("scenes"):
         return {"ok": False, "reason": "장면이 없는 초안(재생성 필요)"}
     _ensure_fonts()
-    _VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     scenes = item["scenes"]
     tts_on = typecast.available()
     tmp = tempfile.mkdtemp(prefix="sfvid_")
@@ -171,19 +169,16 @@ def render(sid: str) -> dict:
         listing = os.path.join(tmp, "list.txt")
         with open(listing, "w") as fh:
             fh.write("".join(f"file '{c}'\n" for c in clips))
-        out = str(_VIDEO_DIR / f"{sid}.mp4")
+        out = os.path.join(tmp, f"{sid}.mp4")
         _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listing,
               "-c:v", "libx264", "-c:a", "aac", "-ar", "44100", "-ac", "2",
               "-r", "30", "-pix_fmt", "yuv420p", out])
-        return {"ok": True, "url": f"/api/shortform/{sid}/video", "scenes": len(scenes),
-                "has_audio": has_audio}
+        # 볼륨에 저장하지 않고 바이트로 반환 → 엔드포인트가 스트리밍 후 임시파일과 함께 폐기(볼륨 사용 0).
+        with open(out, "rb") as fh:
+            data = fh.read()
+        return {"ok": True, "data": data, "scenes": len(scenes), "has_audio": has_audio}
     except Exception as e:
         log.warning("숏폼 렌더 실패(%s): %s", sid, e)
         return {"ok": False, "reason": f"렌더 실패: {e}"}
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
-
-
-def video_path(sid: str) -> Path | None:
-    p = _VIDEO_DIR / f"{sid}.mp4"
-    return p if p.exists() else None
+        shutil.rmtree(tmp, ignore_errors=True)  # PNG·mp3·클립·최종 mp4 전부 즉시 삭제
