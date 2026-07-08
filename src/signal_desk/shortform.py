@@ -20,7 +20,15 @@ from signal_desk.signals import engine, macro, regime
 log = logging.getLogger("signal_desk.shortform")
 
 # 규제상 '매수/추천' 같은 단정 표현 대신 '주목' 톤으로 — 정보 제공·관심 환기 뉘앙스(투자권유 아님).
+# 매수가 아닌 후보(HOLD 등)도 '관심'이 아니라 '주목'으로 — 뱃지에서 '관심'은 쓰지 않는다.
 _KIND_KO = {"STRONG_BUY": "강한 주목", "BUY": "주목"}
+_KIND_DEFAULT = "주목"
+
+
+def _kind_label(kind: str) -> str:
+    return _KIND_KO.get(kind, _KIND_DEFAULT)
+
+
 _DISCLAIMER = "정보 제공·교육 목적이며 투자 권유가 아닙니다. 투자 판단과 책임은 본인에게 있습니다."
 
 _SCRIPT_SYS = (
@@ -92,7 +100,7 @@ def candidates(limit: int = 20) -> list[dict]:
 
 def _script_for(name: str, ticker: str, kind: str, reasons: list[str]) -> dict:
     """LLM(Sonnet)로 {title, script:[{time,caption,narration}], caption, hashtags}. 실패 시 규칙 기반."""
-    kind_ko = _KIND_KO.get(kind, "관심")
+    kind_ko = _kind_label(kind)
     clean = _reason_clean(reasons, 3)
     if llm.available():
         user = (f"종목: {name}({ticker})\n시그널: {kind_ko}\n근거:\n- " + "\n- ".join(clean) +
@@ -207,7 +215,7 @@ def _linechart(vals, x: int, y: int, w: int, h: int, color: str, area: bool = Tr
 def _intro_svg(name: str, ticker: str, kind: str, score: float, sector: str | None,
                bg: str | None = None) -> str:
     """인트로/썸네일 템플릿(재사용) — '오늘의 시그널' + 종목명 + ticker·섹터 + 시그널 pill. 근거·면책 없음."""
-    kind_ko = _KIND_KO.get(kind, "관심")
+    kind_ko = _kind_label(kind)
     pill = _pill_color(kind)
     sec = _esc(sector or "")
     return (_svg_open(pill, bg)
@@ -354,7 +362,7 @@ def _qual_svg(summary, points, kind, bg=None) -> str:
 def _reco_svg(name, kind, easy_line, target, bg=None) -> str:
     """④ 주목 포인트 — 관심 강도(주목/강한 주목) + 쉬운 한줄 해설 + 참고 목표가(있으면). 투자권유 아님."""
     pill = _pill_color(kind)
-    kind_ko = _KIND_KO.get(kind, "관심")
+    kind_ko = _kind_label(kind)
     ew = _wrap(easy_line, 14)[:3]
     etext = "".join(f'<tspan x="120" dy="{0 if i == 0 else 100}">{_esc(l)}</tspan>' for i, l in enumerate(ew))
     tgt = ""
@@ -407,7 +415,7 @@ def _scenes_for(name: str, ticker: str, kind: str, score: float, reasons: list[s
     4 주목 포인트(쉬운 해설·관심 강도·목표가) · 5 아웃트로(봇 수익률). 각 장면에 나레이션·길이.
     typecast(장면별 음성)든 자체 렌더(장면별 프레임)든 그대로 투입되는 중간 포맷."""
     bg = _load_bg()
-    kind_ko = _KIND_KO.get(kind, "관심")
+    kind_ko = _kind_label(kind)
     quote, kb = quote or {}, kb or {}
     price = closes[-1] if closes else None
     change = (round((closes[-1] / closes[-2] - 1) * 100, 2)
@@ -455,7 +463,7 @@ def _scenes_for(name: str, ticker: str, kind: str, score: float, reasons: list[s
 
 def _full_caption(name: str, ticker: str, kind: str, reasons: list[str], llm_caption: str | None) -> str:
     """게시물 캡션 — 근거를 포함한 종합 해설 + (LLM 서술) + 투자유의(면책). 카드 프레임엔 면책을 넣지 않는다."""
-    kind_ko = _KIND_KO.get(kind, "관심")
+    kind_ko = _kind_label(kind)
     bodies = [r.split("] ", 1)[-1] for r in _reason_clean(reasons, 4)]
     summary = f"📊 {name}({ticker}) {kind_ko} 시그널"
     if bodies:
@@ -517,7 +525,7 @@ def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = F
         price = closes[-1] if closes else None
         tgt = target_mod.compute(price, f.get("per"), med_per, closes)  # 참고 목표가(없으면 None)
         qbody = next((r.split("] ", 1)[-1] for r in s.reasons if _tag(r) in _QUANT_TAGS), "")
-        easy = f"{s.name}는 {qbody + ' 등으로 ' if qbody else ''}{_KIND_KO.get(s.kind, '관심')} 신호가 나왔습니다."
+        easy = f"{s.name}는 {qbody + ' 등으로 ' if qbody else ''}{_kind_label(s.kind)} 신호가 나왔습니다."
         sc = _script_for(s.name, s.ticker, s.kind, s.reasons)
         scenes = _scenes_for(s.name, s.ticker, s.kind, s.score, s.reasons, sector,
                              closes=closes, quote=quote, kb=kb_dg, target=tgt, easy_line=easy,
