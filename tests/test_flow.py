@@ -29,3 +29,17 @@ def test_evaluate_includes_flow():
     # 수급 데이터 없으면 팩터 제외(그레이스풀)
     r2 = engine.evaluate(uni, prices)[0]
     assert r2.has_flow is False and r2.flow_intensity is None
+
+
+def test_fetch_flows_circuit_breaker(monkeypatch, tmp_path):
+    """pykrx 투자자 엔드포인트가 통째로 죽으면(전부 None) 8연속 실패 후 조기 중단 — KRX 도배 방지."""
+    from signal_desk import store
+    from signal_desk.ingest import krx
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    calls = []
+    monkeypatch.setattr(krx, "investor_flows", lambda t, s, e: calls.append(t) or None)
+    uni = [{"ticker": f"{i:06d}", "name": f"n{i}"} for i in range(200)]
+    out = store.fetch_flows(uni)
+    assert out == {} and len(calls) == 8  # 8연속 실패 시 중단(200 전부 두드리지 않음)
+    assert not store.FLOWS_FILE.exists()  # 빈 결과는 기존 flows.json 덮어쓰지 않음

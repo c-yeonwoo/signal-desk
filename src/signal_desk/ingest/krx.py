@@ -82,7 +82,9 @@ def investor_flows(ticker: str, start: str, end: str) -> dict | None:
     try:
         df = stock.get_market_trading_value_by_investor(start, end, ticker)
     except Exception as e:
-        log.warning("수급(투자자별 거래대금) 수집 실패(%s): %s", ticker, type(e).__name__)
+        # pykrx 내부에서 나는 예외(주로 KRX 응답이 비었거나 스키마가 바뀐 경우) — 어떤 키/값이
+        # 문제인지 알아야 원인(응답 empty / 스키마 변경 / IP 차단)을 짚으므로 예외 전문을 남긴다.
+        log.warning("수급(투자자별 거래대금) 수집 실패(%s): %r", ticker, e)
         return None
     if df is None or df.empty or "순매수" not in df.columns:
         return None

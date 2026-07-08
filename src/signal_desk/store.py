@@ -75,10 +75,19 @@ def fetch_flows(universe: list[dict] | None = None, days: int = 20) -> dict:
     start = end - datetime.timedelta(days=int(days * 1.6) + 5)  # 거래일 days개 확보 위해 달력일 여유
     s, e = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
     out: dict[str, dict] = {}
-    for item in universe:
+    fails = 0
+    for i, item in enumerate(universe):
         ticker = item["ticker"]
         fl = krx.investor_flows(ticker, s, e)
         if not fl:
+            fails += 1
+            # 서킷브레이커: 앞 종목이 연달아 전부 실패하면 pykrx 투자자 수급 엔드포인트가 통째로
+            # 죽은 것(KRX 스키마 변경 — get_market_trading_value_*_by_investor 계열). 200종목을
+            # 다 두드려 KRX를 때리고 로그를 도배하는 대신 조기 중단하고 한 줄만 남긴다.
+            if out == {} and fails >= 8:
+                log.warning("수급 수집 중단 — pykrx 투자자 순매수 엔드포인트 응답 없음(%d/%d 연속 실패). "
+                            "수급 팩터는 데이터 없음으로 자동 제외됩니다(다른 팩터엔 영향 없음).", fails, len(universe))
+                return out
             continue
         net = fl["foreign_net"] + fl["inst_net"]
         tot = fl["total_buy"]
