@@ -11,11 +11,14 @@
 
 from __future__ import annotations
 
+import io
+import json
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
 from signal_desk import db, store
@@ -192,3 +195,108 @@ def render(sid: str) -> dict:
         return {"ok": False, "reason": f"렌더 실패: {e}"}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)  # PNG·mp3·클립·최종 mp4 전부 즉시 삭제
+
+
+# ---------- 로컬 렌더 자료(zip) — 저사양 서버(Railway OOM) 대신 사용자 PC에서 렌더 ----------
+_LOCAL_README = """숏폼 로컬 렌더
+==============
+저사양 서버(Railway)는 ffmpeg 렌더에서 메모리 부족(OOM)이 나서, 이 자료를 받아 PC에서 렌더합니다.
+
+준비물: Python + ffmpeg(brew install ffmpeg) + cairosvg(pip install cairosvg)
+(폰트는 이 폴더의 NanumGothic이 자동 사용됩니다.)
+
+실행:  python render.py
+결과:  output.mp4 (세로 1080x1920)
+
+나레이션(TTS)까지 넣으려면 실행 전 환경변수:
+  export TYPECAST_API_KEY=... (선택: TYPECAST_VOICE_ID)
+키가 없으면 무음 영상이 나옵니다.
+"""
+
+# render.py — 자기완결 스크립트(signal_desk 미의존). {i:02d}/{c} 등 중괄호 때문에 f-string 아님.
+_LOCAL_RENDER_SCRIPT = r'''#!/usr/bin/env python3
+"""숏폼 로컬 렌더 — 장면 SVG(cairosvg→PNG) + 나레이션(Typecast, 선택) → ffmpeg mp4. README 참고."""
+import base64, json, os, pathlib, subprocess, tempfile, urllib.request
+
+HERE = pathlib.Path(__file__).parent
+# 번들 나눔고딕을 fontconfig에 등록(한글)
+_cache = tempfile.mkdtemp()
+_cf = os.path.join(_cache, "fonts.conf")
+open(_cf, "w").write('<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">'
+                     '<fontconfig><dir>%s</dir><cachedir>%s</cachedir></fontconfig>' % (HERE, _cache))
+os.environ["FONTCONFIG_FILE"] = _cf
+import cairosvg  # noqa: E402
+
+KEY = os.environ.get("TYPECAST_API_KEY")
+VOICE = os.environ.get("TYPECAST_VOICE_ID", "tc_5eb55cf1f0b0a700071f89c7")
+
+
+def tts(text):
+    if not KEY or not text.strip():
+        return None
+    body = json.dumps({"voice_id": VOICE, "text": text[:2000], "model": "ssfm-v30",
+                       "language": "kor", "output": {"audio_format": "mp3"}}).encode()
+    req = urllib.request.Request("https://api.typecast.ai/v1/text-to-speech", data=body,
+                                 method="POST", headers={"X-API-KEY": KEY, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            return r.read()
+    except Exception as e:
+        print("  (TTS 실패, 무음으로:", e, ")")
+        return None
+
+
+COMMON = ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+          "-vf", "scale=1080:1920", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2"]
+scenes = json.load(open(HERE / "scenes.json", encoding="utf-8"))
+tmp = tempfile.mkdtemp()
+clips = []
+for sc in scenes:
+    i = sc["i"]
+    print("장면 %d/%d: %s" % (i + 1, len(scenes), sc.get("label", "")))
+    svg = (HERE / ("scenes/%02d.svg" % i)).read_text(encoding="utf-8")
+    png = os.path.join(tmp, "%d.png" % i)
+    cairosvg.svg2png(bytestring=svg.encode(), write_to=png, output_width=1080, output_height=1920)
+    mp3 = tts(sc.get("narration", ""))
+    clip = os.path.join(tmp, "c%d.mp4" % i)
+    if mp3 and len(mp3) > 500:
+        audio = os.path.join(tmp, "%d.mp3" % i)
+        open(audio, "wb").write(mp3)
+        subprocess.run(["ffmpeg", "-y", "-loop", "1", "-framerate", "30", "-i", png, "-i", audio]
+                       + COMMON + ["-tune", "stillimage", "-shortest", clip], check=True, capture_output=True)
+    else:
+        subprocess.run(["ffmpeg", "-y", "-loop", "1", "-framerate", "30", "-i", png,
+                        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
+                       + COMMON + ["-t", "%.2f" % float(sc.get("dur", 3.0)), clip], check=True, capture_output=True)
+    clips.append(clip)
+lst = os.path.join(tmp, "list.txt")
+open(lst, "w").write("".join("file '%s'\n" % c for c in clips))
+subprocess.run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lst, "-c:v", "libx264",
+                "-preset", "ultrafast", "-c:a", "aac", "-ar", "44100", "-ac", "2", "-r", "30",
+                "-pix_fmt", "yuv420p", "output.mp4"], check=True, capture_output=True)
+print("완료 → output.mp4")
+'''
+
+
+def export_bundle(sid: str) -> bytes | None:
+    """로컬 렌더용 zip 바이트 — 렌더 준비된 장면 SVG(폰트·크기·배경 인라인) + 나레이션/길이 +
+    번들 폰트 + 자기완결 render.py + README. 서버는 rasterize/ffmpeg 안 함(OOM 회피)."""
+    item = db.shortform_get(sid)
+    if not item or not item.get("scenes"):
+        return None
+    scenes = item["scenes"]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        meta = []
+        for i, sc in enumerate(scenes):
+            z.writestr(f"scenes/{i:02d}.svg", _render_svg(sc.get("svg") or ""))  # 배경 인라인·폰트·고정크기
+            meta.append({"i": i, "label": sc.get("label"),
+                         "narration": sc.get("narration", ""), "dur": sc.get("dur", 3.0)})
+        z.writestr("scenes.json", json.dumps(meta, ensure_ascii=False, indent=2))
+        for f in ("NanumGothic-Regular.ttf", "NanumGothic-Bold.ttf"):
+            fp = _FONTS_DIR / f
+            if fp.exists():
+                z.write(fp, f)
+        z.writestr("render.py", _LOCAL_RENDER_SCRIPT)
+        z.writestr("README.txt", _LOCAL_README)
+    return buf.getvalue()
