@@ -73,3 +73,30 @@ def ohlcv(ticker: str, start: str, end: str) -> list[dict]:
          "volume": float(row.get("거래량", 0) or 0)}
         for idx, row in df.iterrows()
     ]
+
+
+def investor_flows(ticker: str, start: str, end: str) -> dict | None:
+    """기간(start~end, 'YYYYMMDD') 투자자별 순매수대금 — 외국인·기관 순매수와 전체 거래대금.
+    한국 시장 핵심 수급 팩터. pykrx 응답 스키마 변동 대비 방어적(실패 시 None). 반환:
+    {foreign_net, inst_net, total_buy}(원)."""
+    try:
+        df = stock.get_market_trading_value_by_investor(start, end, ticker)
+    except Exception as e:
+        log.warning("수급(투자자별 거래대금) 수집 실패(%s): %s", ticker, type(e).__name__)
+        return None
+    if df is None or df.empty or "순매수" not in df.columns:
+        return None
+
+    def _net(label: str) -> float:
+        try:
+            return float(df.loc[label, "순매수"]) if label in df.index else 0.0
+        except (TypeError, ValueError, KeyError):
+            return 0.0
+
+    foreign = _net("외국인") + _net("기타외국인")
+    inst = _net("기관합계")
+    try:
+        total_buy = float(df.loc["전체", "매수"]) if "전체" in df.index and "매수" in df.columns else 0.0
+    except (TypeError, ValueError, KeyError):
+        total_buy = 0.0
+    return {"foreign_net": foreign, "inst_net": inst, "total_buy": total_buy}

@@ -373,7 +373,7 @@
           <div style="margin-top:6px;line-height:1.7;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px">
             <b>종합점수(−3 ~ +3)로 5단계 판정</b><br>
             강력매수 ≥ <b>+2.0</b> · 매수 ≥ <b>+1.2</b> · <b>관망 −1.2 ~ +1.2</b> · 매도 ≤ <b>−1.2</b> · 강력매도 ≤ <b>−2.0</b><br>
-            <b>팩터 가중</b>: 기술 35% · 재무 30% · 저평가 15% · 낙폭과대 20% <span style="color:var(--dim-2)">(+ KB 악재 veto · 하락추세 게이트)</span><br>
+            <b>팩터 가중</b>: 기술 35 · 재무 30 · 저평가 15 · 낙폭과대 20 · 수급(외국인·기관) 20 <span style="color:var(--dim-2)">(데이터 있는 팩터끼리 재정규화 · + KB 악재 veto · 하락추세 게이트)</span><br>
             <span style="color:var(--sell)">※ 약세·조정 국면이면 매수 기준이 자동 상향돼, 점수가 +1.2를 넘어도 관망일 수 있습니다.</span>
             <div id="glossary" style="margin-top:7px;border-top:1px solid var(--line);padding-top:6px"></div>
           </div>
@@ -857,7 +857,7 @@ const _REASON_KO = [
   ['낙폭과대', '낙폭과대(급락 반등 기대)'], ['단기과열', '단기 과열(조정)'],
   ['ROE', '고ROE(수익성 양호)'], ['매출성장', '매출 성장'], ['부채비율', '높은 부채비율'], ['배당', '배당'],
   ['PER', '저PER(저평가)'], ['PBR', '저PBR(저평가)'], ['저평가', '저평가 구간'], ['고평가', '고평가 구간'],
-  ['추세', '추세 필터'],
+  ['추세', '추세 필터'], ['수급', '수급(외국인·기관)'],
 ];
 function reasonKo(reasons){
   const out = [];

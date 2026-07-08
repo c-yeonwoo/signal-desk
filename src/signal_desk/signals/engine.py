@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from signal_desk.signals import flow as flow_mod
 from signal_desk.signals import fundamental as fnd
 from signal_desk.signals import indicators as ind
 from signal_desk.signals import narrative as narr
@@ -33,6 +34,7 @@ class SignalConfig:
     weight_valuation: float = 0.15
     weight_reversion: float = 0.20
     weight_qualitative: float = 0.15  # KB(뉴스·영상) 정성 — 데이터 있을 때만 포함(없으면 재정규화 제외)
+    weight_flow: float = 0.20  # 수급(외국인·기관 순매수) — KR만, 데이터 있을 때만 포함
 
     # 5단계 시그널 임계값(종합점수 범위 ~[-3,3]): 강력매수 ≥ 매수 ≥ (관망) ≥ 매도 ≥ 강력매도
     strong_buy_threshold: float = 2.0
@@ -80,6 +82,8 @@ class SignalResult:
     has_reversion: bool = False
     qualitative_score: float | None = None
     has_qualitative: bool = False
+    flow_intensity: float | None = None  # 수급 강도(외국인·기관 순매수/거래대금, [-1,1])
+    has_flow: bool = False
     event_risk: bool = False  # KB에서 최근 악재 이벤트 감지 — 매수 후보에서 제외(veto)
     event_note: str = ""
     event_severity: str = ""  # 악재 강도: critical(전량 청산)|serious(부분 청산)|''
@@ -266,12 +270,14 @@ def evaluate(
     fundamentals: dict[str, dict] | None = None,
     config: SignalConfig | None = None,
     sentiment: dict[str, dict] | None = None,
+    flows: dict[str, dict] | None = None,
 ) -> list[SignalResult]:
     """universe: [{ticker, name}], prices: ticker -> 종가 리스트(오래된→최신), fundamentals: ticker -> metrics.
-    sentiment: ticker -> {score[-1,1], reasons} (KB 정성 팩터, 있는 종목만 반영)."""
+    sentiment: ticker -> {score[-1,1], reasons} (KB 정성 팩터), flows: ticker -> {intensity,...} (수급 팩터, KR)."""
     config = config or SignalConfig()
     fundamentals = fundamentals or {}
     sentiment = sentiment or {}
+    flows = flows or {}
     val_scores = val.scores(universe, fundamentals)
     results: list[SignalResult] = []
 
@@ -292,6 +298,9 @@ def evaluate(
         qual_norm, qual_weight, qual_reasons, qual_score, has_qualitative = qual.component(
             sentiment.get(ticker), config.weight_qualitative
         )
+        flow_norm, flow_weight, flow_reasons, flow_intensity, has_flow = flow_mod.component(
+            flows.get(ticker), config.weight_flow
+        )
 
         # 확인된 하락추세(떨어지는 칼)에서는 낙폭과대·저평가 매수기여를 무효화한다 — 싸고
         # 과매도여도 구조적 하락이면 계속 싸지고 떨어지는 가치함정. 종합 BUY도 아래서 관망 강등.
@@ -311,6 +320,7 @@ def evaluate(
             (fund.score / 2.0 if fund.has_data else 0.0, config.weight_fundamental if fund.has_data else 0.0, fund.reasons),
             (val_norm, val_weight, val_reasons),
             (rev_norm, rev_weight, rev_reasons),
+            (flow_norm, flow_weight, flow_reasons),  # 수급(외국인·기관) — 하락추세에도 유효(스마트머니 실매수 확인)
         ]
         combined = combine(components, config)
         _apply_trend_gate(combined, closes, series, i_last, config)
@@ -323,6 +333,7 @@ def evaluate(
             valuation_percentile=val_pct, has_valuation=has_valuation,
             reversion_score=round(rev_score_raw, 2), has_reversion=has_reversion,
             qualitative_score=qual_score, has_qualitative=has_qualitative,
+            flow_intensity=round(flow_intensity, 3) if has_flow else None, has_flow=has_flow,
             event_risk=bool(entry.get("event_risk")), event_note=str(entry.get("event_note") or ""),
             event_severity=str(entry.get("event_severity") or ""),
             reasons=combined["reasons"],

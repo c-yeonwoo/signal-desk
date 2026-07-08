@@ -429,7 +429,7 @@ def portfolio_heatmap(request: Request):
 def _signals():
     cfg, _ = signalcfg.effective_config(_regime(), _macro())  # 약세·비우호 국면이면 매수 기준 자동 상향
     return evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
-                    config=cfg, sentiment=kb.sentiment_map())
+                    config=cfg, sentiment=kb.sentiment_map(), flows=store.load_flows())
 
 
 @lru_cache(maxsize=1)
@@ -690,6 +690,10 @@ def refresh(data: dict = Body(default={})):
         store.fetch_warnings([u["ticker"] for u in universe])  # 토스 투자경고/거래정지/VI → 매수 veto(키 있을 때만)
     except Exception as e:
         log.warning("토스 경고 수집 실패(무시): %s", type(e).__name__)
+    try:
+        store.fetch_flows(universe)  # 투자자별 수급(외국인·기관 순매수, KR) → 수급 팩터
+    except Exception as e:
+        log.warning("수급 수집 실패(무시): %s", type(e).__name__)
     try:
         store.fetch_gurus()  # 거장 포트폴리오(SEC 13F) — 실패해도 나머지 수집엔 영향 없음
         us_uni = store.fetch_us_universe()  # S&P500 유니버스
