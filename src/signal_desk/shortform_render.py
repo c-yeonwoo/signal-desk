@@ -99,13 +99,21 @@ def _scene_png(svg: str, path: str) -> None:
                      output_width=_W, output_height=_H)
 
 
+_ERR_KW = ("error", "invalid", "cannot", "failed", "no such", "killed", "conversion failed",
+           "unable", "not found", "permission", "out of memory", "no space")
+
+
 def _run(cmd: list[str]) -> None:
-    """ffmpeg/ffprobe 실행. 실패 시 진행률(\\r) 스팸을 걷어낸 '진짜 에러 라인'으로 예외."""
+    """ffmpeg/ffprobe 실행. 실패 시 리턴코드 + '진짜 에러 라인'(키워드 우선)으로 예외.
+    rc가 음수/137이면 시그널 종료(예: -9 OOM kill) — 정상 stderr 없이 죽은 것."""
     p = subprocess.run(cmd, capture_output=True)
     if p.returncode != 0:
         err = (p.stderr or b"").decode("utf-8", "replace").replace("\r", "\n")
-        lines = [ln for ln in err.splitlines() if ln.strip() and not ln.startswith("frame=")]
-        raise RuntimeError(" | ".join(lines[-5:])[:500] or "ffmpeg 실패")
+        lines = [ln.strip() for ln in err.splitlines() if ln.strip() and not ln.startswith("frame=")]
+        hits = [ln for ln in lines if any(k in ln.lower() for k in _ERR_KW)]
+        picked = hits[-3:] if hits else lines[-4:]
+        note = " (시그널 종료=리소스 부족(OOM)/타임아웃 가능)" if p.returncode < 0 or p.returncode == 137 else ""
+        raise RuntimeError(f"rc={p.returncode}{note} · " + " | ".join(picked)[:420])
 
 
 def _audio_duration(path: str) -> float | None:
@@ -125,8 +133,10 @@ def _scene_clip(png: str, audio: str | None, dur: float, out: str) -> bool:
     44.1kHz·스테레오로 통일해 concat이 항상 되게 한다. 반환: 실제 오디오 사용 여부."""
     adur = _audio_duration(audio) if audio else None
     use_audio = bool(adur and adur >= 0.3)
-    common = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-vf", f"scale={_W}:{_H}",
-              "-r", "30", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2"]
+    # ultrafast preset — 저사양 컨테이너(Railway)에서 CPU/메모리 부담·시간 대폭 감소(정지 이미지라 화질 무난).
+    common = ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+              "-vf", f"scale={_W}:{_H}", "-r", "30",
+              "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2"]
     if use_audio:
         cmd = (["ffmpeg", "-y", "-loop", "1", "-framerate", "30", "-i", png, "-i", audio]
                + common + ["-tune", "stillimage", "-t", f"{adur:.2f}", "-shortest", out])
@@ -171,8 +181,8 @@ def render(sid: str) -> dict:
             fh.write("".join(f"file '{c}'\n" for c in clips))
         out = os.path.join(tmp, f"{sid}.mp4")
         _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listing,
-              "-c:v", "libx264", "-c:a", "aac", "-ar", "44100", "-ac", "2",
-              "-r", "30", "-pix_fmt", "yuv420p", out])
+              "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-ar", "44100",
+              "-ac", "2", "-r", "30", "-pix_fmt", "yuv420p", out])
         # 볼륨에 저장하지 않고 바이트로 반환 → 엔드포인트가 스트리밍 후 임시파일과 함께 폐기(볼륨 사용 0).
         with open(out, "rb") as fh:
             data = fh.read()
