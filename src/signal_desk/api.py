@@ -1201,6 +1201,25 @@ def shortform_delete_ep(sid: str, request: Request):
     return {"ok": True, "id": sid}
 
 
+@app.post("/api/shortform/{sid}/render")
+def shortform_render_ep(sid: str, request: Request):
+    """draft → mp4 렌더(관리자). 장면 SVG→PNG + Typecast 나레이션 → ffmpeg. 무겁다(수십 초)."""
+    _admin_or_403(request)
+    from signal_desk import shortform_render
+    return shortform_render.render(sid)
+
+
+@app.get("/api/shortform/{sid}/video")
+def shortform_video(sid: str):
+    """렌더된 mp4 서빙(미리보기·다운로드). 없으면 404."""
+    from signal_desk import shortform_render
+    p = shortform_render.video_path(sid)
+    if not p:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="렌더된 영상 없음 — 먼저 렌더하세요")
+    return FileResponse(p, media_type="video/mp4")
+
+
 # 주의: 아래 구체 경로들은 catch-all `/api/kb/{ticker}`보다 먼저 등록돼야 매칭된다.
 @app.get("/api/kb/documents")
 def kb_documents_get(ticker: str | None = None, doc_class: str | None = None, limit: int = 120):
