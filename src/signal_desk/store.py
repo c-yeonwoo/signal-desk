@@ -31,6 +31,7 @@ WARNINGS_FILE = CACHE_DIR / "warnings.json"  # 토스 투자경고·거래정지
 US_FUNDAMENTALS_FILE = CACHE_DIR / "us_fundamentals.json"  # 미국 발행주식수·PER(Alpha Vantage, 소량 백필)
 FLOWS_FILE = CACHE_DIR / "flows.json"  # 투자자별 수급(외국인·기관 순매수, KR) — 시그널 수급 팩터
 MARKET_FLOW_FILE = CACHE_DIR / "market_flow.json"  # 시장 전체(KOSPI) 외국인·기관 순매수 누적(토스) — 국면 신호
+SHORTFORM_BG_FILE = CACHE_DIR / "shortform_bg.img"  # 숏폼 카드 배경 업로드 원본(1장) — data URI 대신 짧은 URL로 서빙
 
 PRICE_HISTORY_DAYS = 400  # MA120 워밍업 + 백테스트 여유분
 
@@ -143,6 +144,17 @@ def load_market_flow() -> dict[str, dict]:
     if not MARKET_FLOW_FILE.exists():
         return {}
     return json.loads(MARKET_FLOW_FILE.read_text(encoding="utf-8"))
+
+
+def save_shortform_bg(data: bytes) -> None:
+    """숏폼 카드 배경 이미지 원본 1장을 저장(업로드분). 서빙은 짧은 앱 URL로 → 장면 SVG에 data URI를
+    박지 않아 DB가 커지지 않는다."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    SHORTFORM_BG_FILE.write_bytes(data)
+
+
+def shortform_bg_path():
+    return SHORTFORM_BG_FILE if SHORTFORM_BG_FILE.exists() else None
 
 
 def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None = None) -> dict:

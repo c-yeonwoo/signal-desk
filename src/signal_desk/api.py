@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Body, FastAPI, Request
 from fastapi import File as FastFile
 from fastapi import Form, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from signal_desk import auth, bot, config, db, kb, shortform, signalcfg, store, strategy
 from signal_desk.reference import cycle, gurus as gurus_ref, sectors, us_ko, valuechain
@@ -1114,14 +1114,42 @@ def shortform_bg_get(request: Request):
 
 @app.post("/api/shortform/background")
 def shortform_bg_set(request: Request, data: dict = Body(default={})):
-    """카드 배경 이미지 URL 설정(관리자). http(s) URL만 — data URI는 장면 SVG마다 박혀 DB가 커지므로
-    이미지는 사용자가 호스팅해 URL로 넣는다. 상업 이용 라이선스는 사용자 책임(유료화 전제)."""
+    """카드 배경 이미지 URL 설정(관리자). 외부 호스팅 URL(http/https) 또는 우리가 서빙하는
+    업로드 URL. data URI는 장면 SVG마다 박혀 DB가 커지므로 거부(업로드는 아래 -upload로)."""
     _admin_or_403(request)
     url = str(data.get("url") or "").strip()
-    if url and not (url.startswith("http://") or url.startswith("https://")):
-        return {"ok": False, "reason": "http(s) URL만 허용 — data URI는 저장 부담이라 이미지를 호스팅해 URL로 넣어주세요."}
+    if url and not url.startswith(("http://", "https://", "/api/")):
+        return {"ok": False, "reason": "http(s) URL만 허용 — 로컬 파일은 '이미지 업로드'를 쓰세요(data URI는 DB 부담)."}
     db.kv_set("shortform_bg", url or None)
     return {"ok": True, "url": url}
+
+
+@app.post("/api/shortform/background-upload")
+async def shortform_bg_upload(request: Request, file: UploadFile = FastFile(...)):
+    """로컬 이미지 업로드 → 서버에 1장 저장 → 짧은 앱 URL을 배경으로 설정(관리자).
+    data URI를 장면마다 박지 않으므로 DB 부담 없음. 상업 이용 라이선스는 사용자 책임."""
+    _admin_or_403(request)
+    media_type = file.content_type or ""
+    if not media_type.startswith("image/"):
+        return {"ok": False, "reason": f"이미지 파일만 업로드 가능({media_type or '알 수 없음'})"}
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        return {"ok": False, "reason": "배경 이미지는 최대 5MB"}
+    store.save_shortform_bg(data)
+    db.kv_set("shortform_bg_mime", media_type)
+    url = f"/api/shortform/background-image?v={int(time.time())}"  # 캐시버스트
+    db.kv_set("shortform_bg", url)
+    return {"ok": True, "url": url}
+
+
+@app.get("/api/shortform/background-image")
+def shortform_bg_image():
+    """업로드된 배경 이미지 원본 서빙(장면 SVG의 <image>가 참조). 없으면 404."""
+    path = store.shortform_bg_path()
+    if not path:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="배경 이미지 없음")
+    return FileResponse(path, media_type=db.kv_get("shortform_bg_mime") or "image/jpeg")
 
 
 @app.get("/api/shortform/{sid}")

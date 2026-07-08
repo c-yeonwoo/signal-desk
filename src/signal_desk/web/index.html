@@ -740,12 +740,15 @@
       <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
         <div class="row" style="align-items:baseline;gap:6px;flex-wrap:wrap">
           <b style="font-size:13px">🖼️ 카드 배경 이미지</b>
-          <input id="sf-bg-url" class="ctrl" type="url" placeholder="https://... (직접 호스팅한 이미지 URL)" style="flex:1 1 260px;min-width:200px">
-          <button class="btn" onclick="loadSfBg()">불러오기</button>
-          <button class="btn primary" onclick="saveSfBg()">저장</button>
+          <input type="file" id="sf-bg-file" accept="image/*" style="font-size:12px">
+          <button class="btn primary" onclick="uploadSfBg()">업로드</button>
+          <span style="color:var(--dim-2);font-size:12px">또는 URL</span>
+          <input id="sf-bg-url" class="ctrl" type="url" placeholder="https://... (호스팅 이미지 URL)" style="flex:1 1 180px;min-width:150px">
+          <button class="btn" onclick="saveSfBg()">URL 저장</button>
           <span id="sf-bg-result" class="stat-label" style="margin:0"></span>
         </div>
-        <div style="color:var(--dim-2);font-size:11px;margin-top:4px">모든 카드 프레임 배경으로 깔리고 어둡게 처리(scrim)돼 텍스트 가독성 유지. <b>http(s) URL만</b>(data URI 불가 — DB 부담). <b>상업 이용 라이선스가 확실한 이미지만</b> 사용하세요(유료화 전제). 비우고 저장하면 단색 배경.</div>
+        <div id="sf-bg-preview" style="margin-top:6px"></div>
+        <div style="color:var(--dim-2);font-size:11px;margin-top:4px">로컬 파일을 <b>업로드</b>(서버에 1장 저장·짧은 URL 서빙)하거나 호스팅 URL 입력. 모든 카드 프레임 배경으로 깔리고 그라데이션 scrim으로 가독성 유지. <b>상업 이용 라이선스가 확실한 이미지만</b>(유료화 전제). URL 비우고 저장하면 단색 배경.</div>
       </div>
 
       <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
@@ -2629,11 +2632,20 @@ function setSfView(v){
   document.querySelectorAll('#sf-view-seg button').forEach(b => b.classList.toggle('on', b.dataset.sfview === v));
   loadShortform();
 }
+function _sfBgPreview(url){
+  const box = document.getElementById('sf-bg-preview');
+  if (!box) return;
+  box.innerHTML = url
+    ? `<img src="${esc(url)}" alt="배경" style="max-height:120px;border-radius:8px;border:1px solid var(--line)">`
+    : '';
+}
 async function loadSfBg(){
   const el = document.getElementById('sf-bg-result');
   try {
     const d = await (await fetch('/api/shortform/background')).json();
-    document.getElementById('sf-bg-url').value = d.url || '';
+    // 업로드 URL(/api/…)은 URL 입력칸에 노출하지 않고 썸네일만(외부 URL만 편집용으로 표시)
+    document.getElementById('sf-bg-url').value = (d.url && d.url.startsWith('http')) ? d.url : '';
+    _sfBgPreview(d.url || '');
     if (el) { el.style.color = 'var(--dim)'; el.textContent = d.url ? '현재 배경 설정됨' : '배경 미설정(단색)'; }
   } catch (e) { if (el) el.textContent = ''; }
 }
@@ -2644,7 +2656,21 @@ async function saveSfBg(){
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
   })).json();
   el.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
-  el.textContent = d.ok ? (url ? '✅ 저장됨 — 새로 생성하는 카드부터 적용' : '✅ 배경 해제됨') : (d.reason || '저장 실패');
+  el.textContent = d.ok ? (url ? '✅ 저장됨 — 새 카드부터 적용' : '✅ 배경 해제됨') : (d.reason || '저장 실패');
+  if (d.ok) _sfBgPreview(url);
+}
+async function uploadSfBg(){
+  const f = document.getElementById('sf-bg-file').files[0];
+  const el = document.getElementById('sf-bg-result');
+  if (!f) { el.style.color = 'var(--sell)'; el.textContent = '파일을 선택하세요'; return; }
+  el.style.color = 'var(--dim)'; el.textContent = '업로드 중…';
+  const fd = new FormData(); fd.append('file', f);
+  try {
+    const d = await (await fetch('/api/shortform/background-upload', { method: 'POST', body: fd })).json();
+    el.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
+    el.textContent = d.ok ? '✅ 업로드됨 — 새 카드부터 적용' : (d.reason || '업로드 실패');
+    if (d.ok) { document.getElementById('sf-bg-url').value = ''; _sfBgPreview(d.url + '&t=' + Date.now()); }
+  } catch (e) { el.style.color = 'var(--sell)'; el.textContent = '업로드 실패'; }
 }
 async function loadCandidates(){
   const el = document.getElementById('sf-candidates');
