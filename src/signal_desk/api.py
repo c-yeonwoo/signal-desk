@@ -358,6 +358,41 @@ def holdings_del(request: Request, ticker: str):
     return {"ok": True}
 
 
+@app.get("/api/holdings/dividends")
+def holdings_dividends_get(request: Request):
+    """내 보유종목 중 배당주의 예상 배당(내 포트폴리오 탭). 보유수량×주당배당=연배당, ÷12=월평균.
+    KR(₩)·US($)는 통화가 달라 합치지 않고 통화별로 집계한다. 지급 빈도(div_months)도 함께 내려준다."""
+    hs = db.holdings_list(_uid(request))
+    if not hs:
+        return {"ready": False, "items": [], "totals": {}}
+    kr, us = store.kr_dividends(), store.us_dividends()
+    kr_names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    us_names = {u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()}
+    items, totals = [], {}
+    for h in hs:
+        t, qty = h["ticker"], h.get("qty") or 0
+        if t in us:
+            d, cur, name = us[t], "USD", us_names.get(t, t)
+        elif t in kr:
+            d, cur, name = kr[t], "KRW", kr_names.get(t, t)
+        else:
+            continue  # 배당 없는(또는 미수집) 보유는 제외
+        annual = (d.get("dps") or 0) * qty
+        if annual <= 0:
+            continue
+        items.append({"ticker": t, "name": name, "qty": qty, "currency": cur, "dps": d["dps"],
+                      "div_yield": d.get("div_yield"), "div_months": d.get("div_months") or [],
+                      "annual": round(annual, 2), "monthly": round(annual / 12, 2)})
+        tv = totals.setdefault(cur, {"annual": 0.0, "monthly": 0.0, "count": 0})
+        tv["annual"] += annual
+        tv["monthly"] += annual / 12
+        tv["count"] += 1
+    items.sort(key=lambda x: x["annual"], reverse=True)
+    for tv in totals.values():
+        tv["annual"], tv["monthly"] = round(tv["annual"], 2), round(tv["monthly"], 2)
+    return {"ready": bool(items), "items": items, "totals": totals}
+
+
 @app.post("/api/rebalance")
 def rebalance_post(request: Request, data: dict = Body(default={})):
     """내 보유종목(국내+해외 혼합)을 시그널·성향 목표배분에 맞춰 리밸런싱 제안 + LLM 해설.
