@@ -62,10 +62,15 @@ def classify(prices_by_ticker: dict[str, list[float]], config: RegimeConfig | No
 # 더 높은 확신의 매수만 통과시켜 승률을 높이기 위한 값 — 매도 임계값은 건드리지 않는다(청산은 억제 X).
 _REGIME_BUMP = {"조정": 0.8, "약세": 0.4, "중립": 0.0, "강세": 0.0, "과열": 0.0}
 _MACRO_UNFAVORABLE_BUMP = 0.3
+_FLOW_SELL_BUMP = 0.3          # 시장 전체 외국인·기관 20일 순매도 시 가산
+_FLOW_STRONG_SELL_JO = -5.0    # 이보다 큰 순매도(조원)면 강한 이탈로 보고 더 크게 가산
+_FLOW_STRONG_SELL_BUMP = 0.5
 
 
-def buy_threshold_bump(regime_result: dict | None, macro_result: dict | None) -> dict:
-    """약세·조정 국면 / 거시 비우호일 때 매수 임계값에 더할 가산량과 사유를 반환.
+def buy_threshold_bump(regime_result: dict | None, macro_result: dict | None,
+                       flow_result: dict | None = None) -> dict:
+    """약세·조정 국면 / 거시 비우호 / 시장 전체 외국인·기관 순매도일 때 매수 임계값에 더할 가산량과
+    사유를 반환. 매수 문턱만 올린다(청산·매도 기준은 불변 — 하락 방어는 억제하지 않음).
 
     반환: {bump: float, reasons: [str]}. 우호적·중립이면 bump=0. engine/config가 아니라 여기
     (국면 판정 로직 옆)에 두어 봇·API가 동일한 규칙을 공유한다.
@@ -80,6 +85,12 @@ def buy_threshold_bump(regime_result: dict | None, macro_result: dict | None) ->
     if (macro_result or {}).get("bias") == "비우호":
         bump += _MACRO_UNFAVORABLE_BUMP
         reasons.append(f"거시 비우호 — 매수 기준 +{_MACRO_UNFAVORABLE_BUMP:.1f}")
+    fb = market_flow_bias(flow_result)
+    if fb.get("available") and fb.get("bias") == "순매도":
+        net = fb["smart_net_20d"]
+        f_bump = _FLOW_STRONG_SELL_BUMP if net <= _FLOW_STRONG_SELL_JO else _FLOW_SELL_BUMP
+        bump += f_bump
+        reasons.append(f"외국인·기관 20일 순매도 {net:+.1f}조 — 매수 기준 +{f_bump:.1f}")
     return {"bump": round(bump, 2), "reasons": reasons}
 
 

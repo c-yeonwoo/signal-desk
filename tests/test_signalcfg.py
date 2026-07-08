@@ -44,3 +44,25 @@ def test_effective_config_off_when_regime_adaptive_disabled(tmp_path, monkeypatc
     signalcfg.set_dict({"regime_adaptive": 0})
     cfg, adapt = signalcfg.effective_config({"regime": "조정"}, {"bias": "비우호"})
     assert cfg.buy_threshold == 1.2 and adapt["bump"] == 0.0
+
+
+def test_effective_config_flow_net_sell_raises_threshold(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    flow = {"KOSPI": {"smart_net_20d": -3.0, "foreign_net_20d": -3.0, "inst_net_20d": 0, "as_of": "d"}}
+    cfg, adapt = signalcfg.effective_config({"regime": "강세"}, {"bias": "우호"}, flow_result=flow)
+    assert cfg.buy_threshold == pytest.approx(1.2 + 0.3)  # 순매도(-3조) → +0.3
+    assert any("순매도" in r for r in adapt["reasons"])
+
+
+def test_effective_config_flow_strong_sell_bigger_bump(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    flow = {"KOSPI": {"smart_net_20d": -6.0, "foreign_net_20d": -6.0, "inst_net_20d": 0, "as_of": "d"}}
+    cfg, _ = signalcfg.effective_config({"regime": "강세"}, {"bias": "우호"}, flow_result=flow)
+    assert cfg.buy_threshold == pytest.approx(1.2 + 0.5)  # 강한 순매도(≤-5조) → +0.5
+
+
+def test_effective_config_flow_net_buy_no_bump(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    flow = {"KOSPI": {"smart_net_20d": 4.0, "foreign_net_20d": 4.0, "inst_net_20d": 0, "as_of": "d"}}
+    cfg, adapt = signalcfg.effective_config({"regime": "강세"}, {"bias": "우호"}, flow_result=flow)
+    assert cfg.buy_threshold == 1.2 and adapt["bump"] == 0.0  # 순매수는 문턱 안 낮춤

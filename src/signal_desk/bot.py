@@ -145,7 +145,7 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
     macro_ind = store.load_macro()
     mread = macro.read(macro_ind)
     cyc = cycle.position(macro_ind)
-    eff_cfg, adapt = signalcfg.effective_config(reg, mread)
+    eff_cfg, adapt = signalcfg.effective_config(reg, mread, flow_result=store.load_market_flow())
     macro_dg = kb.macro_digest()
     context = {
         "regime": reg.get("regime"),

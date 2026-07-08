@@ -427,7 +427,7 @@ def portfolio_heatmap(request: Request):
 # ---------- 시그널 (실데이터, store 캐시 기반) ----------
 @lru_cache(maxsize=1)
 def _signals():
-    cfg, _ = signalcfg.effective_config(_regime(), _macro())  # 약세·비우호 국면이면 매수 기준 자동 상향
+    cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())  # 약세·비우호·외인기관 순매도면 매수 기준 상향
     return evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
                     config=cfg, sentiment=kb.sentiment_map(), flows=store.load_flows())
 
@@ -798,8 +798,9 @@ def regime_get():
     """시장 국면(강세·과열·조정·약세) — signals/regime.py 참고. 유니버스 breadth+모멘텀 근사."""
     if not store.is_ready():
         return {"ready": False, "regime": None}
-    _, adapt = signalcfg.effective_config(_regime(), _macro())  # 국면 적응으로 상향된 매수 기준
-    flow = regime.market_flow_bias(store.load_market_flow())  # 토스 시장전체 외국인·기관 순매수 방향
+    mf_raw = store.load_market_flow()
+    _, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=mf_raw)  # 국면 적응으로 상향된 매수 기준
+    flow = regime.market_flow_bias(mf_raw)  # 토스 시장전체 외국인·기관 순매수 방향
     return {**_regime(), "adaptive": adapt, "market_flow": flow}
 
 

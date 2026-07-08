@@ -51,9 +51,10 @@ def reset() -> dict:
 
 
 def effective_config(regime_result: dict | None, macro_result: dict | None,
-                     base: SignalConfig | None = None) -> tuple[SignalConfig, dict]:
-    """국면·거시를 반영한 '실효' 설정. base가 국면 적응(on)이면 약세·비우호 국면에서 매수/강력매수
-    임계값을 상향한다. 반환: (config, {bump, reasons, effective_buy_threshold}).
+                     base: SignalConfig | None = None,
+                     flow_result: dict | None = None) -> tuple[SignalConfig, dict]:
+    """국면·거시·시장수급을 반영한 '실효' 설정. base가 국면 적응(on)이면 약세·비우호 국면 / 외국인·
+    기관 순매도에서 매수/강력매수 임계값을 상향한다. 반환: (config, {bump, reasons, effective_buy_threshold}).
 
     api._signals와 bot이 이 하나를 공유해 시그널 표시·자동매매가 동일 기준을 쓰게 한다.
     """
@@ -61,7 +62,7 @@ def effective_config(regime_result: dict | None, macro_result: dict | None,
     info = {"bump": 0.0, "reasons": [], "effective_buy_threshold": base.buy_threshold}
     if base.regime_adaptive < 0.5:
         return base, info
-    b = regime_mod.buy_threshold_bump(regime_result, macro_result)
+    b = regime_mod.buy_threshold_bump(regime_result, macro_result, flow_result)
     if not b["bump"]:
         return base, info
     cfg = replace(base, buy_threshold=base.buy_threshold + b["bump"],
