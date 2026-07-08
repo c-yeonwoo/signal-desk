@@ -2162,27 +2162,36 @@ const _REFRESH_STEPS = [
   ['flows', '수급(외국인·기관)'],
   ['us', '미국 시세·재무(EDGAR)'],
 ];
+// 갱신 진행 중 새로고침·탭 닫기 방지 — 아직 시작 안 한 scope는 이탈하면 안 돌아가므로 경고.
+let _refreshing = false;
+function _refreshGuard(e){ if (!_refreshing) return; e.preventDefault(); e.returnValue = ''; return ''; }
+window.addEventListener('beforeunload', _refreshGuard);
+
 async function refreshData(){
   const btn = event.target; btn.disabled = true; const t = btn.textContent;
   const el = document.getElementById('refresh-result'); el.style.color = 'var(--dim)';
   const summary = {}; const failed = [];
-  for (let i = 0; i < _REFRESH_STEPS.length; i++){
-    const [scope, label] = _REFRESH_STEPS[i];
-    btn.textContent = `수집 중… ${i+1}/${_REFRESH_STEPS.length}`;
-    el.textContent = `(${i+1}/${_REFRESH_STEPS.length}) ${label} 수집 중…`;
-    try {
-      const d = await (await fetch('/api/refresh', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope }),
-      })).json();
-      if (d && d.ok) Object.assign(summary, d); else failed.push(`${label}: ${d.reason || d.error || '오류'}`);
-    } catch (e) { failed.push(`${label}: 시간 초과/네트워크`); }
+  _refreshing = true;
+  try {
+    for (let i = 0; i < _REFRESH_STEPS.length; i++){
+      const [scope, label] = _REFRESH_STEPS[i];
+      btn.textContent = `수집 중… ${i+1}/${_REFRESH_STEPS.length}`;
+      el.textContent = `(${i+1}/${_REFRESH_STEPS.length}) ${label} 수집 중… (완료까지 창을 닫지 마세요)`;
+      try {
+        const d = await (await fetch('/api/refresh', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope }),
+        })).json();
+        if (d && d.ok) Object.assign(summary, d); else failed.push(`${label}: ${d.reason || d.error || '오류'}`);
+      } catch (e) { failed.push(`${label}: 시간 초과/네트워크`); }
+    }
+    const ok = failed.length === 0;
+    el.style.color = ok ? 'var(--sig-buy)' : 'var(--sell)';
+    el.textContent = (ok ? '✅ 갱신 완료 — ' : `⚠️ 일부 실패(${failed.join(' / ')}) — 나머지: `)
+      + `유니버스 ${summary.universe_size ?? '?'}종목 · 재무 ${summary.fundamentals_size ?? '?'} · 거시 ${summary.macro_size ?? '?'} · 수급 ${summary.flows_size ?? '?'}`
+      + (summary.us_universe_size ? ` · US재무 ${summary.us_fund_filled ?? 0}/${summary.us_universe_size}${summary.us_fund_filled < summary.us_universe_size ? ' (더 채우려면 다시 갱신)' : ''}` : '');
+  } finally {
+    _refreshing = false; btn.disabled = false; btn.textContent = t;
   }
-  const ok = failed.length === 0;
-  el.style.color = ok ? 'var(--sig-buy)' : 'var(--sell)';
-  el.textContent = (ok ? '✅ 갱신 완료 — ' : `⚠️ 일부 실패(${failed.join(' / ')}) — 나머지: `)
-    + `유니버스 ${summary.universe_size ?? '?'}종목 · 재무 ${summary.fundamentals_size ?? '?'} · 거시 ${summary.macro_size ?? '?'} · 수급 ${summary.flows_size ?? '?'}`
-    + (summary.us_universe_size ? ` · US재무 ${summary.us_fund_filled ?? 0}/${summary.us_universe_size}${summary.us_fund_filled < summary.us_universe_size ? ' (더 채우려면 다시 갱신)' : ''}` : '');
-  btn.disabled = false; btn.textContent = t;
 }
 
 async function checkDataHealth(){
