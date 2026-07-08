@@ -1201,10 +1201,24 @@ def shortform_delete_ep(sid: str, request: Request):
     return {"ok": True, "id": sid}
 
 
+@app.get("/api/shortform/{sid}/export")
+def shortform_export_ep(sid: str, request: Request):
+    """로컬 렌더용 zip 다운로드(관리자) — 저사양 서버(OOM) 대신 PC에서 렌더. 장면 SVG·나레이션·폰트·
+    자기완결 render.py 포함. 서버는 텍스트 zip만 만들어 OOM 없음."""
+    _admin_or_403(request)
+    from fastapi.responses import Response
+    from signal_desk import shortform_render
+    data = shortform_render.export_bundle(sid)
+    if not data:
+        return JSONResponse({"ok": False, "reason": "장면이 없는 초안(재생성 필요)"}, status_code=404)
+    return Response(content=data, media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="shortform_{sid}.zip"'})
+
+
 @app.post("/api/shortform/{sid}/render")
 def shortform_render_ep(sid: str, request: Request):
     """draft → mp4 렌더(관리자) 후 mp4를 바로 스트리밍. 서버 볼륨에 저장하지 않고 즉시 폐기(볼륨 사용 0).
-    다시 보려면 재렌더. 장면 SVG→PNG + Typecast 나레이션 → ffmpeg. 무겁다(수십 초)."""
+    ⚠️ 저사양 서버(Railway)는 ffmpeg에서 OOM(rc=-9) 날 수 있음 — 그땐 /export로 로컬 렌더."""
     _admin_or_403(request)
     from fastapi.responses import Response
     from signal_desk import shortform_render

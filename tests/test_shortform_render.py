@@ -51,6 +51,24 @@ def test_full_render_produces_mp4(tmp_path, monkeypatch):
     assert len(out["data"]) > 10000 and out["data"][4:8] == b"ftyp"  # mp4 바이트 반환(볼륨 미저장)
 
 
+def test_export_bundle_zip_contents(tmp_path, monkeypatch):
+    # 로컬 렌더 zip에 장면 SVG·나레이션·폰트·render.py·README가 다 들어가야(서버 렌더 없이 완결).
+    import io
+    import zipfile
+    from signal_desk import db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    scenes = shortform._scenes_for("삼성전자", "005930", "BUY", 1.8, ["[기술] 골든크로스"], "반도체",
+                                   closes=[100.0 + i for i in range(30)])
+    db.shortform_add({"id": "ex", "ticker": "005930", "name": "삼성전자", "kind": "BUY",
+                      "score": 1.8, "scenes": scenes, "card_svg": scenes[0]["svg"]})
+    data = shortform_render.export_bundle("ex")
+    names = zipfile.ZipFile(io.BytesIO(data)).namelist()
+    assert "render.py" in names and "scenes.json" in names and "README.txt" in names
+    assert "NanumGothic-Regular.ttf" in names
+    assert sum(1 for n in names if n.startswith("scenes/") and n.endswith(".svg")) == len(scenes)
+    assert shortform_render.export_bundle("nope") is None  # 없는 draft
+
+
 def _real_mp3(tmp_path, sec=1.6) -> bytes:
     import subprocess
     f = tmp_path / "sine.mp3"
