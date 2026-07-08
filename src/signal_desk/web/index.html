@@ -2033,6 +2033,7 @@ async function refreshData(){
     el.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
     el.textContent = d.ok
       ? `✅ 갱신 완료 — 유니버스 ${d.universe_size ?? '?'}종목 · 재무 ${d.fundamentals_size ?? '?'} · 거시 ${d.macro_size ?? '?'}`
+        + (d.us_universe_size ? ` · US재무 ${d.us_fund_filled ?? 0}/${d.us_universe_size}${d.us_fund_filled < d.us_universe_size ? ' (더 채우려면 다시 갱신)' : ''}` : '')
       : `실패: ${d.error || d.reason || '오류'}`;
   } catch (e) { el.style.color = 'var(--sell)'; el.textContent = '요청 실패(시간 초과일 수 있음 — 잠시 후 새로고침)'; }
   finally { btn.disabled = false; btn.textContent = t; }

@@ -693,7 +693,12 @@ def refresh(data: dict = Body(default={})):
     try:
         store.fetch_gurus()  # 거장 포트폴리오(SEC 13F) — 실패해도 나머지 수집엔 영향 없음
         us_uni = store.fetch_us_universe()  # S&P500 유니버스
-        store.fetch_us_shares_toss([u["ticker"] for u in us_uni])  # 토스 발행주식수 → 전 종목 시총(AV 병목 없이)
+        us_all = [u["ticker"] for u in us_uni]
+        store.fetch_us_shares_toss(us_all)  # 토스 발행주식수 → 전 종목 시총(AV 병목 없이)
+        # US 재무(EDGAR 순이익·자기자본, 무료·무키) — 증분 백필(이미 채운 건 스킵). 갱신 누를 때마다 진행돼
+        # 여러 번 누르면 S&P500 전량이 채워진다(한 번에 120종목, EDGAR 10req/s 여유).
+        got = store.fetch_us_fundamentals_edgar(us_all, max_calls=120)
+        log.info("US 재무(EDGAR) 백필 시도 %d종목", got)
         idx = gurus_ref.build_name_index(us_uni)  # 거장 보유종목 → 시세 수집(뱃지용, 스로틀)
         us_tks = sorted({t for g in store.load_gurus() for h in g.get("holdings", [])
                          if (t := gurus_ref.match_ticker(h.get("name", ""), idx))})
@@ -709,11 +714,15 @@ def refresh(data: dict = Body(default={})):
     _regime.cache_clear()
     _macro.cache_clear()
     _us_signals.cache_clear()
+    us_fund = store.load_us_fundamentals()
+    us_filled = sum(1 for f in us_fund.values() if f.get("net_income") is not None or f.get("equity") is not None)
     return {
         "ok": True,
         "universe_size": len(universe),
         "fundamentals_size": len(fundamentals),
         "macro_size": len(macro_items),
+        "us_fund_filled": us_filled,        # EDGAR 재무 채워진 US 종목 수(진척도)
+        "us_universe_size": len(us_fund) or None,
     }
 
 
