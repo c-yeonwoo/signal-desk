@@ -13,6 +13,12 @@ from pathlib import Path
 
 DB = Path("data/cache/app.db")
 
+# KB 원문(raw_text)은 저장만 되고 코드 어디서도 다시 안 읽힌다(다이제스트·목록·UI 모두 summary만 사용).
+# 감사/재요약 대비로 앞부분만 남기고 절단해 app.db 비대를 막는다. 0이면 원문 미보관.
+KB_RAW_TEXT_KEEP = 2000
+# 자동 수집 뉴스 소스(큐레이션 업로드/리포트/인사이트는 prune 대상에서 제외 — 수동 신뢰 콘텐츠라 보존).
+KB_NEWS_SOURCES = ("naver_news", "youtube")
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE, pwhash TEXT, created INTEGER);
@@ -98,6 +104,20 @@ def _migrate(c: sqlite3.Connection) -> None:
     if "status" not in ecols:  # confirmed(다이제스트 반영) / pending(검토 보류, 반영 안 함)
         c.execute("ALTER TABLE kb_entries ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
     c.commit()
+    # 일회성: 기존 raw_text 절단 + VACUUM(파일 회수). conn()이 매번 _migrate를 돌므로 kv 플래그로 1회만.
+    # kv_get()은 conn()을 다시 열어 재귀되므로 여기선 c로 직접 조회한다.
+    if KB_RAW_TEXT_KEEP >= 0 and c.execute(
+            "SELECT 1 FROM kv WHERE k='kb_rawtext_trunc_v1'").fetchone() is None:
+        c.execute("UPDATE kb_entries SET raw_text=substr(raw_text,1,?) "
+                  "WHERE raw_text IS NOT NULL AND length(raw_text)>?",
+                  (KB_RAW_TEXT_KEEP, KB_RAW_TEXT_KEEP))
+        c.execute("INSERT OR REPLACE INTO kv(k,v,ts) VALUES('kb_rawtext_trunc_v1','1',?)",
+                  (int(time.time()),))
+        c.commit()
+        try:
+            c.execute("VACUUM")  # 절단으로 빈 페이지 → 파일 크기 실제 회수(트랜잭션 밖에서만 가능)
+        except sqlite3.OperationalError:
+            pass  # 다른 연결이 열려 있으면 스킵(다음 기회에 회수)
 
 
 # ---------- users / sessions ----------
@@ -408,6 +428,32 @@ def kb_entry_add_many(ticker: str, items: list[dict]) -> int:
     return added
 
 
+def kb_prune(news_per_ticker: int = 30, news_ttl_days: int = 90, pending_ttl_days: int = 14) -> dict:
+    """KB 저장 정리(무한 누적 방지). 자동 뉴스만 대상 — 큐레이션 업로드/리포트/인사이트는 보존.
+    - 뉴스: 종목당 최신 news_per_ticker건 초과 삭제. 단 다이제스트 하한(12건)은 보장하고,
+      12건 초과분 중 news_ttl_days 지난 것도 삭제(오래된 뉴스는 시그널에 무의미).
+    - pending 문서: pending_ttl_days 지나도 confirmed 안 되면 삭제(다이제스트 미반영·원문만 점유).
+    반환: {news_deleted, pending_deleted}."""
+    c = conn()
+    now = int(time.time())
+    placeholders = ",".join("?" * len(KB_NEWS_SOURCES))
+    news_del = c.execute(
+        f"DELETE FROM kb_entries WHERE source IN ({placeholders}) AND id IN ("
+        f"  SELECT id FROM (SELECT id, fetched, ROW_NUMBER() OVER "
+        f"    (PARTITION BY ticker ORDER BY id DESC) rn FROM kb_entries "
+        f"    WHERE source IN ({placeholders})) "
+        f"  WHERE rn > ? OR (rn > 12 AND fetched < ?))",
+        (*KB_NEWS_SOURCES, *KB_NEWS_SOURCES, news_per_ticker, now - news_ttl_days * 86400),
+    ).rowcount
+    pend_del = c.execute(
+        "DELETE FROM kb_entries WHERE status='pending' AND fetched < ?",
+        (now - pending_ttl_days * 86400,),
+    ).rowcount
+    c.commit()
+    c.close()
+    return {"news_deleted": news_del, "pending_deleted": pend_del}
+
+
 def kb_document_add(ticker: str, title: str, summary: str, url: str, source: str,
                     published: str, doc_class: str, raw_text: str | None = None,
                     status: str = "confirmed") -> int:
@@ -415,6 +461,8 @@ def kb_document_add(ticker: str, title: str, summary: str, url: str, source: str
     다이제스트(시그널)에 반영되지 않는다. row id 반환(-1=중복)."""
     c = conn()
     key = url or f"manual:{ticker}:{title}:{int(time.time())}"
+    if raw_text and KB_RAW_TEXT_KEEP >= 0:  # 원문은 안 읽히므로 절단 보관(감사용 앞부분만)
+        raw_text = raw_text[:KB_RAW_TEXT_KEEP] or None
     # 같은 url 재적재는 최신 내용·상태로 갱신(멱등 — 재크롤 시 freshness 반영, pending→confirmed 승격 포함)
     c.execute("INSERT INTO kb_entries(ticker,title,summary,url,source,published,fetched,doc_class,raw_text,status) "
               "VALUES(?,?,?,?,?,?,?,?,?,?) "
