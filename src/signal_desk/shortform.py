@@ -259,11 +259,29 @@ def _outro_svg(label: str, ret_pct, curve: list | None, bg: str | None = None) -
         + '</svg>')
 
 
+_REASON_FRAME = [  # 근거 나레이션 마무리(반복 방지용 변주) — 대본을 조금 더 풍성하게
+    "이 점이 매수 관점에서 힘을 실어주는 대목입니다.",
+    "숫자로도 뒷받침되는 부분이죠.",
+    "시장 참여자들이 특히 주목하는 신호입니다.",
+    "종합 점수를 끌어올린 핵심 요인입니다.",
+]
+
+
 def _scene_narration(i: int, body: str, name: str) -> str:
-    """장면별 나레이션(음성 합성 입력). 0=인트로, 그 외=근거를 순차로 '말하는' 문장."""
+    """장면별 나레이션(음성 합성 입력). 0=인트로, 그 외=근거를 순차로 '말하는' 문장(풍성하게)."""
     if i == 0:
-        return f"오늘 주목할 종목, {name}입니다. 신호가 왜 떴는지 근거를 하나씩 볼게요."
-    return f"{_CONNECT[min(i - 1, len(_CONNECT) - 1)]}, {body}."
+        return (f"오늘 주목할 종목은 {name}입니다. "
+                f"어떤 신호가, 왜 나왔는지 근거를 하나씩 짚어보겠습니다.")
+    lead = _CONNECT[min(i - 1, len(_CONNECT) - 1)]
+    frame = _REASON_FRAME[(i - 1) % len(_REASON_FRAME)]
+    return f"{lead}, {body}. {frame}"
+
+
+def _dur_for(text: str) -> float:
+    """나레이션 길이로 장면 길이(초) 추정 — 한국어 ~5.5자/초 + 여유 0.6초, 최소 2.5초.
+    실제 렌더 땐 합성된 오디오 길이로 대체(ffmpeg). 여기선 미리보기·대본 타이밍 근사."""
+    n = len((text or "").strip())
+    return round(max(2.5, n / 5.5 + 0.6), 1)
 
 
 def _scenes_for(name: str, ticker: str, kind: str, score: float, reasons: list[str],
@@ -272,19 +290,21 @@ def _scenes_for(name: str, ticker: str, kind: str, score: float, reasons: list[s
     (봇 track record). 각 장면에 나레이션·길이. typecast/자체 렌더 어디에도 투입되는 중간 포맷."""
     clean = _reason_clean(reasons, 4)
     bg = _load_bg()  # 관리자 설정 배경(있으면 모든 프레임 공통 배경 + scrim)
-    scenes = [{"label": "인트로", "dur": 3.0, "svg": _intro_svg(name, ticker, kind, score, sector, bg),
-               "narration": _scene_narration(0, "", name)}]
+    intro_nar = _scene_narration(0, "", name)
+    scenes = [{"label": "인트로", "dur": _dur_for(intro_nar),
+               "svg": _intro_svg(name, ticker, kind, score, sector, bg), "narration": intro_nar}]
     for i, r in enumerate(clean, 1):
         body = r.split("] ", 1)[-1]
-        scenes.append({"label": f"근거 {i}", "dur": 4.0,
-                       "svg": _reason_svg(i, len(clean), r, kind, bg, closes),
-                       "narration": _scene_narration(i, body, name)})
+        nar = _scene_narration(i, body, name)
+        scenes.append({"label": f"근거 {i}", "dur": _dur_for(nar),
+                       "svg": _reason_svg(i, len(clean), r, kind, bg, closes), "narration": nar})
     if outro and outro.get("ret_pct") is not None:  # 봇 track record 있을 때만(초기엔 스킵)
         ret = outro["ret_pct"]
-        scenes.append({"label": "아웃트로(봇 성과)", "dur": 4.0,
+        onar = (f"참고로, 우리 시그널을 따르는 {outro.get('label','봇')}은 "
+                f"모의투자 기준 누적 {ret:+.1f}% 성과를 기록했습니다. 지금까지 오늘의 시그널이었습니다.")
+        scenes.append({"label": "아웃트로(봇 성과)", "dur": _dur_for(onar),
                        "svg": _outro_svg(outro.get("label", "봇"), ret, outro.get("curve"), bg),
-                       "narration": (f"참고로, 우리 시그널을 따르는 {outro.get('label','봇')}은 "
-                                     f"모의투자 기준 누적 {ret:+.1f}% 성과를 냈습니다.")})
+                       "narration": onar})
     return scenes
 
 

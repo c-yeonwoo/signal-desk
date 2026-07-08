@@ -749,6 +749,14 @@
         </div>
         <div id="sf-bg-preview" style="margin-top:6px"></div>
         <div style="color:var(--dim-2);font-size:11px;margin-top:4px">로컬 파일을 <b>업로드</b>(서버에 1장 저장·짧은 URL 서빙)하거나 호스팅 URL 입력. 모든 카드 프레임 배경으로 깔리고 그라데이션 scrim으로 가독성 유지. <b>상업 이용 라이선스가 확실한 이미지만</b>(유료화 전제). URL 비우고 저장하면 단색 배경.</div>
+        <div class="row" style="align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+          <b style="font-size:13px">🔊 나레이션(TTS) 테스트</b>
+          <input id="sf-tts-text" class="ctrl" type="text" placeholder="합성할 문장" value="안녕하세요. 오늘의 시그널입니다." style="flex:1 1 240px;min-width:180px">
+          <button class="btn" onclick="ttsTest()">합성·재생</button>
+          <span id="sf-tts-result" class="stat-label" style="margin:0"></span>
+          <audio id="sf-tts-audio" controls style="display:none;height:32px"></audio>
+        </div>
+        <div style="color:var(--dim-2);font-size:11px;margin-top:4px">Typecast TTS 연결 확인용. <b>.env에 TYPECAST_API_KEY</b>가 있어야 동작(voice·model은 config 기본값). 영상 렌더(ffmpeg)는 다음 단계.</div>
       </div>
 
       <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
@@ -2671,6 +2679,20 @@ async function uploadSfBg(){
     el.textContent = d.ok ? '✅ 업로드됨 — 새 카드부터 적용' : (d.reason || '업로드 실패');
     if (d.ok) { document.getElementById('sf-bg-url').value = ''; _sfBgPreview(d.url + '&t=' + Date.now()); }
   } catch (e) { el.style.color = 'var(--sell)'; el.textContent = '업로드 실패'; }
+}
+async function ttsTest(){
+  const text = document.getElementById('sf-tts-text').value.trim();
+  const el = document.getElementById('sf-tts-result'), au = document.getElementById('sf-tts-audio');
+  el.style.color = 'var(--dim)'; el.textContent = '합성 중…';
+  try {
+    const r = await fetch('/api/shortform/tts-test', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+    });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); el.style.color = 'var(--sell)'; el.textContent = d.reason || 'TTS 실패'; return; }
+    const blob = await r.blob();
+    au.src = URL.createObjectURL(blob); au.style.display = ''; au.play().catch(() => {});
+    el.style.color = 'var(--sig-buy)'; el.textContent = '✅ 합성됨';
+  } catch (e) { el.style.color = 'var(--sell)'; el.textContent = '요청 실패'; }
 }
 async function loadCandidates(){
   const el = document.getElementById('sf-candidates');
