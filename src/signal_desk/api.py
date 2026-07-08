@@ -1203,33 +1203,21 @@ def shortform_delete_ep(sid: str, request: Request):
 
 @app.get("/api/shortform/{sid}/export")
 def shortform_export_ep(sid: str, request: Request):
-    """로컬 렌더용 zip 다운로드(관리자) — 저사양 서버(OOM) 대신 PC에서 렌더. 장면 SVG·나레이션·폰트·
-    자기완결 render.py 포함. 서버는 텍스트 zip만 만들어 OOM 없음."""
+    """로컬 렌더용 zip 다운로드(관리자) — 서버는 렌더하지 않고 자료(장면 SVG·나레이션·폰트·render.py)만
+    zip으로. PC에서 render.py 실행해 mp4 생성. 파일명은 종목명_종목코드.zip."""
     _admin_or_403(request)
+    import urllib.parse
+
     from fastapi.responses import Response
     from signal_desk import shortform_render
-    data = shortform_render.export_bundle(sid)
-    if not data:
+    out = shortform_render.export(sid)
+    if not out:
         return JSONResponse({"ok": False, "reason": "장면이 없는 초안(재생성 필요)"}, status_code=404)
+    data, fname = out
+    # 한글 파일명은 RFC5987(filename*)로 — 브라우저 호환
+    quoted = urllib.parse.quote(fname)
     return Response(content=data, media_type="application/zip",
-                    headers={"Content-Disposition": f'attachment; filename="shortform_{sid}.zip"'})
-
-
-@app.post("/api/shortform/{sid}/render")
-def shortform_render_ep(sid: str, request: Request):
-    """draft → mp4 렌더(관리자) 후 mp4를 바로 스트리밍. 서버 볼륨에 저장하지 않고 즉시 폐기(볼륨 사용 0).
-    ⚠️ 저사양 서버(Railway)는 ffmpeg에서 OOM(rc=-9) 날 수 있음 — 그땐 /export로 로컬 렌더."""
-    _admin_or_403(request)
-    from fastapi.responses import Response
-    from signal_desk import shortform_render
-    res = shortform_render.render(sid)
-    if not res.get("ok"):
-        return JSONResponse({"ok": False, "reason": res.get("reason", "렌더 실패")}, status_code=502)
-    return Response(content=res["data"], media_type="video/mp4", headers={
-        "Content-Disposition": f'inline; filename="{sid}.mp4"',
-        "X-Scenes": str(res.get("scenes", "")),
-        "X-Has-Audio": "1" if res.get("has_audio") else "0",
-    })
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"})
 
 
 # 주의: 아래 구체 경로들은 catch-all `/api/kb/{ticker}`보다 먼저 등록돼야 매칭된다.

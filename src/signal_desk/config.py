@@ -34,7 +34,7 @@ def typecast_key() -> str | None:
 
 def typecast_voice_id() -> str:
     """나레이션 보이스 ID(.env의 TYPECAST_VOICE_ID, 기본은 프로젝트 지정 보이스 — 비밀 아님)."""
-    return os.environ.get("TYPECAST_VOICE_ID", "tc_5eb55cf1f0b0a700071f89c7")
+    return os.environ.get("TYPECAST_VOICE_ID", "tc_6059dad0b83880769a50502f")
 
 
 def typecast_model() -> str:

@@ -2753,8 +2753,7 @@ async function loadShortform(){
       <div style="color:var(--dim);font-size:13px;margin:4px 0">${esc(it.title || '')}</div>
       <div class="row" style="gap:6px;margin-top:6px">
         <button class="btn" onclick="viewShortform('${it.id}')">미리보기(장면)</button>
-        <button class="btn primary" onclick="exportShortform('${it.id}')">📦 로컬 렌더 자료(zip)</button>
-        <button class="btn" onclick="renderShortform('${it.id}')" title="저사양 서버는 메모리 부족(OOM)날 수 있음 — 실패 시 zip으로 로컬 렌더">🎬 서버 렌더</button>
+        <button class="btn primary" onclick="exportShortform('${it.id}','${esc(it.name)}','${esc(it.ticker)}')">📦 로컬 렌더 자료(zip)</button>
         ${it.status === 'draft' ? `<button class="btn primary" onclick="reviewShortform('${it.id}','approved')">승인</button>
         <button class="btn" onclick="reviewShortform('${it.id}','rejected')">반려</button>` : ''}
         <button class="btn" onclick="delShortform('${it.id}')" style="margin-left:auto">삭제</button>
@@ -2763,7 +2762,7 @@ async function loadShortform(){
       <div id="sf-detail-${it.id}" style="display:none;margin-top:10px"></div>
     </div>`).join('');
 }
-async function exportShortform(id){
+async function exportShortform(id, name, ticker){
   const box = document.getElementById('sf-video-' + id);
   const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '준비 중…';
   try {
@@ -2771,27 +2770,11 @@ async function exportShortform(id){
     if (!r.ok) { const d = await r.json().catch(() => ({})); box.innerHTML = `<span style="color:var(--sell);font-size:12px">${esc(d.reason || '자료 생성 실패')}</span>`; return; }
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'shortform_' + id + '.zip'; a.click();
+    const fname = ((name || 'shortform') + '_' + (ticker || id)).replace(/[\\/:*?"<>|\s]/g, '') + '.zip';
+    const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
     URL.revokeObjectURL(url);
     box.innerHTML = '<span style="color:var(--sig-buy);font-size:12px">✅ zip 다운로드됨 — 풀고 <b>python render.py</b> (README 참고). ffmpeg·cairosvg 필요.</span>';
   } catch (e) { box.innerHTML = '<span style="color:var(--sell);font-size:12px">다운로드 실패</span>'; }
-  finally { btn.disabled = false; btn.textContent = t; }
-}
-async function renderShortform(id){
-  const box = document.getElementById('sf-video-' + id);
-  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '렌더 중… (수십 초)';
-  box.innerHTML = '<span style="color:var(--dim);font-size:12px">장면→PNG→ffmpeg 렌더 중…</span>';
-  try {
-    // 응답이 mp4 스트림(200) 또는 JSON 에러(502). 서버는 저장 안 하므로 blob으로 받아 재생·다운로드.
-    const r = await fetch('/api/shortform/' + id + '/render', { method: 'POST' });
-    if (!r.ok) { const d = await r.json().catch(() => ({})); box.innerHTML = `<span style="color:var(--sell);font-size:12px">렌더 실패: ${esc(d.reason || '오류')}</span>`; return; }
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const scenes = r.headers.get('X-Scenes') || '';
-    const hasAudio = r.headers.get('X-Has-Audio') === '1';
-    box.innerHTML = `<video src="${url}" controls style="max-height:420px;border-radius:8px;border:1px solid var(--line)"></video>`
-      + `<div style="font-size:11px;color:var(--dim-2);margin-top:2px">${scenes}장면 · ${hasAudio ? '나레이션 포함' : '무음(TTS 키 없음)'} · <a href="${url}" download="${id}.mp4" style="color:var(--accent)">mp4 다운로드</a> · 서버 미저장(다시 보려면 재렌더)</div>`;
-  } catch (e) { box.innerHTML = '<span style="color:var(--sell);font-size:12px">렌더 요청 실패</span>'; }
   finally { btn.disabled = false; btn.textContent = t; }
 }
 async function viewShortform(id){

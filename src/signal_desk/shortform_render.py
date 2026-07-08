@@ -1,66 +1,29 @@
-"""숏폼 영상 렌더 — 장면 SVG(→PNG, cairosvg) + 나레이션(Typecast TTS) → ffmpeg로 세로 mp4.
+"""숏폼 로컬 렌더 자료(zip) export — 저사양 서버(Railway)는 ffmpeg 렌더에서 OOM(rc=-9)이 나므로,
+서버는 렌더하지 않고 렌더에 필요한 자료만 zip으로 만들어 준다. 실제 렌더(SVG→PNG + TTS + ffmpeg)는
+사용자 PC에서 동봉된 render.py로 수행한다.
 
-파이프라인(draft 1건):
-  장면마다  ① narration → Typecast mp3(없으면 무음)  ② SVG → PNG(cairosvg, 번들 나눔고딕)
-           ③ ffmpeg: PNG(오디오 길이만큼 정지) + mp3 → 클립
-  전체     ④ 클립 concat → 1080x1920 mp4 → data/cache/shortform_video/{sid}.mp4
-
-의존: cairosvg(pip) + ffmpeg(시스템). 한글은 번들 폰트(assets/fonts/NanumGothic*)를 fontconfig로
-등록해 시스템 무관하게 렌더. 도구·키 없으면 명확한 사유로 실패(그레이스풀).
+zip 내용: 렌더 준비된 장면 SVG(폰트·크기·배경 인라인) + scenes.json(나레이션·길이) + 번들 나눔고딕
++ 자기완결 render.py + README. 서버는 텍스트 zip만 만들어 rasterize/ffmpeg를 전혀 안 하므로 OOM 없음.
 """
 
 from __future__ import annotations
 
+import base64
 import io
 import json
-import logging
-import os
-import shutil
-import subprocess
-import tempfile
+import re
 import zipfile
 from pathlib import Path
 
 from signal_desk import db, store
-from signal_desk.ingest import typecast
-
-log = logging.getLogger("signal_desk.shortform_render")
 
 _FONTS_DIR = Path(__file__).parent / "assets" / "fonts"
 _W, _H = 1080, 1920
-_font_ready = False
-
-
-def available() -> tuple[bool, str]:
-    """렌더 가능 여부 — (ok, 사유). cairosvg·ffmpeg 둘 다 있어야 함."""
-    try:
-        import cairosvg  # noqa: F401
-    except Exception:
-        return False, "cairosvg 미설치(pip install cairosvg)"
-    if not shutil.which("ffmpeg"):
-        return False, "ffmpeg 미설치(시스템)"
-    return True, ""
-
-
-def _ensure_fonts() -> None:
-    """번들 한글 폰트를 fontconfig에 등록(1회). FONTCONFIG_FILE은 cairo 로드 전에 설정해야 하지만
-    cairosvg를 렌더 시점에 처음 import하므로 여기서 설정하면 유효하다."""
-    global _font_ready
-    if _font_ready:
-        return
-    cache = tempfile.mkdtemp(prefix="sdfc_")
-    conf = (f'<?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">'
-            f'<fontconfig><dir>{_FONTS_DIR.resolve()}</dir><cachedir>{cache}</cachedir></fontconfig>')
-    cf = os.path.join(cache, "fonts.conf")
-    with open(cf, "w") as fh:
-        fh.write(conf)
-    os.environ.setdefault("FONTCONFIG_FILE", cf)
-    _font_ready = True
 
 
 def _bg_bytes(url: str) -> bytes:
     """배경 <image> 원본 바이트 — 업로드분(/api/…background-image)은 로컬 파일, 외부 http(s)는 직접.
-    cairosvg가 url_fetcher를 안 받는 버전이라 렌더 전에 data URI로 인라인하기 위함. 실패 시 빈 바이트."""
+    렌더용 SVG에 data URI로 인라인하기 위함(자기완결 zip). 실패 시 빈 바이트."""
     try:
         if "background-image" in url:
             p = store.shortform_bg_path()
@@ -76,9 +39,7 @@ def _bg_bytes(url: str) -> bytes:
 
 def _render_svg(svg: str) -> str:
     """장면 SVG를 래스터화용으로 변환 — ① 반응형 style→고정 크기 ② 한글 폰트 강제 ③ 배경 <image>를
-    data URI로 인라인(해소 실패 시 단색 rect로 대체)."""
-    import base64
-    import re
+    data URI로 인라인(해소 실패 시 단색 rect로 대체). 결과는 로컬 render.py가 cairosvg로 PNG화."""
     svg = svg.replace('style="width:100%;height:auto;display:block"', f'width="{_W}" height="{_H}"')
 
     def repl(m: "re.Match") -> str:
@@ -96,108 +57,7 @@ def _render_svg(svg: str) -> str:
     return svg.replace(">", ">" + style, 1)  # 여는 <svg ...> 바로 뒤에 삽입
 
 
-def _scene_png(svg: str, path: str) -> None:
-    import cairosvg
-    cairosvg.svg2png(bytestring=_render_svg(svg).encode("utf-8"), write_to=path,
-                     output_width=_W, output_height=_H)
-
-
-_ERR_KW = ("error", "invalid", "cannot", "failed", "no such", "killed", "conversion failed",
-           "unable", "not found", "permission", "out of memory", "no space")
-
-
-def _run(cmd: list[str]) -> None:
-    """ffmpeg/ffprobe 실행. 실패 시 리턴코드 + '진짜 에러 라인'(키워드 우선)으로 예외.
-    rc가 음수/137이면 시그널 종료(예: -9 OOM kill) — 정상 stderr 없이 죽은 것."""
-    p = subprocess.run(cmd, capture_output=True)
-    if p.returncode != 0:
-        err = (p.stderr or b"").decode("utf-8", "replace").replace("\r", "\n")
-        lines = [ln.strip() for ln in err.splitlines() if ln.strip() and not ln.startswith("frame=")]
-        hits = [ln for ln in lines if any(k in ln.lower() for k in _ERR_KW)]
-        picked = hits[-3:] if hits else lines[-4:]
-        note = " (시그널 종료=리소스 부족(OOM)/타임아웃 가능)" if p.returncode < 0 or p.returncode == 137 else ""
-        raise RuntimeError(f"rc={p.returncode}{note} · " + " | ".join(picked)[:420])
-
-
-def _audio_duration(path: str) -> float | None:
-    """오디오 길이(초). 못 읽거나 0이면 None — 빈/깨진 mp3에 -shortest가 걸려 0프레임 나는 것 방지."""
-    try:
-        out = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=nw=1:nk=1", path], capture_output=True, text=True).stdout.strip()
-        d = float(out) if out else 0.0
-        return d if d > 0 else None
-    except Exception:
-        return None
-
-
-def _scene_clip(png: str, audio: str | None, dur: float, out: str) -> bool:
-    """장면 1개 → mp4 클립. 유효 오디오(≥0.3s)면 그 길이, 아니면 dur초 무음. 모든 클립을 30fps·
-    44.1kHz·스테레오로 통일해 concat이 항상 되게 한다. 반환: 실제 오디오 사용 여부."""
-    adur = _audio_duration(audio) if audio else None
-    use_audio = bool(adur and adur >= 0.3)
-    # ultrafast preset — 저사양 컨테이너(Railway)에서 CPU/메모리 부담·시간 대폭 감소(정지 이미지라 화질 무난).
-    common = ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
-              "-vf", f"scale={_W}:{_H}", "-r", "30",
-              "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2"]
-    if use_audio:
-        cmd = (["ffmpeg", "-y", "-loop", "1", "-framerate", "30", "-i", png, "-i", audio]
-               + common + ["-tune", "stillimage", "-t", f"{adur:.2f}", "-shortest", out])
-    else:  # 무음 — anullsrc로 오디오 스트림은 두되(스트림 구성 통일) dur초
-        cmd = (["ffmpeg", "-y", "-loop", "1", "-framerate", "30", "-i", png,
-                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
-               + common + ["-t", f"{dur:.2f}", out])
-    _run(cmd)
-    return use_audio
-
-
-def render(sid: str) -> dict:
-    """draft 1건 → mp4. 반환 {ok, url|reason, scenes, has_audio}. 사람이 검수 후 발행."""
-    ok, why = available()
-    if not ok:
-        return {"ok": False, "reason": why}
-    item = db.shortform_get(sid)
-    if not item or not item.get("scenes"):
-        return {"ok": False, "reason": "장면이 없는 초안(재생성 필요)"}
-    _ensure_fonts()
-    scenes = item["scenes"]
-    tts_on = typecast.available()
-    tmp = tempfile.mkdtemp(prefix="sfvid_")
-    clips, has_audio = [], False
-    try:
-        for i, sc in enumerate(scenes):
-            png = os.path.join(tmp, f"s{i}.png")
-            _scene_png(sc.get("svg") or "", png)
-            audio = None
-            if tts_on and sc.get("narration"):
-                mp3 = typecast.synthesize(sc["narration"])
-                if mp3 and len(mp3) > 500:  # 너무 작으면 유효 오디오 아님 → 무음 폴백
-                    audio = os.path.join(tmp, f"s{i}.mp3")
-                    with open(audio, "wb") as fh:
-                        fh.write(mp3)
-            clip = os.path.join(tmp, f"c{i}.mp4")
-            if _scene_clip(png, audio, float(sc.get("dur") or 3.0), clip):  # 실제 오디오 사용됨
-                has_audio = True
-            clips.append(clip)
-        listing = os.path.join(tmp, "list.txt")
-        with open(listing, "w") as fh:
-            fh.write("".join(f"file '{c}'\n" for c in clips))
-        out = os.path.join(tmp, f"{sid}.mp4")
-        _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listing,
-              "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-ar", "44100",
-              "-ac", "2", "-r", "30", "-pix_fmt", "yuv420p", out])
-        # 볼륨에 저장하지 않고 바이트로 반환 → 엔드포인트가 스트리밍 후 임시파일과 함께 폐기(볼륨 사용 0).
-        with open(out, "rb") as fh:
-            data = fh.read()
-        return {"ok": True, "data": data, "scenes": len(scenes), "has_audio": has_audio}
-    except Exception as e:
-        log.warning("숏폼 렌더 실패(%s): %s", sid, e)
-        return {"ok": False, "reason": f"렌더 실패: {e}"}
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)  # PNG·mp3·클립·최종 mp4 전부 즉시 삭제
-
-
-# ---------- 로컬 렌더 자료(zip) — 저사양 서버(Railway OOM) 대신 사용자 PC에서 렌더 ----------
+# ---------- 로컬 렌더 자료(zip) ----------
 _LOCAL_README = """숏폼 로컬 렌더
 ==============
 저사양 서버(Railway)는 ffmpeg 렌더에서 메모리 부족(OOM)이 나서, 이 자료를 받아 PC에서 렌더합니다.
@@ -216,7 +76,7 @@ _LOCAL_README = """숏폼 로컬 렌더
 # render.py — 자기완결 스크립트(signal_desk 미의존). {i:02d}/{c} 등 중괄호 때문에 f-string 아님.
 _LOCAL_RENDER_SCRIPT = r'''#!/usr/bin/env python3
 """숏폼 로컬 렌더 — 장면 SVG(cairosvg→PNG) + 나레이션(Typecast, 선택) → ffmpeg mp4. README 참고."""
-import base64, json, os, pathlib, subprocess, tempfile, urllib.request
+import json, os, pathlib, subprocess, tempfile, urllib.request
 
 HERE = pathlib.Path(__file__).parent
 # 번들 나눔고딕을 fontconfig에 등록(한글)
@@ -228,7 +88,7 @@ os.environ["FONTCONFIG_FILE"] = _cf
 import cairosvg  # noqa: E402
 
 KEY = os.environ.get("TYPECAST_API_KEY")
-VOICE = os.environ.get("TYPECAST_VOICE_ID", "tc_5eb55cf1f0b0a700071f89c7")
+VOICE = os.environ.get("TYPECAST_VOICE_ID", "tc_6059dad0b83880769a50502f")
 
 
 def tts(text):
@@ -278,9 +138,15 @@ print("완료 → output.mp4")
 '''
 
 
-def export_bundle(sid: str) -> bytes | None:
-    """로컬 렌더용 zip 바이트 — 렌더 준비된 장면 SVG(폰트·크기·배경 인라인) + 나레이션/길이 +
-    번들 폰트 + 자기완결 render.py + README. 서버는 rasterize/ffmpeg 안 함(OOM 회피)."""
+def _safe_name(s: str) -> str:
+    """파일명 안전화 — 경로 구분자·제어문자 제거(한글은 유지)."""
+    s = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "", str(s or "")).strip().replace(" ", "")
+    return s or "shortform"
+
+
+def export(sid: str) -> tuple[bytes, str] | None:
+    """로컬 렌더용 (zip 바이트, 파일명) — 렌더 준비 SVG + 나레이션/길이 + 번들 폰트 + render.py + README.
+    파일명은 종목명_종목코드.zip. 없는 draft면 None."""
     item = db.shortform_get(sid)
     if not item or not item.get("scenes"):
         return None
@@ -299,4 +165,5 @@ def export_bundle(sid: str) -> bytes | None:
                 z.write(fp, f)
         z.writestr("render.py", _LOCAL_RENDER_SCRIPT)
         z.writestr("README.txt", _LOCAL_README)
-    return buf.getvalue()
+    fname = f"{_safe_name(item.get('name'))}_{_safe_name(item.get('ticker'))}.zip"
+    return buf.getvalue(), fname
