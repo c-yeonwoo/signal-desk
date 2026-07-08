@@ -284,7 +284,8 @@ def _market_signals(market: str, mr: dict):
     universe = store.load_universe()
     prices = store.load_price_series()
     fundamentals = store.load_fundamentals()
-    sigs = engine.evaluate(universe, prices, fundamentals, config=mr["eff_cfg"], sentiment=kb.sentiment_map())
+    sigs = engine.evaluate(universe, prices, fundamentals, config=mr["eff_cfg"],
+                           sentiment=kb.sentiment_map(), flows=store.load_flows())
     return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}
 
 

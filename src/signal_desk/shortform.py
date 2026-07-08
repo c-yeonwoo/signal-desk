@@ -56,7 +56,8 @@ def _eligible_signals() -> list:
     reg = regime.classify(prices)
     mread = macro.read(store.load_macro(), extra=store.load_macro_kr())
     cfg, _ = signalcfg.effective_config(reg, mread)
-    sigs = engine.evaluate(universe, prices, store.load_fundamentals(), config=cfg, sentiment=kb.sentiment_map())
+    sigs = engine.evaluate(universe, prices, store.load_fundamentals(), config=cfg,
+                           sentiment=kb.sentiment_map(), flows=store.load_flows())
     warned = store.load_warned_tickers()
     elig = [s for s in sigs if engine.is_buy(s.kind) and not s.event_risk and s.ticker not in warned]
     return sorted(elig, key=lambda s: s.score, reverse=True)
