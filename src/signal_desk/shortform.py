@@ -122,33 +122,112 @@ def _esc(s: str) -> str:
     return (str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
-def _card_svg(name: str, ticker: str, kind: str, score: float, reasons: list[str], sector: str | None) -> str:
-    """세로 1080x1920 데이터 카드(SVG, 자기완결). 브라우저 미리보기·후속 래스터화 공용."""
-    kind_ko = _KIND_KO.get(kind, "관심")
+_INTRO_KICKER = "오늘의 시그널"
+_CONNECT = ["먼저", "다음으로", "여기에", "마지막으로"]  # 근거 나레이션 연결어(순차 공개 흐름)
+
+
+def _wrap(text: str, n: int = 13) -> list[str]:
+    """긴 근거 문장을 SVG tspan 여러 줄로 줄바꿈(공백 우선, 긴 토큰은 강제 분할, 최대 4줄)."""
+    text = str(text or "").strip()
+    if not text:
+        return []
+    out, line = [], ""
+    for w in text.split(" "):
+        while len(w) > n:  # 한 토큰이 너무 길면(붙여쓴 한글 등) 글자수로 강제 분할
+            if line:
+                out.append(line); line = ""
+            out.append(w[:n]); w = w[n:]
+        if len(line) + len(w) + (1 if line else 0) <= n:
+            line = f"{line} {w}".strip()
+        else:
+            if line:
+                out.append(line)
+            line = w
+    if line:
+        out.append(line)
+    return out[:4]
+
+
+def _pill_color(kind: str) -> str:
     # 매수=초록(강력=진초록), 매수 아님(관심 소재)=파랑 — 매수 아닌데 초록이면 매수로 오독될 수 있어 구분.
-    pill = "#0b7a3b" if kind == "STRONG_BUY" else "#22c55e" if kind == "BUY" else "#0ea5e9"
-    clean = _reason_clean(reasons, 3)
-    rows = ""
-    for i, r in enumerate(clean):
-        y = 900 + i * 150
-        rows += (f'<text x="120" y="{y}" fill="#e5e7eb" font-size="46" font-weight="600">'
-                 f'{i + 1}. {_esc(r)}</text>')
+    return "#0b7a3b" if kind == "STRONG_BUY" else "#22c55e" if kind == "BUY" else "#0ea5e9"
+
+
+def _svg_open(bar: str) -> str:
+    """세로 1080x1920 프레임 공통 헤더 — 배경 + 상단 컬러바. width/height 미고정(컨테이너에 스케일)."""
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" '
+            f'preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">'
+            f'<rect width="1080" height="1920" fill="#0b1220"/>'
+            f'<rect x="0" y="0" width="1080" height="12" fill="{bar}"/>')
+
+
+def _intro_svg(name: str, ticker: str, kind: str, score: float, sector: str | None) -> str:
+    """인트로/썸네일 템플릿(재사용) — '오늘의 시그널' + 종목명 + ticker·섹터 + 시그널 pill. 근거·면책 없음."""
+    kind_ko = _KIND_KO.get(kind, "관심")
+    pill = _pill_color(kind)
     sec = _esc(sector or "")
-    # width/height는 고정하지 않는다 — viewBox만 두면 컨테이너 크기에 맞춰 스케일(미리보기 220px 등)된다.
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">
-  <rect width="1080" height="1920" fill="#0b1220"/>
-  <rect x="0" y="0" width="1080" height="10" fill="{pill}"/>
-  <text x="120" y="200" fill="#9ca3af" font-size="40">오늘의 시그널</text>
-  <text x="120" y="320" fill="#ffffff" font-size="92" font-weight="800">{_esc(name)}</text>
-  <text x="120" y="390" fill="#6b7280" font-size="40">{_esc(ticker)}{(" · " + sec) if sec else ""}</text>
-  <rect x="120" y="470" rx="20" width="360" height="110" fill="{pill}"/>
-  <text x="300" y="545" fill="#ffffff" font-size="58" font-weight="800" text-anchor="middle">{kind_ko}</text>
-  <text x="540" y="545" fill="#e5e7eb" font-size="52" font-weight="700">종합점수 {score:+.2f}</text>
-  <text x="120" y="760" fill="#9ca3af" font-size="44" font-weight="700">핵심 근거</text>
-  {rows}
-  <rect x="0" y="1740" width="1080" height="180" fill="#111827"/>
-  <text x="120" y="1815" fill="#9ca3af" font-size="34">⚠️ {_esc(_DISCLAIMER)}</text>
-</svg>'''
+    return (_svg_open(pill)
+        + f'<text x="120" y="560" fill="#9ca3af" font-size="52" font-weight="700">{_INTRO_KICKER}</text>'
+        + f'<text x="120" y="720" fill="#ffffff" font-size="132" font-weight="800">{_esc(name)}</text>'
+        + f'<text x="120" y="800" fill="#6b7280" font-size="44">{_esc(ticker)}{(" · " + sec) if sec else ""}</text>'
+        + f'<rect x="120" y="900" rx="22" width="360" height="118" fill="{pill}"/>'
+        + f'<text x="300" y="980" fill="#fff" font-size="58" font-weight="800" text-anchor="middle">{kind_ko}</text>'
+        + f'<text x="540" y="980" fill="#e5e7eb" font-size="54" font-weight="700">종합 {score:+.2f}</text>'
+        + '<text x="120" y="1180" fill="#9ca3af" font-size="46">왜 이 신호가 나왔을까?</text>'
+        + '</svg>')
+
+
+def _reason_svg(idx: int, total: int, reason: str, kind: str) -> str:
+    """근거 1개를 화면 가득 보여주는 프레임(순차 공개). 진행 도트 + 큰 문장. 면책 없음."""
+    pill = _pill_color(kind)
+    raw = str(reason or "")
+    tag = raw.split("]", 1)[0][1:] if raw.startswith("[") else ""
+    body = raw.split("] ", 1)[-1]
+    tspans = "".join(f'<tspan x="120" dy="{0 if i == 0 else 116}">{_esc(l)}</tspan>'
+                     for i, l in enumerate(_wrap(body, 13)))
+    dots = "".join(f'<circle cx="{140 + i * 46}" cy="1740" r="15" '
+                   f'fill="{pill if i == idx - 1 else "#374151"}"/>' for i in range(total))
+    return (_svg_open(pill)
+        + f'<text x="120" y="360" fill="{pill}" font-size="48" font-weight="800">근거 {idx} / {total}</text>'
+        + (f'<text x="120" y="440" fill="#9ca3af" font-size="40">{_esc(tag)}</text>' if tag else "")
+        + f'<text x="120" y="720" fill="#ffffff" font-size="82" font-weight="700">{tspans}</text>'
+        + dots + '</svg>')
+
+
+def _scene_narration(i: int, body: str, name: str) -> str:
+    """장면별 나레이션(음성 합성 입력). 0=인트로, 그 외=근거를 순차로 '말하는' 문장."""
+    if i == 0:
+        return f"오늘 주목할 종목, {name}입니다. 신호가 왜 떴는지 근거를 하나씩 볼게요."
+    return f"{_CONNECT[min(i - 1, len(_CONNECT) - 1)]}, {body}."
+
+
+def _scenes_for(name: str, ticker: str, kind: str, score: float,
+                reasons: list[str], sector: str | None) -> list[dict]:
+    """카드를 '장면 시퀀스'로 — 인트로(썸네일) → 근거별 프레임(순차 공개). 각 장면에 나레이션·길이.
+    이 표현이 typecast(장면별 음성)든 자체 렌더(장면별 프레임)든 그대로 투입되는 중간 포맷."""
+    clean = _reason_clean(reasons, 4)
+    scenes = [{"label": "인트로", "dur": 3.0, "svg": _intro_svg(name, ticker, kind, score, sector),
+               "narration": _scene_narration(0, "", name)}]
+    for i, r in enumerate(clean, 1):
+        body = r.split("] ", 1)[-1]
+        scenes.append({"label": f"근거 {i}", "dur": 4.0, "svg": _reason_svg(i, len(clean), r, kind),
+                       "narration": _scene_narration(i, body, name)})
+    return scenes
+
+
+def _full_caption(name: str, ticker: str, kind: str, reasons: list[str], llm_caption: str | None) -> str:
+    """게시물 캡션 — 근거를 포함한 종합 해설 + (LLM 서술) + 투자유의(면책). 카드 프레임엔 면책을 넣지 않는다."""
+    kind_ko = _KIND_KO.get(kind, "관심")
+    bodies = [r.split("] ", 1)[-1] for r in _reason_clean(reasons, 4)]
+    summary = f"📊 {name}({ticker}) {kind_ko} 시그널"
+    if bodies:
+        summary += " — 근거: " + " · ".join(bodies)
+    parts = [summary]
+    extra = (llm_caption or "").replace(_DISCLAIMER, "").replace("※", "").strip(" \n·")
+    if extra and extra not in summary:
+        parts.append(extra)
+    parts.append(f"※ {_DISCLAIMER}")
+    return "\n\n".join(parts)
 
 
 def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = False) -> dict:
@@ -168,10 +247,12 @@ def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = F
     for s in picks:
         sector = sectors.sector_of(s.ticker)
         sc = _script_for(s.name, s.ticker, s.kind, s.reasons)
-        svg = _card_svg(s.name, s.ticker, s.kind, s.score, s.reasons, sector)
+        scenes = _scenes_for(s.name, s.ticker, s.kind, s.score, s.reasons, sector)  # 인트로+근거 순차 프레임
+        caption = _full_caption(s.name, s.ticker, s.kind, s.reasons, sc.get("caption"))  # 근거 종합+면책
         item = {"id": uuid.uuid4().hex, "ticker": s.ticker, "name": s.name, "kind": s.kind,
                 "score": round(s.score, 2), "title": sc["title"], "script": sc["script"],
-                "caption": sc["caption"], "hashtags": sc["hashtags"], "card_svg": svg, "status": "draft"}
+                "caption": caption, "hashtags": sc["hashtags"],
+                "card_svg": scenes[0]["svg"], "scenes": scenes, "status": "draft"}  # card_svg=인트로(썸네일)
         if not dry_run:
             db.shortform_add(item)
         made.append({k: item[k] for k in ("id", "ticker", "name", "kind", "score", "title")})
@@ -188,17 +269,15 @@ def _perf_card_svg(label: str, ret_pct, days: int, mdd, n_trades: int, unit: str
     """세로 1080x1920 성과 카드 — 성향·수익률·기간·최대낙폭·거래수."""
     color = "#22c55e" if (ret_pct or 0) >= 0 else "#ef4444"
     ret_s = f"{ret_pct:+.1f}%" if ret_pct is not None else "–"
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">
-  <rect width="1080" height="1920" fill="#0b1220"/>
-  <rect x="0" y="0" width="1080" height="10" fill="{color}"/>
-  <text x="120" y="220" fill="#9ca3af" font-size="44">공용 자동매매 봇 성과</text>
-  <text x="120" y="340" fill="#ffffff" font-size="86" font-weight="800">{_esc(label)}</text>
-  <text x="120" y="640" fill="#9ca3af" font-size="52">최근 {days}일 수익률</text>
-  <text x="120" y="800" fill="{color}" font-size="200" font-weight="800">{ret_s}</text>
-  <text x="120" y="1000" fill="#e5e7eb" font-size="48">최대낙폭 {_esc(f"{mdd:.1f}%" if mdd is not None else "–")} · 거래 {n_trades}건</text>
-  <rect x="0" y="1720" width="1080" height="200" fill="#111827"/>
-  <text x="120" y="1795" fill="#9ca3af" font-size="30">⚠️ {_esc(_PERF_DISCLAIMER)}</text>
-</svg>'''
+    # 면책은 카드에 넣지 않고 캡션으로 옮긴다(신호 카드와 동일 정책).
+    return (_svg_open(color)
+        + '<text x="120" y="220" fill="#9ca3af" font-size="44">공용 자동매매 봇 성과</text>'
+        + f'<text x="120" y="340" fill="#ffffff" font-size="86" font-weight="800">{_esc(label)}</text>'
+        + f'<text x="120" y="640" fill="#9ca3af" font-size="52">최근 {days}일 수익률</text>'
+        + f'<text x="120" y="800" fill="{color}" font-size="200" font-weight="800">{ret_s}</text>'
+        + f'<text x="120" y="1000" fill="#e5e7eb" font-size="48">최대낙폭 '
+          f'{_esc(f"{mdd:.1f}%" if mdd is not None else "–")} · 거래 {n_trades}건</text>'
+        + '</svg>')
 
 
 def generate_performance(style: str = "balanced", market: str = "kr", dry_run: bool = False) -> dict:
@@ -222,10 +301,15 @@ def generate_performance(style: str = "balanced", market: str = "kr", dry_run: b
         {"time": "9-14s", "caption": f"최대낙폭 {mdd:.1f}%", "narration": f"최대낙폭 {mdd:.1f}%, 거래 {n}건이었습니다."},
         {"time": "end", "caption": "⚠️ 모의투자 성과", "narration": _PERF_DISCLAIMER},
     ]
+    perf_svg = _perf_card_svg(label, ret, days, mdd, n, unit)
+    ret_line = f"최근 {days}일 수익률 {ret:+.1f}%" if ret is not None else f"최근 {days}일 성과"
+    caption = f"📈 {label} 자동매매 봇 · {ret_line} · 최대낙폭 {mdd:.1f}% · 거래 {n}건\n\n※ {_PERF_DISCLAIMER}"
+    scenes = [{"label": "성과", "dur": 5.0, "svg": perf_svg,
+               "narration": f"공용 {label} 봇의 {ret_line}, 최대낙폭 {mdd:.1f}%, 거래 {n}건입니다."}]
     item = {"id": uuid.uuid4().hex, "ticker": "_PERF", "name": f"{label} 봇", "kind": "PERF",
-            "score": ret, "title": title, "script": script, "caption": _PERF_DISCLAIMER,
+            "score": ret, "title": title, "script": script, "caption": caption,
             "hashtags": ["#자동매매", "#퀀트", "#주식", f"#{label}", "#수익률공개"],
-            "card_svg": _perf_card_svg(label, ret, days, mdd, n, unit), "status": "draft"}
+            "card_svg": perf_svg, "scenes": scenes, "status": "draft"}
     if not dry_run:
         db.shortform_add(item)
     return {"ok": True, "count": 1, "created": [{k: item[k] for k in ("id", "ticker", "name", "kind", "score", "title")}]}

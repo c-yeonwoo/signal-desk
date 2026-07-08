@@ -74,6 +74,32 @@ def test_candidates_signal_order(tmp_path, monkeypatch):
     assert shortform.db.shortform_list() == []
 
 
+def test_scenes_intro_plus_reason_frames(tmp_path, monkeypatch):
+    # 카드가 장면 시퀀스 — 인트로 1 + 근거 N. 근거는 프레임마다 하나씩(한 카드에 몰아넣지 않음).
+    sigs = [_sig("005930", "삼성전자", "BUY", 1.8,
+                 ["[기술] 골든크로스(상승 전환)", "[저평가] PER 업종 하위", "[수급] 외국인 순매수"])]
+    _setup(monkeypatch, tmp_path, sigs)
+    out = shortform.generate(limit=1)
+    d = db.shortform_get(out["created"][0]["id"])
+    scenes = d["scenes"]
+    assert len(scenes) == 4                                    # 인트로 + 근거 3
+    assert scenes[0]["label"] == "인트로" and "오늘의 시그널" in scenes[0]["svg"]
+    assert scenes[1]["label"] == "근거 1" and "근거 1 / 3" in scenes[1]["svg"]
+    assert all(sc["svg"].startswith("<svg") and sc.get("narration") for sc in scenes)
+    # 인트로가 card_svg(썸네일)로도 저장
+    assert d["card_svg"] == scenes[0]["svg"]
+
+
+def test_disclaimer_in_caption_not_on_card(tmp_path, monkeypatch):
+    # 투자유의(면책)는 캡션에만, 카드 프레임엔 없어야. 근거 종합 해설은 캡션에 포함.
+    sigs = [_sig("005930", "삼성전자", "BUY", 1.8, ["[기술] 골든크로스(상승 전환)", "[저평가] PER 업종 하위"])]
+    _setup(monkeypatch, tmp_path, sigs)
+    d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
+    assert "투자 권유가 아닙니다" in d["caption"]                # 면책은 캡션
+    assert "골든크로스" in d["caption"]                          # 근거 종합도 캡션
+    assert all("투자 권유가 아닙니다" not in sc["svg"] for sc in d["scenes"])  # 카드엔 면책 없음
+
+
 def test_high_score_non_buy_is_candidate(tmp_path, monkeypatch):
     # 매수가 아니어도(HOLD) 종합점수 1.5+ 면 숏폼 소재거리로 후보에 포함.
     sigs = [_sig("005930", "삼성전자", "HOLD", 1.7), _sig("000660", "SK하이닉스", "HOLD", 0.9)]

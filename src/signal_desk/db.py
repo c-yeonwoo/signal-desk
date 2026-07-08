@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS alert_state(uid INTEGER, ticker TEXT, last_kind TEXT,
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT,
     name TEXT, message TEXT, ts INTEGER, read INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS shortform(id TEXT PRIMARY KEY, ticker TEXT, name TEXT, kind TEXT, score REAL,
-    title TEXT, script TEXT, caption TEXT, hashtags TEXT, card_svg TEXT,
+    title TEXT, script TEXT, caption TEXT, hashtags TEXT, card_svg TEXT, scenes TEXT,
     status TEXT NOT NULL DEFAULT 'draft', note TEXT, created INTEGER, reviewed INTEGER);
 CREATE TABLE IF NOT EXISTS bot_equity(uid INTEGER, market TEXT NOT NULL DEFAULT 'kr', date TEXT,
     total_eval REAL, cash REAL, invested REAL, PRIMARY KEY(uid, market, date));
@@ -103,6 +103,8 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE kb_entries ADD COLUMN raw_text TEXT")
     if "status" not in ecols:  # confirmed(다이제스트 반영) / pending(검토 보류, 반영 안 함)
         c.execute("ALTER TABLE kb_entries ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
+    if "scenes" not in {r[1] for r in c.execute("PRAGMA table_info(shortform)").fetchall()}:
+        c.execute("ALTER TABLE shortform ADD COLUMN scenes TEXT")  # 장면 시퀀스(인트로+근거별 프레임) JSON
     c.commit()
     # 일회성: 기존 raw_text 절단 + VACUUM(파일 회수). conn()이 매번 _migrate를 돌므로 kv 플래그로 1회만.
     # kv_get()은 conn()을 다시 열어 재귀되므로 여기선 c로 직접 조회한다.
@@ -674,35 +676,35 @@ def holdings_remove(uid: int, ticker: str) -> None:
 
 # ---------- shortform (숏폼 콘텐츠 초안 + 검수 큐 — 관리자 전용) ----------
 def _shortform_row(r) -> dict:
-    (sid, ticker, name, kind, score, title, script, caption, hashtags, card_svg,
+    (sid, ticker, name, kind, score, title, script, caption, hashtags, card_svg, scenes,
      status, note, created, reviewed) = r
     return {"id": sid, "ticker": ticker, "name": name, "kind": kind, "score": score,
             "title": title, "script": json.loads(script) if script else [],
             "caption": caption, "hashtags": json.loads(hashtags) if hashtags else [],
-            "card_svg": card_svg, "status": status, "note": note,
-            "created": created, "reviewed": reviewed}
+            "card_svg": card_svg, "scenes": json.loads(scenes) if scenes else [],
+            "status": status, "note": note, "created": created, "reviewed": reviewed}
 
 
-_SHORTFORM_COLS = ("id,ticker,name,kind,score,title,script,caption,hashtags,card_svg,"
+_SHORTFORM_COLS = ("id,ticker,name,kind,score,title,script,caption,hashtags,card_svg,scenes,"
                    "status,note,created,reviewed")
 
 
 def shortform_add(item: dict) -> None:
-    """숏폼 초안 저장(status='draft'). item: {id,ticker,name,kind,score,title,script[],caption,hashtags[],card_svg}."""
+    """숏폼 초안 저장(status='draft'). item: {id,ticker,name,kind,score,title,script[],caption,hashtags[],card_svg,scenes[]}."""
     c = conn()
-    c.execute(f"INSERT OR REPLACE INTO shortform({_SHORTFORM_COLS}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    c.execute(f"INSERT OR REPLACE INTO shortform({_SHORTFORM_COLS}) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
               (item["id"], item.get("ticker"), item.get("name"), item.get("kind"), item.get("score"),
                item.get("title"), json.dumps(item.get("script") or [], ensure_ascii=False),
                item.get("caption"), json.dumps(item.get("hashtags") or [], ensure_ascii=False),
-               item.get("card_svg"), item.get("status", "draft"), item.get("note"),
-               int(time.time()), None))
+               item.get("card_svg"), json.dumps(item.get("scenes") or [], ensure_ascii=False),
+               item.get("status", "draft"), item.get("note"), int(time.time()), None))
     c.commit()
     c.close()
 
 
 def shortform_list(status: str | None = None, limit: int = 100) -> list[dict]:
-    """검수 큐 목록(최신순). status 지정 시 해당 상태만. card_svg는 목록에선 제외(가벼움)."""
-    cols = _SHORTFORM_COLS.replace("card_svg", "'' as card_svg")  # 목록은 SVG 생략(용량)
+    """검수 큐 목록(최신순). status 지정 시 해당 상태만. card_svg·scenes는 목록에선 제외(가벼움)."""
+    cols = _SHORTFORM_COLS.replace("card_svg", "'' as card_svg").replace("scenes", "'' as scenes")  # 목록은 SVG 생략(용량)
     c = conn()
     if status:
         rows = c.execute(f"SELECT {cols} FROM shortform WHERE status=? ORDER BY created DESC LIMIT ?",

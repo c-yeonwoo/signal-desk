@@ -2689,17 +2689,21 @@ async function viewShortform(id){
   if (box.style.display !== 'none') { box.style.display = 'none'; return; }
   box.style.display = ''; box.innerHTML = '불러오는 중…';
   const it = await (await fetch('/api/shortform/' + id)).json();
-  const scriptRows = (it.script || []).map(l =>
-    `<tr><td style="color:var(--dim);white-space:nowrap">${esc(l.time || '')}</td>
-     <td><b>${esc(l.caption || '')}</b><div style="color:var(--dim);font-size:12px">${esc(l.narration || '')}</div></td></tr>`).join('');
-  box.innerHTML = `<div class="split">
-    <div style="flex:0 0 220px"><div class="sf-card-prev" style="border:1px solid var(--line);border-radius:8px;overflow:hidden;max-width:220px">${it.card_svg || ''}</div></div>
-    <div>
-      <b style="font-size:13px">스크립트 (자막 · 나레이션)</b>
-      <table class="dtable" style="margin-top:6px"><tbody>${scriptRows}</tbody></table>
-      <div style="margin-top:8px;font-size:12px"><b>게시물 설명</b><div style="color:var(--dim)">${esc(it.caption || '')}</div></div>
-      <div style="margin-top:4px;font-size:12px;color:var(--accent)">${(it.hashtags || []).map(esc).join(' ')}</div>
-    </div></div>`;
+  // 장면 시퀀스(인트로→근거 순차 공개). scenes 없으면(구버전 draft) 단일 카드로 폴백.
+  const scenes = (it.scenes && it.scenes.length) ? it.scenes
+    : (it.card_svg ? [{ label: '카드', svg: it.card_svg, narration: '' }] : []);
+  const sceneCards = scenes.map((sc, i) => `
+    <div style="flex:0 0 150px">
+      <div class="sf-card-prev" style="border:1px solid var(--line);border-radius:8px;overflow:hidden;max-width:150px">${sc.svg || ''}</div>
+      <div style="font-size:11px;color:var(--dim);margin-top:3px"><b>${i + 1}. ${esc(sc.label || '')}</b>${sc.dur ? ` · ${sc.dur}s` : ''}</div>
+      <div style="font-size:11px;color:var(--dim-2);line-height:1.35">${esc(sc.narration || '')}</div>
+    </div>`).join('');
+  box.innerHTML = `
+    <b style="font-size:13px">🎬 장면 스토리보드 <span style="color:var(--dim);font-weight:600">· 인트로 → 근거를 하나씩 공개 (${scenes.length}장면)</span></b>
+    <div style="display:flex;gap:12px;overflow-x:auto;padding:8px 0">${sceneCards || '<span class="placeholder">장면 없음</span>'}</div>
+    <div style="margin-top:8px;font-size:12px"><b>게시물 캡션 (근거 종합 + 투자유의)</b>
+      <div style="color:var(--dim);white-space:pre-wrap;margin-top:2px">${esc(it.caption || '')}</div></div>
+    <div style="margin-top:6px;font-size:12px;color:var(--accent)">${(it.hashtags || []).map(esc).join(' ')}</div>`;
 }
 async function reviewShortform(id, status){
   await fetch('/api/shortform/' + id + '/review', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
