@@ -134,7 +134,8 @@ def _card_svg(name: str, ticker: str, kind: str, score: float, reasons: list[str
         rows += (f'<text x="120" y="{y}" fill="#e5e7eb" font-size="46" font-weight="600">'
                  f'{i + 1}. {_esc(r)}</text>')
     sec = _esc(sector or "")
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" width="1080" height="1920">
+    # width/height는 고정하지 않는다 — viewBox만 두면 컨테이너 크기에 맞춰 스케일(미리보기 220px 등)된다.
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">
   <rect width="1080" height="1920" fill="#0b1220"/>
   <rect x="0" y="0" width="1080" height="10" fill="{pill}"/>
   <text x="120" y="200" fill="#9ca3af" font-size="40">오늘의 시그널</text>
@@ -187,7 +188,7 @@ def _perf_card_svg(label: str, ret_pct, days: int, mdd, n_trades: int, unit: str
     """세로 1080x1920 성과 카드 — 성향·수익률·기간·최대낙폭·거래수."""
     color = "#22c55e" if (ret_pct or 0) >= 0 else "#ef4444"
     ret_s = f"{ret_pct:+.1f}%" if ret_pct is not None else "–"
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" width="1080" height="1920">
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">
   <rect width="1080" height="1920" fill="#0b1220"/>
   <rect x="0" y="0" width="1080" height="10" fill="{color}"/>
   <text x="120" y="220" fill="#9ca3af" font-size="44">공용 자동매매 봇 성과</text>
