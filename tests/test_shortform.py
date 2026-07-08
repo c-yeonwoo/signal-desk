@@ -98,6 +98,23 @@ def test_quant_scene_has_price_chart(tmp_path, monkeypatch):
     assert "최근 1개월 주가 흐름" in quant["svg"] and "<polyline" in quant["svg"]
 
 
+def test_company_scene_uses_dart_profile_and_financials(tmp_path, monkeypatch):
+    # 기업개요 장면에 DART 기업개황(설립·대표), 정량 장면에 DART 재무(PER·ROE·매출성장)가 노출돼야.
+    sigs = [_sig("005930", "삼성전자", "BUY", 1.8, ["[기술] 골든크로스(상승 전환)"])]
+    _setup(monkeypatch, tmp_path, sigs)
+    monkeypatch.setattr(shortform.store, "load_price_series", lambda: {"005930": [70000.0, 72000.0]})
+    monkeypatch.setattr(shortform.store, "load_fundamentals",
+                        lambda: {"005930": {"per": 13.2, "pbr": 1.4, "roe": 12.3,
+                                            "revenue_growth": 8.0, "mktcap": 480e12}})
+    monkeypatch.setattr(shortform.store, "load_company_profiles",
+                        lambda: {"005930": {"est_year": "1969", "ceo": "한종희", "name_eng": "Samsung Electronics"}})
+    d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
+    company = [s for s in d["scenes"] if s["label"] == "1·기업 개요"][0]["svg"]
+    quant = [s for s in d["scenes"] if s["label"] == "2·정량 근거"][0]["svg"]
+    assert "1969년" in company and "한종희" in company               # DART 기업개황
+    assert "PER 13.2" in quant and "ROE 12%" in quant and "매출 +8%" in quant  # DART 재무
+
+
 def test_qualitative_scene_uses_kb(tmp_path, monkeypatch):
     # 정성 근거 장면이 KB 다이제스트(뉴스·시황)를 반영해야.
     sigs = [_sig("005930", "삼성전자", "BUY", 1.8, ["[기술] 골든크로스(상승 전환)"])]

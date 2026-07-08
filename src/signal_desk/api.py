@@ -730,6 +730,10 @@ def _refresh_kr(data: dict) -> dict:
             store.fetch_kr_dividends(universe)                 # KR 주당배당(DART) → 배당 플래너
         except Exception as e:
             log.warning("KR 배당 수집 실패(무시): %s", type(e).__name__)
+        try:
+            store.fetch_company_profiles(universe)             # DART 기업개황(설립·대표) → 숏폼 기업 소개(증분)
+        except Exception as e:
+            log.warning("기업개황 수집 실패(무시): %s", type(e).__name__)
         db.kv_set("dart_fetch_date", _kst_today())
     else:
         store.update_valuation()                               # 캐시 재무 + 오늘 시총 → PER/PBR·시총만 갱신(KRX 1콜)

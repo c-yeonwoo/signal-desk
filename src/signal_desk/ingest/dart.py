@@ -156,3 +156,17 @@ def dividend(corp_code: str, bsns_year: str) -> float | None:
             if v and v > 0:
                 return v
     return None
+
+
+def company(corp_code: str) -> dict | None:
+    """기업개황(company.json) — 설립연도·대표이사·영문명. '어떤 기업인지' 소개용(숏폼 기업 개요).
+    응답은 최상위에 필드가 직접 온다(list 없음). 키 없음/실패 시 None."""
+    body = _get_json("company.json", {"corp_code": corp_code})
+    if not body:
+        return None
+    est = str(body.get("est_dt") or "")  # 설립일 YYYYMMDD
+    return {
+        "ceo": (str(body.get("ceo_nm") or "").strip() or None),
+        "est_year": (est[:4] if len(est) >= 4 and est[:4].isdigit() else None),
+        "name_eng": (str(body.get("corp_name_eng") or "").strip() or None),
+    }

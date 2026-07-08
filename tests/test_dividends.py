@@ -54,6 +54,18 @@ def test_dart_dividend_common_stock(monkeypatch):
     assert dart.dividend("x", "2024") is None              # 키 없음/무배당
 
 
+def test_dart_company_profile(monkeypatch):
+    from signal_desk.ingest import dart
+    monkeypatch.setattr(dart, "_get_json", lambda path, params: {
+        "status": "000", "ceo_nm": "한종희, 경계현", "est_dt": "19690113",
+        "corp_name_eng": "Samsung Electronics Co., Ltd."})
+    c = dart.company("00126380")
+    assert c["est_year"] == "1969" and c["ceo"] == "한종희, 경계현"
+    assert c["name_eng"] == "Samsung Electronics Co., Ltd."
+    monkeypatch.setattr(dart, "_get_json", lambda path, params: None)
+    assert dart.company("x") is None
+
+
 def test_kr_dividends_from_fundamentals(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)
