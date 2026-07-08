@@ -101,21 +101,42 @@ def _scene_png(svg: str, path: str) -> None:
 
 
 def _run(cmd: list[str]) -> None:
-    subprocess.run(cmd, check=True, capture_output=True)
+    """ffmpeg/ffprobe 실행. 실패 시 진행률(\\r) 스팸을 걷어낸 '진짜 에러 라인'으로 예외."""
+    p = subprocess.run(cmd, capture_output=True)
+    if p.returncode != 0:
+        err = (p.stderr or b"").decode("utf-8", "replace").replace("\r", "\n")
+        lines = [ln for ln in err.splitlines() if ln.strip() and not ln.startswith("frame=")]
+        raise RuntimeError(" | ".join(lines[-5:])[:500] or "ffmpeg 실패")
 
 
-def _scene_clip(png: str, audio: str | None, dur: float, out: str) -> None:
-    """장면 1개 → mp4 클립. audio 있으면 그 길이만큼(있는 오디오), 없으면 dur초 무음."""
-    base = ["ffmpeg", "-y", "-loop", "1", "-i", png]
-    if audio:
-        cmd = base + ["-i", audio, "-c:v", "libx264", "-tune", "stillimage", "-c:a", "aac",
-                      "-b:a", "160k", "-pix_fmt", "yuv420p", "-vf", f"scale={_W}:{_H}",
-                      "-shortest", out]
-    else:
-        cmd = base + ["-t", f"{dur:.2f}", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                      "-c:v", "libx264", "-t", f"{dur:.2f}", "-c:a", "aac", "-b:a", "160k",
-                      "-pix_fmt", "yuv420p", "-vf", f"scale={_W}:{_H}", out]
+def _audio_duration(path: str) -> float | None:
+    """오디오 길이(초). 못 읽거나 0이면 None — 빈/깨진 mp3에 -shortest가 걸려 0프레임 나는 것 방지."""
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", path], capture_output=True, text=True).stdout.strip()
+        d = float(out) if out else 0.0
+        return d if d > 0 else None
+    except Exception:
+        return None
+
+
+def _scene_clip(png: str, audio: str | None, dur: float, out: str) -> bool:
+    """장면 1개 → mp4 클립. 유효 오디오(≥0.3s)면 그 길이, 아니면 dur초 무음. 모든 클립을 30fps·
+    44.1kHz·스테레오로 통일해 concat이 항상 되게 한다. 반환: 실제 오디오 사용 여부."""
+    adur = _audio_duration(audio) if audio else None
+    use_audio = bool(adur and adur >= 0.3)
+    common = ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-vf", f"scale={_W}:{_H}",
+              "-r", "30", "-c:a", "aac", "-b:a", "160k", "-ar", "44100", "-ac", "2"]
+    if use_audio:
+        cmd = (["ffmpeg", "-y", "-loop", "1", "-framerate", "30", "-i", png, "-i", audio]
+               + common + ["-tune", "stillimage", "-t", f"{adur:.2f}", "-shortest", out])
+    else:  # 무음 — anullsrc로 오디오 스트림은 두되(스트림 구성 통일) dur초
+        cmd = (["ffmpeg", "-y", "-loop", "1", "-framerate", "30", "-i", png,
+                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
+               + common + ["-t", f"{dur:.2f}", out])
     _run(cmd)
+    return use_audio
 
 
 def render(sid: str) -> dict:
@@ -139,25 +160,26 @@ def render(sid: str) -> dict:
             audio = None
             if tts_on and sc.get("narration"):
                 mp3 = typecast.synthesize(sc["narration"])
-                if mp3:
+                if mp3 and len(mp3) > 500:  # 너무 작으면 유효 오디오 아님 → 무음 폴백
                     audio = os.path.join(tmp, f"s{i}.mp3")
                     with open(audio, "wb") as fh:
                         fh.write(mp3)
-                    has_audio = True
             clip = os.path.join(tmp, f"c{i}.mp4")
-            _scene_clip(png, audio, float(sc.get("dur") or 3.0), clip)
+            if _scene_clip(png, audio, float(sc.get("dur") or 3.0), clip):  # 실제 오디오 사용됨
+                has_audio = True
             clips.append(clip)
         listing = os.path.join(tmp, "list.txt")
         with open(listing, "w") as fh:
             fh.write("".join(f"file '{c}'\n" for c in clips))
         out = str(_VIDEO_DIR / f"{sid}.mp4")
         _run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listing,
-              "-c:v", "libx264", "-c:a", "aac", "-pix_fmt", "yuv420p", out])
+              "-c:v", "libx264", "-c:a", "aac", "-ar", "44100", "-ac", "2",
+              "-r", "30", "-pix_fmt", "yuv420p", out])
         return {"ok": True, "url": f"/api/shortform/{sid}/video", "scenes": len(scenes),
                 "has_audio": has_audio}
-    except subprocess.CalledProcessError as e:
-        log.warning("ffmpeg 실패: %s", (e.stderr or b"")[-300:])
-        return {"ok": False, "reason": "ffmpeg 렌더 실패(로그 확인)"}
+    except Exception as e:
+        log.warning("숏폼 렌더 실패(%s): %s", sid, e)
+        return {"ok": False, "reason": f"렌더 실패: {e}"}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
