@@ -679,6 +679,7 @@ def refresh(data: dict = Body(default={})):
     if bool(data.get("force_dart")) or _dart_stale():
         fundamentals = store.fetch_fundamentals(universe)      # DART 재무 + PER/PBR (분기 1회)
         store.fetch_fundamentals_history(universe)             # point-in-time 백테스트용 연도별 재무
+        store.compute_quality()                                # 당해+전년 → 축약 F-Score(퀄리티 팩터)
         db.kv_set("dart_fetch_date", _kst_today())
     else:
         store.update_valuation()                               # 캐시 재무 + 오늘 시총 → PER/PBR·시총만 갱신(KRX 1콜)

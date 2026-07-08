@@ -207,6 +207,24 @@ def load_fundamentals_history() -> dict[str, dict]:
     return json.loads(FUNDAMENTALS_HISTORY_FILE.read_text(encoding="utf-8"))
 
 
+def compute_quality() -> int:
+    """당해 재무(fundamentals) + 전년(fundamentals_history)으로 축약 F-Score를 계산해 fundamentals.json에
+    quality로 저장(엔진 퀄리티 팩터가 읽음). 당해=전년도(year-1) 기준이라 직전 비교연도는 year-2."""
+    from signal_desk.signals import quality
+    fund = load_fundamentals()
+    if not fund:
+        return 0
+    hist = load_fundamentals_history()
+    prev_year = str(datetime.date.today().year - 2)
+    n = 0
+    for t, m in fund.items():
+        prev = (hist.get(t) or {}).get(prev_year) or {}
+        m["quality"] = quality.evaluate(m, prev)
+        n += 1
+    _write_json(FUNDAMENTALS_FILE, fund)
+    return n
+
+
 def fetch_macro() -> list[dict]:
     """FRED 거시 지표(CPI/금리/나스닥/VIX)를 수집해 캐시. 키 없으면 빈 리스트."""
     items = fred.macro_indicators()
