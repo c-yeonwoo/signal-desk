@@ -52,3 +52,45 @@ def test_full_render_produces_mp4(tmp_path, monkeypatch):
     assert out["ok"] and out["scenes"] == len(scenes) and out["has_audio"] is False
     p = shortform_render.video_path("vt")
     assert p and p.stat().st_size > 10000  # 실제 mp4 생성
+
+
+def _real_mp3(tmp_path, sec=1.6) -> bytes:
+    import subprocess
+    f = tmp_path / "sine.mp3"
+    subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"sine=frequency=440:duration={sec}",
+                    "-b:a", "160k", str(f)], capture_output=True)
+    return f.read_bytes()
+
+
+@pytest.mark.skipif(not _HAVE_TOOLS, reason="cairosvg/ffmpeg 필요")
+def test_render_with_audio(tmp_path, monkeypatch):
+    from signal_desk import db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    monkeypatch.setattr(shortform_render, "_VIDEO_DIR", tmp_path / "vid")
+    mp3 = _real_mp3(tmp_path)
+    monkeypatch.setattr(shortform_render.typecast, "available", lambda: True)
+    monkeypatch.setattr(shortform_render.typecast, "synthesize", lambda *a, **k: mp3)
+    scenes = shortform._scenes_for("삼성전자", "005930", "BUY", 1.8, ["[기술] 골든크로스"], "반도체",
+                                   closes=[100.0 + i for i in range(30)])
+    db.shortform_add({"id": "va", "ticker": "005930", "name": "삼성전자", "kind": "BUY",
+                      "score": 1.8, "scenes": scenes, "card_svg": scenes[0]["svg"]})
+    out = shortform_render.render("va")
+    assert out["ok"] and out["has_audio"] is True          # 실제 오디오 결합
+    assert shortform_render.video_path("va").stat().st_size > 10000
+
+
+@pytest.mark.skipif(not _HAVE_TOOLS, reason="cairosvg/ffmpeg 필요")
+def test_render_bad_audio_falls_back_silent(tmp_path, monkeypatch):
+    # 빈/깨진 mp3(작은 바이트)면 무음으로 폴백 — -shortest가 0프레임 나는 사고 방지.
+    from signal_desk import db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    monkeypatch.setattr(shortform_render, "_VIDEO_DIR", tmp_path / "vid")
+    monkeypatch.setattr(shortform_render.typecast, "available", lambda: True)
+    monkeypatch.setattr(shortform_render.typecast, "synthesize", lambda *a, **k: b"garbage")
+    scenes = shortform._scenes_for("삼성전자", "005930", "BUY", 1.8, ["[기술] 골든크로스"], "반도체",
+                                   closes=[100.0 + i for i in range(30)])
+    db.shortform_add({"id": "vb", "ticker": "005930", "name": "삼성전자", "kind": "BUY",
+                      "score": 1.8, "scenes": scenes, "card_svg": scenes[0]["svg"]})
+    out = shortform_render.render("vb")
+    assert out["ok"] and out["has_audio"] is False         # 무음 폴백, 그래도 mp4 생성
+    assert shortform_render.video_path("vb").stat().st_size > 10000
