@@ -517,6 +517,11 @@
         <div id="holdings-body" class="placeholder" style="padding:12px 0">위 검색창에서 종목을 찾아 보유종목을 추가하세요 — 추가하면 <b>리밸런싱·시나리오·섹터 히트맵</b>이 켜집니다.</div>
       </div>
 
+      <div class="card" id="holdings-div-card" style="margin-bottom:16px;display:none">
+        <b style="font-size:14px">💵 내 보유 배당 <span style="color:var(--dim);font-weight:600;font-size:12px">· 보유 배당주로 받는 예상 월/연 배당</span></b>
+        <div id="holdings-div-body" style="margin-top:8px"></div>
+      </div>
+
       <div class="card" style="margin-bottom:16px">
         <b style="font-size:15px">섹터 히트맵 <span style="color:var(--dim);font-weight:600;font-size:12px">· 크기=평가액 · 색=손익률</span></b>
         <div id="heatmap-body" style="height:340px;margin-top:8px"></div>
@@ -571,6 +576,13 @@
           <div class="card"><div class="stat-label">예상 월 배당(평균)</div><div class="stat-value" id="div-monthly">$0</div></div>
           <div class="card"><div class="stat-label">담은 종목</div><div class="stat-value" id="div-count">0</div></div>
           <div class="card"><div class="stat-label">투자금(현재가 기준)</div><div class="stat-value" id="div-cost">$0</div></div>
+        </div>
+        <div class="row" style="align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
+          <span class="stat-label" style="margin:0;line-height:1">🎯 월 배당 목표</span>
+          <input id="div-goal" type="number" min="0" class="ctrl" style="max-width:130px" placeholder="예: 500000"
+                 oninput="onDivGoal()">
+          <span id="div-goal-cur" style="color:var(--dim);font-size:12px"></span>
+          <div id="div-goal-progress" style="flex:1 1 240px;min-width:200px"></div>
         </div>
       </div>
       <div class="split">
@@ -1849,24 +1861,43 @@ function switchTradingSeg(seg){
   if (seg === 'dividend') loadDividends();
 }
 
-// ===== 배당 플래너(US) — 배당주 리스트 + 담은 주수로 예상 연/월 배당 =====
+// ===== 배당 플래너 — 배당주 리스트 + 담은 주수로 예상 연/월 배당(플랜·목표는 localStorage에 시장별 저장) =====
 let _divItems = [], _divPlan = {}, _divChart = null, _divCalChart = null, _divMarket = 'us', _divCur = 'USD';
 const _divMoney = (v, dp) => _divCur === 'USD' ? '$' + fmtNum(v, dp) : fmtKRW(v);
+// 지급월 개수 → 배당 빈도 라벨(월/분기/반기/연). div_months가 없으면 미상.
+function divFreq(ms){
+  const n = (ms || []).length;
+  if (n >= 12) return { label: '월배당', color: '#22c55e' };
+  if (n === 6) return { label: '격월', color: '#16a34a' };
+  if (n === 4) return { label: '분기배당', color: '#0ea5e9' };
+  if (n === 2) return { label: '반기', color: '#6366f1' };
+  if (n === 1) return { label: '연배당', color: '#94a3b8' };
+  return { label: '지급월 미상', color: '#b45309' };
+}
+// 플랜·목표를 시장별로 localStorage에 저장/복원(가벼운 영속성 — 새로고침·탭 전환에도 유지)
+const _divPlanKey = () => 'sd_divplan_' + _divMarket;
+const _divGoalKey = () => 'sd_divgoal_' + _divMarket;
+function _loadDivPlan(){ try { _divPlan = JSON.parse(localStorage.getItem(_divPlanKey())) || {}; } catch(e) { _divPlan = {}; } }
+function _saveDivPlan(){ try { localStorage.setItem(_divPlanKey(), JSON.stringify(_divPlan)); } catch(e) {} }
 function switchDivMarket(m){
   _divMarket = (m === 'kr') ? 'kr' : 'us';
-  _divPlan = {};  // 시장 바꾸면 담은 것 초기화
   document.querySelectorAll('#div-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.dmkt === _divMarket));
   document.getElementById('div-kr-note').style.display = _divMarket === 'kr' ? '' : 'none';
-  loadDividends();
+  loadDividends();  // loadDividends가 시장별 저장된 플랜을 복원
 }
 async function loadDividends(){
   const el = document.getElementById('div-list');
+  _loadDivPlan();  // 시장별 저장된 플랜 복원(새로고침·탭 전환에도 유지)
   try {
     const d = await (await fetch('/api/dividends?market=' + _divMarket)).json();
     _divCur = d.currency || 'USD';
+    document.getElementById('div-goal-cur').textContent = _divCur === 'USD' ? '$/월' : '원/월';
+    const gv = localStorage.getItem(_divGoalKey());
+    document.getElementById('div-goal').value = gv || '';
     if (!d.ready || !(d.items || []).length) {
       el.className = 'placeholder';
       el.textContent = d.message || '배당 데이터가 아직 없습니다 — 관리자 데이터 갱신(EDGAR 배당 백필) 후 표시됩니다.';
+      recalcDividends();
       return;
     }
     _divItems = d.items;
@@ -1874,8 +1905,10 @@ async function loadDividends(){
     const rows = _divItems.map(it => {
       const kindTag = it.kind && it.kind !== 'HOLD'
         ? ` <span class="sig-pill ${it.kind}" style="font-size:10px">${kindLabel(it.kind)}</span>` : '';
+      const fq = divFreq(it.div_months);
+      const fqTag = `<span style="color:${fq.color};font-size:10px;font-weight:600">${fq.label}</span>`;
       return `<tr>
-        <td>${esc(it.name)}<div style="color:var(--dim);font-size:11px">${esc(it.ticker)}${it.sector ? ' · ' + esc(it.sector) : ''}</div></td>
+        <td>${esc(it.name)}<div style="color:var(--dim);font-size:11px">${esc(it.ticker)}${it.sector ? ' · ' + esc(it.sector) : ''} · ${fqTag}</div></td>
         <td class="num" style="color:var(--sig-buy);font-weight:700">${it.div_yield != null ? it.div_yield + '%' : '–'}</td>
         <td class="num">${_divMoney(it.dps, _divCur === 'USD' ? 2 : 0)}</td>
         <td class="num">${it.price != null ? _divMoney(it.price, _divCur === 'USD' ? 2 : 0) : '–'}${kindTag}</td>
@@ -1891,6 +1924,12 @@ async function loadDividends(){
 function onDivQty(input){
   const t = input.dataset.divt, q = parseInt(input.value) || 0;
   if (q > 0) _divPlan[t] = q; else delete _divPlan[t];
+  _saveDivPlan();  // 담을 때마다 저장
+  recalcDividends();
+}
+function onDivGoal(){
+  const v = parseFloat(document.getElementById('div-goal').value);
+  if (v > 0) localStorage.setItem(_divGoalKey(), String(v)); else localStorage.removeItem(_divGoalKey());
   recalcDividends();
 }
 function recalcDividends(){
@@ -1911,6 +1950,7 @@ function recalcDividends(){
   document.getElementById('div-monthly').textContent = _divMoney(annual / 12, dp);
   document.getElementById('div-count').textContent = contrib.length;
   document.getElementById('div-cost').textContent = _divMoney(cost, dp);
+  _renderDivGoal(annual / 12, cost);  // 🎯 목표 트래커: 현재 월배당 vs 목표
   const holder = document.getElementById('div-chart');
   if (!contrib.length) { if (_divChart) _divChart.clear(); if (_divCalChart) _divCalChart.clear(); return; }
   if (!_divChart) _divChart = echarts.init(holder);
@@ -1938,6 +1978,28 @@ function recalcDividends(){
                itemStyle: { color: '#4f46e5' } }],
   }, true);
   _divCalChart.resize();
+}
+// 🎯 목표 트래커 — 현재 월배당 대비 목표 달성률 + 목표까지 추가로 필요한 투자금(현재 담은 평균 수익률 기준).
+function _renderDivGoal(monthlyNow, cost){
+  const box = document.getElementById('div-goal-progress');
+  if (!box) return;
+  const goal = parseFloat(localStorage.getItem(_divGoalKey()));
+  if (!(goal > 0)) { box.innerHTML = ''; return; }
+  const pct = Math.min(100, Math.round(monthlyNow / goal * 100));
+  const done = monthlyNow >= goal;
+  const gapMonthly = Math.max(0, goal - monthlyNow);
+  // 추가 필요 투자금: 부족한 연배당(gap×12)을 현재 담은 조합의 실효 수익률로 나눔. 담은 게 없으면 안내만.
+  const eff = cost > 0 ? (monthlyNow * 12) / cost : 0;  // 담은 조합의 연 배당수익률
+  const needInvest = (gapMonthly > 0 && eff > 0) ? (gapMonthly * 12) / eff : null;
+  const bar = `<div style="background:var(--line);border-radius:6px;height:10px;overflow:hidden;margin:4px 0">
+      <div style="width:${pct}%;height:100%;background:${done ? 'var(--sig-buy)' : '#4f46e5'}"></div></div>`;
+  const need = done
+    ? '<span style="color:var(--sig-buy);font-weight:600">🎉 목표 달성!</span>'
+    : `부족 ${_divMoney(gapMonthly, 0)}/월`
+      + (needInvest ? ` · 현재 수익률로 <b>약 ${_divMoney(needInvest, 0)}</b> 더 투자 필요`
+                    : ' · 종목을 담으면 필요 투자금이 계산됩니다');
+  box.innerHTML = `<div style="font-size:12px;color:var(--dim)">달성률 ${pct}% (${_divMoney(monthlyNow, 0)} / ${_divMoney(goal, 0)})</div>${bar}
+      <div style="font-size:11px;color:var(--dim-2)">${need}</div>`;
 }
 
 // ===== 포트폴리오 파이차트(봇·내꺼·거장 공용) =====
@@ -2022,13 +2084,41 @@ async function loadHoldings(){
   const el = document.getElementById('holdings-body');
   const d = await (await fetch('/api/holdings')).json();
   const hs = d.holdings || [];
-  if (!hs.length) { el.className = 'placeholder'; el.innerHTML = '위 검색창에서 종목을 찾아 보유종목을 추가하세요 — 추가하면 <b>리밸런싱·시나리오·섹터 히트맵</b>이 켜집니다.'; loadHeatmap(); return; }
+  if (!hs.length) { el.className = 'placeholder'; el.innerHTML = '위 검색창에서 종목을 찾아 보유종목을 추가하세요 — 추가하면 <b>리밸런싱·시나리오·섹터 히트맵</b>이 켜집니다.'; document.getElementById('holdings-div-card').style.display = 'none'; loadHeatmap(); return; }
   el.className = '';
   el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단가</th><th></th></tr></thead><tbody>`
     + hs.map(h => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, 0)}</td>
         <td class="num"><span style="color:var(--sig-sell);cursor:pointer" onclick="removeHolding('${esc(h.ticker)}')">삭제</span></td></tr>`).join('')
     + `</tbody></table>`;
   loadHeatmap();
+  loadHoldingsDividends();
+}
+
+// 내 보유종목 중 배당주의 예상 배당(통화별 ₩/$ 분리 집계). 배당주가 없으면 카드 숨김.
+async function loadHoldingsDividends(){
+  const card = document.getElementById('holdings-div-card');
+  const body = document.getElementById('holdings-div-body');
+  if (!card || !body) return;
+  let d;
+  try { d = await (await fetch('/api/holdings/dividends')).json(); } catch(e) { card.style.display = 'none'; return; }
+  if (!d.ready || !(d.items || []).length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  const money = (v, cur) => cur === 'USD' ? '$' + fmtNum(v, 0) : fmtKRW(v);
+  const totals = Object.entries(d.totals || {}).map(([cur, t]) =>
+    `<div class="card" style="flex:1"><div class="stat-label">${cur === 'USD' ? '🇺🇸 예상 월 배당' : '🇰🇷 예상 월 배당'}</div>
+       <div class="stat-value">${money(t.monthly, cur)}</div>
+       <div style="font-size:11px;color:var(--dim)">연 ${money(t.annual, cur)} · ${t.count}종목</div></div>`).join('');
+  const rows = d.items.map(it => {
+    const fq = divFreq(it.div_months);
+    return `<tr><td>${esc(it.name)}<div style="color:var(--dim);font-size:11px">${esc(it.ticker)} · <span style="color:${fq.color}">${fq.label}</span></div></td>
+      <td class="num">${it.qty}</td>
+      <td class="num">${money(it.dps, it.currency)}</td>
+      <td class="num" style="color:var(--sig-buy)">${it.div_yield != null ? it.div_yield + '%' : '–'}</td>
+      <td class="num">${money(it.monthly, it.currency)}</td></tr>`;
+  }).join('');
+  body.innerHTML = `<div class="card-row" style="margin-bottom:8px">${totals}</div>`
+    + `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">주당배당</th><th class="num">수익률</th><th class="num">월배당(평균)</th></tr></thead><tbody>${rows}</tbody></table>`
+    + `<div style="font-size:11px;color:var(--dim-2);margin-top:4px">보유수량×주당배당 ÷ 12 = 월평균. 국내 결산배당은 연 1회 지급이라 실제 월분배와 다를 수 있음.</div>`;
 }
 
 let _heatmapChart = null;
