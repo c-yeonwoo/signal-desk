@@ -81,7 +81,7 @@ def test_fixed_six_scene_template(tmp_path, monkeypatch):
     _setup(monkeypatch, tmp_path, sigs)
     d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
     labels = [s["label"] for s in d["scenes"]]
-    assert labels == ["0·인트로", "1·기업 개요", "2·정량 근거", "3·정성 근거", "4·추천 이유"]
+    assert labels == ["0·인트로", "1·기업 개요", "2·정량 근거", "3·정성 근거", "4·주목 포인트"]
     assert "오늘의 시그널" in d["scenes"][0]["svg"] and d["card_svg"] == d["scenes"][0]["svg"]
     assert "기업 개요" in d["scenes"][1]["svg"] and "정량 지표 근거" in d["scenes"][2]["svg"]
     assert all(sc["svg"].startswith("<svg") and sc.get("narration") for sc in d["scenes"])

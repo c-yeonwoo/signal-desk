@@ -19,7 +19,8 @@ from signal_desk.signals import engine, macro, regime
 
 log = logging.getLogger("signal_desk.shortform")
 
-_KIND_KO = {"STRONG_BUY": "강력매수", "BUY": "매수"}
+# 규제상 '매수/추천' 같은 단정 표현 대신 '주목' 톤으로 — 정보 제공·관심 환기 뉘앙스(투자권유 아님).
+_KIND_KO = {"STRONG_BUY": "강한 주목", "BUY": "주목"}
 _DISCLAIMER = "정보 제공·교육 목적이며 투자 권유가 아닙니다. 투자 판단과 책임은 본인에게 있습니다."
 
 _SCRIPT_SYS = (
@@ -351,7 +352,7 @@ def _qual_svg(summary, points, kind, bg=None) -> str:
 
 
 def _reco_svg(name, kind, easy_line, target, bg=None) -> str:
-    """④ 추천 이유 — 평가(구분) + 쉬운 한줄 해설 + 참고 목표가(있으면)."""
+    """④ 주목 포인트 — 관심 강도(주목/강한 주목) + 쉬운 한줄 해설 + 참고 목표가(있으면). 투자권유 아님."""
     pill = _pill_color(kind)
     kind_ko = _KIND_KO.get(kind, "관심")
     ew = _wrap(easy_line, 14)[:3]
@@ -363,7 +364,7 @@ def _reco_svg(name, kind, easy_line, target, bg=None) -> str:
                f'<text x="120" y="1580" fill="#e5e7eb" font-size="66" font-weight="700">{_won(target["value_target"])}'
                + (f'  ({up:+.1f}%)' if up is not None else '') + '</text>'
                '<text x="120" y="1640" fill="#6b7280" font-size="32">※ PER 회귀 기준 참고치 · 목표·보장 아님</text>')
-    return (_svg_open(pill, bg) + _kicker("04", "추천 이유", pill)
+    return (_svg_open(pill, bg) + _kicker("04", "주목 포인트", pill)
         + f'<rect x="120" y="580" rx="20" width="320" height="104" fill="{pill}"/>'
         + f'<text x="280" y="652" fill="#fff" font-size="52" font-weight="800" text-anchor="middle">{kind_ko}</text>'
         + f'<text x="120" y="900" fill="#ffffff" font-size="76" font-weight="700">{etext}</text>'
@@ -403,7 +404,7 @@ def _scenes_for(name: str, ticker: str, kind: str, score: float, reasons: list[s
                 target: dict | None = None, easy_line: str | None = None,
                 outro: dict | None = None, profile: dict | None = None) -> list[dict]:
     """고정 6장면 템플릿 — 0 인트로 · 1 기업개요 · 2 정량근거(차트) · 3 정성근거(뉴스·시황) ·
-    4 추천이유(쉬운 해설·평가·목표가) · 5 아웃트로(봇 수익률). 각 장면에 나레이션·길이.
+    4 주목 포인트(쉬운 해설·관심 강도·목표가) · 5 아웃트로(봇 수익률). 각 장면에 나레이션·길이.
     typecast(장면별 음성)든 자체 렌더(장면별 프레임)든 그대로 투입되는 중간 포맷."""
     bg = _load_bg()
     kind_ko = _KIND_KO.get(kind, "관심")
@@ -438,10 +439,10 @@ def _scenes_for(name: str, ticker: str, kind: str, score: float, reasons: list[s
     n3 = ("정성적으로는, " + (summary or "; ".join(points[:2])) if (summary or points)
           else "최근 특별한 뉴스나 시황 이슈는 크지 않아, 지표 위주로 판단했습니다.")
     scenes.append(_scene("3·정성 근거", n3, _qual_svg(summary, points, kind, bg)))
-    # 4 추천 이유
+    # 4 주목 포인트
     n4 = easy_line + (f" 참고 목표가는 {_won(target['value_target'])} 수준입니다."
                       if target and target.get("value_target") else "")
-    scenes.append(_scene("4·추천 이유", n4, _reco_svg(name, kind, easy_line, target, bg)))
+    scenes.append(_scene("4·주목 포인트", n4, _reco_svg(name, kind, easy_line, target, bg)))
     # 5 아웃트로(봇 track record 있을 때만)
     if outro and outro.get("ret_pct") is not None:
         ret = outro["ret_pct"]
