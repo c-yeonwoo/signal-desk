@@ -168,10 +168,16 @@ def _svg_open(bar: str, bg: str | None = None) -> str:
     head = ('<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
             'viewBox="0 0 1080 1920" preserveAspectRatio="xMidYMid meet" '
             'style="width:100%;height:auto;display:block">')
-    if bg:  # 배경 사진(호스팅 URL) 위에 어두운 scrim — 데이터 텍스트 가독성 유지
+    if bg:  # 배경 사진(호스팅 URL) 위에 그라데이션 scrim — 밝고 복잡한 사진도 글자 가독성 유지.
+        # 텍스트가 얹히는 좌·하단을 진하게(0.95), 배경 여백(우상단)은 살짝(0.55) — 분위기 유지 + 가독성.
+        gid = "scr" + uuid.uuid4().hex[:8]  # 프레임마다 고유 id(같은 문서 내 여러 SVG id 충돌 방지)
         base = (f'<image href="{_esc(bg)}" xlink:href="{_esc(bg)}" x="0" y="0" width="1080" height="1920" '
                 f'preserveAspectRatio="xMidYMid slice"/>'
-                f'<rect width="1080" height="1920" fill="#0b1220" opacity="0.66"/>')
+                f'<defs><linearGradient id="{gid}" x1="0" y1="0.1" x2="0.9" y2="1">'
+                f'<stop offset="0" stop-color="#0b1220" stop-opacity="0.6"/>'
+                f'<stop offset="0.55" stop-color="#0b1220" stop-opacity="0.82"/>'
+                f'<stop offset="1" stop-color="#0b1220" stop-opacity="0.95"/></linearGradient></defs>'
+                f'<rect width="1080" height="1920" fill="url(#{gid})"/>')
     else:
         base = '<rect width="1080" height="1920" fill="#0b1220"/>'
     return head + base + f'<rect x="0" y="0" width="1080" height="12" fill="{bar}"/>'
