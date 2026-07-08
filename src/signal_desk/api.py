@@ -757,10 +757,22 @@ def refresh(data: dict = Body(default={})):
     scope = str(data.get("scope") or "all").lower()
     result: dict = {"ok": True, "scope": scope}
     if scope == "all":
-        for fn in (_refresh_kr, _refresh_macro, _refresh_flows, _refresh_us):
-            result.update(fn(data))
+        errors = {}
+        for name, fn in _REFRESH_RUNNERS.items():
+            try:
+                result.update(fn(data))
+            except Exception as e:  # scope 하나가 죽어도 나머지는 계속 (부분 수집)
+                log.exception("refresh scope=%s 실패", name)
+                errors[name] = f"{type(e).__name__}: {e}"
+        if errors:
+            result["ok"] = False
+            result["errors"] = errors
     elif scope in _REFRESH_RUNNERS:
-        result.update(_REFRESH_RUNNERS[scope](data))
+        try:
+            result.update(_REFRESH_RUNNERS[scope](data))
+        except Exception as e:
+            log.exception("refresh scope=%s 실패", scope)
+            return {"ok": False, "scope": scope, "error": f"{type(e).__name__}: {e}"}
     else:
         return {"ok": False, "reason": f"알 수 없는 scope: {scope} (kr|macro|flows|us|all)"}
     _clear_signal_caches()

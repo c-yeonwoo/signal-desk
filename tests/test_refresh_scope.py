@@ -16,14 +16,33 @@ def test_scope_runs_only_that_runner(monkeypatch):
 
 def test_scope_all_runs_every_runner(monkeypatch):
     called = []
-    monkeypatch.setattr(api, "_refresh_kr", lambda d: (called.append("kr") or {"universe_size": 1}))
-    monkeypatch.setattr(api, "_refresh_macro", lambda d: (called.append("macro") or {}))
-    monkeypatch.setattr(api, "_refresh_flows", lambda d: (called.append("flows") or {}))
-    monkeypatch.setattr(api, "_refresh_us", lambda d: (called.append("us") or {}))
+    for name in ("kr", "macro", "flows", "us"):
+        monkeypatch.setitem(api._REFRESH_RUNNERS, name,
+                            lambda data, n=name: (called.append(n) or {}))
     monkeypatch.setattr(api, "_clear_signal_caches", lambda: None)
 
     out = api.refresh({})  # scope 미지정 → all
     assert called == ["kr", "macro", "flows", "us"] and out["ok"]
+
+
+def test_scope_all_reports_partial_failure(monkeypatch):
+    monkeypatch.setitem(api._REFRESH_RUNNERS, "kr",
+                        lambda data: (_ for _ in ()).throw(ValueError("boom")))
+    monkeypatch.setitem(api._REFRESH_RUNNERS, "macro", lambda data: {"macro_size": 3})
+    monkeypatch.setitem(api._REFRESH_RUNNERS, "flows", lambda data: {"flows_size": 0})
+    monkeypatch.setitem(api._REFRESH_RUNNERS, "us", lambda data: {})
+    monkeypatch.setattr(api, "_clear_signal_caches", lambda: None)
+
+    out = api.refresh({})  # kr는 죽지만 나머지는 진행
+    assert out["ok"] is False and "boom" in out["errors"]["kr"] and out["macro_size"] == 3
+
+
+def test_single_scope_error_surfaced(monkeypatch):
+    monkeypatch.setitem(api._REFRESH_RUNNERS, "kr",
+                        lambda data: (_ for _ in ()).throw(RuntimeError("krx down")))
+    monkeypatch.setattr(api, "_clear_signal_caches", lambda: None)
+    out = api.refresh({"scope": "kr"})
+    assert out["ok"] is False and "krx down" in out["error"] and out["scope"] == "kr"
 
 
 def test_unknown_scope_rejected(monkeypatch):
