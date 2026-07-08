@@ -319,6 +319,7 @@
 <nav class="subnav" id="subnav-trading" style="display:none">
   <button class="subtab on" data-seg="bot" onclick="switchTradingSeg('bot')">시그널 트레이딩</button>
   <button class="subtab" data-seg="rebal" onclick="switchTradingSeg('rebal')">내 포트폴리오</button>
+  <button class="subtab" data-seg="dividend" onclick="switchTradingSeg('dividend')">배당 플래너</button>
 </nav>
 
 <div class="market-bar" id="market-ribbon">
@@ -552,6 +553,30 @@
         <p class="page-desc" style="margin:6px 0 14px">유명 투자자들이 공개한 보유내역(미국 SEC 13F)입니다. 내 배분과 비교해 참고하세요.
           <b>분기 공시 스냅샷이며 최대 45일 지연</b>, 미국 롱 포지션만 표시됩니다(현금·채권·해외주식 제외) · 추천 아님.</p>
         <div id="gurus-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+      </div>
+    </div>
+
+    <div id="trading-dividend" style="display:none">
+      <div class="card" style="margin-bottom:16px">
+        <b style="font-size:15px">💵 배당 플래너 <span style="color:var(--dim);font-weight:600;font-size:12px">· 미국 배당주 월 현금흐름 시뮬레이션</span></b>
+        <p class="page-desc" style="margin:6px 0 12px">미국 배당주를 <b>배당수익률·시그널·시총 순</b>으로 보고, 담을 종목과 주수를 정하면 <b>예상 연/월 배당</b>을 계산해 보여줍니다.
+          연배당(TTM) 기준 <b>월평균(연÷12)</b>으로 환산합니다. <span style="color:var(--dim-2)">배당·주가는 참고용, 미래 배당을 보장하지 않음 · 봇 트레이딩과 별개.</span></p>
+        <div class="card-row" style="margin-bottom:6px">
+          <div class="card"><div class="stat-label">예상 연 배당</div><div class="stat-value" id="div-annual">$0</div></div>
+          <div class="card"><div class="stat-label">예상 월 배당(평균)</div><div class="stat-value" id="div-monthly">$0</div></div>
+          <div class="card"><div class="stat-label">담은 종목</div><div class="stat-value" id="div-count">0</div></div>
+          <div class="card"><div class="stat-label">투자금(현재가 기준)</div><div class="stat-value" id="div-cost">$0</div></div>
+        </div>
+      </div>
+      <div class="split">
+        <div class="card">
+          <b style="font-size:14px">배당주 (수익률순)</b>
+          <div id="div-list" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+        </div>
+        <div class="card">
+          <b style="font-size:14px">종목별 연 배당 기여</b>
+          <div id="div-chart" style="height:360px"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -1801,8 +1826,72 @@ function switchTradingSeg(seg){
   document.querySelectorAll('#subnav-trading .subtab').forEach(b => b.classList.toggle('on', b.dataset.seg === seg));
   document.getElementById('trading-bot').style.display = seg === 'bot' ? '' : 'none';
   document.getElementById('trading-rebal').style.display = seg === 'rebal' ? '' : 'none';
+  document.getElementById('trading-dividend').style.display = seg === 'dividend' ? '' : 'none';
   if (seg === 'bot') loadBotState();
   if (seg === 'rebal') { loadHoldings(); loadGurus(); }
+  if (seg === 'dividend') loadDividends();
+}
+
+// ===== 배당 플래너(US) — 배당주 리스트 + 담은 주수로 예상 연/월 배당 =====
+let _divItems = [], _divPlan = {}, _divChart = null;
+async function loadDividends(){
+  const el = document.getElementById('div-list');
+  try {
+    const d = await (await fetch('/api/dividends')).json();
+    if (!d.ready || !(d.items || []).length) {
+      el.className = 'placeholder';
+      el.textContent = d.message || '배당 데이터가 아직 없습니다 — 관리자 데이터 갱신(EDGAR 배당 백필) 후 표시됩니다.';
+      return;
+    }
+    _divItems = d.items;
+    el.className = '';
+    const rows = _divItems.map(it => {
+      const kindTag = it.kind && it.kind !== 'HOLD'
+        ? ` <span class="sig-pill ${it.kind}" style="font-size:10px">${kindLabel(it.kind)}</span>` : '';
+      return `<tr>
+        <td>${esc(it.name)}<div style="color:var(--dim);font-size:11px">${esc(it.ticker)}${it.sector ? ' · ' + esc(it.sector) : ''}</div></td>
+        <td class="num" style="color:var(--sig-buy);font-weight:700">${it.div_yield != null ? it.div_yield + '%' : '–'}</td>
+        <td class="num">$${fmtNum(it.dps, 2)}</td>
+        <td class="num">${it.price != null ? '$' + fmtNum(it.price, 2) : '–'}${kindTag}</td>
+        <td class="num"><input type="number" min="0" class="ctrl" style="width:74px" data-divt="${esc(it.ticker)}"
+             value="${_divPlan[it.ticker] || ''}" placeholder="0" oninput="onDivQty(this)"></td></tr>`;
+    }).join('');
+    el.innerHTML = `<table class="dtable"><thead><tr>
+      <th>종목</th><th class="num">배당수익률</th><th class="num">주당배당</th><th class="num">현재가/시그널</th><th class="num">주수</th>
+    </tr></thead><tbody>${rows}</tbody></table>`;
+    recalcDividends();
+  } catch (e) { el.className = 'placeholder'; el.textContent = '불러오지 못했습니다.'; }
+}
+function onDivQty(input){
+  const t = input.dataset.divt, q = parseInt(input.value) || 0;
+  if (q > 0) _divPlan[t] = q; else delete _divPlan[t];
+  recalcDividends();
+}
+function recalcDividends(){
+  const by = Object.fromEntries(_divItems.map(i => [i.ticker, i]));
+  let annual = 0, cost = 0; const contrib = [];
+  for (const [t, q] of Object.entries(_divPlan)) {
+    const it = by[t]; if (!it) continue;
+    const a = (it.dps || 0) * q;
+    annual += a; cost += (it.price || 0) * q;
+    contrib.push({ name: it.name, value: Math.round(a * 100) / 100 });
+  }
+  document.getElementById('div-annual').textContent = '$' + fmtNum(annual, 0);
+  document.getElementById('div-monthly').textContent = '$' + fmtNum(annual / 12, 0);
+  document.getElementById('div-count').textContent = contrib.length;
+  document.getElementById('div-cost').textContent = '$' + fmtNum(cost, 0);
+  const holder = document.getElementById('div-chart');
+  if (!contrib.length) { if (_divChart) _divChart.clear(); return; }
+  if (!_divChart) _divChart = echarts.init(holder);
+  contrib.sort((a, b) => b.value - a.value);
+  _divChart.setOption({
+    tooltip: { trigger: 'axis', formatter: p => `${esc(p[0].name)}: $${p[0].value}/년` },
+    grid: { left: 90, right: 20, top: 10, bottom: 20 },
+    xAxis: { type: 'value', name: '연 배당($)' },
+    yAxis: { type: 'category', data: contrib.map(c => c.name), inverse: true },
+    series: [{ type: 'bar', data: contrib.map(c => c.value), itemStyle: { color: '#22c55e' } }],
+  }, true);
+  _divChart.resize();
 }
 
 // ===== 포트폴리오 파이차트(봇·내꺼·거장 공용) =====

@@ -56,11 +56,11 @@ def _ticker_cik_map() -> dict[str, str]:
     return _cik_map
 
 
-def _latest_annual_usd(facts: dict, keys: list[str]) -> float | None:
-    """us-gaap 컨셉(keys 우선순위) 중 최신 '연간(FY, 10-K/20-F)' USD 값. 없으면 None."""
+def _latest_annual(facts: dict, keys: list[str], unit: str = "USD") -> float | None:
+    """us-gaap 컨셉(keys 우선순위) 중 최신 '연간(FY, 10-K/20-F)' 값. unit=단위(USD, 'USD/shares' 등)."""
     usgaap = (facts.get("facts") or {}).get("us-gaap") or {}
     for k in keys:
-        units = ((usgaap.get(k) or {}).get("units") or {}).get("USD") or []
+        units = ((usgaap.get(k) or {}).get("units") or {}).get(unit) or []
         annuals = [u for u in units if u.get("fp") == "FY" and u.get("form") in ("10-K", "20-F")] or units
         if annuals:
             best = max(annuals, key=lambda u: (u.get("fy") or 0, u.get("end") or ""))
@@ -70,8 +70,8 @@ def _latest_annual_usd(facts: dict, keys: list[str]) -> float | None:
 
 
 def fundamentals(ticker: str) -> dict | None:
-    """티커의 최신 연간 순이익·자기자본(EDGAR XBRL companyfacts, DART의 미국판). 없으면 None.
-    PER=시총/순이익, PBR=시총/자기자본 계산에 쓴다(시총은 별도로 발행주식수×현재가)."""
+    """티커의 최신 연간 순이익·자기자본·주당배당(EDGAR XBRL companyfacts, DART의 미국판). 없으면 None.
+    PER=시총/순이익, PBR=시총/자기자본, 배당수익률=주당배당/현재가(시총·현재가는 별도)."""
     cik = _ticker_cik_map().get(ticker.upper())
     if not cik:
         return None
@@ -82,12 +82,14 @@ def fundamentals(ticker: str) -> dict | None:
         facts = json.loads(raw)
     except Exception:
         return None
-    ni = _latest_annual_usd(facts, ["NetIncomeLoss", "ProfitLoss"])
-    eq = _latest_annual_usd(facts, ["StockholdersEquity",
-                                    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"])
-    if ni is None and eq is None:
+    ni = _latest_annual(facts, ["NetIncomeLoss", "ProfitLoss"])
+    eq = _latest_annual(facts, ["StockholdersEquity",
+                                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"])
+    dps = _latest_annual(facts, ["CommonStockDividendsPerShareDeclared",
+                                 "CommonStockDividendsPerShareCashPaid"], unit="USD/shares")
+    if ni is None and eq is None and dps is None:
         return None
-    return {"net_income": ni, "equity": eq}
+    return {"net_income": ni, "equity": eq, "dps": dps}
 
 
 def _latest_13f(cik: str) -> tuple[str, str] | None:

@@ -766,6 +766,29 @@ def egress_ip_get():
     return {"ok": False, "reason": "아웃바운드 IP 조회 실패(외부 IP 서비스 모두 응답 없음)"}
 
 
+@app.get("/api/dividends")
+def dividends_get():
+    """US 배당주 리스트(배당 플래너용) — 배당수익률·주당배당·현재가 + 시그널·시총·섹터. 수익률 내림차순.
+    봇과 분리된 '월 현금흐름' 도구. EDGAR TTM 주당배당 기반(월배당은 연÷12로 환산)."""
+    divs = store.us_dividends()
+    if not divs:
+        return {"ready": False, "items": [], "message": "배당 데이터 없음 — 관리자 데이터 갱신(EDGAR 배당 백필) 필요"}
+    sig = _us_signals()
+    mcaps = store.us_marketcaps()
+    names = {u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()}
+    sec = {u["ticker"]: u.get("sector") for u in store.load_us_universe()}
+    items = []
+    for t, d in divs.items():
+        s = sig.get(t)
+        items.append({"ticker": t, "name": names.get(t, t), "price": d["price"],
+                      "dps": d["dps"], "div_yield": d["div_yield"],
+                      "kind": s.kind if s else None, "score": round(s.score, 2) if s else None,
+                      "mktcap": (mcaps.get(t) or {}).get("mktcap"),
+                      "sector": us_ko.sector_ko(sec.get(t))})
+    items.sort(key=lambda x: (x["div_yield"] or 0, x["mktcap"] or 0), reverse=True)
+    return {"ready": True, "items": items}
+
+
 @app.get("/api/data-health")
 def data_health_get():
     """시세 데이터 신뢰도 진단(관리자) — 캐시 종가 vs 토스 실시간가 비율로 스케일/합성 여부 판정.

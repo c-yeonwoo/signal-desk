@@ -419,8 +419,8 @@ def fetch_us_fundamentals_edgar(tickers: list[str], max_calls: int = 40) -> int:
         if done >= max_calls:
             break
         cur = cache.get(t) or {}
-        if cur.get("net_income") is not None or cur.get("equity") is not None:
-            continue  # 이미 채워짐
+        if "dps" in cur:  # 이 버전으로 이미 수집됨(dps 키 존재 = 배당 포함 백필 완료)
+            continue
         f = edgar.fundamentals(t)
         done += 1  # 호출 시도 카운트(스로틀)
         if not f:
@@ -428,6 +428,7 @@ def fetch_us_fundamentals_edgar(tickers: list[str], max_calls: int = 40) -> int:
         cache.setdefault(t, {"shares": None, "per": None, "sector": None})
         cache[t]["net_income"] = f.get("net_income")
         cache[t]["equity"] = f.get("equity")
+        cache[t]["dps"] = f.get("dps")  # 주당 연배당(배당 플래너·수익률용)
     if done:
         _write_json(US_FUNDAMENTALS_FILE, cache)
     return done
@@ -448,6 +449,25 @@ def us_marketcaps(prices: dict[str, list[float]] | None = None) -> dict[str, dic
         per = round(mktcap / ni, 2) if (mktcap and ni and ni > 0) else f.get("per")
         pbr = round(mktcap / eq, 2) if (mktcap and eq and eq > 0) else None
         out[t] = {"mktcap": mktcap, "per": per, "pbr": pbr}
+    return out
+
+
+def us_dividends(prices: dict[str, list[float]] | None = None) -> dict[str, dict]:
+    """US 배당주 — {ticker: {dps(주당 연배당), div_yield(%), price}}. 배당 있는 종목만(dps>0).
+    EDGAR TTM 주당배당 + 최신 종가로 수익률 계산(배당 플래너용)."""
+    fund = load_us_fundamentals()
+    if not fund:
+        return {}
+    prices = prices if prices is not None else load_us_price_series()
+    out = {}
+    for t, f in fund.items():
+        dps = f.get("dps")
+        if not dps or dps <= 0:
+            continue
+        closes = prices.get(t)
+        price = float(closes[-1]) if closes else None
+        out[t] = {"dps": round(float(dps), 4), "price": round(price, 2) if price else None,
+                  "div_yield": round(dps / price * 100, 2) if price else None}
     return out
 
 
