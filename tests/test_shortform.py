@@ -90,6 +90,29 @@ def test_scenes_intro_plus_reason_frames(tmp_path, monkeypatch):
     assert d["card_svg"] == scenes[0]["svg"]
 
 
+def test_reason_frame_has_price_chart(tmp_path, monkeypatch):
+    # 근거 프레임에 종목 가격 미니차트가 붙어야(허술함 보완).
+    sigs = [_sig("005930", "삼성전자", "BUY", 1.8, ["[기술] 골든크로스(상승 전환)"])]
+    _setup(monkeypatch, tmp_path, sigs)
+    monkeypatch.setattr(shortform.store, "load_price_series",
+                        lambda: {"005930": [100.0, 105.0, 103.0, 108.0, 112.0]})
+    d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
+    reason = [s for s in d["scenes"] if s["label"].startswith("근거")][0]
+    assert "최근 가격 흐름" in reason["svg"] and "<polyline" in reason["svg"]
+
+
+def test_outro_scene_appended_with_track_record(tmp_path, monkeypatch):
+    # 봇 track record가 있으면 마지막에 수익률 차트 아웃트로가 붙어야.
+    sigs = [_sig("005930", "삼성전자", "BUY", 1.8, ["[기술] 골든크로스(상승 전환)"])]
+    _setup(monkeypatch, tmp_path, sigs)
+    curve = [{"date": f"d{i}", "total_eval": 10_000_000 * (1 + i * 0.003)} for i in range(30)]
+    monkeypatch.setattr(shortform, "_reference_outro",
+                        lambda *a, **k: {"label": "균형형 봇", "ret_pct": 8.7, "curve": curve})
+    d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
+    last = d["scenes"][-1]
+    assert last["label"].startswith("아웃트로") and "+8.7%" in last["svg"] and "모의투자" in last["svg"]
+
+
 def test_disclaimer_in_caption_not_on_card(tmp_path, monkeypatch):
     # 투자유의(면책)는 캡션에만, 카드 프레임엔 없어야. 근거 종합 해설은 캡션에 포함.
     sigs = [_sig("005930", "삼성전자", "BUY", 1.8, ["[기술] 골든크로스(상승 전환)", "[저평가] PER 업종 하위"])]

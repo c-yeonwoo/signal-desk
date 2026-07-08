@@ -183,6 +183,26 @@ def _svg_open(bar: str, bg: str | None = None) -> str:
     return head + base + f'<rect x="0" y="0" width="1080" height="12" fill="{bar}"/>'
 
 
+def _linechart(vals, x: int, y: int, w: int, h: int, color: str, area: bool = True) -> str:
+    """숫자 시퀀스 → SVG 라인(+면적) 경로. (x,y,w,h) 박스에 정규화. 2점 미만이면 빈 문자열.
+    차트를 웹 스크린샷하지 않고 같은 데이터로 카드에 직접 그린다(해상도·스케일 자유)."""
+    pts = [float(v) for v in (vals or []) if isinstance(v, (int, float))]
+    if len(pts) < 2:
+        return ""
+    lo, hi = min(pts), max(pts)
+    rng = (hi - lo) or 1.0
+    n = len(pts)
+    coords = [(x + i / (n - 1) * w, y + h - (p - lo) / rng * h) for i, p in enumerate(pts)]
+    line = " ".join(f"{px:.0f},{py:.0f}" for px, py in coords)
+    out = ""
+    if area:
+        out += f'<polygon points="{x:.0f},{y + h:.0f} {line} {x + w:.0f},{y + h:.0f}" fill="{color}" opacity="0.16"/>'
+    out += f'<polyline points="{line}" fill="none" stroke="{color}" stroke-width="6" stroke-linejoin="round"/>'
+    lx, ly = coords[-1]
+    out += f'<circle cx="{lx:.0f}" cy="{ly:.0f}" r="12" fill="{color}"/>'  # 최신점 강조
+    return out
+
+
 def _intro_svg(name: str, ticker: str, kind: str, score: float, sector: str | None,
                bg: str | None = None) -> str:
     """인트로/썸네일 템플릿(재사용) — '오늘의 시그널' + 종목명 + ticker·섹터 + 시그널 pill. 근거·면책 없음."""
@@ -200,21 +220,43 @@ def _intro_svg(name: str, ticker: str, kind: str, score: float, sector: str | No
         + '</svg>')
 
 
-def _reason_svg(idx: int, total: int, reason: str, kind: str, bg: str | None = None) -> str:
-    """근거 1개를 화면 가득 보여주는 프레임(순차 공개). 진행 도트 + 큰 문장. 면책 없음."""
+def _reason_svg(idx: int, total: int, reason: str, kind: str, bg: str | None = None,
+                closes: list | None = None) -> str:
+    """근거 1개를 화면 가득 보여주는 프레임(순차 공개). 진행 도트 + 큰 문장 + 종목 가격 미니차트.
+    차트가 붙어 '허술함'을 덜고 근거를 가격 흐름과 함께 보여준다. 면책 없음."""
     pill = _pill_color(kind)
     raw = str(reason or "")
     tag = raw.split("]", 1)[0][1:] if raw.startswith("[") else ""
     body = raw.split("] ", 1)[-1]
     tspans = "".join(f'<tspan x="120" dy="{0 if i == 0 else 116}">{_esc(l)}</tspan>'
                      for i, l in enumerate(_wrap(body, 13)))
-    dots = "".join(f'<circle cx="{140 + i * 46}" cy="1740" r="15" '
+    chart = _linechart(closes[-60:] if closes else None, 120, 1360, 840, 300, pill)
+    chart_label = ('<text x="120" y="1320" fill="#9ca3af" font-size="38">최근 가격 흐름</text>'
+                   if chart else "")
+    dots = "".join(f'<circle cx="{140 + i * 46}" cy="1760" r="15" '
                    f'fill="{pill if i == idx - 1 else "#374151"}"/>' for i in range(total))
     return (_svg_open(pill, bg)
         + f'<text x="120" y="360" fill="{pill}" font-size="48" font-weight="800">근거 {idx} / {total}</text>'
         + (f'<text x="120" y="440" fill="#9ca3af" font-size="40">{_esc(tag)}</text>' if tag else "")
         + f'<text x="120" y="720" fill="#ffffff" font-size="82" font-weight="700">{tspans}</text>'
-        + dots + '</svg>')
+        + chart_label + chart + dots + '</svg>')
+
+
+def _outro_svg(label: str, ret_pct, curve: list | None, bg: str | None = None) -> str:
+    """아웃트로 — 우리 시그널을 따르는 레퍼런스 봇의 모의투자 누적 수익률 + 자산곡선 차트.
+    '이 신호들이 실제로 이렇게 됐다'를 track record로 마무리(봇↔숏폼 시너지)."""
+    color = "#22c55e" if (ret_pct or 0) >= 0 else "#ef4444"
+    ret_s = f"{ret_pct:+.1f}%" if ret_pct is not None else "–"
+    vals = [c.get("total_eval") for c in (curve or []) if c.get("total_eval") is not None]
+    chart = _linechart(vals, 120, 1180, 840, 460, color)
+    return (_svg_open(color, bg)
+        + '<text x="120" y="360" fill="#9ca3af" font-size="46" font-weight="700">우리 시그널 봇 성적표</text>'
+        + f'<text x="120" y="500" fill="#ffffff" font-size="72" font-weight="800">{_esc(label)}</text>'
+        + '<text x="120" y="700" fill="#9ca3af" font-size="48">모의투자 누적 수익률</text>'
+        + f'<text x="120" y="880" fill="{color}" font-size="168" font-weight="800">{ret_s}</text>'
+        + chart
+        + '<text x="120" y="1740" fill="#6b7280" font-size="34">※ 모의투자(페이퍼) 성과 · 미래 수익 보장 아님</text>'
+        + '</svg>')
 
 
 def _scene_narration(i: int, body: str, name: str) -> str:
@@ -224,18 +266,25 @@ def _scene_narration(i: int, body: str, name: str) -> str:
     return f"{_CONNECT[min(i - 1, len(_CONNECT) - 1)]}, {body}."
 
 
-def _scenes_for(name: str, ticker: str, kind: str, score: float,
-                reasons: list[str], sector: str | None) -> list[dict]:
-    """카드를 '장면 시퀀스'로 — 인트로(썸네일) → 근거별 프레임(순차 공개). 각 장면에 나레이션·길이.
-    이 표현이 typecast(장면별 음성)든 자체 렌더(장면별 프레임)든 그대로 투입되는 중간 포맷."""
+def _scenes_for(name: str, ticker: str, kind: str, score: float, reasons: list[str],
+                sector: str | None, closes: list | None = None, outro: dict | None = None) -> list[dict]:
+    """카드를 '장면 시퀀스'로 — 인트로(썸네일) → 근거별 프레임(가격차트 포함, 순차 공개) → 아웃트로
+    (봇 track record). 각 장면에 나레이션·길이. typecast/자체 렌더 어디에도 투입되는 중간 포맷."""
     clean = _reason_clean(reasons, 4)
     bg = _load_bg()  # 관리자 설정 배경(있으면 모든 프레임 공통 배경 + scrim)
     scenes = [{"label": "인트로", "dur": 3.0, "svg": _intro_svg(name, ticker, kind, score, sector, bg),
                "narration": _scene_narration(0, "", name)}]
     for i, r in enumerate(clean, 1):
         body = r.split("] ", 1)[-1]
-        scenes.append({"label": f"근거 {i}", "dur": 4.0, "svg": _reason_svg(i, len(clean), r, kind, bg),
+        scenes.append({"label": f"근거 {i}", "dur": 4.0,
+                       "svg": _reason_svg(i, len(clean), r, kind, bg, closes),
                        "narration": _scene_narration(i, body, name)})
+    if outro and outro.get("ret_pct") is not None:  # 봇 track record 있을 때만(초기엔 스킵)
+        ret = outro["ret_pct"]
+        scenes.append({"label": "아웃트로(봇 성과)", "dur": 4.0,
+                       "svg": _outro_svg(outro.get("label", "봇"), ret, outro.get("curve"), bg),
+                       "narration": (f"참고로, 우리 시그널을 따르는 {outro.get('label','봇')}은 "
+                                     f"모의투자 기준 누적 {ret:+.1f}% 성과를 냈습니다.")})
     return scenes
 
 
@@ -254,6 +303,25 @@ def _full_caption(name: str, ticker: str, kind: str, reasons: list[str], llm_cap
     return "\n\n".join(parts)
 
 
+def _reference_outro(style: str = "balanced", market: str = "kr") -> dict | None:
+    """아웃트로용 레퍼런스 봇 track record — 누적 수익률 + 자산곡선. 성과 데이터 없으면 None(초기엔 스킵).
+    모든 신호 카드에 공통으로 붙는 '우리 봇 성적표' 마무리."""
+    try:
+        from signal_desk import bot, strategy
+        uid = {v: k for k, v in bot.REFERENCE_BOTS.items()}.get(style)
+        if not uid:
+            return None
+        perf = bot.performance(uid, market)
+        curve = db.bot_equity_curve(uid, market)
+        if not perf.get("days") or perf.get("return_pct") is None or len(curve) < 2:
+            return None
+        return {"label": f"{strategy.STYLE_LABEL.get(style, style)} 봇",
+                "ret_pct": perf["return_pct"], "curve": curve}
+    except Exception as e:
+        log.warning("아웃트로(봇 성과) 준비 실패(무시): %s", type(e).__name__)
+        return None
+
+
 def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = False) -> dict:
     """숏폼 초안 생성 → 검수 큐 적재(draft). tickers 지정 시 그 종목만(선택 생성, 시그널 순 유지),
     없으면 상위 매수 시그널 top N(자동, 최근 생성 중복 제외)."""
@@ -267,11 +335,14 @@ def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = F
     if not picks:
         return {"ok": False, "reason": "소재거리(매수·고점수·정성 호재)가 없거나 시세 데이터가 없습니다.",
                 "created": [], "count": 0}
+    prices = store.load_price_series()  # 근거 프레임 가격차트용(종목별 종가 시계열)
+    outro = _reference_outro()          # 아웃트로: 레퍼런스 봇 track record(모든 카드 공통, 없으면 None)
     made = []
     for s in picks:
         sector = sectors.sector_of(s.ticker)
         sc = _script_for(s.name, s.ticker, s.kind, s.reasons)
-        scenes = _scenes_for(s.name, s.ticker, s.kind, s.score, s.reasons, sector)  # 인트로+근거 순차 프레임
+        scenes = _scenes_for(s.name, s.ticker, s.kind, s.score, s.reasons, sector,
+                             closes=prices.get(s.ticker), outro=outro)  # 인트로+근거(차트)+아웃트로
         caption = _full_caption(s.name, s.ticker, s.kind, s.reasons, sc.get("caption"))  # 근거 종합+면책
         item = {"id": uuid.uuid4().hex, "ticker": s.ticker, "name": s.name, "kind": s.kind,
                 "score": round(s.score, 2), "title": sc["title"], "script": sc["script"],
