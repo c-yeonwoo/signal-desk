@@ -1203,21 +1203,19 @@ def shortform_delete_ep(sid: str, request: Request):
 
 @app.post("/api/shortform/{sid}/render")
 def shortform_render_ep(sid: str, request: Request):
-    """draft → mp4 렌더(관리자). 장면 SVG→PNG + Typecast 나레이션 → ffmpeg. 무겁다(수십 초)."""
+    """draft → mp4 렌더(관리자) 후 mp4를 바로 스트리밍. 서버 볼륨에 저장하지 않고 즉시 폐기(볼륨 사용 0).
+    다시 보려면 재렌더. 장면 SVG→PNG + Typecast 나레이션 → ffmpeg. 무겁다(수십 초)."""
     _admin_or_403(request)
+    from fastapi.responses import Response
     from signal_desk import shortform_render
-    return shortform_render.render(sid)
-
-
-@app.get("/api/shortform/{sid}/video")
-def shortform_video(sid: str):
-    """렌더된 mp4 서빙(미리보기·다운로드). 없으면 404."""
-    from signal_desk import shortform_render
-    p = shortform_render.video_path(sid)
-    if not p:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="렌더된 영상 없음 — 먼저 렌더하세요")
-    return FileResponse(p, media_type="video/mp4")
+    res = shortform_render.render(sid)
+    if not res.get("ok"):
+        return JSONResponse({"ok": False, "reason": res.get("reason", "렌더 실패")}, status_code=502)
+    return Response(content=res["data"], media_type="video/mp4", headers={
+        "Content-Disposition": f'inline; filename="{sid}.mp4"',
+        "X-Scenes": str(res.get("scenes", "")),
+        "X-Has-Audio": "1" if res.get("has_audio") else "0",
+    })
 
 
 # 주의: 아래 구체 경로들은 catch-all `/api/kb/{ticker}`보다 먼저 등록돼야 매칭된다.
