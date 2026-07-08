@@ -27,6 +27,20 @@ def krx_key() -> str | None:
     return os.environ.get("KRX_API_KEY")
 
 
+def typecast_key() -> str | None:
+    """Typecast TTS API 키(.env의 TYPECAST_API_KEY). 없으면 None(나레이션 합성 스킵)."""
+    return os.environ.get("TYPECAST_API_KEY")
+
+
+def typecast_voice_id() -> str:
+    """나레이션 보이스 ID(.env의 TYPECAST_VOICE_ID, 기본은 프로젝트 지정 보이스 — 비밀 아님)."""
+    return os.environ.get("TYPECAST_VOICE_ID", "tc_5eb55cf1f0b0a700071f89c7")
+
+
+def typecast_model() -> str:
+    return os.environ.get("TYPECAST_MODEL", "ssfm-v30")
+
+
 def kis_credentials() -> dict | None:
     """KIS 자동매매봇 인증정보. 하나라도 없으면 None(그레이스풀 폴백).
 

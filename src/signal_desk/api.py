@@ -1152,6 +1152,21 @@ def shortform_bg_image():
     return FileResponse(path, media_type=db.kv_get("shortform_bg_mime") or "image/jpeg")
 
 
+@app.post("/api/shortform/tts-test")
+def shortform_tts_test(request: Request, data: dict = Body(default={})):
+    """Typecast TTS 연결 확인(관리자) — 텍스트를 합성해 mp3로 바로 반환(브라우저 재생). 키는 .env."""
+    _admin_or_403(request)
+    from fastapi.responses import Response
+    from signal_desk.ingest import typecast
+    if not typecast.available():
+        return JSONResponse({"ok": False, "reason": "TYPECAST_API_KEY 미설정(.env에 추가하세요)"}, status_code=400)
+    text = str(data.get("text") or "안녕하세요. 오늘의 시그널입니다.").strip()
+    audio = typecast.synthesize(text)
+    if not audio:
+        return JSONResponse({"ok": False, "reason": "TTS 합성 실패 — 키·쿼터·네트워크를 확인하세요"}, status_code=502)
+    return Response(content=audio, media_type="audio/mpeg")
+
+
 @app.get("/api/shortform/{sid}")
 def shortform_detail(sid: str, request: Request):
     """단건 상세(스크립트 + 카드 SVG 포함) — 검수 미리보기용."""
