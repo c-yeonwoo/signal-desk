@@ -69,9 +69,35 @@ def _latest_annual(facts: dict, keys: list[str], unit: str = "USD") -> float | N
     return None
 
 
+def _dividend_months(facts: dict) -> list[int]:
+    """최근 ~13개월 '기간형(분기/월) 배당' 공시의 종료월(1~12)을 추정 지급월 패턴으로 반환.
+    연간(FY, 기간>100일) 항목은 제외 → 분기배당은 4개월, 월배당 ETF는 최대 12개월이 잡힌다.
+    EDGAR엔 정확한 지급일이 약해 '공시 기간 종료월' 근사(캘린더에 추정 표기)."""
+    import datetime as _dt
+    usgaap = (facts.get("facts") or {}).get("us-gaap") or {}
+    units = (((usgaap.get("CommonStockDividendsPerShareDeclared") or {}).get("units") or {}).get("USD/shares")
+             or ((usgaap.get("CommonStockDividendsPerShareCashPaid") or {}).get("units") or {}).get("USD/shares") or [])
+    ends: list[_dt.date] = []
+    for u in units:
+        end, start = u.get("end"), u.get("start")
+        if not end:
+            continue
+        try:
+            e = _dt.date.fromisoformat(end)
+            if start and (e - _dt.date.fromisoformat(start)).days > 100:  # 연간 항목 제외
+                continue
+        except (ValueError, TypeError):
+            continue
+        ends.append(e)
+    if not ends:
+        return []
+    latest = max(ends)
+    return sorted({e.month for e in ends if (latest - e).days <= 400})
+
+
 def fundamentals(ticker: str) -> dict | None:
-    """티커의 최신 연간 순이익·자기자본·주당배당(EDGAR XBRL companyfacts, DART의 미국판). 없으면 None.
-    PER=시총/순이익, PBR=시총/자기자본, 배당수익률=주당배당/현재가(시총·현재가는 별도)."""
+    """티커의 최신 연간 순이익·자기자본·주당배당·배당지급월(EDGAR XBRL companyfacts, DART의 미국판).
+    없으면 None. PER=시총/순이익, PBR=시총/자기자본, 배당수익률=주당배당/현재가(시총·현재가는 별도)."""
     cik = _ticker_cik_map().get(ticker.upper())
     if not cik:
         return None
@@ -89,7 +115,8 @@ def fundamentals(ticker: str) -> dict | None:
                                  "CommonStockDividendsPerShareCashPaid"], unit="USD/shares")
     if ni is None and eq is None and dps is None:
         return None
-    return {"net_income": ni, "equity": eq, "dps": dps}
+    return {"net_income": ni, "equity": eq, "dps": dps,
+            "div_months": _dividend_months(facts) if dps else []}
 
 
 def _latest_13f(cik: str) -> tuple[str, str] | None:

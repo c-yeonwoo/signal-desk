@@ -781,7 +781,7 @@ def dividends_get():
     for t, d in divs.items():
         s = sig.get(t)
         items.append({"ticker": t, "name": names.get(t, t), "price": d["price"],
-                      "dps": d["dps"], "div_yield": d["div_yield"],
+                      "dps": d["dps"], "div_yield": d["div_yield"], "div_months": d.get("div_months") or [],
                       "kind": s.kind if s else None, "score": round(s.score, 2) if s else None,
                       "mktcap": (mcaps.get(t) or {}).get("mktcap"),
                       "sector": us_ko.sector_ko(sec.get(t))})
