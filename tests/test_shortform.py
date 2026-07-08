@@ -74,31 +74,38 @@ def test_candidates_signal_order(tmp_path, monkeypatch):
     assert shortform.db.shortform_list() == []
 
 
-def test_scenes_intro_plus_reason_frames(tmp_path, monkeypatch):
-    # 카드가 장면 시퀀스 — 인트로 1 + 근거 N. 근거는 프레임마다 하나씩(한 카드에 몰아넣지 않음).
+def test_fixed_six_scene_template(tmp_path, monkeypatch):
+    # 고정 템플릿: 0 인트로·1 기업개요·2 정량·3 정성·4 추천 (봇 성과 없으면 아웃트로 생략 → 5장면).
     sigs = [_sig("005930", "삼성전자", "BUY", 1.8,
                  ["[기술] 골든크로스(상승 전환)", "[저평가] PER 업종 하위", "[수급] 외국인 순매수"])]
     _setup(monkeypatch, tmp_path, sigs)
-    out = shortform.generate(limit=1)
-    d = db.shortform_get(out["created"][0]["id"])
-    scenes = d["scenes"]
-    assert len(scenes) == 4                                    # 인트로 + 근거 3
-    assert scenes[0]["label"] == "인트로" and "오늘의 시그널" in scenes[0]["svg"]
-    assert scenes[1]["label"] == "근거 1" and "근거 1 / 3" in scenes[1]["svg"]
-    assert all(sc["svg"].startswith("<svg") and sc.get("narration") for sc in scenes)
-    # 인트로가 card_svg(썸네일)로도 저장
-    assert d["card_svg"] == scenes[0]["svg"]
+    d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
+    labels = [s["label"] for s in d["scenes"]]
+    assert labels == ["0·인트로", "1·기업 개요", "2·정량 근거", "3·정성 근거", "4·추천 이유"]
+    assert "오늘의 시그널" in d["scenes"][0]["svg"] and d["card_svg"] == d["scenes"][0]["svg"]
+    assert "기업 개요" in d["scenes"][1]["svg"] and "정량 지표 근거" in d["scenes"][2]["svg"]
+    assert all(sc["svg"].startswith("<svg") and sc.get("narration") for sc in d["scenes"])
 
 
-def test_reason_frame_has_price_chart(tmp_path, monkeypatch):
-    # 근거 프레임에 종목 가격 미니차트가 붙어야(허술함 보완).
+def test_quant_scene_has_price_chart(tmp_path, monkeypatch):
+    # 정량 근거 장면에 최근 주가 차트가 붙어야.
     sigs = [_sig("005930", "삼성전자", "BUY", 1.8, ["[기술] 골든크로스(상승 전환)"])]
     _setup(monkeypatch, tmp_path, sigs)
     monkeypatch.setattr(shortform.store, "load_price_series",
                         lambda: {"005930": [100.0, 105.0, 103.0, 108.0, 112.0]})
     d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
-    reason = [s for s in d["scenes"] if s["label"].startswith("근거")][0]
-    assert "최근 가격 흐름" in reason["svg"] and "<polyline" in reason["svg"]
+    quant = [s for s in d["scenes"] if s["label"] == "2·정량 근거"][0]
+    assert "최근 1개월 주가 흐름" in quant["svg"] and "<polyline" in quant["svg"]
+
+
+def test_qualitative_scene_uses_kb(tmp_path, monkeypatch):
+    # 정성 근거 장면이 KB 다이제스트(뉴스·시황)를 반영해야.
+    sigs = [_sig("005930", "삼성전자", "BUY", 1.8, ["[기술] 골든크로스(상승 전환)"])]
+    _setup(monkeypatch, tmp_path, sigs)
+    db.kb_digest_set("005930", "삼성전자", 0.4, "HBM 수요 호조로 업황 개선 기대", ["HBM 수주 확대"], 3)
+    d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
+    qual = [s for s in d["scenes"] if s["label"] == "3·정성 근거"][0]
+    assert "HBM" in qual["svg"]
 
 
 def test_outro_scene_appended_with_track_record(tmp_path, monkeypatch):
@@ -110,7 +117,7 @@ def test_outro_scene_appended_with_track_record(tmp_path, monkeypatch):
                         lambda *a, **k: {"label": "균형형 봇", "ret_pct": 8.7, "curve": curve})
     d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
     last = d["scenes"][-1]
-    assert last["label"].startswith("아웃트로") and "+8.7%" in last["svg"] and "모의투자" in last["svg"]
+    assert last["label"] == "5·아웃트로" and "+8.7%" in last["svg"] and "모의투자" in last["svg"]
 
 
 def test_disclaimer_in_caption_not_on_card(tmp_path, monkeypatch):
