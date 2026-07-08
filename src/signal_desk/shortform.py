@@ -276,18 +276,88 @@ def _bullets(items, color: str, y0: int = 780, gap: int = 118, max_n: int = 3, f
     return out
 
 
-def _company_svg(name, ticker, sector, price, change, mktcap, per, bg=None, profile=None) -> str:
-    """① 기업 개요 — 종목명(+영문)·섹터·설립·대표·현재가·등락·시총·PER 스냅샷(DART 기업개황+시세)."""
+# 정량 지표 → 초보도 이해되는 한 줄 뜻(근거 문구에서 키워드 매칭, 첫 매칭 사용).
+_METRIC_HELP = [
+    ("골든크로스", "단기 이평선이 장기선을 위로 뚫어 상승 전환 신호"),
+    ("데드크로스", "단기선이 장기선 아래로 — 하락 전환 신호"),
+    ("정배열", "이평선이 상승 순서로 정렬돼 추세가 양호"),
+    ("과매도", "단기 낙폭이 커 반등 여지가 있는 구간"),
+    ("과매수", "단기 급등으로 과열된 구간"),
+    ("낙폭과대", "단기 급락으로 저가 매력이 생긴 구간"),
+    ("저평가", "이익·자산 대비 주가가 업종에서 싼 편"),
+    ("PER", "이익 대비 주가 수준 — 낮을수록 저평가"),
+    ("PBR", "순자산 대비 주가 수준 — 낮을수록 저평가"),
+    ("수급", "외국인·기관 등 큰손 자금이 들어오는 중"),
+    ("외국인", "외국인 자금이 순매수하는 중"),
+    ("기관", "기관 자금이 순매수하는 중"),
+    ("순매수", "큰손 자금이 들어오는 중"),
+    ("모멘텀", "최근 상승 추세의 힘이 살아있음"),
+    ("퀄리티", "재무 건전성·수익성이 개선되는 중"),
+    ("F-Score", "재무 건전성 점수가 양호"),
+    ("부채", "빚 부담 수준(낮을수록 안정적)"),
+    ("매출", "외형(매출)이 늘어나는 성장세"),
+    ("ROE", "자기자본 대비 수익성"),
+    ("거래량", "거래가 활발해지는 중"),
+]
+
+
+def _metric_gloss(text: str) -> str:
+    """근거 문구의 핵심 지표를 한 줄 뜻으로. 매칭 없으면 빈 문자열."""
+    t = str(text or "")
+    for kw, meaning in _METRIC_HELP:
+        if kw in t:
+            return meaning
+    return ""
+
+
+def _company_desc(ticker: str, name: str, sector: str | None) -> str:
+    """'무엇을 하는 회사인지' 한 문장(초보용). LLM(있으면)으로 생성해 kv에 캐시(종목별 1회), 없으면
+    섹터 기반 폴백. 투자권유·전망·수치 없이 사업 소개만."""
+    key = f"sfdesc:{ticker}"
+    try:
+        cached = db.kv_get(key)
+    except Exception:
+        cached = None
+    if cached:
+        return cached
+    desc = f"{sector} 분야의 기업입니다." if sector else "국내 상장 기업입니다."
+    if llm.available():
+        out = llm.complete_json(
+            "너는 한국 주식 소개 작가다. 이 종목이 '무엇을 하는 회사'인지 초보도 이해되게 1문장(45자 내외)으로 "
+            "설명한다. 아는 사실만 쓰고 모르면 섹터만 언급. 투자 권유·전망·주가·수치는 절대 넣지 마라.",
+            f"종목: {name}({ticker}), 섹터: {sector or '미상'}\n"
+            'JSON으로만: {"desc": "무엇을 하는 회사인지 한 문장"}',
+            max_tokens=150, model=llm.DIGEST_MODEL)
+        if out and out.get("desc"):
+            desc = str(out["desc"]).strip()[:90]
+    try:
+        db.kv_set(key, desc)
+    except Exception:
+        pass
+    return desc
+
+
+def _company_svg(name, ticker, sector, price, change, mktcap, per, bg=None, profile=None, desc=None) -> str:
+    """① 기업 개요 — 종목명(+영문) · 무엇을 하는 회사인지 설명 · 섹터·설립·대표·현재가·시총·PER."""
     c = "#4f46e5"
     profile = profile or {}
+    eng = profile.get("name_eng")
+    # 사업 설명(무엇을 하는 회사) — 최대 3줄
+    desc_svg, y = "", 720
+    if eng:
+        desc_svg += f'<text x="120" y="640" fill="#6b7280" font-size="40">{_esc(eng)}</text>'
+    desc_svg += f'<text x="120" y="{700 if eng else 640}" fill="#6b7280" font-size="42">{_esc(ticker)}</text>'
+    if desc:
+        for j, ln in enumerate(_wrap(desc, 18)[:3]):
+            desc_svg += f'<text x="120" y="{800 + j * 62}" fill="#cbd5e1" font-size="46">{_esc(ln)}</text>'
+        y = 800 + min(len(_wrap(desc, 18)), 3) * 62 + 60
     rows = []
     if sector:
         rows.append(("섹터", sector))
     if profile.get("est_year"):
         rows.append(("설립", f"{profile['est_year']}년"))
     if profile.get("ceo"):
-        ceo = profile["ceo"].split(",")[0].strip()  # 공동대표는 첫 명만
-        rows.append(("대표", ceo))
+        rows.append(("대표", profile["ceo"].split(",")[0].strip()))  # 공동대표는 첫 명만
     if price:
         rows.append(("현재가", _won(price) + (f"  ({change:+.1f}%)" if change is not None else "")))
     if mktcap:
@@ -296,15 +366,12 @@ def _company_svg(name, ticker, sector, price, change, mktcap, per, bg=None, prof
         rows.append(("PER", f"{per:.1f}배"))
     body = ""
     for i, (k, v) in enumerate(rows[:6]):
-        y = 820 + i * 150
-        body += (f'<text x="120" y="{y}" fill="#9ca3af" font-size="46">{_esc(k)}</text>'
-                 f'<text x="960" y="{y}" fill="#ffffff" font-size="54" font-weight="700" text-anchor="end">{_esc(str(v))}</text>')
-    eng = profile.get("name_eng")
-    eng_line = f'<text x="120" y="700" fill="#6b7280" font-size="40">{_esc(eng)}</text>' if eng else ""
+        yy = y + i * 128
+        body += (f'<text x="120" y="{yy}" fill="#9ca3af" font-size="44">{_esc(k)}</text>'
+                 f'<text x="960" y="{yy}" fill="#ffffff" font-size="50" font-weight="700" text-anchor="end">{_esc(str(v))}</text>')
     return (_svg_open(c, bg) + _kicker("01", "기업 개요", c)
-        + f'<text x="120" y="620" fill="#ffffff" font-size="92" font-weight="800">{_esc(name)}</text>'
-        + f'<text x="120" y="{"760" if eng else "700"}" fill="#6b7280" font-size="42">{_esc(ticker)}</text>'
-        + eng_line + body + '</svg>')
+        + f'<text x="120" y="560" fill="#ffffff" font-size="88" font-weight="800">{_esc(name)}</text>'
+        + desc_svg + body + '</svg>')
 
 
 def _fin_chips(m: dict) -> list[str]:
@@ -322,25 +389,33 @@ def _fin_chips(m: dict) -> list[str]:
 
 
 def _quant_svg(quant_reasons, closes, kind, bg=None, metrics=None) -> str:
-    """② 정량 지표 근거 — 정량 근거 불릿 + 재무·밸류 지표(DART) + 최근 1개월(≈22거래일) 주가 차트."""
+    """② 정량 지표 근거 — 근거마다 '지표 + 쉬운 뜻 한 줄' + 재무·밸류 칩 + 최근 1개월 주가 차트.
+    지표만 나열하지 않고 의미를 붙여 이해가 쉽게."""
     pill = _pill_color(kind)
-    recent = closes[-22:] if closes else None  # 최근 약 1개월(거래일)
-    chart = _linechart(recent, 120, 1360, 840, 300, pill)
-    label = '<text x="120" y="1310" fill="#9ca3af" font-size="40">최근 1개월 주가 흐름</text>' if chart else ""
+    body, y = "", 600
+    for r in (quant_reasons or [])[:3]:
+        rb = str(r).split("] ", 1)[-1]
+        main = rb if len(rb) <= 20 else rb[:19] + "…"
+        gloss = _metric_gloss(rb)
+        body += (f'<circle cx="138" cy="{y - 18}" r="9" fill="{pill}"/>'
+                 f'<text x="180" y="{y}" fill="#ffffff" font-size="54" font-weight="700">{_esc(main)}</text>')
+        if gloss:
+            body += f'<text x="180" y="{y + 50}" fill="#9ca3af" font-size="36">{_esc(gloss[:27])}</text>'
+        y += 150 if gloss else 110
     chips = _fin_chips(metrics or {})
-    chip_svg = ""
-    cx = 120
+    chip_svg, cx = "", 120
     for ch in chips:
         w = 30 + len(ch) * 22
-        if cx + w > 1000:  # 1080 폭 초과 방지 — 넘치면 이후 칩 생략(잘림 방지)
+        if cx + w > 1000:  # 1080 폭 초과 방지
             break
-        chip_svg += (f'<rect x="{cx}" y="1130" rx="16" width="{w}" height="72" fill="#1f2937"/>'
-                     f'<text x="{cx + w // 2}" y="1178" fill="#e5e7eb" font-size="36" '
+        chip_svg += (f'<rect x="{cx}" y="1160" rx="16" width="{w}" height="72" fill="#1f2937"/>'
+                     f'<text x="{cx + w // 2}" y="1208" fill="#e5e7eb" font-size="36" '
                      f'font-weight="700" text-anchor="middle">{_esc(ch)}</text>')
         cx += w + 16
+    chart = _linechart(closes[-22:] if closes else None, 120, 1390, 840, 280, pill)
+    label = '<text x="120" y="1340" fill="#9ca3af" font-size="40">최근 1개월 주가 흐름</text>' if chart else ""
     return (_svg_open(pill, bg) + _kicker("02", "정량 지표 근거", pill)
-        + _bullets(quant_reasons, pill, y0=640, gap=120, max_n=3, fs=54)
-        + chip_svg + label + chart + '</svg>')
+        + body + chip_svg + label + chart + '</svg>')
 
 
 def _qual_svg(summary, points, kind, bg=None) -> str:
@@ -410,7 +485,7 @@ def _scene(label, narration, svg):
 def _scenes_for(name: str, ticker: str, kind: str, score: float, reasons: list[str], sector: str | None,
                 closes: list | None = None, quote: dict | None = None, kb: dict | None = None,
                 target: dict | None = None, easy_line: str | None = None,
-                outro: dict | None = None, profile: dict | None = None) -> list[dict]:
+                outro: dict | None = None, profile: dict | None = None, desc: str | None = None) -> list[dict]:
     """고정 6장면 템플릿 — 0 인트로 · 1 기업개요 · 2 정량근거(차트) · 3 정성근거(뉴스·시황) ·
     4 주목 포인트(쉬운 해설·관심 강도·목표가) · 5 아웃트로(봇 수익률). 각 장면에 나레이션·길이.
     typecast(장면별 음성)든 자체 렌더(장면별 프레임)든 그대로 투입되는 중간 포맷."""
@@ -430,18 +505,18 @@ def _scenes_for(name: str, ticker: str, kind: str, score: float, reasons: list[s
     scenes.append(_scene("0·인트로",
         f"오늘 주목할 종목은 {name}입니다. 어떤 기업이고 왜 신호가 떴는지 순서대로 보겠습니다.",
         _intro_svg(name, ticker, kind, score, sector, bg)))
-    # 1 기업 개요
+    # 1 기업 개요 — 무엇을 하는 회사인지 설명 포함
     prof = profile or {}
-    est = f", {prof['est_year']}년 설립" if prof.get("est_year") else ""
-    n1 = (f"{name}는 {sector or '해당 섹터'} 종목으로{est}, 현재가는 "
-          + (_won(price) if price else "집계 중") + " 수준입니다.")
+    est = f" {prof['est_year']}년 설립." if prof.get("est_year") else ""
+    n1 = (f"{name}는 " + (desc + " " if desc else f"{sector or '해당 섹터'} 종목입니다. ") + est
+          + (f" 현재가는 {_won(price)} 수준입니다." if price else ""))
     scenes.append(_scene("1·기업 개요",
-        n1, _company_svg(name, ticker, sector, price, change, mktcap, per, bg, profile=prof)))
-    # 2 정량 근거 (근거 불릿 + DART 재무·밸류 지표 + 차트)
-    fin = [c for c in _fin_chips(quote)]
-    n2 = ("정량 지표부터 볼게요. "
-          + (", ".join(qbodies) + " 같은 신호가 확인됩니다." if qbodies else "기술·재무 지표를 종합했습니다.")
-          + (" 재무는 " + ", ".join(fin) + " 수준입니다." if fin else ""))
+        n1, _company_svg(name, ticker, sector, price, change, mktcap, per, bg, profile=prof, desc=desc)))
+    # 2 정량 근거 — 지표 + 쉬운 뜻 + 재무 + 차트
+    gloss = [g for g in (_metric_gloss(b) for b in qbodies) if g][:2]
+    n2 = ("정량 지표를 보면, "
+          + (", ".join(qbodies) + " 신호가 있습니다. " if qbodies else "기술·재무 지표를 종합했습니다. ")
+          + ("쉽게 말하면, " + " 그리고 ".join(gloss) + "는 뜻입니다." if gloss else ""))
     scenes.append(_scene("2·정량 근거", n2, _quant_svg(quant, closes, kind, bg, metrics=quote)))
     # 3 정성 근거
     n3 = ("정성적으로는, " + (summary or "; ".join(points[:2])) if (summary or points)
@@ -526,10 +601,11 @@ def generate(tickers: list[str] | None = None, limit: int = 5, dry_run: bool = F
         tgt = target_mod.compute(price, f.get("per"), med_per, closes)  # 참고 목표가(없으면 None)
         qbody = next((r.split("] ", 1)[-1] for r in s.reasons if _tag(r) in _QUANT_TAGS), "")
         easy = f"{s.name}는 {qbody + ' 등으로 ' if qbody else ''}{_kind_label(s.kind)} 신호가 나왔습니다."
+        desc = _company_desc(s.ticker, s.name, sector)  # 무엇을 하는 회사(LLM 캐시)
         sc = _script_for(s.name, s.ticker, s.kind, s.reasons)
         scenes = _scenes_for(s.name, s.ticker, s.kind, s.score, s.reasons, sector,
                              closes=closes, quote=quote, kb=kb_dg, target=tgt, easy_line=easy,
-                             outro=outro, profile=profiles.get(s.ticker))  # 고정 6장면 템플릿
+                             outro=outro, profile=profiles.get(s.ticker), desc=desc)  # 고정 6장면 템플릿
         caption = _full_caption(s.name, s.ticker, s.kind, s.reasons, sc.get("caption"))  # 근거 종합+면책
         item = {"id": uuid.uuid4().hex, "ticker": s.ticker, "name": s.name, "kind": s.kind,
                 "score": round(s.score, 2), "title": sc["title"], "script": sc["script"],
