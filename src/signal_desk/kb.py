@@ -497,7 +497,8 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
         db.kb_digest_set(ticker, name, digest["sentiment"], digest["summary"], digest["points"],
                          len(items), newest_ts=_newest_ts(items), event_flag=event_flag, event_note=event_note)
         updated += 1
-    return {"updated": updated}
+    pruned = db.kb_prune()  # 뉴스 무한 누적·만료 pending 정리(큐레이션 업로드는 보존)
+    return {"updated": updated, "pruned": pruned}
 
 
 def sentiment_map() -> dict[str, dict]:
