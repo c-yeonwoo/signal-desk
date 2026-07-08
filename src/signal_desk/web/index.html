@@ -738,6 +738,17 @@
       <p class="page-desc" style="margin:6px 0 12px">시그널 순 후보에서 <b>만들 종목을 선택</b>하면 그 종목만 <b>스크립트+세로 데이터 카드</b>를 생성합니다. 규제상 <b>정보 제공·교육 목적</b>(투자 권유·수치 보장 없음)으로만, <b>사람이 검수·승인한 뒤</b> 발행합니다.</p>
 
       <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
+        <div class="row" style="align-items:baseline;gap:6px;flex-wrap:wrap">
+          <b style="font-size:13px">🖼️ 카드 배경 이미지</b>
+          <input id="sf-bg-url" class="ctrl" type="url" placeholder="https://... (직접 호스팅한 이미지 URL)" style="flex:1 1 260px;min-width:200px">
+          <button class="btn" onclick="loadSfBg()">불러오기</button>
+          <button class="btn primary" onclick="saveSfBg()">저장</button>
+          <span id="sf-bg-result" class="stat-label" style="margin:0"></span>
+        </div>
+        <div style="color:var(--dim-2);font-size:11px;margin-top:4px">모든 카드 프레임 배경으로 깔리고 어둡게 처리(scrim)돼 텍스트 가독성 유지. <b>http(s) URL만</b>(data URI 불가 — DB 부담). <b>상업 이용 라이선스가 확실한 이미지만</b> 사용하세요(유료화 전제). 비우고 저장하면 단색 배경.</div>
+      </div>
+
+      <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
         <div class="row" style="align-items:baseline">
           <b style="font-size:13px">① 후보 (시그널 순)</b>
           <button class="btn" onclick="loadCandidates()" style="margin-left:8px">후보 불러오기</button>
@@ -2607,7 +2618,7 @@ function switchAdminSeg(seg){
   if (seg === 'engine') loadEngine();
   if (seg === 'backtest') loadBacktestAnalysis();
   if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
-  if (seg === 'shortform') loadShortform();
+  if (seg === 'shortform') { loadShortform(); loadSfBg(); }
 }
 
 // ===== 숏폼 콘텐츠(관리자) — 생성 → 검수 큐 → 승인/반려 =====
@@ -2617,6 +2628,23 @@ function setSfView(v){
   _sfView = v;
   document.querySelectorAll('#sf-view-seg button').forEach(b => b.classList.toggle('on', b.dataset.sfview === v));
   loadShortform();
+}
+async function loadSfBg(){
+  const el = document.getElementById('sf-bg-result');
+  try {
+    const d = await (await fetch('/api/shortform/background')).json();
+    document.getElementById('sf-bg-url').value = d.url || '';
+    if (el) { el.style.color = 'var(--dim)'; el.textContent = d.url ? '현재 배경 설정됨' : '배경 미설정(단색)'; }
+  } catch (e) { if (el) el.textContent = ''; }
+}
+async function saveSfBg(){
+  const url = document.getElementById('sf-bg-url').value.trim();
+  const el = document.getElementById('sf-bg-result');
+  const d = await (await fetch('/api/shortform/background', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
+  })).json();
+  el.style.color = d.ok ? 'var(--sig-buy)' : 'var(--sell)';
+  el.textContent = d.ok ? (url ? '✅ 저장됨 — 새로 생성하는 카드부터 적용' : '✅ 배경 해제됨') : (d.reason || '저장 실패');
 }
 async function loadCandidates(){
   const el = document.getElementById('sf-candidates');

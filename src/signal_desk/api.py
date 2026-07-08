@@ -1105,6 +1105,25 @@ def shortform_queue(status: str | None = None):
     return {"items": db.shortform_list(status=status)}
 
 
+@app.get("/api/shortform/background")
+def shortform_bg_get(request: Request):
+    """카드 배경 이미지 URL 조회(관리자). '' = 미설정(단색 배경)."""
+    _admin_or_403(request)
+    return {"url": db.kv_get("shortform_bg") or ""}
+
+
+@app.post("/api/shortform/background")
+def shortform_bg_set(request: Request, data: dict = Body(default={})):
+    """카드 배경 이미지 URL 설정(관리자). http(s) URL만 — data URI는 장면 SVG마다 박혀 DB가 커지므로
+    이미지는 사용자가 호스팅해 URL로 넣는다. 상업 이용 라이선스는 사용자 책임(유료화 전제)."""
+    _admin_or_403(request)
+    url = str(data.get("url") or "").strip()
+    if url and not (url.startswith("http://") or url.startswith("https://")):
+        return {"ok": False, "reason": "http(s) URL만 허용 — data URI는 저장 부담이라 이미지를 호스팅해 URL로 넣어주세요."}
+    db.kv_set("shortform_bg", url or None)
+    return {"ok": True, "url": url}
+
+
 @app.get("/api/shortform/{sid}")
 def shortform_detail(sid: str, request: Request):
     """단건 상세(스크립트 + 카드 SVG 포함) — 검수 미리보기용."""
