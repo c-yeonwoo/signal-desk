@@ -158,6 +158,24 @@ def dividend(corp_code: str, bsns_year: str) -> float | None:
     return None
 
 
+def disclosures(corp_code: str, bgn_de: str, end_de: str) -> list[dict]:
+    """기간(YYYYMMDD) 공시 목록 — list.json. 반환: [{report_nm, rcept_dt(YYYYMMDD), rcept_no}].
+    악재/호재 판별은 호출측(kb)이 report_nm 키워드로. 키 없음/무자료 시 빈 리스트."""
+    body = _get_json("list.json", {
+        "corp_code": corp_code, "bgn_de": bgn_de, "end_de": end_de,
+        "page_count": "100", "last_reprt_at": "N",
+    })
+    if not body:
+        return []
+    out = []
+    for row in body.get("list", []):
+        nm = str(row.get("report_nm") or "").strip()
+        if nm:
+            out.append({"report_nm": nm, "rcept_dt": str(row.get("rcept_dt") or ""),
+                        "rcept_no": str(row.get("rcept_no") or "")})
+    return out
+
+
 def company(corp_code: str) -> dict | None:
     """기업개황(company.json) — 설립연도·대표이사·영문명. '어떤 기업인지' 소개용(숏폼 기업 개요).
     응답은 최상위에 필드가 직접 온다(list 없음). 키 없음/실패 시 None."""

@@ -14,6 +14,7 @@ import logging
 import time
 
 from signal_desk import config, db, llm
+from signal_desk.ingest import dart as ingest_dart
 from signal_desk.ingest import news
 
 log = logging.getLogger("signal_desk.kb")
@@ -33,13 +34,21 @@ _EVENT_SERIOUS = [
 _EVENT_TERMS = _EVENT_CRITICAL + _EVENT_SERIOUS
 EVENT_TTL_DAYS = 5  # 이 기간 지난 악재는 veto에서 해제(신선도)
 
+# DART 공시 전용 키워드 — 공시는 구조화·공신력 있어 뉴스보다 확실(뉴스 본문 오탐 없이 source=='dart'에만 매칭).
+_DISC_CRITICAL = ["감자", "상장폐지", "상장적격성", "감사의견 거절", "감사의견 부적정", "회생절차", "부도", "파산"]
+_DISC_SERIOUS = ["유상증자", "전환사채", "신주인수권부사채", "최대주주 변경", "공급계약 해지", "소송 등의 제기"]
+# 호재/주목 공시(veto 아님, KB 근거로 적재) — 자기주식·무상증자·수주·흑자전환 등
+_DISC_GOOD = ["자기주식 취득", "자기주식취득", "무상증자", "공급계약 체결", "공급계약체결",
+              "수주", "흑자전환", "자산재평가", "현금·현물배당", "주식배당", "자기주식취득 신탁"]
+_DISC_NOTABLE = _DISC_CRITICAL + _DISC_SERIOUS + _DISC_GOOD
+
 
 def event_severity(note: str) -> str:
     """event_note(형식 '{term} — {title}')의 선두 키워드로 악재 강도 판정. critical|serious|''."""
     term = (note or "").split(" — ", 1)[0].strip()
-    if term in _EVENT_CRITICAL:
+    if term in _EVENT_CRITICAL or term in _DISC_CRITICAL:
         return "critical"
-    if term in _EVENT_SERIOUS:
+    if term in _EVENT_SERIOUS or term in _DISC_SERIOUS:
         return "serious"
     return ""
 
@@ -314,13 +323,36 @@ def _rebuild_digest(ticker: str, name: str) -> None:
 
 
 def detect_event(items: list[dict]) -> tuple[bool, str]:
-    """원자료 제목/요약에서 악재 이벤트 키워드를 찾아 (플래그, 사유) 반환. 없으면 (False, "")."""
+    """원자료 제목/요약에서 악재 이벤트 키워드를 찾아 (플래그, 사유) 반환. 없으면 (False, "").
+    뉴스엔 고정밀 _EVENT_TERMS만, DART 공시(source='dart')엔 공시 전용 악재 키워드도 매칭(공신력)."""
     for it in items:
         text = f"{it.get('title', '')} {it.get('summary', '')}"
-        for term in _EVENT_TERMS:
+        terms = _EVENT_TERMS + (_DISC_CRITICAL + _DISC_SERIOUS if it.get("source") == "dart" else [])
+        for term in terms:
             if term in text:
                 return True, f"{term} — {(it.get('title') or '').strip()[:60]}"
     return False, ""
+
+
+def _disclosure_items(corp_code: str | None) -> list[dict]:
+    """최근(신선도 기간) DART 주요공시를 news-like item으로 — 악재/호재/주목 공시만 필터.
+    build_digest·detect_event가 그대로 소비(악재는 veto, 그 외는 정성 근거). 키/코드 없으면 []."""
+    if not corp_code:
+        return []
+    from datetime import date, timedelta
+    end = date.today()
+    bgn = end - timedelta(days=EVENT_TTL_DAYS + 2)
+    items = []
+    for r in ingest_dart.disclosures(corp_code, bgn.strftime("%Y%m%d"), end.strftime("%Y%m%d")):
+        nm = r["report_nm"]
+        if not any(k in nm for k in _DISC_NOTABLE):  # 분기보고서·IR 등 routine은 스킵(노이즈 방지)
+            continue
+        d = r["rcept_dt"]
+        published = f"{d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) == 8 else ""
+        items.append({"title": f"[공시] {nm}", "summary": "", "source": "dart", "published": published,
+                      "url": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={r['rcept_no']}",
+                      "doc_class": "공시"})
+    return items
 
 
 def _newest_ts(items: list[dict]) -> int | None:
@@ -482,15 +514,19 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
     """targets: [{ticker, name}]. 각 종목 증권 뉴스 수집(신선도·관련성 필터)→저장→다이제스트 갱신.
     유튜브는 화이트리스트 확보 전까지 보류. 갱신 건수 반환."""
     updated = 0
+    codes = ingest_dart.corp_codes()  # stock_code→corp_code(DART 공시 조회용, 1회). 키 없으면 {}
     for t in targets:
         ticker, name = t.get("ticker"), t.get("name", "")
         if not ticker or not name:
             continue
-        items = news.collect(name, news_n=news_n, lookback_days=lookback_days)
+        news_items = news.collect(name, news_n=news_n, lookback_days=lookback_days)
+        disc = _disclosure_items(codes.get(ticker))  # DART 주요공시(악재 veto·호재 근거) — 뉴스보다 확실
+        items = disc + news_items
         if not items:
             continue
-        for it in items:  # 문서 유형 분류(뉴스/실적/공시/이벤트/시황)
-            it["doc_class"] = classify_document(it, "news")
+        for it in items:  # 문서 유형 분류(공시는 이미 지정됨 → 뉴스만 분류)
+            if not it.get("doc_class"):
+                it["doc_class"] = classify_document(it, "news")
         db.kb_entry_add_many(ticker, items)
         digest = build_digest(name, items)
         event_flag, event_note = detect_event(items)
