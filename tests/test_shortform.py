@@ -95,7 +95,7 @@ def test_quant_scene_has_price_chart(tmp_path, monkeypatch):
                         lambda: {"005930": [100.0, 105.0, 103.0, 108.0, 112.0]})
     d = db.shortform_get(shortform.generate(limit=1)["created"][0]["id"])
     quant = [s for s in d["scenes"] if s["label"] == "2·정량 근거"][0]
-    assert "최근 1개월 주가 흐름" in quant["svg"] and "<polyline" in quant["svg"]
+    assert "최근 1개월 주가" in quant["svg"] and "<polyline" in quant["svg"]
 
 
 def test_company_scene_uses_dart_profile_and_financials(tmp_path, monkeypatch):
@@ -181,3 +181,13 @@ def test_generate_selected_only(tmp_path, monkeypatch):
     out = shortform.generate(tickers=["000660"])              # 선택한 종목만
     assert out["count"] == 1 and out["created"][0]["ticker"] == "000660"
     assert {i["ticker"] for i in db.shortform_list()} == {"000660"}
+
+
+def test_quant_chart_has_ma_overlay():
+    from signal_desk import shortform
+    closes = [100.0 + i for i in range(40)]
+    svg = shortform._quant_svg(["[기술] 골든크로스"], closes, "BUY", metrics={"per": 13.0})
+    assert "5일선" in svg and "stroke-dasharray" in svg     # 5일 이평선 오버레이
+    assert svg.count("<polyline") >= 2                       # 주가 + 이평선 2개 라인
+    # 데이터 부족(2점 미만)이면 차트 없음
+    assert "5일선" not in shortform._quant_svg(["[기술] x"], [100.0], "BUY")

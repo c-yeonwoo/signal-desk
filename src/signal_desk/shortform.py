@@ -15,7 +15,7 @@ import uuid
 
 from signal_desk import db, kb, llm, signalcfg, store
 from signal_desk.reference import sectors
-from signal_desk.signals import engine, macro, regime
+from signal_desk.signals import engine, indicators as ind, macro, regime
 
 log = logging.getLogger("signal_desk.shortform")
 
@@ -388,6 +388,43 @@ def _fin_chips(m: dict) -> list[str]:
     return chips
 
 
+def _price_ma_chart(closes, x, y, w, h, color) -> str:
+    """최근 1개월 주가(면적+라인) + 5일 이동평균선(점선) — 공유 스케일 오버레이. '지표를 보여주는' 차트.
+    2점 미만이면 빈 문자열."""
+    pts = [float(v) for v in (closes or []) if isinstance(v, (int, float))]
+    if len(pts) < 2:
+        return ""
+    recent = pts[-22:]
+    ma_full = ind.sma(pts, 5) if len(pts) >= 5 else []
+    ma = ma_full[-len(recent):] if ma_full else []
+    scale = recent + [m for m in ma if m is not None]
+    lo, hi = min(scale), max(scale)
+    rng = (hi - lo) or 1.0
+    n = len(recent)
+
+    def coords(series):
+        out = []
+        for i, v in enumerate(series):
+            if v is None:
+                continue
+            out.append(f"{x + i / (n - 1) * w:.0f},{y + h - (v - lo) / rng * h:.0f}")
+        return out
+
+    price = coords(recent)
+    svg = (f'<polygon points="{x:.0f},{y + h:.0f} {" ".join(price)} {x + w:.0f},{y + h:.0f}" '
+           f'fill="{color}" opacity="0.16"/>'
+           f'<polyline points="{" ".join(price)}" fill="none" stroke="{color}" stroke-width="6" stroke-linejoin="round"/>')
+    ma_pts = coords(ma)
+    if len(ma_pts) >= 2:
+        svg += (f'<polyline points="{" ".join(ma_pts)}" fill="none" stroke="#eab308" '
+                f'stroke-width="4" stroke-dasharray="12 7"/>')
+        svg += ('<text x="960" y="{y}" fill="#eab308" font-size="30" text-anchor="end">┈ 5일선</text>'
+                .replace("{y}", str(y - 8)))
+    lx, ly = (x + w), (y + h - (recent[-1] - lo) / rng * h)
+    svg += f'<circle cx="{lx:.0f}" cy="{ly:.0f}" r="10" fill="{color}"/>'
+    return svg
+
+
 def _quant_svg(quant_reasons, closes, kind, bg=None, metrics=None) -> str:
     """② 정량 지표 근거 — 근거마다 '지표 + 쉬운 뜻 한 줄' + 재무·밸류 칩 + 최근 1개월 주가 차트.
     지표만 나열하지 않고 의미를 붙여 이해가 쉽게."""
@@ -412,8 +449,8 @@ def _quant_svg(quant_reasons, closes, kind, bg=None, metrics=None) -> str:
                      f'<text x="{cx + w // 2}" y="1208" fill="#e5e7eb" font-size="36" '
                      f'font-weight="700" text-anchor="middle">{_esc(ch)}</text>')
         cx += w + 16
-    chart = _linechart(closes[-22:] if closes else None, 120, 1390, 840, 280, pill)
-    label = '<text x="120" y="1340" fill="#9ca3af" font-size="40">최근 1개월 주가 흐름</text>' if chart else ""
+    chart = _price_ma_chart(closes, 120, 1390, 840, 280, pill)
+    label = '<text x="120" y="1340" fill="#9ca3af" font-size="40">최근 1개월 주가 + 5일선</text>' if chart else ""
     return (_svg_open(pill, bg) + _kicker("02", "정량 지표 근거", pill)
         + body + chip_svg + label + chart + '</svg>')
 
