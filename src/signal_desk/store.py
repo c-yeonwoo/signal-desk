@@ -71,24 +71,21 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
 
 def fetch_flows(universe: list[dict] | None = None, days: int = 20) -> dict:
     """최근 days 거래일 투자자별 순매수(외국인·기관, KR)를 종목별로 수집 → flows.json.
-    intensity = (외국인+기관 순매수) / 전체 매수대금 — 종목 규모 무관하게 [-1,1]로 자기정규화(수급 강도).
-    pykrx 실패분은 건너뜀(그레이스풀). 반환: {ticker: {foreign_net, inst_net, intensity}}."""
+    intensity = (외국인+기관 순매수) / 전체 거래량 — 종목 규모 무관하게 [-1,1]로 자기정규화(수급 강도).
+    소스: 네이버 금융(pykrx 투자자 엔드포인트가 KRX 스키마 변경으로 죽어 대체). 실패분 건너뜀."""
+    from signal_desk.ingest import naver
     universe = universe if universe is not None else load_universe()
-    end = datetime.date.today()
-    start = end - datetime.timedelta(days=int(days * 1.6) + 5)  # 거래일 days개 확보 위해 달력일 여유
-    s, e = start.strftime("%Y%m%d"), end.strftime("%Y%m%d")
     out: dict[str, dict] = {}
     fails = 0
     for i, item in enumerate(universe):
         ticker = item["ticker"]
-        fl = krx.investor_flows(ticker, s, e)
+        fl = naver.investor_flow(ticker, days)
         if not fl:
             fails += 1
-            # 서킷브레이커: 앞 종목이 연달아 전부 실패하면 pykrx 투자자 수급 엔드포인트가 통째로
-            # 죽은 것(KRX 스키마 변경 — get_market_trading_value_*_by_investor 계열). 200종목을
-            # 다 두드려 KRX를 때리고 로그를 도배하는 대신 조기 중단하고 한 줄만 남긴다.
+            # 서킷브레이커: 앞 종목이 연달아 전부 실패하면 소스가 통째로 막힌 것(IP 차단 등) →
+            # 200종목 다 두드리지 않고 조기 중단, 로그 1줄. 수급 팩터는 데이터 없음으로 자동 제외.
             if out == {} and fails >= 8:
-                log.warning("수급 수집 중단 — pykrx 투자자 순매수 엔드포인트 응답 없음(%d/%d 연속 실패). "
+                log.warning("수급 수집 중단 — 네이버 투자자 수급 응답 없음(%d/%d 연속 실패). "
                             "수급 팩터는 데이터 없음으로 자동 제외됩니다(다른 팩터엔 영향 없음).", fails, len(universe))
                 return out
             continue

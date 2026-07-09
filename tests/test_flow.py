@@ -32,14 +32,27 @@ def test_evaluate_includes_flow():
 
 
 def test_fetch_flows_circuit_breaker(monkeypatch, tmp_path):
-    """pykrx 투자자 엔드포인트가 통째로 죽으면(전부 None) 8연속 실패 후 조기 중단 — KRX 도배 방지."""
+    """수급 소스가 통째로 막히면(전부 None) 8연속 실패 후 조기 중단 — 도배 방지."""
     from signal_desk import store
-    from signal_desk.ingest import krx
+    from signal_desk.ingest import naver
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)
     calls = []
-    monkeypatch.setattr(krx, "investor_flows", lambda t, s, e: calls.append(t) or None)
+    monkeypatch.setattr(naver, "investor_flow", lambda t, days=20: calls.append(t) or None)
     uni = [{"ticker": f"{i:06d}", "name": f"n{i}"} for i in range(200)]
     out = store.fetch_flows(uni)
     assert out == {} and len(calls) == 8  # 8연속 실패 시 중단(200 전부 두드리지 않음)
     assert not store.FLOWS_FILE.exists()  # 빈 결과는 기존 flows.json 덮어쓰지 않음
+
+
+def test_fetch_flows_from_naver(monkeypatch, tmp_path):
+    """네이버 수급 → intensity 정규화(외국인+기관 순매수 / 거래량)."""
+    from signal_desk import store
+    from signal_desk.ingest import naver
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    monkeypatch.setattr(naver, "investor_flow",
+                        lambda t, days=20: {"foreign_net": 3e6, "inst_net": 1e6, "total_buy": 20e6})
+    out = store.fetch_flows([{"ticker": "005930", "name": "삼성전자"}])
+    assert out["005930"]["intensity"] == 0.2  # (3+1)/20
+    assert store.FLOWS_FILE.exists()
