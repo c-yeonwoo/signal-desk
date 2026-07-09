@@ -78,7 +78,8 @@ def position(macro_indicators: list[dict]) -> dict:
     ten = m.get("DGS10")
     nas = m.get("NASDAQCOM")
     if not cpi or (fed is None and ten is None):
-        return {"ready": False, "phase_key": None, "phase_name": None, "x": None, "reasons": []}
+        return {"ready": False, "phase_key": None, "phase_name": None, "x": None,
+                "reasons": [], "lead_sectors": []}
 
     cpi_rising = (cpi.get("change") or 0) > 0
     cpi_hot = cpi["value"] > 3.0
@@ -105,4 +106,5 @@ def position(macro_indicators: list[dict]) -> dict:
         reasons.append("금리 완화 속 물가 반등 — 회복 국면")
 
     p = _BY_KEY[key]
-    return {"ready": True, "phase_key": key, "phase_name": p["name"], "x": p["x"], "reasons": reasons}
+    return {"ready": True, "phase_key": key, "phase_name": p["name"], "x": p["x"],
+            "reasons": reasons, "lead_sectors": p["lead_sectors"]}

@@ -396,6 +396,7 @@
     <h3 class="page-head" style="font-size:18px;margin-top:28px" id="vc-anchor">밸류체인 <span style="color:var(--dim);font-size:13px;font-weight:600">· 주도섹터를 누르면 여기로 연결</span></h3>
     <p class="page-desc">섹터별 업스트림~다운스트림 구조와 국내(코스피)·해외 대표기업. 국내 기업의 현재
       시그널(관망 제외)이 뱃지로 표시되며, 누르면 시그널 차트로 이동합니다. (큐레이션 스냅샷 · 추천 아님)</p>
+    <div id="vc-cycle-banner" style="margin-bottom:10px"></div>
     <div class="vc-sectors" id="vc-sectors"></div>
     <div id="vc-detail"><div class="placeholder">불러오는 중…</div></div>
   </div>
@@ -952,7 +953,7 @@ const _GLOSSARY = [
 
 // ===== 탭 간 이동(사이클 → 밸류체인 → 시그널) =====
 const INDEX_TICKER = 'KOSPI200X';  // 시그널 탭 최상단 고정 지수(근사)
-let _pendingSignalTicker = null, _vcData = null, _vcCurrent = null;
+let _pendingSignalTicker = null, _vcData = null, _vcCurrent = null, _vcCycle = null;
 function gotoValuechain(key){  // 같은 '산업 사이클' 탭 내 밸류체인 섹션으로 이동
   _vcCurrent = key; selectVcSector(key);
   document.getElementById('vc-anchor').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1032,9 +1033,19 @@ function drawCycleChart(phases, cur){
 let _vcInfo = {};  // ticker -> {kind(HOLD 제외), mktcap, market} — 노드 뱃지·클릭·시총순 선택용(KR+US)
 async function loadValuechain(){
   if (!_vcData) {
-    try { _vcData = (await (await fetch('/api/valuechain')).json()).sectors; }
+    try {
+      const d = await (await fetch('/api/valuechain')).json();
+      _vcData = d.sectors; _vcCycle = d.cycle || null;
+    }
     catch (e) { document.getElementById('vc-detail').innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
   }
+  // 사이클×밸류체인 내러티브 — 현재 국면 배너 + 유리 섹터 하이라이트
+  const cb = document.getElementById('vc-cycle-banner');
+  if (cb && _vcCycle && _vcCycle.ready) {
+    cb.innerHTML = `<div style="background:var(--accent-weak);border:1px solid var(--accent);border-radius:8px;padding:8px 12px;font-size:13px">`
+      + `🔥 현재 <b>${esc(_vcCycle.phase_name)}</b> 국면 — 유리 섹터 <b>${(_vcCycle.lead_sectors || []).map(esc).join(' · ')}</b>`
+      + `<div style="color:var(--dim);font-size:11px;margin-top:2px">${(_vcCycle.reasons || []).map(esc).join(' · ')} · 아래 🔥 체인이 국면상 유리 (참고용)</div></div>`;
+  } else if (cb) { cb.innerHTML = ''; }
   try {  // 국내+해외 현재 시그널·시총(관망 제외 뱃지, 시총순 선택)
     const [kr, us] = await Promise.all([
       fetch('/api/signals').then(r => r.json()),
@@ -1045,7 +1056,7 @@ async function loadValuechain(){
     (us.items || []).forEach(r => _vcInfo[r.ticker] = { kind: r.kind !== 'HOLD' ? r.kind : null, mktcap: r.mktcap, market: 'us' });
   } catch (e) {}
   document.getElementById('vc-sectors').innerHTML = _vcData.map(s =>
-    `<button data-k="${s.key}" onclick="selectVcSector('${s.key}')">${esc(s.name)}</button>`).join('');
+    `<button data-k="${s.key}" onclick="selectVcSector('${s.key}')">${s.cycle_fit === 'favored' ? '🔥 ' : ''}${esc(s.name)}</button>`).join('');
   selectVcSector(_vcCurrent || _vcData[0].key);
 }
 

@@ -1336,8 +1336,20 @@ def cycle_get():
 
 @app.get("/api/valuechain")
 def valuechain_get():
-    """섹터별 밸류체인(업→다운스트림) 대표기업 큐레이션. 국내는 티커로 시그널 연결 가능."""
-    return {"sectors": valuechain.sectors()}
+    """섹터별 밸류체인(업→다운스트림) 대표기업 큐레이션. 국내는 티커로 시그널 연결 가능.
+    현재 경기국면(cycle)에 유리한 밸류체인을 cycle_fit로 태깅 — 사이클×밸류체인×시그널 내러티브."""
+    pos = cycle.position(store.load_macro())
+    leads = set(pos.get("lead_sectors") or [])
+    secs = []
+    for s in valuechain.sectors():  # 모듈 상수 변형 방지 위해 얕은 복사 후 태깅
+        d = dict(s)
+        d["cycle_fit"] = "favored" if leads & set(s.get("tags", [])) else "neutral"
+        secs.append(d)
+    if leads:  # 유리 국면 체인을 앞으로(신호 있는 유리 섹터부터 보이게)
+        secs.sort(key=lambda x: x["cycle_fit"] != "favored")
+    return {"sectors": secs, "cycle": {
+        "ready": pos.get("ready"), "phase_name": pos.get("phase_name"),
+        "lead_sectors": pos.get("lead_sectors") or [], "reasons": pos.get("reasons") or []}}
 
 
 @lru_cache(maxsize=1)
