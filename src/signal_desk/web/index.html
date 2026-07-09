@@ -130,7 +130,16 @@
   .sig-quote .q-k { color:var(--dim-2); }
   .sig-chart-pane { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
   .sig-chart-pane .pane-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
-  #signal-chart { flex:1 1 auto; min-height:0; width:100%; }
+  .sig-chart-pane { overflow-y:auto; }
+  #signal-chart { flex:1 1 auto; min-height:300px; width:100%; }
+  /* 차트 아래 상세는 서브탭으로 하나씩 — 차트를 밀어내지 않도록 높이 제한 */
+  .detail-tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-top:8px; }
+  .detail-tab { flex:0 0 auto; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer;
+    padding:6px 10px; font-size:12px; font-weight:600; color:var(--dim); }
+  .detail-tab:hover { color:var(--txt); }
+  .detail-tab.on { color:var(--accent); border-bottom-color:var(--accent); }
+  .detail-panels { margin-top:8px; }
+  .detail-panel { max-height:260px; overflow-y:auto; }
   table.dtable tr.selected-row { background:var(--accent-weak); }
   .fav-star { cursor:pointer; color:var(--sig-neutral); font-size:15px; user-select:none; }
   .fav-star.on { color:#f59e0b; }
@@ -428,20 +437,23 @@
         </div>
         <div id="signal-quote" class="sig-quote" style="display:none"></div>
         <div id="signal-intro" style="display:none;font-size:12px;color:var(--dim);margin:0 0 6px;line-height:1.5"></div>
-        <div id="signal-backtest" style="display:none;font-size:11px;margin:0 0 8px"></div>
-        <div id="signal-target" style="display:none;font-size:12px;margin:0 0 8px"></div>
-        <div id="signal-narrative" class="placeholder" style="display:none;background:var(--accent-weak);
-          border-radius:var(--r-md);padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:10px;text-align:left"></div>
-        <div id="signal-kb" style="display:none;font-size:12px;margin-bottom:8px;padding:8px 11px;
-          border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line);line-height:1.5"></div>
-        <div id="signal-factors" style="display:none;margin-bottom:10px"></div>
-        <details id="signal-peers" style="display:none;margin-bottom:10px;font-size:12px">
-          <summary style="cursor:pointer;color:var(--accent);font-weight:600">동종업계 비교 — 섹터 내 상대 위치</summary>
-          <div id="signal-peers-body" style="margin-top:8px"></div>
-        </details>
-        <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin-bottom:4px">
+        <div id="signal-backtest" style="display:none;font-size:11px;margin:0 0 6px"></div>
+        <div id="signal-target" style="display:none;font-size:12px;margin:0 0 6px"></div>
+        <div id="signal-chart"></div>
+        <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin:4px 0">
           <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수 · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도 · <b>+</b>는 강력 시그널 — 호버 시 근거·점수 · 📍 = 현재 시그널(5단계) · 음영 = 유지 구간</div>
-        <details id="signal-help" style="font-size:11px;color:var(--dim);margin-bottom:8px">
+        <div class="detail-tabs" id="detail-tabs" style="display:none"></div>
+        <div class="detail-panels" id="detail-panels">
+          <div id="signal-narrative" class="detail-panel placeholder" style="display:none;background:var(--accent-weak);
+            border-radius:var(--r-md);padding:10px 12px;font-size:13px;line-height:1.5;text-align:left"></div>
+          <div id="signal-kb" class="detail-panel" style="display:none;font-size:12px;padding:8px 11px;
+            border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line);line-height:1.5"></div>
+          <div id="signal-factors" class="detail-panel" style="display:none"></div>
+          <div id="signal-peers" class="detail-panel" style="display:none;font-size:12px">
+            <div id="signal-peers-body"></div>
+          </div>
+        </div>
+        <details id="signal-help" style="font-size:11px;color:var(--dim);margin-top:8px">
           <summary style="cursor:pointer;color:var(--accent);font-weight:600">시그널 계산 기준 · 용어 해설</summary>
           <div style="margin-top:6px;line-height:1.7;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px">
             <b>종합점수(−3 ~ +3)로 5단계 판정</b><br>
@@ -451,7 +463,6 @@
             <div id="glossary" style="margin-top:7px;border-top:1px solid var(--line);padding-top:6px"></div>
           </div>
         </details>
-        <div id="signal-chart"></div>
       </div>
     </div>
   </div>
@@ -903,8 +914,6 @@
     <span class="foot-link" onclick="openLegal('privacy')">개인정보처리방침</span> ·
     <span class="foot-link" onclick="openLegal('disclaimer')">투자 유의사항</span>
   </span>
-  <div class="foot-disc">⚠️ 본 서비스의 시그널·백테스트·시나리오·자동매매는 <b>투자 참고용</b>이며, 수익을 보장하지 않습니다.
-    모든 투자 판단과 그 결과(손실 포함)의 책임은 이용자 본인에게 있습니다.</div>
 </footer>
 
 <div id="authGate">
@@ -1653,11 +1662,34 @@ const _FACTOR_META = {
   momentum:    { ko: '모멘텀',  desc: '중기(12-1개월) 추세' },
 };
 const _FACTOR_ORDER = ['technical', 'fundamental', 'valuation', 'reversion', 'flow', 'quality', 'momentum'];
+// ===== 차트 아래 상세 서브탭 — 해설/정성/팩터/동종업계를 하나씩 보여줘 차트를 밀어내지 않는다 =====
+const _DETAIL_PANELS = [
+  { key: 'narr', label: 'AI 해설', el: 'signal-narrative' },
+  { key: 'kb', label: '정성 심리', el: 'signal-kb' },
+  { key: 'factor', label: '팩터 강약', el: 'signal-factors' },
+  { key: 'peers', label: '동종업계', el: 'signal-peers' },
+];
+let _activeDetailTab = 'narr';
+function setDetailHas(elId, has){ const el = document.getElementById(elId); if (el) el.dataset.has = has ? '1' : '0'; }
+function buildDetailTabs(){
+  const avail = _DETAIL_PANELS.filter(p => (document.getElementById(p.el) || {}).dataset?.has === '1');
+  const bar = document.getElementById('detail-tabs');
+  _DETAIL_PANELS.forEach(p => { const el = document.getElementById(p.el); if (el) el.style.display = 'none'; });
+  if (!avail.length) { bar.style.display = 'none'; return; }
+  if (!avail.some(p => p.key === _activeDetailTab)) _activeDetailTab = avail[0].key;
+  bar.style.display = '';
+  bar.innerHTML = avail.map(p => `<button class="detail-tab${p.key === _activeDetailTab ? ' on' : ''}" onclick="showDetailTab('${p.key}')">${p.label}</button>`).join('');
+  const active = _DETAIL_PANELS.find(p => p.key === _activeDetailTab);
+  if (active) document.getElementById(active.el).style.display = '';
+  if (_signalChart) _signalChart.resize();   // 패널 높이 변화 → 차트 flex 높이 재조정
+}
+function showDetailTab(key){ _activeDetailTab = key; buildDetailTabs(); }
+
 function renderFactors(item){
   const el = document.getElementById('signal-factors');
   const fs = item && item.factor_scores;
   const keys = fs ? _FACTOR_ORDER.filter(k => fs[k] != null) : [];
-  if (keys.length < 2) { el.style.display = 'none'; return; }
+  if (keys.length < 2) { setDetailHas('signal-factors', false); return; }
   const bar = (k) => {
     const v = Math.max(-1, Math.min(1, fs[k]));
     const pct = Math.round(Math.abs(v) * 50);            // 중앙(50%) 기준 좌우 최대 50%
@@ -1673,22 +1705,21 @@ function renderFactors(item){
       <span class="fct-val" style="color:${col}">${v > 0 ? '+' : ''}${fmtNum(v, 2)}</span>
     </div>`;
   };
-  el.style.display = '';
   el.innerHTML = `<div class="fct-title">팩터 강약 프로필 <span style="color:var(--dim-2);font-weight:400">· 종합점수를 만든 요인별 방향·강도(−1~+1)</span></div>`
     + keys.map(bar).join('');
+  setDetailHas('signal-factors', true);
 }
 
 // 동종업계 비교 — 섹터 내 percentile(Koyfin식). KR만(재무 보유). 선택 시 비동기 로드.
 async function renderPeers(ticker){
-  const wrap = document.getElementById('signal-peers');
   const body = document.getElementById('signal-peers-body');
-  if (_sigMarket === 'us' || ticker === INDEX_TICKER) { wrap.style.display = 'none'; return; }
-  wrap.style.display = '';
+  if (_sigMarket === 'us' || ticker === INDEX_TICKER) { setDetailHas('signal-peers', false); return; }
   body.innerHTML = '<div class="placeholder" style="padding:6px 0">불러오는 중…</div>';
   let d;
   try { d = await (await fetch(`/api/signals/${encodeURIComponent(ticker)}/peers`)).json(); }
-  catch (e) { wrap.style.display = 'none'; return; }
-  if (!d.ready) { body.innerHTML = `<div class="placeholder" style="padding:6px 0">${esc(d.reason || '비교 데이터 없음')}</div>`; return; }
+  catch (e) { setDetailHas('signal-peers', false); buildDetailTabs(); return; }
+  if (_selectedTicker !== ticker) return;   // 로드 중 선택이 바뀌면 폐기(레이스 방지)
+  if (!d.ready) { setDetailHas('signal-peers', false); buildDetailTabs(); return; }
   const metric = (m) => {
     const pct = m.better_pct, col = pct >= 66 ? 'var(--sig-buy)' : pct <= 33 ? 'var(--sig-sell)' : 'var(--dim-2)';
     const medTxt = m.median != null ? ` <span style="color:var(--dim-2)">(섹터중앙 ${fmtNum(m.median, m.key === 'pbr' ? 2 : 1)})</span>` : '';
@@ -1710,6 +1741,8 @@ async function renderPeers(ticker){
     + (d.metrics || []).map(metric).join('')
     + (peerRows ? `<div style="color:var(--dim);margin:8px 0 3px">같은 섹터 대표 종목 (시총순)</div>
         <table class="dtable"><thead><tr><th>종목</th><th class="num">PER</th><th class="num">PBR</th><th class="num">ROE%</th></tr></thead><tbody>${peerRows}</tbody></table>` : '');
+  setDetailHas('signal-peers', true);
+  buildDetailTabs();
 }
 
 let _signalChart = null;
@@ -1773,14 +1806,14 @@ async function showSignalChart(ticker, item){
   } else tgEl.style.display = 'none';
   const narrEl = document.getElementById('signal-narrative');
   if (item && item.narrative) {
-    narrEl.style.display = ''; narrEl.textContent = item.narrative;   // v1(규칙) 즉시 표시
+    narrEl.textContent = item.narrative;                              // v1(규칙) 즉시 표시
     if (ticker !== INDEX_TICKER) fetchNarrativeV2(ticker, narrEl);     // v2(LLM) 비동기 덮어쓰기
-  } else narrEl.style.display = 'none';
+  }
+  setDetailHas('signal-narrative', !!(item && item.narrative));
   const kbEl = document.getElementById('signal-kb');
   const evWarn = (item && item.event_risk)
     ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">⚠ 최근 악재 감지 — 매수 후보 제외${item.event_note ? ': ' + esc(item.event_note) : ''}</div>` : '';
   if (item && (item.kb || evWarn)) {
-    kbEl.style.display = '';
     let html = evWarn;
     if (item.kb) {
       const s = item.kb.sentiment, cls = s > 0.15 ? 'var(--sig-buy)' : s < -0.15 ? 'var(--sig-sell)' : 'var(--dim)';
@@ -1788,9 +1821,11 @@ async function showSignalChart(ticker, item){
         + (item.kb.points && item.kb.points.length ? `<div style="color:var(--dim);margin-top:3px">· ${item.kb.points.map(esc).join(' · ')}</div>` : '');
     }
     kbEl.innerHTML = html;
-  } else kbEl.style.display = 'none';
+  }
+  setDetailHas('signal-kb', !!(item && (item.kb || evWarn)));
   renderFactors(item);
   renderPeers(ticker);
+  buildDetailTabs();
   const holder = document.getElementById('signal-chart');
   try {
     const chartUrl = ticker === INDEX_TICKER ? '/api/market/chart'
