@@ -2359,18 +2359,34 @@ async function checkDataHealth(){
   const box = document.getElementById('data-health'); box.style.display = ''; box.innerHTML = '점검 중…';
   try {
     const d = await (await fetch('/api/data-health')).json();
-    if (!d.ok) { box.innerHTML = `⚠️ ${esc(d.reason || '점검 불가')}` +
-      (d.rows ? '<br>' + d.rows.map(r => `${esc(r.ticker)}: 캐시 ${r.cached ?? '–'}`).join(' · ') : ''); return; }
-    const bad = d.scaled_suspect;
-    const rows = d.rows.map(r => {
-      const off = r.ratio != null && Math.abs(r.ratio - 1) > 0.15;
-      return `<tr><td>${esc(r.ticker)}</td><td class="num">${r.cached ?? '–'}</td>
-        <td class="num">${r.live ?? '–'}</td>
-        <td class="num" style="color:${off ? 'var(--sell)' : 'var(--sig-buy)'}">${r.ratio != null ? '×' + r.ratio : '–'}</td></tr>`;
-    }).join('');
-    box.innerHTML = `<b style="color:${bad ? 'var(--sell)' : 'var(--sig-buy)'}">${bad ? '⚠️ ' : '✅ '}${esc(d.verdict)}</b>`
-      + `<table class="dtable" style="margin-top:6px"><thead><tr><th>종목</th><th class="num">캐시종가</th><th class="num">실시간가</th><th class="num">비율</th></tr></thead><tbody>${rows}</tbody></table>`
-      + `<div style="color:var(--dim);margin-top:4px">비율(캐시÷실시간)이 1에서 크게 벗어나면 스케일/합성 데이터 — track record 전에 실데이터 교체 필요.</div>`;
+    let html = '';
+    // 데이터 신선도(항상) — 소스별 최종 갱신·경과·건수·상태
+    if (d.freshness && d.freshness.length) {
+      const fmtAge = h => h == null ? '–' : (h >= 24 ? (h / 24).toFixed(1) + '일' : h.toFixed(1) + '시간') + ' 전';
+      const fr = d.freshness.map(f => {
+        const c = f.updated == null ? 'var(--sell)' : (f.stale ? '#b45309' : 'var(--sig-buy)');
+        const st = f.updated == null ? '미수집' : (f.stale ? '오래됨' : '최신');
+        return `<tr><td>${esc(f.label)}</td><td style="color:${c}">${f.updated ? esc(f.updated) : '없음'}</td>
+          <td class="num">${fmtAge(f.age_hours)}</td><td class="num">${f.rows ?? '–'}</td>
+          <td style="color:${c};font-weight:600">${st}</td></tr>`;
+      }).join('');
+      const staleN = d.freshness.filter(f => f.stale).length;
+      html += `<b>🗂 데이터 신선도 ${staleN ? `<span style="color:#b45309">· ${staleN}개 갱신 필요</span>` : '<span style="color:var(--sig-buy)">· 모두 최신</span>'}</b>`
+        + `<table class="dtable" style="margin-top:6px"><thead><tr><th>소스</th><th>최종 갱신</th><th class="num">경과</th><th class="num">건수</th><th>상태</th></tr></thead><tbody>${fr}</tbody></table>`;
+    }
+    // 시세 스케일 정합(가능할 때)
+    if (d.ok) {
+      const rows = (d.rows || []).map(r => {
+        const off = r.ratio != null && Math.abs(r.ratio - 1) > 0.15;
+        return `<tr><td>${esc(r.ticker)}</td><td class="num">${r.cached ?? '–'}</td><td class="num">${r.live ?? '–'}</td>
+          <td class="num" style="color:${off ? 'var(--sell)' : 'var(--sig-buy)'}">${r.ratio != null ? '×' + r.ratio : '–'}</td></tr>`;
+      }).join('');
+      html += `<b style="display:block;margin-top:12px;color:${d.scaled_suspect ? 'var(--sell)' : 'var(--sig-buy)'}">${d.scaled_suspect ? '⚠️ ' : '✅ '}${esc(d.verdict)}</b>`
+        + `<table class="dtable" style="margin-top:6px"><thead><tr><th>종목</th><th class="num">캐시종가</th><th class="num">실시간가</th><th class="num">비율</th></tr></thead><tbody>${rows}</tbody></table>`;
+    } else if (d.reason) {
+      html += `<div style="color:var(--dim);margin-top:10px">시세 정합 점검: ${esc(d.reason)}</div>`;
+    }
+    box.innerHTML = html || '데이터 없음';
   } catch (e) { box.innerHTML = '점검 요청 실패'; }
 }
 

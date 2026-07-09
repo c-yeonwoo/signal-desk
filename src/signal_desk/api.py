@@ -915,9 +915,19 @@ def dividends_get(market: str = "us"):
 
 @app.get("/api/data-health")
 def data_health_get():
-    """시세 데이터 신뢰도 진단(관리자) — 캐시 종가 vs 토스 실시간가 비율로 스케일/합성 여부 판정.
-    track record가 의미를 가지려면 실데이터여야 하므로 그 전제를 확인한다."""
-    return store.price_sanity()
+    """데이터 진단(관리자) — 시세 스케일 정합(price_sanity) + 소스별 신선도(마지막 갱신·경과·stale).
+    track record 신뢰의 전제(실데이터) + 어떤 소스가 오래됐는지 한눈에."""
+    fresh = store.data_freshness()
+    digests = db.kb_digests_all()
+    if digests:  # KB 다이제스트 신선도(최신 갱신 기준)
+        latest = max((d.get("updated") or 0) for d in digests.values())
+        age_h = (time.time() - latest) / 3600 if latest else None
+        fresh.append({"key": "kb", "label": "KB 다이제스트", "rows": len(digests),
+                      "updated": (datetime.datetime.fromtimestamp(latest).strftime("%Y-%m-%d %H:%M")
+                                  if latest else None),
+                      "age_hours": round(age_h, 1) if age_h is not None else None,
+                      "stale": age_h is None or age_h > 48})
+    return {**store.price_sanity(), "freshness": fresh}
 
 
 @app.get("/api/live-status")
