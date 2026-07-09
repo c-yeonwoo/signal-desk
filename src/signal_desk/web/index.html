@@ -231,6 +231,20 @@
   .fct-val { flex:0 0 42px; font-size:11px; font-variant-numeric:tabular-nums; text-align:right; font-weight:700; }
   .crit-chip { display:inline-block; font-size:11px; color:var(--dim); background:var(--bg); border:1px solid var(--line);
     border-radius:20px; padding:2px 9px; margin:2px 4px 2px 0; }
+  #sig-screener { border:1px solid var(--line); border-radius:var(--r-md); padding:8px 10px; background:var(--bg); }
+  .screen-body { margin-top:8px; display:flex; flex-direction:column; gap:8px; }
+  .screen-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:6px 10px; }
+  .screen-grid label { display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--dim); white-space:nowrap; }
+  .screen-row { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); flex-wrap:wrap; }
+  .screen-grid input { flex:1 1 auto; min-width:0; width:100%; padding:3px 6px; font-size:12px; border:1px solid var(--line);
+    border-radius:6px; background:var(--panel); color:var(--txt); font-variant-numeric:tabular-nums; }
+  .screen-row input[type=number] { padding:3px 6px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--txt); }
+  .screen-row .cb { cursor:pointer; }
+  .screen-presets { display:flex; flex-wrap:wrap; gap:5px; }
+  .screen-presets .preset { display:inline-flex; align-items:center; gap:5px; font-size:11px; border:1px solid var(--line);
+    background:var(--panel); border-radius:20px; padding:2px 6px 2px 10px; cursor:pointer; color:var(--txt); }
+  .screen-presets .preset .del { color:var(--dim-2); font-weight:700; }
+  .screen-presets .preset .del:hover { color:var(--sell); }
   #signal-peers .peer-metric { display:flex; align-items:center; gap:8px; margin:3px 0; font-size:12px; }
   #signal-peers .peer-metric .pm-label { flex:0 0 88px; color:var(--dim); }
   #signal-peers .peer-metric .pm-track { position:relative; flex:1 1 auto; height:10px; background:var(--bg); border:1px solid var(--line); border-radius:5px; overflow:hidden; }
@@ -369,6 +383,42 @@
           </select>
         </div>
         <div id="sig-opp-filters" class="row" style="gap:6px;flex-wrap:wrap;margin:0 10px 8px"></div>
+        <details id="sig-screener" style="margin:0 10px 8px">
+          <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">🔎 스크리너 <span id="screen-count" style="color:var(--dim);font-weight:400"></span></summary>
+          <div class="screen-body">
+            <div id="screen-presets" class="screen-presets"></div>
+            <div class="screen-grid">
+              <label>종합점수 ≥<input id="screen-minscore" type="number" step="0.1" inputmode="decimal" oninput="renderSignalList()"></label>
+              <label>PER ≤<input id="screen-maxper" type="number" step="1" inputmode="decimal" oninput="renderSignalList()"></label>
+              <label>PBR ≤<input id="screen-maxpbr" type="number" step="0.1" inputmode="decimal" oninput="renderSignalList()"></label>
+              <label>ROE% ≥<input id="screen-minroe" type="number" step="1" inputmode="decimal" oninput="renderSignalList()"></label>
+              <label>배당% ≥<input id="screen-minyield" type="number" step="0.5" inputmode="decimal" oninput="renderSignalList()"></label>
+              <label>시총(억) ≥<input id="screen-mincap" type="number" step="1000" inputmode="numeric" oninput="renderSignalList()"></label>
+            </div>
+            <div class="screen-row">
+              <span>팩터</span>
+              <select id="screen-factor" class="ctrl" onchange="renderSignalList()">
+                <option value="">—</option>
+                <option value="technical">기술</option><option value="fundamental">재무</option>
+                <option value="valuation">저평가</option><option value="reversion">낙폭과대</option>
+                <option value="flow">수급</option><option value="quality">퀄리티</option><option value="momentum">모멘텀</option>
+              </select>
+              <span>강도 ≥</span>
+              <input id="screen-factormin" type="number" step="0.1" min="-1" max="1" inputmode="decimal" style="width:60px" oninput="renderSignalList()">
+              <select id="screen-sector" class="ctrl" onchange="renderSignalList()"><option value="">전 섹터</option></select>
+            </div>
+            <div class="screen-row" style="gap:12px">
+              <label class="cb"><input type="checkbox" id="screen-buyonly" onchange="renderSignalList()"> 매수 시그널만</label>
+              <label class="cb"><input type="checkbox" id="screen-noevent" onchange="renderSignalList()"> 악재 제외</label>
+              <label class="cb"><input type="checkbox" id="screen-favonly" onchange="renderSignalList()"> 관심종목만</label>
+            </div>
+            <div id="screen-note" style="display:none;font-size:11px;color:var(--sell)"></div>
+            <div class="screen-row" style="justify-content:flex-end;gap:6px">
+              <button class="btn" style="padding:3px 10px;font-size:12px" onclick="resetScreen()">초기화</button>
+              <button class="btn primary" style="padding:3px 10px;font-size:12px" onclick="saveScreen()">현재 조건 저장</button>
+            </div>
+          </div>
+        </details>
         <div id="signal-body" class="placeholder" style="padding:32px 0">불러오는 중…</div>
       </div>
       <div class="sig-chart-pane card">
@@ -1376,6 +1426,8 @@ async function loadSignals(){
       };
     }
     el.className = '';
+    populateScreenSectors();
+    renderScreenPresets();
     renderSignalList();
     // 기본 선택: 밸류체인에서 넘어온 종목 > 코스피 지수(고정 최상단) > 1위 종목
     const target = (_pendingSignalTicker && _signalItems[_pendingSignalTicker]) ? _pendingSignalTicker
@@ -1391,6 +1443,104 @@ async function loadSignals(){
 function fmtMktcap(v){ if (v == null) return '–'; const jo = v / 1e12; return jo >= 1 ? fmtNum(jo, jo >= 10 ? 0 : 1) + '조' : fmtNum(v / 1e8, 0) + '억'; }
 function fmtVol(v){ if (v == null) return '–'; return v >= 1e8 ? fmtNum(v / 1e8, 1) + '억주' : v >= 1e4 ? fmtNum(v / 1e4, 0) + '만주' : fmtNum(v, 0) + '주'; }
 
+// ===== 팩터 스크리너 — 사용자 조건 조합으로 유니버스 필터(프론트, /api/signals 데이터 그대로) =====
+const _SCREEN_FIELDS = ['minscore', 'maxper', 'maxpbr', 'minroe', 'minyield', 'mincap', 'factormin'];
+function _snum(id){ const el = document.getElementById(id); if (!el) return null; const v = el.value.trim(); return v === '' ? null : parseFloat(v); }
+function readScreen(){
+  return {
+    minScore: _snum('screen-minscore'), maxPer: _snum('screen-maxper'), maxPbr: _snum('screen-maxpbr'),
+    minRoe: _snum('screen-minroe'), minYield: _snum('screen-minyield'), minCapEok: _snum('screen-mincap'),
+    factor: (document.getElementById('screen-factor') || {}).value || '', factorMin: _snum('screen-factormin'),
+    sector: (document.getElementById('screen-sector') || {}).value || '',
+    buyOnly: !!(document.getElementById('screen-buyonly') || {}).checked,
+    noEvent: !!(document.getElementById('screen-noevent') || {}).checked,
+    favOnly: !!(document.getElementById('screen-favonly') || {}).checked,
+  };
+}
+function screenActive(s){
+  return s.minScore != null || s.maxPer != null || s.maxPbr != null || s.minRoe != null || s.minYield != null
+    || s.minCapEok != null || (s.factor && s.factorMin != null) || !!s.sector || s.buyOnly || s.noEvent || s.favOnly;
+}
+function screenPass(r, s){
+  if (s.minScore != null && !(r.score >= s.minScore)) return false;
+  if (s.maxPer != null && !(r.per != null && r.per > 0 && r.per <= s.maxPer)) return false;
+  if (s.maxPbr != null && !(r.pbr != null && r.pbr > 0 && r.pbr <= s.maxPbr)) return false;
+  if (s.minRoe != null && !(r.roe != null && r.roe >= s.minRoe)) return false;
+  if (s.minYield != null && !(r.div_yield != null && r.div_yield >= s.minYield)) return false;
+  if (s.minCapEok != null && !(r.mktcap != null && r.mktcap >= s.minCapEok * 1e8)) return false;
+  if (s.factor && s.factorMin != null) { const fv = (r.factor_scores || {})[s.factor]; if (!(fv != null && fv >= s.factorMin)) return false; }
+  if (s.sector && r.sector !== s.sector) return false;
+  if (s.buyOnly && !_isBuy(r.kind)) return false;
+  if (s.noEvent && r.event_risk) return false;
+  if (s.favOnly && !_favorites.has(r.ticker)) return false;
+  return true;
+}
+function updateScreenUI(s, matched){
+  const c = document.getElementById('screen-count');
+  if (c) c.textContent = screenActive(s) ? `· ${matched}개 일치` : '';
+  const note = document.getElementById('screen-note');
+  if (note) {
+    const usFund = _sigMarket === 'us' && (s.minRoe != null || s.minYield != null);
+    note.style.display = usFund ? '' : 'none';
+    note.textContent = usFund ? '※ 해외 종목은 ROE·배당 데이터가 없어 해당 조건에선 제외됩니다.' : '';
+  }
+}
+function resetScreen(){
+  _SCREEN_FIELDS.forEach(f => { const el = document.getElementById('screen-' + f); if (el) el.value = ''; });
+  ['screen-factor', 'screen-sector'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['screen-buyonly', 'screen-noevent', 'screen-favonly'].forEach(id => { const el = document.getElementById(id); if (el) el.checked = false; });
+  renderSignalList();
+}
+function populateScreenSectors(){
+  const sel = document.getElementById('screen-sector');
+  if (!sel || !_signalRows) return;
+  const cur = sel.value;
+  const secs = [...new Set(_signalRows.map(r => r.sector).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ko'));
+  sel.innerHTML = '<option value="">전 섹터</option>' + secs.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  if (secs.includes(cur)) sel.value = cur; // 시장 전환 후에도 유효하면 유지
+}
+// 저장된 스크린(localStorage) — 조건셋에 이름 붙여 재사용
+function _loadScreens(){ try { return JSON.parse(localStorage.getItem('sigScreens') || '[]'); } catch (e) { return []; } }
+function _saveScreens(a){ localStorage.setItem('sigScreens', JSON.stringify(a)); }
+function renderScreenPresets(){
+  const box = document.getElementById('screen-presets');
+  if (!box) return;
+  const scr = _loadScreens();
+  box.innerHTML = scr.length
+    ? scr.map((p, i) => `<span class="preset" onclick="loadScreenPreset(${i})">${esc(p.name)}<span class="del" onclick="event.stopPropagation();deleteScreenPreset(${i})" title="삭제">×</span></span>`).join('')
+    : '<span style="font-size:11px;color:var(--dim-2)">저장된 스크린 없음 — 조건 설정 후 저장하면 여기 표시됩니다</span>';
+}
+function saveScreen(){
+  const s = readScreen();
+  if (!screenActive(s)) { alert('저장할 조건이 없습니다.'); return; }
+  const name = (prompt('스크린 이름', '내 스크린') || '').trim();
+  if (!name) return;
+  const scr = _loadScreens();
+  const cond = { minscore: _snum('screen-minscore'), maxper: _snum('screen-maxper'), maxpbr: _snum('screen-maxpbr'),
+    minroe: _snum('screen-minroe'), minyield: _snum('screen-minyield'), mincap: _snum('screen-mincap'),
+    factor: s.factor, factormin: s.factorMin, sector: s.sector,
+    buyonly: s.buyOnly, noevent: s.noEvent, favonly: s.favOnly };
+  const at = scr.findIndex(p => p.name === name);
+  if (at >= 0) scr[at] = { name, cond }; else scr.push({ name, cond });
+  _saveScreens(scr); renderScreenPresets();
+}
+function loadScreenPreset(i){
+  const p = _loadScreens()[i]; if (!p) return;
+  const c = p.cond || {};
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v == null ? '' : v; };
+  set('screen-minscore', c.minscore); set('screen-maxper', c.maxper); set('screen-maxpbr', c.maxpbr);
+  set('screen-minroe', c.minroe); set('screen-minyield', c.minyield); set('screen-mincap', c.mincap);
+  set('screen-factor', c.factor || ''); set('screen-factormin', c.factormin); set('screen-sector', c.sector || '');
+  document.getElementById('screen-buyonly').checked = !!c.buyonly;
+  document.getElementById('screen-noevent').checked = !!c.noevent;
+  document.getElementById('screen-favonly').checked = !!c.favonly;
+  document.getElementById('sig-screener').open = true;
+  renderSignalList();
+}
+function deleteScreenPreset(i){
+  const scr = _loadScreens(); scr.splice(i, 1); _saveScreens(scr); renderScreenPresets();
+}
+
 // 검색어 필터 + 선택 기준 정렬로 종목 리스트를 그린다(지수 행은 항상 최상단 고정).
 function renderSignalList(){
   const el = document.getElementById('signal-body');
@@ -1398,10 +1548,13 @@ function renderSignalList(){
   el.style.padding = '0';  // 로딩 플레이스홀더용 상하 패딩 제거(리스트 위 빈공간 제거)
   const q = (document.getElementById('sig-search').value || '').trim().toLowerCase();
   const sort = document.getElementById('sig-sort').value;
+  const scr = readScreen();
   let rows = _signalRows.filter(r =>
     (!q || r.name.toLowerCase().includes(q) || r.ticker.toLowerCase().includes(q))
-    && (!_oppFilter || (r.opp_tags || []).includes(_oppFilter)));
+    && (!_oppFilter || (r.opp_tags || []).includes(_oppFilter))
+    && screenPass(r, scr));
   renderOppFilters();
+  updateScreenUI(scr, rows.length);
   const nn = (x) => (x == null ? -Infinity : x);  // 값 없으면 뒤로
   if (sort === 'mktcap') rows = [...rows].sort((a, b) => nn(b.mktcap) - nn(a.mktcap));
   else if (sort === 'volume') rows = [...rows].sort((a, b) => nn(b.vol_avg) - nn(a.vol_avg));
@@ -1411,7 +1564,7 @@ function renderSignalList(){
     : (r.score > 0 ? '+' : '') + fmtNum(r.score, 2);
   const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
   const mkt = _indexReady ? _signalItems[INDEX_TICKER] : null;
-  const indexRow = (mkt && !q) ? `<tr class="clickable-row idx-row" data-ticker="${INDEX_TICKER}">
+  const indexRow = (mkt && !q && !screenActive(scr)) ? `<tr class="clickable-row idx-row" data-ticker="${INDEX_TICKER}">
       <td>📌</td>
       <td><b>${esc(mkt.name)}</b><div class="sig-metric">시장 지수</div></td>
       <td style="font-size:12px;color:var(--dim)">지수</td>
