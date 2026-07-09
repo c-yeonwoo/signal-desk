@@ -1482,7 +1482,7 @@ def guru_screens_get(market: str = "kospi"):
             items.append({"ticker": t, "name": names.get(t, t), "per": m.get("per"), "pbr": m.get("pbr"),
                           "roe": m.get("roe"), "revenue_growth": m.get("revenue_growth"),
                           "signal": {"kind": s.kind, "score": round(s.score, 2)} if (s and s.kind != "HOLD") else None})
-        results.append({**meta, "count": len(tks), "items": items})
+        results.append({**meta, "count": len(tks), "tickers": tks, "items": items})  # tickers=전체 매칭(스크리너 프리셋 필터용)
     return {"ready": True, "screens": results}
 
 

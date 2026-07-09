@@ -54,6 +54,8 @@ def test_guru_screens_endpoint(tmp_path, monkeypatch):
     assert out["ready"]
     buf = next(s for s in out["screens"] if s["key"] == "buffett")
     assert any(i["ticker"] == "005930" for i in buf["items"])  # 삼성전자 통과
+    # tickers = 전체 매칭(스크리너 프리셋 필터용) — count와 길이 일치, 삼성전자 포함
+    assert "005930" in buf["tickers"] and len(buf["tickers"]) == buf["count"]
     # US는 미지원이지만 스크린 메타는 준다
     us = api.guru_screens_get(market="us")
     assert us["ready"] is False and us["screens"]
