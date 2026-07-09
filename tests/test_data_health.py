@@ -40,3 +40,22 @@ def test_graceful_without_toss(tmp_path, monkeypatch):
     monkeypatch.setattr(toss, "available", lambda: False)
     out = store.price_sanity(["005930"])
     assert out["ok"] is False and out["toss"] is False and out["rows"][0]["cached"] == 79000.0
+
+
+def test_data_freshness_reports_sources(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    store._write_json(store.FLOWS_FILE, {"005930": {"intensity": 0.1}})
+    fr = store.data_freshness()
+    by = {f["key"]: f for f in fr}
+    assert by["flows"]["updated"] and by["flows"]["rows"] == 1 and by["flows"]["stale"] is False
+    assert by["prices"]["updated"] is None and by["prices"]["stale"] is True  # 없으면 미수집·stale
+    assert {"prices", "fundamentals", "flows", "macro", "company"} <= set(by)
+
+
+def test_data_health_includes_freshness(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import api, db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    out = api.data_health_get()
+    assert isinstance(out.get("freshness"), list) and out["freshness"]

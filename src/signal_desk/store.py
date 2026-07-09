@@ -784,6 +784,44 @@ def is_ready() -> bool:
 _SANITY_TICKERS = ["005930", "000660", "005380", "035420", "005490"]
 
 
+def _json_rows(path) -> int | None:
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+        return len(d) if isinstance(d, (list, dict)) else None
+    except Exception:
+        return None
+
+
+def data_freshness() -> list[dict]:
+    """데이터 소스별 최종 갱신 시각·경과·행수·stale 여부(캐시 파일 mtime 기준). 관리자 신선도 대시보드용.
+    stale_days 초과면 stale=True(소스별 갱신 주기에 맞춘 임계)."""
+    now = datetime.datetime.now().timestamp()
+
+    def e(key, label, path, stale_days, rows=None):
+        if not path.exists():
+            return {"key": key, "label": label, "updated": None, "age_hours": None,
+                    "rows": rows, "stale": True}
+        mt = path.stat().st_mtime
+        age_h = (now - mt) / 3600
+        return {"key": key, "label": label,
+                "updated": datetime.datetime.fromtimestamp(mt).strftime("%Y-%m-%d %H:%M"),
+                "age_hours": round(age_h, 1), "rows": rows, "stale": age_h > stale_days * 24}
+
+    return [
+        e("prices", "국내 시세", PRICES_FILE, 2),
+        e("us_prices", "미국 시세", US_PRICES_FILE, 2),
+        e("fundamentals", "재무(DART)", FUNDAMENTALS_FILE, 100, _json_rows(FUNDAMENTALS_FILE)),
+        e("flows", "종목 수급(네이버)", FLOWS_FILE, 2, _json_rows(FLOWS_FILE)),
+        e("market_flow", "시장 수급(토스)", MARKET_FLOW_FILE, 2),
+        e("macro", "거시(FRED)", MACRO_FILE, 8, _json_rows(MACRO_FILE)),
+        e("macro_kr", "거시(ECOS)", MACRO_KR_FILE, 8, _json_rows(MACRO_KR_FILE)),
+        e("company", "기업개황(DART)", COMPANY_PROFILES_FILE, 365, _json_rows(COMPANY_PROFILES_FILE)),
+        e("warnings", "투자경고(토스)", WARNINGS_FILE, 2, _json_rows(WARNINGS_FILE)),
+        e("gurus", "거장 13F", GURUS_FILE, 40),
+        e("us_fund", "미국 재무(EDGAR)", US_FUNDAMENTALS_FILE, 100, _json_rows(US_FUNDAMENTALS_FILE)),
+    ]
+
+
 def price_sanity(tickers: list[str] | None = None) -> dict:
     """캐시 종가와 토스 실시간가의 비율로 시세 데이터가 '실제 스케일'인지 진단한다.
     ratio(캐시/실시간)≈1이면 실데이터, 종목별로 크게(>15%) 벗어나면 스케일·합성 의심.
