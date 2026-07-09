@@ -23,7 +23,7 @@ from fastapi import Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from signal_desk import auth, bot, config, db, kb, notify, shortform, signalcfg, store, strategy
-from signal_desk.reference import cycle, gurus as gurus_ref, sectors, us_ko, valuechain
+from signal_desk.reference import cycle, glossary, gurus as gurus_ref, sectors, us_ko, valuechain
 from signal_desk.signals import macro, narrative, opportunity, rebalance, regime, scenario, target, valuation
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, combine,
@@ -1332,6 +1332,12 @@ def cycle_get():
         leads = [{"name": s, "vc_key": valuechain.key_for_tag(s)} for s in p["lead_sectors"]]
         phases.append({**p, "lead_sectors": leads})
     return {"phases": phases, "current": cycle.position(_macro()["indicators"])}
+
+
+@app.get("/api/glossary")
+def glossary_get():
+    """투자 용어·지표 학습 사전(스터디) — 카테고리별 개념/쉬운설명/왜보는지/우리시그널에서."""
+    return {"categories": glossary.categories()}
 
 
 @app.get("/api/valuechain")

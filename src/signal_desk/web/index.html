@@ -399,6 +399,12 @@
     <div id="vc-cycle-banner" style="margin-bottom:10px"></div>
     <div class="vc-sectors" id="vc-sectors"></div>
     <div id="vc-detail"><div class="placeholder">불러오는 중…</div></div>
+
+    <h3 class="page-head" style="font-size:18px;margin-top:28px">📚 지표·용어 학습
+      <span style="color:var(--dim);font-size:13px;font-weight:600">· 무엇을 보고 판단하는지 쉽게</span></h3>
+    <p class="page-desc">시그널·투자에서 쓰는 개념을 초보도 이해되게 정리했습니다. 각 항목에 <b>쉬운 설명 · 왜 보는지 ·
+      우리 시그널에서 어떻게 쓰는지</b>를 담았어요.</p>
+    <div id="glossary"><div class="placeholder">불러오는 중…</div></div>
   </div>
 
   <div id="view-trading" class="view-app" style="display:none">
@@ -890,7 +896,7 @@ function switchTab(t){
   const _mn = document.getElementById('macro-narrative');
   if (!onSignal) _mn.style.display = 'none';  // 표시 여부는 loadMacro가 내용 유무로 결정
   if (t === 'signal') loadSignals();
-  if (t === 'cycle') { loadCycle(); loadValuechain(); }  // 산업 사이클 = 경기사이클 + 밸류체인
+  if (t === 'cycle') { loadCycle(); loadValuechain(); loadGlossary(); }  // 경기사이클 + 밸류체인 + 용어학습
   if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'admin') switchAdminSeg(_adminSeg);
   if (t === 'mypage') fillMyPage();
@@ -1031,6 +1037,28 @@ function drawCycleChart(phases, cur){
 
 // ===== 밸류체인 =====
 let _vcInfo = {};  // ticker -> {kind(HOLD 제외), mktcap, market} — 노드 뱃지·클릭·시총순 선택용(KR+US)
+let _glossary = null;
+async function loadGlossary(){
+  const el = document.getElementById('glossary');
+  if (!el) return;
+  if (!_glossary) {
+    try { _glossary = (await (await fetch('/api/glossary')).json()).categories || []; }
+    catch (e) { el.innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
+  }
+  el.innerHTML = _glossary.map(cat => `
+    <div class="card" style="margin-bottom:12px">
+      <b style="font-size:14px">${esc(cat.name)}</b>
+      <div style="margin-top:8px">${(cat.items || []).map(it => `
+        <details style="border-top:1px solid var(--line);padding:8px 0">
+          <summary style="cursor:pointer;font-weight:600">${esc(it.term)}</summary>
+          <div style="margin-top:6px;font-size:13px;line-height:1.5">
+            <div>${esc(it.easy)}</div>
+            <div style="color:var(--dim);margin-top:4px">💡 <b>왜 보나</b> · ${esc(it.why)}</div>
+            <div style="color:var(--accent);margin-top:2px">⚙ <b>우리 시그널</b> · ${esc(it.in_signal)}</div>
+          </div>
+        </details>`).join('')}</div>
+    </div>`).join('');
+}
 async function loadValuechain(){
   if (!_vcData) {
     try {
