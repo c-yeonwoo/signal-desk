@@ -100,6 +100,7 @@ class SignalResult:
     event_severity: str = ""  # 악재 강도: critical(전량 청산)|serious(부분 청산)|''
     reasons: list[str] = field(default_factory=list)
     narrative: str = ""
+    factor_scores: dict[str, float] = field(default_factory=dict)  # 팩터별 방향·강도 [-1,1] — 시각화용
 
 
 def compute_indicator_series(closes: list[float], config: SignalConfig | None = None) -> dict:
@@ -319,6 +320,23 @@ def evaluate(
             closes, len(closes) - 1, config
         )
 
+        # 팩터별 방향·강도(정규화 [-1,1]) — 종합점수 구성에 실제 들어간 값. 프론트 팩터 시각화(레이더/
+        # 막대)용. 하락추세 게이트가 아래에서 저평가·낙폭 매수기여를 무효화하기 '전' 원 강도를 담아
+        # 두 종목의 진짜 팩터 상태를 보여준다(게이트로 보류된 사정은 reasons/whyHold가 별도 설명).
+        factor_scores: dict[str, float] = {"technical": round(max(-1.0, min(1.0, tech_score / 3.0)), 3)}
+        if fund.has_data:
+            factor_scores["fundamental"] = round(max(-1.0, min(1.0, fund.score / 2.0)), 3)
+        if has_valuation:
+            factor_scores["valuation"] = round(max(-1.0, min(1.0, val_norm)), 3)
+        if has_reversion:
+            factor_scores["reversion"] = round(max(-1.0, min(1.0, rev_norm)), 3)
+        if has_flow:
+            factor_scores["flow"] = round(max(-1.0, min(1.0, flow_norm)), 3)
+        if has_quality:
+            factor_scores["quality"] = round(max(-1.0, min(1.0, ql_norm)), 3)
+        if has_momentum:
+            factor_scores["momentum"] = round(max(-1.0, min(1.0, mom_norm)), 3)
+
         # 확인된 하락추세(떨어지는 칼)에서는 낙폭과대·저평가 매수기여를 무효화한다 — 싸고
         # 과매도여도 구조적 하락이면 계속 싸지고 떨어지는 가치함정. 종합 BUY도 아래서 관망 강등.
         i_last = len(closes) - 1
@@ -358,6 +376,7 @@ def evaluate(
             event_risk=bool(entry.get("event_risk")), event_note=str(entry.get("event_note") or ""),
             event_severity=str(entry.get("event_severity") or ""),
             reasons=combined["reasons"],
+            factor_scores=factor_scores,
         )
         result.narrative = narr.explain(result)
         results.append(result)

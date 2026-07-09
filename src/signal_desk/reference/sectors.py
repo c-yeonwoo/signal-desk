@@ -60,3 +60,8 @@ def sector_of(ticker: str) -> str | None:
 
 def sectors() -> list[str]:
     return list(_BY_SECTOR.keys())
+
+
+def by_sector(sector: str) -> list[str]:
+    """섹터명 → 소속 종목코드 목록(동종업계 비교용)."""
+    return list(_BY_SECTOR.get(sector, []))

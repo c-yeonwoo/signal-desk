@@ -222,6 +222,20 @@
   table.dtable tr:last-child td { border-bottom:none; }
   table.dtable td.num, table.dtable th.num { text-align:right; font-variant-numeric:tabular-nums; }
   table.dtable td.reasons { white-space:normal; color:var(--dim); font-size:var(--fs-sm); min-width:220px; }
+  #signal-factors .fct-title { font-size:12px; font-weight:700; margin-bottom:6px; }
+  .fct-row { display:flex; align-items:center; gap:8px; margin:3px 0; }
+  .fct-label { flex:0 0 52px; font-size:12px; color:var(--dim); text-align:right; }
+  .fct-track { position:relative; flex:1 1 auto; height:12px; background:var(--bg); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
+  .fct-mid { position:absolute; left:50%; top:0; bottom:0; width:1px; background:var(--line-strong); }
+  .fct-fill { position:absolute; top:0; bottom:0; border-radius:5px; }
+  .fct-val { flex:0 0 42px; font-size:11px; font-variant-numeric:tabular-nums; text-align:right; font-weight:700; }
+  .crit-chip { display:inline-block; font-size:11px; color:var(--dim); background:var(--bg); border:1px solid var(--line);
+    border-radius:20px; padding:2px 9px; margin:2px 4px 2px 0; }
+  #signal-peers .peer-metric { display:flex; align-items:center; gap:8px; margin:3px 0; font-size:12px; }
+  #signal-peers .peer-metric .pm-label { flex:0 0 88px; color:var(--dim); }
+  #signal-peers .peer-metric .pm-track { position:relative; flex:1 1 auto; height:10px; background:var(--bg); border:1px solid var(--line); border-radius:5px; overflow:hidden; }
+  #signal-peers .peer-metric .pm-fill { position:absolute; left:0; top:0; bottom:0; border-radius:5px; }
+  #signal-peers .peer-metric .pm-val { flex:0 0 108px; text-align:right; font-variant-numeric:tabular-nums; }
   table.dtable tr.clickable-row { cursor:pointer; transition:background .1s; }
   table.dtable tr.clickable-row:hover { background:var(--accent-weak); }
   /* 숏폼 카드 미리보기 — 카드 SVG(1080x1920)가 컨테이너에 맞게 스케일되도록(CSS가 SVG의 고정
@@ -370,6 +384,11 @@
           border-radius:var(--r-md);padding:10px 12px;font-size:13px;line-height:1.5;margin-bottom:10px;text-align:left"></div>
         <div id="signal-kb" style="display:none;font-size:12px;margin-bottom:8px;padding:8px 11px;
           border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line);line-height:1.5"></div>
+        <div id="signal-factors" style="display:none;margin-bottom:10px"></div>
+        <details id="signal-peers" style="display:none;margin-bottom:10px;font-size:12px">
+          <summary style="cursor:pointer;color:var(--accent);font-weight:600">동종업계 비교 — 섹터 내 상대 위치</summary>
+          <div id="signal-peers-body" style="margin-top:8px"></div>
+        </details>
         <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin-bottom:4px">
           <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수 · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도 · <b>+</b>는 강력 시그널 — 호버 시 근거·점수 · 📍 = 현재 시그널(5단계) · 음영 = 유지 구간</div>
         <details id="signal-help" style="font-size:11px;color:var(--dim);margin-bottom:8px">
@@ -405,6 +424,13 @@
     <p class="page-desc">시그널·투자에서 쓰는 개념을 초보도 이해되게 정리했습니다. 각 항목에 <b>쉬운 설명 · 왜 보는지 ·
       우리 시그널에서 어떻게 쓰는지</b>를 담았어요.</p>
     <div id="glossary"><div class="placeholder">불러오는 중…</div></div>
+
+    <h3 class="page-head" style="font-size:18px;margin-top:28px">🧑‍🏫 거장 전략 스크린
+      <span style="color:var(--dim);font-size:13px;font-weight:600">· 유명 투자자의 원칙을 규칙으로</span></h3>
+    <p class="page-desc">버핏·그레이엄·린치의 <b>공개된 투자 원칙</b>을 숫자 기준으로 옮겨, 지금 그 기준에 걸리는
+      국내 종목을 보여줍니다. 그 거장이 실제로 보유한 종목이 아니라 <b>스타일을 흉내 낸 학습용 프리셋</b>이에요
+      (추천·자문 아님). 종목의 우리 시그널도 함께 표시됩니다.</p>
+    <div id="guru-screens"><div class="placeholder">불러오는 중…</div></div>
   </div>
 
   <div id="view-trading" class="view-app" style="display:none">
@@ -896,7 +922,7 @@ function switchTab(t){
   const _mn = document.getElementById('macro-narrative');
   if (!onSignal) _mn.style.display = 'none';  // 표시 여부는 loadMacro가 내용 유무로 결정
   if (t === 'signal') loadSignals();
-  if (t === 'cycle') { loadCycle(); loadValuechain(); loadGlossary(); }  // 경기사이클 + 밸류체인 + 용어학습
+  if (t === 'cycle') { loadCycle(); loadValuechain(); loadGlossary(); loadGuruScreens(); }  // 경기사이클 + 밸류체인 + 용어학습 + 전략 스크린
   if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'admin') switchAdminSeg(_adminSeg);
   if (t === 'mypage') fillMyPage();
@@ -1058,6 +1084,39 @@ async function loadGlossary(){
           </div>
         </details>`).join('')}</div>
     </div>`).join('');
+}
+let _guruScreens = null;
+async function loadGuruScreens(){
+  const el = document.getElementById('guru-screens');
+  if (!el) return;
+  if (!_guruScreens) {
+    try { _guruScreens = (await (await fetch('/api/guru-screens')).json()).screens || []; }
+    catch (e) { el.innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
+  }
+  const pill = (sig) => sig
+    ? ` <span class="sig-pill ${sig.kind}" style="font-size:10px">${kindLabel(sig.kind)}</span>` : '';
+  el.innerHTML = _guruScreens.map(s => {
+    const rows = (s.items || []).map(it => `
+      <tr class="clickable-row" onclick="gotoSignal('${it.ticker}','kr')">
+        <td>${esc(it.name)}${pill(it.signal)}</td>
+        <td class="num">${it.per != null ? fmtNum(it.per, 1) : '-'}</td>
+        <td class="num">${it.pbr != null ? fmtNum(it.pbr, 2) : '-'}</td>
+        <td class="num">${it.roe != null ? fmtNum(it.roe, 1) : '-'}</td>
+      </tr>`).join('');
+    const body = s.items && s.items.length
+      ? `<table class="dtable" style="margin-top:8px"><thead><tr><th>종목</th><th class="num">PER</th><th class="num">PBR</th><th class="num">ROE%</th></tr></thead><tbody>${rows}</tbody></table>`
+        + (s.count > s.items.length ? `<div style="color:var(--dim-2);font-size:11px;margin-top:4px">외 ${s.count - s.items.length}종목 (시총 상위만 표시)</div>` : '')
+      : `<div class="placeholder" style="padding:10px 0">현재 이 기준을 모두 통과하는 종목이 없습니다.</div>`;
+    return `<div class="card" style="margin-bottom:12px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <b style="font-size:14px">${esc(s.name)}</b>
+        <span style="color:var(--dim);font-size:12px">${esc(s.style)} · <b style="color:var(--accent)">${s.count}종목</b></span>
+      </div>
+      <div style="color:var(--dim);font-size:12px;margin-top:4px;line-height:1.5">${esc(s.note)}</div>
+      <div style="margin-top:6px">${(s.criteria || []).map(c => `<span class="crit-chip">${esc(c)}</span>`).join('')}</div>
+      ${body}
+    </div>`;
+  }).join('');
 }
 async function loadValuechain(){
   if (!_vcData) {
@@ -1429,6 +1488,77 @@ function whyHoldNote(item){
   return '';
 }
 
+// 팩터 분해 — 종합점수를 구성한 팩터별 방향·강도([-1,1])를 발산형 막대로. Simply Wall St/Seeking
+// Alpha식 '한눈에 보이는 강약 프로필'. norm은 엔진이 combine()에 넣은 실제 값이라 해석이 정확하다.
+const _FACTOR_META = {
+  technical:   { ko: '기술',    desc: '이평선·RSI·MACD 등 가격 흐름' },
+  fundamental: { ko: '재무',    desc: 'ROE·부채·성장성' },
+  valuation:   { ko: '저평가',  desc: 'PER·PBR 상대 위치(쌀수록 +)' },
+  reversion:   { ko: '낙폭과대', desc: '단기 과매도 반등 여지' },
+  flow:        { ko: '수급',    desc: '외국인·기관 순매수' },
+  quality:     { ko: '퀄리티',  desc: '재무 건전성·개선(F-Score)' },
+  momentum:    { ko: '모멘텀',  desc: '중기(12-1개월) 추세' },
+};
+const _FACTOR_ORDER = ['technical', 'fundamental', 'valuation', 'reversion', 'flow', 'quality', 'momentum'];
+function renderFactors(item){
+  const el = document.getElementById('signal-factors');
+  const fs = item && item.factor_scores;
+  const keys = fs ? _FACTOR_ORDER.filter(k => fs[k] != null) : [];
+  if (keys.length < 2) { el.style.display = 'none'; return; }
+  const bar = (k) => {
+    const v = Math.max(-1, Math.min(1, fs[k]));
+    const pct = Math.round(Math.abs(v) * 50);            // 중앙(50%) 기준 좌우 최대 50%
+    const pos = v >= 0;
+    const col = v > 0.05 ? 'var(--sig-buy)' : v < -0.05 ? 'var(--sig-sell)' : 'var(--dim-2)';
+    const m = _FACTOR_META[k];
+    return `<div class="fct-row" title="${esc(m.desc)}">
+      <span class="fct-label">${m.ko}</span>
+      <span class="fct-track">
+        <span class="fct-mid"></span>
+        <span class="fct-fill" style="${pos ? 'left:50%' : 'right:50%'};width:${pct}%;background:${col}"></span>
+      </span>
+      <span class="fct-val" style="color:${col}">${v > 0 ? '+' : ''}${fmtNum(v, 2)}</span>
+    </div>`;
+  };
+  el.style.display = '';
+  el.innerHTML = `<div class="fct-title">팩터 강약 프로필 <span style="color:var(--dim-2);font-weight:400">· 종합점수를 만든 요인별 방향·강도(−1~+1)</span></div>`
+    + keys.map(bar).join('');
+}
+
+// 동종업계 비교 — 섹터 내 percentile(Koyfin식). KR만(재무 보유). 선택 시 비동기 로드.
+async function renderPeers(ticker){
+  const wrap = document.getElementById('signal-peers');
+  const body = document.getElementById('signal-peers-body');
+  if (_sigMarket === 'us' || ticker === INDEX_TICKER) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  body.innerHTML = '<div class="placeholder" style="padding:6px 0">불러오는 중…</div>';
+  let d;
+  try { d = await (await fetch(`/api/signals/${encodeURIComponent(ticker)}/peers`)).json(); }
+  catch (e) { wrap.style.display = 'none'; return; }
+  if (!d.ready) { body.innerHTML = `<div class="placeholder" style="padding:6px 0">${esc(d.reason || '비교 데이터 없음')}</div>`; return; }
+  const metric = (m) => {
+    const pct = m.better_pct, col = pct >= 66 ? 'var(--sig-buy)' : pct <= 33 ? 'var(--sig-sell)' : 'var(--dim-2)';
+    const medTxt = m.median != null ? ` <span style="color:var(--dim-2)">(섹터중앙 ${fmtNum(m.median, m.key === 'pbr' ? 2 : 1)})</span>` : '';
+    return `<div class="peer-metric">
+      <span class="pm-label">${esc(m.label)}</span>
+      <span class="pm-track"><span class="pm-fill" style="width:${pct}%;background:${col}"></span></span>
+      <span class="pm-val"><b>${fmtNum(m.value, m.key === 'pbr' ? 2 : 1)}</b> · 동종 ${fmtNum(pct, 0)}% 상회</span>
+    </div>`;
+  };
+  const pill = (sig) => sig ? ` <span class="sig-pill ${sig.kind}" style="font-size:10px">${kindLabel(sig.kind)}</span>` : '';
+  const peerRows = (d.peers || []).map(p => `
+    <tr class="clickable-row" onclick="gotoSignal('${p.ticker}','kr')">
+      <td>${esc(p.name)}${pill(p.signal)}</td>
+      <td class="num">${p.per != null ? fmtNum(p.per, 1) : '-'}</td>
+      <td class="num">${p.pbr != null ? fmtNum(p.pbr, 2) : '-'}</td>
+      <td class="num">${p.roe != null ? fmtNum(p.roe, 1) : '-'}</td>
+    </tr>`).join('');
+  body.innerHTML = `<div style="color:var(--dim);margin-bottom:6px"><b>${esc(d.sector)}</b> 섹터 · 비교대상 ${d.peer_count}종목 <span style="color:var(--dim-2)">· 막대가 길수록 동종 대비 우위(참고용)</span></div>`
+    + (d.metrics || []).map(metric).join('')
+    + (peerRows ? `<div style="color:var(--dim);margin:8px 0 3px">같은 섹터 대표 종목 (시총순)</div>
+        <table class="dtable"><thead><tr><th>종목</th><th class="num">PER</th><th class="num">PBR</th><th class="num">ROE%</th></tr></thead><tbody>${peerRows}</tbody></table>` : '');
+}
+
 let _signalChart = null;
 async function showSignalChart(ticker, item){
   // 드릴다운 헤더: 종목명(섹터)+시그널 점수 → 기업 소개(정적) → 시그널 해설
@@ -1506,6 +1636,8 @@ async function showSignalChart(ticker, item){
     }
     kbEl.innerHTML = html;
   } else kbEl.style.display = 'none';
+  renderFactors(item);
+  renderPeers(ticker);
   const holder = document.getElementById('signal-chart');
   try {
     const chartUrl = ticker === INDEX_TICKER ? '/api/market/chart'

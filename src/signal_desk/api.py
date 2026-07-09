@@ -23,7 +23,8 @@ from fastapi import Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from signal_desk import auth, bot, config, db, kb, notify, shortform, signalcfg, store, strategy
-from signal_desk.reference import cycle, glossary, gurus as gurus_ref, sectors, us_ko, valuechain
+from signal_desk.reference import (cycle, glossary, guru_screens, gurus as gurus_ref,
+                                    sectors, us_ko, valuechain)
 from signal_desk.signals import macro, narrative, opportunity, rebalance, regime, scenario, target, valuation
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, combine,
@@ -1398,6 +1399,86 @@ def gurus_get():
             # HOLD·시세없음은 뱃지 생략(요청: HOLD 제외)
             h["signal"] = {"kind": sig.kind, "score": round(sig.score, 2)} if (sig and sig.kind != "HOLD") else None
     return {"gurus": gurus}
+
+
+_PEER_METRICS = [  # (key, 표시명, higher_is_better)
+    ("per", "PER", False), ("pbr", "PBR", False), ("roe", "ROE(%)", True),
+    ("revenue_growth", "매출성장(%)", True), ("debt_ratio", "부채비율(%)", False),
+]
+
+
+def _percentile_better(value: float, peers: list[float], higher_better: bool) -> float:
+    """섹터 동종 대비 '이 값이 몇 %를 앞서나' — 0~100. 방향(높을수록/낮을수록 좋음)을 반영."""
+    if not peers:
+        return 50.0
+    better = sum(1 for p in peers if (p <= value if higher_better else p >= value))
+    return round(better / len(peers) * 100, 0)
+
+
+@app.get("/api/signals/{ticker}/peers")
+def signal_peers_get(ticker: str, market: str = "kospi"):
+    """동종업계 비교(Koyfin식 percentile) — 선택 종목이 섹터 내에서 PER·PBR·ROE·성장·부채로 어디쯤인지 +
+    같은 섹터 대표 종목들과 나란히. KR(재무 풍부)만 지원. 자문 아님 — 상대 위치 참고용."""
+    if market == "us":
+        return {"ready": False, "reason": "동종업계 비교는 현재 국내(재무 데이터 보유) 종목만 지원합니다."}
+    fundamentals = store.load_fundamentals()
+    sec = sectors.sector_of(ticker)
+    me = fundamentals.get(ticker)
+    if not sec or not me:
+        return {"ready": False, "reason": "섹터·재무 데이터가 없어 비교할 수 없습니다."}
+    peer_tks = [t for t in sectors.by_sector(sec) if t in fundamentals and t != ticker]
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    quotes = _quotes()
+    sig_by = {s.ticker: s for s in _signals()} if store.is_ready() else {}
+    metrics = []
+    for key, label, hib in _PEER_METRICS:
+        vals = [fundamentals[t][key] for t in peer_tks
+                if isinstance(fundamentals[t].get(key), (int, float)) and fundamentals[t][key] > 0]
+        mine = me.get(key)
+        if not isinstance(mine, (int, float)) or (key != "revenue_growth" and mine <= 0):
+            continue
+        med = round(sorted(vals)[len(vals) // 2], 2) if vals else None
+        metrics.append({"key": key, "label": label, "value": round(mine, 2), "median": med,
+                        "better_pct": _percentile_better(mine, vals, hib), "higher_better": hib})
+    # 같은 섹터 대표 종목(시총 상위 5) — 우리 시그널 뱃지 포함
+    ranked = sorted(peer_tks, key=lambda t: (quotes.get(t) or {}).get("mktcap") or 0, reverse=True)[:5]
+    peers = []
+    for t in ranked:
+        m, s = fundamentals[t], sig_by.get(t)
+        peers.append({"ticker": t, "name": names.get(t, t), "per": m.get("per"), "pbr": m.get("pbr"),
+                      "roe": m.get("roe"),
+                      "signal": {"kind": s.kind, "score": round(s.score, 2)} if (s and s.kind != "HOLD") else None})
+    return {"ready": True, "sector": sec, "peer_count": len(peer_tks), "metrics": metrics, "peers": peers}
+
+
+@app.get("/api/guru-screens")
+def guru_screens_get(market: str = "kospi"):
+    """거장 전략 스크린 — 버핏·그레이엄·린치식 규칙으로 유니버스 필터(교육용 프리셋, 자문 아님).
+    KR(재무 풍부)만 지원. 각 스크린별 통과 종목 + 우리 시그널·현재가 병합."""
+    screens_meta = [{"key": s.key, "name": s.name, "style": s.style, "note": s.note,
+                     "criteria": [c.label for c in s.criteria]} for s in guru_screens.SCREENS]
+    if market == "us":
+        return {"ready": False, "screens": screens_meta,
+                "reason": "전략 스크린은 현재 국내(재무 데이터 보유) 종목만 지원합니다."}
+    fundamentals = store.load_fundamentals()
+    if not fundamentals:
+        return {"ready": False, "screens": screens_meta, "reason": "재무 데이터가 아직 없습니다."}
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    quotes = _quotes()
+    sig_by = {s.ticker: s for s in _signals()} if store.is_ready() else {}
+    hits = guru_screens.run(fundamentals)
+    results = []
+    for meta in screens_meta:
+        tks = hits.get(meta["key"], [])
+        tks.sort(key=lambda t: (quotes.get(t) or {}).get("mktcap") or 0, reverse=True)
+        items = []
+        for t in tks[:12]:  # 시총 상위 일부만(과다 노출 방지)
+            m, s = fundamentals[t], sig_by.get(t)
+            items.append({"ticker": t, "name": names.get(t, t), "per": m.get("per"), "pbr": m.get("pbr"),
+                          "roe": m.get("roe"), "revenue_growth": m.get("revenue_growth"),
+                          "signal": {"kind": s.kind, "score": round(s.score, 2)} if (s and s.kind != "HOLD") else None})
+        results.append({**meta, "count": len(tks), "items": items})
+    return {"ready": True, "screens": results}
 
 
 @app.get("/api/macro")
