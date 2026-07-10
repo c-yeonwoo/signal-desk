@@ -139,7 +139,8 @@
   .detail-tab:hover { color:var(--txt); }
   .detail-tab.on { color:var(--accent); border-bottom-color:var(--accent); }
   .detail-panels { margin-top:8px; }
-  .detail-panel { max-height:260px; overflow-y:auto; }
+  /* 상세 패널은 자체 스크롤 없이 그대로 늘어남 → 차트 카드(.sig-chart-pane)만 스크롤.
+     총 스크롤 = 브라우저 스크롤 + 차트 카드 스크롤 2개만. */
   /* 히어로 결론 카드 — 시그널 색으로 좌측 강조, 결론·이유·핵심지표 */
   .hero-card { border:1px solid var(--line); border-left:4px solid var(--sig-neutral); border-radius:var(--r-md);
     background:var(--bg); padding:9px 12px; margin:2px 0 8px; }
