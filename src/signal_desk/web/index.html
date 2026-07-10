@@ -140,6 +140,17 @@
   .detail-tab.on { color:var(--accent); border-bottom-color:var(--accent); }
   .detail-panels { margin-top:8px; }
   .detail-panel { max-height:260px; overflow-y:auto; }
+  /* 히어로 결론 카드 — 시그널 색으로 좌측 강조, 결론·이유·핵심지표 */
+  .hero-card { border:1px solid var(--line); border-left:4px solid var(--sig-neutral); border-radius:var(--r-md);
+    background:var(--bg); padding:9px 12px; margin:2px 0 8px; }
+  .hero-card.BUY, .hero-card.STRONG_BUY { border-left-color:var(--sig-buy); }
+  .hero-card.SELL, .hero-card.STRONG_SELL { border-left-color:var(--sig-sell); }
+  .hero-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .hero-price { font-size:20px; font-weight:800; color:var(--txt); }
+  .hero-reason { font-size:13px; color:var(--txt); margin:5px 0 6px; line-height:1.45; font-weight:600; }
+  .hero-metrics { display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color:var(--dim); }
+  .hero-metrics b { font-variant-numeric:tabular-nums; }
+  .hero-tk { margin-left:auto; color:var(--dim-2); }
   table.dtable tr.selected-row { background:var(--accent-weak); }
   .fav-star { cursor:pointer; color:var(--sig-neutral); font-size:15px; user-select:none; }
   .fav-star.on { color:#f59e0b; }
@@ -371,10 +382,13 @@
   <span id="regime-adaptive" class="tb-detail" style="display:none"></span>
   <span class="tb-sep" id="macro-sep" style="display:none"></span>
   <span id="macro-bias" class="sig-pill" style="display:none">-</span>
-  <div class="macro-chips" id="macro-chips"></div>
-  <span id="live-status" class="tb-detail" style="margin-left:auto" title="현재가 데이터 기준 시각"></span>
+  <button id="macro-toggle" class="btn" style="margin-left:auto;padding:2px 10px;font-size:12px;cursor:pointer" onclick="toggleMacro()">거시 지표 ▾</button>
+  <span id="live-status" class="tb-detail" style="margin-left:8px" title="현재가 데이터 기준 시각"></span>
 </div>
-<div class="macro-callout" id="macro-narrative" style="display:none"></div>
+<div id="macro-detail" style="display:none">
+  <div class="market-bar" style="border-top:none;padding-top:0"><div class="macro-chips" id="macro-chips"></div></div>
+  <div class="macro-callout" id="macro-narrative" style="display:none"></div>
+</div>
 
 <main>
   <div id="view-signal" class="view-app" style="display:none">
@@ -393,10 +407,10 @@
             <option value="volume">거래량순</option>
           </select>
         </div>
-        <div id="sig-opp-filters" class="row" style="gap:6px;flex-wrap:wrap;margin:0 10px 8px"></div>
         <details id="sig-screener" style="margin:0 10px 8px">
-          <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">🔎 스크리너 <span id="screen-count" style="color:var(--dim);font-weight:400"></span></summary>
+          <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">🔎 필터·스크리너 <span id="screen-count" style="color:var(--dim);font-weight:400"></span></summary>
           <div class="screen-body">
+            <div id="sig-opp-filters" class="row" style="gap:6px;flex-wrap:wrap"></div>
             <div id="screen-presets" class="screen-presets"></div>
             <div id="screen-guru-note" style="display:none;font-size:11px;color:var(--dim);line-height:1.5;
               background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);padding:7px 9px"></div>
@@ -437,12 +451,8 @@
       <div class="sig-chart-pane card">
         <div class="pane-head">
           <span id="signal-chart-title" style="font-weight:700;font-size:16px">종목을 선택하세요</span>
-          <span id="signal-chart-sub" class="tb-detail"></span>
         </div>
-        <div id="signal-quote" class="sig-quote" style="display:none"></div>
-        <div id="signal-intro" style="display:none;font-size:12px;color:var(--dim);margin:0 0 6px;line-height:1.5"></div>
-        <div id="signal-backtest" style="display:none;font-size:11px;margin:0 0 6px"></div>
-        <div id="signal-target" style="display:none;font-size:12px;margin:0 0 6px"></div>
+        <div id="signal-hero" style="display:none"></div>
         <div id="signal-chart"></div>
         <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin:4px 0">
           <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수 · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도 · <b>+</b>는 강력 시그널 — 호버 시 근거·점수 · 📍 = 현재 시그널(5단계) · 음영 = 유지 구간</div>
@@ -450,6 +460,12 @@
         <div class="detail-panels" id="detail-panels">
           <div id="signal-narrative" class="detail-panel placeholder" style="display:none;background:var(--accent-weak);
             border-radius:var(--r-md);padding:10px 12px;font-size:13px;line-height:1.5;text-align:left"></div>
+          <div id="signal-metrics" class="detail-panel" style="display:none">
+            <div id="signal-quote" class="sig-quote" style="display:none"></div>
+            <div id="signal-intro" style="display:none;font-size:12px;color:var(--dim);margin:0 0 8px;line-height:1.5"></div>
+            <div id="signal-backtest" style="display:none;font-size:11px;margin:0 0 8px"></div>
+            <div id="signal-target" style="display:none;font-size:12px;margin:0 0 4px"></div>
+          </div>
           <div id="signal-kb" class="detail-panel" style="display:none;font-size:12px;padding:8px 11px;
             border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line);line-height:1.5"></div>
           <div id="signal-factors" class="detail-panel" style="display:none"></div>
@@ -976,8 +992,8 @@ function switchTab(t){
   document.getElementById('subnav-trading').style.display = (t === 'trading') ? '' : 'none';  // 포트폴리오 서브내비
   const onSignal = (t === 'signal');  // 시황 전광판·코멘터리는 시그널 탭에서만
   document.getElementById('market-ribbon').style.display = onSignal ? '' : 'none';
-  const _mn = document.getElementById('macro-narrative');
-  if (!onSignal) _mn.style.display = 'none';  // 표시 여부는 loadMacro가 내용 유무로 결정
+  const _md = document.getElementById('macro-detail');
+  if (onSignal) applyMacroState(); else if (_md) _md.style.display = 'none';  // 접이식 상태 복원/숨김
   if (t === 'signal') loadSignals();
   if (t === 'cycle') { loadCycle(); loadValuechain(); loadGlossary(); }  // 경기사이클 + 밸류체인 + 용어학습
   if (t === 'trading') switchTradingSeg(_tradingSeg);
@@ -1241,6 +1257,18 @@ function drawVcDiagram(s){
     <div class="vc-spine"></div><div class="vc-cols">${cols}</div></div>`;
 }
 
+// 시황 리본 — 기본은 국면 1줄 요약, 거시 지표칩·내러티브는 접이식(사용자 선택 기억)
+function applyMacroState(){
+  const open = localStorage.getItem('macroOpen') === '1';
+  const d = document.getElementById('macro-detail'), t = document.getElementById('macro-toggle');
+  if (d) d.style.display = open ? '' : 'none';
+  if (t) t.textContent = open ? '거시 지표 ▴' : '거시 지표 ▾';
+}
+function toggleMacro(){
+  localStorage.setItem('macroOpen', localStorage.getItem('macroOpen') === '1' ? '0' : '1');
+  applyMacroState();
+}
+
 async function loadRegime(){
   const pill = document.getElementById('regime-pill');
   const detail = document.getElementById('regime-detail');
@@ -1472,7 +1500,7 @@ function screenPass(r, s){
 }
 function updateScreenUI(s, matched){
   const c = document.getElementById('screen-count');
-  if (c) c.textContent = screenActive(s) ? `· ${matched}개 일치` : '';
+  if (c) c.textContent = (screenActive(s) || _oppFilter) ? `· ${matched}개 일치` : '';
   const note = document.getElementById('screen-note');
   if (note) {
     const usFund = _sigMarket === 'us' && (s.minRoe != null || s.minYield != null);
@@ -1671,6 +1699,7 @@ const _FACTOR_ORDER = ['technical', 'fundamental', 'valuation', 'reversion', 'fl
 // ===== 차트 아래 상세 서브탭 — 해설/정성/팩터/동종업계를 하나씩 보여줘 차트를 밀어내지 않는다 =====
 const _DETAIL_PANELS = [
   { key: 'narr', label: 'AI 해설', el: 'signal-narrative' },
+  { key: 'metrics', label: '지표', el: 'signal-metrics' },
   { key: 'kb', label: '정성 심리', el: 'signal-kb' },
   { key: 'factor', label: '팩터 강약', el: 'signal-factors' },
   { key: 'peers', label: '동종업계', el: 'signal-peers' },
@@ -1794,17 +1823,53 @@ async function renderEvents(ticker){
   buildDetailTabs();
 }
 
+// 히어로 한 줄 이유 — 결론을 즉시 납득시키는 짧은 문장(HOLD는 왜 관망인지, 그 외는 상위 근거)
+function heroReason(item){
+  if (!item) return '';
+  if (item.kind === 'HOLD') {
+    if ((item.reasons || []).some(r => r.includes('추세') && r.includes('차단'))) return '하락추세로 매수 보류 — 반등 확인 전 관망';
+    if (item.score >= 1.2) return '점수는 매수권이나 현재 매수 기준 미달 → 관망';
+    return '뚜렷한 매매 신호 없음 — 관망';
+  }
+  const rs = (item.reasons || []).map(r => r.replace(/^\[[^\]]+\]\s*/, '').trim()).filter(Boolean);
+  return rs.slice(0, 2).join(' · ') || kindLabel(item.kind);
+}
+// 히어로에 보여줄 대표 상승여력 — 목표가(밸류/저항) 중 양(+)의 최대치
+function bestUpside(item){
+  const t = item && item.target; if (!t) return null;
+  const vals = [t.value_upside_pct, t.resistance_upside_pct].filter(v => typeof v === 'number' && v > 0);
+  return vals.length ? Math.max(...vals) : null;
+}
+
 let _signalChart = null;
 async function showSignalChart(ticker, item){
   // 드릴다운 헤더: 종목명(섹터)+시그널 점수 → 기업 소개(정적) → 시그널 해설
   document.getElementById('signal-chart-title').textContent = item ? item.name : ticker;
-  const sub = document.getElementById('signal-chart-sub');
+  // 히어로 결론 카드 — 시그널 판정·한 줄 이유·핵심 3지표를 차트 위 최상단에(결론 우선)
+  const heroEl = document.getElementById('signal-hero');
   if (item) {
-    sub.innerHTML = `<span style="color:var(--dim)">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}</span>`
-      + ` &nbsp;<span class="sig-pill ${item.kind}">${kindLabel(item.kind)}</span>`
-      + ` <span style="color:var(--dim)">점수 ${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)} · 신뢰도 ${fmtNum(item.confidence, 2)}</span>`
-      + whyHoldNote(item);
-  } else sub.textContent = '';
+    const isUS = _sigMarket === 'us';
+    const chg = item.change_pct;
+    const chgC = chg > 0 ? 'var(--sig-buy)' : chg < 0 ? 'var(--sig-sell)' : 'var(--dim)';
+    const priceStr = item.price != null ? (isUS ? '$' + fmtNum(item.price, 2) : fmtNum(item.price, 0) + '원') : '';
+    const up = bestUpside(item);
+    const scoreC = item.score > 0 ? 'var(--sig-buy)' : item.score < 0 ? 'var(--sig-sell)' : 'var(--txt)';
+    heroEl.style.display = '';
+    heroEl.innerHTML = `<div class="hero-card ${item.kind}">
+        <div class="hero-top">
+          ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
+          ${chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
+          <span class="sig-pill ${item.kind}" style="font-size:13px;margin-left:auto">${kindLabel(item.kind)}</span>
+        </div>
+        <div class="hero-reason">${esc(heroReason(item))}</div>
+        <div class="hero-metrics">
+          <span>점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b></span>
+          <span>신뢰도 <b>${fmtNum(item.confidence, 2)}</b></span>
+          ${up != null ? `<span>목표가 상승여력 <b style="color:var(--sig-buy)">+${fmtNum(up, 1)}%</b></span>` : ''}
+          <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}</span>
+        </div>
+      </div>`;
+  } else heroEl.style.display = 'none';
   const qEl = document.getElementById('signal-quote');
   if (item && item.price != null) {
     const chg = item.change_pct;
@@ -1853,6 +1918,7 @@ async function showSignalChart(ticker, item){
     tgEl.innerHTML = `🎯 <span style="color:var(--dim)">참고 목표가</span> ${parts.join(' · ')}`
       + ` <span style="color:var(--dim-2);font-size:11px">· 추정·참고일 뿐 보장 아님(${esc((tg.basis || []).join(', '))})</span>`;
   } else tgEl.style.display = 'none';
+  setDetailHas('signal-metrics', !!(item && item.price != null));  // 지표 탭: 시세/재무 있는 종목만(지수 제외)
   const narrEl = document.getElementById('signal-narrative');
   if (item && item.narrative) {
     narrEl.textContent = item.narrative;                              // v1(규칙) 즉시 표시
