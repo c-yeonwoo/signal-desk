@@ -23,7 +23,7 @@ from fastapi import File as FastFile
 from fastapi import Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from signal_desk import auth, bot, chat, config, db, kb, notify, shortform, signalcfg, store, strategy
+from signal_desk import auth, bot, chat, config, db, kb, kb_search, notify, shortform, signalcfg, store, strategy
 from signal_desk.reference import (cycle, glossary, guru_screens, gurus as gurus_ref,
                                     sectors, us_ko, valuechain)
 from signal_desk.signals import macro, narrative, opportunity, rebalance, regime, scenario, target, valuation
@@ -1596,15 +1596,10 @@ def _make_chat_dispatch(uid: int):
         if name == "search_kb":
             kw = (inp.get("query") or "").strip()
             names = {u["ticker"]: u["name"] for u in store.load_universe()}
-            hits = []
-            for t, dg in db.kb_digests_all().items():
-                blob = (dg.get("summary", "") + " " + " ".join(dg.get("points", []))) if dg else ""
-                if kw and kw in blob:
-                    hits.append({"종목": names.get(t, t), "코드": t, "요약": dg.get("summary"),
-                                 "포인트": dg.get("points", [])[:3]})
-                if len(hits) >= 6:
-                    break
-            return _j({"검색어": kw, "결과": hits or "관련 KB 없음"})
+            docs = kb_search.retrieve(kw, k=6)   # 문서 단위 BM25 검색(뉴스·기고·영상 요약 원문)
+            hits = [{"종목": names.get(d["ticker"], d["ticker"]), "코드": d["ticker"], "유형": d.get("doc_class"),
+                     "제목": d.get("title"), "요약": d.get("summary")} for d in docs]
+            return _j({"검색어": kw, "결과": hits or "관련 KB 문서 없음"})
         return _j({"error": f"알 수 없는 도구: {name}"})
     return dispatch
 

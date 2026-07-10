@@ -76,7 +76,8 @@ TOOLS = [
     },
     {
         "name": "search_kb",
-        "description": "뉴스·전문가 기고·영상 등 정성 지식베이스(KB)를 키워드로 검색한다. 반환: 관련 종목·요약·핵심 포인트.",
+        "description": "뉴스·전문가 기고·영상 등 정성 지식베이스(KB)를 문서 단위로 의미 검색한다(BM25). "
+                       "'왜 이런 시그널/이슈인지' 배경·맥락을 찾을 때 사용. 반환: 관련 문서 종목·유형·제목·요약(관련도순).",
         "input_schema": {"type": "object", "properties": {
             "query": {"type": "string"}}, "required": ["query"]},
     },
