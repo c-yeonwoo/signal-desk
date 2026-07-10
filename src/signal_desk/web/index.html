@@ -649,16 +649,22 @@
     </div><!-- /#trading-bot -->
 
     <div id="trading-rebal" style="display:none">
+      <!-- 국내/해외 판 전환 토글 — 아래 전체(보유·배당·히트맵·리밸런싱·시나리오)가 선택 시장 기준 -->
+      <div class="seg-toggle" id="pf-market-seg" style="margin-bottom:16px">
+        <button class="on" data-pfm="kr" onclick="setPfMarket('kr')">🇰🇷 국내주식</button>
+        <button data-pfm="us" onclick="setPfMarket('us')">🇺🇸 해외주식</button>
+      </div>
+
       <div id="real-holdings-card" class="card" style="margin-bottom:16px;display:none">
         <div class="row" style="align-items:baseline">
-          <b style="font-size:14px">🔗 내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:12px">· 토스 실계좌 자동 연동 · 아래 분석에 자동 반영</span></b>
+          <b style="font-size:14px">🔗 내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:12px">· 토스 실계좌 자동 연동</span></b>
           <span id="real-holdings-sum" style="margin-left:auto;font-size:12px"></span>
         </div>
         <div id="real-holdings-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       </div>
       <div class="card" id="manual-holdings-card" style="margin-bottom:16px">
-        <b style="font-size:14px">내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:12px">· 국내·해외 혼합</span></b>
-        <p class="page-desc" style="margin:6px 0 12px">종목을 검색해 보유내역을 추가하고, 아래에서 성향을 골라 리밸런싱 제안을 받으세요.</p>
+        <b style="font-size:14px">내 보유종목 <span id="manual-mkt-label" style="color:var(--dim);font-weight:600;font-size:12px">· 국내</span></b>
+        <p class="page-desc" style="margin:6px 0 12px">종목을 검색해 보유내역을 추가하면 아래 배당·히트맵·리밸런싱·시나리오가 켜집니다.</p>
         <div class="row" style="margin-bottom:6px">
           <div style="position:relative;flex:1 1 200px;min-width:170px">
             <input id="hd_search" type="text" placeholder="종목명·코드 검색 (국내·해외)" class="ctrl" style="width:100%"
@@ -671,12 +677,17 @@
           <button class="btn primary" onclick="addHolding()">추가</button>
         </div>
         <div id="hd_selected" class="stat-label" style="margin:0 0 10px"></div>
-        <div id="holdings-body" class="placeholder" style="padding:12px 0">위 검색창에서 종목을 찾아 보유종목을 추가하세요 — 추가하면 <b>리밸런싱·시나리오·섹터 히트맵</b>이 켜집니다.</div>
+        <div id="holdings-body" class="placeholder" style="padding:12px 0">위 검색창에서 종목을 찾아 보유종목을 추가하세요.</div>
       </div>
 
       <div class="card" id="holdings-div-card" style="margin-bottom:16px;display:none">
         <b style="font-size:14px">💵 내 보유 배당 <span style="color:var(--dim);font-weight:600;font-size:12px">· 보유 배당주로 받는 예상 월/연 배당</span></b>
         <div id="holdings-div-body" style="margin-top:8px"></div>
+      </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <b style="font-size:14px">섹터 히트맵 <span style="color:var(--dim);font-weight:600;font-size:12px">· 크기=평가액 · 색=손익률</span></b>
+        <div id="heatmap-body" style="height:320px;margin-top:8px"></div>
       </div>
 
       <div class="card" style="margin-bottom:16px">
@@ -687,35 +698,10 @@
             <button class="on" data-rstyle="balanced" onclick="setRebalStyle('balanced')">균형형</button>
             <button data-rstyle="aggressive" onclick="setRebalStyle('aggressive')">공격형</button>
           </div>
-          <span style="color:var(--dim-2);font-size:11px;margin-left:auto">국내·해외 각각 제안합니다</span>
+          <button class="btn primary" style="margin-left:auto" onclick="runRebalance()">리밸런싱 제안 받기</button>
         </div>
       </div>
-
-      <div class="mkt-block" id="mkt-kr">
-        <h3 class="page-head" style="font-size:17px;margin:4px 0 10px">🇰🇷 국내주식</h3>
-        <div class="card" style="margin-bottom:12px">
-          <b style="font-size:14px">섹터 히트맵 <span style="color:var(--dim);font-weight:600;font-size:12px">· 크기=평가액 · 색=손익률</span></b>
-          <div id="heatmap-kr" style="height:300px;margin-top:8px"></div>
-        </div>
-        <div class="card" style="margin-bottom:16px">
-          <div class="row" style="align-items:center"><b style="font-size:14px">리밸런싱 제안</b>
-            <button class="btn primary" style="margin-left:auto" onclick="runRebalance('kr')">국내 제안 받기</button></div>
-          <div id="rebal-kr" style="margin-top:10px"></div>
-        </div>
-      </div>
-
-      <div class="mkt-block" id="mkt-us">
-        <h3 class="page-head" style="font-size:17px;margin:4px 0 10px">🇺🇸 해외주식</h3>
-        <div class="card" style="margin-bottom:12px">
-          <b style="font-size:14px">섹터 히트맵 <span style="color:var(--dim);font-weight:600;font-size:12px">· 크기=평가액 · 색=손익률</span></b>
-          <div id="heatmap-us" style="height:300px;margin-top:8px"></div>
-        </div>
-        <div class="card" style="margin-bottom:16px">
-          <div class="row" style="align-items:center"><b style="font-size:14px">리밸런싱 제안</b>
-            <button class="btn primary" style="margin-left:auto" onclick="runRebalance('us')">해외 제안 받기</button></div>
-          <div id="rebal-us" style="margin-top:10px"></div>
-        </div>
-      </div>
+      <div id="rebal-result"></div>
 
       <div class="card" style="margin-top:18px">
         <div class="row" style="align-items:center;gap:10px">
@@ -2449,9 +2435,26 @@ function switchTradingSeg(seg){
   document.getElementById('trading-rebal').style.display = seg === 'rebal' ? '' : 'none';
   document.getElementById('trading-dividend').style.display = seg === 'dividend' ? '' : 'none';
   if (seg === 'bot') loadBotState();
-  if (seg === 'rebal') loadRealHoldings();   // 실계좌(owner) 또는 수동 보유 → 내부에서 loadHoldings 호출
+  if (seg === 'rebal') refreshPortfolio();   // 국내/해외 판 — 선택 시장 기준 전체 갱신
   if (seg === 'dividend') loadDividends();
   history.replaceState(null, '', '#trading/' + seg);   // 새로고침 시 서브탭 유지
+}
+
+// ===== 내 포트폴리오: 국내/해외 판 토글 — 하위 전체(보유·배당·히트맵·리밸런싱·시나리오)가 선택 시장 기준 =====
+let _pfMarket = 'kr';
+function setPfMarket(m){
+  _pfMarket = m;
+  document.querySelectorAll('#pf-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.pfm === m));
+  const lbl = document.getElementById('manual-mkt-label'); if (lbl) lbl.textContent = m === 'us' ? '· 해외' : '· 국내';
+  refreshPortfolio();
+}
+async function refreshPortfolio(){
+  await loadRealHoldings();          // 보유종목(선택 시장) + (owner)전체 자동 import
+  loadHeatmap(_pfMarket);            // 섹터 히트맵(선택 시장)
+  loadHoldingsDividends(_pfMarket);  // 보유 배당(선택 시장)
+  const rr = document.getElementById('rebal-result'); if (rr) rr.innerHTML = '';   // 리밸런싱은 버튼으로
+  const sc = document.getElementById('scenario-result');
+  if (sc) { sc.className = 'placeholder'; sc.style.padding = '12px 0'; sc.textContent = '전략별(안정·균형·공격) N년 후 예상 가치 분포를 시뮬레이션합니다.'; }
 }
 
 // 토스 실계좌 보유내역 — 본인(owner)만. 403이면 카드 숨김(다른 계정은 존재조차 안 보임).
@@ -2460,55 +2463,49 @@ async function loadRealHoldings(){
   const manual = document.getElementById('manual-holdings-card');
   const showManual = (on) => { if (manual) manual.style.display = on ? '' : 'none'; };
   if (!card) return;
+  const m = _pfMarket, cur = m === 'us' ? '$' : '';
   let d;
   try {
     const r = await fetch('/api/my-holdings');
-    if (r.status === 403) { card.style.display = 'none'; showManual(true); loadHoldings(); return; }  // 소유자 아님 → 격리, 수동만
+    if (r.status === 403) { card.style.display = 'none'; showManual(true); await loadHoldings(); return; }  // 비소유자 → 수동만
     d = await r.json();
-  } catch (e) { card.style.display = 'none'; showManual(true); loadHoldings(); return; }
+  } catch (e) { card.style.display = 'none'; showManual(true); await loadHoldings(); return; }
   card.style.display = '';
   if (!d || !d.ready) {
     document.getElementById('real-holdings-sum').textContent = '';
     document.getElementById('real-holdings-body').innerHTML =
       `<div class="placeholder" style="padding:10px 0">${esc((d && d.reason) || '조회할 수 없습니다.')}</div>`;
-    showManual(true); loadHoldings(); return;   // 실계좌 못 읽으면 수동 폴백
+    showManual(true); await loadHoldings(); return;
   }
-  const pl = d.profitLoss || {}, mv = (d.marketValue || {}).amount || {};
-  const rate = pl.rate != null ? +pl.rate * 100 : null;
-  const rc = rate > 0 ? 'var(--sig-buy)' : rate < 0 ? 'var(--sig-sell)' : 'var(--dim)';
-  document.getElementById('real-holdings-sum').innerHTML = mv.krw != null
-    ? `평가 <b>${fmtNum(+mv.krw, 0)}원</b>${rate != null ? ` · <b style="color:${rc}">${rate > 0 ? '+' : ''}${fmtNum(rate, 2)}%</b>` : ''}` : '';
-  const items = d.items || [];
-  if (!items.length) {   // 실계좌 비어있음 → 수동 입력 폴백
+  const all = d.items || [];
+  if (!all.length) {   // 실계좌 비어있음 → 수동 폴백
+    document.getElementById('real-holdings-sum').textContent = '';
     document.getElementById('real-holdings-body').innerHTML = '<div class="placeholder" style="padding:10px 0">토스 실계좌에 보유 종목이 없어요.</div>';
-    showManual(true); loadHoldings(); return;
+    showManual(true); await loadHoldings(); return;
   }
-  showManual(false);   // 실계좌가 곧 '내 보유종목' — 수동 카드 숨김
-  const kr = items.filter(it => it.marketCountry !== 'US'), us = items.filter(it => it.marketCountry === 'US');
+  try { await fetch('/api/my-holdings/import', { method: 'POST' }); } catch (e) {}   // 양 시장 전체를 분석 스토어에 반영
+  showManual(false);
+  const items = all.filter(it => m === 'us' ? it.marketCountry === 'US' : it.marketCountry !== 'US');
+  const sub = items.reduce((s, it) => s + (+((it.marketValue || {}).amount) || 0), 0);
+  document.getElementById('real-holdings-sum').innerHTML = items.length
+    ? `평가 <b>${cur}${fmtNum(sub, 0)}${cur ? '' : '원'}</b> · ${items.length}종목` : '';
+  if (!items.length) {
+    document.getElementById('real-holdings-body').innerHTML = `<div class="placeholder" style="padding:10px 0">${m === 'us' ? '해외' : '국내'}주식 실계좌 보유가 없어요.</div>`;
+    return;
+  }
   const row = (it) => {
     const r = (it.profitLoss || {}).rate; const ir = r != null ? +r * 100 : null;
     const ic = ir > 0 ? 'var(--sig-buy)' : ir < 0 ? 'var(--sig-sell)' : 'var(--dim)';
-    const cur = it.currency === 'USD' ? '$' : '';
     return `<tr><td>${esc(it.name || it.symbol)}<div class="sig-metric">${esc(it.symbol)}</div></td>
       <td class="num">${fmtNum(+it.quantity, +it.quantity % 1 ? 4 : 0)}</td>
       <td class="num">${cur}${fmtNum(+it.averagePurchasePrice, cur ? 2 : 0)}</td>
       <td class="num">${cur}${fmtNum(+it.lastPrice, cur ? 2 : 0)}</td>
       <td class="num" style="color:${ic};font-weight:700">${ir != null ? (ir > 0 ? '+' : '') + fmtNum(ir, 2) + '%' : '-'}</td></tr>`;
   };
-  // 국내/해외를 좌우 2열로 — 각 열 = 도넛 + 표
-  const col = (donutId, flag, label, list) => list.length ? `
-    <div style="flex:1 1 320px;min-width:270px">
-      <div class="stat-label" style="text-align:center;margin:0 0 2px">${flag} ${label} <span style="color:var(--dim-2)">${list.length}종목</span></div>
-      <div id="${donutId}" style="height:180px"></div>
-      <table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th><th class="num">손익</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>
-    </div>` : '';
   document.getElementById('real-holdings-body').innerHTML =
-    `<div class="row" style="gap:16px;flex-wrap:wrap;align-items:flex-start">${col('real-donut-kr', '🇰🇷', '국내주식', kr)}${col('real-donut-us', '🇺🇸', '해외주식', us)}</div>`
-    + `<div style="color:var(--dim-2);font-size:11px;margin-top:8px">실계좌가 아래 섹터 히트맵·리밸런싱·시나리오에 자동 반영됩니다.</div>`;
-  _drawRealDonut('real-donut-kr', kr);
-  _drawRealDonut('real-donut-us', us);
-  try { await fetch('/api/my-holdings/import', { method: 'POST' }); } catch (e) {}   // 실계좌 → 분석 스토어 자동 반영
-  loadHoldings();   // 히트맵·배당 갱신(실계좌 기준)
+    `<div id="real-donut" style="height:210px"></div>
+     <table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th><th class="num">손익</th></tr></thead><tbody>${items.map(row).join('')}</tbody></table>`;
+  _drawRealDonut('real-donut', items);
 }
 function _drawRealDonut(id, items){
   const el = document.getElementById(id);
@@ -2523,6 +2520,7 @@ function _drawRealDonut(id, items){
     series: [{ type: 'pie', radius: ['45%', '72%'], data, minShowLabelAngle: 8,
       label: { fontSize: 11, formatter: '{b}\n{d}%' }, labelLine: { length: 6, length2: 6 } }],
   }, true);
+  requestAnimationFrame(() => ch.resize());
 }
 // ===== 배당 플래너 — 배당주 리스트 + 담은 주수로 예상 연/월 배당(플랜·목표는 localStorage에 시장별 저장) =====
 let _divItems = [], _divPlan = {}, _divChart = null, _divCalChart = null, _divMarket = 'us', _divCur = 'USD';
@@ -2744,46 +2742,37 @@ async function loadGurus(){
 }
 
 async function loadHoldings(){
+  // 수동 보유 표(비소유자용) — 선택 시장만 표시
   const el = document.getElementById('holdings-body');
+  if (!el) return;
   const d = await (await fetch('/api/holdings')).json();
-  const hs = d.holdings || [];
-  // 시장별 섹션(국내/해외) 표시 토글 + 각 히트맵 로드. 보유종목 변경 시 이전 리밸런싱 결과는 비운다.
   const isKR = t => /^\d+$/.test(t);
-  const kr = hs.filter(h => isKR(h.ticker)), us = hs.filter(h => !isKR(h.ticker));
-  const mk = document.getElementById('mkt-kr'), mu = document.getElementById('mkt-us');
-  if (mk) mk.style.display = kr.length ? '' : 'none';
-  if (mu) mu.style.display = us.length ? '' : 'none';
-  ['kr', 'us'].forEach(m => { const r = document.getElementById('rebal-' + m); if (r) r.innerHTML = ''; });
-  if (kr.length) loadHeatmap('kr');
-  if (us.length) loadHeatmap('us');
-  if (el) {   // 수동 보유 표(비소유자용, 소유자는 카드 숨김)
-    if (!hs.length) { el.className = 'placeholder'; el.innerHTML = '위 검색창에서 종목을 찾아 보유종목을 추가하세요 — 추가하면 <b>리밸런싱·섹터 히트맵</b>이 켜집니다.'; }
-    else {
-      el.className = '';
-      el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단가</th><th></th></tr></thead><tbody>`
-        + hs.map(h => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, 0)}</td>
-            <td class="num"><span style="color:var(--sig-sell);cursor:pointer" onclick="removeHolding('${esc(h.ticker)}')">삭제</span></td></tr>`).join('')
-        + `</tbody></table>`;
-    }
-  }
-  loadHoldingsDividends();
+  const hs = (d.holdings || []).filter(h => _pfMarket === 'us' ? !isKR(h.ticker) : isKR(h.ticker));
+  if (!hs.length) { el.className = 'placeholder'; el.innerHTML = `${_pfMarket === 'us' ? '해외' : '국내'}주식 보유종목이 없어요. 위에서 검색해 추가하세요.`; return; }
+  el.className = '';
+  el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단가</th><th></th></tr></thead><tbody>`
+    + hs.map(h => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, 0)}</td>
+        <td class="num"><span style="color:var(--sig-sell);cursor:pointer" onclick="removeHolding('${esc(h.ticker)}')">삭제</span></td></tr>`).join('')
+    + `</tbody></table>`;
 }
 
-// 내 보유종목 중 배당주의 예상 배당(통화별 ₩/$ 분리 집계). 배당주가 없으면 카드 숨김.
-async function loadHoldingsDividends(){
+// 내 보유 배당(선택 시장만) — 통화 ₩/$. 해당 시장 배당주 없으면 카드 숨김.
+async function loadHoldingsDividends(market){
   const card = document.getElementById('holdings-div-card');
   const body = document.getElementById('holdings-div-body');
   if (!card || !body) return;
+  const cur0 = market === 'us' ? 'USD' : 'KRW';
   let d;
   try { d = await (await fetch('/api/holdings/dividends')).json(); } catch(e) { card.style.display = 'none'; return; }
-  if (!d.ready || !(d.items || []).length) { card.style.display = 'none'; return; }
+  const items = (d.items || []).filter(it => (it.currency || 'KRW') === cur0);   // 선택 시장 통화만
+  if (!d.ready || !items.length) { card.style.display = 'none'; return; }
   card.style.display = '';
   const money = (v, cur) => cur === 'USD' ? '$' + fmtNum(v, 0) : fmtKRW(v);
-  const totals = Object.entries(d.totals || {}).map(([cur, t]) =>
+  const totals = Object.entries(d.totals || {}).filter(([cur]) => cur === cur0).map(([cur, t]) =>
     `<div class="card" style="flex:1"><div class="stat-label">${cur === 'USD' ? '🇺🇸 예상 월 배당' : '🇰🇷 예상 월 배당'}</div>
        <div class="stat-value">${money(t.monthly, cur)}</div>
        <div style="font-size:11px;color:var(--dim)">연 ${money(t.annual, cur)} · ${t.count}종목</div></div>`).join('');
-  const rows = d.items.map(it => {
+  const rows = items.map(it => {
     const fq = divFreq(it.div_months);
     return `<tr><td>${esc(it.name)}<div style="color:var(--dim);font-size:11px">${esc(it.ticker)} · <span style="color:${fq.color}">${fq.label}</span></div></td>
       <td class="num">${it.qty}</td>
@@ -2798,7 +2787,7 @@ async function loadHoldingsDividends(){
 
 let _heatCharts = {};
 async function loadHeatmap(market){
-  const el = document.getElementById('heatmap-' + market);
+  const el = document.getElementById('heatmap-body');
   if (!el || !window.echarts) return;
   const existing = echarts.getInstanceByDom(el); if (existing) existing.dispose();
   let d;
@@ -2863,17 +2852,17 @@ async function addHolding(){
   document.getElementById('hd_ticker').value = ''; document.getElementById('hd_search').value = '';
   document.getElementById('hd_qty').value = ''; document.getElementById('hd_avg').value = '';
   document.getElementById('hd_selected').textContent = '';
-  loadHoldings();
+  refreshPortfolio();
 }
 async function removeHolding(ticker){
   await fetch('/api/holdings?ticker=' + encodeURIComponent(ticker), { method: 'DELETE' });
-  loadHoldings();
+  refreshPortfolio();
 }
-async function runRebalance(market){
+async function runRebalance(){
   const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '분석 중…';
-  const box = document.getElementById('rebal-' + market);
+  const box = document.getElementById('rebal-result');
   try {
-    const d = await (await fetch('/api/rebalance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: _rebalStyle, market }) })).json();
+    const d = await (await fetch('/api/rebalance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: _rebalStyle, market: _pfMarket }) })).json();
     if (!d.ready) { box.innerHTML = `<div class="placeholder" style="padding:10px 0">${esc(d.reason || '제안 불가')}</div>`; return; }
     const rows = (arr, isAdd) => arr.map(x => {
       const kind = isAdd ? 'BUY' : (x.kind || 'HOLD');
@@ -2898,7 +2887,7 @@ async function runScenario(){
   const years = document.getElementById('scn-years').value;
   try {
     const d = await (await fetch('/api/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ years: Number(years) }) })).json();
+      body: JSON.stringify({ years: Number(years), market: _pfMarket }) })).json();
     if (!d.ready) { box.className = 'placeholder'; box.textContent = d.reason || '시나리오 불가'; return; }
     box.className = '';
     const LABEL = { conservative: '안정형', balanced: '균형형', aggressive: '공격형' };

@@ -454,10 +454,10 @@ def rebalance_post(request: Request, data: dict = Body(default={})):
 
 @app.post("/api/scenario")
 def scenario_post(request: Request, data: dict = Body(default={})):
-    """내 보유종목을 부트스트랩 몬테카를로로 전략별 N년 후 가치 분포로 투영(#9)."""
-    holdings = db.holdings_list(_uid(request))
+    """내 보유종목을 부트스트랩 몬테카를로로 전략별 N년 후 가치 분포로 투영(#9). market=kr|us로 시장 분리."""
+    holdings = _holdings_by_market(db.holdings_list(_uid(request)), data.get("market"))
     if not holdings:
-        return {"ready": False, "reason": "보유종목을 먼저 입력하세요."}
+        return {"ready": False, "reason": "해당 시장의 보유종목이 없습니다."}
     if not store.is_ready():
         return {"ready": False, "reason": "시세 데이터가 없습니다 — /api/refresh 먼저."}
     prices = {**store.load_price_series(), **store.load_us_price_series()}
