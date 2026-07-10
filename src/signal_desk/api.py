@@ -1419,7 +1419,8 @@ def _us_signals():
         return {}
     fundamentals = {t: mc for t, mc in store.us_marketcaps(prices).items() if mc.get("per") or mc.get("pbr")}
     return {s.ticker: s for s in evaluate(store.load_us_universe(), prices,
-                                          fundamentals=fundamentals, sentiment=kb.sentiment_map())}
+                                          fundamentals=fundamentals, sentiment=kb.sentiment_map(),
+                                          earnings_dates=store.load_us_earnings_calendar())}
 
 
 @app.get("/api/gurus")

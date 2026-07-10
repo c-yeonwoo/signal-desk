@@ -1757,6 +1757,8 @@ const kindLabel = (k) => _KIND_LABEL[k] || k;
 // '점수는 높은데 왜 관망?' 설명 — 추세 게이트 또는 국면 상향된 매수 기준 미달을 짚어 준다.
 function whyHoldNote(item){
   if (!item || item.kind !== 'HOLD') return '';
+  if (item.earnings_soon && (item.reasons || []).some(r => r.includes('실적') && r.includes('보류')))
+    return ` <span style="color:var(--sell);font-size:11px">ⓘ 실적발표 임박 — 발표 전 신규 매수 보류(관망)${item.earnings_date ? ' · ' + esc(item.earnings_date) : ''}</span>`;
   const trendGated = (item.reasons || []).some(r => r.includes('추세') && r.includes('차단'));
   if (trendGated)
     return ` <span style="color:var(--sell);font-size:11px">ⓘ 하락추세로 매수 보류(종가<MA20<MA60) — 반등 확인 전 관망</span>`;
@@ -2009,8 +2011,10 @@ async function showSignalChart(ticker, item){
   }
   setDetailHas('signal-narrative', !!(item && item.narrative));
   const kbEl = document.getElementById('signal-kb');
-  const evWarn = (item && item.event_risk)
-    ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">⚠ 최근 악재 감지 — 매수 후보 제외${item.event_note ? ': ' + esc(item.event_note) : ''}</div>` : '';
+  const earnWarn = (item && item.earnings_soon)
+    ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">📅 실적발표 임박${item.earnings_date ? ' (' + esc(item.earnings_date) + ')' : ''} — 발표 전 신규 매수 보류(관망)</div>` : '';
+  const evWarn = ((item && item.event_risk)
+    ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">⚠ 최근 악재 감지 — 매수 후보 제외${item.event_note ? ': ' + esc(item.event_note) : ''}</div>` : '') + earnWarn;
   if (item && (item.kb || evWarn)) {
     let html = evWarn;
     if (item.kb) {
