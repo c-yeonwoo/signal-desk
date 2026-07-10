@@ -649,12 +649,12 @@
     <div id="trading-rebal" style="display:none">
       <div id="real-holdings-card" class="card" style="margin-bottom:16px;display:none">
         <div class="row" style="align-items:baseline">
-          <b style="font-size:14px">🔗 토스 실계좌 <span style="color:var(--dim);font-weight:600;font-size:12px">· 본인 계좌 자동 연동(읽기 전용)</span></b>
+          <b style="font-size:14px">🔗 내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:12px">· 토스 실계좌 자동 연동 · 아래 분석에 자동 반영</span></b>
           <span id="real-holdings-sum" style="margin-left:auto;font-size:12px"></span>
         </div>
         <div id="real-holdings-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       </div>
-      <div class="card" style="margin-bottom:16px">
+      <div class="card" id="manual-holdings-card" style="margin-bottom:16px">
         <b style="font-size:14px">내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:12px">· 국내·해외 혼합</span></b>
         <p class="page-desc" style="margin:6px 0 12px">종목을 검색해 보유내역을 추가하고, 아래에서 성향을 골라 리밸런싱 제안을 받으세요.</p>
         <div class="row" style="margin-bottom:6px">
@@ -2426,7 +2426,7 @@ function switchTradingSeg(seg){
   document.getElementById('trading-rebal').style.display = seg === 'rebal' ? '' : 'none';
   document.getElementById('trading-dividend').style.display = seg === 'dividend' ? '' : 'none';
   if (seg === 'bot') loadBotState();
-  if (seg === 'rebal') { loadHoldings(); loadRealHoldings(); }
+  if (seg === 'rebal') loadRealHoldings();   // 실계좌(owner) 또는 수동 보유 → 내부에서 loadHoldings 호출
   if (seg === 'dividend') loadDividends();
   history.replaceState(null, '', '#trading/' + seg);   // 새로고침 시 서브탭 유지
 }
@@ -2434,27 +2434,33 @@ function switchTradingSeg(seg){
 // 토스 실계좌 보유내역 — 본인(owner)만. 403이면 카드 숨김(다른 계정은 존재조차 안 보임).
 async function loadRealHoldings(){
   const card = document.getElementById('real-holdings-card');
+  const manual = document.getElementById('manual-holdings-card');
+  const showManual = (on) => { if (manual) manual.style.display = on ? '' : 'none'; };
   if (!card) return;
   let d;
   try {
     const r = await fetch('/api/my-holdings');
-    if (r.status === 403) { card.style.display = 'none'; return; }   // 소유자 아님 → 격리
+    if (r.status === 403) { card.style.display = 'none'; showManual(true); loadHoldings(); return; }  // 소유자 아님 → 격리, 수동만
     d = await r.json();
-  } catch (e) { card.style.display = 'none'; return; }
+  } catch (e) { card.style.display = 'none'; showManual(true); loadHoldings(); return; }
+  card.style.display = '';
   if (!d || !d.ready) {
-    card.style.display = '';
     document.getElementById('real-holdings-sum').textContent = '';
     document.getElementById('real-holdings-body').innerHTML =
       `<div class="placeholder" style="padding:10px 0">${esc((d && d.reason) || '조회할 수 없습니다.')}</div>`;
-    return;
+    showManual(true); loadHoldings(); return;   // 실계좌 못 읽으면 수동 폴백
   }
-  card.style.display = '';
   const pl = d.profitLoss || {}, mv = (d.marketValue || {}).amount || {};
   const rate = pl.rate != null ? +pl.rate * 100 : null;
   const rc = rate > 0 ? 'var(--sig-buy)' : rate < 0 ? 'var(--sig-sell)' : 'var(--dim)';
   document.getElementById('real-holdings-sum').innerHTML = mv.krw != null
     ? `평가 <b>${fmtNum(+mv.krw, 0)}원</b>${rate != null ? ` · <b style="color:${rc}">${rate > 0 ? '+' : ''}${fmtNum(rate, 2)}%</b>` : ''}` : '';
   const items = d.items || [];
+  if (!items.length) {   // 실계좌 비어있음 → 수동 입력 폴백
+    document.getElementById('real-holdings-body').innerHTML = '<div class="placeholder" style="padding:10px 0">토스 실계좌에 보유 종목이 없어요.</div>';
+    showManual(true); loadHoldings(); return;
+  }
+  showManual(false);   // 실계좌가 곧 '내 보유종목' — 수동 카드 숨김
   const kr = items.filter(it => it.marketCountry !== 'US'), us = items.filter(it => it.marketCountry === 'US');
   const row = (it) => {
     const r = (it.profitLoss || {}).rate; const ir = r != null ? +r * 100 : null;
@@ -2466,21 +2472,20 @@ async function loadRealHoldings(){
       <td class="num">${cur}${fmtNum(+it.lastPrice, cur ? 2 : 0)}</td>
       <td class="num" style="color:${ic};font-weight:700">${ir != null ? (ir > 0 ? '+' : '') + fmtNum(ir, 2) + '%' : '-'}</td></tr>`;
   };
-  const tbl = (title, list) => list.length
-    ? `<div style="margin-top:10px;font-size:12px;color:var(--dim);font-weight:700">${title} <span style="color:var(--dim-2);font-weight:400">${list.length}종목</span></div>
-       <table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th><th class="num">손익률</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '';
-  const donuts = `<div class="row" style="gap:8px;flex-wrap:wrap">
-      ${kr.length ? '<div style="flex:1 1 220px;min-width:190px"><div class="stat-label" style="text-align:center;margin:0">🇰🇷 국내</div><div id="real-donut-kr" style="height:190px"></div></div>' : ''}
-      ${us.length ? '<div style="flex:1 1 220px;min-width:190px"><div class="stat-label" style="text-align:center;margin:0">🇺🇸 해외</div><div id="real-donut-us" style="height:190px"></div></div>' : ''}
-    </div>`;
-  document.getElementById('real-holdings-body').innerHTML = items.length
-    ? donuts + tbl('🇰🇷 국내주식', kr) + tbl('🇺🇸 해외주식', us)
-      + `<div class="row" style="margin-top:12px;align-items:center;gap:8px">
-           <span style="color:var(--dim-2);font-size:11px">아래 섹터 히트맵·리밸런싱·시나리오를 실계좌 기준으로</span>
-           <button class="btn primary" style="margin-left:auto" onclick="importRealHoldings()">이 실계좌로 분석 채우기 →</button></div>`
-    : '<div class="placeholder" style="padding:10px 0">보유 종목이 없어요.</div>';
+  // 국내/해외를 좌우 2열로 — 각 열 = 도넛 + 표
+  const col = (donutId, flag, label, list) => list.length ? `
+    <div style="flex:1 1 320px;min-width:270px">
+      <div class="stat-label" style="text-align:center;margin:0 0 2px">${flag} ${label} <span style="color:var(--dim-2)">${list.length}종목</span></div>
+      <div id="${donutId}" style="height:180px"></div>
+      <table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th><th class="num">손익</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>
+    </div>` : '';
+  document.getElementById('real-holdings-body').innerHTML =
+    `<div class="row" style="gap:16px;flex-wrap:wrap;align-items:flex-start">${col('real-donut-kr', '🇰🇷', '국내주식', kr)}${col('real-donut-us', '🇺🇸', '해외주식', us)}</div>`
+    + `<div style="color:var(--dim-2);font-size:11px;margin-top:8px">실계좌가 아래 섹터 히트맵·리밸런싱·시나리오에 자동 반영됩니다.</div>`;
   _drawRealDonut('real-donut-kr', kr);
   _drawRealDonut('real-donut-us', us);
+  try { await fetch('/api/my-holdings/import', { method: 'POST' }); } catch (e) {}   // 실계좌 → 분석 스토어 자동 반영
+  loadHoldings();   // 히트맵·배당 갱신(실계좌 기준)
 }
 function _drawRealDonut(id, items){
   const el = document.getElementById(id);
@@ -2496,16 +2501,6 @@ function _drawRealDonut(id, items){
       label: { fontSize: 11, formatter: '{b}\n{d}%' }, labelLine: { length: 6, length2: 6 } }],
   }, true);
 }
-async function importRealHoldings(){
-  if (!confirm('토스 실계좌 보유내역으로 아래 분석(섹터 히트맵·리밸런싱·시나리오)을 채웁니다.\n기존에 수동 입력한 보유종목은 대체됩니다. 진행할까요?')) return;
-  try {
-    const r = await (await fetch('/api/my-holdings/import', { method: 'POST' })).json();
-    if (!r.ok) { alert(r.reason || '가져오기 실패'); return; }
-    await loadHoldings();   // 히트맵·배당 갱신 + 리밸런싱·시나리오 준비완료
-    document.querySelector('#heatmap-body')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } catch (e) { alert('가져오기 중 오류가 발생했어요.'); }
-}
-
 // ===== 배당 플래너 — 배당주 리스트 + 담은 주수로 예상 연/월 배당(플랜·목표는 localStorage에 시장별 저장) =====
 let _divItems = [], _divPlan = {}, _divChart = null, _divCalChart = null, _divMarket = 'us', _divCur = 'USD';
 const _divMoney = (v, dp) => _divCur === 'USD' ? '$' + fmtNum(v, dp) : fmtKRW(v);
