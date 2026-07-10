@@ -810,6 +810,8 @@ def _refresh_us(data: dict) -> dict:
         # 여러 번 누르면 S&P500 전량이 채워진다(한 번에 120종목, EDGAR 10req/s 여유).
         got = store.fetch_us_fundamentals_edgar(us_all, max_calls=120)
         log.info("US 재무(EDGAR) 백필 시도 %d종목", got)
+        ec = store.fetch_us_earnings_calendar()  # 실적 예정 캘린더(AV 벌크 1콜/일, TTL로 절약)
+        log.info("US 실적 예정 캘린더: %s", "신선(스킵)" if ec == -1 else f"{ec}종목")
         idx = gurus_ref.build_name_index(us_uni)  # 거장 보유종목 → 시세 수집(뱃지용, 스로틀)
         us_tks = sorted({t for g in store.load_gurus() for h in g.get("holdings", [])
                          if (t := gurus_ref.match_ticker(h.get("name", ""), idx))})
@@ -1481,10 +1483,15 @@ def _disc_kind(nm: str) -> str:
 
 @app.get("/api/signals/{ticker}/events")
 def signal_events_get(ticker: str, market: str = "kospi"):
-    """종목별 과거 이벤트 타임라인 — 최근 DART 주요공시(호재/주의) + 최근 연배당. KR만(DART).
-    미래 일정 아님(공시는 접수 완료분) · 자문 아님, 맥락 참고용."""
+    """종목별 일정·이력 — KR: 최근 DART 주요공시(호재/주의, 과거) + 최근 연배당. US: 실적발표 예정일
+    (Alpha Vantage 캘린더, 미래). 자문 아님, 맥락 참고용."""
     if market == "us":
-        return {"ready": False, "reason": "공시·배당 이력은 현재 국내(DART) 종목만 지원합니다."}
+        # 미국: 실적발표 예정일(미래) — AV 캘린더 캐시에서. 배당·공시는 KR만 지원.
+        d = store.load_us_earnings_calendar().get(ticker)
+        today = datetime.date.today().isoformat()
+        upcoming = ([{"date": d, "label": "실적발표(예정)", "kind": "earnings"}]
+                    if d and d >= today else [])
+        return {"ready": True, "market": "us", "upcoming": upcoming, "disclosures": [], "dividend": None}
     corp = _corp_codes().get(ticker)
     disclosures = []
     if corp:
@@ -1501,7 +1508,8 @@ def signal_events_get(ticker: str, market: str = "kospi"):
     dps, price = f.get("dps"), q.get("price")
     dividend = ({"dps": round(dps, 1), "div_yield": round(dps / price * 100, 2) if (dps and price) else None}
                 if dps and dps > 0 else None)
-    return {"ready": True, "disclosures": disclosures[:20], "dividend": dividend, "has_corp": bool(corp)}
+    return {"ready": True, "market": "kospi", "upcoming": [], "disclosures": disclosures[:20],
+            "dividend": dividend, "has_corp": bool(corp)}
 
 
 @app.get("/api/guru-screens")

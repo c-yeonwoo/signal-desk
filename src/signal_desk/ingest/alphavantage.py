@@ -46,3 +46,34 @@ def overview(ticker: str) -> dict | None:
 
     return {"shares": _num("SharesOutstanding"), "per": _num("PERatio"),
             "sector": data.get("Sector") or None, "name": data.get("Name") or None}
+
+
+def earnings_calendar(horizon: str = "3month") -> dict[str, str]:
+    """미국 종목 실적발표 '예정일' — EARNINGS_CALENDAR(CSV 벌크 1콜로 전 종목). 반환: {symbol: 'YYYY-MM-DD'}
+    (종목별 가장 이른 예정일). 키 없음·스로틀·비CSV 응답이면 {} (그레이스풀). 무료 티어도 지원."""
+    key = config.alphavantage_key()
+    if not key:
+        return {}
+    qs = urllib.parse.urlencode({"function": "EARNINGS_CALENDAR", "horizon": horizon, "apikey": key})
+    try:
+        with urllib.request.urlopen(f"{_URL}?{qs}", timeout=_TIMEOUT) as resp:
+            text = resp.read().decode("utf-8", "replace")
+    except Exception as e:
+        log.warning("AV earnings_calendar 실패: %s", type(e).__name__)
+        return {}
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    # 정상 응답은 CSV(헤더: symbol,name,reportDate,...). 스로틀 시 JSON({"Information":...}) → 헤더 불일치
+    if not lines or not lines[0].lower().startswith("symbol"):
+        log.info("AV earnings_calendar 한도/비정상 응답 — 스킵")
+        return {}
+    out: dict[str, str] = {}
+    for ln in lines[1:]:
+        cols = ln.split(",")
+        if len(cols) < 3:
+            continue
+        sym, date = cols[0].strip(), cols[2].strip()
+        if not sym or len(date) != 10:
+            continue
+        if sym not in out or date < out[sym]:  # 종목별 가장 이른 예정일
+            out[sym] = date
+    return out

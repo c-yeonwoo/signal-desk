@@ -1674,7 +1674,7 @@ const _DETAIL_PANELS = [
   { key: 'kb', label: '정성 심리', el: 'signal-kb' },
   { key: 'factor', label: '팩터 강약', el: 'signal-factors' },
   { key: 'peers', label: '동종업계', el: 'signal-peers' },
-  { key: 'events', label: '공시·이력', el: 'signal-events' },
+  { key: 'events', label: '일정·이력', el: 'signal-events' },
 ];
 let _activeDetailTab = 'narr';
 function setDetailHas(elId, has){ const el = document.getElementById(elId); if (el) el.dataset.has = has ? '1' : '0'; }
@@ -1752,19 +1752,28 @@ async function renderPeers(ticker){
   buildDetailTabs();
 }
 
-// 공시·이력 타임라인 — 최근 DART 주요공시(호재/주의) + 최근 연배당. KR만. 과거 이벤트(미래 일정 아님).
+// 일정·이력 — KR: 최근 DART 주요공시(과거) + 연배당. US: 실적발표 예정일(미래, Alpha Vantage).
 const _EVT_STYLE = { good: { c: 'var(--sig-buy)', t: '호재' }, caution: { c: 'var(--sig-sell)', t: '주의' }, note: { c: 'var(--dim-2)', t: '주목' } };
 async function renderEvents(ticker){
   const el = document.getElementById('signal-events');
-  if (_sigMarket === 'us' || ticker === INDEX_TICKER) { setDetailHas('signal-events', false); return; }
+  if (ticker === INDEX_TICKER) { setDetailHas('signal-events', false); return; }
   el.innerHTML = '<div class="placeholder" style="padding:6px 0">불러오는 중…</div>';
+  const mq = _sigMarket === 'us' ? '?market=us' : '';
   let d;
-  try { d = await (await fetch(`/api/signals/${encodeURIComponent(ticker)}/events`)).json(); }
+  try { d = await (await fetch(`/api/signals/${encodeURIComponent(ticker)}/events${mq}`)).json(); }
   catch (e) { setDetailHas('signal-events', false); buildDetailTabs(); return; }
   if (_selectedTicker !== ticker) return;   // 로드 중 선택 바뀌면 폐기
   if (!d.ready) { setDetailHas('signal-events', false); buildDetailTabs(); return; }
+  // 다가오는 일정(미래) — US 실적발표 예정 등
+  const upcoming = (d.upcoming || []).map(e => `
+    <div style="display:flex;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line)">
+      <span style="flex:0 0 84px;color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums">${esc(e.date)}</span>
+      <span style="flex:1 1 auto">📅 ${esc(e.label)}</span>
+    </div>`).join('');
+  const upBlock = upcoming
+    ? `<div style="color:var(--dim);margin-bottom:2px">다가오는 일정 <span style="color:var(--dim-2)">· 예정일(변동 가능)</span></div>${upcoming}` : '';
   const div = d.dividend
-    ? `<div style="margin-bottom:8px;padding:7px 9px;border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line)">
+    ? `<div style="margin:8px 0;padding:7px 9px;border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line)">
         💰 <b>최근 연배당</b> 주당 ${fmtNum(d.dividend.dps, 0)}원${d.dividend.div_yield != null ? ` · 시가배당률 <b>${fmtNum(d.dividend.div_yield, 2)}%</b>` : ''}
         <span style="color:var(--dim-2)">· 결산배당(연 1회 근사) · 참고용</span></div>` : '';
   const rows = (d.disclosures || []).map(e => {
@@ -1775,11 +1784,13 @@ async function renderEvents(ticker){
       <a href="${esc(e.url)}" target="_blank" rel="noopener" style="flex:1 1 auto;color:var(--txt);text-decoration:none">${esc(e.name)} ↗</a>
     </div>`;
   }).join('');
-  el.innerHTML = div
-    + (rows
-        ? `<div style="color:var(--dim);margin-bottom:2px">최근 6개월 주요공시 <span style="color:var(--dim-2)">· 클릭 시 DART 원문 · 과거 이벤트(예정 일정 아님)</span></div>${rows}`
-        : (div ? '' : '<div class="placeholder" style="padding:6px 0">최근 6개월 주요공시가 없습니다.</div>'));
-  setDetailHas('signal-events', !!(rows || div));
+  const pastBlock = rows
+    ? `<div style="color:var(--dim);margin:${upBlock || div ? '8px' : '0'} 0 2px">최근 6개월 주요공시 <span style="color:var(--dim-2)">· 클릭 시 DART 원문 · 과거</span></div>${rows}` : '';
+  const empty = !upBlock && !div && !pastBlock;
+  el.innerHTML = empty
+    ? `<div class="placeholder" style="padding:6px 0">${d.market === 'us' ? '예정된 실적발표 일정이 없습니다.' : '최근 6개월 주요공시가 없습니다.'}</div>`
+    : upBlock + div + pastBlock;
+  setDetailHas('signal-events', !empty);
   buildDetailTabs();
 }
 
