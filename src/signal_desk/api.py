@@ -1665,6 +1665,32 @@ def my_holdings_get(request: Request):
     return {"ready": True, **res}
 
 
+@app.post("/api/my-holdings/import")
+def my_holdings_import(request: Request):
+    """토스 실계좌 보유내역을 '내 보유종목'(수동 스토어)으로 가져와, 기존 섹터 히트맵·리밸런싱·시나리오
+    기능이 실계좌 기준으로 돌게 한다. owner 본인만. 기존 수동 입력은 대체된다."""
+    if not _is_toss_owner(request):
+        return JSONResponse({"ok": False, "forbidden": True, "reason": "본인 계좌 소유자만 가능합니다."}, status_code=403)
+    from signal_desk.ingest import toss
+    res = toss.holdings(config.toss_account())
+    if not res:
+        return {"ok": False, "reason": "토스 조회 실패 — 자격증명·연동을 확인하세요."}
+    uid = _uid(request)
+    for h in db.holdings_list(uid):        # 실계좌로 대체(중복·잔여 제거)
+        db.holdings_remove(uid, h["ticker"])
+    n = 0
+    for it in (res.get("items") or []):
+        sym = (it.get("symbol") or "").strip()
+        if not sym:
+            continue
+        try:
+            db.holdings_set(uid, sym, float(it.get("quantity") or 0), float(it.get("averagePurchasePrice") or 0))
+            n += 1
+        except (TypeError, ValueError):
+            continue
+    return {"ok": True, "imported": n}
+
+
 @app.get("/api/guru-screens")
 def guru_screens_get(market: str = "kospi"):
     """거장 전략 스크린 — 버핏·그레이엄·린치식 규칙으로 유니버스 필터(교육용 프리셋, 자문 아님).

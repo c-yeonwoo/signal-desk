@@ -57,6 +57,29 @@ def test_toss_holdings_parses(monkeypatch):
     assert toss.holdings("1") is None
 
 
+def test_import_forbidden_for_non_owner(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOSS_ACCOUNT_OWNER", "owner@x.com")
+    client, _ = _fresh_client(tmp_path, monkeypatch)
+    client.post("/api/auth/signup", json={"email": "guest@x.com", "pw": "abcdef"})
+    r = client.post("/api/my-holdings/import")
+    assert r.status_code == 403 and r.json().get("forbidden") is True
+
+
+def test_import_populates_holdings_store(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOSS_ACCOUNT_OWNER", "owner@x.com")
+    client, api = _fresh_client(tmp_path, monkeypatch)
+    client.post("/api/auth/signup", json={"email": "owner@x.com", "pw": "abcdef"})
+    from signal_desk.ingest import toss
+    monkeypatch.setattr(toss, "holdings", lambda account="1": {"items": [
+        {"symbol": "005930", "quantity": "100", "averagePurchasePrice": "65000"},
+        {"symbol": "AAPL", "quantity": "10", "averagePurchasePrice": "155.3"}]})
+    r = client.post("/api/my-holdings/import")
+    assert r.status_code == 200 and r.json()["imported"] == 2
+    hs = client.get("/api/holdings").json()["holdings"]
+    tks = {h["ticker"] for h in hs}
+    assert tks == {"005930", "AAPL"}                    # 실계좌 → 수동 스토어(히트맵·리밸런싱이 읽음)
+
+
 def test_chat_tool_owner_gate(tmp_path, monkeypatch):
     _, api = _fresh_client(tmp_path, monkeypatch)
     import json

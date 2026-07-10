@@ -2454,19 +2454,56 @@ async function loadRealHoldings(){
   const rc = rate > 0 ? 'var(--sig-buy)' : rate < 0 ? 'var(--sig-sell)' : 'var(--dim)';
   document.getElementById('real-holdings-sum').innerHTML = mv.krw != null
     ? `평가 <b>${fmtNum(+mv.krw, 0)}원</b>${rate != null ? ` · <b style="color:${rc}">${rate > 0 ? '+' : ''}${fmtNum(rate, 2)}%</b>` : ''}` : '';
-  const rows = (d.items || []).map(it => {
+  const items = d.items || [];
+  const kr = items.filter(it => it.marketCountry !== 'US'), us = items.filter(it => it.marketCountry === 'US');
+  const row = (it) => {
     const r = (it.profitLoss || {}).rate; const ir = r != null ? +r * 100 : null;
     const ic = ir > 0 ? 'var(--sig-buy)' : ir < 0 ? 'var(--sig-sell)' : 'var(--dim)';
     const cur = it.currency === 'USD' ? '$' : '';
-    return `<tr><td>${esc(it.name || it.symbol)}<div class="sig-metric">${esc(it.symbol)}${it.marketCountry === 'US' ? ' · 해외' : ''}</div></td>
+    return `<tr><td>${esc(it.name || it.symbol)}<div class="sig-metric">${esc(it.symbol)}</div></td>
       <td class="num">${fmtNum(+it.quantity, +it.quantity % 1 ? 4 : 0)}</td>
       <td class="num">${cur}${fmtNum(+it.averagePurchasePrice, cur ? 2 : 0)}</td>
       <td class="num">${cur}${fmtNum(+it.lastPrice, cur ? 2 : 0)}</td>
       <td class="num" style="color:${ic};font-weight:700">${ir != null ? (ir > 0 ? '+' : '') + fmtNum(ir, 2) + '%' : '-'}</td></tr>`;
-  }).join('');
-  document.getElementById('real-holdings-body').innerHTML = rows
-    ? `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th><th class="num">손익률</th></tr></thead><tbody>${rows}</tbody></table>`
+  };
+  const tbl = (title, list) => list.length
+    ? `<div style="margin-top:10px;font-size:12px;color:var(--dim);font-weight:700">${title} <span style="color:var(--dim-2);font-weight:400">${list.length}종목</span></div>
+       <table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th><th class="num">손익률</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>` : '';
+  const donuts = `<div class="row" style="gap:8px;flex-wrap:wrap">
+      ${kr.length ? '<div style="flex:1 1 220px;min-width:190px"><div class="stat-label" style="text-align:center;margin:0">🇰🇷 국내</div><div id="real-donut-kr" style="height:190px"></div></div>' : ''}
+      ${us.length ? '<div style="flex:1 1 220px;min-width:190px"><div class="stat-label" style="text-align:center;margin:0">🇺🇸 해외</div><div id="real-donut-us" style="height:190px"></div></div>' : ''}
+    </div>`;
+  document.getElementById('real-holdings-body').innerHTML = items.length
+    ? donuts + tbl('🇰🇷 국내주식', kr) + tbl('🇺🇸 해외주식', us)
+      + `<div class="row" style="margin-top:12px;align-items:center;gap:8px">
+           <span style="color:var(--dim-2);font-size:11px">아래 섹터 히트맵·리밸런싱·시나리오를 실계좌 기준으로</span>
+           <button class="btn primary" style="margin-left:auto" onclick="importRealHoldings()">이 실계좌로 분석 채우기 →</button></div>`
     : '<div class="placeholder" style="padding:10px 0">보유 종목이 없어요.</div>';
+  _drawRealDonut('real-donut-kr', kr);
+  _drawRealDonut('real-donut-us', us);
+}
+function _drawRealDonut(id, items){
+  const el = document.getElementById(id);
+  if (!el || !window.echarts) return;
+  const data = items.map(it => ({ name: it.name || it.symbol,
+      value: Math.round(+((it.marketValue || {}).amount) || (+it.quantity * +it.lastPrice) || 0) }))
+    .filter(x => x.value > 0);
+  const ch = echarts.getInstanceByDom(el) || echarts.init(el);
+  ch.setOption({
+    tooltip: { trigger: 'item', formatter: p => `${esc(p.name)}<br>${p.percent}% · ${p.value.toLocaleString()}` },
+    legend: { show: false },
+    series: [{ type: 'pie', radius: ['45%', '72%'], data, minShowLabelAngle: 8,
+      label: { fontSize: 11, formatter: '{b}\n{d}%' }, labelLine: { length: 6, length2: 6 } }],
+  }, true);
+}
+async function importRealHoldings(){
+  if (!confirm('토스 실계좌 보유내역으로 아래 분석(섹터 히트맵·리밸런싱·시나리오)을 채웁니다.\n기존에 수동 입력한 보유종목은 대체됩니다. 진행할까요?')) return;
+  try {
+    const r = await (await fetch('/api/my-holdings/import', { method: 'POST' })).json();
+    if (!r.ok) { alert(r.reason || '가져오기 실패'); return; }
+    await loadHoldings();   // 히트맵·배당 갱신 + 리밸런싱·시나리오 준비완료
+    document.querySelector('#heatmap-body')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) { alert('가져오기 중 오류가 발생했어요.'); }
 }
 
 // ===== 배당 플래너 — 배당주 리스트 + 담은 주수로 예상 연/월 배당(플랜·목표는 localStorage에 시장별 저장) =====
