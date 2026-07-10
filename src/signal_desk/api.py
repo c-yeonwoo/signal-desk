@@ -142,6 +142,12 @@ async def _bot_loop():
                     _signals.cache_clear()
                 except Exception as e:
                     log.warning("마감후 KB 갱신 실패: %s", e)
+                try:   # 종목별·시장 수급(외국인·기관 순매수) 일일 갱신 — 수급 팩터/국면이 신선하게 유지되도록
+                    store.fetch_flows(store.load_universe())
+                    store.fetch_market_flow()
+                    _signals.cache_clear(); _regime.cache_clear()
+                except Exception as e:
+                    log.warning("마감후 수급 갱신 실패: %s", type(e).__name__)
                 try:
                     store.snapshot_signals(_signals())  # 팩터 PIT 스냅샷 누적(향후 팩터 백테스트용)
                 except Exception as e:
