@@ -97,7 +97,7 @@
   .macro-chip .mc-value { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
   .macro-chip .mc-chg { font-size:10px; font-variant-numeric:tabular-nums; }
   .mc-bad { color:var(--sig-sell); } .mc-good { color:var(--sig-buy); } .mc-flat { color:var(--dim); }
-  .opp-badge { display:inline-block; margin-left:5px; padding:1px 6px; border-radius:8px; font-size:10px;
+  .opp-badge { display:inline-block; margin-left:5px; padding:1px 7px; border-radius:var(--r-pill); font-size:10px;
     background:var(--accent-weak); color:var(--accent); font-weight:600; vertical-align:middle; }
   .foot-link { color:var(--accent); cursor:pointer; }
   .foot-link:hover { text-decoration:underline; }
@@ -250,7 +250,7 @@
   .fct-fill { position:absolute; top:0; bottom:0; border-radius:5px; }
   .fct-val { flex:0 0 42px; font-size:11px; font-variant-numeric:tabular-nums; text-align:right; font-weight:700; }
   .crit-chip { display:inline-block; font-size:11px; color:var(--dim); background:var(--bg); border:1px solid var(--line);
-    border-radius:20px; padding:2px 9px; margin:2px 4px 2px 0; }
+    border-radius:var(--r-pill); padding:2px 9px; margin:2px 4px 2px 0; }
   #sig-screener { border:1px solid var(--line); border-radius:var(--r-md); padding:8px 10px; background:var(--bg); }
   .screen-body { margin-top:8px; display:flex; flex-direction:column; gap:8px; }
   .screen-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:6px 10px; }
@@ -262,7 +262,7 @@
   .screen-row .cb { cursor:pointer; }
   .screen-presets { display:flex; flex-wrap:wrap; gap:5px; }
   .screen-presets .preset { display:inline-flex; align-items:center; gap:5px; font-size:11px; border:1px solid var(--line);
-    background:var(--panel); border-radius:20px; padding:2px 6px 2px 10px; cursor:pointer; color:var(--txt); }
+    background:var(--panel); border-radius:var(--r-pill); padding:2px 6px 2px 10px; cursor:pointer; color:var(--txt); }
   .screen-presets .preset .del { color:var(--dim-2); font-weight:700; }
   .screen-presets .preset .del:hover { color:var(--sell); }
   .screen-presets .preset.guru { padding:2px 10px; border-color:var(--accent-weak); }
@@ -1808,13 +1808,13 @@ async function renderEvents(ticker){
   const upcoming = (d.upcoming || []).map(e => `
     <div style="display:flex;gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line)">
       <span style="flex:0 0 84px;color:var(--accent);font-weight:700;font-variant-numeric:tabular-nums">${esc(e.date)}</span>
-      <span style="flex:1 1 auto">📅 ${esc(e.label)}</span>
+      <span style="flex:1 1 auto">${esc(e.label)}</span>
     </div>`).join('');
   const upBlock = upcoming
     ? `<div style="color:var(--dim);margin-bottom:2px">다가오는 일정 <span style="color:var(--dim-2)">· 예정일(변동 가능)</span></div>${upcoming}` : '';
   const div = d.dividend
     ? `<div style="margin:8px 0;padding:7px 9px;border-radius:var(--r-md);background:var(--bg);border:1px solid var(--line)">
-        💰 <b>최근 연배당</b> 주당 ${fmtNum(d.dividend.dps, 0)}원${d.dividend.div_yield != null ? ` · 시가배당률 <b>${fmtNum(d.dividend.div_yield, 2)}%</b>` : ''}
+        <b>최근 연배당</b> 주당 ${fmtNum(d.dividend.dps, 0)}원${d.dividend.div_yield != null ? ` · 시가배당률 <b>${fmtNum(d.dividend.div_yield, 2)}%</b>` : ''}
         <span style="color:var(--dim-2)">· 결산배당(연 1회 근사) · 참고용</span></div>` : '';
   const rows = (d.disclosures || []).map(e => {
     const st = _EVT_STYLE[e.kind] || _EVT_STYLE.note;
@@ -1901,14 +1901,14 @@ async function showSignalChart(ticker, item){
   const introEl = document.getElementById('signal-intro');
   if (item && item.intro) {
     introEl.style.display = '';
-    introEl.innerHTML = `🏭 <b style="color:var(--txt)">${esc(item.intro)}</b>${item.intro_desc ? ' — ' + esc(item.intro_desc) : ''}`;
+    introEl.innerHTML = `<b style="color:var(--txt)">${esc(item.intro)}</b>${item.intro_desc ? ' — ' + esc(item.intro_desc) : ''}`;
   } else introEl.style.display = 'none';
   const btEl = document.getElementById('signal-backtest');
   const bt = item && (_isBuy(item.kind) || _isSell(item.kind)) ? _backtestByKind[item.kind] : null;
   if (bt && bt.n) {
     const wr = bt.winrate, wrColor = wr >= 55 ? 'var(--sig-buy)' : wr < 45 ? 'var(--sig-sell)' : 'var(--dim)';
     btEl.style.display = '';
-    btEl.innerHTML = `📊 과거 <b>${kindLabel(item.kind)}</b> 시그널 적중률 <b style="color:${wrColor}">${fmtNum(wr, 1)}%</b>`
+    btEl.innerHTML = `과거 <b>${kindLabel(item.kind)}</b> 시그널 적중률 <b style="color:${wrColor}">${fmtNum(wr, 1)}%</b>`
       + `${bt.avg_ret_5d != null ? ` · 5일 평균 ${bt.avg_ret_5d > 0 ? '+' : ''}${fmtNum(bt.avg_ret_5d, 2)}%` : ''} <span style="color:var(--dim-2)">(표본 ${bt.n}, 가격기반 백테스트)</span>`;
   } else btEl.style.display = 'none';
   const tgEl = document.getElementById('signal-target');
@@ -1926,7 +1926,7 @@ async function showSignalChart(ticker, item){
       parts.push(`기술적 저항 <b>${px(tg.resistance)}</b> <span style="color:${c}">(${up > 0 ? '+' : ''}${fmtNum(up, 1)}%)</span>`);
     }
     tgEl.style.display = '';
-    tgEl.innerHTML = `🎯 <span style="color:var(--dim)">참고 목표가</span> ${parts.join(' · ')}`
+    tgEl.innerHTML = `<span style="color:var(--dim)">참고 목표가</span> ${parts.join(' · ')}`
       + ` <span style="color:var(--dim-2);font-size:11px">· 추정·참고일 뿐 보장 아님(${esc((tg.basis || []).join(', '))})</span>`;
   } else tgEl.style.display = 'none';
   setDetailHas('signal-metrics', !!(item && item.price != null));  // 지표 탭: 시세/재무 있는 종목만(지수 제외)
@@ -1943,7 +1943,7 @@ async function showSignalChart(ticker, item){
     let html = evWarn;
     if (item.kb) {
       const s = item.kb.sentiment, cls = s > 0.15 ? 'var(--sig-buy)' : s < -0.15 ? 'var(--sig-sell)' : 'var(--dim)';
-      html += `🗞️ <b>정성(뉴스)</b> 심리 <b style="color:${cls}">${s > 0 ? '+' : ''}${fmtNum(s, 2)}</b> <span style="color:var(--dim-2)">· 참고용(점수 미반영)</span> · ${esc(item.kb.summary || '')}`
+      html += `<b>정성(뉴스)</b> 심리 <b style="color:${cls}">${s > 0 ? '+' : ''}${fmtNum(s, 2)}</b> <span style="color:var(--dim-2)">· 참고용(점수 미반영)</span> · ${esc(item.kb.summary || '')}`
         + (item.kb.points && item.kb.points.length ? `<div style="color:var(--dim);margin-top:3px">· ${item.kb.points.map(esc).join(' · ')}</div>` : '');
     }
     kbEl.innerHTML = html;
