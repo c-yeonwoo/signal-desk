@@ -348,8 +348,8 @@
   <h1>Signal Desk</h1>
   <div class="tabs">
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
-    <button class="tab" data-tab="trading" onclick="switchTab('trading')">포트폴리오</button>
-    <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">산업 사이클</button>
+    <button class="tab" data-tab="trading" onclick="switchTab('trading')">내 자산</button>
+    <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">인사이트</button>
     <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
   </div>
   <div class="right">
@@ -506,6 +506,12 @@
     <p class="page-desc">시그널·투자에서 쓰는 개념을 초보도 이해되게 정리했습니다. 각 항목에 <b>쉬운 설명 · 왜 보는지 ·
       우리 시그널에서 어떻게 쓰는지</b>를 담았어요.</p>
     <div id="glossary"><div class="placeholder">불러오는 중…</div></div>
+
+    <h3 class="page-head" style="font-size:18px;margin-top:28px">🏛️ 거장의 포트폴리오
+      <span style="color:var(--dim);font-size:13px;font-weight:600">· 벤치마크 참고용</span></h3>
+    <p class="page-desc">유명 투자자들이 공개한 보유내역(미국 SEC 13F)입니다. <b>분기 공시 스냅샷이며 최대 45일 지연</b>,
+      미국 롱 포지션만 표시됩니다(현금·채권·해외주식 제외) · 추천 아님.</p>
+    <div id="gurus-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
   </div>
 
   <div id="view-trading" class="view-app" style="display:none">
@@ -664,12 +670,6 @@
         <div id="scenario-result" class="placeholder" style="padding:12px 0">보유종목 기준 전략별(안정·균형·공격) N년 후 예상 가치 분포를 시뮬레이션합니다.</div>
       </div>
 
-      <div class="card" style="margin-top:18px">
-        <b style="font-size:15px">거장의 포트폴리오 <span style="color:var(--dim);font-weight:600;font-size:12px">· 벤치마크 참고용</span></b>
-        <p class="page-desc" style="margin:6px 0 14px">유명 투자자들이 공개한 보유내역(미국 SEC 13F)입니다. 내 배분과 비교해 참고하세요.
-          <b>분기 공시 스냅샷이며 최대 45일 지연</b>, 미국 롱 포지션만 표시됩니다(현금·채권·해외주식 제외) · 추천 아님.</p>
-        <div id="gurus-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
-      </div>
     </div>
 
     <div id="trading-dividend" style="display:none">
@@ -995,7 +995,7 @@ function switchTab(t){
   const _md = document.getElementById('macro-detail');
   if (onSignal) applyMacroState(); else if (_md) _md.style.display = 'none';  // 접이식 상태 복원/숨김
   if (t === 'signal') loadSignals();
-  if (t === 'cycle') { loadCycle(); loadValuechain(); loadGlossary(); }  // 경기사이클 + 밸류체인 + 용어학습
+  if (t === 'cycle') { loadCycle(); loadValuechain(); loadGlossary(); loadGurus(); }  // 사이클 + 밸류체인 + 학습 + 거장 13F
   if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'admin') switchAdminSeg(_adminSeg);
   if (t === 'mypage') fillMyPage();
@@ -2357,7 +2357,7 @@ function switchTradingSeg(seg){
   document.getElementById('trading-rebal').style.display = seg === 'rebal' ? '' : 'none';
   document.getElementById('trading-dividend').style.display = seg === 'dividend' ? '' : 'none';
   if (seg === 'bot') loadBotState();
-  if (seg === 'rebal') { loadHoldings(); loadGurus(); }
+  if (seg === 'rebal') { loadHoldings(); }
   if (seg === 'dividend') loadDividends();
 }
 
