@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 
 from signal_desk.signals import flow as flow_mod
 from signal_desk.signals import fundamental as fnd
+from signal_desk.signals import short as short_mod
 from signal_desk.signals import indicators as ind
 from signal_desk.signals import momentum as mom
 from signal_desk.signals import quality as fscore
@@ -40,6 +41,7 @@ class SignalConfig:
     weight_flow: float = 0.20  # 수급(외국인·기관 순매수) — KR만, 데이터 있을 때만 포함
     weight_quality: float = 0.15  # 퀄리티(축약 F-Score) — 재무 건전성·개선. 데이터 있을 때만 포함
     weight_momentum: float = 0.20  # 중기 모멘텀(12-1개월) — 가격만 필요, 백테스트에도 반영
+    weight_short: float = 0.15  # 공매도 거래비중(KR) — 하방 리스크. 비중 높을 때만 음(-)으로 포함
     momentum_lookback: int = 252   # 약 12개월(거래일)
     momentum_skip: int = 21        # 직전 약 1개월 제외(단기 반전 노이즈 제거)
     momentum_scale: float = 0.5    # 수익률→스코어 스케일(+50%면 +1로 포화)
@@ -100,6 +102,8 @@ class SignalResult:
     has_quality: bool = False
     momentum_ret: float | None = None  # 12-1개월 수익률(중기 모멘텀)
     has_momentum: bool = False
+    short_ratio: float | None = None  # 최근 공매도 거래비중(KR)
+    has_short: bool = False
     event_risk: bool = False  # KB에서 최근 악재 이벤트 감지 — 매수 후보에서 제외(veto)
     event_note: str = ""
     event_severity: str = ""  # 악재 강도: critical(전량 청산)|serious(부분 청산)|''
@@ -318,16 +322,19 @@ def evaluate(
     flows: dict[str, dict] | None = None,
     earnings_dates: dict[str, str] | None = None,
     today: datetime.date | None = None,
+    shorts: dict[str, dict] | None = None,
 ) -> list[SignalResult]:
     """universe: [{ticker, name}], prices: ticker -> 종가 리스트(오래된→최신), fundamentals: ticker -> metrics.
     sentiment: ticker -> {score[-1,1], reasons} (KB 정성 팩터), flows: ticker -> {intensity,...} (수급 팩터, KR).
-    earnings_dates: ticker -> 'YYYY-MM-DD' 실적발표 예정일(US) — 임박 시 신규 매수 게이트."""
+    earnings_dates: ticker -> 'YYYY-MM-DD' 실적발표 예정일(US) — 임박 시 신규 매수 게이트.
+    shorts: ticker -> {short_ratio,...} (공매도 팩터, KR)."""
     config = config or SignalConfig()
     fundamentals = fundamentals or {}
     sentiment = sentiment or {}
     flows = flows or {}
     earnings_dates = earnings_dates or {}
     today = today or datetime.date.today()
+    shorts = shorts or {}
     val_scores = val.scores(universe, fundamentals)
     results: list[SignalResult] = []
 
@@ -357,6 +364,9 @@ def evaluate(
         mom_norm, mom_weight, mom_reasons, mom_ret, has_momentum = mom.score_at(
             closes, len(closes) - 1, config
         )
+        sh_norm, sh_weight, sh_reasons, sh_ratio, has_short = short_mod.component(
+            shorts.get(ticker), config.weight_short
+        )
 
         # 팩터별 방향·강도(정규화 [-1,1]) — 종합점수 구성에 실제 들어간 값. 프론트 팩터 시각화(레이더/
         # 막대)용. 하락추세 게이트가 아래에서 저평가·낙폭 매수기여를 무효화하기 '전' 원 강도를 담아
@@ -374,6 +384,8 @@ def evaluate(
             factor_scores["quality"] = round(max(-1.0, min(1.0, ql_norm)), 3)
         if has_momentum:
             factor_scores["momentum"] = round(max(-1.0, min(1.0, mom_norm)), 3)
+        if has_short:
+            factor_scores["short"] = round(max(-1.0, min(1.0, sh_norm)), 3)
 
         # 확인된 하락추세(떨어지는 칼)에서는 낙폭과대·저평가 매수기여를 무효화한다 — 싸고
         # 과매도여도 구조적 하락이면 계속 싸지고 떨어지는 가치함정. 종합 BUY도 아래서 관망 강등.
@@ -396,6 +408,7 @@ def evaluate(
             (flow_norm, flow_weight, flow_reasons),  # 수급(외국인·기관) — 하락추세에도 유효(스마트머니 실매수 확인)
             (ql_norm, ql_weight, ql_reasons),        # 퀄리티(축약 F-Score) — 재무 건전성·개선
             (mom_norm, mom_weight, mom_reasons),     # 중기 모멘텀(12-1개월)
+            (sh_norm, sh_weight, sh_reasons),        # 공매도 거래비중(KR) — 하방 리스크 감점
         ]
         combined = combine(components, config)
         _apply_trend_gate(combined, closes, series, i_last, config)
@@ -413,6 +426,7 @@ def evaluate(
             flow_intensity=round(flow_intensity, 3) if has_flow else None, has_flow=has_flow,
             quality_points=ql_points, has_quality=has_quality,
             momentum_ret=mom_ret, has_momentum=has_momentum,
+            short_ratio=round(sh_ratio, 4) if sh_ratio is not None else None, has_short=has_short,
             event_risk=bool(entry.get("event_risk")), event_note=str(entry.get("event_note") or ""),
             event_severity=str(entry.get("event_severity") or ""),
             earnings_date=edate, earnings_soon=earnings_soon,

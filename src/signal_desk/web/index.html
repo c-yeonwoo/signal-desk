@@ -1779,8 +1779,9 @@ const _FACTOR_META = {
   flow:        { ko: '수급',    desc: '외국인·기관 순매수' },
   quality:     { ko: '퀄리티',  desc: '재무 건전성·개선(F-Score)' },
   momentum:    { ko: '모멘텀',  desc: '중기(12-1개월) 추세' },
+  short:       { ko: '공매도',  desc: '공매도 거래비중(높을수록 하방 압력, −)' },
 };
-const _FACTOR_ORDER = ['technical', 'fundamental', 'valuation', 'reversion', 'flow', 'quality', 'momentum'];
+const _FACTOR_ORDER = ['technical', 'fundamental', 'valuation', 'reversion', 'flow', 'quality', 'momentum', 'short'];
 // ===== 차트 아래 상세 서브탭 — 해설/정성/팩터/동종업계를 하나씩 보여줘 차트를 밀어내지 않는다 =====
 const _DETAIL_PANELS = [
   { key: 'narr', label: 'AI 해설', el: 'signal-narrative' },

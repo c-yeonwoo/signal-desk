@@ -148,6 +148,11 @@ async def _bot_loop():
                     _signals.cache_clear(); _regime.cache_clear()
                 except Exception as e:
                     log.warning("마감후 수급 갱신 실패: %s", type(e).__name__)
+                try:   # 공매도 거래비중 일일 갱신 — 공매도 팩터 신선화(KRX, 마감후 확정)
+                    store.fetch_short(store.load_universe())
+                    _signals.cache_clear()
+                except Exception as e:
+                    log.warning("마감후 공매도 갱신 실패: %s", type(e).__name__)
                 try:
                     store.snapshot_signals(_signals())  # 팩터 PIT 스냅샷 누적(향후 팩터 백테스트용)
                 except Exception as e:
@@ -505,7 +510,8 @@ def portfolio_heatmap(request: Request, market: str = ""):
 def _signals():
     cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())  # 약세·비우호·외인기관 순매도면 매수 기준 상향
     return evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
-                    config=cfg, sentiment=kb.sentiment_map(), flows=store.load_flows())
+                    config=cfg, sentiment=kb.sentiment_map(), flows=store.load_flows(),
+                    shorts=store.load_short())
 
 
 @lru_cache(maxsize=1)
@@ -820,13 +826,23 @@ def _refresh_macro(data: dict) -> dict:
 
 
 def _refresh_flows(data: dict) -> dict:
-    """투자자별 수급(외국인·기관 순매수, KR) → 수급 팩터. pykrx per-ticker라 단독 분리."""
+    """투자자별 수급(외국인·기관 순매수, KR) + 공매도 거래비중(KRX) → 수급·공매도 팩터."""
+    out: dict = {}
     try:
         store.fetch_flows(store.load_universe())
+        out["flows_size"] = len(store.load_flows())
     except Exception as e:
         log.warning("수급 수집 실패(무시): %s", type(e).__name__)
-        return {"flows_size": len(store.load_flows()), "flows_error": type(e).__name__}
-    return {"flows_size": len(store.load_flows())}
+        out["flows_size"] = len(store.load_flows())
+        out["flows_error"] = type(e).__name__
+    try:
+        store.fetch_short(store.load_universe())
+        out["short_size"] = len(store.load_short())
+    except Exception as e:
+        log.warning("공매도 수집 실패(무시): %s", type(e).__name__)
+        out["short_size"] = len(store.load_short())
+        out["short_error"] = type(e).__name__
+    return out
 
 
 def _refresh_us(data: dict) -> dict:

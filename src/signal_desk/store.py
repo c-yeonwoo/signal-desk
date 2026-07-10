@@ -31,6 +31,7 @@ WARNINGS_FILE = CACHE_DIR / "warnings.json"  # 토스 투자경고·거래정지
 US_FUNDAMENTALS_FILE = CACHE_DIR / "us_fundamentals.json"  # 미국 발행주식수·PER(Alpha Vantage, 소량 백필)
 US_EARNINGS_FILE = CACHE_DIR / "us_earnings_calendar.json"  # 미국 실적발표 예정일(Alpha Vantage, 벌크 1콜/일)
 FLOWS_FILE = CACHE_DIR / "flows.json"  # 투자자별 수급(외국인·기관 순매수, KR) — 시그널 수급 팩터
+SHORT_FILE = CACHE_DIR / "short.json"  # 종목별 공매도 거래비중(KRX, KR) — 시그널 공매도 팩터
 MARKET_FLOW_FILE = CACHE_DIR / "market_flow.json"  # 시장 전체(KOSPI) 외국인·기관 순매수 누적(토스) — 국면 신호
 SHORTFORM_BG_FILE = CACHE_DIR / "shortform_bg.img"  # 숏폼 카드 배경 업로드 원본(1장) — data URI 대신 짧은 URL로 서빙
 COMPANY_PROFILES_FILE = CACHE_DIR / "company_profiles.json"  # DART 기업개황(설립연도·대표·영문명) — 숏폼 기업 소개
@@ -105,6 +106,59 @@ def load_flows() -> dict[str, dict]:
     if not FLOWS_FILE.exists():
         return {}
     return json.loads(FLOWS_FILE.read_text(encoding="utf-8"))
+
+
+def _volume_by_ticker_date() -> dict[str, dict[str, float]]:
+    """{ticker: {date: 총거래량}} — 공매도 비중 계산용(우리 KR OHLCV의 volume)."""
+    if not PRICES_FILE.exists():
+        return {}
+    df = pd.read_parquet(PRICES_FILE)
+    if df.empty or "volume" not in df.columns:
+        return {}
+    out: dict[str, dict[str, float]] = {}
+    for t, g in df.groupby("ticker"):
+        out[str(t)] = {str(d): float(v) for d, v in zip(g["date"], g["volume"])}
+    return out
+
+
+def fetch_short(universe: list[dict] | None = None, days: int = 20) -> dict:
+    """최근 days 거래일 종목별 공매도 거래비중(KR)을 수집 → short.json.
+    short_ratio = Σ공매도거래량 / Σ총거래량 (둘 다 주수 → 종목 규모·스케일 시세 무관).
+    소스: KRX 외부용 엔드포인트(ingest.krx_short). 공매도량은 KRX, 총거래량은 우리 OHLCV(동일 KRX 원천)."""
+    from signal_desk.ingest import krx_short
+    universe = universe if universe is not None else load_universe()
+    vol_by = _volume_by_ticker_date()
+    out: dict[str, dict] = {}
+    fails = 0
+    for item in universe:
+        ticker = item["ticker"]
+        sv = krx_short.short_volume(ticker, days)
+        if not sv:
+            fails += 1
+            # 서킷브레이커: 소스가 통째로 막히면(스키마 변경 등) 조기 중단. 공매도 팩터는 자동 제외.
+            if out == {} and fails >= 8:
+                log.warning("공매도 수집 중단 — KRX 응답 없음(%d/%d 연속 실패). "
+                            "공매도 팩터는 데이터 없음으로 자동 제외됩니다(다른 팩터엔 영향 없음).", fails, len(universe))
+                return out
+            continue
+        fails = 0
+        vmap = vol_by.get(ticker, {})
+        matched = [(sv[d], vmap[d]) for d in sv if d in vmap and vmap[d]]
+        svol = sum(s for s, _ in matched)
+        tvol = sum(v for _, v in matched)
+        if not matched or not tvol:
+            continue
+        out[ticker] = {"short_ratio": round(svol / tvol, 4),
+                       "short_vol": round(svol), "total_vol": round(tvol), "days": len(matched)}
+    if out:
+        _write_json(SHORT_FILE, out)
+    return out
+
+
+def load_short() -> dict[str, dict]:
+    if not SHORT_FILE.exists():
+        return {}
+    return json.loads(SHORT_FILE.read_text(encoding="utf-8"))
 
 
 def _market_flow_summary(records: list[dict]) -> dict:
@@ -841,6 +895,7 @@ def data_freshness() -> list[dict]:
         e("us_prices", "미국 시세", US_PRICES_FILE, 2),
         e("fundamentals", "재무(DART)", FUNDAMENTALS_FILE, 100, _json_rows(FUNDAMENTALS_FILE)),
         e("flows", "종목 수급(네이버)", FLOWS_FILE, 2, _json_rows(FLOWS_FILE)),
+        e("short", "공매도 비중(KRX)", SHORT_FILE, 2, _json_rows(SHORT_FILE)),
         e("market_flow", "시장 수급(토스)", MARKET_FLOW_FILE, 2),
         e("macro", "거시(FRED)", MACRO_FILE, 8, _json_rows(MACRO_FILE)),
         e("macro_kr", "거시(ECOS)", MACRO_KR_FILE, 8, _json_rows(MACRO_KR_FILE)),
