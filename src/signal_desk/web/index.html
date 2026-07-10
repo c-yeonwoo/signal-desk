@@ -1073,13 +1073,21 @@ function switchTab(t){
   if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'admin') switchAdminSeg(_adminSeg);
   if (t === 'mypage') fillMyPage();
-  if (location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
+  // 서브내비 있는 탭은 해시를 sub-switcher가 '#tab/seg'로 씀 → 여기선 안 건드림(새로고침 시 서브탭 유지)
+  if (!_SEGS[t] && location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
 }
 
+const _SEGS = { trading: ['bot', 'rebal', 'dividend'], cycle: ['cycle', 'vc', 'learn', 'guru'], admin: ['kb', 'shortform', 'engine'] };
 function routeFromHash(){
-  const h = decodeURIComponent(location.hash.slice(1));
-  if (_ROUTES.includes(h)) { switchTab(h); return true; }
-  return false;
+  const [tab, seg] = decodeURIComponent(location.hash.slice(1)).split('/');
+  if (!_ROUTES.includes(tab)) return false;
+  if (seg && (_SEGS[tab] || []).includes(seg)) {   // 유효한 서브탭이면 진입 전에 기억값 세팅
+    if (tab === 'trading') _tradingSeg = seg;
+    else if (tab === 'cycle') _cycleSeg = seg;
+    else if (tab === 'admin') _adminSeg = seg;
+  }
+  switchTab(tab);
+  return true;
 }
 window.addEventListener('hashchange', routeFromHash);
 window.addEventListener('resize', () => {
@@ -2407,6 +2415,7 @@ function switchCycleSeg(seg){
   else if (seg === 'vc') loadValuechain();
   else if (seg === 'learn') loadGlossary();
   else if (seg === 'guru') loadGurus();
+  history.replaceState(null, '', '#cycle/' + seg);   // 새로고침 시 서브탭 유지
 }
 
 let _tradingSeg = 'bot';
@@ -2419,6 +2428,7 @@ function switchTradingSeg(seg){
   if (seg === 'bot') loadBotState();
   if (seg === 'rebal') { loadHoldings(); loadRealHoldings(); }
   if (seg === 'dividend') loadDividends();
+  history.replaceState(null, '', '#trading/' + seg);   // 새로고침 시 서브탭 유지
 }
 
 // 토스 실계좌 보유내역 — 본인(owner)만. 403이면 카드 숨김(다른 계정은 존재조차 안 보임).
@@ -3217,6 +3227,7 @@ function switchAdminSeg(seg){
   if (seg === 'engine') loadEngine();   // 백테스트는 접이식(bt-details) 펼칠 때만 로드
   if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
   if (seg === 'shortform') { loadShortform(); loadSfBg(); }
+  history.replaceState(null, '', '#admin/' + seg);   // 새로고침 시 서브탭 유지
 }
 
 // ===== 숏폼 콘텐츠(관리자) — 생성 → 검수 큐 → 승인/반려 =====
