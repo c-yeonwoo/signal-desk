@@ -406,6 +406,7 @@
   <button class="subtab" data-cseg="vc" onclick="switchCycleSeg('vc')">밸류체인</button>
   <button class="subtab" data-cseg="learn" onclick="switchCycleSeg('learn')">학습</button>
   <button class="subtab" data-cseg="guru" onclick="switchCycleSeg('guru')">거장 포트폴리오</button>
+  <button class="subtab" data-cseg="etf" onclick="switchCycleSeg('etf')">ETF</button>
 </nav>
 
 <div class="market-bar" id="market-ribbon">
@@ -545,6 +546,14 @@
       <p class="page-desc">유명 투자자들이 공개한 보유내역(미국 SEC 13F)입니다. <b>분기 공시 스냅샷이며 최대 45일 지연</b>,
         미국 롱 포지션만 표시됩니다(현금·채권·해외주식 제외) · 추천 아님.</p>
       <div id="gurus-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+    </div>
+
+    <div id="cycle-seg-etf" style="display:none">
+      <h3 class="page-head" style="font-size:18px;margin-top:0">📦 ETF 구성종목
+        <span style="color:var(--dim);font-size:13px;font-weight:600">· 이 ETF엔 무엇이 담겨 있나</span></h3>
+      <p class="page-desc">유명 ETF의 상위 구성종목을 서클차트로 봅니다. <b>구성 스냅샷(근사·참고용)</b>이며 실제 비중·종목은
+        수시로 바뀝니다(정확 수치는 운용사 공시 참고). 시그널·분석 대상은 아니에요.</p>
+      <div id="etf-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
   </div>
 
@@ -1086,7 +1095,7 @@ function switchTab(t){
   if (!_SEGS[t] && location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
 }
 
-const _SEGS = { trading: ['bot', 'rebal', 'dividend'], cycle: ['cycle', 'vc', 'learn', 'guru'], admin: ['kb', 'shortform', 'engine'] };
+const _SEGS = { trading: ['bot', 'rebal', 'dividend'], cycle: ['cycle', 'vc', 'learn', 'guru', 'etf'], admin: ['kb', 'shortform', 'engine'] };
 function routeFromHash(){
   const [tab, seg] = decodeURIComponent(location.hash.slice(1)).split('/');
   if (!_ROUTES.includes(tab)) return false;
@@ -2420,11 +2429,12 @@ let _cycleSeg = 'cycle';
 function switchCycleSeg(seg){
   _cycleSeg = seg;
   document.querySelectorAll('#subnav-cycle .subtab').forEach(b => b.classList.toggle('on', b.dataset.cseg === seg));
-  ['cycle', 'vc', 'learn', 'guru'].forEach(s => { const el = document.getElementById('cycle-seg-' + s); if (el) el.style.display = s === seg ? '' : 'none'; });
+  ['cycle', 'vc', 'learn', 'guru', 'etf'].forEach(s => { const el = document.getElementById('cycle-seg-' + s); if (el) el.style.display = s === seg ? '' : 'none'; });
   if (seg === 'cycle') loadCycle();
   else if (seg === 'vc') loadValuechain();
   else if (seg === 'learn') loadGlossary();
   else if (seg === 'guru') loadGurus();
+  else if (seg === 'etf') loadEtfs();
   history.replaceState(null, '', '#cycle/' + seg);   // 새로고침 시 서브탭 유지
 }
 
@@ -2710,6 +2720,41 @@ function openGuruModal(i){
     + `</tbody></table>`;
 }
 function closeGuruModal(){ document.getElementById('guruDlg').close(); }
+
+let _etfCharts = [];
+async function loadEtfs(){
+  const el = document.getElementById('etf-grid');
+  if (!el) return;
+  let etfs;
+  try { etfs = (await (await fetch('/api/etfs')).json()).etfs || []; }
+  catch (e) { el.innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
+  el.className = 'guru-grid';   // 거장 카드와 동일 그리드 레이아웃 재사용
+  el.innerHTML = etfs.map((e, i) => `
+    <div class="guru-card" style="cursor:default">
+      <div class="guru-head"><b>${esc(e.name)}</b>
+        <span style="font-size:10px;color:#fff;background:${e.market === 'us' ? 'var(--sig-sell)' : 'var(--accent)'};border-radius:6px;padding:1px 6px;margin-left:6px">${e.market === 'us' ? '해외' : '국내'}</span></div>
+      <div class="guru-desc">${esc(e.desc)}</div>
+      <div id="etf-pie-${i}" class="guru-pie"></div>
+    </div>`).join('');
+  _etfCharts.forEach(c => { try { c.dispose(); } catch (e) {} });
+  _etfCharts = [];
+  etfs.forEach((e, i) => {
+    const node = document.getElementById('etf-pie-' + i);
+    if (!node || !window.echarts) return;
+    const top = (e.holdings || []).map(h => ({ name: h.name, value: h.weight }));
+    const sum = top.reduce((s, h) => s + h.value, 0);
+    if (sum < 99) top.push({ name: '기타', value: Math.round((100 - sum) * 10) / 10, itemStyle: { color: 'var(--line-strong)' } });
+    const ch = echarts.init(node);
+    ch.setOption({
+      tooltip: { trigger: 'item', formatter: p => `${esc(p.name)}<br>${p.value}%` },
+      series: [{ type: 'pie', radius: ['42%', '70%'], data: top, minShowLabelAngle: 6,
+        label: { fontSize: 11, formatter: '{b}\n{d}%' }, labelLine: { length: 5, length2: 5 } }],
+    });
+    _etfCharts.push(ch);
+    requestAnimationFrame(() => ch.resize());
+    if (window.ResizeObserver && !node._ro) { node._ro = new ResizeObserver(() => ch.resize()); node._ro.observe(node); }
+  });
+}
 
 async function loadGurus(){
   const el = document.getElementById('gurus-grid');

@@ -24,7 +24,7 @@ from fastapi import Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from signal_desk import auth, bot, chat, config, db, kb, kb_search, notify, shortform, signalcfg, store, strategy
-from signal_desk.reference import (cycle, glossary, guru_screens, gurus as gurus_ref,
+from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     sectors, us_ko, valuechain)
 from signal_desk.signals import macro, narrative, opportunity, rebalance, regime, scenario, target, valuation
 from signal_desk.signals.engine import (
@@ -1758,6 +1758,12 @@ def guru_screens_get(market: str = "kospi"):
                           "signal": {"kind": s.kind, "score": round(s.score, 2)} if (s and s.kind != "HOLD") else None})
         results.append({**meta, "count": len(tks), "tickers": tks, "items": items})  # tickers=전체 매칭(스크리너 프리셋 필터용)
     return {"ready": True, "screens": results}
+
+
+@app.get("/api/etfs")
+def etfs_get():
+    """유명 ETF 구성종목 스냅샷(참고용) — 인사이트 탭 서클차트. 시그널·KB 무관."""
+    return {"etfs": etfs_ref.all_etfs()}
 
 
 @app.get("/api/macro")
