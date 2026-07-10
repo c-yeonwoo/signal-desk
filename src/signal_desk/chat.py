@@ -127,3 +127,42 @@ def answer(message: str, history: list | None = None,
         messages.append({"role": "user", "content": results})
 
     return {"ok": True, "reply": "답변이 길어져 여기서 멈췄어요. 조금 더 구체적으로 물어봐 주세요.", "tools": used}
+
+
+def answer_stream(message: str, history: list | None = None,
+                  dispatch: Callable[[str, dict], str] | None = None,
+                  model: str = llm.NARRATIVE_MODEL):
+    """스트리밍 버전(제너레이터) — 텍스트 토큰을 ('text', 델타)로 yield. 도구 실행은 answer()와 동일하게
+    dispatch로 하되, 최종 답변은 토큰이 생성되는 대로 흘려보낸다(체감 지연↓)."""
+    if not llm.available():
+        yield ("text", f"{PERSONA_NAME}가 아직 준비 중이에요(관리자: ANTHROPIC_API_KEY 설정 필요).")
+        return
+    if dispatch is None:
+        yield ("text", "도구가 연결되지 않았어요.")
+        return
+    messages = list(history or [])
+    messages.append({"role": "user", "content": message})
+    for _ in range(_MAX_TURNS):
+        result = None
+        for kind, payload in llm.stream_call(SYSTEM, messages, TOOLS, max_tokens=1200, model=model):
+            if kind == "text":
+                yield ("text", payload)
+            elif kind == "result":
+                result = payload
+        if not result:
+            yield ("text", "\n지금은 답하기 어려워요. 잠시 후 다시 시도해 주세요.")
+            return
+        content = result.get("content") or []
+        messages.append({"role": "assistant", "content": content})
+        tool_uses = [c for c in content if c.get("type") == "tool_use"]
+        if not tool_uses:   # 최종 답변 — 텍스트는 이미 스트리밍됨
+            return
+        results = []
+        for tu in tool_uses:
+            try:
+                out = dispatch(tu.get("name", ""), tu.get("input") or {})
+            except Exception:
+                out = json.dumps({"error": "조회 실패"}, ensure_ascii=False)
+            results.append({"type": "tool_result", "tool_use_id": tu.get("id"), "content": out or "{}"})
+        messages.append({"role": "user", "content": results})
+    yield ("text", "\n(답변이 길어져 멈췄어요. 더 구체적으로 물어봐 주세요.)")

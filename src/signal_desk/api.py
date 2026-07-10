@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Body, FastAPI, Request
 from fastapi import File as FastFile
 from fastapi import Form, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from signal_desk import auth, bot, chat, config, db, kb, kb_search, notify, shortform, signalcfg, store, strategy
 from signal_desk.reference import (cycle, glossary, guru_screens, gurus as gurus_ref,
@@ -1643,6 +1643,31 @@ def chat_post(request: Request, data: dict = Body(...)):
     history = data.get("history") or []   # [{role, content}] — 프런트가 최근 몇 턴만 전달
     return chat.answer(message, history=history[-8:],
                        dispatch=_make_chat_dispatch(_uid(request), _is_toss_owner(request)))
+
+
+@app.post("/api/chat/stream")
+def chat_stream(request: Request, data: dict = Body(...)):
+    """안내 에이전트 — SSE 토큰 스트리밍. data: {"delta": "..."} 이벤트, 마지막에 [DONE]."""
+    message = (data.get("message") or "").strip()
+    history = (data.get("history") or [])[-8:]
+    uid, owner = _uid(request), _is_toss_owner(request)
+
+    def gen():
+        if not message:
+            yield "data: " + json.dumps({"delta": "무엇이 궁금한지 적어 주세요."}, ensure_ascii=False) + "\n\n"
+            yield "data: [DONE]\n\n"
+            return
+        dispatch = _make_chat_dispatch(uid, owner)
+        try:
+            for kind, payload in chat.answer_stream(message, history=history, dispatch=dispatch):
+                if kind == "text" and payload:
+                    yield "data: " + json.dumps({"delta": payload}, ensure_ascii=False) + "\n\n"
+        except Exception:
+            yield "data: " + json.dumps({"delta": "\n(오류가 발생했어요.)"}, ensure_ascii=False) + "\n\n"
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/chat/meta")

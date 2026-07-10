@@ -77,6 +77,70 @@ def messages_with_tools(system: str, messages: list, tools: list, *,
         return None
 
 
+def stream_call(system: str, messages: list, tools: list, *,
+                max_tokens: int = 1200, model: str = NARRATIVE_MODEL):
+    """tool use + 토큰 스트리밍 1회 호출(제너레이터). SSE를 파싱해:
+      ('text', 델타)  — 텍스트 토큰이 생성될 때마다
+      ('result', {content, stop_reason})  — 마지막에 1회(블록 재구성 완료; 실패·키없음이면 None)
+    를 yield한다. 툴 루프는 chat.answer_stream이 이 제너레이터를 소비하며 돈다."""
+    key = config.anthropic_key()
+    if not key:
+        yield ("result", None)
+        return
+    body = json.dumps({
+        "model": model, "max_tokens": max_tokens, "system": system,
+        "tools": tools, "messages": messages, "stream": True,
+    }).encode("utf-8")
+    req = urllib.request.Request(_ENDPOINT, data=body, method="POST")
+    req.add_header("x-api-key", key)
+    req.add_header("anthropic-version", _VERSION)
+    req.add_header("content-type", "application/json")
+    blocks: dict[int, dict] = {}
+    stop_reason = None
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            for raw in resp:                       # 응답을 라인 단위 스트림으로 소비
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if not payload:
+                    continue
+                try:
+                    ev = json.loads(payload)
+                except Exception:
+                    continue
+                et = ev.get("type")
+                if et == "content_block_start":
+                    blocks[ev["index"]] = {**(ev.get("content_block") or {}), "_json": ""}
+                elif et == "content_block_delta":
+                    d = ev.get("delta") or {}
+                    b = blocks.setdefault(ev["index"], {"type": "text", "text": "", "_json": ""})
+                    if d.get("type") == "text_delta":
+                        b["text"] = b.get("text", "") + d.get("text", "")
+                        yield ("text", d.get("text", ""))
+                    elif d.get("type") == "input_json_delta":
+                        b["_json"] = b.get("_json", "") + d.get("partial_json", "")
+                elif et == "message_delta":
+                    stop_reason = (ev.get("delta") or {}).get("stop_reason") or stop_reason
+    except Exception as e:
+        log.warning("LLM 스트리밍 실패: %s", type(e).__name__)
+        yield ("result", None)
+        return
+    content = []
+    for i in sorted(blocks):
+        b = blocks[i]
+        if b.get("type") == "tool_use":
+            try:
+                inp = json.loads(b.get("_json") or "{}")
+            except Exception:
+                inp = {}
+            content.append({"type": "tool_use", "id": b.get("id"), "name": b.get("name"), "input": inp})
+        elif b.get("type") == "text":
+            content.append({"type": "text", "text": b.get("text", "")})
+    yield ("result", {"content": content, "stop_reason": stop_reason})
+
+
 def complete_vision(system: str, user: str, *, media_type: str, data_b64: str,
                     max_tokens: int = 1500, model: str = DEFAULT_MODEL) -> str | None:
     """PDF/이미지를 첨부해 1회 호출(멀티모달) — 스캔 문서·이미지 OCR을 별도 엔진 없이 모델이 직접 인식.
