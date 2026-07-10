@@ -80,6 +80,27 @@ def test_import_populates_holdings_store(tmp_path, monkeypatch):
     assert tks == {"005930", "AAPL"}                    # 실계좌 → 수동 스토어(히트맵·리밸런싱이 읽음)
 
 
+def test_holdings_by_market_split(tmp_path, monkeypatch):
+    _, api = _fresh_client(tmp_path, monkeypatch)
+    hs = [{"ticker": "005930"}, {"ticker": "000660"}, {"ticker": "AAPL"}, {"ticker": "MSFT"}]
+    assert [h["ticker"] for h in api._holdings_by_market(hs, "kr")] == ["005930", "000660"]
+    assert [h["ticker"] for h in api._holdings_by_market(hs, "us")] == ["AAPL", "MSFT"]
+    assert len(api._holdings_by_market(hs, None)) == 4
+
+
+def test_heatmap_market_param_filters(tmp_path, monkeypatch):
+    client, _ = _fresh_client(tmp_path, monkeypatch)
+    client.post("/api/auth/signup", json={"email": "h@x.com", "pw": "abcdef"})
+    for t, q, a in [("005930", 10, 60000), ("AAPL", 5, 150)]:
+        client.post("/api/holdings", json={"ticker": t, "qty": q, "avg_price": a})
+    # 시세가 없으면 ready=False로 떨어질 수 있으나, market 필터 자체는 항상 해당 시장만 대상으로 함
+    kr = client.get("/api/portfolio/heatmap?market=kr").json()
+    us = client.get("/api/portfolio/heatmap?market=us").json()
+    for res, wrong in [(kr, "AAPL"), (us, "005930")]:
+        for it in res.get("items", []):
+            assert it["ticker"] != wrong          # 시장 교차 오염 없음
+
+
 def test_chat_tool_owner_gate(tmp_path, monkeypatch):
     _, api = _fresh_client(tmp_path, monkeypatch)
     import json

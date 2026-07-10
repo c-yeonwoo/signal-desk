@@ -420,13 +420,21 @@ def holdings_dividends_get(request: Request):
     return {"ready": bool(items), "items": items, "totals": totals}
 
 
+def _holdings_by_market(holdings: list[dict], market: str | None) -> list[dict]:
+    """보유종목을 시장별로 분리 — KR=6자리 숫자 코드, US=영문 티커. market None이면 전체."""
+    if market == "kr":
+        return [h for h in holdings if str(h.get("ticker", "")).isdigit()]
+    if market == "us":
+        return [h for h in holdings if not str(h.get("ticker", "")).isdigit()]
+    return holdings
+
+
 @app.post("/api/rebalance")
 def rebalance_post(request: Request, data: dict = Body(default={})):
-    """내 보유종목(국내+해외 혼합)을 시그널·성향 목표배분에 맞춰 리밸런싱 제안 + LLM 해설.
-    성향은 요청에서 받는다(기본 균형형)."""
-    holdings = db.holdings_list(_uid(request))
+    """내 보유종목을 시그널·성향 목표배분에 맞춰 리밸런싱 제안 + LLM 해설. market=kr|us로 시장 분리(기본 전체)."""
+    holdings = _holdings_by_market(db.holdings_list(_uid(request)), data.get("market"))
     if not holdings:
-        return {"ready": False, "reason": "보유종목을 먼저 입력하세요."}
+        return {"ready": False, "reason": "해당 시장의 보유종목이 없습니다."}
     if not store.is_ready():
         return {"ready": False, "reason": "시세 데이터가 없습니다 — /api/refresh 먼저."}
     # 국내+해외 시그널·시세·종목명 병합(혼합 포트폴리오 지원)
@@ -458,11 +466,11 @@ def scenario_post(request: Request, data: dict = Body(default={})):
 
 
 @app.get("/api/portfolio/heatmap")
-def portfolio_heatmap(request: Request):
-    """내 보유종목을 섹터별로 묶은 히트맵(#12) — 평가액 크기 + 손익률 색상. 국내·해외 혼합."""
-    holdings = db.holdings_list(_uid(request))
+def portfolio_heatmap(request: Request, market: str = ""):
+    """내 보유종목을 섹터별로 묶은 히트맵(#12) — 평가액 크기 + 손익률 색상. market=kr|us로 시장 분리."""
+    holdings = _holdings_by_market(db.holdings_list(_uid(request)), market or None)
     if not holdings:
-        return {"ready": False, "reason": "보유종목을 먼저 입력하세요."}
+        return {"ready": False, "reason": "해당 시장의 보유종목이 없습니다."}
     prices = {**store.load_price_series(), **store.load_us_price_series()}
     us_sec = {u["ticker"]: u.get("sector") for u in store.load_us_universe()}
     names = {u["ticker"]: u["name"] for u in store.load_universe()}

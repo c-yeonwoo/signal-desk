@@ -680,11 +680,6 @@
       </div>
 
       <div class="card" style="margin-bottom:16px">
-        <b style="font-size:15px">섹터 히트맵 <span style="color:var(--dim);font-weight:600;font-size:12px">· 크기=평가액 · 색=손익률</span></b>
-        <div id="heatmap-body" style="height:340px;margin-top:8px"></div>
-      </div>
-
-      <div class="card" style="margin-bottom:16px">
         <div class="row" style="align-items:center;gap:10px">
           <span class="stat-label" style="margin:0;line-height:1">리밸런싱 성향</span>
           <div class="seg-toggle" id="rebal-style-seg">
@@ -692,10 +687,35 @@
             <button class="on" data-rstyle="balanced" onclick="setRebalStyle('balanced')">균형형</button>
             <button data-rstyle="aggressive" onclick="setRebalStyle('aggressive')">공격형</button>
           </div>
-          <button class="btn primary" onclick="runRebalance()" style="margin-left:auto">리밸런싱 제안 받기</button>
+          <span style="color:var(--dim-2);font-size:11px;margin-left:auto">국내·해외 각각 제안합니다</span>
         </div>
       </div>
-      <div id="rebal-result"></div>
+
+      <div class="mkt-block" id="mkt-kr">
+        <h3 class="page-head" style="font-size:17px;margin:4px 0 10px">🇰🇷 국내주식</h3>
+        <div class="card" style="margin-bottom:12px">
+          <b style="font-size:14px">섹터 히트맵 <span style="color:var(--dim);font-weight:600;font-size:12px">· 크기=평가액 · 색=손익률</span></b>
+          <div id="heatmap-kr" style="height:300px;margin-top:8px"></div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="row" style="align-items:center"><b style="font-size:14px">리밸런싱 제안</b>
+            <button class="btn primary" style="margin-left:auto" onclick="runRebalance('kr')">국내 제안 받기</button></div>
+          <div id="rebal-kr" style="margin-top:10px"></div>
+        </div>
+      </div>
+
+      <div class="mkt-block" id="mkt-us">
+        <h3 class="page-head" style="font-size:17px;margin:4px 0 10px">🇺🇸 해외주식</h3>
+        <div class="card" style="margin-bottom:12px">
+          <b style="font-size:14px">섹터 히트맵 <span style="color:var(--dim);font-weight:600;font-size:12px">· 크기=평가액 · 색=손익률</span></b>
+          <div id="heatmap-us" style="height:300px;margin-top:8px"></div>
+        </div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="row" style="align-items:center"><b style="font-size:14px">리밸런싱 제안</b>
+            <button class="btn primary" style="margin-left:auto" onclick="runRebalance('us')">해외 제안 받기</button></div>
+          <div id="rebal-us" style="margin-top:10px"></div>
+        </div>
+      </div>
 
       <div class="card" style="margin-top:18px">
         <div class="row" style="align-items:center;gap:10px">
@@ -1096,6 +1116,7 @@ window.addEventListener('resize', () => {
   if (_signalChart) _signalChart.resize();
   if (_botChart) _botChart.resize();
   if (_cycleChart) _cycleChart.resize();
+  Object.values(_heatCharts || {}).forEach(c => { try { c.resize(); } catch (e) {} });
 });
 
 function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -2726,13 +2747,25 @@ async function loadHoldings(){
   const el = document.getElementById('holdings-body');
   const d = await (await fetch('/api/holdings')).json();
   const hs = d.holdings || [];
-  if (!hs.length) { el.className = 'placeholder'; el.innerHTML = '위 검색창에서 종목을 찾아 보유종목을 추가하세요 — 추가하면 <b>리밸런싱·시나리오·섹터 히트맵</b>이 켜집니다.'; document.getElementById('holdings-div-card').style.display = 'none'; loadHeatmap(); return; }
-  el.className = '';
-  el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단가</th><th></th></tr></thead><tbody>`
-    + hs.map(h => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, 0)}</td>
-        <td class="num"><span style="color:var(--sig-sell);cursor:pointer" onclick="removeHolding('${esc(h.ticker)}')">삭제</span></td></tr>`).join('')
-    + `</tbody></table>`;
-  loadHeatmap();
+  // 시장별 섹션(국내/해외) 표시 토글 + 각 히트맵 로드. 보유종목 변경 시 이전 리밸런싱 결과는 비운다.
+  const isKR = t => /^\d+$/.test(t);
+  const kr = hs.filter(h => isKR(h.ticker)), us = hs.filter(h => !isKR(h.ticker));
+  const mk = document.getElementById('mkt-kr'), mu = document.getElementById('mkt-us');
+  if (mk) mk.style.display = kr.length ? '' : 'none';
+  if (mu) mu.style.display = us.length ? '' : 'none';
+  ['kr', 'us'].forEach(m => { const r = document.getElementById('rebal-' + m); if (r) r.innerHTML = ''; });
+  if (kr.length) loadHeatmap('kr');
+  if (us.length) loadHeatmap('us');
+  if (el) {   // 수동 보유 표(비소유자용, 소유자는 카드 숨김)
+    if (!hs.length) { el.className = 'placeholder'; el.innerHTML = '위 검색창에서 종목을 찾아 보유종목을 추가하세요 — 추가하면 <b>리밸런싱·섹터 히트맵</b>이 켜집니다.'; }
+    else {
+      el.className = '';
+      el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단가</th><th></th></tr></thead><tbody>`
+        + hs.map(h => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, 0)}</td>
+            <td class="num"><span style="color:var(--sig-sell);cursor:pointer" onclick="removeHolding('${esc(h.ticker)}')">삭제</span></td></tr>`).join('')
+        + `</tbody></table>`;
+    }
+  }
   loadHoldingsDividends();
 }
 
@@ -2763,13 +2796,16 @@ async function loadHoldingsDividends(){
     + `<div style="font-size:11px;color:var(--dim-2);margin-top:4px">보유수량×주당배당 ÷ 12 = 월평균. 국내 결산배당은 연 1회 지급이라 실제 월분배와 다를 수 있음.</div>`;
 }
 
-let _heatmapChart = null;
-async function loadHeatmap(){
-  const el = document.getElementById('heatmap-body');
+let _heatCharts = {};
+async function loadHeatmap(market){
+  const el = document.getElementById('heatmap-' + market);
   if (!el || !window.echarts) return;
+  const existing = echarts.getInstanceByDom(el); if (existing) existing.dispose();
   let d;
-  try { d = await (await fetch('/api/portfolio/heatmap')).json(); } catch(e) { return; }
+  try { d = await (await fetch('/api/portfolio/heatmap?market=' + market)).json(); } catch (e) { return; }
   if (!d.ready) { el.innerHTML = `<div class="placeholder" style="padding:24px 0">${esc(d.reason || '데이터 없음')}</div>`; return; }
+  el.innerHTML = '';
+  const money = market === 'us' ? (v => '$' + fmtNum(v, 0)) : (v => fmtKRW(v));   // 통화별 표기
   // 섹터 → 자식 종목. 색은 손익률(빨강↓ 초록↑)로 개별 지정.
   const bySector = {};
   d.items.forEach(it => { (bySector[it.sector] ||= []).push(it); });
@@ -2779,16 +2815,21 @@ async function loadHeatmap(){
     children: arr.map(x => ({ name: `${x.name}\n${x.pnl_pct > 0 ? '+' : ''}${fmtNum(x.pnl_pct, 1)}%`,
       value: x.value, itemStyle: { color: clr(x.pnl_pct) }, _pnl: x.pnl_pct })),
   }));
-  const ch = echarts.getInstanceByDom(el) || echarts.init(el);
+  const ch = echarts.init(el);
   ch.setOption({
-    tooltip: { formatter: p => `${esc(p.name)}<br/>평가액 ${fmtKRW(p.value)}` },
+    tooltip: { formatter: p => `${esc(p.name)}<br/>평가액 ${money(p.value)}` },
     series: [{ type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: true },
       levels: [{ itemStyle: { borderColor: 'var(--line)', borderWidth: 2, gapWidth: 2 } },
                { itemStyle: { gapWidth: 1 }, label: { fontSize: 11 } }],
       label: { fontSize: 11, overflow: 'truncate' }, data }],
   }, true);
-  ch.resize();
-  _heatmapChart = ch;
+  _heatCharts[market] = ch;
+  // 초기화 시점에 컨테이너 폭이 0일 수 있어(레이아웃 미정착) — 크기가 잡히면 자동 재조정
+  requestAnimationFrame(() => ch.resize());
+  if (window.ResizeObserver && !el._ro) {
+    el._ro = new ResizeObserver(() => { const c = echarts.getInstanceByDom(el); if (c) c.resize(); });
+    el._ro.observe(el);
+  }
 }
 // 보유종목 검색(국내+해외 통합) — 자동완성
 let _tickers = null, _rebalStyle = 'balanced';
@@ -2828,12 +2869,12 @@ async function removeHolding(ticker){
   await fetch('/api/holdings?ticker=' + encodeURIComponent(ticker), { method: 'DELETE' });
   loadHoldings();
 }
-async function runRebalance(){
+async function runRebalance(market){
   const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '분석 중…';
-  const box = document.getElementById('rebal-result');
+  const box = document.getElementById('rebal-' + market);
   try {
-    const d = await (await fetch('/api/rebalance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: _rebalStyle }) })).json();
-    if (!d.ready) { box.innerHTML = `<div class="card placeholder">${esc(d.reason || '제안 불가')}</div>`; return; }
+    const d = await (await fetch('/api/rebalance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: _rebalStyle, market }) })).json();
+    if (!d.ready) { box.innerHTML = `<div class="placeholder" style="padding:10px 0">${esc(d.reason || '제안 불가')}</div>`; return; }
     const rows = (arr, isAdd) => arr.map(x => {
       const kind = isAdd ? 'BUY' : (x.kind || 'HOLD');
       const actColor = (x.action === '매도') ? 'var(--sig-sell)' : (isAdd || x.action === '비중확대') ? 'var(--sig-buy)' : 'var(--txt)';
@@ -2842,22 +2883,12 @@ async function runRebalance(){
         <td><b style="color:${actColor}">${isAdd ? '신규매수' : esc(x.action)}</b></td>
         <td class="reasons">${esc(x.reason)}${!isAdd && x.pl_pct != null ? ` · 손익 ${x.pl_pct > 0 ? '+' : ''}${x.pl_pct}%` : ''}</td></tr>`;
     }).join('');
-    box.innerHTML = `<div class="card" style="margin-bottom:16px">
-        <b style="font-size:14px">리밸런싱 제안 · ${esc(d.style_label)} (목표 종목당 ${d.target_weight}%)</b>
-        <div style="margin:8px 0 0;padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">${esc(d.summary)}</div>
-      </div>
-      <div class="card" style="margin-bottom:16px">
-        <b style="font-size:14px">현재 배분 <span style="color:var(--dim);font-weight:600;font-size:12px">· 보유 평가금액 기준</span></b>
-        <div id="rebal-pie" style="height:300px;margin-top:8px"></div>
-      </div>
-      <div class="card">
-        <b style="font-size:14px">보유 조정</b>
-        <table class="dtable" style="margin-top:8px"><thead><tr><th>종목</th><th>시그널</th><th>제안</th><th>근거</th></tr></thead><tbody>${rows(d.actions, false)}</tbody></table>
-        ${d.adds.length ? `<b style="font-size:14px;display:block;margin-top:18px">신규 편입 제안</b>
-        <table class="dtable" style="margin-top:8px"><thead><tr><th>종목</th><th>시그널</th><th>제안</th><th>근거</th></tr></thead><tbody>${rows(d.adds, true)}</tbody></table>` : ''}
-      </div>`;
-    const pieData = (d.actions || []).filter(a => a.value > 0).map(a => ({ name: a.name, value: a.value }));
-    if (pieData.length) drawPie(document.getElementById('rebal-pie'), pieData, v => fmtNum(v, 0) + '원');
+    box.innerHTML = `
+      <div style="padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">${esc(d.summary)}</div>
+      <div style="font-size:12px;color:var(--dim);margin:10px 0 4px">${esc(d.style_label)} · 목표 비중 종목당 <b style="color:var(--accent)">${d.target_weight}%</b></div>
+      <table class="dtable"><thead><tr><th>종목</th><th>시그널</th><th>제안(비중)</th><th>근거</th></tr></thead><tbody>${rows(d.actions, false)}</tbody></table>
+      ${d.adds.length ? `<b style="font-size:13px;display:block;margin-top:14px">신규 편입 제안</b>
+        <table class="dtable" style="margin-top:6px"><thead><tr><th>종목</th><th>시그널</th><th>제안</th><th>근거</th></tr></thead><tbody>${rows(d.adds, true)}</tbody></table>` : ''}`;
   } finally { btn.disabled = false; btn.textContent = t; }
 }
 
