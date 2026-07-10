@@ -164,10 +164,15 @@
   .chat-msg { max-width:84%; padding:8px 11px; border-radius:13px; font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
   .chat-msg.user { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:4px; }
   .chat-msg.bot { align-self:flex-start; background:var(--bg); border:1px solid var(--line); color:var(--txt); border-bottom-left-radius:4px; }
-  #chat-input-row { display:flex; gap:6px; padding:10px; border-top:1px solid var(--line); }
+  #chat-input-row { display:flex; gap:6px; padding:10px; border-top:1px solid var(--line); align-items:flex-end; }
   #chat-input { flex:1 1 auto; min-width:0; padding:8px 11px; border:1px solid var(--line-strong); border-radius:var(--r-md);
-    background:var(--panel); color:var(--txt); font-size:13px; }
+    background:var(--panel); color:var(--txt); font-size:13px; font-family:inherit; line-height:1.45;
+    resize:vertical; min-height:38px; max-height:140px; overflow-y:auto; }
   #chat-input-row .btn { flex:0 0 auto; }
+  .chat-msg.bot code { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:0 4px;
+    font-size:12px; font-variant-numeric:tabular-nums; }
+  .chat-msg.bot .li { display:block; padding-left:12px; text-indent:-8px; }
+  .chat-msg.bot .li::before { content:"· "; color:var(--dim-2); }
   table.dtable tr.selected-row { background:var(--accent-weak); }
   .fav-star { cursor:pointer; color:var(--sig-neutral); font-size:15px; user-select:none; }
   .fav-star.on { color:#f59e0b; }
@@ -1031,7 +1036,8 @@
   </div>
   <div id="chat-msgs"></div>
   <div id="chat-input-row">
-    <input id="chat-input" placeholder="예: 삼성전자 왜 주목이야? / 주목 종목 뭐 있어?" onkeydown="if(event.key==='Enter')sendChat()">
+    <textarea id="chat-input" rows="1" placeholder="예: 삼성전자 시그널 왜 이래? / 매수 시그널 뭐 있어?  (Shift+Enter 줄바꿈)"
+      oninput="autoGrowChat(this)" onkeydown="chatKey(event)"></textarea>
     <button class="btn primary" onclick="sendChat()">전송</button>
   </div>
 </div>
@@ -3454,19 +3460,32 @@ function closeChat(){
   document.getElementById('chat-panel').style.display = 'none';
   document.getElementById('chat-fab').style.display = '';
 }
+// 최소 안전 마크다운 — HTML 이스케이프 후 **굵게**·`코드`·'- ' 불릿·줄바꿈만 변환(임의 HTML 차단).
+function chatMd(t){
+  let s = esc(t || '');
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');   // **굵게**
+  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');   // `코드`
+  s = s.replace(/^[ \t]*[-*]\s+(.*)$/gm, '<span class="li">$1</span>');  // 불릿
+  return s.replace(/\n/g, '<br>');
+}
 function appendChat(role, text){
   const box = document.getElementById('chat-msgs');
   const m = document.createElement('div');
   m.className = 'chat-msg ' + (role === 'user' ? 'user' : 'bot');
-  m.textContent = text;
+  if (role === 'user') m.textContent = text;   // 사용자 입력은 그대로(이스케이프)
+  else m.innerHTML = chatMd(text);              // 봇 답변만 마크다운 렌더
   box.appendChild(m); box.scrollTop = box.scrollHeight;
   return m;
+}
+function autoGrowChat(el){ el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 140) + 'px'; }
+function chatKey(ev){   // Enter=전송, Shift+Enter=줄바꿈
+  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); sendChat(); }
 }
 async function sendChat(){
   const inp = document.getElementById('chat-input');
   const msg = (inp.value || '').trim();
   if (!msg || _chatBusy) return;
-  inp.value = ''; appendChat('user', msg); _chatBusy = true;
+  inp.value = ''; inp.style.height = 'auto'; appendChat('user', msg); _chatBusy = true;
   const typing = appendChat('bot', '…');
   try {
     const r = await (await fetch('/api/chat', {
