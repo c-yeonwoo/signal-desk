@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import hashlib
+import json
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -22,7 +23,7 @@ from fastapi import File as FastFile
 from fastapi import Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
-from signal_desk import auth, bot, config, db, kb, notify, shortform, signalcfg, store, strategy
+from signal_desk import auth, bot, chat, config, db, kb, notify, shortform, signalcfg, store, strategy
 from signal_desk.reference import (cycle, glossary, guru_screens, gurus as gurus_ref,
                                     sectors, us_ko, valuechain)
 from signal_desk.signals import macro, narrative, opportunity, rebalance, regime, scenario, target, valuation
@@ -1513,6 +1514,115 @@ def signal_events_get(ticker: str, market: str = "kospi"):
                 if dps and dps > 0 else None)
     return {"ready": True, "market": "kospi", "upcoming": [], "disclosures": disclosures[:20],
             "dividend": dividend, "has_corp": bool(corp)}
+
+
+# ---------- 안내 에이전트(챗봇) — 도구 실행은 여기(실데이터 접근). 재분석 없이 READ만 ----------
+_CHAT_KIND_KO = {"STRONG_BUY": "강력매수", "BUY": "매수", "HOLD": "관망", "SELL": "매도", "STRONG_SELL": "강력매도"}
+
+
+def _chat_resolve_ticker(query: str) -> str | None:
+    """종목명 또는 코드 → ticker(국내). 정확 코드 우선, 없으면 이름 부분일치."""
+    q = (query or "").strip()
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    if q in names:
+        return q
+    cand = [t for t, n in names.items() if q and (q in n or n in q)]
+    return cand[0] if cand else None
+
+
+def _chat_signal_summary(ticker: str) -> dict | None:
+    sig = next((s for s in _signals() if s.ticker == ticker), None) if store.is_ready() else None
+    if not sig:
+        return None
+    q = _quotes().get(ticker) or {}
+    f = store.load_fundamentals().get(ticker) or {}
+    tg = target.compute(q.get("price"), f.get("per"), target.median_per(store.load_fundamentals()),
+                        store.load_price_series().get(ticker))
+    ups = [v for v in [(tg or {}).get("value_upside_pct"), (tg or {}).get("resistance_upside_pct")]
+           if isinstance(v, (int, float)) and v > 0]
+    dg = db.kb_digest_get(ticker)
+    return {"종목": sig.name, "코드": ticker, "섹터": sectors.sector_of(ticker),
+            "시그널": _CHAT_KIND_KO.get(sig.kind, sig.kind), "종합점수": round(sig.score, 2),
+            "신뢰도": sig.confidence, "팩터강약(-1~1)": sig.factor_scores,
+            "근거": sig.reasons[:6], "PER": f.get("per"), "PBR": f.get("pbr"), "ROE": f.get("roe"),
+            "현재가": q.get("price"), "등락%": q.get("change_pct"),
+            "목표가상승여력%": round(max(ups), 1) if ups else None,
+            "뉴스심리": (dg or {}).get("sentiment"), "뉴스요약": (dg or {}).get("summary"),
+            "최근악재": sig.event_note if sig.event_risk else None}
+
+
+def _make_chat_dispatch(uid: int):
+    """tool_name+input → JSON 문자열(실데이터). uid는 포트폴리오 조회에 필요해 클로저로 캡처."""
+    def _j(obj):
+        return json.dumps(obj, ensure_ascii=False, default=str)
+
+    def dispatch(name: str, inp: dict) -> str:
+        if name == "find_signal":
+            t = _chat_resolve_ticker(inp.get("query", ""))
+            if not t:
+                return _j({"error": "해당 종목을 국내 유니버스에서 찾지 못함"})
+            s = _chat_signal_summary(t)
+            return _j(s or {"error": "시그널 데이터 없음"})
+        if name == "list_signals":
+            kind, lim = inp.get("kind", "all"), min(int(inp.get("limit", 10) or 10), 20)
+            want = {"strong_buy": {"STRONG_BUY"}, "buy": {"STRONG_BUY", "BUY"}}.get(kind)
+            rows = [s for s in _signals() if (want is None or s.kind in want)]
+            rows = [s for s in rows if s.kind != "HOLD"] if kind == "all" else rows
+            out = [{"종목": s.name, "코드": s.ticker, "시그널": _CHAT_KIND_KO.get(s.kind, s.kind),
+                    "점수": round(s.score, 2), "섹터": sectors.sector_of(s.ticker)} for s in rows[:lim]]
+            return _j({"개수": len(out), "목록": out})
+        if name == "get_portfolio":
+            st = bot.get_state(uid, "kr")
+            return _j({"현금": st.get("cash"), "총평가": st.get("total_eval"), "총손익률%": st.get("pnl_pct"),
+                       "보유": [{"종목": p.get("name"), "코드": p.get("ticker"), "수량": p.get("qty"),
+                                "손익률%": p.get("last_pnl_pct")} for p in (st.get("positions") or [])]})
+        if name == "get_events":
+            t = _chat_resolve_ticker(inp.get("query", ""))
+            return _j(signal_events_get(t) if t else {"error": "종목 못 찾음"})
+        if name == "market_context":
+            rg, mc = _regime(), _macro()
+            bump = regime.buy_threshold_bump(rg, mc) if hasattr(regime, "buy_threshold_bump") else {}
+            return _j({"국면": rg.get("regime"), "시장폭%": rg.get("breadth_pct"),
+                       "평균모멘텀%": rg.get("avg_momentum_pct"), "거시요약": (mc or {}).get("narrative"),
+                       "매수기준상향": bump})
+        if name == "explain_term":
+            term = (inp.get("term") or "").strip()
+            for cat in glossary.CATEGORIES:
+                for it in cat.get("items", []):
+                    if term and (term in it["term"] or it["term"] in term):
+                        return _j({"용어": it["term"], "쉬운설명": it["easy"], "왜보나": it.get("why"),
+                                   "우리시그널": it.get("in_signal")})
+            return _j({"error": f"'{term}' 용어 설명 없음 — 인사이트>학습 참고"})
+        if name == "search_kb":
+            kw = (inp.get("query") or "").strip()
+            names = {u["ticker"]: u["name"] for u in store.load_universe()}
+            hits = []
+            for t, dg in db.kb_digests_all().items():
+                blob = (dg.get("summary", "") + " " + " ".join(dg.get("points", []))) if dg else ""
+                if kw and kw in blob:
+                    hits.append({"종목": names.get(t, t), "코드": t, "요약": dg.get("summary"),
+                                 "포인트": dg.get("points", [])[:3]})
+                if len(hits) >= 6:
+                    break
+            return _j({"검색어": kw, "결과": hits or "관련 KB 없음"})
+        return _j({"error": f"알 수 없는 도구: {name}"})
+    return dispatch
+
+
+@app.post("/api/chat")
+def chat_post(request: Request, data: dict = Body(...)):
+    """안내 에이전트 — 이미 계산된 시그널·KB·포폴을 도구로 조회해 대화로 풀어준다(재분석·자문 없음)."""
+    message = (data.get("message") or "").strip()
+    if not message:
+        return {"ok": False, "reply": "무엇이 궁금한지 적어 주세요."}
+    history = data.get("history") or []   # [{role, content}] — 프런트가 최근 몇 턴만 전달
+    return chat.answer(message, history=history[-8:], dispatch=_make_chat_dispatch(_uid(request)))
+
+
+@app.get("/api/chat/meta")
+def chat_meta_get():
+    """챗봇 사용 가능 여부 + 페르소나 이름(프런트 초기화용)."""
+    return {"available": chat.llm.available(), "name": chat.PERSONA_NAME}
 
 
 @app.get("/api/guru-screens")

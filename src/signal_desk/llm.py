@@ -53,6 +53,30 @@ def complete(system: str, user: str, *, max_tokens: int = 1024, model: str = DEF
         return None
 
 
+def messages_with_tools(system: str, messages: list, tools: list, *,
+                        max_tokens: int = 1024, model: str = NARRATIVE_MODEL) -> dict | None:
+    """tool use 지원 1회 호출. messages는 Anthropic 형식(assistant tool_use / user tool_result 포함).
+    반환: {"content": [...], "stop_reason": str} 또는 None(키 없음·실패). 툴 루프는 호출측(chat.py)이 돈다."""
+    key = config.anthropic_key()
+    if not key:
+        return None
+    body = json.dumps({
+        "model": model, "max_tokens": max_tokens, "system": system,
+        "tools": tools, "messages": messages,
+    }).encode("utf-8")
+    req = urllib.request.Request(_ENDPOINT, data=body, method="POST")
+    req.add_header("x-api-key", key)
+    req.add_header("anthropic-version", _VERSION)
+    req.add_header("content-type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return {"content": data.get("content", []), "stop_reason": data.get("stop_reason")}
+    except Exception as e:
+        log.warning("LLM tools 호출 실패: %s", type(e).__name__)
+        return None
+
+
 def complete_vision(system: str, user: str, *, media_type: str, data_b64: str,
                     max_tokens: int = 1500, model: str = DEFAULT_MODEL) -> str | None:
     """PDF/이미지를 첨부해 1회 호출(멀티모달) — 스캔 문서·이미지 OCR을 별도 엔진 없이 모델이 직접 인식.
