@@ -741,32 +741,34 @@
       <div id="data-health" style="display:none;margin-top:10px;font-size:12px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px"></div>
     </div>
     <div class="seg-toggle" id="admin-seg" style="margin-bottom:16px">
-      <button class="on" data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 설정</button>
-      <button data-aseg="backtest" onclick="switchAdminSeg('backtest')">백테스트 분석</button>
-      <button data-aseg="kb" onclick="switchAdminSeg('kb')">KB 문서</button>
+      <button class="on" data-aseg="kb" onclick="switchAdminSeg('kb')">KB 문서</button>
       <button data-aseg="shortform" onclick="switchAdminSeg('shortform')">숏폼</button>
+      <button data-aseg="engine" onclick="switchAdminSeg('engine')">엔진·검증</button>
     </div>
 
-    <div id="admin-engine">
+    <div id="admin-engine" style="display:none">
     <div class="card" style="margin-top:0">
-      <b style="font-size:15px">시그널 엔진 <span style="color:var(--dim);font-weight:600;font-size:12px">· 계산 파이프라인 (관리자)</span></b>
-      <p class="page-desc" style="margin:6px 0 14px">종합 시그널이 어떻게 계산되는지, 각 팩터의 신뢰도(가중치)와 임계값을 보고 조정합니다.</p>
-      <div class="pipe">
-        <div class="pipe-step"><div class="ps-n">1 · 수집</div><div class="ps-t">데이터</div><div class="ps-d">시세·재무(DART)·거시(FRED)·뉴스/영상(KB)</div></div>
-        <span class="pipe-arrow">→</span>
-        <div class="pipe-step"><div class="ps-n">2 · 팩터</div><div class="ps-t">5개 팩터 점수화</div><div class="ps-d">기술·기본·저평가·낙폭과대·정성(각 [-1,1] 정규화)</div></div>
-        <span class="pipe-arrow">→</span>
-        <div class="pipe-step"><div class="ps-n">3 · 결합</div><div class="ps-t">가중 결합</div><div class="ps-d">가중평균(없는 팩터는 재정규화 제외) → 종합점수</div></div>
-        <span class="pipe-arrow">→</span>
-        <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">임계값 → 5단계</div><div class="ps-d">강력매수·매수·관망·매도·강력매도</div></div>
-        <span class="pipe-arrow">→</span>
-        <div class="pipe-step"><div class="ps-n">5 · 검증</div><div class="ps-t">백테스트</div><div class="ps-d">과거 적중률·손익비로 신뢰도 검증</div></div>
-        <span class="pipe-arrow">→</span>
-        <div class="pipe-step" style="border-color:var(--ring)"><div class="ps-n">6 · 실행</div><div class="ps-t">봇 LLM 선별</div><div class="ps-d">가드레일 안에서 후보 최종 선별·매매(성향 반영)</div></div>
-      </div>
+      <b style="font-size:15px">시그널 엔진 · 검증 <span style="color:var(--dim);font-weight:600;font-size:12px">· 팩터 가중치·임계값 (관리자)</span></b>
+      <p class="page-desc" style="margin:6px 0 12px"><b>기본값을 권장합니다</b> — 평소엔 손대지 않아도 됩니다. 값을 바꾸고 <b>적용</b>하면 시그널·백테스트에 즉시 반영되고, <b>기본값</b>으로 언제든 복원됩니다.</p>
+      <details style="margin-bottom:14px">
+        <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">계산 파이프라인 6단계 보기</summary>
+        <div class="pipe" style="margin-top:10px">
+          <div class="pipe-step"><div class="ps-n">1 · 수집</div><div class="ps-t">데이터</div><div class="ps-d">시세·재무(DART)·거시(FRED)·뉴스/영상(KB)</div></div>
+          <span class="pipe-arrow">→</span>
+          <div class="pipe-step"><div class="ps-n">2 · 팩터</div><div class="ps-t">5개 팩터 점수화</div><div class="ps-d">기술·기본·저평가·낙폭과대·정성(각 [-1,1] 정규화)</div></div>
+          <span class="pipe-arrow">→</span>
+          <div class="pipe-step"><div class="ps-n">3 · 결합</div><div class="ps-t">가중 결합</div><div class="ps-d">가중평균(없는 팩터는 재정규화 제외) → 종합점수</div></div>
+          <span class="pipe-arrow">→</span>
+          <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">임계값 → 5단계</div><div class="ps-d">강력매수·매수·관망·매도·강력매도</div></div>
+          <span class="pipe-arrow">→</span>
+          <div class="pipe-step"><div class="ps-n">5 · 검증</div><div class="ps-t">백테스트</div><div class="ps-d">과거 적중률·손익비로 신뢰도 검증</div></div>
+          <span class="pipe-arrow">→</span>
+          <div class="pipe-step" style="border-color:var(--ring)"><div class="ps-n">6 · 실행</div><div class="ps-t">봇 LLM 선별</div><div class="ps-d">가드레일 안에서 후보 최종 선별·매매(성향 반영)</div></div>
+        </div>
+      </details>
 
-      <b style="font-size:14px;display:block;margin:22px 0 4px">팩터 신뢰도(가중치) · 임계값</b>
-      <p class="page-desc" style="margin:0 0 12px">가중치는 상대 비율로 자동 정규화됩니다. 값을 바꾸고 적용하면 시그널·백테스트에 즉시 반영됩니다.</p>
+      <b style="font-size:14px;display:block;margin:6px 0 4px">팩터 신뢰도(가중치) · 임계값</b>
+      <p class="page-desc" style="margin:0 0 12px">가중치는 상대 비율로 자동 정규화됩니다.</p>
       <div class="wcfg">
         <div class="field">기술적 <input type="number" step="0.05" min="0" id="w_technical" class="ctrl"></div>
         <div class="field">기본적 <input type="number" step="0.05" min="0" id="w_fundamental" class="ctrl"></div>
@@ -789,16 +791,13 @@
       </div>
     </div>
 
+    <details class="card" id="bt-details" style="margin-top:16px" ontoggle="if(this.open) loadBacktestAnalysis()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">백테스트 정밀 분석 <span style="color:var(--dim);font-weight:600;font-size:12px">· 팩터별 승률 기여 (펼치면 계산)</span></summary>
+      <p class="page-desc" style="margin:10px 0">각 팩터를 단독 백테스트해 기여도를 비교하고, 시간 구간별로 과최적화를 점검합니다. 기본적 팩터는 point-in-time으로 반영. (관리자 진단용)</p>
+      <div id="bt-analysis" class="placeholder" style="padding:20px 0">펼치면 불러옵니다…</div>
+    </details>
+
     </div><!-- /#admin-engine -->
-
-    <div id="admin-backtest" style="display:none">
-    <div class="card" style="margin-top:0">
-      <b style="font-size:15px">백테스트 정밀 분석 <span style="color:var(--dim);font-weight:600;font-size:12px">· 어떤 팩터가 승률을 끌어올리나 (관리자)</span></b>
-      <p class="page-desc" style="margin:6px 0 14px">각 팩터를 단독으로 백테스트해 기여도를 비교하고(매수 시그널 기준), 시간 구간별로 나눠 과최적화·불안정성을 점검합니다. 기본적 팩터는 point-in-time(그 시점에 공시돼 있던 재무)으로 반영합니다.</p>
-      <div id="bt-analysis" class="placeholder" style="padding:20px 0">불러오는 중…</div>
-    </div>
-
-    </div><!-- /#admin-backtest -->
 
     <div id="admin-kb" style="display:none">
     <div class="card" style="margin-top:0">
@@ -3121,16 +3120,14 @@ function fillMyPage(){
 }
 
 // ===== 관리자 세부탭(엔진 설정 / 백테스트 분석 / KB 문서) =====
-let _adminSeg = 'engine';
+let _adminSeg = 'kb';   // 기본은 자주 쓰는 KB 문서
 function switchAdminSeg(seg){
   _adminSeg = seg;
   document.querySelectorAll('#admin-seg button').forEach(b => b.classList.toggle('on', b.dataset.aseg === seg));
   document.getElementById('admin-engine').style.display = seg === 'engine' ? '' : 'none';
-  document.getElementById('admin-backtest').style.display = seg === 'backtest' ? '' : 'none';
   document.getElementById('admin-kb').style.display = seg === 'kb' ? '' : 'none';
   document.getElementById('admin-shortform').style.display = seg === 'shortform' ? '' : 'none';
-  if (seg === 'engine') loadEngine();
-  if (seg === 'backtest') loadBacktestAnalysis();
+  if (seg === 'engine') loadEngine();   // 백테스트는 접이식(bt-details) 펼칠 때만 로드
   if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
   if (seg === 'shortform') { loadShortform(); loadSfBg(); }
 }
@@ -3333,7 +3330,9 @@ async function loadEngine(){
 // 팩터별 기여도 + 워크포워드 표를 그린다(관리자 정밀 분석).
 async function loadBacktestAnalysis(){
   const el = document.getElementById('bt-analysis');
-  if (!el) return;
+  if (!el || el.dataset.loaded) return;   // 무거운 백테스트 — 최초 펼칠 때 1회만
+  el.dataset.loaded = '1';
+  el.textContent = '불러오는 중…';
   try {
     const d = await (await fetch('/api/backtest/analysis')).json();
     if (!d.ready) { el.textContent = '데이터 없음 — /api/refresh 먼저.'; return; }
