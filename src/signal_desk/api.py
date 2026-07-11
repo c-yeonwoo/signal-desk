@@ -153,6 +153,10 @@ async def _bot_loop():
                     _signals.cache_clear()
                 except Exception as e:
                     log.warning("마감후 공매도 갱신 실패: %s", type(e).__name__)
+                try:   # 애널 컨센서스 일별 PIT 스냅샷 축적 — 리비전/목표가v2용(아직 미반영, 데이터만 쌓음)
+                    store.fetch_consensus(store.load_universe())
+                except Exception as e:
+                    log.warning("마감후 컨센서스 수집 실패: %s", type(e).__name__)
                 try:
                     store.snapshot_signals(_signals())  # 팩터 PIT 스냅샷 누적(향후 팩터 백테스트용)
                 except Exception as e:
@@ -870,7 +874,20 @@ def _refresh_us(data: dict) -> dict:
     return {"us_fund_filled": us_filled, "us_universe_size": len(us_fund) or None}
 
 
-_REFRESH_RUNNERS = {"kr": _refresh_kr, "macro": _refresh_macro, "flows": _refresh_flows, "us": _refresh_us}
+def _refresh_consensus(data: dict) -> dict:
+    """애널 컨센서스(목표주가·투자의견·선행EPS) PIT 스냅샷 축적 — 리비전/목표가v2용(아직 미반영)."""
+    try:
+        n = store.fetch_consensus(store.load_universe())
+    except Exception as e:
+        log.warning("컨센서스 수집 실패(무시): %s", type(e).__name__)
+        return {"consensus_snapshot_error": type(e).__name__}
+    hist = store.load_consensus_history()
+    return {"consensus_snapshot_rows": n,
+            "consensus_days_accumulated": int(hist["date"].nunique()) if not hist.empty else 0}
+
+
+_REFRESH_RUNNERS = {"kr": _refresh_kr, "macro": _refresh_macro, "flows": _refresh_flows,
+                    "us": _refresh_us, "consensus": _refresh_consensus}
 
 
 @app.post("/api/refresh")
@@ -881,7 +898,10 @@ def refresh(data: dict = Body(default={})):
     result: dict = {"ok": True, "scope": scope}
     if scope == "all":
         errors = {}
+        # consensus는 무겁고(종목당 2콜) 마감후 루프에서 자동 축적되므로 all에선 제외 — 명시적 scope로만.
         for name, fn in _REFRESH_RUNNERS.items():
+            if name == "consensus":
+                continue
             try:
                 result.update(fn(data))
             except Exception as e:  # scope 하나가 죽어도 나머지는 계속 (부분 수집)

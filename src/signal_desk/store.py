@@ -32,6 +32,7 @@ US_FUNDAMENTALS_FILE = CACHE_DIR / "us_fundamentals.json"  # 미국 발행주식
 US_EARNINGS_FILE = CACHE_DIR / "us_earnings_calendar.json"  # 미국 실적발표 예정일(Alpha Vantage, 벌크 1콜/일)
 FLOWS_FILE = CACHE_DIR / "flows.json"  # 투자자별 수급(외국인·기관 순매수, KR) — 시그널 수급 팩터
 SHORT_FILE = CACHE_DIR / "short.json"  # 종목별 공매도 거래비중(KRX, KR) — 시그널 공매도 팩터
+CONSENSUS_HISTORY_FILE = CACHE_DIR / "consensus_history.parquet"  # 애널 컨센서스 일별 PIT 스냅샷(목표주가·투자의견·선행EPS, KR) — 리비전/목표가v2용, 축적만(미반영)
 MARKET_FLOW_FILE = CACHE_DIR / "market_flow.json"  # 시장 전체(KOSPI) 외국인·기관 순매수 누적(토스) — 국면 신호
 SHORTFORM_BG_FILE = CACHE_DIR / "shortform_bg.img"  # 숏폼 카드 배경 업로드 원본(1장) — data URI 대신 짧은 URL로 서빙
 COMPANY_PROFILES_FILE = CACHE_DIR / "company_profiles.json"  # DART 기업개황(설립연도·대표·영문명) — 숏폼 기업 소개
@@ -159,6 +160,67 @@ def load_short() -> dict[str, dict]:
     if not SHORT_FILE.exists():
         return {}
     return json.loads(SHORT_FILE.read_text(encoding="utf-8"))
+
+
+def _consensus_row(ticker: str, date: str, c: dict) -> dict:
+    """컨센서스 스냅샷 1행(flat) — 선행연도는 최대 2개(가까운 순)만 컬럼화."""
+    fwds = sorted(c.get("forwards") or [], key=lambda f: f["year"])[:2]
+    row = {"date": date, "ticker": ticker,
+           "price_target_mean": c.get("price_target_mean"),
+           "recomm_mean": c.get("recomm_mean"),
+           "source_date": c.get("source_date"),
+           "fwd1_year": None, "fwd1_eps": None, "fwd2_year": None, "fwd2_eps": None}
+    for i, f in enumerate(fwds, 1):
+        row[f"fwd{i}_year"], row[f"fwd{i}_eps"] = f["year"], f["eps"]
+    return row
+
+
+def fetch_consensus(universe: list[dict] | None = None, date: str | None = None) -> int:
+    """오늘의 애널 컨센서스(목표주가·투자의견·선행EPS)를 종목별로 수집해 PIT 시계열에 append.
+    소스: 네이버(ingest.naver.consensus). 같은 날 재실행은 그 날짜를 덮어쓴다. 반환: 기록 행수.
+
+    ⚠️ 이 데이터는 '수집만' 한다 — 시그널·목표가 계산엔 아직 반영하지 않는다. 리비전(Δ)은 시계열이
+    충분히 쌓인 뒤 계산해야 의미가 있고, 목표가 v2도 검증 후 반영한다(현재 동작 무영향)."""
+    from signal_desk.ingest import naver
+    universe = universe if universe is not None else load_universe()
+    date = date or datetime.date.today().isoformat()
+    rows, fails = [], 0
+    for item in universe:
+        ticker = item["ticker"]
+        c = naver.consensus(ticker)
+        if not c:
+            fails += 1
+            if not rows and fails >= 8:  # 서킷브레이커: 소스 통째로 막히면 조기 중단
+                log.warning("컨센서스 수집 중단 — 네이버 응답 없음(%d/%d 연속 실패).", fails, len(universe))
+                return 0
+            continue
+        fails = 0
+        rows.append(_consensus_row(ticker, date, c))
+    if not rows:
+        return 0
+    df_new = pd.DataFrame(rows)
+    if CONSENSUS_HISTORY_FILE.exists():
+        old = pd.read_parquet(CONSENSUS_HISTORY_FILE)
+        old = old[old["date"] != date]  # 같은 날 재실행 → 갱신
+        df_new = pd.concat([old, df_new], ignore_index=True)
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    df_new.to_parquet(CONSENSUS_HISTORY_FILE, index=False)
+    return len(rows)
+
+
+def load_consensus_history():
+    if not CONSENSUS_HISTORY_FILE.exists():
+        return pd.DataFrame()
+    return pd.read_parquet(CONSENSUS_HISTORY_FILE)
+
+
+def load_consensus_latest() -> dict[str, dict]:
+    """종목별 가장 최근 컨센서스 스냅샷 {ticker: row}. (목표가 v2 등에서 '현재 수준'이 필요할 때용)"""
+    df = load_consensus_history()
+    if df.empty:
+        return {}
+    latest = df.sort_values("date").groupby("ticker").tail(1)
+    return {r["ticker"]: {k: r[k] for k in df.columns} for _, r in latest.iterrows()}
 
 
 def _market_flow_summary(records: list[dict]) -> dict:
@@ -896,6 +958,7 @@ def data_freshness() -> list[dict]:
         e("fundamentals", "재무(DART)", FUNDAMENTALS_FILE, 100, _json_rows(FUNDAMENTALS_FILE)),
         e("flows", "종목 수급(네이버)", FLOWS_FILE, 2, _json_rows(FLOWS_FILE)),
         e("short", "공매도 비중(KRX)", SHORT_FILE, 2, _json_rows(SHORT_FILE)),
+        e("consensus", "컨센서스 축적(네이버)", CONSENSUS_HISTORY_FILE, 2),
         e("market_flow", "시장 수급(토스)", MARKET_FLOW_FILE, 2),
         e("macro", "거시(FRED)", MACRO_FILE, 8, _json_rows(MACRO_FILE)),
         e("macro_kr", "거시(ECOS)", MACRO_KR_FILE, 8, _json_rows(MACRO_KR_FILE)),

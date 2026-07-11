@@ -46,3 +46,60 @@ def investor_flow(code: str, days: int = 20) -> dict | None:
         ins += _num(row.get("organPureBuyQuant"))
         vol += _num(row.get("accumulatedTradingVolume"))
     return {"foreign_net": fo, "inst_net": ins, "total_buy": vol}
+
+
+def _fnum(s) -> float | None:
+    """'513,958'/'-1,508' → float. 값 없음('','-',None)이면 None(0과 구분)."""
+    if s is None:
+        return None
+    t = str(s).replace(",", "").strip()
+    if t in ("", "-", "N/A"):
+        return None
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def _get_json(code: str, path: str) -> dict | list | None:
+    url = f"https://m.stock.naver.com/api/stock/{code}/{path}"
+    req = urllib.request.Request(url, headers={"User-Agent": _UA, "accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        log.warning("네이버 %s 실패(%s): HTTP %s", path, code, e.code)
+    except Exception as e:
+        log.warning("네이버 %s 실패(%s): %s", path, code, type(e).__name__)
+    return None
+
+
+def consensus(code: str) -> dict | None:
+    """종목의 애널리스트 컨센서스 스냅샷. 목표주가·투자의견은 /integration의 consensusInfo,
+    선행연도(E) 컨센서스 EPS는 /finance/annual의 isConsensus='Y' 컬럼에서 뽑는다.
+
+    반환: {price_target_mean, recomm_mean, source_date, forwards:[{year,eps}, ...]} — 커버리지 없으면
+    각 항목 None/[]. 목표주가·선행EPS가 모두 없으면 None(수집 대상 아님). recomm_mean은 네이버 척도
+    (5=적극매수에 가까움 추정, 사용 전 방향 검증 필요) 그대로 보존한다.
+    ⚠️ 현재 컨센서스 '수준' 스냅샷일 뿐 리비전(변화)이 아니다 — store가 매일 PIT로 쌓아 시계열화."""
+    integ = _get_json(code, "integration")
+    ci = (integ or {}).get("consensusInfo") or {}
+    ptm = _fnum(ci.get("priceTargetMean"))
+    recomm = _fnum(ci.get("recommMean"))
+    source_date = ci.get("createDate")
+
+    forwards: list[dict] = []
+    fa = _get_json(code, "finance/annual")
+    fi = (fa or {}).get("financeInfo") or {}
+    cons_keys = [t.get("key") for t in fi.get("trTitleList", []) if t.get("isConsensus") == "Y"]
+    eps_row = next((r for r in fi.get("rowList", []) if r.get("title") == "EPS"), None)
+    if eps_row and cons_keys:
+        for key in cons_keys:
+            eps = _fnum((eps_row.get("columns", {}).get(key) or {}).get("value"))
+            if key and eps is not None:
+                forwards.append({"year": str(key), "eps": eps})
+
+    if ptm is None and not forwards:
+        return None  # 애널 커버리지 없음 → 수집 대상 아님
+    return {"price_target_mean": ptm, "recomm_mean": recomm,
+            "source_date": source_date, "forwards": forwards}
