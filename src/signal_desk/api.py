@@ -663,7 +663,7 @@ def narrative_get(ticker: str):
     kb_summary = (dg or {}).get("summary") or ""
     # 데이터 스냅샷 해시로 캐시 키 — 시그널/KB가 바뀌면 자동 무효화
     h = hashlib.md5(f"{sig.kind}|{round(sig.score, 1)}|{kb_summary}".encode()).hexdigest()[:12]
-    key = f"narrv2:{ticker}:{h}"
+    key = f"narrv4:{ticker}:{h}"   # v4=쉬운말·핵심요약 프롬프트(전문용어/잘린 캐시 무효화)
     cached = db.kv_get(key)
     if cached:
         return {"ok": True, "narrative": cached, "source": "llm", "cached": True}

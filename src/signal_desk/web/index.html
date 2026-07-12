@@ -138,7 +138,7 @@
     padding:6px 10px; font-size:12px; font-weight:600; color:var(--dim); }
   .detail-tab:hover { color:var(--txt); }
   .detail-tab.on { color:var(--accent); border-bottom-color:var(--accent); }
-  .detail-panels { margin-top:8px; }
+  .detail-panels { margin-top:8px; min-height:210px; }  /* 탭 전환 시 카드·차트 높이 튐 방지 */
   /* 상세 패널은 자체 스크롤 없이 그대로 늘어남 → 차트 카드(.sig-chart-pane)만 스크롤.
      총 스크롤 = 브라우저 스크롤 + 차트 카드 스크롤 2개만. */
   /* 히어로 결론 카드 — 시그널 색으로 좌측 강조, 결론·이유·핵심지표 */
@@ -1795,14 +1795,14 @@ const _FACTOR_META = {
 const _FACTOR_ORDER = ['technical', 'fundamental', 'valuation', 'reversion', 'flow', 'quality', 'momentum', 'short'];
 // ===== 차트 아래 상세 서브탭 — 해설/정성/팩터/동종업계를 하나씩 보여줘 차트를 밀어내지 않는다 =====
 const _DETAIL_PANELS = [
+  { key: 'metrics', label: '지표·목표가', el: 'signal-metrics' },
   { key: 'narr', label: 'AI 해설', el: 'signal-narrative' },
-  { key: 'metrics', label: '지표', el: 'signal-metrics' },
-  { key: 'kb', label: '정성 심리', el: 'signal-kb' },
   { key: 'factor', label: '팩터 강약', el: 'signal-factors' },
+  { key: 'kb', label: '정성 심리', el: 'signal-kb' },
   { key: 'peers', label: '동종업계', el: 'signal-peers' },
   { key: 'events', label: '일정·이력', el: 'signal-events' },
 ];
-let _activeDetailTab = 'narr';
+let _activeDetailTab = 'metrics';   // 자주 보는 지표·목표가를 기본 노출
 function setDetailHas(elId, has){ const el = document.getElementById(elId); if (el) el.dataset.has = has ? '1' : '0'; }
 function buildDetailTabs(){
   const avail = _DETAIL_PANELS.filter(p => (document.getElementById(p.el) || {}).dataset?.has === '1');

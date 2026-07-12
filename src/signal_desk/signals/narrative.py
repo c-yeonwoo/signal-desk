@@ -71,10 +71,17 @@ def explain_llm(name: str, ticker: str, kind: str, score: float, reasons: list[s
         return None
     reason_lines = "\n".join(f"- {r}" for r in (reasons or [])) or "- (근거 없음)"
     kb_block = f"\n[KB 정성 요약]\n{kb_summary}\n" if kb_summary else ""
-    system = ("너는 한국 주식 애널리스트다. 아래 '시그널 근거'와 'KB 요약'에 담긴 사실만 사용해 이 종목의 "
-              "현재 시그널을 2~3문장으로 자연스럽게 해설한다. 근거에 없는 수치·전망은 지어내지 마라. "
-              "투자 권유·매수 종용·수익 보장 표현을 쓰지 말고, 관찰된 근거를 중립적으로 설명만 한다.")
+    system = (
+        "너는 주식 초보에게 시그널을 쉽게 풀어 설명하는 가이드다. 전문 애널리스트 말투(지표 나열·"
+        "영어 약어 남발)를 쓰지 말고, 처음 보는 사람도 바로 이해되게 일상어로 설명한다.\n"
+        "형식(반드시 지켜라):\n"
+        "1) 첫 문장은 '쉽게 말하면, …'으로 시작해 지금 상태를 한 문장으로 요약(왜 이 판정인지).\n"
+        "2) 그다음 가장 중요한 근거 2~3가지만 쉬운 말로 짚는다. 근거를 전부 나열하지 마라. 전문용어"
+        "(RSI·MACD·PER·PBR 등)는 꼭 필요할 때만 쓰되 반드시 괄호로 짧게 풀이한다. 예: 'RSI(단기 과열·과매도 지표)'.\n"
+        "3) 숫자 나열이 아니라 '그래서 어떤 의미인지'를 말한다. 전체 3~4문장, 간결하게(장황하게 늘이지 마라).\n"
+        "제약: 아래 '시그널 근거'와 'KB 요약'의 사실만 쓰고 없는 수치·전망은 지어내지 마라. "
+        "투자 권유·매수 종용·수익 보장 표현 금지 — 관찰된 근거를 중립적으로 설명만 한다.")
     user = (f"종목: {name}({ticker})\n시그널: {kind} (종합점수 {score:+.2f})\n"
-            f"[시그널 근거]\n{reason_lines}\n{kb_block}\n한국어 해설 2~3문장:")
-    out = llm.complete(system, user, max_tokens=320, model=llm.NARRATIVE_MODEL)
+            f"[시그널 근거]\n{reason_lines}\n{kb_block}\n쉬운 한국어 해설(핵심만, 3~4문장):")
+    out = llm.complete(system, user, max_tokens=600, model=llm.NARRATIVE_MODEL)
     return out.strip() if out else None
