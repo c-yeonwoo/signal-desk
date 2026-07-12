@@ -23,7 +23,7 @@ from fastapi import File as FastFile
 from fastapi import Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
-from signal_desk import auth, bot, chat, config, db, kb, kb_search, notify, shortform, signalcfg, store, strategy
+from signal_desk import auth, bot, brain, chat, config, db, kb, kb_search, notify, shortform, signalcfg, store, strategy
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import accuracy, macro, narrative, opportunity, rebalance, regime, scenario, target, valuation
@@ -1825,6 +1825,17 @@ def guru_screens_get(market: str = "kospi"):
 def etfs_get():
     """유명 ETF 구성종목 스냅샷(참고용) — 인사이트 탭 서클차트. 시그널·KB 무관."""
     return {"etfs": etfs_ref.all_etfs()}
+
+
+@app.get("/api/brain")
+def brain_get():
+    """두뇌 레이어 엔진 헬스 스냅샷 — 파이프라인 노드 그래프 + 헬스 스코어 + 규칙 기반 findings.
+    읽기 전용(제안까지, 자동 적용 X). 관리자 시각화·헬스체크용."""
+    acc = {"ready": False}
+    df = store.load_signal_history()
+    if not df.empty:
+        acc = accuracy.realized_accuracy(df.to_dict("records"), store.load_all_dated_closes())
+    return brain.build(store.data_freshness(), acc, signalcfg.get_dict(), store.is_ready())
 
 
 @app.get("/api/methods")

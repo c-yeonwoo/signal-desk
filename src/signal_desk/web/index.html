@@ -846,6 +846,17 @@
       <div id="bt-analysis" class="placeholder" style="padding:20px 0">펼치면 불러옵니다…</div>
     </details>
 
+    <div class="card" id="brain-card" style="margin-top:16px">
+      <div class="row" style="align-items:baseline;justify-content:space-between">
+        <div style="font-weight:700;font-size:15px">🧠 두뇌 레이어 <span style="color:var(--dim);font-weight:600;font-size:12px">· 코어 엔진 헬스체크</span></div>
+        <span id="brain-score" style="font-family:var(--mono,monospace);font-size:12px;color:var(--dim)"></span>
+      </div>
+      <p class="page-desc" style="margin:8px 0 6px">소스→팩터→게이트→엔진→실측 트래커→진단→제안 파이프라인을 노드 그래프로. 노드 색으로 헬스 상태를 봅니다(읽기 전용 — 제안까지, 적용은 관리자 승인). <span id="brain-summary" style="color:var(--dim)"></span></p>
+      <div id="brain-graph" style="width:100%;height:420px"></div>
+      <div id="brain-legend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--dim);margin:4px 0 2px"></div>
+      <div id="brain-findings" style="margin-top:8px"></div>
+    </div>
+
     <div class="card" id="accuracy-card" style="margin-top:16px">
       <div style="font-weight:700;font-size:15px">📈 실측 성과 <span style="color:var(--dim);font-weight:600;font-size:12px">· track record</span></div>
       <p class="page-desc" style="margin:8px 0 4px">매일 저장되는 <b>실제 시그널</b>(전 팩터·전 게이트 적용)이 이후 실현 수익률로 얼마나 맞았는지 — 백테스트(시뮬레이션)와 달리 시스템이 <b>진짜 낸 신호</b>의 성적입니다. 스냅샷 도입일부터 매일 누적되며, 수익률은 종목 내 비율이라 스케일 시세와 무관합니다.</p>
@@ -3336,7 +3347,7 @@ function switchAdminSeg(seg){
   document.getElementById('admin-engine').style.display = seg === 'engine' ? '' : 'none';
   document.getElementById('admin-kb').style.display = seg === 'kb' ? '' : 'none';
   document.getElementById('admin-shortform').style.display = seg === 'shortform' ? '' : 'none';
-  if (seg === 'engine') { loadEngine(); loadAccuracy(); }   // 백테스트는 접이식(bt-details) 펼칠 때만 로드
+  if (seg === 'engine') { loadEngine(); loadBrain(); loadAccuracy(); }   // 백테스트는 접이식(bt-details) 펼칠 때만 로드
   if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
   if (seg === 'shortform') { loadShortform(); loadSfBg(); }
   history.replaceState(null, '', '#admin/' + seg);   // 새로고침 시 서브탭 유지
@@ -3569,6 +3580,63 @@ async function loadBacktestAnalysis(){
       ${spread != null ? `<p class="page-desc" style="margin:8px 0 0">구간 간 적중률 편차 <b>${fmtNum(spread, 1)}%p</b>${spread >= 15 ? ' — 편차가 커서 특정 시기에 치우친(과최적화 의심) 신호일 수 있습니다.' : ' — 구간 간 비교적 안정적입니다.'}</p>` : ''}
       ${d.has_pit ? '' : '<p class="page-desc" style="margin:8px 0 0;color:var(--sell)">※ point-in-time 재무 미수집 — 기본적 팩터 제외. /api/refresh로 수집하세요.</p>'}`;
   } catch (e) { el.textContent = '불러오지 못했습니다.'; }
+}
+
+// 두뇌 레이어 — 코어 파이프라인을 force 그래프로 시각화 + 헬스 상태·규칙 진단.
+let _brainChart = null;
+const _BRAIN_ST = { ok: '#3fb37f', warn: '#e0a458', stale: '#e06b6b', idle: '#8595a2', candidate: '#b0b6be' };
+const _BRAIN_GRP = { source: 34, factor: 40, gate: 30, engine: 66, tracker: 50, brain: 46 };
+async function loadBrain(){
+  const el = document.getElementById('brain-graph');
+  if (!el || !window.echarts) return;
+  let d;
+  try { d = await (await fetch('/api/brain')).json(); }
+  catch (e) { el.innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
+  const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#333';
+  document.getElementById('brain-summary').textContent = d.summary || '';
+  const scEl = document.getElementById('brain-score');
+  scEl.innerHTML = `헬스 <b style="color:${d.level === 'ok' ? 'var(--sig-buy)' : 'var(--sell)'}">${d.score}/100</b>`;
+
+  const nodes = (d.nodes || []).map(n => ({
+    name: n.id, disp: n.label, group: n.group, status: n.status, metric: n.metric,
+    symbolSize: _BRAIN_GRP[n.group] || 32,
+    itemStyle: { color: _BRAIN_ST[n.status] || '#8595a2',
+                 borderColor: n.group === 'engine' ? ink : 'transparent', borderWidth: n.group === 'engine' ? 2 : 0 },
+  }));
+  const links = (d.edges || []).map(e => ({
+    source: e.source, target: e.target,
+    lineStyle: e.kind === 'loop' ? { color: '#8b5cf6', type: 'dashed', curveness: 0.3, opacity: 0.55, width: 1.5 }
+             : e.kind === 'aux' ? { type: 'dashed', opacity: 0.3, curveness: 0.1 }
+             : { opacity: 0.4, curveness: 0.06 },
+  }));
+  if (_brainChart) { try { _brainChart.dispose(); } catch (e) {} }
+  _brainChart = echarts.init(el);
+  _brainChart.setOption({
+    tooltip: { trigger: 'item', formatter: p => p.dataType === 'node'
+      ? `<b>${esc(p.data.disp)}</b><br>${esc(p.data.group)} · ${esc(p.data.status)}${p.data.metric ? '<br>' + esc(p.data.metric) : ''}` : '' },
+    animationDuration: 900, animationEasingUpdate: 'quinticInOut',
+    series: [{
+      type: 'graph', layout: 'force', roam: true, draggable: true,
+      force: { repulsion: 240, edgeLength: [55, 140], gravity: 0.09, friction: 0.18 },
+      label: { show: true, position: 'right', fontSize: 11, color: ink, formatter: p => p.data.disp },
+      edgeSymbol: ['none', 'arrow'], edgeSymbolSize: 6, lineStyle: { color: 'source' },
+      emphasis: { focus: 'adjacency', lineStyle: { width: 3 } },
+      data: nodes, links: links,
+    }],
+  });
+  requestAnimationFrame(() => _brainChart && _brainChart.resize());
+  if (window.ResizeObserver && !el._ro) { el._ro = new ResizeObserver(() => _brainChart && _brainChart.resize()); el._ro.observe(el); }
+
+  const L = [['ok', '정상'], ['warn', '주의'], ['stale', '오래됨'], ['idle', '대기/누적']];
+  document.getElementById('brain-legend').innerHTML = L.map(([k, v]) =>
+    `<span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${_BRAIN_ST[k]};margin-right:4px"></span>${v}</span>`).join('');
+
+  const fb = document.getElementById('brain-findings');
+  if ((d.findings || []).length) {
+    const ic = { warn: '⚠', info: 'ⓘ' };
+    fb.innerHTML = '<div style="font-size:12px;font-weight:700;margin-bottom:4px">진단(규칙 기반)</div>'
+      + d.findings.map(f => `<div style="font-size:12.5px;color:${f.level === 'warn' ? 'var(--sell)' : 'var(--dim)'};padding:2px 0">${ic[f.level] || '·'} ${esc(f.text)}</div>`).join('');
+  } else fb.innerHTML = '<div style="font-size:12px;color:var(--dim-2)">특이사항 없음 — 파이프라인 정상.</div>';
 }
 
 // 실측 성과(track record) — 실제 낸 시그널이 이후 수익률로 얼마나 맞았나. 매일 누적.
