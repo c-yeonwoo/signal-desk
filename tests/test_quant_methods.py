@@ -29,8 +29,8 @@ def test_active_covers_live_engine_factors():
 
 def test_roadmap_candidates_present():
     cand = {m["key"] for m in qm.by_status("candidate")}
-    # 로드맵 후보(섹터중립화·리비전·IC가중)가 candidate로 등재
-    assert {"sector_neutral", "estimate_revision", "ic_weighting"} <= cand
+    # 로드맵 후보(리비전·IC가중·PEAD)가 candidate로 등재 (sector_neutral은 v1 반영되어 active)
+    assert {"estimate_revision", "ic_weighting", "earnings_surprise_pead"} <= cand
 
 
 def test_rejected_have_reason():
@@ -39,6 +39,7 @@ def test_rejected_have_reason():
 
 
 def test_get_and_by_category():
-    assert qm.get("sector_neutral")["status"] == "candidate"
+    assert qm.get("sector_neutral")["status"] == "active"   # v1 반영
+    assert qm.get("estimate_revision")["status"] == "candidate"
     assert qm.get("nope") is None
     assert all(m["category"] == "gate" for m in qm.by_category("gate"))

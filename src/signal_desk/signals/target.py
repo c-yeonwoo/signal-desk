@@ -30,6 +30,18 @@ def median_per(fundamentals: dict[str, dict]) -> float | None:
     return round(statistics.median(pers), 2) if len(pers) >= _MED_MIN else None
 
 
+def sector_median_per(fundamentals: dict[str, dict], sector_map: dict[str, str],
+                      min_n: int = _MED_MIN) -> dict[str, float]:
+    """섹터별 유효 PER 중앙값 {sector: median} — 섹터 표본 min_n 이상만. 목표가 v2의 밸류 배수를
+    유니버스 중앙값 대신 섹터별로 써서 고멀티플 섹터(반도체 등) 왜곡을 줄인다(섹터 중립화 v1)."""
+    groups: dict[str, list[float]] = {}
+    for t, m in fundamentals.items():
+        per, sec = m.get("per"), sector_map.get(t)
+        if per and per > 0 and sec:
+            groups.setdefault(sec, []).append(per)
+    return {sec: round(statistics.median(v), 2) for sec, v in groups.items() if len(v) >= min_n}
+
+
 def _clamped(price: float, raw: float, hi: float) -> int:
     return round(max(price * _CLAMP_LO, min(price * hi, raw)))
 
