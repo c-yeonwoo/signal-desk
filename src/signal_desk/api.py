@@ -1137,6 +1137,8 @@ def _kb_targets(limit_candidates: int = 12) -> list[dict]:
                 add(s.ticker)
     for tk in db.bot_position_tickers_all():  # 전 유저 보유 종목(공용 KB 갱신 대상)
         add(tk)
+    for tk in db.fav_tickers_all():  # 전 유저 관심종목 — 워치리스트도 공시 veto·KB 해설 커버(docstring 의도 복구)
+        add(tk)
     return targets
 
 

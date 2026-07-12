@@ -57,3 +57,13 @@ def test_bot_reset_scoped(tmp_path, monkeypatch):
     db.bot_reset(UID)
     assert db.bot_positions_all(UID) == [] and db.bot_trades_recent(UID) == []
     assert db.kv_get(f"paper_account:{UID}") is None  # 시드로 리셋(kv 삭제)
+
+
+def test_fav_tickers_all_distinct_cross_user(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert db.fav_tickers_all() == set()
+    db.fav_add(UID, "ticker", "005930", "삼성전자")
+    db.fav_add(99, "ticker", "005930", "삼성전자")   # 다른 유저 중복 → 1건으로
+    db.fav_add(99, "ticker", "000660", "SK하이닉스")
+    db.fav_add(UID, "index", "KS200", "코스피200")   # kind!='ticker' → 제외
+    assert db.fav_tickers_all() == {"005930", "000660"}

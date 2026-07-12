@@ -206,6 +206,14 @@ def fav_remove(uid: int, kind: str, key: str) -> None:
     c.close()
 
 
+def fav_tickers_all() -> set[str]:
+    """전 유저 관심종목 티커(중복 제거) — KB 갱신 대상 집계용(공용, bot_position_tickers_all와 동일 패턴)."""
+    c = conn()
+    rows = c.execute("SELECT DISTINCT key FROM favorites WHERE kind='ticker'").fetchall()
+    c.close()
+    return {r[0] for r in rows}
+
+
 # ---------- alerts (#16 관심종목 시그널 변동 알림) ----------
 def alert_state_all(uid: int) -> dict[str, str]:
     """uid의 종목별 마지막 관측 시그널 kind — 변동 감지 기준."""
