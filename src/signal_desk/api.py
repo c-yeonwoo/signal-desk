@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 
 from signal_desk import auth, bot, chat, config, db, kb, kb_search, notify, shortform, signalcfg, store, strategy
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
-                                    sectors, us_ko, valuechain)
+                                    quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import accuracy, macro, narrative, opportunity, rebalance, regime, scenario, target, valuation
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, combine,
@@ -1819,6 +1819,14 @@ def guru_screens_get(market: str = "kospi"):
 def etfs_get():
     """유명 ETF 구성종목 스냅샷(참고용) — 인사이트 탭 서클차트. 시그널·KB 무관."""
     return {"etfs": etfs_ref.all_etfs()}
+
+
+@app.get("/api/methods")
+def methods_get():
+    """퀀트 방법론 레퍼런스 카탈로그 — 두뇌 레이어(자가 진단)가 gap→검증방법 매핑에 참조.
+    active(반영)/candidate(후보)/rejected(미채택)로 분류. 산식은 창작 아닌 업계 검증분만 등재."""
+    return {"methods": quant_methods.all_methods(),
+            "counts": {s: len(quant_methods.by_status(s)) for s in ("active", "candidate", "rejected")}}
 
 
 @app.get("/api/macro")
