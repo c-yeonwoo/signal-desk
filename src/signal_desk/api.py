@@ -614,6 +614,7 @@ def signals_get(market: str = "kospi"):
     quotes = _quotes()
     fundamentals = store.load_fundamentals()
     med_per = target.median_per(fundamentals)   # 목표가(밸류 정상화) 기준 — 루프 밖 1회
+    sec_med_per = target.sector_median_per(fundamentals, {t: sectors.sector_of(t) for t in fundamentals})  # 섹터중립 v1
     price_series = store.load_price_series()      # 기술적 저항 산정용
     consensus = store.load_consensus_latest()     # 목표가 v2 앵커(선행EPS·애널 목표주가, KR)
     for r in _signals():
@@ -640,8 +641,9 @@ def signals_get(market: str = "kospi"):
         d["kb"] = {"sentiment": dg["sentiment"], "summary": dg["summary"], "points": dg["points"]} if dg else None
         d["opp_tags"] = opportunity.classify(r)  # 기회 유형(#14)
         c = consensus.get(r.ticker) or {}
-        d["target"] = target.compute(d["price"], f.get("per"), med_per, price_series.get(r.ticker),
-                                     analyst_target=c.get("price_target_mean"), fwd_eps=c.get("fwd1_eps"))  # 참고 목표가(v2 앵커 포함)
+        eff_med_per = sec_med_per.get(d["sector"]) or med_per  # 섹터 중앙값 PER(없으면 유니버스 fallback)
+        d["target"] = target.compute(d["price"], f.get("per"), eff_med_per, price_series.get(r.ticker),
+                                     analyst_target=c.get("price_target_mean"), fwd_eps=c.get("fwd1_eps"))  # 참고 목표가(v2+섹터중립)
         items.append(d)
     return {"ready": True, "items": items}
 
@@ -1603,7 +1605,11 @@ def _chat_signal_summary(ticker: str) -> dict | None:
     q = _quotes().get(ticker) or {}
     f = store.load_fundamentals().get(ticker) or {}
     c = store.load_consensus_latest().get(ticker) or {}
-    tg = target.compute(q.get("price"), f.get("per"), target.median_per(store.load_fundamentals()),
+    _fund = store.load_fundamentals()
+    _sec = sectors.sector_of(ticker)
+    _eff_med = target.sector_median_per(_fund, {t: sectors.sector_of(t) for t in _fund}).get(_sec) \
+        or target.median_per(_fund)
+    tg = target.compute(q.get("price"), f.get("per"), _eff_med,
                         store.load_price_series().get(ticker),
                         analyst_target=c.get("price_target_mean"), fwd_eps=c.get("fwd1_eps"))
     ups = [v for v in [(tg or {}).get("value_upside_pct"), (tg or {}).get("fwd_value_upside_pct"),

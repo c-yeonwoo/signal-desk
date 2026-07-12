@@ -24,6 +24,15 @@ def test_technical_resistance():
     assert t["resistance"] == 120 and t["resistance_upside_pct"] == round((120/110-1)*100, 1)
 
 
+def test_sector_median_per():
+    fund = {f"X{i}": {"per": p} for i, p in enumerate([8, 10, 12, 14, 200])}  # 섹터X 5종목
+    fund.update({f"Y{i}": {"per": p} for i, p in enumerate([30, 40])})         # 섹터Y 2종목(<min)
+    secmap = {**{f"X{i}": "X" for i in range(5)}, **{f"Y{i}": "Y" for i in range(2)}}
+    med = target.sector_median_per(fund, secmap, min_n=5)
+    assert med.get("X") == 12.0        # 섹터X 중앙값(적자·이상치 무관하게 중앙)
+    assert "Y" not in med              # 표본 부족(2<5) → 제외 → 호출부가 유니버스 fallback
+
+
 def test_fwd_value_anchor():
     # 선행EPS 120 × 중앙값 PER 10 = 1200 (현재가 1000 대비 +20%)
     t = target.compute(price=1000.0, per=None, med_per=10.0, closes=None, fwd_eps=120.0)
