@@ -3584,25 +3584,11 @@ async function loadBacktestAnalysis(){
 
 // 두뇌 레이어 — 코어 파이프라인을 force 그래프로 시각화 + 헬스 상태·규칙 진단.
 let _brainChart = null;
-// 주얼톤 팔레트(base=본색, light=하이라이트) — 입체 오브 느낌을 위해 방사형 그라디언트로 렌더
+// 플랫 팔레트(주얼톤이되 입체 효과 없이 단색으로)
 const _BRAIN_ST = {
-  ok:        { base: '#17D999', light: '#8CFFDA' },   // 밝은 emerald/mint
-  warn:      { base: '#D99A2B', light: '#F6D082' },   // amber/gold
-  stale:     { base: '#D5544E', light: '#F0938A' },   // 세련된 coral(순빨강 X)
-  idle:      { base: '#7C8AA0', light: '#AEBACB' },   // slate
-  candidate: { base: '#A6AEBD', light: '#CBD2DC' },   // faint
+  ok: '#17D999', warn: '#D99A2B', stale: '#D5544E', idle: '#7C8AA0', candidate: '#A6AEBD',
 };
 const _BRAIN_GRP = { source: 34, factor: 40, gate: 30, engine: 66, tracker: 50, brain: 46 };
-// 노드를 광택 오브로: 좌상단 하이라이트 방사 그라디언트 + 은은한 컬러 그림자
-function _brainOrb(status, engine, ink){
-  const c = _BRAIN_ST[status] || _BRAIN_ST.idle;
-  return {
-    color: { type: 'radial', x: 0.34, y: 0.3, r: 0.72,
-             colorStops: [{ offset: 0, color: c.light }, { offset: 0.5, color: c.base }, { offset: 1, color: c.base }] },
-    shadowBlur: 16, shadowColor: c.base + '59', shadowOffsetY: 3,
-    borderColor: engine ? ink : 'rgba(255,255,255,0.55)', borderWidth: engine ? 2 : 1,
-  };
-}
 async function loadBrain(){
   const el = document.getElementById('brain-graph');
   if (!el || !window.echarts) return;
@@ -3617,7 +3603,8 @@ async function loadBrain(){
   const nodes = (d.nodes || []).map(n => ({
     name: n.id, disp: n.label, group: n.group, status: n.status, metric: n.metric,
     symbolSize: _BRAIN_GRP[n.group] || 32,
-    itemStyle: _brainOrb(n.status, n.group === 'engine', ink),
+    itemStyle: { color: _BRAIN_ST[n.status] || _BRAIN_ST.idle,
+                 borderColor: n.group === 'engine' ? ink : 'transparent', borderWidth: n.group === 'engine' ? 2 : 0 },
   }));
   const links = (d.edges || []).map(e => ({
     source: e.source, target: e.target,
@@ -3644,11 +3631,8 @@ async function loadBrain(){
   if (window.ResizeObserver && !el._ro) { el._ro = new ResizeObserver(() => _brainChart && _brainChart.resize()); el._ro.observe(el); }
 
   const L = [['ok', '정상'], ['warn', '주의'], ['stale', '오래됨'], ['idle', '대기/누적']];
-  document.getElementById('brain-legend').innerHTML = L.map(([k, v]) => {
-    const c = _BRAIN_ST[k];
-    return `<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;`
-      + `background:radial-gradient(circle at 34% 30%, ${c.light}, ${c.base});box-shadow:0 1px 2px ${c.base}66"></span>${v}</span>`;
-  }).join('');
+  document.getElementById('brain-legend').innerHTML = L.map(([k, v]) =>
+    `<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;background:${_BRAIN_ST[k]}"></span>${v}</span>`).join('');
 
   const fb = document.getElementById('brain-findings');
   if ((d.findings || []).length) {
