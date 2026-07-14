@@ -72,6 +72,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "페이퍼 계좌" in html
     assert 'id="bot-us"' not in html
     assert "ON은 국내·해외 공통" in html
+    assert "openHelp()" in html
+    assert html.count('onclick="openHelp()"') == 1  # footer only — 시그널 헤더에 고아 버튼 금지
 
 
 def test_bot_state_and_toggle(tmp_path, monkeypatch):

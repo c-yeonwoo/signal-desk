@@ -115,8 +115,8 @@
   .macro-callout .mco-body ul { margin:6px 0 0; padding-left:16px; color:var(--dim); }
   .macro-callout .mco-body li { margin:2px 0; }
   .sig-workspace { display:flex; gap:16px; align-items:stretch;
-    height:clamp(520px, 80vh, 980px); }
-  .sig-list { flex:0 0 440px; min-width:0; overflow-y:auto; overflow-x:hidden; padding:0; }
+    height:clamp(560px, calc(100vh - 168px), 1080px); }
+  .sig-list { flex:0 0 min(480px, 38vw); min-width:280px; overflow-y:auto; overflow-x:hidden; padding:0; }
   .sig-list table.dtable th, .sig-list table.dtable td { padding:8px 7px; }
   .sig-list table.dtable td:nth-child(2) { white-space:normal; }  /* 긴 종목명은 줄바꿈(가로 스크롤 방지) */
   .sig-list .dtable th { position:sticky; top:48px; background:var(--panel); z-index:1; }
@@ -333,8 +333,8 @@
   .trust-badge.sim { background:var(--bg); color:var(--dim); border:1px solid var(--line-strong); }
   .trust-badge.accum { background:var(--bg); color:var(--dim-2); border:1px dashed var(--line-strong); }
   .trust-badge.bot { background:var(--accent-weak); color:var(--txt); border:1px solid var(--line); }
-  #signal-trust { display:none; flex:1 1 auto; font-size:12px; line-height:1.55;
-    background:var(--bg); border:1px solid var(--line); border-radius:var(--r-md); padding:9px 13px; }
+  #signal-trust { display:none; font-size:12px; line-height:1.55;
+    background:var(--bg); border:1px solid var(--line); border-radius:var(--r-md); padding:8px 12px; margin-bottom:10px; }
   #signal-trust .trust-row { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; }
   #signal-trust .trust-row + .trust-row { margin-top:5px; padding-top:5px; border-top:1px dashed var(--line); }
   /* 의견≠신호 — 엔진 수치(신호) vs KB·챗·거장(맥락) 시각 분리 */
@@ -387,9 +387,10 @@
   .ticker-results .tr-item:hover { background:var(--bg); }
 
   .subnav { display:flex; gap:6px; padding:8px 22px; background:var(--panel); border-bottom:1px solid var(--line);
-    overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap; }
-  .subnav .subtab { padding:5px 14px; border:0; background:transparent; color:var(--dim); font-size:13px;
-    font-weight:600; border-radius:var(--r-md); cursor:pointer; white-space:nowrap; flex:0 0 auto; }
+    width:100%; flex:0 0 auto; box-sizing:border-box;
+    overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap; scrollbar-width:thin; }
+  .subnav .subtab { padding:6px 14px; border:0; background:transparent; color:var(--dim); font-size:13px;
+    font-weight:600; border-radius:var(--r-md); cursor:pointer; white-space:nowrap; flex:0 0 auto; line-height:1.3; }
   .subnav .subtab:hover { background:var(--bg); }
   .subnav .subtab.on { background:var(--accent); color:#fff; }
 
@@ -485,10 +486,7 @@
 
 <main>
   <div id="view-signal" class="view-app" style="display:none">
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <div id="signal-trust"></div>
-      <button class="btn" style="margin-left:auto;white-space:nowrap;flex:0 0 auto" onclick="openHelp()">시그널 계산 기준</button>
-    </div>
+    <div id="signal-trust"></div>
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
         <div class="seg-toggle" id="sig-market-seg" style="margin:10px 10px 0">
@@ -632,24 +630,21 @@
 
   <div id="view-trading" class="view-app" style="display:none">
     <div id="trading-bot">
-    <div class="pcard" style="margin-bottom:12px">
-      <div style="font-size:12px;line-height:1.55;color:var(--dim)">
-        <span class="layer-badge sig">신호</span> <b style="color:var(--txt)">시그널 트레이딩</b>은
-        <b style="color:var(--txt)">페이퍼 계좌</b>입니다(종가 가상 체결 · 실주문 아님).
-        <span class="layer-badge ctx">맥락</span> <b style="color:var(--txt)">내 포트폴리오</b>의 실보유·토스 연동과는
-        <b style="color:var(--txt)">별개 장부</b>입니다. 결정은 늘 본인 몫입니다.
+    <div class="pcard" style="margin-bottom:10px;padding:8px 12px">
+      <div style="font-size:11px;line-height:1.5;color:var(--dim)">
+        <span class="layer-badge sig">신호</span> 페이퍼 계좌(가상 체결) ·
+        <span class="layer-badge ctx">맥락</span> 실보유(내 포트폴리오)와 <b style="color:var(--txt)">별개 장부</b>
       </div>
     </div>
-    <div class="row" style="margin-bottom:14px;align-items:center;gap:10px">
-      <div class="seg-toggle" id="bot-market-seg">
-        <button class="on" data-bmkt="kospi" onclick="switchBotMarket('kospi')">국내 (KOSPI)</button>
-        <button data-bmkt="us" onclick="switchBotMarket('us')">해외 (S&P500)</button>
+    <div class="row" style="margin-bottom:12px;align-items:center;gap:10px">
+      <div class="seg-toggle" id="bot-market-seg" style="margin-bottom:0">
+        <button class="on" data-bmkt="kospi" onclick="switchBotMarket('kospi')">국내</button>
+        <button data-bmkt="us" onclick="switchBotMarket('us')">해외</button>
       </div>
-      <span class="stat-label" style="margin:0 4px 0 auto;line-height:1">트레이딩 성향</span>
-      <div class="seg-toggle" id="style-toggle">
-        <button data-style="conservative" onclick="setStyle('conservative')">안정형</button>
-        <button data-style="balanced" onclick="setStyle('balanced')">균형형</button>
-        <button data-style="aggressive" onclick="setStyle('aggressive')">공격형</button>
+      <div class="seg-toggle" id="style-toggle" style="margin-bottom:0;margin-left:auto">
+        <button data-style="conservative" onclick="setStyle('conservative')">안정</button>
+        <button data-style="balanced" onclick="setStyle('balanced')">균형</button>
+        <button data-style="aggressive" onclick="setStyle('aggressive')">공격</button>
       </div>
     </div>
 
@@ -675,9 +670,9 @@
           <input id="bot-seed" type="number" class="ctrl" placeholder="시드" style="max-width:120px" title="초기화 시 적용될 시드 금액">
           <button class="btn" onclick="setSeed()">시드</button>
           <button class="btn" onclick="resetBot()" title="국내·해외 페이퍼 계좌·거래·예약 전부 삭제">초기화</button>
-          <span class="stat-label" id="bot-acct-status" style="margin-left:auto"></span>
         </div>
-        <div class="stat-label" id="bot-rules" style="margin:10px 0 0"></div>
+        <div class="stat-label" id="bot-acct-status" style="margin-top:8px"></div>
+        <div class="stat-label" id="bot-rules" style="margin:6px 0 0"></div>
         <div id="bot-reservations" style="display:none;margin-top:10px"></div>
         <div id="bot-plan" style="display:none;margin-top:10px;font-size:12px;background:var(--accent-weak);
           border-radius:var(--r-md);padding:10px 12px;line-height:1.6"></div>
@@ -713,11 +708,9 @@
     </div><!-- /#trading-bot -->
 
     <div id="trading-rebal" style="display:none">
-      <div class="pcard" style="margin-bottom:12px">
-        <div style="font-size:12px;line-height:1.55;color:var(--dim)">
-          <span class="layer-badge ctx">맥락</span> 여기는 <b style="color:var(--txt)">실보유 렌즈</b>(수동 입력 또는 토스 연동)입니다.
-          위 <b style="color:var(--txt)">시그널 트레이딩 페이퍼 계좌와 합쳐지지 않습니다</b>.
-          리밸런싱·시나리오는 <b style="color:var(--txt)">제안·참고</b>이며 자동 주문하지 않습니다.
+      <div class="pcard" style="margin-bottom:10px;padding:8px 12px">
+        <div style="font-size:11px;line-height:1.5;color:var(--dim)">
+          <span class="layer-badge ctx">맥락</span> 실보유 렌즈 · 페이퍼 봇과 <b style="color:var(--txt)">합쳐지지 않음</b> · 리밸/시나리오는 제안만
         </div>
       </div>
       <!-- 국내/해외 판 전환 토글 — 아래 전체(보유·배당·히트맵·리밸런싱·시나리오)가 선택 시장 기준 -->
@@ -1064,6 +1057,7 @@
   <b>Signal Desk</b>
   <span>감이 아니라 검증된 적중률로 찾는 주식 매매 타이밍</span>
   <span style="margin-left:auto">
+    <span class="foot-link" onclick="openHelp()">시그널 계산 기준</span> ·
     <span class="foot-link" onclick="openLegal('terms')">이용약관</span> ·
     <span class="foot-link" onclick="openLegal('privacy')">개인정보처리방침</span> ·
     <span class="foot-link" onclick="openLegal('disclaimer')">투자 유의사항</span>
