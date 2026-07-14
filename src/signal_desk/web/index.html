@@ -64,12 +64,12 @@
   .chip { padding:3px 9px; border:1px solid var(--line); border-radius:var(--r-pill); cursor:pointer;
           background:var(--panel); color:var(--dim); font-size:var(--fs-xs); user-select:none; }
   .chip.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-  /* 앱 셸: main이 남는 높이를 모두 차지하고 footer를 바닥으로 밀어냄(빈 화면 위로 뜨는 문제 해결) */
-  main { flex:1 0 auto; width:100%; }
+  /* 앱 셸: main이 남는 높이를 채우고 footer는 바닥 고정 */
+  main { flex:1 1 auto; width:100%; min-height:0; display:flex; flex-direction:column; }
   /* 문서형 탭(표·카드 위주) — 편안한 폭으로 가운데 정렬 */
-  .view-doc { max-width:1360px; margin:0 auto; padding:24px clamp(16px,3.5vw,44px) 48px; }
+  .view-doc { max-width:1360px; margin:0 auto; padding:24px clamp(16px,3.5vw,44px) 48px; width:100%; }
   /* 워크스페이스형 탭(시그널·포트폴리오) — 뷰포트 폭을 시원하게 사용 */
-  .view-app { padding:16px clamp(14px,2.5vw,34px) 20px; }
+  .view-app { padding:16px clamp(14px,2.5vw,34px) 12px; width:100%; box-sizing:border-box; }
   .split { display:flex; gap:16px; align-items:flex-start; }
   .split > .card { flex:1 1 50%; min-width:0; }
   .card-row { display:flex; gap:16px; margin-bottom:16px; }
@@ -83,8 +83,9 @@
   .seg-toggle button { border:none; background:var(--panel); color:var(--dim); padding:8px 16px;
     font-size:13px; font-weight:600; cursor:pointer; }
   .seg-toggle button.on { background:var(--accent); color:#fff; }
-  /* ===== 시그널 워크스페이스 (signal-apt식 풀뷰포트 레이아웃) ===== */
-  #view-signal { display:flex; flex-direction:column; gap:12px; }
+  /* ===== 시그널 워크스페이스 — footer 직전까지 높이 채움(고정 clamp 제거) ===== */
+  #view-signal { display:flex; flex-direction:column; gap:10px; flex:1 1 auto; min-height:0; }
+  #view-signal .sig-workspace { flex:1 1 auto; min-height:480px; height:auto; }
   .sig-topbar { display:flex; gap:10px 18px; align-items:center; flex-wrap:wrap;
     background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); padding:10px 16px; }
   .sig-topbar .tb-group { display:flex; gap:8px; align-items:center; }
@@ -114,8 +115,7 @@
   .macro-callout .mco-body { margin-top:7px; font-size:12.5px; color:var(--fg); line-height:1.6; }
   .macro-callout .mco-body ul { margin:6px 0 0; padding-left:16px; color:var(--dim); }
   .macro-callout .mco-body li { margin:2px 0; }
-  .sig-workspace { display:flex; gap:16px; align-items:stretch;
-    height:clamp(560px, calc(100vh - 168px), 1080px); }
+  .sig-workspace { display:flex; gap:16px; align-items:stretch; }
   .sig-list { flex:0 0 min(480px, 38vw); min-width:280px; overflow-y:auto; overflow-x:hidden; padding:0; }
   .sig-list table.dtable th, .sig-list table.dtable td { padding:8px 7px; }
   .sig-list table.dtable td:nth-child(2) { white-space:normal; }  /* 긴 종목명은 줄바꿈(가로 스크롤 방지) */
@@ -348,7 +348,8 @@
 
   /* 반응형: 좁은 화면에서 워크스페이스를 세로로 쌓음 */
   @media (max-width:900px){
-    .sig-workspace { flex-direction:column; height:auto; }
+    .sig-workspace { flex-direction:column; height:auto; flex:none; min-height:0; }
+    #view-signal .sig-workspace { flex:none; min-height:0; }
     .sig-list { flex:none; max-height:320px; }
     #signal-chart { height:58vh; min-height:360px; }
     .sig-chart-pane { min-height:420px; }
