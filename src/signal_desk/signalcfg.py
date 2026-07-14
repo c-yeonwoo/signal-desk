@@ -13,9 +13,10 @@ from signal_desk.signals import regime as regime_mod
 from signal_desk.signals.engine import SignalConfig
 
 _KEY = "signal_config"
-# 관리자 조정 대상 필드(팩터 가중치 5종 + 매수/매도 임계값 + 국면 적응 on/off)
+# 관리자 조정 대상(점수에 실제 들어가는 팩터만 — KB 정성은 veto 전용이라 가중치 UI 제외)
 FIELDS = ["weight_technical", "weight_fundamental", "weight_valuation",
-          "weight_reversion", "weight_qualitative", "weight_momentum",
+          "weight_reversion", "weight_flow", "weight_quality", "weight_momentum",
+          "weight_short",
           "strong_buy_threshold", "buy_threshold", "sell_threshold", "strong_sell_threshold",
           "regime_adaptive"]
 

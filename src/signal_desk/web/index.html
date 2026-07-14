@@ -326,6 +326,22 @@
   .sig-pill.중립 { background:var(--sig-neutral); }
   .sig-pill.약세 { background:var(--sig-watch); }
   .sig-pill.조정 { background:var(--sig-sell); }
+  /* 신뢰 가드 — 실측 vs 시뮬 vs 누적중을 숫자와 분리해 오인을 막음 */
+  .trust-badge { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.02em;
+    border-radius:var(--r-pill); padding:1px 7px; vertical-align:middle; line-height:1.5; }
+  .trust-badge.live { background:var(--accent-weak); color:var(--accent); border:1px solid var(--ring); }
+  .trust-badge.sim { background:var(--bg); color:var(--dim); border:1px solid var(--line-strong); }
+  .trust-badge.accum { background:var(--bg); color:var(--dim-2); border:1px dashed var(--line-strong); }
+  .trust-badge.bot { background:var(--accent-weak); color:var(--txt); border:1px solid var(--line); }
+  #signal-trust { display:none; flex:1 1 auto; font-size:12px; line-height:1.55;
+    background:var(--bg); border:1px solid var(--line); border-radius:var(--r-md); padding:9px 13px; }
+  #signal-trust .trust-row { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 14px; }
+  #signal-trust .trust-row + .trust-row { margin-top:5px; padding-top:5px; border-top:1px dashed var(--line); }
+  /* 의견≠신호 — 엔진 수치(신호) vs KB·챗·거장(맥락) 시각 분리 */
+  .layer-badge { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.02em;
+    border-radius:var(--r-pill); padding:1px 7px; vertical-align:middle; line-height:1.5; }
+  .layer-badge.sig { background:var(--accent-weak); color:var(--accent); border:1px solid var(--ring); }
+  .layer-badge.ctx { background:var(--bg); color:var(--dim); border:1px solid var(--line-strong); }
   footer { flex:0 0 auto; border-top:1px solid var(--line); padding:12px clamp(16px,3.5vw,44px); display:flex;
     gap:18px; flex-wrap:wrap; align-items:center; font-size:12px; color:var(--dim); background:var(--panel); }
   footer b { color:var(--txt); }
@@ -378,6 +394,22 @@
 
   dialog { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); color:var(--txt); }
   dialog::backdrop { background:rgba(15,23,42,.45); }
+  #onboardDlg { padding:0; max-width:440px; width:92vw; }
+  #onboardDlg .ob-body { padding:22px 22px 18px; }
+  #onboardDlg .ob-step { display:none; }
+  #onboardDlg .ob-step.on { display:block; }
+  #onboardDlg .ob-styles { display:flex; flex-direction:column; gap:8px; margin:14px 0 18px; }
+  #onboardDlg .ob-style { text-align:left; padding:12px 14px; border:1px solid var(--line); border-radius:var(--r-md);
+    background:var(--bg); cursor:pointer; color:var(--txt); }
+  #onboardDlg .ob-style.on { border-color:var(--accent); background:var(--accent-weak); }
+  #onboardDlg .ob-style b { display:block; font-size:14px; margin-bottom:2px; }
+  #onboardDlg .ob-style span { font-size:12px; color:var(--dim); line-height:1.45; }
+  #onboardDlg .ob-chips { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0 8px; }
+  #onboardDlg .ob-chip { border:1px solid var(--line); background:var(--panel); border-radius:var(--r-pill);
+    padding:6px 12px; font-size:12px; cursor:pointer; color:var(--txt); }
+  #onboardDlg .ob-chip.on { border-color:var(--accent); background:var(--accent-weak); color:var(--accent); font-weight:700; }
+  #onboardDlg .ob-foot { display:flex; align-items:center; gap:10px; margin-top:16px; }
+  #onboardDlg .ob-hint { font-size:12px; color:var(--dim); margin:0; line-height:1.5; }
 </style>
 </head>
 <body>
@@ -453,7 +485,7 @@
 <main>
   <div id="view-signal" class="view-app" style="display:none">
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-      <div id="signal-scorecard" style="display:none;flex:1 1 auto;font-size:12px;background:var(--accent-weak);border-radius:var(--r-md);padding:9px 13px;line-height:1.5"></div>
+      <div id="signal-trust"></div>
       <button class="btn" style="margin-left:auto;white-space:nowrap;flex:0 0 auto" onclick="openHelp()">시그널 계산 기준</button>
     </div>
     <div class="sig-workspace">
@@ -461,6 +493,11 @@
         <div class="seg-toggle" id="sig-market-seg" style="margin:10px 10px 0">
           <button class="on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
           <button data-mkt="us" onclick="switchSignalMarket('us')">해외</button>
+        </div>
+        <!-- 정보 우선순위: 시황(리본) → 성적(trust) → 매수대기 → 리스트/스크리너 → 상세(차트) -->
+        <div id="buylist-card" class="pcard" style="display:none;margin:var(--space-2) var(--space-3)">
+          <div class="pcard-title">매수 대기 리스트 <span class="sub">관심종목 · 매수까지 무엇이 남았나</span></div>
+          <div id="buylist-body"></div>
         </div>
         <div class="sig-toolbar">
           <input id="sig-search" class="ctrl" type="search" placeholder="종목명·코드 검색" oninput="renderSignalList()">
@@ -495,7 +532,8 @@
                 <option value="">—</option>
                 <option value="technical">기술</option><option value="fundamental">재무</option>
                 <option value="valuation">저평가</option><option value="reversion">낙폭과대</option>
-                <option value="flow">수급</option><option value="quality">퀄리티</option><option value="momentum">모멘텀</option>
+                <option value="flow">수급</option><option value="quality">퀄리티</option>
+                <option value="momentum">모멘텀</option><option value="short">공매도</option>
               </select>
               <span>강도 ≥</span>
               <input id="screen-factormin" type="number" step="0.1" min="-1" max="1" inputmode="decimal" style="width:60px" oninput="renderSignalList()">
@@ -513,10 +551,6 @@
             </div>
           </div>
         </details>
-        <div id="buylist-card" class="pcard" style="display:none;margin:0 var(--space-3) var(--space-2)">
-          <div class="pcard-title">매수 대기 리스트 <span class="sub">관심종목 · 매수까지 무엇이 남았나</span></div>
-          <div id="buylist-body"></div>
-        </div>
         <div id="signal-body" class="placeholder" style="padding:32px 0">불러오는 중…</div>
       </div>
       <div class="sig-chart-pane card">
@@ -575,16 +609,16 @@
     </div>
 
     <div id="cycle-seg-guru" style="display:none">
-      <h3 class="page-head" style="font-size:18px;margin-top:0">🏛️ 거장의 포트폴리오
-        <span style="color:var(--dim);font-size:13px;font-weight:600">· 벤치마크 참고용</span></h3>
+      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 거장의 포트폴리오
+        <span style="color:var(--dim);font-size:13px;font-weight:600">· 벤치마크 참고 · 신호 아님</span></h3>
       <p class="page-desc">유명 투자자들이 공개한 보유내역(미국 SEC 13F)입니다. <b>분기 공시 스냅샷이며 최대 45일 지연</b>,
-        미국 롱 포지션만 표시됩니다(현금·채권·해외주식 제외) · 추천 아님.</p>
+        미국 롱 포지션만 표시됩니다(현금·채권·해외주식 제외). 엔진 시그널과 별개의 참고 자료입니다.</p>
       <div id="gurus-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
 
     <div id="cycle-seg-etf" style="display:none">
-      <h3 class="page-head" style="font-size:18px;margin-top:0">📦 ETF 구성종목
-        <span style="color:var(--dim);font-size:13px;font-weight:600">· 이 ETF엔 무엇이 담겨 있나</span></h3>
+      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> ETF 구성종목
+        <span style="color:var(--dim);font-size:13px;font-weight:600">· 참고용 · 신호 아님</span></h3>
       <p class="page-desc">유명 ETF의 상위 구성종목을 서클차트로 봅니다. <b>구성 스냅샷(근사·참고용)</b>이며 실제 비중·종목은
         수시로 바뀝니다(정확 수치는 운용사 공시 참고). 시그널·분석 대상은 아니에요.</p>
       <div id="etf-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
@@ -625,7 +659,7 @@
           <input id="bot-seed" type="number" class="ctrl" placeholder="시드(원)" style="max-width:130px" title="초기화 시 적용될 시드 금액">
           <button class="btn" onclick="setSeed()">시드 설정</button>
           <button class="btn" onclick="resetBot()">초기화</button>
-          <span class="stat-label" id="bot-kis-status" style="margin-left:auto"></span>
+          <span class="stat-label" id="bot-acct-status" style="margin-left:auto"></span>
         </div>
         <div class="stat-label" id="bot-rules" style="margin:10px 0 0"></div>
         <div id="bot-reservations" style="display:none;margin-top:10px"></div>
@@ -838,27 +872,29 @@
         <div class="pipe" style="margin-top:10px">
           <div class="pipe-step"><div class="ps-n">1 · 수집</div><div class="ps-t">데이터</div><div class="ps-d">시세·재무(DART)·거시(FRED)·뉴스/영상(KB)</div></div>
           <span class="pipe-arrow">→</span>
-          <div class="pipe-step"><div class="ps-n">2 · 팩터</div><div class="ps-t">5개 팩터 점수화</div><div class="ps-d">기술·기본·저평가·낙폭과대·정성(각 [-1,1] 정규화)</div></div>
+          <div class="pipe-step"><div class="ps-n">2 · 팩터</div><div class="ps-t">8팩터 점수화</div><div class="ps-d">기술·재무·저평가·낙폭·수급·퀄리티·모멘텀·공매도 ([-1,1] · KB는 veto)</div></div>
           <span class="pipe-arrow">→</span>
           <div class="pipe-step"><div class="ps-n">3 · 결합</div><div class="ps-t">가중 결합</div><div class="ps-d">가중평균(없는 팩터는 재정규화 제외) → 종합점수</div></div>
           <span class="pipe-arrow">→</span>
-          <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">임계값 → 5단계</div><div class="ps-d">강력매수·매수·관망·매도·강력매도</div></div>
+          <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">게이트 → 5단계</div><div class="ps-d">국면·추세·어닝·KB악재 veto 후 강력매수~강력매도</div></div>
           <span class="pipe-arrow">→</span>
-          <div class="pipe-step"><div class="ps-n">5 · 검증</div><div class="ps-t">백테스트</div><div class="ps-d">과거 적중률·손익비로 신뢰도 검증</div></div>
+          <div class="pipe-step"><div class="ps-n">5 · 검증</div><div class="ps-t">시뮬 · 실측</div><div class="ps-d">가격 백테스트(시뮬) + PIT track record(실측)</div></div>
           <span class="pipe-arrow">→</span>
-          <div class="pipe-step" style="border-color:var(--ring)"><div class="ps-n">6 · 실행</div><div class="ps-t">봇 LLM 선별</div><div class="ps-d">가드레일 안에서 후보 최종 선별·매매(성향 반영)</div></div>
+          <div class="pipe-step" style="border-color:var(--ring)"><div class="ps-n">6 · 실행</div><div class="ps-t">페이퍼 봇</div><div class="ps-d">가드레일 안 후보 선별·모의계좌 매매(성향 반영)</div></div>
         </div>
       </details>
 
       <b style="font-size:14px;display:block;margin:6px 0 4px">팩터 신뢰도(가중치) · 임계값</b>
-      <p class="page-desc" style="margin:0 0 12px">가중치는 상대 비율로 자동 정규화됩니다.</p>
+      <p class="page-desc" style="margin:0 0 12px">가중치는 상대 비율로 자동 정규화됩니다. <b>KB 정성은 점수 미반영</b>(악재 veto 전용).</p>
       <div class="wcfg">
         <div class="field">기술적 <input type="number" step="0.05" min="0" id="w_technical" class="ctrl"></div>
         <div class="field">기본적 <input type="number" step="0.05" min="0" id="w_fundamental" class="ctrl"></div>
         <div class="field">저평가 <input type="number" step="0.05" min="0" id="w_valuation" class="ctrl"></div>
         <div class="field">낙폭과대 <input type="number" step="0.05" min="0" id="w_reversion" class="ctrl"></div>
+        <div class="field">수급 <input type="number" step="0.05" min="0" id="w_flow" class="ctrl"></div>
+        <div class="field">퀄리티 <input type="number" step="0.05" min="0" id="w_quality" class="ctrl"></div>
         <div class="field">모멘텀 <input type="number" step="0.05" min="0" id="w_momentum" class="ctrl"></div>
-        <div class="field">정성(KB) <input type="number" step="0.05" min="0" id="w_qualitative" class="ctrl"></div>
+        <div class="field">공매도 <input type="number" step="0.05" min="0" id="w_short" class="ctrl"></div>
         <div class="field">강력매수 임계값 <input type="number" step="0.1" id="th_sbuy" class="ctrl"></div>
         <div class="field">매수 임계값 <input type="number" step="0.1" id="th_buy" class="ctrl"></div>
         <div class="field">매도 임계값 <input type="number" step="0.1" id="th_sell" class="ctrl"></div>
@@ -876,8 +912,8 @@
     </div>
 
     <details class="card" id="bt-details" style="margin-top:16px" ontoggle="if(this.open) loadBacktestAnalysis()">
-      <summary style="cursor:pointer;font-weight:700;font-size:15px">백테스트 정밀 분석 <span style="color:var(--dim);font-weight:600;font-size:12px">· 팩터별 승률 기여 (펼치면 계산)</span></summary>
-      <p class="page-desc" style="margin:10px 0">각 팩터를 단독 백테스트해 기여도를 비교하고, 시간 구간별로 과최적화를 점검합니다. 기본적 팩터는 point-in-time으로 반영. (관리자 진단용)</p>
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">백테스트 정밀 분석 <span class="trust-badge sim">시뮬</span> <span style="color:var(--dim);font-weight:600;font-size:12px">· 팩터별 승률 기여 (펼치면 계산)</span></summary>
+      <p class="page-desc" style="margin:10px 0">가격기반 <b>시뮬레이션</b>입니다(실측 track record 아님). 각 팩터를 단독 백테스트해 기여도를 비교하고, 시간 구간별로 과최적화를 점검합니다. 기본적 팩터는 point-in-time으로 반영. (관리자 진단용)</p>
       <div id="bt-analysis" class="placeholder" style="padding:20px 0">펼치면 불러옵니다…</div>
     </details>
 
@@ -1083,7 +1119,7 @@
     </div>
     <div id="guru-modal-pie" style="height:300px;width:100%"></div>
     <div id="guru-modal-rows" style="max-height:340px;overflow-y:auto;margin-top:8px"></div>
-    <div class="stat-label" style="margin-top:10px">분기 공시 스냅샷(최대 45일 지연) · 미국 롱 포지션만 · 추천 아님</div>
+    <div class="stat-label" style="margin-top:10px"><span class="layer-badge ctx">맥락</span> 분기 공시 스냅샷(최대 45일 지연) · 미국 롱 포지션만 · 엔진 신호 아님</div>
   </div>
 </dialog>
 
@@ -1096,11 +1132,44 @@
     <div style="line-height:1.75;font-size:13px;color:var(--txt)">
       <b>종합점수(−3 ~ +3)로 5단계 판정</b><br>
       강력매수 ≥ <b>+2.0</b> · 매수 ≥ <b>+1.2</b> · <b>관망 −1.2 ~ +1.2</b> · 매도 ≤ <b>−1.2</b> · 강력매도 ≤ <b>−2.0</b><br>
-      <b>팩터 가중</b>: 기술 35 · 재무 30 · 저평가 15 · 낙폭과대 20 · 수급 20 · 퀄리티 15 · 모멘텀 20
-      <span style="color:var(--dim-2)">(데이터 있는 팩터끼리 재정규화 · + KB 악재 veto · 하락추세 게이트)</span><br>
+      <b>팩터 가중</b>: 기술 35 · 재무 30 · 모멘텀 30 · 낙폭 20 · 수급 20 · 저평가 15 · 퀄리티 15 · 공매도 15
+      <span style="color:var(--dim-2)">(데이터 있는 팩터끼리 재정규화 · KB 악재는 점수 미반영·veto · 추세·어닝·국면 게이트)</span><br>
       <span style="color:var(--sell)">※ 약세·조정 국면이면 매수 기준이 자동 상향돼, 점수가 +1.2를 넘어도 관망일 수 있습니다.</span>
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);color:var(--dim);font-size:12px">
         각 지표의 뜻·왜 보는지는 <b>인사이트 › 학습</b> 탭에서 볼 수 있어요.</div>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="onboardDlg">
+  <div class="ob-body">
+    <div class="ob-step on" id="ob-step-style">
+      <div style="font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.04em">1 / 2 · 시작하기</div>
+      <h3 style="margin:6px 0 4px;font-size:18px">트레이딩 성향을 고르세요</h3>
+      <p class="ob-hint">페이퍼 자동매매·리밸런싱 기준이 바뀝니다. 나중에 내 자산에서 바꿀 수 있어요. 추천이 아니라 규칙 프리셋입니다.</p>
+      <div class="ob-styles">
+        <button type="button" class="ob-style" data-style="conservative" onclick="obPickStyle('conservative')">
+          <b>안정형</b><span>넓게 분산 · 엄격한 매수 · 타이트한 손절</span></button>
+        <button type="button" class="ob-style on" data-style="balanced" onclick="obPickStyle('balanced')">
+          <b>균형형</b><span>분산과 집중의 균형 · 표준 손익 규칙</span></button>
+        <button type="button" class="ob-style" data-style="aggressive" onclick="obPickStyle('aggressive')">
+          <b>공격형</b><span>소수 집중 · 적극 매수 · 넓은 손절/큰 익절</span></button>
+      </div>
+      <div class="ob-foot">
+        <button type="button" class="btn" onclick="obSkip()">나중에</button>
+        <button type="button" class="btn primary" style="margin-left:auto" onclick="obGoFavs()">다음 · 관심종목</button>
+      </div>
+    </div>
+    <div class="ob-step" id="ob-step-favs">
+      <div style="font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.04em">2 / 2 · 관심종목</div>
+      <h3 style="margin:6px 0 4px;font-size:18px">지켜볼 종목 3개를 고르세요</h3>
+      <p class="ob-hint">관심종목이 있어야 <b>매수 대기 리스트</b>가 채워집니다. “무엇이 매수를 막는지”를 종목별로 볼 수 있어요.</p>
+      <div class="ob-chips" id="ob-chips"></div>
+      <p class="ob-hint" id="ob-fav-count">0 / 3 선택</p>
+      <div class="ob-foot">
+        <button type="button" class="btn" onclick="obBackStyle()">뒤로</button>
+        <button type="button" class="btn primary" id="ob-finish" style="margin-left:auto" disabled onclick="obFinish()">시작하기</button>
+      </div>
     </div>
   </div>
 </dialog>
@@ -1110,9 +1179,9 @@
 <div id="chat-panel">
   <div id="chat-grip" title="드래그로 높이 조절" onpointerdown="chatResizeStart(event)"></div>
   <div id="chat-head">
-    <span style="font-size:20px">🐰</span>
     <b id="chat-name">주디</b>
-    <span style="color:var(--dim);font-size:11px">· 안내 도우미</span>
+    <span class="layer-badge ctx">맥락</span>
+    <span style="color:var(--dim);font-size:11px">· 안내 · 재분석·자문 없음</span>
     <span onclick="closeChat()" style="margin-left:auto;cursor:pointer;color:var(--dim);font-size:16px">✕</span>
   </div>
   <div id="chat-msgs"></div>
@@ -1451,21 +1520,45 @@ async function loadRegime(){
   loadScorecard();
 }
 
-// ③ 실현 시그널 성적표 — 봇의 실제 매수 판단이 3일 뒤 얼마나 맞았나(백테스트와 별개, 실제 결정 사후검증)
+// ③ 신뢰 스트립 — 실측 track record(누적중 가드) + 봇 체결 성적. 백테스트 숫자는 여기 안 올림.
+const _TRUST_MATURE_N = 20;  // IC·정밀도 헤드라인 최소 표본(accuracy.ic_min_samples와 맞춤)
 async function loadScorecard(){
-  const el = document.getElementById('signal-scorecard');
+  const el = document.getElementById('signal-trust');
   if (!el) return;
   try {
-    const d = await (await fetch('/api/signal-scorecard')).json();
-    if (!d.resolved) { el.style.display = 'none'; return; }
-    const wr = d.win_rate, wc = wr >= 55 ? 'var(--sig-buy)' : wr < 45 ? 'var(--sig-sell)' : 'var(--txt)';
-    const av = d.avg_outcome_pct, ac = av > 0 ? 'var(--sig-buy)' : av < 0 ? 'var(--sig-sell)' : 'var(--txt)';
+    const [acc, bot] = await Promise.all([
+      fetch('/api/accuracy').then(r => r.json()).catch(() => ({ ready: false })),
+      fetch('/api/signal-scorecard').then(r => r.json()).catch(() => ({ resolved: 0 })),
+    ]);
+    const rows = [];
+    const cov = acc.coverage || {};
+    const need = acc.ic_min_samples || _TRUST_MATURE_N;
+    const matured = cov.matured_primary || 0;
+    const matureOk = !!acc.ready && matured >= need;
+    if (matureOk) {
+      const prec = acc.buy_precision_pct;
+      const pc = prec == null ? 'var(--dim)' : prec >= 55 ? 'var(--sig-buy)' : prec < 45 ? 'var(--sig-sell)' : 'var(--txt)';
+      rows.push(`<div class="trust-row"><span class="trust-badge live">실측</span>`
+        + `<b>시그널 성적</b> · 매수 정밀도 <b style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</b>`
+        + ` <span style="color:var(--dim-2)">(${acc.primary_horizon || 20}거래일 · 표본 ${acc.buy_sample || matured})</span></div>`);
+    } else {
+      rows.push(`<div class="trust-row"><span class="trust-badge accum">누적중</span>`
+        + `<b>시그널 성적</b> · track record 쌓는 중`
+        + ` <span style="color:var(--dim)">${cov.dates || 0}일 · 시그널 ${(cov.rows || 0).toLocaleString()}건`
+        + ` · 성숙 ${matured}/${need}</span>`
+        + ` <span style="color:var(--dim-2);font-size:11px">· 표본이 차기 전까지 정밀도 숫자는 표시하지 않습니다</span></div>`);
+    }
+    if (bot.resolved) {
+      const wr = bot.win_rate, wc = wr >= 55 ? 'var(--sig-buy)' : wr < 45 ? 'var(--sig-sell)' : 'var(--txt)';
+      const av = bot.avg_outcome_pct, ac = av > 0 ? 'var(--sig-buy)' : av < 0 ? 'var(--sig-sell)' : 'var(--txt)';
+      rows.push(`<div class="trust-row"><span class="trust-badge bot">봇 체결</span>`
+        + `<b>${bot.resolved}건</b> 실현 · 승률 <b style="color:${wc}">${fmtNum(wr, 1)}%</b>`
+        + ` · 평균 <b style="color:${ac}">${av > 0 ? '+' : ''}${fmtNum(av, 2)}%</b>(3일)`
+        + (bot.pending ? ` <span style="color:var(--dim)">· 미실현 ${bot.pending}건</span>` : '')
+        + ` <span style="color:var(--dim-2);font-size:11px">· 자동매매 실제 체결(시그널 성적·시뮬과 별개)</span></div>`);
+    }
     el.style.display = '';
-    el.innerHTML = `<b>봇 매매 성적</b> <span style="color:var(--dim-2)">(자동매매 실제 체결)</span> — <b>${d.resolved}건</b> 실현`
-      + ` · 승률 <b style="color:${wc}">${fmtNum(wr, 1)}%</b>`
-      + ` · 평균 <b style="color:${ac}">${av > 0 ? '+' : ''}${fmtNum(av, 2)}%</b>(3일)`
-      + (d.pending ? ` <span style="color:var(--dim)">· 미실현 ${d.pending}건</span>` : '')
-      + ` <span style="color:var(--dim-2);font-size:11px">· 봇이 실제로 사고판 결과(시뮬레이션·시그널 정확도와 별개)</span>`;
+    el.innerHTML = rows.join('');
   } catch (e) { el.style.display = 'none'; }
 }
 
@@ -1846,7 +1939,8 @@ async function fetchNarrativeV2(ticker, el){
     const d = await (await fetch('/api/narrative?ticker=' + encodeURIComponent(ticker))).json();
     if (!d.ok || _selectedTicker !== ticker) return;
     if (d.source === 'llm') {
-      el.innerHTML = `<span style="font-size:11px;color:var(--accent);font-weight:700">AI 해설</span><br>${esc(d.narrative)}`;
+      el.innerHTML = `<span class="layer-badge ctx">맥락</span> <span style="font-size:11px;color:var(--dim);font-weight:600">AI 해설 · 의견≠신호</span>`
+        + `<div style="margin-top:4px">${esc(d.narrative)}</div>`;
     }
   } catch(e) {}
 }
@@ -1896,12 +1990,12 @@ const _FACTOR_META = {
 const _FACTOR_ORDER = ['technical', 'fundamental', 'valuation', 'reversion', 'flow', 'quality', 'momentum', 'short'];
 // ===== 차트 아래 상세 서브탭 — 해설/정성/팩터/동종업계를 하나씩 보여줘 차트를 밀어내지 않는다 =====
 const _DETAIL_PANELS = [
-  { key: 'metrics', label: '지표·목표가', el: 'signal-metrics' },
-  { key: 'narr', label: 'AI 해설', el: 'signal-narrative' },
-  { key: 'factor', label: '팩터 강약', el: 'signal-factors' },
-  { key: 'kb', label: '정성 심리', el: 'signal-kb' },
-  { key: 'peers', label: '동종업계', el: 'signal-peers' },
-  { key: 'events', label: '일정·이력', el: 'signal-events' },
+  { key: 'metrics', label: '<span class="layer-badge sig">신호</span> 지표·목표가', el: 'signal-metrics' },
+  { key: 'narr', label: '<span class="layer-badge ctx">맥락</span> 해설', el: 'signal-narrative' },
+  { key: 'factor', label: '<span class="layer-badge sig">신호</span> 팩터', el: 'signal-factors' },
+  { key: 'kb', label: '<span class="layer-badge ctx">맥락</span> KB', el: 'signal-kb' },
+  { key: 'peers', label: '<span class="layer-badge sig">신호</span> 동종', el: 'signal-peers' },
+  { key: 'events', label: '<span class="layer-badge ctx">맥락</span> 일정', el: 'signal-events' },
 ];
 let _activeDetailTab = 'metrics';   // 자주 보는 지표·목표가를 기본 노출
 function setDetailHas(elId, has){ const el = document.getElementById(elId); if (el) el.dataset.has = has ? '1' : '0'; }
@@ -1939,7 +2033,7 @@ function renderFactors(item){
       <span class="fct-val" style="color:${col}">${v > 0 ? '+' : ''}${fmtNum(v, 2)}</span>
     </div>`;
   };
-  el.innerHTML = `<div class="fct-title">팩터 강약 프로필 <span style="color:var(--dim-2);font-weight:400">· 종합점수를 만든 요인별 방향·강도(−1~+1)</span></div>`
+  el.innerHTML = `<div class="fct-title"><span class="layer-badge sig">신호</span> 팩터 강약 <span style="color:var(--dim-2);font-weight:400">· 종합점수를 만든 요인별 방향·강도(−1~+1)</span></div>`
     + keys.map(bar).join('');
   setDetailHas('signal-factors', true);
 }
@@ -2099,8 +2193,9 @@ async function showSignalChart(ticker, item){
   if (bt && bt.n) {
     const wr = bt.winrate, wrColor = wr >= 55 ? 'var(--sig-buy)' : wr < 45 ? 'var(--sig-sell)' : 'var(--dim)';
     btEl.style.display = '';
-    btEl.innerHTML = `<span style="color:var(--dim)">시뮬레이션</span> ${kindLabel(item.kind)} 적중률 <b style="color:${wrColor}">${fmtNum(wr, 1)}%</b>`
-      + `${bt.avg_ret_5d != null ? ` · 5일 평균 ${bt.avg_ret_5d > 0 ? '+' : ''}${fmtNum(bt.avg_ret_5d, 2)}%` : ''} <span style="color:var(--dim-2)">(가격기반 백테스트 ${bt.n}건 · 참고용, 실측 아님)</span>`;
+    btEl.innerHTML = `<span class="trust-badge sim">시뮬</span> ${kindLabel(item.kind)} 적중률 <b style="color:${wrColor}">${fmtNum(wr, 1)}%</b>`
+      + `${bt.avg_ret_5d != null ? ` · 5일 평균 ${bt.avg_ret_5d > 0 ? '+' : ''}${fmtNum(bt.avg_ret_5d, 2)}%` : ''}`
+      + ` <span style="color:var(--dim-2)">(가격기반 백테스트 ${bt.n}건 · 참고용 · 실측 track record 아님)</span>`;
   } else btEl.style.display = 'none';
   const tgEl = document.getElementById('signal-target');
   const tg = item && item.target;
@@ -2129,20 +2224,21 @@ async function showSignalChart(ticker, item){
   setDetailHas('signal-metrics', !!(item && item.price != null));  // 지표 탭: 시세/재무 있는 종목만(지수 제외)
   const narrEl = document.getElementById('signal-narrative');
   if (item && item.narrative) {
-    narrEl.textContent = item.narrative;                              // v1(규칙) 즉시 표시
-    if (ticker !== INDEX_TICKER) fetchNarrativeV2(ticker, narrEl);     // v2(LLM) 비동기 덮어쓰기
+    narrEl.innerHTML = `<span class="layer-badge sig">신호</span> <span style="font-size:11px;color:var(--dim);font-weight:600">규칙 해설</span>`
+      + `<div style="margin-top:4px">${esc(item.narrative)}</div>`;
+    if (ticker !== INDEX_TICKER) fetchNarrativeV2(ticker, narrEl);
   }
   setDetailHas('signal-narrative', !!(item && item.narrative));
   const kbEl = document.getElementById('signal-kb');
   const earnWarn = (item && item.earnings_soon)
-    ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">📅 실적발표 임박${item.earnings_date ? ' (' + esc(item.earnings_date) + ')' : ''} — 발표 전 신규 매수 보류(관망)</div>` : '';
+    ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">실적발표 임박${item.earnings_date ? ' (' + esc(item.earnings_date) + ')' : ''} — 발표 전 신규 매수 보류(관망)</div>` : '';
   const evWarn = ((item && item.event_risk)
     ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">⚠ 최근 악재 감지 — 매수 후보 제외${item.event_note ? ': ' + esc(item.event_note) : ''}</div>` : '') + earnWarn;
   if (item && (item.kb || evWarn)) {
-    let html = evWarn;
+    let html = `<div style="margin-bottom:6px"><span class="layer-badge ctx">맥락</span> <span style="font-size:11px;color:var(--dim)">KB · 점수 미반영 · 악재만 veto</span></div>` + evWarn;
     if (item.kb) {
       const s = item.kb.sentiment, cls = s > 0.15 ? 'var(--sig-buy)' : s < -0.15 ? 'var(--sig-sell)' : 'var(--dim)';
-      html += `<b>정성(뉴스)</b> 심리 <b style="color:${cls}">${s > 0 ? '+' : ''}${fmtNum(s, 2)}</b> <span style="color:var(--dim-2)">· 참고용(점수 미반영)</span> · ${esc(item.kb.summary || '')}`
+      html += `<b>뉴스 심리</b> <b style="color:${cls}">${s > 0 ? '+' : ''}${fmtNum(s, 2)}</b> <span style="color:var(--dim-2)">· 참고</span> · ${esc(item.kb.summary || '')}`
         + (item.kb.points && item.kb.points.length ? `<div style="color:var(--dim);margin-top:3px">· ${item.kb.points.map(esc).join(' · ')}</div>` : '');
     }
     kbEl.innerHTML = html;
@@ -2280,12 +2376,12 @@ async function loadBotState(){
     document.getElementById('bot-status-label').textContent = d.enabled ? '실행 중' : '꺼짐';
     document.getElementById('bot-toggle-btn').textContent = d.enabled ? '끄기' : '켜기';
     const killTxt = d.kill_switch ? ` · <b style="color:var(--sig-sell)">🛑 긴급정지(주문 차단)</b>` : '';
-    document.getElementById('bot-kis-status').innerHTML =
-      `내 ${usd ? '해외(USD)' : '국내'} 모의계좌 · 시드 ${fmtM(d.seed_cash)}`
+    document.getElementById('bot-acct-status').innerHTML =
+      `내 ${usd ? '해외(USD)' : '국내'} 페이퍼 계좌 · 시드 ${fmtM(d.seed_cash)}`
       + ` · <b style="color:${d.llm_enabled ? 'var(--sig-buy)' : 'var(--dim)'}">AI 판단 ${d.llm_enabled ? 'ON' : 'OFF'}</b>` + killTxt;
     const cfg = d.config || {};
     document.getElementById('bot-rules').innerHTML =
-      `<b>ON이면 주기적으로</b> 공용 시그널로 내 모의계좌에 자동 판단·매매(강한 BUY 후보 → <b>AI 최종 선별</b>) · `
+      `<b>ON이면 주기적으로</b> 공용 시그널로 내 페이퍼 계좌에 자동 판단·매매(강한 BUY 후보 → <b>AI 최종 선별</b>) · `
       + `종가 기준 가상 체결 · <b>장중에만 자동매매</b>(장외 스킵, 수동 '지금 실행'은 예외) · `
       + `매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · 한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · `
       + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`
@@ -3654,8 +3750,9 @@ async function delShortform(id){
 
 // ===== 시그널 엔진 설정(관리자) =====
 const _ENGINE_FIELDS = { w_technical: 'weight_technical', w_fundamental: 'weight_fundamental',
-  w_valuation: 'weight_valuation', w_reversion: 'weight_reversion', w_momentum: 'weight_momentum',
-  w_qualitative: 'weight_qualitative',
+  w_valuation: 'weight_valuation', w_reversion: 'weight_reversion',
+  w_flow: 'weight_flow', w_quality: 'weight_quality', w_momentum: 'weight_momentum',
+  w_short: 'weight_short',
   th_sbuy: 'strong_buy_threshold', th_buy: 'buy_threshold', th_sell: 'sell_threshold', th_ssell: 'strong_sell_threshold' };
 function _fillEngine(cfg, winrate){
   for (const [id, key] of Object.entries(_ENGINE_FIELDS)) {
@@ -3664,7 +3761,7 @@ function _fillEngine(cfg, winrate){
   document.getElementById('cfg_regime_adaptive').checked = (cfg.regime_adaptive == null) || cfg.regime_adaptive >= 0.5;
   const buy = (winrate || {}).BUY;
   document.getElementById('engine-winrate').innerHTML = buy && buy.n
-    ? `현재 백테스트 — BUY 적중률 <b>${fmtNum(buy.winrate, 1)}%</b> · 5일 평균 ${buy.avg_ret_5d > 0 ? '+' : ''}${fmtNum(buy.avg_ret_5d, 2)}% (표본 ${buy.n}, 가격기반)`
+    ? `<span class="trust-badge sim">시뮬</span> BUY 적중률 <b>${fmtNum(buy.winrate, 1)}%</b> · 5일 평균 ${buy.avg_ret_5d > 0 ? '+' : ''}${fmtNum(buy.avg_ret_5d, 2)}% <span style="color:var(--dim-2)">(표본 ${buy.n} · 가격기반 · 실측 아님)</span>`
     : '백테스트 데이터 없음';
 }
 async function loadEngine(){
@@ -3769,44 +3866,45 @@ async function loadBrain(){
 // 실측 성과(track record) — 실제 낸 시그널이 이후 수익률로 얼마나 맞았나. 매일 누적.
 const _ACC_KIND = { STRONG_BUY: '강력매수', BUY: '매수', SELL: '매도', STRONG_SELL: '강력매도' };
 const _ACC_FACTOR = { technical: '기술', fundamental: '기본', valuation: '밸류', reversion: '낙폭',
-  qualitative: '정성(KB)', flow: '수급', quality: '퀄리티', momentum: '모멘텀' };
+  qualitative: 'KB veto', flow: '수급', quality: '퀄리티', momentum: '모멘텀', short: '공매도' };
 async function loadAccuracy(){
   const el = document.getElementById('accuracy-body');
   if (!el) return;
   try {
     const d = await (await fetch('/api/accuracy')).json();
     const cov = d.coverage || {};
+    const need = d.ic_min_samples || _TRUST_MATURE_N;
+    const matured = cov.matured_primary || 0;
     const covLine = `누적 <b>${cov.dates || 0}</b>일 · 시그널 <b>${(cov.rows || 0).toLocaleString()}</b>건`
       + (cov.from ? ` <span style="color:var(--dim-2)">(${cov.from}~${cov.to})</span>` : '');
-    if (!d.ready) {
+    // ready여도 표본 < need면 헤드라인 숫자 비공개(조기 정밀도 = 신뢰 환각)
+    if (!d.ready || matured < need) {
       el.className = '';
       el.innerHTML = `<div style="padding:14px;border:1px dashed var(--line-strong);border-radius:10px;text-align:center">
-        <div style="font-size:26px">🌱</div>
+        <div style="margin-bottom:6px"><span class="trust-badge accum">누적중</span></div>
         <div style="font-weight:700;margin:4px 0">track record 누적 중</div>
-        <div style="color:var(--dim);font-size:12px">${covLine}<br>${d.primary_horizon}거래일 성숙 표본 <b>${cov.matured_primary || 0}</b>건 — 시그널을 낸 뒤 ${d.primary_horizon}거래일이 지나야 채점됩니다. 매일 마감 후 쌓여요.</div>
-        ${d.reason ? `<div style="color:var(--dim-2);font-size:11px;margin-top:6px">${esc(d.reason)}</div>` : ''}</div>`;
+        <div style="color:var(--dim);font-size:12px">${covLine}<br>${d.primary_horizon || 20}거래일 성숙 표본 <b>${matured}</b>/${need}건`
+        + ` — 시그널을 낸 뒤 ${d.primary_horizon || 20}거래일이 지나야 채점되고,`
+        + ` 표본 ${need}건 미만에서는 정밀도·IC를 헤드라인으로 쓰지 않습니다.</div>`
+        + `${d.reason ? `<div style="color:var(--dim-2);font-size:11px;margin-top:6px">${esc(d.reason)}</div>` : ''}</div>`;
       return;
     }
     const h = d.primary_horizon;
     const prec = d.buy_precision_pct;
     const precColor = prec >= 55 ? 'var(--sig-buy)' : prec < 45 ? 'var(--sig-sell)' : 'var(--dim)';
-    // 티어 표(primary horizon)
     const t = (d.tiers || {})[h] || {};
     const retCell = v => v == null ? '<td style="color:var(--dim-2)">–</td>'
       : `<td style="color:${v > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">${v > 0 ? '+' : ''}${fmtNum(v, 2)}%</td>`;
-    const hitCell = (v, buyish) => v == null ? '<td style="color:var(--dim-2)">–</td>'
-      : `<td style="font-weight:700;color:${(v >= 55) === buyish ? (buyish ? 'var(--sig-buy)' : 'var(--dim)') : ''}">${fmtNum(v, 1)}%</td>`;
     const tierRows = ['STRONG_BUY', 'BUY', 'SELL', 'STRONG_SELL'].map(k => {
       const s = t[k] || {}; if (!s.n) return '';
       return `<tr><td>${_ACC_KIND[k]}</td><td style="color:var(--dim)">${s.n}</td>
         <td style="font-weight:700">${s.hit_rate == null ? '–' : fmtNum(s.hit_rate, 1) + '%'}</td>
         ${retCell(s.avg_ret)}</tr>`;
     }).join('') || '<tr><td colspan="4" style="color:var(--dim-2)">성숙 표본 없음</td></tr>';
-    // 팩터 IC(|IC| 내림차순)
     const ics = Object.entries(d.factor_ic || {}).filter(([, v]) => v != null)
       .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
     const icRows = ics.length ? ics.map(([f, v]) => {
-      const w = Math.min(100, Math.abs(v) * 100 / 0.15);   // |IC| 0.15을 만점으로 시각화
+      const w = Math.min(100, Math.abs(v) * 100 / 0.15);
       const c = v > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)';
       return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:12px">
         <span style="width:72px;color:var(--dim)">${_ACC_FACTOR[f] || f}</span>
@@ -3814,17 +3912,18 @@ async function loadAccuracy(){
           <span style="position:absolute;left:${v < 0 ? 'auto' : '50%'};right:${v < 0 ? '50%' : 'auto'};width:${w / 2}%;height:100%;background:${c};border-radius:4px"></span>
           <span style="position:absolute;left:50%;top:-2px;width:1px;height:12px;background:var(--line-strong)"></span></span>
         <span style="width:48px;text-align:right;font-weight:700;color:${c}">${v > 0 ? '+' : ''}${fmtNum(v, 3)}</span></div>`;
-    }).join('') : `<div style="color:var(--dim-2);font-size:12px">표본 ${d.ic_min_samples}건 이상 쌓이면 표시됩니다.</div>`;
+    }).join('') : `<div style="color:var(--dim-2);font-size:12px">표본 ${need}건 이상 쌓이면 표시됩니다.</div>`;
     el.className = '';
     el.innerHTML = `
       <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:2px">
+        <span class="trust-badge live">실측</span>
         <span style="font-size:13px;color:var(--dim)">매수 정밀도 <span style="color:var(--dim-2)">· ${h}거래일</span></span>
         <span style="font-size:26px;font-weight:800;color:${precColor}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</span>
         <span style="font-size:12px;color:var(--dim-2)">매수 시그널 ${d.buy_sample}건 중 상승 비율</span></div>
       <table class="dtable" style="margin-top:8px"><thead><tr><th>티어</th><th>표본</th><th>적중률</th><th>평균수익</th></tr></thead><tbody>${tierRows}</tbody></table>
       <div style="font-size:13px;font-weight:700;margin:16px 0 4px">팩터 예측력 <span style="color:var(--dim);font-weight:500">· Spearman IC (팩터값↑ vs ${h}일 수익, 양수=예측 유효)</span></div>
       ${icRows}
-      <p class="page-desc" style="margin:10px 0 0;font-size:11px;color:var(--dim-2)">${covLine} · ${h}거래일 성숙 <b>${cov.matured_primary}</b>건. 밸류는 저평가일수록 값이 낮아 IC 부호가 반대로 해석됩니다.</p>`;
+      <p class="page-desc" style="margin:10px 0 0;font-size:11px;color:var(--dim-2)">${covLine} · ${h}거래일 성숙 <b>${matured}</b>건. 밸류는 저평가일수록 값이 낮아 IC 부호가 반대로 해석됩니다.</p>`;
   } catch (e) { el.className = ''; el.textContent = '불러오지 못했습니다.'; }
 }
 
@@ -3864,6 +3963,101 @@ async function startApp(){
   loadAlertBadge();
   initChat();  // 안내 에이전트(챗봇) 플로팅 버튼 — 사용 가능 시 노출
   routeFromHash() || switchTab('signal');
+  maybeShowOnboard();  // 성향·관심종목 미설정 시 미니 온보딩
+}
+
+// ===== 온보딩 — 성향 + 관심종목 3개 → 매수 대기 리스트 JTBD 고정 =====
+const _OB_SEED = [
+  ['005930', '삼성전자'], ['000660', 'SK하이닉스'], ['035420', 'NAVER'],
+  ['005380', '현대차'], ['051910', 'LG화학'], ['006400', '삼성SDI'],
+  ['035720', '카카오'], ['068270', '셀트리온'], ['105560', 'KB금융'], ['055550', '신한지주'],
+];
+let _obStyle = 'balanced';
+let _obFavs = new Set();
+
+function maybeShowOnboard(){
+  if (_profile && _profile.desk_onboarded) return;
+  const dlg = document.getElementById('onboardDlg');
+  if (!dlg) return;
+  _obStyle = (_profile && _profile.투자성향) || 'balanced';
+  _obFavs = new Set();
+  document.querySelectorAll('#onboardDlg .ob-style').forEach(b => b.classList.toggle('on', b.dataset.style === _obStyle));
+  document.getElementById('ob-step-style').classList.add('on');
+  document.getElementById('ob-step-favs').classList.remove('on');
+  try { dlg.showModal(); } catch (e) {}
+}
+function obPickStyle(style){
+  _obStyle = style;
+  document.querySelectorAll('#onboardDlg .ob-style').forEach(b => b.classList.toggle('on', b.dataset.style === style));
+}
+function obGoFavs(){
+  document.getElementById('ob-step-style').classList.remove('on');
+  document.getElementById('ob-step-favs').classList.add('on');
+  obRenderChips();
+}
+function obBackStyle(){
+  document.getElementById('ob-step-favs').classList.remove('on');
+  document.getElementById('ob-step-style').classList.add('on');
+}
+function obSuggestList(){
+  const fromSig = Object.values(_signalItems || {})
+    .filter(r => r && r.ticker && !String(r.ticker).includes('.'))
+    .sort((a, b) => (b.mktcap || 0) - (a.mktcap || 0))
+    .slice(0, 10)
+    .map(r => [r.ticker, r.name || r.ticker]);
+  return fromSig.length >= 5 ? fromSig : _OB_SEED;
+}
+function obRenderChips(){
+  const box = document.getElementById('ob-chips');
+  box.innerHTML = obSuggestList().map(([t, n]) =>
+    `<button type="button" class="ob-chip${_obFavs.has(t) ? ' on' : ''}" data-t="${esc(t)}">${esc(n)}</button>`
+  ).join('');
+  box.querySelectorAll('.ob-chip').forEach(b => b.addEventListener('click', () => obToggleFav(b.dataset.t)));
+  obUpdateFavCount();
+}
+function obToggleFav(ticker){
+  if (_obFavs.has(ticker)) _obFavs.delete(ticker); else _obFavs.add(ticker);
+  document.querySelectorAll('#ob-chips .ob-chip').forEach(b => b.classList.toggle('on', _obFavs.has(b.dataset.t)));
+  obUpdateFavCount();
+}
+function obUpdateFavCount(){
+  const n = _obFavs.size;
+  document.getElementById('ob-fav-count').textContent = `${n} / 3 선택` + (n >= 3 ? ' · 충분합니다' : '');
+  document.getElementById('ob-finish').disabled = n < 3;
+}
+async function _obSaveProfile(extra){
+  const body = Object.assign({ 투자성향: _obStyle, desk_onboarded: true }, extra || {});
+  await fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  _profile = Object.assign(_profile || {}, body);
+  await fetch('/api/bot/style', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: _obStyle }) });
+}
+async function obSkip(){
+  await _obSaveProfile();
+  document.getElementById('onboardDlg').close();
+}
+async function obFinish(){
+  if (_obFavs.size < 3) return;
+  const btn = document.getElementById('ob-finish');
+  btn.disabled = true; btn.textContent = '저장 중…';
+  try {
+    await _obSaveProfile();
+    for (const t of _obFavs) {
+      const name = (obSuggestList().find(x => x[0] === t) || [t, t])[1];
+      await fetch('/api/favorites', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'ticker', key: t, label: name }) });
+      _favorites.add(t);
+    }
+    document.getElementById('onboardDlg').close();
+    switchTab('signal');
+    const favCb = document.getElementById('screen-favonly');
+    if (favCb) favCb.checked = true;
+    const qf = document.getElementById('qf-favonly');
+    if (qf) qf.classList.add('on');
+    renderSignalList();
+    loadBuylist();
+  } finally {
+    btn.disabled = false; btn.textContent = '시작하기';
+  }
 }
 
 // ===== 안내 에이전트(챗봇) — 이미 계산된 데이터를 대화로 풀어줌(재분석·자문 없음) =====
@@ -3886,7 +4080,7 @@ async function initChat(){
 function _renderChat(){
   const box = document.getElementById('chat-msgs'); box.innerHTML = '';
   if (_chatHistory.length) _chatHistory.forEach(t => appendChat(t.role === 'user' ? 'user' : 'bot', t.content));
-  else appendChat('bot', `안녕하세요, ${_chatName}예요 🐰 시그널·종목·용어 뭐든 물어보세요. 저는 이미 분석된 결과를 쉽게 풀어드릴 뿐, 매수·매도를 권하진 않아요 — 판단은 늘 본인 몫이에요.`);
+  else appendChat('bot', `안녕하세요, ${_chatName}예요. 시그널·종목·용어를 이미 계산된 결과로만 풀어드려요. **맥락**이지 매수·매도 신호가 아니며, 판단은 늘 본인 몫입니다.`);
 }
 function openChat(){
   document.getElementById('chat-fab').style.display = 'none';

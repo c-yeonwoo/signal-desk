@@ -8,18 +8,20 @@
 체리피킹해 얹는 중이다 — 배경은 [CLAUDE.md](CLAUDE.md), 체리피킹 대상은
 [NOTES-cherrypick.md](NOTES-cherrypick.md) 참고.
 
-## 현재 상태 (v0.1 — 스캐폴딩)
+## 현재 상태 (MVP — 엔진·봇·UI 가동)
 
-- ✅ FastAPI 앱 골격 + 인증(회원가입/로그인/세션 쿠키)
-- ✅ 온보딩 프로필 API(투자성향·관심 섹터·초기 워치리스트)
-- ✅ 워치리스트(즐겨찾기) CRUD API
-- ✅ 단일 파일 SPA(`web/index.html`) — 브랜드 토큰, 5탭 해시 라우팅, 인증 게이트, 온보딩 모달
-- ⬜ 시그널 엔진 + 백테스트 성적표 (2단계)
-- ⬜ 시장 국면 + 매크로 미니차트 (3단계)
-- ⬜ 통합 후보 뷰 + 기회도 (4단계)
-- ⬜ 밸류에이션(저평가) 뷰 + 섹터 트리맵 (5단계)
-- ⬜ 관심·비교·AI 리포트 실데이터 연동 (6단계)
+- ✅ FastAPI + 인증 + 온보딩 미니플로우(성향·관심종목 3개)
+- ✅ 8팩터 시그널 엔진 + 4게이트(국면·추세·어닝·KB veto) + 실측 트래커(`/api/accuracy`)
+- ✅ 페이퍼 자동매매봇(유저별 계좌) + 레퍼런스 봇 track record
+- ✅ SPA 4탭: **시그널 · 내 자산 · 인사이트 · 관리자**(+마이페이지)
+  - 시그널: 리스트/차트·스크리너·매수대기·신뢰 스트립(실측/누적중/시뮬 가드)
+  - 내 자산: 시그널 트레이딩 · 내 포트폴리오 · 배당
+  - 인사이트: 사이클 · 밸류체인 · 학습 · 거장 · ETF(맥락 레이어)
+- ✅ 신뢰 UI: 미성숙 track record는 숫자 비공개, 백테스트는 `시뮬` 배지
+- ⏳ 실측 트래커 성숙(~20거래일) 후 팩터 가중 재확정·공개 성과 대시보드
+- ⬜ 유료화 화이트리스트 게이트(기록만, H3)
 
+다음 우선순위·의존관계는 [BACKLOG.md](BACKLOG.md) · 핸드오프 참고.
 ## 설치 & 실행
 
 > ⚠️ Python 3.12 권장 (Signal APT 이력상 3.14는 pandas/pyarrow 세그폴트 — 이 리포는 아직
@@ -37,14 +39,15 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 ```
 src/signal_desk/
-├── api.py       # FastAPI 앱 — 인증/온보딩/워치리스트 + 향후 탭용 스텁 라우트
-├── auth.py      # pbkdf2 세션 인증 (외부 의존성 0)
-├── db.py        # SQLite (users/sessions/profile/favorites/kv)
-├── config.py    # 환경변수 로더 + 키 getter
-├── store.py     # 캐시 로더 스텁 (2단계에서 시세/시그널 캐시로 확장)
-├── cli.py       # typer CLI (serve 동작, fetch/build/report는 2단계 예정)
-├── signals/     # 시그널 엔진 (2단계, 현재 빈 패키지)
-├── ingest/      # 데이터 수집기 (2단계, 현재 빈 패키지)
+├── api.py           # FastAPI — 인증·시그널·봇·KB·관리자
+├── auth.py          # pbkdf2 세션
+├── bot.py           # 페이퍼 자동매매(멀티테넌트)
+├── brain.py         # 두뇌 레이어(읽기 전용 헬스)
+├── signalcfg.py     # 팩터 가중·임계값 영속화
+├── broker/paper.py  # 유저별 페이퍼 계좌
+├── signals/         # 엔진·팩터·게이트·accuracy·narrative
+├── ingest/          # KRX·DART·FRED·네이버·RSS 등
+├── reference/       # 사이클·밸류체인·거장·quant_methods
 └── web/index.html   # 단일 파일 SPA
 ```
 
@@ -57,7 +60,7 @@ src/signal_desk/
 | 변수 | 용도 |
 |---|---|
 | `APP_ENV=prod` | prod 모드 — 세션 쿠키 `secure` 플래그(HTTPS 전제) |
-| `BROKER_BACKEND=paper\|kis` | 자동매매 백엔드. 미설정 시 KIS 자격증명 있으면 kis, 없으면 paper |
+| `BROKER_BACKEND=paper` | 자동매매는 **페이퍼 전용**(실주문 경로 제거). KIS 모듈은 레거시/참고 |
 | `KIS_ENV=demo` | KIS 모의투자(권장). 실계좌는 `demo` 외 값 + `ALLOW_REAL_ORDERS=true` 필요 |
 | `ALLOW_REAL_ORDERS` | 실계좌 실주문 이중 안전장치(기본 off) |
 | `BOT_KILL_SWITCH` | 긴급정지 — 켜면 어떤 주문도 안 나감 |

@@ -19,10 +19,20 @@ def test_set_and_get_override(tmp_path, monkeypatch):
 
 def test_reset_restores_defaults(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    signalcfg.set_dict({"weight_qualitative": 0.4})
-    assert signalcfg.get_config().weight_qualitative == 0.4
+    signalcfg.set_dict({"weight_momentum": 0.5})
+    assert signalcfg.get_config().weight_momentum == 0.5
     signalcfg.reset()
-    assert signalcfg.get_config().weight_qualitative == 0.15
+    assert signalcfg.get_config().weight_momentum == 0.30
+
+
+def test_qualitative_weight_not_admin_tunable(tmp_path, monkeypatch):
+    """KB 정성은 veto 전용 — FIELDS에 없어 set_dict로 덮어쓰지 않는다."""
+    monkeypatch.chdir(tmp_path)
+    assert "weight_qualitative" not in signalcfg.FIELDS
+    signalcfg.set_dict({"weight_qualitative": 0.9, "weight_short": 0.25})
+    cfg = signalcfg.get_config()
+    assert cfg.weight_qualitative == 0.15  # 기본값 유지
+    assert cfg.weight_short == 0.25
 
 
 def test_effective_config_raises_buy_threshold_in_weak_regime(tmp_path, monkeypatch):

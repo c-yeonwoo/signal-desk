@@ -33,12 +33,15 @@ def test_signup_login_profile_flow(tmp_path, monkeypatch):
     r = client.get("/api/auth/me")
     assert r.status_code == 200
     assert r.json()["auth"] is True
+    assert r.json()["onboarded"] is False
 
-    r = client.put("/api/profile", json={"투자성향": "balanced"})
+    r = client.put("/api/profile", json={"투자성향": "balanced", "desk_onboarded": True})
     assert r.status_code == 200
 
     r = client.get("/api/profile")
     assert r.json()["투자성향"] == "balanced"
+    assert r.json()["desk_onboarded"] is True
+    assert client.get("/api/auth/me").json()["onboarded"] is True
 
     r = client.post("/api/favorites", json={"kind": "ticker", "key": "005930", "label": ""})
     assert r.status_code == 200
@@ -50,6 +53,20 @@ def test_signup_login_profile_flow(tmp_path, monkeypatch):
     assert r.json()["ready"] is False
     assert r.json()["items"] == []
 
+
+def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
+    client = _fresh_client(tmp_path, monkeypatch)
+    html = client.get("/").text
+    assert 'id="signal-trust"' in html
+    assert "trust-badge" in html
+    assert 'id="onboardDlg"' in html
+    assert "desk_onboarded" in html
+    assert "누적중" in html
+    assert ">시뮬<" in html or "시뮬</span>" in html
+    assert "layer-badge" in html
+    assert "8팩터" in html
+    assert 'id="bot-acct-status"' in html
+    assert 'id="w_qualitative"' not in html
 
 def test_bot_state_and_toggle(tmp_path, monkeypatch):
     client = _fresh_client(tmp_path, monkeypatch)
