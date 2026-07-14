@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from signal_desk import auth, bot, brain, chat, config, db, kb, kb_search, notify, shortform, signalcfg, store, strategy
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
-from signal_desk.signals import accuracy, macro, narrative, opportunity, rebalance, regime, scenario, target, valuation
+from signal_desk.signals import accuracy, macro, narrative, opportunity, rebalance, regime, regime_zone, scenario, target, valuation
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, combine,
     compute_indicator_series, evaluate, factor_contribution, signal_zones, walk_forward,
@@ -690,6 +690,15 @@ def _buylist(uid: int) -> list[dict]:
                     "market": "us" if is_us else "kr"})
     out.sort(key=lambda x: (len(x["blockers"]), x["gap"]))  # 매수에 가까운 순(게이트 적고 갭 작은)
     return out
+
+
+@app.get("/api/regime-zone")
+def regime_zone_get():
+    """시장 국면 체온계 — 조정심화→바닥다지기→회복초기 ZONE 감지(예측 아님). 전 시장 대상."""
+    if not store.is_ready():
+        return {"ready": False}
+    idx = [d["close"] for d in store.load_index_history()]
+    return regime_zone.assess(store.load_price_series(), index_closes=idx, macro_result=_macro())
 
 
 @app.get("/api/buylist")
