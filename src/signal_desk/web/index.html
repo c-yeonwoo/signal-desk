@@ -136,9 +136,9 @@
   .sig-chart-pane { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
   .sig-chart-pane .pane-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
   .sig-chart-pane { overflow-y:auto; }
-  #signal-chart { flex:1 1 auto; min-height:300px; width:100%; }
+  #signal-chart { flex:1 1 auto; min-height:560px; width:100%; }  /* 하단 지표패널(px 고정)이 268px+ 차지 → 종가 패널 짜부 방지 위해 넉넉히 */
   /* 차트 아래 상세는 서브탭으로 하나씩 — 차트를 밀어내지 않도록 높이 제한 */
-  .detail-tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-top:8px; }
+  .detail-tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-top:22px; }
   .detail-tab { flex:0 0 auto; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer;
     padding:6px 10px; font-size:12px; font-weight:600; color:var(--dim); }
   .detail-tab:hover { color:var(--txt); }
@@ -355,8 +355,8 @@
     .sig-workspace { flex-direction:column; height:auto; flex:none; min-height:0; }
     #view-signal .sig-workspace { flex:none; min-height:0; }
     .sig-list { flex:none; max-height:320px; }
-    #signal-chart { height:58vh; min-height:360px; }
-    .sig-chart-pane { min-height:420px; }
+    #signal-chart { height:auto; min-height:560px; }
+    .sig-chart-pane { min-height:560px; }
   }
   @media (max-width:640px){
     header { padding:10px 14px; gap:8px 6px; align-items:center; }
@@ -2319,15 +2319,16 @@ async function showSignalChart(ticker, item){
     if (d.actual_from)
       legEl.insertAdjacentHTML('beforeend', `<span class="leg-actual"> · <b style="color:var(--txt)">${esc(d.actual_from)}~ 실측</b></span>`);
     // 아래→위: dataZoom → MACD(키움) → 수급 → RSI → 종가. 간격 균일.
-    const gPrice = { left: 55, right: 48, top: 28, bottom: hasFlow ? 268 : 214 };
-    const gRsi   = { left: 55, right: 20, height: 48, bottom: hasFlow ? 212 : 158 };
+    // 하단 고정 패널(px) 위로 종가 패널이 남는 공간을 채움. 패널 사이 간격은 ~20px로 균일.
+    const gPrice = { left: 55, right: 48, top: 28, bottom: hasFlow ? 292 : 228 };
+    const gRsi   = { left: 55, right: 20, height: 48, bottom: hasFlow ? 224 : 158 };
     const gFlow  = { left: 55, right: 20, height: 48, bottom: 156 };
     const gMacd  = { left: 55, right: 20, height: 100, bottom: 28 };
     const titles = [
-      { text: 'RSI', left: 55, bottom: hasFlow ? 252 : 198, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
-      { text: 'MACD', left: 55, bottom: 120, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
+      { text: 'RSI', left: 55, bottom: hasFlow ? 276 : 210, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
+      { text: 'MACD', left: 55, bottom: 132, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
     ];
-    if (hasFlow) titles.splice(1, 0, { text: '수급', left: 55, bottom: 196, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } });
+    if (hasFlow) titles.splice(1, 0, { text: '수급', left: 55, bottom: 208, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } });
     const grids = hasFlow ? [gPrice, gRsi, gFlow, gMacd] : [gPrice, gRsi, gMacd];
     const xAxes = grids.map((_, gi) => ({ type: 'category', data: dates, gridIndex: gi, axisLabel: { show: false } }));
     const yAxes = [
