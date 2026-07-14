@@ -40,6 +40,8 @@ def test_valuechain_sectors_have_three_stages_with_companies():
 def test_valuechain_tag_maps_to_sector_key():
     assert valuechain.key_for_tag("반도체") == "semiconductor"
     assert valuechain.key_for_tag("방산") == "defense"
+    assert valuechain.key_for_tag("은행·금융") == "finance"
+    assert valuechain.key_for_tag("은행/금융") == "finance"  # 표기 변형
     assert valuechain.key_for_tag("존재하지않는섹터") is None
 
 

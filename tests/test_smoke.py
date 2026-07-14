@@ -67,6 +67,12 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "8팩터" in html
     assert 'id="bot-acct-status"' in html
     assert 'id="w_qualitative"' not in html
+    assert "executeReservations" in html
+    assert 'id="bot-exec-res-btn"' in html
+    assert "페이퍼 계좌" in html
+    assert 'id="bot-us"' not in html
+    assert "ON은 국내·해외 공통" in html
+
 
 def test_bot_state_and_toggle(tmp_path, monkeypatch):
     client = _fresh_client(tmp_path, monkeypatch)

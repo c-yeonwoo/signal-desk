@@ -386,9 +386,10 @@
     padding:8px 12px; cursor:pointer; font-size:13px; }
   .ticker-results .tr-item:hover { background:var(--bg); }
 
-  .subnav { display:flex; gap:6px; padding:8px 22px; background:var(--panel); border-bottom:1px solid var(--line); }
+  .subnav { display:flex; gap:6px; padding:8px 22px; background:var(--panel); border-bottom:1px solid var(--line);
+    overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap; }
   .subnav .subtab { padding:5px 14px; border:0; background:transparent; color:var(--dim); font-size:13px;
-    font-weight:600; border-radius:var(--r-md); cursor:pointer; }
+    font-weight:600; border-radius:var(--r-md); cursor:pointer; white-space:nowrap; flex:0 0 auto; }
   .subnav .subtab:hover { background:var(--bg); }
   .subnav .subtab.on { background:var(--accent); color:#fff; }
 
@@ -586,6 +587,10 @@
 
   <div id="view-cycle" class="view-app" style="display:none">
     <div id="cycle-seg-cycle">
+      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 경기 사이클
+        <span style="color:var(--dim);font-size:13px;font-weight:600">· FRED 추정 · 예측 아님</span></h3>
+      <p class="page-desc" style="margin:0 0 12px">물가·금리·나스닥으로 <b>다개월 국면</b>을 근사합니다(바닥·반등 시점 예측 아님).
+        시그널 탭의 <b>시장 국면/ZONE</b>(코스피 breadth)과는 <b>다른 지표</b>입니다 — 여기 주도섹터 → 밸류체인 → 시그널로 이어집니다.</p>
       <div class="card" id="cycle-current" style="margin-bottom:16px"><div class="placeholder" style="padding:8px 0">불러오는 중…</div></div>
       <div class="card" style="margin-bottom:16px"><div id="cycle-chart" style="height:300px"></div></div>
       <div class="phase-grid" id="cycle-phases"></div>
@@ -627,12 +632,20 @@
 
   <div id="view-trading" class="view-app" style="display:none">
     <div id="trading-bot">
+    <div class="pcard" style="margin-bottom:12px">
+      <div style="font-size:12px;line-height:1.55;color:var(--dim)">
+        <span class="layer-badge sig">신호</span> <b style="color:var(--txt)">시그널 트레이딩</b>은
+        <b style="color:var(--txt)">페이퍼 계좌</b>입니다(종가 가상 체결 · 실주문 아님).
+        <span class="layer-badge ctx">맥락</span> <b style="color:var(--txt)">내 포트폴리오</b>의 실보유·토스 연동과는
+        <b style="color:var(--txt)">별개 장부</b>입니다. 결정은 늘 본인 몫입니다.
+      </div>
+    </div>
     <div class="row" style="margin-bottom:14px;align-items:center;gap:10px">
       <div class="seg-toggle" id="bot-market-seg">
         <button class="on" data-bmkt="kospi" onclick="switchBotMarket('kospi')">국내 (KOSPI)</button>
         <button data-bmkt="us" onclick="switchBotMarket('us')">해외 (S&P500)</button>
       </div>
-      <span class="stat-label" style="margin:0 4px 0 auto;line-height:1">트레이딩 성향(공통)</span>
+      <span class="stat-label" style="margin:0 4px 0 auto;line-height:1">트레이딩 성향</span>
       <div class="seg-toggle" id="style-toggle">
         <button data-style="conservative" onclick="setStyle('conservative')">안정형</button>
         <button data-style="balanced" onclick="setStyle('balanced')">균형형</button>
@@ -649,16 +662,19 @@
         <div class="card"><div class="stat-label">보유종목수</div><div class="stat-value" id="bot-count">-</div></div>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <div class="row">
-          <span class="stat-label" style="margin:0">봇 상태:</span>
+        <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">
+          <span class="stat-label" style="margin:0">봇:</span>
           <span id="bot-status-label" style="font-weight:700">-</span>
           <button class="btn primary" id="bot-toggle-btn" onclick="toggleBot()">켜기</button>
+          <span style="width:1px;height:18px;background:var(--line);margin:0 2px"></span>
+          <button class="btn" onclick="previewBot()">미리보기</button>
           <button class="btn" onclick="runBotNow()">지금 실행</button>
-          <button class="btn" onclick="previewBot()">판단 미리보기</button>
           <button class="btn" onclick="makeReservations()">예약 생성</button>
-          <input id="bot-seed" type="number" class="ctrl" placeholder="시드(원)" style="max-width:130px" title="초기화 시 적용될 시드 금액">
-          <button class="btn" onclick="setSeed()">시드 설정</button>
-          <button class="btn" onclick="resetBot()">초기화</button>
+          <button class="btn" id="bot-exec-res-btn" onclick="executeReservations()" title="대기 예약을 현재가로 체결 시도">예약 실행</button>
+          <span style="width:1px;height:18px;background:var(--line);margin:0 2px"></span>
+          <input id="bot-seed" type="number" class="ctrl" placeholder="시드" style="max-width:120px" title="초기화 시 적용될 시드 금액">
+          <button class="btn" onclick="setSeed()">시드</button>
+          <button class="btn" onclick="resetBot()" title="국내·해외 페이퍼 계좌·거래·예약 전부 삭제">초기화</button>
           <span class="stat-label" id="bot-acct-status" style="margin-left:auto"></span>
         </div>
         <div class="stat-label" id="bot-rules" style="margin:10px 0 0"></div>
@@ -694,55 +710,33 @@
       </div>
     </div>
     </div><!-- /#bot-kospi -->
-
-    <div id="bot-us" style="display:none">
-      <div class="card-row">
-        <div class="card"><div class="stat-label">현금(USD)</div><div class="stat-value" id="us-cash">-</div></div>
-        <div class="card"><div class="stat-label">총평가(USD)</div><div class="stat-value" id="us-total">-</div></div>
-        <div class="card"><div class="stat-label">총손익률</div><div class="stat-value" id="us-pl">-</div></div>
-        <div class="card"><div class="stat-label">보유종목수</div><div class="stat-value" id="us-count">-</div></div>
-      </div>
-      <div class="card" style="margin-bottom:16px">
-        <div class="row" style="align-items:center">
-          <span class="stat-label" style="margin:0">투입 자본(USD)</span>
-          <input id="us-capital" type="number" class="ctrl" value="10000" style="max-width:130px">
-          <button class="btn primary" onclick="previewUsBot()">판단 미리보기</button>
-          <span class="stat-label" id="us-bot-meta" style="margin-left:auto"></span>
-        </div>
-        <div class="stat-label" id="us-bot-status" style="margin:10px 0 0"></div>
-      </div>
-      <div class="split">
-        <div class="card">
-          <b style="font-size:14px">보유종목</b>
-          <div id="us-holdings-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
-          <b style="font-size:14px;display:block;margin-top:18px">시그널 매수 후보 (판단 미리보기)</b>
-          <div id="us-bot-body" class="placeholder" style="padding:16px 0">투입 자본을 정하고 미리보기를 눌러주세요.</div>
-        </div>
-        <div class="card">
-          <b style="font-size:14px">포트폴리오</b>
-          <div id="us-alloc-chart" style="height:360px"></div>
-        </div>
-      </div>
-    </div>
     </div><!-- /#trading-bot -->
 
     <div id="trading-rebal" style="display:none">
+      <div class="pcard" style="margin-bottom:12px">
+        <div style="font-size:12px;line-height:1.55;color:var(--dim)">
+          <span class="layer-badge ctx">맥락</span> 여기는 <b style="color:var(--txt)">실보유 렌즈</b>(수동 입력 또는 토스 연동)입니다.
+          위 <b style="color:var(--txt)">시그널 트레이딩 페이퍼 계좌와 합쳐지지 않습니다</b>.
+          리밸런싱·시나리오는 <b style="color:var(--txt)">제안·참고</b>이며 자동 주문하지 않습니다.
+        </div>
+      </div>
       <!-- 국내/해외 판 전환 토글 — 아래 전체(보유·배당·히트맵·리밸런싱·시나리오)가 선택 시장 기준 -->
       <div class="seg-toggle" id="pf-market-seg" style="margin-bottom:16px">
-        <button class="on" data-pfm="kr" onclick="setPfMarket('kr')">🇰🇷 국내주식</button>
-        <button data-pfm="us" onclick="setPfMarket('us')">🇺🇸 해외주식</button>
+        <button class="on" data-pfm="kr" onclick="setPfMarket('kr')">국내주식</button>
+        <button data-pfm="us" onclick="setPfMarket('us')">해외주식</button>
       </div>
 
       <div id="real-holdings-card" class="card" style="margin-bottom:16px;display:none">
         <div class="row" style="align-items:baseline">
-          <b style="font-size:14px">🔗 내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:12px">· 토스 실계좌 자동 연동</span></b>
+          <b style="font-size:14px">내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:12px">· 토스 실계좌 자동 연동</span></b>
           <span id="real-holdings-sum" style="margin-left:auto;font-size:12px"></span>
         </div>
+        <div id="real-holdings-note" style="display:none;font-size:11px;color:var(--dim);margin:4px 0 0">토스 연동 시 수동 입력을 덮어씁니다(선택 시장 기준).</div>
         <div id="real-holdings-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       </div>
       <div class="card" id="manual-holdings-card" style="margin-bottom:16px">
         <b style="font-size:14px">내 보유종목 <span id="manual-mkt-label" style="color:var(--dim);font-weight:600;font-size:12px">· 국내</span></b>
-        <p class="page-desc" style="margin:6px 0 12px">종목을 검색해 보유내역을 추가하면 아래 배당·히트맵·리밸런싱·시나리오가 켜집니다.</p>
+        <p class="page-desc" style="margin:6px 0 12px">종목을 검색해 보유내역을 추가하면 아래 배당·히트맵·리밸런싱·시나리오가 켜집니다. <b>현재 선택한 시장</b> 종목만 목록에 보입니다.</p>
         <div class="row" style="margin-bottom:6px">
           <div style="position:relative;flex:1 1 200px;min-width:170px">
             <input id="hd_search" type="text" placeholder="종목명·코드 검색 (국내·해외)" class="ctrl" style="width:100%"
@@ -760,6 +754,7 @@
 
       <div class="card" id="holdings-div-card" style="margin-bottom:16px;display:none">
         <b style="font-size:14px">내 보유 배당 <span style="color:var(--dim);font-weight:600;font-size:12px">· 보유 배당주로 받는 예상 월/연 배당</span></b>
+        <div id="holdings-div-empty" style="display:none;font-size:12px;color:var(--dim);margin-top:8px">이 시장 보유분 중 배당 데이터가 있는 종목이 없습니다.</div>
         <div id="holdings-div-body" style="margin-top:8px"></div>
       </div>
 
@@ -778,12 +773,13 @@
           </div>
           <button class="btn primary" style="margin-left:auto" onclick="runRebalance()">리밸런싱 제안 받기</button>
         </div>
+        <div style="font-size:11px;color:var(--dim);margin-top:8px"><span class="layer-badge ctx">맥락</span> 제안만 합니다 · 자동 주문 없음 · 실행은 본인 몫</div>
       </div>
       <div id="rebal-result"></div>
 
       <div class="card" style="margin-top:18px">
         <div class="row" style="align-items:center;gap:10px">
-          <b style="font-size:15px">시나리오 분석 <span style="color:var(--dim);font-weight:600;font-size:12px">· 전략별 N년 후 가치 투영(몬테카를로)</span></b>
+          <b style="font-size:15px"><span class="layer-badge ctx">맥락</span> 시나리오 분석 <span style="color:var(--dim);font-weight:600;font-size:12px">· 전략별 N년 후 가치 투영(몬테카를로)</span></b>
           <span class="stat-label" style="margin:0 0 0 auto;line-height:1">기간</span>
           <select id="scn-years" class="ctrl" style="max-width:90px">
             <option value="1">1년</option><option value="3" selected>3년</option>
@@ -791,7 +787,7 @@
           </select>
           <button class="btn primary" onclick="runScenario()">시나리오 돌리기</button>
         </div>
-        <div id="scenario-result" class="placeholder" style="padding:12px 0">보유종목 기준 전략별(안정·균형·공격) N년 후 예상 가치 분포를 시뮬레이션합니다.</div>
+        <div id="scenario-result" class="placeholder" style="padding:12px 0">보유종목 기준 전략별(안정·균형·공격) N년 후 예상 가치 분포를 시뮬레이션합니다. 예측이 아닙니다.</div>
       </div>
 
     </div>
@@ -799,13 +795,13 @@
     <div id="trading-dividend" style="display:none">
       <div class="card" style="margin-bottom:16px">
         <b style="font-size:15px">배당 플래너 <span style="color:var(--dim);font-weight:600;font-size:12px">· 배당 현금흐름 시뮬레이션</span></b>
-        <p class="page-desc" style="margin:6px 0 10px">배당주를 <b>배당수익률·시그널·시총 순</b>으로 보고, 담을 종목과 주수를 정하면 <b>예상 연/월 배당</b>을 계산해 보여줍니다.
-          연배당 기준 <b>월평균(연÷12)</b> 환산. <span style="color:var(--dim-2)">배당·주가 참고용, 미래 배당 보장 안 함 · 봇과 별개.</span></p>
+        <p class="page-desc" style="margin:6px 0 10px">배당주를 <b>배당수익률·시총 순</b>으로 보고(시그널은 참고 표시), 담을 종목과 주수를 정하면 <b>예상 연/월 배당</b>을 계산합니다.
+          연배당 기준 <b>월평균(연÷12)</b> 환산. <span style="color:var(--dim-2)">참고용 · 미래 배당 보장 안 함 · 페이퍼 봇·실보유와 별개(로컬 저장).</span></p>
         <div class="seg-toggle" id="div-market-seg" style="margin-bottom:6px">
           <button class="on" data-dmkt="us" onclick="switchDivMarket('us')">미국(월/분기)</button>
           <button data-dmkt="kr" onclick="switchDivMarket('kr')">국내(연 결산)</button>
         </div>
-        <div id="div-kr-note" style="display:none;font-size:11px;color:var(--sell);margin-bottom:6px">⚠️ 국내는 대부분 연 1회 결산배당(익년 ~4월 지급 근사) · 배당금액은 정확하나 <b>수익률·투자금은 시세 정합 후 정확</b>.</div>
+        <div id="div-kr-note" style="display:none;font-size:11px;color:var(--sell);margin-bottom:6px">국내는 대부분 연 1회 결산배당(익년 ~4월 지급 근사) · 배당금액은 정확하나 <b>수익률·투자금은 시세 정합 후 정확</b>.</div>
         <div class="card-row" style="margin-bottom:6px">
           <div class="card"><div class="stat-label">예상 연 배당</div><div class="stat-value" id="div-annual">$0</div></div>
           <div class="card"><div class="stat-label">예상 월 배당(평균)</div><div class="stat-value" id="div-monthly">$0</div></div>
@@ -1136,7 +1132,9 @@
       <span style="color:var(--dim-2)">(데이터 있는 팩터끼리 재정규화 · KB 악재는 점수 미반영·veto · 추세·어닝·국면 게이트)</span><br>
       <span style="color:var(--sell)">※ 약세·조정 국면이면 매수 기준이 자동 상향돼, 점수가 +1.2를 넘어도 관망일 수 있습니다.</span>
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);color:var(--dim);font-size:12px">
-        각 지표의 뜻·왜 보는지는 <b>인사이트 › 학습</b> 탭에서 볼 수 있어요.</div>
+        각 지표의 뜻·왜 보는지는
+        <a href="#cycle/learn" onclick="document.getElementById('helpDlg').close()" style="color:var(--accent);font-weight:600">인사이트 › 학습</a>
+        탭에서 볼 수 있어요.</div>
     </div>
   </div>
 </dialog>
@@ -1219,11 +1217,15 @@ function switchTab(t){
 
 const _SEGS = { trading: ['bot', 'rebal', 'dividend'], cycle: ['cycle', 'vc', 'learn', 'guru', 'etf'], admin: ['kb', 'shortform', 'engine'] };
 function routeFromHash(){
-  const [tab, seg] = decodeURIComponent(location.hash.slice(1)).split('/');
+  const parts = decodeURIComponent(location.hash.slice(1)).split('/');
+  const tab = parts[0], seg = parts[1], extra = parts[2];
   if (!_ROUTES.includes(tab)) return false;
-  if (seg && (_SEGS[tab] || []).includes(seg)) {   // 유효한 서브탭이면 진입 전에 기억값 세팅
+  if (seg && (_SEGS[tab] || []).includes(seg)) {
     if (tab === 'trading') _tradingSeg = seg;
-    else if (tab === 'cycle') _cycleSeg = seg;
+    else if (tab === 'cycle') {
+      _cycleSeg = seg;
+      if (seg === 'vc' && extra) _vcCurrent = extra;  // #cycle/vc/{sector}
+    }
     else if (tab === 'admin') _adminSeg = seg;
   }
   switchTab(tab);
@@ -1275,6 +1277,8 @@ const INDEX_TICKER = 'KOSPI200X';  // 시그널 탭 최상단 고정 지수(근�
 let _pendingSignalTicker = null, _vcData = null, _vcCurrent = null, _vcCycle = null;
 async function gotoValuechain(key){  // 인사이트 탭 내 '밸류체인' 서브탭으로 이동 + 해당 섹터 선택
   _vcCurrent = key;
+  _cycleSeg = 'vc';
+  history.replaceState(null, '', '#cycle/vc/' + encodeURIComponent(key));
   switchCycleSeg('vc');
   await loadValuechain();          // 데이터 보장(최초 1회 fetch, 이후 캐시)
   selectVcSector(key);
@@ -1297,22 +1301,30 @@ let _cycleChart = null;
 
 async function loadCycle(){
   let d;
-  try { d = await (await fetch('/api/cycle')).json(); }
-  catch (e) { document.getElementById('cycle-current').innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
-  const cur = d.current;
   const curEl = document.getElementById('cycle-current');
+  const phasesEl = document.getElementById('cycle-phases');
+  try { d = await (await fetch('/api/cycle')).json(); }
+  catch (e) {
+    curEl.innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>';
+    if (phasesEl) phasesEl.innerHTML = '';
+    if (_cycleChart) { try { _cycleChart.clear(); } catch (x) {} }
+    return;
+  }
+  const cur = d.current || {};
   if (cur.ready) {
-    curEl.innerHTML = `<div class="row" style="gap:12px">
+    curEl.innerHTML = `<div class="row" style="gap:12px;flex-wrap:wrap">
+      <span class="layer-badge ctx">맥락</span>
       <span class="tb-label">현재 국면(추정)</span>
       <span class="sig-pill" style="background:var(--accent)">${esc(cur.phase_name)}</span>
-      <span class="tb-detail">${cur.reasons.map(esc).join(' · ')}</span></div>`;
+      <span class="tb-detail">${(cur.reasons || []).map(esc).join(' · ')}</span>
+      <span style="font-size:11px;color:var(--dim-2);width:100%">시그널 탭의 시장 국면/ZONE(코스피 breadth)과 다른 지표입니다 · 예측 아님</span></div>`;
   } else {
     curEl.innerHTML = '<div class="placeholder" style="padding:8px 0">현재 국면 추정에 필요한 거시(FRED) 데이터가 없습니다 — /api/refresh 후 표시됩니다.</div>';
   }
-  drawCycleChart(d.phases, cur);
-  document.getElementById('cycle-phases').innerHTML = d.phases.map(p => {
+  drawCycleChart(d.phases || [], cur);
+  phasesEl.innerHTML = (d.phases || []).map(p => {
     const isCur = cur.ready && cur.phase_key === p.key;
-    const chips = p.lead_sectors.map(s => s.vc_key
+    const chips = (p.lead_sectors || []).map(s => s.vc_key
       ? `<span class="sector-chip link" onclick="gotoValuechain('${s.vc_key}')">${esc(s.name)}</span>`
       : `<span class="sector-chip">${esc(s.name)}</span>`).join('');
     return `<div class="phase-card${isCur ? ' current' : ''}">
@@ -1361,16 +1373,16 @@ async function loadGlossary(){
     try { _glossary = (await (await fetch('/api/glossary')).json()).categories || []; }
     catch (e) { el.innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
   }
-  el.innerHTML = _glossary.map(cat => `
-    <div class="card" style="margin-bottom:12px">
+  el.innerHTML = _glossary.map((cat, ci) => `
+    <div class="card" style="margin-bottom:12px" id="gloss-${esc(cat.key || ('cat-' + ci))}">
       <b style="font-size:14px">${esc(cat.name)}</b>
-      <div style="margin-top:8px">${(cat.items || []).map(it => `
-        <details style="border-top:1px solid var(--line);padding:8px 0">
+      <div style="margin-top:8px">${(cat.items || []).map((it, ii) => `
+        <details id="gloss-${esc(cat.key || ('cat-' + ci))}-${ii}" style="border-top:1px solid var(--line);padding:8px 0">
           <summary style="cursor:pointer;font-weight:600">${esc(it.term)}</summary>
           <div style="margin-top:6px;font-size:13px;line-height:1.5">
             <div>${esc(it.easy)}</div>
-            <div style="color:var(--dim);margin-top:4px">💡 <b>왜 보나</b> · ${esc(it.why)}</div>
-            <div style="color:var(--accent);margin-top:2px">⚙ <b>우리 시그널</b> · ${esc(it.in_signal)}</div>
+            <div style="color:var(--dim);margin-top:4px"><b>왜 보나</b> · ${esc(it.why)}</div>
+            <div style="color:var(--accent);margin-top:2px"><b>우리 시그널</b> · ${esc(it.in_signal)}</div>
           </div>
         </details>`).join('')}</div>
     </div>`).join('');
@@ -1405,8 +1417,8 @@ async function loadValuechain(){
   const cb = document.getElementById('vc-cycle-banner');
   if (cb && _vcCycle && _vcCycle.ready) {
     cb.innerHTML = `<div style="background:var(--accent-weak);border:1px solid var(--accent);border-radius:8px;padding:8px 12px;font-size:13px">`
-      + `🔥 현재 <b>${esc(_vcCycle.phase_name)}</b> 국면 — 유리 섹터 <b>${(_vcCycle.lead_sectors || []).map(esc).join(' · ')}</b>`
-      + `<div style="color:var(--dim);font-size:11px;margin-top:2px">${(_vcCycle.reasons || []).map(esc).join(' · ')} · 아래 🔥 체인이 국면상 유리 (참고용)</div></div>`;
+      + `<span class="layer-badge ctx">맥락</span> 현재 <b>${esc(_vcCycle.phase_name)}</b> 국면 — 유리 섹터 <b>${(_vcCycle.lead_sectors || []).map(esc).join(' · ')}</b>`
+      + `<div style="color:var(--dim);font-size:11px;margin-top:2px">${(_vcCycle.reasons || []).map(esc).join(' · ')} · 아래 ★ 체인이 국면상 유리 (참고용 · 예측 아님)</div></div>`;
   } else if (cb) { cb.innerHTML = ''; }
   try {  // 국내+해외 현재 시그널·시총(관망 제외 뱃지, 시총순 선택)
     const [kr, us] = await Promise.all([
@@ -1418,13 +1430,14 @@ async function loadValuechain(){
     (us.items || []).forEach(r => _vcInfo[r.ticker] = { kind: r.kind !== 'HOLD' ? r.kind : null, mktcap: r.mktcap, market: 'us' });
   } catch (e) {}
   document.getElementById('vc-sectors').innerHTML = _vcData.map(s =>
-    `<button data-k="${s.key}" onclick="selectVcSector('${s.key}')">${s.cycle_fit === 'favored' ? '🔥 ' : ''}${esc(s.name)}</button>`).join('');
+    `<button data-k="${s.key}" onclick="selectVcSector('${s.key}')">${s.cycle_fit === 'favored' ? '★ ' : ''}${esc(s.name)}</button>`).join('');
   selectVcSector(_vcCurrent || _vcData[0].key);
 }
 
 function selectVcSector(key){
   _vcCurrent = key;
   document.querySelectorAll('#vc-sectors button').forEach(b => b.classList.toggle('on', b.dataset.k === key));
+  if (_cycleSeg === 'vc') history.replaceState(null, '', '#cycle/vc/' + encodeURIComponent(key));
   const s = _vcData.find(x => x.key === key);
   if (!s) return;
   document.getElementById('vc-detail').innerHTML =
@@ -2378,7 +2391,8 @@ async function loadBotState(){
     const killTxt = d.kill_switch ? ` · <b style="color:var(--sig-sell)">🛑 긴급정지(주문 차단)</b>` : '';
     document.getElementById('bot-acct-status').innerHTML =
       `내 ${usd ? '해외(USD)' : '국내'} 페이퍼 계좌 · 시드 ${fmtM(d.seed_cash)}`
-      + ` · <b style="color:${d.llm_enabled ? 'var(--sig-buy)' : 'var(--dim)'}">AI 판단 ${d.llm_enabled ? 'ON' : 'OFF'}</b>` + killTxt;
+      + ` · <b style="color:${d.llm_enabled ? 'var(--sig-buy)' : 'var(--dim)'}">AI 판단 ${d.llm_enabled ? 'ON' : 'OFF'}</b>`
+      + ` · <span style="color:var(--dim-2)">ON은 국내·해외 공통</span>` + killTxt;
     const cfg = d.config || {};
     document.getElementById('bot-rules').innerHTML =
       `<b>ON이면 주기적으로</b> 공용 시그널로 내 페이퍼 계좌에 자동 판단·매매(강한 BUY 후보 → <b>AI 최종 선별</b>) · `
@@ -2397,7 +2411,8 @@ async function loadBotState(){
     const rEl = document.getElementById('bot-reservations');
     if (d.reservations && d.reservations.length) {
       rEl.style.display = '';
-      rEl.innerHTML = `<div class="stat-label" style="margin:0 0 6px"><b>📅 다음 개장 예약 (${d.reservations.length}건)</b></div>`
+      rEl.innerHTML = `<div class="stat-label" style="margin:0 0 6px"><b>대기 예약 (${d.reservations.length}건)</b>
+        <span style="color:var(--dim-2);font-weight:400"> · 봇 ON이면 장중에 자동 체결 시도 · 수동「예약 실행」도 가능</span></div>`
         + d.reservations.map(r => `<div style="font-size:12px;color:var(--dim);margin-bottom:3px">
             · <b style="color:var(--txt)">${esc(r.name)}</b> ${r.side === 'buy' ? '매수' : '매도'} — ${esc(r.reason)}</div>`).join('');
     } else rEl.style.display = 'none';
@@ -2408,14 +2423,14 @@ async function loadBotState(){
     } else {
       hEl.className = '';
       const rows = d.positions.map(p => {
-        // 수익률: KIS 스냅샷 우선, 없으면 현재가/평단으로 계산
+        // 수익률: 스냅샷(last_pnl_pct) 우선, 없으면 현재가/평단으로 계산
         const pl = (p.last_pnl_pct != null) ? p.last_pnl_pct
                  : (p.avg_price > 0 && p.last_price) ? (p.last_price / p.avg_price - 1) * 100 : null;
         const plCls = pl == null ? '' : pl > 0 ? 'pos' : pl < 0 ? 'neg' : '';
         const plTxt = pl == null ? '–' : `${pl > 0 ? '+' : ''}${fmtNum(pl, 2)}%`;
-        const cur = p.last_price ? fmtNum(p.last_price, 0) : '–';
+        const cur = p.last_price ? fmtNum(p.last_price, usd ? 2 : 0) : '–';
         return `<tr><td>${esc(p.name)}<div style="color:var(--dim);font-size:11px">${esc(p.ticker)}</div></td>
-          <td class="num">${p.qty}</td><td class="num">${fmtNum(p.avg_price, 0)}</td>
+          <td class="num">${p.qty}</td><td class="num">${fmtNum(p.avg_price, usd ? 2 : 0)}</td>
           <td class="num">${cur}</td><td class="num ${plCls}">${plTxt}</td></tr>`;
       }).join('');
       hEl.innerHTML = `<table class="dtable"><thead><tr>
@@ -2445,10 +2460,14 @@ async function loadBotState(){
 
     const chartHolder = document.getElementById('bot-allocation-chart');
     if (!_botChart) _botChart = echarts.init(chartHolder);
-    const pieData = d.positions.map(p => ({ name: p.name, value: Math.round(p.qty * p.avg_price) }));
+    const pieData = d.positions.map(p => {
+      const px = (p.last_price != null && p.last_price > 0) ? p.last_price : p.avg_price;
+      return { name: p.name, value: Math.round(p.qty * px) };
+    });
     if (d.cash) pieData.push({ name: '현금', value: Math.round(d.cash) });
+    const unit = usd ? '$' : '원';
     _botChart.setOption({
-      tooltip: { trigger: 'item', formatter: '{b}: {c}원 ({d}%)' },
+      tooltip: { trigger: 'item', formatter: p => `${p.name}: ${usd ? '$' : ''}${Number(p.value).toLocaleString()}${usd ? '' : '원'} (${p.percent}%)` },
       series: [{ type: 'pie', radius: ['45%', '70%'], data: pieData,
         label: { fontSize: 11 }, itemStyle: { borderColor: '#fff', borderWidth: 2 } }],
     }, true);
@@ -2517,9 +2536,9 @@ async function loadBotPerformance(){
 }
 
 async function toggleBot(){
-  const d = await (await fetch('/api/bot/state')).json();
+  const st = await (await fetch('/api/bot/state?market=' + _botMarket)).json();
   await fetch('/api/bot/toggle', { method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ enabled: !d.enabled }) });
+    body: JSON.stringify({ enabled: !st.enabled }) });
   loadBotState();
 }
 
@@ -2529,88 +2548,20 @@ function renderBotPlan(d, isPreview){
   if (!d.ok) { el.innerHTML = `<b>${isPreview ? '미리보기' : '실행'} 안 됨</b> — ${esc(d.reason || '')}`; return; }
   const line = (arr) => arr.length ? arr.map(x =>
     `· <b>${esc(x.name || x.ticker)}</b> ${x.qty}주 — ${esc(x.note || (_REASON_LABEL[x.reason] || x.reason))}`).join('<br>') : '없음';
-  el.innerHTML = `<b>${isPreview ? '판단 미리보기 (실주문 없음)' : '✅ 실행 결과'}</b><br>`
+  el.innerHTML = `<b>${isPreview ? '판단 미리보기 (실주문 없음)' : '실행 결과'}</b><br>`
     + `<b style="color:var(--sig-buy)">매수</b> (${d.buys.length}건${d.skipped_weak_buys ? `, 약한 BUY ${d.skipped_weak_buys}건 제외` : ''})<br>${line(d.buys)}<br>`
     + `<b style="color:var(--sig-sell)">매도</b> (${d.sells.length}건)<br>${line(d.sells)}`;
 }
 
-// 국내/해외 봇 세그먼트 전환
-let _usAllocChart = null;
+// 국내/해외 봇 — 동일 대시보드, market 파라미터로 구분
 let _botMarket = 'kr';
 function switchBotMarket(m){
   _botMarket = (m === 'us') ? 'us' : 'kr';
   document.querySelectorAll('#bot-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.bmkt === m));
-  document.getElementById('bot-kospi').style.display = '';   // 공유 대시보드(시장별 market 파라미터로 구동)
-  document.getElementById('bot-us').style.display = 'none';  // 구 미리보기 패널 미사용(실 페이퍼 매매로 통합)
   loadBotState();
 }
 
-// 해외(US) 대시보드 — 국내와 동일 레이아웃(잔고 USD·보유·미리보기). 실주문은 미국장 개장 시 연결 예정.
-async function loadUsBotState(){
-  try {
-    const d = await (await fetch('/api/bot/us/state')).json();
-    const bal = d.balance;
-    document.getElementById('us-cash').textContent = bal ? '$' + fmtNum(bal.cash, 0) : '–';
-    document.getElementById('us-total').textContent = bal ? '$' + fmtNum(bal.total_eval, 0) : '–';
-    document.getElementById('us-count').textContent = bal ? bal.holdings.length : '–';
-    const plEl = document.getElementById('us-pl');
-    if (bal && bal.pnl_pct != null) {
-      plEl.textContent = (bal.pnl_pct >= 0 ? '+' : '') + fmtNum(bal.pnl_pct, 2) + '%';
-      plEl.className = 'stat-value ' + (bal.pnl_pct >= 0 ? 'pos' : 'neg');
-    } else { plEl.textContent = '–'; plEl.className = 'stat-value'; }
-
-    document.getElementById('us-bot-status').innerHTML =
-      (d.kis_connected ? 'KIS 해외 계좌 연결됨' : 'KIS 해외 미연결(도메인 차단/장외)')
-      + ` · 미국장 ${d.us_market_hours ? '<b style="color:var(--sig-buy)">개장</b>' : '휴장'}`
-      + ` · <b>실주문·야간 자동매매는 미국장 개장 중 검증 후 연결 예정</b>(현재 미리보기 전용)`;
-
-    const hEl = document.getElementById('us-holdings-body');
-    const hs = (bal && bal.holdings) || [];
-    if (!hs.length) { hEl.className = 'placeholder'; hEl.textContent = 'US 보유종목이 없습니다.'; }
-    else {
-      hEl.className = '';
-      hEl.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th></tr></thead><tbody>`
-        + hs.map(h => `<tr><td>${esc(h.name || h.ticker)}<div style="color:var(--dim);font-size:11px">${esc(h.ticker)}</div></td>
-            <td class="num">${h.qty}</td><td class="num">$${fmtNum(h.avg_price, 2)}</td><td class="num">$${fmtNum(h.price, 2)}</td></tr>`).join('')
-        + `</tbody></table>`;
-    }
-    // 파이: 보유 있으면 종목별, 없으면 안내
-    const pieEl = document.getElementById('us-alloc-chart');
-    if (hs.length) {
-      _usAllocChart = _usAllocChart || echarts.init(pieEl);
-      drawPie(pieEl, hs.map(h => ({ name: h.ticker, value: h.qty * h.price })), v => '$' + fmtNum(v, 0));
-    } else { pieEl.innerHTML = '<div class="placeholder" style="padding:40px 0">보유종목이 생기면 배분이 표시됩니다.</div>'; }
-    // 미리보기도 자동 1회
-    previewUsBot(true);
-  } catch (e) {}
-}
-
-async function previewUsBot(auto){
-  const btn = (auto === true) ? null : (typeof event !== 'undefined' && event.target);
-  let t; if (btn) { btn.disabled = true; t = btn.textContent; btn.textContent = '계산 중…'; }
-  const el = document.getElementById('us-bot-body');
-  try {
-    const capital = parseFloat(document.getElementById('us-capital').value) || 10000;
-    const d = await (await fetch('/api/bot/us/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ capital }) })).json();
-    document.getElementById('us-bot-meta').textContent =
-      `${d.style_label} · 분할 ${d.tranches}회 · 매수기준 ≥${d.min_buy_score} · 후보 ${d.eligible}종목`;
-    if (!d.buys || !d.buys.length) {
-      el.className = 'placeholder'; el.textContent = '현재 매수 기준을 넘는 US 후보가 없습니다.'; return;
-    }
-    el.className = '';
-    el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th>시그널</th><th class="num">점수</th>
-        <th class="num">현재가</th><th class="num">1트랜치 수량</th><th class="num">배분(USD)</th><th>KB</th></tr></thead><tbody>`
-      + d.buys.map(b => `<tr>
-          <td>${esc(b.name)}<div style="color:var(--dim);font-size:11px">${esc(b.ticker)}</div></td>
-          <td><span class="sig-pill ${b.kind}">${kindLabel(b.kind)}</span></td>
-          <td class="num">${b.score > 0 ? '+' : ''}${fmtNum(b.score, 2)}</td>
-          <td class="num">$${fmtNum(b.price, 2)}</td>
-          <td class="num">${b.qty}</td>
-          <td class="num">$${fmtNum(b.alloc, 0)}</td>
-          <td>${b.qualitative ? '📰' : '–'}</td></tr>`).join('')
-      + `</tbody></table><div class="stat-label" style="margin-top:10px">${esc(d.note)}</div>`;
-  } catch (e) { el.textContent = '불러오지 못했습니다.'; } finally { if (btn) { btn.disabled = false; btn.textContent = t; } }
-}
+// 해외(US) 구 미리보기 패널은 제거됨 — 동일 대시보드가 market=us로 동작.
 
 async function runBotNow(){
   const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '실행 중…';
@@ -2632,7 +2583,7 @@ async function previewBot(){
 }
 
 async function resetBot(){
-  if (!confirm('내 봇을 초기화합니다 — 보유종목·거래내역·예약 삭제 + 현금이 초기 시드로 리셋됩니다. 진행할까요?')) return;
+  if (!confirm('페이퍼 봇을 초기화합니다.\n· 국내·해외 보유·거래·예약 전부 삭제\n· 현금이 각 시장 시드로 리셋\n진행할까요?')) return;
   await fetch('/api/bot/reset', { method: 'POST' });
   document.getElementById('bot-plan').style.display = 'none';
   loadBotState();
@@ -2649,6 +2600,7 @@ async function setSeed(){
 
 async function setStyle(style){
   await fetch('/api/bot/style', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style }) });
+  setRebalStyle(style);  // 리밸런싱 성향도 동기화(온보딩·봇과 동일 프리셋)
   loadBotState();
 }
 
@@ -2664,7 +2616,8 @@ function switchCycleSeg(seg){
   else if (seg === 'learn') loadGlossary();
   else if (seg === 'guru') loadGurus();
   else if (seg === 'etf') loadEtfs();
-  history.replaceState(null, '', '#cycle/' + seg);   // 새로고침 시 서브탭 유지
+  const hash = (seg === 'vc' && _vcCurrent) ? '#cycle/vc/' + encodeURIComponent(_vcCurrent) : '#cycle/' + seg;
+  history.replaceState(null, '', hash);
 }
 
 let _tradingSeg = 'bot';
@@ -2725,6 +2678,8 @@ async function loadRealHoldings(){
   }
   try { await fetch('/api/my-holdings/import', { method: 'POST' }); } catch (e) {}   // 양 시장 전체를 분석 스토어에 반영
   showManual(false);
+  const note = document.getElementById('real-holdings-note');
+  if (note) note.style.display = '';
   const items = all.filter(it => m === 'us' ? it.marketCountry === 'US' : it.marketCountry !== 'US');
   const sub = items.reduce((s, it) => s + (+((it.marketValue || {}).amount) || 0), 0);
   document.getElementById('real-holdings-sum').innerHTML = items.length
@@ -2802,6 +2757,19 @@ async function loadDividends(){
       return;
     }
     _divItems = d.items;
+    // 실보유 주수가 있으면 플랜이 비어 있을 때 시드(덮어쓰지 않음 — 사용자가 이미 담은 값 유지)
+    if (!Object.keys(_divPlan).length) {
+      try {
+        const hd = await (await fetch('/api/holdings')).json();
+        const isKR = t => /^\d+$/.test(t);
+        (hd.holdings || []).forEach(h => {
+          const matchMkt = _divMarket === 'us' ? !isKR(h.ticker) : isKR(h.ticker);
+          if (matchMkt && h.qty > 0 && _divItems.some(it => it.ticker === h.ticker))
+            _divPlan[h.ticker] = Math.floor(h.qty);
+        });
+        if (Object.keys(_divPlan).length) _saveDivPlan();
+      } catch (e) {}
+    }
     el.className = '';
     const rows = _divItems.map(it => {
       const kindTag = it.kind && it.kind !== 'HOLD'
@@ -2939,12 +2907,14 @@ function openGuruModal(i){
   _guruModalChart = _guruModalChart || echarts.init(pieEl);
   requestAnimationFrame(() => { _guruModalChart.resize(); drawPie(pieEl, data, v => fmtNum(v, 1) + '%'); });
   document.getElementById('guru-modal-rows').innerHTML =
-    `<table class="dtable"><thead><tr><th>#</th><th>종목</th><th class="num">비중</th><th>우리 시그널</th></tr></thead><tbody>`
+    `<table class="dtable"><thead><tr><th>#</th><th>종목</th><th class="num">비중</th><th><span class="layer-badge ctx">맥락</span> 엔진 참고</th></tr></thead><tbody>`
     + g.holdings.map((h, r) => `<tr>
         <td>${r + 1}</td>
         <td>${esc(h.name)}${h.ticker ? `<div style="color:var(--dim);font-size:11px">${esc(h.ticker)}</div>` : ''}</td>
         <td class="num">${fmtNum(h.pct, 1)}%</td>
-        <td>${h.signal ? `<span class="sig-pill ${h.signal.kind}">${kindLabel(h.signal.kind)} ${h.signal.score > 0 ? '+' : ''}${fmtNum(h.signal.score, 2)}</span>` : '<span style="color:var(--dim)">–</span>'}</td>
+        <td>${h.signal
+          ? `<span style="font-size:12px;color:var(--dim)">${kindLabel(h.signal.kind)} ${h.signal.score > 0 ? '+' : ''}${fmtNum(h.signal.score, 2)} <span style="color:var(--dim-2)">(추천 아님)</span></span>`
+          : '<span style="color:var(--dim)">–</span>'}</td>
       </tr>`).join('')
     + `</tbody></table>`;
 }
@@ -2987,7 +2957,8 @@ async function loadEtfs(){
 
 async function loadGurus(){
   const el = document.getElementById('gurus-grid');
-  if (!el || el.dataset.loaded) return;  // 1회 로드(분기 데이터라 재조회 불필요)
+  if (!el) return;
+  el.className = 'placeholder'; el.textContent = '불러오는 중…'; el.removeAttribute('data-loaded');
   try {
     const d = await (await fetch('/api/gurus')).json();
     const gurus = d.gurus || [];
@@ -3000,17 +2971,16 @@ async function loadGurus(){
         <div class="guru-sig" id="guru-sig-${i}"></div></div>`).join('') + '</div>';
     el.className = '';
     el.dataset.loaded = '1';
-    // 상위 보유 + '기타'(나머지 합) 조각으로 파이 구성 + 우리 시그널 뱃지(액션 종목만)
     gurus.forEach((g, i) => {
       const shown = g.holdings.reduce((s, h) => s + h.pct, 0);
       const data = g.holdings.map(h => ({ name: h.name, value: h.pct }));
       if (shown < 99) data.push({ name: '기타', value: Math.round((100 - shown) * 10) / 10 });
       drawPie(document.getElementById(`guru-pie-${i}`), data, v => fmtNum(v, 1) + '%');
-      const acted = g.holdings.filter(h => h.signal);  // HOLD·미매칭은 API에서 이미 제외
+      // 카드에는 시그널 pill 금지(추천/신호 오인) — 겹치는 종목 수만 맥락으로
+      const acted = g.holdings.filter(h => h.signal);
       const sigEl = document.getElementById(`guru-sig-${i}`);
       sigEl.innerHTML = acted.length
-        ? '<span class="guru-sig-k">우리 시그널</span>' + acted.map(h =>
-            `<span class="sig-pill ${h.signal.kind}" title="${esc(h.name)}">${esc(h.ticker)} ${kindLabel(h.signal.kind)}</span>`).join('')
+        ? `<span class="layer-badge ctx">맥락</span> <span style="font-size:11px;color:var(--dim)">유니버스 겹침 ${acted.length}종 · 상세에서 참고</span>`
         : '';
     });
   } catch (e) { el.textContent = '불러오지 못했습니다.'; }
@@ -3026,7 +2996,8 @@ async function loadHoldings(){
   if (!hs.length) { el.className = 'placeholder'; el.innerHTML = `${_pfMarket === 'us' ? '해외' : '국내'}주식 보유종목이 없어요. 위에서 검색해 추가하세요.`; return; }
   el.className = '';
   el.innerHTML = `<table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단가</th><th></th></tr></thead><tbody>`
-    + hs.map(h => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, 0)}</td>
+    + hs.map(h => `<tr><td><b>${esc(h.label || h.name || h.ticker)}</b><div style="color:var(--dim);font-size:11px">${esc(h.ticker)}</div></td>
+        <td class="num">${h.qty}</td><td class="num">${fmtNum(h.avg_price, _pfMarket === 'us' ? 2 : 0)}</td>
         <td class="num"><span style="color:var(--sig-sell);cursor:pointer" onclick="removeHolding('${esc(h.ticker)}')">삭제</span></td></tr>`).join('')
     + `</tbody></table>`;
 }
@@ -3040,11 +3011,18 @@ async function loadHoldingsDividends(market){
   let d;
   try { d = await (await fetch('/api/holdings/dividends')).json(); } catch(e) { card.style.display = 'none'; return; }
   const items = (d.items || []).filter(it => (it.currency || 'KRW') === cur0);   // 선택 시장 통화만
-  if (!d.ready || !items.length) { card.style.display = 'none'; return; }
+  const emptyEl = document.getElementById('holdings-div-empty');
+  if (!d.ready || !items.length) {
+    card.style.display = '';
+    if (emptyEl) { emptyEl.style.display = ''; }
+    if (body) body.innerHTML = '';
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
   card.style.display = '';
   const money = (v, cur) => cur === 'USD' ? '$' + fmtNum(v, 0) : fmtKRW(v);
   const totals = Object.entries(d.totals || {}).filter(([cur]) => cur === cur0).map(([cur, t]) =>
-    `<div class="card" style="flex:1"><div class="stat-label">${cur === 'USD' ? '🇺🇸 예상 월 배당' : '🇰🇷 예상 월 배당'}</div>
+    `<div class="card" style="flex:1"><div class="stat-label">${cur === 'USD' ? '예상 월 배당(USD)' : '예상 월 배당(KRW)'}</div>
        <div class="stat-value">${money(t.monthly, cur)}</div>
        <div style="font-size:11px;color:var(--dim)">연 ${money(t.annual, cur)} · ${t.count}종목</div></div>`).join('');
   const rows = items.map(it => {
@@ -3123,7 +3101,14 @@ async function addHolding(){
   const ticker = document.getElementById('hd_ticker').value.trim();
   const qty = parseFloat(document.getElementById('hd_qty').value), avg = parseFloat(document.getElementById('hd_avg').value);
   if (!ticker || !(qty > 0) || !(avg > 0)) { alert('종목을 검색해 선택하고 수량·평단가를 입력하세요'); return; }
-  await fetch('/api/holdings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ticker, qty, avg_price: avg }) });
+  const isKR = /^\d+$/.test(ticker);
+  if ((_pfMarket === 'us' && isKR) || (_pfMarket === 'kr' && !isKR)) {
+    alert(`지금 ${_pfMarket === 'us' ? '해외' : '국내'}주식 탭입니다. 시장 탭을 바꾸거나 해당 시장 종목을 고르세요.`);
+    return;
+  }
+  const label = (document.getElementById('hd_selected').textContent || '').replace(/^선택:\s*/, '') || ticker;
+  await fetch('/api/holdings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticker, qty, avg_price: avg, label }) });
   document.getElementById('hd_ticker').value = ''; document.getElementById('hd_search').value = '';
   document.getElementById('hd_qty').value = ''; document.getElementById('hd_avg').value = '';
   document.getElementById('hd_selected').textContent = '';
@@ -3165,25 +3150,26 @@ async function runScenario(){
       body: JSON.stringify({ years: Number(years), market: _pfMarket }) })).json();
     if (!d.ready) { box.className = 'placeholder'; box.textContent = d.reason || '시나리오 불가'; return; }
     box.className = '';
+    const usd = (_pfMarket === 'us') || d.currency === 'USD';
+    const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));
     const LABEL = { conservative: '안정형', balanced: '균형형', aggressive: '공격형' };
     const rows = ['conservative', 'balanced', 'aggressive'].map(k => {
       const s = d.strategies[k]; const tm = s.terminal, cg = s.cagr;
       const cgCls = cg.p50 > 0 ? 'pos' : cg.p50 < 0 ? 'neg' : '';
       return `<tr><td><b>${LABEL[k]}</b><div style="color:var(--dim);font-size:11px">주식노출 ${Math.round(s.exposure*100)}%</div></td>
-        <td class="num"><b>${fmtKRW(tm.p50)}</b></td>
-        <td class="num" style="color:var(--dim)">${fmtKRW(tm.p10)} ~ ${fmtKRW(tm.p90)}</td>
+        <td class="num"><b>${fmtM(tm.p50)}</b></td>
+        <td class="num" style="color:var(--dim)">${fmtM(tm.p10)} ~ ${fmtM(tm.p90)}</td>
         <td class="num ${cgCls}">${cg.p50 > 0 ? '+' : ''}${fmtNum(cg.p50, 1)}%<div style="color:var(--dim);font-size:11px">${cg.p10}~${cg.p90}%</div></td></tr>`;
     }).join('');
-    // 균형형 연도별 fan
     const fan = d.strategies.balanced.fan.map(f =>
-      `<tr><td class="num">${f.year}년</td><td class="num" style="color:var(--dim)">${fmtKRW(f.p10)}</td>
-        <td class="num"><b>${fmtKRW(f.p50)}</b></td><td class="num" style="color:var(--dim)">${fmtKRW(f.p90)}</td></tr>`).join('');
+      `<tr><td class="num">${f.year}년</td><td class="num" style="color:var(--dim)">${fmtM(f.p10)}</td>
+        <td class="num"><b>${fmtM(f.p50)}</b></td><td class="num" style="color:var(--dim)">${fmtM(f.p90)}</td></tr>`).join('');
     box.innerHTML = `
-      <div class="stat-label" style="margin:0 0 8px">현재 평가액 <b>${fmtKRW(d.current_value)}</b> 기준 · ${d.years}년 후 · 시뮬 ${d.sims.toLocaleString()}회</div>
+      <div class="stat-label" style="margin:0 0 8px">현재 평가액 <b>${fmtM(d.current_value)}</b> 기준 · ${d.years}년 후 · 시뮬 ${d.sims.toLocaleString()}회</div>
       <table class="dtable"><thead><tr><th>전략</th><th class="num">중앙값(p50)</th><th class="num">범위(p10~p90)</th><th class="num">연환산(CAGR)</th></tr></thead><tbody>${rows}</tbody></table>
       <b style="font-size:13px;display:block;margin:16px 0 4px">균형형 연도별 추이</b>
       <table class="dtable"><thead><tr><th class="num">시점</th><th class="num">비관(p10)</th><th class="num">중앙(p50)</th><th class="num">낙관(p90)</th></tr></thead><tbody>${fan}</tbody></table>
-      <p class="page-desc" style="margin:12px 0 0;font-size:11px">⚠️ ${esc(d.disclaimer)}</p>`;
+      <p class="page-desc" style="margin:12px 0 0;font-size:11px">${esc(d.disclaimer)}</p>`;
   } catch(e) { box.className = 'placeholder'; box.textContent = '요청 실패'; }
   finally { btn.disabled = false; btn.textContent = t; }
 }
@@ -3510,8 +3496,34 @@ async function makeReservations(){
     const el = document.getElementById('bot-plan'); el.style.display = '';
     if (!d.ok) { el.innerHTML = `예약 생성 실패: ${esc(d.reason || '')}`; }
     else {
-      el.innerHTML = `<b>📅 다음 개장 예약 ${d.reservations.length}건 생성</b> (국면 ${esc(d.context.regime || '-')}/거시 ${esc(d.context.macro_bias || '-')})<br>`
-        + (d.reservations.map(r => `· <b>${esc(r.name)}</b> — ${esc(r.reason)}`).join('<br>') || '조건 맞는 후보 없음');
+      const n = (d.reservations || []).length;
+      el.innerHTML = `<b>대기 예약 ${n}건</b> (국면 ${esc((d.context || {}).regime || '-')}/거시 ${esc((d.context || {}).macro_bias || '-')})`
+        + `<div style="color:var(--dim);font-size:11px;margin:4px 0 6px">봇 ON이면 장중에 자동 체결 · 또는 「예약 실행」으로 지금 시도</div>`
+        + (n ? d.reservations.map(r => `· <b>${esc(r.name)}</b> — ${esc(r.reason)}`).join('<br>') : '조건 맞는 후보 없음');
+    }
+    loadBotState();
+  } finally { btn.disabled = false; btn.textContent = t; }
+}
+
+async function executeReservations(){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '체결 시도…';
+  try {
+    const d = await (await fetch('/api/bot/execute-reservations', { method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ market: _botMarket }) })).json();
+    const el = document.getElementById('bot-plan'); el.style.display = '';
+    if (!d.ok) { el.innerHTML = `예약 실행 실패: ${esc(d.reason || '')}`; }
+    else {
+      const rows = d.executed || [];
+      const filled = rows.filter(x => x.status === 'filled' || (!x.status && x.qty));
+      const skipped = rows.filter(x => x.status && x.status !== 'filled');
+      if (!rows.length) { el.innerHTML = `<b>예약 실행</b> — ${esc(d.note || '대기 중인 예약 없음')}`; }
+      else {
+        el.innerHTML = `<b>예약 실행</b> — 체결 ${filled.length}건` + (skipped.length ? ` · 보류 ${skipped.length}건` : '')
+          + (rows.length ? '<br>' + rows.map(x => {
+            const st = x.status === 'filled' ? '체결' : (x.status || '').startsWith('skipped') ? '보류' : (x.status || '');
+            return `· <b>${esc(x.name || x.ticker)}</b>${st ? ` [${st}]` : ''} — ${esc(x.note || '')}`;
+          }).join('<br>') : '');
+      }
     }
     loadBotState();
   } finally { btn.disabled = false; btn.textContent = t; }

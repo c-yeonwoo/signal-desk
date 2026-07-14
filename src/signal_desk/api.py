@@ -126,6 +126,14 @@ async def _bot_loop():
             _refresh_live_quotes(open_markets)  # 장중 실시간가 오버레이 갱신(열린 시장만, 없으면 종가 복귀)
             for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
                 for mkt in open_markets:
+                    try:  # 예약 주문 먼저(목표가+추격폭 이내만) — run_once와 별개 경로
+                        res = bot.execute_reservations(uid, market=mkt)
+                        if res.get("executed") and uid not in bot.REFERENCE_BOTS:
+                            filled = [x for x in res["executed"] if x.get("status") == "filled"]
+                            if filled:
+                                log.info("예약 체결(uid=%s, %s): %d건", uid, mkt, len(filled))
+                    except Exception as e:
+                        log.warning("예약 실행 실패(uid=%s, %s): %s", uid, mkt, type(e).__name__)
                     result = bot.run_once(uid, market=mkt)
                     if not result.get("ok"):
                         log.info("봇 실행 스킵(uid=%s, %s): %s", uid, mkt, result.get("reason"))

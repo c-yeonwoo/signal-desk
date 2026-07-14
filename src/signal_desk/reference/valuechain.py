@@ -424,7 +424,7 @@ SECTORS = [
     {
         "key": "finance",
         "name": "금융",
-        "tags": ["은행·금융", "금융"],
+        "tags": ["은행·금융", "은행/금융", "금융"],
         "summary": "은행 → 증권·보험 → 핀테크·카드. 금리·자본시장 사이클, 밸류업(주주환원) 테마.",
         "stages": [
             {"stage": "업스트림 · 은행/지주", "desc": "은행·금융지주.",
@@ -469,9 +469,14 @@ def sector(key: str) -> dict | None:
 
 
 def key_for_tag(tag: str) -> str | None:
-    """사이클의 주도섹터 이름(예: '반도체', 'IT/인터넷')을 밸류체인 섹터 key로 매핑. 없으면 None."""
+    """사이클의 주도섹터 이름(예: '반도체', 'IT/인터넷')을 밸류체인 섹터 key로 매핑. 없으면 None.
+    '/'와 '·' 표기 차이를 흡수한다(은행/금융 ↔ 은행·금융)."""
+    if not tag:
+        return None
+    aliases = {tag, tag.replace("/", "·"), tag.replace("·", "/")}
     for s in SECTORS:
-        if tag in s["tags"]:
+        tags = s["tags"]
+        if any(a in tags for a in aliases):
             return s["key"]
     return None
 
