@@ -119,8 +119,8 @@
   .macro-callout .mco-body { margin-top:7px; font-size:12.5px; color:var(--fg); line-height:1.6; }
   .macro-callout .mco-body ul { margin:6px 0 0; padding-left:16px; color:var(--dim); }
   .macro-callout .mco-body li { margin:2px 0; }
-  .sig-workspace { display:flex; gap:16px; align-items:stretch; }
-  .sig-list { flex:0 0 min(480px, 38vw); min-width:280px; overflow-y:auto; overflow-x:hidden; padding:0; }
+  .sig-workspace { display:flex; gap:16px; align-items:flex-start; }  /* stretch 금지 — 긴 리스트가 차트 컬럼을 뷰포트 밖으로 늘려 차트를 폭발시켰음 */
+  .sig-list { flex:0 0 min(480px, 38vw); min-width:280px; max-height:calc(100dvh - 200px); overflow-y:auto; overflow-x:hidden; padding:0; }
   .sig-list table.dtable th, .sig-list table.dtable td { padding:8px 7px; }
   .sig-list table.dtable td:nth-child(2) { white-space:normal; }  /* 긴 종목명은 줄바꿈(가로 스크롤 방지) */
   .sig-list .dtable th { position:sticky; top:48px; background:var(--panel); z-index:1; }
@@ -133,10 +133,10 @@
     font-size:12px; color:var(--dim); }
   .sig-quote .q-price { font-size:16px; font-weight:800; color:var(--txt); }
   .sig-quote .q-k { color:var(--dim-2); }
-  .sig-chart-pane { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+  .sig-chart-pane { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; max-height:calc(100dvh - 200px); }
   .sig-chart-pane .pane-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
   .sig-chart-pane { overflow-y:auto; }
-  #signal-chart { flex:1 1 auto; min-height:560px; width:100%; }  /* 하단 지표패널(px 고정)이 268px+ 차지 → 종가 패널 짜부 방지 위해 넉넉히 */
+  #signal-chart { flex:0 0 auto; height:560px; width:100%; }  /* 고정 높이 — flex 성장이면 긴 리스트/stretch에 끌려 차트가 폭발(10000px+)했음. 하단 지표패널 px 고정이라 560이면 종가 패널도 넉넉 */
   /* 차트 아래 상세는 서브탭으로 하나씩 — 차트를 밀어내지 않도록 높이 제한 */
   .detail-tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:1px solid var(--line); margin-top:22px; }
   .detail-tab { flex:0 0 auto; background:none; border:none; border-bottom:2px solid transparent; cursor:pointer;
@@ -355,8 +355,8 @@
     .sig-workspace { flex-direction:column; height:auto; flex:none; min-height:0; }
     #view-signal .sig-workspace { flex:none; min-height:0; }
     .sig-list { flex:none; max-height:320px; }
-    #signal-chart { height:auto; min-height:560px; }
-    .sig-chart-pane { min-height:560px; }
+    #signal-chart { flex:0 0 auto; height:560px; }
+    .sig-chart-pane { min-height:560px; max-height:none; }  /* 모바일은 컬럼 캡 해제 → 페이지 스크롤 */
   }
   @media (max-width:640px){
     header { padding:10px 14px; gap:8px 6px; align-items:center; }
