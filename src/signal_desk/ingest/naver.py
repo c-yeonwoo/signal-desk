@@ -27,6 +27,32 @@ def _num(s) -> float:
 def investor_flow(code: str, days: int = 20) -> dict | None:
     """종목의 최근 days 거래일 외국인·기관 순매수(주수) 누적 + 거래량 합. 실패/무자료 시 None.
     반환: {foreign_net, inst_net, total_buy}(주수) — store가 intensity로 정규화."""
+    rows = investor_flow_series(code, days=days)
+    if not rows:
+        return None
+    fo = sum(r["foreign_net"] for r in rows)
+    ins = sum(r["inst_net"] for r in rows)
+    vol = sum(r.get("volume") or 0 for r in rows)
+    return {"foreign_net": fo, "inst_net": ins, "total_buy": vol}
+
+
+def _trend_date(row: dict) -> str | None:
+    """네이버 trend 행에서 YYYY-MM-DD 추출."""
+    for k in ("bizdate", "businessDate", "localTradedAt", "date", "tradedAt"):
+        raw = row.get(k)
+        if not raw:
+            continue
+        s = str(raw).strip().replace(".", "").replace("/", "")[:8]
+        if len(s) >= 8 and s[:8].isdigit():
+            return f"{s[:4]}-{s[4:6]}-{s[6:8]}"
+        if len(str(raw)) >= 10 and str(raw)[4] == "-":
+            return str(raw)[:10]
+    return None
+
+
+def investor_flow_series(code: str, days: int = 120) -> list[dict] | None:
+    """일별 외국인·기관 순매수 시계열(오래된→최신). 차트 수급 패널용.
+    반환: [{date, foreign_net, inst_net, volume}, ...] — 실패/무자료 시 None."""
     url = f"https://m.stock.naver.com/api/stock/{code}/trend"
     req = urllib.request.Request(url, headers={"User-Agent": _UA, "accept": "application/json"})
     try:
@@ -40,12 +66,24 @@ def investor_flow(code: str, days: int = 20) -> dict | None:
         return None
     if not isinstance(rows, list) or not rows:
         return None
-    fo = ins = vol = 0.0
-    for row in rows[:days]:
-        fo += _num(row.get("foreignerPureBuyQuant"))
-        ins += _num(row.get("organPureBuyQuant"))
-        vol += _num(row.get("accumulatedTradingVolume"))
-    return {"foreign_net": fo, "inst_net": ins, "total_buy": vol}
+    out: list[dict] = []
+    for row in rows[: max(1, days)]:
+        dt = _trend_date(row)
+        if not dt:
+            continue
+        out.append({
+            "date": dt,
+            "foreign_net": _num(row.get("foreignerPureBuyQuant")),
+            "inst_net": _num(row.get("organPureBuyQuant")),
+            "volume": _num(row.get("accumulatedTradingVolume")),
+        })
+    if not out:
+        return None
+    out.reverse()  # API는 보통 최신→과거 — 차트 dates와 맞춰 오래된→최신
+    # 날짜 오름차순 보장
+    out.sort(key=lambda x: x["date"])
+    return out
+
 
 
 def _fnum(s) -> float | None:

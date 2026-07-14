@@ -110,8 +110,13 @@ def test_signal_chart_with_data(tmp_path, monkeypatch):
     client.post("/api/auth/signup", json={"email": "d@b.com", "pw": "abcdef"})
 
     from signal_desk import api as api_module
+    from signal_desk.ingest import naver
     history = [{"date": f"2026-01-{i:02d}", "close": 100.0 + i} for i in range(1, 26)]
     monkeypatch.setattr(api_module.store, "load_price_history", lambda ticker: history)
+    monkeypatch.setattr(naver, "investor_flow_series", lambda code, days=120: [
+        {"date": h["date"], "foreign_net": float(i), "inst_net": float(-i), "volume": 1000}
+        for i, h in enumerate(history)
+    ])
 
     r = client.get("/api/signals/005930/chart")
     assert r.status_code == 200
@@ -123,3 +128,5 @@ def test_signal_chart_with_data(tmp_path, monkeypatch):
     assert len(d["rsi"]) == len(history)
     assert "macd" in d and "macd_signal" in d and "macd_hist" in d
     assert "scores" in d and len(d["scores"]) == len(history)
+    assert len(d["flow_foreign"]) == len(history)
+    assert d["flow_foreign"][0] == 0.0

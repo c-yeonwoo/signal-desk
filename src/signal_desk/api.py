@@ -804,6 +804,15 @@ def signal_chart_get(ticker: str, market: str = "kospi"):
     series = compute_indicator_series(closes)
     stored = store.signal_history_for(ticker) if market != "us" else {}  # 실측 시그널(PIT) 우선
     actual_dates = [d for d in dates if d in stored]
+    # 일별 수급(KR만) — 차트 dates에 정렬. 없으면 null 배열(패널은 비움).
+    flow_foreign = flow_inst = [None] * len(dates)
+    if market != "us":
+        from signal_desk.ingest import naver
+        series_flow = naver.investor_flow_series(ticker, days=min(260, max(60, len(dates))))
+        if series_flow:
+            by_d = {r["date"]: r for r in series_flow}
+            flow_foreign = [(by_d[d]["foreign_net"] if d in by_d else None) for d in dates]
+            flow_inst = [(by_d[d]["inst_net"] if d in by_d else None) for d in dates]
     return {
         "ready": True,
         "ticker": ticker,
@@ -815,7 +824,9 @@ def signal_chart_get(ticker: str, market: str = "kospi"):
         "ma120": series["ma_long"],
         "rsi": series["rsi"],
         "zones": signal_zones(dates, closes, stored=stored),
-        "scores": daily_signal_scores(dates, closes, stored=stored),  # 점수 추이(발동≠ · 참고)
+        "scores": daily_signal_scores(dates, closes, stored=stored),
+        "flow_foreign": flow_foreign,
+        "flow_inst": flow_inst,
         "actual_from": actual_dates[0] if actual_dates else None,  # 이 날짜 이후는 실측(그 전은 재현)
         "macd": series["macd"]["macd"],
         "macd_signal": series["macd"]["signal"],
