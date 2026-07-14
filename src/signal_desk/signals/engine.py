@@ -40,7 +40,8 @@ class SignalConfig:
     weight_qualitative: float = 0.15  # KB(뉴스·영상) 정성 — 데이터 있을 때만 포함(없으면 재정규화 제외)
     weight_flow: float = 0.20  # 수급(외국인·기관 순매수) — KR만, 데이터 있을 때만 포함
     weight_quality: float = 0.15  # 퀄리티(축약 F-Score) — 재무 건전성·개선. 데이터 있을 때만 포함
-    weight_momentum: float = 0.20  # 중기 모멘텀(12-1개월) — 가격만 필요, 백테스트에도 반영
+    weight_momentum: float = 0.30  # 중기 모멘텀(12-1개월) — 5.5년 실측상 가격기반 종합 IC의 주동인·과소가중
+    #                                확인(0.20→0.30 상향, 어드민 승인). 가격만 필요, 백테스트 반영. 트래커 라이브 IC로 확정
     weight_short: float = 0.15  # 공매도 거래비중(KR) — 하방 리스크. 비중 높을 때만 음(-)으로 포함
     momentum_lookback: int = 252   # 약 12개월(거래일)
     momentum_skip: int = 21        # 직전 약 1개월 제외(단기 반전 노이즈 제거)

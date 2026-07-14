@@ -15,7 +15,7 @@ from signal_desk.signals.engine import SignalConfig
 _KEY = "signal_config"
 # 관리자 조정 대상 필드(팩터 가중치 5종 + 매수/매도 임계값 + 국면 적응 on/off)
 FIELDS = ["weight_technical", "weight_fundamental", "weight_valuation",
-          "weight_reversion", "weight_qualitative",
+          "weight_reversion", "weight_qualitative", "weight_momentum",
           "strong_buy_threshold", "buy_threshold", "sell_threshold", "strong_sell_threshold",
           "regime_adaptive"]
 

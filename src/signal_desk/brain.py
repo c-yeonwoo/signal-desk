@@ -28,6 +28,9 @@ _SOURCES = [  # (freshness key, 표시명)
     ("flows", "수급"), ("short", "공매도"), ("consensus", "컨센서스"), ("macro", "거시"),
 ]
 _IC_MIN_WARN = 20   # IC 신뢰 최소 표본(미만이면 판정 보류)
+# 타이밍/게이트 역할 팩터 — 5.5년 실측상 횡단면 IC≈0(랭킹 알파 아님). 진입 타이밍·추세게이트로
+# 기능하므로 낮은/음수 IC를 경고하지 않는다(오탐 방지). 랭킹 알파는 모멘텀 등이 담당.
+_TIMING_FACTORS = {"technical", "reversion"}
 
 
 def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) -> dict:
@@ -70,6 +73,10 @@ def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) 
         metric = f"w={w:.2f}" if isinstance(w, (int, float)) else "—"
         if ss == "stale":
             st = "stale"
+        elif ic is not None and key in _TIMING_FACTORS:
+            metric += f" · IC{ic:+.2f}"  # 타이밍/게이트 역할 — 낮은/음수 IC 정상(경고 안 함)
+            if ic_samples >= _IC_MIN_WARN and ic < 0:
+                findings.append({"level": "info", "text": f"{label} 팩터 IC {ic:+.2f} — 타이밍/게이트 역할이라 횡단면 IC 낮음이 정상"})
         elif ic is not None and ic_samples >= _IC_MIN_WARN and ic < 0:
             st = "warn"; metric += f" · IC{ic:+.2f}"
             findings.append({"level": "warn", "text": f"{label} 팩터 IC 음수({ic:+.2f}, N={ic_samples}) — 가중 재검토 후보"})

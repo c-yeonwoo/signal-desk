@@ -47,6 +47,16 @@ def test_negative_ic_factor_warned():
     assert any("IC 음수" in f["text"] for f in snap["findings"])
 
 
+def test_timing_factor_low_ic_not_warned():
+    # technical/reversion은 타이밍·게이트 역할(횡단면 IC≈0 정상) → 음수 IC라도 warn 아님, info만
+    acc = {"ready": True, "factor_ic": {"technical": -0.05},
+           "coverage": {"matured_primary": 40, "dates": 25}}
+    snap = brain.build(_FRESH_OK, acc, _WEIGHTS, is_ready=True)
+    tech = next(n for n in snap["nodes"] if n["id"] == "fac:technical")
+    assert tech["status"] != "warn"
+    assert any("타이밍/게이트" in f["text"] for f in snap["findings"])
+
+
 def test_low_sample_ic_not_warned():
     # 표본<20이면 음수 IC라도 판정 보류(warn 아님)
     acc = {"ready": True, "factor_ic": {"short": -0.05}, "coverage": {"matured_primary": 5}}
