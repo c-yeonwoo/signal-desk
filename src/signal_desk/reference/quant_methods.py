@@ -90,8 +90,9 @@ METHODS = [
      "note": "현재 어닝은 게이트(회피)만; PEAD는 포착(recall↑)"},
     {"key": "multi_horizon", "name": "다중 horizon 신호 수명", "category": "structure", "status": "candidate",
      "idea": "팩터별 예측 지평 명시", "formula": "신호를 5/20/60일 중 강한 horizon에 라벨",
-     "addresses": "기회 확대(setup별 보유기간)", "evidence": "factor decay 문헌", "risk": "복잡도↑",
-     "validate": "트래커가 이미 5/20/60일 측정", "note": "recall 확대 레버"},
+     "addresses": "기회 확대(setup별 보유기간)", "evidence": "factor decay 문헌; 5.5년 KR 실측(2026-07): "
+     "모멘텀 IC 5d+0.02→20d+0.04→60d+0.08로 지평 길수록 강화", "risk": "복잡도↑",
+     "validate": "트래커가 이미 5/20/60일 측정", "note": "recall 확대 레버. 모멘텀 60일 라벨 근거 확보 → 검증 1순위"},
     {"key": "crowding_risk_lite", "name": "편중 경고(lite 리스크모델)", "category": "risk", "status": "candidate",
      "idea": "섹터·팩터 쏠림 감지", "formula": "포트 섹터/팩터 노출 집중도",
      "addresses": "crowded trade 리스크", "evidence": "2025 퀀트펀드 손실(요인상관·crowding)",
@@ -101,12 +102,14 @@ METHODS = [
      "idea": "신호강도×역변동성 비중", "formula": "w ∝ signal / recent_vol",
      "addresses": "리스크 조정 수익", "evidence": "risk parity/vol targeting", "risk": "변동성 추정 오차",
      "validate": "리밸런싱 성과 A/B", "note": "기존 리밸런싱에 부착 가능"},
-    {"key": "low_volatility", "name": "저변동성 팩터", "category": "factor", "status": "candidate",
-     "idea": "저변동 종목의 초과수익", "formula": "역(최근 변동성) 랭크",
-     "addresses": "상보적 알파축", "evidence": "Low-volatility anomaly(Barra)", "risk": "국면 의존",
-     "validate": "팩터 IC(low_vol)", "note": "가격만 필요 → 즉시 백테스트 가능"},
 
     # ---------- rejected: 검토 후 미채택 ----------
+    {"key": "low_volatility", "name": "저변동성/BAB 팩터", "category": "factor", "status": "rejected",
+     "idea": "저변동·저베타 종목의 (특히 하락장) 방어적 초과수익", "formula": "역(최근 변동성) 랭크; -beta(BAB)",
+     "addresses": "하락장 방어 알파축", "evidence": "Low-volatility anomaly(Barra); Frazzini-Pedersen BAB",
+     "risk": "국면 의존", "validate": "팩터 IC(low_vol/bab)",
+     "note": "미채택: 5.5년 KR 실측(2026-07) 결과 가설 반증 — risk-off 20일 IC 저변동 −0.06·BAB −0.10(방어 실패), "
+     "상승장에선 언더퍼폼. 전체 IC도 미미. (US 대형주 장기 아노말리가 KR 5년엔 안 나타남)"},
     {"key": "ml_alpha_mining", "name": "ML/LLM 알파 마이닝", "category": "factor", "status": "rejected",
      "idea": "수천 피처 비선형 학습·자동 팩터 생성", "formula": "XGBoost/NN/GAN",
      "addresses": "새 알파", "evidence": "헤지펀드(대규모 데이터)", "risk": "우리 데이터(200종목·1년·스케일)로 과적합 확실",

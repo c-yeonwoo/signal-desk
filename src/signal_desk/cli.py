@@ -37,7 +37,8 @@ def serve(
 
 
 @app.command()
-def fetch():
+def fetch(full: bool = typer.Option(False, "--full", "-f",
+          help="시세 전량 재수집(≈5년 백필). 기본은 증분(마지막 저장일부터).")):
     """유니버스+시세 수집(항상) + 재무(DART_API_KEY 있을 때만) → data/cache/."""
     from signal_desk import store
 
@@ -45,8 +46,8 @@ def fetch():
     universe = store.fetch_universe()
     console.print(f"[green]유니버스 {len(universe)}종목[/green]")
 
-    console.print("[dim]시세 수집 중… (종목당 1회 요청)[/dim]")
-    prices = store.fetch_prices(universe)
+    console.print(f"[dim]시세 수집 중… ({'전량 백필' if full else '증분'})[/dim]")
+    prices = store.fetch_prices(universe, full=full)
     console.print(f"[green]시세 {len(prices)}행[/green] → {store.PRICES_FILE}")
 
     if not config.dart_key():
