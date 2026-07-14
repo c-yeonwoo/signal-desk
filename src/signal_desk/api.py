@@ -648,6 +648,59 @@ def signals_get(market: str = "kospi"):
     return {"ready": True, "items": items}
 
 
+def _buylist(uid: int) -> list[dict]:
+    """관심종목별 '매수까지 무엇이 남았는지' — 조정장 대기 데스크용. 현재 점수·유효 매수문턱·막는
+    게이트를 투명하게. 예측이 아니라 '무엇을 기다리는지'를 보여준다(evidence-only, 매수 강권 X)."""
+    favs = [f["key"] for f in db.fav_list(uid) if f["kind"] == "ticker"]
+    if not favs:
+        return []
+    kr_sigs = {s.ticker: s for s in _signals()} if store.is_ready() else {}
+    us_sigs = _us_signals()
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    names.update({u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()})
+    _, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
+    kr_thr = adapt["effective_buy_threshold"]        # 국면 상향된 유효 매수문턱(KR)
+    base_thr = signalcfg.get_config().buy_threshold  # US 등 기본
+    out = []
+    for t in favs:
+        sig = kr_sigs.get(t) or us_sigs.get(t)
+        if not sig:
+            continue
+        is_us = t not in kr_sigs
+        thr = base_thr if is_us else kr_thr
+        blockers = []
+        if sig.event_risk:
+            blockers.append({"key": "event", "label": "악재 감지", "hint": "악재 해소까지 관망"})
+        if sig.earnings_soon:
+            edate = f"({sig.earnings_date})" if sig.earnings_date else ""
+            blockers.append({"key": "earnings", "label": f"실적발표 임박{edate}", "hint": "발표 후 재평가"})
+        if any("하락추세 확인" in r for r in sig.reasons):
+            blockers.append({"key": "trend", "label": "하락추세", "hint": "종가가 20일선 회복 시 재평가"})
+        gap = round(thr - sig.score, 2)
+        if sig.kind in ("BUY", "STRONG_BUY") and not blockers:
+            status, hint = "ready", "이미 매수 신호 — 확인해보세요"
+        elif blockers:
+            status, hint = "blocked", blockers[0]["hint"]
+        else:
+            status = "near" if gap <= 0.5 else "far"
+            hint = f"점수 {sig.score:+.2f} · 매수문턱 {thr:.2f} — {max(gap, 0):.2f} 더 오르면 매수권"
+        out.append({"ticker": t, "name": names.get(t, sig.name), "kind": sig.kind,
+                    "score": round(sig.score, 2), "threshold": round(thr, 2), "gap": gap,
+                    "blockers": blockers, "status": status, "hint": hint,
+                    "market": "us" if is_us else "kr"})
+    out.sort(key=lambda x: (len(x["blockers"]), x["gap"]))  # 매수에 가까운 순(게이트 적고 갭 작은)
+    return out
+
+
+@app.get("/api/buylist")
+def buylist_get(request: Request):
+    """조정장 매수 대기 리스트 — 관심종목별 매수까지 남은 조건. 로그인 필요."""
+    uid = _uid(request)
+    if not uid:
+        return {"items": []}
+    return {"items": _buylist(uid)}
+
+
 @app.get("/api/narrative")
 def narrative_get(ticker: str):
     """시그널 해설 v2(#17) — 근거+KB를 LLM으로 해설(캐시). LLM 미설정/실패 시 규칙기반 v1 폴백."""
