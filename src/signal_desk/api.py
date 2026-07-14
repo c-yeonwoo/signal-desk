@@ -887,6 +887,13 @@ def _refresh_kr(data: dict) -> dict:
         store.update_valuation()                               # 캐시 재무 + 오늘 시총 → PER/PBR·시총만 갱신(KRX 1콜)
         fundamentals = store.load_fundamentals()
         log.info("DART 재무 최신(분기 내) — 재수집 스킵, 시총만 갱신")
+    # 기업개황은 정적이라 DART 재무 게이트(≈80일)에 묶여 있으나, 이 항목이 나중에 추가돼 date-gate에
+    # 막혀 백필이 안 되던 케이스 → 비어 있으면 게이트와 무관하게 1회 백필(증분·키 없으면 즉시 무동작).
+    if not store.load_company_profiles():
+        try:
+            store.fetch_company_profiles(universe)
+        except Exception as e:
+            log.warning("기업개황 백필 실패(무시): %s", type(e).__name__)
     return {"universe_size": len(universe), "fundamentals_size": len(fundamentals)}
 
 

@@ -49,3 +49,27 @@ def test_unknown_scope_rejected(monkeypatch):
     monkeypatch.setattr(api, "_clear_signal_caches", lambda: None)
     out = api.refresh({"scope": "bogus"})
     assert out["ok"] is False and "bogus" in out["reason"]
+
+
+def _stub_kr(monkeypatch, profiles, calls):
+    monkeypatch.setattr(api.store, "fetch_universe", lambda: [{"ticker": "005930", "name": "삼성전자"}])
+    monkeypatch.setattr(api.store, "fetch_prices", lambda u: None)
+    monkeypatch.setattr(api, "_dart_stale", lambda: False)          # DART 최신 → 재무 블록 스킵
+    monkeypatch.setattr(api.store, "update_valuation", lambda: None)
+    monkeypatch.setattr(api.store, "load_fundamentals", lambda: {"005930": {}})
+    monkeypatch.setattr(api.store, "load_company_profiles", lambda: profiles)
+    monkeypatch.setattr(api.store, "fetch_company_profiles", lambda u: calls.append("cp"))
+
+
+def test_refresh_kr_backfills_company_profiles_when_empty(monkeypatch):
+    calls = []
+    _stub_kr(monkeypatch, {}, calls)                                # 기업개황 비어 있음
+    api._refresh_kr({})
+    assert calls == ["cp"]     # date-gate로 재무 블록 스킵돼도 기업개황은 백필
+
+
+def test_refresh_kr_skips_company_backfill_when_present(monkeypatch):
+    calls = []
+    _stub_kr(monkeypatch, {"005930": {"ceo": "x"}}, calls)          # 이미 수집됨
+    api._refresh_kr({})
+    assert calls == []         # 있으면 재백필 안 함(정적 데이터)
