@@ -74,6 +74,9 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "ON은 국내·해외 공통" in html
     assert "openHelp()" in html
     assert html.count('onclick="openHelp()"') == 1  # footer only — 시그널 헤더에 고아 버튼 금지
+    # sticky footer 셸 회귀 방지 — main이 shrink되면 관리자 긴 페이지에서 footer가 떠버림
+    assert "flex:1 0 auto" in html
+    assert "margin-top:auto" in html  # footer
 
 
 def test_bot_state_and_toggle(tmp_path, monkeypatch):

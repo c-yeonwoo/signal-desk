@@ -28,9 +28,11 @@
     --shadow:0 10px 28px rgba(16,24,40,.10);
   }
   * { box-sizing:border-box; }
-  html, body { height:100%; }
-  body { margin:0; font:15px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif;
-         background:var(--bg); color:var(--txt); display:flex; flex-direction:column; min-height:100vh;
+  /* sticky footer 셸: body는 최소 뷰포트, 콘텐츠 길면 늘어남. height:100% 고정 금지(관리자 긴 문서에서 footer 깨짐). */
+  html { height:100%; }
+  body { margin:0; min-height:100%; min-height:100vh; height:auto;
+         font:15px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard",sans-serif;
+         background:var(--bg); color:var(--txt); display:flex; flex-direction:column;
          -webkit-font-smoothing:antialiased; }
   select, input[type=number], input[type=text], input[type=email], input[type=password], .ctrl {
     font-size:var(--fs-md); padding:9px 12px; border:1px solid var(--line-strong); border-radius:var(--r-sm);
@@ -64,12 +66,14 @@
   .chip { padding:3px 9px; border:1px solid var(--line); border-radius:var(--r-pill); cursor:pointer;
           background:var(--panel); color:var(--dim); font-size:var(--fs-xs); user-select:none; }
   .chip.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-  /* 앱 셸: main이 남는 높이를 채우고 footer는 바닥 고정 */
-  main { flex:1 1 auto; width:100%; min-height:0; display:flex; flex-direction:column; }
-  /* 문서형 탭(표·카드 위주) — 편안한 폭으로 가운데 정렬 */
-  .view-doc { max-width:1360px; margin:0 auto; padding:24px clamp(16px,3.5vw,44px) 48px; width:100%; }
+  /* 앱 셸: main이 짧은 화면에서 footer를 바닥으로 밀고, 긴 문서(관리자)에서는 콘텐츠만큼 늘어남.
+     flex-shrink:0 유지 — min-height:0/shrink 허용하면 관리자 탭에서 footer가 뷰포트에 붙지 않음. */
+  main { flex:1 0 auto; width:100%; display:flex; flex-direction:column; }
+  /* 문서형 탭(표·카드 위주) — 편안한 폭으로 가운데 정렬 · 셸 flex에 잡아먹히지 않게 */
+  .view-doc { max-width:1360px; margin:0 auto; padding:24px clamp(16px,3.5vw,44px) 48px; width:100%;
+    flex:0 0 auto; box-sizing:border-box; }
   /* 워크스페이스형 탭(시그널·포트폴리오) — 뷰포트 폭을 시원하게 사용 */
-  .view-app { padding:16px clamp(14px,2.5vw,34px) 12px; width:100%; box-sizing:border-box; }
+  .view-app { padding:16px clamp(14px,2.5vw,34px) 12px; width:100%; box-sizing:border-box; flex:0 0 auto; }
   .split { display:flex; gap:16px; align-items:flex-start; }
   .split > .card { flex:1 1 50%; min-width:0; }
   .card-row { display:flex; gap:16px; margin-bottom:16px; }
@@ -83,8 +87,8 @@
   .seg-toggle button { border:none; background:var(--panel); color:var(--dim); padding:8px 16px;
     font-size:13px; font-weight:600; cursor:pointer; }
   .seg-toggle button.on { background:var(--accent); color:#fff; }
-  /* ===== 시그널 워크스페이스 — footer 직전까지 높이 채움(고정 clamp 제거) ===== */
-  #view-signal { display:flex; flex-direction:column; gap:10px; flex:1 1 auto; min-height:0; }
+  /* ===== 시그널만 뷰포트 채움(다른 탭 셸은 건드리지 않음) ===== */
+  #view-signal.view-app { flex:1 1 auto; min-height:calc(100dvh - 168px); display:flex; flex-direction:column; gap:10px; }
   #view-signal .sig-workspace { flex:1 1 auto; min-height:480px; height:auto; }
   .sig-topbar { display:flex; gap:10px 18px; align-items:center; flex-wrap:wrap;
     background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); padding:10px 16px; }
@@ -342,7 +346,7 @@
     border-radius:var(--r-pill); padding:1px 7px; vertical-align:middle; line-height:1.5; }
   .layer-badge.sig { background:var(--accent-weak); color:var(--accent); border:1px solid var(--ring); }
   .layer-badge.ctx { background:var(--bg); color:var(--dim); border:1px solid var(--line-strong); }
-  footer { flex:0 0 auto; border-top:1px solid var(--line); padding:12px clamp(16px,3.5vw,44px); display:flex;
+  footer { flex:0 0 auto; margin-top:auto; border-top:1px solid var(--line); padding:12px clamp(16px,3.5vw,44px); display:flex;
     gap:18px; flex-wrap:wrap; align-items:center; font-size:12px; color:var(--dim); background:var(--panel); }
   footer b { color:var(--txt); }
 
