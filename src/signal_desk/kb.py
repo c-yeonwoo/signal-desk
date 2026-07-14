@@ -394,16 +394,19 @@ def build_digest(name: str, items: list[dict]) -> dict:
     return _rule_digest(name, items)
 
 
-def import_macro(title: str, text: str, url: str = "", published: str = "", summary: str = "") -> dict:
+def import_macro(title: str, text: str, url: str = "", published: str = "", summary: str = "",
+                 rebuild: bool = True) -> dict:
     """시황·거시 내러티브(단일 종목 특정 불가)를 거시 KB(_MARKET)에 적재한다.
     개별 종목 검증(종목명 언급)은 적용하지 않되, 너무 짧은 글은 배제. 저장 후 거시 다이제스트 갱신.
-    summary가 주어지면 다이제스트용 요약으로 쓴다(긴 자막 등은 미리 LLM 요약해 넘김). text=원문(raw)."""
+    summary가 주어지면 다이제스트용 요약으로 쓴다(긴 자막 등은 미리 LLM 요약해 넘김). text=원문(raw).
+    rebuild=False면 다이제스트 재계산을 건너뛴다(다건 배치 수집 시 끝에 1회만 재계산하기 위함)."""
     text = (text or "").strip()
     if len(text) < 40:
         return {"ok": False, "reason": "본문이 너무 짧아 시황 KB에 저장하지 않음"}
     db.kb_document_add(MACRO_TICKER, title or "시황", (summary or text)[:400], url, "insight",
                        published, "시황", raw_text=text, status="confirmed")
-    _rebuild_macro_digest()
+    if rebuild:
+        _rebuild_macro_digest()
     return {"ok": True, "status": "confirmed", "doc_class": "시황"}
 
 
@@ -464,6 +467,53 @@ def collect_youtube(max_per_channel: int | None = None, force: bool = False) -> 
                 skipped.append({"video_id": vid, "title": title, "why": r.get("reason", "미저장")})
     log.info("youtube 수집: 거시 %d · 스킵 %d · 오류 %d", len(macro), len(skipped), len(errors))
     return {"ok": True, "imported": [], "macro": macro, "skipped": skipped, "errors": errors}
+
+
+def collect_rss_macro(force: bool = False, limit_per_feed: int | None = None) -> dict:
+    """해외 전문가·기관 RSS 화이트리스트(config.macro_rss_feeds)의 최신 글을 거시 KB(_MARKET)에
+    요약 적재. 국내 아마추어 소스 보완 — 검증된 고품질 시장·거시 논평만(의견=맥락, 신호 아님).
+    영문 원문은 _macro_source_summary(LLM)가 한국어 시장관점 요약으로 압축. 증분: 이미 적재된 URL 스킵.
+    다건이라 항목별 다이제스트 재계산은 생략하고 끝에 1회만."""
+    from signal_desk.ingest import rss
+    feeds = config.macro_rss_feeds()
+    if not feeds:
+        return {"ok": False, "reason": "MACRO_RSS_FEEDS 화이트리스트 없음"}
+    limit = limit_per_feed or 5
+    seen = set() if force else db.kb_document_urls(source="insight")
+    macro, skipped, errors = [], [], []
+    for feed in feeds:
+        name, url = feed.get("name") or "RSS", feed.get("url")
+        if not url:
+            continue
+        entries = rss.feed_entries(url, limit=limit)
+        if not entries:
+            errors.append({"feed": name, "why": "피드 조회 실패/빈 결과"})
+            continue
+        for e in entries:
+            link, title = e.get("url") or "", e.get("title") or ""
+            if link and link in seen:
+                skipped.append({"title": title, "why": "이미 수집됨"})
+                continue
+            if not _year_ok(e.get("published")):
+                skipped.append({"title": title, "why": f"{INGEST_MIN_YEAR} 이전(스킵)"})
+                continue
+            raw = (e.get("summary") or "").strip()
+            if len(raw) < 40:
+                skipped.append({"title": title, "why": "본문 짧음"})
+                continue
+            summary = _macro_source_summary(title, raw)  # 영문→한국어 시장관점 요약(LLM)
+            r = import_macro(f"[{name}] {title}", raw, url=link, published=e.get("published", ""),
+                             summary=summary, rebuild=False)
+            if r.get("ok"):
+                macro.append({"feed": name, "title": title, "published": e.get("published", "")})
+                if link:
+                    seen.add(link)
+            else:
+                skipped.append({"title": title, "why": r.get("reason", "미저장")})
+    if macro:
+        _rebuild_macro_digest()  # 배치 끝에 1회만
+    log.info("RSS 매크로 수집: 거시 %d · 스킵 %d · 오류 %d", len(macro), len(skipped), len(errors))
+    return {"ok": True, "macro": macro, "skipped": skipped, "errors": errors}
 
 
 def build_macro_digest(items: list[dict]) -> dict:

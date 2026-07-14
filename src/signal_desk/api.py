@@ -52,12 +52,12 @@ def _kst_today() -> str:
 
 
 def _daily_kb_collect():
-    """외부 KB 소스(미주은·오건영·유튜브) 하루 1회 자동수집 — 증분이라 새 글만 적재.
+    """외부 KB 소스(미주은·오건영·유튜브·해외 전문가 RSS) 하루 1회 자동수집 — 증분이라 새 글만 적재.
     best-effort(개별 실패 무시), fanding tt 만료 등은 조용히 스킵. 새 인사이트/시황 반영 위해 캐시 무효화."""
     if db.kv_get("kb_collect_date") == _kst_today():
         return
     got = False
-    for fn in (kb.collect_fanding, kb.collect_outstanding, kb.collect_youtube):
+    for fn in (kb.collect_fanding, kb.collect_outstanding, kb.collect_youtube, kb.collect_rss_macro):
         try:
             out = fn()
             got = got or bool(out.get("imported") or out.get("macro"))
@@ -200,7 +200,7 @@ async def _auth_gate(request: Request, call_next):
 _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents", "/api/kb/digests",
-    "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube",
+    "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube", "/api/kb/collect-rss",
     "/api/shortform/generate", "/api/shortform/generate-performance",
     "/api/shortform/queue", "/api/shortform/candidates",
     "/api/data-health", "/api/egress-ip",
@@ -1247,6 +1247,16 @@ def kb_collect_youtube(data: dict = Body(default={})):
     out = kb.collect_youtube(max_per_channel=int(n) if n else None, force=bool(data.get("force")))
     if out.get("ok") and out.get("imported"):
         _signals.cache_clear()
+    if out.get("ok") and out.get("macro"):
+        _macro.cache_clear()
+    return out
+
+
+@app.post("/api/kb/collect-rss")
+def kb_collect_rss(data: dict = Body(default={})):
+    """해외 전문가·기관 RSS 화이트리스트(config.macro_rss_feeds) 최신 글 → 거시 KB 요약 적재(수동 트리거)."""
+    n = data.get("limit_per_feed")
+    out = kb.collect_rss_macro(force=bool(data.get("force")), limit_per_feed=int(n) if n else None)
     if out.get("ok") and out.get("macro"):
         _macro.cache_clear()
     return out

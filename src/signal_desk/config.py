@@ -152,6 +152,29 @@ def youtube_channels() -> list[str]:
     return ids or ["sbs_explained"]
 
 
+def macro_rss_feeds() -> list[dict]:
+    """거시·시장 KB 고품질 소스 RSS 화이트리스트({name, url}). 국내 아마추어 소스 보완용으로
+    검증된 해외 전문가·기관 피드만 골라 거시 KB(_MARKET)에 요약 적재(의견=맥락 레이어, 신호 아님).
+    MACRO_RSS_FEEDS(.env, 'name|url,name|url' 형식)로 override. 기본은 라이브 검증된 무료 피드."""
+    raw = os.environ.get("MACRO_RSS_FEEDS", "")
+    if raw.strip():
+        feeds = []
+        for part in raw.split(","):
+            if "|" in part:
+                nm, _, u = part.partition("|")
+                if nm.strip() and u.strip():
+                    feeds.append({"name": nm.strip(), "url": u.strip()})
+        if feeds:
+            return feeds
+    return [
+        {"name": "Damodaran (Musings on Markets)", "url": "https://aswathdamodaran.blogspot.com/feeds/posts/default"},
+        {"name": "Ben Carlson (A Wealth of Common Sense)", "url": "https://awealthofcommonsense.com/feed/"},
+        {"name": "Josh Brown (The Reformed Broker)", "url": "https://thereformedbroker.com/feed/"},
+        {"name": "Barry Ritholtz", "url": "https://ritholtz.com/feed/"},
+        {"name": "Klement on Investing", "url": "https://klementoninvesting.substack.com/feed"},
+    ]
+
+
 def youtube_max_per_channel() -> int:
     """유튜브 1회 수집 시 채널당 최대 영상 수. YOUTUBE_MAX_PER_CHANNEL(.env) 또는 기본 20.
     최초 백필 땐 크게, 평소엔 낮게(증분·하루1회 자동수집이라 평소엔 새 영상만 들어옴)."""

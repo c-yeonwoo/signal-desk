@@ -900,6 +900,7 @@
         <button class="btn" onclick="collectFanding(90)" style="margin-left:4px" title="지난 3개월 전량 백필(초기 1회)">↩3개월</button>
         <button class="btn" onclick="collectOutstanding()" style="margin-left:8px">아웃스탠딩 수집</button>
         <button class="btn" onclick="collectYoutube()" style="margin-left:8px">유튜브 수집</button>
+        <button class="btn" onclick="collectRss()" style="margin-left:8px" title="해외 전문가·기관 RSS(Damodaran·Ben Carlson 등) → 거시 KB">해외 RSS 수집</button>
         <button class="btn" onclick="refreshKb()" style="margin-left:8px">뉴스 갱신</button>
       </div>
       <p class="page-desc" style="margin:6px 0 12px">뉴스·리포트를 문서 단위로 수집·요약·분류해 KB에 쌓습니다. 시그널의 정성 판단(악재 veto)과 봇 자문이 이 KB만 근거로 씁니다.</p>
@@ -3201,6 +3202,19 @@ async function collectYoutube(){
     if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `실패: ${d.reason || ''}`; return; }
     el.style.color = 'var(--sig-buy)';
     el.textContent = `📥 거시 ${(d.macro || []).length} · 종목 ${d.imported.length} · 스킵 ${d.skipped.length}${d.errors.length ? ` · 오류 ${d.errors.length}` : ''}`;
+    loadKbDocs();
+  } catch(e) { el.style.color = 'var(--sell)'; el.textContent = '요청 실패'; }
+  finally { btn.disabled = false; btn.textContent = t; }
+}
+async function collectRss(){
+  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '수집 중…';
+  const el = document.getElementById('fanding-result');
+  try {
+    const d = await (await fetch('/api/kb/collect-rss', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}) })).json();
+    if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `실패: ${d.reason || ''}`; return; }
+    el.style.color = 'var(--sig-buy)';
+    el.textContent = `📥 해외 RSS 거시 ${(d.macro || []).length} · 스킵 ${d.skipped.length}${d.errors.length ? ` · 오류 ${d.errors.length}` : ''}`;
     loadKbDocs();
   } catch(e) { el.style.color = 'var(--sell)'; el.textContent = '요청 실패'; }
   finally { btn.disabled = false; btn.textContent = t; }
