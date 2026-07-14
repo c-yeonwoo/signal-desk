@@ -32,7 +32,10 @@ def test_retrieve_ranks_relevant_top(tmp_path, monkeypatch):
 
 def test_retrieve_empty_on_no_match(tmp_path, monkeypatch):
     _seed(monkeypatch, tmp_path)
-    assert kb_search.retrieve("비트코인 규제 소송", k=3) == []   # 코퍼스에 없는 주제
+    # 코퍼스와 공유 토큰이 거의 없으면 BM25·dense 모두 낮음 → 빈 결과(또는 매우 낮은 점수만)
+    hits = kb_search.retrieve("비트코인 규제 소송 양자컴퓨터", k=3)
+    assert hits == [] or all(h["score"] < 0.15 for h in hits)
+
 
 
 def test_reindex_on_corpus_change(tmp_path, monkeypatch):

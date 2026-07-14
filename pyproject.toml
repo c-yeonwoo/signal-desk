@@ -20,6 +20,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "httpx>=0.27"]
+# 진짜 시맨틱 임베딩(로컬). 없으면 hashing/OpenAI(OPENAI_API_KEY) 폴백.
+embed = ["sentence-transformers>=3.0"]
 
 [project.scripts]
 sigdesk = "signal_desk.cli:app"

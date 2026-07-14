@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS shortform(id TEXT PRIMARY KEY, ticker TEXT, name TEXT
     status TEXT NOT NULL DEFAULT 'draft', note TEXT, created INTEGER, reviewed INTEGER);
 CREATE TABLE IF NOT EXISTS bot_equity(uid INTEGER, market TEXT NOT NULL DEFAULT 'kr', date TEXT,
     total_eval REAL, cash REAL, invested REAL, PRIMARY KEY(uid, market, date));
+CREATE TABLE IF NOT EXISTS kb_embeddings(
+    entry_id INTEGER PRIMARY KEY,
+    model TEXT NOT NULL,
+    dim INTEGER NOT NULL,
+    vec BLOB NOT NULL,
+    updated INTEGER NOT NULL);
 """
 
 
@@ -105,6 +111,7 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE kb_entries ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
     if "scenes" not in {r[1] for r in c.execute("PRAGMA table_info(shortform)").fetchall()}:
         c.execute("ALTER TABLE shortform ADD COLUMN scenes TEXT")  # 장면 시퀀스(인트로+근거별 프레임) JSON
+    # kb_embeddings는 _SCHEMA CREATE IF NOT EXISTS로 충분(신규 테이블)
     c.commit()
     # 일회성: 기존 raw_text 절단 + VACUUM(파일 회수). conn()이 매번 _migrate를 돌므로 kv 플래그로 1회만.
     # kv_get()은 conn()을 다시 열어 재귀되므로 여기선 c로 직접 조회한다.
@@ -438,6 +445,54 @@ def kb_entry_add_many(ticker: str, items: list[dict]) -> int:
     return added
 
 
+def kb_embedding_upsert(entry_id: int, model: str, vec: bytes) -> None:
+    c = conn()
+    c.execute("INSERT INTO kb_embeddings(entry_id,model,dim,vec,updated) VALUES(?,?,?,?,?) "
+              "ON CONFLICT(entry_id) DO UPDATE SET model=excluded.model, dim=excluded.dim, "
+              "vec=excluded.vec, updated=excluded.updated",
+              (entry_id, model, len(vec) // 4, vec, int(time.time())))
+    c.commit()
+    c.close()
+
+
+def kb_embeddings_for_model(model: str, entry_ids: list[int] | None = None) -> dict[int, bytes]:
+    c = conn()
+    if entry_ids is not None:
+        if not entry_ids:
+            c.close()
+            return {}
+        ph = ",".join("?" * len(entry_ids))
+        rows = c.execute(f"SELECT entry_id, vec FROM kb_embeddings WHERE model=? AND entry_id IN ({ph})",
+                         (model, *entry_ids)).fetchall()
+    else:
+        rows = c.execute("SELECT entry_id, vec FROM kb_embeddings WHERE model=?", (model,)).fetchall()
+    c.close()
+    return {int(eid): blob for eid, blob in rows}
+
+
+def kb_entries_missing_embed(model: str, limit: int = 80) -> list[dict]:
+    """현재 모델 임베딩이 없는 confirmed 엔트리(최신순)."""
+    c = conn()
+    rows = c.execute(
+        "SELECT e.id, e.ticker, e.title, e.summary FROM kb_entries e "
+        "LEFT JOIN kb_embeddings m ON m.entry_id=e.id AND m.model=? "
+        "WHERE e.status='confirmed' AND m.entry_id IS NULL "
+        "ORDER BY e.id DESC LIMIT ?",
+        (model, limit),
+    ).fetchall()
+    c.close()
+    return [{"id": r[0], "ticker": r[1], "title": r[2], "summary": r[3]} for r in rows]
+
+
+def kb_prune_orphan_embeddings() -> int:
+    """엔트리 삭제 후 남은 고아 임베딩 정리."""
+    c = conn()
+    n = c.execute("DELETE FROM kb_embeddings WHERE entry_id NOT IN (SELECT id FROM kb_entries)").rowcount
+    c.commit()
+    c.close()
+    return n
+
+
 def kb_prune(news_per_ticker: int = 30, news_ttl_days: int = 90, pending_ttl_days: int = 14,
              insight_keep: int = 60, insight_ttl_days: int = 180) -> dict:
     """KB 저장 정리(무한 누적 방지). 자동 수집만 대상 — 큐레이션 업로드/리포트는 보존.
@@ -472,7 +527,9 @@ def kb_prune(news_per_ticker: int = 30, news_ttl_days: int = 90, pending_ttl_day
     ).rowcount
     c.commit()
     c.close()
-    return {"news_deleted": news_del, "pending_deleted": pend_del, "insight_deleted": insight_del}
+    orphan = kb_prune_orphan_embeddings()
+    return {"news_deleted": news_del, "pending_deleted": pend_del, "insight_deleted": insight_del,
+            "embed_orphans_deleted": orphan}
 
 
 def kb_document_add(ticker: str, title: str, summary: str, url: str, source: str,
@@ -494,7 +551,14 @@ def kb_document_add(ticker: str, title: str, summary: str, url: str, source: str
     c.commit()
     row = c.execute("SELECT id FROM kb_entries WHERE url=?", (key,)).fetchone()
     c.close()
-    return row[0] if row else -1
+    eid = row[0] if row else -1
+    if eid > 0 and status == "confirmed":
+        try:
+            from signal_desk import kb_embed
+            kb_embed.upsert_entry(eid, title, summary)
+        except Exception:
+            pass  # 임베딩 실패해도 문서 적재는 성공
+    return eid
 
 
 def kb_document_urls(source: str | None = None) -> set[str]:

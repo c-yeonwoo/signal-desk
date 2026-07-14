@@ -34,6 +34,22 @@ _EVENT_SERIOUS = [
 _EVENT_TERMS = _EVENT_CRITICAL + _EVENT_SERIOUS
 EVENT_TTL_DAYS = 5  # 이 기간 지난 악재는 veto에서 해제(신선도)
 
+# 시맨틱 veto용 프로토타입 — 키워드 동의어·완곡 표현. 점수 팩터가 아니라 악재 후보만.
+# (라벨, 강도, 표현들). 임베딩 백엔드가 hashing이면 공유 토큰이 있을 때만 의미 있게 매칭.
+_EVENT_PROTOTYPES: list[tuple[str, str, list[str]]] = [
+    ("횡령", "critical", ["횡령", "회사 자금 유용", "법인카드 유용", "비자금 조성", "공금 횡령"]),
+    ("배임", "critical", ["배임", "업무상 배임", "회사 재산 손괴", "배임 혐의"]),
+    ("분식회계", "critical", ["분식회계", "회계 조작", "재무제표 허위", "회계부정"]),
+    ("거래정지", "critical", ["거래정지", "매매거래 정지", "거래 중단"]),
+    ("상장폐지", "critical", ["상장폐지", "상장 적격성 실질심사", "상장폐지 결정"]),
+    ("감사의견 거절", "critical", ["감사의견 거절", "감사의견 부적정", "의견거절"]),
+    ("압수수색", "serious", ["압수수색", "검찰 압수 수색", "수사 착수 압수수색"]),
+    ("과징금", "serious", ["과징금", "공정위 과징금", "금감원 제재금"]),
+    ("어닝쇼크", "serious", ["어닝쇼크", "실적 쇼크", "시장 예상 크게 하회", "영업이익 급감 충격"]),
+    ("적자전환", "serious", ["적자전환", "영업적자 전환", "적자로 돌아섬"]),
+    ("영업정지", "serious", ["영업정지", "영업 활동 정지", "업무정지 처분"]),
+]
+
 # DART 공시 전용 키워드 — 공시는 구조화·공신력 있어 뉴스보다 확실(뉴스 본문 오탐 없이 source=='dart'에만 매칭).
 _DISC_CRITICAL = ["감자", "상장폐지", "상장적격성", "감사의견 거절", "감사의견 부적정", "회생절차", "부도", "파산"]
 _DISC_SERIOUS = ["유상증자", "전환사채", "신주인수권부사채", "최대주주 변경", "공급계약 해지", "소송 등의 제기"]
@@ -44,12 +60,16 @@ _DISC_NOTABLE = _DISC_CRITICAL + _DISC_SERIOUS + _DISC_GOOD
 
 
 def event_severity(note: str) -> str:
-    """event_note(형식 '{term} — {title}')의 선두 키워드로 악재 강도 판정. critical|serious|''."""
-    term = (note or "").split(" — ", 1)[0].strip()
+    """event_note 선두 키워드로 악재 강도 판정. critical|serious|''."""
+    head = (note or "").split(" — ", 1)[0].strip()
+    term = head.split("(", 1)[0].strip()
     if term in _EVENT_CRITICAL or term in _DISC_CRITICAL:
         return "critical"
     if term in _EVENT_SERIOUS or term in _DISC_SERIOUS:
         return "serious"
+    for label, sev, _ in _EVENT_PROTOTYPES:
+        if term == label:
+            return sev
     return ""
 
 # 거시·시황 내러티브 전용 가상 종목 — 개별 종목 KB와 격리(sentiment_map 등에서 '_' 접두 티커 제외).
@@ -323,14 +343,53 @@ def _rebuild_digest(ticker: str, name: str) -> None:
 
 
 def detect_event(items: list[dict]) -> tuple[bool, str]:
-    """원자료 제목/요약에서 악재 이벤트 키워드를 찾아 (플래그, 사유) 반환. 없으면 (False, "").
-    뉴스엔 고정밀 _EVENT_TERMS만, DART 공시(source='dart')엔 공시 전용 악재 키워드도 매칭(공신력)."""
+    """원자료 제목/요약에서 악재 이벤트를 찾아 (플래그, 사유) 반환. 없으면 (False, "").
+    1) 고정밀 키워드 2) 프로토타입 구문 확장 3) 시맨틱 cosine. 점수 팩터 아님(veto 전용)."""
     for it in items:
         text = f"{it.get('title', '')} {it.get('summary', '')}"
         terms = _EVENT_TERMS + (_DISC_CRITICAL + _DISC_SERIOUS if it.get("source") == "dart" else [])
         for term in terms:
             if term in text:
                 return True, f"{term} — {(it.get('title') or '').strip()[:60]}"
+        for label, _sev, phrases in _EVENT_PROTOTYPES:
+            for ph in phrases:
+                if len(ph) >= 4 and ph not in terms and ph in text:
+                    return True, f"{label} — {(it.get('title') or '').strip()[:60]}"
+    return _detect_event_semantic(items)
+
+
+def _detect_event_semantic(items: list[dict]) -> tuple[bool, str]:
+    """임베딩 cosine ≥ τ 이면 악재 후보. hashing은 공유 n-gram이 강할 때만(τ↑)."""
+    try:
+        from signal_desk import kb_embed
+    except Exception:
+        return False, ""
+    texts, meta = [], []
+    for it in items:
+        t = f"{it.get('title', '')} {it.get('summary', '')}".strip()
+        if t:
+            texts.append(t)
+            meta.append(it)
+    if not texts:
+        return False, ""
+    try:
+        doc_vecs = kb_embed.embed_texts(texts)
+        proto_labels = [label for label, _sev, _ph in _EVENT_PROTOTYPES]
+        proto_texts = [" · ".join(ph) for _l, _s, ph in _EVENT_PROTOTYPES]
+        proto_vecs = kb_embed.embed_texts(proto_texts)
+    except Exception:
+        return False, ""
+    tau = kb_embed.EVENT_SEMANTIC_TAU
+    if not kb_embed.semantic_capable():
+        tau = max(tau, 0.88)
+    best = (0.0, "", "")
+    for it, dv in zip(meta, doc_vecs):
+        for label, pv in zip(proto_labels, proto_vecs):
+            s = kb_embed.cosine(dv, pv)
+            if s > best[0]:
+                best = (s, label, (it.get("title") or "")[:60])
+    if best[0] >= tau and best[1]:
+        return True, f"{best[1]}(의미근접 {best[0]:.2f}) — {best[2]}"
     return False, ""
 
 
@@ -584,7 +643,13 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
                          len(items), newest_ts=_newest_ts(items), event_flag=event_flag, event_note=event_note)
         updated += 1
     pruned = db.kb_prune()  # 뉴스 무한 누적·만료 pending 정리(큐레이션 업로드는 보존)
-    return {"updated": updated, "pruned": pruned}
+    embedded = 0
+    try:
+        from signal_desk import kb_embed
+        embedded = kb_embed.embed_missing(limit=120)  # entry_add_many 경로 증분 임베드
+    except Exception:
+        pass
+    return {"updated": updated, "pruned": pruned, "embedded": embedded}
 
 
 def sentiment_map() -> dict[str, dict]:
