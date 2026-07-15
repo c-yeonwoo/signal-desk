@@ -1670,35 +1670,55 @@ function switchSignalMarket(m){
   loadSignals();
 }
 
-async function loadSignals(){
+// 시장별 응답 캐시 — 국내/해외 전환 시 재요청 없이 즉시 렌더(stale-while-revalidate).
+let _sigCache = {};                 // market -> { d, bt, ts }
+const _SIG_TTL = 3 * 60 * 1000;     // 이보다 오래되면 화면은 캐시로 즉시 그리고 백그라운드 재검증
+
+// 시그널 응답(d)·백테스트(bt)를 화면에 반영. 선택 종목은 가능하면 유지(재검증 시 차트 깜빡임 방지).
+function applySignalData(d, bt){
   const el = document.getElementById('signal-body');
-  el.textContent = '불러오는 중…';
-  const isUS = _sigMarket === 'us';
+  _backtestByKind = {};
+  if (bt && bt.ready) (bt.by_signal || []).forEach(r => { _backtestByKind[r.kind] = r; });
+  if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
+  if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
+  _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
+  _signalRows = d.items;  // API 순서 = 점수 내림차순(시그널순 기본값)
+  el.className = '';
+  populateScreenSectors();
+  renderScreenPresets();
+  renderSignalList();
+  // 선택 우선순위: 밸류체인 딥링크 > 기존 선택(현 시장에 존재) > 1위. 기존 선택이 그대로면 재선택 생략(차트 재로딩 방지).
+  const pending = (_pendingSignalTicker && _signalItems[_pendingSignalTicker]) ? _pendingSignalTicker : null;
+  if (pending) { _pendingSignalTicker = null; selectSignalRow(pending); }
+  else if (_selectedTicker && _signalItems[_selectedTicker]) { /* 유지 — 리스트가 이미 하이라이트 */ }
+  else selectSignalRow(d.items[0].ticker);
+}
+
+async function loadSignals(opts){
+  opts = opts || {};
+  const market = _sigMarket, isUS = market === 'us';
+  const el = document.getElementById('signal-body');
+  const cached = _sigCache[market];
+  // 캐시 히트 → 즉시 렌더(전환 지연 제거). 신선하면 종료, 오래됐거나 force면 백그라운드 재검증.
+  if (cached && !opts.force) {
+    applySignalData(cached.d, cached.bt);
+    if (Date.now() - cached.ts < _SIG_TTL) return;
+  } else {
+    el.textContent = '불러오는 중…';
+  }
   const seq = ++_sigLoadSeq;  // 시장 전환 레이스 방지 — 최신 요청만 렌더
   try {
-    const [d, fav, bt] = await Promise.all([
-      (await fetch('/api/signals?market=' + _sigMarket)).json(),
-      (await fetch('/api/favorites')).json(),
-      isUS ? { ready: false } : (await fetch('/api/backtest')).json().catch(() => ({ ready: false })),
+    const [d, fav, bt] = await Promise.all([   // 진짜 병렬(과거: await fetch가 직렬화돼 느렸음)
+      fetch('/api/signals?market=' + market).then(r => r.json()),
+      fetch('/api/favorites').then(r => r.json()),
+      isUS ? Promise.resolve({ ready: false }) : fetch('/api/backtest').then(r => r.json()).catch(() => ({ ready: false })),
     ]);
-    if (seq !== _sigLoadSeq) return;  // 더 최신 로드가 시작됨 → 이 응답은 폐기
-    _backtestByKind = {};
-    if (bt.ready) (bt.by_signal || []).forEach(r => { _backtestByKind[r.kind] = r; });
+    if (seq !== _sigLoadSeq || _sigMarket !== market) return;  // 더 최신 로드/시장전환 → 폐기
     _favorites = new Set((fav.favorites || []).filter(f => f.kind === 'ticker').map(f => f.key));
-    if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
-    if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
-    _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
-    _signalRows = d.items;  // API 순서 = 점수 내림차순(시그널순 기본값)
-    el.className = '';
-    populateScreenSectors();
-    renderScreenPresets();
-    renderSignalList();
-    // 기본 선택: 밸류체인에서 넘어온 종목 > 1위 종목
-    const target = (_pendingSignalTicker && _signalItems[_pendingSignalTicker]) ? _pendingSignalTicker : d.items[0].ticker;
-    _pendingSignalTicker = null;
-    selectSignalRow(target);
+    _sigCache[market] = { d, bt, ts: Date.now() };
+    applySignalData(d, bt);
   } catch (e) {
-    el.textContent = '불러오지 못했습니다.';
+    if (!cached) el.textContent = '불러오지 못했습니다.';  // 캐시로 이미 표시 중이면 조용히 실패
   }
 }
 
@@ -3247,6 +3267,7 @@ async function refreshData(){
       + (summary.us_universe_size ? ` · US재무 ${summary.us_fund_filled ?? 0}/${summary.us_universe_size}${summary.us_fund_filled < summary.us_universe_size ? ' (더 채우려면 다시 갱신)' : ''}` : '');
   } finally {
     _refreshing = false; btn.disabled = false; btn.textContent = t;
+    _sigCache = {};  // 수집 후 시그널 캐시 무효화 — 다음 시그널 조회 시 신선 데이터 재요청
   }
 }
 
