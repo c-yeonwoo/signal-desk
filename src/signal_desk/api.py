@@ -124,6 +124,13 @@ async def _bot_loop():
             open_markets = [m for m, is_open in
                             (("kr", bot.is_market_hours()), ("us", bot.is_us_market_hours())) if is_open]
             _refresh_live_quotes(open_markets)  # 장중 실시간가 오버레이 갱신(열린 시장만, 없으면 종가 복귀)
+            try:  # 배포 환경 US 시세 자동 점진 적재(us_prices는 gitignore로 캐시 없음) — 다 차면 no-op
+                bf = _backfill_us_prices_batch(25)
+                if bf["filled"]:
+                    _us_signals.cache_clear()
+                    log.info("US 시세 자동 백필 %d종목(잔여 %s)", bf["filled"], bf["missing"])
+            except Exception as e:
+                log.warning("US 시세 자동 백필 실패(무시): %s", type(e).__name__)
             for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
                 for mkt in open_markets:
                     try:  # 예약 주문 먼저(목표가+추격폭 이내만) — run_once와 별개 경로
@@ -959,8 +966,24 @@ def _refresh_flows(data: dict) -> dict:
     return out
 
 
+def _backfill_us_prices_batch(batch: int = 60) -> dict:
+    """S&P500 중 아직 시세 없는 종목을 batch개만 백필(증분). us_prices.parquet은 gitignore라 배포
+    환경에선 비어 있으므로, 갱신/백그라운드 루프가 눌릴 때마다 점진 적재해 전량을 채운다.
+    반환: {filled, missing}(이번에 채운 수 / 백필 후 남은 수)."""
+    universe = [u["ticker"] for u in store.load_us_universe()]
+    if not universe:
+        return {"filled": 0, "missing": 0}
+    have = set(store.load_us_price_series().keys())
+    missing = [t for t in universe if t not in have]
+    if not missing:
+        return {"filled": 0, "missing": 0}
+    filled = store.fetch_us_prices(missing[:batch], days=400)
+    return {"filled": filled, "missing": max(0, len(missing) - batch)}
+
+
 def _refresh_us(data: dict) -> dict:
-    """미국: 거장 13F + S&P500 유니버스/발행주식수/EDGAR 재무(증분 백필) + 거장 보유종목 시세."""
+    """미국: 거장 13F + S&P500 유니버스/발행주식수/EDGAR 재무(증분) + S&P500 시세(증분 백필)."""
+    us_prices = {"filled": 0, "missing": None}
     try:
         store.fetch_gurus()  # 거장 포트폴리오(SEC 13F) — 실패해도 나머지 수집엔 영향 없음
         us_uni = store.fetch_us_universe()  # S&P500 유니버스
@@ -972,16 +995,22 @@ def _refresh_us(data: dict) -> dict:
         log.info("US 재무(EDGAR) 백필 시도 %d종목", got)
         ec = store.fetch_us_earnings_calendar()  # 실적 예정 캘린더(AV 벌크 1콜/일, TTL로 절약)
         log.info("US 실적 예정 캘린더: %s", "신선(스킵)" if ec == -1 else f"{ec}종목")
-        idx = gurus_ref.build_name_index(us_uni)  # 거장 보유종목 → 시세 수집(뱃지용, 스로틀)
+        # S&P500 시세 증분 백필 — 시그널 노출의 핵심(시세 없으면 evaluate가 제외). 배포 환경은 캐시가
+        # 비어 있으므로 갱신을 여러 번 누르면 전량이 채워진다(요청당 타임아웃 피하려 배치).
+        us_prices = _backfill_us_prices_batch(int(data.get("us_price_batch") or 60))
+        log.info("US 시세 증분 백필 %d종목(잔여 %s)", us_prices["filled"], us_prices["missing"])
+        idx = gurus_ref.build_name_index(us_uni)  # 거장 보유종목(비 S&P500 포함) → 시세 수집(뱃지용, 스로틀)
         us_tks = sorted({t for g in store.load_gurus() for h in g.get("holdings", [])
                          if (t := gurus_ref.match_ticker(h.get("name", ""), idx))})
-        if us_tks:
-            store.fetch_us_prices(us_tks)
+        extra = [t for t in us_tks if t not in {u["ticker"] for u in us_uni}]
+        if extra:
+            store.fetch_us_prices(extra)
     except Exception as e:
         log.warning("거장/US 수집 실패(무시): %s", e)
     us_fund = store.load_us_fundamentals()
     us_filled = sum(1 for f in us_fund.values() if f.get("net_income") is not None or f.get("equity") is not None)
-    return {"us_fund_filled": us_filled, "us_universe_size": len(us_fund) or None}
+    return {"us_fund_filled": us_filled, "us_universe_size": len(us_fund) or None,
+            "us_prices_filled": us_prices["filled"], "us_prices_missing": us_prices["missing"]}
 
 
 def _refresh_consensus(data: dict) -> dict:
