@@ -1663,7 +1663,7 @@ function setOppFilter(t){ _oppFilter = (_oppFilter === t) ? null : t; renderSign
 function switchSignalMarket(m){
   if (_sigMarket === m) return;
   _sigMarket = m;
-  _screenGuru = null; _guruTickers = new Set();   // 전략 프리셋은 KR 전용 — 시장 바뀌면 해제
+  clearScreenInputs();   // 시장 전환 시 스크리너·매수전용·기회유형 필터 초기화 — KR 필터가 US로 새어 목록이 텅 비는 것 방지
   document.querySelectorAll('#sig-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
   document.getElementById('sig-search').value = '';
   document.getElementById('sig-sort').value = 'signal';
@@ -1750,11 +1750,15 @@ function updateScreenUI(s, matched){
     note.textContent = usFund ? '※ 해외 종목은 ROE·배당 데이터가 없어 해당 조건에선 제외됩니다.' : '';
   }
 }
-function resetScreen(){
+// 스크리너 입력·필터 상태를 비운다(DOM만 — 재렌더는 호출부에서). 시장 전환/리셋 공용.
+function clearScreenInputs(){
   _SCREEN_FIELDS.forEach(f => { const el = document.getElementById('screen-' + f); if (el) el.value = ''; });
   ['screen-factor', 'screen-sector'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   ['screen-buyonly', 'screen-noevent', 'screen-favonly'].forEach(id => { const el = document.getElementById(id); if (el) el.checked = false; });
-  _screenGuru = null; _guruTickers = new Set();
+  _screenGuru = null; _guruTickers = new Set(); _oppFilter = null;
+}
+function resetScreen(){
+  clearScreenInputs();
   renderScreenPresets(); renderSignalList();
 }
 function populateScreenSectors(){
