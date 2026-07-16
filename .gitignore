@@ -13,3 +13,5 @@ data/cache/*
 
 build/
 dist/
+
+.claude/

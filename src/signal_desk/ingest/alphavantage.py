@@ -45,7 +45,9 @@ def overview(ticker: str) -> dict | None:
             return None
 
     return {"shares": _num("SharesOutstanding"), "per": _num("PERatio"),
-            "sector": data.get("Sector") or None, "name": data.get("Name") or None}
+            "sector": data.get("Sector") or None, "name": data.get("Name") or None,
+            "industry": data.get("Industry") or None,
+            "description": (data.get("Description") or "").strip() or None}  # 영문 사업설명(사업 개요 요약용)
 
 
 def earnings_calendar(horizon: str = "3month") -> dict[str, str]:

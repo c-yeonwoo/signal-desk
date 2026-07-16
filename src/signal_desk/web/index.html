@@ -2220,9 +2220,20 @@ async function showSignalChart(ticker, item){
           ? ` <span class="q-k">저평가순위</span> <b style="color:${item.valuation_percentile <= 50 ? 'var(--sig-buy)' : 'var(--dim)'}">상위 ${fmtNum(item.valuation_percentile, 0)}%</b>` : '');
   } else qEl.style.display = 'none';
   const introEl = document.getElementById('signal-intro');
-  if (item && item.intro) {
+  const moves = (item && Array.isArray(item.moves)) ? item.moves.filter(Boolean) : [];
+  if (item && (item.about || item.intro || moves.length)) {
     introEl.style.display = '';
-    introEl.innerHTML = `<b style="color:var(--txt)">${esc(item.intro)}</b>${item.intro_desc ? ' — ' + esc(item.intro_desc) : ''}`;
+    // 헤드라인: '무엇을 하는 회사'(사업 개요). 그 아래 최근 행보(사실) → 섹터/밸류체인 위치(맥락).
+    const about = item.about
+      ? `<div style="color:var(--txt);font-size:12.5px;line-height:1.5">🏢 ${esc(item.about)}</div>` : '';
+    const movesHtml = moves.length
+      ? `<div style="margin-top:5px;font-size:12px;color:var(--dim)"><b style="color:var(--txt)">📌 최근 행보</b>`
+        + ` <span style="color:var(--dim-2)">· 사실 요약(신호 아님)</span>`
+        + `<ul style="margin:3px 0 0;padding-left:16px;color:var(--txt)">`
+        + moves.map(m => `<li style="margin:1px 0">${esc(m)}</li>`).join('') + `</ul></div>` : '';
+    const intro = item.intro
+      ? `<div style="margin-top:5px;color:var(--dim)"><b style="color:var(--txt)">${esc(item.intro)}</b>${item.intro_desc ? ' — ' + esc(item.intro_desc) : ''}</div>` : '';
+    introEl.innerHTML = about + movesHtml + intro;
   } else introEl.style.display = 'none';
   const btEl = document.getElementById('signal-backtest');
   const bt = item && (_isBuy(item.kind) || _isSell(item.kind)) ? _backtestByKind[item.kind] : null;
@@ -2271,7 +2282,7 @@ async function showSignalChart(ticker, item){
   const evWarn = ((item && item.event_risk)
     ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">⚠ 최근 악재 감지 — 매수 후보 제외${item.event_note ? ': ' + esc(item.event_note) : ''}</div>` : '') + earnWarn;
   if (item && (item.kb || evWarn)) {
-    let html = `<div style="margin-bottom:6px"><span class="layer-badge ctx">맥락</span> <span style="font-size:11px;color:var(--dim)">KB · 점수 미반영 · 악재만 veto</span></div>` + evWarn;
+    let html = `<div style="margin-bottom:6px"><span class="layer-badge ctx">맥락</span> <b style="font-size:12px;color:var(--txt)">최근 이슈·뉴스</b> <span style="font-size:11px;color:var(--dim)">· 점수 미반영 · 악재만 veto</span></div>` + evWarn;
     if (item.kb) {
       const s = item.kb.sentiment, cls = s > 0.15 ? 'var(--sig-buy)' : s < -0.15 ? 'var(--sig-sell)' : 'var(--dim)';
       html += `<b>뉴스 심리</b> <b style="color:${cls}">${s > 0 ? '+' : ''}${fmtNum(s, 2)}</b> <span style="color:var(--dim-2)">· 참고</span> · ${esc(item.kb.summary || '')}`
@@ -2340,6 +2351,7 @@ async function showSignalChart(ticker, item){
     const legEl = document.getElementById('signal-legend');
     legEl.style.display = '';
     legEl.querySelector('.leg-actual')?.remove();
+    legEl.querySelector('.leg-target')?.remove();
     if (d.actual_from)
       legEl.insertAdjacentHTML('beforeend', `<span class="leg-actual"> · <b style="color:var(--txt)">${esc(d.actual_from)}~ 실측</b></span>`);
     // 아래→위: dataZoom → MACD(키움) → 수급 → RSI → 종가. 간격 균일.
@@ -2366,20 +2378,41 @@ async function showSignalChart(ticker, item){
     yAxes.push({ gridIndex: hasFlow ? 3 : 2, scale: true, splitNumber: 2 });
     const yRsi = 2, yFlow = hasFlow ? 3 : null, yMacd = hasFlow ? 4 : 3;
     const xRsi = 1, xFlow = hasFlow ? 2 : null, xMacd = hasFlow ? 3 : 2;
+    const SMOOTH = 0.35;  // 선을 부드럽게(단, smoothMonotone:'x'로 가격 과대 오버슈트 방지 — 사실 왜곡 최소화)
+    // 참고 목표가 가로 점선(종가 패널) — 기술상한·후행/선행 밸류·애널 앵커 중 계산된 것만. 신호 아님(참고선).
+    const tgt = (ticker !== INDEX_TICKER && item && item.target) ? item.target : null;
+    let targetMarkLine, targetShown = [];
+    if (tgt) {
+      // 핵심 2개만: 기술상한(저항선) + 밸류(선행 우선, 없으면 후행). 나머지 앵커는 상세 '목표가' 영역에서 확인.
+      const defs = [];
+      if (tgt.resistance != null) defs.push([tgt.resistance, tgt.resistance_upside_pct, '기술상한', '#eab308']);
+      if (tgt.fwd_value_target != null) defs.push([tgt.fwd_value_target, tgt.fwd_value_upside_pct, '밸류(선행)', '#0ea5e9']);
+      else if (tgt.value_target != null) defs.push([tgt.value_target, tgt.value_upside_pct, '밸류(후행)', '#0ea5e9']);
+      const mlData = defs.filter(d => d[0] != null).map(([v, pct, label, color]) => {
+        targetShown.push(`<span style="color:${color}">┈ ${label}${pct != null ? ' ' + (pct > 0 ? '+' : '') + fmtNum(pct, 0) + '%' : ''}</span>`);
+        return { yAxis: v, lineStyle: { type: 'dashed', color, width: 1.3, opacity: 0.9 },
+          label: { show: true, position: 'insideEndTop', color, fontSize: 10, fontWeight: 700,
+            formatter: `${label}${pct != null ? ' ' + (pct > 0 ? '+' : '') + fmtNum(pct, 0) + '%' : ''}` } };
+      });
+      if (mlData.length) targetMarkLine = { symbol: 'none', animation: false, data: mlData };
+    }
+    if (targetShown.length)
+      legEl.insertAdjacentHTML('beforeend', `<span class="leg-target"> · 참고 목표가(점선) ${targetShown.join(' ')}</span>`);
     const series = [
       { name: '종가', type: 'line', data: close, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
-        lineStyle: { width: 2, color: '#4f46e5' }, markArea, markPoint },
+        smooth: SMOOTH, smoothMonotone: 'x',
+        lineStyle: { width: 2.4, color: '#4f46e5' }, markArea, markPoint, markLine: targetMarkLine },
       { name: 'MA20', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
-        lineStyle: { width: 1, color: '#06b6d4' } },
+        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: '#06b6d4', opacity: 0.85 } },
       { name: 'MA60', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
-        lineStyle: { width: 1, color: '#e08a00' } },
+        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: '#e08a00', opacity: 0.85 } },
       { name: 'MA120', type: 'line', data: ma120, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
-        lineStyle: { width: 1, color: '#e5484d' } },
+        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: '#e5484d', opacity: 0.85 } },
       { name: '점수', type: 'line', data: scores, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
-        lineStyle: { width: 1.75, color: '#12a150' },
+        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1.75, color: '#12a150' },
         tooltip: { valueFormatter: v => v == null ? '–' : ((v > 0 ? '+' : '') + Number(v).toFixed(2)) } },
       { name: 'RSI', type: 'line', data: rsi, xAxisIndex: xRsi, yAxisIndex: yRsi, showSymbol: false,
-        lineStyle: { color: '#7c3aed' } },
+        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { color: '#7c3aed' } },
     ];
     if (hasFlow) {
       series.push(
@@ -2391,8 +2424,8 @@ async function showSignalChart(ticker, item){
     }
     series.push(
       { name: 'MACD 히스토그램', type: 'bar', data: macdHist, xAxisIndex: xMacd, yAxisIndex: yMacd },
-      { name: 'MACD', type: 'line', data: macd, xAxisIndex: xMacd, yAxisIndex: yMacd, showSymbol: false, lineStyle: { width: 1 } },
-      { name: 'Signal', type: 'line', data: macdSig, xAxisIndex: xMacd, yAxisIndex: yMacd, showSymbol: false, lineStyle: { width: 1 } },
+      { name: 'MACD', type: 'line', data: macd, xAxisIndex: xMacd, yAxisIndex: yMacd, showSymbol: false, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1 } },
+      { name: 'Signal', type: 'line', data: macdSig, xAxisIndex: xMacd, yAxisIndex: yMacd, showSymbol: false, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1 } },
     );
     const zoomAxes = grids.map((_, i) => i);
     _signalChart.setOption({

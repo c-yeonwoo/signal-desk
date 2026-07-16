@@ -311,30 +311,11 @@ def _metric_gloss(text: str) -> str:
 
 
 def _company_desc(ticker: str, name: str, sector: str | None) -> str:
-    """'무엇을 하는 회사인지' 한 문장(초보용). LLM(있으면)으로 생성해 kv에 캐시(종목별 1회), 없으면
-    섹터 기반 폴백. 투자권유·전망·수치 없이 사업 소개만."""
-    key = f"sfdesc:{ticker}"
-    try:
-        cached = db.kv_get(key)
-    except Exception:
-        cached = None
-    if cached:
-        return cached
-    desc = f"{sector} 분야의 기업입니다." if sector else "국내 상장 기업입니다."
-    if llm.available():
-        out = llm.complete_json(
-            "너는 한국 주식 소개 작가다. 이 종목이 '무엇을 하는 회사'인지 초보도 이해되게 1문장(45자 내외)으로 "
-            "설명한다. 아는 사실만 쓰고 모르면 섹터만 언급. 투자 권유·전망·주가·수치는 절대 넣지 마라.",
-            f"종목: {name}({ticker}), 섹터: {sector or '미상'}\n"
-            'JSON으로만: {"desc": "무엇을 하는 회사인지 한 문장"}',
-            max_tokens=150, model=llm.DIGEST_MODEL)
-        if out and out.get("desc"):
-            desc = str(out["desc"]).strip()[:90]
-    try:
-        db.kv_set(key, desc)
-    except Exception:
-        pass
-    return desc
+    """'무엇을 하는 회사인지' 한 문장(초보용). 공용 company 모듈에 위임(시그널 상세와 캐시 공유).
+    투자권유·전망·수치 없이 사업 소개만. LLM 없으면 섹터 폴백."""
+    from signal_desk import company
+    return company.about(ticker, name, sector, market="kr", generate=True) \
+        or (f"{sector} 분야의 기업입니다." if sector else "국내 상장 기업입니다.")
 
 
 def _company_svg(name, ticker, sector, price, change, mktcap, per, bg=None, profile=None, desc=None) -> str:
