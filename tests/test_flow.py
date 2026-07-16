@@ -56,3 +56,30 @@ def test_fetch_flows_from_naver(monkeypatch, tmp_path):
     out = store.fetch_flows([{"ticker": "005930", "name": "삼성전자"}])
     assert out["005930"]["intensity"] == 0.2  # (3+1)/20
     assert store.FLOWS_FILE.exists()
+
+
+def test_fetch_flows_accumulates_existing(monkeypatch, tmp_path):
+    """부분 수집이 반복 갱신으로 채워지도록 — 기존 flows.json에 신규분을 누적 병합."""
+    from signal_desk import store
+    from signal_desk.ingest import naver
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    store._write_json(store.FLOWS_FILE, {"000660": {"foreign_net": 1, "inst_net": 2, "intensity": 0.1}})
+    monkeypatch.setattr(naver, "investor_flow",
+                        lambda t, days=20: {"foreign_net": 3e6, "inst_net": 1e6, "total_buy": 20e6})
+    out = store.fetch_flows([{"ticker": "005930", "name": "삼성전자"}])
+    assert "000660" in out and "005930" in out  # 기존 커버리지 유지 + 신규 병합
+
+
+def test_fetch_flows_time_budget_stops_early(monkeypatch, tmp_path):
+    """시간예산 초과 시 즉시 중단 — 배포 환경 느린 소스에서 요청이 통째로 시간 초과되지 않도록."""
+    from signal_desk import store
+    from signal_desk.ingest import naver
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    calls = []
+    monkeypatch.setattr(naver, "investor_flow",
+                        lambda t, days=20: calls.append(t) or {"foreign_net": 1, "inst_net": 1, "total_buy": 10})
+    uni = [{"ticker": f"{i:06d}", "name": f"n{i}"} for i in range(200)]
+    store.fetch_flows(uni, time_budget=-1.0)
+    assert calls == []  # 예산 소진 → 첫 반복에서 중단, 200종목을 두드리지 않음

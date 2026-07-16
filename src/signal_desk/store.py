@@ -9,6 +9,7 @@ import datetime
 import json
 import logging
 import os
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -130,26 +131,41 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
     return combined
 
 
-def fetch_flows(universe: list[dict] | None = None, days: int = 20) -> dict:
+def fetch_flows(universe: list[dict] | None = None, days: int = 20, time_budget: float = 30.0) -> dict:
     """최근 days 거래일 투자자별 순매수(외국인·기관, KR)를 종목별로 수집 → flows.json.
     intensity = (외국인+기관 순매수) / 전체 거래량 — 종목 규모 무관하게 [-1,1]로 자기정규화(수급 강도).
-    소스: 네이버 금융(pykrx 투자자 엔드포인트가 KRX 스키마 변경으로 죽어 대체). 실패분 건너뜀."""
+    소스: 네이버 금융(pykrx 투자자 엔드포인트가 KRX 스키마 변경으로 죽어 대체). 실패분 건너뜀.
+
+    배포 환경에서 네이버가 간헐 타임아웃(종목당 10초)을 내면 200종목을 다 두드리다 요청이
+    통째로 시간 초과된다 → time_budget(초) 내로 제한하고, 기존 flows.json에 누적 병합해
+    '아직 없는 종목 먼저' 순서로 여러 번 갱신에 걸쳐 전량을 채운다(US 시세 백필과 동일 패턴)."""
     from signal_desk.ingest import naver
     universe = universe if universe is not None else load_universe()
-    out: dict[str, dict] = {}
-    fails = 0
-    for i, item in enumerate(universe):
+    out: dict[str, dict] = load_flows()  # 기존 커버리지에 누적(부분 수집이 반복 갱신으로 채워지도록)
+    ordered = sorted(universe, key=lambda it: it["ticker"] in out)  # 미수집 종목 먼저
+    start = time.monotonic()
+    consec = 0  # 연속 실패
+    got = 0     # 이번 실행 신규 성공 수
+    for item in ordered:
+        if time.monotonic() - start > time_budget:
+            log.info("수급 수집 시간예산(%.0fs) 도달 — 부분 저장(%d종목), 다음 갱신에서 계속.", time_budget, len(out))
+            break
         ticker = item["ticker"]
         fl = naver.investor_flow(ticker, days)
         if not fl:
-            fails += 1
-            # 서킷브레이커: 앞 종목이 연달아 전부 실패하면 소스가 통째로 막힌 것(IP 차단 등) →
-            # 200종목 다 두드리지 않고 조기 중단, 로그 1줄. 수급 팩터는 데이터 없음으로 자동 제외.
-            if out == {} and fails >= 8:
-                log.warning("수급 수집 중단 — 네이버 투자자 수급 응답 없음(%d/%d 연속 실패). "
-                            "수급 팩터는 데이터 없음으로 자동 제외됩니다(다른 팩터엔 영향 없음).", fails, len(universe))
-                return out
+            consec += 1
+            # 소스가 통째로 막힘(IP 차단 등): 신규 성공 0인데 연속 실패 누적 → 조기 중단(다른 팩터 영향 없음).
+            if got == 0 and consec >= 8:
+                log.warning("수급 수집 중단 — 네이버 투자자 수급 응답 없음(%d연속). "
+                            "수급 팩터는 데이터 없음으로 자동 제외됩니다(다른 팩터엔 영향 없음).", consec)
+                break
+            # 중간에 소스가 불안정해진 경우도 조기 중단(이미 모은 분은 유지).
+            if consec >= 25:
+                log.warning("수급 수집 중단 — 네이버 연속 실패 %d(소스 불안정). 수집분(%d종목) 유지.", consec, len(out))
+                break
             continue
+        consec = 0
+        got += 1
         net = fl["foreign_net"] + fl["inst_net"]
         tot = fl["total_buy"]
         intensity = max(-1.0, min(1.0, net / tot)) if tot else 0.0
@@ -179,27 +195,40 @@ def _volume_by_ticker_date() -> dict[str, dict[str, float]]:
     return out
 
 
-def fetch_short(universe: list[dict] | None = None, days: int = 20) -> dict:
+def fetch_short(universe: list[dict] | None = None, days: int = 20, time_budget: float = 30.0) -> dict:
     """최근 days 거래일 종목별 공매도 거래비중(KR)을 수집 → short.json.
     short_ratio = Σ공매도거래량 / Σ총거래량 (둘 다 주수 → 종목 규모·스케일 시세 무관).
-    소스: KRX 외부용 엔드포인트(ingest.krx_short). 공매도량은 KRX, 총거래량은 우리 OHLCV(동일 KRX 원천)."""
+    소스: KRX 외부용 엔드포인트(ingest.krx_short). 공매도량은 KRX, 총거래량은 우리 OHLCV(동일 KRX 원천).
+
+    fetch_flows와 동일: time_budget(초) 내로 제한 + 기존 short.json에 누적 병합(미수집 종목 먼저) →
+    소스가 느려도 요청이 통째로 시간 초과되지 않고, 여러 번 갱신에 걸쳐 전량을 채운다."""
     from signal_desk.ingest import krx_short
     universe = universe if universe is not None else load_universe()
     vol_by = _volume_by_ticker_date()
-    out: dict[str, dict] = {}
-    fails = 0
-    for item in universe:
+    out: dict[str, dict] = load_short()  # 기존 커버리지에 누적
+    ordered = sorted(universe, key=lambda it: it["ticker"] in out)  # 미수집 종목 먼저
+    start = time.monotonic()
+    consec = 0  # 연속 실패
+    got = 0     # 이번 실행 신규 성공
+    for item in ordered:
+        if time.monotonic() - start > time_budget:
+            log.info("공매도 수집 시간예산(%.0fs) 도달 — 부분 저장(%d종목), 다음 갱신에서 계속.", time_budget, len(out))
+            break
         ticker = item["ticker"]
         sv = krx_short.short_volume(ticker, days)
         if not sv:
-            fails += 1
-            # 서킷브레이커: 소스가 통째로 막히면(스키마 변경 등) 조기 중단. 공매도 팩터는 자동 제외.
-            if out == {} and fails >= 8:
-                log.warning("공매도 수집 중단 — KRX 응답 없음(%d/%d 연속 실패). "
-                            "공매도 팩터는 데이터 없음으로 자동 제외됩니다(다른 팩터엔 영향 없음).", fails, len(universe))
-                return out
+            consec += 1
+            # 소스가 통째로 막히면(스키마 변경 등) 조기 중단. 공매도 팩터는 자동 제외.
+            if got == 0 and consec >= 8:
+                log.warning("공매도 수집 중단 — KRX 응답 없음(%d연속). "
+                            "공매도 팩터는 데이터 없음으로 자동 제외됩니다(다른 팩터엔 영향 없음).", consec)
+                break
+            if consec >= 25:
+                log.warning("공매도 수집 중단 — KRX 연속 실패 %d(소스 불안정). 수집분(%d종목) 유지.", consec, len(out))
+                break
             continue
-        fails = 0
+        consec = 0
+        got += 1
         vmap = vol_by.get(ticker, {})
         matched = [(sv[d], vmap[d]) for d in sv if d in vmap and vmap[d]]
         svol = sum(s for s, _ in matched)
