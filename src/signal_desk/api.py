@@ -23,7 +23,7 @@ from fastapi import File as FastFile
 from fastapi import Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
-from signal_desk import auth, bot, brain, chat, config, db, kb, kb_search, notify, shortform, signalcfg, store, strategy
+from signal_desk import auth, bot, brain, chat, company, config, db, kb, kb_search, notify, shortform, signalcfg, store, strategy
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import accuracy, macro, narrative, opportunity, rebalance, regime, regime_zone, relative, scenario, target, valuation
@@ -131,6 +131,12 @@ async def _bot_loop():
                     log.info("US 시세 자동 백필 %d종목(잔여 %s)", bf["filled"], bf["missing"])
             except Exception as e:
                 log.warning("US 시세 자동 백필 실패(무시): %s", type(e).__name__)
+            try:  # 사업 개요(무엇을 하는 회사) LLM 증분 백필 — 캐시 없는 종목만, 다 차면 no-op
+                an = _backfill_about_batch(15)
+                if an:
+                    log.info("사업 개요 자동 백필 %d종목", an)
+            except Exception as e:
+                log.warning("사업 개요 자동 백필 실패(무시): %s", type(e).__name__)
             for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
                 for mkt in open_markets:
                     try:  # 예약 주문 먼저(목표가+추격폭 이내만) — run_once와 별개 경로
@@ -608,6 +614,7 @@ def _us_signal_items() -> list[dict]:
         d["sector"] = us_ko.sector_ko(sector_of.get(r.ticker))  # 한글 섹터
         d["intro"] = f"{d['sector']} 섹터" if d["sector"] else None  # US는 밸류체인 매핑 없음 → 섹터로 대체
         d["intro_desc"] = None
+        d["about"] = company.about(r.ticker, d["name"], d["sector"], "us")  # 사업 개요(캐시/섹터 폴백, LLM은 백필)
         d["kb"] = None
         d["target"] = target.compute(price, mc.get("per"), us_med_per, closes)  # 참고 목표가(저항선 + 가능시 밸류)
         d["opp_tags"] = opportunity.classify(r)  # 기회 유형(#14)
@@ -652,6 +659,7 @@ def signals_get(market: str = "kospi"):
         d["sector"] = sectors.sector_of(r.ticker)  # 세분 섹터(조선·철강·화장품·로봇 등) 200종목 매핑
         d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
         d["intro_desc"] = pos["stage_desc"] if pos else None
+        d["about"] = company.about(r.ticker, r.name, d["sector"], "kr")  # 사업 개요(캐시/섹터 폴백, LLM은 백필)
         dg = db.kb_digest_get(r.ticker)  # KB 정성 다이제스트(뉴스·영상 가공)
         d["kb"] = {"sentiment": dg["sentiment"], "summary": dg["summary"], "points": dg["points"]} if dg else None
         d["opp_tags"] = opportunity.classify(r)  # 기회 유형(#14)
@@ -981,6 +989,32 @@ def _backfill_us_prices_batch(batch: int = 60) -> dict:
     return {"filled": filled, "missing": max(0, len(missing) - batch)}
 
 
+def _about_targets_kr() -> list[dict]:
+    return [{"ticker": u["ticker"], "name": u["name"], "sector": sectors.sector_of(u["ticker"]), "market": "kr"}
+            for u in store.load_universe()]
+
+
+def _about_targets_us() -> list[dict]:
+    fund = store.load_us_fundamentals()
+    return [{"ticker": u["ticker"], "name": us_ko.name_ko(u["ticker"], u["name"]),
+             "sector": us_ko.sector_ko(u.get("sector")), "market": "us",
+             "us_description": (fund.get(u["ticker"]) or {}).get("description")}
+            for u in store.load_us_universe()]
+
+
+def _backfill_about_batch(max_llm: int = 30) -> int:
+    """국내+해외 '사업 개요'를 LLM으로 증분 백필(캐시 없는 종목만, 상한까지). LLM 없으면 0.
+    요청 경로가 아니라 갱신·백그라운드에서만 호출(수백 종목 동기 LLM 방지)."""
+    try:
+        n = company.backfill(_about_targets_kr(), max_llm=max_llm)
+        if n < max_llm:
+            n += company.backfill(_about_targets_us(), max_llm=max_llm - n)
+        return n
+    except Exception as e:
+        log.warning("사업 개요 백필 실패(무시): %s", type(e).__name__)
+        return 0
+
+
 def _refresh_us(data: dict) -> dict:
     """미국: 거장 13F + S&P500 유니버스/발행주식수/EDGAR 재무(증분) + S&P500 시세(증분 백필)."""
     us_prices = {"filled": 0, "missing": None}
@@ -1009,8 +1043,10 @@ def _refresh_us(data: dict) -> dict:
         log.warning("거장/US 수집 실패(무시): %s", e)
     us_fund = store.load_us_fundamentals()
     us_filled = sum(1 for f in us_fund.values() if f.get("net_income") is not None or f.get("equity") is not None)
+    about_n = _backfill_about_batch(40)  # 사업 개요 LLM 증분 백필(국내+해외, 캐시 없는 종목만)
     return {"us_fund_filled": us_filled, "us_universe_size": len(us_fund) or None,
-            "us_prices_filled": us_prices["filled"], "us_prices_missing": us_prices["missing"]}
+            "us_prices_filled": us_prices["filled"], "us_prices_missing": us_prices["missing"],
+            "about_generated": about_n}
 
 
 def _refresh_consensus(data: dict) -> dict:

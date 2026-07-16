@@ -654,7 +654,8 @@ def fetch_us_fundamentals(tickers: list[str], max_calls: int = 20) -> int:
         ov = alphavantage.overview(t)
         if ov is None:  # 키 없음·한도 초과 → 중단(다음에 이어서)
             break
-        cache[t] = {"shares": ov["shares"], "per": ov["per"], "sector": ov["sector"]}
+        cache[t] = {"shares": ov["shares"], "per": ov["per"], "sector": ov["sector"],
+                    "industry": ov.get("industry"), "description": ov.get("description")}  # 사업 개요 요약용
         got += 1
     if got:
         _write_json(US_FUNDAMENTALS_FILE, cache)
