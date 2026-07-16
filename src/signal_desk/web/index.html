@@ -2220,14 +2220,20 @@ async function showSignalChart(ticker, item){
           ? ` <span class="q-k">저평가순위</span> <b style="color:${item.valuation_percentile <= 50 ? 'var(--sig-buy)' : 'var(--dim)'}">상위 ${fmtNum(item.valuation_percentile, 0)}%</b>` : '');
   } else qEl.style.display = 'none';
   const introEl = document.getElementById('signal-intro');
-  if (item && (item.about || item.intro)) {
+  const moves = (item && Array.isArray(item.moves)) ? item.moves.filter(Boolean) : [];
+  if (item && (item.about || item.intro || moves.length)) {
     introEl.style.display = '';
-    // 헤드라인: '무엇을 하는 회사'(사업 개요). 그 아래 섹터/밸류체인 위치를 맥락으로.
+    // 헤드라인: '무엇을 하는 회사'(사업 개요). 그 아래 최근 행보(사실) → 섹터/밸류체인 위치(맥락).
     const about = item.about
       ? `<div style="color:var(--txt);font-size:12.5px;line-height:1.5">🏢 ${esc(item.about)}</div>` : '';
+    const movesHtml = moves.length
+      ? `<div style="margin-top:5px;font-size:12px;color:var(--dim)"><b style="color:var(--txt)">📌 최근 행보</b>`
+        + ` <span style="color:var(--dim-2)">· 사실 요약(신호 아님)</span>`
+        + `<ul style="margin:3px 0 0;padding-left:16px;color:var(--txt)">`
+        + moves.map(m => `<li style="margin:1px 0">${esc(m)}</li>`).join('') + `</ul></div>` : '';
     const intro = item.intro
-      ? `<div style="margin-top:${item.about ? '3px' : '0'};color:var(--dim)"><b style="color:var(--txt)">${esc(item.intro)}</b>${item.intro_desc ? ' — ' + esc(item.intro_desc) : ''}</div>` : '';
-    introEl.innerHTML = about + intro;
+      ? `<div style="margin-top:5px;color:var(--dim)"><b style="color:var(--txt)">${esc(item.intro)}</b>${item.intro_desc ? ' — ' + esc(item.intro_desc) : ''}</div>` : '';
+    introEl.innerHTML = about + movesHtml + intro;
   } else introEl.style.display = 'none';
   const btEl = document.getElementById('signal-backtest');
   const bt = item && (_isBuy(item.kind) || _isSell(item.kind)) ? _backtestByKind[item.kind] : null;

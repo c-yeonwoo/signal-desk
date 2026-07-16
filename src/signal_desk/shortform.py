@@ -314,7 +314,8 @@ def _company_desc(ticker: str, name: str, sector: str | None) -> str:
     """'무엇을 하는 회사인지' 한 문장(초보용). 공용 company 모듈에 위임(시그널 상세와 캐시 공유).
     투자권유·전망·수치 없이 사업 소개만. LLM 없으면 섹터 폴백."""
     from signal_desk import company
-    return company.about(ticker, name, sector, market="kr", generate=True)
+    return company.about(ticker, name, sector, market="kr", generate=True) \
+        or (f"{sector} 분야의 기업입니다." if sector else "국내 상장 기업입니다.")
 
 
 def _company_svg(name, ticker, sector, price, change, mktcap, per, bg=None, profile=None, desc=None) -> str:

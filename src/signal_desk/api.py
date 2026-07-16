@@ -137,6 +137,12 @@ async def _bot_loop():
                     log.info("사업 개요 자동 백필 %d종목", an)
             except Exception as e:
                 log.warning("사업 개요 자동 백필 실패(무시): %s", type(e).__name__)
+            try:  # 최근 행보 LLM 증분 백필 — KB 문서 있고 캐시 오래된 종목만(새 뉴스 반영)
+                mn = _backfill_moves_batch(10)
+                if mn:
+                    log.info("최근 행보 자동 백필 %d종목", mn)
+            except Exception as e:
+                log.warning("최근 행보 자동 백필 실패(무시): %s", type(e).__name__)
             for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
                 for mkt in open_markets:
                     try:  # 예약 주문 먼저(목표가+추격폭 이내만) — run_once와 별개 경로
@@ -614,7 +620,8 @@ def _us_signal_items() -> list[dict]:
         d["sector"] = us_ko.sector_ko(sector_of.get(r.ticker))  # 한글 섹터
         d["intro"] = f"{d['sector']} 섹터" if d["sector"] else None  # US는 밸류체인 매핑 없음 → 섹터로 대체
         d["intro_desc"] = None
-        d["about"] = company.about(r.ticker, d["name"], d["sector"], "us")  # 사업 개요(캐시/섹터 폴백, LLM은 백필)
+        d["about"] = company.about(r.ticker, d["name"], d["sector"], "us")  # 사업 개요(캐시 or None, LLM은 백필)
+        d["moves"] = company.recent_moves(r.ticker, d["name"])  # 최근 행보(KB 기반, 캐시 or None)
         d["kb"] = None
         d["target"] = target.compute(price, mc.get("per"), us_med_per, closes)  # 참고 목표가(저항선 + 가능시 밸류)
         d["opp_tags"] = opportunity.classify(r)  # 기회 유형(#14)
@@ -659,7 +666,8 @@ def signals_get(market: str = "kospi"):
         d["sector"] = sectors.sector_of(r.ticker)  # 세분 섹터(조선·철강·화장품·로봇 등) 200종목 매핑
         d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
         d["intro_desc"] = pos["stage_desc"] if pos else None
-        d["about"] = company.about(r.ticker, r.name, d["sector"], "kr")  # 사업 개요(캐시/섹터 폴백, LLM은 백필)
+        d["about"] = company.about(r.ticker, r.name, d["sector"], "kr")  # 사업 개요(캐시 or None, LLM은 백필)
+        d["moves"] = company.recent_moves(r.ticker, r.name)  # 최근 행보(KB 기반, 캐시 or None)
         dg = db.kb_digest_get(r.ticker)  # KB 정성 다이제스트(뉴스·영상 가공)
         d["kb"] = {"sentiment": dg["sentiment"], "summary": dg["summary"], "points": dg["points"]} if dg else None
         d["opp_tags"] = opportunity.classify(r)  # 기회 유형(#14)
@@ -935,7 +943,10 @@ def _refresh_kr(data: dict) -> dict:
             store.fetch_company_profiles(universe)
         except Exception as e:
             log.warning("기업개황 백필 실패(무시): %s", type(e).__name__)
-    return {"universe_size": len(universe), "fundamentals_size": len(fundamentals)}
+    about_n = _backfill_about_batch(40)  # 사업 개요 LLM 증분 백필(국내 갱신에서도 채움)
+    moves_n = _backfill_moves_batch(20)  # 최근 행보 LLM 증분 백필(KB 문서 있는 종목만)
+    return {"universe_size": len(universe), "fundamentals_size": len(fundamentals),
+            "about_generated": about_n, "moves_generated": moves_n}
 
 
 def _refresh_macro(data: dict) -> dict:
@@ -1015,6 +1026,21 @@ def _backfill_about_batch(max_llm: int = 30) -> int:
         return 0
 
 
+def _backfill_moves_batch(max_llm: int = 15) -> int:
+    """국내+해외 '최근 행보'를 KB 원자료 기반으로 증분 백필(KB 문서 있고 캐시가 오래된 종목만). LLM 없으면 0."""
+    try:
+        kr = [{"ticker": u["ticker"], "name": u["name"]} for u in store.load_universe()]
+        n = company.backfill_moves(kr, max_llm=max_llm)
+        if n < max_llm:
+            us = [{"ticker": u["ticker"], "name": us_ko.name_ko(u["ticker"], u["name"])}
+                  for u in store.load_us_universe()]
+            n += company.backfill_moves(us, max_llm=max_llm - n)
+        return n
+    except Exception as e:
+        log.warning("최근 행보 백필 실패(무시): %s", type(e).__name__)
+        return 0
+
+
 def _refresh_us(data: dict) -> dict:
     """미국: 거장 13F + S&P500 유니버스/발행주식수/EDGAR 재무(증분) + S&P500 시세(증분 백필)."""
     us_prices = {"filled": 0, "missing": None}
@@ -1044,9 +1070,10 @@ def _refresh_us(data: dict) -> dict:
     us_fund = store.load_us_fundamentals()
     us_filled = sum(1 for f in us_fund.values() if f.get("net_income") is not None or f.get("equity") is not None)
     about_n = _backfill_about_batch(40)  # 사업 개요 LLM 증분 백필(국내+해외, 캐시 없는 종목만)
+    moves_n = _backfill_moves_batch(20)  # 최근 행보 LLM 증분 백필(KB 문서 있는 종목만)
     return {"us_fund_filled": us_filled, "us_universe_size": len(us_fund) or None,
             "us_prices_filled": us_prices["filled"], "us_prices_missing": us_prices["missing"],
-            "about_generated": about_n}
+            "about_generated": about_n, "moves_generated": moves_n}
 
 
 def _refresh_consensus(data: dict) -> dict:
