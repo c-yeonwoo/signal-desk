@@ -2352,8 +2352,11 @@ async function showSignalChart(ticker, item){
     legEl.style.display = '';
     legEl.querySelector('.leg-actual')?.remove();
     legEl.querySelector('.leg-target')?.remove();
+    legEl.querySelector('.leg-score')?.remove();
     if (d.actual_from)
       legEl.insertAdjacentHTML('beforeend', `<span class="leg-actual"> · <b style="color:var(--txt)">${esc(d.actual_from)}~ 실측</b></span>`);
+    if (ticker !== INDEX_TICKER)
+      legEl.insertAdjacentHTML('beforeend', `<span class="leg-score"> · <span style="color:var(--c-score)">점수</span>선: 과거는 가격기반 추정(재무·수급 제외), 최신은 시그널 점수</span>`);
     // 아래→위: dataZoom → MACD(키움) → 수급 → RSI → 종가. 간격 균일.
     // 하단 고정 패널(px) 위로 종가 패널이 남는 공간을 채움. 패널 사이 간격은 ~20px로 균일.
     const gPrice = { left: 55, right: 48, top: 28, bottom: hasFlow ? 292 : 228 };

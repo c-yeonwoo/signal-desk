@@ -826,6 +826,25 @@ def accuracy_get():
     return {"ready": True, **accuracy.realized_accuracy(rows, store.load_all_dated_closes())}
 
 
+def _anchor_today_score(scores: list, ticker: str, market: str) -> list:
+    """차트 점수 시계열의 '오늘'(마지막 점)을 현재 시그널 점수(전 팩터)로 맞춘다.
+    과거 점은 시점별 재무·수급 스냅샷이 없어 가격기반(기술·낙폭·모멘텀) 재현이라 리스트 점수와
+    다를 수 있는데, 최신 점만이라도 시그널 리스트와 일치시켜 혼동을 줄인다."""
+    if not scores:
+        return scores
+    try:
+        if market == "us":
+            s = _us_signals().get(ticker)
+            cur = round(s.score, 4) if s else None
+        else:
+            cur = next((round(s.score, 4) for s in _signals() if s.ticker == ticker), None)
+    except Exception:
+        cur = None
+    if cur is not None:
+        scores[-1] = cur
+    return scores
+
+
 @app.get("/api/signals/{ticker}/chart")
 def signal_chart_get(ticker: str, market: str = "kospi"):
     """종목 가격+지표 시계열(차트용) — 종가/MA20·60·120/RSI/MACD. market=us면 미국 시세."""
@@ -857,7 +876,7 @@ def signal_chart_get(ticker: str, market: str = "kospi"):
         "ma120": series["ma_long"],
         "rsi": series["rsi"],
         "zones": signal_zones(dates, closes, stored=stored),
-        "scores": daily_signal_scores(dates, closes, stored=stored),
+        "scores": _anchor_today_score(daily_signal_scores(dates, closes, stored=stored), ticker, market),
         "flow_foreign": flow_foreign,
         "flow_inst": flow_inst,
         "actual_from": actual_dates[0] if actual_dates else None,  # 이 날짜 이후는 실측(그 전은 재현)
