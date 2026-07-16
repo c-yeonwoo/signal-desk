@@ -8,11 +8,19 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import os
 from pathlib import Path
 
 import pandas as pd
 
 from signal_desk.ingest import dart, fred, krx, krx_open_api
+
+try:  # 손상 parquet(잘린 파일) 판별용 — 없으면 빈 튜플로 폴백
+    from pyarrow.lib import ArrowInvalid as _ArrowInvalid
+except Exception:  # pragma: no cover
+    _ArrowInvalid = ()
+
+_pd_read_parquet = pd.read_parquet  # 원본 참조(_read_parquet 재귀 방지용)
 
 log = logging.getLogger("signal_desk.store")
 
@@ -42,8 +50,40 @@ PRICE_HISTORY_DAYS = 1825  # 약 5년 — 모멘텀(60일 최강)·다중국면 
 
 
 def _write_json(path: Path, data) -> None:
+    """원자적 JSON 쓰기 — 임시파일에 쓴 뒤 os.replace로 교체(쓰기 중 프로세스 종료 시 손상 방지)."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def _write_parquet(df: pd.DataFrame, path: Path) -> None:
+    """원자적 parquet 쓰기 — 임시파일에 쓴 뒤 os.replace로 교체. 쓰기 도중 프로세스가 죽어도
+    기존 파일이 잘리지 않는다(재시작 반복 시 parquet footer 손상 방지)."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        df.to_parquet(tmp, index=False)
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def _read_parquet(path: Path) -> pd.DataFrame:
+    """손상에 강한 parquet 읽기 — 잘린/깨진 파일(재시작 중 쓰기 중단 등)이면 폐기하고 빈 DF 반환한다.
+    일일 수집·증분 백필이 다시 채우므로, 캐시 파일 하나가 앱 전체(요청·봇 루프)를 죽이지 않는다."""
+    try:
+        return _pd_read_parquet(path)
+    except (_ArrowInvalid, OSError) as e:
+        log.warning("parquet 손상/읽기 실패 — 폐기 후 재생성 대기: %s (%s)", path.name, type(e).__name__)
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        return pd.DataFrame()
 
 
 def fetch_universe() -> list[dict]:
@@ -63,7 +103,7 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
     증분으로 유지한다. (액면분할 등 소급 수정주가 반영은 주기적 full 재수집 필요 — 후속 과제.)"""
     universe = universe if universe is not None else load_universe()
     end = datetime.date.today()
-    existing = pd.read_parquet(PRICES_FILE) if PRICES_FILE.exists() else None
+    existing = _read_parquet(PRICES_FILE) if PRICES_FILE.exists() else None
     has_existing = existing is not None and not existing.empty
     last_by_ticker = (existing.groupby("ticker")["date"].max().to_dict() if has_existing else {})
     rows = []
@@ -86,7 +126,7 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
     combined = (combined.drop_duplicates(subset=["ticker", "date"], keep="last")
                 .sort_values(["ticker", "date"]).reset_index(drop=True))
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    combined.to_parquet(PRICES_FILE, index=False)
+    _write_parquet(combined, PRICES_FILE)
     return combined
 
 
@@ -130,7 +170,7 @@ def _volume_by_ticker_date() -> dict[str, dict[str, float]]:
     """{ticker: {date: 총거래량}} — 공매도 비중 계산용(우리 KR OHLCV의 volume)."""
     if not PRICES_FILE.exists():
         return {}
-    df = pd.read_parquet(PRICES_FILE)
+    df = _read_parquet(PRICES_FILE)
     if df.empty or "volume" not in df.columns:
         return {}
     out: dict[str, dict[str, float]] = {}
@@ -217,18 +257,19 @@ def fetch_consensus(universe: list[dict] | None = None, date: str | None = None)
         return 0
     df_new = pd.DataFrame(rows)
     if CONSENSUS_HISTORY_FILE.exists():
-        old = pd.read_parquet(CONSENSUS_HISTORY_FILE)
-        old = old[old["date"] != date]  # 같은 날 재실행 → 갱신
-        df_new = pd.concat([old, df_new], ignore_index=True)
+        old = _read_parquet(CONSENSUS_HISTORY_FILE)
+        if not old.empty and "date" in old.columns:
+            old = old[old["date"] != date]  # 같은 날 재실행 → 갱신
+            df_new = pd.concat([old, df_new], ignore_index=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    df_new.to_parquet(CONSENSUS_HISTORY_FILE, index=False)
+    _write_parquet(df_new, CONSENSUS_HISTORY_FILE)
     return len(rows)
 
 
 def load_consensus_history():
     if not CONSENSUS_HISTORY_FILE.exists():
         return pd.DataFrame()
-    return pd.read_parquet(CONSENSUS_HISTORY_FILE)
+    return _read_parquet(CONSENSUS_HISTORY_FILE)
 
 
 def load_consensus_latest() -> dict[str, dict]:
@@ -562,7 +603,7 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
     from signal_desk.ingest import toss, us
     use_toss = toss.available()  # 토스 우선(KR+US 단일·표준443·안정) → 미설정 시 KIS 폴백
     exch = _load_us_exchanges()
-    existing = pd.read_parquet(US_PRICES_FILE) if US_PRICES_FILE.exists() else pd.DataFrame()
+    existing = _read_parquet(US_PRICES_FILE) if US_PRICES_FILE.exists() else pd.DataFrame()
     frames = [existing[existing["ticker"].isin(tickers) == False]] if not existing.empty else []
     ok = 0
     for t in tickers:
@@ -581,7 +622,7 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
     if frames:
         df = pd.concat(frames, ignore_index=True)[["date", "ticker", "open", "close", "volume"]]
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        df.to_parquet(US_PRICES_FILE, index=False)
+        _write_parquet(df, US_PRICES_FILE)
     _write_json(US_EXCHANGES_FILE, exch)
     return ok
 
@@ -589,7 +630,10 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
 def load_us_price_series() -> dict[str, list[float]]:
     if not US_PRICES_FILE.exists():
         return {}
-    df = pd.read_parquet(US_PRICES_FILE).sort_values(["ticker", "date"])
+    df = _read_parquet(US_PRICES_FILE)
+    if df.empty:
+        return {}
+    df = df.sort_values(["ticker", "date"])
     return _overlay_closes({t: g["close"].tolist() for t, g in df.groupby("ticker")})
 
 
@@ -597,7 +641,7 @@ def load_us_quotes() -> dict[str, dict]:
     """US 종목별 최신 거래량·20일 평균 거래량(정렬·표기용). 시총은 데이터 소스 없어 미제공."""
     if not US_PRICES_FILE.exists():
         return {}
-    df = pd.read_parquet(US_PRICES_FILE)
+    df = _read_parquet(US_PRICES_FILE)
     if df.empty or "volume" not in df.columns:
         return {}
     df = df.sort_values(["ticker", "date"])
@@ -768,7 +812,9 @@ def us_dividends(prices: dict[str, list[float]] | None = None) -> dict[str, dict
 def load_us_price_history(ticker: str) -> list[dict]:
     if not US_PRICES_FILE.exists():
         return []
-    df = pd.read_parquet(US_PRICES_FILE)
+    df = _read_parquet(US_PRICES_FILE)
+    if df.empty:
+        return []
     df = df[df["ticker"] == ticker].sort_values("date")
     return [{"date": r["date"], "close": float(r["close"])} for _, r in df.iterrows()]
 
@@ -840,7 +886,7 @@ def load_price_series() -> dict[str, list[float]]:
     장중 실시간가가 설정돼 있으면 마지막에 잠정봉 1개를 얹는다(set_live_quotes)."""
     if not PRICES_FILE.exists():
         return {}
-    df = pd.read_parquet(PRICES_FILE)
+    df = _read_parquet(PRICES_FILE)
     if df.empty:
         return {}
     df = df.sort_values(["ticker", "date"])
@@ -851,7 +897,7 @@ def load_dates_by_ticker() -> dict[str, list[str]]:
     """ticker -> 날짜 리스트(오래된→최신) — load_price_series()와 동일 정렬. point-in-time 백테스트용."""
     if not PRICES_FILE.exists():
         return {}
-    df = pd.read_parquet(PRICES_FILE)
+    df = _read_parquet(PRICES_FILE)
     if df.empty:
         return {}
     df = df.sort_values(["ticker", "date"])
@@ -866,7 +912,9 @@ def load_price_history(ticker: str) -> list[dict]:
     """단일 종목의 (date, close) 시계열(오래된→최신) — 차트용, 날짜를 유지한다."""
     if not PRICES_FILE.exists():
         return []
-    df = pd.read_parquet(PRICES_FILE)
+    df = _read_parquet(PRICES_FILE)
+    if df.empty:
+        return []
     df = df[df["ticker"] == ticker].sort_values("date")
     if df.empty:
         return []
@@ -882,7 +930,7 @@ def load_index_history() -> list[dict]:
     """
     if not PRICES_FILE.exists():
         return []
-    df = pd.read_parquet(PRICES_FILE)
+    df = _read_parquet(PRICES_FILE)
     if df.empty:
         return []
     piv = df.pivot_table(index="date", columns="ticker", values="close").sort_index()
@@ -909,7 +957,7 @@ def load_quotes(vol_window: int = 20) -> dict[str, dict]:
     """
     if not PRICES_FILE.exists():
         return {}
-    df = pd.read_parquet(PRICES_FILE)
+    df = _read_parquet(PRICES_FILE)
     if df.empty:
         return {}
     has_vol = "volume" in df.columns
@@ -1002,18 +1050,19 @@ def snapshot_signals(signals, date: str | None = None) -> int:
              "quality": s.quality_points, "momentum": s.momentum_ret} for s in signals]
     df_new = pd.DataFrame(rows)
     if SIGNAL_HISTORY_FILE.exists():
-        old = pd.read_parquet(SIGNAL_HISTORY_FILE)
-        old = old[old["date"] != date]  # 같은 날 재실행 → 갱신
-        df_new = pd.concat([old, df_new], ignore_index=True)
+        old = _read_parquet(SIGNAL_HISTORY_FILE)
+        if not old.empty and "date" in old.columns:
+            old = old[old["date"] != date]  # 같은 날 재실행 → 갱신
+            df_new = pd.concat([old, df_new], ignore_index=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    df_new.to_parquet(SIGNAL_HISTORY_FILE, index=False)
+    _write_parquet(df_new, SIGNAL_HISTORY_FILE)
     return len(rows)
 
 
 def load_signal_history():
     if not SIGNAL_HISTORY_FILE.exists():
         return pd.DataFrame()
-    return pd.read_parquet(SIGNAL_HISTORY_FILE)
+    return _read_parquet(SIGNAL_HISTORY_FILE)
 
 
 def load_all_dated_closes() -> dict[str, tuple[list[str], list[float]]]:
@@ -1023,7 +1072,7 @@ def load_all_dated_closes() -> dict[str, tuple[list[str], list[float]]]:
     for f in (PRICES_FILE, US_PRICES_FILE):
         if not f.exists():
             continue
-        df = pd.read_parquet(f)
+        df = _read_parquet(f)
         if df.empty:
             continue
         df = df.sort_values(["ticker", "date"])
@@ -1057,7 +1106,7 @@ def price_sanity(tickers: list[str] | None = None) -> dict:
     tickers = tickers or _SANITY_TICKERS
     if not PRICES_FILE.exists():
         return {"ok": False, "reason": "시세 캐시 없음"}
-    df = pd.read_parquet(PRICES_FILE)
+    df = _read_parquet(PRICES_FILE)
     if df.empty:
         return {"ok": False, "reason": "시세 캐시 비어있음"}
     df = df.sort_values(["ticker", "date"])
