@@ -656,30 +656,67 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
     return ok
 
 
-def load_us_price_series() -> dict[str, list[float]]:
+# US 시세 프로세스 캐시 — parquet을 요청마다 여러 번 읽으면(시그널+quotes+차트) Railway 저메모리에서
+# OOM spike가 난다. mtime이 같으면 파생 dict만 재사용하고, 실시간 오버레이는 호출 시점에 얹는다.
+_us_px_cache: dict = {"mtime": None, "series": {}, "quotes": {}, "dates": {}}
+
+
+def clear_us_price_cache() -> None:
+    """테스트·강제 무효화용. 일반 경로는 파일 mtime 변경으로 자동 무효화."""
+    _us_px_cache["mtime"] = None
+    _us_px_cache["series"] = {}
+    _us_px_cache["quotes"] = {}
+    _us_px_cache["dates"] = {}
+
+
+def _us_prices_raw() -> tuple[dict[str, list[float]], dict[str, dict], dict[str, list[str]]]:
+    """us_prices.parquet 1회 읽어 (종가열, 거래량요약, 날짜열)을 돌려준다. mtime 캐시."""
     if not US_PRICES_FILE.exists():
-        return {}
+        clear_us_price_cache()
+        return {}, {}, {}
+    mtime = US_PRICES_FILE.stat().st_mtime
+    if _us_px_cache["mtime"] == mtime and _us_px_cache["series"] is not None:
+        return _us_px_cache["series"], _us_px_cache["quotes"], _us_px_cache["dates"]
     df = _read_parquet(US_PRICES_FILE)
     if df.empty:
-        return {}
+        clear_us_price_cache()
+        _us_px_cache["mtime"] = mtime
+        return {}, {}, {}
     df = df.sort_values(["ticker", "date"])
-    return _overlay_closes({t: g["close"].tolist() for t, g in df.groupby("ticker")})
+    has_vol = "volume" in df.columns
+    series: dict[str, list[float]] = {}
+    quotes: dict[str, dict] = {}
+    dates: dict[str, list[str]] = {}
+    for t, g in df.groupby("ticker"):
+        key = str(t)
+        series[key] = [float(c) for c in g["close"].tolist()]
+        dates[key] = [str(d) for d in g["date"].tolist()]
+        if has_vol:
+            vols = [float(v) for v in g["volume"].tolist() if v == v]
+            quotes[key] = {"vol": vols[-1] if vols else None,
+                           "vol_avg": round(sum(vols[-20:]) / len(vols[-20:])) if vols else None}
+    _us_px_cache["mtime"] = mtime
+    _us_px_cache["series"] = series
+    _us_px_cache["quotes"] = quotes
+    _us_px_cache["dates"] = dates
+    return series, quotes, dates
+
+
+def load_us_price_bundle() -> tuple[dict[str, list[float]], dict[str, dict]]:
+    """US 종가 시계열 + 거래량 요약을 한 번에(parquet 1회). 시그널 리스트 조립용."""
+    series, quotes, _ = _us_prices_raw()
+    return _overlay_closes(series), quotes
+
+
+def load_us_price_series() -> dict[str, list[float]]:
+    series, _, _ = _us_prices_raw()
+    return _overlay_closes(series)
 
 
 def load_us_quotes() -> dict[str, dict]:
     """US 종목별 최신 거래량·20일 평균 거래량(정렬·표기용). 시총은 데이터 소스 없어 미제공."""
-    if not US_PRICES_FILE.exists():
-        return {}
-    df = _read_parquet(US_PRICES_FILE)
-    if df.empty or "volume" not in df.columns:
-        return {}
-    df = df.sort_values(["ticker", "date"])
-    out = {}
-    for t, g in df.groupby("ticker"):
-        vols = g["volume"].tolist()
-        out[t] = {"vol": float(vols[-1]) if vols else None,
-                  "vol_avg": round(sum(vols[-20:]) / len(vols[-20:])) if vols else None}
-    return out
+    _, quotes, _ = _us_prices_raw()
+    return quotes
 
 
 def load_us_fundamentals() -> dict[str, dict]:
@@ -839,13 +876,13 @@ def us_dividends(prices: dict[str, list[float]] | None = None) -> dict[str, dict
 
 
 def load_us_price_history(ticker: str) -> list[dict]:
-    if not US_PRICES_FILE.exists():
+    """단일 종목 (date, close) — 프로세스 캐시에서 꺼내 전체 parquet 재읽기를 피한다."""
+    series, _, dates = _us_prices_raw()
+    closes = series.get(ticker)
+    ds = dates.get(ticker)
+    if not closes or not ds:
         return []
-    df = _read_parquet(US_PRICES_FILE)
-    if df.empty:
-        return []
-    df = df[df["ticker"] == ticker].sort_values("date")
-    return [{"date": r["date"], "close": float(r["close"])} for _, r in df.iterrows()]
+    return [{"date": d, "close": c} for d, c in zip(ds, closes)]
 
 
 def load_universe() -> list[dict]:
