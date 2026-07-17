@@ -1986,8 +1986,7 @@ function selectSignalRow(ticker){
   document.querySelectorAll('#signal-body tr.clickable-row').forEach(tr => {
     tr.classList.toggle('selected-row', tr.dataset.ticker === ticker);
   });
-  const item = _signalItems[ticker];
-  showSignalChart(ticker, item);
+  showSignalChart(ticker, _signalItems[ticker]);
 }
 
 const _ZONE_COLOR = { STRONG_BUY: '#0b7a3b', BUY: '#22c55e', SELL: '#dc2626', STRONG_SELL: '#b3121a' };
@@ -2171,10 +2170,9 @@ function bestUpside(item){
 }
 
 let _signalChart = null;
-async function showSignalChart(ticker, item){
-  // 드릴다운 헤더: 종목명(섹터)+시그널 점수 → 기업 소개(정적) → 시그널 해설
+function _paintSignalDetail(ticker, item){
+  // 드릴다운 헤더·히어로·소개·목표가·해설 등(리스트 요약 또는 /detail 병합 후 공통)
   document.getElementById('signal-chart-title').textContent = item ? item.name : ticker;
-  // 히어로 결론 카드 — 시그널 판정·한 줄 이유·핵심 3지표를 차트 위 최상단에(결론 우선)
   const heroEl = document.getElementById('signal-hero');
   if (item) {
     const isUS = _sigMarket === 'us';
@@ -2223,7 +2221,6 @@ async function showSignalChart(ticker, item){
   const moves = (item && Array.isArray(item.moves)) ? item.moves.filter(Boolean) : [];
   if (item && (item.about || item.intro || moves.length)) {
     introEl.style.display = '';
-    // 헤드라인: '무엇을 하는 회사'(사업 개요). 그 아래 최근 행보(사실) → 섹터/밸류체인 위치(맥락).
     const about = item.about
       ? `<div style="color:var(--txt);font-size:12.5px;line-height:1.5">🏢 ${esc(item.about)}</div>` : '';
     const movesHtml = moves.length
@@ -2249,7 +2246,6 @@ async function showSignalChart(ticker, item){
   if (tg && (tg.value_target != null || tg.fwd_value_target != null || tg.analyst_target != null || tg.resistance != null)) {
     const isUS = _sigMarket === 'us';
     const px = v => isUS ? '$' + fmtNum(v, 2) : fmtNum(v, 0) + '원';
-    // 대표 앵커 1개를 헤드라인으로(우선순위: 애널>선행EPS>후행밸류), 나머지는 접어서 밀도↓
     const A = [];
     if (tg.analyst_target != null) A.push(['애널 컨센서스', tg.analyst_target, tg.analyst_upside_pct]);
     if (tg.fwd_value_target != null) A.push(['선행EPS 밸류', tg.fwd_value_target, tg.fwd_value_upside_pct]);
@@ -2268,13 +2264,13 @@ async function showSignalChart(ticker, item){
           + `<span style="display:none;color:var(--dim-2);font-size:12px"> · ${rest.map(a => one(a, false)).join(' · ')}</span>` : '')
       + ` <span style="color:var(--dim-2);font-size:11px;display:block;margin-top:2px">추정·참고일 뿐 보장 아님 (${esc((tg.basis || []).join(', '))})</span>`;
   } else tgEl.style.display = 'none';
-  setDetailHas('signal-metrics', !!(item && item.price != null));  // 지표 탭: 시세/재무 있는 종목만(지수 제외)
+  setDetailHas('signal-metrics', !!(item && item.price != null));
   const narrEl = document.getElementById('signal-narrative');
   if (item && item.narrative) {
     narrEl.innerHTML = `<span class="layer-badge sig">신호</span> <span style="font-size:11px;color:var(--dim);font-weight:600">규칙 해설</span>`
       + `<div style="margin-top:4px">${esc(item.narrative)}</div>`;
     if (ticker !== INDEX_TICKER) fetchNarrativeV2(ticker, narrEl);
-  }
+  } else if (narrEl) narrEl.innerHTML = '';
   setDetailHas('signal-narrative', !!(item && item.narrative));
   const kbEl = document.getElementById('signal-kb');
   const earnWarn = (item && item.earnings_soon)
@@ -2289,17 +2285,34 @@ async function showSignalChart(ticker, item){
         + (item.kb.points && item.kb.points.length ? `<div style="color:var(--dim);margin-top:3px">· ${item.kb.points.map(esc).join(' · ')}</div>` : '');
     }
     kbEl.innerHTML = html;
-  }
+  } else if (kbEl) kbEl.innerHTML = '';
   setDetailHas('signal-kb', !!(item && (item.kb || evWarn)));
   renderFactors(item);
+  buildDetailTabs();
+}
+
+async function showSignalChart(ticker, item){
+  // 리스트는 요약만 — 상세(/detail)와 차트를 병렬 fetch. 요약으로 히어로를 먼저 그리고 상세로 보강.
+  _paintSignalDetail(ticker, item);
   renderPeers(ticker);
   renderEvents(ticker);
-  buildDetailTabs();
   const holder = document.getElementById('signal-chart');
+  const mkt = _sigMarket === 'us' ? 'us' : 'kospi';
+  const chartUrl = ticker === INDEX_TICKER ? '/api/market/chart'
+    : `/api/signals/${encodeURIComponent(ticker)}/chart` + (mkt === 'us' ? '?market=us' : '');
+  const detailUrl = ticker === INDEX_TICKER ? null
+    : `/api/signals/${encodeURIComponent(ticker)}/detail?market=${mkt}`;
   try {
-    const chartUrl = ticker === INDEX_TICKER ? '/api/market/chart'
-      : `/api/signals/${encodeURIComponent(ticker)}/chart` + (_sigMarket === 'us' ? '?market=us' : '');
-    const d = await (await fetch(chartUrl)).json();
+    const [detail, d] = await Promise.all([
+      detailUrl ? fetch(detailUrl).then(r => r.json()).catch(() => null) : Promise.resolve(null),
+      fetch(chartUrl).then(r => r.json()),
+    ]);
+    if (_selectedTicker !== ticker) return;  // 빠른 클릭 레이스
+    if (detail && detail.ready && detail.item) {
+      item = Object.assign({}, item || {}, detail.item);
+      _signalItems[ticker] = item;
+      _paintSignalDetail(ticker, item);  // about/moves/target/reasons 보강
+    }
     if (!d.ready) { holder.innerHTML = ''; holder.textContent = '차트 데이터가 없습니다.'; return; }
     if (!_signalChart) _signalChart = echarts.init(holder);
     // 기간: 최대 1년(거래일 ~252)까지만 보여주고, 기본 확대 구간은 최근 1개월(~21거래일)

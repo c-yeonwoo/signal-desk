@@ -506,56 +506,33 @@ def replay_signal_kinds(closes: list[float], config: SignalConfig | None = None)
     return kinds
 
 
-def daily_signal_scores(
+def chart_scores_and_zones(
     dates: list[str], closes: list[float], config: SignalConfig | None = None,
     stored: dict[str, dict] | None = None,
-) -> list[float | None]:
-    """날짜별 종합점수 시계열(차트 참고용). 실측 스냅샷 우선, 없으면 가격기반 재현.
-    시그널 *발동*(BUY/SELL 전환)과 다른 맥락 — 연속 점수 추이만 보여준다."""
+) -> tuple[list[float | None], list[dict]]:
+    """차트용 점수 시계열 + BUY/SELL 구간을 **한 패스**로 계산(지표·combine 중복 제거).
+    실측 스냅샷 우선, 없으면 가격기반 재현. 구간은 kind·출처가 같을 때만 병합."""
     config = config or SignalConfig()
     stored = stored or {}
     series = compute_indicator_series(closes, config)
-    out: list[float | None] = []
-    for k in range(len(closes)):
-        st = stored.get(dates[k])
-        if st and st.get("score") is not None:
-            try:
-                out.append(float(st["score"]))
-                continue
-            except (TypeError, ValueError):
-                pass
-        combined = combine(_price_only_components(closes, series, k, config), config)
-        _apply_trend_gate(combined, closes, series, k, config)
-        out.append(combined.get("score"))
-    return out
-
-
-def signal_zones(
-    dates: list[str], closes: list[float], config: SignalConfig | None = None,
-    stored: dict[str, dict] | None = None,
-) -> list[dict]:
-    """연속된 동일 시그널(BUY/SELL) 구간을 [{start,end,kind,reasons,score,actual}]로 압축 — 차트용.
-    HOLD 제외. `stored`(date→{kind,score})가 있으면 그 날짜는 **실측 시그널(전 팩터, 당일 저장)**을
-    쓰고, 없는 날짜만 가격기반 재현(기술·낙폭·모멘텀+추세)으로 폴백한다. 구간은 kind와 출처(실측/재현)가
-    모두 같을 때만 병합해, 각 구간이 한 출처로 균일하게 유지된다."""
-    config = config or SignalConfig()
-    stored = stored or {}
-    series = compute_indicator_series(closes, config)
-    kinds, sources, reasons_at, scores_at = [], [], [], []
+    kinds, sources, reasons_at, scores = [], [], [], []
     for k in range(len(closes)):
         st = stored.get(dates[k])
         if st:  # 실측 우선
             kinds.append(st["kind"])
             sources.append("actual")
             reasons_at.append(["실측 — 당일 저장된 시그널(전 팩터)"])
-            scores_at.append(st.get("score"))
-        else:   # 폴백: 가격기반 재현
-            combined = combine(_price_only_components(closes, series, k, config), config)
-            _apply_trend_gate(combined, closes, series, k, config)
-            kinds.append(combined["kind"])
-            sources.append("replay")
-            reasons_at.append(combined["reasons"])
-            scores_at.append(combined["score"])
+            try:
+                scores.append(float(st["score"]) if st.get("score") is not None else None)
+            except (TypeError, ValueError):
+                scores.append(None)
+            continue
+        combined = combine(_price_only_components(closes, series, k, config), config)
+        _apply_trend_gate(combined, closes, series, k, config)
+        kinds.append(combined["kind"])
+        sources.append("replay")
+        reasons_at.append(combined["reasons"])
+        scores.append(combined.get("score"))
     zones = []
     i, n = 0, len(kinds)
     while i < n:
@@ -566,8 +543,26 @@ def signal_zones(
         while j < n and kinds[j] == kinds[i] and sources[j] == sources[i]:
             j += 1
         zones.append({"start": dates[i], "end": dates[j - 1], "kind": kinds[i],
-                      "reasons": reasons_at[i], "score": scores_at[i], "actual": sources[i] == "actual"})
+                      "reasons": reasons_at[i], "score": scores[i], "actual": sources[i] == "actual"})
         i = j
+    return scores, zones
+
+
+def daily_signal_scores(
+    dates: list[str], closes: list[float], config: SignalConfig | None = None,
+    stored: dict[str, dict] | None = None,
+) -> list[float | None]:
+    """날짜별 종합점수 시계열(차트 참고용). chart_scores_and_zones 래퍼."""
+    scores, _ = chart_scores_and_zones(dates, closes, config=config, stored=stored)
+    return scores
+
+
+def signal_zones(
+    dates: list[str], closes: list[float], config: SignalConfig | None = None,
+    stored: dict[str, dict] | None = None,
+) -> list[dict]:
+    """연속된 동일 시그널(BUY/SELL) 구간 — chart_scores_and_zones 래퍼."""
+    _, zones = chart_scores_and_zones(dates, closes, config=config, stored=stored)
     return zones
 
 

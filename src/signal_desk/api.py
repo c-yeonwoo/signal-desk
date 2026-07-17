@@ -28,8 +28,8 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import accuracy, macro, narrative, opportunity, rebalance, regime, regime_zone, relative, scenario, target, valuation
 from signal_desk.signals.engine import (
-    SignalConfig, _price_only_components, backtest_summary, combine,
-    compute_indicator_series, daily_signal_scores, evaluate, factor_contribution, signal_zones, walk_forward,
+    SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
+    compute_indicator_series, evaluate, factor_contribution, walk_forward,
 )
 
 config.load_env()
@@ -608,97 +608,154 @@ def _clear_us_signal_caches() -> None:
     _us_signal_items.cache_clear()
 
 
+def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct,
+                          mktcap, vol, vol_avg, per, pbr, roe=None, div_yield=None) -> dict:
+    """리스트 API용 요약 행 — reasons/narrative/about/moves/target/kb 제외(클릭 시 detail)."""
+    return {
+        "ticker": r.ticker, "name": name, "score": round(r.score, 4), "kind": r.kind,
+        "confidence": r.confidence, "factor_scores": getattr(r, "factor_scores", {}) or {},
+        "event_risk": bool(getattr(r, "event_risk", False)),
+        "earnings_soon": bool(getattr(r, "earnings_soon", False)),
+        "earnings_date": getattr(r, "earnings_date", None),
+        "valuation_percentile": getattr(r, "valuation_percentile", None),
+        "price": price, "change_pct": change_pct, "mktcap": mktcap,
+        "vol": vol, "vol_avg": vol_avg, "per": per, "pbr": pbr, "roe": roe,
+        "div_yield": div_yield, "sector": sector,
+        "opp_tags": opportunity.classify(r),
+    }
+
+
 @lru_cache(maxsize=1)
 def _us_signal_items() -> list[dict]:
-    """미국(S&P500) 시그널 항목 — KOSPI와 동일 형태. 재무·KB·밸류체인 없어 관련 필드는 null,
-    섹터는 GICS(us_universe)에서. 현재가·등락은 us_prices 마지막 두 종가로.
-
-    @lru_cache: 매 요청마다 ~500 dict 재조립+parquet 재읽기를 막아 Railway OOM을 줄인다.
-    무효화는 `_clear_us_signal_caches()`(시세·live quote·갱신)."""
+    """미국(S&P500) 시그널 **리스트 요약** — 스크리너·정렬에 필요한 필드만.
+    about/moves/target/reasons/narrative는 `/detail`에서 클릭 시 로드(페이로드·OOM 완화)."""
     sig = _us_signals()
     if not sig:
         return []
     sector_of = {u["ticker"]: u.get("sector") for u in store.load_us_universe()}
     hist, quotes = store.load_us_price_bundle()  # parquet 1회(시리즈+거래량)
-    mcaps = store.us_marketcaps(hist)  # 시총(주식수×종가)·PER(Alpha Vantage 백필분, 없으면 빈 dict)
-    us_pers = sorted(mc["per"] for mc in mcaps.values() if mc.get("per") and mc["per"] > 0)
-    us_med_per = us_pers[len(us_pers) // 2] if us_pers else None  # US 밸류 정상화 기준(가용 PER 중앙값)
+    mcaps = store.us_marketcaps(hist)
     items = []
     for r in sig.values():
         closes = hist.get(r.ticker) or []
         price = closes[-1] if closes else None
         prev = closes[-2] if len(closes) >= 2 else None
         q = quotes.get(r.ticker) or {}
-        d = asdict(r)
-        d["name"] = us_ko.name_ko(r.ticker, r.name)   # 한글명(주요 종목) + 티커
-        d["price"] = price
-        d["change_pct"] = round((price / prev - 1) * 100, 2) if (price and prev) else None
-        d["vol"] = q.get("vol")
-        d["vol_avg"] = q.get("vol_avg")               # 거래량순 정렬 반영
         mc = mcaps.get(r.ticker) or {}
-        d["mktcap"] = mc.get("mktcap")                # 시총순 정렬(백필된 종목만)
-        d["per"] = mc.get("per")                       # US PER(EDGAR 순이익, 없으면 AV)
-        d["pbr"] = mc.get("pbr")                        # US PBR(EDGAR 자기자본)
-        d["sector"] = us_ko.sector_ko(sector_of.get(r.ticker))  # 한글 섹터
-        d["intro"] = f"{d['sector']} 섹터" if d["sector"] else None  # US는 밸류체인 매핑 없음 → 섹터로 대체
-        d["intro_desc"] = None
-        d["about"] = company.about(r.ticker, d["name"], d["sector"], "us")  # 사업 개요(캐시 or None, LLM은 백필)
-        d["moves"] = company.recent_moves(r.ticker, d["name"])  # 최근 행보(KB 기반, 캐시 or None)
-        d["kb"] = None
-        d["target"] = target.compute(price, mc.get("per"), us_med_per, closes)  # 참고 목표가(저항선 + 가능시 밸류)
-        d["opp_tags"] = opportunity.classify(r)  # 기회 유형(#14)
-        items.append(d)
+        sector = us_ko.sector_ko(sector_of.get(r.ticker))
+        items.append(_list_row_from_signal(
+            r, name=us_ko.name_ko(r.ticker, r.name), sector=sector,
+            price=price,
+            change_pct=round((price / prev - 1) * 100, 2) if (price and prev) else None,
+            mktcap=mc.get("mktcap"), vol=q.get("vol"), vol_avg=q.get("vol_avg"),
+            per=mc.get("per"), pbr=mc.get("pbr")))
     items.sort(key=lambda x: x["score"], reverse=True)
     return items
 
 
+def _us_signal_detail(ticker: str) -> dict | None:
+    """US 종목 상세(클릭 시) — 리스트에 없던 about/moves/target/reasons/narrative."""
+    r = _us_signals().get(ticker)
+    if not r:
+        return None
+    sector_of = {u["ticker"]: u.get("sector") for u in store.load_us_universe()}
+    hist, quotes = store.load_us_price_bundle()
+    mcaps = store.us_marketcaps(hist)
+    us_pers = sorted(mc["per"] for mc in mcaps.values() if mc.get("per") and mc["per"] > 0)
+    us_med_per = us_pers[len(us_pers) // 2] if us_pers else None
+    closes = hist.get(ticker) or []
+    price = closes[-1] if closes else None
+    prev = closes[-2] if len(closes) >= 2 else None
+    q = quotes.get(ticker) or {}
+    mc = mcaps.get(ticker) or {}
+    sector = us_ko.sector_ko(sector_of.get(ticker))
+    name = us_ko.name_ko(ticker, r.name)
+    d = asdict(r)
+    d["name"] = name
+    d["price"] = price
+    d["change_pct"] = round((price / prev - 1) * 100, 2) if (price and prev) else None
+    d["vol"] = q.get("vol"); d["vol_avg"] = q.get("vol_avg")
+    d["mktcap"] = mc.get("mktcap"); d["per"] = mc.get("per"); d["pbr"] = mc.get("pbr")
+    d["sector"] = sector
+    d["intro"] = f"{sector} 섹터" if sector else None
+    d["intro_desc"] = None
+    d["about"] = company.about(ticker, name, sector, "us")
+    d["moves"] = company.recent_moves(ticker, name)
+    d["kb"] = None
+    d["target"] = target.compute(price, mc.get("per"), us_med_per, closes)
+    d["opp_tags"] = opportunity.classify(r)
+    return d
+
+
+def _kr_signal_detail(ticker: str) -> dict | None:
+    """KR 종목 상세(클릭 시)."""
+    r = next((s for s in _signals() if s.ticker == ticker), None)
+    if not r:
+        return None
+    q = (_quotes().get(ticker) or {})
+    f = (store.load_fundamentals().get(ticker) or {})
+    fundamentals = store.load_fundamentals()
+    med_per = target.median_per(fundamentals)
+    sector = sectors.sector_of(ticker)
+    sec_med = target.sector_median_per(fundamentals, {t: sectors.sector_of(t) for t in fundamentals})
+    c = (store.load_consensus_latest().get(ticker) or {})
+    pos = valuechain.company_position(ticker)
+    d = asdict(r)
+    d["price"] = q.get("price"); d["change_pct"] = q.get("change_pct")
+    d["mktcap"] = q.get("mktcap"); d["vol"] = q.get("vol"); d["vol_avg"] = q.get("vol_avg")
+    d["per"] = f.get("per"); d["pbr"] = f.get("pbr"); d["roe"] = f.get("roe")
+    d["debt_ratio"] = f.get("debt_ratio"); d["revenue_growth"] = f.get("revenue_growth")
+    dps, px = f.get("dps"), d.get("price")
+    d["div_yield"] = round(dps / px * 100, 2) if (dps and px) else None
+    d["sector"] = sector
+    d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
+    d["intro_desc"] = pos["stage_desc"] if pos else None
+    d["about"] = company.about(ticker, r.name, sector, "kr")
+    d["moves"] = company.recent_moves(ticker, r.name)
+    dg = db.kb_digest_get(ticker)
+    d["kb"] = {"sentiment": dg["sentiment"], "summary": dg["summary"], "points": dg["points"]} if dg else None
+    d["opp_tags"] = opportunity.classify(r)
+    d["target"] = target.compute(d["price"], f.get("per"), sec_med.get(sector) or med_per,
+                                 store.load_price_series().get(ticker),
+                                 analyst_target=c.get("price_target_mean"), fwd_eps=c.get("fwd1_eps"))
+    return d
+
+
 @app.get("/api/signals")
 def signals_get(market: str = "kospi"):
+    """시그널 리스트(요약). 상세 필드(about/moves/target/reasons/narrative/kb)는
+    GET /api/signals/{ticker}/detail 로 클릭 시 로드."""
     if market == "us":
         items = _us_signal_items()
         if not items:
             return {"ready": False, "items": [], "message": "미국 종목 시세가 아직 없습니다 — 백필 후 표시됩니다."}
-        return {"ready": True, "items": items}
+        return {"ready": True, "items": items, "slim": True}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
     quotes = _quotes()
     fundamentals = store.load_fundamentals()
-    med_per = target.median_per(fundamentals)   # 목표가(밸류 정상화) 기준 — 루프 밖 1회
-    sec_med_per = target.sector_median_per(fundamentals, {t: sectors.sector_of(t) for t in fundamentals})  # 섹터중립 v1
-    price_series = store.load_price_series()      # 기술적 저항 산정용
-    consensus = store.load_consensus_latest()     # 목표가 v2 앵커(선행EPS·애널 목표주가, KR)
     for r in _signals():
-        d = asdict(r)
         q = quotes.get(r.ticker) or {}
-        d["price"] = q.get("price")  # 현재가(최신 종가)
-        d["change_pct"] = q.get("change_pct")
-        d["mktcap"] = q.get("mktcap")  # 시가총액(정렬·표기용)
-        d["vol"] = q.get("vol")
-        d["vol_avg"] = q.get("vol_avg")  # 최근 20일 평균 거래량
-        f = fundamentals.get(r.ticker) or {}  # 저평가 팩터 근거(PER/PBR) — 탭 대신 시그널 상세에 표시
-        d["per"] = f.get("per")
-        d["pbr"] = f.get("pbr")
-        d["roe"] = f.get("roe")                    # 스크리너 필터용(재무 지표)
-        d["debt_ratio"] = f.get("debt_ratio")
-        d["revenue_growth"] = f.get("revenue_growth")
-        dps, px = f.get("dps"), d.get("price")
-        d["div_yield"] = round(dps / px * 100, 2) if (dps and px) else None  # 배당수익률(%)
-        pos = valuechain.company_position(r.ticker)  # 밸류체인 큐레이션에서 소개 재활용
-        d["sector"] = sectors.sector_of(r.ticker)  # 세분 섹터(조선·철강·화장품·로봇 등) 200종목 매핑
-        d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
-        d["intro_desc"] = pos["stage_desc"] if pos else None
-        d["about"] = company.about(r.ticker, r.name, d["sector"], "kr")  # 사업 개요(캐시 or None, LLM은 백필)
-        d["moves"] = company.recent_moves(r.ticker, r.name)  # 최근 행보(KB 기반, 캐시 or None)
-        dg = db.kb_digest_get(r.ticker)  # KB 정성 다이제스트(뉴스·영상 가공)
-        d["kb"] = {"sentiment": dg["sentiment"], "summary": dg["summary"], "points": dg["points"]} if dg else None
-        d["opp_tags"] = opportunity.classify(r)  # 기회 유형(#14)
-        c = consensus.get(r.ticker) or {}
-        eff_med_per = sec_med_per.get(d["sector"]) or med_per  # 섹터 중앙값 PER(없으면 유니버스 fallback)
-        d["target"] = target.compute(d["price"], f.get("per"), eff_med_per, price_series.get(r.ticker),
-                                     analyst_target=c.get("price_target_mean"), fwd_eps=c.get("fwd1_eps"))  # 참고 목표가(v2+섹터중립)
-        items.append(d)
-    return {"ready": True, "items": items}
+        f = fundamentals.get(r.ticker) or {}
+        px = q.get("price")
+        dps = f.get("dps")
+        items.append(_list_row_from_signal(
+            r, name=r.name, sector=sectors.sector_of(r.ticker),
+            price=px, change_pct=q.get("change_pct"), mktcap=q.get("mktcap"),
+            vol=q.get("vol"), vol_avg=q.get("vol_avg"),
+            per=f.get("per"), pbr=f.get("pbr"), roe=f.get("roe"),
+            div_yield=round(dps / px * 100, 2) if (dps and px) else None))
+    return {"ready": True, "items": items, "slim": True}
+
+
+@app.get("/api/signals/{ticker}/detail")
+def signal_detail_get(ticker: str, market: str = "kospi"):
+    """종목 상세 — 리스트에 없는 해설·사업개요·목표가·KB. 차트와 병렬 fetch용."""
+    item = _us_signal_detail(ticker) if market == "us" else _kr_signal_detail(ticker)
+    if not item:
+        return {"ready": False, "item": None}
+    return {"ready": True, "item": item}
 
 
 def _buylist(uid: int) -> list[dict]:
@@ -857,17 +914,26 @@ def _anchor_today_score(scores: list, ticker: str, market: str) -> list:
     return scores
 
 
+# 프론트 차트 표시 상한(~1년) + MA120 여유. 전체 400일을 점수/zones 재현하면 클릭마다 느림.
+_CHART_BARS = 280
+
+
 @app.get("/api/signals/{ticker}/chart")
 def signal_chart_get(ticker: str, market: str = "kospi"):
-    """종목 가격+지표 시계열(차트용) — 종가/MA20·60·120/RSI/MACD. market=us면 미국 시세."""
+    """종목 가격+지표 시계열(차트용) — 종가/MA20·60·120/RSI/MACD. market=us면 미국 시세.
+    최근 _CHART_BARS만 보내고, 점수·zones는 한 패스로 계산(클릭 지연 완화)."""
     history = store.load_us_price_history(ticker) if market == "us" else store.load_price_history(ticker)
     if not history:
         return {"ready": False, "dates": []}
+    if len(history) > _CHART_BARS:
+        history = history[-_CHART_BARS:]
     closes = [h["close"] for h in history]
     dates = [h["date"] for h in history]
     series = compute_indicator_series(closes)
     stored = store.signal_history_for(ticker) if market != "us" else {}  # 실측 시그널(PIT) 우선
     actual_dates = [d for d in dates if d in stored]
+    scores, zones = chart_scores_and_zones(dates, closes, stored=stored)
+    scores = _anchor_today_score(scores, ticker, market)
     # 일별 수급(KR만) — 차트 dates에 정렬. 없으면 null 배열(패널은 비움).
     flow_foreign = flow_inst = [None] * len(dates)
     if market != "us":
@@ -887,8 +953,8 @@ def signal_chart_get(ticker: str, market: str = "kospi"):
         "ma60": series["ma_mid"],
         "ma120": series["ma_long"],
         "rsi": series["rsi"],
-        "zones": signal_zones(dates, closes, stored=stored),
-        "scores": _anchor_today_score(daily_signal_scores(dates, closes, stored=stored), ticker, market),
+        "zones": zones,
+        "scores": scores,
         "flow_foreign": flow_foreign,
         "flow_inst": flow_inst,
         "actual_from": actual_dates[0] if actual_dates else None,  # 이 날짜 이후는 실측(그 전은 재현)
@@ -905,17 +971,20 @@ def market_chart_get():
     history = store.load_index_history()
     if not history:
         return {"ready": False, "dates": []}
+    if len(history) > _CHART_BARS:
+        history = history[-_CHART_BARS:]
     closes = [h["close"] for h in history]
     dates = [h["date"] for h in history]
     series = compute_indicator_series(closes)
     cfg = SignalConfig()
     combined = combine(_price_only_components(closes, series, len(closes) - 1, cfg), cfg)
+    scores, zones = chart_scores_and_zones(dates, closes)
     return {
         "ready": True, "ticker": "KOSPI200X", "name": "코스피200 지수(근사)",
         "dates": dates, "close": closes,
         "ma20": series["ma_short"], "ma60": series["ma_mid"], "ma120": series["ma_long"],
-        "rsi": series["rsi"], "zones": signal_zones(dates, closes),
-        "scores": daily_signal_scores(dates, closes),
+        "rsi": series["rsi"], "zones": zones,
+        "scores": scores,
         "macd": series["macd"]["macd"], "macd_signal": series["macd"]["signal"], "macd_hist": series["macd"]["histogram"],
         "kind": combined["kind"], "score": combined["score"], "confidence": combined["confidence"],
         "reasons": combined["reasons"],

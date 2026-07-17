@@ -77,8 +77,9 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # sticky footer 셸 회귀 방지 — main이 shrink되면 관리자 긴 페이지에서 footer가 떠버림
     assert "flex:1 0 auto" in html
     assert "margin-top:auto" in html  # footer
-    # 종목 상세: 사업 개요(🏢) + 최근 행보(사실 요약) 블록
+    # 종목 상세: 사업 개요(🏢) + 최근 행보(사실 요약) 블록 + 리스트 슬림/상세 분리
     assert "🏢" in html and "최근 행보" in html
+    assert "/detail?market=" in html  # 클릭 시 상세 병렬 fetch
 
 
 def test_bot_state_and_toggle(tmp_path, monkeypatch):
