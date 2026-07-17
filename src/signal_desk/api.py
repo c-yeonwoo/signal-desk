@@ -71,7 +71,7 @@ def _daily_kb_collect():
         if us:
             store.fetch_us_fundamentals_edgar(us, max_calls=60)  # EDGAR companyfacts → PER/PBR
             store.fetch_us_fundamentals(us, max_calls=20)        # AV → shares/sector 보조
-            _us_signals.cache_clear()
+            _clear_us_signal_caches()
     except Exception as e:
         log.warning("US 재무 백필 실패: %s", type(e).__name__)
     db.kv_set("kb_collect_date", _kst_today())
@@ -84,11 +84,11 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
     from signal_desk.ingest import toss
     if not open_markets:
         store.clear_live_quotes(); store.note_live_attempt("closed")
-        _signals.cache_clear(); _us_signals.cache_clear(); _quotes.cache_clear(); _regime.cache_clear()
+        _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
         return
     if not toss.available():
         store.clear_live_quotes(); store.note_live_attempt("toss_off", open_markets)
-        _signals.cache_clear(); _us_signals.cache_clear(); _quotes.cache_clear(); _regime.cache_clear()
+        _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
         return
     syms: list[str] = []
     if "kr" in open_markets:
@@ -104,7 +104,7 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
     if quotes:
         store.set_live_quotes(quotes)
         store.note_live_attempt("ok", open_markets)
-        _signals.cache_clear(); _us_signals.cache_clear(); _quotes.cache_clear(); _regime.cache_clear()
+        _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
     else:  # 토큰 실패 등으로 빈 응답 — 오버레이 유지 안 함, 시도 기록만
         store.note_live_attempt("no_quotes", open_markets)
 
@@ -120,22 +120,25 @@ def _bot_loop_iteration() -> None:
     try:  # 배포 환경 US 시세 자동 점진 적재(us_prices는 gitignore로 캐시 없음) — 다 차면 no-op
         bf = _backfill_us_prices_batch(25)
         if bf["filled"]:
-            _us_signals.cache_clear()
+            _clear_us_signal_caches()
             log.info("US 시세 자동 백필 %d종목(잔여 %s)", bf["filled"], bf["missing"])
     except Exception as e:
         log.warning("US 시세 자동 백필 실패(무시): %s", type(e).__name__)
+    about_n = moves_n = 0
     try:  # 사업 개요(무엇을 하는 회사) LLM 증분 백필 — 캐시 없는 종목만, 다 차면 no-op
-        an = _backfill_about_batch(15)
-        if an:
-            log.info("사업 개요 자동 백필 %d종목", an)
+        about_n = _backfill_about_batch(15)
+        if about_n:
+            log.info("사업 개요 자동 백필 %d종목", about_n)
     except Exception as e:
         log.warning("사업 개요 자동 백필 실패(무시): %s", type(e).__name__)
     try:  # 최근 행보 LLM 증분 백필 — KB 문서 있고 캐시 오래된 종목만(새 뉴스 반영)
-        mn = _backfill_moves_batch(10)
-        if mn:
-            log.info("최근 행보 자동 백필 %d종목", mn)
+        moves_n = _backfill_moves_batch(10)
+        if moves_n:
+            log.info("최근 행보 자동 백필 %d종목", moves_n)
     except Exception as e:
         log.warning("최근 행보 자동 백필 실패(무시): %s", type(e).__name__)
+    if about_n or moves_n:  # evaluate는 그대로, 리스트 문구만 갱신
+        _us_signal_items.cache_clear()
     for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
         for mkt in open_markets:
             try:  # 예약 주문 먼저(목표가+추격폭 이내만) — run_once와 별개 경로
@@ -599,15 +602,24 @@ def _macro():
             **macro.read(indicators, extra=kr)}
 
 
+def _clear_us_signal_caches() -> None:
+    """US evaluate + 리스트 조립 캐시 동시 무효화 — 한 쪽만 비우면 점수/시세가 어긋난다."""
+    _us_signals.cache_clear()
+    _us_signal_items.cache_clear()
+
+
+@lru_cache(maxsize=1)
 def _us_signal_items() -> list[dict]:
     """미국(S&P500) 시그널 항목 — KOSPI와 동일 형태. 재무·KB·밸류체인 없어 관련 필드는 null,
-    섹터는 GICS(us_universe)에서. 현재가·등락은 us_prices 마지막 두 종가로."""
+    섹터는 GICS(us_universe)에서. 현재가·등락은 us_prices 마지막 두 종가로.
+
+    @lru_cache: 매 요청마다 ~500 dict 재조립+parquet 재읽기를 막아 Railway OOM을 줄인다.
+    무효화는 `_clear_us_signal_caches()`(시세·live quote·갱신)."""
     sig = _us_signals()
     if not sig:
         return []
     sector_of = {u["ticker"]: u.get("sector") for u in store.load_us_universe()}
-    hist = store.load_us_price_series()
-    quotes = store.load_us_quotes()  # 거래량·20일평균(정렬용)
+    hist, quotes = store.load_us_price_bundle()  # parquet 1회(시리즈+거래량)
     mcaps = store.us_marketcaps(hist)  # 시총(주식수×종가)·PER(Alpha Vantage 백필분, 없으면 빈 dict)
     us_pers = sorted(mc["per"] for mc in mcaps.values() if mc.get("per") and mc["per"] > 0)
     us_med_per = us_pers[len(us_pers) // 2] if us_pers else None  # US 밸류 정상화 기준(가용 PER 중앙값)
@@ -935,7 +947,7 @@ def _clear_signal_caches() -> None:
     _quotes.cache_clear()
     _regime.cache_clear()
     _macro.cache_clear()
-    _us_signals.cache_clear()
+    _clear_us_signal_caches()
 
 
 def _refresh_kr(data: dict) -> dict:

@@ -81,13 +81,10 @@ def is_us_market_hours(now: datetime.datetime | None = None) -> bool:
 
 
 def us_signals() -> list:
-    """US(S&P500) 시그널 — 기술·낙폭 + KB 정성 + (EDGAR 재무 있으면) 저평가 팩터. 점수 내림차순."""
-    prices = store.load_us_price_series()
-    if not prices:
-        return []
-    fundamentals = {t: mc for t, mc in store.us_marketcaps(prices).items() if mc.get("per") or mc.get("pbr")}
-    sigs = engine.evaluate(store.load_us_universe(), prices, fundamentals=fundamentals, sentiment=kb.sentiment_map())
-    return sorted(sigs, key=lambda s: s.score, reverse=True)
+    """US(S&P500) 시그널 — api._us_signals 캐시 재사용(장중 봇+API 동시 evaluate로 OOM 나는 것 방지).
+    순환 import 피하려고 함수 내부에서 api를 가져온다. 점수 내림차순."""
+    from signal_desk import api
+    return sorted(api._us_signals().values(), key=lambda s: s.score, reverse=True)
 
 
 def us_state(capital: float = 10000.0) -> dict:
