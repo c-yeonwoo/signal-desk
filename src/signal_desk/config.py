@@ -223,9 +223,15 @@ def allow_real_orders() -> bool:
 
 
 def bot_run_interval_minutes() -> int:
-    """자동매매봇 백그라운드 루프 실행 간격(분). 기본 30분 — 장중 실시간가 오버레이 갱신 + 매매를
-    한 주기로 통일. 너무 잦으면 임계값 근처 신호가 깜빡이므로 30분 권장(흔들리면 60/120로 상향)."""
+    """봇·LLM·증분 백필 루프 간격(분). 기본 30분 — 매매/자문/about·moves.
+    시세 오버레이는 quote_refresh_interval_minutes()가 따로 돈다."""
     return int(os.environ.get("BOT_RUN_INTERVAL_MINUTES", "30"))
+
+
+def quote_refresh_interval_minutes() -> int:
+    """장중 토스 현재가 오버레이 갱신 간격(분). 기본 10분.
+    봇/LLM보다 자주 돌려 시세만 신선하게 유지(비용·부하 거의 없음)."""
+    return int(os.environ.get("QUOTE_REFRESH_INTERVAL_MINUTES", "10"))
 
 
 def admin_emails() -> set[str]:

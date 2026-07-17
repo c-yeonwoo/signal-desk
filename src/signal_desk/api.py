@@ -120,14 +120,22 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
         store.note_live_attempt("no_quotes", open_markets)
 
 
+def _open_markets() -> list[str]:
+    return [m for m, is_open in
+            (("kr", bot.is_market_hours()), ("us", bot.is_us_market_hours())) if is_open]
+
+
+def _quote_loop_iteration() -> None:
+    """시세 전용 틱 — 토스 현재가 오버레이만(봇/LLM 없음)."""
+    _refresh_live_quotes(_open_markets())
+
+
 def _bot_loop_iteration() -> None:
-    """봇 루프 1회분 — 시세·재무·LLM 백필 등 전부 동기 블로킹이라, 이벤트 루프를 막지 않도록
-    asyncio.to_thread로 워커 스레드에서 실행한다(_bot_loop 참고)."""
+    """봇·LLM·백필 루프 1회분(시세 갱신은 _quote_loop가 담당).
+    동기 블로킹이라 asyncio.to_thread로 돌린다."""
     _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(공용)
     enabled = db.user_bots_enabled()
-    open_markets = [m for m, is_open in
-                    (("kr", bot.is_market_hours()), ("us", bot.is_us_market_hours())) if is_open]
-    _refresh_live_quotes(open_markets)  # 장중 실시간가 오버레이 갱신(열린 시장만, 없으면 종가 복귀)
+    open_markets = _open_markets()
     try:  # 배포 환경 US 시세 자동 점진 적재(us_prices는 gitignore로 캐시 없음) — 다 차면 no-op
         bf = _backfill_us_prices_batch(25)
         if bf["filled"]:
@@ -201,18 +209,26 @@ def _bot_loop_iteration() -> None:
         db.kv_set("bot_daily_snap", _kst_today())
 
 
+async def _quote_loop():
+    """장중 토스 현재가 전용 루프(기본 10분). 봇/LLM과 분리해 시세만 자주 갱신."""
+    interval = config.quote_refresh_interval_minutes() * 60
+    await asyncio.sleep(5)
+    while True:
+        try:
+            await asyncio.to_thread(_quote_loop_iteration)
+        except Exception as e:
+            log.error("시세 갱신 루프 오류: %s", e)
+        await asyncio.sleep(interval)
+
+
 async def _bot_loop():
-    """자동매매봇 백그라운드 루프 — 봇을 켠 유저별로 순회. 시그널은 공용, 계좌는 paper(종가 기준).
+    """봇·LLM 백그라운드 루프(기본 30분). 시그널은 공용, 계좌는 paper.
 
-    interval(기본 5분)마다 순회하되, 실제 체결은 각 시장 장중에만 한다 — KR은 KR장중(09:00~15:20 평일),
-    US는 US장중(KST 근사 22:30~06:00). 장외엔 비현실적 종가 체결을 피하려고 자동매매를 건너뛴다.
-    (수동 '지금 실행'은 장 시간과 무관하게 즉시 실행 — 테스트용 override.)
-    KB 자동수집·종가 스냅샷은 하루 1회(kv 날짜 가드).
-
-    루프 본문은 동기 블로킹(시세·재무·LLM 백필)이므로 asyncio.to_thread로 워커 스레드에서 돌린다 —
-    이벤트 루프가 자유로워야 배포 헬스체크(/)와 API 응답이 무거운 백필 중에도 막히지 않는다."""
+    실제 체결은 각 시장 장중에만 — KR 09:00~15:20, US KST 근사 22:30~06:00.
+    시세 오버레이는 _quote_loop가 따로 돌린다. KB·종가 스냅샷은 하루 1회(kv 가드).
+    본문은 동기 블로킹이라 to_thread로 돌려 헬스체크/API를 막지 않는다."""
     interval = config.bot_run_interval_minutes() * 60
-    await asyncio.sleep(5)  # 첫 헬스체크가 먼저 통과하도록, 무거운 초기 수집 전에 잠깐 양보
+    await asyncio.sleep(8)  # 시세 루프가 먼저 한 틱 돌 여유
     while True:
         try:
             await asyncio.to_thread(_bot_loop_iteration)
@@ -227,9 +243,11 @@ async def _lifespan(app: FastAPI):
         bot.ensure_reference_bots()  # 공용 레퍼런스 봇(성향별) 부트스트랩 — 루프가 자동 운용
     except Exception as e:
         log.warning("레퍼런스 봇 부트스트랩 실패: %s", type(e).__name__)
-    task = asyncio.create_task(_bot_loop())
+    quote_task = asyncio.create_task(_quote_loop())
+    bot_task = asyncio.create_task(_bot_loop())
     yield
-    task.cancel()
+    quote_task.cancel()
+    bot_task.cancel()
 
 
 app = FastAPI(title="signal-desk", lifespan=_lifespan)
