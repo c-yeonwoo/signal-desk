@@ -564,7 +564,12 @@
         <div id="signal-hero" style="display:none"></div>
         <div id="signal-chart"></div>
         <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin:4px 0">
-          <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수 · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도 · <b>+</b>는 강력 · <b>진한 음영</b>=실측 시그널 · <b>옅은 음영</b>=가격기반 재현 · 📍=현재</div>
+          <span style="color:var(--c-price);font-weight:700">━ 종가</span>
+          <span style="color:var(--c-ma20)">━ MA20</span>
+          <span style="color:var(--c-ma60)">━ MA60</span>
+          <span style="color:var(--c-ma120)">━ MA120</span>
+          <span style="color:var(--c-score)">━ 점수</span>
+          · <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수 · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도 · <b>+</b>는 강력 · <b>진한 음영</b>=실측 · <b>옅은 음영</b>=재현 · 📍=현재</div>
         <div class="detail-tabs" id="detail-tabs" style="display:none"></div>
         <div class="detail-panels" id="detail-panels">
           <div id="signal-narrative" class="detail-panel placeholder" style="display:none;background:var(--accent-weak);
@@ -2170,6 +2175,25 @@ function bestUpside(item){
 }
 
 let _signalChart = null;
+function _disposeSignalChart(){
+  if (!_signalChart) return;
+  try { _signalChart.dispose(); } catch (e) {}
+  _signalChart = null;
+}
+function _ensureSignalChart(holder){
+  // holder를 textContent/innerHTML로 비우면 ECharts DOM이 죽는데 인스턴스만 남음 → 국내/해외 전환 시 미표시.
+  // 살아있는지 확인하고, 아니면 재생성.
+  if (_signalChart) {
+    try {
+      const dom = _signalChart.getDom();
+      if (dom && dom.isConnected && dom === holder) return _signalChart;
+    } catch (e) {}
+    _disposeSignalChart();
+  }
+  holder.innerHTML = '';
+  _signalChart = echarts.init(holder);
+  return _signalChart;
+}
 function _paintSignalDetail(ticker, item){
   // 드릴다운 헤더·히어로·소개·목표가·해설 등(리스트 요약 또는 /detail 병합 후 공통)
   document.getElementById('signal-chart-title').textContent = item ? item.name : ticker;
@@ -2313,18 +2337,27 @@ async function showSignalChart(ticker, item){
       _signalItems[ticker] = item;
       _paintSignalDetail(ticker, item);  // about/moves/target/reasons 보강
     }
-    if (!d.ready) { holder.innerHTML = ''; holder.textContent = '차트 데이터가 없습니다.'; return; }
-    if (!_signalChart) _signalChart = echarts.init(holder);
+    if (!d.ready) {
+      _disposeSignalChart();
+      holder.textContent = '차트 데이터가 없습니다.';
+      return;
+    }
     // 기간: 최대 1년(거래일 ~252)까지만 보여주고, 기본 확대 구간은 최근 1개월(~21거래일)
     const CAP = 252, N = d.dates.length, s0 = Math.max(0, N - CAP);
     const dates = d.dates.slice(s0), close = d.close.slice(s0),
-          ma20 = d.ma20.slice(s0), ma60 = d.ma60.slice(s0), ma120 = d.ma120.slice(s0),
-          rsi = d.rsi.slice(s0), macd = d.macd.slice(s0),
-          macdSig = d.macd_signal.slice(s0), macdHist = d.macd_hist.slice(s0),
-          scores = (d.scores || []).slice(s0),
-          flowFo = (d.flow_foreign || []).slice(s0),
-          flowIn = (d.flow_inst || []).slice(s0);
+          ma20 = (d.ma20 || []).slice(s0), ma60 = (d.ma60 || []).slice(s0), ma120 = (d.ma120 || []).slice(s0),
+          rsi = (d.rsi || []).slice(s0), macd = (d.macd || []).slice(s0),
+          macdSig = (d.macd_signal || []).slice(s0), macdHist = (d.macd_hist || []).slice(s0),
+          scores = (d.scores || []).slice(s0);
+    // 수급 배열 길이를 dates와 맞춤(짧으면 null 패딩) — 길이 불일치 시 ECharts가 빈 캔버스로 실패할 수 있음
+    const align = (arr) => {
+      const a = (arr || []).slice(s0);
+      while (a.length < dates.length) a.push(null);
+      return a.slice(0, dates.length);
+    };
+    const flowFo = align(d.flow_foreign), flowIn = align(d.flow_inst);
     const hasFlow = flowFo.some(v => v != null) || flowIn.some(v => v != null);
+    const chart = _ensureSignalChart(holder);
     const first = dates[0];
     const rawZones = (d.zones || []).filter(z => z.end >= first);
     const zones = rawZones.map(z => ({ kind: z.kind, start: z.start < first ? first : z.start, end: z.end, actual: z.actual }));
@@ -2414,38 +2447,46 @@ async function showSignalChart(ticker, item){
     }
     if (targetShown.length)
       legEl.insertAdjacentHTML('beforeend', `<span class="leg-target"> · 참고 목표가(점선) ${targetShown.join(' ')}</span>`);
+    // color는 시리즈 최상위에 둬야 ECharts 범례 아이콘 색 = 선색이 일치한다(lineStyle만 주면 범례는 팔레트 색).
+    const C = { price: '#4f46e5', ma20: '#06b6d4', ma60: '#e08a00', ma120: '#e5484d',
+                score: '#12a150', rsi: '#7c3aed', fo: '#3b82f6', inst: '#f59e0b',
+                macd: '#64748b', signal: '#f97316', hist: '#94a3b8' };
     const series = [
       { name: '종가', type: 'line', data: close, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
-        smooth: SMOOTH, smoothMonotone: 'x',
-        lineStyle: { width: 2.4, color: '#4f46e5' }, markArea, markPoint, markLine: targetMarkLine },
+        color: C.price, smooth: SMOOTH, smoothMonotone: 'x',
+        lineStyle: { width: 2.4, color: C.price }, markArea, markPoint, markLine: targetMarkLine },
       { name: 'MA20', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
-        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: '#06b6d4', opacity: 0.85 } },
+        color: C.ma20, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma20, opacity: 0.85 } },
       { name: 'MA60', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
-        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: '#e08a00', opacity: 0.85 } },
+        color: C.ma60, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma60, opacity: 0.85 } },
       { name: 'MA120', type: 'line', data: ma120, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
-        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: '#e5484d', opacity: 0.85 } },
+        color: C.ma120, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma120, opacity: 0.85 } },
       { name: '점수', type: 'line', data: scores, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
-        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1.75, color: '#12a150' },
+        color: C.score, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1.75, color: C.score },
         tooltip: { valueFormatter: v => v == null ? '–' : ((v > 0 ? '+' : '') + Number(v).toFixed(2)) } },
       { name: 'RSI', type: 'line', data: rsi, xAxisIndex: xRsi, yAxisIndex: yRsi, showSymbol: false,
-        smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { color: '#7c3aed' } },
+        color: C.rsi, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { color: C.rsi } },
     ];
     if (hasFlow) {
       series.push(
         { name: '외국인', type: 'bar', data: flowFo, xAxisIndex: xFlow, yAxisIndex: yFlow, barMaxWidth: 4,
-          itemStyle: { color: '#3b82f6' } },
+          color: C.fo, itemStyle: { color: C.fo } },
         { name: '기관', type: 'bar', data: flowIn, xAxisIndex: xFlow, yAxisIndex: yFlow, barMaxWidth: 4,
-          itemStyle: { color: '#f59e0b' } },
+          color: C.inst, itemStyle: { color: C.inst } },
       );
     }
     series.push(
-      { name: 'MACD 히스토그램', type: 'bar', data: macdHist, xAxisIndex: xMacd, yAxisIndex: yMacd },
-      { name: 'MACD', type: 'line', data: macd, xAxisIndex: xMacd, yAxisIndex: yMacd, showSymbol: false, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1 } },
-      { name: 'Signal', type: 'line', data: macdSig, xAxisIndex: xMacd, yAxisIndex: yMacd, showSymbol: false, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1 } },
+      { name: 'MACD 히스토그램', type: 'bar', data: macdHist, xAxisIndex: xMacd, yAxisIndex: yMacd,
+        color: C.hist, itemStyle: { color: C.hist } },
+      { name: 'MACD', type: 'line', data: macd, xAxisIndex: xMacd, yAxisIndex: yMacd, showSymbol: false,
+        color: C.macd, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.macd } },
+      { name: 'Signal', type: 'line', data: macdSig, xAxisIndex: xMacd, yAxisIndex: yMacd, showSymbol: false,
+        color: C.signal, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.signal } },
     );
     const zoomAxes = grids.map((_, i) => i);
-    _signalChart.setOption({
+    chart.setOption({
       animation: false,
+      color: [C.price, C.ma20, C.ma60, C.ma120, C.score, C.fo, C.inst, C.hist, C.macd, C.signal],
       tooltip: { trigger: 'axis' },
       legend: { top: 0, data: hasFlow
         ? ['종가', 'MA20', 'MA60', 'MA120', '점수', '외국인', '기관']
@@ -2461,8 +2502,9 @@ async function showSignalChart(ticker, item){
       ],
       series,
     }, true);
-    _signalChart.resize();
+    chart.resize();
   } catch (e) {
+    _disposeSignalChart();
     holder.textContent = '차트를 불러오지 못했습니다.';
   }
 }

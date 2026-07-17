@@ -984,7 +984,8 @@ def load_price_history(ticker: str) -> list[dict]:
     df = df[df["ticker"] == ticker].sort_values("date")
     if df.empty:
         return []
-    return [{"date": row["date"], "close": float(row["close"])} for _, row in df.iterrows()]
+    # date는 반드시 str — Timestamp가 섞이면 차트 JSON/카테고리 축이 깨질 수 있음
+    return [{"date": str(row["date"])[:10], "close": float(row["close"])} for _, row in df.iterrows()]
 
 
 def load_index_history() -> list[dict]:

@@ -80,6 +80,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 종목 상세: 사업 개요(🏢) + 최근 행보(사실 요약) 블록 + 리스트 슬림/상세 분리
     assert "🏢" in html and "최근 행보" in html
     assert "/detail?market=" in html  # 클릭 시 상세 병렬 fetch
+    assert "_ensureSignalChart" in html  # 차트 DOM 파괴 후 재생성(국내 차트 미표시 방지)
+    assert "━ MA20" in html and "--c-ma20" in html  # 범례 선색 = CSS 변수와 일치
 
 
 def test_bot_state_and_toggle(tmp_path, monkeypatch):

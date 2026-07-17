@@ -935,18 +935,30 @@ def signal_chart_get(ticker: str, market: str = "kospi"):
     scores, zones = chart_scores_and_zones(dates, closes, stored=stored)
     scores = _anchor_today_score(scores, ticker, market)
     # 일별 수급(KR만) — 차트 dates에 정렬. 없으면 null 배열(패널은 비움).
-    flow_foreign = flow_inst = [None] * len(dates)
+    # 주의: flow_foreign = flow_inst = [...] 는 같은 리스트를 공유하므로 절대 쓰지 말 것.
+    n = len(dates)
+    flow_foreign: list = [None] * n
+    flow_inst: list = [None] * n
     if market != "us":
-        from signal_desk.ingest import naver
-        series_flow = naver.investor_flow_series(ticker, days=min(260, max(60, len(dates))))
-        if series_flow:
-            by_d = {r["date"]: r for r in series_flow}
-            flow_foreign = [(by_d[d]["foreign_net"] if d in by_d else None) for d in dates]
-            flow_inst = [(by_d[d]["inst_net"] if d in by_d else None) for d in dates]
+        try:
+            from signal_desk.ingest import naver
+            series_flow = naver.investor_flow_series(ticker, days=min(260, max(60, n)))
+            if series_flow:
+                by_d = {r["date"]: r for r in series_flow}
+                flow_foreign = [(by_d[d]["foreign_net"] if d in by_d else None) for d in dates]
+                flow_inst = [(by_d[d]["inst_net"] if d in by_d else None) for d in dates]
+        except Exception as e:
+            log.warning("차트 수급 패널 스킵(%s): %s", ticker, type(e).__name__)
+    quote = None
+    if market != "us":
+        try:
+            quote = _quotes().get(ticker)
+        except Exception:
+            quote = None
     return {
         "ready": True,
         "ticker": ticker,
-        "quote": None if market == "us" else _quotes().get(ticker),  # US는 헤더 quote 별도 없음(현재가는 항목에)
+        "quote": quote,  # US는 헤더 quote 별도 없음(현재가는 항목에)
         "dates": dates,
         "close": closes,
         "ma20": series["ma_short"],
