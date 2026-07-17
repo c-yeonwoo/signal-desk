@@ -864,6 +864,7 @@
 
     <div id="admin-engine" style="display:none">
     <p class="page-desc" style="margin:0 0 12px">흐름: <b>헬스 진단 → 개선 제안(승인) → 실측 확인</b>. 평소엔 제안 카드만 검토하면 되고, 수동 가중·백테스트는 필요할 때만 펼칩니다.</p>
+    <div id="engine-gate-strip" style="display:none;margin:0 0 12px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2,transparent);font-size:12.5px;line-height:1.45"></div>
 
     <div class="card" id="brain-card" style="margin-top:0">
       <div class="row" style="align-items:baseline;justify-content:space-between">
@@ -883,14 +884,14 @@
           <button class="btn" onclick="refreshBrainProposals()" id="bp-refresh-btn">제안 새로고침</button>
         </div>
       </div>
-      <p class="page-desc" style="margin:8px 0 10px">실측에서 잘 안 맞는 팩터 비중을 <b>살짝</b> 줄이자고 올립니다. 수식 대신 “무엇이 바뀌는지·왜”만 보고 승인/반려하세요. 자동 적용은 없습니다.</p>
+      <p class="page-desc" style="margin:8px 0 10px">잘 안 맞는 팩터는 비중↓, 잘 맞는 팩터는 비중↑, 매수 적중률에 따라 문턱± — 모두 <b>살짝</b>만. “무엇이 바뀌는지·왜”만 보고 승인/반려하세요. 자동 적용 없음.</p>
       <div id="brain-proposals-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       <div id="brain-proposals-history" style="margin-top:12px;font-size:12px;color:var(--dim)"></div>
     </div>
 
     <div class="card" id="accuracy-card" style="margin-top:16px">
       <div style="font-weight:700;font-size:15px">실측 성과 <span style="color:var(--dim);font-weight:600;font-size:12px">· track record</span></div>
-      <p class="page-desc" style="margin:8px 0 4px">매일 저장되는 <b>실제 시그널</b>이 이후 수익률로 얼마나 맞았는지 — 백테스트(시뮬)와 다른 <b>진짜 낸 신호</b> 성적입니다.</p>
+      <p class="page-desc" style="margin:8px 0 4px">장 마감 후 그날 <b>실제로 낸 시그널</b>을 저장하고, 약 20거래일 뒤 수익률로 채점합니다. 봇이 샀는지와 무관하고, 백테스트(시뮬)와도 다릅니다.</p>
       <div id="accuracy-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
 
@@ -4054,6 +4055,28 @@ function _patchLine(patch, baseline){
     return `${_BP_FIELD_KO[k] || k} ${from} → ${fmtNum(v, 2)}`;
   }).join(' · ');
 }
+function _renderEngineGate(gate){
+  const strip = document.getElementById('engine-gate-strip');
+  if (!strip) return;
+  if (!gate) { strip.style.display = 'none'; return; }
+  const bump = gate.bump || 0;
+  const eff = gate.effective_buy_threshold;
+  const base = gate.base_buy_threshold;
+  if (!(bump > 0) && !(eff != null && base != null && eff > base)) {
+    strip.style.display = '';
+    strip.style.borderColor = 'var(--line)';
+    strip.innerHTML = `<b>지금 매수 문턱</b> 기본 ${fmtNum(base, 1)} · 국면 가산 없음`
+      + ` <span style="color:var(--dim-2)">· 시그널/봇이 조용하면 추세 게이트·점수 부족일 수 있음(트래커와 무관)</span>`;
+    return;
+  }
+  strip.style.display = '';
+  strip.style.borderColor = 'var(--sell)';
+  const why = (gate.reasons || []).map(esc).join(' · ') || '국면 적응';
+  strip.innerHTML = `<b style="color:var(--sell)">매수 시그널이 적을 수 있는 이유</b>`
+    + ` — 기본 문턱 ${fmtNum(base, 1)} → <b>유효 ${fmtNum(eff, 1)}</b> (+${fmtNum(bump, 1)})`
+    + `<div style="color:var(--dim);margin-top:3px">${why}</div>`
+    + `<div style="color:var(--dim-2);margin-top:3px">이건 실측 트래커 성숙과 무관합니다. 약세·비우호·순매도일 때 일부러 매수를 줄입니다.</div>`;
+}
 async function loadBrainProposals(){
   const el = document.getElementById('brain-proposals-body');
   const histEl = document.getElementById('brain-proposals-history');
@@ -4061,10 +4084,12 @@ async function loadBrainProposals(){
   try {
     const d = await (await fetch('/api/brain/proposals?status=draft')).json();
     _setEngineBadge(d.draft_count || 0);
+    _renderEngineGate(d.gate);
     const items = d.items || [];
     if (!items.length) {
       el.className = 'placeholder';
-      el.innerHTML = '대기 중인 제안이 없습니다. 실측이 쌓이면 <b>제안 새로고침</b>으로 초안을 만들 수 있습니다.';
+      el.innerHTML = '대기 중인 제안이 없습니다. 실측이 쌓이면 <b>제안 새로고침</b>으로 초안을 만들 수 있습니다.'
+        + '<div style="margin-top:8px;font-size:12px;color:var(--dim-2)">트래커는 “그날 낸 시그널 → 20일 뒤 성적”만 봅니다. 봇이 안 사도 시그널이 있으면 쌓입니다.</div>';
     } else {
       el.className = '';
       el.innerHTML = items.map(it => {
@@ -4152,9 +4177,10 @@ async function loadAccuracy(){
         <div style="margin-bottom:6px"><span class="trust-badge accum">누적중</span></div>
         <div style="font-weight:700;margin:4px 0">track record 누적 중</div>
         <div style="color:var(--dim);font-size:12px">${covLine}<br>${d.primary_horizon || 20}거래일 성숙 표본 <b>${matured}</b>/${need}건`
-        + ` — 시그널을 낸 뒤 ${d.primary_horizon || 20}거래일이 지나야 채점되고,`
+        + ` — 장 마감 후 저장한 시그널이 ${d.primary_horizon || 20}거래일 지나야 채점됩니다.`
         + ` 표본 ${need}건 미만에서는 정밀도·IC를 헤드라인으로 쓰지 않습니다.</div>`
-        + `${d.reason ? `<div style="color:var(--dim-2);font-size:11px;margin-top:6px">${esc(d.reason)}</div>` : ''}</div>`;
+        + `<div style="color:var(--dim-2);font-size:11px;margin-top:6px">봇 매매·BUY 개수와 별개입니다. HOLD만 많아도 “그날 낸 시그널”은 매일 쌓입니다.</div>`
+        + `${d.reason ? `<div style="color:var(--dim-2);font-size:11px;margin-top:4px">${esc(d.reason)}</div>` : ''}</div>`;
       return;
     }
     const h = d.primary_horizon;

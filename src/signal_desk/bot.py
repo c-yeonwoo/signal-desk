@@ -144,6 +144,17 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
     cyc = cycle.position(macro_ind)
     eff_cfg, adapt = signalcfg.effective_config(reg, mread, flow_result=store.load_market_flow())
     macro_dg = kb.macro_digest()
+    cfg_snap = signalcfg.get_dict()
+    # 설정 지문 — 의사결정 저널이 '어떤 가중/임계로 샀는지' 사후 추적(전체 dict는 비대하니 핵심만)
+    config_fp = {
+        "buy_threshold": cfg_snap.get("buy_threshold"),
+        "strong_buy_threshold": cfg_snap.get("strong_buy_threshold"),
+        "regime_adaptive": cfg_snap.get("regime_adaptive"),
+        "w_mom": cfg_snap.get("weight_momentum"),
+        "w_flow": cfg_snap.get("weight_flow"),
+        "w_short": cfg_snap.get("weight_short"),
+        "w_fund": cfg_snap.get("weight_fundamental"),
+    }
     context = {
         "regime": reg.get("regime"),
         "macro_bias": mread.get("bias"),
@@ -151,6 +162,10 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
         "macro_detail": " / ".join((mread.get("reasons") or [])[:5]),
         "cycle_phase": cyc.get("phase_name"),
         "gate_applied": bool(adapt.get("bump")),  # 매수 기준이 이미 상향됐는지(LLM에 알림)
+        "effective_buy_threshold": adapt.get("effective_buy_threshold"),
+        "bump": adapt.get("bump") or 0.0,
+        "bump_reasons": list(adapt.get("reasons") or []),
+        "config_fp": config_fp,
         # 미주은 시황 코멘터리(정성 내러티브) — 참고용 맥락, 개별 종목 점수엔 미반영
         "macro_note": (macro_dg["summary"] if macro_dg and macro_dg.get("fresh") else ""),
     }
@@ -517,6 +532,18 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
             else:
                 cash -= qty * live
             buys.append(plan)
+
+    # 매수 0건이어도 한 줄 저널 — 나중에 '왜 안 샀는지'·설정 버전 추적(공용, 유저 무관)
+    if slots > 0 and not buys and not dry_run:
+        n_buy = sum(1 for s in signals if engine.is_buy(s.kind))
+        thr = (context or {}).get("effective_buy_threshold")
+        db.bot_decision_log(
+            "-", "(요약)", "idle", None,
+            f"매수 체결 0 · BUY시그널 {n_buy}건 · 유효문턱 {thr} · 슬롯 {slots}",
+            {**(context or {}), "advisor_used": advisor_used, "skipped_weak": skipped_weak,
+             "buy_signals": n_buy, "slots": slots},
+            0.0,
+        )
 
     # 컨빅션 로테이션 — 약한 보유를 더 강한 후보로 교체. 기준·행동강령은 성향별(strategy.ROTATION_PRESETS).
     # 자리가 꽉 찼을 때(모든 성향), 또는 자리 남아도 현금 부족 시 선제 교체(공격형 when_slots_free).
