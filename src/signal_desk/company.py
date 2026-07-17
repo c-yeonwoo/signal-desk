@@ -6,15 +6,15 @@ LLM(있으면)으로 생성해 kv에 캐시한다.
  - recent_moves: 최근 무엇을 했는지(제품·계약·수주·실적·투자 등) KB 원자료(뉴스+공시) 기반 2~3줄.
 
 성능·정직 원칙:
- - 시그널 렌더(요청 경로)에서는 절대 LLM을 호출하지 않는다(수백 종목 동기 호출 방지).
-   요청 경로는 generate=False로 '캐시 또는 None'만 반환한다(가짜 개요 문장 금지 — 없으면 프론트가
-   기존 섹터/밸류체인 소개로 자연스럽게 폴백).
- - 실제 LLM 생성은 backfill*()(관리자 갱신·백그라운드 루프)에서 증분으로 채운다.
+ - 리스트/대량 경로(generate=False): LLM 호출 없음 — 캐시 또는 None(가짜 개요 금지).
+ - BUY/SELL 종목 상세·해설 경로만 generate=True로 온디맨드 생성(캐시 미스 시 1회).
+ - 대량 백필은 backfill*()(관리자 갱신·백그라운드 루프).
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 
 from signal_desk import db, llm
 
@@ -22,6 +22,17 @@ log = logging.getLogger("signal_desk.company")
 
 _KEY = "about:%s"
 _MOVES_KEY = "moves:%s"
+_about_locks: dict[str, threading.Lock] = {}
+_about_locks_mu = threading.Lock()
+
+
+def _about_lock(ticker: str) -> threading.Lock:
+    with _about_locks_mu:
+        lk = _about_locks.get(ticker)
+        if lk is None:
+            lk = threading.Lock()
+            _about_locks[ticker] = lk
+        return lk
 
 
 def _cache_get(ticker: str) -> str | None:
@@ -40,44 +51,56 @@ def _cache_set(ticker: str, v: str) -> None:
 
 
 def _generate(ticker: str, name: str, sector: str | None, market: str,
-              us_description: str | None) -> str | None:
-    """LLM으로 사업 개요 한 줄 생성(사실 기반, 투자권유·전망·수치 금지). 실패 시 None."""
+              us_description: str | None, *, model: str | None = None) -> str | None:
+    """LLM으로 사업 개요 생성(사실 기반, 투자권유·전망·수치 금지). 실패 시 None."""
     if not llm.available():
         return None
+    use_model = model or llm.DIGEST_MODEL
+    quality = use_model != llm.DIGEST_MODEL
+    max_chars = 220 if quality else 160
     if market == "us" and us_description:
         system = ("너는 미국 주식 소개 작가다. 아래 영문 회사 설명을 초보 투자자도 이해되게 한국어 "
-                  "1~2문장(80자 내외)으로 요약한다. 무엇을 만들고 파는 회사인지 사업 중심으로 쓰고, "
+                  f"{'2문장(120자 내외)' if quality else '1~2문장(80자 내외)'}으로 요약한다. "
+                  "무엇을 만들고 파는 회사인지 사업 중심으로 쓰고, "
                   "투자 권유·전망·주가·수치는 절대 넣지 마라.")
         user = (f"회사: {name}({ticker})\n영문 설명:\n{us_description[:2000]}\n\n"
-                'JSON으로만: {"about": "한국어 1~2문장 요약"}')
+                'JSON으로만: {"about": "한국어 요약"}')
     elif market == "us":
         system = ("너는 미국 주식 소개 작가다. 이 종목이 '무엇을 하는 회사'인지 초보도 이해되게 한국어 "
-                  "1문장(60자 내외)으로 설명한다. 아는 사실만 쓰고 모르면 섹터만 언급. "
+                  f"{'1~2문장' if quality else '1문장(60자 내외)'}으로 설명한다. 아는 사실만 쓰고 모르면 섹터만 언급. "
                   "투자권유·전망·주가·수치는 절대 넣지 마라.")
         user = (f"종목: {name}({ticker}), 섹터: {sector or '미상'}\n"
-                'JSON으로만: {"about": "무엇을 하는 회사인지 한 문장"}')
+                'JSON으로만: {"about": "무엇을 하는 회사인지"}')
     else:
-        system = ("너는 한국 주식 소개 작가다. 이 종목이 '무엇을 하는 회사'인지 초보도 이해되게 1문장"
-                  "(45자 내외)으로 설명한다. 주력 제품·서비스를 구체적으로 짚되, 아는 사실만 쓰고 "
-                  "모르면 섹터만 언급한다. 투자권유·전망·주가·수치는 절대 넣지 마라.")
+        system = ("너는 한국 주식 소개 작가다. 이 종목이 '무엇을 하는 회사'인지 초보도 이해되게 "
+                  f"{'1~2문장' if quality else '1문장(45자 내외)'}으로 설명한다. 주력 제품·서비스를 구체적으로 짚되, "
+                  "아는 사실만 쓰고 모르면 섹터만 언급한다. 투자권유·전망·주가·수치는 절대 넣지 마라.")
         user = (f"종목: {name}({ticker}), 섹터: {sector or '미상'}\n"
-                'JSON으로만: {"about": "무엇을 하는 회사인지 한 문장"}')
-    out = llm.complete_json(system, user, max_tokens=200, model=llm.DIGEST_MODEL)
+                'JSON으로만: {"about": "무엇을 하는 회사인지"}')
+    out = llm.complete_json(system, user, max_tokens=280 if quality else 200, model=use_model)
     if out and out.get("about"):
-        return str(out["about"]).strip()[:160]
+        return str(out["about"]).strip()[:max_chars]
     return None
 
 
 def about(ticker: str, name: str, sector: str | None = None, market: str = "kr",
-          generate: bool = False, us_description: str | None = None) -> str | None:
+          generate: bool = False, us_description: str | None = None,
+          *, model: str | None = None) -> str | None:
     """사업 개요 한 줄. 캐시 우선.
     - generate=False(기본, 요청 경로): 캐시가 있으면 캐시, 없으면 None(무비용·무LLM·무허구).
-    - generate=True(백필 경로): 캐시 없으면 LLM 생성 후 캐시. 실패 시 None."""
+    - generate=True(백필·활성 시그널 온디맨드): 캐시 없으면 LLM 생성 후 캐시. 실패 시 None.
+    - model: generate 시 사용할 모델(기본 Haiku). BUY/SELL 온디맨드는 Sonnet 등."""
     cached = _cache_get(ticker)
     if cached:
         return cached
-    if generate:
-        desc = _generate(ticker, name, sector, market, us_description)
+    if not generate:
+        return None
+    # 상세·해설이 동시에 들어오면 동일 종목 LLM 이중 호출 방지
+    with _about_lock(ticker):
+        cached = _cache_get(ticker)
+        if cached:
+            return cached
+        desc = _generate(ticker, name, sector, market, us_description, model=model)
         if desc:
             _cache_set(ticker, desc)
             return desc

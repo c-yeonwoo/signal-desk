@@ -51,12 +51,15 @@
   .tab:hover { background:var(--brand-50); color:var(--accent); }
   .tab.on { color:var(--accent); background:var(--accent-weak); border-color:var(--ring); }
   .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
-  /* 시황 바 — 네비게이션 바로 아래 전역 노출 밴드 */
-  .market-bar { display:flex; align-items:center; gap:7px 12px; flex-wrap:wrap;
-    padding:8px clamp(16px,3.5vw,28px); border-bottom:1px solid var(--line); background:var(--panel); }
-  .market-bar .tb-label { font-size:var(--fs-xs); color:var(--dim-2); font-weight:700; letter-spacing:.03em; }
-  .market-bar .tb-detail { font-size:var(--fs-sm); color:var(--dim); }
-  .market-bar .tb-sep { width:1px; height:16px; background:var(--line-strong); }
+  /* 시황 바 — 한 줄 밀도 우선(오른쪽 end 슬롯에 live·거시토글) */
+  .market-bar { display:flex; align-items:center; gap:7px 10px; flex-wrap:nowrap;
+    padding:7px clamp(16px,3.5vw,28px); border-bottom:1px solid var(--line); background:var(--panel); }
+  .market-bar .tb-label { font-size:var(--fs-xs); color:var(--dim-2); font-weight:700; letter-spacing:.03em; flex:0 0 auto; }
+  .market-bar .tb-detail { font-size:var(--fs-sm); color:var(--dim); min-width:0; }
+  .market-bar .tb-sep { width:1px; height:16px; background:var(--line-strong); flex:0 0 auto; }
+  .market-bar .tb-live { font-size:11px; color:var(--dim-2); max-width:200px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .market-bar-end { margin-left:auto; display:flex; align-items:center; gap:8px; flex:0 0 auto; min-width:0; }
   .market-bar .macro-chip { flex-direction:row; align-items:baseline; gap:5px; padding:3px 9px; min-width:0; }
   .market-bar .macro-chip .mc-label { font-size:10px; }
   .market-bar .macro-chip .mc-value { font-size:var(--fs-sm); }
@@ -354,26 +357,27 @@
   footer { flex:0 0 auto; margin-top:auto; border-top:1px solid var(--line);
     padding:12px clamp(16px,3.5vw,44px) calc(12px + var(--safe-bottom)); display:flex;
     gap:18px; flex-wrap:wrap; align-items:center; font-size:12px; color:var(--dim); background:var(--panel); }
-  body.chat-fab-on footer { padding-bottom:calc(72px + var(--safe-bottom)); }
+  /* FAB 여백은 footer 밖 margin — 패딩을 키우면 푸터 배경이 두툼해 보임 */
+  body.chat-fab-on footer { margin-bottom:calc(56px + var(--safe-bottom)); }
   footer b { color:var(--txt); }
 
 
-  /* 시황 적응 문구 — 기본 한 줄 칩, 펼치면 전체 */
-  #regime-adaptive { display:none; flex:1 1 100%; }
-  #regime-adaptive.is-on { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  /* 시황 적응 문구 — 칩은 인라인, 펼친 설명만 다음 줄 */
+  #regime-adaptive { display:none; flex:0 0 auto; }
+  #regime-adaptive.is-on { display:inline-flex; flex-wrap:wrap; align-items:center; gap:6px; }
+  #regime-adaptive.open { flex:1 1 100%; }
   #regime-adaptive .adapt-chip { border:1px solid var(--line-strong); background:var(--bg); color:var(--sig-watch);
     border-radius:var(--r-sm); padding:2px 9px; font-size:11px; font-weight:700; cursor:pointer; }
   #regime-adaptive .adapt-full { display:none; flex:1 1 100%; font-size:11px; color:var(--dim); line-height:1.45; }
   #regime-adaptive.open .adapt-full { display:block; }
-  #regime-detail { min-width:0; }
+  #regime-detail { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #myPageLabel { max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .btn-logout { white-space:nowrap; flex:0 0 auto; }
   .btn-logout .logout-short { display:none; }
   .sig-workspace, .view-app, main, #view-signal { min-width:0; max-width:100%; }
   .sig-toolbar { flex-wrap:wrap; }
   .alert-bell-ico { display:inline-flex; align-items:center; line-height:0; }
-  .market-bar #macro-toggle { margin-left:auto; flex:0 0 auto; }
-  .market-bar #live-status { flex:1 1 100%; margin-left:0 !important; }
+  .market-bar #macro-toggle { margin-left:0; flex:0 0 auto; padding:2px 10px; font-size:12px; }
 
   /* 반응형: 좁은 화면에서 워크스페이스를 세로로 쌓음 */
   @media (max-width:900px){
@@ -385,8 +389,10 @@
     .sig-toolbar { position:static; }
     #signal-chart { flex:0 0 auto; height:360px; max-width:100%; }
     .sig-chart-pane { min-height:0; max-height:none; width:100%; max-width:100%; }
-    .market-bar { gap:6px 8px; }
-    #regime-detail { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; flex:1 1 12rem; }
+    .market-bar { gap:6px 8px; flex-wrap:wrap; }
+    #regime-detail { white-space:normal; display:-webkit-box; -webkit-box-orient:vertical;
+      -webkit-line-clamp:2; overflow:hidden; flex:1 1 12rem; }
+    .market-bar-end { margin-left:0; flex:1 1 auto; justify-content:flex-end; }
     .sig-quickfilters { max-width:100%; }
   }
   @media (max-width:640px){
@@ -407,9 +413,9 @@
     .macro-callout .mco-date { display:block; margin-top:2px; }
     .sig-toolbar #sig-sort { flex:1 1 100%; }
     #chat-fab { width:48px; height:48px; font-size:20px; }
-    .market-bar #regime-detail { flex:1 1 100%; -webkit-line-clamp:2; }
-    .market-bar #macro-bias { order:5; }
-    .market-bar #macro-toggle { order:6; margin-left:0; }
+    .market-bar #regime-detail { flex:1 1 100%; }
+    .market-bar-end { flex:1 1 100%; justify-content:space-between; }
+    .market-bar .tb-live { max-width:none; flex:1 1 auto; }
   }
 
   #authGate { position:fixed; inset:0; z-index:9999; display:none; align-items:center; justify-content:center;
@@ -523,8 +529,10 @@
   <span id="regime-adaptive" class="tb-detail"></span>
   <span class="tb-sep" id="macro-sep" style="display:none"></span>
   <span id="macro-bias" class="sig-pill" style="display:none">-</span>
-  <button id="macro-toggle" class="btn" style="margin-left:auto;padding:2px 10px;font-size:12px;cursor:pointer" onclick="toggleMacro()">거시 지표 ▾</button>
-  <span id="live-status" class="tb-detail" style="margin-left:8px" title="현재가 데이터 기준 시각"></span>
+  <span class="market-bar-end">
+    <span id="live-status" class="tb-live" title="현재가 데이터 기준 시각"></span>
+    <button id="macro-toggle" class="btn" type="button" onclick="toggleMacro()">거시 지표 ▾</button>
+  </span>
 </div>
 <div id="macro-detail" style="display:none">
   <div class="market-bar" style="border-top:none;padding-top:0"><div class="macro-chips" id="macro-chips"></div></div>
@@ -2087,16 +2095,21 @@ function renderOppFilters(){
   box.innerHTML = chip('전체', null) + OPP_TYPES.filter(t => cnt[t]).map(t => chip(t, t)).join('');
 }
 
-// #17 시그널 해설 v2 — LLM(KB 근거) 해설을 받아 v1 위에 덮어씀. 선택 종목이 바뀌면 무시(레이스 방지).
+// #17 시그널 해설 v2 — BUY/SELL만 LLM 해설(HOLD는 규칙 문장 유지). 선택 종목 바뀌면 무시.
+const _narrInflight = Object.create(null);
 async function fetchNarrativeV2(ticker, el){
+  if (_narrInflight[ticker]) return;
+  _narrInflight[ticker] = true;
   try {
     const d = await (await fetch('/api/narrative?ticker=' + encodeURIComponent(ticker))).json();
     if (!d.ok || _selectedTicker !== ticker) return;
-    if (d.source === 'llm') {
-      el.innerHTML = `<span class="layer-badge ctx">맥락</span> <span style="font-size:11px;color:var(--dim);font-weight:600">AI 해설 · 의견≠신호</span>`
-        + `<div style="margin-top:4px">${esc(d.narrative)}</div>`;
+    if (d.source === 'llm' && d.narrative) {
+      const body = esc(d.narrative).replace(/\n+/g, '<br>');
+      el.innerHTML = `<span class="layer-badge ctx">맥락</span> <span style="font-size:11px;color:var(--dim);font-weight:600">쉬운 해설 · 의견≠신호</span>`
+        + `<div style="margin-top:6px;line-height:1.55;font-size:13px">${body}</div>`;
     }
   } catch(e) {}
+  finally { delete _narrInflight[ticker]; }
 }
 
 function selectSignalRow(ticker){
@@ -2151,8 +2164,10 @@ function gotoPaperFromSignal(){
     note.style.display = '';
     const name = (_selectedTicker && _signalItems[_selectedTicker])
       ? _signalItems[_selectedTicker].name : (_selectedTicker || '');
-    note.innerHTML = `<b>시그널 → 페이퍼</b> · ${esc(name || '선택 종목')}을 같은 규칙의봇이 돌립니다.`
-      + ` 아래에서 ON·성향을 확인하세요. <span style="color:var(--dim-2)">(가상 체결 · 투자 권유 아님)</span>`;
+    note.innerHTML = `<b>모의투자(페이퍼) 화면입니다</b> · 가상 돈으로 자동매매를 연습하는 곳이에요.`
+      + ` 아래에서 <b>ON</b>을 켜면 시그널을 바탕으로 매수·매도를 연습합니다.`
+      + (name ? ` <span style="color:var(--dim)">· 방금 보던 종목: ${esc(name)}</span>` : '')
+      + ` <span style="color:var(--dim-2)">(실제 주문 없음 · 투자 권유 아님)</span>`;
     note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 }
@@ -2380,8 +2395,8 @@ function _paintSignalDetail(ticker, item){
           ? `<div style="font-size:11px;color:var(--dim-2);margin-top:6px">중기(~2–3개월) 관점 — 추세 지속에 베팅하는 신호라 단기 등락보다 몇 주~몇 달 흐름으로 보세요</div>`
           : ''}
         <div class="hero-cta">
-          <button type="button" class="btn" onclick="gotoPaperFromSignal()">페이퍼에서 같은 규칙으로 추적</button>
-          <span style="font-size:11px;color:var(--dim-2)">가상 체결 · 시그널과 동일 규칙</span>
+          <button type="button" class="btn" onclick="gotoPaperFromSignal()">모의투자로 연습하기</button>
+          <span style="font-size:11px;color:var(--dim-2)">가상 돈 · 시그널 기반 연습</span>
         </div>
       </div>`;
   } else heroEl.style.display = 'none';
@@ -2407,9 +2422,10 @@ function _paintSignalDetail(ticker, item){
   if (item && (item.about || item.intro || moves.length)) {
     introEl.style.display = '';
     const about = item.about
-      ? `<div style="color:var(--txt);font-size:12.5px;line-height:1.5">🏢 ${esc(item.about)}</div>` : '';
+      ? `<div style="color:var(--txt);font-size:13px;line-height:1.55"><b style="color:var(--dim);font-size:11px;font-weight:700">종목 개요</b>`
+        + `<div style="margin-top:3px">${esc(item.about)}</div></div>` : '';
     const movesHtml = moves.length
-      ? `<div style="margin-top:5px;font-size:12px;color:var(--dim)"><b style="color:var(--txt)">📌 최근 행보</b>`
+      ? `<div style="margin-top:7px;font-size:12px;color:var(--dim)"><b style="color:var(--txt)">최근 행보</b>`
         + ` <span style="color:var(--dim-2)">· 사실 요약(신호 아님)</span>`
         + `<ul style="margin:3px 0 0;padding-left:16px;color:var(--txt)">`
         + moves.map(m => `<li style="margin:1px 0">${esc(m)}</li>`).join('') + `</ul></div>` : '';
@@ -2454,7 +2470,7 @@ function _paintSignalDetail(ticker, item){
   if (item && item.narrative) {
     narrEl.innerHTML = `<span class="layer-badge sig">신호</span> <span style="font-size:11px;color:var(--dim);font-weight:600">규칙 해설</span>`
       + `<div style="margin-top:4px">${esc(item.narrative)}</div>`;
-    if (ticker !== INDEX_TICKER) fetchNarrativeV2(ticker, narrEl);
+    // LLM 해설은 showSignalChart에서 상세 로드 후 1회만 요청(중복 Sonnet/Opus 방지)
   } else if (narrEl) narrEl.innerHTML = '';
   setDetailHas('signal-narrative', !!(item && item.narrative));
   const kbEl = document.getElementById('signal-kb');
@@ -2526,6 +2542,11 @@ async function showSignalChart(ticker, item){
       item = Object.assign({}, item || {}, detail.item);
       _signalItems[ticker] = item;
       _paintSignalDetail(ticker, item);  // about/moves/target/reasons 보강
+    }
+    // BUY/SELL 쉬운 해설 — 상세(개요 캐시) 반영 뒤 1회만
+    if (ticker !== INDEX_TICKER && item && item.kind && item.kind !== 'HOLD') {
+      const narrEl = document.getElementById('signal-narrative');
+      if (narrEl) fetchNarrativeV2(ticker, narrEl);
     }
     if (!d.ready) {
       _disposeSignalChart();
