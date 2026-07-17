@@ -320,7 +320,7 @@ def _company_desc(ticker: str, name: str, sector: str | None) -> str:
 
 def _company_svg(name, ticker, sector, price, change, mktcap, per, bg=None, profile=None, desc=None) -> str:
     """① 기업 개요 — 종목명(+영문) · 무엇을 하는 회사인지 설명 · 섹터·설립·대표·현재가·시총·PER."""
-    c = "#4f46e5"
+    c = "#0F766E"  # brand teal (Ink Desk)
     profile = profile or {}
     eng = profile.get("name_eng")
     # 사업 설명(무엇을 하는 회사) — 최대 3줄
