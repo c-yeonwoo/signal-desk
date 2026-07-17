@@ -560,16 +560,16 @@
       <div class="sig-chart-pane card">
         <div class="pane-head">
           <span id="signal-chart-title" style="font-weight:700;font-size:16px">종목을 선택하세요</span>
+          <span id="chart-mode-seg" class="seg-toggle" style="margin-left:auto;font-size:12px">
+            <button type="button" data-cm="simple" onclick="setChartMode('simple')">간단</button>
+            <button type="button" data-cm="trend" onclick="setChartMode('trend')">추세</button>
+            <button type="button" data-cm="detail" onclick="setChartMode('detail')">자세히</button>
+          </span>
         </div>
         <div id="signal-hero" style="display:none"></div>
+        <p id="chart-mode-hint" class="page-desc" style="display:none;margin:0 0 8px;font-size:12px"></p>
         <div id="signal-chart"></div>
-        <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin:4px 0">
-          <span style="color:var(--c-price);font-weight:700">━ 종가</span>
-          <span style="color:var(--c-ma20)">━ MA20</span>
-          <span style="color:var(--c-ma60)">━ MA60</span>
-          <span style="color:var(--c-ma120)">━ MA120</span>
-          <span style="color:var(--c-score)">━ 점수</span>
-          · <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수 · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도 · <b>+</b>는 강력 · <b>진한 음영</b>=실측 · <b>옅은 음영</b>=재현 · 📍=현재</div>
+        <div id="signal-legend" style="display:none;font-size:11px;color:var(--dim);margin:4px 0;line-height:1.55"></div>
         <div class="detail-tabs" id="detail-tabs" style="display:none"></div>
         <div class="detail-panels" id="detail-panels">
           <div id="signal-narrative" class="detail-panel placeholder" style="display:none;background:var(--accent-weak);
@@ -2337,6 +2337,35 @@ function _paintSignalDetail(ticker, item){
   buildDetailTabs();
 }
 
+// 차트 표시 모드 — 기본 간단(가격·점수·구간). 추세(+이동평균), 자세히(+RSI·MACD·수급).
+let _chartMode = (typeof localStorage !== 'undefined' && localStorage.getItem('sig_chart_mode')) || 'simple';
+if (!['simple', 'trend', 'detail'].includes(_chartMode)) _chartMode = 'simple';
+let _chartCache = null;  // { ticker, item, d } — 모드 전환 시 재fetch 없이 다시 그림
+const _CHART_MODE_HINT = {
+  simple: '가격선 · <b style="color:var(--c-score)">초록 점수선</b> · 배경색(매수/매도 구간)만 보면 됩니다. B/S 마커가 신호 시점입니다.',
+  trend: '이동평균선으로 추세를 봅니다 — <span style="color:var(--c-ma20)">단기(20일)</span> · <span style="color:var(--c-ma60)">중기(60일)</span> · <span style="color:var(--c-ma120)">장기(120일)</span>. 가격이 선 위면 상승 쪽 우세.',
+  detail: '보조지표까지 표시합니다 — RSI(과매수·과매도) · MACD(추세 전환) · 수급(외국인·기관). 공부용·심화용.',
+};
+function _syncChartModeButtons(){
+  document.querySelectorAll('#chart-mode-seg [data-cm]').forEach(b => {
+    b.classList.toggle('on', b.getAttribute('data-cm') === _chartMode);
+  });
+  const hint = document.getElementById('chart-mode-hint');
+  if (hint) {
+    hint.style.display = '';
+    hint.innerHTML = _CHART_MODE_HINT[_chartMode] || '';
+  }
+}
+function setChartMode(mode){
+  if (!['simple', 'trend', 'detail'].includes(mode)) return;
+  _chartMode = mode;
+  try { localStorage.setItem('sig_chart_mode', mode); } catch (e) {}
+  _syncChartModeButtons();
+  if (_chartCache && _chartCache.ticker === _selectedTicker)
+    _drawSignalChart(_chartCache.ticker, _chartCache.item, _chartCache.d);
+}
+_syncChartModeButtons();
+
 async function showSignalChart(ticker, item){
   // 리스트는 요약만 — 상세(/detail)와 차트를 병렬 fetch. 요약으로 히어로를 먼저 그리고 상세로 보강.
   _paintSignalDetail(ticker, item);
@@ -2361,84 +2390,187 @@ async function showSignalChart(ticker, item){
     }
     if (!d.ready) {
       _disposeSignalChart();
+      _chartCache = null;
       holder.textContent = '차트 데이터가 없습니다.';
       return;
     }
-    // 기간: 최대 1년(거래일 ~252)까지만 보여주고, 기본 확대 구간은 최근 1개월(~21거래일)
-    const CAP = 252, N = d.dates.length, s0 = Math.max(0, N - CAP);
-    const dates = d.dates.slice(s0), close = d.close.slice(s0),
-          ma20 = (d.ma20 || []).slice(s0), ma60 = (d.ma60 || []).slice(s0), ma120 = (d.ma120 || []).slice(s0),
-          rsi = (d.rsi || []).slice(s0), macd = (d.macd || []).slice(s0),
-          macdSig = (d.macd_signal || []).slice(s0), macdHist = (d.macd_hist || []).slice(s0),
-          scores = (d.scores || []).slice(s0);
-    // 수급 배열 길이를 dates와 맞춤(짧으면 null 패딩) — 길이 불일치 시 ECharts가 빈 캔버스로 실패할 수 있음
-    const align = (arr) => {
-      const a = (arr || []).slice(s0);
-      while (a.length < dates.length) a.push(null);
-      return a.slice(0, dates.length);
-    };
-    const flowFo = align(d.flow_foreign), flowIn = align(d.flow_inst);
-    const hasFlow = flowFo.some(v => v != null) || flowIn.some(v => v != null);
-    const chart = _ensureSignalChart(holder);
-    const first = dates[0];
-    const rawZones = (d.zones || []).filter(z => z.end >= first);
-    const zones = rawZones.map(z => ({ kind: z.kind, start: z.start < first ? first : z.start, end: z.end, actual: z.actual }));
-    const vis = Math.min(dates.length, 63);  // 기본 확대 = 최근 3개월(거래일 ~63)
-    const zoomStart = Math.max(0, (1 - vis / dates.length) * 100);
-    const markArea = zones.length ? {
-      data: zones.map(z => [
-        { xAxis: z.start, itemStyle: { color: _ZONE_COLOR[z.kind], opacity: z.actual ? 0.2 : 0.07 } },
-        { xAxis: z.end },
-      ]),
-    } : undefined;
-    const idxOf = {}; dates.forEach((dt, i) => { idxOf[dt] = i; });
-    const mkPts = rawZones.map(z => {
-      const i = idxOf[z.start < first ? first : z.start]; if (i == null) return null;
-      const buy = _isBuy(z.kind);
-      const why = reasonKo(z.reasons || []);
-      const strong = z.kind === 'STRONG_BUY' || z.kind === 'STRONG_SELL';
-      const sc = z.score != null ? ` (점수 ${z.score > 0 ? '+' : ''}${fmtNum(z.score, 2)})` : '';
-      return { coord: [dates[i], close[i]], mk: (buy ? 'B' : 'S') + (strong ? '+' : ''),
-        tip: kindLabel(z.kind) + sc + (why ? ' — ' + why : '') + (z.actual ? ' · 실측(전 팩터)' : ' · 과거 재현(기술+낙폭)'),
-        symbol: 'circle', symbolSize: strong ? 19 : 16, symbolOffset: buy ? [0, 22] : [0, -22],
-        itemStyle: { color: _ZONE_COLOR[z.kind] } };
-    }).filter(Boolean);
-    if (item && (_isBuy(item.kind) || _isSell(item.kind))) {
-      const li = dates.length - 1, buy = _isBuy(item.kind), whyNow = reasonKo(item.reasons);
-      const strong = item.kind === 'STRONG_BUY' || item.kind === 'STRONG_SELL';
-      mkPts.push({ coord: [dates[li], close[li]], mk: (buy ? 'B' : 'S') + (strong ? '+' : ''),
-        tip: '현재 · ' + kindLabel(item.kind) + ' (점수 ' + (item.score > 0 ? '+' : '') + fmtNum(item.score, 2) + ')' + (whyNow ? ' — ' + whyNow : ''),
-        symbol: 'pin', symbolSize: 46, symbolOffset: [0, -6],
-        itemStyle: { color: _ZONE_COLOR[item.kind] || '#4f46e5', borderColor: '#fff', borderWidth: 2 } });
+    _chartCache = { ticker, item, d };
+    _drawSignalChart(ticker, item, d);
+  } catch (e) {
+    _disposeSignalChart();
+    _chartCache = null;
+    holder.textContent = '차트를 불러오지 못했습니다.';
+  }
+}
+
+function _drawSignalChart(ticker, item, d){
+  const holder = document.getElementById('signal-chart');
+  const mode = _chartMode;
+  const CAP = 252, N = d.dates.length, s0 = Math.max(0, N - CAP);
+  const dates = d.dates.slice(s0), close = d.close.slice(s0),
+        ma20 = (d.ma20 || []).slice(s0), ma60 = (d.ma60 || []).slice(s0), ma120 = (d.ma120 || []).slice(s0),
+        rsi = (d.rsi || []).slice(s0), macd = (d.macd || []).slice(s0),
+        macdSig = (d.macd_signal || []).slice(s0), macdHist = (d.macd_hist || []).slice(s0),
+        scores = (d.scores || []).slice(s0);
+  const align = (arr) => {
+    const a = (arr || []).slice(s0);
+    while (a.length < dates.length) a.push(null);
+    return a.slice(0, dates.length);
+  };
+  const flowFo = align(d.flow_foreign), flowIn = align(d.flow_inst);
+  const hasFlow = mode === 'detail' && (flowFo.some(v => v != null) || flowIn.some(v => v != null));
+  const showMa = mode === 'trend' || mode === 'detail';
+  const showAux = mode === 'detail';
+  holder.style.height = showAux ? '560px' : (showMa ? '420px' : '360px');
+  const chart = _ensureSignalChart(holder);
+  const first = dates[0];
+  const rawZones = (d.zones || []).filter(z => z.end >= first);
+  const zones = rawZones.map(z => ({ kind: z.kind, start: z.start < first ? first : z.start, end: z.end, actual: z.actual }));
+  const vis = Math.min(dates.length, 63);
+  const zoomStart = Math.max(0, (1 - vis / dates.length) * 100);
+  const markArea = zones.length ? {
+    data: zones.map(z => [
+      { xAxis: z.start, itemStyle: { color: _ZONE_COLOR[z.kind], opacity: z.actual ? 0.2 : 0.07 } },
+      { xAxis: z.end },
+    ]),
+  } : undefined;
+  const idxOf = {}; dates.forEach((dt, i) => { idxOf[dt] = i; });
+  const mkPts = rawZones.map(z => {
+    const i = idxOf[z.start < first ? first : z.start]; if (i == null) return null;
+    const buy = _isBuy(z.kind);
+    const why = reasonKo(z.reasons || []);
+    const strong = z.kind === 'STRONG_BUY' || z.kind === 'STRONG_SELL';
+    const sc = z.score != null ? ` (점수 ${z.score > 0 ? '+' : ''}${fmtNum(z.score, 2)})` : '';
+    return { coord: [dates[i], close[i]], mk: (buy ? 'B' : 'S') + (strong ? '+' : ''),
+      tip: kindLabel(z.kind) + sc + (why ? ' — ' + why : '') + (z.actual ? ' · 실측' : ' · 과거 재현'),
+      symbol: 'circle', symbolSize: strong ? 19 : 16, symbolOffset: buy ? [0, 22] : [0, -22],
+      itemStyle: { color: _ZONE_COLOR[z.kind] } };
+  }).filter(Boolean);
+  if (item && (_isBuy(item.kind) || _isSell(item.kind))) {
+    const li = dates.length - 1, buy = _isBuy(item.kind), whyNow = reasonKo(item.reasons);
+    const strong = item.kind === 'STRONG_BUY' || item.kind === 'STRONG_SELL';
+    mkPts.push({ coord: [dates[li], close[li]], mk: (buy ? 'B' : 'S') + (strong ? '+' : ''),
+      tip: '현재 · ' + kindLabel(item.kind) + ' (점수 ' + (item.score > 0 ? '+' : '') + fmtNum(item.score, 2) + ')' + (whyNow ? ' — ' + whyNow : ''),
+      symbol: 'pin', symbolSize: 46, symbolOffset: [0, -6],
+      itemStyle: { color: _ZONE_COLOR[item.kind] || '#4f46e5', borderColor: '#fff', borderWidth: 2 } });
+  }
+  const markPoint = mkPts.length ? {
+    label: { show: true, color: '#fff', fontSize: 10, fontWeight: 700, formatter: (p) => p.data.mk },
+    tooltip: { show: true, trigger: 'item', formatter: (p) => p.data.tip },
+    data: mkPts,
+  } : undefined;
+
+  const tgt = (ticker !== INDEX_TICKER && item && item.target) ? item.target : null;
+  let targetMarkLine, targetShown = [];
+  if (tgt && mode !== 'simple') {  // 간단 모드: 목표가 점선도 숨겨 시야 정리
+    const defs = [];
+    if (tgt.resistance != null) defs.push([tgt.resistance, tgt.resistance_upside_pct, '기술상한', '#eab308']);
+    if (tgt.fwd_value_target != null) defs.push([tgt.fwd_value_target, tgt.fwd_value_upside_pct, '밸류(선행)', '#0ea5e9']);
+    else if (tgt.value_target != null) defs.push([tgt.value_target, tgt.value_upside_pct, '밸류(후행)', '#0ea5e9']);
+    const mlData = defs.filter(x => x[0] != null).map(([v, pct, label, color]) => {
+      targetShown.push(`<span style="color:${color}">┈ ${label}${pct != null ? ' ' + (pct > 0 ? '+' : '') + fmtNum(pct, 0) + '%' : ''}</span>`);
+      return { yAxis: v, lineStyle: { type: 'dashed', color, width: 1.3, opacity: 0.9 },
+        label: { show: true, position: 'insideEndTop', color, fontSize: 10, fontWeight: 700,
+          formatter: `${label}${pct != null ? ' ' + (pct > 0 ? '+' : '') + fmtNum(pct, 0) + '%' : ''}` } };
+    });
+    if (mlData.length) targetMarkLine = { symbol: 'none', animation: false, data: mlData };
+  }
+
+  const legEl = document.getElementById('signal-legend');
+  legEl.style.display = '';
+  let leg = `<span style="color:var(--c-price);font-weight:700">━ 가격</span>`
+    + ` <span style="color:var(--c-score)">━ 시그널 점수</span>`
+    + ` · <span style="color:var(--sig-buy);font-weight:700">● B</span> 매수`
+    + ` · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도`
+    + ` · <b>진한 배경</b>=실측 · <b>옅은 배경</b>=재현 · 📍=현재`;
+  if (showMa) {
+    leg += `<br><span style="color:var(--c-ma20)">━ 단기평균(20일)</span>`
+      + ` <span style="color:var(--c-ma60)">━ 중기(60일)</span>`
+      + ` <span style="color:var(--c-ma120)">━ 장기(120일)</span>`;
+  }
+  if (showAux) leg += ` · RSI · MACD` + (hasFlow ? ` · 수급` : '');
+  if (d.actual_from) leg += ` · <b style="color:var(--txt)">${esc(d.actual_from)}~ 실측</b>`;
+  if (ticker !== INDEX_TICKER && mode !== 'simple')
+    leg += ` · 점수선: 과거는 가격기반 추정, 최신은 시그널 점수`;
+  if (targetShown.length) leg += ` · 참고 목표가 ${targetShown.join(' ')}`;
+  legEl.innerHTML = leg;
+  _syncChartModeButtons();
+
+  const C = { price: '#4f46e5', ma20: '#06b6d4', ma60: '#e08a00', ma120: '#e5484d',
+              score: '#12a150', rsi: '#7c3aed', fo: '#3b82f6', inst: '#f59e0b',
+              macd: '#64748b', signal: '#f97316', hist: '#94a3b8' };
+  const SMOOTH = 0.35;
+  const isUS = _sigMarket === 'us';
+  const fmtPx = v => v == null ? '–' : (isUS ? '$' + fmtNum(v, 2) : fmtNum(v, 0) + '원');
+
+  let grids, titles, xAxes, yAxes, series, legendData, tooltip;
+  if (!showAux) {
+    // 간단·추세: 종가 패널만(+점수 축)
+    grids = [{ left: 55, right: 48, top: 36, bottom: 36 }];
+    titles = [];
+    xAxes = [{ type: 'category', data: dates, gridIndex: 0, axisLabel: { show: false } }];
+    yAxes = [
+      { gridIndex: 0, scale: true, splitNumber: 4 },
+      { gridIndex: 0, scale: true, min: -3, max: 3, splitLine: { show: false },
+        axisLabel: { color: '#12a150', fontSize: 10, formatter: v => (v > 0 ? '+' : '') + v },
+        axisLine: { show: false }, axisTick: { show: false } },
+    ];
+    series = [
+      { name: '가격', type: 'line', data: close, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+        color: C.price, smooth: SMOOTH, smoothMonotone: 'x',
+        lineStyle: { width: 2.4, color: C.price }, markArea, markPoint, markLine: targetMarkLine },
+    ];
+    if (showMa) {
+      series.push(
+        { name: '단기평균(20일)', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+          color: C.ma20, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma20, opacity: 0.85 } },
+        { name: '중기(60일)', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+          color: C.ma60, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma60, opacity: 0.85 } },
+        { name: '장기(120일)', type: 'line', data: ma120, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+          color: C.ma120, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma120, opacity: 0.85 } },
+      );
     }
-    const markPoint = mkPts.length ? {
-      label: { show: true, color: '#fff', fontSize: 10, fontWeight: 700, formatter: (p) => p.data.mk },
-      tooltip: { show: true, trigger: 'item', formatter: (p) => p.data.tip },
-      data: mkPts,
-    } : undefined;
-    const legEl = document.getElementById('signal-legend');
-    legEl.style.display = '';
-    legEl.querySelector('.leg-actual')?.remove();
-    legEl.querySelector('.leg-target')?.remove();
-    legEl.querySelector('.leg-score')?.remove();
-    if (d.actual_from)
-      legEl.insertAdjacentHTML('beforeend', `<span class="leg-actual"> · <b style="color:var(--txt)">${esc(d.actual_from)}~ 실측</b></span>`);
-    if (ticker !== INDEX_TICKER)
-      legEl.insertAdjacentHTML('beforeend', `<span class="leg-score"> · <span style="color:var(--c-score)">점수</span>선: 과거는 가격기반 추정(재무·수급 제외), 최신은 시그널 점수</span>`);
-    // 아래→위: dataZoom → MACD(키움) → 수급 → RSI → 종가. 간격 균일.
-    // 하단 고정 패널(px) 위로 종가 패널이 남는 공간을 채움. 패널 사이 간격은 ~20px로 균일.
+    series.push(
+      { name: '시그널 점수', type: 'line', data: scores, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
+        color: C.score, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1.75, color: C.score } },
+    );
+    legendData = showMa
+      ? ['가격', '단기평균(20일)', '중기(60일)', '장기(120일)', '시그널 점수']
+      : ['가격', '시그널 점수'];
+    tooltip = {
+      trigger: 'axis',
+      formatter: (params) => {
+        if (!params || !params.length) return '';
+        const dt = params[0].axisValue;
+        const by = {};
+        params.forEach(p => { by[p.seriesName] = p.data; });
+        const sc = by['시그널 점수'];
+        const scTxt = sc == null ? '–' : ((sc > 0 ? '+' : '') + Number(sc).toFixed(2));
+        let html = `<b>${esc(dt)}</b><br/>가격 <b>${fmtPx(by['가격'])}</b><br/>시그널 점수 <b style="color:${C.score}">${scTxt}</b>`;
+        if (mode === 'simple') {
+          html += `<br/><span style="color:#94a3b8;font-size:11px">배경색=매수/매도 구간 · 숫자보다 B/S·점수만 보면 됩니다</span>`;
+        } else {
+          if (by['단기평균(20일)'] != null) html += `<br/><span style="color:${C.ma20}">단기(20)</span> ${fmtPx(by['단기평균(20일)'])}`;
+          if (by['중기(60일)'] != null) html += ` · <span style="color:${C.ma60}">중기</span> ${fmtPx(by['중기(60일)'])}`;
+          if (by['장기(120일)'] != null) html += ` · <span style="color:${C.ma120}">장기</span> ${fmtPx(by['장기(120일)'])}`;
+        }
+        return html;
+      },
+    };
+  } else {
+    // 자세히: 기존 다패널
     const gPrice = { left: 55, right: 48, top: 28, bottom: hasFlow ? 292 : 228 };
     const gRsi   = { left: 55, right: 20, height: 48, bottom: hasFlow ? 224 : 158 };
     const gFlow  = { left: 55, right: 20, height: 48, bottom: 156 };
     const gMacd  = { left: 55, right: 20, height: 100, bottom: 28 };
-    const titles = [
+    titles = [
       { text: 'RSI', left: 55, bottom: hasFlow ? 276 : 210, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
       { text: 'MACD', left: 55, bottom: 132, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
     ];
     if (hasFlow) titles.splice(1, 0, { text: '수급', left: 55, bottom: 208, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } });
-    const grids = hasFlow ? [gPrice, gRsi, gFlow, gMacd] : [gPrice, gRsi, gMacd];
-    const xAxes = grids.map((_, gi) => ({ type: 'category', data: dates, gridIndex: gi, axisLabel: { show: false } }));
-    const yAxes = [
+    grids = hasFlow ? [gPrice, gRsi, gFlow, gMacd] : [gPrice, gRsi, gMacd];
+    xAxes = grids.map((_, gi) => ({ type: 'category', data: dates, gridIndex: gi, axisLabel: { show: false } }));
+    yAxes = [
       { gridIndex: 0, scale: true, splitNumber: 4 },
       { gridIndex: 0, scale: true, min: -3, max: 3, splitLine: { show: false },
         axisLabel: { color: '#12a150', fontSize: 10, formatter: v => (v > 0 ? '+' : '') + v },
@@ -2449,41 +2581,17 @@ async function showSignalChart(ticker, item){
     yAxes.push({ gridIndex: hasFlow ? 3 : 2, scale: true, splitNumber: 2 });
     const yRsi = 2, yFlow = hasFlow ? 3 : null, yMacd = hasFlow ? 4 : 3;
     const xRsi = 1, xFlow = hasFlow ? 2 : null, xMacd = hasFlow ? 3 : 2;
-    const SMOOTH = 0.35;  // 선을 부드럽게(단, smoothMonotone:'x'로 가격 과대 오버슈트 방지 — 사실 왜곡 최소화)
-    // 참고 목표가 가로 점선(종가 패널) — 기술상한·후행/선행 밸류·애널 앵커 중 계산된 것만. 신호 아님(참고선).
-    const tgt = (ticker !== INDEX_TICKER && item && item.target) ? item.target : null;
-    let targetMarkLine, targetShown = [];
-    if (tgt) {
-      // 핵심 2개만: 기술상한(저항선) + 밸류(선행 우선, 없으면 후행). 나머지 앵커는 상세 '목표가' 영역에서 확인.
-      const defs = [];
-      if (tgt.resistance != null) defs.push([tgt.resistance, tgt.resistance_upside_pct, '기술상한', '#eab308']);
-      if (tgt.fwd_value_target != null) defs.push([tgt.fwd_value_target, tgt.fwd_value_upside_pct, '밸류(선행)', '#0ea5e9']);
-      else if (tgt.value_target != null) defs.push([tgt.value_target, tgt.value_upside_pct, '밸류(후행)', '#0ea5e9']);
-      const mlData = defs.filter(d => d[0] != null).map(([v, pct, label, color]) => {
-        targetShown.push(`<span style="color:${color}">┈ ${label}${pct != null ? ' ' + (pct > 0 ? '+' : '') + fmtNum(pct, 0) + '%' : ''}</span>`);
-        return { yAxis: v, lineStyle: { type: 'dashed', color, width: 1.3, opacity: 0.9 },
-          label: { show: true, position: 'insideEndTop', color, fontSize: 10, fontWeight: 700,
-            formatter: `${label}${pct != null ? ' ' + (pct > 0 ? '+' : '') + fmtNum(pct, 0) + '%' : ''}` } };
-      });
-      if (mlData.length) targetMarkLine = { symbol: 'none', animation: false, data: mlData };
-    }
-    if (targetShown.length)
-      legEl.insertAdjacentHTML('beforeend', `<span class="leg-target"> · 참고 목표가(점선) ${targetShown.join(' ')}</span>`);
-    // color는 시리즈 최상위에 둬야 ECharts 범례 아이콘 색 = 선색이 일치한다(lineStyle만 주면 범례는 팔레트 색).
-    const C = { price: '#4f46e5', ma20: '#06b6d4', ma60: '#e08a00', ma120: '#e5484d',
-                score: '#12a150', rsi: '#7c3aed', fo: '#3b82f6', inst: '#f59e0b',
-                macd: '#64748b', signal: '#f97316', hist: '#94a3b8' };
-    const series = [
-      { name: '종가', type: 'line', data: close, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+    series = [
+      { name: '가격', type: 'line', data: close, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
         color: C.price, smooth: SMOOTH, smoothMonotone: 'x',
         lineStyle: { width: 2.4, color: C.price }, markArea, markPoint, markLine: targetMarkLine },
-      { name: 'MA20', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+      { name: '단기평균(20일)', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
         color: C.ma20, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma20, opacity: 0.85 } },
-      { name: 'MA60', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+      { name: '중기(60일)', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
         color: C.ma60, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma60, opacity: 0.85 } },
-      { name: 'MA120', type: 'line', data: ma120, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+      { name: '장기(120일)', type: 'line', data: ma120, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
         color: C.ma120, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma120, opacity: 0.85 } },
-      { name: '점수', type: 'line', data: scores, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
+      { name: '시그널 점수', type: 'line', data: scores, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
         color: C.score, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1.75, color: C.score },
         tooltip: { valueFormatter: v => v == null ? '–' : ((v > 0 ? '+' : '') + Number(v).toFixed(2)) } },
       { name: 'RSI', type: 'line', data: rsi, xAxisIndex: xRsi, yAxisIndex: yRsi, showSymbol: false,
@@ -2505,30 +2613,30 @@ async function showSignalChart(ticker, item){
       { name: 'Signal', type: 'line', data: macdSig, xAxisIndex: xMacd, yAxisIndex: yMacd, showSymbol: false,
         color: C.signal, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.signal } },
     );
-    const zoomAxes = grids.map((_, i) => i);
-    chart.setOption({
-      animation: false,
-      color: [C.price, C.ma20, C.ma60, C.ma120, C.score, C.fo, C.inst, C.hist, C.macd, C.signal],
-      tooltip: { trigger: 'axis' },
-      legend: { top: 0, data: hasFlow
-        ? ['종가', 'MA20', 'MA60', 'MA120', '점수', '외국인', '기관']
-        : ['종가', 'MA20', 'MA60', 'MA120', '점수'] },
-      axisPointer: { link: [{ xAxisIndex: 'all' }] },
-      title: titles,
-      grid: grids,
-      xAxis: xAxes,
-      yAxis: yAxes,
-      dataZoom: [
-        { type: 'slider', xAxisIndex: zoomAxes, bottom: 4, height: 18, start: zoomStart, end: 100 },
-        { type: 'inside', xAxisIndex: zoomAxes, start: zoomStart, end: 100 },
-      ],
-      series,
-    }, true);
-    chart.resize();
-  } catch (e) {
-    _disposeSignalChart();
-    holder.textContent = '차트를 불러오지 못했습니다.';
+    legendData = hasFlow
+      ? ['가격', '단기평균(20일)', '중기(60일)', '장기(120일)', '시그널 점수', '외국인', '기관']
+      : ['가격', '단기평균(20일)', '중기(60일)', '장기(120일)', '시그널 점수'];
+    tooltip = { trigger: 'axis' };
   }
+
+  const zoomAxes = grids.map((_, i) => i);
+  chart.setOption({
+    animation: false,
+    color: [C.price, C.ma20, C.ma60, C.ma120, C.score, C.fo, C.inst, C.hist, C.macd, C.signal],
+    tooltip,
+    legend: { top: 0, data: legendData },
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
+    title: titles,
+    grid: grids,
+    xAxis: xAxes,
+    yAxis: yAxes,
+    dataZoom: [
+      { type: 'slider', xAxisIndex: zoomAxes, bottom: 4, height: 18, start: zoomStart, end: 100 },
+      { type: 'inside', xAxisIndex: zoomAxes, start: zoomStart, end: 100 },
+    ],
+    series,
+  }, true);
+  chart.resize();
 }
 
 // ===== 포트폴리오 — 자동매매봇 =====
