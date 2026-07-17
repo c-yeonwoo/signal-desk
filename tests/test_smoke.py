@@ -81,7 +81,11 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "🏢" in html and "최근 행보" in html
     assert "/detail?market=" in html  # 클릭 시 상세 병렬 fetch
     assert "_ensureSignalChart" in html  # 차트 DOM 파괴 후 재생성(국내 차트 미표시 방지)
-    assert "━ MA20" in html and "--c-ma20" in html  # 범례 선색 = CSS 변수와 일치
+    assert "--c-ma20" in html and "--c-price" in html  # 차트 팔레트 = CSS 변수
+    assert "--brand-500:#0F766E" in html or "--brand-500: #0F766E" in html  # Ink Desk teal
+    assert "#4f46e5" not in html  # 구 인디고 잔재 금지
+    assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
+    assert ">페이퍼<" in html  # 탭명 (구 '내 자산')
 
 
 def test_bot_state_and_toggle(tmp_path, monkeypatch):
