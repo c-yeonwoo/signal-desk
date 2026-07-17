@@ -11,6 +11,7 @@ import datetime
 import hashlib
 import json
 import logging
+import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -683,6 +684,9 @@ def _us_signal_items() -> list[dict]:
     return items
 
 
+_ACTIVE_SIGNAL_KINDS = frozenset({"STRONG_BUY", "BUY", "SELL", "STRONG_SELL"})
+
+
 def _us_signal_detail(ticker: str) -> dict | None:
     """US 종목 상세(클릭 시) — 리스트에 없던 about/moves/target/reasons/narrative."""
     r = _us_signals().get(ticker)
@@ -709,7 +713,13 @@ def _us_signal_detail(ticker: str) -> dict | None:
     d["sector"] = sector
     d["intro"] = f"{sector} 섹터" if sector else None
     d["intro_desc"] = None
-    d["about"] = company.about(ticker, name, sector, "us")
+    # 활성 시그널이면 개요 캐시 없을 때 온디맨드 생성(Sonnet) — 처음 보는 종목 이해도
+    from signal_desk import llm as llm_mod
+    active = r.kind in _ACTIVE_SIGNAL_KINDS
+    d["about"] = company.about(
+        ticker, name, sector, "us",
+        generate=active, model=llm_mod.ABOUT_QUALITY_MODEL if active else None,
+    )
     d["moves"] = company.recent_moves(ticker, name)
     d["kb"] = None
     d["target"] = target.compute(price, mc.get("per"), us_med_per, closes)
@@ -740,7 +750,12 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     d["sector"] = sector
     d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
     d["intro_desc"] = pos["stage_desc"] if pos else None
-    d["about"] = company.about(ticker, r.name, sector, "kr")
+    from signal_desk import llm as llm_mod
+    active = r.kind in _ACTIVE_SIGNAL_KINDS
+    d["about"] = company.about(
+        ticker, r.name, sector, "kr",
+        generate=active, model=llm_mod.ABOUT_QUALITY_MODEL if active else None,
+    )
     d["moves"] = company.recent_moves(ticker, r.name)
     dg = db.kb_digest_get(ticker)
     d["kb"] = {"sentiment": dg["sentiment"], "summary": dg["summary"], "points": dg["points"]} if dg else None
@@ -860,30 +875,66 @@ def buylist_get(request: Request):
     return {"items": _buylist(uid)}
 
 
+_narr_locks: dict[str, threading.Lock] = {}
+_narr_locks_mu = threading.Lock()
+
+
+def _narr_lock(ticker: str) -> threading.Lock:
+    with _narr_locks_mu:
+        lk = _narr_locks.get(ticker)
+        if lk is None:
+            lk = threading.Lock()
+            _narr_locks[ticker] = lk
+        return lk
+
+
 @app.get("/api/narrative")
 def narrative_get(ticker: str):
-    """시그널 해설 v2(#17) — 근거+KB를 LLM으로 해설(캐시). LLM 미설정/실패 시 규칙기반 v1 폴백."""
+    """시그널 해설 v2(#17) — BUY/SELL만 고품질 LLM(캐시). HOLD는 규칙 문장. 실패 시 v1 폴백."""
+    from signal_desk import llm as llm_mod
     sig = next((s for s in _signals() if s.ticker == ticker), None) if store.is_ready() else None
+    is_us = False
     if sig is None:
         sig = _us_signals().get(ticker)
+        is_us = sig is not None
     if sig is None:
         return {"ok": False, "reason": "해당 종목 시그널이 없습니다."}
-    names = {u["ticker"]: u["name"] for u in store.load_universe()}
-    names.update({u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()})
-    name = names.get(ticker, sig.name)
-    dg = db.kb_digest_get(ticker)
-    kb_summary = (dg or {}).get("summary") or ""
-    # 데이터 스냅샷 해시로 캐시 키 — 시그널/KB가 바뀌면 자동 무효화
-    h = hashlib.md5(f"{sig.kind}|{round(sig.score, 1)}|{kb_summary}".encode()).hexdigest()[:12]
-    key = f"narrv4:{ticker}:{h}"   # v4=쉬운말·핵심요약 프롬프트(전문용어/잘린 캐시 무효화)
-    cached = db.kv_get(key)
-    if cached:
-        return {"ok": True, "narrative": cached, "source": "llm", "cached": True}
-    text = narrative.explain_llm(name, ticker, sig.kind, sig.score, sig.reasons, kb_summary)
-    if text:
-        db.kv_set(key, text)
-        return {"ok": True, "narrative": text, "source": "llm", "cached": False}
-    return {"ok": True, "narrative": sig.narrative, "source": "rule", "cached": False}  # v1 폴백
+    # HOLD는 LLM 비용·노이즈 절감 — 규칙 해설만
+    if sig.kind not in _ACTIVE_SIGNAL_KINDS:
+        return {"ok": True, "narrative": sig.narrative, "source": "rule", "cached": False}
+    with _narr_lock(ticker):
+        names = {u["ticker"]: u["name"] for u in store.load_universe()}
+        names.update({u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()})
+        name = names.get(ticker, sig.name)
+        if is_us:
+            u = next((x for x in store.load_us_universe() if x["ticker"] == ticker), None) or {}
+            sector = us_ko.sector_ko(u.get("sector"))
+            market = "us"
+        else:
+            sector = sectors.sector_of(ticker)
+            market = "kr"
+        about_txt = company.about(
+            ticker, name, sector, market,
+            generate=True, model=llm_mod.ABOUT_QUALITY_MODEL,
+        ) or ""
+        dg = db.kb_digest_get(ticker)
+        kb_summary = (dg or {}).get("summary") or ""
+        # 데이터 스냅샷 해시로 캐시 키 — 시그널/KB/개요가 바뀌면 자동 무효화
+        h = hashlib.md5(
+            f"{sig.kind}|{round(sig.score, 1)}|{kb_summary}|{about_txt}".encode()
+        ).hexdigest()[:12]
+        key = f"narrv5:{ticker}:{h}"  # v5=opus 해설+회사개요 프롬프트
+        cached = db.kv_get(key)
+        if cached:
+            return {"ok": True, "narrative": cached, "source": "llm", "cached": True}
+        text = narrative.explain_llm(
+            name, ticker, sig.kind, sig.score, sig.reasons, kb_summary,
+            about=about_txt, model=llm_mod.SIGNAL_EXPLAIN_MODEL,
+        )
+        if text:
+            db.kv_set(key, text)
+            return {"ok": True, "narrative": text, "source": "llm", "cached": False}
+        return {"ok": True, "narrative": sig.narrative, "source": "rule", "cached": False}
 
 
 @app.get("/api/signal-scorecard")

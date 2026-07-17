@@ -77,8 +77,10 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # sticky footer 셸 회귀 방지 — main이 shrink되면 관리자 긴 페이지에서 footer가 떠버림
     assert "flex:1 0 auto" in html
     assert "margin-top:auto" in html  # footer
-    # 종목 상세: 사업 개요(🏢) + 최근 행보(사실 요약) 블록 + 리스트 슬림/상세 분리
-    assert "🏢" in html and "최근 행보" in html
+    # 종목 상세: 종목 개요 + 최근 행보(사실 요약) 블록 + 리스트 슬림/상세 분리
+    assert "종목 개요" in html and "최근 행보" in html
+    assert "market-bar-end" in html  # 시황 바 오른쪽 슬롯(live·거시토글)
+    assert "body.chat-fab-on footer" in html and "margin-bottom" in html  # FAB 여백≠footer 패딩
     assert "/detail?market=" in html  # 클릭 시 상세 병렬 fetch
     assert "_ensureSignalChart" in html  # 차트 DOM 파괴 후 재생성(국내 차트 미표시 방지)
     assert "--c-ma20" in html and "--c-price" in html  # 차트 팔레트 = CSS 변수

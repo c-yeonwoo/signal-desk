@@ -3,15 +3,14 @@
 apt-signal의 "종합 해설"(지수들을 묶어 사회·통계적 의미를 1~2문장으로 해석)과 같은 접근.
 `reasons`는 이미 "[기술]"/"[기본]" 태그가 붙어 있으므로 그대로 파싱해 문장으로 엮는다.
 
-이건 v1(폴백용)이다 — BACKLOG.md #17 계획: 종목별로 뉴스·증권사 리포트·개인분석 등을 크롤링해
-KB(brightdesk의 kb_facts/source_registry 패턴)를 만들고, 그 KB를 LLM에 넣어 시그널 근거를
-답변·해설로 생성한 뒤 캐시해서 쓰는 v2로 교체 예정. v2가 실패/미설정이면 이 v1로 폴백.
+v2: 종목별 KB·개요를 LLM에 넣어 쉬운 해설을 만들고 캐시. 실패/미설정이면 v1 폴백.
+BUY/SELL만 고품질 모델 호출 — HOLD는 규칙 문장만(비용·노이즈 절감).
 """
 
 from __future__ import annotations
 
-_KIND_WORD = {"STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망",
-              "SELL": "매도", "STRONG_SELL": "강력 매도"}
+_KIND_WORD = {"STRONG_BUY": "강한 매수권", "BUY": "매수권", "HOLD": "관망",
+              "SELL": "매도권", "STRONG_SELL": "강한 매도권"}
 
 
 def _group_by_tag(reasons: list[str]) -> dict[str, list[str]]:
@@ -62,26 +61,34 @@ def explain(result) -> str:
 
 
 def explain_llm(name: str, ticker: str, kind: str, score: float, reasons: list[str],
-                kb_summary: str = "") -> str | None:
-    """v2 해설 — 시그널 근거(reasons)와 KB 요약만 근거로 LLM이 2~3문장 해설을 생성한다.
+                kb_summary: str = "", *, about: str = "",
+                model: str | None = None) -> str | None:
+    """v2 해설 — 시그널 근거·회사 개요·KB만 근거로 LLM이 쉬운 해설을 생성한다.
     근거 밖 내용은 지어내지 않도록 강제하고, 투자 권유·수익 보장 표현을 금지한다(규제).
     LLM 미설정/실패 시 None(호출측이 규칙기반 v1으로 폴백). 캐시는 호출측(api)에서 담당."""
     from signal_desk import llm
     if not llm.available():
         return None
     reason_lines = "\n".join(f"- {r}" for r in (reasons or [])) or "- (근거 없음)"
-    kb_block = f"\n[KB 정성 요약]\n{kb_summary}\n" if kb_summary else ""
+    about_block = f"\n[회사 한줄 개요]\n{about.strip()}\n" if about and about.strip() else ""
+    kb_block = f"\n[최근 이슈 요약]\n{kb_summary.strip()}\n" if kb_summary and kb_summary.strip() else ""
+    kind_word = _KIND_WORD.get(kind, kind)
     system = (
-        "너는 주식 초보에게 시그널을 쉽게 풀어 설명하는 가이드다. 전문 애널리스트 말투(지표 나열·"
-        "영어 약어 남발)를 쓰지 말고, 처음 보는 사람도 바로 이해되게 일상어로 설명한다.\n"
-        "형식(반드시 지켜라):\n"
-        "1) 첫 문장은 '쉽게 말하면, …'으로 시작해 지금 상태를 한 문장으로 요약(왜 이 판정인지).\n"
-        "2) 그다음 가장 중요한 근거 2~3가지만 쉬운 말로 짚는다. 근거를 전부 나열하지 마라. 전문용어"
-        "(RSI·MACD·PER·PBR 등)는 꼭 필요할 때만 쓰되 반드시 괄호로 짧게 풀이한다. 예: 'RSI(단기 과열·과매도 지표)'.\n"
-        "3) 숫자 나열이 아니라 '그래서 어떤 의미인지'를 말한다. 전체 3~4문장, 간결하게(장황하게 늘이지 마라).\n"
-        "제약: 아래 '시그널 근거'와 'KB 요약'의 사실만 쓰고 없는 수치·전망은 지어내지 마라. "
-        "투자 권유·매수 종용·수익 보장 표현 금지 — 관찰된 근거를 중립적으로 설명만 한다.")
-    user = (f"종목: {name}({ticker})\n시그널: {kind} (종합점수 {score:+.2f})\n"
-            f"[시그널 근거]\n{reason_lines}\n{kb_block}\n쉬운 한국어 해설(핵심만, 3~4문장):")
-    out = llm.complete(system, user, max_tokens=600, model=llm.NARRATIVE_MODEL)
+        "너는 주식 초보에게 '처음 보는 종목'을 이해시키는 데스크 가이드다. "
+        "전문 애널리스트 말투(지표 나열·영어 약어 남발) 금지. 일상어로 설명한다.\n"
+        "형식(반드시):\n"
+        "1) 첫 문장: '쉽게 말하면, …'으로 지금 판정(매수권/매도권)이 나온 이유를 한 줄 요약.\n"
+        "2) 회사 개요가 있으면 그다음 문장에서 '이 회사는 …'으로 무엇을 하는 회사인지 짧게 소개"
+        "(개요에 없는 사업·실적은 지어내지 마라. 개요가 없으면 이 문장은 생략).\n"
+        "3) 가장 중요한 근거 2~3가지만 쉬운 말로. 전문용어(RSI·MACD·PER 등)는 꼭 필요할 때만 "
+        "쓰되 괄호로 풀이. 예: 'RSI(단기 과열·과매도 지표)'.\n"
+        "4) 마지막 한 줄: '참고로, 이건 매수 권유가 아니라 규칙이 찍은 관찰입니다.' 비슷한 취지로 "
+        "중립 한 문장(수익 보장·종용 금지).\n"
+        "전체 4~5문장, 문단 나눔 없이 줄글로. 없는 수치·전망·실적은 지어내지 마라."
+    )
+    user = (f"종목: {name}({ticker})\n시그널: {kind_word} ({kind}, 종합점수 {score:+.2f})\n"
+            f"{about_block}[시그널 근거]\n{reason_lines}\n{kb_block}\n"
+            "쉬운 한국어 해설:")
+    use_model = model or llm.SIGNAL_EXPLAIN_MODEL
+    out = llm.complete(system, user, max_tokens=700, model=use_model)
     return out.strip() if out else None
