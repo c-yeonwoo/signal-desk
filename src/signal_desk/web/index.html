@@ -420,6 +420,15 @@
   .auth-points { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
   .auth-points span { font-size:11px; color:var(--accent); background:var(--accent-weak);
     padding:4px 9px; border-radius:999px; }
+  .sig-precision { margin:8px 10px 0; padding:8px 10px; border:1px solid var(--line); border-radius:var(--r-md);
+    background:var(--bg); font-size:12px; line-height:1.5; color:var(--dim); }
+  .sig-precision b { color:var(--txt); }
+  .sig-precision .sp-n { font-variant-numeric:tabular-nums; color:var(--accent); font-weight:700; }
+  .sig-precision .sp-actions { display:inline-flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+  .sig-precision .sp-actions .btn { padding:2px 9px; font-size:11px; }
+  .sig-precision .sp-actions .btn.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .hero-cta { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  .hero-cta .btn { padding:5px 10px; font-size:12px; }
   .auth-field { margin-bottom:12px; }
   .auth-field label { display:block; font-size:12px; color:var(--dim); margin-bottom:4px; }
   .auth-field input { width:100%; }
@@ -541,7 +550,8 @@
           <button class="on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
           <button data-mkt="us" onclick="switchSignalMarket('us')">해외</button>
         </div>
-        <!-- 정보 우선순위: 시황(리본) → 성적(trust) → 매수대기 → 리스트/스크리너 → 상세(차트) -->
+        <div id="sig-precision" class="sig-precision" style="display:none"></div>
+        <!-- 정보 우선순위: 시황(리본) → 성적(trust) → 정밀도 → 매수대기 → 리스트/스크리너 → 상세(차트) -->
         <div id="buylist-card" class="pcard" style="display:none;margin:var(--space-2) var(--space-3)">
           <div class="pcard-title">매수 대기 리스트 <span class="sub">관심종목 · 매수까지 무엇이 남았나</span></div>
           <div id="buylist-body"></div>
@@ -752,7 +762,7 @@
       <div class="card">
         <div class="row" style="align-items:baseline">
           <b style="font-size:14px">공용 레퍼런스 봇 성과</b>
-          <span class="stat-label" style="margin:0 0 0 auto">성향별 시스템 봇 — 시그널 신뢰의 공개 증거</span>
+          <span class="stat-label" style="margin:0 0 0 auto">성향별 시스템 봇 — 동일 규칙의페이퍼 증거</span>
         </div>
         <div id="reference-perf" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       </div>
@@ -1120,7 +1130,7 @@
 
 <footer>
   <b>Signal Desk</b>
-  <span>감이 아니라 검증된 적중률로 찾는 주식 매매 타이밍</span>
+  <span>감이 아니라 규칙·게이트·성적으로 보는 매매 타이밍</span>
   <span style="margin-left:auto">
     <span class="foot-link" onclick="openHelp()">시그널 계산 기준</span> ·
     <span class="foot-link" onclick="openLegal('terms')">이용약관</span> ·
@@ -1142,11 +1152,11 @@
       </svg>
       <div>
         <div style="font-size:21px;font-weight:800;letter-spacing:-.3px">Signal Desk</div>
-        <div style="color:var(--dim);font-size:12px;margin-top:1px">검증된 적중률로 찾는 주식 매매 타이밍</div>
+        <div style="color:var(--dim);font-size:12px;margin-top:1px">규칙으로 쌓는 매매 타이밍 · 강의 실습용 데스크</div>
       </div>
     </div>
     <div class="auth-points">
-      <span>매수·매도 시그널</span><span>적중률 공개</span><span>기회도 랭킹</span>
+      <span>매수·매도 시그널</span><span>정밀도 우선</span><span>페이퍼로 검증</span>
     </div>
     <div class="auth-field"><label>이메일</label>
       <input id="authEmail" type="email" placeholder="you@example.com" autocomplete="username"></div>
@@ -1738,6 +1748,7 @@ function switchSignalMarket(m){
   if (_sigMarket === m) return;
   _sigMarket = m;
   clearScreenInputs();   // 시장 전환 시 스크리너·매수전용·기회유형 필터 초기화 — KR 필터가 US로 새어 목록이 텅 비는 것 방지
+  _precisionBucket = null;
   document.querySelectorAll('#sig-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
   document.getElementById('sig-search').value = '';
   document.getElementById('sig-sort').value = 'signal';
@@ -1996,10 +2007,14 @@ function renderSignalList(){
   const q = (document.getElementById('sig-search').value || '').trim().toLowerCase();
   const sort = document.getElementById('sig-sort').value;
   const scr = readScreen();
+  if (scr.buyOnly) _precisionBucket = 'buy';
+  else if (_precisionBucket === 'buy') _precisionBucket = null;
   _syncQuickChips(scr);
+  updatePrecisionStrip();
   let rows = _signalRows.filter(r =>
     (!q || r.name.toLowerCase().includes(q) || r.ticker.toLowerCase().includes(q))
     && (!_oppFilter || (r.opp_tags || []).includes(_oppFilter))
+    && (_precisionBucket !== 'near' || isNearBuy(r))
     && screenPass(r, scr));
   renderOppFilters();
   updateScreenUI(scr, rows.length);
@@ -2019,10 +2034,17 @@ function renderSignalList(){
       <td style="font-size:12px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}${badges(r)}</td>
       <td><span class="sig-pill ${r.kind}">${kindLabel(r.kind)}</span></td>
     </tr>`).join('');
-  el.innerHTML = rows.length
+    el.innerHTML = rows.length
     ? `<table class="dtable"><thead><tr><th></th><th>종목</th><th>섹터</th><th>시그널</th></tr></thead>
        <tbody>${body}</tbody></table>`
-    : `<div class="placeholder" style="padding:24px 12px">${q ? '"' + esc(q) + '" 검색 결과 없음' : '조건에 맞는 종목이 없습니다'}</div>`;
+    : `<div class="placeholder" style="padding:24px 12px">${
+        q ? '"' + esc(q) + '" 검색 결과 없음'
+          : (_precisionBucket === 'buy'
+              ? '오늘 매수권이 없습니다 — 정밀도 우선이라 흔한 일입니다. 근접 후보를 보거나 필터를 해제하세요.'
+              : (_precisionBucket === 'near'
+                  ? '근접 후보가 없습니다 — 점수·게이트 조건을 완화하거나 필터를 해제하세요.'
+                  : '조건에 맞는 종목이 없습니다'))
+      }</div>`;
   el.querySelectorAll('tr.clickable-row').forEach(tr => {
     tr.addEventListener('click', () => selectSignalRow(tr.dataset.ticker));
     tr.classList.toggle('selected-row', tr.dataset.ticker === _selectedTicker);
@@ -2064,10 +2086,54 @@ function selectSignalRow(ticker){
 }
 
 const _ZONE_COLOR = { STRONG_BUY: '#0b7a3b', BUY: '#22c55e', SELL: '#dc2626', STRONG_SELL: '#b3121a' };
-const _KIND_LABEL = { STRONG_BUY: '강력매수', BUY: '매수', HOLD: '관망', SELL: '매도', STRONG_SELL: '강력매도' };
+const _KIND_LABEL = { STRONG_BUY: '강한매수권', BUY: '매수권', HOLD: '관망', SELL: '매도권', STRONG_SELL: '강한매도권' };
 const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
 const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';
 const kindLabel = (k) => _KIND_LABEL[k] || k;
+const _NEAR_BUY_SCORE = 1.2;  // 기본 매수 문턱 — 게이트에 막혀 관망이어도 '근접'
+let _precisionBucket = null;  // null | 'buy' | 'near'
+
+function isNearBuy(r){
+  return r && r.kind === 'HOLD' && r.score != null && r.score >= _NEAR_BUY_SCORE;
+}
+function filterPrecisionBucket(bucket){
+  _precisionBucket = (_precisionBucket === bucket) ? null : bucket;
+  const buyCb = document.getElementById('screen-buyonly');
+  if (buyCb) buyCb.checked = (_precisionBucket === 'buy');
+  renderSignalList();
+}
+function updatePrecisionStrip(){
+  const el = document.getElementById('sig-precision');
+  if (!el) return;
+  if (!_signalRows || !_signalRows.length) { el.style.display = 'none'; return; }
+  const buyN = _signalRows.filter(r => _isBuy(r.kind)).length;
+  const sellN = _signalRows.filter(r => _isSell(r.kind)).length;
+  const nearN = _signalRows.filter(isNearBuy).length;
+  el.style.display = '';
+  el.innerHTML = `<div><b>정밀도 우선</b> · 신호가 드문 게 정상입니다`
+    + ` · 오늘 <span class="sp-n">매수권 ${buyN}</span>`
+    + (nearN ? ` · <span class="sp-n">근접 ${nearN}</span>` : '')
+    + (sellN ? ` · 매도권 ${sellN}` : '')
+    + ` · 매수기준 <b>+${fmtNum(_effBuyThreshold, 1)}</b></div>`
+    + `<div class="sp-actions">`
+    + `<button type="button" class="btn${_precisionBucket === 'buy' ? ' on' : ''}" onclick="filterPrecisionBucket('buy')">매수권만</button>`
+    + (nearN ? `<button type="button" class="btn${_precisionBucket === 'near' ? ' on' : ''}" onclick="filterPrecisionBucket('near')">근접만</button>` : '')
+    + (_precisionBucket ? `<button type="button" class="btn" onclick="filterPrecisionBucket('${_precisionBucket}')">필터 해제</button>` : '')
+    + `</div>`;
+}
+function gotoPaperFromSignal(){
+  switchTab('trading');
+  switchTradingSeg('bot');
+  const note = document.getElementById('bot-plan');
+  if (note) {
+    note.style.display = '';
+    const name = (_selectedTicker && _signalItems[_selectedTicker])
+      ? _signalItems[_selectedTicker].name : (_selectedTicker || '');
+    note.innerHTML = `<b>시그널 → 페이퍼</b> · ${esc(name || '선택 종목')}을 같은 규칙의봇이 돌립니다.`
+      + ` 아래에서 ON·성향을 확인하세요. <span style="color:var(--dim-2)">(가상 체결 · 투자 권유 아님)</span>`;
+    note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
 
 // '점수는 높은데 왜 관망?' 설명 — 추세 게이트 또는 국면 상향된 매수 기준 미달을 짚어 준다.
 function whyHoldNote(item){
@@ -2291,6 +2357,10 @@ function _paintSignalDetail(ticker, item){
         ${(item.kind === 'BUY' || item.kind === 'STRONG_BUY')
           ? `<div style="font-size:11px;color:var(--dim-2);margin-top:6px">중기(~2–3개월) 관점 — 추세 지속에 베팅하는 신호라 단기 등락보다 몇 주~몇 달 흐름으로 보세요</div>`
           : ''}
+        <div class="hero-cta">
+          <button type="button" class="btn" onclick="gotoPaperFromSignal()">페이퍼에서 같은 규칙으로 추적</button>
+          <span style="font-size:11px;color:var(--dim-2)">가상 체결 · 시그널과 동일 규칙</span>
+        </div>
       </div>`;
   } else heroEl.style.display = 'none';
   const qEl = document.getElementById('signal-quote');
@@ -2827,7 +2897,7 @@ async function loadReferencePerf(){
     el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num">총수익률</th>
       <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
       <tbody>${rows}</tbody></table>
-      <div style="color:var(--dim);font-size:11px;margin-top:6px">공용 시스템 봇이 매일 실행돼 쌓는 실제 성과 — 개인 봇과 별개(공개 track record).</div>`;
+      <div style="color:var(--dim);font-size:11px;margin-top:6px">공용 시스템 봇이 매일 실행돼 쌓는 페이퍼 성과 — 개인 봇·시그널 실측과 별개.</div>`;
   } catch (e) { el.className = 'placeholder'; el.textContent = '불러오지 못했습니다.'; }
 }
 

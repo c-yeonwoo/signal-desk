@@ -86,6 +86,11 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "#4f46e5" not in html  # 구 인디고 잔재 금지
     assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
     assert ">페이퍼<" in html  # 탭명 (구 '내 자산')
+    assert 'id="sig-precision"' in html
+    assert "gotoPaperFromSignal" in html
+    assert "정밀도 우선" in html
+    assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
+    assert "매수권" in html  # evidence-only 라벨
 
 
 def test_bot_state_and_toggle(tmp_path, monkeypatch):
