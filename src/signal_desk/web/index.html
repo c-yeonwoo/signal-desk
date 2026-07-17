@@ -464,8 +464,13 @@
   #onboardDlg .ob-chip { border:1px solid var(--line); background:var(--panel); border-radius:var(--r-pill);
     padding:6px 12px; font-size:12px; cursor:pointer; color:var(--txt); }
   #onboardDlg .ob-chip.on { border-color:var(--accent); background:var(--accent-weak); color:var(--accent); font-weight:700; }
-  #onboardDlg .ob-foot { display:flex; align-items:center; gap:10px; margin-top:16px; }
+  #onboardDlg .ob-foot { display:flex; align-items:center; gap:10px; margin-top:16px; flex-wrap:wrap; }
   #onboardDlg .ob-hint { font-size:12px; color:var(--dim); margin:0; line-height:1.5; }
+  #onboardDlg .ob-glossary { display:flex; flex-direction:column; gap:8px; margin:14px 0 12px; }
+  #onboardDlg .ob-glossary .ob-g-row { display:flex; align-items:flex-start; gap:8px; font-size:12.5px;
+    line-height:1.45; color:var(--txt); padding:8px 10px; border:1px solid var(--line); border-radius:var(--r-md); background:var(--bg); }
+  #onboardDlg .ob-glossary .ob-g-row .trust-badge { flex:0 0 auto; margin-top:1px; }
+  #signal-trust .trust-legend { margin-top:6px; font-size:11px; color:var(--dim-2); line-height:1.45; }
 </style>
 </head>
 <body>
@@ -1209,7 +1214,7 @@
 <dialog id="onboardDlg">
   <div class="ob-body">
     <div class="ob-step on" id="ob-step-style">
-      <div style="font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.04em">1 / 2 · 시작하기</div>
+      <div style="font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.04em">1 / 3 · 시작하기</div>
       <h3 style="margin:6px 0 4px;font-size:18px">트레이딩 성향을 고르세요</h3>
       <p class="ob-hint">페이퍼 자동매매·리밸런싱 기준이 바뀝니다. 나중에 페이퍼 탭에서 바꿀 수 있어요. 추천이 아니라 규칙 프리셋입니다.</p>
       <div class="ob-styles">
@@ -1226,14 +1231,30 @@
       </div>
     </div>
     <div class="ob-step" id="ob-step-favs">
-      <div style="font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.04em">2 / 2 · 관심종목</div>
+      <div style="font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.04em">2 / 3 · 관심종목</div>
       <h3 style="margin:6px 0 4px;font-size:18px">지켜볼 종목 3개를 고르세요</h3>
       <p class="ob-hint">관심종목이 있어야 <b>매수 대기 리스트</b>가 채워집니다. “무엇이 매수를 막는지”를 종목별로 볼 수 있어요.</p>
       <div class="ob-chips" id="ob-chips"></div>
       <p class="ob-hint" id="ob-fav-count">0 / 3 선택</p>
       <div class="ob-foot">
         <button type="button" class="btn" onclick="obBackStyle()">뒤로</button>
-        <button type="button" class="btn primary" id="ob-finish" style="margin-left:auto" disabled onclick="obFinish()">시작하기</button>
+        <button type="button" class="btn primary" id="ob-go-desk" style="margin-left:auto" disabled onclick="obGoDesk()">다음 · 데스크 안내</button>
+      </div>
+    </div>
+    <div class="ob-step" id="ob-step-desk">
+      <div style="font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.04em">3 / 3 · 데스크 안내</div>
+      <h3 style="margin:6px 0 4px;font-size:18px">숫자 배지를 이렇게 읽으세요</h3>
+      <p class="ob-hint">강의 실습용 무료 데스크입니다. 투자 권유가 아니라 <b>같은 규칙을 보고·돌려보는</b> 도구예요.</p>
+      <div class="ob-glossary">
+        <div class="ob-g-row"><span class="trust-badge live">실측</span><span>그날 실제로 낸 시그널을 나중에 수익률로 채점합니다. 표본이 차기 전엔 <b>누적중</b>만 보입니다.</span></div>
+        <div class="ob-g-row"><span class="trust-badge sim">시뮬</span><span>과거 가격으로 돌린 백테스트입니다. 참고용이며 실측이 아닙니다.</span></div>
+        <div class="ob-g-row"><span class="trust-badge bot">페이퍼</span><span>시그널과 같은 규칙의가상 체결입니다. 진짜 돈이 오가지 않습니다.</span></div>
+      </div>
+      <p class="ob-hint">시그널은 <b>정밀도 우선</b>이라 매수권이 드뭅니다. 고장 아닙니다. 종목 화면에서 「페이퍼에서 같은 규칙으로 추적」으로 이어갈 수 있어요.</p>
+      <div class="ob-foot">
+        <button type="button" class="btn" onclick="obBackFavs()">뒤로</button>
+        <button type="button" class="btn" id="ob-finish-paper" style="margin-left:auto" onclick="obFinish('paper')">페이퍼 보기</button>
+        <button type="button" class="btn primary" id="ob-finish" onclick="obFinish('signal')">시그널로 시작</button>
       </div>
     </div>
   </div>
@@ -1647,13 +1668,14 @@ async function loadScorecard(){
     if (bot.resolved) {
       const wr = bot.win_rate, wc = wr >= 55 ? 'var(--sig-buy)' : wr < 45 ? 'var(--sig-sell)' : 'var(--txt)';
       const av = bot.avg_outcome_pct, ac = av > 0 ? 'var(--sig-buy)' : av < 0 ? 'var(--sig-sell)' : 'var(--txt)';
-      rows.push(`<div class="trust-row"><span class="trust-badge bot">봇 체결</span>`
-        + `<b>${bot.resolved}건</b> 실현 · 승률 <b style="color:${wc}">${fmtNum(wr, 1)}%</b>`
+      rows.push(`<div class="trust-row"><span class="trust-badge bot">페이퍼</span>`
+        + `<b>${bot.resolved}건</b> 가상 체결 · 승률 <b style="color:${wc}">${fmtNum(wr, 1)}%</b>`
         + ` · 평균 <b style="color:${ac}">${av > 0 ? '+' : ''}${fmtNum(av, 2)}%</b>(3일)`
         + (bot.pending ? ` <span style="color:var(--dim)">· 미실현 ${bot.pending}건</span>` : '')
-        + ` <span style="color:var(--dim-2);font-size:11px">· 자동매매 실제 체결(시그널 성적·시뮬과 별개)</span></div>`);
+        + ` <span style="color:var(--dim-2);font-size:11px">· 페이퍼 봇(시그널 실측·시뮬과 별개)</span></div>`);
     }
-    el.innerHTML = rows.join('');
+    el.innerHTML = rows.join('')
+      + `<div class="trust-legend">실측=그날 시그널 채점 · 시뮬=가격 백테스트 · 페이퍼=가상 체결 · 누적중=표본 부족</div>`;
     el.style.display = 'block';  // CSS 기본 none — ''로 두면 시트로 돌아가 영구 숨김
   } catch (e) { el.style.display = 'none'; }
 }
@@ -4525,6 +4547,12 @@ const _OB_SEED = [
 let _obStyle = 'balanced';
 let _obFavs = new Set();
 
+function _obShowStep(step){
+  ['style', 'favs', 'desk'].forEach(s => {
+    const el = document.getElementById('ob-step-' + s);
+    if (el) el.classList.toggle('on', s === step);
+  });
+}
 function maybeShowOnboard(){
   if (_profile && _profile.desk_onboarded) return;
   const dlg = document.getElementById('onboardDlg');
@@ -4532,8 +4560,7 @@ function maybeShowOnboard(){
   _obStyle = (_profile && _profile.투자성향) || 'balanced';
   _obFavs = new Set();
   document.querySelectorAll('#onboardDlg .ob-style').forEach(b => b.classList.toggle('on', b.dataset.style === _obStyle));
-  document.getElementById('ob-step-style').classList.add('on');
-  document.getElementById('ob-step-favs').classList.remove('on');
+  _obShowStep('style');
   try { dlg.showModal(); } catch (e) {}
 }
 function obPickStyle(style){
@@ -4541,13 +4568,18 @@ function obPickStyle(style){
   document.querySelectorAll('#onboardDlg .ob-style').forEach(b => b.classList.toggle('on', b.dataset.style === style));
 }
 function obGoFavs(){
-  document.getElementById('ob-step-style').classList.remove('on');
-  document.getElementById('ob-step-favs').classList.add('on');
+  _obShowStep('favs');
   obRenderChips();
 }
 function obBackStyle(){
-  document.getElementById('ob-step-favs').classList.remove('on');
-  document.getElementById('ob-step-style').classList.add('on');
+  _obShowStep('style');
+}
+function obGoDesk(){
+  if (_obFavs.size < 3) return;
+  _obShowStep('desk');
+}
+function obBackFavs(){
+  _obShowStep('favs');
 }
 function obSuggestList(){
   const fromSig = Object.values(_signalItems || {})
@@ -4573,7 +4605,8 @@ function obToggleFav(ticker){
 function obUpdateFavCount(){
   const n = _obFavs.size;
   document.getElementById('ob-fav-count').textContent = `${n} / 3 선택` + (n >= 3 ? ' · 충분합니다' : '');
-  document.getElementById('ob-finish').disabled = n < 3;
+  const go = document.getElementById('ob-go-desk');
+  if (go) go.disabled = n < 3;
 }
 async function _obSaveProfile(extra){
   const body = Object.assign({ 투자성향: _obStyle, desk_onboarded: true }, extra || {});
@@ -4585,10 +4618,16 @@ async function obSkip(){
   await _obSaveProfile();
   document.getElementById('onboardDlg').close();
 }
-async function obFinish(){
+async function obFinish(dest){
   if (_obFavs.size < 3) return;
-  const btn = document.getElementById('ob-finish');
-  btn.disabled = true; btn.textContent = '저장 중…';
+  dest = dest === 'paper' ? 'paper' : 'signal';
+  const btnSig = document.getElementById('ob-finish');
+  const btnPaper = document.getElementById('ob-finish-paper');
+  const busy = dest === 'paper' ? btnPaper : btnSig;
+  const idleLabel = dest === 'paper' ? '페이퍼 보기' : '시그널로 시작';
+  if (busy) { busy.disabled = true; busy.textContent = '저장 중…'; }
+  if (btnSig && busy !== btnSig) btnSig.disabled = true;
+  if (btnPaper && busy !== btnPaper) btnPaper.disabled = true;
   try {
     await _obSaveProfile();
     for (const t of _obFavs) {
@@ -4598,15 +4637,22 @@ async function obFinish(){
       _favorites.add(t);
     }
     document.getElementById('onboardDlg').close();
-    switchTab('signal');
-    const favCb = document.getElementById('screen-favonly');
-    if (favCb) favCb.checked = true;
-    const qf = document.getElementById('qf-favonly');
-    if (qf) qf.classList.add('on');
-    renderSignalList();
-    loadBuylist();
+    if (dest === 'paper') {
+      switchTab('trading');
+      switchTradingSeg('bot');
+    } else {
+      switchTab('signal');
+      const favCb = document.getElementById('screen-favonly');
+      if (favCb) favCb.checked = true;
+      const qf = document.getElementById('qf-favonly');
+      if (qf) qf.classList.add('on');
+      renderSignalList();
+      loadBuylist();
+    }
   } finally {
-    btn.disabled = false; btn.textContent = '시작하기';
+    if (btnSig) { btnSig.disabled = false; btnSig.textContent = '시그널로 시작'; }
+    if (btnPaper) { btnPaper.disabled = false; btnPaper.textContent = '페이퍼 보기'; }
+    void idleLabel;
   }
 }
 
