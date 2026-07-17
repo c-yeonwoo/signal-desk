@@ -56,7 +56,8 @@ def _kst_today() -> str:
 
 def _daily_kb_collect():
     """외부 KB 소스(미주은·오건영·유튜브·해외 전문가 RSS) 하루 1회 자동수집 — 증분이라 새 글만 적재.
-    best-effort(개별 실패 무시), fanding tt 만료 등은 조용히 스킵. 새 인사이트/시황 반영 위해 캐시 무효화."""
+    best-effort(개별 실패 무시), fanding tt 만료 등은 조용히 스킵. 새 인사이트/시황 반영 위해 캐시 무효화.
+    사이클 확정 국면 lead 섹터 종목 뉴스(kb.refresh)도 하루 1회 soft 포함."""
     if db.kv_get("kb_collect_date") == _kst_today():
         return
     got = False
@@ -66,6 +67,13 @@ def _daily_kb_collect():
             got = got or bool(out.get("imported") or out.get("macro"))
         except Exception as e:
             log.warning("KB 자동수집 실패(%s): %s", getattr(fn, "__name__", "?"), type(e).__name__)
+    try:  # 확정 국면 주도섹터 + BUY/보유/관심 — 종목 뉴스 다이제스트
+        targets = _kb_targets()
+        if targets:
+            out = kb.refresh(targets)
+            got = got or bool(out.get("updated"))
+    except Exception as e:
+        log.warning("KB 종목 자동수집 실패: %s", type(e).__name__)
     if got:
         _signals.cache_clear()
         _macro.cache_clear()
@@ -1447,20 +1455,47 @@ def bot_decisions_get():
 
 
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
-def _kb_targets(limit_candidates: int = 12) -> list[dict]:
-    """KB 갱신 대상 — 보유종목 + 상위 BUY 후보 + 관심종목. 리소스 절약 위해 전 종목 아님."""
+def _kb_targets(limit_candidates: int = 12, lead_limit: int = 10) -> list[dict]:
+    """KB 갱신 대상 — ①확정 국면 lead 섹터 ②VIX soft 보강 ③BUY ④보유 ⑤관심.
+    전 종목 아님. lead는 밸류체인 국내 대표 티커(히스테리시스된 사이클)."""
     names = {u["ticker"]: u["name"] for u in store.load_universe()}
     targets, seen = [], set()
-    def add(ticker):
-        if ticker in names and ticker not in seen:
-            targets.append({"ticker": ticker, "name": names[ticker]}); seen.add(ticker)
+
+    def add(ticker, name=None):
+        if ticker in seen:
+            return
+        if ticker in names:
+            targets.append({"ticker": ticker, "name": names[ticker]})
+            seen.add(ticker)
+        elif name:
+            targets.append({"ticker": ticker, "name": name})
+            seen.add(ticker)
+
+    # ① 확정 국면 주도 섹터(우선)
+    try:
+        pos = cycle.position(store.load_macro())
+        for row in valuechain.tickers_for_lead_tags(pos.get("lead_sectors") or [], limit=lead_limit):
+            add(row["ticker"], row.get("name"))
+        # ② VIX 공포/안도 soft — 확정 국면과 다른 힌트 국면의 소량 보강
+        risk = cycle.risk_sentiment(store.load_macro())
+        hint = risk.get("kb_hint_phase_key")
+        if hint and hint != pos.get("phase_key"):
+            for row in valuechain.tickers_for_lead_tags(
+                    cycle.lead_sectors_for(hint), limit=4):
+                add(row["ticker"], row.get("name"))
+    except Exception as e:
+        log.warning("KB lead 타깃 실패: %s", type(e).__name__)
+
+    # ③ BUY 상위
+    buy_n = 0
     if store.is_ready():
         for s in _signals():
-            if s.kind == "BUY" and len([t for t in targets]) < limit_candidates:
+            if s.kind == "BUY" and buy_n < limit_candidates:
                 add(s.ticker)
-    for tk in db.bot_position_tickers_all():  # 전 유저 보유 종목(공용 KB 갱신 대상)
+                buy_n += 1
+    for tk in db.bot_position_tickers_all():
         add(tk)
-    for tk in db.fav_tickers_all():  # 전 유저 관심종목 — 워치리스트도 공시 veto·KB 해설 커버(docstring 의도 복구)
+    for tk in db.fav_tickers_all():
         add(tk)
     return targets
 
@@ -1753,13 +1788,20 @@ def kb_get(ticker: str):
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------
 @app.get("/api/cycle")
 def cycle_get():
-    """경기 사이클 4국면 + 국면별 주도섹터, 현재 위치(FRED 거시로 근사 추정).
+    """경기 사이클 4국면 + 국면별 주도섹터, 현재 위치(FRED 거시 + 7일 히스테리시스 확정).
     각 주도섹터에 밸류체인 섹터 key(vc_key)를 달아 밸류체인 탭과 연결한다."""
     phases = []
     for p in cycle.phases():
         leads = [{"name": s, "vc_key": valuechain.key_for_tag(s)} for s in p["lead_sectors"]]
         phases.append({**p, "lead_sectors": leads})
-    return {"phases": phases, "current": cycle.position(_macro()["indicators"])}
+    ind = _macro()["indicators"]
+    cur = cycle.position(ind)
+    # lead에 vc_key 부착(프론트 딥링크)
+    cur = {**cur, "lead_sectors": [
+        {"name": s, "vc_key": valuechain.key_for_tag(s)} for s in (cur.get("lead_sectors") or [])
+    ]}
+    risk = cycle.risk_sentiment(ind)
+    return {"phases": phases, "current": cur, "risk_sentiment": risk}
 
 
 @app.get("/api/glossary")
@@ -1771,7 +1813,7 @@ def glossary_get():
 @app.get("/api/valuechain")
 def valuechain_get():
     """섹터별 밸류체인(업→다운스트림) 대표기업 큐레이션. 국내는 티커로 시그널 연결 가능.
-    현재 경기국면(cycle)에 유리한 밸류체인을 cycle_fit로 태깅 — 사이클×밸류체인×시그널 내러티브."""
+    확정 경기국면(cycle)에 유리한 밸류체인을 cycle_fit로 태깅 — 사이클×밸류체인×시그널 내러티브."""
     pos = cycle.position(store.load_macro())
     leads = set(pos.get("lead_sectors") or [])
     secs = []
@@ -1783,7 +1825,14 @@ def valuechain_get():
         secs.sort(key=lambda x: x["cycle_fit"] != "favored")
     return {"sectors": secs, "cycle": {
         "ready": pos.get("ready"), "phase_name": pos.get("phase_name"),
-        "lead_sectors": pos.get("lead_sectors") or [], "reasons": pos.get("reasons") or []}}
+        "phase_key": pos.get("phase_key"),
+        "raw_phase_key": pos.get("raw_phase_key"),
+        "stable": pos.get("stable"),
+        "pending_phase_key": pos.get("pending_phase_key"),
+        "pending_days": pos.get("pending_days"),
+        "confirm_days": pos.get("confirm_days"),
+        "lead_sectors": pos.get("lead_sectors") or [],
+        "reasons": pos.get("reasons") or []}}
 
 
 @lru_cache(maxsize=1)

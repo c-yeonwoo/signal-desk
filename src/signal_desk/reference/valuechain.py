@@ -481,6 +481,30 @@ def key_for_tag(tag: str) -> str | None:
     return None
 
 
+def tickers_for_lead_tags(tags: list[str], limit: int = 12) -> list[dict]:
+    """사이클 lead_sectors 태그 → 밸류체인 국내 대표 티커(중복 제거, 순서 유지).
+
+    반환: [{"ticker", "name", "tag", "vc_key"}, ...] — KB 우선 수집 타깃용.
+    """
+    out, seen = [], set()
+    for tag in tags or []:
+        vk = key_for_tag(tag)
+        sec = _BY_KEY.get(vk) if vk else None
+        if not sec:
+            continue
+        for st in sec.get("stages") or []:
+            for c in st.get("domestic") or []:
+                tk = c.get("ticker")
+                if not tk or tk in seen:
+                    continue
+                seen.add(tk)
+                out.append({"ticker": tk, "name": c.get("name") or tk,
+                            "tag": tag, "vc_key": vk})
+                if len(out) >= limit:
+                    return out
+    return out
+
+
 def company_position(ticker: str) -> dict | None:
     """국내 티커의 밸류체인 포지셔닝: {sector, stage, stage_desc}. 큐레이션에 없으면 None.
     시그널 탭에서 '뭐하는 기업인지' 정적 소개(사실 기반, 환각 없음)로 재활용한다."""

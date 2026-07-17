@@ -1327,13 +1327,21 @@ async function loadCycle(){
     return;
   }
   const cur = d.current || {};
+  const risk = d.risk_sentiment || {};
   if (cur.ready) {
+    const pend = (!cur.stable && cur.pending_phase_key)
+      ? `<span style="font-size:11px;color:var(--sell)">원시 관측 전환 대기 ${esc(String(cur.pending_days||0))}/${esc(String(cur.confirm_days||7))}일</span>`
+      : `<span style="font-size:11px;color:var(--dim-2)">확정 국면(${esc(String(cur.confirm_days||7))}일 유지 시 전환)</span>`;
+    const riskLine = risk.vix != null
+      ? ` · VIX ${fmtNum(risk.vix, 1)} (${risk.label === 'fear' ? '공포→방어 KB soft' : risk.label === 'calm' ? '안도/탐욕→확장 KB soft' : '중립'})`
+      : '';
     curEl.innerHTML = `<div class="row" style="gap:12px;flex-wrap:wrap">
       <span class="layer-badge ctx">맥락</span>
-      <span class="tb-label">현재 국면(추정)</span>
+      <span class="tb-label">현재 국면(확정)</span>
       <span class="sig-pill" style="background:var(--accent)">${esc(cur.phase_name)}</span>
+      ${pend}
       <span class="tb-detail">${(cur.reasons || []).map(esc).join(' · ')}</span>
-      <span style="font-size:11px;color:var(--dim-2);width:100%">시그널 탭의 시장 국면/ZONE(코스피 breadth)과 다른 지표입니다 · 예측 아님</span></div>`;
+      <span style="font-size:11px;color:var(--dim-2);width:100%">시그널 탭의 시장 국면/ZONE과 다른 지표 · 예측 아님 · KB는 이 확정 국면 주도섹터를 우선 수집${riskLine}</span></div>`;
   } else {
     curEl.innerHTML = '<div class="placeholder" style="padding:8px 0">현재 국면 추정에 필요한 거시(FRED) 데이터가 없습니다 — /api/refresh 후 표시됩니다.</div>';
   }
@@ -1432,9 +1440,11 @@ async function loadValuechain(){
   // 사이클×밸류체인 내러티브 — 현재 국면 배너 + 유리 섹터 하이라이트
   const cb = document.getElementById('vc-cycle-banner');
   if (cb && _vcCycle && _vcCycle.ready) {
+    const pend = (!_vcCycle.stable && _vcCycle.pending_phase_key)
+      ? ` · 원시 관측 전환 대기 ${_vcCycle.pending_days||0}/${_vcCycle.confirm_days||7}일` : '';
     cb.innerHTML = `<div style="background:var(--accent-weak);border:1px solid var(--accent);border-radius:8px;padding:8px 12px;font-size:13px">`
-      + `<span class="layer-badge ctx">맥락</span> 현재 <b>${esc(_vcCycle.phase_name)}</b> 국면 — 유리 섹터 <b>${(_vcCycle.lead_sectors || []).map(esc).join(' · ')}</b>`
-      + `<div style="color:var(--dim);font-size:11px;margin-top:2px">${(_vcCycle.reasons || []).map(esc).join(' · ')} · 아래 ★ 체인이 국면상 유리 (참고용 · 예측 아님)</div></div>`;
+      + `<span class="layer-badge ctx">맥락</span> 확정 <b>${esc(_vcCycle.phase_name)}</b> 국면 — 유리 섹터 <b>${(_vcCycle.lead_sectors || []).map(esc).join(' · ')}</b>`
+      + `<div style="color:var(--dim);font-size:11px;margin-top:2px">${(_vcCycle.reasons || []).map(esc).join(' · ')}${esc(pend)} · ★ 체인 우선 · KB도 이 섹터 위주 수집 (참고용 · 예측 아님)</div></div>`;
   } else if (cb) { cb.innerHTML = ''; }
   try {  // 국내+해외 현재 시그널·시총(관망 제외 뱃지, 시총순 선택)
     const [kr, us] = await Promise.all([
