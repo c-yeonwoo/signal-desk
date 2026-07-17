@@ -2252,7 +2252,8 @@ def _accuracy_snapshot() -> dict:
 @app.get("/api/brain/proposals")
 def brain_proposals_list(status: str | None = "draft"):
     """두뇌 개선 제안 큐(관리자). status=draft|approved|rejected 또는 빈 값=전체.
-    gate 요약(국면 적응 매수문턱)을 같이 내려 '시그널/봇 idle'과 트래커를 혼동하지 않게 한다."""
+    gate 요약(국면 적응 매수문턱)을 같이 내려 '시그널/봇 idle'과 트래커를 혼동하지 않게 한다.
+    accuracy_summary는 카드 얕은 A/B(현재 정밀도·추정 IC)용."""
     st = (status or "").strip() or None
     if st == "all":
         st = None
@@ -2263,8 +2264,18 @@ def brain_proposals_list(status: str | None = "draft"):
         flow_result=store.load_market_flow() if store.is_ready() else None,
     )
     base = signalcfg.get_dict()
+    acc = _accuracy_snapshot()
+    cov = acc.get("coverage") or {}
     return {"items": items, "draft_count": db.brain_proposal_draft_count(),
             "history": signalcfg.history(limit=8),
+            "accuracy_summary": {
+                "ready": bool(acc.get("ready")),
+                "buy_precision_pct": acc.get("buy_precision_pct"),
+                "factor_ic": acc.get("factor_ic") or {},
+                "matured_primary": cov.get("matured_primary"),
+                "composite_ic": brain_proposals.composite_ic_estimate(
+                    acc.get("factor_ic") or {}, base),
+            },
             "gate": {
                 "base_buy_threshold": base.get("buy_threshold"),
                 "effective_buy_threshold": adapt.get("effective_buy_threshold"),
@@ -2284,10 +2295,11 @@ def brain_proposals_refresh():
 
 @app.post("/api/brain/proposals/{pid}/review")
 def brain_proposals_review(pid: str, request: Request, data: dict = Body(default={})):
-    """제안 승인|반려. 승인 시 patch→signalcfg + 이력, 시그널 캐시 무효화."""
+    """제안 승인|반려. 승인 시 patch→signalcfg + 이력(+승인 시점 accuracy), 시그널 캐시 무효화."""
     _admin_or_403(request)
     status = str(data.get("status") or "").strip()
-    out = brain_proposals.review(pid, status, str(data.get("note") or ""))
+    acc = _accuracy_snapshot() if status == "approved" else None
+    out = brain_proposals.review(pid, status, str(data.get("note") or ""), accuracy=acc)
     if not out.get("ok"):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=out.get("error") or "처리 실패")

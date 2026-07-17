@@ -13,6 +13,16 @@ _WEIGHTS = {
 }
 
 
+def test_composite_ic_estimate_direction():
+    weights = dict(_WEIGHTS)
+    factor_ic = {"short": -0.10, "momentum": 0.10, "technical": 0.0}
+    before = brain_proposals.composite_ic_estimate(factor_ic, weights)
+    after_w = {**weights, "weight_short": weights["weight_short"] - 0.05}
+    after = brain_proposals.composite_ic_estimate(factor_ic, after_w)
+    assert before is not None and after is not None
+    assert after > before  # 음수 IC 비중↓ → 추정 composite ↑
+
+
 def test_build_nudge_negative_ic(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     d = brain_proposals.build_weight_nudge("short", -0.05, 40, _WEIGHTS)
@@ -77,12 +87,25 @@ def test_refresh_creates_down_up_and_approve(tmp_path, monkeypatch):
     assert not any((d.get("evidence") or {}).get("factor") == "technical" for d in drafts)
 
     short = next(d for d in drafts if (d.get("evidence") or {}).get("factor") == "short")
+    ev = short.get("evidence") or {}
+    assert ev.get("ab_kind") == "composite_ic"
+    assert ev.get("before_composite_ic") is not None
+    assert ev.get("after_composite_ic") is not None
+    # 음수 IC 팩터 비중↓ → 추정 composite IC는 올라가야 함
+    assert ev["after_composite_ic"] >= ev["before_composite_ic"]
+    thr = next(d for d in drafts if d.get("kind") == "threshold_nudge")
+    assert (thr.get("evidence") or {}).get("ab_kind") == "threshold_remeasure"
+
     before = signalcfg.get_dict()["weight_short"]
-    rev = brain_proposals.review(short["id"], "approved")
+    rev = brain_proposals.review(short["id"], "approved", accuracy=acc)
     assert rev["ok"] and rev["status"] == "approved"
     assert signalcfg.get_dict()["weight_short"] < before
     hist = signalcfg.history()
     assert hist and hist[0]["source"] == "brain_proposal"
+    snap = hist[0].get("accuracy_at_approve") or {}
+    assert snap.get("buy_precision_pct") == 40.0
+    assert snap.get("composite_ic") is not None
+    assert snap.get("projected_composite_ic") is not None
 
 
 def test_refresh_skips_immature_tracker(tmp_path, monkeypatch):

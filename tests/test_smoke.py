@@ -95,6 +95,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "obFinish('paper')" in html or 'obFinish("paper")' in html
     assert "trust-legend" in html
     assert "자동매매 실제 체결" not in html  # 페이퍼≠실제 체결
+    assert "_abLine" in html and "얕은 A/B" in html
+    assert "accuracy_at_approve" in html
 
 
 def test_bot_state_and_toggle(tmp_path, monkeypatch):

@@ -50,6 +50,49 @@ def _conf_ko(c: str) -> str:
     return {"high": "높음", "medium": "보통", "low": "낮음"}.get(c, c)
 
 
+def composite_ic_estimate(factor_ic: dict, weights: dict) -> float | None:
+    """팩터 IC × 가중치 가중평균 — composite score IC의 거친 추정(방향·크기 참고용).
+
+    개별 Spearman IC는 가중치와 무관하므로, 패치 전/후 가중으로만 proxy를 비교한다.
+    절댓값은 신뢰하지 말 것.
+    """
+    total_w = total_wic = 0.0
+    for factor, ic in (factor_ic or {}).items():
+        if not isinstance(ic, (int, float)):
+            continue
+        w = float((weights or {}).get(f"weight_{factor}") or 0)
+        if w <= 0:
+            continue
+        total_w += w
+        total_wic += w * float(ic)
+    if total_w <= 0:
+        return None
+    return round(total_wic / total_w, 3)
+
+
+def _attach_shallow_ab(draft: dict, accuracy: dict, weights: dict) -> dict:
+    """제안 evidence에 얕은 A/B(추정 composite IC 전후·정밀도 스냅샷)를 붙인다."""
+    ev = dict(draft.get("evidence") or {})
+    factor_ic = (accuracy or {}).get("factor_ic") or {}
+    patch = draft.get("patch") or {}
+    before_ic = composite_ic_estimate(factor_ic, weights)
+    weight_patch = {k: v for k, v in patch.items() if str(k).startswith("weight_")}
+    after_ic = None
+    if weight_patch:
+        after_ic = composite_ic_estimate(factor_ic, {**(weights or {}), **weight_patch})
+    if before_ic is not None:
+        ev["before_composite_ic"] = before_ic
+    if after_ic is not None:
+        ev["after_composite_ic"] = after_ic
+        ev["ab_delta"] = round(after_ic - (before_ic or 0), 3)
+        ev["ab_kind"] = "composite_ic"
+    if draft.get("kind") == "threshold_nudge" and accuracy.get("buy_precision_pct") is not None:
+        ev["before_buy_precision_pct"] = accuracy.get("buy_precision_pct")
+        ev["ab_kind"] = "threshold_remeasure"
+    draft["evidence"] = ev
+    return draft
+
+
 def build_weight_nudge(factor: str, ic: float, n: int, weights: dict) -> dict | None:
     """음수 IC 랭킹 팩터 → 비중 ↓ 제안 1장."""
     if factor in _TIMING_FACTORS or factor not in _FACTOR_KO:
@@ -254,6 +297,7 @@ def refresh(accuracy: dict, weights: dict | None = None) -> dict:
         draft = build_weight_nudge(factor, float(ic), n, weights)
         if not draft:
             continue
+        _attach_shallow_ab(draft, accuracy, weights)
         items.append(_upsert_draft(draft, baseline, today))
         created += 1
 
@@ -268,12 +312,14 @@ def refresh(accuracy: dict, weights: dict | None = None) -> dict:
             if cand:
                 best_up, best_ic = cand, float(ic)
     if best_up:
+        _attach_shallow_ab(best_up, accuracy, weights)
         items.append(_upsert_draft(best_up, baseline, today))
         created += 1
 
     # 3) 매수 정밀도 기반 임계 nudge (있을 때만 1장)
     thr = build_threshold_nudge(accuracy, weights)
     if thr:
+        _attach_shallow_ab(thr, accuracy, weights)
         items.append(_upsert_draft(thr, baseline, today))
         created += 1
 
@@ -283,10 +329,11 @@ def refresh(accuracy: dict, weights: dict | None = None) -> dict:
     return {"ok": True, "created": created, "items": items}
 
 
-def review(pid: str, status: str, note: str = "") -> dict:
+def review(pid: str, status: str, note: str = "", accuracy: dict | None = None) -> dict:
     """승인|반려. 승인 시 patch를 현재 설정에 병합·이력 기록·캐시는 호출측에서 clear.
 
     status 전환은 draft CAS(claim)로 이중 승인을 막는다 — 선점 성공 후에만 설정 반영.
+    accuracy가 있으면 승인 시점 정밀도·추정 IC를 history에 남겨 얕은 A/B로 쓴다.
     """
     if status not in ("approved", "rejected"):
         return {"ok": False, "error": "status는 approved|rejected"}
@@ -307,6 +354,18 @@ def review(pid: str, status: str, note: str = "") -> dict:
             return {"ok": False, "error": "적용할 변경값이 없습니다.", "id": pid, "status": status}
         merged = {**before, **patch}
         after = signalcfg.set_dict(merged)
+        ev = item.get("evidence") or {}
+        acc_snap = None
+        if accuracy:
+            cov = (accuracy.get("coverage") or {})
+            acc_snap = {
+                "buy_precision_pct": accuracy.get("buy_precision_pct"),
+                "factor_ic": accuracy.get("factor_ic") or {},
+                "matured_primary": cov.get("matured_primary"),
+                "composite_ic": composite_ic_estimate(accuracy.get("factor_ic") or {}, before),
+                "projected_composite_ic": ev.get("after_composite_ic"),
+                "ab_kind": ev.get("ab_kind"),
+            }
         signalcfg.append_history({
             "ts": int(time.time()),
             "source": "brain_proposal",
@@ -316,8 +375,9 @@ def review(pid: str, status: str, note: str = "") -> dict:
             "after": after,
             "patch": patch,
             "note": note or None,
+            "accuracy_at_approve": acc_snap,
         })
-        applied = {"patch": patch, "config": after}
+        applied = {"patch": patch, "config": after, "accuracy_at_approve": acc_snap}
         log.info("brain proposal approved id=%s patch=%s", pid, patch)
 
     return {"ok": True, "id": pid, "status": status, "applied": applied}

@@ -921,7 +921,7 @@
     </div>
 
     <div id="admin-engine" style="display:none">
-    <p class="page-desc" style="margin:0 0 12px">흐름: <b>헬스 진단 → 개선 제안(승인) → 실측 확인</b>. 평소엔 제안 카드만 검토하면 되고, 수동 가중·백테스트는 필요할 때만 펼칩니다.</p>
+    <p class="page-desc" style="margin:0 0 12px">흐름: <b>헬스 진단 → 개선 제안(승인) → 실측 확인</b>. 제안 카드에 <b>얕은 A/B</b>(추정 composite IC 전후)를 붙여 방향을 보고, 심판은 승인 후 실측입니다. 수동 가중·백테스트는 필요할 때만 펼칩니다.</p>
     <div id="engine-gate-strip" style="display:none;margin:0 0 12px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2,transparent);font-size:12.5px;line-height:1.45"></div>
 
     <div class="card" id="brain-card" style="margin-top:0">
@@ -937,7 +937,7 @@
 
     <div class="card" id="brain-proposals-card" style="margin-top:16px">
       <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div style="font-weight:700;font-size:15px">개선 제안 <span style="color:var(--dim);font-weight:600;font-size:12px">· 승인 후에만 엔진 반영</span></div>
+        <div style="font-weight:700;font-size:15px">개선 제안 <span style="color:var(--dim);font-weight:600;font-size:12px">· 승인 후에만 엔진 반영 · 얕은 A/B</span></div>
         <div class="row" style="gap:6px;margin:0">
           <button class="btn" onclick="refreshBrainProposals()" id="bp-refresh-btn">제안 새로고침</button>
         </div>
@@ -4333,6 +4333,26 @@ function _patchLine(patch, baseline){
     return `${_BP_FIELD_KO[k] || k} ${from} → ${fmtNum(v, 2)}`;
   }).join(' · ');
 }
+/** 얕은 A/B — 가중 패치는 추정 composite IC 전후, 문턱 패치는 현재 정밀도 + 재측정 안내 */
+function _abLine(it, accSummary){
+  const ev = it.evidence || {};
+  const bits = [];
+  if (ev.ab_kind === 'composite_ic' && ev.before_composite_ic != null && ev.after_composite_ic != null) {
+    const bic = ev.before_composite_ic, aic = ev.after_composite_ic;
+    const dir = aic > bic ? '↑' : (aic < bic ? '↓' : '→');
+    const dlt = ev.ab_delta != null ? ` (Δ ${ev.ab_delta > 0 ? '+' : ''}${fmtNum(ev.ab_delta, 3)})` : '';
+    bits.push(`추정 composite IC <b>${fmtNum(bic, 3)}</b> ${dir} <b>${fmtNum(aic, 3)}</b>${dlt}`);
+  } else if (ev.ab_kind === 'threshold_remeasure' && ev.before_buy_precision_pct != null) {
+    bits.push(`현재 매수 정밀도 <b>${fmtNum(ev.before_buy_precision_pct, 1)}%</b> · 승인 후 실측으로 재확인`);
+  }
+  const prec = accSummary && accSummary.buy_precision_pct;
+  if (prec != null && ev.ab_kind === 'composite_ic')
+    bits.push(`현재 매수 정밀도 ${fmtNum(prec, 1)}%`);
+  if (!bits.length) return '';
+  return `<div style="font-size:11px;color:var(--dim);margin-bottom:8px;line-height:1.45;padding:6px 8px;background:var(--bg);border-radius:8px;border:1px dashed var(--line)">`
+    + `<span class="trust-badge accum">얕은 A/B</span> ${bits.join(' · ')}`
+    + `<div style="color:var(--dim-2);margin-top:3px">팩터 IC×가중 추정 · 방향 참고용(절댓값 아님). 심판은 승인 후 실측.</div></div>`;
+}
 function _renderEngineGate(gate){
   const strip = document.getElementById('engine-gate-strip');
   if (!strip) return;
@@ -4364,6 +4384,7 @@ async function loadBrainProposals(){
     _setEngineBadge(d.draft_count || 0);
     _renderEngineGate(d.gate);
     const items = d.items || [];
+    const accSum = d.accuracy_summary || {};
     if (!items.length) {
       el.className = 'placeholder';
       el.innerHTML = '대기 중인 제안이 없습니다. 실측이 쌓이면 <b>제안 새로고침</b>으로 초안을 만들 수 있습니다.'
@@ -4384,6 +4405,7 @@ async function loadBrainProposals(){
           </div>
           <div style="font-size:13px;line-height:1.45;margin-bottom:6px">${esc(it.body_ko || '')}</div>
           <div style="font-size:12px;color:var(--dim);margin-bottom:4px">${esc(it.rationale_ko || '')}</div>
+          ${_abLine(it, accSum)}
           <div style="font-size:12px;font-weight:600;margin-bottom:10px">적용 시: ${esc(fromTo || '변경 없음')}</div>
           <div class="row" style="gap:6px;margin:0">
             <button class="btn primary" onclick="reviewBrainProposal('${esc(it.id)}','approved')">승인하고 적용</button>
@@ -4395,12 +4417,18 @@ async function loadBrainProposals(){
     const hist = d.history || [];
     if (histEl) {
       histEl.innerHTML = hist.length
-        ? '<div style="font-weight:700;margin-bottom:4px">최근 설정 변경</div>'
+        ? '<div style="font-weight:700;margin-bottom:4px">최근 설정 변경 <span style="font-weight:400;color:var(--dim-2);font-size:11px">· 승인 시 실측 스냅샷</span></div>'
           + hist.map(h => {
             const when = h.ts ? new Date(h.ts * 1000).toLocaleString('ko-KR') : '';
             const src = h.source === 'brain_proposal' ? '제안 승인' : (h.source === 'manual' ? '수동' : (h.source || ''));
             const title = h.title || _patchLine(h.patch, h.before) || '설정 변경';
-            return `<div style="padding:2px 0">${esc(when)} · ${esc(src)} · ${esc(title)}</div>`;
+            const ab = h.accuracy_at_approve || {};
+            const notes = [];
+            if (ab.buy_precision_pct != null) notes.push(`정밀도 ${fmtNum(ab.buy_precision_pct, 1)}%`);
+            if (ab.composite_ic != null) notes.push(`추정IC ${fmtNum(ab.composite_ic, 3)}`);
+            if (ab.projected_composite_ic != null) notes.push(`예상 ${fmtNum(ab.projected_composite_ic, 3)}`);
+            const abNote = notes.length ? ` · <span style="color:var(--dim-2)">승인시 ${notes.join(' · ')}</span>` : '';
+            return `<div style="padding:2px 0">${esc(when)} · ${esc(src)} · ${esc(title)}${abNote}</div>`;
           }).join('')
         : '';
     }
