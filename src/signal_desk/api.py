@@ -2184,13 +2184,27 @@ def _accuracy_snapshot() -> dict:
 
 @app.get("/api/brain/proposals")
 def brain_proposals_list(status: str | None = "draft"):
-    """두뇌 개선 제안 큐(관리자). status=draft|approved|rejected 또는 빈 값=전체."""
+    """두뇌 개선 제안 큐(관리자). status=draft|approved|rejected 또는 빈 값=전체.
+    gate 요약(국면 적응 매수문턱)을 같이 내려 '시그널/봇 idle'과 트래커를 혼동하지 않게 한다."""
     st = (status or "").strip() or None
     if st == "all":
         st = None
     items = brain_proposals.list_proposals(status=st)
+    _, adapt = signalcfg.effective_config(
+        _regime() if store.is_ready() else None,
+        _macro() if store.is_ready() else None,
+        flow_result=store.load_market_flow() if store.is_ready() else None,
+    )
+    base = signalcfg.get_dict()
     return {"items": items, "draft_count": db.brain_proposal_draft_count(),
-            "history": signalcfg.history(limit=8)}
+            "history": signalcfg.history(limit=8),
+            "gate": {
+                "base_buy_threshold": base.get("buy_threshold"),
+                "effective_buy_threshold": adapt.get("effective_buy_threshold"),
+                "bump": adapt.get("bump") or 0.0,
+                "reasons": list(adapt.get("reasons") or []),
+                "regime_adaptive": bool((base.get("regime_adaptive") or 0) >= 0.5),
+            }}
 
 
 @app.post("/api/brain/proposals/refresh")
