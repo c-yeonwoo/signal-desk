@@ -140,9 +140,14 @@
   .sig-quote .q-price { font-size:16px; font-weight:800; color:var(--txt); }
   .sig-quote .q-k { color:var(--dim-2); }
   .sig-chart-pane { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; max-height:calc(100dvh - 200px); }
-  .sig-chart-pane .pane-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
-  .sig-about { display:none; margin:0 0 8px; font-size:12.5px; color:var(--dim); line-height:1.45; }
-  .sig-about.is-on { display:block; }  /* style.display=''면 CSS display:none이 다시 먹음 */
+  /* 왼쪽: 종목명+개요 한 덩어리 / 오른쪽: 차트 모드 — 버튼 높이 때문에 개요가 아래로 밀려 보이지 않게 */
+  .sig-chart-pane .pane-head { display:flex; align-items:flex-start; gap:10px 14px; flex-wrap:nowrap;
+    margin-bottom:8px; }
+  .sig-chart-pane .pane-title-block { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .sig-chart-pane .pane-title-block #signal-chart-title { font-weight:700; font-size:16px; line-height:1.25; }
+  .sig-chart-pane .pane-head #chart-mode-seg { flex:0 0 auto; margin-left:auto; margin-top:1px; font-size:12px; }
+  .sig-about { display:none; margin:0; font-size:12.5px; color:var(--dim); line-height:1.4; }
+  .sig-about.is-on { display:block; }
   .sig-about .sa-label { color:var(--dim-2); font-size:11px; font-weight:700; margin-right:6px; }
   .sig-about .sa-text { color:var(--txt); }
   .sig-chart-pane { overflow-y:auto; }
@@ -395,6 +400,8 @@
     .sig-toolbar { position:static; }
     #signal-chart { flex:0 0 auto; height:360px; max-width:100%; }
     .sig-chart-pane { min-height:0; max-height:none; width:100%; max-width:100%; }
+    .sig-chart-pane .pane-head { flex-wrap:wrap; }
+    .sig-chart-pane .pane-head #chart-mode-seg { margin-left:0; }
     .market-bar { gap:6px 8px; flex-wrap:wrap; }
     #regime-detail { white-space:normal; display:-webkit-box; -webkit-box-orient:vertical;
       -webkit-line-clamp:2; overflow:hidden; flex:1 1 12rem; }
@@ -631,14 +638,16 @@
       </div>
       <div class="sig-chart-pane card">
         <div class="pane-head">
-          <span id="signal-chart-title" style="font-weight:700;font-size:16px">종목을 선택하세요</span>
-          <span id="chart-mode-seg" class="seg-toggle" style="margin-left:auto;font-size:12px">
+          <div class="pane-title-block">
+            <span id="signal-chart-title">종목을 선택하세요</span>
+            <div id="signal-about" class="sig-about"></div>
+          </div>
+          <span id="chart-mode-seg" class="seg-toggle">
             <button type="button" data-cm="simple" onclick="setChartMode('simple')">간단</button>
             <button type="button" data-cm="trend" onclick="setChartMode('trend')">추세</button>
             <button type="button" data-cm="detail" onclick="setChartMode('detail')">자세히</button>
           </span>
         </div>
-        <div id="signal-about" class="sig-about"></div>
         <div id="signal-hero" style="display:none"></div>
         <p id="chart-mode-hint" class="page-desc" style="display:none;margin:0 0 8px;font-size:12px"></p>
         <div id="signal-chart"></div>
