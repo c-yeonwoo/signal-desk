@@ -713,12 +713,11 @@ def _us_signal_detail(ticker: str) -> dict | None:
     d["sector"] = sector
     d["intro"] = f"{sector} 섹터" if sector else None
     d["intro_desc"] = None
-    # 활성 시그널이면 개요 캐시 없을 때 온디맨드 생성(Sonnet) — 처음 보는 종목 이해도
+    # 상세 클릭 시 개요 캐시 없으면 온디맨드 생성(캐시됨) — 처음 보는 종목 이해도
     from signal_desk import llm as llm_mod
-    active = r.kind in _ACTIVE_SIGNAL_KINDS
     d["about"] = company.about(
         ticker, name, sector, "us",
-        generate=active, model=llm_mod.ABOUT_QUALITY_MODEL if active else None,
+        generate=True, model=llm_mod.ABOUT_QUALITY_MODEL,
     )
     d["moves"] = company.recent_moves(ticker, name)
     d["kb"] = None
@@ -751,10 +750,9 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     d["intro"] = f"{pos['sector']} 밸류체인 · {pos['stage']}" if pos else None
     d["intro_desc"] = pos["stage_desc"] if pos else None
     from signal_desk import llm as llm_mod
-    active = r.kind in _ACTIVE_SIGNAL_KINDS
     d["about"] = company.about(
         ticker, r.name, sector, "kr",
-        generate=active, model=llm_mod.ABOUT_QUALITY_MODEL if active else None,
+        generate=True, model=llm_mod.ABOUT_QUALITY_MODEL,
     )
     d["moves"] = company.recent_moves(ticker, r.name)
     dg = db.kb_digest_get(ticker)

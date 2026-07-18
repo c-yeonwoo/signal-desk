@@ -142,6 +142,7 @@
   .sig-chart-pane { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; max-height:calc(100dvh - 200px); }
   .sig-chart-pane .pane-head { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
   .sig-about { display:none; margin:0 0 8px; font-size:12.5px; color:var(--dim); line-height:1.45; }
+  .sig-about.is-on { display:block; }  /* style.display=''면 CSS display:none이 다시 먹음 */
   .sig-about .sa-label { color:var(--dim-2); font-size:11px; font-weight:700; margin-right:6px; }
   .sig-about .sa-text { color:var(--txt); }
   .sig-chart-pane { overflow-y:auto; }
@@ -712,10 +713,12 @@
 
   <div id="view-trading" class="view-app" style="display:none">
     <div id="trading-bot">
-    <div class="pcard" style="margin-bottom:10px;padding:8px 12px">
-      <div style="font-size:11px;line-height:1.5;color:var(--dim)">
-        <span class="layer-badge sig">신호</span> 페이퍼 계좌(가상 체결) ·
-        <span class="layer-badge ctx">맥락</span> 실보유(내 포트폴리오)와 <b style="color:var(--txt)">별개 장부</b>
+    <div class="pcard" style="margin-bottom:10px;padding:10px 14px">
+      <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:4px">모의투자 연습장</div>
+      <div style="font-size:12px;line-height:1.55;color:var(--dim)">
+        진짜 돈이 아니라 <b style="color:var(--txt)">가상 시드</b>로 시그널을 따라 사고팔아 보는 곳입니다.
+        아래 <b style="color:var(--txt)">켜기</b>를 누르면 봇이 자동으로 연습 매매를 기록합니다.
+        <span style="color:var(--dim-2)">실제 증권사 주문·내 실보유 포트폴리오와는 무관한 별도 장부예요.</span>
       </div>
     </div>
     <div class="row" style="margin-bottom:12px;align-items:center;gap:10px">
@@ -2170,10 +2173,14 @@ function gotoPaperFromSignal(){
     note.style.display = '';
     const name = (_selectedTicker && _signalItems[_selectedTicker])
       ? _signalItems[_selectedTicker].name : (_selectedTicker || '');
-    note.innerHTML = `<b>모의투자(페이퍼) 화면입니다</b> · 가상 돈으로 자동매매를 연습하는 곳이에요.`
-      + ` 아래에서 <b>ON</b>을 켜면 시그널을 바탕으로 매수·매도를 연습합니다.`
-      + (name ? ` <span style="color:var(--dim)">· 방금 보던 종목: ${esc(name)}</span>` : '')
-      + ` <span style="color:var(--dim-2)">(실제 주문 없음 · 투자 권유 아님)</span>`;
+    note.innerHTML = `<b>다음에 할 일</b>`
+      + `<ol style="margin:6px 0 0;padding-left:18px;color:var(--txt)">`
+      + `<li>아래 <b>켜기</b>를 누릅니다 (봇 ON).</li>`
+      + `<li>봇이 시그널 탭의 매수권·매도권을 보고 <b>가상 돈</b>으로 사고팝니다.</li>`
+      + `<li>위 현금·손익은 연습용 가짜 장부입니다. 실제 주문은 나가지 않아요.</li>`
+      + `</ol>`
+      + (name ? `<div style="margin-top:6px;color:var(--dim)">방금 보던 종목: ${esc(name)} <span style="color:var(--dim-2)">· 이 종목만 사는 버튼은 아닙니다</span></div>` : '')
+      + `<div style="margin-top:4px;font-size:11px;color:var(--dim-2)">투자 권유 아님 · 성적 연습·학습용</div>`;
     note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 }
@@ -2401,8 +2408,8 @@ function _paintSignalDetail(ticker, item){
           ? `<div style="font-size:11px;color:var(--dim-2);margin-top:6px">중기(~2–3개월) 관점 — 추세 지속에 베팅하는 신호라 단기 등락보다 몇 주~몇 달 흐름으로 보세요</div>`
           : ''}
         <div class="hero-cta">
-          <button type="button" class="btn" onclick="gotoPaperFromSignal()">모의투자로 연습하기</button>
-          <span style="font-size:11px;color:var(--dim-2)">가상 돈 · 시그널 기반 연습</span>
+          <button type="button" class="btn" onclick="gotoPaperFromSignal()">가상 돈으로 연습해보기</button>
+          <span style="font-size:11px;color:var(--dim);max-width:22em;line-height:1.4">시그널을 따라 사고파는 <b>연습장</b>으로 이동합니다. 실제 주문 없음.</span>
         </div>
       </div>`;
   } else heroEl.style.display = 'none';
@@ -2427,10 +2434,10 @@ function _paintSignalDetail(ticker, item){
   const aboutEl = document.getElementById('signal-about');
   if (aboutEl) {
     if (item && item.about) {
-      aboutEl.style.display = '';
+      aboutEl.classList.add('is-on');
       aboutEl.innerHTML = `<span class="sa-label">종목 개요</span><span class="sa-text">${esc(item.about)}</span>`;
     } else {
-      aboutEl.style.display = 'none';
+      aboutEl.classList.remove('is-on');
       aboutEl.innerHTML = '';
     }
   }
