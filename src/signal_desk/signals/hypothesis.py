@@ -1,7 +1,7 @@
-"""시황 가설(#6) — 브랜치 지지도·근거 뉴스·관심 섹터 렌즈.
+"""시황 가설(#6) — 배타적 IF → then 지표 분기 → outcome 트리.
 
-시그널 엔진·페이퍼 봇과 독립. %는 예측 확률이 아니라 형제 상대 지지도.
-점수 = 0.5*지표일치 + 0.3*KB근거 + 0.2*사이클정합 → sibling 정규화.
+시그널 엔진·페이퍼 봇과 독립. Layer0 %는 예측 확률이 아니라 배타 IF 간 상대 지지도.
+LLM/Opus로 가지를 만들지 않음 — 큐레이션 템플릿 + 실지표 status.
 """
 
 from __future__ import annotations
@@ -18,17 +18,18 @@ from signal_desk.signals import regime as regime_mod
 
 log = logging.getLogger("signal_desk.hypothesis")
 
-_KV_KEY = "hypo:v1:latest"
+_KV_KEY = "hypo:v2:latest"
 _DISCLAIMER = (
-    "가설·학습용 · 예측·투자권유 아님 · 숫자는 지지도(상대 가중)이며 시장이 그렇게 될 확률이 아닙니다 "
+    "가설·학습용 · 지지도(배타 가설 간 상대 가중) · IF 분기 · 예측·투자권유 아님 "
     "· 시그널과 별개 레이어"
 )
 
-# P0 고정 템플릿 3갈래 — sector_keys는 valuechain key
-_BRANCHES: list[dict[str, Any]] = [
+# 큐레이션 IF → then/and/but → outcome (깊이 ≤3)
+_TEMPLATES: list[dict[str, Any]] = [
     {
         "id": "ai_capex",
         "label": "AI·CAPEX 지속",
+        "edge": "if",
         "assumptions": [
             "데이터센터·AI 설비투자가 이어진다",
             "반도체 사이클이 아직 꺾이지 않는다",
@@ -36,11 +37,58 @@ _BRANCHES: list[dict[str, Any]] = [
         ],
         "sector_keys": ["semiconductor", "ai_datacenter", "power_nuclear", "robotics"],
         "evidence_query": "AI 데이터센터 반도체 HBM 설비투자 CAPEX",
-        "affinity": "risk_on",  # 우호 거시·확장/회복·나스닥↑
+        "affinity": "risk_on",
+        "children": [
+            {
+                "id": "ai_capex_then_growth",
+                "kind": "then",
+                "edge": "then",
+                "label": "나스닥 상대강세 · VIX 진정",
+                "assumptions": ["성장·기술 선호가 유지되면 위험지표가 안정권을 지킨다"],
+                "conditions": [
+                    {"metric": "NASDAQCOM", "op": "chg>", "threshold": 0, "label": "나스닥 상승"},
+                    {"metric": "VIXCLS", "op": "<", "threshold": 20, "label": "VIX < 20"},
+                ],
+                "children": [
+                    {
+                        "id": "ai_capex_out_tech",
+                        "kind": "outcome",
+                        "edge": "then",
+                        "label": "반도체·AI·전력 인프라 관심",
+                        "assumptions": ["CAPEX 서사가 이어질 때 상대 주목 섹터"],
+                        "sector_keys": ["semiconductor", "ai_datacenter", "power_nuclear"],
+                        "evidence_query": "AI 데이터센터 반도체 HBM 설비투자",
+                    },
+                ],
+            },
+            {
+                "id": "ai_capex_but_vol",
+                "kind": "then",
+                "edge": "but",
+                "label": "VIX 급등 · 거시 비우호 동시",
+                "assumptions": ["성장 테마여도 변동성·거시 악화가 겹치면 숨고르기"],
+                "conditions": [
+                    {"metric": "VIXCLS", "op": ">=", "threshold": 25, "label": "VIX ≥ 25"},
+                    {"metric": "macro_bias", "op": "==", "threshold": "비우호", "label": "거시 비우호"},
+                ],
+                "children": [
+                    {
+                        "id": "ai_capex_out_pause",
+                        "kind": "outcome",
+                        "edge": "then",
+                        "label": "성장 테마 숨고르기 · 방어 상대",
+                        "assumptions": ["테크 쏠림이 쉬어가고 방어·현금성이 상대 강세"],
+                        "sector_keys": ["defense", "telecom", "finance"],
+                        "evidence_query": "변동성 VIX 성장주 조정 방어주",
+                    },
+                ],
+            },
+        ],
     },
     {
         "id": "consumer_shift",
         "label": "정책·물가·소비 쪽 이동",
+        "edge": "if",
         "assumptions": [
             "물가 안정·금리 부담 완화로 소비 여력이 돌아온다",
             "AI·성장주 쏠림이 쉬어가고 내수·소비재가 상대 주목받는다",
@@ -48,11 +96,57 @@ _BRANCHES: list[dict[str, Any]] = [
         ],
         "sector_keys": ["retail", "cosmetics", "telecom", "finance"],
         "evidence_query": "소비 내수 물가 금리인하 필수소비재 유통",
-        "affinity": "consumer",  # 디스인플레·금리↓·방어/내수
+        "affinity": "consumer",
+        "children": [
+            {
+                "id": "consumer_then_easing",
+                "kind": "then",
+                "edge": "then",
+                "label": "CPI 안정 · 금리 부담 완화",
+                "assumptions": ["디스인플레·금리 방향이 소비에 우호적일 때"],
+                "conditions": [
+                    {"metric": "CPIAUCSL", "op": "chg<=", "threshold": 0, "label": "CPI 안정·하락"},
+                    {"metric": "FEDFUNDS", "op": "chg<=", "threshold": 0, "label": "기준금리 동결·인하"},
+                ],
+                "children": [
+                    {
+                        "id": "consumer_out_retail",
+                        "kind": "outcome",
+                        "edge": "then",
+                        "label": "내수·소비재·유통 관심",
+                        "assumptions": ["소비 회복 서사에 맞는 섹터 렌즈"],
+                        "sector_keys": ["retail", "cosmetics", "telecom"],
+                        "evidence_query": "소비 내수 유통 필수소비재",
+                    },
+                ],
+            },
+            {
+                "id": "consumer_but_inflate",
+                "kind": "then",
+                "edge": "but",
+                "label": "물가 재가속",
+                "assumptions": ["물가가 다시 올라가면 소비 회복이 미뤄진다"],
+                "conditions": [
+                    {"metric": "CPIAUCSL", "op": "chg>", "threshold": 0, "label": "CPI 상승"},
+                ],
+                "children": [
+                    {
+                        "id": "consumer_out_delay",
+                        "kind": "outcome",
+                        "edge": "then",
+                        "label": "소비 회복 지연 · 관망",
+                        "assumptions": ["내수 테마보다 물가·금리 확인이 우선"],
+                        "sector_keys": ["finance", "telecom"],
+                        "evidence_query": "인플레 물가 재가속 소비둔화",
+                    },
+                ],
+            },
+        ],
     },
     {
         "id": "risk_off",
         "label": "리스크오프",
+        "edge": "if",
         "assumptions": [
             "변동성·불확실성이 커져 위험자산 선호가 줄어든다",
             "방어·배당·현금성 자산이 상대 강세를 보인다",
@@ -61,6 +155,52 @@ _BRANCHES: list[dict[str, Any]] = [
         "sector_keys": ["defense", "energy", "telecom", "finance"],
         "evidence_query": "안전자산 변동성 VIX 방어주 배당 침체 우려",
         "affinity": "risk_off",
+        "children": [
+            {
+                "id": "risk_off_then_fear",
+                "kind": "then",
+                "edge": "then",
+                "label": "VIX 상승 · 국면 약세/조정",
+                "assumptions": ["공포·조정 국면에서 위험회피가 우세"],
+                "conditions": [
+                    {"metric": "VIXCLS", "op": ">=", "threshold": 20, "label": "VIX ≥ 20"},
+                    {"metric": "regime", "op": "in", "threshold": ["약세", "조정"], "label": "국면 약세·조정"},
+                ],
+                "children": [
+                    {
+                        "id": "risk_off_out_def",
+                        "kind": "outcome",
+                        "edge": "then",
+                        "label": "방어·에너지·배당 관심",
+                        "assumptions": ["위험회피 시 상대 강세 섹터"],
+                        "sector_keys": ["defense", "energy", "telecom"],
+                        "evidence_query": "방어주 배당 에너지 안전자산",
+                    },
+                ],
+            },
+            {
+                "id": "risk_off_and_nasdaq",
+                "kind": "then",
+                "edge": "and",
+                "label": "나스닥 하락 동반",
+                "assumptions": ["위험자산 전반이 같이 빠지면 회피가 강화된다"],
+                "conditions": [
+                    {"metric": "NASDAQCOM", "op": "chg<", "threshold": 0, "label": "나스닥 하락"},
+                    {"metric": "VIXCLS", "op": ">=", "threshold": 20, "label": "VIX ≥ 20"},
+                ],
+                "children": [
+                    {
+                        "id": "risk_off_out_cash",
+                        "kind": "outcome",
+                        "edge": "then",
+                        "label": "위험자산 회피 강화",
+                        "assumptions": ["성장·위험 테마보다 현금성·방어 우선"],
+                        "sector_keys": ["defense", "finance", "energy"],
+                        "evidence_query": "위험회피 주식조정 안전자산 현금",
+                    },
+                ],
+            },
+        ],
     },
 ]
 
@@ -91,7 +231,7 @@ def _metric_score(affinity: str, *, macro_bias: str | None, regime_name: str | N
     vix_val = vix.get("value")
     fear = vix_val is not None and vix_val >= 25
     calm = vix_val is not None and vix_val < 20
-    score = 0.35  # 바닥
+    score = 0.35
 
     if affinity == "risk_on":
         if macro_bias == "우호":
@@ -110,11 +250,11 @@ def _metric_score(affinity: str, *, macro_bias: str | None, regime_name: str | N
             score += 0.1
     elif affinity == "consumer":
         if macro_bias == "우호":
-            score += 0.1  # 디스인플레·금리↓는 소비에도 우호
+            score += 0.1
         if phase_key in ("slowdown", "contraction", "recovery"):
             score += 0.2
         if not nas_up:
-            score += 0.1  # 성장주 쉬어갈 때 상대 관심
+            score += 0.1
         if regime_name in ("조정", "약세", "중립"):
             score += 0.15
     elif affinity == "risk_off":
@@ -144,7 +284,6 @@ def _cycle_score(sector_keys: list[str], lead_tags: list[str]) -> float:
             branch_tags.update(sec.get("tags") or [])
     if not lead_keys and not branch_tags:
         return 0.25
-    # key 겹침 또는 tag 이름 겹침
     key_hit = len(lead_keys & set(sector_keys))
     tag_hit = len(set(lead_tags) & branch_tags)
     hits = key_hit + tag_hit
@@ -162,7 +301,6 @@ def _evidence_for(query: str, k: int = 5) -> tuple[float, list[dict]]:
         hits = []
     if not hits:
         return 0.05, []
-    # id → source/published 보강
     by_id: dict[int, dict] = {}
     try:
         for d in db.kb_documents(limit=2000):
@@ -184,7 +322,7 @@ def _evidence_for(query: str, k: int = 5) -> tuple[float, list[dict]]:
             "ticker": h.get("ticker"),
         })
     n = len(evidence)
-    kb_score = min(1.0, 0.2 + 0.2 * n)  # 0건은 위에서 처리, 1~4건 스케일
+    kb_score = min(1.0, 0.2 + 0.2 * n)
     return kb_score, evidence[:5]
 
 
@@ -205,7 +343,8 @@ def _watch_metrics(*, macro_bias, regime_name, phase_name, indicators) -> list[d
         {"key": "regime", "label": "시장 국면", "value": regime_name or "–"},
         {"key": "cycle", "label": "경기 사이클", "value": phase_name or "–"},
     ]
-    for key, label in (("NASDAQCOM", "나스닥"), ("VIXCLS", "VIX"), ("CPIAUCSL", "미 CPI")):
+    for key, label in (("NASDAQCOM", "나스닥"), ("VIXCLS", "VIX"), ("CPIAUCSL", "미 CPI"),
+                       ("FEDFUNDS", "연준 기준금리")):
         ind = by.get(key)
         if not ind:
             continue
@@ -214,13 +353,164 @@ def _watch_metrics(*, macro_bias, regime_name, phase_name, indicators) -> list[d
         if key == "NASDAQCOM" and chg is not None:
             rows.append({"key": key, "label": label, "value": f"{chg:+.1f}%"})
         elif val is not None:
-            unit = "%" if key != "VIXCLS" else ""
+            unit = "%" if key not in ("VIXCLS",) else ""
             rows.append({"key": key, "label": label, "value": f"{val:.1f}{unit}"})
     return rows
 
 
+def _ctx_value(metric: str, *, indicators: list[dict], macro_bias, regime_name) -> Any:
+    if metric == "macro_bias":
+        return macro_bias
+    if metric == "regime":
+        return regime_name
+    by = {i["key"]: i for i in (indicators or [])}
+    ind = by.get(metric) or {}
+    if metric in ("NASDAQCOM",) or str(metric).endswith("_chg"):
+        return ind.get("change")
+    return ind.get("value") if ind.get("value") is not None else ind.get("change")
+
+
+def _cond_ok(cond: dict, *, indicators, macro_bias, regime_name) -> bool | None:
+    """조건 충족 여부. 값 없으면 None(미관측)."""
+    metric = cond.get("metric") or ""
+    op = cond.get("op") or "=="
+    thr = cond.get("threshold")
+    # chg 계열은 change 필드
+    if op.startswith("chg"):
+        by = {i["key"]: i for i in (indicators or [])}
+        val = (by.get(metric) or {}).get("change")
+        if val is None:
+            return None
+        real_op = op[3:]  # >, <, >=, <=
+        if real_op == ">":
+            return val > thr
+        if real_op == "<":
+            return val < thr
+        if real_op == ">=":
+            return val >= thr
+        if real_op == "<=":
+            return val <= thr
+        return None
+    val = _ctx_value(metric, indicators=indicators, macro_bias=macro_bias, regime_name=regime_name)
+    if val is None:
+        return None
+    if op == "==":
+        return val == thr
+    if op == "in":
+        return val in (thr or [])
+    if op == ">=":
+        return val >= thr
+    if op == "<=":
+        return val <= thr
+    if op == ">":
+        return val > thr
+    if op == "<":
+        return val < thr
+    return None
+
+
+def _eval_status(conditions: list[dict], *, indicators, macro_bias, regime_name) -> tuple[str, dict]:
+    """조건 리스트 → status + current 스냅샷."""
+    current: dict[str, Any] = {}
+    if not conditions:
+        return "n/a", current
+    results: list[bool | None] = []
+    for c in conditions:
+        m = c.get("metric") or ""
+        if m == "macro_bias":
+            current[m] = macro_bias
+        elif m == "regime":
+            current[m] = regime_name
+        else:
+            by = {i["key"]: i for i in (indicators or [])}
+            ind = by.get(m) or {}
+            current[m] = {
+                "value": ind.get("value"),
+                "change": ind.get("change"),
+            }
+        results.append(_cond_ok(c, indicators=indicators, macro_bias=macro_bias,
+                                regime_name=regime_name))
+    known = [r for r in results if r is not None]
+    if not known:
+        return "watching", current
+    if all(known) and None not in results:
+        return "aligned", current
+    if any(r is False for r in known):
+        # 일부만 맞으면 watching, 전부 틀리면 diverging
+        if all(r is False for r in known):
+            return "diverging", current
+        return "watching", current
+    return "watching", current
+
+
+def _build_child_node(
+    tmpl: dict,
+    *,
+    parent_id: str,
+    indicators,
+    macro_bias,
+    regime_name,
+    evidence_cache: dict[str, tuple[float, list]],
+) -> dict:
+    kind = tmpl.get("kind") or "then"
+    node_id = tmpl["id"]
+    conditions = list(tmpl.get("conditions") or [])
+    status, current = _eval_status(
+        conditions, indicators=indicators, macro_bias=macro_bias, regime_name=regime_name,
+    )
+    sector_keys = list(tmpl.get("sector_keys") or [])
+    eq = tmpl.get("evidence_query")
+    evidence: list[dict] = []
+    if eq:
+        if eq not in evidence_cache:
+            evidence_cache[eq] = _evidence_for(eq)
+        _, evidence = evidence_cache[eq]
+    # outcome: 자식 조건이 없으면 부모 then status를 물려받을 수 있게 n/a 유지
+    if kind == "outcome" and not conditions:
+        status = "n/a"
+
+    children = [
+        _build_child_node(
+            c, parent_id=node_id, indicators=indicators, macro_bias=macro_bias,
+            regime_name=regime_name, evidence_cache=evidence_cache,
+        )
+        for c in (tmpl.get("children") or [])
+    ]
+    # outcome의 status: 자식 없으면 부모 then과 동일하게 보이도록 — 호출측에서 세팅하지 않음.
+    # then 아래 outcome은 부모 status를 복사하면 UI가 읽기 쉬움.
+    if kind == "outcome" and status == "n/a":
+        # 부모 평가는 이 함수 밖에서 — 여기서는 children 없는 leaf만 n/a
+        pass
+
+    return {
+        "id": node_id,
+        "parent_id": parent_id,
+        "kind": kind,
+        "edge": tmpl.get("edge") or "then",
+        "label": tmpl["label"],
+        "support_pct": None,
+        "assumptions": list(tmpl.get("assumptions") or []),
+        "conditions": conditions,
+        "status": status,
+        "current": current,
+        "sector_keys": sector_keys,
+        "sectors": _sector_nodes(sector_keys),
+        "evidence": evidence,
+        "evidence_n": len(evidence),
+        "children": children,
+    }
+
+
+def _inherit_outcome_status(node: dict) -> None:
+    """then → outcome: outcome에 조건이 없으면 부모 status를 상속."""
+    for ch in node.get("children") or []:
+        if ch.get("kind") == "outcome" and ch.get("status") == "n/a":
+            ch["status"] = node.get("status") or "watching"
+        _inherit_outcome_status(ch)
+
+
 def build(*, store_prices=None, store_macro=None) -> dict:
-    """현재 지표·KB·사이클로 트리 생성. store 의존은 호출측에서 주입해도 되고 기본은 store 모듈."""
+    """현재 지표·KB·사이클로 IF 트리 생성."""
     from signal_desk import store
 
     as_of = _kst_today()
@@ -243,41 +533,78 @@ def build(*, store_prices=None, store_macro=None) -> dict:
     watch = _watch_metrics(macro_bias=macro_bias, regime_name=regime_name,
                            phase_name=phase_name, indicators=indicators or [])
 
+    evidence_cache: dict[str, tuple[float, list]] = {}
     raw_w: dict[str, float] = {}
-    branch_payload: dict[str, dict] = {}
-    for b in _BRANCHES:
-        m = _metric_score(b["affinity"], macro_bias=macro_bias, regime_name=regime_name,
+    if_nodes: list[dict] = []
+
+    for t in _TEMPLATES:
+        m = _metric_score(t["affinity"], macro_bias=macro_bias, regime_name=regime_name,
                           phase_key=phase_key, indicators=indicators or [])
-        c = _cycle_score(b["sector_keys"], lead_tags)
-        k, evidence = _evidence_for(b["evidence_query"])
+        c = _cycle_score(t["sector_keys"], lead_tags)
+        eq = t["evidence_query"]
+        if eq not in evidence_cache:
+            evidence_cache[eq] = _evidence_for(eq)
+        k, evidence = evidence_cache[eq]
         w = 0.5 * m + 0.3 * k + 0.2 * c
-        # 근거 0건이면 소폭 감점(설계: 빈약 시 지지도↓)
         if not evidence:
             w *= 0.7
-        raw_w[b["id"]] = w
-        branch_payload[b["id"]] = {
-            "id": b["id"], "label": b["label"], "parent_id": "root",
-            "assumptions": b["assumptions"],
-            "sector_keys": b["sector_keys"],
-            "sectors": _sector_nodes(b["sector_keys"]),
+        raw_w[t["id"]] = w
+
+        children = [
+            _build_child_node(
+                ch, parent_id=t["id"], indicators=indicators or [],
+                macro_bias=macro_bias, regime_name=regime_name,
+                evidence_cache=evidence_cache,
+            )
+            for ch in (t.get("children") or [])
+        ]
+        for ch in children:
+            _inherit_outcome_status(ch)
+
+        if_nodes.append({
+            "id": t["id"],
+            "parent_id": "root",
+            "kind": "if",
+            "edge": "if",
+            "label": t["label"],
+            "support_pct": 0,  # filled after normalize
+            "assumptions": t["assumptions"],
+            "conditions": [],
+            "status": "n/a",
+            "current": {},
+            "sector_keys": t["sector_keys"],
+            "sectors": _sector_nodes(t["sector_keys"]),
             "evidence": evidence,
             "evidence_n": len(evidence),
             "watch_metrics": watch,
             "scores": {"metric": round(m, 3), "kb": round(k, 3), "cycle": round(c, 3),
                        "raw": round(w, 3)},
-        }
+            "children": children,
+        })
 
     pct = _normalize(raw_w)
-    children = []
-    for b in _BRANCHES:
-        node = branch_payload[b["id"]]
-        node["support_pct"] = pct[b["id"]]
-        children.append(node)
+    for node in if_nodes:
+        node["support_pct"] = pct[node["id"]]
+
+    # 지지도 최대 IF
+    active_id = max(if_nodes, key=lambda n: n["support_pct"])["id"] if if_nodes else None
 
     root = {
-        "id": "root", "parent_id": None, "label": "향후 3~6개월 관심 렌즈",
-        "support_pct": 100, "assumptions": [], "sectors": [], "evidence": [],
-        "watch_metrics": watch, "children": children,
+        "id": "root",
+        "parent_id": None,
+        "kind": "root",
+        "edge": None,
+        "label": "향후 3~6개월 시황 가설",
+        "support_pct": 100,
+        "assumptions": [],
+        "conditions": [],
+        "status": "n/a",
+        "current": {},
+        "sectors": [],
+        "evidence": [],
+        "watch_metrics": watch,
+        "active_if": active_id,
+        "children": if_nodes,
     }
     return {
         "ready": True,
@@ -287,6 +614,7 @@ def build(*, store_prices=None, store_macro=None) -> dict:
         "context": {
             "macro_bias": macro_bias, "regime": regime_name,
             "cycle_phase": phase_name, "lead_sectors": lead_tags,
+            "active_if": active_id,
         },
     }
 
@@ -299,10 +627,13 @@ def refresh() -> dict:
 
 
 def get(*, build_if_missing: bool = True) -> dict:
-    """캐시 우선. 없거나 ready 아니면 재생성."""
+    """캐시 우선. 없거나 ready 아니면 재생성. v1 캐시는 무시."""
     cached = db.kv_get(_KV_KEY)
     if isinstance(cached, dict) and cached.get("ready") and cached.get("tree"):
-        return cached
+        # v2 shape: root.children[].kind == if
+        kids = (cached.get("tree") or {}).get("children") or []
+        if kids and kids[0].get("kind") == "if":
+            return cached
     if not build_if_missing:
         return {"ready": False, "reason": "시황 가설 캐시가 없습니다. 관리자가 새로고침하세요."}
     return refresh()

@@ -279,28 +279,18 @@
   .vc-node.us { color:var(--accent); border-color:var(--accent); cursor:pointer; font-weight:600; }
   .vc-node.us:hover { background:var(--brand-50); }
   .vc-node.ov { color:var(--dim); }
-  /* 시황 가설 — HTML 브랜치 플로우 */
-  .hypo-flow { display:flex; flex-direction:column; gap:14px; }
-  .hypo-root { border:1px solid var(--line); border-radius:var(--r-md); background:var(--bg);
-    padding:12px 14px; font-weight:700; font-size:14px; color:var(--txt); }
-  .hypo-root .sub { display:block; margin-top:4px; font-weight:500; font-size:12px; color:var(--dim); }
-  .hypo-branches { display:flex; gap:12px; flex-wrap:wrap; align-items:stretch; }
-  .hypo-card { flex:1 1 220px; min-width:200px; border:1px solid var(--line); border-radius:var(--r-md);
-    background:var(--panel); padding:12px 14px; cursor:pointer; transition:border-color .12s, box-shadow .12s;
-    display:flex; flex-direction:column; gap:8px; }
-  .hypo-card:hover, .hypo-card.on { border-color:var(--accent); box-shadow:var(--shadow-sm); }
-  .hypo-card .hc-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
-  .hypo-card .hc-label { font-weight:700; font-size:14px; color:var(--txt); }
-  .hypo-card .hc-pct { margin-left:auto; font-weight:800; font-size:18px; color:var(--accent);
-    font-variant-numeric:tabular-nums; }
-  .hypo-card .hc-pct span { font-size:11px; font-weight:600; color:var(--dim); margin-left:2px; }
-  .hypo-card .hc-assump { margin:0; padding-left:16px; font-size:12px; color:var(--dim); line-height:1.45; }
-  .hypo-card .hc-sectors { display:flex; flex-wrap:wrap; gap:5px; }
-  .hypo-card .hc-sec { border:1px solid var(--line); border-radius:var(--r-pill); padding:2px 9px;
-    font-size:11px; font-weight:600; color:var(--accent); background:var(--accent-weak); cursor:pointer; }
-  .hypo-card .hc-sec:hover { border-color:var(--accent); }
-  .hypo-card .hc-ev { font-size:11px; color:var(--dim-2); }
-  .hypo-detail { margin-top:4px; border:1px solid var(--line); border-radius:var(--r-md);
+  /* 시황 가설 — IF 트리 (ECharts tree) */
+  .hypo-graph { width:100%; height:420px; border:1px solid var(--line); border-radius:var(--r-md);
+    background:var(--panel); }
+  .hypo-if-bar { display:flex; flex-wrap:wrap; gap:8px; margin:0 0 10px; }
+  .hypo-if-chip { border:1px solid var(--line); border-radius:var(--r-pill); padding:5px 12px;
+    font-size:12px; font-weight:600; color:var(--dim); background:var(--bg); cursor:pointer; }
+  .hypo-if-chip:hover { border-color:var(--accent); color:var(--txt); }
+  .hypo-if-chip.on { border-color:var(--accent); color:var(--accent); background:var(--accent-weak); }
+  .hypo-if-chip .pct { font-variant-numeric:tabular-nums; margin-left:4px; font-weight:800; }
+  .hypo-legend { display:flex; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--dim); margin:8px 0 0; }
+  .hypo-legend i { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:4px; vertical-align:middle; }
+  .hypo-detail { margin-top:12px; border:1px solid var(--line); border-radius:var(--r-md);
     background:var(--panel); padding:14px 16px; font-size:13px; line-height:1.5; }
   .hypo-detail .hd-title { font-weight:700; font-size:15px; margin-bottom:6px; }
   .hypo-detail ul { margin:4px 0 10px; padding-left:18px; }
@@ -308,6 +298,15 @@
   .hypo-detail .hd-ev a:hover { text-decoration:underline; }
   .hypo-detail .hd-metrics { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:12px; color:var(--dim);
     margin-bottom:10px; }
+  .hypo-detail .hc-sectors { display:flex; flex-wrap:wrap; gap:5px; }
+  .hypo-detail .hc-sec { border:1px solid var(--line); border-radius:var(--r-pill); padding:2px 9px;
+    font-size:11px; font-weight:600; color:var(--accent); background:var(--accent-weak); cursor:pointer; }
+  .hypo-st { display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:var(--r-pill);
+    margin-left:6px; vertical-align:middle; }
+  .hypo-st.aligned { background:#e8f5e9; color:#2e7d32; }
+  .hypo-st.watching { background:#fff8e1; color:#f57f17; }
+  .hypo-st.diverging { background:#fce4ec; color:#c62828; }
+  .hypo-st.na { background:var(--bg); color:var(--dim-2); }
   .card { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:20px;
     box-shadow:var(--shadow-sm); transition:box-shadow .15s; }
   .card:hover { box-shadow:var(--shadow); }
@@ -727,15 +726,22 @@
 
     <div id="cycle-seg-hypo" style="display:none">
       <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 시황 가설
-        <span style="color:var(--dim);font-size:13px;font-weight:600">· 지지도(상대가중) · 예측 아님</span>
+        <span style="color:var(--dim);font-size:13px;font-weight:600">· 배타적 IF · 지지도 · 예측 아님</span>
         <button type="button" class="btn" id="hypo-refresh-btn" style="display:none;margin-left:10px;padding:3px 10px;font-size:12px"
           onclick="refreshHypothesis()">새로고침</button>
       </h3>
-      <p class="page-desc">앞으로 3~6개월을 어떤 렌즈로 볼지에 대한 <b>가설 가지</b>입니다.
-        숫자는 <b>지지도</b>(같은 갈래 안에서의 상대 가중)이며, 시장이 그렇게 될 확률이 아닙니다.
-        시그널·페이퍼 봇 점수와는 별개입니다.</p>
+      <p class="page-desc">시황·정책에 대한 <b>배타적 IF 가설</b>과, 그렇게 됐을 때 예상되는
+        <b>지표 then 분기 → 결과</b>를 트리로 봅니다. Layer0 숫자는 <b>지지도</b>(배타 가설 간 상대 가중)이며
+        시장이 그렇게 될 확률이 아닙니다. 시그널·페이퍼 봇과 별개입니다.</p>
       <div id="hypo-asof" style="font-size:11px;color:var(--dim-2);margin:0 0 10px"></div>
-      <div id="hypo-flow" class="hypo-flow"><div class="placeholder">불러오는 중…</div></div>
+      <div id="hypo-if-bar" class="hypo-if-bar"></div>
+      <div id="hypo-graph" class="hypo-graph"><div class="placeholder" style="padding:24px">불러오는 중…</div></div>
+      <div class="hypo-legend">
+        <span><i style="background:#2e7d32"></i>aligned 조건 부합</span>
+        <span><i style="background:#f57f17"></i>watching 일부·미관측</span>
+        <span><i style="background:#c62828"></i>diverging 조건 불일치</span>
+        <span>선 라벨: if / then / and / but</span>
+      </div>
       <div id="hypo-detail" class="hypo-detail" style="display:none"></div>
       <p id="hypo-disc" style="margin-top:12px;font-size:11px;color:var(--dim-2);line-height:1.5"></p>
     </div>
@@ -1532,88 +1538,216 @@ function drawCycleChart(phases, cur){
   _cycleChart.resize();
 }
 
-// ===== 시황 가설 (맥락 · 시그널/봇 무관) =====
+// ===== 시황 가설 — 배타적 IF → then → outcome (맥락 · 시그널/봇 무관) =====
 let _hypoData = null;
+let _hypoActiveIf = null;
 let _hypoSelected = null;
-async function loadHypothesis(){
-  const flow = document.getElementById('hypo-flow');
-  const detail = document.getElementById('hypo-detail');
-  const asof = document.getElementById('hypo-asof');
-  const disc = document.getElementById('hypo-disc');
-  if (!flow) return;
-  try {
-    const d = await (await fetch('/api/hypothesis')).json();
-    if (!d.ready || !d.tree) {
-      flow.innerHTML = `<div class="placeholder">${esc(d.reason || '시황 가설을 불러오지 못했습니다.')}</div>`;
-      return;
-    }
-    _hypoData = d;
-    if (asof) {
-      const ctx = d.context || {};
-      asof.textContent = `기준일 ${d.as_of || '–'}`
-        + (ctx.cycle_phase ? ` · 사이클 ${ctx.cycle_phase}` : '')
-        + (ctx.regime ? ` · 국면 ${ctx.regime}` : '')
-        + (ctx.macro_bias ? ` · 거시 ${ctx.macro_bias}` : '');
-    }
-    if (disc) disc.textContent = d.disclaimer || '';
-    drawHypothesisFlow(d.tree);
-    if (_hypoSelected) selectHypoBranch(_hypoSelected);
-    else if ((d.tree.children || []).length) selectHypoBranch(d.tree.children[0].id);
-  } catch (e) {
-    flow.innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>';
-    if (detail) detail.style.display = 'none';
+let _hypoChart = null;
+let _hypoById = {};
+const _HYPO_STATUS_COLOR = {
+  aligned: '#2e7d32', watching: '#f57f17', diverging: '#c62828', 'n/a': '#9aa0a6',
+};
+const _HYPO_KIND_COLOR = { root: '#5c6bc0', if: '#1565c0', then: '#00838f', outcome: '#6a1b9a' };
+const _HYPO_ST_LABEL = { aligned: 'aligned', watching: 'watching', diverging: 'diverging', 'n/a': 'n/a' };
+
+function _hypoIndex(node, map){
+  if (!node || !node.id) return;
+  map[node.id] = node;
+  (node.children || []).forEach(c => _hypoIndex(c, map));
+}
+function _hypoStatusBadge(st){
+  const k = (st === 'n/a' || !st) ? 'na' : st;
+  return `<span class="hypo-st ${k}">${esc(_HYPO_ST_LABEL[st] || st || 'n/a')}</span>`;
+}
+function _hypoToEcharts(node, activeIf){
+  const kind = node.kind || 'then';
+  const st = node.status || 'n/a';
+  const edge = node.edge && kind !== 'root' && kind !== 'if'
+    ? String(node.edge).toUpperCase() + ' · ' : (kind === 'if' ? 'IF · ' : '');
+  let name = edge + (node.label || node.id);
+  if (kind === 'if' && node.support_pct != null) name += `\n지지도 ${node.support_pct}%`;
+  else if (kind === 'then' || kind === 'outcome') name += `\n${st}`;
+  const isIf = kind === 'if';
+  const collapsed = isIf ? (node.id !== activeIf) : false;
+  const kids = (node.children || []).map(c => _hypoToEcharts(c, activeIf));
+  const itemStyle = {
+    color: (kind === 'then' || kind === 'outcome')
+      ? (_HYPO_STATUS_COLOR[st] || _HYPO_STATUS_COLOR['n/a'])
+      : (_HYPO_KIND_COLOR[kind] || '#607d8b'),
+    borderColor: isIf && node.id === activeIf ? '#0d47a1' : '#fff',
+    borderWidth: isIf && node.id === activeIf ? 3 : 1,
+  };
+  return {
+    name,
+    value: node.id,
+    hypoId: node.id,
+    kind,
+    collapsed,
+    children: kids,
+    itemStyle,
+  };
+}
+function drawHypothesisIfBar(tree){
+  const bar = document.getElementById('hypo-if-bar');
+  if (!bar) return;
+  const ifs = (tree.children || []).filter(c => c.kind === 'if');
+  bar.innerHTML = ifs.map(b =>
+    `<button type="button" class="hypo-if-chip${_hypoActiveIf === b.id ? ' on' : ''}"
+      data-hid="${esc(b.id)}" onclick="setHypoActiveIf('${esc(b.id)}')">
+      ${esc(b.label)}<span class="pct">${b.support_pct}%</span></button>`
+  ).join('');
+}
+function setHypoActiveIf(id){
+  _hypoActiveIf = id;
+  const tree = (_hypoData && _hypoData.tree) || null;
+  if (!tree) return;
+  drawHypothesisIfBar(tree);
+  drawHypothesisTree(tree);
+  selectHypoNode(id);
+}
+function drawHypothesisTree(tree){
+  const el = document.getElementById('hypo-graph');
+  if (!el || !window.echarts || !tree) return;
+  el.innerHTML = '';
+  if (_hypoChart) { try { _hypoChart.dispose(); } catch (e) {} _hypoChart = null; }
+  _hypoChart = echarts.init(el);
+  const data = _hypoToEcharts(tree, _hypoActiveIf);
+  // root는 항상 펼침
+  data.collapsed = false;
+  _hypoChart.setOption({
+    tooltip: {
+      trigger: 'item',
+      formatter: p => {
+        const id = p.data && (p.data.hypoId || p.data.value);
+        const n = _hypoById[id];
+        if (!n) return esc(p.name || '');
+        const lines = [`<b>${esc(n.label)}</b>`];
+        if (n.kind === 'if') lines.push(`지지도 ${n.support_pct}% · 배타적 IF`);
+        else lines.push(`${esc(n.kind)} · ${esc(n.status || 'n/a')}`);
+        if (n.edge) lines.push(`분기: ${esc(n.edge)}`);
+        return lines.join('<br/>');
+      },
+    },
+    series: [{
+      type: 'tree',
+      data: [data],
+      top: '4%', left: '6%', bottom: '8%', right: '18%',
+      orient: 'TB',
+      layout: 'orthogonal',
+      edgeShape: 'polyline',
+      edgeForkPosition: '50%',
+      initialTreeDepth: 3,
+      symbol: 'roundRect',
+      symbolSize: [118, 36],
+      expandAndCollapse: false,
+      label: {
+        position: 'inside',
+        verticalAlign: 'middle',
+        align: 'center',
+        fontSize: 11,
+        color: '#fff',
+        formatter: p => (p.data && p.data.name) || '',
+      },
+      leaves: { label: { position: 'inside', color: '#fff' } },
+      lineStyle: { color: '#90a4ae', width: 1.5, curveness: 0.2 },
+      emphasis: { focus: 'descendant' },
+    }],
+  });
+  _hypoChart.off('click');
+  _hypoChart.on('click', params => {
+    const id = params.data && (params.data.hypoId || params.data.value);
+    if (!id || id === 'root') return;
+    const n = _hypoById[id];
+    if (n && n.kind === 'if') setHypoActiveIf(id);
+    else selectHypoNode(id);
+  });
+  requestAnimationFrame(() => _hypoChart && _hypoChart.resize());
+  if (window.ResizeObserver && !el._ro) {
+    el._ro = new ResizeObserver(() => _hypoChart && _hypoChart.resize());
+    el._ro.observe(el);
   }
 }
-function drawHypothesisFlow(tree){
-  const flow = document.getElementById('hypo-flow');
-  if (!flow || !tree) return;
-  const kids = tree.children || [];
-  const cards = kids.map(b => {
-    const secs = (b.sectors || []).map(s =>
-      `<button type="button" class="hc-sec" onclick="event.stopPropagation();gotoValuechain('${esc(s.key)}')">${esc(s.name)}</button>`
-    ).join('');
-    const assump = (b.assumptions || []).slice(0, 2).map(a => `<li>${esc(a)}</li>`).join('');
-    return `<div class="hypo-card${_hypoSelected === b.id ? ' on' : ''}" data-hid="${esc(b.id)}" onclick="selectHypoBranch('${esc(b.id)}')">
-      <div class="hc-top"><span class="hc-label">${esc(b.label)}</span>
-        <span class="hc-pct">${b.support_pct}<span>지지도</span></span></div>
-      <ul class="hc-assump">${assump}</ul>
-      <div class="hc-sectors">${secs || '<span style="color:var(--dim-2);font-size:11px">관심 섹터 없음</span>'}</div>
-      <div class="hc-ev">근거 ${(b.evidence_n != null ? b.evidence_n : (b.evidence || []).length)}건 · 클릭하면 상세</div>
-    </div>`;
-  }).join('');
-  flow.innerHTML = `<div class="hypo-root">${esc(tree.label || '관심 렌즈')}
-    <span class="sub">가지를 고르면 가정·지표·근거 뉴스를 볼 수 있습니다</span></div>
-    <div class="hypo-branches">${cards}</div>`;
-}
-function selectHypoBranch(id){
+function selectHypoNode(id){
   _hypoSelected = id;
-  const tree = (_hypoData && _hypoData.tree) || {};
-  const b = (tree.children || []).find(x => x.id === id);
-  document.querySelectorAll('.hypo-card').forEach(el => el.classList.toggle('on', el.dataset.hid === id));
+  const n = _hypoById[id];
   const detail = document.getElementById('hypo-detail');
-  if (!detail || !b) { if (detail) detail.style.display = 'none'; return; }
-  const metrics = (b.watch_metrics || []).map(m =>
+  if (!detail || !n) { if (detail) detail.style.display = 'none'; return; }
+  const metricsSrc = n.watch_metrics
+    || ((_hypoData.tree && _hypoData.tree.watch_metrics) || []);
+  const metrics = (metricsSrc || []).map(m =>
     `<span><b style="color:var(--txt)">${esc(m.label)}</b> ${esc(String(m.value))}</span>`).join('');
-  const assump = (b.assumptions || []).map(a => `<li>${esc(a)}</li>`).join('');
-  const secs = (b.sectors || []).map(s =>
+  const assump = (n.assumptions || []).map(a => `<li>${esc(a)}</li>`).join('');
+  const conds = (n.conditions || []).map(c => {
+    const cur = (n.current || {})[c.metric];
+    let curTxt = '';
+    if (cur != null && typeof cur === 'object') {
+      const parts = [];
+      if (cur.value != null) parts.push(`값 ${cur.value}`);
+      if (cur.change != null) parts.push(`변화 ${cur.change > 0 ? '+' : ''}${cur.change}`);
+      curTxt = parts.length ? ` · 현재 ${parts.join(', ')}` : '';
+    } else if (cur != null) curTxt = ` · 현재 ${cur}`;
+    return `<li>${esc(c.label || c.metric)}${esc(curTxt)}</li>`;
+  }).join('');
+  const secs = (n.sectors || []).map(s =>
     `<button type="button" class="hc-sec" onclick="gotoValuechain('${esc(s.key)}')">${esc(s.name)}</button>`
   ).join(' ');
-  const ev = (b.evidence || []).length
-    ? `<ul class="hd-ev">${(b.evidence || []).map(e =>
+  const ev = (n.evidence || []).length
+    ? `<ul class="hd-ev">${(n.evidence || []).map(e =>
         `<li><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>`
         + (e.source || e.published
           ? ` <span style="color:var(--dim-2)">${esc([e.source, e.published].filter(Boolean).join(' · '))}</span>`
           : '')
         + `</li>`).join('')}</ul>`
-    : `<div style="color:var(--dim-2);font-size:12px">아직 매칭된 근거 뉴스가 없습니다. (KB 수집·새로고침 후 채워질 수 있어요)</div>`;
+    : `<div style="color:var(--dim-2);font-size:12px">매칭된 근거 뉴스가 없습니다. (KB 수집·새로고침 후)</div>`;
+  const titleExtra = n.kind === 'if'
+    ? ` · 지지도 ${n.support_pct}%`
+    : _hypoStatusBadge(n.status);
   detail.style.display = '';
-  detail.innerHTML = `<div class="hd-title">${esc(b.label)} · 지지도 ${b.support_pct}%</div>
+  detail.innerHTML = `<div class="hd-title">${esc(n.label)}${titleExtra}
+    <span style="font-size:11px;font-weight:600;color:var(--dim-2);margin-left:6px">${esc(n.kind || '')}${n.edge ? ' · ' + esc(n.edge) : ''}</span></div>
     <div class="hd-metrics">${metrics}</div>
-    <b style="font-size:12px;color:var(--dim)">가정</b><ul>${assump}</ul>
+    ${assump ? `<b style="font-size:12px;color:var(--dim)">가정</b><ul>${assump}</ul>` : ''}
+    ${conds ? `<b style="font-size:12px;color:var(--dim)">확인 조건</b><ul>${conds}</ul>` : ''}
     <b style="font-size:12px;color:var(--dim)">관심 섹터</b>
     <div class="hc-sectors" style="margin:6px 0 10px">${secs || '–'}</div>
     <b style="font-size:12px;color:var(--dim)">근거 뉴스</b>${ev}
-    <div style="margin-top:8px;font-size:11px;color:var(--dim-2)">지지도 = 같은 갈래 안 상대 가중 · 예측·투자권유 아님</div>`;
+    <div style="margin-top:8px;font-size:11px;color:var(--dim-2)">지지도 = 배타 IF 간 상대 가중 · then은 조건 상태일 뿐 확률이 아님</div>`;
+}
+async function loadHypothesis(){
+  const el = document.getElementById('hypo-graph');
+  const detail = document.getElementById('hypo-detail');
+  const asof = document.getElementById('hypo-asof');
+  const disc = document.getElementById('hypo-disc');
+  if (!el) return;
+  try {
+    const d = await (await fetch('/api/hypothesis')).json();
+    if (!d.ready || !d.tree) {
+      el.innerHTML = `<div class="placeholder" style="padding:24px">${esc(d.reason || '시황 가설을 불러오지 못했습니다.')}</div>`;
+      return;
+    }
+    _hypoData = d;
+    _hypoById = {};
+    _hypoIndex(d.tree, _hypoById);
+    const ctx = d.context || {};
+    if (!_hypoActiveIf || !_hypoById[_hypoActiveIf]) {
+      _hypoActiveIf = ctx.active_if || d.tree.active_if
+        || ((d.tree.children || []).sort((a, b) => (b.support_pct || 0) - (a.support_pct || 0))[0] || {}).id;
+    }
+    if (asof) {
+      asof.textContent = `기준일 ${d.as_of || '–'}`
+        + (ctx.cycle_phase ? ` · 사이클 ${ctx.cycle_phase}` : '')
+        + (ctx.regime ? ` · 국면 ${ctx.regime}` : '')
+        + (ctx.macro_bias ? ` · 거시 ${ctx.macro_bias}` : '')
+        + ' · 한 번에 하나의 IF 체인만 펼침';
+    }
+    if (disc) disc.textContent = d.disclaimer || '';
+    drawHypothesisIfBar(d.tree);
+    drawHypothesisTree(d.tree);
+    selectHypoNode(_hypoSelected && _hypoById[_hypoSelected] ? _hypoSelected : _hypoActiveIf);
+  } catch (e) {
+    el.innerHTML = '<div class="placeholder" style="padding:24px">불러오지 못했습니다.</div>';
+    if (detail) detail.style.display = 'none';
+  }
 }
 async function refreshHypothesis(){
   if (!_isAdmin) return;
@@ -1621,7 +1755,7 @@ async function refreshHypothesis(){
   if (btn) { btn.disabled = true; btn.textContent = '갱신 중…'; }
   try {
     const d = await (await fetch('/api/hypothesis/refresh', { method: 'POST' })).json();
-    if (d.ready) { _hypoData = d; await loadHypothesis(); }
+    if (d.ready) { _hypoData = d; _hypoActiveIf = null; await loadHypothesis(); }
     else alert(d.reason || d.error || '갱신 실패');
   } catch (e) { alert('갱신 요청 실패'); }
   finally { if (btn) { btn.disabled = false; btn.textContent = '새로고침'; } }

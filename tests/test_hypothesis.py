@@ -1,4 +1,4 @@
-"""시황 가설(#6) — 지지도 정규화·빌드·엔진 무접촉."""
+"""시황 가설(#6) — IF/then/outcome 트리 · 지지도 · 엔진 무접촉."""
 
 from signal_desk.signals import hypothesis
 
@@ -14,9 +14,29 @@ def test_normalize_handles_zeros():
     assert sum(pct.values()) == 100
 
 
-def test_build_tree_shape(monkeypatch, tmp_path):
+def test_cond_ok_and_status():
+    inds = [
+        {"key": "VIXCLS", "value": 28.0, "change": 2.0},
+        {"key": "NASDAQCOM", "value": 18000, "change": -1.2},
+    ]
+    ok = hypothesis._cond_ok(
+        {"metric": "VIXCLS", "op": ">=", "threshold": 25},
+        indicators=inds, macro_bias="비우호", regime_name="약세",
+    )
+    assert ok is True
+    st, cur = hypothesis._eval_status(
+        [
+            {"metric": "VIXCLS", "op": ">=", "threshold": 25, "label": "VIX"},
+            {"metric": "NASDAQCOM", "op": "chg<", "threshold": 0, "label": "나스닥↓"},
+        ],
+        indicators=inds, macro_bias="비우호", regime_name="약세",
+    )
+    assert st == "aligned"
+    assert "VIXCLS" in cur
+
+
+def test_build_if_tree_shape(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    # store / kb / cycle 의존 최소화
     monkeypatch.setattr(hypothesis, "_evidence_for", lambda q, k=5: (0.4, [
         {"title": "뉴스", "url": "https://example.com/a", "source": "naver_news",
          "published": "2026-07-01", "ticker": "_MARKET"},
@@ -41,22 +61,36 @@ def test_build_tree_shape(monkeypatch, tmp_path):
     out = hypothesis.build()
     assert out["ready"]
     assert out["disclaimer"]
-    kids = out["tree"]["children"]
+    assert hypothesis._KV_KEY == "hypo:v2:latest"
+    root = out["tree"]
+    assert root["kind"] == "root"
+    assert root.get("active_if")
+    kids = root["children"]
     assert len(kids) == 3
+    assert all(c["kind"] == "if" for c in kids)
     assert sum(c["support_pct"] for c in kids) == 100
-    assert all("지지도" not in c["label"] for c in kids)  # 라벨은 시나리오명
-    assert kids[0]["evidence"]
-    # 시그널 엔진 필드와 무관
+    # then → outcome nested
+    then_nodes = kids[0]["children"]
+    assert then_nodes and then_nodes[0]["kind"] == "then"
+    assert then_nodes[0]["status"] in ("aligned", "watching", "diverging", "n/a")
+    assert then_nodes[0]["support_pct"] is None
+    assert then_nodes[0]["children"][0]["kind"] == "outcome"
     assert "kind" not in out and "score" not in out
 
 
-def test_get_uses_cache(monkeypatch, tmp_path):
+def test_get_uses_v2_cache(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     from signal_desk import db
-    payload = {"ready": True, "as_of": "2026-07-18", "tree": {"id": "root", "children": []},
-               "disclaimer": "x"}
+    payload = {
+        "ready": True, "as_of": "2026-07-18",
+        "tree": {"id": "root", "children": [{"id": "ai_capex", "kind": "if", "children": []}]},
+        "disclaimer": "x",
+    }
     db.kv_set(hypothesis._KV_KEY, payload)
-    monkeypatch.setattr(hypothesis, "refresh", lambda: (_ for _ in ()).throw(AssertionError("캐시 있으면 refresh 금지")))
+    monkeypatch.setattr(
+        hypothesis, "refresh",
+        lambda: (_ for _ in ()).throw(AssertionError("캐시 있으면 refresh 금지")),
+    )
     assert hypothesis.get()["as_of"] == "2026-07-18"
 
 
