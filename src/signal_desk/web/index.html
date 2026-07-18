@@ -279,6 +279,35 @@
   .vc-node.us { color:var(--accent); border-color:var(--accent); cursor:pointer; font-weight:600; }
   .vc-node.us:hover { background:var(--brand-50); }
   .vc-node.ov { color:var(--dim); }
+  /* 시황 가설 — HTML 브랜치 플로우 */
+  .hypo-flow { display:flex; flex-direction:column; gap:14px; }
+  .hypo-root { border:1px solid var(--line); border-radius:var(--r-md); background:var(--bg);
+    padding:12px 14px; font-weight:700; font-size:14px; color:var(--txt); }
+  .hypo-root .sub { display:block; margin-top:4px; font-weight:500; font-size:12px; color:var(--dim); }
+  .hypo-branches { display:flex; gap:12px; flex-wrap:wrap; align-items:stretch; }
+  .hypo-card { flex:1 1 220px; min-width:200px; border:1px solid var(--line); border-radius:var(--r-md);
+    background:var(--panel); padding:12px 14px; cursor:pointer; transition:border-color .12s, box-shadow .12s;
+    display:flex; flex-direction:column; gap:8px; }
+  .hypo-card:hover, .hypo-card.on { border-color:var(--accent); box-shadow:var(--shadow-sm); }
+  .hypo-card .hc-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .hypo-card .hc-label { font-weight:700; font-size:14px; color:var(--txt); }
+  .hypo-card .hc-pct { margin-left:auto; font-weight:800; font-size:18px; color:var(--accent);
+    font-variant-numeric:tabular-nums; }
+  .hypo-card .hc-pct span { font-size:11px; font-weight:600; color:var(--dim); margin-left:2px; }
+  .hypo-card .hc-assump { margin:0; padding-left:16px; font-size:12px; color:var(--dim); line-height:1.45; }
+  .hypo-card .hc-sectors { display:flex; flex-wrap:wrap; gap:5px; }
+  .hypo-card .hc-sec { border:1px solid var(--line); border-radius:var(--r-pill); padding:2px 9px;
+    font-size:11px; font-weight:600; color:var(--accent); background:var(--accent-weak); cursor:pointer; }
+  .hypo-card .hc-sec:hover { border-color:var(--accent); }
+  .hypo-card .hc-ev { font-size:11px; color:var(--dim-2); }
+  .hypo-detail { margin-top:4px; border:1px solid var(--line); border-radius:var(--r-md);
+    background:var(--panel); padding:14px 16px; font-size:13px; line-height:1.5; }
+  .hypo-detail .hd-title { font-weight:700; font-size:15px; margin-bottom:6px; }
+  .hypo-detail ul { margin:4px 0 10px; padding-left:18px; }
+  .hypo-detail .hd-ev a { color:var(--accent); text-decoration:none; }
+  .hypo-detail .hd-ev a:hover { text-decoration:underline; }
+  .hypo-detail .hd-metrics { display:flex; flex-wrap:wrap; gap:6px 12px; font-size:12px; color:var(--dim);
+    margin-bottom:10px; }
   .card { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:20px;
     box-shadow:var(--shadow-sm); transition:box-shadow .15s; }
   .card:hover { box-shadow:var(--shadow); }
@@ -527,6 +556,7 @@
 <nav class="subnav" id="subnav-cycle" style="display:none">
   <button class="subtab on" data-cseg="cycle" onclick="switchCycleSeg('cycle')">경기 사이클</button>
   <button class="subtab" data-cseg="vc" onclick="switchCycleSeg('vc')">밸류체인</button>
+  <button class="subtab" data-cseg="hypo" onclick="switchCycleSeg('hypo')">시황 가설</button>
   <button class="subtab" data-cseg="ref" onclick="switchCycleSeg('ref')">참고</button>
 </nav>
 <nav class="subnav" id="subnav-cycle-ref" style="display:none;border-top:none;padding-top:0">
@@ -693,6 +723,21 @@
       <div id="vc-cycle-banner" style="margin-bottom:10px"></div>
       <div class="vc-sectors" id="vc-sectors"></div>
       <div id="vc-detail"><div class="placeholder">불러오는 중…</div></div>
+    </div>
+
+    <div id="cycle-seg-hypo" style="display:none">
+      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 시황 가설
+        <span style="color:var(--dim);font-size:13px;font-weight:600">· 지지도(상대가중) · 예측 아님</span>
+        <button type="button" class="btn" id="hypo-refresh-btn" style="display:none;margin-left:10px;padding:3px 10px;font-size:12px"
+          onclick="refreshHypothesis()">새로고침</button>
+      </h3>
+      <p class="page-desc">앞으로 3~6개월을 어떤 렌즈로 볼지에 대한 <b>가설 가지</b>입니다.
+        숫자는 <b>지지도</b>(같은 갈래 안에서의 상대 가중)이며, 시장이 그렇게 될 확률이 아닙니다.
+        시그널·페이퍼 봇 점수와는 별개입니다.</p>
+      <div id="hypo-asof" style="font-size:11px;color:var(--dim-2);margin:0 0 10px"></div>
+      <div id="hypo-flow" class="hypo-flow"><div class="placeholder">불러오는 중…</div></div>
+      <div id="hypo-detail" class="hypo-detail" style="display:none"></div>
+      <p id="hypo-disc" style="margin-top:12px;font-size:11px;color:var(--dim-2);line-height:1.5"></p>
     </div>
 
     <div id="cycle-seg-learn" style="display:none">
@@ -1331,7 +1376,7 @@ function switchTab(t){
   if (!_SEGS[t] && location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
 }
 
-const _SEGS = { trading: ['bot', 'rebal', 'dividend'], cycle: ['cycle', 'vc', 'learn', 'guru', 'etf'], admin: ['kb', 'shortform', 'engine'] };
+const _SEGS = { trading: ['bot', 'rebal', 'dividend'], cycle: ['cycle', 'vc', 'hypo', 'learn', 'guru', 'etf'], admin: ['kb', 'shortform', 'engine'] };
 function routeFromHash(){
   const parts = decodeURIComponent(location.hash.slice(1)).split('/');
   const tab = parts[0], seg = parts[1], extra = parts[2];
@@ -1485,6 +1530,101 @@ function drawCycleChart(phases, cur){
     series,
   }, true);
   _cycleChart.resize();
+}
+
+// ===== 시황 가설 (맥락 · 시그널/봇 무관) =====
+let _hypoData = null;
+let _hypoSelected = null;
+async function loadHypothesis(){
+  const flow = document.getElementById('hypo-flow');
+  const detail = document.getElementById('hypo-detail');
+  const asof = document.getElementById('hypo-asof');
+  const disc = document.getElementById('hypo-disc');
+  if (!flow) return;
+  try {
+    const d = await (await fetch('/api/hypothesis')).json();
+    if (!d.ready || !d.tree) {
+      flow.innerHTML = `<div class="placeholder">${esc(d.reason || '시황 가설을 불러오지 못했습니다.')}</div>`;
+      return;
+    }
+    _hypoData = d;
+    if (asof) {
+      const ctx = d.context || {};
+      asof.textContent = `기준일 ${d.as_of || '–'}`
+        + (ctx.cycle_phase ? ` · 사이클 ${ctx.cycle_phase}` : '')
+        + (ctx.regime ? ` · 국면 ${ctx.regime}` : '')
+        + (ctx.macro_bias ? ` · 거시 ${ctx.macro_bias}` : '');
+    }
+    if (disc) disc.textContent = d.disclaimer || '';
+    drawHypothesisFlow(d.tree);
+    if (_hypoSelected) selectHypoBranch(_hypoSelected);
+    else if ((d.tree.children || []).length) selectHypoBranch(d.tree.children[0].id);
+  } catch (e) {
+    flow.innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>';
+    if (detail) detail.style.display = 'none';
+  }
+}
+function drawHypothesisFlow(tree){
+  const flow = document.getElementById('hypo-flow');
+  if (!flow || !tree) return;
+  const kids = tree.children || [];
+  const cards = kids.map(b => {
+    const secs = (b.sectors || []).map(s =>
+      `<button type="button" class="hc-sec" onclick="event.stopPropagation();gotoValuechain('${esc(s.key)}')">${esc(s.name)}</button>`
+    ).join('');
+    const assump = (b.assumptions || []).slice(0, 2).map(a => `<li>${esc(a)}</li>`).join('');
+    return `<div class="hypo-card${_hypoSelected === b.id ? ' on' : ''}" data-hid="${esc(b.id)}" onclick="selectHypoBranch('${esc(b.id)}')">
+      <div class="hc-top"><span class="hc-label">${esc(b.label)}</span>
+        <span class="hc-pct">${b.support_pct}<span>지지도</span></span></div>
+      <ul class="hc-assump">${assump}</ul>
+      <div class="hc-sectors">${secs || '<span style="color:var(--dim-2);font-size:11px">관심 섹터 없음</span>'}</div>
+      <div class="hc-ev">근거 ${(b.evidence_n != null ? b.evidence_n : (b.evidence || []).length)}건 · 클릭하면 상세</div>
+    </div>`;
+  }).join('');
+  flow.innerHTML = `<div class="hypo-root">${esc(tree.label || '관심 렌즈')}
+    <span class="sub">가지를 고르면 가정·지표·근거 뉴스를 볼 수 있습니다</span></div>
+    <div class="hypo-branches">${cards}</div>`;
+}
+function selectHypoBranch(id){
+  _hypoSelected = id;
+  const tree = (_hypoData && _hypoData.tree) || {};
+  const b = (tree.children || []).find(x => x.id === id);
+  document.querySelectorAll('.hypo-card').forEach(el => el.classList.toggle('on', el.dataset.hid === id));
+  const detail = document.getElementById('hypo-detail');
+  if (!detail || !b) { if (detail) detail.style.display = 'none'; return; }
+  const metrics = (b.watch_metrics || []).map(m =>
+    `<span><b style="color:var(--txt)">${esc(m.label)}</b> ${esc(String(m.value))}</span>`).join('');
+  const assump = (b.assumptions || []).map(a => `<li>${esc(a)}</li>`).join('');
+  const secs = (b.sectors || []).map(s =>
+    `<button type="button" class="hc-sec" onclick="gotoValuechain('${esc(s.key)}')">${esc(s.name)}</button>`
+  ).join(' ');
+  const ev = (b.evidence || []).length
+    ? `<ul class="hd-ev">${(b.evidence || []).map(e =>
+        `<li><a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.title)}</a>`
+        + (e.source || e.published
+          ? ` <span style="color:var(--dim-2)">${esc([e.source, e.published].filter(Boolean).join(' · '))}</span>`
+          : '')
+        + `</li>`).join('')}</ul>`
+    : `<div style="color:var(--dim-2);font-size:12px">아직 매칭된 근거 뉴스가 없습니다. (KB 수집·새로고침 후 채워질 수 있어요)</div>`;
+  detail.style.display = '';
+  detail.innerHTML = `<div class="hd-title">${esc(b.label)} · 지지도 ${b.support_pct}%</div>
+    <div class="hd-metrics">${metrics}</div>
+    <b style="font-size:12px;color:var(--dim)">가정</b><ul>${assump}</ul>
+    <b style="font-size:12px;color:var(--dim)">관심 섹터</b>
+    <div class="hc-sectors" style="margin:6px 0 10px">${secs || '–'}</div>
+    <b style="font-size:12px;color:var(--dim)">근거 뉴스</b>${ev}
+    <div style="margin-top:8px;font-size:11px;color:var(--dim-2)">지지도 = 같은 갈래 안 상대 가중 · 예측·투자권유 아님</div>`;
+}
+async function refreshHypothesis(){
+  if (!_isAdmin) return;
+  const btn = document.getElementById('hypo-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '갱신 중…'; }
+  try {
+    const d = await (await fetch('/api/hypothesis/refresh', { method: 'POST' })).json();
+    if (d.ready) { _hypoData = d; await loadHypothesis(); }
+    else alert(d.reason || d.error || '갱신 실패');
+  } catch (e) { alert('갱신 요청 실패'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '새로고침'; } }
 }
 
 // ===== 밸류체인 =====
@@ -3097,9 +3237,10 @@ function switchCycleSeg(seg){
   const refNav = document.getElementById('subnav-cycle-ref');
   if (refNav) refNav.style.display = isRef ? '' : 'none';
   document.querySelectorAll('#subnav-cycle-ref .subtab').forEach(b => b.classList.toggle('on', b.dataset.ref === seg));
-  ['cycle', 'vc', 'learn', 'guru', 'etf'].forEach(s => { const el = document.getElementById('cycle-seg-' + s); if (el) el.style.display = s === seg ? '' : 'none'; });
+  ['cycle', 'vc', 'hypo', 'learn', 'guru', 'etf'].forEach(s => { const el = document.getElementById('cycle-seg-' + s); if (el) el.style.display = s === seg ? '' : 'none'; });
   if (seg === 'cycle') loadCycle();
   else if (seg === 'vc') loadValuechain();
+  else if (seg === 'hypo') loadHypothesis();
   else if (seg === 'learn') loadGlossary();
   else if (seg === 'guru') loadGurus();
   else if (seg === 'etf') loadEtfs();
@@ -4045,6 +4186,8 @@ async function authSubmit(){
 function applyAdmin(isAdmin){
   _isAdmin = !!isAdmin;
   document.getElementById('tab-admin').style.display = _isAdmin ? '' : 'none';
+  const hb = document.getElementById('hypo-refresh-btn');
+  if (hb) hb.style.display = _isAdmin ? '' : 'none';
 }
 async function logout(){ await fetch('/api/auth/logout', {method: 'POST'}); location.reload(); }
 

@@ -81,6 +81,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert 'pane-title-block' in html and 'id="signal-about"' in html and "sig-about.is-on" in html
     assert "종목 개요" in html and "최근 행보" in html
     assert "모의투자 연습장" in html and "가상 돈으로 연습해보기" in html
+    assert 'data-cseg="hypo"' in html and 'id="cycle-seg-hypo"' in html
+    assert "/api/hypothesis" in html
     assert "market-bar-end" in html  # 시황 바 오른쪽 슬롯(live·거시토글)
     # FAB는 footer 위에 띄움 — footer margin-bottom으로 바닥에서 띄우지 않음
     assert "body.chat-fab-on #chat-fab" in html

@@ -30,7 +30,10 @@ from signal_desk import (
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
-from signal_desk.signals import accuracy, macro, narrative, opportunity, rebalance, regime, regime_zone, relative, scenario, target, valuation
+from signal_desk.signals import (
+    accuracy, hypothesis, macro, narrative, opportunity, rebalance, regime,
+    regime_zone, relative, scenario, target, valuation,
+)
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
     compute_indicator_series, evaluate, factor_contribution, walk_forward,
@@ -86,6 +89,10 @@ def _daily_kb_collect():
             _clear_us_signal_caches()
     except Exception as e:
         log.warning("US 재무 백필 실패: %s", type(e).__name__)
+    try:  # 시황 가설 지지도 일 1회 재점수(엔진·봇 무관)
+        hypothesis.refresh()
+    except Exception as e:
+        log.warning("시황 가설 갱신 실패: %s", type(e).__name__)
     db.kv_set("kb_collect_date", _kst_today())
 
 
@@ -275,6 +282,7 @@ _ADMIN_PATHS = {
     "/api/shortform/queue", "/api/shortform/candidates",
     "/api/brain/proposals", "/api/brain/proposals/refresh", "/api/engine/config/history",
     "/api/data-health", "/api/egress-ip",
+    "/api/hypothesis/refresh",
 }
 
 
@@ -1853,6 +1861,19 @@ def kb_get(ticker: str):
 
 
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------
+@app.get("/api/hypothesis")
+def hypothesis_get():
+    """시황 가설 트리(지지도·근거·관심 섹터). 시그널/봇과 독립. 캐시 없으면 생성."""
+    return hypothesis.get(build_if_missing=True)
+
+
+@app.post("/api/hypothesis/refresh")
+def hypothesis_refresh(request: Request):
+    """시황 가설 수동 재점수 — 관리자 전용(_ADMIN_PATHS)."""
+    _admin_or_403(request)
+    return hypothesis.refresh()
+
+
 @app.get("/api/cycle")
 def cycle_get():
     """경기 사이클 4국면 + 국면별 주도섹터, 현재 위치(FRED 거시 + 7일 히스테리시스 확정).

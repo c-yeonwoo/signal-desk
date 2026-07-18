@@ -1,6 +1,7 @@
 # 시황 가설 (Scenario Hypothesis) — 설계 메모
 
-> 상태: **초안 · 검토용** (구현 전)  
+> 상태: **P0 구현** (`signals/hypothesis.py` · `/api/hypothesis` · 인사이트 서브탭)  
+
 > 대응 백로그: [BACKLOG.md](../BACKLOG.md) `#6` 하반기 전망  
 > 기존 `#9` `signals/scenario.py`(포트폴리오 MC)와 **별개** — 이름만 비슷한 다른 기능.
 
