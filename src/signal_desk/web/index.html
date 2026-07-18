@@ -748,7 +748,7 @@
       </div>
       <div class="hypo-legend">
         <span>왼쪽→오른쪽: 이슈 → 이어질 수 있는 상황 → 그때 볼 업종</span>
-        <span>작은 글씨: 지금 이 쪽에 가까움 · 아직 갈림길 · 지금은 다른 쪽</span>
+        <span>작은 글씨: 지금 이 가정에 가까움 · 아직 갈림길 · 지금 이 가정과 안 맞음</span>
       </div>
       <div id="hypo-detail" class="hypo-detail" style="display:none"></div>
       <p id="hypo-disc" style="margin-top:12px;font-size:11px;color:var(--dim-2);line-height:1.5"></p>
@@ -1560,9 +1560,9 @@ function _hypoIndex(node, map){
 }
 function _hypoStatusKo(n){
   return (n && (n.status_ko || '')) || ({
-    aligned: '지금 이 쪽에 가까움',
+    aligned: '지금 이 가정에 가까움',
     watching: '아직 갈림길',
-    diverging: '지금은 다른 쪽',
+    diverging: '지금 이 가정과 안 맞음',
     'n/a': '',
   })[(n && n.status) || 'n/a'] || '';
 }
@@ -1576,9 +1576,9 @@ function _hypoEdgeKo(n){
 }
 function _hypoStatusHint(st){
   return ({
-    aligned: '지금 시장·지표가 이 가정 쪽에 더 가깝게 보입니다. 확정·예측이 아닙니다.',
-    watching: '이 가정을 가리키는 신호와 반대 신호가 섞여 있거나, 아직 데이터가 부족합니다.',
-    diverging: '지금 시장·지표는 이 가정과 다르게 움직이고 있습니다. 가정이 틀렸다는 뜻은 아닙니다.',
+    aligned: '지금 시장·지표가 이 노드가 말하는 가정에 가깝습니다. 앞으로 그렇게 된다는 뜻이 아닙니다.',
+    watching: '이 가정을 가리키는 신호와 아닌 신호가 섞였거나, 아직 볼 데이터가 부족합니다.',
+    diverging: '이 노드가 전제한 조건이 지금 지표와 맞지 않습니다. “반대 시나리오가 온다”가 아니라, 지금은 이 가지를 뒷받침하지 않는다는 뜻입니다.',
     'n/a': '',
   })[st || 'n/a'] || '';
 }

@@ -28,9 +28,9 @@ _DISCLAIMER = (
 )
 # 노드/UI용 — then·but 직역이 아니라 "이 가정이 지금 데이터와 어떤지"
 _STATUS_KO = {
-    "aligned": "지금 이 쪽에 가까움",
+    "aligned": "지금 이 가정에 가까움",
     "watching": "아직 갈림길",
-    "diverging": "지금은 다른 쪽",
+    "diverging": "지금 이 가정과 안 맞음",
     "n/a": "",
 }
 # 상세 패널용 — 트리 연결 의미 (직역 then/but 아님)
