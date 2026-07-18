@@ -1,13 +1,15 @@
-"""시황 가설(#6) — 배타적 IF → then 지표 분기 → outcome 트리.
+"""시황 가설(#6) — 배타적 IF → then → outcome.
 
-시그널 엔진·페이퍼 봇과 독립. Layer0 %는 예측 확률이 아니라 배타 IF 간 상대 지지도.
-LLM/Opus로 가지를 만들지 않음 — 큐레이션 템플릿 + 실지표 status.
+관리자 수동 refresh 시에만 Haiku가 트리 문장을 생성. 지지도·status는 룰.
+일일 자동 LLM 호출 없음. GET은 캐시만(없으면 ready:false).
 """
 
 from __future__ import annotations
 
 import datetime
 import logging
+import re
+from collections import Counter
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -18,13 +20,27 @@ from signal_desk.signals import regime as regime_mod
 
 log = logging.getLogger("signal_desk.hypothesis")
 
-_KV_KEY = "hypo:v2:latest"
+_KV_KEY = "hypo:v3:latest"
 _DISCLAIMER = (
-    "가설·학습용 · 지지도(배타 가설 간 상대 가중) · IF 분기 · 예측·투자권유 아님 "
-    "· 시그널과 별개 레이어"
+    "가설·학습용 · 뉴스·KB 기반 · 수동 생성 · 지지도(배타 가설 간 상대 가중) · IF 분기 "
+    "· 예측·투자권유 아님 · 시그널과 별개 레이어"
 )
 
-# 큐레이션 IF → then/and/but → outcome (깊이 ≤3)
+_ALLOWED_METRICS = frozenset({
+    "NASDAQCOM", "VIXCLS", "CPIAUCSL", "FEDFUNDS", "macro_bias", "regime",
+})
+_ALLOWED_OPS = frozenset({
+    "==", "in", ">=", "<=", ">", "<", "chg>", "chg<", "chg>=", "chg<=",
+})
+_ALLOWED_AFFINITY = frozenset({"risk_on", "consumer", "risk_off"})
+_ALLOWED_EDGES = frozenset({"if", "then", "and", "but"})
+_STOP = frozenset({
+    "있다", "하다", "되다", "이다", "및", "등", "위해", "대한", "관련", "오늘", "어제",
+    "기자", "속보", "단독", "the", "and", "for", "with", "from",
+})
+_ID_RE = re.compile(r"[^a-z0-9_]+")
+
+# 폴백 큐레이션 (LLM 실패·키 없음)
 _TEMPLATES: list[dict[str, Any]] = [
     {
         "id": "ai_capex",
@@ -209,8 +225,11 @@ def _kst_today() -> str:
     return datetime.datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
 
 
+def _kst_now_iso() -> str:
+    return datetime.datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
+
+
 def _normalize(weights: dict[str, float]) -> dict[str, int]:
-    """상대 가중 → 합 100 정수 %. 잔여는 최대 가중 가지에 몰아 합을 맞춤."""
     total = sum(max(0.0, w) for w in weights.values()) or 1.0
     raw = {k: max(0.0, w) / total * 100.0 for k, w in weights.items()}
     pct = {k: int(v) for k, v in raw.items()}
@@ -223,7 +242,6 @@ def _normalize(weights: dict[str, float]) -> dict[str, int]:
 
 def _metric_score(affinity: str, *, macro_bias: str | None, regime_name: str | None,
                   phase_key: str | None, indicators: list[dict]) -> float:
-    """[0,1] 지표 일치도."""
     by = {i["key"]: i for i in (indicators or [])}
     nas = by.get("NASDAQCOM") or {}
     vix = by.get("VIXCLS") or {}
@@ -272,7 +290,6 @@ def _metric_score(affinity: str, *, macro_bias: str | None, regime_name: str | N
 
 
 def _cycle_score(sector_keys: list[str], lead_tags: list[str]) -> float:
-    """사이클 주도섹터 태그 ↔ 가지 VC 태그 겹침 [0,1]."""
     if not lead_tags or not sector_keys:
         return 0.25
     lead_keys = {valuechain.key_for_tag(t) for t in lead_tags}
@@ -293,7 +310,6 @@ def _cycle_score(sector_keys: list[str], lead_tags: list[str]) -> float:
 
 
 def _evidence_for(query: str, k: int = 5) -> tuple[float, list[dict]]:
-    """KB 검색 → (kb_score[0,1], evidence list with url/source/published)."""
     try:
         hits = kb_search.retrieve(query, k=k)
     except Exception as e:
@@ -322,8 +338,7 @@ def _evidence_for(query: str, k: int = 5) -> tuple[float, list[dict]]:
             "ticker": h.get("ticker"),
         })
     n = len(evidence)
-    kb_score = min(1.0, 0.2 + 0.2 * n)
-    return kb_score, evidence[:5]
+    return min(1.0, 0.2 + 0.2 * n), evidence[:5]
 
 
 def _sector_nodes(keys: list[str]) -> list[dict]:
@@ -334,6 +349,10 @@ def _sector_nodes(keys: list[str]) -> list[dict]:
             continue
         out.append({"key": k, "name": sec["name"], "summary": sec.get("summary") or ""})
     return out
+
+
+def _sector_key_set() -> set[str]:
+    return {s["key"] for s in valuechain.sectors()}
 
 
 def _watch_metrics(*, macro_bias, regime_name, phase_name, indicators) -> list[dict]:
@@ -365,23 +384,19 @@ def _ctx_value(metric: str, *, indicators: list[dict], macro_bias, regime_name) 
         return regime_name
     by = {i["key"]: i for i in (indicators or [])}
     ind = by.get(metric) or {}
-    if metric in ("NASDAQCOM",) or str(metric).endswith("_chg"):
-        return ind.get("change")
     return ind.get("value") if ind.get("value") is not None else ind.get("change")
 
 
 def _cond_ok(cond: dict, *, indicators, macro_bias, regime_name) -> bool | None:
-    """조건 충족 여부. 값 없으면 None(미관측)."""
     metric = cond.get("metric") or ""
     op = cond.get("op") or "=="
     thr = cond.get("threshold")
-    # chg 계열은 change 필드
     if op.startswith("chg"):
         by = {i["key"]: i for i in (indicators or [])}
         val = (by.get(metric) or {}).get("change")
         if val is None:
             return None
-        real_op = op[3:]  # >, <, >=, <=
+        real_op = op[3:]
         if real_op == ">":
             return val > thr
         if real_op == "<":
@@ -410,7 +425,6 @@ def _cond_ok(cond: dict, *, indicators, macro_bias, regime_name) -> bool | None:
 
 
 def _eval_status(conditions: list[dict], *, indicators, macro_bias, regime_name) -> tuple[str, dict]:
-    """조건 리스트 → status + current 스냅샷."""
     current: dict[str, Any] = {}
     if not conditions:
         return "n/a", current
@@ -424,10 +438,7 @@ def _eval_status(conditions: list[dict], *, indicators, macro_bias, regime_name)
         else:
             by = {i["key"]: i for i in (indicators or [])}
             ind = by.get(m) or {}
-            current[m] = {
-                "value": ind.get("value"),
-                "change": ind.get("change"),
-            }
+            current[m] = {"value": ind.get("value"), "change": ind.get("change")}
         results.append(_cond_ok(c, indicators=indicators, macro_bias=macro_bias,
                                 regime_name=regime_name))
     known = [r for r in results if r is not None]
@@ -436,11 +447,249 @@ def _eval_status(conditions: list[dict], *, indicators, macro_bias, regime_name)
     if all(known) and None not in results:
         return "aligned", current
     if any(r is False for r in known):
-        # 일부만 맞으면 watching, 전부 틀리면 diverging
         if all(r is False for r in known):
             return "diverging", current
         return "watching", current
     return "watching", current
+
+
+def _slug(s: str, fallback: str) -> str:
+    base = (s or "").strip().lower().replace(" ", "_").replace("·", "_").replace("-", "_")
+    # 한글 라벨이면 fallback 사용
+    if re.search(r"[가-힣]", base) or not base:
+        return fallback
+    out = _ID_RE.sub("_", base).strip("_")
+    return out[:48] or fallback
+
+
+def _filter_sectors(keys: list | None) -> list[str]:
+    allowed = _sector_key_set()
+    out = []
+    for k in keys or []:
+        if isinstance(k, str) and k in allowed and k not in out:
+            out.append(k)
+    return out[:6]
+
+
+def _filter_conditions(raw: list | None) -> list[dict]:
+    out = []
+    for c in raw or []:
+        if not isinstance(c, dict):
+            continue
+        metric = c.get("metric")
+        op = c.get("op")
+        if metric not in _ALLOWED_METRICS or op not in _ALLOWED_OPS:
+            continue
+        thr = c.get("threshold")
+        if op == "in" and not isinstance(thr, list):
+            continue
+        out.append({
+            "metric": metric,
+            "op": op,
+            "threshold": thr,
+            "label": str(c.get("label") or metric)[:80],
+        })
+    return out[:4]
+
+
+def _corpus_docs(limit: int = 120) -> list[dict]:
+    """거시 우선 + 최근 문서. confirmed만."""
+    docs: list[dict] = []
+    seen: set[int] = set()
+    for batch in (
+        db.kb_documents(ticker="_MARKET", limit=60),
+        db.kb_documents(doc_class="시황", limit=40),
+        db.kb_documents(limit=limit),
+    ):
+        for d in batch or []:
+            did = d.get("id")
+            if did is not None and did in seen:
+                continue
+            if did is not None:
+                seen.add(int(did))
+            if (d.get("status") or "confirmed") not in ("confirmed", "", None):
+                continue
+            docs.append(d)
+            if len(docs) >= limit:
+                return docs
+    return docs
+
+
+def _keyword_tf(docs: list[dict], top_n: int = 24) -> list[tuple[str, int]]:
+    ctr: Counter[str] = Counter()
+    hangul_word = re.compile(r"[가-힣]{2,8}")
+    for d in docs:
+        text = f"{d.get('title') or ''} {d.get('summary') or ''}"
+        for w in hangul_word.findall(text):
+            if w not in _STOP:
+                ctr[w] += 1
+        for t in kb_search._tokenize(text):
+            if len(t) < 3 or t in _STOP or t.isdigit():
+                continue
+            # 한글 2그램은 노이즈 많음 → 영문·숫자 위주 추가
+            if re.fullmatch(r"[a-z0-9]+", t):
+                ctr[t] += 1
+    return ctr.most_common(top_n)
+
+
+def _build_prompt_bundle() -> dict[str, Any]:
+    docs = _corpus_docs()
+    keywords = _keyword_tf(docs)
+    headlines = []
+    for d in docs[:30]:
+        t = (d.get("title") or "").strip()
+        if t:
+            headlines.append(t[:120])
+    macro = db.kb_digest_get("_MARKET") or {}
+    prev = db.kv_get(_KV_KEY)
+    prev_labels = []
+    if isinstance(prev, dict):
+        for ch in ((prev.get("tree") or {}).get("children") or []):
+            if ch.get("label"):
+                prev_labels.append(ch["label"])
+    return {
+        "keywords": keywords,
+        "headlines": headlines,
+        "macro_summary": (macro.get("summary") or "")[:500],
+        "macro_points": list(macro.get("points") or [])[:6],
+        "prev_labels": prev_labels[:6],
+        "sector_keys": sorted(_sector_key_set()),
+    }
+
+
+def _validate_llm_branches(raw: dict | None) -> list[dict] | None:
+    if not isinstance(raw, dict):
+        return None
+    branches = raw.get("branches") or raw.get("ifs") or []
+    if not isinstance(branches, list) or not (2 <= len(branches) <= 4):
+        return None
+    out: list[dict] = []
+    used_ids: set[str] = set()
+    for i, b in enumerate(branches):
+        if not isinstance(b, dict):
+            continue
+        label = str(b.get("label") or "").strip()[:60]
+        if not label:
+            continue
+        bid = _slug(str(b.get("id") or ""), f"if_{i}")
+        if bid in used_ids:
+            bid = f"{bid}_{i}"
+        used_ids.add(bid)
+        affinity = b.get("affinity") if b.get("affinity") in _ALLOWED_AFFINITY else "risk_on"
+        sector_keys = _filter_sectors(b.get("sector_keys"))
+        if not sector_keys:
+            sector_keys = ["finance", "telecom"]
+        eq = str(b.get("evidence_query") or label)[:120]
+        assumptions = [str(a)[:120] for a in (b.get("assumptions") or []) if a][:4]
+        children_raw = list(b.get("children") or [])[:2]
+        children = []
+        for j, th in enumerate(children_raw):
+            if not isinstance(th, dict):
+                continue
+            tlabel = str(th.get("label") or "").strip()[:80]
+            if not tlabel:
+                continue
+            tid = _slug(str(th.get("id") or ""), f"{bid}_then_{j}")
+            edge = th.get("edge") if th.get("edge") in _ALLOWED_EDGES else "then"
+            if edge == "if":
+                edge = "then"
+            tcond = _filter_conditions(th.get("conditions"))
+            outs = []
+            for k, oc in enumerate(list(th.get("children") or [])[:1]):
+                if not isinstance(oc, dict):
+                    continue
+                olabel = str(oc.get("label") or "").strip()[:80]
+                if not olabel:
+                    continue
+                oid = _slug(str(oc.get("id") or ""), f"{tid}_out_{k}")
+                osec = _filter_sectors(oc.get("sector_keys")) or sector_keys[:3]
+                outs.append({
+                    "id": oid,
+                    "kind": "outcome",
+                    "edge": "then",
+                    "label": olabel,
+                    "assumptions": [str(a)[:120] for a in (oc.get("assumptions") or []) if a][:3],
+                    "sector_keys": osec,
+                    "evidence_query": str(oc.get("evidence_query") or eq)[:120],
+                    "children": [],
+                })
+            if not outs:
+                outs = [{
+                    "id": f"{tid}_out",
+                    "kind": "outcome",
+                    "edge": "then",
+                    "label": f"{tlabel} → 관심 섹터",
+                    "assumptions": [],
+                    "sector_keys": sector_keys[:3],
+                    "evidence_query": eq,
+                    "children": [],
+                }]
+            children.append({
+                "id": tid,
+                "kind": "then",
+                "edge": edge,
+                "label": tlabel,
+                "assumptions": [str(a)[:120] for a in (th.get("assumptions") or []) if a][:3],
+                "conditions": tcond,
+                "children": outs,
+            })
+        if not children:
+            continue
+        out.append({
+            "id": bid,
+            "label": label,
+            "edge": "if",
+            "assumptions": assumptions or [label],
+            "sector_keys": sector_keys,
+            "evidence_query": eq,
+            "affinity": affinity,
+            "children": children,
+        })
+    return out if len(out) >= 2 else None
+
+
+def _llm_draft_templates() -> tuple[list[dict] | None, str | None]:
+    """Haiku로 트리 초안. (templates, model) 또는 (None, None)."""
+    from signal_desk import llm as llm_mod
+    if not llm_mod.available():
+        return None, None
+    bundle = _build_prompt_bundle()
+    sector_list = ", ".join(bundle["sector_keys"])
+    kw_line = ", ".join(f"{w}({n})" for w, n in bundle["keywords"][:20])
+    heads = "\n".join(f"- {h}" for h in bundle["headlines"][:25])
+    prev = ", ".join(bundle["prev_labels"]) or "(없음)"
+    points = "\n".join(f"- {p}" for p in bundle["macro_points"]) or "(없음)"
+    system = (
+        "너는 주식 시황 가설 에디터다. 투자 권유·수익 보장·확률%를 쓰지 마라. "
+        "최근 뉴스·KB를 보고 배타적 IF 시나리오 2~4개와 각 IF 아래 then/but/and 지표 분기, "
+        "outcome(관심 섹터)을 JSON으로만 작성한다. "
+        "IF들은 동시에 성립한다고 읽히면 안 된다(배타적 가설)."
+    )
+    user = (
+        f"거시 digest 요약: {bundle['macro_summary'] or '(없음)'}\n"
+        f"거시 points:\n{points}\n"
+        f"자주 나온 키워드: {kw_line or '(없음)'}\n"
+        f"최근 헤드라인:\n{heads or '- (없음)'}\n"
+        f"직전 가설 라벨(참고·중복 피하기): {prev}\n\n"
+        f"허용 sector_keys: {sector_list}\n"
+        f"허용 condition.metric: {', '.join(sorted(_ALLOWED_METRICS))}\n"
+        f"허용 condition.op: {', '.join(sorted(_ALLOWED_OPS))}\n"
+        "affinity는 risk_on|consumer|risk_off 중 하나.\n"
+        "각 IF children(then) 1~2개, 각 then의 children(outcome) 정확히 1개.\n"
+        "support_pct/status/확률은 넣지 마라.\n"
+        "JSON 스키마: {\"branches\":[{\"id\",\"label\",\"affinity\",\"assumptions\":[],"
+        "\"sector_keys\":[],\"evidence_query\",\"children\":[{\"id\",\"kind\":\"then\","
+        "\"edge\":\"then|and|but\",\"label\",\"assumptions\":[],\"conditions\":"
+        "[{\"metric\",\"op\",\"threshold\",\"label\"}],\"children\":[{\"id\",\"kind\":\"outcome\","
+        "\"label\",\"assumptions\":[],\"sector_keys\":[],\"evidence_query\"}]}]}]}"
+    )
+    model = llm_mod.DIGEST_MODEL
+    raw = llm_mod.complete_json(system, user, max_tokens=3500, model=model)
+    validated = _validate_llm_branches(raw)
+    if not validated:
+        log.warning("hypothesis Haiku JSON 검증 실패")
+        return None, model
+    return validated, model
 
 
 def _build_child_node(
@@ -465,10 +714,8 @@ def _build_child_node(
         if eq not in evidence_cache:
             evidence_cache[eq] = _evidence_for(eq)
         _, evidence = evidence_cache[eq]
-    # outcome: 자식 조건이 없으면 부모 then status를 물려받을 수 있게 n/a 유지
     if kind == "outcome" and not conditions:
         status = "n/a"
-
     children = [
         _build_child_node(
             c, parent_id=node_id, indicators=indicators, macro_bias=macro_bias,
@@ -476,12 +723,6 @@ def _build_child_node(
         )
         for c in (tmpl.get("children") or [])
     ]
-    # outcome의 status: 자식 없으면 부모 then과 동일하게 보이도록 — 호출측에서 세팅하지 않음.
-    # then 아래 outcome은 부모 status를 복사하면 UI가 읽기 쉬움.
-    if kind == "outcome" and status == "n/a":
-        # 부모 평가는 이 함수 밖에서 — 여기서는 children 없는 leaf만 n/a
-        pass
-
     return {
         "id": node_id,
         "parent_id": parent_id,
@@ -502,17 +743,18 @@ def _build_child_node(
 
 
 def _inherit_outcome_status(node: dict) -> None:
-    """then → outcome: outcome에 조건이 없으면 부모 status를 상속."""
     for ch in node.get("children") or []:
         if ch.get("kind") == "outcome" and ch.get("status") == "n/a":
             ch["status"] = node.get("status") or "watching"
         _inherit_outcome_status(ch)
 
 
-def build(*, store_prices=None, store_macro=None) -> dict:
-    """현재 지표·KB·사이클로 IF 트리 생성."""
+def build(*, templates: list[dict] | None = None, store_prices=None, store_macro=None,
+          source: str = "fallback", model: str | None = None) -> dict:
+    """템플릿(+룰 점수)으로 트리 생성. templates 없으면 폴백 _TEMPLATES."""
     from signal_desk import store
 
+    tmpl_list = templates if templates is not None else _TEMPLATES
     as_of = _kst_today()
     indicators = store_macro if store_macro is not None else store.load_macro()
     mread = macro_mod.read(indicators or [])
@@ -537,11 +779,12 @@ def build(*, store_prices=None, store_macro=None) -> dict:
     raw_w: dict[str, float] = {}
     if_nodes: list[dict] = []
 
-    for t in _TEMPLATES:
-        m = _metric_score(t["affinity"], macro_bias=macro_bias, regime_name=regime_name,
+    for t in tmpl_list:
+        affinity = t.get("affinity") if t.get("affinity") in _ALLOWED_AFFINITY else "risk_on"
+        m = _metric_score(affinity, macro_bias=macro_bias, regime_name=regime_name,
                           phase_key=phase_key, indicators=indicators or [])
-        c = _cycle_score(t["sector_keys"], lead_tags)
-        eq = t["evidence_query"]
+        c = _cycle_score(t.get("sector_keys") or [], lead_tags)
+        eq = t.get("evidence_query") or t.get("label") or ""
         if eq not in evidence_cache:
             evidence_cache[eq] = _evidence_for(eq)
         k, evidence = evidence_cache[eq]
@@ -567,16 +810,17 @@ def build(*, store_prices=None, store_macro=None) -> dict:
             "kind": "if",
             "edge": "if",
             "label": t["label"],
-            "support_pct": 0,  # filled after normalize
-            "assumptions": t["assumptions"],
+            "support_pct": 0,
+            "assumptions": t.get("assumptions") or [],
             "conditions": [],
             "status": "n/a",
             "current": {},
-            "sector_keys": t["sector_keys"],
-            "sectors": _sector_nodes(t["sector_keys"]),
+            "sector_keys": t.get("sector_keys") or [],
+            "sectors": _sector_nodes(t.get("sector_keys") or []),
             "evidence": evidence,
             "evidence_n": len(evidence),
             "watch_metrics": watch,
+            "affinity": affinity,
             "scores": {"metric": round(m, 3), "kb": round(k, 3), "cycle": round(c, 3),
                        "raw": round(w, 3)},
             "children": children,
@@ -586,7 +830,6 @@ def build(*, store_prices=None, store_macro=None) -> dict:
     for node in if_nodes:
         node["support_pct"] = pct[node["id"]]
 
-    # 지지도 최대 IF
     active_id = max(if_nodes, key=lambda n: n["support_pct"])["id"] if if_nodes else None
 
     root = {
@@ -609,6 +852,10 @@ def build(*, store_prices=None, store_macro=None) -> dict:
     return {
         "ready": True,
         "as_of": as_of,
+        "generated_at": _kst_now_iso(),
+        "source": source,
+        "model": model,
+        "trigger": "manual",
         "disclaimer": _DISCLAIMER,
         "tree": root,
         "context": {
@@ -620,20 +867,33 @@ def build(*, store_prices=None, store_macro=None) -> dict:
 
 
 def refresh() -> dict:
-    """재점수 후 kv 캐시. 일일 훅·관리자 수동 공통."""
-    data = build()
+    """관리자 수동 전용. Haiku 시도 → 실패 시 폴백 템플릿. kv 저장."""
+    templates, model = _llm_draft_templates()
+    if templates:
+        data = build(templates=templates, source="llm", model=model)
+    else:
+        from signal_desk import llm as llm_mod
+        data = build(templates=_TEMPLATES, source="fallback",
+                     model=model or (llm_mod.DIGEST_MODEL if llm_mod.available() else None))
     db.kv_set(_KV_KEY, data)
     return data
 
 
-def get(*, build_if_missing: bool = True) -> dict:
-    """캐시 우선. 없거나 ready 아니면 재생성. v1 캐시는 무시."""
+def get(*, build_if_missing: bool = False) -> dict:
+    """캐시만. 자동 생성·LLM 호출 없음."""
     cached = db.kv_get(_KV_KEY)
     if isinstance(cached, dict) and cached.get("ready") and cached.get("tree"):
-        # v2 shape: root.children[].kind == if
         kids = (cached.get("tree") or {}).get("children") or []
         if kids and kids[0].get("kind") == "if":
             return cached
-    if not build_if_missing:
-        return {"ready": False, "reason": "시황 가설 캐시가 없습니다. 관리자가 새로고침하세요."}
-    return refresh()
+    # 구 v2 캐시가 있으면 읽기만 허용(재생성 안 함)
+    legacy = db.kv_get("hypo:v2:latest")
+    if isinstance(legacy, dict) and legacy.get("ready") and legacy.get("tree"):
+        kids = (legacy.get("tree") or {}).get("children") or []
+        if kids and kids[0].get("kind") == "if":
+            return {**legacy, "source": legacy.get("source") or "legacy_v2"}
+    # build_if_missing는 무시 — 자동 생성·LLM 금지(비용). 수동 refresh만 생성.
+    return {
+        "ready": False,
+        "reason": "시황 가설이 아직 없습니다. 관리자 새로고침으로 뉴스·KB 기반 가설을 생성하세요.",
+    }

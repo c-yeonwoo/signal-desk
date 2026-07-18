@@ -89,10 +89,7 @@ def _daily_kb_collect():
             _clear_us_signal_caches()
     except Exception as e:
         log.warning("US 재무 백필 실패: %s", type(e).__name__)
-    try:  # 시황 가설 지지도 일 1회 재점수(엔진·봇 무관)
-        hypothesis.refresh()
-    except Exception as e:
-        log.warning("시황 가설 갱신 실패: %s", type(e).__name__)
+    # 시황 가설은 관리자 수동 refresh만(Haiku 비용). 일일 자동 호출 없음.
     db.kv_set("kb_collect_date", _kst_today())
 
 
@@ -1863,13 +1860,13 @@ def kb_get(ticker: str):
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------
 @app.get("/api/hypothesis")
 def hypothesis_get():
-    """시황 가설 트리(지지도·근거·관심 섹터). 시그널/봇과 독립. 캐시 없으면 생성."""
-    return hypothesis.get(build_if_missing=True)
+    """시황 가설 트리. 캐시만 — 없으면 ready:false. 자동 LLM/생성 없음."""
+    return hypothesis.get(build_if_missing=False)
 
 
 @app.post("/api/hypothesis/refresh")
 def hypothesis_refresh(request: Request):
-    """시황 가설 수동 재점수 — 관리자 전용(_ADMIN_PATHS)."""
+    """시황 가설 수동 생성(Haiku+룰) — 관리자 전용. 유일한 생성 경로."""
     _admin_or_403(request)
     return hypothesis.refresh()
 

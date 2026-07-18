@@ -726,13 +726,13 @@
 
     <div id="cycle-seg-hypo" style="display:none">
       <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 시황 가설
-        <span style="color:var(--dim);font-size:13px;font-weight:600">· 배타적 IF · 지지도 · 예측 아님</span>
+        <span style="color:var(--dim);font-size:13px;font-weight:600">· 뉴스·KB · 수동 생성 · 예측 아님</span>
         <button type="button" class="btn" id="hypo-refresh-btn" style="display:none;margin-left:10px;padding:3px 10px;font-size:12px"
-          onclick="refreshHypothesis()">새로고침</button>
+          onclick="refreshHypothesis()">가설 생성</button>
       </h3>
-      <p class="page-desc">시황·정책에 대한 <b>배타적 IF 가설</b>과, 그렇게 됐을 때 예상되는
-        <b>지표 then 분기 → 결과</b>를 트리로 봅니다. Layer0 숫자는 <b>지지도</b>(배타 가설 간 상대 가중)이며
-        시장이 그렇게 될 확률이 아닙니다. 시그널·페이퍼 봇과 별개입니다.</p>
+      <p class="page-desc">최근 뉴스·KB에서 뽑은 <b>거시 핫이슈 IF</b>와, 그렇게 됐을 때 예상되는
+        <b>지표 then → 결과</b> 트리입니다. <b>관리자가 볼 때만 수동 생성</b>(Haiku 1회 · 일일 자동 없음).
+        Layer0 숫자는 <b>지지도</b>(배타 가설 간 상대 가중)이며 확률이 아닙니다. 시그널·봇과 별개입니다.</p>
       <div id="hypo-asof" style="font-size:11px;color:var(--dim-2);margin:0 0 10px"></div>
       <div id="hypo-if-bar" class="hypo-if-bar"></div>
       <div id="hypo-graph" class="hypo-graph"><div class="placeholder" style="padding:24px">불러오는 중…</div></div>
@@ -1718,11 +1718,22 @@ async function loadHypothesis(){
   const detail = document.getElementById('hypo-detail');
   const asof = document.getElementById('hypo-asof');
   const disc = document.getElementById('hypo-disc');
+  const ifBar = document.getElementById('hypo-if-bar');
   if (!el) return;
   try {
     const d = await (await fetch('/api/hypothesis')).json();
     if (!d.ready || !d.tree) {
-      el.innerHTML = `<div class="placeholder" style="padding:24px">${esc(d.reason || '시황 가설을 불러오지 못했습니다.')}</div>`;
+      _hypoData = null;
+      _hypoById = {};
+      if (ifBar) ifBar.innerHTML = '';
+      if (detail) detail.style.display = 'none';
+      const hint = _isAdmin
+        ? '위 <b>가설 생성</b>을 누르면 최근 뉴스·KB로 Haiku가 IF 트리를 만듭니다(유료 1회 · 일일 자동 없음).'
+        : '관리자가 가설을 생성하면 여기에 표시됩니다.';
+      el.innerHTML = `<div class="placeholder" style="padding:24px;line-height:1.55">
+        ${esc(d.reason || '시황 가설이 아직 없습니다.')}<br/><span style="color:var(--dim)">${hint}</span></div>`;
+      if (asof) asof.textContent = '미생성 · 수동만';
+      if (disc) disc.textContent = d.disclaimer || '';
       return;
     }
     _hypoData = d;
@@ -1734,11 +1745,14 @@ async function loadHypothesis(){
         || ((d.tree.children || []).sort((a, b) => (b.support_pct || 0) - (a.support_pct || 0))[0] || {}).id;
     }
     if (asof) {
-      asof.textContent = `기준일 ${d.as_of || '–'}`
+      const src = d.source === 'llm' ? 'Haiku' : (d.source === 'fallback' ? 'fallback' : (d.source || '캐시'));
+      const modelShort = (d.model || '').includes('haiku') ? 'Haiku' : (d.model ? d.model.split('-').slice(0, 2).join('-') : src);
+      asof.textContent = `${modelShort} · 수동 · ${d.generated_at || d.as_of || '–'}`
+        + (d.source === 'fallback' ? ' · 템플릿 폴백' : '')
         + (ctx.cycle_phase ? ` · 사이클 ${ctx.cycle_phase}` : '')
         + (ctx.regime ? ` · 국면 ${ctx.regime}` : '')
         + (ctx.macro_bias ? ` · 거시 ${ctx.macro_bias}` : '')
-        + ' · 한 번에 하나의 IF 체인만 펼침';
+        + ' · IF 체인 1개만 펼침';
     }
     if (disc) disc.textContent = d.disclaimer || '';
     drawHypothesisIfBar(d.tree);
@@ -1752,13 +1766,13 @@ async function loadHypothesis(){
 async function refreshHypothesis(){
   if (!_isAdmin) return;
   const btn = document.getElementById('hypo-refresh-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '갱신 중…'; }
+  if (btn) { btn.disabled = true; btn.textContent = '생성 중…'; }
   try {
     const d = await (await fetch('/api/hypothesis/refresh', { method: 'POST' })).json();
     if (d.ready) { _hypoData = d; _hypoActiveIf = null; await loadHypothesis(); }
-    else alert(d.reason || d.error || '갱신 실패');
-  } catch (e) { alert('갱신 요청 실패'); }
-  finally { if (btn) { btn.disabled = false; btn.textContent = '새로고침'; } }
+    else alert(d.reason || d.error || '생성 실패');
+  } catch (e) { alert('생성 요청 실패'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '가설 생성'; } }
 }
 
 // ===== 밸류체인 =====
