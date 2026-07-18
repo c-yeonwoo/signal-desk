@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import logging
 import re
 from collections import Counter
@@ -46,8 +47,16 @@ _STOP = frozenset({
     "기자", "속보", "단독", "the", "and", "for", "with", "from",
 })
 _ID_RE = re.compile(r"[^a-z0-9_]+")
+_SECTOR_ALIASES = {
+    "반도체": "semiconductor", "메모리": "semiconductor", "hbm": "semiconductor",
+    "ai": "ai_datacenter", "ai칩": "ai_datacenter", "데이터센터": "ai_datacenter",
+    "전력": "power_nuclear", "원전": "power_nuclear", "방산": "defense", "방어": "defense",
+    "에너지": "energy", "금융": "finance", "은행": "finance", "유통": "retail",
+    "소비": "retail", "내수": "retail", "통신": "telecom", "바이오": "bio",
+    "자동차": "auto", "배터리": "battery", "로봇": "robotics", "화장품": "cosmetics",
+}
 
-# 폴백 큐레이션 (LLM 실패·키 없음)
+# 폴백 큐레이션 (디버그·테스트용 — refresh 경로에서는 쓰지 않음)
 _TEMPLATES: list[dict[str, Any]] = [
     {
         "id": "ai_capex",
@@ -469,13 +478,93 @@ def _slug(s: str, fallback: str) -> str:
     return out[:48] or fallback
 
 
-def _filter_sectors(keys: list | None) -> list[str]:
+def _map_sector_key(raw: str) -> str | None:
     allowed = _sector_key_set()
-    out = []
+    k = (raw or "").strip()
+    if not k:
+        return None
+    if k in allowed:
+        return k
+    low = k.lower()
+    if low in allowed:
+        return low
+    alias = _SECTOR_ALIASES.get(k) or _SECTOR_ALIASES.get(low)
+    if alias in allowed:
+        return alias
+    for s in valuechain.sectors():
+        name = s.get("name") or ""
+        if k == name or k in name or name in k:
+            return s["key"]
+        tags = s.get("tags") or []
+        if k in tags or low in {t.lower() for t in tags if isinstance(t, str)}:
+            return s["key"]
+    return None
+
+
+def _filter_sectors(keys: list | None) -> list[str]:
+    out: list[str] = []
     for k in keys or []:
-        if isinstance(k, str) and k in allowed and k not in out:
-            out.append(k)
+        mapped = _map_sector_key(str(k)) if k is not None else None
+        if mapped and mapped not in out:
+            out.append(mapped)
     return out[:6]
+
+
+def _as_str_list(val: Any, *, limit: int = 4) -> list[str]:
+    if isinstance(val, str) and val.strip():
+        return [val.strip()[:120]]
+    if isinstance(val, list):
+        return [str(a)[:120] for a in val if a][:limit]
+    return []
+
+
+def _coerce_affinity(val: Any) -> str:
+    if val in _ALLOWED_AFFINITY:
+        return str(val)
+    if isinstance(val, (int, float)):
+        return "risk_on" if float(val) >= 0.45 else "risk_off"
+    s = str(val or "").lower()
+    if "consumer" in s or "소비" in s or "물가" in s:
+        return "consumer"
+    if "off" in s or "위험" in s or "방어" in s:
+        return "risk_off"
+    return "risk_on"
+
+
+def _coerce_edge(val: Any) -> str:
+    s = str(val or "then").strip().lower()
+    if s in _ALLOWED_EDGES and s != "if":
+        return s
+    if s in ("그러면", "다음", "이어서"):
+        return "then"
+    if s in ("그런데", "하지만", "다만", "but"):
+        return "but"
+    if s in ("그리고", "동시에", "and"):
+        return "and"
+    return "then"
+
+
+def _parse_llm_json(text: str | None) -> dict | None:
+    """코드펜스·잡텍스트·트레일링 콤마를 tolerantly 파싱."""
+    if not text or not str(text).strip():
+        return None
+    t = str(text).strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.I)
+        t = re.sub(r"\s*```$", "", t)
+    candidates = [t]
+    start, end = t.find("{"), t.rfind("}")
+    if start != -1 and end > start:
+        candidates.append(t[start:end + 1])
+    for cand in candidates:
+        for variant in (cand, re.sub(r",\s*([}\]])", r"\1", cand)):
+            try:
+                obj = json.loads(variant)
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                continue
+    return None
 
 
 def _filter_conditions(raw: list | None) -> list[dict]:
@@ -565,18 +654,19 @@ def _build_prompt_bundle() -> dict[str, Any]:
 
 
 def _validate_llm_branches(raw: dict | None) -> list[dict] | None:
-    """핫이슈 1~4개. 배타적일 필요 없음."""
+    """핫이슈 1~4개. LLM이 형식을 조금 어겨도 최대한 살린다."""
     if not isinstance(raw, dict):
         return None
     branches = raw.get("branches") or raw.get("issues") or raw.get("ifs") or []
-    if not isinstance(branches, list) or not (1 <= len(branches) <= 4):
+    if not isinstance(branches, list) or not branches:
         return None
+    branches = branches[:4]
     out: list[dict] = []
     used_ids: set[str] = set()
     for i, b in enumerate(branches):
         if not isinstance(b, dict):
             continue
-        label = str(b.get("label") or b.get("plain") or "").strip()[:48]
+        label = str(b.get("label") or b.get("plain") or b.get("title") or "").strip()[:48]
         if not label:
             continue
         detail = str(b.get("detail") or "").strip()[:240]
@@ -584,81 +674,68 @@ def _validate_llm_branches(raw: dict | None) -> list[dict] | None:
         if bid in used_ids:
             bid = f"{bid}_{i}"
         used_ids.add(bid)
-        affinity = b.get("affinity") if b.get("affinity") in _ALLOWED_AFFINITY else "risk_on"
+        affinity = _coerce_affinity(b.get("affinity"))
         sector_keys = _filter_sectors(b.get("sector_keys"))
         if not sector_keys:
             sector_keys = ["finance", "telecom"]
         eq = str(b.get("evidence_query") or label)[:120]
-        assumptions = [str(a)[:120] for a in (b.get("assumptions") or []) if a][:4]
-        children_raw = list(b.get("children") or [])[:2]
-        children = []
+        assumptions = _as_str_list(b.get("assumptions"), limit=4) or [label]
+        children_raw = [c for c in (b.get("children") or []) if isinstance(c, dict)][:2]
+        children: list[dict] = []
         for j, th in enumerate(children_raw):
-            if not isinstance(th, dict):
-                continue
             tlabel = str(th.get("label") or th.get("plain") or "").strip()[:48]
             if not tlabel:
                 continue
             tid = _slug(str(th.get("id") or ""), f"{bid}_then_{j}")
-            edge = th.get("edge") if th.get("edge") in _ALLOWED_EDGES else "then"
-            if edge == "if":
-                edge = "then"
+            edge = _coerce_edge(th.get("edge"))
             tcond = _filter_conditions(th.get("conditions"))
-            outs = []
-            for k, oc in enumerate(list(th.get("children") or [])[:1]):
-                if not isinstance(oc, dict):
-                    continue
+            outs: list[dict] = []
+            for k, oc in enumerate([c for c in (th.get("children") or []) if isinstance(c, dict)][:1]):
                 olabel = str(oc.get("label") or oc.get("plain") or "").strip()[:48]
                 if not olabel:
                     continue
                 oid = _slug(str(oc.get("id") or ""), f"{tid}_out_{k}")
                 osec = _filter_sectors(oc.get("sector_keys")) or sector_keys[:3]
                 outs.append({
-                    "id": oid,
-                    "kind": "outcome",
-                    "edge": "then",
-                    "label": olabel,
+                    "id": oid, "kind": "outcome", "edge": "then", "label": olabel,
                     "detail": str(oc.get("detail") or "").strip()[:240],
-                    "assumptions": [str(a)[:120] for a in (oc.get("assumptions") or []) if a][:3],
+                    "assumptions": _as_str_list(oc.get("assumptions"), limit=3),
                     "sector_keys": osec,
                     "evidence_query": str(oc.get("evidence_query") or eq)[:120],
                     "children": [],
                 })
             if not outs:
                 outs = [{
-                    "id": f"{tid}_out",
-                    "kind": "outcome",
-                    "edge": "then",
-                    "label": "관련 업종을 눈여겨볼 만함",
-                    "detail": "",
-                    "assumptions": [],
-                    "sector_keys": sector_keys[:3],
-                    "evidence_query": eq,
-                    "children": [],
+                    "id": f"{tid}_out", "kind": "outcome", "edge": "then",
+                    "label": "관련 업종을 눈여겨볼 만함", "detail": "",
+                    "assumptions": [], "sector_keys": sector_keys[:3],
+                    "evidence_query": eq, "children": [],
                 }]
             children.append({
-                "id": tid,
-                "kind": "then",
-                "edge": edge,
-                "label": tlabel,
+                "id": tid, "kind": "then", "edge": edge, "label": tlabel,
                 "detail": str(th.get("detail") or "").strip()[:240],
-                "assumptions": [str(a)[:120] for a in (th.get("assumptions") or []) if a][:3],
-                "conditions": tcond,
-                "children": outs,
+                "assumptions": _as_str_list(th.get("assumptions"), limit=3),
+                "conditions": tcond, "children": outs,
             })
         if not children:
-            continue
+            # then 없이도 이슈는 살림
+            children = [{
+                "id": f"{bid}_then_0", "kind": "then", "edge": "then",
+                "label": "관련 신호가 이어지면", "detail": "",
+                "assumptions": [], "conditions": [],
+                "children": [{
+                    "id": f"{bid}_out", "kind": "outcome", "edge": "then",
+                    "label": "관련 업종을 눈여겨볼 만함", "detail": "",
+                    "assumptions": [], "sector_keys": sector_keys[:3],
+                    "evidence_query": eq, "children": [],
+                }],
+            }]
         out.append({
-            "id": bid,
-            "label": label,
-            "detail": detail,
-            "edge": "if",
-            "assumptions": assumptions or [label],
-            "sector_keys": sector_keys,
-            "evidence_query": eq,
-            "affinity": affinity,
-            "children": children,
+            "id": bid, "label": label, "detail": detail, "edge": "if",
+            "assumptions": assumptions, "sector_keys": sector_keys,
+            "evidence_query": eq, "affinity": affinity, "children": children,
         })
-    return out if len(out) >= 1 else None
+    return out if out else None
 
 
 def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
@@ -667,46 +744,52 @@ def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
     if not llm_mod.available():
         return None, None, "ANTHROPIC_API_KEY가 없습니다. 서버 .env를 확인한 뒤 재시작하세요."
     bundle = _build_prompt_bundle()
-    sector_list = ", ".join(bundle["sector_keys"])
-    kw_line = ", ".join(f"{w}({n})" for w, n in bundle["keywords"][:20])
-    heads = "\n".join(f"- {h}" for h in bundle["headlines"][:25])
+    # 프롬프트 짧게 — 잘린 JSON·타임아웃 방지
+    sector_list = ", ".join(bundle["sector_keys"][:14])
+    kw_line = ", ".join(f"{w}" for w, _ in bundle["keywords"][:14])
+    heads = "\n".join(f"- {h}" for h in bundle["headlines"][:14])
     prev = ", ".join(bundle["prev_labels"]) or "(없음)"
-    points = "\n".join(f"- {p}" for p in bundle["macro_points"]) or "(없음)"
+    points = "\n".join(f"- {p}" for p in bundle["macro_points"][:4]) or "(없음)"
     system = (
-        "너는 초보 투자자도 읽는 시황 이슈 에디터다. 투자 권유·수익 보장·확률% 금지. "
-        "최근 뉴스·KB에서 '지금 중요한 거시 핫이슈'를 1~4개 고른다. "
-        "이슈들은 서로 배타적일 필요 없다(동시에 관심 가져도 됨). 이슈가 적으면 1~2개만. "
-        "고정 템플릿(AI·CAPEX / 정책·물가·소비 / 리스크오프)을 억지로 쓰지 마라 — 뉴스에 맞게. "
-        "모든 label은 쉬운 한국어 한 줄(전문용어·영문 약어·지표 코드 금지). "
-        "전문용어·지표명·근거 표현은 detail 필드에만. "
-        "각 이슈 아래 그러면/그런데/그리고 분기(then)와 결과(outcome)를 둔다."
+        "시황 이슈 에디터. 투자권유·확률% 금지. "
+        "뉴스 기반 핫이슈 1~3개(배타 아님). 고정 템플릿 금지. "
+        "label=쉬운 한국어 한 줄. detail에만 전문용어. "
+        "유효한 JSON 객체만(코드펜스 금지)."
     )
     user = (
-        f"거시 digest 요약: {bundle['macro_summary'] or '(없음)'}\n"
-        f"거시 points:\n{points}\n"
-        f"자주 나온 키워드: {kw_line or '(없음)'}\n"
-        f"최근 헤드라인:\n{heads or '- (없음)'}\n"
-        f"직전 이슈 라벨(중복 피하기): {prev}\n\n"
-        f"허용 sector_keys: {sector_list}\n"
-        f"허용 condition.metric: {', '.join(sorted(_ALLOWED_METRICS))}\n"
-        f"허용 condition.op: {', '.join(sorted(_ALLOWED_OPS))}\n"
-        "affinity는 risk_on|consumer|risk_off 중 하나(점수용, UI에 안 보임).\n"
-        "각 이슈 children(then) 1~2개, 각 then의 children(outcome) 1개.\n"
-        "edge: then|and|but. support_pct/status/확률 넣지 마라.\n"
-        "JSON: {\"branches\":[{\"id\",\"label\",\"detail\",\"affinity\",\"assumptions\":[],"
-        "\"sector_keys\":[],\"evidence_query\",\"children\":[{\"id\",\"kind\":\"then\","
-        "\"edge\",\"label\",\"detail\",\"assumptions\":[],\"conditions\":"
-        "[{\"metric\",\"op\",\"threshold\",\"label\"}],\"children\":[{\"id\",\"kind\":\"outcome\","
-        "\"label\",\"detail\",\"assumptions\":[],\"sector_keys\":[],\"evidence_query\"}]}]}]}"
+        f"요약: {bundle['macro_summary'] or '(없음)'}\n"
+        f"points:\n{points}\n"
+        f"키워드: {kw_line or '(없음)'}\n"
+        f"헤드라인:\n{heads or '- (없음)'}\n"
+        f"직전 라벨: {prev}\n"
+        f"sector_keys(영문만): {sector_list}\n"
+        f"metric: NASDAQCOM,VIXCLS,CPIAUCSL,FEDFUNDS,macro_bias,regime\n"
+        "op: chg>,chg<,>=,<=,==,in\n"
+        "affinity: risk_on|consumer|risk_off 문자열\n"
+        "edge: then|and|but\n"
+        "assumptions는 문자열 배열. 각 이슈 then 1개+outcome 1개.\n"
+        '{"branches":[{"label":"…","detail":"…","affinity":"risk_on","assumptions":["…"],'
+        '"sector_keys":["semiconductor"],"evidence_query":"…",'
+        '"children":[{"label":"…","edge":"then","detail":"…","assumptions":[],'
+        '"conditions":[{"metric":"VIXCLS","op":"<","threshold":20,"label":"…"}],'
+        '"children":[{"label":"…","detail":"…","sector_keys":["semiconductor"],'
+        '"evidence_query":"…"}]}]}]}'
     )
     model = llm_mod.DIGEST_MODEL
-    raw = llm_mod.complete_json(system, user, max_tokens=3500, model=model)
+    text = llm_mod.complete(
+        system + "\n반드시 JSON 객체만 출력.",
+        user, max_tokens=2200, model=model,
+    )
+    if not text:
+        return None, model, "Haiku 응답이 비었습니다. 잠시 후 다시 시도하세요."
+    raw = _parse_llm_json(text)
     if raw is None:
-        return None, model, "Haiku 호출 실패(응답 없음). 키·네트워크를 확인하세요."
+        log.warning("hypothesis Haiku JSON 파싱 실패 head=%r", text[:160])
+        return None, model, "Haiku JSON 파싱 실패(형식 깨짐). 다시 생성해 보세요."
     validated = _validate_llm_branches(raw)
     if not validated:
         log.warning("hypothesis Haiku JSON 검증 실패: keys=%s", list(raw.keys())[:8])
-        return None, model, "Haiku JSON을 해석하지 못했습니다. 다시 생성해 보세요."
+        return None, model, "Haiku JSON 구조가 맞지 않습니다. 다시 생성해 보세요."
     return validated, model, None
 
 

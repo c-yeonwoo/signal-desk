@@ -190,6 +190,33 @@ def test_validate_allows_single_issue():
     assert out[0]["detail"] == "FEDFUNDS"
 
 
+def test_parse_llm_json_strips_fence_and_trailing_comma():
+    raw = hypothesis._parse_llm_json(
+        '```json\n{"branches":[{"label":"a","affinity":"risk_on",}],}\n```'
+    )
+    assert raw and "branches" in raw
+
+
+def test_validate_coerces_messy_llm_fields():
+    out = hypothesis._validate_llm_branches({
+        "branches": [{
+            "label": "반도체 이야기가 큼",
+            "affinity": 0.9,
+            "assumptions": "사람이 부족하다",
+            "sector_keys": ["반도체", "AI"],
+            "children": [{
+                "label": "투자가 이어지면",
+                "edge": "그런데",
+                "children": [],
+            }],
+        }],
+    })
+    assert out and out[0]["affinity"] == "risk_on"
+    assert "semiconductor" in out[0]["sector_keys"] or "ai_datacenter" in out[0]["sector_keys"]
+    assert out[0]["children"][0]["edge"] == "but"
+    assert out[0]["children"][0]["children"]  # outcome 자동 보강
+
+
 def test_refresh_uses_llm_templates(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     _stub_macro_cycle(monkeypatch)
