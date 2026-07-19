@@ -646,13 +646,45 @@ def _clear_us_signal_caches() -> None:
     _us_signal_items.cache_clear()
 
 
+def _decision_payload(r) -> dict:
+    dec = getattr(r, "decision", None)
+    if dec is not None and hasattr(dec, "to_dict"):
+        return dec.to_dict()
+    return {
+        "buy_blocked": bool(getattr(r, "event_risk", False)),
+        "holding_action": "exit" if getattr(r, "event_severity", "") == "critical"
+        else ("trim" if getattr(r, "event_severity", "") == "serious" else "none"),
+        "event_id": None,
+        "severity": getattr(r, "event_severity", None) or None,
+        "summary": getattr(r, "event_note", "") or "",
+        "policy_version": "p2",
+    }
+
+
+def _attention_events(ticker: str, limit: int = 5) -> list[dict]:
+    """시그널 상세 Attention — candidate 카드(조사 필요). Decision/점수 미반영."""
+    items = db.kb_events_list(limit=limit, ticker=ticker, status="candidate")
+    out = []
+    for it in items:
+        out.append({
+            "id": it["id"], "severity": it.get("severity"), "summary": it.get("summary"),
+            "status": it.get("status"), "event_type": it.get("event_type"),
+            "direction": it.get("direction"), "trust_tier": it.get("trust_tier"),
+            "confidence": it.get("confidence"),
+            "evidence": db.kb_event_evidence(it["id"]),
+        })
+    return out
+
+
 def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct,
                           mktcap, vol, vol_avg, per, pbr, roe=None, div_yield=None) -> dict:
     """리스트 API용 요약 행 — reasons/narrative/about/moves/target/kb 제외(클릭 시 detail)."""
+    dec = _decision_payload(r)
     return {
         "ticker": r.ticker, "name": name, "score": round(r.score, 4), "kind": r.kind,
         "confidence": r.confidence, "factor_scores": getattr(r, "factor_scores", {}) or {},
-        "event_risk": bool(getattr(r, "event_risk", False)),
+        "event_risk": bool(dec.get("buy_blocked")),
+        "decision_buy_blocked": bool(dec.get("buy_blocked")),
         "earnings_soon": bool(getattr(r, "earnings_soon", False)),
         "earnings_date": getattr(r, "earnings_date", None),
         "valuation_percentile": getattr(r, "valuation_percentile", None),
@@ -730,6 +762,10 @@ def _us_signal_detail(ticker: str) -> dict | None:
     d["kb"] = None
     d["target"] = target.compute(price, mc.get("per"), us_med_per, closes)
     d["opp_tags"] = opportunity.classify(r)
+    d["decision"] = _decision_payload(r)
+    d["attention_events"] = _attention_events(ticker)
+    if d["decision"].get("buy_blocked") and r.kind in ("BUY", "STRONG_BUY"):
+        d["attention_conflict"] = True  # 매수 신호 vs 이벤트 리스크
     return d
 
 
@@ -768,6 +804,10 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     d["target"] = target.compute(d["price"], f.get("per"), sec_med.get(sector) or med_per,
                                  store.load_price_series().get(ticker),
                                  analyst_target=c.get("price_target_mean"), fwd_eps=c.get("fwd1_eps"))
+    d["decision"] = _decision_payload(r)
+    d["attention_events"] = _attention_events(ticker)
+    if d["decision"].get("buy_blocked") and r.kind in ("BUY", "STRONG_BUY"):
+        d["attention_conflict"] = True
     return d
 
 
@@ -845,8 +885,8 @@ def _buylist(uid: int) -> list[dict]:
         is_us = t not in kr_sigs
         thr = base_thr if is_us else kr_thr
         blockers = []
-        if sig.event_risk:
-            blockers.append({"key": "event", "label": "악재 감지", "hint": "악재 해소까지 관망"})
+        if sig.event_risk or (getattr(sig, "decision", None) and sig.decision.buy_blocked):
+            blockers.append({"key": "event", "label": "악재 이벤트(매수 차단)", "hint": "이벤트 해소까지 관망"})
         if sig.earnings_soon:
             edate = f"({sig.earnings_date})" if sig.earnings_date else ""
             blockers.append({"key": "earnings", "label": f"실적발표 임박{edate}", "hint": "발표 후 재평가"})

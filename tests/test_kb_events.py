@@ -58,6 +58,18 @@ def test_no_event_without_url(tmp_path, monkeypatch):
     assert db.kb_events_list() == []
 
 
+def test_legacy_digest_flag_not_decision(tmp_path, monkeypatch):
+    """P2: digest event_flag만으로는 Decision/매수차단 안 함."""
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    db.kb_digest_set(
+        "005930", "삼성전자", -0.5, "요약", [], 1,
+        newest_ts=int(time.time()), event_flag=True, event_note="횡령 의혹",
+    )
+    sm = kb.sentiment_map()["005930"]
+    assert sm["event_risk"] is False
+    assert sm["decision"].buy_blocked is False
+
+
 def test_refresh_writes_events(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.db, "DB", tmp_path / "app.db")
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [])

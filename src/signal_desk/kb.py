@@ -770,12 +770,12 @@ def sync_candidate_events(ticker: str, items: list[dict]) -> int:
 
 def _active_decision_event(ticker: str) -> dict | None:
     """Decision 입력용 최강 활성 이벤트(critical > serious). 없으면 None."""
-    rank = {"critical": 0, "serious": 1, "watch": 2, "info": 3}
-    best = None
-    for ev in db.kb_events_active(ticker, decision_only=True):
-        if best is None or rank.get(ev["severity"], 9) < rank.get(best["severity"], 9):
-            best = ev
-    return best
+    from signal_desk.signals import decision as decmod
+    events = db.kb_events_active(ticker, decision_only=True)
+    d = decmod.decide(events)
+    if not d.event_id:
+        return None
+    return next((e for e in events if e.get("id") == d.event_id), None)
 
 
 def _newest_ts(items: list[dict]) -> int | None:
@@ -1052,9 +1052,10 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
 
 
 def sentiment_map() -> dict[str, dict]:
-    """ticker -> {score, reasons, event_risk, event_note, event_severity} — engine이 소비.
-    event_risk: (1) active decision-eligible 이벤트 카드 우선 (2) 레거시 digest 플래그+신선도 폴백."""
-    now = time.time()
+    """ticker -> {score, reasons, decision, event_*} — engine이 소비.
+    Decision은 confirmed+decision_eligible 이벤트만(P2). 레거시 digest event_flag는
+    참고용으로 남기고 매수 차단/청산에는 쓰지 않는다."""
+    from signal_desk.signals import decision as decmod
     out = {}
     for ticker, dg in db.kb_digests_all().items():
         if ticker.startswith("_"):  # 거시·시황 등 가상 종목은 개별 시그널에 반영 안 함(격리)
@@ -1062,24 +1063,17 @@ def sentiment_map() -> dict[str, dict]:
         reasons = []
         if dg.get("summary"):
             reasons.append(f"[정성] {dg['summary']}")
-        active = _active_decision_event(ticker)
-        if active:
-            risk_on = True
-            note = active.get("summary") or ""
-            sev = active.get("severity") or ""
-            if note:
-                reasons.append(f"[이벤트] {note}")
-        else:
-            fresh = dg.get("newest_ts") is None or (now - dg["newest_ts"]) <= EVENT_TTL_DAYS * 86400
-            risk_on = bool(dg.get("event_flag")) and fresh
-            note = dg.get("event_note") or ""
-            sev = event_severity(note) if risk_on else ""
+        events = db.kb_events_active(ticker, decision_only=True)
+        dec = decmod.decide(events)
+        if dec.summary:
+            reasons.append(f"[이벤트] {dec.summary}")
         out[ticker] = {
             "score": dg.get("sentiment", 0.0), "reasons": reasons,
-            "event_risk": risk_on,
-            "event_note": note,
-            "event_severity": sev if sev in ("critical", "serious") else (event_severity(note) if risk_on else ""),
-            "event_id": active.get("id") if active else None,
+            "event_risk": dec.buy_blocked,  # 별칭
+            "event_note": dec.summary,
+            "event_severity": dec.severity or "",
+            "event_id": dec.event_id,
+            "decision": dec,
         }
     return out
 

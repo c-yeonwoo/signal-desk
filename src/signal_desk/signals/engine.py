@@ -29,6 +29,7 @@ from signal_desk.signals import narrative as narr
 from signal_desk.signals import qualitative as qual
 from signal_desk.signals import reversion as rev
 from signal_desk.signals import valuation as val
+from signal_desk.signals.decision import Decision, decision_from_legacy, empty_decision
 
 
 @dataclass
@@ -105,14 +106,23 @@ class SignalResult:
     has_momentum: bool = False
     short_ratio: float | None = None  # 최근 공매도 거래비중(KR)
     has_short: bool = False
-    event_risk: bool = False  # KB에서 최근 악재 이벤트 감지 — 매수 후보에서 제외(veto)
+    event_risk: bool = False  # Decision.buy_blocked 별칭 — 매수 후보 제외(veto)
     event_note: str = ""
-    event_severity: str = ""  # 악재 강도: critical(전량 청산)|serious(부분 청산)|''
+    event_severity: str = ""  # critical|serious|'' — Decision.severity 별칭
+    decision: Decision = field(default_factory=empty_decision)
     earnings_date: str | None = None  # 다가오는 실적발표 예정일(YYYY-MM-DD, US)
     earnings_soon: bool = False  # 실적발표 임박(게이트 창 이내) — 신규 매수 보류
     reasons: list[str] = field(default_factory=list)
     narrative: str = ""
     factor_scores: dict[str, float] = field(default_factory=dict)  # 팩터별 방향·강도 [-1,1] — 시각화용
+
+    def __post_init__(self) -> None:
+        # 테스트·수동 조립: decision 미지정 시 레거시 event_* 에서 복원
+        if self.decision == empty_decision() and (self.event_risk or self.event_severity):
+            self.decision = decision_from_legacy(
+                event_risk=self.event_risk, event_severity=self.event_severity,
+                event_note=self.event_note,
+            )
 
 
 def compute_indicator_series(closes: list[float], config: SignalConfig | None = None) -> dict:
@@ -417,6 +427,26 @@ def evaluate(
         earnings_soon = _apply_earnings_gate(combined, _days_until(edate, today), config)
 
         entry = sentiment.get(ticker) or {}
+        from signal_desk.signals import decision as decmod
+        dec_raw = entry.get("decision")
+        if isinstance(dec_raw, decmod.Decision):
+            dec = dec_raw
+        elif isinstance(dec_raw, dict) and dec_raw:
+            dec = decmod.Decision(
+                buy_blocked=bool(dec_raw.get("buy_blocked")),
+                holding_action=dec_raw.get("holding_action") or "none",
+                event_id=dec_raw.get("event_id"),
+                severity=dec_raw.get("severity"),
+                summary=str(dec_raw.get("summary") or ""),
+                policy_version=str(dec_raw.get("policy_version") or decmod.POLICY_VERSION),
+            )
+        else:
+            dec = decmod.decision_from_legacy(
+                event_risk=bool(entry.get("event_risk")),
+                event_severity=str(entry.get("event_severity") or ""),
+                event_note=str(entry.get("event_note") or ""),
+                event_id=entry.get("event_id"),
+            )
         result = SignalResult(
             ticker=ticker, name=name, score=combined["score"], kind=combined["kind"],
             confidence=combined["confidence"], technical_score=round(tech_score, 2),
@@ -428,8 +458,9 @@ def evaluate(
             quality_points=ql_points, has_quality=has_quality,
             momentum_ret=mom_ret, has_momentum=has_momentum,
             short_ratio=round(sh_ratio, 4) if sh_ratio is not None else None, has_short=has_short,
-            event_risk=bool(entry.get("event_risk")), event_note=str(entry.get("event_note") or ""),
-            event_severity=str(entry.get("event_severity") or ""),
+            event_risk=dec.buy_blocked, event_note=dec.summary,
+            event_severity=dec.severity or "",
+            decision=dec,
             earnings_date=edate, earnings_soon=earnings_soon,
             reasons=combined["reasons"],
             factor_scores=factor_scores,

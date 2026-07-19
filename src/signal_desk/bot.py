@@ -18,6 +18,7 @@ from signal_desk import config, db, kb, llm, signalcfg, store, strategy
 from signal_desk.broker import paper
 from signal_desk.reference import cycle, us_ko
 from signal_desk.signals import advisor, engine, macro, regime, risk
+from signal_desk.signals import decision as decmod
 
 log = logging.getLogger("signal_desk.bot")
 
@@ -425,13 +426,17 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
         peak = max(pos["peak_price"] if pos else avg_price, current_price)
         sig = signal_by_ticker.get(ticker)
 
-        # 악재 강도 기반 청산(최우선) — 신선한 KB 악재면 가격 하락 전이라도 방어적으로 축소/청산.
-        # critical(존폐·신뢰 붕괴)=전량, serious(실적·제재 충격)=절반 부분청산. 그 외엔 아래 리스크/시그널.
+        # Decision 정책 청산(최우선) — confirmed+eligible 이벤트만(P2).
+        # exit=전량, trim=절반. 그 외엔 아래 리스크/시그널.
         sell_qty, reason = qty, None
-        ev_sev = sig.event_severity if sig else ""
-        if ev_sev == "critical":
+        dec = getattr(sig, "decision", None) if sig else None
+        if dec is None and sig:
+            dec = decmod.decision_from_legacy(
+                event_risk=sig.event_risk, event_severity=sig.event_severity,
+                event_note=sig.event_note)
+        if dec and dec.holding_action == "exit":
             reason, sell_qty = "EVENT", qty
-        elif ev_sev == "serious":
+        elif dec and dec.holding_action == "trim":
             reason, sell_qty = "EVENT_TRIM", max(1, qty // 2)
         if not reason:
             reason = risk.check_exit(avg_price, current_price, peak, risk_cfg)
@@ -441,8 +446,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
         if reason:
             pl_pct = (current_price / avg_price - 1) * 100 if avg_price else 0
             if reason in ("EVENT", "EVENT_TRIM"):
-                kind_txt = "전량 청산" if reason == "EVENT" else "부분 청산(절반)"
-                note = (f"악재 이벤트 {kind_txt} — {sig.event_note if sig else ''} · "
+                note = (f"{decmod.decision_reason(dec)} · "
                         f"평단 {int(avg_price):,}→현재 {int(current_price):,}{unit}({pl_pct:+.1f}%), {sell_qty}주")
             else:
                 note = _sell_note(reason, sell_qty, avg_price, current_price, pl_pct, risk_cfg)
@@ -453,6 +457,15 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
                 if result is not None:
                     db.bot_trade_log(uid, ticker, plan["name"], "sell", sell_qty, current_price, reason,
                                       result["order_no"], score=sig.score if sig else None, note=note, market=market)
+                    if reason in ("EVENT", "EVENT_TRIM") and dec:
+                        db.bot_decision_log(
+                            ticker, plan["name"], reason, sig.score if sig else None,
+                            note,
+                            {"event_id": dec.event_id, "policy_version": dec.policy_version,
+                             "holding_action": dec.holding_action, "severity": dec.severity,
+                             "uid": uid, "qty": sell_qty},
+                            current_price,
+                        )
                     remaining = qty - sell_qty
                     if remaining > 0:  # 부분청산 — 잔여 포지션 유지(평단·진입일 보존)
                         db.bot_position_upsert(uid, ticker, plan["name"], remaining, avg_price, peak,
