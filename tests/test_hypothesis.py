@@ -223,6 +223,19 @@ def test_parse_llm_json_strips_fence_and_trailing_comma():
     assert raw and "branches" in raw
 
 
+def test_parse_llm_json_repairs_truncated():
+    # max_tokens로 잘린 것처럼 닫는 괄호 없음
+    truncated = (
+        '{"branches":[{"label":"AI","affinity":"risk_on","assumptions":["a"],'
+        '"sector_keys":["semiconductor"],"evidence_query":"AI",'
+        '"children":[{"label":"강세","edge":"path","assumptions":[],'
+        '"conditions":[],"children":[{"label":"반도체","sector_keys":["semiconductor"]}'
+    )
+    raw = hypothesis._parse_llm_json(truncated)
+    assert raw and isinstance(raw.get("branches"), list)
+    assert raw["branches"][0]["label"] == "AI"
+
+
 def test_validate_coerces_messy_llm_fields():
     out = hypothesis._validate_llm_branches({
         "branches": [{

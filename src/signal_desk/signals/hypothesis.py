@@ -575,20 +575,79 @@ def _coerce_edge(val: Any) -> str:
     return "path"
 
 
-def _parse_llm_json(text: str | None) -> dict | None:
-    """코드펜스·잡텍스트·트레일링 콤마를 tolerantly 파싱."""
-    if not text or not str(text).strip():
-        return None
-    t = str(text).strip()
+def _strip_json_fence(text: str) -> str:
+    t = text.strip()
     if t.startswith("```"):
         t = re.sub(r"^```(?:json)?\s*", "", t, flags=re.I)
         t = re.sub(r"\s*```$", "", t)
-    candidates = [t]
-    start, end = t.find("{"), t.rfind("}")
-    if start != -1 and end > start:
-        candidates.append(t[start:end + 1])
+    return t.strip()
+
+
+def _close_truncated_json(s: str) -> str:
+    """max_tokens 등으로 잘린 JSON을 스택으로 닫아 복구 시도."""
+    in_str = False
+    escape = False
+    stack: list[str] = []
+    str_start = -1
+    for i, ch in enumerate(s):
+        if in_str:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_str = False
+                str_start = -1
+            continue
+        if ch == '"':
+            in_str = True
+            str_start = i
+        elif ch == "{":
+            stack.append("}")
+        elif ch == "[":
+            stack.append("]")
+        elif ch in ("}", "]") and stack and stack[-1] == ch:
+            stack.pop()
+    out = s
+    if in_str and str_start >= 0:
+        # 미완성 문자열은 버리고 이전 콤마·콜론까지 정리
+        out = s[:str_start].rstrip()
+        if out.endswith(":"):
+            out += " null"
+        else:
+            out = re.sub(r",\s*$", "", out)
+    else:
+        out = out.rstrip()
+        out = re.sub(r",\s*$", "", out)
+        if out.endswith(":"):
+            out += " null"
+    while stack:
+        out += stack.pop()
+    return out
+
+
+def _parse_llm_json(text: str | None) -> dict | None:
+    """코드펜스·잡텍스트·트레일링 콤마·잘림을 tolerantly 파싱."""
+    if not text or not str(text).strip():
+        return None
+    t = _strip_json_fence(str(text))
+    candidates: list[str] = [t]
+    start = t.find("{")
+    if start != -1:
+        end = t.rfind("}")
+        if end > start:
+            candidates.append(t[start:end + 1])
+        # 잘린 응답: 닫는 } 없거나 불완전 → 복구 후보
+        candidates.append(_close_truncated_json(t[start:]))
+    seen: set[str] = set()
     for cand in candidates:
+        if not cand or cand in seen:
+            continue
+        seen.add(cand)
         for variant in (cand, re.sub(r",\s*([}\]])", r"\1", cand)):
+            if variant in seen and variant != cand:
+                continue
+            seen.add(variant)
             try:
                 obj = json.loads(variant)
                 if isinstance(obj, dict):
@@ -764,7 +823,7 @@ def _validate_llm_branches(raw: dict | None) -> list[dict] | None:
     branches = raw.get("branches") or raw.get("issues") or raw.get("ifs") or []
     if not isinstance(branches, list) or not branches:
         return None
-    branches = branches[:4]
+    branches = branches[:2]  # 출력 짧게 — JSON 잘림 방지
     out: list[dict] = []
     used_ids: set[str] = set()
     for i, b in enumerate(branches):
@@ -813,53 +872,47 @@ def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
     if not llm_mod.available():
         return None, None, "ANTHROPIC_API_KEY가 없습니다. 서버 .env를 확인한 뒤 재시작하세요."
     bundle = _build_prompt_bundle()
-    # 프롬프트 짧게 — 잘린 JSON·타임아웃 방지
-    sector_list = ", ".join(bundle["sector_keys"][:14])
-    kw_line = ", ".join(f"{w}" for w, _ in bundle["keywords"][:14])
-    heads = "\n".join(f"- {h}" for h in bundle["headlines"][:14])
-    prev = ", ".join(bundle["prev_labels"]) or "(없음)"
-    points = "\n".join(f"- {p}" for p in bundle["macro_points"][:4]) or "(없음)"
+    # 프롬프트·출력 짧게 — 쌍갈림 JSON 잘림 방지
+    sector_list = ", ".join(bundle["sector_keys"][:12])
+    kw_line = ", ".join(f"{w}" for w, _ in bundle["keywords"][:10])
+    heads = "\n".join(f"- {h}" for h in bundle["headlines"][:10])
+    prev = ", ".join(bundle["prev_labels"][:4]) or "(없음)"
+    points = "\n".join(f"- {p}" for p in bundle["macro_points"][:3]) or "(없음)"
     system = (
-        "최근 이슈 흐름 에디터. 학습·시황 읽기용. 가설 검증·투자권유·확률예측 금지. "
-        "뉴스 핫이슈 1~3개. 각 이슈마다 파급 갈래를 항상 쌍(path+alt)으로. "
-        "path=이 방향일 때 지표·산업 영향, alt=다른 방향일 때. "
-        "각 갈래 끝에 outcome(관심 업종·사이드이펙트). "
-        "label=쉬운 한국어 한 줄. detail에만 전문용어. "
-        "유효한 JSON 객체만(코드펜스 금지)."
+        "최근 이슈 흐름 JSON 에디터. 학습용. 가설검증·투자권유·확률% 금지. "
+        "이슈 1~2개만. 각 이슈 children는 path·alt 정확히 2개. "
+        "각 fork children에 outcome 1개. label 짧은 한국어. "
+        "설명·코드펜스 없이 JSON 객체 하나만."
     )
     user = (
-        f"요약: {bundle['macro_summary'] or '(없음)'}\n"
+        f"요약: {(bundle['macro_summary'] or '')[:280] or '(없음)'}\n"
         f"points:\n{points}\n"
         f"키워드: {kw_line or '(없음)'}\n"
         f"헤드라인:\n{heads or '- (없음)'}\n"
-        f"직전 라벨: {prev}\n"
-        f"sector_keys(영문만): {sector_list}\n"
-        f"metric: NASDAQCOM,VIXCLS,CPIAUCSL,FEDFUNDS,macro_bias,regime\n"
-        "op: chg>,chg<,>=,<=,==,in\n"
-        "affinity: risk_on|consumer|risk_off 문자열\n"
-        "edge: path|alt 만. 이슈마다 children 정확히 2개(path 1 + alt 1).\n"
-        "assumptions는 문자열 배열. 각 fork 아래 outcome 1개.\n"
-        '{"branches":[{"label":"…","detail":"…","affinity":"risk_on","assumptions":["…"],'
-        '"sector_keys":["semiconductor"],"evidence_query":"…",'
-        '"children":[{"label":"…","edge":"path","detail":"…","assumptions":[],'
-        '"conditions":[{"metric":"VIXCLS","op":"<","threshold":20,"label":"…"}],'
-        '"children":[{"label":"…","detail":"…","sector_keys":["semiconductor"],'
-        '"evidence_query":"…"}]},'
-        '{"label":"…","edge":"alt","detail":"…","assumptions":[],'
-        '"conditions":[{"metric":"VIXCLS","op":">=","threshold":25,"label":"…"}],'
-        '"children":[{"label":"…","detail":"…","sector_keys":["defense"],'
-        '"evidence_query":"…"}]}]}]}'
+        f"직전: {prev}\n"
+        f"sector_keys: {sector_list}\n"
+        "metric: NASDAQCOM,VIXCLS,CPIAUCSL,FEDFUNDS,macro_bias,regime | "
+        "op: chg>,chg<,>=,<=,==,in | affinity: risk_on|consumer|risk_off\n"
+        "필드 짧게: assumptions≤2, conditions≤2, detail≤40자.\n"
+        '스키마:{"branches":[{"label":"","detail":"","affinity":"risk_on",'
+        '"assumptions":[""],"sector_keys":["semiconductor"],"evidence_query":"",'
+        '"children":[{"label":"","edge":"path","assumptions":[],'
+        '"conditions":[{"metric":"VIXCLS","op":"<","threshold":20,"label":""}],'
+        '"children":[{"label":"","sector_keys":["semiconductor"],"evidence_query":""}]},'
+        '{"label":"","edge":"alt","assumptions":[],'
+        '"conditions":[{"metric":"VIXCLS","op":">=","threshold":25,"label":""}],'
+        '"children":[{"label":"","sector_keys":["defense"],"evidence_query":""}]}]}]}'
     )
     model = llm_mod.DIGEST_QUALITY_MODEL
-    text = llm_mod.complete(
-        system + "\n반드시 JSON 객체만 출력.",
-        user, max_tokens=2200, model=model,
-    )
+    text = llm_mod.complete(system, user, max_tokens=4096, model=model)
     if not text:
         return None, model, "LLM 응답이 비었습니다. 잠시 후 다시 시도하세요."
     raw = _parse_llm_json(text)
     if raw is None:
-        log.warning("hypothesis LLM JSON 파싱 실패 head=%r", text[:160])
+        log.warning(
+            "hypothesis LLM JSON 파싱 실패 len=%d head=%r tail=%r",
+            len(text), text[:120], text[-120:],
+        )
         return None, model, "LLM JSON 파싱 실패(형식 깨짐). 다시 생성해 보세요."
     validated = _validate_llm_branches(raw)
     if not validated:
