@@ -66,7 +66,8 @@ _SECTOR_ALIASES = {
 _TEMPLATES: list[dict[str, Any]] = [
     {
         "id": "ai_capex",
-        "label": "AI·데이터센터 투자가 이어진다는 이야기",
+        "label": "AI·데이터센터 투자",
+        "detail": "설비투자가 이어진다는 뉴스·기대가 큰 이슈예요.",
         "edge": "if",
         "assumptions": [
             "데이터센터·AI 설비투자가 이어진다",
@@ -125,7 +126,8 @@ _TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "id": "consumer_shift",
-        "label": "물가·금리가 소비에 유리해진다는 이야기",
+        "label": "물가·금리와 소비",
+        "detail": "물가·금리 움직임이 소비·내수에 미치는 이야기가 커요.",
         "edge": "if",
         "assumptions": [
             "물가 안정·금리 부담 완화로 소비 여력이 돌아온다",
@@ -183,7 +185,8 @@ _TEMPLATES: list[dict[str, Any]] = [
     },
     {
         "id": "risk_off",
-        "label": "불안이 커져 위험한 자산에서 돈이 빠진다",
+        "label": "시장 불안·위험 회피",
+        "detail": "변동성이 커져 위험한 자산에서 돈이 빠질 수 있다는 이슈예요.",
         "edge": "if",
         "assumptions": [
             "변동성·불확실성이 커져 위험자산 선호가 줄어든다",
@@ -637,6 +640,21 @@ def _coerce_edge(val: Any) -> str:
     return "path"
 
 
+def _short_issue_label(label: str) -> tuple[str, str]:
+    """이슈 제목은 짧게. '~한다는 이야기' 꼬리 제거. (짧은제목, 원문)"""
+    raw = (label or "").strip()
+    s = re.sub(
+        r"(?:이?라는|한다는|된다는|(?:다|라)[는은])\s*(?:이야기|기대|전망|논란)$",
+        "",
+        raw,
+    ).strip()
+    # "투자가 이어진"처럼 조사+동사 잔여 제거 → 짧은 명사 제목
+    s = re.sub(r"(이|가|을|를|은|는)\s*[가-힣A-Za-z0-9]{2,12}$", "", s).strip(" ·,")
+    s = re.sub(r"\s*이야기$", "", s).strip(" ·,")
+    short = (s or raw)[:28]
+    return short, raw
+
+
 def _strip_json_fence(text: str) -> str:
     t = text.strip()
     if t.startswith("```"):
@@ -893,10 +911,13 @@ def _validate_llm_branches(raw: dict | None) -> list[dict] | None:
     for i, b in enumerate(branches):
         if not isinstance(b, dict):
             continue
-        label = str(b.get("label") or b.get("plain") or b.get("title") or "").strip()[:48]
-        if not label:
+        label_raw = str(b.get("label") or b.get("plain") or b.get("title") or "").strip()
+        if not label_raw:
             continue
+        label, label_full = _short_issue_label(label_raw)
         detail = str(b.get("detail") or "").strip()[:240]
+        if not detail and label_full and label_full != label:
+            detail = f"{label_full}."[:240]
         bid = _slug(str(b.get("id") or ""), f"issue_{i}")
         if bid in used_ids:
             bid = f"{bid}_{i}"
@@ -945,7 +966,7 @@ def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
     system = (
         "최근 이슈 흐름 JSON 에디터. 학습용. 가설검증·투자권유·확률% 금지. "
         "이슈 1~2개. 각 이슈 children는 path·alt 정확히 2개. 각 fork 아래 outcome 1개. "
-        "label은 앞 문장을 이어 읽는 쉬운 한국어 한 줄. "
+        "이슈 label은 짧은 제목만. 해설은 detail·assumptions·하위 label에. "
         "영문·리스크온/오프·CAPEX·VIX 단독 제목 금지(지표는 conditions에만). "
         "종목명은 넣지 말 것(서버가 붙임). JSON 객체만."
     )
@@ -958,12 +979,12 @@ def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
         f"sector_keys: {sector_list}\n"
         "metric: NASDAQCOM,VIXCLS,CPIAUCSL,FEDFUNDS,macro_bias,regime | "
         "op: chg>,chg<,>=,<=,==,in | affinity(내부용): risk_on|consumer|risk_off\n"
-        "label 연결 규칙(중요):\n"
-        "- 이슈: '~라는 이야기/경계/기대' (예: 주가가 너무 올랐다는 거품 경계)\n"
-        "- path: 이슈 주어를 이어 '~이 이어지면/더 가면' (예: 그 강세가 더 이어지면)\n"
-        "- alt: '~이 꺾이면/반대로 가면' (예: 거품 우려가 커지면)\n"
-        "- outcome: '그러면 ○○ 업종을 더 볼 만함' (주어·업종 명시)\n"
-        "필드: assumptions≤2, conditions≤2, detail≤40자. 종목명 금지.\n"
+        "라벨 규칙:\n"
+        "- 이슈 label: 짧은 명사 제목만(예: 거품 경계, AI 투자, 금리·물가). "
+        "'~한다는 이야기/기대/전망' 같은 말꼬리 금지. 해설은 detail에 쉽게.\n"
+        "- path/alt: 쉬운 연결 문장(예: 그 강세가 더 이어지면 / 우려가 커지면)\n"
+        "- outcome: '그러면 ○○ 쪽을 더 볼 만함'\n"
+        "필드: assumptions≤2, conditions≤2, 이슈 detail≤60자. 종목명 금지.\n"
         '스키마:{"branches":[{"label":"","detail":"","affinity":"risk_on",'
         '"assumptions":[""],"sector_keys":["semiconductor"],"evidence_query":"",'
         '"children":[{"label":"","edge":"path","assumptions":[],'

@@ -224,6 +224,34 @@ def test_validate_allows_single_issue():
     assert {c["edge"] for c in out[0]["children"]} == {"path", "alt"}
 
 
+def test_short_issue_label_strips_story_tail():
+    short, raw = hypothesis._short_issue_label("AI 투자가 이어진다는 이야기")
+    assert short == "AI 투자"
+    assert "이야기" in raw
+    short2, _ = hypothesis._short_issue_label("거품 경계")
+    assert short2 == "거품 경계"
+
+
+def test_validate_shortens_issue_title():
+    out = hypothesis._validate_llm_branches({
+        "branches": [{
+            "label": "신고가 랠리가 이어진다는 이야기",
+            "affinity": "risk_on",
+            "sector_keys": ["semiconductor"],
+            "evidence_query": "AI",
+            "children": [
+                {"label": "강세가 더 이어지면", "edge": "path",
+                 "children": [{"label": "그러면 반도체 쪽", "sector_keys": ["semiconductor"]}]},
+                {"label": "조정이 오면", "edge": "alt",
+                 "children": [{"label": "그러면 방어 쪽", "sector_keys": ["defense"]}]},
+            ],
+        }],
+    })
+    assert out and out[0]["label"] == "신고가 랠리"
+    assert "이야기" not in out[0]["label"]
+    assert out[0]["detail"]  # 원문이 detail로
+
+
 def test_parse_llm_json_strips_fence_and_trailing_comma():
     raw = hypothesis._parse_llm_json(
         '```json\n{"branches":[{"label":"a","affinity":"risk_on",}],}\n```'
