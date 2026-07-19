@@ -1,6 +1,6 @@
 """시황 가설(#6) — 배타적 IF → then → outcome.
 
-관리자 수동 refresh 시에만 Haiku가 트리 문장을 생성. 지지도·status는 룰.
+관리자 수동 refresh 시에만 Sonnet이 트리 문장을 생성. 지지도·status는 룰.
 일일 자동 LLM 호출 없음. GET은 캐시만(없으면 ready:false).
 """
 
@@ -746,7 +746,7 @@ def _validate_llm_branches(raw: dict | None) -> list[dict] | None:
 
 
 def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
-    """Haiku로 트리 초안. (templates, model, fail_reason)."""
+    """Sonnet으로 트리 초안. (templates, model, fail_reason)."""
     from signal_desk import llm as llm_mod
     if not llm_mod.available():
         return None, None, "ANTHROPIC_API_KEY가 없습니다. 서버 .env를 확인한 뒤 재시작하세요."
@@ -782,21 +782,21 @@ def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
         '"children":[{"label":"…","detail":"…","sector_keys":["semiconductor"],'
         '"evidence_query":"…"}]}]}]}'
     )
-    model = llm_mod.DIGEST_MODEL
+    model = llm_mod.DIGEST_QUALITY_MODEL
     text = llm_mod.complete(
         system + "\n반드시 JSON 객체만 출력.",
         user, max_tokens=2200, model=model,
     )
     if not text:
-        return None, model, "Haiku 응답이 비었습니다. 잠시 후 다시 시도하세요."
+        return None, model, "LLM 응답이 비었습니다. 잠시 후 다시 시도하세요."
     raw = _parse_llm_json(text)
     if raw is None:
-        log.warning("hypothesis Haiku JSON 파싱 실패 head=%r", text[:160])
-        return None, model, "Haiku JSON 파싱 실패(형식 깨짐). 다시 생성해 보세요."
+        log.warning("hypothesis LLM JSON 파싱 실패 head=%r", text[:160])
+        return None, model, "LLM JSON 파싱 실패(형식 깨짐). 다시 생성해 보세요."
     validated = _validate_llm_branches(raw)
     if not validated:
-        log.warning("hypothesis Haiku JSON 검증 실패: keys=%s", list(raw.keys())[:8])
-        return None, model, "Haiku JSON 구조가 맞지 않습니다. 다시 생성해 보세요."
+        log.warning("hypothesis LLM JSON 검증 실패: keys=%s", list(raw.keys())[:8])
+        return None, model, "LLM JSON 구조가 맞지 않습니다. 다시 생성해 보세요."
     return validated, model, None
 
 
@@ -984,7 +984,7 @@ def build(*, templates: list[dict] | None = None, store_prices=None, store_macro
 
 
 def refresh() -> dict:
-    """관리자 수동 전용. Haiku 성공 시에만 kv 저장. 실패 시 기존 캐시 유지 + ready:false."""
+    """관리자 수동 전용. Sonnet 성공 시에만 kv 저장. 실패 시 기존 캐시 유지 + ready:false."""
     templates, model, fail = _llm_draft_templates()
     if not templates:
         prev = get(build_if_missing=False)

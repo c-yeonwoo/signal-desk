@@ -194,7 +194,7 @@ def _summarize_text(name: str, title: str, text: str) -> tuple[str, list[str]]:
                   "과장·추천 금지, 문서에 없는 내용 금지.")
         user = (f"종목: {name}\n제목: {title}\n본문:\n{text[:6000]}\n\n"
                 'JSON으로만: {"summary": "한국어 1~2문장", "points": ["핵심 ≤3개"]}')
-        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
+        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_QUALITY_MODEL)
         if out and out.get("summary"):
             return str(out["summary"])[:300], [str(p) for p in (out.get("points") or [])][:3]
     excerpt = " ".join(text.split())[:200]
@@ -246,7 +246,7 @@ def _classify_scope(text: str) -> dict:
     user = (f"문서:\n{text[:4000]}\n\n"
             'JSON으로만: {"scope":"stock|market|sector", "company":"회사명(stock일 때만, 아니면 null)", '
             '"ticker":"6자리 코드(알면, 아니면 null)", "sector":"섹터명(sector일 때만, 아니면 null)"}')
-    out = llm.complete_json(system, user, max_tokens=200, model=llm.DIGEST_MODEL) or {}
+    out = llm.complete_json(system, user, max_tokens=200, model=llm.CLASSIFY_MODEL) or {}
     scope = str(out.get("scope") or "market").lower()
     tk, nm = out.get("ticker"), out.get("company")
     if tk not in tk_to_name:                     # 코드 환각 방지 — 유니버스에 없으면 회사명으로 재매핑
@@ -267,7 +267,8 @@ def validate_macro(text: str, title: str = "") -> dict:
               "광고·스팸·무관·허위·근거 없는 주장은 reject.")
     user = (f"제목:{title}\n문서:\n{text[:4000]}\n\n"
             'JSON으로만: {"verdict":"accept|reject","reasons":["짧게"]}')
-    out = llm.complete_json(system, user, max_tokens=200, model=llm.DIGEST_MODEL) or {}
+    # 종목 validate_import와 동일 — 오염 게이트는 Opus
+    out = llm.complete_json(system, user, max_tokens=200, model=llm.DEFAULT_MODEL) or {}
     v = str(out.get("verdict", "accept")).lower()
     return {"verdict": "reject" if v == "reject" else "accept",
             "reasons": [str(r) for r in (out.get("reasons") or [])][:3]}
@@ -455,7 +456,7 @@ def build_digest(name: str, items: list[dict]) -> dict:
             ' "summary": "한국어 1~2문장 — 무엇이 바뀌었고 왜 경제적으로 중요한지",\n'
             ' "points": ["핵심 포인트 최대 3개 — 동사+대상+함의 (짧게)"]}'
         )
-        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
+        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_QUALITY_MODEL)
         if out and isinstance(out.get("sentiment"), (int, float)):
             s = max(-1.0, min(1.0, float(out["sentiment"])))
             pts = [str(p) for p in (out.get("points") or [])][:3]
@@ -489,7 +490,7 @@ def _macro_source_summary(title: str, text: str) -> str:
               "거시 흐름·자산시장 시사점 위주로, 과장·추천 없이 사실 기반. 스크립트에 없는 내용은 지어내지 마라.")
     user = (f"제목: {title}\n스크립트:\n{text[:9000]}\n\n"
             'JSON으로만: {"summary": "한국어 2~4문장 핵심 요약", "points": ["핵심 포인트 최대 3개 짧게"]}')
-    out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
+    out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_QUALITY_MODEL)
     if out and out.get("summary"):
         pts = [str(p) for p in (out.get("points") or [])][:3]
         return (str(out["summary"]) + (" · " + " · ".join(pts) if pts else ""))[:600]
@@ -600,7 +601,7 @@ def build_macro_digest(items: list[dict]) -> dict:
         user = (f"[최신순 시황 코멘터리]\n{lines}\n\n"
                 'JSON으로만: {"summary": "한국어 1~2문장, 현재 시장 톤·핵심 이슈", '
                 '"points": ["핵심 포인트 최대 3개(한국어 짧게)"]}')
-        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
+        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_QUALITY_MODEL)
         if out and out.get("summary"):
             pts = [str(p) for p in (out.get("points") or [])][:3]
             return {"summary": str(out["summary"])[:240], "points": pts}
