@@ -1915,16 +1915,14 @@ def external_watch_get(request: Request):
 
 @app.post("/api/external-watch")
 def external_watch_add(request: Request, data: dict = Body(default={})):
-    """외부 후보 일괄 추가. body: {text|lines, source, note, url, polish?}."""
+    """조사 후보 일괄 추가(수동). body: {text|lines, note?} — 출처 크롤링 없음."""
     _admin_or_403(request)
     from signal_desk import external_watch
     raw = data.get("text") or data.get("lines") or ""
-    note = (data.get("note") or "").strip()
-    if data.get("polish") and note:
-        note = external_watch.maybe_polish_note(note)
     return external_watch.add_items(
-        raw, source=str(data.get("source") or "manual"),
-        note=note, url=str(data.get("url") or ""))
+        raw, source="manual",
+        note=str(data.get("note") or "").strip(),
+        url=str(data.get("url") or "").strip())
 
 
 @app.delete("/api/external-watch/{ticker}")

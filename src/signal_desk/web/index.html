@@ -138,11 +138,7 @@
   .ew-stat .lab { font-size:11px; color:var(--dim); font-weight:600; }
   .ew-stat .val { font-size:22px; font-weight:750; letter-spacing:-.02em; margin-top:2px; font-variant-numeric:tabular-nums; }
   .ew-composer { background:var(--bg); border:1px solid var(--line); border-radius:var(--r-lg); padding:14px; margin-bottom:14px; }
-  .ew-src { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 10px; }
-  .ew-src button { border:1px solid var(--line-strong); background:var(--panel); color:var(--dim);
-    border-radius:var(--r-pill); padding:5px 12px; font-size:12px; font-weight:650; cursor:pointer; }
-  .ew-src button.on { background:var(--txt); color:#fff; border-color:var(--txt); }
-  .ew-grid { display:grid; grid-template-columns:1.4fr .9fr; gap:10px; }
+  .ew-grid { display:grid; grid-template-columns:1.4fr .9fr; gap:10px; margin-top:8px; }
   @media (max-width:900px){ .ew-grid, .ew-stats { grid-template-columns:1fr; } }
   .ew-list { display:flex; flex-direction:column; gap:8px; }
   .ew-card { display:grid; grid-template-columns:1fr auto; gap:8px 12px; align-items:start;
@@ -153,10 +149,6 @@
   .ew-card .meta { font-size:12px; color:var(--dim); margin-top:2px; }
   .ew-card .note { font-size:12.5px; color:var(--txt); margin-top:6px; line-height:1.45; }
   .ew-pill { display:inline-block; padding:2px 8px; border-radius:var(--r-pill); font-size:10px; font-weight:700; }
-  .ew-pill.serenity { background:var(--accent-weak); color:var(--accent); }
-  .ew-pill.x { background:#0B1220; color:#F3F1EC; }
-  .ew-pill.manual { background:var(--bg); color:var(--dim); border:1px solid var(--line); }
-  .ew-pill.other { background:#fff7ed; color:#c2410c; }
   .ew-pill.kb-ok { background:#ecfdf5; color:#047857; }
   .ew-pill.kb-wait { background:var(--bg); color:var(--dim-2); border:1px solid var(--line); }
   .ew-actions { display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
@@ -1051,7 +1043,7 @@
     </div>
     <div class="seg-toggle" id="admin-seg" style="margin-bottom:16px">
       <button class="on" data-aseg="kb" onclick="switchAdminSeg('kb')">KB 문서</button>
-      <button data-aseg="watch" onclick="switchAdminSeg('watch')">외부 후보</button>
+      <button data-aseg="watch" onclick="switchAdminSeg('watch')">조사 후보</button>
       <button data-aseg="shortform" onclick="switchAdminSeg('shortform')">숏폼</button>
       <button data-aseg="engine" onclick="switchAdminSeg('engine')">엔진·두뇌 <span id="admin-engine-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:10px;font-weight:700"></span></button>
     </div>
@@ -1249,17 +1241,17 @@
     <div id="admin-watch" style="display:none">
       <div class="ew-hero">
         <p class="ew-kicker">Investigation queue</p>
-        <h2 class="ew-title">외부 후보</h2>
-        <p class="ew-lead">Serenity·X·직접 붙여넣기 등 외부 언급을 <b>조사 대기열</b>로만 둡니다.
-          엔진 점수·매수 권유에 섞지 않고, KB를 먼저 모은 뒤 우리 시그널로 판정합니다.</p>
+        <h2 class="ew-title">조사 후보</h2>
+        <p class="ew-lead">관심 있는 종목 코드만 직접 넣습니다. 출처 크롤링은 없습니다.
+          KB를 우선 모은 뒤 <b>우리 점수·정성</b>으로 볼 뿐, 엔진 가산은 없습니다.</p>
         <div class="ew-flow">
-          <div class="ew-step"><span class="n">1</span>외부 추천 수집</div>
+          <div class="ew-step"><span class="n">1</span>종목 직접 추가</div>
           <div class="ew-step"><span class="n">2</span>KB 우선 적재</div>
           <div class="ew-step"><span class="n">3</span>우리 점수·정성</div>
           <div class="ew-step muted"><span class="n">≠</span>시그널 가산 없음</div>
         </div>
       </div>
-      <p class="ew-disc" id="ew-disclaimer">외부 후보는 조사 대상일 뿐입니다. 시그널·매수 권유가 아니며 엔진 점수에 가산되지 않습니다.</p>
+      <p class="ew-disc" id="ew-disclaimer">직접 넣은 종목의 조사 대기열입니다. 시그널·매수 권유가 아니며 엔진 점수에 가산되지 않습니다.</p>
       <div class="ew-stats">
         <div class="ew-stat"><div class="lab">대기열</div><div class="val" id="ew-total">–</div></div>
         <div class="ew-stat"><div class="lab">KB 수집됨</div><div class="val" id="ew-with-kb">–</div></div>
@@ -1267,23 +1259,19 @@
       </div>
       <div class="ew-composer">
         <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
-          <b style="font-size:14px">후보 추가</b>
+          <div>
+            <b style="font-size:14px">종목 추가</b>
+            <span style="color:var(--dim);font-size:12px;margin-left:6px">한 줄에 하나 · 코드 또는 종목명</span>
+          </div>
           <span class="stat-label" style="margin:0" id="ew-add-result"></span>
-        </div>
-        <div class="ew-src" id="ew-src">
-          <button type="button" class="on" data-src="serenity" onclick="setEwSource('serenity')">Serenity</button>
-          <button type="button" data-src="x" onclick="setEwSource('x')">X</button>
-          <button type="button" data-src="manual" onclick="setEwSource('manual')">직접</button>
-          <button type="button" data-src="other" onclick="setEwSource('other')">기타</button>
         </div>
         <div class="ew-grid">
           <div>
-            <textarea id="ew_text" class="ctrl" placeholder="한 줄에 하나 — 005930 / 삼성전자 / AAPL / NVDA&#10;또는: 005930 삼성전자" style="width:100%;min-height:120px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px"></textarea>
+            <textarea id="ew_text" class="ctrl" placeholder="005930&#10;삼성전자&#10;AAPL&#10;NVDA" style="width:100%;min-height:120px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px"></textarea>
           </div>
           <div style="display:flex;flex-direction:column;gap:8px">
-            <input id="ew_note" class="ctrl" placeholder="관심 사유(선택) — 길면 Haiku가 한 줄로 정리" style="width:100%">
-            <input id="ew_url" class="ctrl" type="url" placeholder="출처 URL(선택)" style="width:100%">
-            <label class="cb" style="font-size:12px;color:var(--dim)"><input type="checkbox" id="ew_polish" checked> 사유 한 줄 정리(Haiku)</label>
+            <input id="ew_note" class="ctrl" placeholder="메모(선택) — 왜 보는지 짧은 메모" style="width:100%">
+            <p class="page-desc" style="margin:0;font-size:12px">요약 품질은 <b>KB 수집</b> 때 다이제스트가 담당합니다(수요·실적·비용·정책 등 경제적 함의). 여기 메모는 단순 메모입니다.</p>
             <div class="row" style="gap:6px;margin-top:auto;flex-wrap:wrap">
               <button class="btn primary" onclick="addExternalWatch()">대기열에 넣기</button>
               <button class="btn" onclick="refreshExternalWatchKb()" id="ew-kb-btn">KB 우선 수집</button>
@@ -4553,13 +4541,7 @@ function switchAdminSeg(seg){
   history.replaceState(null, '', '#admin/' + seg);   // 새로고침 시 서브탭 유지
 }
 
-// ===== 외부 후보 조사 큐(관리자) — 점수 가산 없음 · KB 우선 =====
-let _ewSource = 'serenity';
-const _EW_SRC_LABEL = { serenity: 'Serenity', x: 'X', manual: '직접', other: '기타' };
-function setEwSource(src){
-  _ewSource = src;
-  document.querySelectorAll('#ew-src button').forEach(b => b.classList.toggle('on', b.dataset.src === src));
-}
+// ===== 조사 후보 큐(관리자) — 수동 종목 · KB 우선 · 점수 가산 없음 =====
 async function loadExternalWatch(){
   const body = document.getElementById('ew-body');
   if (!body) return;
@@ -4575,24 +4557,19 @@ async function loadExternalWatch(){
     set('ew-pending', Math.max(0, total - withKb));
     const items = d.items || [];
     if (!items.length) {
-      body.innerHTML = '<div class="placeholder" style="padding:20px 0">대기열이 비어 있습니다. 위에서 티커를 붙여넣으세요.</div>';
+      body.innerHTML = '<div class="placeholder" style="padding:20px 0">대기열이 비어 있습니다. 위에서 종목을 붙여넣으세요.</div>';
       return;
     }
     body.className = 'ew-list';
     body.innerHTML = items.map(it => {
-      const src = it.source || 'other';
       const kb = it.kb_collected_at
         ? `<span class="ew-pill kb-ok">KB ${esc(it.kb_collected_at)}</span>`
         : `<span class="ew-pill kb-wait">KB 대기</span>`;
       const note = it.note ? `<div class="note">${esc(it.note)}</div>` : '';
-      const url = it.url ? ` · <a href="${esc(it.url)}" target="_blank" rel="noopener" style="color:var(--accent)">출처</a>` : '';
       return `<div class="ew-card">
         <div>
-          <div class="nm">${esc(it.name || it.ticker)}
-            <span class="ew-pill ${esc(src)}" style="margin-left:6px">${esc(_EW_SRC_LABEL[src] || src)}</span>
-            ${kb}
-          </div>
-          <div class="meta">${esc(it.ticker)} · ${esc(it.market || '–')} · 추가 ${esc(it.added_at || '–')}${url}</div>
+          <div class="nm">${esc(it.name || it.ticker)} ${kb}</div>
+          <div class="meta">${esc(it.ticker)} · ${esc(it.market || '–')} · 추가 ${esc(it.added_at || '–')}</div>
           ${note}
         </div>
         <div class="ew-actions">
@@ -4607,17 +4584,14 @@ async function loadExternalWatch(){
 async function addExternalWatch(){
   const res = document.getElementById('ew-add-result');
   const text = (document.getElementById('ew_text') || {}).value || '';
-  if (!text.trim()) { if (res) res.textContent = '티커를 입력하세요'; return; }
+  if (!text.trim()) { if (res) res.textContent = '종목을 입력하세요'; return; }
   if (res) res.textContent = '추가 중…';
   try {
     const d = await (await fetch('/api/external-watch', {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({
         text,
-        source: _ewSource,
         note: (document.getElementById('ew_note') || {}).value || '',
-        url: (document.getElementById('ew_url') || {}).value || '',
-        polish: !!(document.getElementById('ew_polish') || {}).checked,
       }),
     })).json();
     if (!d.ok) { if (res) res.textContent = d.error || '실패'; return; }

@@ -433,22 +433,33 @@ def _rule_digest(name: str, items: list[dict]) -> dict:
 
 
 def build_digest(name: str, items: list[dict]) -> dict:
-    """원자료 → {sentiment[-1..1], summary(1문장), points[≤3]}. LLM 우선, 실패 시 규칙기반."""
+    """원자료 → {sentiment[-1..1], summary, points[≤3]}. LLM 우선, 실패 시 규칙기반.
+    단순 헤드라인 재서술이 아니라 실적·수요·비용·정책·수급 등 경제적 함의를 뽑는다."""
     if not items:
         return {"sentiment": 0.0, "summary": "최근 수집된 뉴스·영상이 없습니다.", "points": []}
     if llm.available():
         headlines = "\n".join(f"- [{it.get('source', '')}] {it.get('title', '')} :: {it.get('summary', '')[:120]}"
                               for it in items[:12])
-        system = ("너는 한국 주식 애널리스트다. 주어진 종목의 최근 뉴스·영상 헤드라인을 근거로 투자 관점의 "
-                  "정성 요약을 만든다. 과장/추천 금지, 사실 기반. 헤드라인에 없는 내용은 지어내지 마라.")
-        user = (f"종목: {name}\n최근 헤드라인:\n{headlines}\n\n"
-                'JSON으로만: {"sentiment": -1.0~1.0 사이 실수(투자심리), '
-                '"summary": "한국어 한 문장 요약", "points": ["핵심 포인트 최대 3개(한국어 짧게)"]}')
+        system = (
+            "너는 주식 데스크의 정성 분석가다. 헤드라인을 그대로 줄여 쓰지 말고, "
+            "주가·실적·밸류에이션에 영향 가능한 경제적 함의만 추출한다. "
+            "볼 것: 수요/수주, 마진·비용, 실적·가이던스, 규제·정책, 경쟁·점유율, "
+            "수급(외국인/기관)·이벤트리스크. "
+            "헤드라인에 없는 숫자·전망은 지어내지 마라. 매수/매도 권유·수익률 보장 금지. "
+            "잡음(인사·단순 시황 언급)은 무시하고 물질적 이슈만 남긴다."
+        )
+        user = (
+            f"종목: {name}\n최근 헤드라인:\n{headlines}\n\n"
+            "JSON으로만 답하라:\n"
+            '{"sentiment": -1.0~1.0 (물질적 뉴스 기준 투자심리),\n'
+            ' "summary": "한국어 1~2문장 — 무엇이 바뀌었고 왜 경제적으로 중요한지",\n'
+            ' "points": ["핵심 포인트 최대 3개 — 동사+대상+함의 (짧게)"]}'
+        )
         out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
         if out and isinstance(out.get("sentiment"), (int, float)):
             s = max(-1.0, min(1.0, float(out["sentiment"])))
             pts = [str(p) for p in (out.get("points") or [])][:3]
-            return {"sentiment": round(s, 2), "summary": str(out.get("summary", ""))[:200], "points": pts}
+            return {"sentiment": round(s, 2), "summary": str(out.get("summary", ""))[:280], "points": pts}
         log.info("LLM 다이제스트 파싱 실패 — 규칙기반 폴백")
     return _rule_digest(name, items)
 

@@ -1,6 +1,6 @@
-"""외부 후보 워치리스트 — Serenity 등 외부 추천을 조사 큐로만 보관.
+"""조사 후보 워치리스트 — 수동으로 넣은 종목을 조사 큐로만 보관.
 
-시그널 점수·가중치에 미반영. KB 우선 수집 타깃으로만 쓴다.
+외부 소스 크롤링 없음. 시그널 점수·가중치 미반영. KB 우선 수집 타깃으로만 쓴다.
 """
 
 from __future__ import annotations
@@ -20,9 +20,6 @@ log = logging.getLogger("signal_desk.external_watch")
 _KV_KEY = "external_watch:v1"
 _MAX_ITEMS = 80
 _KB_PRIORITY_CAP = 15  # 하루·1회 refresh에 앞에 붙일 상한
-_SOURCES = ("serenity", "x", "manual", "other")
-
-_TICKER_RE = re.compile(r"^[A-Za-z]{1,5}$|^\d{6}$")
 
 
 def _kst_now() -> str:
@@ -101,7 +98,7 @@ def add_items(raw_lines: str | list[str], *, source: str = "manual",
         lines = [ln.strip() for ln in raw_lines.splitlines() if ln.strip()]
     else:
         lines = [str(x).strip() for x in raw_lines if str(x).strip()]
-    src = source if source in _SOURCES else "other"
+    src = (source or "manual").strip()[:32] or "manual"
     note = (note or "").strip()[:240]
     url = (url or "").strip()[:300]
     kr, us = _universe_maps()
@@ -186,28 +183,6 @@ def mark_kb_collected(tickers: list[str]) -> None:
     _save(items)
 
 
-def maybe_polish_note(note: str) -> str:
-    """긴 붙여넣기 사유를 Haiku로 한 줄 정리. 실패·짧으면 원문."""
-    text = (note or "").strip()
-    if len(text) < 80:
-        return text[:240]
-    try:
-        from signal_desk import llm as llm_mod
-        if not llm_mod.available():
-            return text[:240]
-        out = llm_mod.complete(
-            "외부 종목 관심 사유를 한 줄 한국어로 요약하라. 투자권유·수익률 보장 금지. 사실만.",
-            text[:1200],
-            max_tokens=120,
-            model=llm_mod.DIGEST_MODEL,
-        )
-        if out:
-            return out.strip().split("\n")[0][:240]
-    except Exception as e:
-        log.warning("external_watch note polish 실패: %s", type(e).__name__)
-    return text[:240]
-
-
 def status() -> dict[str, Any]:
     items = list_items()
     with_kb = sum(1 for x in items if x.get("kb_collected_at"))
@@ -215,9 +190,8 @@ def status() -> dict[str, Any]:
         "ready": True,
         "total": len(items),
         "with_kb": with_kb,
-        "sources": _SOURCES,
         "kb_priority_cap": _KB_PRIORITY_CAP,
         "max_items": _MAX_ITEMS,
         "items": items,
-        "disclaimer": "외부 후보는 조사 대상일 뿐입니다. 시그널·매수 권유가 아니며 엔진 점수에 가산되지 않습니다.",
+        "disclaimer": "직접 넣은 종목의 조사 대기열입니다. 시그널·매수 권유가 아니며 엔진 점수에 가산되지 않습니다.",
     }

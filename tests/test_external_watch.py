@@ -26,7 +26,7 @@ def test_add_resolve_remove_and_kb_priority(tmp_path, monkeypatch):
 
     out = external_watch.add_items(
         "005930\n삼성전자\nAAPL\n없는종목XYZ",
-        source="serenity", note="테스트 관심",
+        note="테스트 관심",
     )
     assert out["ok"]
     assert "005930" in out["added"]
