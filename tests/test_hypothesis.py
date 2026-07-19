@@ -1,4 +1,4 @@
-"""시황 가설(#6) — 수동 Haiku · 캐시 only GET · 폴백."""
+"""시황 가설(#6) — 수동 Sonnet · 캐시 only GET · 폴백."""
 
 from signal_desk.signals import hypothesis
 
@@ -162,11 +162,11 @@ def test_refresh_fails_without_silent_fallback(monkeypatch, tmp_path):
     _stub_macro_cycle(monkeypatch)
     monkeypatch.setattr(
         hypothesis, "_llm_draft_templates",
-        lambda: (None, "claude-haiku-test", "Haiku JSON을 해석하지 못했습니다."),
+        lambda: (None, "claude-sonnet-test", "LLM JSON을 해석하지 못했습니다."),
     )
     out = hypothesis.refresh()
     assert out["ready"] is False
-    assert "Haiku" in out["reason"]
+    assert "LLM" in out["reason"]
     assert hypothesis.get()["ready"] is False  # 실패 시 캐시 안 씀
 
 
@@ -242,10 +242,10 @@ def test_refresh_uses_llm_templates(monkeypatch, tmp_path):
             },
         ]
     })
-    monkeypatch.setattr(hypothesis, "_llm_draft_templates", lambda: (fake, "claude-haiku-test", None))
+    monkeypatch.setattr(hypothesis, "_llm_draft_templates", lambda: (fake, "claude-sonnet-test", None))
     out = hypothesis.refresh()
     assert out["source"] == "llm"
-    assert out["model"] == "claude-haiku-test"
+    assert out["model"] == "claude-sonnet-test"
     assert out["tree"]["label"] == "지금 볼 이슈"
     assert len(out["tree"]["children"]) == 2
     assert sum(c["support_pct"] for c in out["tree"]["children"]) == 100

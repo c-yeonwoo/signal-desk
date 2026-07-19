@@ -1889,7 +1889,7 @@ async function loadHypothesis(){
       if (ifBar) ifBar.innerHTML = '';
       if (detail) detail.style.display = 'none';
       const hint = _isAdmin
-        ? '위 <b>가설 생성</b>을 누르면 Haiku가 최근 뉴스·KB로 이슈 트리를 만듭니다. API 키가 있어야 하며, 실패 시 예전 고정 템플릿으로 채우지 않습니다.'
+        ? '위 <b>가설 생성</b>을 누르면 Sonnet이 최근 뉴스·KB로 이슈 트리를 만듭니다. API 키가 있어야 하며, 실패 시 예전 고정 템플릿으로 채우지 않습니다.'
         : '관리자가 가설을 생성하면 여기에 표시됩니다.';
       el.innerHTML = `<div class="placeholder" style="padding:24px;line-height:1.55">
         ${esc(d.reason || '시황 가설이 아직 없습니다.')}<br/><span style="color:var(--dim)">${hint}</span></div>`;
@@ -1906,7 +1906,7 @@ async function loadHypothesis(){
         || ((d.tree.children || []).sort((a, b) => (b.support_pct || 0) - (a.support_pct || 0))[0] || {}).id;
     }
     if (asof) {
-      const modelShort = d.source === 'llm' ? 'Haiku' : (d.source || '캐시');
+      const modelShort = d.source === 'llm' ? 'Sonnet' : (d.source || '캐시');
       asof.textContent = `${modelShort} · 수동 · ${d.generated_at || d.as_of || '–'} · DB 저장`
         + (d.source === 'fallback' ? ' · (옛 폴백 — 다시 생성 권장)' : '')
         + (ctx.cycle_phase ? ` · 사이클 ${ctx.cycle_phase}` : '')

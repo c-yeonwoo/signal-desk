@@ -20,11 +20,14 @@ log = logging.getLogger("signal_desk.llm")
 _ENDPOINT = "https://api.anthropic.com/v1/messages"
 _VERSION = "2023-06-01"
 DEFAULT_MODEL = "claude-opus-4-8"                  # 최상위 — 매수 자문·오염 검증 등 위험 판단
-DIGEST_MODEL = "claude-haiku-4-5-20251001"         # KB 다이제스트·요약(정형·대량) — 저비용·고속
-NARRATIVE_MODEL = "claude-sonnet-5"                # 사용자용 해설(캐시됨) — 가독성·뉘앙스
+DIGEST_MODEL = "claude-haiku-4-5-20251001"         # 분류·사실 추출·백필 about(대량·저비용). 경제 요약 금지
+NARRATIVE_MODEL = "claude-sonnet-5"                # KB 다이제스트·거시·가설·사용자 해설(경제 함의·가독성)
 # BUY/SELL 시그널 해설·온디맨드 개요 — 초보 이해도 우선(캐시됨, HOLD는 호출 안 함)
 SIGNAL_EXPLAIN_MODEL = DEFAULT_MODEL
 ABOUT_QUALITY_MODEL = NARRATIVE_MODEL
+# 별칭 — 의도 명확화(호출부에서 DIGEST_MODEL과 혼동 방지)
+CLASSIFY_MODEL = DIGEST_MODEL                     # 스코프 분류·recent_moves
+DIGEST_QUALITY_MODEL = NARRATIVE_MODEL            # 종목/거시 다이제스트·리포트 요약·가설 초안
 _TIMEOUT = 60
 
 

@@ -72,11 +72,13 @@ def _generate(ticker: str, name: str, sector: str | None, market: str,
         user = (f"종목: {name}({ticker}), 섹터: {sector or '미상'}\n"
                 'JSON으로만: {"about": "무엇을 하는 회사인지"}')
     else:
+        # KR은 입력 근거가 이름·섹터뿐 — 구체 제품/점유율 환각 금지, 섹터 수준만
         system = ("너는 한국 주식 소개 작가다. 이 종목이 '무엇을 하는 회사'인지 초보도 이해되게 "
-                  f"{'1~2문장' if quality else '1문장(45자 내외)'}으로 설명한다. 주력 제품·서비스를 구체적으로 짚되, "
-                  "아는 사실만 쓰고 모르면 섹터만 언급한다. 투자권유·전망·주가·수치는 절대 넣지 마라.")
+                  f"{'1~2문장' if quality else '1문장(45자 내외)'}으로 설명한다. "
+                  "입력에 없는 주력 제품명·점유율·구체 수치는 쓰지 말고, 확신이 없으면 섹터·업태만 말한다. "
+                  "투자권유·전망·주가·수치는 절대 넣지 마라.")
         user = (f"종목: {name}({ticker}), 섹터: {sector or '미상'}\n"
-                'JSON으로만: {"about": "무엇을 하는 회사인지"}')
+                'JSON으로만: {"about": "무엇을 하는 회사인지(근거 없으면 섹터만)"}')
     out = llm.complete_json(system, user, max_tokens=280 if quality else 200, model=use_model)
     if out and out.get("about"):
         return str(out["about"]).strip()[:max_chars]
@@ -89,7 +91,7 @@ def about(ticker: str, name: str, sector: str | None = None, market: str = "kr",
     """사업 개요 한 줄. 캐시 우선.
     - generate=False(기본, 요청 경로): 캐시가 있으면 캐시, 없으면 None(무비용·무LLM·무허구).
     - generate=True(백필·활성 시그널 온디맨드): 캐시 없으면 LLM 생성 후 캐시. 실패 시 None.
-    - model: generate 시 사용할 모델(기본 Haiku). BUY/SELL 온디맨드는 Sonnet 등."""
+    - model: generate 시 사용할 모델(기본 Haiku 백필). BUY/SELL 온디맨드는 Sonnet."""
     cached = _cache_get(ticker)
     if cached:
         return cached
@@ -151,7 +153,7 @@ def _generate_moves(name: str, items: list[dict]) -> list[str] | None:
               "마라. 사실이 부족하면 빈 배열을 반환한다.")
     user = (f"회사: {name}\n헤드라인:\n{lines}\n\n"
             'JSON으로만: {"moves": ["불릿1", "불릿2", "불릿3"]}')
-    out = llm.complete_json(system, user, max_tokens=300, model=llm.DIGEST_MODEL)
+    out = llm.complete_json(system, user, max_tokens=300, model=llm.CLASSIFY_MODEL)
     if out and isinstance(out.get("moves"), list):
         moves = [str(m).strip()[:60] for m in out["moves"] if str(m).strip()][:3]
         return moves or None
