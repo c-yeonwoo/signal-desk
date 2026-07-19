@@ -280,6 +280,7 @@ _ADMIN_PATHS = {
     "/api/shortform/generate", "/api/shortform/generate-performance",
     "/api/shortform/queue", "/api/shortform/candidates",
     "/api/brain/proposals", "/api/brain/proposals/refresh", "/api/engine/config/history",
+    "/api/engine/llm-usage",
     "/api/data-health", "/api/egress-ip",
     "/api/hypothesis/refresh",
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
@@ -1044,6 +1045,13 @@ def _qualitative_promotion_payload() -> dict:
     metrics = accuracy.qualitative_promotion_metrics(
         [] if df.empty else df.to_dict("records"), closes)
     return signalcfg.qualitative_promotion_status(metrics)
+
+
+@app.get("/api/engine/llm-usage")
+def llm_usage_get(request: Request, days: int = 30):
+    """이 앱 LLM 호출 추정 비용(공유 키와 분리). Anthropic 콘솔 ≠ 이 숫자."""
+    _admin_or_403(request)
+    return {"ready": True, **db.llm_usage_summary(days=max(1, min(int(days or 30), 365)))}
 
 
 @app.get("/api/engine/qualitative-promotion")

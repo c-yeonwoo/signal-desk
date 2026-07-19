@@ -1075,6 +1075,12 @@
       <div id="brain-proposals-history" style="margin-top:12px;font-size:12px;color:var(--dim)"></div>
     </div>
 
+    <div class="card" id="llm-usage-card" style="margin-top:16px">
+      <div style="font-weight:700;font-size:15px">이 앱 추정 LLM 비용 <span style="color:var(--dim);font-weight:600;font-size:12px">· 공유 키와 분리</span></div>
+      <p class="page-desc" style="margin:8px 0 4px">Signal Desk 호출만 집계합니다. 공개 단가 기준 추정 · 캐시/배치 할인 미반영 · Anthropic 콘솔 청구와 다를 수 있습니다.</p>
+      <div id="llm-usage-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+    </div>
+
     <div class="card" id="accuracy-card" style="margin-top:16px">
       <div style="font-weight:700;font-size:15px">실측 성과 <span style="color:var(--dim);font-weight:600;font-size:12px">· track record</span></div>
       <p class="page-desc" style="margin:8px 0 4px">장 마감 후 그날 <b>실제로 낸 시그널</b>을 저장하고, 약 20거래일 뒤 수익률로 채점합니다. 봇이 샀는지와 무관하고, 백테스트(시뮬)와도 다릅니다.</p>
@@ -4676,7 +4682,7 @@ function switchAdminSeg(seg){
   document.getElementById('admin-shortform').style.display = seg === 'shortform' ? '' : 'none';
   const aw = document.getElementById('admin-watch');
   if (aw) aw.style.display = seg === 'watch' ? '' : 'none';
-  if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); loadAccuracy(); loadQualPromo(); }   // 백테스트·수동가중은 접이식
+  if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); loadLlmUsage(); loadAccuracy(); loadQualPromo(); }   // 백테스트·수동가중은 접이식
   if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
   if (seg === 'shortform') { loadShortform(); loadSfBg(); }
   if (seg === 'watch') loadExternalWatch();
@@ -5215,6 +5221,33 @@ async function reviewBrainProposal(id, status){
   if (r.ok === false || r.detail) { alert(r.detail || r.error || '처리 실패'); return; }
   await loadBrainProposals();
   if (status === 'approved') { await loadEngine(); await loadBrain(); }
+}
+
+async function loadLlmUsage(){
+  const el = document.getElementById('llm-usage-body');
+  if (!el) return;
+  try {
+    const d = await (await fetch('/api/engine/llm-usage?days=30')).json();
+    const tot = d.total || {}, today = d.today || {}, week = d.last_7d || {};
+    const usd = (v) => (v == null ? '–' : '$' + Number(v).toFixed(v >= 1 ? 2 : 4));
+    const card = (label, b) => `<div style="flex:1;min-width:120px;padding:10px 12px;border:1px solid var(--line);border-radius:10px">
+      <div style="font-size:11px;color:var(--dim)">${label}</div>
+      <div style="font-size:20px;font-weight:800;margin:2px 0">${usd(b.cost_usd)}</div>
+      <div style="font-size:11px;color:var(--dim)">${(b.calls || 0).toLocaleString()}회 · in ${(b.input_tokens || 0).toLocaleString()} · out ${(b.output_tokens || 0).toLocaleString()}</div>
+    </div>`;
+    const models = (d.by_model || []).map(m => `<tr>
+      <td style="font-size:12px">${esc(m.model)}</td>
+      <td class="num">${m.calls}</td>
+      <td class="num">${usd(m.cost_usd)}</td>
+      <td class="num" style="color:var(--dim)">${(m.input_tokens || 0).toLocaleString()} / ${(m.output_tokens || 0).toLocaleString()}</td>
+    </tr>`).join('') || '<tr><td colspan="4" style="color:var(--dim-2)">아직 기록 없음 — LLM 호출 후 쌓입니다.</td></tr>';
+    el.className = '';
+    el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        ${card('오늘', today)}${card('7일', week)}${card('30일', tot)}
+      </div>
+      <table class="dtable"><thead><tr><th>모델</th><th class="num">호출</th><th class="num">추정$</th><th class="num">in / out</th></tr></thead><tbody>${models}</tbody></table>
+      <p class="page-desc" style="margin:8px 0 0;font-size:11px;color:var(--dim-2)">${esc(d.note || '')}</p>`;
+  } catch (e) { el.className = ''; el.textContent = '불러오지 못했습니다.'; }
 }
 
 // 실측 성과(track record) — 실제 낸 시그널이 이후 수익률로 얼마나 맞았나. 매일 누적.

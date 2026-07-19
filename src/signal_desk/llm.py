@@ -5,6 +5,9 @@ ANTHROPIC_API_KEY가 없으면 모든 함수가 조용히 None을 반환한다(�
 
 용도: 봇 의사결정 자문(signals/advisor.py), KB 다이제스트 생성(kb.py). 저빈도 호출이라
 품질 우선으로 Opus를 기본 모델로 둔다.
+
+호출마다 usage(input/output tokens)를 SQLite에 기록해 이 앱만의 추정 비용을 집계한다
+(공유 API 키와 Anthropic 콘솔 청구를 분리하기 위함).
 """
 
 from __future__ import annotations
@@ -30,28 +33,78 @@ CLASSIFY_MODEL = DIGEST_MODEL                     # 스코프 분류·recent_mov
 DIGEST_QUALITY_MODEL = NARRATIVE_MODEL            # 종목/거시 다이제스트·리포트 요약·가설 초안
 _TIMEOUT = 60
 
+# USD / 1M tokens — Anthropic 공개 단가 근사(2026-07). 캐시·배치 할인 미반영.
+# 모델 ID prefix 매칭. sonnet-5는 도입가 $2/$10 적용.
+_PRICE_USD_PER_MTOK: list[tuple[str, float, float]] = [
+    ("claude-opus", 5.0, 25.0),
+    ("claude-sonnet-5", 2.0, 10.0),
+    ("claude-sonnet", 3.0, 15.0),
+    ("claude-haiku", 1.0, 5.0),
+]
+_PRICE_FALLBACK = (3.0, 15.0)  # 미매칭 시 Sonnet급
+
 
 def available() -> bool:
     return bool(config.anthropic_key())
 
 
-def complete(system: str, user: str, *, max_tokens: int = 1024, model: str = DEFAULT_MODEL) -> str | None:
-    """system+user 프롬프트로 1회 호출해 텍스트를 반환. 키 없거나 실패 시 None.
-    (temperature는 opus-4-8에서 deprecated라 보내지 않는다)"""
+def price_for_model(model: str) -> tuple[float, float]:
+    """(input_usd_per_mtok, output_usd_per_mtok)."""
+    m = (model or "").lower()
+    for prefix, inp, out in _PRICE_USD_PER_MTOK:
+        if prefix in m:
+            return inp, out
+    return _PRICE_FALLBACK
+
+
+def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+    inp_r, out_r = price_for_model(model)
+    return (input_tokens / 1_000_000.0) * inp_r + (output_tokens / 1_000_000.0) * out_r
+
+
+def _record_usage(model: str, usage: dict | None, *, kind: str, ok: bool = True) -> None:
+    if not usage:
+        return
+    try:
+        from signal_desk import db
+        inp = int(usage.get("input_tokens") or 0)
+        out = int(usage.get("output_tokens") or 0)
+        if inp <= 0 and out <= 0:
+            return
+        db.llm_usage_add(
+            model=model, kind=kind,
+            input_tokens=inp, output_tokens=out,
+            cost_usd=estimate_cost_usd(model, inp, out),
+            ok=ok,
+        )
+    except Exception:
+        log.debug("llm usage 기록 실패", exc_info=True)
+
+
+def _post_json(body: dict, *, timeout: float = _TIMEOUT) -> dict | None:
     key = config.anthropic_key()
     if not key:
         return None
-    body = json.dumps({
-        "model": model, "max_tokens": max_tokens,
-        "system": system, "messages": [{"role": "user", "content": user}],
-    }).encode("utf-8")
-    req = urllib.request.Request(_ENDPOINT, data=body, method="POST")
+    raw = json.dumps(body).encode("utf-8")
+    req = urllib.request.Request(_ENDPOINT, data=raw, method="POST")
     req.add_header("x-api-key", key)
     req.add_header("anthropic-version", _VERSION)
     req.add_header("content-type", "application/json")
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+def complete(system: str, user: str, *, max_tokens: int = 1024, model: str = DEFAULT_MODEL) -> str | None:
+    """system+user 프롬프트로 1회 호출해 텍스트를 반환. 키 없거나 실패 시 None.
+    (temperature는 opus-4-8에서 deprecated라 보내지 않는다)"""
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = _post_json({
+            "model": model, "max_tokens": max_tokens,
+            "system": system, "messages": [{"role": "user", "content": user}],
+        })
+        if not data:
+            return None
+        _record_usage(model, data.get("usage"), kind="complete")
         parts = data.get("content", [])
         return "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip() or None
     except Exception as e:  # 키/본문은 로깅하지 않음
@@ -63,20 +116,14 @@ def messages_with_tools(system: str, messages: list, tools: list, *,
                         max_tokens: int = 1024, model: str = NARRATIVE_MODEL) -> dict | None:
     """tool use 지원 1회 호출. messages는 Anthropic 형식(assistant tool_use / user tool_result 포함).
     반환: {"content": [...], "stop_reason": str} 또는 None(키 없음·실패). 툴 루프는 호출측(chat.py)이 돈다."""
-    key = config.anthropic_key()
-    if not key:
-        return None
-    body = json.dumps({
-        "model": model, "max_tokens": max_tokens, "system": system,
-        "tools": tools, "messages": messages,
-    }).encode("utf-8")
-    req = urllib.request.Request(_ENDPOINT, data=body, method="POST")
-    req.add_header("x-api-key", key)
-    req.add_header("anthropic-version", _VERSION)
-    req.add_header("content-type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = _post_json({
+            "model": model, "max_tokens": max_tokens, "system": system,
+            "tools": tools, "messages": messages,
+        })
+        if not data:
+            return None
+        _record_usage(model, data.get("usage"), kind="tools")
         return {"content": data.get("content", []), "stop_reason": data.get("stop_reason")}
     except Exception as e:
         log.warning("LLM tools 호출 실패: %s", type(e).__name__)
@@ -103,6 +150,7 @@ def stream_call(system: str, messages: list, tools: list, *,
     req.add_header("content-type", "application/json")
     blocks: dict[int, dict] = {}
     stop_reason = None
+    usage: dict = {}
     try:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             for raw in resp:                       # 응답을 라인 단위 스트림으로 소비
@@ -117,7 +165,11 @@ def stream_call(system: str, messages: list, tools: list, *,
                 except Exception:
                     continue
                 et = ev.get("type")
-                if et == "content_block_start":
+                if et == "message_start":
+                    msg = ev.get("message") or {}
+                    if msg.get("usage"):
+                        usage = {**usage, **msg["usage"]}
+                elif et == "content_block_start":
                     blocks[ev["index"]] = {**(ev.get("content_block") or {}), "_json": ""}
                 elif et == "content_block_delta":
                     d = ev.get("delta") or {}
@@ -129,10 +181,13 @@ def stream_call(system: str, messages: list, tools: list, *,
                         b["_json"] = b.get("_json", "") + d.get("partial_json", "")
                 elif et == "message_delta":
                     stop_reason = (ev.get("delta") or {}).get("stop_reason") or stop_reason
+                    if ev.get("usage"):
+                        usage = {**usage, **ev["usage"]}
     except Exception as e:
         log.warning("LLM 스트리밍 실패: %s", type(e).__name__)
         yield ("result", None)
         return
+    _record_usage(model, usage or None, kind="stream")
     content = []
     for i in sorted(blocks):
         b = blocks[i]
@@ -151,25 +206,19 @@ def complete_vision(system: str, user: str, *, media_type: str, data_b64: str,
                     max_tokens: int = 1500, model: str = DEFAULT_MODEL) -> str | None:
     """PDF/이미지를 첨부해 1회 호출(멀티모달) — 스캔 문서·이미지 OCR을 별도 엔진 없이 모델이 직접 인식.
     media_type: 'application/pdf' 또는 'image/png'|'image/jpeg' 등. 키 없거나 실패 시 None."""
-    key = config.anthropic_key()
-    if not key:
-        return None
     kind = "document" if media_type == "application/pdf" else "image"
     content = [
         {"type": kind, "source": {"type": "base64", "media_type": media_type, "data": data_b64}},
         {"type": "text", "text": user},
     ]
-    body = json.dumps({
-        "model": model, "max_tokens": max_tokens,
-        "system": system, "messages": [{"role": "user", "content": content}],
-    }).encode("utf-8")
-    req = urllib.request.Request(_ENDPOINT, data=body, method="POST")
-    req.add_header("x-api-key", key)
-    req.add_header("anthropic-version", _VERSION)
-    req.add_header("content-type", "application/json")
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT * 2) as resp:  # 문서 인식은 더 오래 걸림
-            data = json.loads(resp.read().decode("utf-8"))
+        data = _post_json({
+            "model": model, "max_tokens": max_tokens,
+            "system": system, "messages": [{"role": "user", "content": content}],
+        }, timeout=_TIMEOUT * 2)
+        if not data:
+            return None
+        _record_usage(model, data.get("usage"), kind="vision")
         parts = data.get("content", [])
         return "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip() or None
     except Exception as e:

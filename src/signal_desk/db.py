@@ -130,6 +130,16 @@ CREATE TABLE IF NOT EXISTS kb_event_evidence(
     FOREIGN KEY(event_id) REFERENCES kb_events(id));
 CREATE INDEX IF NOT EXISTS idx_kb_events_ticker ON kb_events(ticker, status);
 CREATE INDEX IF NOT EXISTS idx_kb_events_expires ON kb_events(expires_at);
+CREATE TABLE IF NOT EXISTS llm_usage(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    kind TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    ok INTEGER NOT NULL DEFAULT 1);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage(ts);
 """
 
 
@@ -1365,3 +1375,71 @@ def bot_equity_curve(uid: int, market: str = "kr", limit: int = 365) -> list[dic
     c.close()
     return [{"date": d, "total_eval": te, "cash": ca, "invested": iv}
             for d, te, ca, iv in reversed(rows)]
+
+
+# ---------- llm_usage (이 앱 LLM 호출 추정 비용 — 공유 키와 분리 집계) ----------
+def llm_usage_add(*, model: str, kind: str, input_tokens: int, output_tokens: int,
+                  cost_usd: float, ok: bool = True) -> None:
+    c = conn()
+    c.execute(
+        "INSERT INTO llm_usage(ts,model,kind,input_tokens,output_tokens,cost_usd,ok) "
+        "VALUES(?,?,?,?,?,?,?)",
+        (int(time.time()), model, kind or "complete", int(input_tokens), int(output_tokens),
+         float(cost_usd), 1 if ok else 0),
+    )
+    c.commit()
+    c.close()
+
+
+def llm_usage_summary(days: int = 30) -> dict:
+    """기간별 호출·토큰·추정 USD + 모델별 분해. Anthropic 청구와 다를 수 있음(캐시·배치 미반영)."""
+    now = int(time.time())
+    since = now - max(1, int(days)) * 86400
+    day_ago = now - 86400
+    week_ago = now - 7 * 86400
+    c = conn()
+    rows = c.execute(
+        "SELECT ts,model,kind,input_tokens,output_tokens,cost_usd FROM llm_usage "
+        "WHERE ts>=? ORDER BY ts DESC",
+        (since,),
+    ).fetchall()
+    c.close()
+    total = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+    today = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+    week = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+    by_model: dict[str, dict] = {}
+    for ts, model, kind, inp, out, cost in rows:
+        inp, out, cost = int(inp or 0), int(out or 0), float(cost or 0)
+        total["calls"] += 1
+        total["input_tokens"] += inp
+        total["output_tokens"] += out
+        total["cost_usd"] += cost
+        if ts >= week_ago:
+            week["calls"] += 1
+            week["input_tokens"] += inp
+            week["output_tokens"] += out
+            week["cost_usd"] += cost
+        if ts >= day_ago:
+            today["calls"] += 1
+            today["input_tokens"] += inp
+            today["output_tokens"] += out
+            today["cost_usd"] += cost
+        m = by_model.setdefault(model, {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0})
+        m["calls"] += 1
+        m["input_tokens"] += inp
+        m["output_tokens"] += out
+        m["cost_usd"] += cost
+    for bucket in (total, today, week):
+        bucket["cost_usd"] = round(bucket["cost_usd"], 4)
+    for m in by_model.values():
+        m["cost_usd"] = round(m["cost_usd"], 4)
+    models = sorted(by_model.items(), key=lambda x: -x[1]["cost_usd"])
+    return {
+        "days": days,
+        "since_ts": since,
+        "total": total,
+        "today": today,
+        "last_7d": week,
+        "by_model": [{"model": k, **v} for k, v in models],
+        "note": "추정 비용(공개 단가·캐시/배치 미반영). Anthropic 콘솔 청구와 다를 수 있음. 이 앱 호출분만 집계.",
+    }
