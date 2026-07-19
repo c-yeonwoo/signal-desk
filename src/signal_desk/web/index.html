@@ -19,7 +19,7 @@
     --txt:#0B1220; --dim:#5c6578; --dim-2:#8b93a7;
     /* Semantic — 매매 방향만 */
     --sig-buy:#0B8F5A; --sig-sell:#C23B3B; --sig-neutral:#8b93a7; --sig-watch:#c2410c; --sig-strong:#0B8F5A;
-    /* Chart — 가격은 ink, 점수가 주인공 */
+    /* Chart — 점수(좌)·가격(우). 점수가 주인공, 가격은 ink */
     --c-price:#1a2233; --c-ma20:#0e7490; --c-ma60:#c2410c; --c-ma120:#C23B3B; --c-rsi:#64748b; --c-score:#0B8F5A;
     /* Type · space · radius · shadow */
     --fs-xs:11px; --fs-sm:12px; --fs-base:13px; --fs-md:14px; --fs-lg:16px; --fs-xl:20px;
@@ -3193,33 +3193,37 @@ function _drawSignalChart(ticker, item, d){
 
   let grids, titles, xAxes, yAxes, series, legendData, tooltip;
   if (!showAux) {
-    // 간단·추세: 종가 패널만(+점수 축)
-    grids = [{ left: 55, right: 48, top: 36, bottom: 36 }];
+    // 간단·추세: 좌=점수 · 우=가격
+    grids = [{ left: 48, right: 58, top: 36, bottom: 36 }];
     titles = [];
     xAxes = [{ type: 'category', data: dates, gridIndex: 0, axisLabel: { show: false } }];
     yAxes = [
-      { gridIndex: 0, scale: true, splitNumber: 4 },
-      { gridIndex: 0, scale: true, min: -3, max: 3, splitLine: { show: false },
+      { gridIndex: 0, position: 'left', scale: true, min: -3, max: 3, splitNumber: 4,
+        splitLine: { show: true },
         axisLabel: { color: C.score, fontSize: 10, formatter: v => (v > 0 ? '+' : '') + v },
+        axisLine: { show: false }, axisTick: { show: false } },
+      { gridIndex: 0, position: 'right', scale: true, splitNumber: 4, splitLine: { show: false },
+        axisLabel: { color: C.price, fontSize: 10,
+          formatter: v => (isUS ? fmtNum(v, 2) : fmtNum(v, 0)) },
         axisLine: { show: false }, axisTick: { show: false } },
     ];
     series = [
-      { name: '가격', type: 'line', data: close, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+      { name: '가격', type: 'line', data: close, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
         color: C.price, smooth: SMOOTH, smoothMonotone: 'x',
         lineStyle: { width: 2.4, color: C.price }, markArea, markPoint, markLine: targetMarkLine },
     ];
     if (showMa) {
       series.push(
-        { name: '단기평균(20일)', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+        { name: '단기평균(20일)', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
           color: C.ma20, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma20, opacity: 0.85 } },
-        { name: '중기(60일)', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+        { name: '중기(60일)', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
           color: C.ma60, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma60, opacity: 0.85 } },
-        { name: '장기(120일)', type: 'line', data: ma120, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+        { name: '장기(120일)', type: 'line', data: ma120, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
           color: C.ma120, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma120, opacity: 0.85 } },
       );
     }
     series.push(
-      { name: '시그널 점수', type: 'line', data: scores, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
+      { name: '시그널 점수', type: 'line', data: scores, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
         color: C.score, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1.75, color: C.score } },
     );
     legendData = showMa
@@ -3246,22 +3250,26 @@ function _drawSignalChart(ticker, item, d){
       },
     };
   } else {
-    // 자세히: 기존 다패널
-    const gPrice = { left: 55, right: 48, top: 28, bottom: hasFlow ? 292 : 228 };
-    const gRsi   = { left: 55, right: 20, height: 48, bottom: hasFlow ? 224 : 158 };
-    const gFlow  = { left: 55, right: 20, height: 48, bottom: 156 };
-    const gMacd  = { left: 55, right: 20, height: 100, bottom: 28 };
+    // 자세히: 가격 패널 좌=점수 · 우=가격
+    const gPrice = { left: 48, right: 58, top: 28, bottom: hasFlow ? 292 : 228 };
+    const gRsi   = { left: 48, right: 20, height: 48, bottom: hasFlow ? 224 : 158 };
+    const gFlow  = { left: 48, right: 20, height: 48, bottom: 156 };
+    const gMacd  = { left: 48, right: 20, height: 100, bottom: 28 };
     titles = [
-      { text: 'RSI', left: 55, bottom: hasFlow ? 276 : 210, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
-      { text: 'MACD', left: 55, bottom: 132, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
+      { text: 'RSI', left: 48, bottom: hasFlow ? 276 : 210, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
+      { text: 'MACD', left: 48, bottom: 132, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } },
     ];
-    if (hasFlow) titles.splice(1, 0, { text: '수급', left: 55, bottom: 208, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } });
+    if (hasFlow) titles.splice(1, 0, { text: '수급', left: 48, bottom: 208, textStyle: { fontSize: 11, fontWeight: 'normal', color: '#94a3b8' } });
     grids = hasFlow ? [gPrice, gRsi, gFlow, gMacd] : [gPrice, gRsi, gMacd];
     xAxes = grids.map((_, gi) => ({ type: 'category', data: dates, gridIndex: gi, axisLabel: { show: false } }));
     yAxes = [
-      { gridIndex: 0, scale: true, splitNumber: 4 },
-      { gridIndex: 0, scale: true, min: -3, max: 3, splitLine: { show: false },
+      { gridIndex: 0, position: 'left', scale: true, min: -3, max: 3, splitNumber: 4,
+        splitLine: { show: true },
         axisLabel: { color: C.score, fontSize: 10, formatter: v => (v > 0 ? '+' : '') + v },
+        axisLine: { show: false }, axisTick: { show: false } },
+      { gridIndex: 0, position: 'right', scale: true, splitNumber: 4, splitLine: { show: false },
+        axisLabel: { color: C.price, fontSize: 10,
+          formatter: v => (isUS ? fmtNum(v, 2) : fmtNum(v, 0)) },
         axisLine: { show: false }, axisTick: { show: false } },
       { gridIndex: 1, min: 0, max: 100, splitNumber: 2 },
     ];
@@ -3270,16 +3278,16 @@ function _drawSignalChart(ticker, item, d){
     const yRsi = 2, yFlow = hasFlow ? 3 : null, yMacd = hasFlow ? 4 : 3;
     const xRsi = 1, xFlow = hasFlow ? 2 : null, xMacd = hasFlow ? 3 : 2;
     series = [
-      { name: '가격', type: 'line', data: close, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+      { name: '가격', type: 'line', data: close, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
         color: C.price, smooth: SMOOTH, smoothMonotone: 'x',
         lineStyle: { width: 2.4, color: C.price }, markArea, markPoint, markLine: targetMarkLine },
-      { name: '단기평균(20일)', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+      { name: '단기평균(20일)', type: 'line', data: ma20, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
         color: C.ma20, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma20, opacity: 0.85 } },
-      { name: '중기(60일)', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+      { name: '중기(60일)', type: 'line', data: ma60, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
         color: C.ma60, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma60, opacity: 0.85 } },
-      { name: '장기(120일)', type: 'line', data: ma120, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
+      { name: '장기(120일)', type: 'line', data: ma120, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
         color: C.ma120, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1, color: C.ma120, opacity: 0.85 } },
-      { name: '시그널 점수', type: 'line', data: scores, xAxisIndex: 0, yAxisIndex: 1, showSymbol: false,
+      { name: '시그널 점수', type: 'line', data: scores, xAxisIndex: 0, yAxisIndex: 0, showSymbol: false,
         color: C.score, smooth: SMOOTH, smoothMonotone: 'x', lineStyle: { width: 1.75, color: C.score },
         tooltip: { valueFormatter: v => v == null ? '–' : ((v > 0 ? '+' : '') + Number(v).toFixed(2)) } },
       { name: 'RSI', type: 'line', data: rsi, xAxisIndex: xRsi, yAxisIndex: yRsi, showSymbol: false,
