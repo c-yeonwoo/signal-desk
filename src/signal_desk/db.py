@@ -69,6 +69,44 @@ CREATE TABLE IF NOT EXISTS kb_embeddings(
     dim INTEGER NOT NULL,
     vec BLOB NOT NULL,
     updated INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS kb_events(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_key TEXT NOT NULL UNIQUE,
+    scope_type TEXT NOT NULL DEFAULT 'stock',
+    ticker TEXT,
+    sector TEXT,
+    event_type TEXT NOT NULL,
+    direction TEXT NOT NULL DEFAULT 'unknown',
+    severity TEXT NOT NULL DEFAULT 'info',
+    confidence REAL NOT NULL DEFAULT 1.0,
+    trust_tier TEXT NOT NULL DEFAULT 'official',
+    status TEXT NOT NULL DEFAULT 'confirmed',
+    decision_eligible INTEGER NOT NULL DEFAULT 0,
+    decision_action TEXT NOT NULL DEFAULT 'none',
+    detected_at INTEGER NOT NULL,
+    effective_at INTEGER,
+    expires_at INTEGER,
+    resolved_at INTEGER,
+    summary TEXT,
+    rationale TEXT,
+    extractor_model TEXT,
+    policy_version TEXT NOT NULL DEFAULT 'p0',
+    created INTEGER NOT NULL,
+    updated INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS kb_event_evidence(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id INTEGER NOT NULL,
+    entry_id INTEGER,
+    source_key TEXT,
+    url TEXT,
+    published TEXT,
+    evidence_text TEXT,
+    support_role TEXT NOT NULL DEFAULT 'primary',
+    trust_score REAL,
+    created INTEGER NOT NULL,
+    FOREIGN KEY(event_id) REFERENCES kb_events(id));
+CREATE INDEX IF NOT EXISTS idx_kb_events_ticker ON kb_events(ticker, status);
+CREATE INDEX IF NOT EXISTS idx_kb_events_expires ON kb_events(expires_at);
 """
 
 
@@ -649,6 +687,125 @@ def kb_digests_all() -> dict[str, dict]:
     rows = c.execute(f"SELECT {_KB_COLS} FROM kb_digest").fetchall()
     c.close()
     return {r[0]: _kb_row(r) for r in rows}
+
+
+# ---------- kb_events (구조화 이벤트 카드 — Decision 입력) ----------
+_EVT_COLS = (
+    "id,event_key,scope_type,ticker,sector,event_type,direction,severity,confidence,"
+    "trust_tier,status,decision_eligible,decision_action,detected_at,effective_at,"
+    "expires_at,resolved_at,summary,rationale,extractor_model,policy_version,created,updated"
+)
+
+
+def _evt_row(r) -> dict:
+    keys = _EVT_COLS.split(",")
+    d = dict(zip(keys, r))
+    d["decision_eligible"] = bool(d.get("decision_eligible"))
+    return d
+
+
+def kb_event_upsert(event: dict, evidence: dict | None = None) -> int:
+    """event_key 기준 upsert. evidence가 있으면 primary evidence 1건 보장(중복 url 스킵)."""
+    now = int(time.time())
+    key = event["event_key"]
+    c = conn()
+    row = c.execute("SELECT id FROM kb_events WHERE event_key=?", (key,)).fetchone()
+    fields = (
+        event.get("scope_type") or "stock",
+        event.get("ticker"),
+        event.get("sector"),
+        event["event_type"],
+        event.get("direction") or "unknown",
+        event.get("severity") or "info",
+        float(event.get("confidence") or 1.0),
+        event.get("trust_tier") or "official",
+        event.get("status") or "confirmed",
+        1 if event.get("decision_eligible") else 0,
+        event.get("decision_action") or "none",
+        int(event.get("detected_at") or now),
+        event.get("effective_at"),
+        event.get("expires_at"),
+        event.get("resolved_at"),
+        event.get("summary"),
+        event.get("rationale"),
+        event.get("extractor_model"),
+        event.get("policy_version") or "p0",
+    )
+    if row:
+        eid = row[0]
+        c.execute(
+            "UPDATE kb_events SET scope_type=?,ticker=?,sector=?,event_type=?,direction=?,"
+            "severity=?,confidence=?,trust_tier=?,status=?,decision_eligible=?,decision_action=?,"
+            "detected_at=?,effective_at=?,expires_at=?,resolved_at=?,summary=?,rationale=?,"
+            "extractor_model=?,policy_version=?,updated=? WHERE id=?",
+            (*fields, now, eid),
+        )
+    else:
+        cur = c.execute(
+            "INSERT INTO kb_events(event_key,scope_type,ticker,sector,event_type,direction,severity,"
+            "confidence,trust_tier,status,decision_eligible,decision_action,detected_at,effective_at,"
+            "expires_at,resolved_at,summary,rationale,extractor_model,policy_version,created,updated) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (key, *fields, now, now),
+        )
+        eid = cur.lastrowid
+    if evidence and evidence.get("url"):
+        exists = c.execute(
+            "SELECT id FROM kb_event_evidence WHERE event_id=? AND url=?",
+            (eid, evidence["url"]),
+        ).fetchone()
+        if not exists:
+            c.execute(
+                "INSERT INTO kb_event_evidence(event_id,entry_id,source_key,url,published,"
+                "evidence_text,support_role,trust_score,created) VALUES(?,?,?,?,?,?,?,?,?)",
+                (eid, evidence.get("entry_id"), evidence.get("source_key"), evidence["url"],
+                 evidence.get("published"), evidence.get("evidence_text"),
+                 evidence.get("support_role") or "primary", evidence.get("trust_score"), now),
+            )
+    c.commit()
+    c.close()
+    return int(eid)
+
+
+def kb_events_active(ticker: str | None = None, *, now: int | None = None,
+                     decision_only: bool = False) -> list[dict]:
+    """만료되지 않은 confirmed 이벤트. decision_only면 decision_eligible=1만."""
+    ts = int(now if now is not None else time.time())
+    c = conn()
+    q = f"SELECT {_EVT_COLS} FROM kb_events WHERE status='confirmed' AND (expires_at IS NULL OR expires_at>=?)"
+    args: list = [ts]
+    if ticker:
+        q += " AND ticker=?"; args.append(ticker)
+    if decision_only:
+        q += " AND decision_eligible=1"
+    q += " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'serious' THEN 1 WHEN 'watch' THEN 2 ELSE 3 END, detected_at DESC"
+    rows = c.execute(q, args).fetchall()
+    c.close()
+    return [_evt_row(r) for r in rows]
+
+
+def kb_events_list(limit: int = 50, ticker: str | None = None) -> list[dict]:
+    c = conn()
+    q = f"SELECT {_EVT_COLS} FROM kb_events"
+    args: list = []
+    if ticker:
+        q += " WHERE ticker=?"; args.append(ticker)
+    q += " ORDER BY updated DESC LIMIT ?"; args.append(limit)
+    rows = c.execute(q, args).fetchall()
+    c.close()
+    return [_evt_row(r) for r in rows]
+
+
+def kb_event_evidence(event_id: int) -> list[dict]:
+    c = conn()
+    rows = c.execute(
+        "SELECT id,event_id,entry_id,source_key,url,published,evidence_text,support_role,trust_score,created "
+        "FROM kb_event_evidence WHERE event_id=? ORDER BY id", (event_id,),
+    ).fetchall()
+    c.close()
+    cols = ["id", "event_id", "entry_id", "source_key", "url", "published", "evidence_text",
+            "support_role", "trust_score", "created"]
+    return [dict(zip(cols, r)) for r in rows]
 
 
 # ---------- bot_decisions (의사결정 저널 — 학습용) ----------

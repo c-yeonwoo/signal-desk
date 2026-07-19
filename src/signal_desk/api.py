@@ -274,6 +274,7 @@ async def _auth_gate(request: Request, call_next):
 _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents", "/api/kb/digests",
+    "/api/kb/events",
     "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube", "/api/kb/collect-rss",
     "/api/shortform/generate", "/api/shortform/generate-performance",
     "/api/shortform/queue", "/api/shortform/candidates",
@@ -1820,6 +1821,19 @@ def kb_documents_get(ticker: str | None = None, doc_class: str | None = None, li
     for d in docs:
         d["name"] = names.get(d["ticker"], d["ticker"])
     return {"documents": docs, "class_counts": db.kb_class_counts(), "classes": list(kb.DOC_CLASSES)}
+
+
+@app.get("/api/kb/events")
+def kb_events_get(ticker: str | None = None, limit: int = 50, active: bool = False):
+    """구조화 KB 이벤트 카드(읽기) — Decision 입력·감사. 점수 가산 아님.
+    active=true면 만료 전 confirmed만."""
+    if active:
+        items = db.kb_events_active(ticker)
+    else:
+        items = db.kb_events_list(limit=limit, ticker=ticker)
+    for it in items:
+        it["evidence"] = db.kb_event_evidence(it["id"])
+    return {"items": items, "policy_version": "p0"}
 
 
 @app.get("/api/kb/digests")
