@@ -31,7 +31,7 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, hypothesis, macro, narrative, opportunity, rebalance, regime,
+    accuracy, climate, hypothesis, macro, narrative, opportunity, rebalance, regime,
     regime_zone, relative, scenario, target, valuation,
 )
 from signal_desk.signals.engine import (
@@ -768,6 +768,7 @@ def _us_signal_detail(ticker: str) -> dict | None:
     d["attention_events"] = _attention_events(ticker)
     if d["decision"].get("buy_blocked") and r.kind in ("BUY", "STRONG_BUY"):
         d["attention_conflict"] = True  # 매수 신호 vs 이벤트 리스크
+    climate.annotate_rows([d])
     return d
 
 
@@ -810,6 +811,7 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     d["attention_events"] = _attention_events(ticker)
     if d["decision"].get("buy_blocked") and r.kind in ("BUY", "STRONG_BUY"):
         d["attention_conflict"] = True
+    climate.annotate_rows([d])
     return d
 
 
@@ -837,7 +839,7 @@ def signals_get(market: str = "kospi"):
         items = _us_signal_items()
         if not items:
             return {"ready": False, "items": [], "message": "미국 종목 시세가 아직 없습니다 — 백필 후 표시됩니다."}
-        return {"ready": True, "items": _annotate_external_watch(items), "slim": True}
+        return {"ready": True, "items": climate.annotate_rows(_annotate_external_watch(items)), "slim": True}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
@@ -854,7 +856,7 @@ def signals_get(market: str = "kospi"):
             vol=q.get("vol"), vol_avg=q.get("vol_avg"),
             per=f.get("per"), pbr=f.get("pbr"), roe=f.get("roe"),
             div_yield=round(dps / px * 100, 2) if (dps and px) else None))
-    return {"ready": True, "items": _annotate_external_watch(items), "slim": True}
+    return {"ready": True, "items": climate.annotate_rows(_annotate_external_watch(items)), "slim": True}
 
 
 @app.get("/api/signals/{ticker}/detail")
