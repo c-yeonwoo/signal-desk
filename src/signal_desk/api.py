@@ -1824,16 +1824,25 @@ def kb_documents_get(ticker: str | None = None, doc_class: str | None = None, li
 
 
 @app.get("/api/kb/events")
-def kb_events_get(ticker: str | None = None, limit: int = 50, active: bool = False):
+def kb_events_get(ticker: str | None = None, limit: int = 50, active: bool = False,
+                  view: str = "eligible"):
     """구조화 KB 이벤트 카드(읽기) — Decision 입력·감사. 점수 가산 아님.
-    active=true면 만료 전 confirmed만."""
-    if active:
-        items = db.kb_events_active(ticker)
-    else:
+    view=eligible(기본): 활성 confirmed · view=candidate: Sonnet 후보(Decision 미반영)
+    · view=all: 최근 목록. active 쿼리는 레거시 호환(무시하고 eligible=활성 confirmed)."""
+    v = (view or "eligible").lower()
+    if v == "candidate":
+        items = db.kb_events_list(limit=limit, ticker=ticker, status="candidate")
+        policy = "p1b"
+    elif v == "all":
         items = db.kb_events_list(limit=limit, ticker=ticker)
+        policy = "p1b"
+    else:
+        items = db.kb_events_active(ticker)  # confirmed · 미만료 (active 플래그 포함)
+        policy = "p0"
     for it in items:
         it["evidence"] = db.kb_event_evidence(it["id"])
-    return {"items": items, "policy_version": "p0"}
+    return {"items": items, "view": v if v in ("eligible", "candidate", "all") else "eligible",
+            "policy_version": policy}
 
 
 @app.get("/api/kb/sources")
