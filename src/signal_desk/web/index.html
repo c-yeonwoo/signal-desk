@@ -320,7 +320,7 @@
   .vc-node.us { color:var(--accent); border-color:var(--accent); cursor:pointer; font-weight:600; }
   .vc-node.us:hover { background:var(--brand-50); }
   .vc-node.ov { color:var(--dim); }
-  /* 시황 가설 — 미니멀 LR 트리 + 줌 */
+  /* 최근 이슈 흐름 — 미니멀 LR 트리 + 줌 */
   .hypo-graph-wrap { position:relative; border:1px solid var(--line); border-radius:var(--r-lg);
     background:var(--panel); overflow:hidden; }
   .hypo-graph { width:100%; height:min(640px, 70vh); min-height:480px; }
@@ -348,12 +348,6 @@
   .hypo-detail .hc-sectors { display:flex; flex-wrap:wrap; gap:5px; }
   .hypo-detail .hc-sec { border:1px solid var(--line); border-radius:var(--r-pill); padding:2px 9px;
     font-size:11px; font-weight:600; color:var(--accent); background:var(--accent-weak); cursor:pointer; }
-  .hypo-st { display:inline-block; font-size:11px; font-weight:700; padding:1px 7px; border-radius:var(--r-pill);
-    margin-left:6px; vertical-align:middle; }
-  .hypo-st.aligned { background:#e8f5e9; color:#2e7d32; }
-  .hypo-st.watching { background:#fff8e1; color:#f57f17; }
-  .hypo-st.diverging { background:#fce4ec; color:#c62828; }
-  .hypo-st.na { background:var(--bg); color:var(--dim-2); }
   .card { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel); padding:20px;
     box-shadow:var(--shadow-sm); transition:box-shadow .15s; }
   .card:hover { box-shadow:var(--shadow); }
@@ -602,7 +596,7 @@
 <nav class="subnav" id="subnav-cycle" style="display:none">
   <button class="subtab on" data-cseg="cycle" onclick="switchCycleSeg('cycle')">경기 사이클</button>
   <button class="subtab" data-cseg="vc" onclick="switchCycleSeg('vc')">밸류체인</button>
-  <button class="subtab" data-cseg="hypo" onclick="switchCycleSeg('hypo')">시황 가설</button>
+  <button class="subtab" data-cseg="hypo" onclick="switchCycleSeg('hypo')">최근 이슈 흐름</button>
   <button class="subtab" data-cseg="ref" onclick="switchCycleSeg('ref')">참고</button>
 </nav>
 <nav class="subnav" id="subnav-cycle-ref" style="display:none;border-top:none;padding-top:0">
@@ -773,14 +767,14 @@
     </div>
 
     <div id="cycle-seg-hypo" style="display:none">
-      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 시황 가설
-        <span style="color:var(--dim);font-size:13px;font-weight:600">· 뉴스 핫이슈 · 수동 생성 · 예측 아님</span>
+      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 최근 이슈 흐름
+        <span style="color:var(--dim);font-size:13px;font-weight:600">· 뉴스 파급 갈래 · 수동 생성 · 예측 아님</span>
         <button type="button" class="btn" id="hypo-refresh-btn" style="display:none;margin-left:10px;padding:3px 10px;font-size:12px"
-          onclick="refreshHypothesis()">가설 생성</button>
+          onclick="refreshHypothesis()">흐름 생성</button>
       </h3>
-      <p class="page-desc">최근 뉴스·KB에서 지금 중요한 <b>거시 이슈</b>와, 그다음으로 벌어질 수 있는 상황을
-        왼쪽→오른쪽으로 봅니다. 노드 문장은 쉬운 말, 지표·근거는 호버·아래 카드에.
-        노드 아래 작은 글씨는 <b>지금 데이터가 그 가정에 얼마나 가까운지</b>이지, 미래 예고가 아닙니다.
+      <p class="page-desc">최근 뉴스·KB에서 뽑은 <b>관심 이슈</b>를 왼쪽→오른쪽으로 펼칩니다.
+        각 이슈는 <b>이 방향 / 다른 방향</b> 쌍으로 갈라지고, 그다음 산업·지표 파급까지 봅니다.
+        퍼센트는 이슈 간 관심·갈래 안 상대 무게이지, 미래가 그렇게 된다는 뜻이 아닙니다.
         <b>관리자 수동 생성</b> 후 DB에 저장됩니다.</p>
       <div id="hypo-asof" style="font-size:11px;color:var(--dim-2);margin:0 0 10px"></div>
       <div id="hypo-if-bar" class="hypo-if-bar"></div>
@@ -789,8 +783,8 @@
         <div class="hypo-zoom-hint">휠·핀치로 확대·축소 · 드래그로 이동</div>
       </div>
       <div class="hypo-legend">
-        <span>왼쪽→오른쪽: 이슈 → 이어질 수 있는 상황 → 그때 볼 업종</span>
-        <span>작은 글씨: 지금 이 가정에 가까움 · 아직 갈림길 · 지금 이 가정과 안 맞음</span>
+        <span>왼쪽→오른쪽: 이슈 → 쌍갈림(이 방향/다른 방향) → 파급(업종·사이드이펙트)</span>
+        <span>굵은 갈래: 지금 지표와 더 겹치는 쪽(상대 무게) · 검증·예고 아님</span>
       </div>
       <div id="hypo-detail" class="hypo-detail" style="display:none"></div>
       <p id="hypo-disc" style="margin-top:12px;font-size:11px;color:var(--dim-2);line-height:1.5"></p>
@@ -1653,7 +1647,7 @@ function drawCycleChart(phases, cur){
   _cycleChart.resize();
 }
 
-// ===== 시황 가설 — 핫이슈 트리 (쉬운 말 · 전체 펼침 · 줌) =====
+// ===== 최근 이슈 흐름 — 파급 트리 (쌍갈림 · 무게 강조 · 줌) =====
 let _hypoData = null;
 let _hypoActiveIf = null;
 let _hypoSelected = null;
@@ -1665,49 +1659,40 @@ function _hypoIndex(node, map){
   map[node.id] = node;
   (node.children || []).forEach(c => _hypoIndex(c, map));
 }
-function _hypoStatusKo(n){
-  return (n && (n.status_ko || '')) || ({
-    aligned: '지금 이 가정에 가까움',
-    watching: '아직 갈림길',
-    diverging: '지금 이 가정과 안 맞음',
-    'n/a': '',
-  })[(n && n.status) || 'n/a'] || '';
-}
 function _hypoEdgeKo(n){
   return (n && n.edge_ko) || ({
-    then: '이 이슈가 이어질 때',
-    and: '이와 함께 겹칠 때',
-    but: '반대로 꺾일 때',
+    path: '이 방향일 때',
+    alt: '다른 방향일 때',
+    then: '이 방향일 때',
+    and: '이 방향일 때',
+    but: '다른 방향일 때',
     if: '이슈',
   })[(n && n.edge) || ''] || '';
 }
-function _hypoStatusHint(st){
-  return ({
-    aligned: '지금 시장·지표가 이 노드가 말하는 가정에 가깝습니다. 앞으로 그렇게 된다는 뜻이 아닙니다.',
-    watching: '이 가정을 가리키는 신호와 아닌 신호가 섞였거나, 아직 볼 데이터가 부족합니다.',
-    diverging: '이 노드가 전제한 조건이 지금 지표와 맞지 않습니다. “반대 시나리오가 온다”가 아니라, 지금은 이 가지를 뒷받침하지 않는다는 뜻입니다.',
-    'n/a': '',
-  })[st || 'n/a'] || '';
-}
-function _hypoDotColor(kind, st, selected){
+function _hypoDotColor(kind, selected, emphasized){
   if (kind === 'root') return '#0B1220';
   if (kind === 'if') return selected ? '#0F766E' : '#5c6578';
-  if (st === 'aligned') return '#0B8F5A';
-  if (st === 'diverging') return '#C23B3B';
-  if (st === 'watching') return '#c2410c';
-  return kind === 'outcome' ? '#0F766E' : '#8b93a7';
+  if (kind === 'outcome') return emphasized ? '#0F766E' : '#8b93a7';
+  if (emphasized) return '#0F766E';
+  return '#9aa3b5';
 }
-function _hypoToEcharts(node, activeIf){
-  const kind = node.kind || 'then';
-  const st = node.status || 'n/a';
+function _hypoToEcharts(node, activeIf, parentEmphasized){
+  const kind = node.kind === 'then' ? 'fork' : (node.kind || 'fork');
   const selected = kind === 'if' && node.id === activeIf;
+  const emphasized = !!(node.emphasized || parentEmphasized);
   const title = String(node.label || node.id);
   let meta = '';
-  if (kind === 'root') meta = '뉴스·KB로 뽑은 관심사';
-  else if (kind === 'if') meta = `관심 비중 ${node.support_pct ?? '–'}%`;
-  else if (kind === 'then' || kind === 'outcome') meta = _hypoStatusKo(node) || '';
-  const kids = (node.children || []).map(c => _hypoToEcharts(c, activeIf));
-  const size = kind === 'root' ? 14 : (kind === 'if' ? 12 : 9);
+  if (kind === 'root') meta = '뉴스·KB 관심 이슈';
+  else if (kind === 'if') meta = `관심 ${node.support_pct ?? '–'}%`;
+  else if (kind === 'fork') {
+    const pct = node.branch_pct;
+    meta = pct != null ? `갈래 ${pct}%${emphasized ? ' · 무게↑' : ''}` : (emphasized ? '무게↑' : '');
+  } else if (kind === 'outcome') meta = emphasized ? '무게 있는 갈래의 파급' : '';
+  const kids = (node.children || []).map(c => _hypoToEcharts(c, activeIf, kind === 'fork' ? emphasized : false));
+  let size = kind === 'root' ? 14 : (kind === 'if' ? 12 : 9);
+  if (kind === 'fork' && emphasized) size = 12;
+  const lineW = emphasized || selected || kind === 'root' ? 2.1 : 1.05;
+  const lineC = emphasized || selected || kind === 'root' ? '#0F766E88' : '#d4d0c6';
   return {
     name: title,
     value: node.id,
@@ -1718,12 +1703,13 @@ function _hypoToEcharts(node, activeIf){
     children: kids,
     symbolSize: size,
     itemStyle: {
-      color: _hypoDotColor(kind, st, selected),
-      borderColor: '#fff',
-      borderWidth: selected ? 2 : 1,
+      color: _hypoDotColor(kind, selected, emphasized),
+      borderColor: emphasized ? '#0F766E' : '#fff',
+      borderWidth: selected || emphasized ? 2 : 1,
       shadowBlur: 0,
     },
-    lineStyle: { color: selected || kind === 'root' ? '#0F766E55' : '#d4d0c6', width: selected ? 1.6 : 1.1 },
+    lineStyle: { color: lineC, width: lineW },
+    label: emphasized && kind === 'fork' ? { fontWeight: 700 } : undefined,
   };
 }
 function drawHypothesisIfBar(tree){
@@ -1770,12 +1756,11 @@ function drawHypothesisTree(tree){
         if (n.kind === 'if') {
           lines.push(`관심 비중 ${n.support_pct}% · 이슈는 동시에 볼 수 있음`);
         } else {
-          const sk = _hypoStatusKo(n);
-          const hint = _hypoStatusHint(n.status);
-          if (sk) lines.push(sk);
-          if (hint) lines.push(`<span style="opacity:.85">${esc(hint)}</span>`);
           const ek = _hypoEdgeKo(n);
-          if (ek && n.kind === 'then') lines.push(`이 가지는: ${esc(ek)}`);
+          if (ek && (n.kind === 'fork' || n.kind === 'then')) lines.push(`갈래: ${esc(ek)}`);
+          if (n.branch_pct != null) {
+            lines.push(`이 쌍에서 상대 무게 ${n.branch_pct}%${n.emphasized ? ' · 더 겹침' : ''}`);
+          }
         }
         if ((n.conditions || []).length) {
           lines.push('<span style="opacity:.7">참고 지표</span> ' + (n.conditions || []).map(c => esc(c.label || c.metric)).join(' · '));
@@ -1864,21 +1849,19 @@ function selectHypoNode(id){
           : '')
         + `</li>`).join('')}</ul>`
     : `<div style="color:var(--dim-2);font-size:12px">아직 연결된 뉴스 링크가 없습니다.</div>`;
-  const sk = _hypoStatusKo(n);
   const ek = _hypoEdgeKo(n);
-  const hint = _hypoStatusHint(n.status);
   const titleExtra = n.kind === 'if'
     ? ` · 관심 비중 ${n.support_pct}%`
-    : (sk ? ` · ${esc(sk)}` : '');
-  const branchLine = (n.kind === 'then' && ek)
-    ? `<p style="margin:0 0 8px;font-size:12px;color:var(--dim)">이 가지는 <b style="color:var(--txt)">${esc(ek)}</b> 보는 갈래입니다.</p>`
-    : '';
-  const statusLine = hint
-    ? `<p style="margin:0 0 10px;font-size:12px;color:var(--dim);line-height:1.5">${esc(hint)}</p>`
+    : (n.branch_pct != null ? ` · 갈래 무게 ${n.branch_pct}%` : '');
+  const isFork = n.kind === 'fork' || n.kind === 'then';
+  const branchLine = (isFork && ek)
+    ? `<p style="margin:0 0 8px;font-size:12px;color:var(--dim)">이 가지는 <b style="color:var(--txt)">${esc(ek)}</b> 보는 갈래입니다.`
+      + (n.emphasized ? ' <b style="color:var(--accent)">지금 지표와 더 겹치는 쪽</b>입니다.' : '')
+      + `</p>`
     : '';
   detail.style.display = '';
   detail.innerHTML = `<div class="hd-title">${esc(n.label)}${titleExtra}</div>
-    ${branchLine}${statusLine}
+    ${branchLine}
     ${n.detail ? `<p style="margin:0 0 10px;font-size:13px;color:var(--dim);line-height:1.5">${esc(n.detail)}</p>` : ''}
     <div class="hd-metrics">${metrics}</div>
     ${assump ? `<b style="font-size:12px;color:var(--dim)">쉽게 말하면</b><ul>${assump}</ul>` : ''}
@@ -1886,7 +1869,7 @@ function selectHypoNode(id){
     <b style="font-size:12px;color:var(--dim)">관심 섹터</b>
     <div class="hc-sectors" style="margin:6px 0 10px">${secs || '–'}</div>
     <b style="font-size:12px;color:var(--dim)">근거 뉴스</b>${ev}
-    <div style="margin-top:8px;font-size:11px;color:var(--dim-2)">관심 비중 = 이슈 간 상대 · 작은 글씨는 “지금 데이터와 얼마나 가까운지”일 뿐 예측이 아닙니다</div>`;
+    <div style="margin-top:8px;font-size:11px;color:var(--dim-2)">관심%·갈래%는 상대 무게 · 가설 검증·미래 예고가 아닙니다</div>`;
 }
 async function loadHypothesis(){
   const el = document.getElementById('hypo-graph');
@@ -1903,10 +1886,10 @@ async function loadHypothesis(){
       if (ifBar) ifBar.innerHTML = '';
       if (detail) detail.style.display = 'none';
       const hint = _isAdmin
-        ? '위 <b>가설 생성</b>을 누르면 Sonnet이 최근 뉴스·KB로 이슈 트리를 만듭니다. API 키가 있어야 하며, 실패 시 예전 고정 템플릿으로 채우지 않습니다.'
-        : '관리자가 가설을 생성하면 여기에 표시됩니다.';
+        ? '위 <b>흐름 생성</b>을 누르면 Sonnet이 최근 뉴스·KB로 이슈 파급 트리를 만듭니다. API 키가 있어야 하며, 실패 시 예전 고정 템플릿으로 채우지 않습니다.'
+        : '관리자가 흐름을 생성하면 여기에 표시됩니다.';
       el.innerHTML = `<div class="placeholder" style="padding:24px;line-height:1.55">
-        ${esc(d.reason || '시황 가설이 아직 없습니다.')}<br/><span style="color:var(--dim)">${hint}</span></div>`;
+        ${esc(d.reason || '최근 이슈 흐름이 아직 없습니다.')}<br/><span style="color:var(--dim)">${hint}</span></div>`;
       if (asof) asof.textContent = '미생성 · 수동만';
       if (disc) disc.textContent = d.disclaimer || '';
       return;
@@ -1948,7 +1931,7 @@ async function refreshHypothesis(){
       if (d.kept_previous) await loadHypothesis();
     }
   } catch (e) { alert('생성 요청 실패'); }
-  finally { if (btn) { btn.disabled = false; btn.textContent = '가설 생성'; } }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '흐름 생성'; } }
 }
 
 // ===== 밸류체인 =====

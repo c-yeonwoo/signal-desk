@@ -1,7 +1,8 @@
-"""시황 가설(#6) — 배타적 IF → then → outcome.
+"""최근 이슈 흐름(#6) — 이슈 → 쌍갈림(path/alt) → outcome.
 
-관리자 수동 refresh 시에만 Sonnet이 트리 문장을 생성. 지지도·status는 룰.
-일일 자동 LLM 호출 없음. GET은 캐시만(없으면 ready:false).
+뉴스·KB 핫이슈의 파급을 학습·시황 읽기용으로 펼친다. 가설 검증이 아님.
+관리자 수동 refresh 시에만 Sonnet이 문장 생성. 이슈 관심%·갈래 무게%는 룰.
+일일 자동 LLM 없음. GET은 캐시만(없으면 ready:false).
 """
 
 from __future__ import annotations
@@ -21,24 +22,20 @@ from signal_desk.signals import regime as regime_mod
 
 log = logging.getLogger("signal_desk.hypothesis")
 
-_KV_KEY = "hypo:v3:latest"
+_KV_KEY = "hypo:v4:latest"
 _DISCLAIMER = (
-    "가설·학습용 · 뉴스·KB 핫이슈 · 수동 생성 · 관심 비중(이슈 간 상대) "
-    "· 예측·투자권유 아님 · 시그널과 별개 레이어"
+    "학습·시황 읽기용 · 뉴스·KB 최근 이슈 흐름 · 수동 생성 · "
+    "관심 비중·갈래 무게는 이슈/쌍 안 상대값 · 예측·투자권유 아님 · 시그널과 별개"
 )
-# 노드/UI용 — then·but 직역이 아니라 "이 가정이 지금 데이터와 어떤지"
-_STATUS_KO = {
-    "aligned": "지금 이 가정에 가까움",
-    "watching": "아직 갈림길",
-    "diverging": "지금 이 가정과 안 맞음",
-    "n/a": "",
-}
-# 상세 패널용 — 트리 연결 의미 (직역 then/but 아님)
+# 트리 연결 의미 — 검증 아님, 파급 갈래
 _EDGE_KO = {
     "if": "이슈",
-    "then": "이 이슈가 이어질 때",
-    "and": "이와 함께 겹칠 때",
-    "but": "반대로 꺾일 때",
+    "path": "이 방향일 때",
+    "alt": "다른 방향일 때",
+    # 레거시 캐시 호환
+    "then": "이 방향일 때",
+    "and": "이 방향일 때",
+    "but": "다른 방향일 때",
 }
 
 _ALLOWED_METRICS = frozenset({
@@ -48,7 +45,7 @@ _ALLOWED_OPS = frozenset({
     "==", "in", ">=", "<=", ">", "<", "chg>", "chg<", "chg>=", "chg<=",
 })
 _ALLOWED_AFFINITY = frozenset({"risk_on", "consumer", "risk_off"})
-_ALLOWED_EDGES = frozenset({"if", "then", "and", "but"})
+_ALLOWED_EDGES = frozenset({"if", "path", "alt", "then", "and", "but"})
 _STOP = frozenset({
     "있다", "하다", "되다", "이다", "및", "등", "위해", "대한", "관련", "오늘", "어제",
     "기자", "속보", "단독", "the", "and", "for", "with", "from",
@@ -80,8 +77,8 @@ _TEMPLATES: list[dict[str, Any]] = [
         "children": [
             {
                 "id": "ai_capex_then_growth",
-                "kind": "then",
-                "edge": "then",
+                "kind": "fork",
+                "edge": "path",
                 "label": "나스닥 상대강세 · VIX 진정",
                 "assumptions": ["성장·기술 선호가 유지되면 위험지표가 안정권을 지킨다"],
                 "conditions": [
@@ -92,7 +89,7 @@ _TEMPLATES: list[dict[str, Any]] = [
                     {
                         "id": "ai_capex_out_tech",
                         "kind": "outcome",
-                        "edge": "then",
+                        "edge": "path",
                         "label": "반도체·AI·전력 인프라 관심",
                         "assumptions": ["CAPEX 서사가 이어질 때 상대 주목 섹터"],
                         "sector_keys": ["semiconductor", "ai_datacenter", "power_nuclear"],
@@ -102,8 +99,8 @@ _TEMPLATES: list[dict[str, Any]] = [
             },
             {
                 "id": "ai_capex_but_vol",
-                "kind": "then",
-                "edge": "but",
+                "kind": "fork",
+                "edge": "alt",
                 "label": "VIX 급등 · 거시 비우호 동시",
                 "assumptions": ["성장 테마여도 변동성·거시 악화가 겹치면 숨고르기"],
                 "conditions": [
@@ -114,7 +111,7 @@ _TEMPLATES: list[dict[str, Any]] = [
                     {
                         "id": "ai_capex_out_pause",
                         "kind": "outcome",
-                        "edge": "then",
+                        "edge": "alt",
                         "label": "성장 테마 숨고르기 · 방어 상대",
                         "assumptions": ["테크 쏠림이 쉬어가고 방어·현금성이 상대 강세"],
                         "sector_keys": ["defense", "telecom", "finance"],
@@ -139,8 +136,8 @@ _TEMPLATES: list[dict[str, Any]] = [
         "children": [
             {
                 "id": "consumer_then_easing",
-                "kind": "then",
-                "edge": "then",
+                "kind": "fork",
+                "edge": "path",
                 "label": "CPI 안정 · 금리 부담 완화",
                 "assumptions": ["디스인플레·금리 방향이 소비에 우호적일 때"],
                 "conditions": [
@@ -151,7 +148,7 @@ _TEMPLATES: list[dict[str, Any]] = [
                     {
                         "id": "consumer_out_retail",
                         "kind": "outcome",
-                        "edge": "then",
+                        "edge": "path",
                         "label": "내수·소비재·유통 관심",
                         "assumptions": ["소비 회복 서사에 맞는 섹터 렌즈"],
                         "sector_keys": ["retail", "cosmetics", "telecom"],
@@ -161,8 +158,8 @@ _TEMPLATES: list[dict[str, Any]] = [
             },
             {
                 "id": "consumer_but_inflate",
-                "kind": "then",
-                "edge": "but",
+                "kind": "fork",
+                "edge": "alt",
                 "label": "물가 재가속",
                 "assumptions": ["물가가 다시 올라가면 소비 회복이 미뤄진다"],
                 "conditions": [
@@ -172,7 +169,7 @@ _TEMPLATES: list[dict[str, Any]] = [
                     {
                         "id": "consumer_out_delay",
                         "kind": "outcome",
-                        "edge": "then",
+                        "edge": "alt",
                         "label": "소비 회복 지연 · 관망",
                         "assumptions": ["내수 테마보다 물가·금리 확인이 우선"],
                         "sector_keys": ["finance", "telecom"],
@@ -197,8 +194,8 @@ _TEMPLATES: list[dict[str, Any]] = [
         "children": [
             {
                 "id": "risk_off_then_fear",
-                "kind": "then",
-                "edge": "then",
+                "kind": "fork",
+                "edge": "path",
                 "label": "VIX 상승 · 국면 약세/조정",
                 "assumptions": ["공포·조정 국면에서 위험회피가 우세"],
                 "conditions": [
@@ -209,7 +206,7 @@ _TEMPLATES: list[dict[str, Any]] = [
                     {
                         "id": "risk_off_out_def",
                         "kind": "outcome",
-                        "edge": "then",
+                        "edge": "path",
                         "label": "방어·에너지·배당 관심",
                         "assumptions": ["위험회피 시 상대 강세 섹터"],
                         "sector_keys": ["defense", "energy", "telecom"],
@@ -219,8 +216,8 @@ _TEMPLATES: list[dict[str, Any]] = [
             },
             {
                 "id": "risk_off_and_nasdaq",
-                "kind": "then",
-                "edge": "and",
+                "kind": "fork",
+                "edge": "alt",
                 "label": "나스닥 하락 동반",
                 "assumptions": ["위험자산 전반이 같이 빠지면 회피가 강화된다"],
                 "conditions": [
@@ -231,7 +228,7 @@ _TEMPLATES: list[dict[str, Any]] = [
                     {
                         "id": "risk_off_out_cash",
                         "kind": "outcome",
-                        "edge": "then",
+                        "edge": "alt",
                         "label": "위험자산 회피 강화",
                         "assumptions": ["성장·위험 테마보다 현금성·방어 우선"],
                         "sector_keys": ["defense", "finance", "energy"],
@@ -447,13 +444,13 @@ def _cond_ok(cond: dict, *, indicators, macro_bias, regime_name) -> bool | None:
     return None
 
 
-def _eval_status(conditions: list[dict], *, indicators, macro_bias, regime_name) -> tuple[str, dict]:
+def _condition_snapshot(conditions: list[dict], *, indicators, macro_bias, regime_name) -> dict:
+    """참고 지표의 현재값 스냅샷(해설용). 검증 상태 아님."""
     current: dict[str, Any] = {}
-    if not conditions:
-        return "n/a", current
-    results: list[bool | None] = []
-    for c in conditions:
+    for c in conditions or []:
         m = c.get("metric") or ""
+        if not m:
+            continue
         if m == "macro_bias":
             current[m] = macro_bias
         elif m == "regime":
@@ -462,18 +459,46 @@ def _eval_status(conditions: list[dict], *, indicators, macro_bias, regime_name)
             by = {i["key"]: i for i in (indicators or [])}
             ind = by.get(m) or {}
             current[m] = {"value": ind.get("value"), "change": ind.get("change")}
-        results.append(_cond_ok(c, indicators=indicators, macro_bias=macro_bias,
-                                regime_name=regime_name))
-    known = [r for r in results if r is not None]
-    if not known:
-        return "watching", current
-    if all(known) and None not in results:
-        return "aligned", current
-    if any(r is False for r in known):
-        if all(r is False for r in known):
-            return "diverging", current
-        return "watching", current
-    return "watching", current
+    return current
+
+
+def _fork_weight(conditions: list[dict], *, indicators, macro_bias, regime_name) -> float:
+    """쌍갈림 안 상대 무게. 조건이 지금 지표와 겹칠수록 높음(예측 확률 아님)."""
+    if not conditions:
+        return 0.5
+    scores: list[float] = []
+    for c in conditions:
+        ok = _cond_ok(c, indicators=indicators, macro_bias=macro_bias, regime_name=regime_name)
+        if ok is True:
+            scores.append(1.0)
+        elif ok is False:
+            scores.append(0.15)
+        else:
+            scores.append(0.5)
+    return sum(scores) / len(scores)
+
+
+def _assign_pair_weights(nodes: list[dict]) -> None:
+    """형제 fork 2개에 branch_pct(합 100)·emphasized 부여."""
+    forks = [n for n in nodes if n.get("kind") == "fork"]
+    if len(forks) < 2:
+        for n in forks:
+            n["branch_pct"] = 100
+            n["emphasized"] = True
+        return
+    # 항상 첫 두 갈래만 쌍으로 정규화
+    pair = forks[:2]
+    weights = {n["id"]: max(0.05, float(n.get("_w") or 0.5)) for n in pair}
+    pct = _normalize(weights)
+    top_id = max(pair, key=lambda n: pct[n["id"]])["id"]
+    for n in pair:
+        n["branch_pct"] = pct[n["id"]]
+        n["emphasized"] = n["id"] == top_id
+        n.pop("_w", None)
+    for n in forks[2:]:
+        n["branch_pct"] = 0
+        n["emphasized"] = False
+        n.pop("_w", None)
 
 
 def _slug(s: str, fallback: str) -> str:
@@ -539,16 +564,15 @@ def _coerce_affinity(val: Any) -> str:
 
 
 def _coerce_edge(val: Any) -> str:
-    s = str(val or "then").strip().lower()
-    if s in _ALLOWED_EDGES and s != "if":
+    """path|alt 로 정규화. 레거시 then/and/but 도 수용."""
+    s = str(val or "path").strip().lower()
+    if s in ("path", "alt"):
         return s
-    if s in ("그러면", "다음", "이어서"):
-        return "then"
-    if s in ("그런데", "하지만", "다만", "but"):
-        return "but"
-    if s in ("그리고", "동시에", "and"):
-        return "and"
-    return "then"
+    if s in ("then", "and", "그러면", "다음", "이어서", "그리고", "동시에"):
+        return "path"
+    if s in ("but", "alt", "그런데", "하지만", "다만", "반대", "다른"):
+        return "alt"
+    return "path"
 
 
 def _parse_llm_json(text: str | None) -> dict | None:
@@ -660,8 +684,81 @@ def _build_prompt_bundle() -> dict[str, Any]:
     }
 
 
+def _default_outcome(tid: str, edge: str, sector_keys: list[str], eq: str) -> dict:
+    return {
+        "id": f"{tid}_out", "kind": "outcome", "edge": edge,
+        "label": "관련 업종·지표 파급을 눈여겨볼 만함", "detail": "",
+        "assumptions": [], "sector_keys": sector_keys[:3],
+        "evidence_query": eq, "children": [],
+    }
+
+
+def _validate_fork_child(
+    th: dict, *, bid: str, j: int, edge: str, sector_keys: list[str], eq: str,
+) -> dict | None:
+    tlabel = str(th.get("label") or th.get("plain") or "").strip()[:48]
+    if not tlabel:
+        return None
+    tid = _slug(str(th.get("id") or ""), f"{bid}_fork_{j}")
+    tcond = _filter_conditions(th.get("conditions"))
+    outs: list[dict] = []
+    for k, oc in enumerate([c for c in (th.get("children") or []) if isinstance(c, dict)][:1]):
+        olabel = str(oc.get("label") or oc.get("plain") or "").strip()[:48]
+        if not olabel:
+            continue
+        oid = _slug(str(oc.get("id") or ""), f"{tid}_out_{k}")
+        osec = _filter_sectors(oc.get("sector_keys")) or sector_keys[:3]
+        outs.append({
+            "id": oid, "kind": "outcome", "edge": edge, "label": olabel,
+            "detail": str(oc.get("detail") or "").strip()[:240],
+            "assumptions": _as_str_list(oc.get("assumptions"), limit=3),
+            "sector_keys": osec,
+            "evidence_query": str(oc.get("evidence_query") or eq)[:120],
+            "children": [],
+        })
+    if not outs:
+        outs = [_default_outcome(tid, edge, sector_keys, eq)]
+    return {
+        "id": tid, "kind": "fork", "edge": edge, "label": tlabel,
+        "detail": str(th.get("detail") or "").strip()[:240],
+        "assumptions": _as_str_list(th.get("assumptions"), limit=3),
+        "conditions": tcond, "children": outs,
+    }
+
+
+def _ensure_fork_pair(
+    children: list[dict], *, bid: str, sector_keys: list[str], eq: str,
+) -> list[dict]:
+    """항상 path·alt 쌍. 한쪽만 있으면 반대 갈래를 보강."""
+    path = next((c for c in children if c.get("edge") == "path"), None)
+    alt = next((c for c in children if c.get("edge") == "alt"), None)
+    if path is None and children:
+        path = {**children[0], "edge": "path", "kind": "fork"}
+    if alt is None and len(children) >= 2:
+        alt = {**children[1], "edge": "alt", "kind": "fork"}
+    if path is None:
+        tid = f"{bid}_fork_path"
+        path = {
+            "id": tid, "kind": "fork", "edge": "path",
+            "label": "이 방향으로 이어질 때", "detail": "",
+            "assumptions": [], "conditions": [],
+            "children": [_default_outcome(tid, "path", sector_keys, eq)],
+        }
+    if alt is None:
+        tid = f"{bid}_fork_alt"
+        alt = {
+            "id": tid, "kind": "fork", "edge": "alt",
+            "label": "다른 방향으로 갈 때", "detail": "",
+            "assumptions": [], "conditions": [],
+            "children": [_default_outcome(tid, "alt", sector_keys, eq)],
+        }
+    if path["id"] == alt["id"]:
+        alt = {**alt, "id": f"{alt['id']}_alt"}
+    return [path, alt]
+
+
 def _validate_llm_branches(raw: dict | None) -> list[dict] | None:
-    """핫이슈 1~4개. LLM이 형식을 조금 어겨도 최대한 살린다."""
+    """이슈 1~4개. 각 이슈는 path/alt 쌍갈림 강제. 형식 어겨도 최대한 살림."""
     if not isinstance(raw, dict):
         return None
     branches = raw.get("branches") or raw.get("issues") or raw.get("ifs") or []
@@ -687,56 +784,21 @@ def _validate_llm_branches(raw: dict | None) -> list[dict] | None:
             sector_keys = ["finance", "telecom"]
         eq = str(b.get("evidence_query") or label)[:120]
         assumptions = _as_str_list(b.get("assumptions"), limit=4) or [label]
-        children_raw = [c for c in (b.get("children") or []) if isinstance(c, dict)][:2]
-        children: list[dict] = []
+        children_raw = [c for c in (b.get("children") or []) if isinstance(c, dict)][:4]
+        parsed: list[dict] = []
         for j, th in enumerate(children_raw):
-            tlabel = str(th.get("label") or th.get("plain") or "").strip()[:48]
-            if not tlabel:
-                continue
-            tid = _slug(str(th.get("id") or ""), f"{bid}_then_{j}")
             edge = _coerce_edge(th.get("edge"))
-            tcond = _filter_conditions(th.get("conditions"))
-            outs: list[dict] = []
-            for k, oc in enumerate([c for c in (th.get("children") or []) if isinstance(c, dict)][:1]):
-                olabel = str(oc.get("label") or oc.get("plain") or "").strip()[:48]
-                if not olabel:
-                    continue
-                oid = _slug(str(oc.get("id") or ""), f"{tid}_out_{k}")
-                osec = _filter_sectors(oc.get("sector_keys")) or sector_keys[:3]
-                outs.append({
-                    "id": oid, "kind": "outcome", "edge": "then", "label": olabel,
-                    "detail": str(oc.get("detail") or "").strip()[:240],
-                    "assumptions": _as_str_list(oc.get("assumptions"), limit=3),
-                    "sector_keys": osec,
-                    "evidence_query": str(oc.get("evidence_query") or eq)[:120],
-                    "children": [],
-                })
-            if not outs:
-                outs = [{
-                    "id": f"{tid}_out", "kind": "outcome", "edge": "then",
-                    "label": "관련 업종을 눈여겨볼 만함", "detail": "",
-                    "assumptions": [], "sector_keys": sector_keys[:3],
-                    "evidence_query": eq, "children": [],
-                }]
-            children.append({
-                "id": tid, "kind": "then", "edge": edge, "label": tlabel,
-                "detail": str(th.get("detail") or "").strip()[:240],
-                "assumptions": _as_str_list(th.get("assumptions"), limit=3),
-                "conditions": tcond, "children": outs,
-            })
-        if not children:
-            # then 없이도 이슈는 살림
-            children = [{
-                "id": f"{bid}_then_0", "kind": "then", "edge": "then",
-                "label": "관련 신호가 이어지면", "detail": "",
-                "assumptions": [], "conditions": [],
-                "children": [{
-                    "id": f"{bid}_out", "kind": "outcome", "edge": "then",
-                    "label": "관련 업종을 눈여겨볼 만함", "detail": "",
-                    "assumptions": [], "sector_keys": sector_keys[:3],
-                    "evidence_query": eq, "children": [],
-                }],
-            }]
+            # 첫 번째는 path, 둘 번째는 alt 우선 (edge 누락 시)
+            if j == 0 and "edge" not in th:
+                edge = "path"
+            elif j == 1 and "edge" not in th:
+                edge = "alt"
+            node = _validate_fork_child(
+                th, bid=bid, j=j, edge=edge, sector_keys=sector_keys, eq=eq,
+            )
+            if node:
+                parsed.append(node)
+        children = _ensure_fork_pair(parsed, bid=bid, sector_keys=sector_keys, eq=eq)
         out.append({
             "id": bid, "label": label, "detail": detail, "edge": "if",
             "assumptions": assumptions, "sector_keys": sector_keys,
@@ -758,8 +820,10 @@ def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
     prev = ", ".join(bundle["prev_labels"]) or "(없음)"
     points = "\n".join(f"- {p}" for p in bundle["macro_points"][:4]) or "(없음)"
     system = (
-        "시황 이슈 에디터. 투자권유·확률% 금지. "
-        "뉴스 기반 핫이슈 1~3개(배타 아님). 고정 템플릿 금지. "
+        "최근 이슈 흐름 에디터. 학습·시황 읽기용. 가설 검증·투자권유·확률예측 금지. "
+        "뉴스 핫이슈 1~3개. 각 이슈마다 파급 갈래를 항상 쌍(path+alt)으로. "
+        "path=이 방향일 때 지표·산업 영향, alt=다른 방향일 때. "
+        "각 갈래 끝에 outcome(관심 업종·사이드이펙트). "
         "label=쉬운 한국어 한 줄. detail에만 전문용어. "
         "유효한 JSON 객체만(코드펜스 금지)."
     )
@@ -773,13 +837,17 @@ def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
         f"metric: NASDAQCOM,VIXCLS,CPIAUCSL,FEDFUNDS,macro_bias,regime\n"
         "op: chg>,chg<,>=,<=,==,in\n"
         "affinity: risk_on|consumer|risk_off 문자열\n"
-        "edge: then|and|but\n"
-        "assumptions는 문자열 배열. 각 이슈 then 1개+outcome 1개.\n"
+        "edge: path|alt 만. 이슈마다 children 정확히 2개(path 1 + alt 1).\n"
+        "assumptions는 문자열 배열. 각 fork 아래 outcome 1개.\n"
         '{"branches":[{"label":"…","detail":"…","affinity":"risk_on","assumptions":["…"],'
         '"sector_keys":["semiconductor"],"evidence_query":"…",'
-        '"children":[{"label":"…","edge":"then","detail":"…","assumptions":[],'
+        '"children":[{"label":"…","edge":"path","detail":"…","assumptions":[],'
         '"conditions":[{"metric":"VIXCLS","op":"<","threshold":20,"label":"…"}],'
         '"children":[{"label":"…","detail":"…","sector_keys":["semiconductor"],'
+        '"evidence_query":"…"}]},'
+        '{"label":"…","edge":"alt","detail":"…","assumptions":[],'
+        '"conditions":[{"metric":"VIXCLS","op":">=","threshold":25,"label":"…"}],'
+        '"children":[{"label":"…","detail":"…","sector_keys":["defense"],'
         '"evidence_query":"…"}]}]}]}'
     )
     model = llm_mod.DIGEST_QUALITY_MODEL
@@ -809,10 +877,12 @@ def _build_child_node(
     regime_name,
     evidence_cache: dict[str, tuple[float, list]],
 ) -> dict:
-    kind = tmpl.get("kind") or "then"
+    raw_kind = tmpl.get("kind") or "fork"
+    # 레거시 then → fork
+    kind = "fork" if raw_kind in ("then", "fork") else raw_kind
     node_id = tmpl["id"]
     conditions = list(tmpl.get("conditions") or [])
-    status, current = _eval_status(
+    current = _condition_snapshot(
         conditions, indicators=indicators, macro_bias=macro_bias, regime_name=regime_name,
     )
     sector_keys = list(tmpl.get("sector_keys") or [])
@@ -822,8 +892,6 @@ def _build_child_node(
         if eq not in evidence_cache:
             evidence_cache[eq] = _evidence_for(eq)
         _, evidence = evidence_cache[eq]
-    if kind == "outcome" and not conditions:
-        status = "n/a"
     children = [
         _build_child_node(
             c, parent_id=node_id, indicators=indicators, macro_bias=macro_bias,
@@ -831,8 +899,10 @@ def _build_child_node(
         )
         for c in (tmpl.get("children") or [])
     ]
-    edge = tmpl.get("edge") or "then"
-    return {
+    edge = _coerce_edge(tmpl.get("edge")) if kind == "fork" else (tmpl.get("edge") or "path")
+    if kind == "outcome":
+        edge = _coerce_edge(tmpl.get("edge")) if tmpl.get("edge") else "path"
+    node = {
         "id": node_id,
         "parent_id": parent_id,
         "kind": kind,
@@ -841,10 +911,10 @@ def _build_child_node(
         "label": tmpl["label"],
         "detail": tmpl.get("detail") or "",
         "support_pct": None,
+        "branch_pct": None,
+        "emphasized": False,
         "assumptions": list(tmpl.get("assumptions") or []),
         "conditions": conditions,
-        "status": status,
-        "status_ko": _STATUS_KO.get(status, status),
         "current": current,
         "sector_keys": sector_keys,
         "sectors": _sector_nodes(sector_keys),
@@ -852,13 +922,11 @@ def _build_child_node(
         "evidence_n": len(evidence),
         "children": children,
     }
-
-
-def _inherit_outcome_status(node: dict) -> None:
-    for ch in node.get("children") or []:
-        if ch.get("kind") == "outcome" and ch.get("status") == "n/a":
-            ch["status"] = node.get("status") or "watching"
-        _inherit_outcome_status(ch)
+    if kind == "fork":
+        node["_w"] = _fork_weight(
+            conditions, indicators=indicators, macro_bias=macro_bias, regime_name=regime_name,
+        )
+    return node
 
 
 def build(*, templates: list[dict] | None = None, store_prices=None, store_macro=None,
@@ -913,8 +981,7 @@ def build(*, templates: list[dict] | None = None, store_prices=None, store_macro
             )
             for ch in (t.get("children") or [])
         ]
-        for ch in children:
-            _inherit_outcome_status(ch)
+        _assign_pair_weights(children)
 
         if_nodes.append({
             "id": t["id"],
@@ -927,8 +994,6 @@ def build(*, templates: list[dict] | None = None, store_prices=None, store_macro
             "support_pct": 0,
             "assumptions": t.get("assumptions") or [],
             "conditions": [],
-            "status": "n/a",
-            "status_ko": "",
             "current": {},
             "sector_keys": t.get("sector_keys") or [],
             "sectors": _sector_nodes(t.get("sector_keys") or []),
@@ -952,13 +1017,11 @@ def build(*, templates: list[dict] | None = None, store_prices=None, store_macro
         "parent_id": None,
         "kind": "root",
         "edge": None,
-        "label": "지금 볼 이슈",
-        "detail": "뉴스·KB 기준으로 뽑아 둔 거시 핫이슈와 이어질 수 있는 흐름",
+        "label": "최근 이슈 흐름",
+        "detail": "뉴스·KB에서 뽑은 관심 이슈와, 방향별 파급(산업·지표) 갈래",
         "support_pct": 100,
         "assumptions": [],
         "conditions": [],
-        "status": "n/a",
-        "status_ko": "",
         "current": {},
         "sectors": [],
         "evidence": [],
@@ -990,7 +1053,7 @@ def refresh() -> dict:
         prev = get(build_if_missing=False)
         return {
             "ready": False,
-            "reason": fail or "가설 생성에 실패했습니다.",
+            "reason": fail or "이슈 흐름 생성에 실패했습니다.",
             "model": model,
             "kept_previous": bool(prev.get("ready")),
         }
@@ -1001,19 +1064,16 @@ def refresh() -> dict:
 
 def get(*, build_if_missing: bool = False) -> dict:
     """캐시만. 자동 생성·LLM 호출 없음."""
-    cached = db.kv_get(_KV_KEY)
-    if isinstance(cached, dict) and cached.get("ready") and cached.get("tree"):
-        kids = (cached.get("tree") or {}).get("children") or []
-        if kids and kids[0].get("kind") == "if":
-            return cached
-    # 구 v2 캐시가 있으면 읽기만 허용(재생성 안 함)
-    legacy = db.kv_get("hypo:v2:latest")
-    if isinstance(legacy, dict) and legacy.get("ready") and legacy.get("tree"):
-        kids = (legacy.get("tree") or {}).get("children") or []
-        if kids and kids[0].get("kind") == "if":
-            return {**legacy, "source": legacy.get("source") or "legacy_v2"}
+    for key, src in ((_KV_KEY, None), ("hypo:v3:latest", "legacy_v3"), ("hypo:v2:latest", "legacy_v2")):
+        cached = db.kv_get(key)
+        if isinstance(cached, dict) and cached.get("ready") and cached.get("tree"):
+            kids = (cached.get("tree") or {}).get("children") or []
+            if kids and kids[0].get("kind") == "if":
+                if src:
+                    return {**cached, "source": cached.get("source") or src}
+                return cached
     # build_if_missing는 무시 — 자동 생성·LLM 금지(비용). 수동 refresh만 생성.
     return {
         "ready": False,
-        "reason": "시황 가설이 아직 없습니다. 관리자 새로고침으로 뉴스·KB 기반 가설을 생성하세요.",
+        "reason": "최근 이슈 흐름이 아직 없습니다. 관리자가 흐름을 생성하면 여기에 표시됩니다.",
     }

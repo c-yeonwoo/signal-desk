@@ -89,7 +89,7 @@ def _daily_kb_collect():
             _clear_us_signal_caches()
     except Exception as e:
         log.warning("US 재무 백필 실패: %s", type(e).__name__)
-    # 시황 가설은 관리자 수동 refresh만(Sonnet 비용). 일일 자동 호출 없음.
+    # 최근 이슈 흐름은 관리자 수동 refresh만(Sonnet 비용). 일일 자동 호출 없음.
     db.kv_set("kb_collect_date", _kst_today())
 
 
@@ -2031,13 +2031,13 @@ def kb_get(ticker: str):
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------
 @app.get("/api/hypothesis")
 def hypothesis_get():
-    """시황 가설 트리. 캐시만 — 없으면 ready:false. 자동 LLM/생성 없음."""
+    """최근 이슈 흐름 트리. 캐시만 — 없으면 ready:false. 자동 LLM/생성 없음."""
     return hypothesis.get(build_if_missing=False)
 
 
 @app.post("/api/hypothesis/refresh")
 def hypothesis_refresh(request: Request):
-    """시황 가설 수동 생성(Sonnet+룰) — 관리자 전용. 유일한 생성 경로."""
+    """최근 이슈 흐름 수동 생성(Sonnet+룰) — 관리자 전용. 유일한 생성 경로."""
     _admin_or_403(request)
     return hypothesis.refresh()
 
