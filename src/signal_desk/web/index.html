@@ -4355,7 +4355,7 @@ let _kbView = 'digest';
 function setKbView(v){
   _kbView = v;
   document.querySelectorAll('#kb-view-seg button').forEach(b => b.classList.toggle('on', b.dataset.kbview === v));
-  document.getElementById('kbdoc-filters').style.display = (v === 'docs') ? '' : 'none';
+  document.getElementById('kbdoc-filters').style.display = (v === 'docs' || v === 'events') ? '' : 'none';
   loadKbDocs();
 }
 function _kbFmtTs(ep){
@@ -4363,31 +4363,43 @@ function _kbFmtTs(ep){
   const dt = new Date(ep * 1000), p = (n) => String(n).padStart(2, '0');
   return `${dt.getFullYear()}-${p(dt.getMonth()+1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}`;
 }
+let _kbEventView = 'eligible';
 async function loadKbEvents(){
   const el = document.getElementById('kbdoc-body'), fEl = document.getElementById('kbdoc-filters');
-  fEl.innerHTML = '';
-  document.getElementById('kb-view-desc').innerHTML =
-    '구조화 <b>결정 이벤트</b>(DART 공시 등). Decision 입력용이며 <b>점수 가산 없음</b>. '
-    + 'eligible=의사결정 반영 · 근거 URL이 있는 confirmed만.';
+  const chip = (label, val) => `<button class="btn${_kbEventView === val ? ' primary' : ''}" style="padding:3px 10px;font-size:12px" onclick="_kbEventView='${val}';loadKbEvents()">${label}</button>`;
+  fEl.style.display = '';
+  fEl.innerHTML = chip('결정 적격', 'eligible') + chip('후보 / 검토용', 'candidate');
+  const isCand = _kbEventView === 'candidate';
+  document.getElementById('kb-view-desc').innerHTML = isCand
+    ? 'Sonnet이 비-DART 원문에서 추출한 <b>조사 후보</b>. <b>Decision·점수·매매에 반영되지 않음</b>. '
+      + 'confirmed 승격·Attention 연동은 P2.'
+    : '구조화 <b>결정 이벤트</b>(DART 공시 등). Decision 입력용이며 <b>점수 가산 없음</b>. '
+      + 'eligible=의사결정 반영 · 근거 URL이 있는 confirmed만.';
   try {
-    const d = await (await fetch('/api/kb/events?active=true')).json();
+    const d = await (await fetch('/api/kb/events?view=' + encodeURIComponent(_kbEventView))).json();
     const items = d.items || [];
     if (!items.length) {
       el.className = '';
-      el.innerHTML = '<div class="placeholder" style="padding:16px 0">활성 이벤트가 없습니다 — KB 뉴스 갱신 후 DART 공시가 쌓입니다.</div>';
+      el.innerHTML = isCand
+        ? '<div class="placeholder" style="padding:16px 0">후보 이벤트가 없습니다 — KB 갱신 시 신규 뉴스에서만 추출됩니다.</div>'
+        : '<div class="placeholder" style="padding:16px 0">활성 이벤트가 없습니다 — KB 뉴스 갱신 후 DART 공시가 쌓입니다.</div>';
       return;
     }
     const sevColor = { critical: 'var(--sig-sell)', serious: '#c2410c', watch: 'var(--dim)', info: 'var(--dim-2)' };
     const rows = items.map(ev => {
       const evd = (ev.evidence || [])[0];
+      const cite = evd && evd.evidence_text ? esc((evd.evidence_text || '').slice(0, 80)) : '';
       const link = evd && evd.url
         ? `<a href="${esc(evd.url)}" target="_blank" rel="noopener">${esc((ev.summary || '').slice(0, 72))}</a>`
         : esc((ev.summary || '').slice(0, 72));
+      const badge = isCand
+        ? `<div style="font-size:10px;color:var(--dim)">candidate · conf ${fmtNum(ev.confidence, 2)}</div>`
+        : `<div style="font-size:10px;color:var(--dim)">${ev.decision_eligible ? 'eligible' : '표시만'}</div>`;
       return `<tr style="vertical-align:top">
-        <td><span style="font-weight:700;color:${sevColor[ev.severity] || 'var(--dim)'}">${esc(ev.severity || '')}</span>
-          <div style="font-size:10px;color:var(--dim)">${ev.decision_eligible ? 'eligible' : '표시만'}</div></td>
+        <td><span style="font-weight:700;color:${sevColor[ev.severity] || 'var(--dim)'}">${esc(ev.severity || '')}</span>${badge}</td>
         <td>${esc(ev.ticker || '–')}<div style="font-size:11px;color:var(--dim)">${esc(ev.decision_action || 'none')} · ${esc(ev.trust_tier || '')}</div></td>
         <td style="white-space:normal">${link}
+          ${cite ? `<div style="font-size:11px;color:var(--dim);margin-top:2px">“${cite}”</div>` : ''}
           <div style="font-size:11px;color:var(--dim)">${esc(ev.event_type || '')} · ${_kbFmtTs(ev.detected_at)}</div></td>
       </tr>`;
     }).join('');

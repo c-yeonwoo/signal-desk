@@ -633,6 +633,22 @@ def kb_document_urls(source: str | None = None) -> set[str]:
     return {r[0] for r in rows}
 
 
+def kb_entry_urls_existing(urls: list[str]) -> set[str]:
+    """주어진 URL 중 이미 kb_entries에 있는 것만 반환 — refresh 증분·Sonnet 재호출 방지."""
+    clean = [u for u in urls if u]
+    if not clean:
+        return set()
+    c = conn()
+    found: set[str] = set()
+    for i in range(0, len(clean), 80):
+        chunk = clean[i:i + 80]
+        ph = ",".join("?" * len(chunk))
+        rows = c.execute(f"SELECT url FROM kb_entries WHERE url IN ({ph})", chunk).fetchall()
+        found.update(r[0] for r in rows)
+    c.close()
+    return found
+
+
 def kb_documents(ticker: str | None = None, doc_class: str | None = None, limit: int = 100) -> list[dict]:
     """문서 대시보드용 — 전체(또는 필터) 문서 목록(최신순)."""
     c = conn()
@@ -911,16 +927,28 @@ def kb_events_active(ticker: str | None = None, *, now: int | None = None,
     return [_evt_row(r) for r in rows]
 
 
-def kb_events_list(limit: int = 50, ticker: str | None = None) -> list[dict]:
+def kb_events_list(limit: int = 50, ticker: str | None = None,
+                   status: str | None = None) -> list[dict]:
     c = conn()
     q = f"SELECT {_EVT_COLS} FROM kb_events"
-    args: list = []
+    where, args = [], []
     if ticker:
-        q += " WHERE ticker=?"; args.append(ticker)
+        where.append("ticker=?"); args.append(ticker)
+    if status:
+        where.append("status=?"); args.append(status)
+    if where:
+        q += " WHERE " + " AND ".join(where)
     q += " ORDER BY updated DESC LIMIT ?"; args.append(limit)
     rows = c.execute(q, args).fetchall()
     c.close()
     return [_evt_row(r) for r in rows]
+
+
+def kb_event_exists(event_key: str) -> bool:
+    c = conn()
+    row = c.execute("SELECT 1 FROM kb_events WHERE event_key=?", (event_key,)).fetchone()
+    c.close()
+    return row is not None
 
 
 def kb_event_evidence(event_id: int) -> list[dict]:
