@@ -1081,15 +1081,21 @@
       <div id="accuracy-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
 
+    <div class="card" id="qual-promo-card" style="margin-top:16px">
+      <div style="font-weight:700;font-size:15px">정성 승격 관측 <span style="color:var(--dim);font-weight:600;font-size:12px">· P3 shadow</span></div>
+      <p class="page-desc" style="margin:8px 0 4px">확정 이벤트는 Decision veto · <b>정성 점수는 종합점수·매수 임계값·페이퍼 봇에 반영되지 않습니다</b>. 실측 IC·워크포워드 게이트를 보고 shadow 관측만 켭니다.</p>
+      <div id="qual-promo-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+    </div>
+
     <details class="card" id="engine-manual-details" style="margin-top:16px">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">수동 가중치·임계값 <span style="color:var(--dim);font-weight:600;font-size:12px">· 필요할 때만</span></summary>
-      <p class="page-desc" style="margin:10px 0 12px"><b>기본값을 권장합니다.</b> 평소엔 위 제안 승인으로 충분합니다. 값을 바꾸고 <b>적용</b>하면 즉시 반영되고, <b>기본값</b>으로 복원됩니다. 가중치는 상대 비율로 정규화 · KB 정성은 veto 전용.</p>
+      <p class="page-desc" style="margin:10px 0 12px"><b>기본값을 권장합니다.</b> 평소엔 위 제안 승인으로 충분합니다. 값을 바꾸고 <b>적용</b>하면 즉시 반영되고, <b>기본값</b>으로 복원됩니다. 가중치는 상대 비율로 정규화 · KB 정성은 veto/shadow(점수 미가산).</p>
       <details style="margin-bottom:14px">
         <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">계산 파이프라인 6단계 보기</summary>
         <div class="pipe" style="margin-top:10px">
           <div class="pipe-step"><div class="ps-n">1 · 수집</div><div class="ps-t">데이터</div><div class="ps-d">시세·재무(DART)·거시(FRED)·뉴스/영상(KB)</div></div>
           <span class="pipe-arrow">→</span>
-          <div class="pipe-step"><div class="ps-n">2 · 팩터</div><div class="ps-t">8팩터 점수화</div><div class="ps-d">기술·재무·저평가·낙폭·수급·퀄리티·모멘텀·공매도 ([-1,1] · KB는 veto)</div></div>
+          <div class="pipe-step"><div class="ps-n">2 · 팩터</div><div class="ps-t">8팩터 점수화</div><div class="ps-d">기술·재무·저평가·낙폭·수급·퀄리티·모멘텀·공매도 ([-1,1] · KB 정성은 shadow·이벤트는 veto)</div></div>
           <span class="pipe-arrow">→</span>
           <div class="pipe-step"><div class="ps-n">3 · 결합</div><div class="ps-t">가중 결합</div><div class="ps-d">가중평균(없는 팩터는 재정규화 제외) → 종합점수</div></div>
           <span class="pipe-arrow">→</span>
@@ -4637,7 +4643,7 @@ function switchAdminSeg(seg){
   document.getElementById('admin-shortform').style.display = seg === 'shortform' ? '' : 'none';
   const aw = document.getElementById('admin-watch');
   if (aw) aw.style.display = seg === 'watch' ? '' : 'none';
-  if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); loadAccuracy(); }   // 백테스트·수동가중은 접이식
+  if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); loadAccuracy(); loadQualPromo(); }   // 백테스트·수동가중은 접이식
   if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
   if (seg === 'shortform') { loadShortform(); loadSfBg(); }
   if (seg === 'watch') loadExternalWatch();
@@ -5181,7 +5187,64 @@ async function reviewBrainProposal(id, status){
 // 실측 성과(track record) — 실제 낸 시그널이 이후 수익률로 얼마나 맞았나. 매일 누적.
 const _ACC_KIND = { STRONG_BUY: '강력매수', BUY: '매수', SELL: '매도', STRONG_SELL: '강력매도' };
 const _ACC_FACTOR = { technical: '기술', fundamental: '기본', valuation: '밸류', reversion: '낙폭',
-  qualitative: 'KB veto', flow: '수급', quality: '퀄리티', momentum: '모멘텀', short: '공매도' };
+  qualitative: 'KB 정성', flow: '수급', quality: '퀄리티', momentum: '모멘텀', short: '공매도' };
+async function loadQualPromo(){
+  const el = document.getElementById('qual-promo-body');
+  if (!el) return;
+  try {
+    const d = await (await fetch('/api/engine/qualitative-promotion')).json();
+    const m = d.metrics || {};
+    const gates = m.gates || {};
+    const mode = (d.mode || 'off').toUpperCase();
+    const modeCls = d.mode === 'shadow' ? 'var(--sig-buy)' : 'var(--dim)';
+    const gateRow = (key, label) => {
+      const g = gates[key] || {};
+      const ok = !!g.pass;
+      return `<div style="font-size:12px;margin:3px 0">${ok ? '✓' : '✗'} <b>${label}</b>
+        <span style="color:var(--dim)">${ok ? '통과' : '미달'}${g.required != null ? ` · 필요 ${g.required}` : ''}${g.actual != null ? ` · 현재 ${g.actual}` : ''}${g.minimum != null ? ` · 최소 IC ${g.minimum}` : ''}</span></div>`;
+    };
+    const winRows = (m.windows || []).map(w => {
+      const ic = w.ic == null ? '–' : ((w.ic > 0 ? '+' : '') + fmtNum(w.ic, 3));
+      return `<tr><td>W${w.window}</td><td style="color:var(--dim)">${w.n}</td>
+        <td style="font-weight:700;color:${w.ic > 0 ? 'var(--sig-buy)' : (w.ic < 0 ? 'var(--sig-sell)' : 'var(--dim)')}">${ic}</td>
+        <td style="font-size:11px;color:var(--dim-2)">${esc(w.from || '')}${w.to ? '~' + esc(w.to) : ''}</td></tr>`;
+    }).join('') || '<tr><td colspan="4" style="color:var(--dim-2)">표본 없음</td></tr>';
+    const fmtEp = (ep) => {
+      if (!ep) return '–';
+      const dt = new Date(ep * 1000), p = (n) => String(n).padStart(2, '0');
+      return `${dt.getFullYear()}-${p(dt.getMonth()+1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}`;
+    };
+    const hist = (d.history || []).slice(0, 3).map(h =>
+      `<div style="font-size:11px;color:var(--dim);margin:2px 0">${fmtEp(h.ts)} · ${esc(h.before || '?')}→${esc(h.after || '?')} · ${esc(h.approved_by || '')}${h.note ? ' · ' + esc(h.note) : ''}</div>`
+    ).join('');
+    const nextMode = d.mode === 'shadow' ? 'off' : 'shadow';
+    const btnLabel = d.mode === 'shadow' ? '관측 중지' : 'Shadow 관측 시작';
+    el.className = '';
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="font-size:20px;font-weight:800;color:${modeCls}">${mode}</span>
+        <span style="font-size:12px;color:var(--dim)">${esc(d.disclaimer || '')}</span>
+        <button class="btn primary" style="padding:4px 12px;font-size:12px;margin-left:auto" onclick="setQualPromo('${nextMode}')">${btnLabel}</button>
+      </div>
+      <div style="font-size:13px;margin-bottom:6px">정성 IC <b>${m.overall_ic == null ? '–' : ((m.overall_ic > 0 ? '+' : '') + fmtNum(m.overall_ic, 3))}</b>
+        <span style="color:var(--dim)"> · 성숙 표본 ${m.sample_count || 0}건 · ${m.primary_horizon || 20}거래일</span>
+        ${m.eligible_for_priority_or_threshold ? ' <span style="color:var(--sig-buy);font-weight:700">· priority/threshold 승인 가능(미구현)</span>' : ''}</div>
+      ${gateRow('min_samples', '표본')}
+      ${gateRow('overall_ic', '전체 IC')}
+      ${gateRow('walk_forward', '워크포워드(4구간 IC>0)')}
+      <table class="dtable" style="margin-top:10px"><thead><tr><th>구간</th><th>표본</th><th>IC</th><th>기간</th></tr></thead><tbody>${winRows}</tbody></table>
+      ${hist ? `<div style="margin-top:10px;font-size:12px;font-weight:700">최근 승인</div>${hist}` : ''}`;
+  } catch (e) { el.className = ''; el.textContent = '불러오지 못했습니다.'; }
+}
+async function setQualPromo(mode){
+  const note = mode === 'shadow' ? 'shadow 관측 시작' : '관측 중지';
+  const r = await (await fetch('/api/engine/qualitative-promotion', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode, note }),
+  })).json();
+  if (r.detail || r.ok === false) { alert(r.detail || '저장 실패'); return; }
+  await loadQualPromo();
+}
 async function loadAccuracy(){
   const el = document.getElementById('accuracy-body');
   if (!el) return;

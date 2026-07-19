@@ -272,7 +272,8 @@ async def _auth_gate(request: Request, call_next):
 
 # 관리자만 접근 가능한 엔드포인트(정확 경로 매칭 — /api/kb/{ticker} 조회는 영향 없음)
 _ADMIN_PATHS = {
-    "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/backtest/analysis",
+    "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/engine/qualitative-promotion",
+    "/api/backtest/analysis",
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents", "/api/kb/digests",
     "/api/kb/events", "/api/kb/sources",
     "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube", "/api/kb/collect-rss",
@@ -1035,6 +1036,41 @@ def accuracy_get():
         return {"ready": False, "reason": "아직 저장된 시그널 이력이 없습니다(매일 마감 후 누적)."}
     rows = df.to_dict("records")
     return {"ready": True, **accuracy.realized_accuracy(rows, store.load_all_dated_closes())}
+
+
+def _qualitative_promotion_payload() -> dict:
+    df = store.load_signal_history()
+    closes = store.load_all_dated_closes()
+    metrics = accuracy.qualitative_promotion_metrics(
+        [] if df.empty else df.to_dict("records"), closes)
+    return signalcfg.qualitative_promotion_status(metrics)
+
+
+@app.get("/api/engine/qualitative-promotion")
+def qualitative_promotion_get(request: Request):
+    """P3 정성 shadow 관측 — 모드·실측 게이트. combine/봇 미반영."""
+    _admin_or_403(request)
+    return {"ready": True, **_qualitative_promotion_payload()}
+
+
+@app.post("/api/engine/qualitative-promotion")
+def qualitative_promotion_set(request: Request, data: dict = Body(...)):
+    """관리자 승인으로 off↔shadow. priority/threshold는 거절."""
+    _admin_or_403(request)
+    mode = str((data or {}).get("mode") or "").strip().lower()
+    note = str((data or {}).get("note") or "")
+    u = auth.current_user(request.cookies.get(auth.COOKIE))
+    approved_by = (u or {}).get("email") or ""
+    payload = _qualitative_promotion_payload()
+    try:
+        signalcfg.set_qualitative_mode(
+            mode, approved_by=approved_by, note=note,
+            gates_snapshot=payload.get("metrics", {}).get("gates"),
+        )
+    except ValueError as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"ok": True, **_qualitative_promotion_payload()}
 
 
 def _anchor_today_score(scores: list, ticker: str, market: str) -> list:

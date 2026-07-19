@@ -22,6 +22,12 @@ FACTOR_COLS = ("technical", "fundamental", "valuation", "reversion",
                "qualitative", "flow", "quality", "momentum")
 _MIN_IC_SAMPLES = 20  # 이보다 표본이 적으면 IC는 신뢰 불가 → None
 
+# P3 정성 승격 게이트(shadow 관측 → 향후 priority/threshold 승인용). combine()과 무관.
+PROMOTION_MIN_SAMPLES = 80
+PROMOTION_MIN_IC = 0.03
+PROMOTION_WINDOWS = 4
+PROMOTION_WINDOW_MIN = 20
+
 
 def _entry_index(dates: list[str], signal_date: str) -> int | None:
     """시그널일 '다음' 거래일 인덱스(진입가 근사, backtest와 동일 규약). 없으면 None."""
@@ -166,4 +172,90 @@ def realized_accuracy(
             "tickers_matched": len(tickers_seen),
             "matured_primary": matured_primary,      # primary horizon 성숙 표본 수
         },
+    }
+
+
+def _qualitative_pairs(
+    history_rows: list[dict],
+    closes_by_ticker: dict[str, tuple[list[str], list[float]]],
+    *,
+    primary: int = PRIMARY_HORIZON,
+) -> list[tuple[str, float, float]]:
+    """PIT 정성값 × primary horizon 실현수익 쌍. (date, qualitative, fwd_ret).
+    정성 None·미성숙은 제외. 미래 가격으로 정성을 재계산하지 않음."""
+    out: list[tuple[str, float, float]] = []
+    for r in history_rows:
+        q = r.get("qualitative")
+        if q is None:
+            continue
+        ticker = r.get("ticker")
+        sig_date = str(r.get("date"))
+        series = closes_by_ticker.get(ticker)
+        if not series:
+            continue
+        dates, closes = series
+        rets = _forward_returns(dates, closes, sig_date, (primary,))
+        if primary not in rets:
+            continue
+        out.append((sig_date, float(q), rets[primary]))
+    return out
+
+
+def qualitative_promotion_metrics(
+    history_rows: list[dict],
+    closes_by_ticker: dict[str, tuple[list[str], list[float]]],
+    *,
+    primary: int = PRIMARY_HORIZON,
+) -> dict:
+    """정성 팩터 shadow 승격용 실측·워크포워드 게이트.
+    combine()/점수/봇에 영향 없음 — 관측·승인 UI용."""
+    pairs = _qualitative_pairs(history_rows, closes_by_ticker, primary=primary)
+    n = len(pairs)
+    overall_ic = _spearman_ic([(q, ret) for _, q, ret in pairs])
+    overall_ic_r = round(overall_ic, 3) if overall_ic is not None else None
+
+    windows: list[dict] = []
+    sorted_pairs = sorted(pairs, key=lambda x: x[0])
+    if sorted_pairs:
+        chunk = max(1, n // PROMOTION_WINDOWS)
+        for i in range(PROMOTION_WINDOWS):
+            start = i * chunk
+            end = (i + 1) * chunk if i < PROMOTION_WINDOWS - 1 else n
+            wp = sorted_pairs[start:end]
+            w_ic = _spearman_ic([(q, ret) for _, q, ret in wp])
+            windows.append({
+                "window": i + 1,
+                "n": len(wp),
+                "from": wp[0][0] if wp else None,
+                "to": wp[-1][0] if wp else None,
+                "ic": round(w_ic, 3) if w_ic is not None else None,
+            })
+    else:
+        windows = [{"window": i + 1, "n": 0, "from": None, "to": None, "ic": None}
+                   for i in range(PROMOTION_WINDOWS)]
+
+    g_samples = n >= PROMOTION_MIN_SAMPLES
+    g_ic = overall_ic is not None and overall_ic >= PROMOTION_MIN_IC
+    g_wf = all(
+        w["n"] >= PROMOTION_WINDOW_MIN and w["ic"] is not None and w["ic"] > 0
+        for w in windows
+    )
+    gates = {
+        "min_samples": {"pass": g_samples, "required": PROMOTION_MIN_SAMPLES, "actual": n},
+        "overall_ic": {"pass": g_ic, "minimum": PROMOTION_MIN_IC, "actual": overall_ic_r},
+        "walk_forward": {
+            "pass": g_wf,
+            "required_positive_windows": PROMOTION_WINDOWS,
+            "window_min_n": PROMOTION_WINDOW_MIN,
+        },
+    }
+    eligible = g_samples and g_ic and g_wf
+    return {
+        "sample_count": n,
+        "overall_ic": overall_ic_r,
+        "primary_horizon": primary,
+        "windows": windows,
+        "gates": gates,
+        "eligible_for_priority_or_threshold": eligible,
+        "note": "정성 점수는 종합점수·매수 임계값·페이퍼 봇에 반영되지 않습니다(shadow 관측).",
     }
