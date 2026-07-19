@@ -111,6 +111,55 @@
   .mc-bad { color:var(--sig-sell); } .mc-good { color:var(--sig-buy); } .mc-flat { color:var(--dim); }
   .opp-badge { display:inline-block; margin-left:5px; padding:1px 7px; border-radius:var(--r-pill); font-size:10px;
     background:var(--accent-weak); color:var(--accent); font-weight:600; vertical-align:middle; }
+  .ext-badge { display:inline-block; margin-left:5px; padding:1px 7px; border-radius:var(--r-pill); font-size:10px;
+    background:#fff7ed; color:#c2410c; border:1px solid #fed7aa; font-weight:700; vertical-align:middle; letter-spacing:.01em; }
+  /* 외부 후보 조사 큐 — 관리자 */
+  .ew-hero { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:var(--r-lg);
+    background:
+      radial-gradient(900px 220px at 8% -20%, rgba(15,118,110,.12), transparent 55%),
+      linear-gradient(165deg, #0B1220 0%, #132033 48%, #0f1a2a 100%);
+    color:#F3F1EC; padding:22px 22px 18px; margin-bottom:14px; }
+  .ew-hero::after { content:""; position:absolute; right:-40px; top:-50px; width:220px; height:220px;
+    border-radius:50%; background:rgba(11,143,90,.14); pointer-events:none; }
+  .ew-kicker { font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    color:rgba(243,241,236,.55); margin:0 0 6px; }
+  .ew-title { font-size:22px; font-weight:750; letter-spacing:-.02em; margin:0 0 6px; position:relative; }
+  .ew-lead { margin:0; font-size:13px; line-height:1.55; color:rgba(243,241,236,.72); max-width:52ch; position:relative; }
+  .ew-flow { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; position:relative; }
+  .ew-step { display:flex; align-items:center; gap:8px; padding:7px 11px; border-radius:999px;
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); font-size:12px; font-weight:600; }
+  .ew-step .n { width:18px; height:18px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+    background:#0B8F5A; color:#fff; font-size:10px; font-weight:800; }
+  .ew-step.muted { opacity:.55; }
+  .ew-disc { margin:0 0 14px; padding:10px 12px; border-radius:var(--r-md); border:1px solid #fed7aa;
+    background:#fff7ed; color:#9a3412; font-size:12.5px; line-height:1.5; }
+  .ew-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin-bottom:14px; }
+  .ew-stat { background:var(--bg); border:1px solid var(--line); border-radius:var(--r-md); padding:12px 14px; }
+  .ew-stat .lab { font-size:11px; color:var(--dim); font-weight:600; }
+  .ew-stat .val { font-size:22px; font-weight:750; letter-spacing:-.02em; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .ew-composer { background:var(--bg); border:1px solid var(--line); border-radius:var(--r-lg); padding:14px; margin-bottom:14px; }
+  .ew-src { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 10px; }
+  .ew-src button { border:1px solid var(--line-strong); background:var(--panel); color:var(--dim);
+    border-radius:var(--r-pill); padding:5px 12px; font-size:12px; font-weight:650; cursor:pointer; }
+  .ew-src button.on { background:var(--txt); color:#fff; border-color:var(--txt); }
+  .ew-grid { display:grid; grid-template-columns:1.4fr .9fr; gap:10px; }
+  @media (max-width:900px){ .ew-grid, .ew-stats { grid-template-columns:1fr; } }
+  .ew-list { display:flex; flex-direction:column; gap:8px; }
+  .ew-card { display:grid; grid-template-columns:1fr auto; gap:8px 12px; align-items:start;
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--r-md); padding:12px 14px;
+    transition:border-color .12s, box-shadow .12s; }
+  .ew-card:hover { border-color:var(--line-strong); box-shadow:var(--shadow-sm); }
+  .ew-card .nm { font-weight:700; font-size:14px; }
+  .ew-card .meta { font-size:12px; color:var(--dim); margin-top:2px; }
+  .ew-card .note { font-size:12.5px; color:var(--txt); margin-top:6px; line-height:1.45; }
+  .ew-pill { display:inline-block; padding:2px 8px; border-radius:var(--r-pill); font-size:10px; font-weight:700; }
+  .ew-pill.serenity { background:var(--accent-weak); color:var(--accent); }
+  .ew-pill.x { background:#0B1220; color:#F3F1EC; }
+  .ew-pill.manual { background:var(--bg); color:var(--dim); border:1px solid var(--line); }
+  .ew-pill.other { background:#fff7ed; color:#c2410c; }
+  .ew-pill.kb-ok { background:#ecfdf5; color:#047857; }
+  .ew-pill.kb-wait { background:var(--bg); color:var(--dim-2); border:1px solid var(--line); }
+  .ew-actions { display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
   .foot-link { color:var(--accent); cursor:pointer; }
   .foot-link:hover { text-decoration:underline; }
   footer .foot-disc { flex-basis:100%; font-size:11px; color:var(--dim); line-height:1.6; }
@@ -628,6 +677,7 @@
         <div class="sig-quickfilters">
           <button type="button" id="qf-favonly" class="qchip" onclick="quickFilter('screen-favonly', this)">★ 관심종목만</button>
           <button type="button" id="qf-buyonly" class="qchip" onclick="quickFilter('screen-buyonly', this)">매수 시그널만</button>
+          <button type="button" id="qf-extwatch" class="qchip" onclick="toggleExtWatchFilter()">조사 후보</button>
         </div>
         <details id="sig-screener" style="margin:0 10px 8px">
           <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">필터·스크리너 <span id="screen-count" style="color:var(--dim);font-weight:400"></span></summary>
@@ -1001,6 +1051,7 @@
     </div>
     <div class="seg-toggle" id="admin-seg" style="margin-bottom:16px">
       <button class="on" data-aseg="kb" onclick="switchAdminSeg('kb')">KB 문서</button>
+      <button data-aseg="watch" onclick="switchAdminSeg('watch')">외부 후보</button>
       <button data-aseg="shortform" onclick="switchAdminSeg('shortform')">숏폼</button>
       <button data-aseg="engine" onclick="switchAdminSeg('engine')">엔진·두뇌 <span id="admin-engine-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:10px;font-weight:700"></span></button>
     </div>
@@ -1194,6 +1245,60 @@
       <div id="sf-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
     </div><!-- /#admin-shortform -->
+
+    <div id="admin-watch" style="display:none">
+      <div class="ew-hero">
+        <p class="ew-kicker">Investigation queue</p>
+        <h2 class="ew-title">외부 후보</h2>
+        <p class="ew-lead">Serenity·X·직접 붙여넣기 등 외부 언급을 <b>조사 대기열</b>로만 둡니다.
+          엔진 점수·매수 권유에 섞지 않고, KB를 먼저 모은 뒤 우리 시그널로 판정합니다.</p>
+        <div class="ew-flow">
+          <div class="ew-step"><span class="n">1</span>외부 추천 수집</div>
+          <div class="ew-step"><span class="n">2</span>KB 우선 적재</div>
+          <div class="ew-step"><span class="n">3</span>우리 점수·정성</div>
+          <div class="ew-step muted"><span class="n">≠</span>시그널 가산 없음</div>
+        </div>
+      </div>
+      <p class="ew-disc" id="ew-disclaimer">외부 후보는 조사 대상일 뿐입니다. 시그널·매수 권유가 아니며 엔진 점수에 가산되지 않습니다.</p>
+      <div class="ew-stats">
+        <div class="ew-stat"><div class="lab">대기열</div><div class="val" id="ew-total">–</div></div>
+        <div class="ew-stat"><div class="lab">KB 수집됨</div><div class="val" id="ew-with-kb">–</div></div>
+        <div class="ew-stat"><div class="lab">미수집</div><div class="val" id="ew-pending">–</div></div>
+      </div>
+      <div class="ew-composer">
+        <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <b style="font-size:14px">후보 추가</b>
+          <span class="stat-label" style="margin:0" id="ew-add-result"></span>
+        </div>
+        <div class="ew-src" id="ew-src">
+          <button type="button" class="on" data-src="serenity" onclick="setEwSource('serenity')">Serenity</button>
+          <button type="button" data-src="x" onclick="setEwSource('x')">X</button>
+          <button type="button" data-src="manual" onclick="setEwSource('manual')">직접</button>
+          <button type="button" data-src="other" onclick="setEwSource('other')">기타</button>
+        </div>
+        <div class="ew-grid">
+          <div>
+            <textarea id="ew_text" class="ctrl" placeholder="한 줄에 하나 — 005930 / 삼성전자 / AAPL / NVDA&#10;또는: 005930 삼성전자" style="width:100%;min-height:120px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px"></textarea>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <input id="ew_note" class="ctrl" placeholder="관심 사유(선택) — 길면 Haiku가 한 줄로 정리" style="width:100%">
+            <input id="ew_url" class="ctrl" type="url" placeholder="출처 URL(선택)" style="width:100%">
+            <label class="cb" style="font-size:12px;color:var(--dim)"><input type="checkbox" id="ew_polish" checked> 사유 한 줄 정리(Haiku)</label>
+            <div class="row" style="gap:6px;margin-top:auto;flex-wrap:wrap">
+              <button class="btn primary" onclick="addExternalWatch()">대기열에 넣기</button>
+              <button class="btn" onclick="refreshExternalWatchKb()" id="ew-kb-btn">KB 우선 수집</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:0;padding:14px">
+        <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:10px">
+          <b style="font-size:14px">조사 대기열</b>
+          <button class="btn" style="padding:4px 10px;font-size:12px" onclick="clearExternalWatch()">전체 비우기</button>
+        </div>
+        <div id="ew-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+      </div>
+    </div><!-- /#admin-watch -->
   </div><!-- /view-admin -->
 </main>
 
@@ -1390,7 +1495,7 @@ function switchTab(t){
   if (!_SEGS[t] && location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
 }
 
-const _SEGS = { trading: ['bot', 'rebal', 'dividend'], cycle: ['cycle', 'vc', 'hypo', 'learn', 'guru', 'etf'], admin: ['kb', 'shortform', 'engine'] };
+const _SEGS = { trading: ['bot', 'rebal', 'dividend'], cycle: ['cycle', 'vc', 'hypo', 'learn', 'guru', 'etf'], admin: ['kb', 'watch', 'shortform', 'engine'] };
 function routeFromHash(){
   const parts = decodeURIComponent(location.hash.slice(1)).split('/');
   const tab = parts[0], seg = parts[1], extra = parts[2];
@@ -2229,11 +2334,19 @@ function readScreen(){
     buyOnly: !!(document.getElementById('screen-buyonly') || {}).checked,
     noEvent: !!(document.getElementById('screen-noevent') || {}).checked,
     favOnly: !!(document.getElementById('screen-favonly') || {}).checked,
+    extWatch: !!_extWatchOnly,
   };
+}
+let _extWatchOnly = false;
+function toggleExtWatchFilter(){
+  _extWatchOnly = !_extWatchOnly;
+  const chip = document.getElementById('qf-extwatch');
+  if (chip) chip.classList.toggle('on', _extWatchOnly);
+  renderSignalList();
 }
 function screenActive(s){
   return !!_screenGuru || s.minScore != null || s.maxPer != null || s.maxPbr != null || s.minRoe != null || s.minYield != null
-    || s.minCapEok != null || (s.factor && s.factorMin != null) || !!s.sector || s.buyOnly || s.noEvent || s.favOnly;
+    || s.minCapEok != null || (s.factor && s.factorMin != null) || !!s.sector || s.buyOnly || s.noEvent || s.favOnly || s.extWatch;
 }
 function screenPass(r, s){
   if (_screenGuru && !_guruTickers.has(r.ticker)) return false;   // 전략 프리셋: 서버 매칭 집합으로 제한
@@ -2248,6 +2361,7 @@ function screenPass(r, s){
   if (s.buyOnly && !_isBuy(r.kind)) return false;
   if (s.noEvent && r.event_risk) return false;
   if (s.favOnly && !_favorites.has(r.ticker)) return false;
+  if (s.extWatch && !r.external_watch) return false;
   return true;
 }
 function updateScreenUI(s, matched){
@@ -2266,6 +2380,8 @@ function clearScreenInputs(){
   ['screen-factor', 'screen-sector'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   ['screen-buyonly', 'screen-noevent', 'screen-favonly'].forEach(id => { const el = document.getElementById(id); if (el) el.checked = false; });
   _screenGuru = null; _guruTickers = new Set(); _oppFilter = null;
+  _extWatchOnly = false;
+  const qf = document.getElementById('qf-extwatch'); if (qf) qf.classList.remove('on');
 }
 function resetScreen(){
   clearScreenInputs();
@@ -2432,7 +2548,8 @@ function renderSignalList(){
     : (r.score > 0 ? '+' : '') + fmtNum(r.score, 2);
   const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
   const badges = (r) => (r.opp_tags || []).map(t =>
-    `<span class="opp-badge">${t}</span>`).join('');
+    `<span class="opp-badge">${t}</span>`).join('')
+    + (r.external_watch ? '<span class="ext-badge" title="외부 조사 후보 · 점수 가산 없음">조사</span>' : '');
   const body = rows.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}">
       <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div></td>
@@ -4427,10 +4544,121 @@ function switchAdminSeg(seg){
   document.getElementById('admin-engine').style.display = seg === 'engine' ? '' : 'none';
   document.getElementById('admin-kb').style.display = seg === 'kb' ? '' : 'none';
   document.getElementById('admin-shortform').style.display = seg === 'shortform' ? '' : 'none';
+  const aw = document.getElementById('admin-watch');
+  if (aw) aw.style.display = seg === 'watch' ? '' : 'none';
   if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); loadAccuracy(); }   // 백테스트·수동가중은 접이식
   if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
   if (seg === 'shortform') { loadShortform(); loadSfBg(); }
+  if (seg === 'watch') loadExternalWatch();
   history.replaceState(null, '', '#admin/' + seg);   // 새로고침 시 서브탭 유지
+}
+
+// ===== 외부 후보 조사 큐(관리자) — 점수 가산 없음 · KB 우선 =====
+let _ewSource = 'serenity';
+const _EW_SRC_LABEL = { serenity: 'Serenity', x: 'X', manual: '직접', other: '기타' };
+function setEwSource(src){
+  _ewSource = src;
+  document.querySelectorAll('#ew-src button').forEach(b => b.classList.toggle('on', b.dataset.src === src));
+}
+async function loadExternalWatch(){
+  const body = document.getElementById('ew-body');
+  if (!body) return;
+  try {
+    const d = await (await fetch('/api/external-watch')).json();
+    if (d.error) { body.textContent = d.error; return; }
+    const disc = document.getElementById('ew-disclaimer');
+    if (disc && d.disclaimer) disc.textContent = d.disclaimer;
+    const total = d.total || 0, withKb = d.with_kb || 0;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set('ew-total', total);
+    set('ew-with-kb', withKb);
+    set('ew-pending', Math.max(0, total - withKb));
+    const items = d.items || [];
+    if (!items.length) {
+      body.innerHTML = '<div class="placeholder" style="padding:20px 0">대기열이 비어 있습니다. 위에서 티커를 붙여넣으세요.</div>';
+      return;
+    }
+    body.className = 'ew-list';
+    body.innerHTML = items.map(it => {
+      const src = it.source || 'other';
+      const kb = it.kb_collected_at
+        ? `<span class="ew-pill kb-ok">KB ${esc(it.kb_collected_at)}</span>`
+        : `<span class="ew-pill kb-wait">KB 대기</span>`;
+      const note = it.note ? `<div class="note">${esc(it.note)}</div>` : '';
+      const url = it.url ? ` · <a href="${esc(it.url)}" target="_blank" rel="noopener" style="color:var(--accent)">출처</a>` : '';
+      return `<div class="ew-card">
+        <div>
+          <div class="nm">${esc(it.name || it.ticker)}
+            <span class="ew-pill ${esc(src)}" style="margin-left:6px">${esc(_EW_SRC_LABEL[src] || src)}</span>
+            ${kb}
+          </div>
+          <div class="meta">${esc(it.ticker)} · ${esc(it.market || '–')} · 추가 ${esc(it.added_at || '–')}${url}</div>
+          ${note}
+        </div>
+        <div class="ew-actions">
+          <button class="btn" style="padding:4px 10px;font-size:12px" onclick="removeExternalWatch('${esc(it.ticker)}')">제거</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch (e) {
+    body.textContent = '불러오기 실패';
+  }
+}
+async function addExternalWatch(){
+  const res = document.getElementById('ew-add-result');
+  const text = (document.getElementById('ew_text') || {}).value || '';
+  if (!text.trim()) { if (res) res.textContent = '티커를 입력하세요'; return; }
+  if (res) res.textContent = '추가 중…';
+  try {
+    const d = await (await fetch('/api/external-watch', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        text,
+        source: _ewSource,
+        note: (document.getElementById('ew_note') || {}).value || '',
+        url: (document.getElementById('ew_url') || {}).value || '',
+        polish: !!(document.getElementById('ew_polish') || {}).checked,
+      }),
+    })).json();
+    if (!d.ok) { if (res) res.textContent = d.error || '실패'; return; }
+    const parts = [];
+    if (d.added?.length) parts.push(`+${d.added.length}`);
+    if (d.updated?.length) parts.push(`갱신 ${d.updated.length}`);
+    if (d.unresolved?.length) parts.push(`미인식 ${d.unresolved.length}`);
+    if (res) res.textContent = parts.join(' · ') || '완료';
+    if (d.added?.length || d.updated?.length) {
+      document.getElementById('ew_text').value = '';
+      if (d.unresolved?.length) document.getElementById('ew_text').value = d.unresolved.join('\n');
+    }
+    loadExternalWatch();
+  } catch (e) { if (res) res.textContent = '요청 실패'; }
+}
+async function removeExternalWatch(ticker){
+  try {
+    await fetch('/api/external-watch/' + encodeURIComponent(ticker), { method: 'DELETE' });
+    loadExternalWatch();
+  } catch (e) {}
+}
+async function clearExternalWatch(){
+  if (!confirm('외부 후보 대기열을 모두 비울까요?')) return;
+  try {
+    await fetch('/api/external-watch/clear', { method: 'POST' });
+    loadExternalWatch();
+  } catch (e) {}
+}
+async function refreshExternalWatchKb(){
+  const btn = document.getElementById('ew-kb-btn');
+  const res = document.getElementById('ew-add-result');
+  if (btn) { btn.disabled = true; btn.textContent = '수집 중…'; }
+  if (res) res.textContent = 'KB 우선 수집 중…';
+  try {
+    const d = await (await fetch('/api/external-watch/refresh-kb', { method: 'POST' })).json();
+    if (res) res.textContent = d.ok
+      ? `KB 갱신 완료 · 대상 ${d.targets || 0}`
+      : (d.reason || d.error || '실패');
+    loadExternalWatch();
+  } catch (e) { if (res) res.textContent = 'KB 수집 실패'; }
+  finally { if (btn) { btn.disabled = false; btn.textContent = 'KB 우선 수집'; } }
 }
 
 // ===== 숏폼 콘텐츠(관리자) — 생성 → 검수 큐 → 승인/반려 =====

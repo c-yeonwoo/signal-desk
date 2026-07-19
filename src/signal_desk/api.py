@@ -280,6 +280,7 @@ _ADMIN_PATHS = {
     "/api/brain/proposals", "/api/brain/proposals/refresh", "/api/engine/config/history",
     "/api/data-health", "/api/egress-ip",
     "/api/hypothesis/refresh",
+    "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
 }
 
 
@@ -769,6 +770,22 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     return d
 
 
+def _annotate_external_watch(items: list[dict]) -> list[dict]:
+    """조사 큐 소속 여부 — 점수 가산 없음, UI 뱃지/필터용."""
+    try:
+        from signal_desk import external_watch
+        watch = external_watch.ticker_set()
+    except Exception:
+        watch = set()
+    if not watch:
+        for it in items:
+            it["external_watch"] = False
+        return items
+    for it in items:
+        it["external_watch"] = it.get("ticker") in watch
+    return items
+
+
 @app.get("/api/signals")
 def signals_get(market: str = "kospi"):
     """시그널 리스트(요약). 상세 필드(about/moves/target/reasons/narrative/kb)는
@@ -777,7 +794,7 @@ def signals_get(market: str = "kospi"):
         items = _us_signal_items()
         if not items:
             return {"ready": False, "items": [], "message": "미국 종목 시세가 아직 없습니다 — 백필 후 표시됩니다."}
-        return {"ready": True, "items": items, "slim": True}
+        return {"ready": True, "items": _annotate_external_watch(items), "slim": True}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
@@ -794,7 +811,7 @@ def signals_get(market: str = "kospi"):
             vol=q.get("vol"), vol_avg=q.get("vol_avg"),
             per=f.get("per"), pbr=f.get("pbr"), roe=f.get("roe"),
             div_yield=round(dps / px * 100, 2) if (dps and px) else None))
-    return {"ready": True, "items": items, "slim": True}
+    return {"ready": True, "items": _annotate_external_watch(items), "slim": True}
 
 
 @app.get("/api/signals/{ticker}/detail")
@@ -1528,9 +1545,12 @@ def bot_decisions_get():
 
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
 def _kb_targets(limit_candidates: int = 12, lead_limit: int = 10) -> list[dict]:
-    """KB 갱신 대상 — ①확정 국면 lead 섹터 ②VIX soft 보강 ③BUY ④보유 ⑤관심.
-    전 종목 아님. lead는 밸류체인 국내 대표 티커(히스테리시스된 사이클)."""
+    """KB 갱신 대상 — ⓪외부 후보 ①lead ②VIX soft ③BUY ④보유 ⑤관심.
+    전 종목 아님. 외부 후보는 조사 큐 우선(점수 가산 없음)."""
+    from signal_desk import external_watch
     names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    for u in store.load_us_universe() or []:
+        names.setdefault(u["ticker"], us_ko.name_ko(u["ticker"], u.get("name") or u["ticker"]))
     targets, seen = [], set()
 
     def add(ticker, name=None):
@@ -1543,12 +1563,18 @@ def _kb_targets(limit_candidates: int = 12, lead_limit: int = 10) -> list[dict]:
             targets.append({"ticker": ticker, "name": name})
             seen.add(ticker)
 
-    # ① 확정 국면 주도 섹터(우선)
+    # ⓪ 외부 후보 워치리스트 (Serenity 등) — 맨 앞
+    try:
+        for row in external_watch.kb_priority_targets():
+            add(row["ticker"], row.get("name"))
+    except Exception as e:
+        log.warning("KB 외부후보 타깃 실패: %s", type(e).__name__)
+
+    # ① 확정 국면 주도 섹터
     try:
         pos = cycle.position(store.load_macro())
         for row in valuechain.tickers_for_lead_tags(pos.get("lead_sectors") or [], limit=lead_limit):
             add(row["ticker"], row.get("name"))
-        # ② VIX 공포/안도 soft — 확정 국면과 다른 힌트 국면의 소량 보강
         risk = cycle.risk_sentiment(store.load_macro())
         hint = risk.get("kb_hint_phase_key")
         if hint and hint != pos.get("phase_key"):
@@ -1575,10 +1601,18 @@ def _kb_targets(limit_candidates: int = 12, lead_limit: int = 10) -> list[dict]:
 @app.post("/api/kb/refresh")
 def kb_refresh():
     """뉴스·영상 수집 → LLM 다이제스트 → KB 적재(대상: 보유+상위 BUY 후보). 시그널 캐시 무효화."""
+    from signal_desk import external_watch
     targets = _kb_targets()
     if not targets:
         return {"ok": False, "reason": "대상 종목 없음 — /api/refresh로 유니버스 먼저 수집"}
     out = kb.refresh(targets)
+    try:
+        ext = external_watch.ticker_set()
+        hit = [t["ticker"] for t in targets if t.get("ticker") in ext]
+        if hit:
+            external_watch.mark_kb_collected(hit)
+    except Exception as e:
+        log.warning("external_watch KB 마킹 실패: %s", type(e).__name__)
     _signals.cache_clear()  # 정성 팩터 반영 위해
     return {"ok": True, **out, "targets": len(targets)}
 
@@ -1869,6 +1903,49 @@ def hypothesis_refresh(request: Request):
     """시황 가설 수동 생성(Haiku+룰) — 관리자 전용. 유일한 생성 경로."""
     _admin_or_403(request)
     return hypothesis.refresh()
+
+
+@app.get("/api/external-watch")
+def external_watch_get(request: Request):
+    """외부 후보 조사 큐 — 관리자. 시그널 점수 가산 없음."""
+    _admin_or_403(request)
+    from signal_desk import external_watch
+    return external_watch.status()
+
+
+@app.post("/api/external-watch")
+def external_watch_add(request: Request, data: dict = Body(default={})):
+    """외부 후보 일괄 추가. body: {text|lines, source, note, url, polish?}."""
+    _admin_or_403(request)
+    from signal_desk import external_watch
+    raw = data.get("text") or data.get("lines") or ""
+    note = (data.get("note") or "").strip()
+    if data.get("polish") and note:
+        note = external_watch.maybe_polish_note(note)
+    return external_watch.add_items(
+        raw, source=str(data.get("source") or "manual"),
+        note=note, url=str(data.get("url") or ""))
+
+
+@app.delete("/api/external-watch/{ticker}")
+def external_watch_remove(request: Request, ticker: str):
+    _admin_or_403(request)
+    from signal_desk import external_watch
+    return external_watch.remove(ticker)
+
+
+@app.post("/api/external-watch/clear")
+def external_watch_clear(request: Request):
+    _admin_or_403(request)
+    from signal_desk import external_watch
+    return external_watch.clear()
+
+
+@app.post("/api/external-watch/refresh-kb")
+def external_watch_refresh_kb(request: Request):
+    """외부 후보 우선으로 KB 뉴스 갱신(관리자). 일반 /api/kb/refresh와 동일 파이프라인."""
+    _admin_or_403(request)
+    return kb_refresh()
 
 
 @app.get("/api/cycle")
