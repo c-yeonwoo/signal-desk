@@ -2650,26 +2650,6 @@ function updatePrecisionStrip(){
     + (_precisionBucket ? `<button type="button" class="btn" onclick="filterPrecisionBucket('${_precisionBucket}')">필터 해제</button>` : '')
     + `</div>`;
 }
-function gotoPaperFromSignal(){
-  switchTab('trading');
-  switchTradingSeg('bot');
-  const note = document.getElementById('bot-plan');
-  if (note) {
-    note.style.display = '';
-    const name = (_selectedTicker && _signalItems[_selectedTicker])
-      ? _signalItems[_selectedTicker].name : (_selectedTicker || '');
-    note.innerHTML = `<b>다음에 할 일</b>`
-      + `<ol style="margin:6px 0 0;padding-left:18px;color:var(--txt)">`
-      + `<li>아래 <b>켜기</b>를 누릅니다 (봇 ON).</li>`
-      + `<li>봇이 시그널 탭의 매수권·매도권을 보고 <b>가상 돈</b>으로 사고팝니다.</li>`
-      + `<li>위 현금·손익은 연습용 가짜 장부입니다. 실제 주문은 나가지 않아요.</li>`
-      + `</ol>`
-      + (name ? `<div style="margin-top:6px;color:var(--dim)">방금 보던 종목: ${esc(name)} <span style="color:var(--dim-2)">· 이 종목만 사는 버튼은 아닙니다</span></div>` : '')
-      + `<div style="margin-top:4px;font-size:11px;color:var(--dim-2)">투자 권유 아님 · 성적 연습·학습용</div>`;
-    note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }
-}
-
 // '점수는 높은데 왜 관망?' 설명 — 추세 게이트 또는 국면 상향된 매수 기준 미달을 짚어 준다.
 function whyHoldNote(item){
   if (!item || item.kind !== 'HOLD') return '';
@@ -2892,10 +2872,6 @@ function _paintSignalDetail(ticker, item){
         ${(item.kind === 'BUY' || item.kind === 'STRONG_BUY')
           ? `<div style="font-size:11px;color:var(--dim-2);margin-top:6px">중기(~2–3개월) 관점 — 추세 지속에 베팅하는 신호라 단기 등락보다 몇 주~몇 달 흐름으로 보세요</div>`
           : ''}
-        <div class="hero-cta">
-          <button type="button" class="btn" onclick="gotoPaperFromSignal()">가상 돈으로 연습해보기</button>
-          <span style="font-size:11px;color:var(--dim);max-width:22em;line-height:1.4">시그널을 따라 사고파는 <b>연습장</b>으로 이동합니다. 실제 주문 없음.</span>
-        </div>
       </div>`;
   } else heroEl.style.display = 'none';
   const qEl = document.getElementById('signal-quote');

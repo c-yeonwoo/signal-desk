@@ -80,7 +80,9 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 종목 상세: 개요는 종목명과 같은 왼쪽 블록(pane-title-block), 최근 행보는 지표 패널
     assert 'pane-title-block' in html and 'id="signal-about"' in html and "sig-about.is-on" in html
     assert "종목 개요" in html and "최근 행보" in html
-    assert "모의투자 연습장" in html and "가상 돈으로 연습해보기" in html
+    assert "모의투자 연습장" in html
+    assert "가상 돈으로 연습해보기" not in html  # 종목 히어로 CTA 제거 — 페이퍼는 시그널 규칙 봇만
+    assert "gotoPaperFromSignal" not in html
     assert 'data-cseg="hypo"' in html and 'id="cycle-seg-hypo"' in html
     assert 'id="hypo-graph"' in html and "drawHypothesisTree" in html
     assert "orient: 'LR'" in html and "roam: true" in html
@@ -98,7 +100,6 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
     assert ">페이퍼<" in html  # 탭명 (구 '내 자산')
     assert 'id="sig-precision"' in html
-    assert "gotoPaperFromSignal" in html
     assert "정밀도 우선" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
     assert "매수권" in html  # evidence-only 라벨
