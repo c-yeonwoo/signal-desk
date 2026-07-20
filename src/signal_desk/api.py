@@ -1106,6 +1106,36 @@ def _anchor_today_score(scores: list, ticker: str, market: str) -> list:
 _CHART_BARS = 280
 
 
+def _chart_freshness(dates: list[str], market: str = "kospi") -> dict:
+    """차트 UI용 시각 메타 — 종가 기준일 · parquet 파일 갱신 · 실시간 오버레이 시각."""
+    as_of = dates[-1] if dates else None
+    prices_file = store.US_PRICES_FILE if market == "us" else store.PRICES_FILE
+    prices_updated = None
+    try:
+        if prices_file.exists():
+            prices_updated = datetime.datetime.fromtimestamp(
+                prices_file.stat().st_mtime
+            ).strftime("%Y-%m-%d %H:%M")
+    except OSError:
+        prices_updated = None
+    live = store.live_status()
+    live_updated = None
+    if live.get("updated"):
+        try:
+            live_updated = datetime.datetime.fromtimestamp(
+                float(live["updated"]), tz=datetime.timezone.utc
+            ).astimezone().strftime("%Y-%m-%d %H:%M")
+        except (TypeError, ValueError, OSError):
+            live_updated = None
+    return {
+        "as_of": as_of,
+        "prices_updated": prices_updated,
+        "live_on": bool(live.get("on")),
+        "live_updated": live_updated,
+        "bar_count": len(dates),
+    }
+
+
 @app.get("/api/signals/{ticker}/chart")
 def signal_chart_get(ticker: str, market: str = "kospi"):
     """종목 가격+지표 시계열(차트용) — 종가/MA20·60·120/RSI/MACD. market=us면 미국 시세.
@@ -1161,6 +1191,7 @@ def signal_chart_get(ticker: str, market: str = "kospi"):
         "macd": series["macd"]["macd"],
         "macd_signal": series["macd"]["signal"],
         "macd_hist": series["macd"]["histogram"],
+        **_chart_freshness(dates, market=market),
     }
 
 
@@ -1188,6 +1219,7 @@ def market_chart_get():
         "macd": series["macd"]["macd"], "macd_signal": series["macd"]["signal"], "macd_hist": series["macd"]["histogram"],
         "kind": combined["kind"], "score": combined["score"], "confidence": combined["confidence"],
         "reasons": combined["reasons"],
+        **_chart_freshness(dates, market="kospi"),
     }
 
 
