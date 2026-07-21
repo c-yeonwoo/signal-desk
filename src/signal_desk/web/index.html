@@ -510,7 +510,27 @@
     .market-bar #regime-detail { flex:1 1 100%; }
     .market-bar-end { flex:1 1 100%; justify-content:space-between; }
     .market-bar .tb-live { max-width:none; flex:1 1 auto; }
+    /* 필터 드로어 — 스크리너를 하단 시트로 */
+    #sig-filter-fab { display:inline-flex; }
+    #sig-screener > summary { display:none; }
+    #sig-screener { margin:0 !important; border:none; }
+    #sig-screener:not([open]) .screen-body { display:none; }
+    #sig-screener[open] {
+      position:fixed; left:0; right:0; bottom:0; z-index:90; margin:0 !important;
+      max-height:min(72vh, 560px); overflow:auto; -webkit-overflow-scrolling:touch;
+      background:var(--panel); border:1px solid var(--line); border-bottom:none;
+      border-radius:var(--r-lg) var(--r-lg) 0 0; box-shadow:0 -12px 40px rgba(11,18,32,.18);
+      padding:10px 12px calc(14px + var(--safe-bottom));
+    }
+    #sig-screener[open]::before {
+      content:"필터·스크리너"; display:block; font-weight:700; font-size:14px; color:var(--txt);
+      padding:4px 2px 10px; border-bottom:1px solid var(--line); margin-bottom:10px;
+    }
+    #sig-filter-scrim { display:none; position:fixed; inset:0; z-index:89; background:rgba(11,18,32,.35); border:0; padding:0; }
+    #sig-filter-scrim.on { display:block; }
   }
+  #sig-filter-fab { display:none; margin:0 10px 8px; width:calc(100% - 20px); justify-content:center;
+    padding:8px 12px; font-size:13px; font-weight:600; }
 
   #authGate { position:fixed; inset:0; z-index:9999; display:none; align-items:center; justify-content:center;
     background:var(--bg); }
@@ -633,8 +653,8 @@
 </nav>
 
 <div class="market-bar" id="market-ribbon">
-  <span class="tb-label">시황</span>
-  <span id="regime-pill" class="sig-pill">-</span>
+  <span class="tb-label" title="코스피 breadth·모멘텀 기반. 인사이트의 경기 사이클과 다른 지표">시장 ZONE</span>
+  <span id="regime-pill" class="sig-pill" title="시장 ZONE · 강세/과열/조정/약세">-</span>
   <span id="regime-detail" class="tb-detail"></span>
   <span id="regime-adaptive" class="tb-detail"></span>
   <span class="tb-sep" id="macro-sep" style="display:none"></span>
@@ -649,7 +669,8 @@
   <div class="macro-callout" id="macro-narrative" style="display:none"></div>
   <div id="regime-card" class="pcard" style="display:none;margin:var(--space-2) var(--space-4)">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-      <span style="font-weight:700;font-size:13px">시장 국면 체온계</span>
+      <span style="font-weight:700;font-size:13px">시장 ZONE 체온계</span>
+      <span style="font-size:10px;color:var(--dim-2)">코스피 · 경기 사이클과 별개</span>
       <span id="regime-zone" style="font-weight:700;font-size:13px"></span>
       <span id="regime-score" style="margin-left:auto;font-size:11px;color:var(--dim)"></span>
     </div>
@@ -680,8 +701,8 @@
           <div id="buylist-body"></div>
         </div>
         <div class="sig-toolbar">
-          <input id="sig-search" class="ctrl" type="search" placeholder="종목명·코드 검색" oninput="renderSignalList()">
-          <select id="sig-sort" class="ctrl" onchange="renderSignalList()">
+          <input id="sig-search" class="ctrl" type="search" placeholder="종목명·코드 검색" aria-label="종목명·코드 검색" oninput="renderSignalList()">
+          <select id="sig-sort" class="ctrl" aria-label="시그널 목록 정렬" onchange="renderSignalList()">
             <option value="signal">시그널순</option>
             <option value="mktcap">시총순</option>
             <option value="volume">거래량순</option>
@@ -692,6 +713,8 @@
           <button type="button" id="qf-buyonly" class="qchip" onclick="quickFilter('screen-buyonly', this)">매수 시그널만</button>
           <button type="button" id="qf-extwatch" class="qchip" onclick="toggleExtWatchFilter()">조사 후보</button>
         </div>
+        <button type="button" id="sig-filter-fab" class="btn" onclick="toggleSignalFilterDrawer()" aria-controls="sig-screener">필터·스크리너 <span id="screen-count-fab" style="color:var(--dim);font-weight:400"></span></button>
+        <button type="button" id="sig-filter-scrim" onclick="closeSignalFilterDrawer()" aria-label="필터 닫기"></button>
         <details id="sig-screener" style="margin:0 10px 8px">
           <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">필터·스크리너 <span id="screen-count" style="color:var(--dim);font-weight:400"></span></summary>
           <div class="screen-body">
@@ -700,25 +723,26 @@
             <div id="screen-guru-note" style="display:none;font-size:11px;color:var(--dim);line-height:1.5;
               background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md);padding:7px 9px"></div>
             <div class="screen-grid">
-              <label>종합점수 ≥<input id="screen-minscore" type="number" step="0.1" inputmode="decimal" oninput="renderSignalList()"></label>
-              <label>PER ≤<input id="screen-maxper" type="number" step="1" inputmode="decimal" oninput="renderSignalList()"></label>
-              <label>PBR ≤<input id="screen-maxpbr" type="number" step="0.1" inputmode="decimal" oninput="renderSignalList()"></label>
-              <label>ROE% ≥<input id="screen-minroe" type="number" step="1" inputmode="decimal" oninput="renderSignalList()"></label>
-              <label>배당% ≥<input id="screen-minyield" type="number" step="0.5" inputmode="decimal" oninput="renderSignalList()"></label>
-              <label>시총(억) ≥<input id="screen-mincap" type="number" step="1000" inputmode="numeric" oninput="renderSignalList()"></label>
+              <label for="screen-minscore">종합점수 ≥<input id="screen-minscore" type="number" step="0.1" inputmode="decimal" aria-label="종합점수 이상" oninput="renderSignalList()"></label>
+              <label for="screen-maxper">PER ≤<input id="screen-maxper" type="number" step="1" inputmode="decimal" aria-label="PER 이하" oninput="renderSignalList()"></label>
+              <label for="screen-maxpbr">PBR ≤<input id="screen-maxpbr" type="number" step="0.1" inputmode="decimal" aria-label="PBR 이하" oninput="renderSignalList()"></label>
+              <label for="screen-minroe">ROE% ≥<input id="screen-minroe" type="number" step="1" inputmode="decimal" aria-label="ROE 퍼센트 이상" oninput="renderSignalList()"></label>
+              <label for="screen-minyield">배당% ≥<input id="screen-minyield" type="number" step="0.5" inputmode="decimal" aria-label="배당수익률 이상" oninput="renderSignalList()"></label>
+              <label for="screen-mincap">시총(억) ≥<input id="screen-mincap" type="number" step="1000" inputmode="numeric" aria-label="시가총액 억 이상" oninput="renderSignalList()"></label>
             </div>
             <div class="screen-row">
-              <span>팩터</span>
-              <select id="screen-factor" class="ctrl" onchange="renderSignalList()">
+              <label for="screen-factor">팩터</label>
+              <select id="screen-factor" class="ctrl" aria-label="팩터 선택" onchange="renderSignalList()">
                 <option value="">—</option>
                 <option value="technical">기술</option><option value="fundamental">재무</option>
                 <option value="valuation">저평가</option><option value="reversion">낙폭과대</option>
                 <option value="flow">수급</option><option value="quality">퀄리티</option>
                 <option value="momentum">모멘텀</option><option value="short">공매도</option>
               </select>
-              <span>강도 ≥</span>
-              <input id="screen-factormin" type="number" step="0.1" min="-1" max="1" inputmode="decimal" style="width:60px" oninput="renderSignalList()">
-              <select id="screen-sector" class="ctrl" onchange="renderSignalList()"><option value="">전 섹터</option></select>
+              <label for="screen-factormin">강도 ≥</label>
+              <input id="screen-factormin" type="number" step="0.1" min="-1" max="1" inputmode="decimal" style="width:60px" aria-label="팩터 강도 이상" oninput="renderSignalList()">
+              <label for="screen-sector">섹터</label>
+              <select id="screen-sector" class="ctrl" aria-label="섹터 필터" onchange="renderSignalList()"><option value="">전 섹터</option></select>
             </div>
             <div class="screen-row" style="gap:12px">
               <label class="cb"><input type="checkbox" id="screen-buyonly" onchange="renderSignalList()"> 매수 시그널만</label>
@@ -778,8 +802,9 @@
     <div id="cycle-seg-cycle">
       <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 경기 사이클
         <span style="color:var(--dim);font-size:13px;font-weight:600">· FRED 추정 · 예측 아님</span></h3>
-      <p class="page-desc" style="margin:0 0 12px">물가·금리·나스닥으로 <b>다개월 국면</b>을 근사합니다(바닥·반등 시점 예측 아님).
-        시그널 탭의 <b>시장 국면/ZONE</b>(코스피 breadth)과는 <b>다른 지표</b>입니다 — 여기 주도섹터 → 밸류체인 → 시그널로 이어집니다.</p>
+      <p class="page-desc" style="margin:0 0 12px">물가·금리·나스닥으로 <b>경기 사이클</b>(회복·확장·둔화·수축)을 근사합니다(바닥·반등 시점 예측 아님).
+        시그널 탭 상단의 <b>시장 ZONE</b>(코스피 breadth·강세/조정 등)과는 <b>이름도 지표도 다릅니다</b> —
+        여기 주도섹터 → 밸류체인 → 시그널로 이어집니다.</p>
       <div class="card" id="cycle-current" style="margin-bottom:16px"><div class="placeholder" style="padding:8px 0">불러오는 중…</div></div>
       <div class="card" style="margin-bottom:16px"><div id="cycle-chart" style="height:300px"></div></div>
       <div class="phase-grid" id="cycle-phases"></div>
@@ -845,6 +870,10 @@
 
   <div id="view-trading" class="view-app" style="display:none">
     <div id="trading-bot">
+    <div id="paper-from-signal" class="pcard" style="display:none;margin-bottom:10px;padding:10px 14px;border-left:3px solid var(--accent)">
+      <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:4px">시그널에서 이어보기</div>
+      <div id="paper-from-signal-body" style="font-size:12px;line-height:1.55;color:var(--dim)"></div>
+    </div>
     <div class="pcard" style="margin-bottom:10px;padding:10px 14px">
       <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:4px">모의투자 연습장</div>
       <div style="font-size:12px;line-height:1.55;color:var(--dim)">
@@ -1619,19 +1648,19 @@ async function loadCycle(){
   if (cur.ready) {
     const pend = (!cur.stable && cur.pending_phase_key)
       ? `<span style="font-size:11px;color:var(--sell)">원시 관측 전환 대기 ${esc(String(cur.pending_days||0))}/${esc(String(cur.confirm_days||7))}일</span>`
-      : `<span style="font-size:11px;color:var(--dim-2)">확정 국면(${esc(String(cur.confirm_days||7))}일 유지 시 전환)</span>`;
+      : `<span style="font-size:11px;color:var(--dim-2)">확정 사이클(${esc(String(cur.confirm_days||7))}일 유지 시 전환)</span>`;
     const riskLine = risk.vix != null
       ? ` · VIX ${fmtNum(risk.vix, 1)} (${risk.label === 'fear' ? '공포→방어 KB soft' : risk.label === 'calm' ? '안도/탐욕→확장 KB soft' : '중립'})`
       : '';
     curEl.innerHTML = `<div class="row" style="gap:12px;flex-wrap:wrap">
       <span class="layer-badge ctx">맥락</span>
-      <span class="tb-label">현재 국면(확정)</span>
+      <span class="tb-label" title="FRED 기반 다개월 사이클. 시그널 탭 시장 ZONE과 별개">경기 사이클(확정)</span>
       <span class="sig-pill" style="background:var(--accent)">${esc(cur.phase_name)}</span>
       ${pend}
       <span class="tb-detail">${(cur.reasons || []).map(esc).join(' · ')}</span>
-      <span style="font-size:11px;color:var(--dim-2);width:100%">시그널 탭의 시장 국면/ZONE과 다른 지표 · 예측 아님 · KB는 이 확정 국면 주도섹터를 우선 수집${riskLine}</span></div>`;
+      <span style="font-size:11px;color:var(--dim-2);width:100%">시그널 탭 <b>시장 ZONE</b>(코스피 단기)과 다른 지표 · 예측 아님 · KB는 이 확정 사이클 주도섹터를 우선 수집${riskLine}</span></div>`;
   } else {
-    curEl.innerHTML = '<div class="placeholder" style="padding:8px 0">현재 국면 추정에 필요한 거시(FRED) 데이터가 없습니다 — /api/refresh 후 표시됩니다.</div>';
+    curEl.innerHTML = '<div class="placeholder" style="padding:8px 0">경기 사이클 추정에 필요한 거시(FRED) 데이터가 없습니다 — /api/refresh 후 표시됩니다.</div>';
   }
   drawCycleChart(d.phases || [], cur);
   phasesEl.innerHTML = (d.phases || []).map(p => {
@@ -2427,14 +2456,28 @@ function screenPass(r, s){
   return true;
 }
 function updateScreenUI(s, matched){
+  const txt = (screenActive(s) || _oppFilter) ? `· ${matched}개 일치` : '';
   const c = document.getElementById('screen-count');
-  if (c) c.textContent = (screenActive(s) || _oppFilter) ? `· ${matched}개 일치` : '';
+  if (c) c.textContent = txt;
+  const fab = document.getElementById('screen-count-fab');
+  if (fab) fab.textContent = txt;
   const note = document.getElementById('screen-note');
   if (note) {
     const usFund = _sigMarket === 'us' && (s.minRoe != null || s.minYield != null);
     note.style.display = usFund ? '' : 'none';
     note.textContent = usFund ? '※ 해외 종목은 ROE·배당 데이터가 없어 해당 조건에선 제외됩니다.' : '';
   }
+}
+function toggleSignalFilterDrawer(){
+  const d = document.getElementById('sig-screener');
+  if (!d) return;
+  if (d.open) closeSignalFilterDrawer();
+  else { d.open = true; document.getElementById('sig-filter-scrim')?.classList.add('on'); }
+}
+function closeSignalFilterDrawer(){
+  const d = document.getElementById('sig-screener');
+  if (d) d.open = false;
+  document.getElementById('sig-filter-scrim')?.classList.remove('on');
 }
 // 스크리너 입력·필터 상태를 비운다(DOM만 — 재렌더는 호출부에서). 시장 전환/리셋 공용.
 function clearScreenInputs(){
@@ -2689,6 +2732,33 @@ function selectSignalRow(ticker){
     tr.classList.toggle('selected-row', tr.dataset.ticker === ticker);
   });
   showSignalChart(ticker, _signalItems[ticker]);
+}
+
+/** 시그널 → 페이퍼: 관심종목 확보 후 연습장으로(봇은 공용 시그널 규칙, 수동 매수 아님). */
+async function gotoPaperFromSignal(ticker){
+  const tk = (ticker || _selectedTicker || '').trim();
+  const name = (_signalItems[tk] && _signalItems[tk].name) || tk;
+  if (tk && !_favorites.has(tk)) {
+    try {
+      await fetch('/api/favorites', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: 'ticker', key: tk }),
+      });
+      _favorites.add(tk);
+      renderSignalList();
+      loadBuylist();
+    } catch (e) {}
+  }
+  const banner = document.getElementById('paper-from-signal');
+  const body = document.getElementById('paper-from-signal-body');
+  if (banner && body) {
+    banner.style.display = '';
+    body.innerHTML = tk
+      ? `<b style="color:var(--txt)">${esc(name)}</b>(${esc(tk)})을 관심종목에 넣었습니다.
+         아래 <b style="color:var(--txt)">켜기</b>로 같은 시그널 규칙의가상 매매를 연습하세요. 수동 매수 버튼이 아닙니다.`
+      : `아래 <b style="color:var(--txt)">켜기</b>로 시그널 규칙 봇을 연습하세요.`;
+  }
+  switchTab('trading');
 }
 
 const _ZONE_COLOR = { STRONG_BUY: '#0b7a3b', BUY: '#22c55e', SELL: '#dc2626', STRONG_SELL: '#b3121a' };
@@ -3001,6 +3071,9 @@ function _paintSignalDetail(ticker, item){
         ${(item.kind === 'BUY' || item.kind === 'STRONG_BUY')
           ? `<div style="font-size:11px;color:var(--dim-2);margin-top:6px">중기(~2–3개월) 관점 — 추세 지속에 베팅하는 신호라 단기 등락보다 몇 주~몇 달 흐름으로 보세요</div>`
           : ''}
+        <div class="hero-cta">
+          <button type="button" class="btn" onclick="gotoPaperFromSignal('${esc(ticker)}')">페이퍼에서 같은 규칙으로 추적</button>
+        </div>
       </div>`;
   } else heroEl.style.display = 'none';
   const qEl = document.getElementById('signal-quote');

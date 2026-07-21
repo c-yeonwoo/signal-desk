@@ -95,3 +95,23 @@ def test_engine_combine_unaffected():
     src = inspect.getsource(engine.evaluate)
     assert "climate" not in src
     assert "hypothesis" not in src
+
+
+def test_snapshot_shadow_and_summary(tmp_path, monkeypatch):
+    import signal_desk.signals.hypothesis as hyp
+    from signal_desk import store
+
+    monkeypatch.setattr(store, "CACHE_DIR", tmp_path)
+    hypo = {"ready": True, "as_of": "2099-01-01", "tree": _mini_tree()}
+    hyp.get = lambda build_if_missing=False: hypo
+
+    class _S:
+        def __init__(self, ticker, score, kind):
+            self.ticker, self.score, self.kind = ticker, score, kind
+
+    n = climate.snapshot_shadow([_S("005930", 0.5, "HOLD")], date="2099-01-02")
+    assert n >= 1
+    summary = climate.shadow_summary()
+    assert summary["ready"] is True
+    assert summary["days"][-1]["date"] == "2099-01-02"
+    assert summary["days"][-1]["n"] >= 1

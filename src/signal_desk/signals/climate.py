@@ -229,3 +229,95 @@ def annotate_rows(rows: list[dict]) -> list[dict]:
             tk, float(sc), impacts=impacts, vc_index=vc_index, hypo=hypo,
         )
     return rows
+
+
+def _shadow_path():
+    from signal_desk.store import CACHE_DIR
+    return CACHE_DIR / "climate_shadow.json"
+
+
+def snapshot_shadow(signals, date: str | None = None) -> int:
+    """일별 기후 vs 기존 kind 관측 스냅샷(봇 미연동). 같은 날 덮어씀. 반환: 기후 부착 건수."""
+    import json
+
+    from signal_desk.store import CACHE_DIR
+
+    if not signals:
+        return 0
+    date = date or _kst_today().isoformat()
+    hypo = hypothesis.get(build_if_missing=False)
+    if not isinstance(hypo, dict) or not hypo.get("ready") or not hypo.get("tree") or _is_stale(hypo):
+        return 0
+    impacts = _extract_impacts(hypo["tree"])
+    vc_index = _ticker_index()
+    rows: list[dict[str, Any]] = []
+    diverge = 0
+    for s in signals:
+        c = evaluate_ticker(
+            s.ticker, float(s.score), impacts=impacts, vc_index=vc_index, hypo=hypo,
+        )
+        if not c:
+            continue
+        base_kind = getattr(s, "kind", None) or ""
+        if c["kind"] != base_kind:
+            diverge += 1
+        rows.append({
+            "ticker": s.ticker,
+            "base_kind": base_kind,
+            "base_score": round(float(s.score), 3),
+            "clim_kind": c["kind"],
+            "clim_score": c["score"],
+            "q": c["q"],
+        })
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _shadow_path()
+    blob: dict[str, Any] = {}
+    if path.exists():
+        try:
+            blob = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            blob = {}
+    blob[date] = {
+        "as_of": hypo.get("as_of"),
+        "n": len(rows),
+        "diverge": diverge,
+        "rows": rows,
+    }
+    # 최근 90일만 유지
+    keep = sorted(blob.keys())[-90:]
+    blob = {k: blob[k] for k in keep}
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(blob, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    tmp.replace(path)
+    log.info("기후 shadow 스냅샷 %s · %d건(기존 kind와 다름 %d)", date, len(rows), diverge)
+    return len(rows)
+
+
+def shadow_summary(*, limit_days: int = 14) -> dict[str, Any]:
+    """관측용 요약 — 승격 게이트 아님. UI 뱃지와 무관."""
+    import json
+
+    path = _shadow_path()
+    if not path.exists():
+        return {"ready": False, "days": [], "message": "기후 shadow 스냅샷 없음(마감 후 적재)"}
+    try:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"ready": False, "days": [], "message": "climate_shadow.json 파싱 실패"}
+    days = []
+    for d in sorted(blob.keys())[-limit_days:]:
+        rec = blob[d] or {}
+        n = int(rec.get("n") or 0)
+        div = int(rec.get("diverge") or 0)
+        days.append({
+            "date": d,
+            "n": n,
+            "diverge": div,
+            "diverge_pct": round(div / n * 100, 1) if n else None,
+            "as_of": rec.get("as_of"),
+        })
+    return {
+        "ready": True,
+        "days": days,
+        "disclaimer": "기후 shadow · 기존 시그널과 별개 · 봇 미연동 · 승격 전 관측",
+    }
