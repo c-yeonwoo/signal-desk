@@ -26,6 +26,12 @@
 5. `score_climate = clamp(score_base + 0.8·q, -3, 3)` → 기존 `classify()`  
 6. 문장·detail은 reason 표시만 (점수 입력 금지)
 
+## Shadow 관측
+
+마감 후 `climate.snapshot_shadow()` → `data/cache/climate_shadow.json`  
+관리자 `GET /api/climate-shadow` 로 일별 부착 수·기존 kind와 다른 비율만 본다.  
+**승격 게이트 아님** · 실측 IC 비교는 표본 쌓인 뒤.
+
 ## 비목표
 
 - 봇 연동 · 문턱 변경 · LLM 문장 가산 · path/alt 동시 반영(v1 제외)  

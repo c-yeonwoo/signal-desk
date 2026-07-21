@@ -208,6 +208,10 @@ def _bot_loop_iteration() -> None:
             store.snapshot_signals(_signals())  # 팩터 PIT 스냅샷 누적(향후 팩터 백테스트용)
         except Exception as e:
             log.warning("시그널 스냅샷 실패: %s", type(e).__name__)
+        try:
+            climate.snapshot_shadow(_signals())  # 기후 vs 기존 kind 관측(봇 미연동)
+        except Exception as e:
+            log.warning("기후 shadow 스냅샷 실패: %s", type(e).__name__)
         for uid in enabled:
             bot.snapshot_positions(uid, "kr")
             bot.snapshot_positions(uid, "us")
@@ -2074,6 +2078,13 @@ def hypothesis_refresh(request: Request):
     """최근 이슈 흐름 수동 생성(Sonnet+룰) — 관리자 전용. 유일한 생성 경로."""
     _admin_or_403(request)
     return hypothesis.refresh()
+
+
+@app.get("/api/climate-shadow")
+def climate_shadow_get(request: Request):
+    """기후 vs 기존 kind 일별 shadow 요약 — 관측용 · 봇/문턱 미연동. 관리자."""
+    _admin_or_403(request)
+    return climate.shadow_summary()
 
 
 @app.get("/api/external-watch")

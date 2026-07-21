@@ -81,8 +81,9 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert 'pane-title-block' in html and 'id="signal-about"' in html and "sig-about.is-on" in html
     assert "종목 개요" in html and "최근 행보" in html
     assert "모의투자 연습장" in html
-    assert "가상 돈으로 연습해보기" not in html  # 종목 히어로 CTA 제거 — 페이퍼는 시그널 규칙 봇만
-    assert "gotoPaperFromSignal" not in html
+    assert "가상 돈으로 연습해보기" not in html  # 구 카피 금지
+    assert "gotoPaperFromSignal" in html and "페이퍼에서 같은 규칙으로 추적" in html
+    assert 'id="paper-from-signal"' in html
     assert 'data-cseg="hypo"' in html and 'id="cycle-seg-hypo"' in html
     assert 'id="hypo-graph"' in html and "drawHypothesisTree" in html
     assert "orient: 'LR'" in html and "roam: true" in html
@@ -94,6 +95,10 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "지금 더 가까움" in html
     assert "다시 볼 종목" in html
     assert "market-bar-end" in html  # 시황 바 오른쪽 슬롯(live·거시토글)
+    assert "시장 ZONE" in html and "경기 사이클(확정)" in html  # 이중 국면 라벨 분리
+    assert 'aria-label="종합점수 이상"' in html and 'aria-label="팩터 강도 이상"' in html
+    assert "toggleSignalFilterDrawer" in html and 'id="sig-filter-fab"' in html
+
     # FAB는 footer 위에 띄움 — footer margin-bottom으로 바닥에서 띄우지 않음
     assert "body.chat-fab-on #chat-fab" in html
     assert "body.chat-fab-on footer" not in html
