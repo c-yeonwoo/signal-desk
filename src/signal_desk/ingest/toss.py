@@ -32,12 +32,19 @@ def available() -> bool:
     return _creds() is not None
 
 
-def _access_token() -> str | None:
-    if _token["value"] and time.time() < _token["exp"]:
+def _clear_token() -> None:
+    """캐시 토큰 폐기 — 데이터 API 401·키 교체 후 강제 재발급용."""
+    _token["value"] = None
+    _token["exp"] = 0.0
+
+
+def _access_token(*, force: bool = False) -> str | None:
+    if not force and _token["value"] and time.time() < _token["exp"]:
         return _token["value"]
     creds = _creds()
     if not creds:
         return None
+    _clear_token()  # 재발급 직전 폐기(force/만료 공통)
     data = urllib.parse.urlencode({
         "grant_type": "client_credentials", "client_id": creds[0], "client_secret": creds[1],
     }).encode()
@@ -52,7 +59,8 @@ def _access_token() -> str | None:
             detail = e.read().decode("utf-8", "replace")[:300]
         except Exception:
             pass
-        log.warning("토스 토큰 발급 실패: HTTP %s %s", e.code, detail)
+        log.warning("토스 토큰 발급 실패: HTTP %s %s — TOSS_CLIENT_ID/SECRET 재발급·Railway env 확인",
+                    e.code, detail)
         return None
     except Exception as e:
         log.warning("토스 토큰 발급 실패: %s", type(e).__name__)
@@ -64,43 +72,67 @@ def _access_token() -> str | None:
     return tok
 
 
-def _get(path: str, params: dict | None = None) -> dict | list | None:
+def _http_detail(err: urllib.error.HTTPError, limit: int = 240) -> str:
+    try:
+        return err.read().decode("utf-8", "replace")[:limit]
+    except Exception:
+        return ""
+
+
+def _authorized_get(url: str, *, headers: dict[str, str]) -> dict | list | None:
+    """Bearer GET. 401이면 토큰 폐기→재발급→1회만 재시도(죽은 캐시 토큰 고착 방지)."""
     tok = _access_token()
     if not tok:
         return None
-    url = _BASE + path + ("?" + urllib.parse.urlencode(params) if params else "")
-    req = urllib.request.Request(url, headers={"authorization": "Bearer " + tok, "accept": "application/json"})
-    try:
+
+    def _once(bearer: str):
+        req = urllib.request.Request(url, headers={**headers, "authorization": "Bearer " + bearer,
+                                                   "accept": "application/json"})
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             return json.loads(resp.read().decode("utf-8"))
+
+    try:
+        return _once(tok)
     except urllib.error.HTTPError as e:
-        log.warning("토스 요청 실패(%s): HTTP %s", path, e.code)
-        return None
+        if e.code != 401:
+            log.warning("토스 요청 실패(%s): HTTP %s %s", url.split("?")[0].replace(_BASE, ""),
+                        e.code, _http_detail(e))
+            return None
+        detail = _http_detail(e)
+        _clear_token()
+        tok2 = _access_token(force=True)
+        if not tok2:
+            log.warning("토스 401 후 토큰 재발급 실패(%s) %s — 키 폐기/오타 가능",
+                        url.split("?")[0].replace(_BASE, ""), detail)
+            return None
+        try:
+            return _once(tok2)
+        except urllib.error.HTTPError as e2:
+            log.warning("토스 401 재시도도 실패(%s): HTTP %s %s — TOSS_CLIENT_ID/SECRET 재발급 검토",
+                        url.split("?")[0].replace(_BASE, ""), e2.code, _http_detail(e2))
+            return None
+        except Exception as e2:
+            log.warning("토스 401 재시도 실패(%s): %s", url.split("?")[0].replace(_BASE, ""), type(e2).__name__)
+            return None
     except Exception as e:
-        log.warning("토스 요청 실패(%s): %s", path, type(e).__name__)
+        log.warning("토스 요청 실패(%s): %s", url.split("?")[0].replace(_BASE, ""), type(e).__name__)
         return None
+
+
+def _get(path: str, params: dict | None = None) -> dict | list | None:
+    url = _BASE + path + ("?" + urllib.parse.urlencode(params) if params else "")
+    return _authorized_get(url, headers={})
 
 
 def holdings(account: str = "1") -> dict | None:
     """앱에 연동된 계좌의 실보유 자산(자산 API /api/v1/holdings). 반환: result 객체
     {totalPurchaseAmount, marketValue, profitLoss, items:[...]} 또는 None(자격증명·조회 실패).
     ⚠️ 개인 계좌 데이터 — 호출·노출은 반드시 owner-gated(api 계층)에서만. 여긴 요청만 담당."""
-    tok = _access_token()
-    if not tok:
-        return None
-    req = urllib.request.Request(_BASE + "/api/v1/holdings", headers={
-        "authorization": "Bearer " + tok, "accept": "application/json",
-        "X-Tossinvest-Account": str(account)})
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-        return body.get("result") if isinstance(body, dict) else None
-    except urllib.error.HTTPError as e:
-        log.warning("토스 보유내역 실패: HTTP %s", e.code)
-        return None
-    except Exception as e:
-        log.warning("토스 보유내역 실패: %s", type(e).__name__)
-        return None
+    body = _authorized_get(
+        _BASE + "/api/v1/holdings",
+        headers={"X-Tossinvest-Account": str(account)},
+    )
+    return body.get("result") if isinstance(body, dict) else None
 
 
 def _rows(body) -> list[dict]:
