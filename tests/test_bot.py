@@ -53,6 +53,38 @@ def test_dry_run_places_no_orders(tmp_path, monkeypatch):
     assert db.bot_positions_all(UID) == [] and paper.balance(UID)["cash"] == 10_000.0  # 계좌 미변경
 
 
+def test_advisor_abstention_buys_nothing(tmp_path, monkeypatch):
+    """LLM이 빈 배열을 반환하면(기권) 점수순 폴백으로 뒤집지 않는다 — 하락장 강제 매수 방지."""
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}, {"ticker": "BBB", "name": "나"}],
+           {"AAA": [100.0], "BBB": [100.0]},
+           [_sig("AAA", "가", "BUY", 2.4), _sig("BBB", "나", "BUY", 2.0)], min_buy_score=0.0)
+    _seed(10_000_000.0)
+    monkeypatch.setattr(bot.advisor, "select_buys", lambda *a, **k: [])
+    out = bot.run_once(UID)
+    assert out["ok"] and out["buys"] == []
+    assert db.bot_positions_all(UID) == []
+    # 기권은 advisor의 판단이므로 shadow에서 폴백 회차로 세지 않는다
+    from signal_desk.signals import advisor_shadow
+    s = advisor_shadow.summary({})
+    assert s["advisor_used_runs"] == 1 and s["abstained_runs"] == 1
+
+
+def test_advisor_unavailable_falls_back_to_score_order(tmp_path, monkeypatch):
+    """None(키 없음·실패)은 기권이 아니다 — 결정론적 점수순 폴백을 그대로 쓴다."""
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}, {"ticker": "BBB", "name": "나"}],
+           {"AAA": [100.0], "BBB": [100.0]},
+           [_sig("AAA", "가", "BUY", 2.4), _sig("BBB", "나", "BUY", 2.0)], min_buy_score=0.0)
+    _seed(10_000_000.0)
+    monkeypatch.setattr(bot.advisor, "select_buys", lambda *a, **k: None)
+    out = bot.run_once(UID)
+    assert [b["ticker"] for b in out["buys"]] == ["AAA", "BBB"]  # 점수순 상위 2(슬롯)
+    from signal_desk.signals import advisor_shadow
+    s = advisor_shadow.summary({})
+    assert s["advisor_used_runs"] == 0 and s["abstained_runs"] == 0
+
+
 def test_sells_on_stop_loss(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _setup(monkeypatch, [{"ticker": "005930", "name": "삼성전자"}], {"005930": [100.0, 100.0, 90.0]},

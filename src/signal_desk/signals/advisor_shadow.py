@@ -25,7 +25,11 @@ log = logging.getLogger("signal_desk.advisor_shadow")
 
 KEEP_DAYS = 90
 POOL_KEEP = 12      # 파일 비대 방지 — 상위 후보만 남긴다
-MIN_SAMPLES = 20    # 갈린 종목이 이만큼 성숙해야 우열을 말한다(accuracy와 동일 기준)
+# 표시를 시작할 최소 표본. **판정 기준이 아니다** — 20쌍은 통계적으로 아무것도 보장하지 않는다.
+# σ(20거래일 수익 표준편차)=12%면 unpaired 20표본 평균차의 표준오차가 ±3.8%p라서, 유의하려면
+# 리프트가 ±7.4%p를 넘어야 한다(그 정도 알파는 실력보다 운·버그를 먼저 의심할 크기다).
+# 그래서 판정은 표본 수가 아니라 관측된 분산으로 계산한 `delta_significant`로 한다.
+MIN_SAMPLES = 20
 
 
 def _kst_today() -> str:
@@ -74,6 +78,11 @@ def record(
 
     같은 (날짜·유저·시장)의 첫 회차만 남긴다 — 봇 루프가 하루에 여러 번 도는데,
     그날 실제로 자리를 잡은 결정은 첫 회차이고 이후는 잔여 슬롯 관측이라 표본이 편향된다.
+
+    picks의 세 상태를 구분해 기록한다(`outcome`):
+      - 종목 리스트 → `picked`
+      - `[]` → `abstained`. LLM이 "살 게 없다"고 판단한 회차. 점수순은 샀으므로 비교 대상이다.
+      - `None` → `unavailable`. 키 없음·실패. advisor 성적으로 세면 안 된다.
     반환: 새로 기록했으면 True.
     """
     if not pool or slots <= 0:
@@ -85,11 +94,13 @@ def record(
         return False
     baseline = [p["ticker"] for p in pool[:slots]]
     llm = [p["ticker"] for p in (picks or [])]
+    outcome = "unavailable" if picks is None else ("picked" if picks else "abstained")
     day.append({
         "uid": uid,
         "market": market,
         "slots": slots,
-        "advisor_used": bool(llm),
+        "outcome": outcome,
+        "advisor_used": outcome != "unavailable",
         "pool": [{"t": p["ticker"], "s": round(float(p["score"]), 3)} for p in pool[:POOL_KEEP]],
         "baseline": baseline,
         "llm": llm,
@@ -103,6 +114,20 @@ def record(
 
 def _avg(rets: list[float]) -> float | None:
     return round(sum(rets) / len(rets) * 100, 2) if rets else None
+
+
+def _se_pp(a: list[float], b: list[float]) -> float | None:
+    """두 평균 차이의 표준오차(%p). 표본분산 기반이라 "20쌍이면 판정 가능"이라는 착각을 막는다.
+    양쪽 모두 2개 이상이어야 계산된다."""
+    if len(a) < 2 or len(b) < 2:
+        return None
+
+    def _var(xs: list[float]) -> float:
+        m = sum(xs) / len(xs)
+        return sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
+
+    se = (_var(a) / len(a) + _var(b) / len(b)) ** 0.5
+    return round(se * 100, 2)
 
 
 def summary(
@@ -121,7 +146,7 @@ def summary(
     base_only_rets: list[float] = []
     llm_all_rets: list[float] = []
     base_all_rets: list[float] = []
-    runs = used = divergent = 0
+    runs = used = divergent = abstained = 0
     days: list[dict[str, Any]] = []
 
     def _rets_for(tickers: list[str], date: str) -> list[float]:
@@ -140,37 +165,61 @@ def summary(
         day_div = 0
         for rec in recs:
             runs += 1
-            if not rec.get("advisor_used"):
+            # outcome 없는 과거 기록은 advisor_used로 유추(기권 구분 도입 전 데이터)
+            outcome = rec.get("outcome") or ("picked" if rec.get("advisor_used") else "unavailable")
+            if outcome == "unavailable":
                 continue
             used += 1
             lo, bo = rec.get("llm_only") or [], rec.get("base_only") or []
             if lo or bo:
                 divergent += 1
                 day_div += 1
-            llm_only_rets += _rets_for(lo, date)
-            base_only_rets += _rets_for(bo, date)
+            base_scored = _rets_for(bo, date)
+            if outcome == "abstained":
+                abstained += 1
+                # 기권은 "현금 보유"다. LLM 쪽을 비워두면 기권이 채점에서 사라져 delta가
+                # 폴백에 유리하게 기운다 → 갈린 종목 수만큼 0% 수익으로 채운다.
+                llm_only_rets += [0.0] * len(base_scored)
+            else:
+                llm_only_rets += _rets_for(lo, date)
+            base_only_rets += base_scored
             llm_all_rets += _rets_for(rec.get("llm") or [], date)
             base_all_rets += _rets_for(rec.get("baseline") or [], date)
         days.append({"date": date, "runs": len(recs), "divergent": day_div})
 
     lo_avg, bo_avg = _avg(llm_only_rets), _avg(base_only_rets)
     matured = min(len(llm_only_rets), len(base_only_rets))
+    delta = (round(lo_avg - bo_avg, 2)
+             if lo_avg is not None and bo_avg is not None else None)
+    se = _se_pp(llm_only_rets, base_only_rets)
+    ci95 = round(1.96 * se, 2) if se is not None else None
+    significant = (delta is not None and ci95 is not None and abs(delta) > ci95)
     return {
         "ready": matured > 0,
         "horizon": horizon,
         "runs": runs,
         "advisor_used_runs": used,
+        "abstained_runs": abstained,
         "divergent_runs": divergent,
         "llm_only": {"n": len(llm_only_rets), "avg_ret_pct": lo_avg},
         "base_only": {"n": len(base_only_rets), "avg_ret_pct": bo_avg},
         "llm_all": {"n": len(llm_all_rets), "avg_ret_pct": _avg(llm_all_rets)},
         "baseline_all": {"n": len(base_all_rets), "avg_ret_pct": _avg(base_all_rets)},
-        "delta_pct": (round(lo_avg - bo_avg, 2)
-                      if lo_avg is not None and bo_avg is not None else None),
-        "matured_pairs": matured,
+        "delta_pct": delta,
+        "delta_se_pp": se,                     # 관측 분산으로 계산한 delta의 표준오차
+        "delta_ci95_pp": ci95,                 # |delta|가 이보다 커야 부호를 신뢰할 수 있다
+        "delta_significant": significant,
+        # 이름 그대로 "작은 쪽 표본 수"다. pair가 아니다 — paired 비교는 미도입(BACKLOG).
+        "matured_smaller_side": matured,
+        "matured_pairs": matured,              # 하위호환(같은 값)
         "min_samples": min_samples,
-        # 표본이 차기 전 delta 부호로 advisor on/off를 판단하지 않는다
-        "verdict_ready": matured >= min_samples,
+        "sample_target_reached": matured >= min_samples,
+        # 표본 수만으로는 판정하지 않는다. 부호를 믿으려면 유의성까지 필요하다.
+        "verdict_ready": matured >= min_samples and significant,
+        "verdict_note": ("표본 20은 표시 시작 기준이며 판정 근거가 아니다. "
+                         "delta의 부호는 |delta| > delta_ci95_pp일 때만 읽는다. "
+                         "또한 base_only는 항상 점수 상위·llm_only는 그 아래라 비교가 advisor에게 "
+                         "구조적으로 불리하다(순위 매칭 미도입) — delta 음수를 advisor 실력으로 읽지 말 것."),
         "days": days[-limit_days:],
         "disclaimer": "advisor shadow · 관측 전용 · 선별 로직·수량·문턱 미변경",
     }

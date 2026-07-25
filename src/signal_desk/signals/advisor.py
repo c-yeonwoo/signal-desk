@@ -3,7 +3,12 @@
 원칙: 안전장치(장시간·손절/익절/트레일링·최대종목·회당한도·비중·정수주)는 코드가 절대 사수한다.
 LLM은 이미 정량 가드레일을 통과한 후보 중에서만 고르고, 근거를 만든다 — 후보 밖은 못 고른다.
 입력: 후보(정량 근거) + 시장맥락(국면·거시·경기사이클) + KB 정성 다이제스트 + 과거 의사결정 성패(학습).
-ANTHROPIC_API_KEY 없거나 실패하면 None을 반환해 봇이 결정론적 점수순 폴백을 쓰게 한다.
+
+**기권과 실패는 다르다**:
+- `[]`(빈 리스트) = LLM이 "지금은 살 게 없다"고 판단한 **기권**. 봇은 이를 존중해 매수하지 않는다.
+- `None` = 키 없음·API 실패·파싱 실패·후보 밖 종목만 골라 전부 탈락 = **사용 불가**. 봇이 점수순 폴백.
+
+이 구분이 없던 동안 기권이 코드에서 "상위 점수 강제 매수"로 번역됐다(하락장에 정확히 반대 행동).
 
 학습: 단일 실패에 과적합하지 않는다 — 최근 성패는 '경향'으로만 참고하도록 프롬프트에 명시.
 """
@@ -34,7 +39,12 @@ def build_lessons(limit: int = 30) -> list[dict]:
 def select_buys(candidates: list[dict], context: dict, digests: dict[str, dict],
                 lessons: list[dict], max_new: int) -> list[dict] | None:
     """candidates: [{ticker,name,score,confidence,reasons}] (이미 가드레일 통과분).
-    반환: [{ticker, rationale}] (candidates 안에서만, 최대 max_new). LLM 없거나 실패 시 None."""
+
+    반환:
+      - `[{ticker, rationale}]` — 선별 결과(candidates 안에서만, 최대 max_new)
+      - `[]` — 기권. "지금 이 후보들은 전부 부적격"이라는 LLM의 판단. 봇은 매수하지 않는다.
+      - `None` — 사용 불가(키 없음·호출/파싱 실패·후보 밖만 골라 전부 탈락). 봇은 점수순 폴백.
+    """
     if not llm.available() or not candidates or max_new <= 0:
         return None
 
@@ -54,7 +64,11 @@ def select_buys(candidates: list[dict], context: dict, digests: dict[str, dict],
         "반드시 아래 후보 목록 안에서만 고른다(목록 밖 종목 금지). 시장 맥락(국면/거시/경기사이클)과 "
         "정성 심리, 과거 성패 경향을 함께 고려하되, 단 한 번의 실패에 과도하게 반응하지 마라(표본이 적으면 경향만 참고). "
         "정성 판단은 제공된 KB 요약의 사실에만 근거하고, KB에 없는 내용은 추측·언급하지 마라(KB 없으면 정성은 중립). "
-        "손절·익절·비중 같은 실행 규칙은 코드가 처리하니 너는 '무엇을 왜'만 정한다.")
+        "손절·익절·비중 같은 실행 규칙은 코드가 처리하니 너는 '무엇을 왜'만 정한다. "
+        # 반대 근거를 먼저 세우게 해 '골라야 한다'는 압력에서 오는 아첨·억지 선별을 줄인다
+        "고르기 전에 각 후보의 '사지 않을 이유'를 스스로 검토하고, 그 반론을 넘어서는 후보만 남겨라. "
+        "확신이 없으면 개수를 채우지 마라 — 후보 전부가 반론을 넘지 못하면 빈 배열을 반환하는 것이 정답이다. "
+        "억지로 채운 한 종목이 안 사는 것보다 나쁘다.")
     gate_note = "이미 매수 기준(임계값)에 반영됨 — 재차 감점 말 것" if context.get("gate_applied") else "매수 기준 조정 없음"
     macro_note = context.get("macro_note")
     macro_line = f"\n[시황 코멘터리 · 참고용] {macro_note}\n" if macro_note else ""
@@ -65,20 +79,28 @@ def select_buys(candidates: list[dict], context: dict, digests: dict[str, dict],
         f"경기사이클={context.get('cycle_phase')}\n" + fred_line + macro_line + "\n"
         f"[매수 후보(가드레일 통과)]\n" + "\n".join(cand_lines) + "\n\n"
         f"[과거 의사결정 성패(학습, 경향 참고용)]\n" + "\n".join(lesson_lines) + "\n\n"
-        f"이 중 지금 매수하기 가장 좋은 종목을 최대 {max_new}개 골라라. "
+        f"이 중 지금 매수할 종목을 최대 {max_new}개 골라라. 개수를 채울 의무는 없다 — "
+        "반론을 넘는 후보가 없으면 picks를 빈 배열로 두어라(기권). "
         'JSON으로만: {"picks": [{"ticker": "코드", "rationale": "한국어 한 줄 근거"}]}')
 
     out = llm.complete_json(system, user, max_tokens=700)
     if not out or not isinstance(out.get("picks"), list):
         log.info("LLM 자문 파싱 실패 — 결정론적 폴백")
         return None
+    raw = out["picks"]
     picks = []
     seen = set()
-    for p in out["picks"]:
+    for p in raw:
         t = p.get("ticker")
         if t in valid and t not in seen:  # 후보 밖·중복 방지(가드레일)
             picks.append({"ticker": t, "rationale": str(p.get("rationale", ""))[:200]})
             seen.add(t)
         if len(picks) >= max_new:
             break
-    return picks or None
+    if raw and not picks:
+        # 고르긴 했는데 전부 후보 밖 → 기권이 아니라 오작동이다. 폴백으로 넘긴다.
+        log.info("LLM 자문이 후보 밖 종목만 선택 — 결정론적 폴백")
+        return None
+    if not picks:
+        log.info("LLM 자문 기권 — 이번 회차 매수 없음(폴백 매수하지 않음)")
+    return picks

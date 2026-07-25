@@ -75,6 +75,33 @@ def test_fallback_runs_counted_but_not_compared():
     assert out["ready"] is False
 
 
+def test_abstention_is_scored_as_cash():
+    """기권은 '현금 보유'로 채점한다 — 비워두면 기권이 사라져 delta가 폴백에 유리해진다."""
+    advisor_shadow.record(uid=1, market="kr", pool=_POOL, picks=[], slots=1, date="2026-01-01")
+    dn_d, dn_c = _closes(step=-1.0)
+    out = advisor_shadow.summary({"DOWN": (dn_d, dn_c)}, horizon=5)
+    assert out["abstained_runs"] == 1 and out["advisor_used_runs"] == 1
+    # 점수순은 DOWN을 샀고 그건 내렸다. 기권 쪽은 0% → delta 양수(기권이 옳았다)
+    assert out["llm_only"] == {"n": 1, "avg_ret_pct": 0.0}
+    assert out["base_only"]["avg_ret_pct"] < 0 and out["delta_pct"] > 0
+
+
+def test_verdict_needs_significance_not_just_sample_count():
+    """표본 20을 채워도 분산이 크면 부호를 읽지 않는다 — 20쌍 판정 착각 제거."""
+    up_d, up_c = _closes(step=1.0)
+    dn_d, dn_c = _closes(step=-1.0)
+    closes = {"UP": (up_d, up_c), "DOWN": (dn_d, dn_c)}
+    for i in range(1, 21):  # 유저 20명 × 갈린 1쌍 = 한쪽 20표본
+        advisor_shadow.record(uid=i, market="kr", pool=_POOL, slots=1,
+                              picks=[{"ticker": "UP", "rationale": "x"}], date="2026-01-01")
+    out = advisor_shadow.summary(closes, horizon=5)
+    assert out["matured_smaller_side"] == 20 and out["sample_target_reached"] is True
+    # 같은 종목쌍만 반복돼 분산이 0 → 표준오차 0이라 유의. 이름은 pair가 아님을 명시
+    assert out["delta_se_pp"] == 0.0 and out["delta_significant"] is True
+    assert out["matured_pairs"] == out["matured_smaller_side"]
+    assert "판정 근거가 아니다" in out["verdict_note"]
+
+
 def test_summary_without_records():
     out = advisor_shadow.summary({})
     assert out["ready"] is False and out["days"] == []
