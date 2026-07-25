@@ -2205,6 +2205,24 @@ async function loadRegime(){
 
 // ③ 신뢰 스트립 — 실측 track record(누적중 가드) + 봇 체결 성적. 백테스트 숫자는 여기 안 올림.
 const _TRUST_MATURE_N = 20;  // IC·정밀도 헤드라인 최소 표본(accuracy.ic_min_samples와 맞춤)
+
+// 매도 정밀도 = "매도 찍은 것 중 내린 비율". 숏(인버스 포함)을 검토할 값어치가 있는지 재는 관측치로,
+// 매수와 표본이 따로 쌓이므로 가드도 따로 본다. 봇·문턱에는 반영하지 않는다.
+function sellPrecisionRow(acc, need){
+  const n = acc.sell_sample || 0;
+  if (!n) return '';
+  const h = acc.primary_horizon || 20;
+  if (n < need)
+    return `<div class="trust-row trust-paper-muted"><span class="trust-badge accum">누적중</span>`
+      + `매도 정밀도 · 표본 ${n}/${need}`
+      + ` <span style="color:var(--dim-2)">· 숏 검토는 이 숫자가 찬 뒤에 봅니다</span></div>`;
+  const p = acc.sell_precision_pct;
+  const c = p == null ? 'var(--dim)' : p >= 55 ? 'var(--sig-buy)' : p < 45 ? 'var(--sig-sell)' : 'var(--txt)';
+  return `<div class="trust-row"><span class="trust-badge live">실측</span>`
+    + `매도 정밀도 <b style="color:${c}">${p == null ? '–' : fmtNum(p, 1) + '%'}</b>`
+    + ` <span style="color:var(--dim-2)">(${h}거래일 · 표본 ${n} · 매도 찍은 것 중 내린 비율)</span>`
+    + ` <span style="color:var(--dim-2)">· 숏 관측용 · 봇 미반영</span></div>`;
+}
 async function loadScorecard(){
   const el = document.getElementById('signal-trust');
   if (!el) return;
@@ -2224,6 +2242,7 @@ async function loadScorecard(){
       rows.push(`<div class="trust-row"><span class="trust-badge live">실측</span>`
         + `<b>시그널 성적</b> · 매수 정밀도 <b style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</b>`
         + ` <span style="color:var(--dim-2)">(${acc.primary_horizon || 20}거래일 · 표본 ${acc.buy_sample || matured})</span></div>`);
+      rows.push(sellPrecisionRow(acc, need));
     } else {
       rows.push(`<div class="trust-row"><span class="trust-badge accum">누적중</span>`
         + `<b>시그널 성적</b> · track record 쌓는 중`
@@ -5543,6 +5562,19 @@ async function loadAccuracy(){
     const h = d.primary_horizon;
     const prec = d.buy_precision_pct;
     const precColor = prec >= 55 ? 'var(--sig-buy)' : prec < 45 ? 'var(--sig-sell)' : 'var(--dim)';
+    const sellN = d.sell_sample || 0;
+    const sellPrec = d.sell_precision_pct;
+    const sellColor = sellPrec == null ? 'var(--dim)'
+      : sellPrec >= 55 ? 'var(--sig-buy)' : sellPrec < 45 ? 'var(--sig-sell)' : 'var(--dim)';
+    // 매도 정밀도는 숏 검토의 전제("우리 SELL이 실제로 내려갔나") 관측치 — 표본 가드는 매수와 별도
+    const sellBlock = !sellN ? ''
+      : sellN < need
+        ? `<div style="font-size:12px;color:var(--dim-2);margin-bottom:4px">매도 정밀도 · 표본 ${sellN}/${need} 누적중 — 숏 검토는 이 표본이 찬 뒤에.</div>`
+        : `<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+            <span class="trust-badge live">실측</span>
+            <span style="font-size:13px;color:var(--dim)">매도 정밀도 <span style="color:var(--dim-2)">· ${h}거래일</span></span>
+            <span style="font-size:20px;font-weight:800;color:${sellColor}">${fmtNum(sellPrec, 1)}%</span>
+            <span style="font-size:12px;color:var(--dim-2)">매도 시그널 ${sellN}건 중 하락 비율 · 숏 관측용 · 봇 미반영</span></div>`;
     const t = (d.tiers || {})[h] || {};
     const retCell = v => v == null ? '<td style="color:var(--dim-2)">–</td>'
       : `<td style="color:${v > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">${v > 0 ? '+' : ''}${fmtNum(v, 2)}%</td>`;
@@ -5571,6 +5603,7 @@ async function loadAccuracy(){
         <span style="font-size:13px;color:var(--dim)">매수 정밀도 <span style="color:var(--dim-2)">· ${h}거래일</span></span>
         <span style="font-size:26px;font-weight:800;color:${precColor}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</span>
         <span style="font-size:12px;color:var(--dim-2)">매수 시그널 ${d.buy_sample}건 중 상승 비율</span></div>
+      ${sellBlock}
       <table class="dtable" style="margin-top:8px"><thead><tr><th>티어</th><th>표본</th><th>적중률</th><th>평균수익</th></tr></thead><tbody>${tierRows}</tbody></table>
       <div style="font-size:13px;font-weight:700;margin:16px 0 4px">팩터 예측력 <span style="color:var(--dim);font-weight:500">· Spearman IC (팩터값↑ vs ${h}일 수익, 양수=예측 유효)</span></div>
       ${icRows}

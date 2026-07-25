@@ -67,17 +67,12 @@ def test_evaluate_boosts_score_does_not_mutate_base():
     assert "봇" in out["disclaimer"]
 
 
-def test_annotate_rows_leaves_kind_score():
+def test_annotate_rows_leaves_kind_score(monkeypatch):
     hypo = {"ready": True, "as_of": "2099-01-01", "tree": _mini_tree()}
     rows = [{"ticker": "005930", "score": 1.0, "kind": "BUY"}]
-    # inject hypo via monkeypatch on hypothesis.get
     import signal_desk.signals.hypothesis as hyp
-    orig = hyp.get
-    hyp.get = lambda build_if_missing=False: hypo
-    try:
-        climate.annotate_rows(rows)
-    finally:
-        hyp.get = orig
+    monkeypatch.setattr(hyp, "get", lambda build_if_missing=False: hypo)
+    climate.annotate_rows(rows)
     assert rows[0]["kind"] == "BUY"
     assert rows[0]["score"] == 1.0
     assert rows[0]["climate"] and rows[0]["climate"]["kind"]
@@ -103,7 +98,7 @@ def test_snapshot_shadow_and_summary(tmp_path, monkeypatch):
 
     monkeypatch.setattr(store, "CACHE_DIR", tmp_path)
     hypo = {"ready": True, "as_of": "2099-01-01", "tree": _mini_tree()}
-    hyp.get = lambda build_if_missing=False: hypo
+    monkeypatch.setattr(hyp, "get", lambda build_if_missing=False: hypo)
 
     class _S:
         def __init__(self, ticker, score, kind):
