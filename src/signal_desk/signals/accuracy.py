@@ -21,6 +21,10 @@ PRIMARY_HORIZON = 20
 FACTOR_COLS = ("technical", "fundamental", "valuation", "reversion",
                "qualitative", "flow", "quality", "momentum")
 _MIN_IC_SAMPLES = 20  # 이보다 표본이 적으면 IC는 신뢰 불가 → None
+# 정밀도는 기준선(base rate) 대비 리프트로만 판정한다. 하락장에서는 아무 종목이나 '매도'라고
+# 찍어도 정밀도가 60%를 넘기 때문에, 절대값 55%는 잘한 것도 못한 것도 아니다.
+# 이 값은 "우연·시장 드리프트로 설명되지 않는다"고 부를 최소 리프트(%p)다.
+MIN_LIFT_PP = 3.0
 
 # P3 정성 승격 게이트(shadow 관측 → 향후 priority/threshold 승인용). combine()과 무관.
 PROMOTION_MIN_SAMPLES = 80
@@ -89,6 +93,23 @@ def _spearman_ic(pairs: list[tuple[float, float]]) -> float | None:
     return cov / (vx * vy) ** 0.5
 
 
+def _precision(rets: list[float], *, up: bool) -> float | None:
+    """방향 정밀도(%) — 무변동(정확히 0)은 적중으로 세지 않는다."""
+    if not rets:
+        return None
+    hit = sum(1 for x in rets if (x > 0 if up else x < 0))
+    return round(hit / len(rets) * 100, 1)
+
+
+def _ci_half_pp(pct: float | None, n: int) -> float | None:
+    """비율의 95% 신뢰구간 반폭(%p) — 정규 근사. 표본이 작으면 이 폭이 리프트보다 커서
+    "정밀도 60%"가 사실상 무정보임을 드러낸다(n=20·p=0.6이면 ±21%p)."""
+    if pct is None or n <= 0:
+        return None
+    p = pct / 100.0
+    return round(1.96 * (p * (1 - p) / n) ** 0.5 * 100, 1)
+
+
 def realized_accuracy(
     history_rows: list[dict],
     closes_by_ticker: dict[str, tuple[list[str], list[float]]],
@@ -100,7 +121,11 @@ def realized_accuracy(
 
     history_rows: [{date, ticker, kind, technical, ..., momentum}] (store.load_signal_history 행)
     closes_by_ticker: {ticker: (dates[], closes[])} 오래된→최신 (KR+US 통합)
-    반환: 티어별 적중률/정밀도/평균수익(horizon별) + 헤드라인 매수/매도 정밀도 + 팩터 Spearman IC + 커버리지.
+    반환: 티어별 적중률/정밀도/평균수익(horizon별) + 헤드라인 매수/매도 정밀도와 **기준선 대비 리프트**
+    + 팩터 Spearman IC + 커버리지.
+
+    정밀도 절대값은 단독으로 쓰지 말 것 — 시장 드리프트가 그대로 섞여 있다. 판정은 `buy_lift_pp`
+    /`sell_lift_pp`(기준선 초과분)와 `*_ci_pp`(표본 오차)로 한다.
     """
     # 티어별 horizon별 실현수익 누적
     by_tier = {k: {h: [] for h in horizons} for k in ACTIONABLE_KINDS}
@@ -108,6 +133,9 @@ def realized_accuracy(
     dates_seen: set[str] = set()
     tickers_seen: set[str] = set()
     rows_total = matured_primary = 0
+    # 기준선용 — HOLD까지 포함한 전 표본의 primary horizon 수익. "아무 종목이나 찍었을 때"가
+    # 몇 %였는지가 없으면 정밀도 숫자는 방향조차 해석할 수 없다.
+    base_rets: list[float] = []
 
     for r in history_rows:
         ticker = r.get("ticker")
@@ -126,6 +154,7 @@ def realized_accuracy(
         # 팩터 IC는 전체(HOLD 포함) 표본에서 primary horizon 수익으로
         if primary in rets:
             matured_primary += 1
+            base_rets.append(rets[primary])
             for c in FACTOR_COLS:
                 v = r.get(c)
                 if v is not None:
@@ -140,7 +169,9 @@ def realized_accuracy(
         if not n:
             return {"n": 0, "hit_rate": None, "beat_rate": None, "avg_ret": None}
         buy = is_buy(kind)
-        hit = sum(1 for x in rets if (x > 0) == buy)             # 방향 정확도
+        # 방향 정확도. 무변동(정확히 0)은 어느 쪽 적중도 아니다 — 헤드라인 정밀도와 같은 정의를
+        # 써서 같은 화면에 두 규칙이 서지 않게 한다.
+        hit = sum(1 for x in rets if (x > 0 if buy else x < 0))
         beat = sum(1 for x in rets if (x > hit_ret if buy else x < -hit_ret))  # 임계 초과
         return {"n": n,
                 "hit_rate": round(hit / n * 100, 1),
@@ -151,13 +182,20 @@ def realized_accuracy(
 
     # 헤드라인: 매수(BUY+STRONG_BUY) 시그널의 primary horizon 방향 정밀도
     buy_rets = by_tier[BUY].get(primary, []) + by_tier[STRONG_BUY].get(primary, [])
-    buy_precision = (round(sum(1 for x in buy_rets if x > 0) / len(buy_rets) * 100, 1)
-                     if buy_rets else None)
+    buy_precision = _precision(buy_rets, up=True)
     # 매도 사이드도 같은 규약으로 계산 — 숏(인버스 포함) 검토의 전제 검증용 관측치.
     # 봇·문턱·combine과 무관하고, 표본이 매수보다 훨씬 적을 수 있어 UI는 별도 가드가 필요하다.
     sell_rets = by_tier[SELL].get(primary, []) + by_tier[STRONG_SELL].get(primary, [])
-    sell_precision = (round(sum(1 for x in sell_rets if x < 0) / len(sell_rets) * 100, 1)
-                      if sell_rets else None)
+    sell_precision = _precision(sell_rets, up=False)
+
+    # 기준선(naive 예측기) — 전 표본을 "항상 매수"/"항상 매도"로 찍었을 때의 정밀도.
+    # 시장 드리프트가 그대로 들어가므로 하락장이면 down_pct가 60%를 넘는 게 정상이다.
+    base_up = _precision(base_rets, up=True)
+    base_down = _precision(base_rets, up=False)
+    buy_lift = (round(buy_precision - base_up, 1)
+                if buy_precision is not None and base_up is not None else None)
+    sell_lift = (round(sell_precision - base_down, 1)
+                 if sell_precision is not None and base_down is not None else None)
 
     factor_ic = {c: (round(ic, 3) if (ic := _spearman_ic(ic_pairs[c])) is not None else None)
                  for c in FACTOR_COLS}
@@ -170,8 +208,21 @@ def realized_accuracy(
         "tiers": tiers,
         "buy_precision_pct": buy_precision,          # "매수 찍은 것 중 오른 비율"
         "buy_sample": len(buy_rets),
+        "buy_precision_ci_pp": _ci_half_pp(buy_precision, len(buy_rets)),
+        "buy_lift_pp": buy_lift,                     # 기준선 대비 초과분 — 판정은 이 값으로만
         "sell_precision_pct": sell_precision,        # "매도 찍은 것 중 내린 비율"(숏 관측용)
         "sell_sample": len(sell_rets),
+        "sell_precision_ci_pp": _ci_half_pp(sell_precision, len(sell_rets)),
+        "sell_lift_pp": sell_lift,
+        # 기준선 — 같은 기간·같은 유니버스를 아무 방향으로 찍었을 때의 성적
+        "baseline": {
+            "sample": len(base_rets),
+            "up_pct": base_up,                       # "항상 매수" naive 정밀도
+            "down_pct": base_down,                   # "항상 매도" naive 정밀도
+            "avg_ret_pct": (round(sum(base_rets) / len(base_rets) * 100, 2)
+                            if base_rets else None),  # 시장 드리프트(%)
+        },
+        "lift_min_pp": MIN_LIFT_PP,
         "factor_ic": factor_ic,                      # Spearman IC (팩터값↑ vs 미래수익)
         "ic_min_samples": _MIN_IC_SAMPLES,
         "coverage": {

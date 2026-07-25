@@ -40,7 +40,13 @@ def _accuracy_line(accuracy: dict | None) -> str:
     if prec is None:
         return f"실측: 누적중 · 성숙 {matured}/{need}"
     h = accuracy.get("primary_horizon") or 20
-    return f"실측 매수 정밀도 {prec:.1f}% ({h}거래일 · 표본 {accuracy.get('buy_sample') or matured})"
+    line = f"실측 매수 정밀도 {prec:.1f}% ({h}거래일 · 표본 {accuracy.get('buy_sample') or matured})"
+    # 기준선을 같이 적지 않으면 하락장에서 정밀도 숫자가 반대로 읽힌다
+    lift = accuracy.get("buy_lift_pp")
+    base = (accuracy.get("baseline") or {}).get("up_pct")
+    if lift is not None and base is not None:
+        line += f"\n기준선 {base:.1f}% · 리프트 {lift:+.1f}%p"
+    return line
 
 
 def _threshold_line(threshold: float, base_threshold: float, reasons: list[str] | None) -> str:

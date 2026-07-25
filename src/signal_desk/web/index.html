@@ -2206,6 +2206,27 @@ async function loadRegime(){
 // ③ 신뢰 스트립 — 실측 track record(누적중 가드) + 봇 체결 성적. 백테스트 숫자는 여기 안 올림.
 const _TRUST_MATURE_N = 20;  // IC·정밀도 헤드라인 최소 표본(accuracy.ic_min_samples와 맞춤)
 
+// 정밀도 색은 절대값이 아니라 기준선 대비 리프트로 정한다. 하락장이면 아무 종목이나 '매도'라고
+// 찍어도 정밀도가 60%를 넘으므로, 55%를 초록으로 칠하면 기준선 미달을 합격으로 보여주게 된다.
+function liftColor(lift, minLift){
+  if (lift == null) return 'var(--dim)';
+  const m = minLift == null ? 3 : minLift;
+  return lift >= m ? 'var(--sig-buy)' : lift <= -m ? 'var(--sig-sell)' : 'var(--txt)';
+}
+// "기준선 52.1% · 리프트 +2.9%p" — 정밀도 숫자 옆에 항상 붙는다(단독 노출 금지).
+function liftNote(lift, basePct, ciPp){
+  if (lift == null || basePct == null) return '';
+  const sign = lift > 0 ? '+' : '';
+  const ci = ciPp == null ? '' : ` · 표본오차 ±${fmtNum(ciPp, 1)}%p`;
+  return ` <span style="color:var(--dim-2)">(기준선 ${fmtNum(basePct, 1)}% · 리프트 ${sign}${fmtNum(lift, 1)}%p${ci})</span>`;
+}
+// 관리자 패널용 — 숫자 옆에 붙는 "리프트 +2.9%p · " 접두. 표본오차가 리프트보다 크면 무정보다.
+function liftText(lift, ciPp){
+  if (lift == null) return '';
+  const sign = lift > 0 ? '+' : '';
+  const weak = ciPp != null && Math.abs(lift) < ciPp ? ' <span style="color:var(--sig-sell)">표본오차 내</span> ·' : '';
+  return `리프트 ${sign}${fmtNum(lift, 1)}%p${ciPp == null ? '' : `(±${fmtNum(ciPp, 1)}%p)`} ·${weak} `;
+}
 // 매도 정밀도 = "매도 찍은 것 중 내린 비율". 숏(인버스 포함)을 검토할 값어치가 있는지 재는 관측치로,
 // 매수와 표본이 따로 쌓이므로 가드도 따로 본다. 봇·문턱에는 반영하지 않는다.
 function sellPrecisionRow(acc, need){
@@ -2217,9 +2238,11 @@ function sellPrecisionRow(acc, need){
       + `매도 정밀도 · 표본 ${n}/${need}`
       + ` <span style="color:var(--dim-2)">· 숏 검토는 이 숫자가 찬 뒤에 봅니다</span></div>`;
   const p = acc.sell_precision_pct;
-  const c = p == null ? 'var(--dim)' : p >= 55 ? 'var(--sig-buy)' : p < 45 ? 'var(--sig-sell)' : 'var(--txt)';
+  const base = (acc.baseline || {}).down_pct;
+  const c = liftColor(acc.sell_lift_pp, acc.lift_min_pp);
   return `<div class="trust-row"><span class="trust-badge live">실측</span>`
     + `매도 정밀도 <b style="color:${c}">${p == null ? '–' : fmtNum(p, 1) + '%'}</b>`
+    + liftNote(acc.sell_lift_pp, base, acc.sell_precision_ci_pp)
     + ` <span style="color:var(--dim-2)">(${h}거래일 · 표본 ${n} · 매도 찍은 것 중 내린 비율)</span>`
     + ` <span style="color:var(--dim-2)">· 숏 관측용 · 봇 미반영</span></div>`;
 }
@@ -2238,9 +2261,10 @@ async function loadScorecard(){
     const matureOk = !!acc.ready && matured >= need;
     if (matureOk) {
       const prec = acc.buy_precision_pct;
-      const pc = prec == null ? 'var(--dim)' : prec >= 55 ? 'var(--sig-buy)' : prec < 45 ? 'var(--sig-sell)' : 'var(--txt)';
+      const pc = liftColor(acc.buy_lift_pp, acc.lift_min_pp);
       rows.push(`<div class="trust-row"><span class="trust-badge live">실측</span>`
         + `<b>시그널 성적</b> · 매수 정밀도 <b style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</b>`
+        + liftNote(acc.buy_lift_pp, (acc.baseline || {}).up_pct, acc.buy_precision_ci_pp)
         + ` <span style="color:var(--dim-2)">(${acc.primary_horizon || 20}거래일 · 표본 ${acc.buy_sample || matured})</span></div>`);
       rows.push(sellPrecisionRow(acc, need));
     } else {
@@ -5561,11 +5585,17 @@ async function loadAccuracy(){
     }
     const h = d.primary_horizon;
     const prec = d.buy_precision_pct;
-    const precColor = prec >= 55 ? 'var(--sig-buy)' : prec < 45 ? 'var(--sig-sell)' : 'var(--dim)';
+    const base = d.baseline || {};
+    const precColor = liftColor(d.buy_lift_pp, d.lift_min_pp);
     const sellN = d.sell_sample || 0;
     const sellPrec = d.sell_precision_pct;
-    const sellColor = sellPrec == null ? 'var(--dim)'
-      : sellPrec >= 55 ? 'var(--sig-buy)' : sellPrec < 45 ? 'var(--sig-sell)' : 'var(--dim)';
+    const sellColor = liftColor(d.sell_lift_pp, d.lift_min_pp);
+    // 기준선 없이 정밀도만 보면 하락장에서 무작위 매도(60%+)를 실력으로 오독한다
+    const baseBlock = base.up_pct == null ? ''
+      : `<div style="font-size:12px;color:var(--dim-2);margin:2px 0 6px">기준선(전 표본 ${base.sample}건 · HOLD 포함)`
+        + ` — 항상 매수 ${fmtNum(base.up_pct, 1)}% · 항상 매도 ${fmtNum(base.down_pct, 1)}%`
+        + `${base.avg_ret_pct == null ? '' : ` · 시장 드리프트 ${base.avg_ret_pct > 0 ? '+' : ''}${fmtNum(base.avg_ret_pct, 2)}%`}`
+        + ` · 판정은 리프트(기준선 초과 ±${fmtNum(d.lift_min_pp == null ? 3 : d.lift_min_pp, 1)}%p) 기준</div>`;
     // 매도 정밀도는 숏 검토의 전제("우리 SELL이 실제로 내려갔나") 관측치 — 표본 가드는 매수와 별도
     const sellBlock = !sellN ? ''
       : sellN < need
@@ -5574,7 +5604,7 @@ async function loadAccuracy(){
             <span class="trust-badge live">실측</span>
             <span style="font-size:13px;color:var(--dim)">매도 정밀도 <span style="color:var(--dim-2)">· ${h}거래일</span></span>
             <span style="font-size:20px;font-weight:800;color:${sellColor}">${fmtNum(sellPrec, 1)}%</span>
-            <span style="font-size:12px;color:var(--dim-2)">매도 시그널 ${sellN}건 중 하락 비율 · 숏 관측용 · 봇 미반영</span></div>`;
+            <span style="font-size:12px;color:var(--dim-2)">${liftText(d.sell_lift_pp, d.sell_precision_ci_pp)}매도 시그널 ${sellN}건 중 하락 비율 · 숏 관측용 · 봇 미반영</span></div>`;
     const t = (d.tiers || {})[h] || {};
     const retCell = v => v == null ? '<td style="color:var(--dim-2)">–</td>'
       : `<td style="color:${v > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">${v > 0 ? '+' : ''}${fmtNum(v, 2)}%</td>`;
@@ -5602,7 +5632,8 @@ async function loadAccuracy(){
         <span class="trust-badge live">실측</span>
         <span style="font-size:13px;color:var(--dim)">매수 정밀도 <span style="color:var(--dim-2)">· ${h}거래일</span></span>
         <span style="font-size:26px;font-weight:800;color:${precColor}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</span>
-        <span style="font-size:12px;color:var(--dim-2)">매수 시그널 ${d.buy_sample}건 중 상승 비율</span></div>
+        <span style="font-size:12px;color:var(--dim-2)">${liftText(d.buy_lift_pp, d.buy_precision_ci_pp)}매수 시그널 ${d.buy_sample}건 중 상승 비율</span></div>
+      ${baseBlock}
       ${sellBlock}
       <table class="dtable" style="margin-top:8px"><thead><tr><th>티어</th><th>표본</th><th>적중률</th><th>평균수익</th></tr></thead><tbody>${tierRows}</tbody></table>
       <div style="font-size:13px;font-weight:700;margin:16px 0 4px">팩터 예측력 <span style="color:var(--dim);font-weight:500">· Spearman IC (팩터값↑ vs ${h}일 수익, 양수=예측 유효)</span></div>
