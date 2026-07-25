@@ -1,6 +1,9 @@
 """아침 브리핑 — 매수 0일에도 보낼 내용이 있는지 · 실측 가드 · 게이트 제외."""
 
 import datetime
+import importlib
+
+from fastapi.testclient import TestClient
 
 from signal_desk import config, digest
 from signal_desk.signals.engine import SignalResult
@@ -69,6 +72,38 @@ def test_accuracy_guard_hides_early_precision():
     none = digest.build_morning(signals=[], regime_label=None, threshold=1.2,
                                 base_threshold=1.2, date=_D)
     assert "track record 쌓는 중" in none and "판정 없음" in none
+
+
+def test_preview_and_test_send_are_admin_only(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db as db_module
+    importlib.reload(db_module)
+    from signal_desk import api as api_module
+    importlib.reload(api_module)
+    client = TestClient(api_module.app)
+
+    assert client.get("/api/morning-digest").status_code == 401
+    assert client.post("/api/morning-digest/test").status_code == 401
+
+    client.post("/api/auth/signup", json={"email": "u@e.com", "pw": "abcdef12"})
+    assert client.get("/api/morning-digest").status_code == 403
+    assert client.post("/api/morning-digest/test").status_code == 403
+
+
+def test_test_send_needs_telegram(tmp_path, monkeypatch):
+    """텔레그램 미설정이면 발송을 시도하지 않고 이유를 돌려준다(conftest가 키를 빈 값으로 고정)."""
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db as db_module
+    importlib.reload(db_module)
+    from signal_desk import api as api_module
+    importlib.reload(api_module)
+    client = TestClient(api_module.app)
+    client.post("/api/auth/signup", json={"email": "devcheck@example.com", "pw": "abcdef12"})
+    out = client.post("/api/morning-digest/test").json()
+    assert out["ok"] is False and "텔레그램" in out["reason"]
+    # 미리보기는 스케줄 상태를 알려주되 발송하지 않는다
+    pv = client.get("/api/morning-digest").json()
+    assert pv["telegram"] is False and pv["hour_kst"] == 7 and pv["sent_date"] is None
 
 
 def test_digest_hour_config(monkeypatch):

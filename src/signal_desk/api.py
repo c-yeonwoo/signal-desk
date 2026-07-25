@@ -135,6 +135,22 @@ def _quote_loop_iteration() -> None:
     _refresh_live_quotes(_open_markets())
 
 
+def _morning_digest_text(date: datetime.date | None = None) -> str | None:
+    """아침 브리핑 본문 — 발송·스케줄과 분리(미리보기·테스트 발송이 같은 텍스트를 쓴다)."""
+    if not store.is_ready():
+        return None
+    _, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
+    return digest.build_morning(
+        signals=list(_signals()),
+        regime_label=(_regime() or {}).get("regime"),  # UI 시그널 탭 '시장 ZONE' pill과 같은 값
+        threshold=adapt["effective_buy_threshold"],
+        base_threshold=signalcfg.get_config().buy_threshold,
+        bump_reasons=adapt.get("reasons"),
+        accuracy=_accuracy_snapshot(),
+        date=date or datetime.datetime.now(ZoneInfo("Asia/Seoul")).date(),
+    )
+
+
 def _morning_digest() -> bool:
     """아침 브리핑을 텔레그램 채널로 하루 1회(평일, KST 지정 시각 이후 첫 틱) 푸시.
     유저별이 아니라 시장 요약이라 채널 공용. 매수 0일에도 보낼 내용이 있다."""
@@ -148,17 +164,8 @@ def _morning_digest() -> bool:
         return False
     # 전송 전에 날짜를 찍는다 — 전송 실패로 하루를 빠뜨리는 편이 중복 발송·재시도 폭주보다 낫다
     db.kv_set("morning_digest_date", _kst_today())
-    _, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
-    text = digest.build_morning(
-        signals=list(_signals()),
-        regime_label=(_regime() or {}).get("regime"),  # UI 시그널 탭 '시장 ZONE' pill과 같은 값
-        threshold=adapt["effective_buy_threshold"],
-        base_threshold=signalcfg.get_config().buy_threshold,
-        bump_reasons=adapt.get("reasons"),
-        accuracy=_accuracy_snapshot(),
-        date=now.date(),
-    )
-    ok = notify.push(text)
+    text = _morning_digest_text(now.date())
+    ok = notify.push(text) if text else False
     log.info("아침 브리핑 %s", "발송" if ok else "발송 실패(텔레그램)")
     return ok
 
@@ -320,6 +327,7 @@ _ADMIN_PATHS = {
     "/api/data-health", "/api/egress-ip",
     "/api/hypothesis/refresh",
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
+    "/api/morning-digest", "/api/morning-digest/test",
 }
 
 
@@ -2117,6 +2125,37 @@ def climate_shadow_get(request: Request):
     """기후 vs 기존 kind 일별 shadow 요약 — 관측용 · 봇/문턱 미연동. 관리자."""
     _admin_or_403(request)
     return climate.shadow_summary()
+
+
+@app.get("/api/morning-digest")
+def morning_digest_preview(request: Request):
+    """아침 브리핑 미리보기 — 발송하지 않는다. 스케줄 상태도 같이. 관리자."""
+    _admin_or_403(request)
+    hour = config.morning_digest_hour()
+    text = _morning_digest_text()
+    return {
+        "ready": text is not None,
+        "text": text,
+        "hour_kst": hour,
+        "enabled": hour is not None,
+        "telegram": notify.available(),
+        "sent_date": db.kv_get("morning_digest_date"),
+    }
+
+
+@app.post("/api/morning-digest/test")
+def morning_digest_test(request: Request):
+    """아침 브리핑 테스트 발송(즉시, 1회) — 관리자. 하루 1회 가드는 건드리지 않아
+    예정된 아침 발송은 그대로 나간다."""
+    _admin_or_403(request)
+    if not notify.available():
+        return {"ok": False, "reason": "텔레그램 미설정(TELEGRAM_BOT_TOKEN/CHAT_ID)"}
+    text = _morning_digest_text()
+    if not text:
+        return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 후 재시도"}
+    ok = notify.push(text)
+    log.info("아침 브리핑 테스트 발송 %s", "성공" if ok else "실패")
+    return {"ok": ok, "text": text}
 
 
 @app.get("/api/advisor-shadow")
