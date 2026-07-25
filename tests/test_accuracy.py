@@ -72,6 +72,67 @@ def test_sell_precision_counts_declines():
     assert out["buy_precision_pct"] is None and out["buy_sample"] == 0
 
 
+def _flat_universe(n_down: int, n_up: int, *, days: int = 40):
+    """하락 n_down개 · 상승 n_up개로 이뤄진 유니버스 + 기준선 계산용 HOLD 행."""
+    closes, rows = {}, []
+    base = {"momentum": 0, "technical": 0, "fundamental": 0, "valuation": 50,
+            "reversion": 0, "qualitative": 0, "flow": 0, "quality": 0}
+    for i in range(n_down):
+        t = f"DN{i}"
+        closes[t] = _closes(start=100.0, n=days, step=-1.0)
+        rows.append({"date": "2026-01-01", "ticker": t, "kind": "HOLD", **base})
+    for i in range(n_up):
+        t = f"UP{i}"
+        closes[t] = _closes(start=100.0, n=days, step=1.0)
+        rows.append({"date": "2026-01-01", "ticker": t, "kind": "HOLD", **base})
+    return closes, rows
+
+
+def test_sell_precision_can_be_below_base_rate():
+    """하락장에서는 무작위 매도도 정밀도가 높다 — 66.7%가 기준선(70%) 미달일 수 있다."""
+    closes, rows = _flat_universe(7, 3)
+    for r in rows:  # 매도 3건: 하락 2 + 상승 1
+        if r["ticker"] in ("DN0", "DN1", "UP0"):
+            r["kind"] = "SELL"
+    out = accuracy.realized_accuracy(rows, closes, horizons=(5,), primary=5)
+    assert out["sell_precision_pct"] == 66.7
+    assert out["baseline"]["down_pct"] == 70.0    # "항상 매도"의 성적
+    assert out["baseline"]["up_pct"] == 30.0
+    assert out["sell_lift_pp"] == -3.3            # 정밀도는 높은데 기준선 미달 → 음의 리프트
+    assert out["baseline"]["sample"] == 10
+
+
+def test_buy_lift_positive_when_selection_beats_market():
+    closes, rows = _flat_universe(4, 6)
+    for r in rows:  # 상승 종목만 골라 매수 → 정밀도 100%
+        if r["ticker"] in ("UP0", "UP1", "UP2"):
+            r["kind"] = "BUY"
+    out = accuracy.realized_accuracy(rows, closes, horizons=(5,), primary=5)
+    assert out["buy_precision_pct"] == 100.0
+    assert out["baseline"]["up_pct"] == 60.0
+    assert out["buy_lift_pp"] == 40.0
+    assert out["lift_min_pp"] == accuracy.MIN_LIFT_PP
+
+
+def test_flat_return_is_not_a_hit_on_either_side():
+    """무변동은 매수도 매도도 적중이 아니다 — 티어 적중률과 정밀도가 같은 정의를 쓴다."""
+    d, c = _closes(start=100.0, n=40, step=0.0)
+    base = {"momentum": 0, "technical": 0, "fundamental": 0, "valuation": 50,
+            "reversion": 0, "qualitative": 0, "flow": 0, "quality": 0}
+    rows = [{"date": "2026-01-01", "ticker": "FLAT", "kind": "SELL", **base}]
+    out = accuracy.realized_accuracy(rows, {"FLAT": (d, c)}, horizons=(5,), primary=5)
+    assert out["sell_precision_pct"] == 0.0
+    assert out["tiers"][5]["SELL"]["hit_rate"] == 0.0
+    assert out["baseline"]["down_pct"] == 0.0 and out["baseline"]["up_pct"] == 0.0
+
+
+def test_ci_half_width_exposes_small_samples():
+    # n=20·p=60% → ±21.5%p. 리프트가 이보다 작으면 무정보.
+    assert accuracy._ci_half_pp(60.0, 20) == 21.5
+    assert accuracy._ci_half_pp(60.0, 500) == 4.3
+    assert accuracy._ci_half_pp(None, 20) is None and accuracy._ci_half_pp(60.0, 0) is None
+
+
 def test_factor_ic_sign_and_min_samples():
     # momentum이 높을수록 미래수익이 높은 구조 25종목 → IC>0
     closes, rows = {}, []

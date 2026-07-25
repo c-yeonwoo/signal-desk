@@ -98,6 +98,9 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "시장 ZONE" in html and "경기 사이클(확정)" in html  # 이중 국면 라벨 분리
     assert "sellPrecisionRow" in html and "매도 정밀도" in html  # 숏 검토 전제 관측치
     assert "숏 관측용 · 봇 미반영" in html
+    # 정밀도 색·해석은 절대값이 아니라 기준선 대비 리프트 — 하락장 오독 방지
+    assert "liftColor" in html and "liftNote" in html and "기준선" in html
+    assert "prec >= 55" not in html and "sellPrec >= 55" not in html
     assert 'aria-label="종합점수 이상"' in html and 'aria-label="팩터 강도 이상"' in html
     assert "toggleSignalFilterDrawer" in html and 'id="sig-filter-fab"' in html
 
