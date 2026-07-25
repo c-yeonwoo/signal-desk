@@ -162,6 +162,39 @@ def test_advisor_filters_to_candidates_and_caps(monkeypatch):
     assert picks == [{"ticker": "B", "rationale": "좋음"}]  # 밖(ZZZ) 제외, 중복 제거, 1개 캡
 
 
+def test_advisor_empty_picks_is_abstention_not_failure(monkeypatch):
+    """빈 배열은 '살 게 없다'는 판단 → []로 그대로 돌려 봇이 폴백 매수를 하지 않게 한다."""
+    monkeypatch.setattr(advisor.llm, "available", lambda: True)
+    monkeypatch.setattr(advisor.llm, "complete_json", lambda *a, **k: {"picks": []})
+    cands = [{"ticker": "A", "name": "a", "score": 2.0, "confidence": 0.7, "reasons": []}]
+    assert advisor.select_buys(cands, {}, {}, [], 1) == []
+
+
+def test_advisor_all_picks_outside_candidates_is_failure(monkeypatch):
+    """후보 밖만 고른 건 기권이 아니라 오작동 → None(점수순 폴백)."""
+    monkeypatch.setattr(advisor.llm, "available", lambda: True)
+    monkeypatch.setattr(advisor.llm, "complete_json",
+                        lambda *a, **k: {"picks": [{"ticker": "ZZZ", "rationale": "밖"}]})
+    cands = [{"ticker": "A", "name": "a", "score": 2.0, "confidence": 0.7, "reasons": []}]
+    assert advisor.select_buys(cands, {}, {}, [], 1) is None
+
+
+def test_advisor_prompt_allows_abstention_and_asks_for_counterarguments(monkeypatch):
+    """프롬프트에 반론 요구와 기권 경로가 있어야 '개수를 채우는' 아첨을 줄일 수 있다."""
+    seen = {}
+    monkeypatch.setattr(advisor.llm, "available", lambda: True)
+
+    def _capture(system, user, **k):
+        seen["system"], seen["user"] = system, user
+        return {"picks": []}
+
+    monkeypatch.setattr(advisor.llm, "complete_json", _capture)
+    advisor.select_buys([{"ticker": "A", "name": "a", "score": 2.0, "confidence": 0.7, "reasons": []}],
+                        {}, {}, [], 2)
+    assert "사지 않을 이유" in seen["system"] and "빈 배열" in seen["system"]
+    assert "개수를 채울 의무는 없다" in seen["user"]
+
+
 def test_trusted_source_lowers_accept_threshold(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     # LLM이 trust 0.6·verdict review로 판정 → 일반은 pending, 신뢰 출처는 confirmed(accept)
