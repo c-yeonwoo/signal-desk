@@ -234,6 +234,19 @@ def quote_refresh_interval_minutes() -> int:
     return int(os.environ.get("QUOTE_REFRESH_INTERVAL_MINUTES", "10"))
 
 
+def morning_digest_hour() -> int | None:
+    """아침 브리핑 발송 시각(KST 시, 평일). 기본 7시. `off`/`0` 이하면 발송 안 함.
+    텔레그램 미설정이면 값과 무관하게 no-op."""
+    raw = (os.environ.get("MORNING_DIGEST_HOUR") or "7").strip().lower()
+    if raw in ("off", "false", "no"):
+        return None
+    try:
+        h = int(raw)
+    except ValueError:
+        return 7
+    return h if 0 < h <= 23 else None
+
+
 def admin_emails() -> set[str]:
     """관리자 화이트리스트(소문자). ADMIN_EMAILS(.env, 콤마구분) + 데모 계정 기본 포함.
     관리자만 엔진 설정·KB 적재·데이터 갱신 등 관리 기능에 접근한다."""

@@ -25,7 +25,7 @@ from fastapi import Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from signal_desk import (
-    auth, bot, brain, brain_proposals, chat, company, config, db, kb, kb_search,
+    auth, bot, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
     notify, shortform, signalcfg, store, strategy,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
@@ -135,10 +135,42 @@ def _quote_loop_iteration() -> None:
     _refresh_live_quotes(_open_markets())
 
 
+def _morning_digest() -> bool:
+    """아침 브리핑을 텔레그램 채널로 하루 1회(평일, KST 지정 시각 이후 첫 틱) 푸시.
+    유저별이 아니라 시장 요약이라 채널 공용. 매수 0일에도 보낼 내용이 있다."""
+    hour = config.morning_digest_hour()
+    if hour is None or not notify.available() or not store.is_ready():
+        return False
+    now = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
+    if now.weekday() >= 5 or now.hour < hour:
+        return False
+    if db.kv_get("morning_digest_date") == _kst_today():
+        return False
+    # 전송 전에 날짜를 찍는다 — 전송 실패로 하루를 빠뜨리는 편이 중복 발송·재시도 폭주보다 낫다
+    db.kv_set("morning_digest_date", _kst_today())
+    _, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
+    text = digest.build_morning(
+        signals=list(_signals()),
+        regime_label=(_regime() or {}).get("regime"),  # UI 시그널 탭 '시장 ZONE' pill과 같은 값
+        threshold=adapt["effective_buy_threshold"],
+        base_threshold=signalcfg.get_config().buy_threshold,
+        bump_reasons=adapt.get("reasons"),
+        accuracy=_accuracy_snapshot(),
+        date=now.date(),
+    )
+    ok = notify.push(text)
+    log.info("아침 브리핑 %s", "발송" if ok else "발송 실패(텔레그램)")
+    return ok
+
+
 def _bot_loop_iteration() -> None:
     """봇·LLM·백필 루프 1회분(시세 갱신은 _quote_loop가 담당).
     동기 블로킹이라 asyncio.to_thread로 돌린다."""
     _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(공용)
+    try:
+        _morning_digest()  # 아침 정기 요약(텔레그램 채널) — 앱 안 열어도 오는 맥락
+    except Exception as e:
+        log.warning("아침 브리핑 실패(무시): %s", type(e).__name__)
     enabled = db.user_bots_enabled()
     open_markets = _open_markets()
     try:  # 배포 환경 US 시세 자동 점진 적재(us_prices는 gitignore로 캐시 없음) — 다 차면 no-op
