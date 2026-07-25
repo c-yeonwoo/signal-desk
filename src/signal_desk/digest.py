@@ -68,6 +68,20 @@ def _buyable(sig: Any) -> bool:
     return not (dec is not None and getattr(dec, "buy_blocked", False))
 
 
+def buy_signals(signals: list[Any]) -> list[Any]:
+    """브리핑이 '매수 시그널'로 세는 것과 같은 목록(점수 내림차순).
+    전일 대비 증감을 저장·비교하는 쪽에서도 같은 정의를 써야 하므로 밖으로 뺐다."""
+    return sorted([s for s in signals if is_buy(getattr(s, "kind", "")) and _buyable(s)],
+                  key=lambda s: float(s.score), reverse=True)
+
+
+def _change_note(count: int, prev: int | None) -> str:
+    """어제와 같은 숫자만 매일 보내면 3일 차에 열지 않는다 — 변화를 먼저 보여준다."""
+    if prev is None or prev == count:
+        return ""
+    return f" (어제 {prev} → {count - prev:+d})"
+
+
 def build_morning(
     *,
     signals: list[Any],
@@ -77,13 +91,17 @@ def build_morning(
     bump_reasons: list[str] | None = None,
     accuracy: dict | None = None,
     date: datetime.date | None = None,
+    app_url: str | None = None,
+    prev_buy_count: int | None = None,
 ) -> str:
-    """아침 브리핑 본문. signals는 SignalResult 리스트(국내), threshold는 국면 반영 유효 문턱."""
+    """아침 브리핑 본문. signals는 SignalResult 리스트(국내), threshold는 국면 반영 유효 문턱.
+
+    app_url이 있으면 마지막에 「앱에서 보기」 링크를 붙인다 — 링크가 없으면 브리핑을 읽고
+    끝나서 D7(재방문)에 구조적으로 기여하지 못한다.
+    prev_buy_count가 있으면 매수 종목 수의 전일 대비 증감을 함께 적는다(매일 같은 문장 방지).
+    """
     d = date or datetime.date.today()
-    buys = sorted(
-        [s for s in signals if is_buy(getattr(s, "kind", "")) and _buyable(s)],
-        key=lambda s: float(s.score), reverse=True,
-    )
+    buys = buy_signals(signals)
     bought = {s.ticker for s in buys}
     near = sorted(
         [s for s in signals
@@ -96,15 +114,17 @@ def build_morning(
     lines.append(f"{zone} · {_threshold_line(threshold, base_threshold, bump_reasons)}")
     lines.append("")
 
+    change = _change_note(len(buys), prev_buy_count)
     if buys:
-        lines.append(f"매수 시그널 {len(buys)}")
+        lines.append(f"매수 시그널 {len(buys)}{change}")
         for s in buys[:_BUY_LIMIT]:
             lines.append(f"🟢 {s.name} {float(s.score):+.2f}")
         if len(buys) > _BUY_LIMIT:
             lines.append(f"… 외 {len(buys) - _BUY_LIMIT}종목")
     else:
         # 매수 0일이 정상 동작임을 매번 같은 문장으로 — 앱의 '매수 0일 히어로'와 같은 톤
-        lines.append("매수 시그널 0 — 기준을 넘은 종목이 없습니다. 오늘은 기다리는 날입니다.")
+        lines.append(f"매수 시그널 0{change} — 기준을 넘은 종목이 없습니다. 정밀도 우선이라 그렇고,"
+                     " 고장이 아닙니다. 오늘은 기다리는 날입니다.")
 
     if near:
         lines.append("")
@@ -113,5 +133,9 @@ def build_morning(
             gap = threshold - float(s.score)
             lines.append(f"· {s.name} {float(s.score):+.2f} ({gap:.2f} 남음)")
 
-    lines += ["", _accuracy_line(accuracy), DISCLAIMER]
+    lines += ["", _accuracy_line(accuracy)]
+    if app_url:
+        # 딥링크는 시그널 탭으로 — D7 계측 지점(GET /api/signals)과 같은 화면이어야 한다.
+        lines += ["", f"앱에서 보기 → {app_url.rstrip('/')}/#signal"]
+    lines.append(DISCLAIMER)
     return "\n".join(lines)

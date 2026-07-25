@@ -135,20 +135,34 @@ def _quote_loop_iteration() -> None:
     _refresh_live_quotes(_open_markets())
 
 
-def _morning_digest_text(date: datetime.date | None = None) -> str | None:
-    """아침 브리핑 본문 — 발송·스케줄과 분리(미리보기·테스트 발송이 같은 텍스트를 쓴다)."""
+_DIGEST_PREV_KEY = "morning_digest_buy_count"
+
+
+def _morning_digest_text(date: datetime.date | None = None, *,
+                         remember: bool = False) -> str | None:
+    """아침 브리핑 본문 — 발송·스케줄과 분리(미리보기·테스트 발송이 같은 텍스트를 쓴다).
+
+    remember=True(정기 발송)일 때만 매수 종목 수를 저장해 다음 회차의 '어제 대비'로 쓴다.
+    미리보기·테스트 발송이 이 값을 덮어쓰면 다음 정기 브리핑의 증감이 틀어진다."""
     if not store.is_ready():
         return None
     _, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
-    return digest.build_morning(
-        signals=list(_signals()),
+    sigs = list(_signals())
+    prev_raw = db.kv_get(_DIGEST_PREV_KEY)
+    text = digest.build_morning(
+        signals=sigs,
         regime_label=(_regime() or {}).get("regime"),  # UI 시그널 탭 '시장 ZONE' pill과 같은 값
         threshold=adapt["effective_buy_threshold"],
         base_threshold=signalcfg.get_config().buy_threshold,
         bump_reasons=adapt.get("reasons"),
         accuracy=_accuracy_snapshot(),
         date=date or datetime.datetime.now(ZoneInfo("Asia/Seoul")).date(),
+        app_url=config.public_base_url(),
+        prev_buy_count=int(prev_raw) if str(prev_raw or "").isdigit() else None,
     )
+    if remember:
+        db.kv_set(_DIGEST_PREV_KEY, str(len(digest.buy_signals(sigs))))
+    return text
 
 
 def _morning_digest() -> bool:
@@ -164,7 +178,7 @@ def _morning_digest() -> bool:
         return False
     # 전송 전에 날짜를 찍는다 — 전송 실패로 하루를 빠뜨리는 편이 중복 발송·재시도 폭주보다 낫다
     db.kv_set("morning_digest_date", _kst_today())
-    text = _morning_digest_text(now.date())
+    text = _morning_digest_text(now.date(), remember=True)
     ok = notify.push(text) if text else False
     log.info("아침 브리핑 %s", "발송" if ok else "발송 실패(텔레그램)")
     return ok
@@ -328,6 +342,7 @@ _ADMIN_PATHS = {
     "/api/hypothesis/refresh",
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
     "/api/morning-digest", "/api/morning-digest/test",
+    "/api/d7",
 }
 
 
@@ -876,9 +891,18 @@ def _annotate_external_watch(items: list[dict]) -> list[dict]:
 
 
 @app.get("/api/signals")
-def signals_get(market: str = "kospi"):
+def signals_get(request: Request, market: str = "kospi"):
     """시그널 리스트(요약). 상세 필드(about/moves/target/reasons/narrative/kb)는
-    GET /api/signals/{ticker}/detail 로 클릭 시 로드."""
+    GET /api/signals/{ticker}/detail 로 클릭 시 로드.
+
+    북극성 D7의 유일한 계측 지점이다(docs/north-star-d7.md) — 로그인 세션의 조회를
+    하루 1건으로 남긴다. 실패해도 응답은 막지 않는다(계측이 기능을 깨뜨리지 않게)."""
+    uid = _uid(request)
+    if uid:
+        try:
+            db.signal_visit_mark(uid, _kst_today())
+        except Exception as e:
+            log.warning("D7 방문 기록 실패: %s", type(e).__name__)
     if market == "us":
         items = _us_signal_items()
         if not items:
@@ -1071,6 +1095,13 @@ def backtest_analysis_get():
     if not store.is_ready():
         return {"ready": False}
     return {"ready": True, **_backtest_analysis()}
+
+
+@app.get("/api/d7")
+def d7_get(request: Request):
+    """북극성 D7 — 가입 후 7일 내 시그널 탭 재방문율. 관리자. 코호트 완성분만 분모."""
+    _admin_or_403(request)
+    return db.d7_metrics()
 
 
 @app.get("/api/accuracy")

@@ -101,6 +101,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 정밀도 색·해석은 절대값이 아니라 기준선 대비 리프트 — 하락장 오독 방지
     assert "liftColor" in html and "liftNote" in html and "기준선" in html
     assert "prec >= 55" not in html and "sellPrec >= 55" not in html
+    # 북극성 D7 관리자 카드 — 지표가 화면에 없으면 아무도 보지 않는다
+    assert 'id="d7-body"' in html and "loadD7" in html and "북극성 D7" in html
     assert 'aria-label="종합점수 이상"' in html and 'aria-label="팩터 강도 이상"' in html
     assert "toggleSignalFilterDrawer" in html and 'id="sig-filter-fab"' in html
 

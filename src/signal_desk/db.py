@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import sqlite3
 import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 DB = Path("data/cache/app.db")
 
@@ -23,6 +25,10 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,
     email TEXT UNIQUE, pwhash TEXT, created INTEGER);
 CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, uid INTEGER, ts INTEGER);
+-- 북극성 D7 계측: 로그인 세션의 시그널 탭 조회를 (유저·KST날짜) 1건으로 남긴다.
+-- docs/north-star-d7.md의 정의를 그대로 구현한 유일한 소스. 방문 시각은 진단용이고 집계는 날짜만 쓴다.
+CREATE TABLE IF NOT EXISTS signal_visits(uid INTEGER, visit_date TEXT, ts INTEGER,
+    PRIMARY KEY(uid, visit_date));
 CREATE TABLE IF NOT EXISTS profile(uid INTEGER PRIMARY KEY, data TEXT);
 CREATE TABLE IF NOT EXISTS favorites(uid INTEGER, kind TEXT, key TEXT, label TEXT, ts INTEGER,
     PRIMARY KEY(uid, kind, key));
@@ -253,6 +259,67 @@ def session_user(token: str):
                     (token,)).fetchone()
     c.close()
     return {"id": row[0], "email": row[1]} if row else None
+
+
+def signal_visit_mark(uid: int, visit_date: str) -> None:
+    """시그널 탭 조회 1일 1건 기록(북극성 D7 분자). 같은 날 재방문은 무시."""
+    c = conn()
+    c.execute("INSERT OR IGNORE INTO signal_visits(uid,visit_date,ts) VALUES(?,?,?)",
+              (uid, visit_date, int(time.time())))
+    c.commit()
+    c.close()
+
+
+def d7_metrics(*, window: int = 7, today: str | None = None) -> dict:
+    """북극성 D7 — 가입 후 D1~D`window` 중 시그널 탭을 하루라도 다시 연 유저 비율.
+
+    분모는 **코호트 완성분**(가입 후 window+1일 이상 경과)만. 아직 기간이 남은 유저는
+    `pending`으로 따로 센다 — 분모에 넣으면 최근 가입자가 많을 때 D7이 실제보다 낮게 보인다.
+    docs/north-star-d7.md의 정의를 그대로 따른다(D0 제외, 페이퍼·인사이트 조회 비포함).
+    """
+    tz = ZoneInfo("Asia/Seoul")
+    today_d = (datetime.date.fromisoformat(today) if today
+               else datetime.datetime.now(tz).date())
+    c = conn()
+    users = c.execute("SELECT id, created FROM users").fetchall()
+    visits = c.execute("SELECT uid, visit_date FROM signal_visits").fetchall()
+    c.close()
+
+    dates_by_uid: dict[int, set[str]] = {}
+    for uid, vd in visits:
+        dates_by_uid.setdefault(uid, set()).add(vd)
+
+    matured = returned = pending = 0
+    weeks: dict[str, dict] = {}
+    for uid, created in users:
+        if not created:
+            continue
+        d0 = datetime.datetime.fromtimestamp(created, tz).date()
+        if (today_d - d0).days <= window:
+            pending += 1
+            continue
+        matured += 1
+        seen = dates_by_uid.get(uid, set())
+        hit = any((d0 + datetime.timedelta(days=k)).isoformat() in seen
+                  for k in range(1, window + 1))
+        returned += 1 if hit else 0
+        wk = (d0 - datetime.timedelta(days=d0.weekday())).isoformat()  # 코호트 = 가입 주(월요일)
+        w = weeks.setdefault(wk, {"cohort_week": wk, "n": 0, "returned": 0})
+        w["n"] += 1
+        w["returned"] += 1 if hit else 0
+
+    for w in weeks.values():
+        w["d7_pct"] = round(w["returned"] / w["n"] * 100, 1) if w["n"] else None
+    return {
+        "window_days": window,
+        "denominator": matured,
+        "numerator": returned,
+        "d7_pct": round(returned / matured * 100, 1) if matured else None,
+        "pending_users": pending,          # 코호트 미완성(아직 판정 불가)
+        "visit_days_total": len(visits),
+        "cohorts": sorted(weeks.values(), key=lambda w: w["cohort_week"], reverse=True)[:8],
+        "definition": "가입 다음날부터 7일 내 시그널 탭(GET /api/signals) 재방문",
+    }
 
 
 def session_delete(token: str) -> None:

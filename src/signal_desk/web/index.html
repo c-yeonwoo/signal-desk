@@ -1132,6 +1132,12 @@
       <div id="llm-usage-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
 
+    <div class="card" id="d7-card" style="margin-top:16px">
+      <div style="font-weight:700;font-size:15px">북극성 D7 <span style="color:var(--dim);font-weight:600;font-size:12px">· 가입 후 7일 내 시그널 탭 재방문</span></div>
+      <p class="page-desc" style="margin:8px 0 4px">가입 <b>다음날부터 7일</b> 안에 시그널 탭을 한 번이라도 다시 연 유저 비율입니다. 아직 7일이 안 지난 유저는 분모에서 빼고 따로 셉니다 — 넣으면 최근 가입자가 많을 때 값이 낮게 보입니다.</p>
+      <div id="d7-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+    </div>
+
     <div class="card" id="accuracy-card" style="margin-top:16px">
       <div style="font-weight:700;font-size:15px">실측 성과 <span style="color:var(--dim);font-weight:600;font-size:12px">· track record</span></div>
       <p class="page-desc" style="margin:8px 0 4px">장 마감 후 그날 <b>실제로 낸 시그널</b>을 저장하고, 약 20거래일 뒤 수익률로 채점합니다. 봇이 샀는지와 무관하고, 백테스트(시뮬)와도 다릅니다.</p>
@@ -4931,7 +4937,7 @@ function switchAdminSeg(seg){
   document.getElementById('admin-shortform').style.display = seg === 'shortform' ? '' : 'none';
   const aw = document.getElementById('admin-watch');
   if (aw) aw.style.display = seg === 'watch' ? '' : 'none';
-  if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); loadLlmUsage(); loadAccuracy(); loadQualPromo(); }   // 백테스트·수동가중은 접이식
+  if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); loadLlmUsage(); loadD7(); loadAccuracy(); loadQualPromo(); }   // 백테스트·수동가중은 접이식
   if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
   if (seg === 'shortform') { loadShortform(); loadSfBg(); }
   if (seg === 'watch') loadExternalWatch();
@@ -5559,6 +5565,31 @@ async function setQualPromo(mode){
   })).json();
   if (r.detail || r.ok === false) { alert(r.detail || '저장 실패'); return; }
   await loadQualPromo();
+}
+async function loadD7(){
+  const el = document.getElementById('d7-body');
+  if (!el) return;
+  try {
+    const d = await (await fetch('/api/d7')).json();
+    el.className = '';
+    const n = d.denominator || 0;
+    const pct = d.d7_pct;
+    // 코호트가 비면 숫자를 만들지 않는다 — 0%와 "아직 판정 불가"는 전혀 다른 상태다
+    const head = n === 0
+      ? `<div style="font-size:22px;font-weight:800;color:var(--dim)">판정 불가</div>
+         <div style="font-size:12px;color:var(--dim-2)">7일이 지난 가입자가 아직 없습니다</div>`
+      : `<div style="font-size:26px;font-weight:800">${fmtNum(pct, 1)}%</div>
+         <div style="font-size:12px;color:var(--dim-2)">${d.numerator}/${n}명 재방문 · D1~D${d.window_days || 7}</div>`;
+    const rows = (d.cohorts || []).map(c => `<tr><td style="padding:4px 8px">${esc(c.cohort_week)} 주</td>`
+      + `<td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums">${c.returned}/${c.n}</td>`
+      + `<td style="padding:4px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmtNum(c.d7_pct, 1)}%</td></tr>`).join('');
+    el.innerHTML = `<div style="display:flex;gap:20px;align-items:flex-end;flex-wrap:wrap">${head}</div>`
+      + `<div style="margin-top:8px;font-size:12px;color:var(--dim)">집계 대기(가입 7일 미경과) <b>${d.pending_users || 0}</b>명`
+      + ` · 기록된 방문일 <b>${(d.visit_days_total || 0).toLocaleString()}</b>건</div>`
+      + (rows ? `<table style="margin-top:12px;font-size:12px;border-collapse:collapse"><thead><tr style="color:var(--dim-2)">`
+        + `<th style="padding:4px 8px;text-align:left">가입 주(월)</th><th style="padding:4px 8px;text-align:right">재방문/코호트</th>`
+        + `<th style="padding:4px 8px;text-align:right">D7</th></tr></thead><tbody>${rows}</tbody></table>` : '');
+  } catch (e) { el.textContent = 'D7 조회 실패'; }
 }
 async function loadAccuracy(){
   const el = document.getElementById('accuracy-body');
