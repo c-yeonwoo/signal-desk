@@ -13,7 +13,7 @@ lookahead 위험), 이 모듈은 store.snapshot_signals가 매일 PIT로 저장�
 
 from __future__ import annotations
 
-from .engine import ACTIONABLE_KINDS, BUY, STRONG_BUY, is_buy
+from .engine import ACTIONABLE_KINDS, BUY, SELL, STRONG_BUY, STRONG_SELL, is_buy
 
 # 실측 트래커 기본 horizon(거래일). 20일을 헤드라인 정밀도 기준으로 쓴다.
 HORIZONS = (5, 20, 60)
@@ -97,7 +97,7 @@ def realized_accuracy(
 
     history_rows: [{date, ticker, kind, technical, ..., momentum}] (store.load_signal_history 행)
     closes_by_ticker: {ticker: (dates[], closes[])} 오래된→최신 (KR+US 통합)
-    반환: 티어별 적중률/정밀도/평균수익(horizon별) + 헤드라인 매수 정밀도 + 팩터 Spearman IC + 커버리지.
+    반환: 티어별 적중률/정밀도/평균수익(horizon별) + 헤드라인 매수/매도 정밀도 + 팩터 Spearman IC + 커버리지.
     """
     # 티어별 horizon별 실현수익 누적
     by_tier = {k: {h: [] for h in horizons} for k in ACTIONABLE_KINDS}
@@ -150,6 +150,11 @@ def realized_accuracy(
     buy_rets = by_tier[BUY].get(primary, []) + by_tier[STRONG_BUY].get(primary, [])
     buy_precision = (round(sum(1 for x in buy_rets if x > 0) / len(buy_rets) * 100, 1)
                      if buy_rets else None)
+    # 매도 사이드도 같은 규약으로 계산 — 숏(인버스 포함) 검토의 전제 검증용 관측치.
+    # 봇·문턱·combine과 무관하고, 표본이 매수보다 훨씬 적을 수 있어 UI는 별도 가드가 필요하다.
+    sell_rets = by_tier[SELL].get(primary, []) + by_tier[STRONG_SELL].get(primary, [])
+    sell_precision = (round(sum(1 for x in sell_rets if x < 0) / len(sell_rets) * 100, 1)
+                      if sell_rets else None)
 
     factor_ic = {c: (round(ic, 3) if (ic := _spearman_ic(ic_pairs[c])) is not None else None)
                  for c in FACTOR_COLS}
@@ -162,6 +167,8 @@ def realized_accuracy(
         "tiers": tiers,
         "buy_precision_pct": buy_precision,          # "매수 찍은 것 중 오른 비율"
         "buy_sample": len(buy_rets),
+        "sell_precision_pct": sell_precision,        # "매도 찍은 것 중 내린 비율"(숏 관측용)
+        "sell_sample": len(sell_rets),
         "factor_ic": factor_ic,                      # Spearman IC (팩터값↑ vs 미래수익)
         "ic_min_samples": _MIN_IC_SAMPLES,
         "coverage": {

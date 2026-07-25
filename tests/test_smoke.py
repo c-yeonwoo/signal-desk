@@ -96,6 +96,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "다시 볼 종목" in html
     assert "market-bar-end" in html  # 시황 바 오른쪽 슬롯(live·거시토글)
     assert "시장 ZONE" in html and "경기 사이클(확정)" in html  # 이중 국면 라벨 분리
+    assert "sellPrecisionRow" in html and "매도 정밀도" in html  # 숏 검토 전제 관측치
+    assert "숏 관측용 · 봇 미반영" in html
     assert 'aria-label="종합점수 이상"' in html and 'aria-label="팩터 강도 이상"' in html
     assert "toggleSignalFilterDrawer" in html and 'id="sig-filter-fab"' in html
 

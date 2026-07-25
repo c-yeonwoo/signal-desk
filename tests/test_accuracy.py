@@ -54,6 +54,24 @@ def test_sell_hit_rate_direction():
     assert out["tiers"][5]["STRONG_SELL"]["hit_rate"] == 100.0
 
 
+def test_sell_precision_counts_declines():
+    up_d, up_c = _closes(start=100.0, n=40, step=1.0)
+    dn_d, dn_c = _closes(start=100.0, n=40, step=-1.0)
+    closes = {"UP": (up_d, up_c), "DN": (dn_d, dn_c)}
+    base = {"momentum": 0, "technical": 0, "fundamental": 0, "valuation": 50,
+            "reversion": 0, "qualitative": 0, "flow": 0, "quality": 0}
+    rows = [
+        {"date": "2026-01-01", "ticker": "DN", "kind": "SELL", **base},
+        {"date": "2026-01-01", "ticker": "DN", "kind": "STRONG_SELL", **base},
+        {"date": "2026-01-01", "ticker": "UP", "kind": "SELL", **base},
+    ]
+    out = accuracy.realized_accuracy(rows, closes, horizons=(5,), primary=5)
+    # 매도 3건 중 2건(DN)만 하락 → 66.7%. 매수 표본은 비어 있어도 무관
+    assert out["sell_precision_pct"] == 66.7
+    assert out["sell_sample"] == 3
+    assert out["buy_precision_pct"] is None and out["buy_sample"] == 0
+
+
 def test_factor_ic_sign_and_min_samples():
     # momentum이 높을수록 미래수익이 높은 구조 25종목 → IC>0
     closes, rows = {}, []
