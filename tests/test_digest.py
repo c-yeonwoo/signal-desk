@@ -106,6 +106,30 @@ def test_test_send_needs_telegram(tmp_path, monkeypatch):
     assert pv["telegram"] is False and pv["hour_kst"] == 7 and pv["sent_date"] is None
 
 
+def test_app_link_and_prev_day_change():
+    """브리핑에 복귀 링크가 없으면 읽고 끝나서 D7에 기여하지 못한다 · 어제 대비 증감."""
+    sigs = [_sig("A", "가", "BUY", 1.5), _sig("B", "나", "STRONG_BUY", 2.4)]
+    out = digest.build_morning(signals=sigs, regime_label="중립", threshold=1.2,
+                               base_threshold=1.2, date=_D,
+                               app_url="https://x.example.com/", prev_buy_count=5)
+    assert "앱에서 보기 → https://x.example.com//#signal" not in out   # 끝 슬래시 중복 금지
+    assert "앱에서 보기 → https://x.example.com/#signal" in out
+    assert "매수 시그널 2 (어제 5 → -3)" in out
+    assert out.rstrip().endswith(digest.DISCLAIMER.strip())
+
+    same = digest.build_morning(signals=sigs, regime_label="중립", threshold=1.2,
+                                base_threshold=1.2, date=_D, prev_buy_count=2)
+    assert "매수 시그널 2\n" in same and "어제" not in same      # 변화 없으면 침묵
+    assert "앱에서 보기" not in same                            # URL 미설정이면 링크 없음
+
+
+def test_public_base_url_config(monkeypatch):
+    monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
+    assert config.public_base_url() is None
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://a.b/ ")
+    assert config.public_base_url() == "https://a.b"
+
+
 def test_digest_hour_config(monkeypatch):
     monkeypatch.delenv("MORNING_DIGEST_HOUR", raising=False)
     assert config.morning_digest_hour() == 7

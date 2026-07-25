@@ -247,6 +247,14 @@ def morning_digest_hour() -> int | None:
     return h if 0 < h <= 23 else None
 
 
+def public_base_url() -> str | None:
+    """앱 공개 URL(예: https://signal-desk-production-xxxx.up.railway.app). 미설정이면 None.
+    아침 브리핑에 「앱에서 보기」 링크를 넣는 데만 쓴다 — 브리핑을 읽고 끝나면 D7(재방문)에
+    기여하지 못하므로 돌아올 경로가 필요하다. 끝 슬래시는 제거."""
+    raw = (os.environ.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    return raw or None
+
+
 def admin_emails() -> set[str]:
     """관리자 화이트리스트(소문자). ADMIN_EMAILS(.env, 콤마구분) + 데모 계정 기본 포함.
     관리자만 엔진 설정·KB 적재·데이터 갱신 등 관리 기능에 접근한다."""
