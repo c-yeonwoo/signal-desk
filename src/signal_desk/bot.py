@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 from signal_desk import config, db, kb, llm, signalcfg, store, strategy
 from signal_desk.broker import paper
 from signal_desk.reference import cycle, us_ko
-from signal_desk.signals import advisor, engine, macro, regime, risk
+from signal_desk.signals import advisor, advisor_shadow, engine, macro, regime, risk
 from signal_desk.signals import decision as decmod
 
 log = logging.getLogger("signal_desk.bot")
@@ -514,6 +514,15 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
             rationale_by = {p["ticker"]: p["rationale"] for p in picks}
         else:
             candidates = pool[:slots]
+        if not dry_run:
+            # LLM 선별이 점수순 폴백보다 나았는지 나중에 채점하기 위한 관측(선별 결과에 개입 없음)
+            try:
+                advisor_shadow.record(
+                    uid=uid, market=market, slots=slots, picks=picks,
+                    pool=[{"ticker": s.ticker, "score": s.score} for s in pool],
+                )
+            except Exception as e:
+                log.warning("advisor shadow 기록 실패: %s", type(e).__name__)
 
         for s in candidates:
             closes = prices.get(s.ticker)

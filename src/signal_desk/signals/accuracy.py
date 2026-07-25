@@ -54,6 +54,9 @@ def _forward_returns(dates: list[str], closes: list[float], signal_date: str,
     return out
 
 
+forward_returns = _forward_returns  # 같은 채점 규약을 쓰는 다른 관측 모듈용(advisor_shadow 등)
+
+
 def _spearman_ic(pairs: list[tuple[float, float]]) -> float | None:
     """(factor_value, fwd_ret) 쌍의 순위상관(Spearman IC). 의존성 없이 직접 계산."""
     xs = [p[0] for p in pairs]

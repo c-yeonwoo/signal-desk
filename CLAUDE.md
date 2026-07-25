@@ -37,6 +37,10 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest -q
 ```
 
+테스트는 루트 `conftest.py`가 외부 API 키를 빈 값으로 고정한다(오프라인·결정론). 키가 있는
+경로를 검증할 땐 그 테스트에서 `monkeypatch.setenv`로 켤 것 — `.env`를 그대로 타면 실제 API가
+호출된다(`api.py` import 시 `config.load_env()`).
+
 ## 현재 상태
 
 **1단계~MVP**

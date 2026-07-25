@@ -124,6 +124,22 @@ def test_pyramid_adds_to_under_target_holding(tmp_path, monkeypatch):
     assert len(adds) == 1 and adds[0]["ticker"] == "AAA"
 
 
+def test_records_advisor_shadow_only_on_real_runs(tmp_path, monkeypatch):
+    """LLM 선별 vs 점수순 폴백 관측 — dry_run은 표본에 넣지 않는다."""
+    from signal_desk.signals import advisor_shadow
+
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}, {"ticker": "BBB", "name": "나"}],
+           {"AAA": [100.0], "BBB": [100.0]},
+           [_sig("AAA", "가", "BUY", 2.0), _sig("BBB", "나", "BUY", 1.7)], min_buy_score=0.0)
+    _seed(10_000.0)
+    bot.run_once(UID, dry_run=True)
+    assert advisor_shadow.summary({})["ready"] is False   # 기록 없음
+    bot.run_once(UID)
+    out = advisor_shadow.summary({})
+    assert out["runs"] == 1 and out["advisor_used_runs"] == 0  # LLM 키 없음 → 폴백으로 기록
+
+
 def test_buys_respect_max_positions(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     universe = [{"ticker": f"T{i}", "name": f"종목{i}"} for i in range(3)]

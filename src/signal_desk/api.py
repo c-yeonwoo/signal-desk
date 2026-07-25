@@ -2087,6 +2087,14 @@ def climate_shadow_get(request: Request):
     return climate.shadow_summary()
 
 
+@app.get("/api/advisor-shadow")
+def advisor_shadow_get(request: Request):
+    """봇 LLM 자문(advisor) vs 점수순 폴백 실측 비교 — 관측용. 선별 로직 미변경. 관리자."""
+    _admin_or_403(request)
+    from signal_desk.signals import advisor_shadow
+    return advisor_shadow.summary(store.load_all_dated_closes())
+
+
 @app.get("/api/external-watch")
 def external_watch_get(request: Request):
     """외부 후보 조사 큐 — 관리자. 시그널 점수 가산 없음."""
