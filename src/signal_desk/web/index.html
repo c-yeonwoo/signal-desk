@@ -614,7 +614,7 @@
   <h1>Signal Desk</h1>
   <div class="tabs">
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
-    <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="페이퍼 자동매매 · 포트폴리오">페이퍼</button>
+    <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="공개 장부 · 내 포트폴리오">페이퍼</button>
     <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">인사이트</button>
     <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
   </div>
@@ -636,7 +636,7 @@
 </dialog>
 
 <nav class="subnav" id="subnav-trading" style="display:none">
-  <button class="subtab on" data-seg="bot" onclick="switchTradingSeg('bot')">시그널 트레이딩</button>
+  <button class="subtab on" data-seg="bot" onclick="switchTradingSeg('bot')">공개 장부</button>
   <button class="subtab" data-seg="rebal" onclick="switchTradingSeg('rebal')">내 포트폴리오</button>
   <button class="subtab" data-seg="dividend" onclick="switchTradingSeg('dividend')">배당 플래너</button>
 </nav>
@@ -870,16 +870,13 @@
 
   <div id="view-trading" class="view-app" style="display:none">
     <div id="trading-bot">
-    <div id="paper-from-signal" class="pcard" style="display:none;margin-bottom:10px;padding:10px 14px;border-left:3px solid var(--accent)">
-      <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:4px">시그널에서 이어보기</div>
-      <div id="paper-from-signal-body" style="font-size:12px;line-height:1.55;color:var(--dim)"></div>
-    </div>
     <div class="pcard" style="margin-bottom:10px;padding:10px 14px">
-      <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:4px">모의투자 연습장</div>
+      <div style="font-size:13px;font-weight:700;color:var(--txt);margin-bottom:4px">공개 장부</div>
       <div style="font-size:12px;line-height:1.55;color:var(--dim)">
-        진짜 돈이 아니라 <b style="color:var(--txt)">가상 시드</b>로 시그널을 따라 사고팔아 보는 곳입니다.
-        아래 <b style="color:var(--txt)">켜기</b>를 누르면 봇이 자동으로 연습 매매를 기록합니다.
-        <span style="color:var(--dim-2)">실제 증권사 주문·내 실보유 포트폴리오와는 무관한 별도 장부예요.</span>
+        서비스가 직접 운영하는 <b style="color:var(--txt)">가상 계좌 3개</b>(안정·균형·공격)입니다. 같은 시그널 규칙으로
+        매일 자동 매매하고, <b style="color:var(--txt)">리셋도 시드 변경도 하지 않습니다</b> — 성적이 나쁘면 초기화해 버리는
+        장부는 증거가 될 수 없기 때문입니다.
+        <span style="color:var(--dim-2)">실제 증권사 주문과 무관하고, 내 실보유 포트폴리오와도 합쳐지지 않습니다.</span>
       </div>
     </div>
     <div class="row" style="margin-bottom:12px;align-items:center;gap:10px">
@@ -888,14 +885,20 @@
         <button data-bmkt="us" onclick="switchBotMarket('us')">해외</button>
       </div>
       <div class="seg-toggle" id="style-toggle" style="margin-bottom:0;margin-left:auto">
-        <button data-style="conservative" onclick="setStyle('conservative')">안정</button>
-        <button data-style="balanced" onclick="setStyle('balanced')">균형</button>
-        <button data-style="aggressive" onclick="setStyle('aggressive')">공격</button>
+        <button data-style="conservative" onclick="setLedgerStyle('conservative')">안정</button>
+        <button class="on" data-style="balanced" onclick="setLedgerStyle('balanced')">균형</button>
+        <button data-style="aggressive" onclick="setLedgerStyle('aggressive')">공격</button>
       </div>
     </div>
 
     <div id="bot-kospi">
     <div id="portfolio-bot">
+      <div class="card">
+        <div class="row" style="align-items:baseline">
+          <b style="font-size:14px">성향별 성과 <span style="color:var(--dim);font-weight:600;font-size:12px">· 같은 시그널, 다른 규칙 강도</span></b>
+        </div>
+        <div id="reference-perf" class="placeholder" style="padding:12px 0">불러오는 중…</div>
+      </div>
       <div class="card-row">
         <div class="card"><div class="stat-label">현금</div><div class="stat-value" id="bot-cash">-</div></div>
         <div class="card"><div class="stat-label">총평가금액</div><div class="stat-value" id="bot-total">-</div></div>
@@ -903,25 +906,8 @@
         <div class="card"><div class="stat-label">보유종목수</div><div class="stat-value" id="bot-count">-</div></div>
       </div>
       <div class="card" style="margin-bottom:16px">
-        <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">
-          <span class="stat-label" style="margin:0">봇:</span>
-          <span id="bot-status-label" style="font-weight:700">-</span>
-          <button class="btn primary" id="bot-toggle-btn" onclick="toggleBot()">켜기</button>
-          <span style="width:1px;height:18px;background:var(--line);margin:0 2px"></span>
-          <button class="btn" onclick="previewBot()">미리보기</button>
-          <button class="btn" onclick="runBotNow()">지금 실행</button>
-          <button class="btn" onclick="makeReservations()">예약 생성</button>
-          <button class="btn" id="bot-exec-res-btn" onclick="executeReservations()" title="대기 예약을 현재가로 체결 시도">예약 실행</button>
-          <span style="width:1px;height:18px;background:var(--line);margin:0 2px"></span>
-          <input id="bot-seed" type="number" class="ctrl" placeholder="시드" style="max-width:120px" title="초기화 시 적용될 시드 금액">
-          <button class="btn" onclick="setSeed()">시드</button>
-          <button class="btn" onclick="resetBot()" title="국내·해외 페이퍼 계좌·거래·예약 전부 삭제">초기화</button>
-        </div>
-        <div class="stat-label" id="bot-acct-status" style="margin-top:8px"></div>
+        <div class="stat-label" id="bot-acct-status" style="margin:0"></div>
         <div class="stat-label" id="bot-rules" style="margin:6px 0 0"></div>
-        <div id="bot-reservations" style="display:none;margin-top:10px"></div>
-        <div id="bot-plan" style="display:none;margin-top:10px;font-size:12px;background:var(--accent-weak);
-          border-radius:var(--r-md);padding:10px 12px;line-height:1.6"></div>
       </div>
       <div class="split">
         <div class="card">
@@ -937,17 +923,10 @@
       </div>
       <div class="card">
         <div class="row" style="align-items:baseline">
-          <b style="font-size:14px">성과 <span style="color:var(--dim);font-weight:600;font-size:12px">· track record</span></b>
+          <b style="font-size:14px">자산곡선 <span style="color:var(--dim);font-weight:600;font-size:12px">· track record</span></b>
           <span id="bot-perf-summary" class="stat-label" style="margin:0 0 0 auto"></span>
         </div>
         <div id="bot-equity-chart" style="height:260px;margin-top:8px"></div>
-      </div>
-      <div class="card">
-        <div class="row" style="align-items:baseline">
-          <b style="font-size:14px">공용 레퍼런스 봇 성과</b>
-          <span class="stat-label" style="margin:0 0 0 auto">성향별 시스템 봇 — 동일 규칙의페이퍼 증거</span>
-        </div>
-        <div id="reference-perf" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       </div>
     </div>
     </div><!-- /#bot-kospi -->
@@ -1490,7 +1469,7 @@
     <div class="ob-step on" id="ob-step-style">
       <div style="font-size:11px;color:var(--dim);font-weight:700;letter-spacing:.04em">1 / 3 · 시작하기</div>
       <h3 style="margin:6px 0 4px;font-size:18px">트레이딩 성향을 고르세요</h3>
-      <p class="ob-hint">페이퍼 자동매매·리밸런싱 기준이 바뀝니다. 나중에 페이퍼 탭에서 바꿀 수 있어요. 추천이 아니라 규칙 프리셋입니다.</p>
+      <p class="ob-hint">리밸런싱 제안 기준이 바뀝니다. 나중에 내 포트폴리오 탭에서 바꿀 수 있어요. 추천이 아니라 규칙 프리셋입니다.</p>
       <div class="ob-styles">
         <button type="button" class="ob-style" data-style="conservative" onclick="obPickStyle('conservative')">
           <b>안정형</b><span>넓게 분산 · 엄격한 매수 · 타이트한 손절</span></button>
@@ -1522,12 +1501,12 @@
       <div class="ob-glossary">
         <div class="ob-g-row"><span class="trust-badge live">실측</span><span>그날 실제로 낸 시그널을 나중에 수익률로 채점합니다. 표본이 차기 전엔 <b>누적중</b>만 보입니다.</span></div>
         <div class="ob-g-row"><span class="trust-badge sim">시뮬</span><span>과거 가격으로 돌린 백테스트입니다. 참고용이며 실측이 아닙니다.</span></div>
-        <div class="ob-g-row"><span class="trust-badge bot">페이퍼</span><span>시그널과 같은 규칙의가상 체결입니다. 진짜 돈이 오가지 않습니다.</span></div>
+        <div class="ob-g-row"><span class="trust-badge bot">공개 장부</span><span>서비스가 운영하는 가상 계좌 3개(안정·균형·공격)의 체결입니다. 리셋하지 않고 계속 쌓습니다.</span></div>
       </div>
-      <p class="ob-hint">시그널은 <b>정밀도 우선</b>이라 매수권이 드뭅니다. 고장 아닙니다. 종목 화면에서 「페이퍼에서 같은 규칙으로 추적」으로 이어갈 수 있어요.</p>
+      <p class="ob-hint">시그널은 <b>정밀도 우선</b>이라 매수권이 드뭅니다. 고장 아닙니다. 종목 화면에서 「관심종목에 추가」하면 시그널이 바뀔 때 알려드려요.</p>
       <div class="ob-foot">
         <button type="button" class="btn" onclick="obBackFavs()">뒤로</button>
-        <button type="button" class="btn" id="ob-finish-paper" style="margin-left:auto" onclick="obFinish('paper')">페이퍼 보기</button>
+        <button type="button" class="btn" id="ob-finish-paper" style="margin-left:auto" onclick="obFinish('paper')">공개 장부 보기</button>
         <button type="button" class="btn primary" id="ob-finish" onclick="obFinish('signal')">시그널로 시작</button>
       </div>
     </div>
@@ -2318,21 +2297,21 @@ async function loadScorecard(){
     if (bot.resolved) {
       if (matureOk) {
         const wr = bot.win_rate;
-        rows.push(`<div class="trust-row trust-paper-muted"><span class="trust-badge bot">페이퍼</span>`
+        rows.push(`<div class="trust-row trust-paper-muted"><span class="trust-badge bot">공개 장부</span>`
           + `가상 체결 <b>${bot.resolved}</b>건 · 승률 ${fmtNum(wr, 1)}%`
           + (bot.pending ? ` · 미실현 ${bot.pending}` : '')
           + ` · <button type="button" class="btn" style="padding:0 6px;font-size:11px;vertical-align:baseline"
-              onclick="switchTab('trading')">페이퍼 탭</button>`
+              onclick="switchTab('trading')">장부 보기</button>`
           + ` <span style="color:var(--dim-2)">· 시그널 실측과 별개</span></div>`);
       } else {
-        rows.push(`<div class="trust-row trust-paper-muted"><span class="trust-badge bot">페이퍼</span>`
+        rows.push(`<div class="trust-row trust-paper-muted"><span class="trust-badge bot">공개 장부</span>`
           + `가상 체결 ${bot.resolved}건 · 시그널 성적(실측)과 별개`
           + ` · <button type="button" class="btn" style="padding:0 6px;font-size:11px;vertical-align:baseline"
-              onclick="switchTab('trading')">페이퍼 탭에서 보기</button></div>`);
+              onclick="switchTab('trading')">장부 보기</button></div>`);
       }
     }
     el.innerHTML = rows.join('')
-      + `<div class="trust-legend">실측=그날 시그널 채점 · 시뮬=가격 백테스트 · 페이퍼=가상 체결(연습) · 누적중=표본 부족</div>`;
+      + `<div class="trust-legend">실측=그날 시그널 채점 · 시뮬=가격 백테스트 · 공개 장부=시스템 봇 가상 체결 · 누적중=표본 부족</div>`;
     el.style.display = 'block';  // CSS 기본 none — ''로 두면 시트로 돌아가 영구 숨김
   } catch (e) { el.style.display = 'none'; }
 }
@@ -2817,11 +2796,13 @@ function selectSignalRow(ticker){
   showSignalChart(ticker, _signalItems[ticker]);
 }
 
-/** 시그널 → 페이퍼: 관심종목 확보 후 연습장으로(봇은 공용 시그널 규칙, 수동 매수 아님). */
-async function gotoPaperFromSignal(ticker){
+/** 시그널 → 관심종목 등록. 시그널이 바뀌면 알림이 온다(모의 연습장은 제거됐다 — 리셋 가능한
+ *  장부는 증거가 아니고, 사용자가 얻는 것도 없었다). */
+async function trackFromSignal(ticker, btn){
   const tk = (ticker || _selectedTicker || '').trim();
+  if (!tk) return;
   const name = (_signalItems[tk] && _signalItems[tk].name) || tk;
-  if (tk && !_favorites.has(tk)) {
+  if (!_favorites.has(tk)) {
     try {
       await fetch('/api/favorites', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2832,16 +2813,10 @@ async function gotoPaperFromSignal(ticker){
       loadBuylist();
     } catch (e) {}
   }
-  const banner = document.getElementById('paper-from-signal');
-  const body = document.getElementById('paper-from-signal-body');
-  if (banner && body) {
-    banner.style.display = '';
-    body.innerHTML = tk
-      ? `<b style="color:var(--txt)">${esc(name)}</b>(${esc(tk)})을 관심종목에 넣었습니다.
-         아래 <b style="color:var(--txt)">켜기</b>로 같은 시그널 규칙의가상 매매를 연습하세요. 수동 매수 버튼이 아닙니다.`
-      : `아래 <b style="color:var(--txt)">켜기</b>로 시그널 규칙 봇을 연습하세요.`;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = `${name} 관심종목 추가됨 · 시그널이 바뀌면 알려드려요`;
   }
-  switchTab('trading');
 }
 
 const _ZONE_COLOR = { STRONG_BUY: '#0b7a3b', BUY: '#22c55e', SELL: '#dc2626', STRONG_SELL: '#b3121a' };
@@ -3164,7 +3139,7 @@ function _paintSignalDetail(ticker, item){
           ? `<div style="font-size:11px;color:var(--dim-2);margin-top:6px">중기(~2–3개월) 관점 — 추세 지속에 베팅하는 신호라 단기 등락보다 몇 주~몇 달 흐름으로 보세요</div>`
           : ''}
         <div class="hero-cta">
-          <button type="button" class="btn" onclick="gotoPaperFromSignal('${esc(ticker)}')">페이퍼에서 같은 규칙으로 추적</button>
+          <button type="button" class="btn" onclick="trackFromSignal('${esc(ticker)}', this)">관심종목에 추가하고 변동 알림 받기</button>
         </div>
       </div>`;
   } else heroEl.style.display = 'none';
@@ -3636,7 +3611,7 @@ const _REASON_LABEL = { STOP_LOSS: '손절', TAKE_PROFIT: '익절', TRAILING: '�
 
 async function loadBotState(){
   try {
-    const d = await (await fetch('/api/bot/state?market=' + _botMarket)).json();
+    const d = await (await fetch(`/api/ledger/state?style=${_ledgerStyle}&market=${_botMarket}`)).json();
     const usd = d.currency === 'USD';
     const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));  // 통화 인지 포맷
     document.getElementById('bot-cash').textContent = fmtM(d.cash);
@@ -3654,17 +3629,15 @@ async function loadBotState(){
       plEl.textContent = '-'; plEl.className = 'stat-value';
     }
 
-    document.getElementById('bot-status-label').textContent = d.enabled ? '실행 중' : '꺼짐';
-    document.getElementById('bot-toggle-btn').textContent = d.enabled ? '끄기' : '켜기';
     const killTxt = d.kill_switch ? ` · <b style="color:var(--sig-sell)">🛑 긴급정지(주문 차단)</b>` : '';
     document.getElementById('bot-acct-status').innerHTML =
-      `내 ${usd ? '해외(USD)' : '국내'} 페이퍼 계좌 · 시드 ${fmtM(d.seed_cash)}`
+      `<b style="color:var(--txt)">${esc(d.label || '')}</b> 공개 장부 · ${usd ? '해외(USD)' : '국내'} · 시드 ${fmtM(d.seed_cash)}(고정)`
       + ` · <b style="color:${d.llm_enabled ? 'var(--sig-buy)' : 'var(--dim)'}">AI 판단 ${d.llm_enabled ? 'ON' : 'OFF'}</b>`
-      + ` · <span style="color:var(--dim-2)">ON은 국내·해외 공통</span>` + killTxt;
+      + ` · <span style="color:var(--dim-2)">리셋·시드 변경 없음</span>` + killTxt;
     const cfg = d.config || {};
     document.getElementById('bot-rules').innerHTML =
-      `<b>ON이면 주기적으로</b> 공용 시그널로 내 페이퍼 계좌에 자동 판단·매매(강한 BUY 후보 → <b>AI 최종 선별</b>) · `
-      + `종가 기준 가상 체결 · <b>장중에만 자동매매</b>(장외 스킵, 수동 '지금 실행'은 예외) · `
+      `<b>매일 자동으로</b> 공용 시그널을 이 장부에 적용(강한 BUY 후보 → <b>AI 최종 선별</b>) · `
+      + `종가 기준 가상 체결 · <b>장중에만 매매</b>(장외 스킵) · `
       + `매수 <b>종합점수 ≥ ${cfg.min_buy_score}</b> · 한 사이클 최대 <b>${cfg.max_new_buys_per_run}건</b> · `
       + `최대 <b>${cfg.max_positions}종목</b> · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> 동일가중 · 청산 손절 -7%/익절 +15%/트레일링 -5%`
       + (d.rotation ? ` · <b>컨빅션 로테이션(${esc(d.style_label)})</b>: `
@@ -3674,16 +3647,6 @@ async function loadBotState(){
       + (d.daily_loss_limit_pct ? ` · <b>일일 손실 -${Math.round(d.daily_loss_limit_pct * 100)}%</b> 초과 시 신규매수 중단` : '');
 
     document.querySelectorAll('#style-toggle button').forEach(b => b.classList.toggle('on', b.dataset.style === cfg.trading_style));
-    document.getElementById('bot-seed').placeholder = usd ? '시드($)' : '시드(원)';
-
-    const rEl = document.getElementById('bot-reservations');
-    if (d.reservations && d.reservations.length) {
-      rEl.style.display = '';
-      rEl.innerHTML = `<div class="stat-label" style="margin:0 0 6px"><b>대기 예약 (${d.reservations.length}건)</b>
-        <span style="color:var(--dim-2);font-weight:400"> · 봇 ON이면 장중에 자동 체결 시도 · 수동「예약 실행」도 가능</span></div>`
-        + d.reservations.map(r => `<div style="font-size:12px;color:var(--dim);margin-bottom:3px">
-            · <b style="color:var(--txt)">${esc(r.name)}</b> ${r.side === 'buy' ? '매수' : '매도'} — ${esc(r.reason)}</div>`).join('');
-    } else rEl.style.display = 'none';
 
     const hEl = document.getElementById('bot-holdings-body');
     if (!d.positions.length) {
@@ -3767,7 +3730,7 @@ async function loadReferencePerf(){
     el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num">총수익률</th>
       <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
       <tbody>${rows}</tbody></table>
-      <div style="color:var(--dim);font-size:11px;margin-top:6px">공용 시스템 봇이 매일 실행돼 쌓는 페이퍼 성과 — 개인 봇·시그널 실측과 별개.</div>`;
+      <div style="color:var(--dim);font-size:11px;margin-top:6px">같은 시그널을 성향별 규칙 강도로 매일 집행한 가상 장부 — 시그널 실측(그날 시그널 채점)과는 다른 지표입니다.</div>`;
   } catch (e) { el.className = 'placeholder'; el.textContent = '불러오지 못했습니다.'; }
 }
 
@@ -3777,7 +3740,8 @@ async function loadBotPerformance(){
   const holder = document.getElementById('bot-equity-chart');
   if (!holder) return;
   try {
-    const d = await (await fetch('/api/bot/performance?market=' + _botMarket)).json();
+    const all = await (await fetch('/api/reference-performance?market=' + _botMarket)).json();
+    const d = { ...(all.bots || []).find(b => b.style === _ledgerStyle), currency: all.currency };
     const usd = d.currency === 'USD';
     const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));
     const r = d.return_pct;
@@ -3787,7 +3751,7 @@ async function loadBotPerformance(){
     const curve = d.curve || [];
     if (!curve.length) {
       _botEquityChart.clear();
-      holder.innerHTML = '<div class="placeholder" style="padding:24px 0">아직 자산 기록이 없습니다 — 봇이 실행되면 매일 1점씩 쌓입니다.</div>';
+      holder.innerHTML = '<div class="placeholder" style="padding:24px 0">아직 자산 기록이 없습니다 — 평일 마감 후 매일 1점씩 쌓입니다.</div>';
       return;
     }
     holder.innerHTML = '';  _botEquityChart = echarts.init(holder);
@@ -3803,72 +3767,20 @@ async function loadBotPerformance(){
   } catch (e) { console.error(e); }
 }
 
-async function toggleBot(){
-  const st = await (await fetch('/api/bot/state?market=' + _botMarket)).json();
-  await fetch('/api/bot/toggle', { method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({ enabled: !st.enabled }) });
-  loadBotState();
-}
-
-function renderBotPlan(d, isPreview){
-  const el = document.getElementById('bot-plan');
-  el.style.display = '';
-  if (!d.ok) { el.innerHTML = `<b>${isPreview ? '미리보기' : '실행'} 안 됨</b> — ${esc(d.reason || '')}`; return; }
-  const line = (arr) => arr.length ? arr.map(x =>
-    `· <b>${esc(x.name || x.ticker)}</b> ${x.qty}주 — ${esc(x.note || (_REASON_LABEL[x.reason] || x.reason))}`).join('<br>') : '없음';
-  el.innerHTML = `<b>${isPreview ? '판단 미리보기 (실주문 없음)' : '실행 결과'}</b><br>`
-    + `<b style="color:var(--sig-buy)">매수</b> (${d.buys.length}건${d.skipped_weak_buys ? `, 약한 BUY ${d.skipped_weak_buys}건 제외` : ''})<br>${line(d.buys)}<br>`
-    + `<b style="color:var(--sig-sell)">매도</b> (${d.sells.length}건)<br>${line(d.sells)}`;
-}
-
-// 국내/해외 봇 — 동일 대시보드, market 파라미터로 구분
+// 공개 장부는 읽기 전용이다 — 켜기/끄기·시드·초기화·수동실행 경로는 제거됐다(2026-07-27).
+// 리셋할 수 있는 장부는 track record가 아니다: 나쁘면 초기화하면 그만이라 남은 장부만 좋아 보인다.
 let _botMarket = 'kr';
+let _ledgerStyle = 'balanced';
+
 function switchBotMarket(m){
   _botMarket = (m === 'us') ? 'us' : 'kr';
   document.querySelectorAll('#bot-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.bmkt === m));
   loadBotState();
 }
 
-// 해외(US) 구 미리보기 패널은 제거됨 — 동일 대시보드가 market=us로 동작.
-
-async function runBotNow(){
-  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '실행 중…';
-  try {
-    const d = await (await fetch('/api/bot/run', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ market: _botMarket }) })).json();
-    renderBotPlan(d, false);
-    loadBotState();
-  } finally { btn.disabled = false; btn.textContent = t; }
-}
-
-async function previewBot(){
-  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '계산 중…';
-  try {
-    const d = await (await fetch('/api/bot/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ market: _botMarket }) })).json();
-    renderBotPlan(d, true);
-  } finally { btn.disabled = false; btn.textContent = t; }
-}
-
-async function resetBot(){
-  if (!confirm('페이퍼 봇을 초기화합니다.\n· 국내·해외 보유·거래·예약 전부 삭제\n· 현금이 각 시장 시드로 리셋\n진행할까요?')) return;
-  await fetch('/api/bot/reset', { method: 'POST' });
-  document.getElementById('bot-plan').style.display = 'none';
-  loadBotState();
-}
-
-async function setSeed(){
-  const v = Number(document.getElementById('bot-seed').value);
-  if (!(v > 0)) { alert('0보다 큰 시드 금액을 입력하세요.'); return; }
-  const d = await (await fetch('/api/bot/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ seed_cash: v, market: _botMarket }) })).json();
-  if (d.ok) { alert('시드가 설정됐습니다. "초기화"를 누르면 이 금액으로 시작합니다.'); loadBotState(); }
-  else alert(d.reason || '실패');
-}
-
-async function setStyle(style){
-  await fetch('/api/bot/style', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style }) });
-  setRebalStyle(style);  // 리밸런싱 성향도 동기화(온보딩·봇과 동일 프리셋)
+function setLedgerStyle(style){
+  _ledgerStyle = style;
+  document.querySelectorAll('#style-toggle button').forEach(b => b.classList.toggle('on', b.dataset.style === style));
   loadBotState();
 }
 
@@ -4979,46 +4891,6 @@ async function loadKbDocs(){
   } catch (e) { el.textContent = '불러오지 못했습니다.'; }
 }
 
-async function makeReservations(){
-  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '예약 생성 중…';
-  try {
-    const d = await (await fetch('/api/bot/reserve', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ market: _botMarket }) })).json();
-    const el = document.getElementById('bot-plan'); el.style.display = '';
-    if (!d.ok) { el.innerHTML = `예약 생성 실패: ${esc(d.reason || '')}`; }
-    else {
-      const n = (d.reservations || []).length;
-      el.innerHTML = `<b>대기 예약 ${n}건</b> (국면 ${esc((d.context || {}).regime || '-')}/거시 ${esc((d.context || {}).macro_bias || '-')})`
-        + `<div style="color:var(--dim);font-size:11px;margin:4px 0 6px">봇 ON이면 장중에 자동 체결 · 또는 「예약 실행」으로 지금 시도</div>`
-        + (n ? d.reservations.map(r => `· <b>${esc(r.name)}</b> — ${esc(r.reason)}`).join('<br>') : '조건 맞는 후보 없음');
-    }
-    loadBotState();
-  } finally { btn.disabled = false; btn.textContent = t; }
-}
-
-async function executeReservations(){
-  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '체결 시도…';
-  try {
-    const d = await (await fetch('/api/bot/execute-reservations', { method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ market: _botMarket }) })).json();
-    const el = document.getElementById('bot-plan'); el.style.display = '';
-    if (!d.ok) { el.innerHTML = `예약 실행 실패: ${esc(d.reason || '')}`; }
-    else {
-      const rows = d.executed || [];
-      const filled = rows.filter(x => x.status === 'filled' || (!x.status && x.qty));
-      const skipped = rows.filter(x => x.status && x.status !== 'filled');
-      if (!rows.length) { el.innerHTML = `<b>예약 실행</b> — ${esc(d.note || '대기 중인 예약 없음')}`; }
-      else {
-        el.innerHTML = `<b>예약 실행</b> — 체결 ${filled.length}건` + (skipped.length ? ` · 보류 ${skipped.length}건` : '')
-          + (rows.length ? '<br>' + rows.map(x => {
-            const st = x.status === 'filled' ? '체결' : (x.status || '').startsWith('skipped') ? '보류' : (x.status || '');
-            return `· <b>${esc(x.name || x.ticker)}</b>${st ? ` [${st}]` : ''} — ${esc(x.note || '')}`;
-          }).join('<br>') : '');
-      }
-    }
-    loadBotState();
-  } finally { btn.disabled = false; btn.textContent = t; }
-}
-
 // ===== 인증 게이트 =====
 let _authMode = 'login';
 function showAuthGate(){ document.getElementById('authGate').style.display = 'flex'; }
@@ -6061,7 +5933,7 @@ async function _obSaveProfile(extra){
   const body = Object.assign({ 투자성향: _obStyle, desk_onboarded: true }, extra || {});
   await fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   _profile = Object.assign(_profile || {}, body);
-  await fetch('/api/bot/style', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ style: _obStyle }) });
+  setRebalStyle(_obStyle);   // 성향은 리밸런싱 제안 프리셋에만 쓴다(개인 페이퍼 봇은 제거됨)
 }
 async function obSkip(){
   await _obSaveProfile();
@@ -6073,7 +5945,7 @@ async function obFinish(dest){
   const btnSig = document.getElementById('ob-finish');
   const btnPaper = document.getElementById('ob-finish-paper');
   const busy = dest === 'paper' ? btnPaper : btnSig;
-  const idleLabel = dest === 'paper' ? '페이퍼 보기' : '시그널로 시작';
+  const idleLabel = dest === 'paper' ? '공개 장부 보기' : '시그널로 시작';
   if (busy) { busy.disabled = true; busy.textContent = '저장 중…'; }
   if (btnSig && busy !== btnSig) btnSig.disabled = true;
   if (btnPaper && busy !== btnPaper) btnPaper.disabled = true;

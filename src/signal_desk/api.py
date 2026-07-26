@@ -210,7 +210,8 @@ def _bot_loop_iteration() -> None:
         _morning_digest()  # 아침 정기 요약(텔레그램 채널) — 앱 안 열어도 오는 맥락
     except Exception as e:
         log.warning("아침 브리핑 실패(무시): %s", type(e).__name__)
-    enabled = db.user_bots_enabled()
+    # 페이퍼 봇은 레퍼런스 3봇(공개 장부)뿐이다 — 개인 페이퍼 계좌는 제거됐다(2026-07-27).
+    enabled = [uid for uid in db.user_bots_enabled() if uid in bot.REFERENCE_BOTS]
     open_markets = _open_markets()
     try:  # 배포 환경 US 시세 자동 점진 적재(us_prices는 gitignore로 캐시 없음) — 다 차면 no-op
         bf = _backfill_us_prices_batch(25)
@@ -238,20 +239,18 @@ def _bot_loop_iteration() -> None:
     for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
         for mkt in open_markets:
             try:  # 예약 주문 먼저(목표가+추격폭 이내만) — run_once와 별개 경로
-                res = bot.execute_reservations(uid, market=mkt)
-                if res.get("executed") and uid not in bot.REFERENCE_BOTS:
-                    filled = [x for x in res["executed"] if x.get("status") == "filled"]
-                    if filled:
-                        log.info("예약 체결(uid=%s, %s): %d건", uid, mkt, len(filled))
+                bot.execute_reservations(uid, market=mkt)
             except Exception as e:
                 log.warning("예약 실행 실패(uid=%s, %s): %s", uid, mkt, type(e).__name__)
             result = bot.run_once(uid, market=mkt)
             if not result.get("ok"):
                 log.info("봇 실행 스킵(uid=%s, %s): %s", uid, mkt, result.get("reason"))
-            elif uid not in bot.REFERENCE_BOTS:  # 실제 유저 체결만 푸시(레퍼런스 봇은 제외)
-                _push_trades(mkt, result)
-        if uid not in bot.REFERENCE_BOTS:
-            _scan_alerts(uid)  # 관심종목 시그널 변동 능동 스캔 → 텔레그램 푸시(앱 안 열어도)
+    # 관심종목 시그널 변동 알림은 봇과 무관한 기능이다 — 대상은 '관심종목이 있는 유저'다.
+    for uid in db.uids_with_ticker_favorites():
+        try:
+            _scan_alerts(uid)
+        except Exception as e:
+            log.warning("알림 스캔 실패(uid=%s): %s", uid, type(e).__name__)
     now = _kst_now()
     if now.weekday() < 5 and now.time() >= datetime.time(15, 40) \
             and db.kv_get("bot_daily_snap") != _kst_today():
@@ -1737,100 +1736,24 @@ def _mkt(v) -> str:
     return "us" if str(v or "kr").lower() == "us" else "kr"
 
 
-@app.get("/api/bot/state")
-def bot_state_get(request: Request, market: str = "kr"):
-    return bot.get_state(_uid(request), _mkt(market))
-
-
-@app.get("/api/bot/performance")
-def bot_performance_get(request: Request, market: str = "kr"):
-    """내 봇 track record — 자산곡선 + 총수익률·최대낙폭·거래수."""
-    return bot.performance(_uid(request), _mkt(market))
-
-
+# 개인 페이퍼 봇(켜기·시드·성향·초기화·수동실행·예약)은 제거됐다(2026-07-27).
+# 이유: 리셋·시드 변경이 가능한 장부는 track record가 아니다(나쁘면 초기화하면 그만 → 생존편향).
+# 남은 페이퍼 경로는 리셋 불가·시드 고정의 **레퍼런스 3봇 공개 장부**뿐이다.
 @app.get("/api/reference-performance")
 def reference_performance_get(market: str = "kr"):
-    """공용 레퍼런스 봇(성향별) track record — 시그널 신뢰의 공개 증거."""
+    """공개 장부 — 성향별 레퍼런스 봇 3개의 track record. 시그널 신뢰의 공개 증거."""
     return bot.reference_performance(_mkt(market))
 
 
-@app.post("/api/bot/toggle")
-def bot_toggle(request: Request, data: dict = Body(...)):
-    bot.set_enabled(_uid(request), bool(data.get("enabled")))
-    return {"ok": True, "enabled": bool(data.get("enabled"))}
-
-
-@app.post("/api/bot/style")
-def bot_style(request: Request, data: dict = Body(...)):
-    """내 봇 트레이딩 성향(안정형/균형형/공격형) 변경 — 파라미터·리스크 룰이 프리셋으로 바뀐다."""
-    style = bot.set_style(_uid(request), str(data.get("style", "balanced")))
-    return {"ok": True, "style": style}
-
-
-@app.post("/api/bot/seed")
-def bot_seed(request: Request, data: dict = Body(...)):
-    """내 봇 초기 시드 금액 설정(시장별, 다음 초기화 때 반영)."""
-    try:
-        seed = float(data.get("seed_cash") or 0)
-    except (TypeError, ValueError):
-        return {"ok": False, "reason": "금액 오류"}
-    if seed <= 0:
-        return {"ok": False, "reason": "0보다 큰 금액을 입력하세요."}
-    bot.set_seed(_uid(request), seed, _mkt(data.get("market")))
-    return {"ok": True, "seed_cash": seed}
-
-
-@app.post("/api/bot/run")
-def bot_run(request: Request, data: dict = Body(default={})):
-    """내 봇 수동 1회 실행(시장별) — 자체 모의계좌 종가 기준 가상 체결."""
-    return bot.run_once(_uid(request), dry_run=False, market=_mkt(data.get("market")))
-
-
-@app.get("/api/bot/us/state")
-def bot_us_state(capital: float = 10000.0):
-    """해외(US) 대시보드 상태 — 잔고(USD)·보유종목 + 판단 미리보기(국내와 동일 레이아웃)."""
-    return bot.us_state(capital=capital)
-
-
-@app.post("/api/bot/us/preview")
-def bot_us_preview(data: dict = Body(default={})):
-    """US 자동매매 판단 미리보기(주문 없음) — US 시그널+KB 기반 매수 후보·분할 계획(USD).
-    실주문·잔고는 미국장 개장 시 KIS 해외 API 검증 후 연결 예정."""
-    try:
-        capital = float(data.get("capital") or 10000)
-    except (TypeError, ValueError):
-        capital = 10000.0
-    return bot.us_preview(capital=capital, style=data.get("style"))
-
-
-@app.post("/api/bot/preview")
-def bot_preview(request: Request, data: dict = Body(default={})):
-    """내 봇 판단 미리보기(dry-run, 시장별) — 주문 없이 '지금 무엇을 왜 매매할지' 계획만."""
-    return bot.run_once(_uid(request), dry_run=True, market=_mkt(data.get("market")))
-
-
-@app.post("/api/bot/reset")
-def bot_reset(request: Request):
-    """내 봇 초기화 — 포지션·거래·예약 삭제 + 페이퍼 현금 시드로 리셋."""
-    bot.reset(_uid(request))
-    return {"ok": True}
-
-
-@app.post("/api/bot/reserve")
-def bot_reserve(request: Request, data: dict = Body(default={})):
-    """내 봇 예약 주문 생성(수동 트리거, 시장별). dry_run이면 계획만."""
-    return bot.generate_reservations(_uid(request), dry_run=bool(data.get("dry_run")), market=_mkt(data.get("market")))
-
-
-@app.post("/api/bot/execute-reservations")
-def bot_execute_reservations(request: Request, data: dict = Body(default={})):
-    """내 봇 대기 예약을 지금 실행(수동 트리거, 시장별). dry_run이면 계획만."""
-    return bot.execute_reservations(_uid(request), dry_run=bool(data.get("dry_run")), market=_mkt(data.get("market")))
+@app.get("/api/ledger/state")
+def ledger_state_get(style: str = "balanced", market: str = "kr"):
+    """공개 장부 상세 — 선택 성향의 현금·평가액·보유종목·최근거래. 읽기 전용(조작 경로 없음)."""
+    return bot.ledger_state(str(style or "balanced"), _mkt(market))
 
 
 @app.get("/api/bot/decisions")
 def bot_decisions_get():
-    """의사결정 저널(학습 기록) — 최근 결정 + 사후수익."""
+    """공개 장부의 의사결정 저널 — 최근 결정 + 사후수익(같은 종목·같은 날은 1건)."""
     return {"decisions": db.bot_decisions_recent(40)}
 
 
@@ -2642,8 +2565,10 @@ def _make_chat_dispatch(uid: int, is_toss_owner: bool = False):
                     "점수": round(s.score, 2), "섹터": sectors.sector_of(s.ticker)} for s in rows[:lim]]
             return _j({"개수": len(out), "목록": out})
         if name == "get_portfolio":
-            st = bot.get_state(uid, "kr")
-            return _j({"현금": st.get("cash"), "총평가": st.get("total_eval"), "총손익률%": st.get("pnl_pct"),
+            # 개인 페이퍼 계좌는 없다 — 공개 장부(균형형)를 보여준다.
+            st = bot.ledger_state("balanced", "kr")
+            return _j({"장부": "공개 장부(균형형) · 사용자 개인 계좌 아님",
+                       "현금": st.get("cash"), "총평가": st.get("total_eval"), "총손익률%": st.get("pnl_pct"),
                        "보유": [{"종목": p.get("name"), "코드": p.get("ticker"), "수량": p.get("qty"),
                                 "손익률%": p.get("last_pnl_pct")} for p in (st.get("positions") or [])]})
         if name == "get_events":
