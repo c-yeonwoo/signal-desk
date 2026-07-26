@@ -53,6 +53,7 @@ def test_unknown_scope_rejected(monkeypatch):
 
 def _stub_kr(monkeypatch, profiles, calls, deep_done=True):
     kv = {"prices_deep_backfilled": "2026-07-01"} if deep_done else {}
+    monkeypatch.setattr(api.store, "prices_need_deep_backfill", lambda: not deep_done)
     monkeypatch.setattr(api.store, "fetch_universe", lambda: [{"ticker": "005930", "name": "삼성전자"}])
     monkeypatch.setattr(api.store, "fetch_prices", lambda u, full=False: calls.append(("prices_full", full)))
     monkeypatch.setattr(api, "_dart_stale", lambda: False)          # DART 최신 → 재무 블록 스킵
@@ -80,7 +81,7 @@ def test_refresh_kr_skips_company_backfill_when_present(monkeypatch):
 
 
 def test_refresh_kr_deep_backfill_first_then_incremental(monkeypatch):
-    # 최초(플래그 없음) → 5년 전량(full=True) + 플래그 세팅. 이후(플래그 있음) → 증분(full=False)
+    # 이력이 목표에 못 미치면 5년 전량(full=True) + 시점 기록. 채워졌으면 증분(full=False)
     calls = []
     kv = _stub_kr(monkeypatch, {"005930": {}}, calls, deep_done=False)
     api._refresh_kr({})

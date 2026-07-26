@@ -15,9 +15,11 @@ API에 없다(BACKLOG §0). 즉 생존편향을 제거할 방법이 없다. 그�
 
 대신 **같은 편향을 공유하는 대조군과 비교**한다:
 
-1. `random` — 같은 날짜, 같은 유니버스에서 **무작위로 k종목**을 뽑는 몬테카를로. 생존편향은
-   전략과 똑같이 받으므로, 전략이 이 분포를 이기면 그건 편향이 아니라 **순위 판별력**이다.
-   백분위(`vs_random.percentile`)가 사실상의 p-value다.
+1. `random` — **같은 시뮬레이터에 라벨을 치환한 점수**를 넣어 돌리는 몬테카를로. 생존편향뿐
+   아니라 회전율·거래비용·게이트·보유 종목 수까지 전략과 같은 분포로 유지되므로, 남는 차이는
+   점수의 정보량뿐이다. 백분위(`vs_random.percentile`)가 사실상의 p-value다.
+   (매 기간 무작위 k종목을 새로 뽑는 대조군은 회전율이 늘 100%라 비용을 최대로 물어, 판별력이
+   전혀 없는 전략도 백분위 100%로 만들어준다 — 실측으로 확인하고 폐기했다.)
 2. `benchmark` — 같은 유니버스 동일가중 매수보유. 시장 수준(level) 효과를 상쇄한다.
 
 절대 수익률은 보고하되 **판단 근거로 쓰지 않는다.** 판단은 무작위 대조군 대비 초과분으로 한다.
@@ -48,7 +50,7 @@ class HarnessConfig:
     cost_pct: float = 0.25        # 왕복 거래비용(수수료+세금+슬리피지) — 회전율에 비례 차감
     warmup: int = 130             # 지표가 안정되기 전 구간은 건너뛴다(MA120·모멘텀)
     use_exposure: bool = False    # 국면 익스포저 적용 여부(나머지는 현금, 무이자 가정)
-    random_trials: int = 200      # 무작위 대조군 시행 수
+    random_trials: int = 100      # 대조군 시행 수(시행마다 전 위상을 다시 시뮬레이션한다)
     seed: int = 20260726
     invert_scores: bool = False   # 진단용 — 순위를 뒤집어도 되는지(체계적 음의 판별력 확인)
     phase_average: bool = True    # 리밸런스 시작일(위상)을 전부 돌려 평균 — 아래 주석 참고
@@ -96,9 +98,22 @@ def build_panel(dated_closes: dict[str, tuple[list[str], list[float]]],
     return Panel(dates=all_dates, closes=out)
 
 
+def _computable(name: str, i: int, config: SignalConfig) -> bool:
+    """i 시점에 이 팩터를 **계산할 이력이 있는가**(발동 여부와 무관).
+
+    발동률과 계산가능률을 갈라놓는 이유: 낙폭과대는 급락이 있을 때만 가중치를 갖는 조건부
+    팩터라 평상시 발동률이 몇 %에 머문다(설계대로다). 이걸 '이력 부족'으로 읽으면 데이터를
+    아무리 더 받아도 영원히 판정이 막힌다. 이력 부족(모멘텀 252일)만 차단 사유여야 한다."""
+    if name == "reversion":
+        return i >= config.reversion.lookback_days
+    if name == "momentum":
+        return i >= config.momentum_lookback
+    return True                                # technical — 워밍업 이후 항상 계산됨
+
+
 def _score_series(panel: Panel, config: SignalConfig
-                  ) -> tuple[dict[str, list[float | None]], dict[str, float]]:
-    """종목별 전 구간 가격기반 점수 + 팩터 커버리지.
+                  ) -> tuple[dict[str, list[float | None]], dict[str, float], dict[str, float]]:
+    """종목별 전 구간 가격기반 점수 + 팩터 계산가능률 + 발동률.
 
     라이브 엔진과 같은 `_price_only_components`·`combine`을 쓴다 — 백테스트가 별도 공식을 쓰면
     무엇을 검증한 건지 알 수 없다.
@@ -108,7 +123,9 @@ def _score_series(panel: Panel, config: SignalConfig
     "모멘텀 전략"이라고 적힌 빈 칸이 남는다. 커버리지가 낮은 팩터의 숫자는 읽지 말아야 한다.
     """
     scores: dict[str, list[float | None]] = {}
-    seen = {"technical": 0, "reversion": 0, "momentum": 0}
+    names = ("technical", "reversion", "momentum")
+    can = dict.fromkeys(names, 0)              # 계산 가능(이력 충분)
+    fired = dict.fromkeys(names, 0)            # 실제 가중치가 붙음
     total = 0
     for ticker, row in panel.closes.items():
         vals = [v for v in row if v is not None]
@@ -119,14 +136,18 @@ def _score_series(panel: Panel, config: SignalConfig
         out: list[float | None] = [None] * len(row)
         for i in range(len(vals)):
             comps = engine._price_only_components(vals, series, i, config)
-            for name, (_, w, _) in zip(("technical", "reversion", "momentum"), comps):
+            for name, (_, w, _) in zip(names, comps):
                 if w:
-                    seen[name] += 1
+                    fired[name] += 1
+                if _computable(name, i, config):
+                    can[name] += 1
             total += 1
             out[offset + i] = engine.combine(comps, config)["score"]
         scores[ticker] = out
-    coverage = {k: round(v / total * 100, 1) for k, v in seen.items()} if total else {}
-    return scores, coverage
+    if not total:
+        return scores, {}, {}
+    pct = lambda d: {k: round(v / total * 100, 1) for k, v in d.items()}  # noqa: E731
+    return scores, pct(can), pct(fired)
 
 
 def _gated(panel: Panel, ticker: str, i: int, config: SignalConfig,
@@ -295,7 +316,7 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     regimes: {rebalance_index: 국면라벨}. use_exposure=True일 때만 쓰인다.
     """
     cfg = cfg or HarnessConfig()
-    scores, coverage = _score_series(panel, cfg.signal_config)
+    scores, coverage, fired = _score_series(panel, cfg.signal_config)
     if cfg.invert_scores:
         scores = {t: [(-v if v is not None else None) for v in row] for t, row in scores.items()}
     phases = range(cfg.rebalance_days) if cfg.phase_average else [0]
@@ -316,15 +337,20 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     totals = [(r["equity"][-1] - 1) * 100 for r in runs]
     strat_total = sum(totals) / len(totals)
     spread = max(totals) - min(totals)
-    rnd = _random_baseline(panel, cfg, phase_idxs, [r["universe_by_date"] for r in runs])
+    rnd = _null_distribution(panel, cfg, scores, phase_idxs, regimes, series_cache)
     better = sum(1 for r in rnd["totals"] if r < strat_total)
     percentile = round(better / len(rnd["totals"]) * 100, 1) if rnd["totals"] else None
     excess = strat_total - rnd["median"]
 
     weighted = _weighted_factors(cfg.signal_config)
     weak = [n for n, pct in coverage.items() if pct < 60 and n in weighted]
-    warnings = [f"{name} 커버리지 {coverage[name]}% — 이력 부족으로 대부분의 시점에서 빠졌다. "
+    warnings = [f"{name} 이력 커버리지 {coverage[name]}% — 대부분의 시점에서 계산조차 안 됐다. "
                 f"이 팩터의 결과는 읽지 말 것" for name in weak]
+    # 이력은 충분한데 거의 발동하지 않은 조건부 팩터 — 차단 사유는 아니지만, 그 팩터가 결과를
+    # 설명한다고 읽으면 안 된다(사실상 다른 팩터 단독 전략이었다).
+    warnings += [f"{n} 발동률 {fired[n]}% — 이력은 충분하나 조건이 거의 걸리지 않았다. "
+                 f"이 결과를 {n} 팩터의 성적으로 읽지 말 것"
+                 for n in weighted if n not in weak and fired.get(n, 0) < 10]
     empty = sum(r["empty_periods"] for r in runs)
     if empty:
         warnings.append(f"{empty}/{sum(r['periods'] for r in runs)}기간은 매수 0건(현금) — "
@@ -363,6 +389,7 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         "verdict": verdict,
         "verdict_why": why,
         "coverage_pct": coverage,
+        "fired_pct": fired,
         "warnings": warnings,
         "note": ("절대 수익률은 생존편향(유니버스=오늘 기준 상위 200)으로 부풀려져 있다. "
                  "판단은 vs_random.percentile로 — 무작위 대조군도 같은 편향을 받는다."),
@@ -397,9 +424,28 @@ def _verdict(percentile: float | None, phase_min: float, phase_max: float,
     return "판정 불가", "무작위와 구분되지 않는다"
 
 
-def _random_baseline(panel: Panel, cfg: HarnessConfig, phase_idxs: list[list[int]],
-                     universes: list[dict[int, list[str]]]) -> dict:
-    """같은 날짜·같은 유니버스에서 무작위 k종목을 뽑는 몬테카를로 — 생존편향 상쇄용 귀무분포.
+def _permuted_scores(scores: dict[str, list[float | None]], rng: random.Random) -> dict:
+    """티커 라벨만 섞는다 — 점수의 시계열 구조는 그대로 두고 '누구의 점수인가'만 어긋나게 한다.
+
+    귀무가설은 "점수에 미래 정보가 없다"이지 "점수가 매기간 흔들린다"가 아니다. 매 기간 새로
+    k종목을 뽑는 대조군은 회전율이 항상 100%라 거래비용을 최대로 물지만, 점수 기반 전략은
+    점수가 지속적이라 회전율이 낮아 비용을 덜 문다. 그러면 전략은 **순위 판별력이 전혀 없어도**
+    비용 차이만으로 대조군을 이긴다(실측: 5년·10%·5일에서 셔플한 전략이 백분위 100%).
+    라벨만 치환하면 지속성·회전율·게이트·매수 종목 수가 전략과 같은 분포로 유지된다.
+    """
+    keys = list(scores)
+    src = keys[:]
+    rng.shuffle(src)
+    return {k: scores[s] for k, s in zip(keys, src)}
+
+
+def _null_distribution(panel: Panel, cfg: HarnessConfig, scores: dict,
+                       phase_idxs: list[list[int]], regimes: dict[int, str] | None,
+                       series_cache: dict) -> dict:
+    """귀무분포 — 전략과 **똑같은 시뮬레이터**를 라벨 치환한 점수로 돌린다.
+
+    대조군을 별도 코드 경로로 만들면 비용·게이트·보유 종목 수 같은 기계적 차이가 판별력으로
+    둔갑한다. 같은 `_run_phase`를 쓰고 점수만 바꾸면 남는 차이는 점수의 정보량뿐이다.
 
     각 시행도 **전략과 똑같이 모든 위상을 돌려 평균**낸다. 전략만 위상 평균으로 분산을 줄이고
     대조군은 단일 위상으로 두면, 전략이 이기는 게 아니라 대조군만 흔들려서 이겨 보인다.
@@ -407,19 +453,12 @@ def _random_baseline(panel: Panel, cfg: HarnessConfig, phase_idxs: list[list[int
     rng = random.Random(cfg.seed)
     totals: list[float] = []
     for _ in range(cfg.random_trials):
+        perm = _permuted_scores(scores, rng)
         per_phase = []
-        for idxs, uni in zip(phase_idxs, universes):
-            eq, held = 1.0, set()
-            for i in idxs:
-                avail = uni[i]
-                k = engine.rank_slots(len(avail), cfg.top_pct)
-                picks = rng.sample(avail, min(k, len(avail))) if avail else []
-                if picks:             # 대조군도 전략과 같은 비용 규칙을 써야 비교가 성립한다
-                    gross = _period_return(panel, picks, i, cfg)
-                    turnover = 1.0 if not held else len(set(picks) - held) / len(picks)
-                    eq *= (1 + gross - (cfg.cost_pct / 100) * turnover)
-                held = set(picks)
-            per_phase.append((eq - 1) * 100)
+        for idxs in phase_idxs:
+            r = _run_phase(panel, cfg, perm, idxs, regimes, series_cache,
+                           random.Random(cfg.seed))
+            per_phase.append((r["equity"][-1] - 1) * 100)
         totals.append(sum(per_phase) / len(per_phase))
     totals.sort()
     n = len(totals)

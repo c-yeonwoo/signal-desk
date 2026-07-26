@@ -54,8 +54,12 @@ def _uid(request: Request):
     return u["id"] if u else None
 
 
+def _kst_now() -> datetime.datetime:
+    return datetime.datetime.now(ZoneInfo("Asia/Seoul"))
+
+
 def _kst_today() -> str:
-    return datetime.datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
+    return _kst_now().date().isoformat()
 
 
 def _daily_kb_collect():
@@ -236,42 +240,57 @@ def _bot_loop_iteration() -> None:
                 _push_trades(mkt, result)
         if uid not in bot.REFERENCE_BOTS:
             _scan_alerts(uid)  # 관심종목 시그널 변동 능동 스캔 → 텔레그램 푸시(앱 안 열어도)
-    # 하루 1회(평일 마감 후): 공용 KB 갱신 + 유저별 종가 스냅샷
-    now = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
-    if enabled and now.weekday() < 5 and now.time() >= datetime.time(15, 40) \
+    now = _kst_now()
+    if now.weekday() < 5 and now.time() >= datetime.time(15, 40) \
             and db.kv_get("bot_daily_snap") != _kst_today():
-        try:
-            kb.refresh(_kb_targets())
-            _signals.cache_clear()
-        except Exception as e:
-            log.warning("마감후 KB 갱신 실패: %s", e)
-        try:   # 종목별·시장 수급(외국인·기관 순매수) 일일 갱신 — 수급 팩터/국면이 신선하게 유지되도록
-            store.fetch_flows(store.load_universe())
-            store.fetch_market_flow()
-            _signals.cache_clear(); _regime.cache_clear()
-        except Exception as e:
-            log.warning("마감후 수급 갱신 실패: %s", type(e).__name__)
-        try:   # 공매도 거래비중 일일 갱신 — 공매도 팩터 신선화(KRX, 마감후 확정)
-            store.fetch_short(store.load_universe())
-            _signals.cache_clear()
-        except Exception as e:
-            log.warning("마감후 공매도 갱신 실패: %s", type(e).__name__)
-        try:   # 애널 컨센서스 일별 PIT 스냅샷 축적 — 리비전/목표가v2용(아직 미반영, 데이터만 쌓음)
-            store.fetch_consensus(store.load_universe())
-        except Exception as e:
-            log.warning("마감후 컨센서스 수집 실패: %s", type(e).__name__)
-        try:
-            store.snapshot_signals(_signals())  # 팩터 PIT 스냅샷 누적(향후 팩터 백테스트용)
-        except Exception as e:
-            log.warning("시그널 스냅샷 실패: %s", type(e).__name__)
-        try:
-            climate.snapshot_shadow(_signals())  # 기후 vs 기존 kind 관측(봇 미연동)
-        except Exception as e:
-            log.warning("기후 shadow 스냅샷 실패: %s", type(e).__name__)
-        for uid in enabled:
-            bot.snapshot_positions(uid, "kr")
-            bot.snapshot_positions(uid, "us")
-        db.kv_set("bot_daily_snap", _kst_today())
+        _daily_maintenance(enabled)
+
+
+def _daily_maintenance(enabled: list[str]) -> None:
+    """하루 1회(평일 마감 후): 시세·수급 갱신 + 공용 KB 갱신 + 유저별 종가 스냅샷.
+
+    봇 사용자(enabled) 유무와 무관하게 돈다 — 데이터 신선도가 봇 활성화에 딸려 있으면 안 된다.
+    단계별로 try를 나눠 한 소스가 죽어도 나머지는 갱신된다."""
+    try:   # 일봉 이력 갱신 — 이게 없으면 멈춘 가격으로 시그널만 계속 쌓인다(점수 동결)
+        deep = store.prices_need_deep_backfill()
+        store.fetch_prices(store.load_universe(), full=deep)
+        _signals.cache_clear()
+        if deep:
+            log.info("시세 전량 백필 완료(목표 %d일)", store.PRICE_HISTORY_DAYS)
+    except Exception as e:
+        log.warning("마감후 시세 갱신 실패: %s", type(e).__name__)
+    try:
+        kb.refresh(_kb_targets())
+        _signals.cache_clear()
+    except Exception as e:
+        log.warning("마감후 KB 갱신 실패: %s", e)
+    try:   # 종목별·시장 수급(외국인·기관 순매수) 일일 갱신 — 수급 팩터/국면이 신선하게 유지되도록
+        store.fetch_flows(store.load_universe())
+        store.fetch_market_flow()
+        _signals.cache_clear(); _regime.cache_clear()
+    except Exception as e:
+        log.warning("마감후 수급 갱신 실패: %s", type(e).__name__)
+    try:   # 공매도 거래비중 일일 갱신 — 공매도 팩터 신선화(KRX, 마감후 확정)
+        store.fetch_short(store.load_universe())
+        _signals.cache_clear()
+    except Exception as e:
+        log.warning("마감후 공매도 갱신 실패: %s", type(e).__name__)
+    try:   # 애널 컨센서스 일별 PIT 스냅샷 축적 — 리비전/목표가v2용(아직 미반영, 데이터만 쌓음)
+        store.fetch_consensus(store.load_universe())
+    except Exception as e:
+        log.warning("마감후 컨센서스 수집 실패: %s", type(e).__name__)
+    try:
+        store.snapshot_signals(_signals())  # 팩터 PIT 스냅샷 누적(향후 팩터 백테스트용)
+    except Exception as e:
+        log.warning("시그널 스냅샷 실패: %s", type(e).__name__)
+    try:
+        climate.snapshot_shadow(_signals())  # 기후 vs 기존 kind 관측(봇 미연동)
+    except Exception as e:
+        log.warning("기후 shadow 스냅샷 실패: %s", type(e).__name__)
+    for uid in enabled:
+        bot.snapshot_positions(uid, "kr")
+        bot.snapshot_positions(uid, "us")
+    db.kv_set("bot_daily_snap", _kst_today())
 
 
 async def _quote_loop():
@@ -1340,9 +1359,9 @@ def _refresh_kr(data: dict) -> dict:
     """국내 유니버스+시세+재무(+PER/PBR·퀄리티·배당). DART 재무는 분기(≈80일)마다만 재수집하고
     (연간 데이터라 거의 불변), 그 외엔 시총만 다시 받아 매일 재계산. force_dart=true면 강제."""
     universe = store.fetch_universe()
-    # 최초 1회는 5년 전량 백필(deep), 이후엔 증분. 관리자 '데이터 갱신' 버튼만 눌러도 처음엔 5년치를
-    # 채우고(수 분 소요) 그다음부터는 마지막 저장일부터만 가볍게 갱신. full_prices=true면 강제 재백필.
-    deep = bool(data.get("full_prices")) or not db.kv_get("prices_deep_backfilled")
+    # 이력이 목표(5년)에 못 미치면 전량 백필, 채워져 있으면 마지막 저장일부터 증분. 완료 플래그가
+    # 아니라 실제 커버리지를 보므로 목표 깊이를 올리면 다음 갱신에서 자동으로 다시 채운다.
+    deep = bool(data.get("full_prices")) or store.prices_need_deep_backfill()
     store.fetch_prices(universe, full=deep)
     if deep:
         db.kv_set("prices_deep_backfilled", _kst_today())

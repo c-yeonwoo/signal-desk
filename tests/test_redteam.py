@@ -93,6 +93,48 @@ def test_shuffling_returns_destroys_any_edge():
     assert any("셔플" in w for w in shuffled["warnings"])
 
 
+def test_costs_alone_cannot_manufacture_an_edge():
+    """정보가 0인 전략이 '회전율이 낮아 비용을 덜 문다'는 이유만으로 판별력을 얻으면 안 된다.
+
+    실제로 그랬다. 대조군이 매 기간 k종목을 새로 뽑아 회전율 100%로 비용을 최대로 무는 동안,
+    점수 기반 전략은 점수가 지속적이라 회전율이 낮아 비용을 덜 물었다. 5년 실데이터에서
+    셔플한(=정보 0) 전략이 백분위 100%로 '판별력 있음'을 받았다. 위 셔플 테스트가 이걸 놓친
+    이유는 비용을 0으로 두고 돌렸기 때문이다 — 검사와 현실 사이의 그 틈에 버그가 살았다."""
+    out = hz.run(_predictive_market(), hz.HarnessConfig(
+        top_pct=10.0, rebalance_days=5, random_trials=100, min_score=-99.0,
+        cost_pct=0.25, shuffle_returns=True, signal_config=_tech_only()))
+    assert out["verdict"] != "판별력 있음", out
+
+
+def test_the_null_pays_the_same_costs_as_the_strategy():
+    """대조군은 전략과 같은 회전율로 비용을 물어야 한다.
+
+    점수가 완전히 지속적이면 전략은 같은 종목을 계속 들고 있어 비용을 거의 안 문다. 매 기간
+    k종목을 새로 뽑는 대조군은 회전율이 늘 100%라 비용을 최대로 문다. 그 차이만으로 전략은
+    **정보가 하나도 없어도** 대조군을 이긴다 — 실데이터에서 셔플한 전략이 백분위 100%를 받은
+    원인이 이거였다. 라벨 치환 대조군은 점수의 지속성을 그대로 물려받아 회전율이 맞는다."""
+    panel = _random_walk_market()
+    fixed = {t: [float(i) ] * len(panel.dates)      # 순위가 영원히 고정 → 회전율 0
+             for i, t in enumerate(sorted(panel.closes))}
+    cfgs = {c: hz.HarnessConfig(top_pct=10.0, rebalance_days=5, random_trials=40,
+                                min_score=-999.0, cost_pct=c, signal_config=_tech_only())
+            for c in (0.0, 0.5)}
+    wealth = {}
+    for cost, cfg in cfgs.items():
+        phase_idxs = [hz._rebalance_indices(panel, cfg, p) for p in range(cfg.rebalance_days)]
+        runs = [hz._run_phase(panel, cfg, fixed, idxs, None, {}, random.Random(cfg.seed))
+                for idxs in phase_idxs]
+        wealth[("strategy", cost)] = sum(r["equity"][-1] for r in runs) / len(runs)
+        null = hz._null_distribution(panel, cfg, fixed, phase_idxs, None, {})
+        wealth[("null", cost)] = 1 + null["median"] / 100
+
+    drag = {side: wealth[(side, 0.5)] / wealth[(side, 0.0)] for side in ("strategy", "null")}
+    assert drag["strategy"] < 1.0, "전제: 비용을 물리면 전략도 깎여야 한다"
+    assert abs(drag["strategy"] - drag["null"]) < 0.05, (
+        f"비용 부담이 전략 {drag['strategy']:.3f} vs 대조군 {drag['null']:.3f}로 어긋난다 — "
+        f"회전율이 맞지 않는 대조군이다")
+
+
 # --------------------------------------------------------------- 음성 대조군
 
 @pytest.mark.parametrize("top_pct,hold", [(3.0, 5), (10.0, 20)])
@@ -148,8 +190,8 @@ def test_chart_scores_ignore_the_future():
 def test_harness_scores_ignore_the_future():
     up, down, i = _diverging_pair()
     cfg = SignalConfig()
-    s_up, _ = hz._score_series(_panel({"A": up}), cfg)
-    s_down, _ = hz._score_series(_panel({"A": down}), cfg)
+    s_up, *_ = hz._score_series(_panel({"A": up}), cfg)
+    s_down, *_ = hz._score_series(_panel({"A": down}), cfg)
     assert s_up["A"][i] == s_down["A"][i]
 
 

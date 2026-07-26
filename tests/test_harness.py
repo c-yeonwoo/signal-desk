@@ -64,8 +64,8 @@ def test_scores_ignore_future_prices():
     down = hist + [hist[-1] * 0.95 ** i for i in range(1, 40)]
     from signal_desk.signals.engine import SignalConfig
     cfg = SignalConfig()
-    s_up, _ = hz._score_series(_panel({"A": up}), cfg)
-    s_down, _ = hz._score_series(_panel({"A": down}), cfg)
+    s_up, *_ = hz._score_series(_panel({"A": up}), cfg)
+    s_down, *_ = hz._score_series(_panel({"A": down}), cfg)
     i = len(hist) - 1
     assert s_up["A"][i] == s_down["A"][i]
 
@@ -98,7 +98,7 @@ def test_ties_are_not_broken_by_universe_order():
     flat = {f"T{i:03d}": [100.0] * 260 for i in range(50)}
     panel = _panel(flat)
     cfg = hz.HarnessConfig(min_score=-99.0, random_trials=5, rebalance_days=5, top_pct=4.0)
-    scores, _ = hz._score_series(panel, cfg.signal_config)
+    scores, *_ = hz._score_series(panel, cfg.signal_config)
     assert len({scores[t][200] for t in scores}) == 1, "전제: 동점 상황"
 
     import random as _r
@@ -150,9 +150,9 @@ def test_random_baseline_is_phase_averaged():
     panel = _predictable_panel(n_days=260, n_names=30)
     cfg = hz.HarnessConfig(rebalance_days=5, random_trials=60, min_score=-99.0)
     phase_idxs = [hz._rebalance_indices(panel, cfg, p) for p in range(cfg.rebalance_days)]
-    unis = [{i: list(panel.closes) for i in idxs} for idxs in phase_idxs]
-    spread_multi = hz._random_baseline(panel, cfg, phase_idxs, unis)
-    single = hz._random_baseline(panel, cfg, phase_idxs[:1], unis[:1])
+    scores, *_ = hz._score_series(panel, cfg.signal_config)
+    spread_multi = hz._null_distribution(panel, cfg, scores, phase_idxs, None, {})
+    single = hz._null_distribution(panel, cfg, scores, phase_idxs[:1], None, {})
 
     def iqr(d):
         t = d["totals"]
