@@ -883,15 +883,36 @@ def fetch_us_shares_toss(tickers: list[str]) -> int:
     return got
 
 
-def fetch_warnings(tickers: list[str]) -> int:
+def fetch_warnings(tickers: list[str], pause: float = 0.25) -> int:
     """토스 투자경고/거래정지/과열/VI를 종목별 조회해 warnings.json에 캐시(활성 유형만).
-    매수 가드레일(veto)이 이 집합을 근거로 씀. 토스 미설정 시 0."""
+    매수 가드레일(veto)이 이 집합을 근거로 씀. 토스 미설정 시 0.
+
+    warnings는 종목별 단건 API이고 STOCK 그룹 ~5 TPS라, 종목 사이 pause초를 둔다
+    (배치 엔드포인트 없음). 요청 실패분은 기존 캐시를 유지해 부분 429가 전량 삭제로
+    이어지지 않게 한다. 반환: 활성 경고가 있는 종목 수."""
     from signal_desk.ingest import toss
     if not toss.available():
         return 0
-    out = {t: w for t in tickers if (w := toss.warnings(t))}
+    out: dict = {}
+    if WARNINGS_FILE.exists():
+        try:
+            prev = json.loads(WARNINGS_FILE.read_text(encoding="utf-8"))
+            if isinstance(prev, dict):
+                out = prev
+        except (json.JSONDecodeError, OSError):
+            pass
+    for i, t in enumerate(tickers):
+        if i and pause > 0:
+            time.sleep(pause)
+        w = toss.warnings(t)
+        if w is None:             # 요청 실패 — 기존 값 유지
+            continue
+        if w:
+            out[t] = w
+        else:
+            out.pop(t, None)      # 정상·경고 해제
     _write_json(WARNINGS_FILE, out)
-    return len(out)
+    return sum(1 for t in tickers if out.get(t))
 
 
 def load_warned_tickers() -> set[str]:
