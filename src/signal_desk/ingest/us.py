@@ -43,10 +43,26 @@ def sp500_constituents() -> list[dict]:
         sym = (row.get("Symbol") or "").strip()
         if not sym:
             continue
-        out.append({"ticker": sym.replace(".", "-"),  # BRK.B→BRK-B 등 KIS 심볼 표기
+        out.append({"ticker": sym.replace(".", "-"),  # BRK.B→BRK-B — 내부 ID(표기는 아래 참고)
                     "name": (row.get("Security") or sym).strip(),
                     "sector": (row.get("GICS Sector") or "").strip()})
     return out
+
+
+def symbol_variants(ticker: str) -> list[str]:
+    """클래스주 티커를 제공자가 받는 표기 후보로 펼친다(우선순위 순).
+
+    우리 내부 ID는 대시(`BRK-B`)로 고정하고 — 관심종목·보유·parquet가 이 형태로 쌓여 있다 —
+    외부 호출 때만 표기를 바꾼다. 제공자별 규약이 제각각이라 문서만으로 확정할 수 없어서
+    후보를 순서대로 시도하고 통한 표기를 캐시한다(`store.US_SYMBOLS_FILE`). 대시가 없는
+    티커는 후보가 자기 자신 하나뿐이므로 기존 경로와 동일하다.
+
+    실측: `BRK-B`·`BF-B`를 그대로 보내면 토스는 404(stock-not-found), KIS는 세 거래소 모두
+    조회 실패였다. S&P500 원본 표기는 점(`BRK.B`)이다."""
+    base, sep, cls = ticker.rpartition("-")
+    if not sep:
+        return [ticker]
+    return [f"{base}.{cls}", ticker, f"{base}{cls}", f"{base}/{cls}"]
 
 
 def _fetch_page(ticker: str, excd: str, creds: dict, bymd: str, retries: int = 3) -> list[dict] | None:

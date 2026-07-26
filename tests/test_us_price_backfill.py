@@ -36,7 +36,7 @@ def test_backfill_noop_when_complete(monkeypatch):
     monkeypatch.setattr(api.store, "fetch_us_prices", fake_fetch)
 
     out = api._backfill_us_prices_batch(batch=50)
-    assert out == {"filled": 0, "missing": 0}
+    assert out == {"filled": 0, "missing": 0, "deferred": 0}
     assert called["n"] == 0  # 채울 게 없으면 네트워크 호출 안 함
 
 
@@ -44,4 +44,4 @@ def test_backfill_empty_universe(monkeypatch):
     monkeypatch.setattr(api.store, "load_us_universe", lambda: [])
     monkeypatch.setattr(api.store, "load_us_price_series", lambda: {})
     out = api._backfill_us_prices_batch()
-    assert out == {"filled": 0, "missing": 0}
+    assert out == {"filled": 0, "missing": 0, "deferred": 0}

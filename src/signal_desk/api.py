@@ -205,7 +205,8 @@ def _bot_loop_iteration() -> None:
         bf = _backfill_us_prices_batch(25)
         if bf["filled"]:
             _clear_us_signal_caches()
-            log.info("US 시세 자동 백필 %d종목(잔여 %s)", bf["filled"], bf["missing"])
+            log.info("US 시세 자동 백필 %d종목(잔여 %s, 유예 %s)",
+                     bf["filled"], bf["missing"], bf.get("deferred", 0))
     except Exception as e:
         log.warning("US 시세 자동 백필 실패(무시): %s", type(e).__name__)
     about_n = moves_n = 0
@@ -259,6 +260,13 @@ def _daily_maintenance(enabled: list[str]) -> None:
             log.info("시세 전량 백필 완료(목표 %d일)", store.PRICE_HISTORY_DAYS)
     except Exception as e:
         log.warning("마감후 시세 갱신 실패: %s", type(e).__name__)
+    try:   # 자동 백필에서 빠진 US 종목을 하루 한 번 드러낸다(유예는 조용한 0이니 이름을 붙인다)
+        deferred = store.us_price_deferred_tickers()
+        if deferred:
+            log.warning("US 시세 미확보 %d종목 유예 중: %s — 심볼 표기·상장 여부 확인 필요",
+                        len(deferred), ", ".join(deferred[:10]))
+    except Exception as e:
+        log.warning("US 유예 목록 조회 실패: %s", type(e).__name__)
     try:
         kb.refresh(_kb_targets())
         _signals.cache_clear()
@@ -1437,13 +1445,18 @@ def _backfill_us_prices_batch(batch: int = 60) -> dict:
     반환: {filled, missing}(이번에 채운 수 / 백필 후 남은 수)."""
     universe = [u["ticker"] for u in store.load_us_universe()]
     if not universe:
-        return {"filled": 0, "missing": 0}
+        return {"filled": 0, "missing": 0, "deferred": 0}
     have = set(store.load_us_price_series().keys())
-    missing = [t for t in universe if t not in have]
+    absent = [t for t in universe if t not in have]
+    # 반복 실패 종목은 유예한다. 안 그러면 어떤 표기로도 못 받는 종목이 missing 앞자리를 계속
+    # 차지해 배치를 잡아먹고, 30분마다 같은 실패 로그를 남긴다.
+    skip = store.us_price_skips()
+    missing = [t for t in absent if not store.us_price_deferred(t, skip)]
+    deferred = len(absent) - len(missing)
     if not missing:
-        return {"filled": 0, "missing": 0}
+        return {"filled": 0, "missing": 0, "deferred": deferred}
     filled = store.fetch_us_prices(missing[:batch], days=400)
-    return {"filled": filled, "missing": max(0, len(missing) - batch)}
+    return {"filled": filled, "missing": max(0, len(missing) - batch), "deferred": deferred}
 
 
 def _about_targets_kr() -> list[dict]:

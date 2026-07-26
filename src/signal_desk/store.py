@@ -36,6 +36,8 @@ GURUS_FILE = CACHE_DIR / "gurus.json"  # 거장 포트폴리오(SEC 13F) 스냅�
 US_UNIVERSE_FILE = CACHE_DIR / "us_universe.json"   # S&P500 구성종목(datahub)
 US_PRICES_FILE = CACHE_DIR / "us_prices.parquet"    # 미국 종목 일봉(KIS 해외)
 US_EXCHANGES_FILE = CACHE_DIR / "us_exchanges.json"  # ticker→KIS 거래소코드 캐시(탐지 비용 절약)
+US_SYMBOLS_FILE = CACHE_DIR / "us_symbols.json"     # {provider: {ticker: 실제로 통한 심볼 표기}}
+US_PRICE_SKIP_FILE = CACHE_DIR / "us_price_skip.json"  # {ticker: {fails, last}} — 자동 백필 유예
 WARNINGS_FILE = CACHE_DIR / "warnings.json"  # 토스 투자경고·거래정지·과열·VI(매수 veto용)
 US_FUNDAMENTALS_FILE = CACHE_DIR / "us_fundamentals.json"  # 미국 발행주식수·PER(Alpha Vantage, 소량 백필)
 US_EARNINGS_FILE = CACHE_DIR / "us_earnings_calendar.json"  # 미국 실적발표 예정일(Alpha Vantage, 벌크 1콜/일)
@@ -48,6 +50,8 @@ COMPANY_PROFILES_FILE = CACHE_DIR / "company_profiles.json"  # DART 기업개황
 SIGNAL_HISTORY_FILE = CACHE_DIR / "signal_history.parquet"  # 일별 종목 시그널·팩터 스냅샷(PIT) — 향후 팩터 백테스트용
 
 PRICE_HISTORY_DAYS = 1825  # 약 5년 — 모멘텀(60일 최강)·다중국면 팩터/백테스트 신뢰도. 최초 1회 전량, 이후 증분
+US_SKIP_AFTER_FAILS = 3    # 이만큼 연속 실패하면 자동 백필에서 잠시 빼둔다(수동 갱신은 무시)
+US_SKIP_DAYS = 7           # 유예 기간 — 상장·표기 변경이 반영될 만한 간격
 
 
 def _write_json(path: Path, data) -> None:
@@ -645,28 +649,91 @@ def _load_us_exchanges() -> dict:
     return json.loads(US_EXCHANGES_FILE.read_text(encoding="utf-8"))
 
 
-def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
-    """지정 티커들의 미국 일봉을 KIS로 수집해 us_prices.parquet에 병합(upsert). 반환: 성공 종목 수.
+def _load_json_dict(path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        out = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return out if isinstance(out, dict) else {}
 
-    거래소코드(EXCD)는 탐지 결과를 us_exchanges.json에 캐시해 재탐지를 피한다. 기존 parquet에
-    있던 다른 종목은 보존하고, 이번에 받은 종목만 갱신한다."""
+
+def _symbol_candidates(ticker: str, resolved: dict) -> list[str]:
+    """이 티커로 외부에 물어볼 표기 목록 — 통한 적 있으면 그것만, 없으면 후보 전부."""
+    from signal_desk.ingest import us
+    known = resolved.get(ticker)
+    return [known] if known else us.symbol_variants(ticker)
+
+
+def us_price_deferred(ticker: str, skip: dict | None = None) -> bool:
+    """반복 실패로 자동 백필에서 유예 중인 티커인가.
+
+    유예가 없으면 어떤 표기로도 받을 수 없는 종목을 30분마다 영원히 재시도하며 로그를 채운다
+    (실측: BRK-B·BF-B가 루프마다 토스 404 + KIS 3거래소 탐지를 반복). 관리자 '데이터 갱신'은
+    이 유예를 무시하고 다시 시도한다 — 사람이 명시적으로 요청한 것이므로."""
+    rec = (skip if skip is not None else _load_json_dict(US_PRICE_SKIP_FILE)).get(ticker)
+    if not isinstance(rec, dict) or int(rec.get("fails") or 0) < US_SKIP_AFTER_FAILS:
+        return False
+    try:
+        last = datetime.date.fromisoformat(str(rec.get("last"))[:10])
+    except ValueError:
+        return False
+    return (datetime.date.today() - last).days < US_SKIP_DAYS
+
+
+def us_price_skips() -> dict:
+    """{ticker: {fails, last}} — 유예 판정을 티커마다 파일을 다시 읽지 않고 하도록 한 번에 준다."""
+    return _load_json_dict(US_PRICE_SKIP_FILE)
+
+
+def us_price_deferred_tickers() -> list[str]:
+    """자동 백필에서 유예 중인 티커 목록 — 조용히 빠진 종목을 하루 한 번 드러내기 위한 것."""
+    skip = us_price_skips()
+    return sorted(t for t in skip if us_price_deferred(t, skip))
+
+
+def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
+    """지정 티커들의 미국 일봉을 수집해 us_prices.parquet에 병합(upsert). 반환: 성공 종목 수.
+
+    토스 우선, 실패 시 KIS 해외로 폴백. 클래스주(BRK-B)는 제공자가 받는 표기가 달라 후보를
+    순서대로 시도하고(`us.symbol_variants`) 통한 표기를 us_symbols.json에 캐시한다. 거래소코드
+    (EXCD)도 탐지 결과를 us_exchanges.json에 캐시해 재탐지를 피한다. 어느 표기로도 실패하면
+    연속 실패 횟수를 남겨(us_price_skip.json) 자동 백필이 무한 재시도하지 않게 한다.
+
+    기존 parquet에 있던 다른 종목은 보존하고, 이번에 받은 종목만 갱신한다."""
     from signal_desk.ingest import toss, us
     use_toss = toss.available()  # 토스 우선(KR+US 단일·표준443·안정) → 미설정 시 KIS 폴백
     exch = _load_us_exchanges()
+    syms = _load_json_dict(US_SYMBOLS_FILE)
+    skip = _load_json_dict(US_PRICE_SKIP_FILE)
     existing = _read_parquet(US_PRICES_FILE) if US_PRICES_FILE.exists() else pd.DataFrame()
     frames = [existing[existing["ticker"].isin(tickers) == False]] if not existing.empty else []
     ok = 0
     for t in tickers:
-        bars = toss.daily_ohlcv(t, count=min(days, 200)) if use_toss else None
+        bars: list[dict] | None = None
+        for sym in (_symbol_candidates(t, syms.get("toss", {})) if use_toss else []):
+            bars = toss.daily_ohlcv(sym, count=min(days, 200))
+            if bars:
+                syms.setdefault("toss", {})[t] = sym
+                break
         if not bars:  # 토스 미설정·실패 시 KIS 해외로 폴백
-            excd = exch.get(t) or us.detect_exchange(t)
-            if not excd:
-                log.warning("US 거래소 탐지 실패, 제외: %s", t)
-                continue
-            exch[t] = excd
-            bars = us.us_ohlcv(t, days=days, excd=excd)
+            for sym in _symbol_candidates(t, syms.get("kis", {})):
+                excd = exch.get(t) or us.detect_exchange(sym)
+                if not excd:
+                    continue
+                bars = us.us_ohlcv(sym, days=days, excd=excd)
+                if bars:
+                    exch[t], syms.setdefault("kis", {})[t] = excd, sym
+                    break
         if not bars:
+            rec = skip.get(t) if isinstance(skip.get(t), dict) else {}
+            skip[t] = {"fails": int(rec.get("fails") or 0) + 1,
+                       "last": datetime.date.today().isoformat()}
+            log.warning("US 시세 수집 실패, 제외: %s (표기 %s 전부 실패, 연속 %d회)",
+                        t, "/".join(us.symbol_variants(t)), skip[t]["fails"])
             continue
+        skip.pop(t, None)
         frames.append(pd.DataFrame([{"ticker": t, **b} for b in bars]))
         ok += 1
     if frames:
@@ -674,6 +741,8 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         _write_parquet(df, US_PRICES_FILE)
     _write_json(US_EXCHANGES_FILE, exch)
+    _write_json(US_SYMBOLS_FILE, syms)
+    _write_json(US_PRICE_SKIP_FILE, skip)
     return ok
 
 
