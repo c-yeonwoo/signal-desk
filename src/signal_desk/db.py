@@ -1144,6 +1144,25 @@ def kb_events_list(limit: int = 50, ticker: str | None = None,
     return [_evt_row(r) for r in rows]
 
 
+def kb_event_queue_status(*, now: int | None = None, soon_hours: int = 24) -> dict:
+    """사람 확인을 기다리는 후보 이벤트 큐. 후보는 EVENT_TTL_DAYS 뒤 자동 만료되므로
+    아무도 안 보면 '오래된 악재로 매수를 막는' 사고는 없지만, 반대로 **유효한 악재가 조용히
+    사라진다**. 큐 길이와 만료 임박 건수를 화면에 드러내야 그 손실이 보인다."""
+    ts = int(now if now is not None else time.time())
+    c = conn()
+    rows = c.execute(
+        "SELECT ticker, severity, summary, expires_at FROM kb_events "
+        "WHERE status='candidate' AND (expires_at IS NULL OR expires_at>=?) "
+        "ORDER BY expires_at ASC", (ts,)).fetchall()
+    c.close()
+    cutoff = ts + soon_hours * 3600
+    soon = [{"ticker": r[0], "severity": r[1], "summary": r[2],
+             "hours_left": (round((r[3] - ts) / 3600, 1) if r[3] else None)}
+            for r in rows if r[3] and r[3] <= cutoff]
+    return {"pending": len(rows), "expiring_soon": len(soon), "soon_items": soon[:8],
+            "soon_hours": soon_hours}
+
+
 def kb_event_exists(event_key: str) -> bool:
     c = conn()
     row = c.execute("SELECT 1 FROM kb_events WHERE event_key=?", (event_key,)).fetchone()

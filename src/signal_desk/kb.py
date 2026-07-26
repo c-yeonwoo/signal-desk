@@ -1230,14 +1230,20 @@ def sentiment_map() -> dict[str, dict]:
         if ticker.startswith("_"):  # 거시·시황 등 가상 종목은 개별 시그널에 반영 안 함(격리)
             continue
         reasons = []
+        # 정성 근거에는 시점을 붙인다 — 며칠 전 감성이 현재 판단처럼 읽히면 신선도는 없는 것과 같다.
+        dg_ts = dg.get("newest_ts") or dg.get("updated")
+        age_h = round((time.time() - dg_ts) / 3600, 1) if dg_ts else None
         if dg.get("summary"):
-            reasons.append(f"[정성] {dg['summary']}")
+            stamp = ("" if age_h is None or age_h <= 24
+                     else f" (⏱ {age_h / 24:.0f}일 전 뉴스 기준)")
+            reasons.append(f"[정성] {dg['summary']}{stamp}")
         events = db.kb_events_active(ticker, decision_only=True)
         dec = decmod.decide(events)
         if dec.summary:
             reasons.append(f"[이벤트] {dec.summary}")
         out[ticker] = {
             "score": dg.get("sentiment", 0.0), "reasons": reasons,
+            "age_hours": age_h, "stale": bool(age_h is not None and age_h > 72),
             "event_risk": dec.buy_blocked,  # 별칭
             "event_note": dec.summary,
             "event_severity": dec.severity or "",

@@ -1705,6 +1705,8 @@ def data_health_get():
             "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),
             # 종목 KB 수집이 멈췄는지 — 실패 종목 이름까지. 조용히 빠진 종목도 조용한 0이다.
             "kb_refresh": kb_refresh,
+            # 사람 확인 대기 중인 이벤트 후보 — 안 보면 유효한 악재가 만료로 조용히 사라진다.
+            "event_queue": db.kb_event_queue_status(),
             # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.
             "consensus_readiness": store.consensus_readiness()}
 
@@ -2602,6 +2604,9 @@ def _chat_signal_summary(ticker: str) -> dict | None:
                        (tg or {}).get("analyst_upside_pct"), (tg or {}).get("resistance_upside_pct")]
            if isinstance(v, (int, float)) and v > 0]
     dg = db.kb_digest_get(ticker)
+    # 뉴스요약도 시점을 붙여 넘긴다 — 며칠 전 감성을 현재 사실로 말하는 걸 막는다.
+    dg_ts = (dg or {}).get("newest_ts") or (dg or {}).get("updated")
+    dg_age_h = round((time.time() - dg_ts) / 3600, 1) if dg_ts else None
     return {"종목": sig.name, "코드": ticker, "섹터": sectors.sector_of(ticker),
             "시그널": _CHAT_KIND_KO.get(sig.kind, sig.kind), "종합점수": round(sig.score, 2),
             "신뢰도": sig.confidence, "팩터강약(-1~1)": sig.factor_scores,
@@ -2609,6 +2614,10 @@ def _chat_signal_summary(ticker: str) -> dict | None:
             "현재가": q.get("price"), "등락%": q.get("change_pct"),
             "목표가상승여력%": round(max(ups), 1) if ups else None,
             "뉴스심리": (dg or {}).get("sentiment"), "뉴스요약": (dg or {}).get("summary"),
+            "뉴스시점": (datetime.datetime.fromtimestamp(dg_ts).strftime("%Y-%m-%d %H:%M") if dg_ts else None),
+            "뉴스경과시간": dg_age_h,
+            "뉴스신선도": (None if dg_age_h is None else
+                      "최신" if dg_age_h <= 24 else "오래됨(참고만)" if dg_age_h > 72 else "유효기간 내"),
             "최근악재": sig.event_note if sig.event_risk else None}
 
 
@@ -2657,10 +2666,20 @@ def _make_chat_dispatch(uid: int, is_toss_owner: bool = False):
         if name == "search_kb":
             kw = (inp.get("query") or "").strip()
             names = {u["ticker"]: u["name"] for u in store.load_universe()}
-            docs = kb_search.retrieve(kw, k=6)   # 문서 단위 BM25 검색(뉴스·기고·영상 요약 원문)
+            docs = kb_search.retrieve(kw, k=6)   # 하이브리드 검색 + 유형별 최신성 감쇠
             hits = [{"종목": names.get(d["ticker"], d["ticker"]), "코드": d["ticker"], "유형": d.get("doc_class"),
-                     "제목": d.get("title"), "요약": d.get("summary")} for d in docs]
-            return _j({"검색어": kw, "결과": hits or "관련 KB 문서 없음"})
+                     "제목": d.get("title"), "요약": d.get("summary"),
+                     # 시점은 옵션이 아니다 — 오전에 사실이던 시황이 오후엔 아닐 수 있다.
+                     "시점": d.get("as_of") or "시점 불명",
+                     "경과": (f"{d['age_days']:.0f}일 전" if d.get("age_days") is not None else "불명"),
+                     "신선도": ("오래됨(전제가 바뀌었을 수 있음)" if d.get("stale")
+                             else "최신" if (d.get("age_days") or 99) <= 1 else "유효기간 내")}
+                    for d in docs]
+            return _j({"검색어": kw, "결과": hits or "관련 KB 문서 없음",
+                       # 결정과 설명이 어긋나는 걸 막는다 — 이 문서들은 점수를 만든 입력이 아니다.
+                       "주의": "이 문서는 배경·맥락 자료이며 시그널 점수의 근거가 아니다. "
+                             "점수 근거는 find_signal의 '근거'·'팩터강약'을 쓸 것. "
+                             "인용할 때는 반드시 '시점'을 함께 말하고, 신선도가 '오래됨'이면 그 사실을 밝힐 것."})
         if name == "get_real_holdings":
             if not is_toss_owner:   # 격리: 계정 소유자 본인만
                 return _j({"error": "실계좌(토스) 보유내역은 계정 소유자 본인만 조회할 수 있어요"})

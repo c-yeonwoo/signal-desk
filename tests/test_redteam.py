@@ -342,6 +342,35 @@ def test_one_bad_ticker_does_not_stop_collection_or_pruning(tmp_path, monkeypatc
     assert (db.kv_get("kb_refresh_last") or {}).get("failed"), "마지막 실행 결과가 화면에 못 닿는다"
 
 
+def test_kb_hits_cannot_ship_without_a_timestamp(tmp_path, monkeypatch):
+    """시점 없는 KB 근거는 근거가 아니다 — 오전에 사실이던 시황이 오후엔 아닐 수 있다.
+
+    실측(2026-07-27): 검색 코퍼스가 published·fetched를 아예 버려서, 3주 전 기사가 오늘 기사와
+    같은 순위로 올라오고 챗봇은 그걸 현재 사실로 말할 수 있었다. 나이는 옵션이 아니라 계약이다."""
+    from signal_desk import db, kb_search
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    db.kb_document_add("005930", "삼성전자 실적 개선", "영업이익이 늘었다는 분석.",
+                       "http://t1", "news", "2026-07-26", "뉴스")
+    kb_search._idx["sig"] = None
+
+    hits = kb_search.retrieve("실적 개선", k=3)
+    assert hits
+    for h in hits:
+        assert "age_days" in h and "as_of" in h and "stale" in h, "소비자가 시점을 알 길이 없다"
+
+
+def test_context_docs_are_labeled_as_not_being_the_score_basis():
+    """설명이 결정과 어긋나면 신뢰가 깨진다. 점수는 8팩터로 나오고 KB 문서는 그 입력이 아닌데,
+    챗봇이 "이 기사 때문에 매수"라고 말하면 사후 합리화다. 도구 산출과 시스템 규칙 양쪽에
+    '근거 아님'이 박혀 있어야 한다(한쪽만이면 프롬프트 수정 때 조용히 사라진다)."""
+    from signal_desk import chat
+    tool = [t for t in chat.TOOLS if t["name"] == "search_kb"][0]
+    assert "점수 산출에 쓰지 말 것" in tool["description"]
+    assert "시점" in tool["description"]
+    assert "점수 근거와 배경 자료를 섞지 않는다" in chat.SYSTEM
+    assert "시점을 함께 말한다" in chat.SYSTEM
+
+
 def test_scoring_factors_are_snapshotted_and_in_factor_ic(tmp_path, monkeypatch):
     """점수에 들어가는 팩터가 PIT·factor_ic에서 빠져 있으면 그 팩터는 영원히 측정 불가.
 
