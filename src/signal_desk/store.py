@@ -1132,6 +1132,45 @@ def load_signal_history():
     return _read_parquet(SIGNAL_HISTORY_FILE)
 
 
+# 연속 두 날짜 사이에 점수가 바뀐 종목 비율이 이 값 이하면 '동결'로 본다. 시세가 갱신되면
+# 기술·모멘텀 팩터가 소수점 셋째 자리까지 같을 수 없으므로, 5%는 넉넉한 하한이다.
+_DRIFT_FROZEN_PCT = 5.0
+
+
+def signal_drift(pairs: int = 3) -> dict:
+    """PIT 스냅샷에서 종목 점수가 실제로 날마다 움직였는지 검사.
+
+    시세 갱신이 멈추면 점수가 얼어붙고, 그러면 문턱·분위를 어떻게 조정해도 매일 같은 결과가
+    나온다 — "시그널이 안 나온다"의 1순위 용의자라서 진단 화면에 상시 노출한다.
+    반환: {available, frozen, pairs:[{from,to,changed_pct,universe}], note}
+    """
+    df = load_signal_history()
+    if df.empty or not {"date", "ticker", "score"} <= set(df.columns):
+        return {"available": False, "frozen": None, "pairs": [],
+                "note": "PIT 스냅샷 없음 — 장 마감 후 스냅샷이 쌓이면 판정 가능"}
+    dates = sorted(df["date"].astype(str).unique())[-(pairs + 1):]
+    if len(dates) < 2:
+        return {"available": False, "frozen": None, "pairs": [],
+                "note": f"스냅샷 {len(dates)}일치 — 2일 이상 필요"}
+    piv = (df[df["date"].astype(str).isin(dates)]
+           .assign(date=lambda d: d["date"].astype(str))
+           .pivot_table(index="ticker", columns="date", values="score"))
+    out = []
+    for a, b in zip(dates, dates[1:]):
+        if a not in piv.columns or b not in piv.columns:
+            continue
+        both = piv[[a, b]].dropna()
+        n = len(both)
+        changed = int((both[a].round(3) != both[b].round(3)).sum())
+        out.append({"from": a, "to": b, "universe": n,
+                    "changed_pct": round(changed / n * 100, 1) if n else None})
+    latest = out[-1]["changed_pct"] if out else None
+    frozen = latest is not None and latest <= _DRIFT_FROZEN_PCT
+    return {"available": bool(out), "frozen": frozen, "pairs": out,
+            "note": ("점수가 사실상 그대로다 — 시세 갱신 중단 의심(토스/KIS 인증·수집 실패 확인)"
+                     if frozen else "점수가 날마다 갱신되고 있음")}
+
+
 def load_all_dated_closes() -> dict[str, tuple[list[str], list[float]]]:
     """ticker -> (dates[], closes[]) 오래된→최신, 국내+미국 통합. 실측 성과(accuracy) 조인용.
     각 parquet을 1회만 읽어 종목별 (날짜, 종가) 짝을 만든다(실시간 잠정봉은 제외 — 성숙 판정 왜곡 방지)."""
