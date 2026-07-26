@@ -18,8 +18,13 @@ from .engine import ACTIONABLE_KINDS, BUY, SELL, STRONG_BUY, STRONG_SELL, is_buy
 # 실측 트래커 기본 horizon(거래일). 20일을 헤드라인 정밀도 기준으로 쓴다.
 HORIZONS = (5, 20, 60)
 PRIMARY_HORIZON = 20
+# qualitative는 combine 밖(shadow IC)이지만 관측용으로 남긴다. short는 점수에 실제로 들어가므로
+# 빠지면 두뇌·factor_ic가 그 팩터를 영원히 못 잰다(감사 가설로 잡힌 실측 누락).
 FACTOR_COLS = ("technical", "fundamental", "valuation", "reversion",
-               "qualitative", "flow", "quality", "momentum")
+               "qualitative", "flow", "quality", "momentum", "short")
+# combine()/evaluate()가 점수에 넣는 팩터 — FACTOR_COLS가 이걸 커버하는지 레드팀이 검사한다.
+SCORING_FACTORS = ("technical", "fundamental", "valuation", "reversion",
+                   "flow", "quality", "momentum", "short")
 _MIN_IC_SAMPLES = 20  # 이보다 표본이 적으면 IC는 신뢰 불가 → None
 # 정밀도는 기준선(base rate) 대비 리프트로만 판정한다. 하락장에서는 아무 종목이나 '매도'라고
 # 찍어도 정밀도가 60%를 넘기 때문에, 절대값 55%는 잘한 것도 못한 것도 아니다.

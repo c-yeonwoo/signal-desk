@@ -1202,7 +1202,9 @@ def data_freshness() -> list[dict]:
         e("fundamentals", "재무(DART)", FUNDAMENTALS_FILE, 100, _json_rows(FUNDAMENTALS_FILE)),
         e("flows", "종목 수급(네이버)", FLOWS_FILE, 2, _json_rows(FLOWS_FILE)),
         e("short", "공매도 비중(KRX)", SHORT_FILE, 2, _json_rows(SHORT_FILE)),
-        e("consensus", "컨센서스 축적(네이버)", CONSENSUS_HISTORY_FILE, 2),
+        # 컨센서스·시그널 PIT는 평일 마감후에만 쌓인다. stale_days=2면 금→일만 돼도 "오래됨"이
+        # 뜬다(고장 아님). 주말·공휴일 버퍼로 4일.
+        e("consensus", "컨센서스 축적(네이버)", CONSENSUS_HISTORY_FILE, 4),
         e("market_flow", "시장 수급(토스)", MARKET_FLOW_FILE, 2),
         e("macro", "거시(FRED)", MACRO_FILE, 8, _json_rows(MACRO_FILE)),
         e("macro_kr", "거시(ECOS)", MACRO_KR_FILE, 8, _json_rows(MACRO_KR_FILE)),
@@ -1210,7 +1212,7 @@ def data_freshness() -> list[dict]:
         e("warnings", "투자경고(토스)", WARNINGS_FILE, 2, _json_rows(WARNINGS_FILE)),
         e("gurus", "거장 13F", GURUS_FILE, 40),
         e("us_fund", "미국 재무(EDGAR)", US_FUNDAMENTALS_FILE, 100, _json_rows(US_FUNDAMENTALS_FILE)),
-        e("signal_hist", "시그널 히스토리(PIT)", SIGNAL_HISTORY_FILE, 2),
+        e("signal_hist", "시그널 히스토리(PIT)", SIGNAL_HISTORY_FILE, 4),
     ]
 
 
@@ -1225,7 +1227,8 @@ def snapshot_signals(signals, date: str | None = None) -> int:
              "technical": round(s.technical_score, 3), "fundamental": round(s.fundamental_score, 3),
              "valuation": s.valuation_percentile, "reversion": round(s.reversion_score, 3),
              "qualitative": s.qualitative_score, "flow": s.flow_intensity,
-             "quality": s.quality_points, "momentum": s.momentum_ret} for s in signals]
+             "quality": s.quality_points, "momentum": s.momentum_ret,
+             "short": s.short_ratio} for s in signals]
     df_new = pd.DataFrame(rows)
     if SIGNAL_HISTORY_FILE.exists():
         old = _read_parquet(SIGNAL_HISTORY_FILE)
