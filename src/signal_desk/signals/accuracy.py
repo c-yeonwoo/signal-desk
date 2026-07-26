@@ -232,8 +232,32 @@ def realized_accuracy(
             "to": max(dates_seen) if dates_seen else None,
             "tickers_matched": len(tickers_seen),
             "matured_primary": matured_primary,      # primary horizon 성숙 표본 수
+            **_join_diagnosis(dates_seen, closes_by_ticker, tickers_seen, matured_primary),
         },
     }
+
+
+def _join_diagnosis(dates_seen: set[str], closes_by_ticker: dict,
+                    tickers_seen: set[str], matured_primary: int) -> dict:
+    """왜 성숙 표본이 0인지 말한다.
+
+    "아직 안 익었다"(정상)와 "시세가 시그널보다 오래됐다"(고장)는 화면에서 똑같이 0으로 보이는데
+    대응은 정반대다. 실제로 시세 캐시가 07-03에서 멈춘 채 시그널만 07-24까지 쌓여 tickers_matched
+    0이 나왔고, 그게 수집 중단인지 미성숙인지 구분할 방법이 화면에 없었다.
+    """
+    price_to = max((d[-1] for d, _ in closes_by_ticker.values() if d), default=None)
+    signal_to = max(dates_seen) if dates_seen else None
+    stale = bool(price_to and signal_to and price_to < signal_to)
+    reason = None
+    if matured_primary == 0 and dates_seen:
+        if stale:
+            reason = (f"시세가 시그널보다 오래됐습니다(시세 {price_to} < 시그널 {signal_to}) — "
+                      f"성숙 대기가 아니라 수집 중단입니다")
+        elif not tickers_seen:
+            reason = "시그널 종목이 시세 캐시에 없습니다 — 유니버스와 시세 수집 대상이 어긋났습니다"
+        else:
+            reason = "아직 성숙 구간이 지나지 않았습니다(정상 — 시간이 필요합니다)"
+    return {"price_data_to": price_to, "stale_prices": stale, "blocked_reason": reason}
 
 
 def _qualitative_pairs(

@@ -1138,6 +1138,15 @@
       <div id="d7-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
 
+    <div class="card" id="audit-card" style="margin-top:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="font-weight:700;font-size:15px">감사 가설 <span style="color:var(--dim);font-weight:600;font-size:12px">· “이 숫자가 틀렸다면 왜일까”</span></div>
+        <button class="btn ghost" onclick="runAudit(this)">가설 생성</button>
+      </div>
+      <p class="page-desc" style="margin:8px 0 4px">LLM이 계측 스냅샷을 읽고 <b>반증 가능한 의심</b>만 적어둡니다. 판정도 제안도 아니며 엔진·봇에 아무 영향을 주지 않습니다 — 확인된 것만 사람이 <code>tests/test_redteam.py</code>로 옮깁니다. 룩어헤드·누수·base rate 같은 항목은 이미 CI가 기계적으로 막고 있어 여기 나오지 않습니다.</p>
+      <div id="audit-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+    </div>
+
     <div class="card" id="accuracy-card" style="margin-top:16px">
       <div style="font-weight:700;font-size:15px">실측 성과 <span style="color:var(--dim);font-weight:600;font-size:12px">· track record</span></div>
       <p class="page-desc" style="margin:8px 0 4px">장 마감 후 그날 <b>실제로 낸 시그널</b>을 저장하고, 약 20거래일 뒤 수익률로 채점합니다. 봇이 샀는지와 무관하고, 백테스트(시뮬)와도 다릅니다.</p>
@@ -4955,7 +4964,7 @@ function switchAdminSeg(seg){
   document.getElementById('admin-shortform').style.display = seg === 'shortform' ? '' : 'none';
   const aw = document.getElementById('admin-watch');
   if (aw) aw.style.display = seg === 'watch' ? '' : 'none';
-  if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); loadLlmUsage(); loadD7(); loadAccuracy(); loadQualPromo(); }   // 백테스트·수동가중은 접이식
+  if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); loadLlmUsage(); loadD7(); loadAudit(); loadAccuracy(); loadQualPromo(); }   // 백테스트·수동가중은 접이식
   if (seg === 'kb') { loadKbDocs(); _initDropzone(); }
   if (seg === 'shortform') { loadShortform(); loadSfBg(); }
   if (seg === 'watch') loadExternalWatch();
@@ -5633,6 +5642,57 @@ async function loadD7(){
         + `<th style="padding:4px 8px;text-align:right">D7</th></tr></thead><tbody>${rows}</tbody></table>` : '');
   } catch (e) { el.textContent = 'D7 조회 실패'; }
 }
+const _AUDIT_SEV = { high: ['높음', 'var(--down)'], medium: ['보통', 'var(--warn)'], low: ['낮음', 'var(--dim)'] };
+function auditItem(h){
+  const [sevLabel, sevColor] = _AUDIT_SEV[h.severity] || _AUDIT_SEV.medium;
+  const done = h.status !== 'pending';
+  return `<div style="padding:10px 0;border-top:1px solid var(--line);${done ? 'opacity:.5' : ''}">
+    <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
+      <span style="font-size:11px;font-weight:700;color:${sevColor}">${sevLabel}</span>
+      <b style="font-size:13px">${esc(h.title || '')}</b>
+      <span style="font-size:11px;color:var(--dim-2)">${esc(h.target || '')}</span>
+      ${done ? `<span style="font-size:11px;color:var(--dim-2)">· ${h.status === 'promoted' ? '테스트로 승격' : '기각'}</span>` : ''}
+    </div>
+    <div style="font-size:12px;color:var(--dim);margin-top:4px">${esc(h.claim || '')}</div>
+    <div style="font-size:12px;margin-top:4px"><span style="color:var(--dim-2)">반증:</span> ${esc(h.falsifier || '')}</div>
+    ${h.check_hint ? `<div style="font-size:12px;margin-top:2px"><span style="color:var(--dim-2)">확인:</span> <code>${esc(h.check_hint)}</code></div>` : ''}
+    ${done ? '' : `<div style="margin-top:6px;display:flex;gap:6px">
+      <button class="btn ghost" style="font-size:11px;padding:3px 8px" onclick="setAudit('${esc(h.id)}','promoted')">테스트로 승격</button>
+      <button class="btn ghost" style="font-size:11px;padding:3px 8px" onclick="setAudit('${esc(h.id)}','dismissed')">기각</button>
+    </div>`}
+  </div>`;
+}
+function renderAudit(d){
+  const el = document.getElementById('audit-body');
+  if (!el) return;
+  el.className = '';
+  const items = d.items || [];
+  const head = `<div style="font-size:12px;color:var(--dim)">확인 대기 <b>${d.pending || 0}</b>건`
+    + (d.available ? '' : ' · <span style="color:var(--warn)">ANTHROPIC_API_KEY 미설정 — 생성 비활성</span>') + '</div>';
+  el.innerHTML = head + (items.length ? items.map(auditItem).join('')
+    : '<div style="padding:14px 0;color:var(--dim-2);font-size:12px">아직 없습니다. “가설 생성”을 누르면 현재 계측 스냅샷을 감사합니다.</div>');
+}
+async function loadAudit(){
+  try { renderAudit(await (await fetch('/api/audit/hypotheses')).json()); }
+  catch (e) { const el = document.getElementById('audit-body'); if (el) el.textContent = '감사 가설 조회 실패'; }
+}
+async function runAudit(btn){
+  if (btn) { btn.disabled = true; btn.textContent = '생성 중…'; }
+  try {
+    const d = await (await fetch('/api/audit/run', { method: 'POST' })).json();
+    if (d.ready === false) alert(d.reason || '가설 생성 비활성');
+    renderAudit(d);
+  } catch (e) { alert('가설 생성 실패'); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '가설 생성'; } }
+}
+async function setAudit(hid, status){
+  const d = await (await fetch(`/api/audit/hypotheses/${hid}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  })).json();
+  if (d.detail) { alert(d.detail); return; }
+  renderAudit(d);
+}
 async function loadAccuracy(){
   const el = document.getElementById('accuracy-body');
   if (!el) return;
@@ -5653,6 +5713,9 @@ async function loadAccuracy(){
         + ` — 장 마감 후 저장한 시그널이 ${d.primary_horizon || 20}거래일 지나야 채점됩니다.`
         + ` 표본 ${need}건 미만에서는 정밀도·IC를 헤드라인으로 쓰지 않습니다.</div>`
         + `<div style="color:var(--dim-2);font-size:11px;margin-top:6px">봇 매매·BUY 개수와 별개입니다. HOLD만 많아도 “그날 낸 시그널”은 매일 쌓입니다.</div>`
+        // 0의 이유를 말한다 — "아직 안 익음"(정상)과 "시세 수집 중단"(고장)은 화면에서 똑같이 0으로 보인다
+        + `${cov.blocked_reason ? `<div style="margin-top:8px;font-size:12px;font-weight:700;color:${cov.stale_prices ? 'var(--down)' : 'var(--dim)'}">${esc(cov.blocked_reason)}</div>` : ''}`
+        + `${cov.price_data_to ? `<div style="color:var(--dim-2);font-size:11px;margin-top:2px">시세 최신 ${esc(cov.price_data_to)} · 시그널 최신 ${esc(cov.to || '-')}</div>` : ''}`
         + `${d.reason ? `<div style="color:var(--dim-2);font-size:11px;margin-top:4px">${esc(d.reason)}</div>` : ''}</div>`;
       return;
     }

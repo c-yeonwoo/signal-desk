@@ -52,6 +52,8 @@ class HarnessConfig:
     seed: int = 20260726
     invert_scores: bool = False   # 진단용 — 순위를 뒤집어도 되는지(체계적 음의 판별력 확인)
     phase_average: bool = True    # 리밸런스 시작일(위상)을 전부 돌려 평균 — 아래 주석 참고
+    shuffle_returns: bool = False # 누수 탐지용 — 점수와 수익률의 짝을 무작위로 어긋나게 한다
+    min_periods: int = 30         # 이보다 표본이 적으면 어떤 결과도 판정하지 않는다
     signal_config: SignalConfig = field(default_factory=SignalConfig)
 
 
@@ -169,11 +171,15 @@ def _rebalance_indices(panel: Panel, cfg: HarnessConfig, phase: int = 0) -> list
                       cfg.rebalance_days))
 
 
-def _period_return(panel: Panel, tickers: list[str], i: int, cfg: HarnessConfig) -> float:
-    """i 다음 거래일 종가 진입 → rebalance_days 뒤 종가 청산. 동일가중 평균 수익률."""
+def _period_return(panel: Panel, tickers: list[str], i: int, cfg: HarnessConfig,
+                   alias: dict[str, str] | None = None) -> float:
+    """i 다음 거래일 종가 진입 → rebalance_days 뒤 종가 청산. 동일가중 평균 수익률.
+
+    alias는 누수 탐지용 — 종목의 점수는 그대로 두고 **수익률만 다른 종목 것으로 바꿔치기**한다.
+    """
     rets = []
     for t in tickers:
-        row = panel.closes[t]
+        row = panel.closes[alias[t] if alias else t]
         entry, exit_ = row[i + 1], row[min(i + 1 + cfg.rebalance_days, len(panel) - 1)]
         if entry and exit_:
             rets.append(exit_ / entry - 1)
@@ -196,6 +202,25 @@ def _metrics(equity: list[float], periods_per_year: float) -> dict:
     return {"total_ret_pct": round(total * 100, 1), "cagr_pct": round(cagr * 100, 1),
             "mdd_pct": round(mdd * 100, 1),
             "sharpe": round(mu / sd * math.sqrt(periods_per_year), 2) if sd else 0.0}
+
+
+def _shuffled_alias(tickers: list[str], rng: random.Random) -> dict[str, str]:
+    """점수와 수익률의 짝을 어긋나게 하는 치환. 누수 탐지의 핵심 도구다.
+
+    점수가 미래 정보를 몰래 보고 있지 않다면, 짝을 무작위로 바꿨을 때 판별력은 반드시 사라진다.
+    셔플하고도 `판별력 있음`이 나오면 그건 실력이 아니라 누수다. 사람이 코드를 읽어서 룩어헤드를
+    찾는 것보다 이 검사 하나가 확실하다.
+    """
+    shuffled = tickers[:]
+    rng.shuffle(shuffled)
+    return dict(zip(tickers, shuffled))
+
+
+def _weighted_factors(config: SignalConfig) -> set[str]:
+    """이 설정에서 실제로 가중치가 걸린 가격기반 팩터 — 커버리지 차단 대상."""
+    return {name for name, w in (("technical", config.weight_technical),
+                                 ("reversion", config.weight_reversion),
+                                 ("momentum", config.weight_momentum)) if w}
 
 
 def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
@@ -232,7 +257,8 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
             picks.append(t)
 
         if picks:
-            gross = _period_return(panel, picks, i, cfg)
+            alias = _shuffled_alias(avail, tie_rng) if cfg.shuffle_returns else None
+            gross = _period_return(panel, picks, i, cfg, alias)
             if cfg.use_exposure and regimes is not None:
                 exp = regime_mod.target_exposure({"regime": regimes.get(i)}, None)["exposure"]
                 gross *= exp
@@ -295,13 +321,20 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     percentile = round(better / len(rnd["totals"]) * 100, 1) if rnd["totals"] else None
     excess = strat_total - rnd["median"]
 
-    warnings = [f"{name} 커버리지 {pct}% — 이력 부족으로 대부분의 시점에서 빠졌다. 이 팩터의 "
-                f"결과는 읽지 말 것" for name, pct in coverage.items() if pct < 60]
+    weighted = _weighted_factors(cfg.signal_config)
+    weak = [n for n, pct in coverage.items() if pct < 60 and n in weighted]
+    warnings = [f"{name} 커버리지 {coverage[name]}% — 이력 부족으로 대부분의 시점에서 빠졌다. "
+                f"이 팩터의 결과는 읽지 말 것" for name in weak]
     empty = sum(r["empty_periods"] for r in runs)
     if empty:
         warnings.append(f"{empty}/{sum(r['periods'] for r in runs)}기간은 매수 0건(현금) — "
                         f"수익률이 아니라 미참여로 나온 숫자다")
-    verdict, why = _verdict(percentile, min(totals), max(totals), rnd["median"])
+    if cfg.shuffle_returns:
+        warnings.append("셔플 모드 — 점수와 수익률의 짝을 어긋나게 했다. "
+                        "여기서 판별력이 나오면 그건 누수다")
+    verdict, why = _verdict(percentile, min(totals), max(totals), rnd["median"],
+                            periods=runs[0]["periods"], min_periods=cfg.min_periods,
+                            weak_factors=weak)
 
     return {
         "ready": True,
@@ -337,14 +370,23 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
 
 
 def _verdict(percentile: float | None, phase_min: float, phase_max: float,
-             random_median: float) -> tuple[str, str]:
+             random_median: float, *, periods: int = 10 ** 6, min_periods: int = 0,
+             weak_factors: list[str] | None = None) -> tuple[str, str]:
     """숫자를 행동으로 옮겨도 되는지의 판정. 기본값은 '판정 불가'다. (짧은 라벨, 사유).
 
     백분위만 보지 않고 **가장 나쁜 위상까지 무작위 중위를 이겼는지**를 함께 요구한다.
     평균만 보면 "운 좋은 리밸런스 달력 하나가 나머지를 끌어올린 결과"를 엣지로 오인한다.
+
+    표본·커버리지 미달은 경고가 아니라 **차단**이다. 경고로 두면 표 아래 회색 글씨로 밀려나고,
+    숫자만 인용돼 돌아다닌다. 실제로 커버리지 5.9%짜리 모멘텀 결과를 그렇게 읽을 뻔했다.
     """
     if percentile is None:
         return "판정 불가", "대조군 없음"
+    if periods < min_periods:
+        return "판정 불가", f"리밸런스 표본 {periods}회 < 최소 {min_periods}회"
+    if weak_factors and percentile >= 95:
+        return "판정 불가", (f"{', '.join(weak_factors)} 커버리지 미달 — 이 결과는 이름과 다른 "
+                          f"전략을 측정한 것이다")
     if percentile >= 95 and phase_min > random_median:
         return "판별력 있음", f"무작위 대비 상위 {100 - percentile:.0f}%, 최악 위상도 우위"
     if percentile <= 5 and phase_max < random_median:
