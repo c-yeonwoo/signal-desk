@@ -22,16 +22,20 @@ STYLE_DESC = {
 
 # entry_tranches: 목표비중을 몇 회로 나눠 분할매수할지(라오어 분할매수 응용 — 진입 타이밍 리스크 분산)
 # harvest_take_profit_pct: 횡보·약세 국면에서 '중간 실현'용 타이트 익절(추세 국면엔 위 take_profit + 트레일링 유지)
+# rank_top_pct: 매수권을 성향별로 **좁히는** 폭(횡단면 분위 모드). 엔진 분위(engine.rank_top_pct)가
+#   앱 전체의 매수권 정의이고, 성향은 그 안에서만 더 좁힐 수 있다(넓히기 불가 — 두 정의가 갈라지면
+#   화면의 '매수권'과 봇의 매수가 어긋난다). min_buy_score는 절대문턱 모드에서만 쓰인다 — 분위
+#   모드에서 절대값 1.9를 요구하면 관측 최고점수 1.91과 겹쳐 다시 매수 0건이 된다.
 PRESETS = {
     "conservative": {"max_positions": 12, "position_pct": 0.06, "min_buy_score": 1.9, "max_new_buys_per_run": 2,
                      "stop_loss_pct": -0.05, "take_profit_pct": 0.10, "trailing_from_peak_pct": -0.04,
-                     "entry_tranches": 4, "harvest_take_profit_pct": 0.06},
+                     "entry_tranches": 4, "harvest_take_profit_pct": 0.06, "rank_top_pct": 1.0},
     "balanced": {"max_positions": 10, "position_pct": 0.08, "min_buy_score": 1.6, "max_new_buys_per_run": 2,
                  "stop_loss_pct": -0.07, "take_profit_pct": 0.15, "trailing_from_peak_pct": -0.05,
-                 "entry_tranches": 3, "harvest_take_profit_pct": 0.09},
+                 "entry_tranches": 3, "harvest_take_profit_pct": 0.09, "rank_top_pct": 2.0},
     "aggressive": {"max_positions": 6, "position_pct": 0.14, "min_buy_score": 1.3, "max_new_buys_per_run": 3,
                    "stop_loss_pct": -0.10, "take_profit_pct": 0.25, "trailing_from_peak_pct": -0.07,
-                   "entry_tranches": 2, "harvest_take_profit_pct": 0.12},
+                   "entry_tranches": 2, "harvest_take_profit_pct": 0.12, "rank_top_pct": 3.0},
 }
 
 # 추세 국면(여기선 익절을 넓게 두고 트레일링으로 수익 극대화). 그 외(횡보·약세·조정)는 중간 실현.
@@ -65,6 +69,11 @@ def rotation_params(style: str = "balanced") -> dict:
 
 def entry_tranches(style: str) -> int:
     return int(preset(style)["entry_tranches"])
+
+
+def rank_top_pct(style: str, engine_top_pct: float) -> float:
+    """성향별 매수권 분위 — 엔진 분위보다 넓힐 수는 없다(화면의 매수권과 봇이 갈라지지 않게)."""
+    return min(float(preset(style)["rank_top_pct"]), float(engine_top_pct))
 
 
 def normalize(style: str) -> str:

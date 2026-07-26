@@ -58,8 +58,9 @@ def classify(prices_by_ticker: dict[str, list[float]], config: RegimeConfig | No
     }
 
 
-# 국면·거시가 비우호일 때 매수 임계값에 더할 가산량(점수 스케일 ~[-3,3] 기준). 약한 시장일수록
-# 더 높은 확신의 매수만 통과시켜 승률을 높이기 위한 값 — 매도 임계값은 건드리지 않는다(청산은 억제 X).
+# 국면·거시가 비우호일 때 매수 임계값에 더할 가산량(점수 스케일 ~[-3,3] 기준).
+# **selection_mode="absolute"에서만 쓰인다** — rank 모드에서는 국면이 문턱이 아니라 익스포저를
+# 조절한다(target_exposure). 문턱 상향은 나쁜 시장에서 후보를 0으로 만들어 학습을 멈춘다.
 _REGIME_BUMP = {"조정": 0.8, "약세": 0.4, "중립": 0.0, "강세": 0.0, "과열": 0.0}
 _MACRO_UNFAVORABLE_BUMP = 0.3
 _FLOW_SELL_BUMP = 0.3          # 시장 전체 외국인·기관 20일 순매도 시 가산
@@ -92,6 +93,46 @@ def buy_threshold_bump(regime_result: dict | None, macro_result: dict | None,
         bump += f_bump
         reasons.append(f"외국인·기관 20일 순매도 {net:+.1f}조 — 매수 기준 +{f_bump:.1f}")
     return {"bump": round(bump, 2), "reasons": reasons}
+
+
+# ── 국면 = '얼마나 살까'(크기) ─────────────────────────────────────────────
+# 국면으로 매수 문턱을 올리면(buy_threshold_bump) 나쁜 시장에서 후보가 **0**이 된다. 자격 × 0은
+# 손실도 학습도 없는 상태이고, 실측 track record가 영원히 안 쌓인다(2026-07-26 진단: 10거래일
+# 매수 1건 → 표본 20건까지 약 10개월). 그래서 국면은 자격이 아니라 총 익스포저를 정한다.
+# 심각도 순서는 기존 _REGIME_BUMP와 동일하게 유지한다(조정 = 급락 중이라 약세보다 무겁다).
+_REGIME_EXPOSURE = {"강세": 1.0, "과열": 0.6, "중립": 0.7, "약세": 0.4, "조정": 0.2}
+_MACRO_UNFAVORABLE_MULT = 0.8
+_FLOW_SELL_MULT = 0.8
+_FLOW_STRONG_SELL_MULT = 0.6
+# 하한 — 0으로 내리지 않는다. 아무것도 사지 않으면 그 국면에서 무엇이 통하는지 배울 수 없다.
+EXPOSURE_FLOOR = 0.15
+
+
+def target_exposure(regime_result: dict | None, macro_result: dict | None,
+                    flow_result: dict | None = None) -> dict:
+    """총 익스포저 목표(0<x≤1)와 사유. 봇은 (총평가액 × exposure)를 투자 상한으로 쓴다.
+
+    반환: {exposure, reasons[], regime}. 판정 불가(국면 없음)면 중립값을 쓴다 —
+    모르는 상태를 '전액 투자'로도 '전액 현금'으로도 번역하지 않는다.
+    """
+    reg = (regime_result or {}).get("regime")
+    exp = _REGIME_EXPOSURE.get(reg, 0.7)
+    reasons: list[str] = []
+    if reg:
+        reasons.append(f"{reg} 국면 — 기준 익스포저 {exp * 100:.0f}%")
+    else:
+        reasons.append("국면 판정 없음 — 중립 익스포저 70%")
+    if (macro_result or {}).get("bias") == "비우호":
+        exp *= _MACRO_UNFAVORABLE_MULT
+        reasons.append(f"거시 비우호 — ×{_MACRO_UNFAVORABLE_MULT}")
+    fb = market_flow_bias(flow_result)
+    if fb.get("available") and fb.get("bias") == "순매도":
+        net = fb["smart_net_20d"]
+        mult = _FLOW_STRONG_SELL_MULT if net <= _FLOW_STRONG_SELL_JO else _FLOW_SELL_MULT
+        exp *= mult
+        reasons.append(f"외국인·기관 20일 순매도 {net:+.1f}조 — ×{mult}")
+    exp = max(EXPOSURE_FLOOR, min(1.0, exp))
+    return {"exposure": round(exp, 3), "reasons": reasons, "regime": reg}
 
 
 # 시장 전체(KOSPI) 외국인+기관 20일 순매수 누적(조원)이 이 값 이하/이상이면 순매도/순매수세로 본다.

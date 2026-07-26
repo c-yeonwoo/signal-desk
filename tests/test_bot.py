@@ -4,7 +4,7 @@ import json
 
 from signal_desk import bot, db
 from signal_desk.broker import paper
-from signal_desk.signals.engine import SignalResult
+from signal_desk.signals.engine import SignalConfig, SignalResult
 
 UID = 7
 
@@ -21,14 +21,20 @@ def _cfg_stub(**over):
     return base
 
 
-def _setup(monkeypatch, universe, prices, signals, **cfg):
+def _setup(monkeypatch, universe, prices, signals, mode="absolute", exposure=1.0,
+           rank_top_pct=3.0, **cfg):
+    """mode: 매수권 선정 방식. 기존 테스트는 절대문턱(min_buy_score) 기준으로 쓰였으므로
+    기본을 "absolute"로 두고, 횡단면 분위 동작은 아래 rank 전용 테스트에서 검증한다."""
     monkeypatch.setattr(bot.store, "load_universe", lambda: universe)
     monkeypatch.setattr(bot.store, "load_price_series", lambda: prices)
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: {})
     monkeypatch.setattr(bot.store, "load_fundamentals", lambda: {})
     monkeypatch.setattr(bot.engine, "evaluate", lambda *a, **k: signals)
     monkeypatch.setattr(bot, "_cfg", lambda uid: _cfg_stub(**cfg))
-    monkeypatch.setattr(bot, "_market_read", lambda prices: {"eff_cfg": None, "adapt": {}, "context": {"regime": "중립"}})
+    eng_cfg = SignalConfig(selection_mode=mode, rank_top_pct=rank_top_pct)
+    monkeypatch.setattr(bot.signalcfg, "get_config", lambda: eng_cfg)
+    monkeypatch.setattr(bot, "_market_read", lambda prices: {
+        "eff_cfg": eng_cfg, "adapt": {}, "context": {"regime": "중립", "exposure": exposure}})
 
 
 def _seed(cash, positions=None):
@@ -170,6 +176,65 @@ def test_records_advisor_shadow_only_on_real_runs(tmp_path, monkeypatch):
     bot.run_once(UID)
     out = advisor_shadow.summary({})
     assert out["runs"] == 1 and out["advisor_used_runs"] == 0  # LLM 키 없음 → 폴백으로 기록
+
+
+def test_rank_mode_buys_relative_best_even_when_all_below_old_threshold(tmp_path, monkeypatch):
+    """분위 모드: 점수가 전부 옛 문턱(1.6) 아래여도 시장 상위는 매수한다.
+
+    2026-07-26 진단의 핵심 — 관측 최고점수 1.91 < 유효문턱 2.0~2.4라서 10거래일간 매수 1건이었다.
+    상대 순위로 고르면 시장이 나빠도 후보가 비지 않는다.
+    """
+    monkeypatch.chdir(tmp_path)
+    universe = [{"ticker": f"T{i}", "name": f"종목{i}"} for i in range(20)]
+    prices = {f"T{i}": [100.0] for i in range(20)}
+    # 전 종목 0.6~1.1 — 절대문턱 모드였다면 매수 0건
+    signals = [_sig(f"T{i}", f"종목{i}", "HOLD", 0.6 + i * 0.025) for i in range(20)]
+    _setup(monkeypatch, universe, prices, signals, mode="rank", rank_top_pct=10.0,
+           max_new_buys_per_run=10, min_buy_score=1.6)
+    _seed(10_000_000.0)
+    out = bot.run_once(UID)
+    # 균형형 성향 분위 2% × 20종목 → 최소 1종목. 최고점수 종목(T19)이 뽑힌다.
+    assert [b["ticker"] for b in out["buys"]] == ["T19"]
+    assert "시장 상위" in out["buys"][0]["note"]
+
+
+def test_rank_mode_respects_min_score_floor_in_crash(tmp_path, monkeypatch):
+    """폭락장에서 '최악 중 최선'은 사지 않는다 — 분위 안이어도 최소점수 미달이면 제외."""
+    monkeypatch.chdir(tmp_path)
+    universe = [{"ticker": f"T{i}", "name": f"종목{i}"} for i in range(10)]
+    signals = [_sig(f"T{i}", f"종목{i}", "HOLD", -1.0 + i * 0.05) for i in range(10)]
+    _setup(monkeypatch, universe, {f"T{i}": [100.0] for i in range(10)}, signals,
+           mode="rank", rank_top_pct=30.0, max_new_buys_per_run=10)
+    _seed(10_000_000.0)
+    assert bot.run_once(UID)["buys"] == []
+
+
+def test_exposure_caps_total_invested(tmp_path, monkeypatch):
+    """국면 익스포저가 총 투자금 상한이다 — 문턱을 올려 자격을 0으로 만드는 대신 크기를 줄인다."""
+    monkeypatch.chdir(tmp_path)
+    universe = [{"ticker": f"T{i}", "name": f"종목{i}"} for i in range(10)]
+    signals = [_sig(f"T{i}", f"종목{i}", "BUY", 2.0 - i * 0.01) for i in range(10)]
+    _setup(monkeypatch, universe, {f"T{i}": [100.0] for i in range(10)}, signals,
+           mode="rank", rank_top_pct=100.0, exposure=0.02,
+           min_buy_score=0.0, max_new_buys_per_run=10, position_pct=0.5)
+    _seed(10_000.0)                       # 익스포저 2% → 투자 상한 200원 = 2주
+    out = bot.run_once(UID)
+    spent = sum(b["qty"] * b["price"] for b in out["buys"])
+    assert 0 < spent <= 200.0
+    assert "익스포저 2%" in out["buys"][0]["note"]
+
+
+def test_zero_room_blocks_buys_but_not_sells(tmp_path, monkeypatch):
+    """익스포저를 이미 다 쓴 상태면 신규 매수는 없다(청산은 익스포저와 무관하게 진행)."""
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}, {"ticker": "BBB", "name": "나"}],
+           {"AAA": [100.0, 100.0, 90.0], "BBB": [100.0]},
+           [_sig("AAA", "가", "HOLD", 0.0), _sig("BBB", "나", "BUY", 2.0)],
+           mode="rank", exposure=0.15, min_buy_score=0.0)
+    _seed(0.0, {"AAA": {"name": "가", "qty": 10, "avg_price": 100.0}})
+    out = bot.run_once(UID)
+    assert out["buys"] == []                        # 현금 0 + 익스포저 여유 0
+    assert out["sells"][0]["reason"] == "STOP_LOSS"  # 손절은 그대로
 
 
 def test_buys_respect_max_positions(tmp_path, monkeypatch):

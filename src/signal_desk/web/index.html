@@ -2190,18 +2190,25 @@ async function loadRegime(){
     }
     detail.textContent = detailTxt;
     const adapt = document.getElementById('regime-adaptive');
-    if (d.adaptive && d.adaptive.bump > 0) {
-      const bump = fmtNum(d.adaptive.bump, 1);
-      const eff = fmtNum(d.adaptive.effective_buy_threshold, 1);
-      const why = d.adaptive.reasons.join(', ');
-      adapt.classList.add('is-on');
-      adapt.classList.remove('open');
-      adapt.innerHTML = `<button type="button" class="adapt-chip" onclick="this.parentElement.classList.toggle('open')" title="${esc(why)}">매수기준 +${bump} → ${eff}</button>`
+    const ad = d.adaptive || {}, sel = d.selection || {};
+    // 분위 모드: 국면은 매수 자격이 아니라 투자 크기를 정한다 → 칩도 익스포저를 보여준다
+    const ranked = sel.mode === 'rank';
+    if (ranked && ad.exposure != null) {
+      const why = (ad.exposure_reasons || []).join(', ');
+      adapt.classList.add('is-on'); adapt.classList.remove('open');
+      adapt.innerHTML = `<button type="button" class="adapt-chip" onclick="this.parentElement.classList.toggle('open')" title="${esc(why)}">`
+        + `매수권 상위 ${sel.rank_slots ?? '–'}종목 · 익스포저 ${Math.round(ad.exposure * 100)}%</button>`
+        + `<span class="adapt-full">${esc(why)}</span>`;
+    } else if (ad.bump > 0) {
+      const why = (ad.reasons || []).join(', ');
+      adapt.classList.add('is-on'); adapt.classList.remove('open');
+      adapt.innerHTML = `<button type="button" class="adapt-chip" onclick="this.parentElement.classList.toggle('open')" title="${esc(why)}">매수기준 +${fmtNum(ad.bump, 1)} → ${fmtNum(ad.effective_buy_threshold, 1)}</button>`
         + `<span class="adapt-full">${esc(why)}</span>`;
     } else { adapt.classList.remove('is-on', 'open'); adapt.innerHTML = ''; }
-    _effBuyThreshold = (d.adaptive && d.adaptive.effective_buy_threshold) || 1.2;  // 현재 매수 기준(국면 상향 반영)
-    _adaptBump = (d.adaptive && d.adaptive.bump) || 0;
-    _adaptReasons = (d.adaptive && d.adaptive.reasons) || [];
+    // 분위 모드에선 '기준선'이 절대 문턱이 아니라 매수권 컷오프 점수다
+    _effBuyThreshold = (ranked ? sel.cutoff_score : ad.effective_buy_threshold) || 1.2;
+    _adaptBump = ad.bump || 0;
+    _adaptReasons = (ranked ? ad.exposure_reasons : ad.reasons) || [];
   } catch (e) {
     pill.textContent = '-'; pill.className = 'sig-pill HOLD'; detail.textContent = '';
   }
@@ -4476,6 +4483,17 @@ async function checkDataHealth(){
       html += `<b>🗂 데이터 신선도 ${staleN ? `<span style="color:#b45309">· ${staleN}개 갱신 필요</span>` : '<span style="color:var(--sig-buy)">· 모두 최신</span>'}</b>`
         + `<table class="dtable" style="margin-top:6px"><thead><tr><th>소스</th><th>최종 갱신</th><th class="num">경과</th><th class="num">건수</th><th>상태</th></tr></thead><tbody>${fr}</tbody></table>`;
     }
+    // 점수 동결 — 시세가 멈추면 문턱·분위를 어떻게 바꿔도 매일 같은 결과가 나온다
+    const sd = d.signal_drift;
+    if (sd) {
+      const c = sd.frozen ? 'var(--sell)' : (sd.frozen === false ? 'var(--sig-buy)' : 'var(--dim)');
+      const rows = (sd.pairs || []).map(p => `<tr><td>${esc(p.from)} → ${esc(p.to)}</td>`
+        + `<td class="num" style="color:${p.changed_pct != null && p.changed_pct < 5 ? 'var(--sell)' : 'var(--txt)'}">${p.changed_pct ?? '–'}%</td>`
+        + `<td class="num">${p.universe}</td></tr>`).join('');
+      html += `<b style="display:block;margin-top:12px;color:${c}">${sd.frozen ? '⚠️ 점수 동결 의심' : (sd.frozen === false ? '✅ 점수 갱신 정상' : '점수 동결 판정 불가')}</b>`
+        + `<div style="color:var(--dim);margin-top:2px">${esc(sd.note || '')}</div>`
+        + (rows ? `<table class="dtable" style="margin-top:6px"><thead><tr><th>구간</th><th class="num">점수 변한 종목</th><th class="num">비교 종목수</th></tr></thead><tbody>${rows}</tbody></table>` : '');
+    }
     // 시세 스케일 정합(가능할 때)
     if (d.ok) {
       const rows = (d.rows || []).map(r => {
@@ -5373,6 +5391,30 @@ function _renderEngineGate(gate){
   const strip = document.getElementById('engine-gate-strip');
   if (!strip) return;
   if (!gate) { strip.style.display = 'none'; return; }
+  const sel = gate.selection || {};
+  if (sel.mode === 'rank') {
+    // 분위 모드 — 문턱이 아니라 '분포 대비 어디를 자르는가'와 익스포저를 보여준다
+    const dist = sel.distribution || {};
+    const why = (gate.exposure_reasons || []).map(esc).join(' · ') || '국면 가산 없음';
+    strip.style.display = '';
+    strip.style.borderColor = 'var(--line)';
+    strip.innerHTML = `<b>매수권 선정 · 횡단면 분위</b> — 상위 ${sel.rank_top_pct}%(${sel.rank_slots ?? '–'}종목)`
+      + ` · 선정 <b>${sel.eligible ?? '–'}</b>건 · 컷오프 ${fmtNum(sel.cutoff_score, 2)}`
+      + ` · 익스포저 <b>${gate.exposure != null ? Math.round(gate.exposure * 100) + '%' : '–'}</b>`
+      + `<div style="color:var(--dim);margin-top:3px">${why}</div>`
+      + `<div style="color:var(--dim-2);margin-top:3px">점수 분포 max ${fmtNum(dist.max, 2)} · p99 ${fmtNum(dist.p99, 2)}`
+      + ` · 중위 ${fmtNum(dist.median, 2)} (옛 절대문턱 ${fmtNum(gate.base_buy_threshold, 1)})`
+      + ` · 게이트 차단 ${sel.gate_blocked ?? 0}종목</div>`;
+    return;
+  }
+  if (sel.threshold_above_max) {
+    strip.style.display = '';
+    strip.style.borderColor = 'var(--sell)';
+    strip.innerHTML = `<b style="color:var(--sell)">매수가 산술적으로 불가능합니다</b>`
+      + ` — 유효 문턱 ${fmtNum(gate.effective_buy_threshold, 2)} > 전 종목 최고점수 ${fmtNum((sel.distribution || {}).max, 2)}`
+      + `<div style="color:var(--dim);margin-top:3px">문턱이 점수 분포 밖입니다. 분위 모드로 바꾸거나 문턱을 낮추기 전까지 매수는 0건입니다.</div>`;
+    return;
+  }
   const bump = gate.bump || 0;
   const eff = gate.effective_buy_threshold;
   const base = gate.base_buy_threshold;
