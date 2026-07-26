@@ -4526,6 +4526,7 @@ function _setAdminOpsBadge(d){
   let n = (d.freshness || []).filter(f => f.stale).length;
   if (d.signal_drift && d.signal_drift.frozen) n++;
   ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => { if (d[k] && d[k].blocked_reason) n++; });
+  if (d.event_queue && d.event_queue.expiring_soon) n++;   // 만료되면 되돌릴 수 없다 — 배지로 끌어올린다
   b.style.display = n ? '' : 'none';
   b.textContent = n || '';
   b.title = n ? '확인이 필요한 데이터 항목' : '';
@@ -4594,6 +4595,14 @@ function renderDataHealth(d){
                `${esc(kbr.backend || '–')}${kbr.semantic ? '' : ' (해시)'}`, kbr.blocked_reason,
                `${esc(kbr.model || '')} · 임베드 ${kbr.embedded ?? 0}건 · `
                + '해시 폴백이면 동의어·패러프레이즈를 못 잡아 사실상 BM25 단독이다.');
+    const eq = d.event_queue;
+    if (eq) q('이벤트 후보 대기', !eq.expiring_soon, `${eq.pending ?? 0}건`,
+              eq.expiring_soon ? `${eq.expiring_soon}건이 ${eq.soon_hours ?? 24}시간 내 만료 — 확인 안 하면 사라집니다`
+                               : (eq.pending ? '만료 임박 없음' : null),
+              '사람 확인을 기다리는 악재 후보. 후보는 5일 뒤 자동 만료돼서, 안 보면 유효한 악재가 '
+              + '반영도 안 된 채 조용히 사라진다.'
+              + (eq.soon_items && eq.soon_items.length
+                 ? ' · 임박: ' + esc(eq.soon_items.map(s => `${s.ticker}(${s.hours_left}h)`).join(', ')) : ''));
     const cr = d.consensus_readiness;
     if (cr) q('컨센서스 축적', !!cr.ready, `${cr.testable_dates ?? 0}/${cr.need ?? '–'}일`,
               cr.ready ? '측정 가능 — 리비전 팩터 IC부터 잰다'
