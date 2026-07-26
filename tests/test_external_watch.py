@@ -66,6 +66,7 @@ def test_api_admin_gate(tmp_path, monkeypatch):
     assert r.status_code == 403
 
     html = client.get("/").text
-    assert 'id="admin-watch"' in html
+    # 조사 큐는 KB·리서치 탭의 한 뷰다(별도 서브탭 아님) — 지식 수집과 같은 맥락에 둔다.
+    assert 'id="kb-watch-panel"' in html and 'data-kbview="watch"' in html
     assert "조사 후보" in html
     assert "ext-badge" in html

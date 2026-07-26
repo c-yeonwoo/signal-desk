@@ -1115,47 +1115,109 @@ def macro_digest() -> dict | None:
             "updated": dg.get("updated"), "fresh": fresh}
 
 
+def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days: int) -> bool:
+    """한 종목 수집·다이제스트 갱신. 수집물이 없으면 False."""
+    news_items = news.collect(name, news_n=news_n, lookback_days=lookback_days)
+    disc = _disclosure_items(codes.get(ticker))  # DART 주요공시(악재 veto·호재 근거) — 뉴스보다 확실
+    items = disc + news_items
+    if not items:
+        return False
+    for it in items:  # 문서 유형 분류(공시는 이미 지정됨 → 뉴스만 분류)
+        if not it.get("doc_class"):
+            it["doc_class"] = classify_document(it, "news")
+    # P1b: 신규 비-DART만 Sonnet 후보 추출(재수집 URL은 스킵 — 비용)
+    news_urls = [it["url"] for it in news_items if it.get("url")]
+    already = db.kb_entry_urls_existing(news_urls)
+    new_news = [it for it in news_items if it.get("url") and it["url"] not in already]
+    ingest_stock_batch(ticker, items)  # P1: source registry 게이트
+    sync_disclosure_events(ticker, disc)  # P0: 구조화 이벤트 카드(공식 공시)
+    sync_candidate_events(ticker, new_news)  # P1b: candidate only · Decision 미반영
+    digest = build_digest(name, items)
+    # digest 플래그는 레거시·폴백 — Decision은 active event 우선(sentiment_map)
+    event_flag, event_note = detect_event(items)
+    active = _active_decision_event(ticker)
+    if active:
+        event_flag, event_note = True, active.get("summary") or event_note
+    db.kb_digest_set(ticker, name, digest["sentiment"], digest["summary"], digest["points"],
+                     len(items), newest_ts=_newest_ts(items), event_flag=event_flag, event_note=event_note)
+    return True
+
+
 def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dict:
     """targets: [{ticker, name}]. 각 종목 증권 뉴스 수집(신선도·관련성 필터)→저장→다이제스트 갱신.
-    유튜브는 화이트리스트 확보 전까지 보류. 갱신 건수 반환."""
-    updated = 0
-    codes = ingest_dart.corp_codes()  # stock_code→corp_code(DART 공시 조회용, 1회). 키 없으면 {}
+
+    종목 하나의 실패가 나머지를 죽이지 않게 per-target으로 격리한다. 격리가 없던 동안 종목 뉴스
+    경로가 7일간 멈췄고(다이제스트·prune·임베드 전부 스킵) 화면에는 아무것도 안 떴다 —
+    전체 다이제스트 신선도를 max()로 재고 있었고 거시/US 다이제스트가 매일 갱신돼 최신으로 보였다.
+    마지막 실행 결과는 kv에 남겨 관리자 진단(refresh_status)이 실패 종목을 이름으로 드러낸다.
+    """
+    updated, failed = 0, []
+    try:
+        codes = ingest_dart.corp_codes()  # stock_code→corp_code(1회). 키 없으면 {}
+    except Exception as e:
+        log.warning("DART corp_codes 실패(%s) — 공시 없이 뉴스만 수집", type(e).__name__)
+        codes = {}
     for t in targets:
         ticker, name = t.get("ticker"), t.get("name", "")
         if not ticker or not name:
             continue
-        news_items = news.collect(name, news_n=news_n, lookback_days=lookback_days)
-        disc = _disclosure_items(codes.get(ticker))  # DART 주요공시(악재 veto·호재 근거) — 뉴스보다 확실
-        items = disc + news_items
-        if not items:
-            continue
-        for it in items:  # 문서 유형 분류(공시는 이미 지정됨 → 뉴스만 분류)
-            if not it.get("doc_class"):
-                it["doc_class"] = classify_document(it, "news")
-        # P1b: 신규 비-DART만 Sonnet 후보 추출(재수집 URL은 스킵 — 비용)
-        news_urls = [it["url"] for it in news_items if it.get("url")]
-        already = db.kb_entry_urls_existing(news_urls)
-        new_news = [it for it in news_items if it.get("url") and it["url"] not in already]
-        ingest_stock_batch(ticker, items)  # P1: source registry 게이트
-        sync_disclosure_events(ticker, disc)  # P0: 구조화 이벤트 카드(공식 공시)
-        sync_candidate_events(ticker, new_news)  # P1b: candidate only · Decision 미반영
-        digest = build_digest(name, items)
-        # digest 플래그는 레거시·폴백 — Decision은 active event 우선(sentiment_map)
-        event_flag, event_note = detect_event(items)
-        active = _active_decision_event(ticker)
-        if active:
-            event_flag, event_note = True, active.get("summary") or event_note
-        db.kb_digest_set(ticker, name, digest["sentiment"], digest["summary"], digest["points"],
-                         len(items), newest_ts=_newest_ts(items), event_flag=event_flag, event_note=event_note)
-        updated += 1
+        try:
+            if _refresh_one(ticker, name, codes, news_n, lookback_days):
+                updated += 1
+        except Exception as e:
+            failed.append({"ticker": ticker, "name": name, "error": type(e).__name__})
+            log.warning("KB 종목 수집 실패 %s(%s): %s", name, ticker, type(e).__name__)
     pruned = db.kb_prune()  # 뉴스 무한 누적·만료 pending 정리(큐레이션 업로드는 보존)
     embedded = 0
     try:
         from signal_desk import kb_embed
         embedded = kb_embed.embed_missing(limit=120)  # entry_add_many 경로 증분 임베드
-    except Exception:
-        pass
-    return {"updated": updated, "pruned": pruned, "embedded": embedded}
+    except Exception as e:
+        log.warning("KB 증분 임베드 실패: %s", type(e).__name__)
+    out = {"updated": updated, "pruned": pruned, "embedded": embedded,
+           "targets": len(targets), "failed": failed}
+    if failed:
+        log.warning("KB 종목 수집 %d/%d 실패: %s", len(failed), len(targets),
+                    ", ".join(f["name"] for f in failed[:8]))
+    db.kv_set("kb_refresh_last", {**out, "ts": int(time.time())})
+    return out
+
+
+def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3) -> dict:
+    """종목 KB 수집이 살아 있는지 — '대상 중 신선한 다이제스트 비율'로 잰다.
+
+    전체 다이제스트의 max(updated)는 정지를 못 잡는다: 거시(_MARKET)·US 다이제스트가 매일 갱신되면
+    국내 종목이 몇 주 멈춰 있어도 화면은 '방금 갱신'이라고 말한다. 커버리지 플래그 대신 실제
+    커버리지를 재는 것과 같은 이유다 — 무엇이 안 채워졌는지는 저장된 데이터를 세서 판단한다.
+    """
+    last = db.kv_get("kb_refresh_last") or {}
+    digests = db.kb_digests_all()
+    now = time.time()
+    rows, cutoff = [], now - stale_days * 86400
+    for t in targets or []:
+        dg = digests.get(t.get("ticker") or "")
+        upd = (dg or {}).get("updated")
+        rows.append({"ticker": t.get("ticker"), "name": t.get("name"),
+                     "age_days": round((now - upd) / 86400, 1) if upd else None,
+                     "fresh": bool(upd and upd >= cutoff)})
+    fresh = [r for r in rows if r["fresh"]]
+    stale = [r for r in rows if not r["fresh"]]
+    oldest = max((r["age_days"] for r in rows if r["age_days"] is not None), default=None)
+    reason = None
+    if not rows:
+        reason = "수집 대상 없음 — 확정 국면 주도섹터·보유·관심종목이 비었다"
+    elif last.get("failed"):
+        reason = (f"마지막 실행에서 {len(last['failed'])}종목 실패: "
+                  + ", ".join(f["name"] for f in last["failed"][:5]))
+    elif not fresh:
+        reason = f"대상 {len(rows)}종목 전부 {stale_days}일 이상 미갱신 — 수집 루프가 멈췄을 수 있다"
+    return {"targets": len(rows), "fresh": len(fresh), "stale": len(stale),
+            "oldest_age_days": oldest, "stale_days": stale_days,
+            "stale_names": [r["name"] for r in stale[:8]],
+            "last_run": (datetime.datetime.fromtimestamp(last["ts"]).strftime("%Y-%m-%d %H:%M")
+                         if last.get("ts") else None),
+            "last_updated": last.get("updated"), "last_failed": last.get("failed") or [],
+            "blocked_reason": reason}
 
 
 def sentiment_map() -> dict[str, dict]:
