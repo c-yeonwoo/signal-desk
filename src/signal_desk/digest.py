@@ -82,6 +82,23 @@ def _change_note(count: int, prev: int | None) -> str:
     return f" (어제 {prev} → {count - prev:+d})"
 
 
+def _selection_line(selection: dict | None, exposure: float | None,
+                    exposure_reasons: list[str] | None) -> str:
+    """분위 모드 헤더 — 매수권은 상대 순위, 국면은 크기(익스포저)."""
+    n = (selection or {}).get("universe") or 0
+    slots = (selection or {}).get("rank_slots") or 0
+    line = f"매수권 상위 {slots}종목/{n}"
+    cut = (selection or {}).get("cutoff_score")
+    if cut is not None:
+        line += f" (컷오프 {cut:+.2f})"
+    if exposure is not None:
+        line += f" · 익스포저 {exposure * 100:.0f}%"
+    rs = [r for r in (exposure_reasons or []) if r]
+    if rs:
+        line += f"\n익스포저 사유: {' · '.join(rs[:3])}"
+    return line
+
+
 def build_morning(
     *,
     signals: list[Any],
@@ -93,25 +110,36 @@ def build_morning(
     date: datetime.date | None = None,
     app_url: str | None = None,
     prev_buy_count: int | None = None,
+    selection: dict | None = None,
+    exposure: float | None = None,
+    exposure_reasons: list[str] | None = None,
 ) -> str:
     """아침 브리핑 본문. signals는 SignalResult 리스트(국내), threshold는 국면 반영 유효 문턱.
 
+    selection이 분위 모드면 헤더를 '매수문턱' 대신 '매수권 상위 N종목 · 익스포저 M%'로 쓴다 —
+    화면·봇·브리핑이 서로 다른 기준을 말하면 안 된다.
     app_url이 있으면 마지막에 「앱에서 보기」 링크를 붙인다 — 링크가 없으면 브리핑을 읽고
     끝나서 D7(재방문)에 구조적으로 기여하지 못한다.
     prev_buy_count가 있으면 매수 종목 수의 전일 대비 증감을 함께 적는다(매일 같은 문장 방지).
     """
     d = date or datetime.date.today()
+    ranked = (selection or {}).get("mode") == "rank"
     buys = buy_signals(signals)
     bought = {s.ticker for s in buys}
+    # 분위 모드의 '근접'은 컷오프(매수권 막차 점수) 기준 — 절대 문턱은 더 이상 매수를 정하지 않는다
+    near_ref = (selection or {}).get("cutoff_score") if ranked else threshold
     near = sorted(
         [s for s in signals
-         if s.ticker not in bought and _buyable(s) and 0 <= (threshold - float(s.score)) <= NEAR_GAP],
+         if s.ticker not in bought and _buyable(s) and near_ref is not None
+         and 0 <= (near_ref - float(s.score)) <= NEAR_GAP],
         key=lambda s: float(s.score), reverse=True,
-    )
+    ) if near_ref is not None else []
 
     lines = [f"☀️ {_date_line(d)} 아침 브리핑", ""]
     zone = f"시장 ZONE {regime_label}" if regime_label else "시장 ZONE 판정 없음"
-    lines.append(f"{zone} · {_threshold_line(threshold, base_threshold, bump_reasons)}")
+    head = (_selection_line(selection, exposure, exposure_reasons) if ranked
+            else _threshold_line(threshold, base_threshold, bump_reasons))
+    lines.append(f"{zone} · {head}")
     lines.append("")
 
     change = _change_note(len(buys), prev_buy_count)
@@ -121,6 +149,10 @@ def build_morning(
             lines.append(f"🟢 {s.name} {float(s.score):+.2f}")
         if len(buys) > _BUY_LIMIT:
             lines.append(f"… 외 {len(buys) - _BUY_LIMIT}종목")
+    elif ranked:
+        # 분위 모드에서 0건은 정상이 아니다 — 악재 veto·게이트·최소점수로 전부 막힌 예외 상황
+        lines.append(f"매수 시그널 0{change} — 상위 종목이 전부 악재·게이트·최소점수에 막혔습니다."
+                     " 드문 경우라 관리자 확인이 필요합니다.")
     else:
         # 매수 0일이 정상 동작임을 매번 같은 문장으로 — 앱의 '매수 0일 히어로'와 같은 톤
         lines.append(f"매수 시그널 0{change} — 기준을 넘은 종목이 없습니다. 정밀도 우선이라 그렇고,"
@@ -128,10 +160,10 @@ def build_morning(
 
     if near:
         lines.append("")
-        lines.append(f"매수 근접(문턱까지 {NEAR_GAP:.1f} 이내) {len(near)}")
+        label = "컷오프" if ranked else "문턱"
+        lines.append(f"매수 근접({label}까지 {NEAR_GAP:.1f} 이내) {len(near)}")
         for s in near[:_NEAR_LIMIT]:
-            gap = threshold - float(s.score)
-            lines.append(f"· {s.name} {float(s.score):+.2f} ({gap:.2f} 남음)")
+            lines.append(f"· {s.name} {float(s.score):+.2f} ({near_ref - float(s.score):.2f} 남음)")
 
     lines += ["", _accuracy_line(accuracy)]
     if app_url:

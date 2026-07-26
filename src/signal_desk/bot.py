@@ -166,6 +166,10 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
         "effective_buy_threshold": adapt.get("effective_buy_threshold"),
         "bump": adapt.get("bump") or 0.0,
         "bump_reasons": list(adapt.get("reasons") or []),
+        # rank 모드: 국면은 문턱이 아니라 총 익스포저로 반영된다(자격 대신 크기)
+        "selection_mode": adapt.get("mode"),
+        "exposure": adapt.get("exposure"),
+        "exposure_reasons": list(adapt.get("exposure_reasons") or []),
         "config_fp": config_fp,
         # 미주은 시황 코멘터리(정성 내러티브) — 참고용 맥락, 개별 종목 점수엔 미반영
         "macro_note": (macro_dg["summary"] if macro_dg and macro_dg.get("fresh") else ""),
@@ -493,11 +497,31 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
     target_alloc = bal2["total_eval"] * cfg["position_pct"]
     tranches = strategy.entry_tranches(cfg["trading_style"])  # ① 분할매수 회차
     tranche_alloc = target_alloc / tranches
+
+    # 국면 = '얼마나 살까'. 총 투자금 상한을 국면 익스포저로 정한다(문턱 상향 대신 — 자격을 0으로
+    # 만들면 그 국면에서 무엇이 통하는지 배울 수 없다). 하한이 있어 완전 정지는 없다.
+    eng_cfg = mr["eff_cfg"] or signalcfg.get_config()
+    exposure = float((context or {}).get("exposure") or 1.0)
+    invest_cap = bal2["total_eval"] * exposure
+    invested = max(0.0, bal2["total_eval"] - cash)
+    room = max(0.0, invest_cap - invested)
+    if room <= 0:
+        slots = 0
     if slots > 0:
         warned = store.load_warned_tickers() if market == "kr" else set()  # 토스 경고 veto(국내)
+        if eng_cfg.selection_mode == "rank" and any(s.rank is None for s in signals):
+            # 엔진을 안 거쳐 들어온 시그널(외부 조립·테스트)도 같은 기준으로 순위를 매긴다
+            engine.apply_cross_sectional(
+                sorted(signals, key=lambda s: s.score, reverse=True), eng_cfg)
         eligible = [s for s in signals if engine.is_buy(s.kind) and s.ticker not in held_after
                     and not s.event_risk and s.ticker not in warned]
-        strong = [s for s in eligible if s.score >= cfg["min_buy_score"]]
+        if eng_cfg.selection_mode == "rank":
+            # 분위 모드: 절대 점수 하한(min_buy_score) 대신 성향별로 매수권을 좁힌다.
+            width = strategy.rank_top_pct(cfg["trading_style"], eng_cfg.rank_top_pct)
+            width_k = engine.rank_slots(len(signals), width)
+            strong = [s for s in eligible if s.rank is not None and s.rank <= width_k]
+        else:
+            strong = [s for s in eligible if s.score >= cfg["min_buy_score"]]
         skipped_weak = len(eligible) - len(strong)
         pool = sorted(strong, key=lambda s: s.score, reverse=True)[:max(slots * 3, 6)]
         pool_by = {s.ticker: s for s in pool}
@@ -533,11 +557,15 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
             if not closes:
                 continue
             live = _live_price(s.ticker, closes[-1])
-            alloc = min(tranche_alloc, cash)                   # ① 목표비중을 K분할 → 이번엔 1트랜치
+            alloc = min(tranche_alloc, cash, room)             # ① 목표비중 K분할 ∩ 국면 익스포저 잔여
             qty = int(alloc // live)
             if qty < 1:
                 continue  # 배분금액보다 1주가 비싸면 스킵(정수주 제약)
-            quant = (f"점수 {s.score:+.2f}(≥{cfg['min_buy_score']:.1f}·신뢰도 {s.confidence:.2f}) · "
+            basis = (f"시장 상위 {s.rank_pct:.1f}%"
+                     if eng_cfg.selection_mode == "rank" and s.rank_pct is not None
+                     else f"≥{cfg['min_buy_score']:.1f}")
+            quant = (f"점수 {s.score:+.2f}({basis}·신뢰도 {s.confidence:.2f}) · "
+                     f"익스포저 {exposure * 100:.0f}% · "
                      f"분할 1/{tranches}트랜치(약 {int(alloc):,}{unit}) ÷ {int(live):,}{unit} = {qty}주")
             llm_reason = rationale_by.get(s.ticker)
             note = (f"[AI] {llm_reason} · {quant}") if llm_reason else quant
@@ -552,22 +580,26 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
                                             _today(), market=market)
                     db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, context, live)  # 공용 저널(학습)
                     cash -= qty * live
+                    room -= qty * live
                     plan["ok"] = True
                 else:
                     plan["ok"] = False
             else:
                 cash -= qty * live
+                room -= qty * live
             buys.append(plan)
 
     # 매수 0건이어도 한 줄 저널 — 나중에 '왜 안 샀는지'·설정 버전 추적(공용, 유저 무관)
     if slots > 0 and not buys and not dry_run:
         n_buy = sum(1 for s in signals if engine.is_buy(s.kind))
-        thr = (context or {}).get("effective_buy_threshold")
+        basis = (f"매수권 상위 {eng_cfg.rank_top_pct}%" if eng_cfg.selection_mode == "rank"
+                 else f"유효문턱 {(context or {}).get('effective_buy_threshold')}")
         db.bot_decision_log(
             "-", "(요약)", "idle", None,
-            f"매수 체결 0 · BUY시그널 {n_buy}건 · 유효문턱 {thr} · 슬롯 {slots}",
+            f"매수 체결 0 · BUY시그널 {n_buy}건 · {basis} · 익스포저 {exposure * 100:.0f}%"
+            f"(여유 {int(room):,}) · 슬롯 {slots}",
             {**(context or {}), "advisor_used": advisor_used, "skipped_weak": skipped_weak,
-             "buy_signals": n_buy, "slots": slots},
+             "buy_signals": n_buy, "slots": slots, "exposure": exposure, "room": round(room)},
             0.0,
         )
 

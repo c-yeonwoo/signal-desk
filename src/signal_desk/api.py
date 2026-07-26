@@ -36,7 +36,7 @@ from signal_desk.signals import (
 )
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
-    compute_indicator_series, evaluate, factor_contribution, walk_forward,
+    compute_indicator_series, evaluate, factor_contribution, selection_summary, walk_forward,
 )
 
 config.load_env()
@@ -146,7 +146,7 @@ def _morning_digest_text(date: datetime.date | None = None, *,
     미리보기·테스트 발송이 이 값을 덮어쓰면 다음 정기 브리핑의 증감이 틀어진다."""
     if not store.is_ready():
         return None
-    _, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
+    cfg, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
     sigs = list(_signals())
     prev_raw = db.kv_get(_DIGEST_PREV_KEY)
     text = digest.build_morning(
@@ -159,6 +159,9 @@ def _morning_digest_text(date: datetime.date | None = None, *,
         date=date or datetime.datetime.now(ZoneInfo("Asia/Seoul")).date(),
         app_url=config.public_base_url(),
         prev_buy_count=int(prev_raw) if str(prev_raw or "").isdigit() else None,
+        selection=selection_summary(sigs, cfg),
+        exposure=adapt.get("exposure"),
+        exposure_reasons=adapt.get("exposure_reasons"),
     )
     if remember:
         db.kv_set(_DIGEST_PREV_KEY, str(len(digest.buy_signals(sigs))))
@@ -946,9 +949,15 @@ def _buylist(uid: int) -> list[dict]:
     us_sigs = _us_signals()
     names = {u["ticker"]: u["name"] for u in store.load_universe()}
     names.update({u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()})
-    _, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
-    kr_thr = adapt["effective_buy_threshold"]        # 국면 상향된 유효 매수문턱(KR)
+    cfg, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
     base_thr = signalcfg.get_config().buy_threshold  # US 등 기본
+    # 분위 모드에선 '얼마나 더 오르면 사는가'의 기준이 절대 문턱이 아니라 매수권 컷오프 점수다
+    kr_sel = selection_summary(list(kr_sigs.values()), cfg) if kr_sigs else {}
+    kr_thr = (kr_sel.get("cutoff_score") if kr_sel.get("mode") == "rank"
+              else adapt["effective_buy_threshold"])
+    if kr_thr is None:
+        kr_thr = adapt["effective_buy_threshold"]
+    ranked = kr_sel.get("mode") == "rank"
     out = []
     for t in favs:
         sig = kr_sigs.get(t) or us_sigs.get(t)
@@ -971,7 +980,8 @@ def _buylist(uid: int) -> list[dict]:
             status, hint = "blocked", blockers[0]["hint"]
         else:
             status = "near" if gap <= 0.5 else "far"
-            hint = f"점수 {sig.score:+.2f} · 매수문턱 {thr:.2f} — {max(gap, 0):.2f} 더 오르면 매수권"
+            label = "매수권 컷오프" if (ranked and not is_us) else "매수문턱"
+            hint = f"점수 {sig.score:+.2f} · {label} {thr:.2f} — {max(gap, 0):.2f} 더 오르면 매수권"
         out.append({"ticker": t, "name": names.get(t, sig.name), "kind": sig.kind,
                     "score": round(sig.score, 2), "threshold": round(thr, 2), "gap": gap,
                     "blockers": blockers, "status": status, "hint": hint,
@@ -1556,9 +1566,10 @@ def regime_get():
     if not store.is_ready():
         return {"ready": False, "regime": None}
     mf_raw = store.load_market_flow()
-    _, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=mf_raw)  # 국면 적응으로 상향된 매수 기준
+    cfg, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=mf_raw)  # 국면 적응(rank=익스포저 / absolute=문턱)
     flow = regime.market_flow_bias(mf_raw)  # 토스 시장전체 외국인·기관 순매수 방향
-    return {**_regime(), "adaptive": adapt, "market_flow": flow}
+    return {**_regime(), "adaptive": adapt, "market_flow": flow,
+            "selection": selection_summary(_signals(), cfg)}
 
 
 @app.get("/api/egress-ip")
@@ -1624,7 +1635,7 @@ def data_health_get():
                                   if latest else None),
                       "age_hours": round(age_h, 1) if age_h is not None else None,
                       "stale": age_h is None or age_h > 48})
-    return {**store.price_sanity(), "freshness": fresh}
+    return {**store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift()}
 
 
 @app.get("/api/live-status")
@@ -2716,6 +2727,13 @@ def brain_proposals_list(status: str | None = "draft"):
                 "bump": adapt.get("bump") or 0.0,
                 "reasons": list(adapt.get("reasons") or []),
                 "regime_adaptive": bool((base.get("regime_adaptive") or 0) >= 0.5),
+                "mode": adapt.get("mode"),
+                "exposure": adapt.get("exposure"),
+                "exposure_reasons": list(adapt.get("exposure_reasons") or []),
+                # 점수 분포 — 문턱이 분포 밖으로 나가면 매수는 판단이 아니라 산수로 0이 된다.
+                # 그게 실제로 벌어졌던 일이라(2026-07-26) 상시 노출한다.
+                "selection": selection_summary(_signals() if store.is_ready() else [],
+                                               signalcfg.get_config()),
             }}
 
 

@@ -54,6 +54,18 @@ class SignalConfig:
     sell_threshold: float = -1.2
     strong_sell_threshold: float = -2.0
 
+    # 매수권 선정 방식 — "rank"(횡단면 상위 분위) | "absolute"(절대 문턱)
+    #
+    # absolute는 문턱이 점수 분포 밖으로 나가면 후보가 **산술적으로** 0이 된다. 2026-07-26 진단:
+    # PIT 스냅샷 2,000건(200종목×10거래일)의 최고점수 1.91 · p99 1.45인데 유효문턱이 2.0~2.4여서
+    # 10거래일간 매수 1건. 8팩터를 가중평균 후 ×3 하는 구조상 2.0을 넘으려면 정규화 팩터 평균이
+    # 0.67이어야 해서, 강세장에서도 거의 발생하지 않는다(strong_buy 2.0은 관측 0건).
+    # rank는 시장이 나빠도 "상대적으로 가장 좋은 N%"가 항상 존재해 후보가 비지 않는다.
+    # 매도는 절대 기준을 유지한다 — 청산은 억제하지 않는다는 기존 원칙 그대로.
+    selection_mode: str = "rank"
+    rank_top_pct: float = 3.0     # 시장 내 상위 N%를 매수권으로(200종목이면 6종목)
+    rank_min_score: float = 0.5   # 분위 안이라도 이 점수 미만이면 제외 — 폭락장 '최악 중 최선' 방지
+
     # 국면 적응: 1이면 약세·조정·거시 비우호 국면에서 매수 임계값을 자동 상향(regime.buy_threshold_bump).
     # 0이면 임계값 고정. (관리자 조정 필드 — signalcfg.FIELDS에 포함)
     regime_adaptive: float = 1.0
@@ -112,6 +124,10 @@ class SignalResult:
     decision: Decision = field(default_factory=empty_decision)
     earnings_date: str | None = None  # 다가오는 실적발표 예정일(YYYY-MM-DD, US)
     earnings_soon: bool = False  # 실적발표 임박(게이트 창 이내) — 신규 매수 보류
+    rank: int | None = None        # 시장 내 점수 순위(1=최상위) — 횡단면 선정용
+    rank_pct: float | None = None  # 시장 내 점수 상위 백분위(1.0=상위 1%) — 표시용
+    rank_eligible: bool = False    # 매수권(상위 분위 + 최소점수 + 게이트 통과)
+    gate_blocked: bool = False     # 추세·실적 게이트로 매수 보류됨(분위 안이어도 승격 금지)
     reasons: list[str] = field(default_factory=list)
     narrative: str = ""
     factor_scores: dict[str, float] = field(default_factory=dict)  # 팩터별 방향·강도 [-1,1] — 시각화용
@@ -238,15 +254,63 @@ def _downtrend_confirmed(
     return c < ma_s and c < ma_m and ma_s < ma_m
 
 
+def ret_pct_n(closes: list[float], i: int, n: int) -> float | None:
+    """i 시점 기준 n거래일 수익률(%). 표본 부족이면 None."""
+    if i - n < 0 or i >= len(closes) or closes[i - n] == 0:
+        return None
+    return (closes[i] / closes[i - n] - 1) * 100
+
+
+def market_return_pct(prices: dict[str, list[float]], n: int = 20) -> float | None:
+    """유니버스 n거래일 수익률의 중위값(%). 시장 자체가 내렸는지를 판정하는 기준선.
+
+    이게 없으면 하락추세 게이트가 종목 고유 정보와 시장 전체 하락을 구분하지 못한다 —
+    조정장에서는 200종목이 거의 다 역배열이라 게이트가 '전면 차단 스위치'로 작동한다.
+    """
+    rets = [r for closes in prices.values()
+            if (r := ret_pct_n(closes, len(closes) - 1, n)) is not None]
+    if not rets:
+        return None
+    rets.sort()
+    m = len(rets) // 2
+    return rets[m] if len(rets) % 2 else (rets[m - 1] + rets[m]) / 2
+
+
+def _downtrend_blocking(
+    closes: list[float], series: dict, i: int, config: SignalConfig,
+    market_ret_20d: float | None = None,
+) -> bool:
+    """하락추세 게이트를 실제로 적용할지. 확인된 하락추세여도 **시장 대비 상대강도가 우위**면
+    적용하지 않는다 — 시장이 −10%인데 이 종목이 −3%라면 역배열은 종목의 결함이 아니라
+    시장 상태다. 상대 예외 없이는 조정장에 매수 후보가 0이 된다(2026-07-26 진단).
+    market_ret_20d=None(백테스트·리플레이)이면 기존 절대 판정과 동일하게 동작한다."""
+    if not _downtrend_confirmed(closes, series, i, config):
+        return False
+    if market_ret_20d is None or market_ret_20d >= 0:
+        return True
+    own = ret_pct_n(closes, i, 20)
+    return not (own is not None and own > market_ret_20d)
+
+
 def _apply_trend_gate(
-    combined: dict, closes: list[float], series: dict, i: int, config: SignalConfig
+    combined: dict, closes: list[float], series: dict, i: int, config: SignalConfig,
+    market_ret_20d: float | None = None,
 ) -> dict:
     """확인된 하락추세에서 종합 매수신호를 관망으로 강등(떨어지는 칼 차단). 낙폭과대 기여는
-    컴포넌트 단계(_price_only_components/evaluate)에서 이미 무효화됨."""
-    if combined["kind"] in BUY_KINDS and _downtrend_confirmed(closes, series, i, config):
+    컴포넌트 단계(_price_only_components/evaluate)에서 이미 무효화됨.
+    시장 대비 상대강도 우위면 게이트를 적용하지 않는다(_downtrend_blocking)."""
+    if combined["kind"] not in BUY_KINDS:
+        return combined
+    if _downtrend_blocking(closes, series, i, config, market_ret_20d):
         combined["kind"] = HOLD
+        combined["gated"] = True
         combined["reasons"] = [*combined["reasons"],
                                "[추세] 하락추세 확인(종가<MA20<MA60) — 반등 전 매수 차단(관망)"]
+    elif _downtrend_confirmed(closes, series, i, config):
+        combined["reasons"] = [
+            *combined["reasons"],
+            f"[추세] 하락추세지만 시장(20일 {market_ret_20d:+.1f}%) 대비 상대강도 우위 — 게이트 완화",
+        ]
     return combined
 
 
@@ -271,6 +335,7 @@ def _apply_earnings_gate(
         return False
     if combined["kind"] in BUY_KINDS:
         combined["kind"] = HOLD
+        combined["gated"] = True
         combined["reasons"] = [*combined["reasons"],
                                f"[실적] {days_until}일 뒤 실적발표 예정 — 발표 전 신규 매수 보류(관망)"]
     return True
@@ -303,6 +368,89 @@ def classify(score: float, config: SignalConfig | None = None) -> str:
     if score <= config.sell_threshold:
         return SELL
     return HOLD
+
+
+def rank_slots(universe_n: int, top_pct: float) -> int:
+    """상위 top_pct%가 몇 종목인지. 최소 1종목 — 유니버스가 작으면 반올림으로 0이 되어
+    "상대적으로 가장 좋은 종목"조차 못 고르는 일이 생긴다(200종목 3% = 6종목)."""
+    if universe_n <= 0:
+        return 0
+    return max(1, round(universe_n * top_pct / 100))
+
+
+def apply_cross_sectional(results: list[SignalResult],
+                          config: SignalConfig | None = None) -> list[SignalResult]:
+    """횡단면 분위로 매수권을 정한다(절대 문턱 대체). results는 점수 내림차순 정렬 상태를 가정.
+
+    모든 종목에 `rank_pct`(상위 백분위)를 채우고, 상위 `rank_top_pct` 이내 · `rank_min_score`
+    이상 · 게이트 미차단인 종목만 `rank_eligible`로 표시하고 kind를 BUY로 승격한다.
+    승격은 매수권 표시일 뿐이고, 실제 매수 크기는 국면 익스포저(regime.target_exposure)가 정한다.
+
+    분위를 봇 성향별로 더 좁힐 수 있게 `rank_pct`는 전 종목에 남긴다(넓히는 건 불가 — 엔진
+    분위가 앱 전체의 '매수권' 정의다).
+    """
+    config = config or SignalConfig()
+    if config.selection_mode != "rank" or not results:
+        return results
+    n = len(results)
+    k = rank_slots(n, config.rank_top_pct)
+    # 매수권 k자리는 순위를 내려가며 채운다 — 상위에 악재·게이트 종목이 있으면 그 자리를 비우는 게
+    # 아니라 다음 순위가 올라온다. 그러지 않으면 veto 몇 건이 조용히 후보 수를 깎는다(원래 버그와 동종).
+    taken = 0
+    for idx, r in enumerate(results):
+        r.rank = idx + 1
+        r.rank_pct = round((idx + 1) / n * 100, 2)
+        eligible = (taken < k
+                    and r.score >= config.rank_min_score
+                    and not r.gate_blocked
+                    and not r.event_risk)
+        r.rank_eligible = eligible
+        if eligible:
+            if not is_buy(r.kind):
+                r.kind = STRONG_BUY if taken < max(1, k // 3) else BUY
+                r.reasons = [*r.reasons,
+                             f"[선정] 시장 {n}종목 중 {r.rank}위(매수권 {k}자리) — "
+                             f"절대 문턱이 아니라 같은 시장 안의 상대 순위로 고른 종목"]
+            taken += 1
+        elif is_buy(r.kind):
+            # 절대 문턱은 넘었지만 상대 순위가 밖 → 매수권 아님(모드 하나만 유효해야 한다)
+            r.kind = HOLD
+            r.reasons = [*r.reasons, f"[선정] 시장 {n}종목 중 {r.rank}위 — 매수권({k}자리) 밖"]
+    return results
+
+
+def selection_summary(results: list[SignalResult],
+                      config: SignalConfig | None = None) -> dict:
+    """매수권 선정 상태 요약 — UI·브리핑·진단이 같은 숫자를 쓰게 한다.
+
+    `distribution`은 "문턱이 점수 분포 밖에 있는지"를 상시 확인하기 위한 값이다. 절대 문턱
+    모드에서 max < buy_threshold면 매수는 산술적으로 불가능하다 — 그걸 화면에서 보이게 한다.
+    """
+    config = config or SignalConfig()
+    scores = sorted((r.score for r in results), reverse=True)
+    n = len(scores)
+
+    def pct(p: float) -> float | None:
+        if not n:
+            return None
+        return round(scores[min(n - 1, int(n * p / 100))], 2)
+
+    eligible = [r for r in results if r.rank_eligible] if config.selection_mode == "rank" \
+        else [r for r in results if is_buy(r.kind)]
+    return {
+        "mode": config.selection_mode,
+        "universe": n,
+        "rank_slots": rank_slots(n, config.rank_top_pct),
+        "rank_top_pct": config.rank_top_pct,
+        "rank_min_score": config.rank_min_score,
+        "buy_threshold": config.buy_threshold,
+        "eligible": len(eligible),
+        "cutoff_score": round(min((r.score for r in eligible), default=0.0), 2) if eligible else None,
+        "gate_blocked": sum(1 for r in results if r.gate_blocked),
+        "distribution": {"max": pct(0), "p90": pct(10), "p99": pct(1), "median": pct(50)},
+        "threshold_above_max": bool(n and config.selection_mode == "absolute"
+                                    and scores[0] < config.buy_threshold),
+    }
 
 
 def combine(components: list[tuple[float, float, list[str]]], config: SignalConfig | None = None) -> dict:
@@ -347,6 +495,8 @@ def evaluate(
     today = today or datetime.date.today()
     shorts = shorts or {}
     val_scores = val.scores(universe, fundamentals)
+    # 시장 20일 수익 중위값 — 하락추세 게이트를 '종목 고유'와 '시장 전체'로 구분하는 기준선
+    market_ret_20d = market_return_pct(prices, 20)
     results: list[SignalResult] = []
 
     for item in universe:
@@ -401,7 +551,7 @@ def evaluate(
         # 확인된 하락추세(떨어지는 칼)에서는 낙폭과대·저평가 매수기여를 무효화한다 — 싸고
         # 과매도여도 구조적 하락이면 계속 싸지고 떨어지는 가치함정. 종합 BUY도 아래서 관망 강등.
         i_last = len(closes) - 1
-        if _downtrend_confirmed(closes, series, i_last, config):
+        if _downtrend_blocking(closes, series, i_last, config, market_ret_20d):
             if rev_weight and rev_norm > 0:
                 rev_norm, rev_weight = 0.0, 0.0
                 rev_reasons = [*rev_reasons, "[추세] 하락추세 — 낙폭과대 매수신호 무효화"]
@@ -422,7 +572,7 @@ def evaluate(
             (sh_norm, sh_weight, sh_reasons),        # 공매도 거래비중(KR) — 하방 리스크 감점
         ]
         combined = combine(components, config)
-        _apply_trend_gate(combined, closes, series, i_last, config)
+        _apply_trend_gate(combined, closes, series, i_last, config, market_ret_20d)
         edate = earnings_dates.get(ticker)
         earnings_soon = _apply_earnings_gate(combined, _days_until(edate, today), config)
 
@@ -462,13 +612,16 @@ def evaluate(
             event_severity=dec.severity or "",
             decision=dec,
             earnings_date=edate, earnings_soon=earnings_soon,
+            gate_blocked=bool(combined.get("gated")),
             reasons=combined["reasons"],
             factor_scores=factor_scores,
         )
-        result.narrative = narr.explain(result)
         results.append(result)
 
     results.sort(key=lambda r: r.score, reverse=True)
+    apply_cross_sectional(results, config)   # 매수권 = 횡단면 분위(rank 모드일 때만 개입)
+    for r in results:
+        r.narrative = narr.explain(r)        # 승격·강등이 반영된 kind 기준으로 설명 생성
     return results
 
 

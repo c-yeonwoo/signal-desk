@@ -123,6 +123,41 @@ def test_app_link_and_prev_day_change():
     assert "앱에서 보기" not in same                            # URL 미설정이면 링크 없음
 
 
+def test_rank_mode_header_shows_slots_and_exposure():
+    """분위 모드 브리핑은 '매수문턱'이 아니라 '매수권 N종목 · 익스포저 M%'를 말한다 —
+    화면·봇·브리핑이 서로 다른 기준을 말하면 사용자가 무엇을 믿어야 할지 알 수 없다."""
+    sigs = [_sig("A", "가", "BUY", 1.5), _sig("B", "나", "STRONG_BUY", 1.8),
+            _sig("C", "다종목", "HOLD", 1.3)]
+    out = digest.build_morning(
+        signals=sigs, regime_label="조정", threshold=2.4, base_threshold=1.2, date=_D,
+        selection={"mode": "rank", "universe": 200, "rank_slots": 6, "cutoff_score": 1.5},
+        exposure=0.15, exposure_reasons=["조정 국면 — 기준 익스포저 20%", "거시 비우호 — ×0.8"])
+    assert "매수권 상위 6종목/200" in out and "컷오프 +1.50" in out
+    assert "익스포저 15%" in out and "조정 국면" in out
+    assert "매수문턱" not in out
+    assert "매수 시그널 2" in out
+    # 근접은 컷오프 기준 — 절대 문턱(2.4)은 더 이상 매수를 정하지 않는다
+    assert "매수 근접(컷오프까지" in out and "다종목" in out
+
+
+def test_rank_mode_zero_buys_is_flagged_not_normalized():
+    """분위 모드에서 0건은 '정밀도 우선이라 정상'이 아니다 — 전부 막힌 예외 상황이다."""
+    out = digest.build_morning(
+        signals=[_sig("A", "가", "HOLD", 0.2)], regime_label="약세", threshold=1.2,
+        base_threshold=1.2, date=_D,
+        selection={"mode": "rank", "universe": 200, "rank_slots": 6, "cutoff_score": None},
+        exposure=0.4)
+    assert "매수 시그널 0" in out and "관리자 확인이 필요" in out
+    assert "기다리는 날" not in out
+
+
+def test_absolute_mode_header_unchanged():
+    out = digest.build_morning(
+        signals=[_sig("A", "가", "BUY", 1.5)], regime_label="중립", threshold=1.2,
+        base_threshold=1.2, date=_D, selection={"mode": "absolute"})
+    assert "매수문턱 1.20" in out and "매수권 상위" not in out
+
+
 def test_public_base_url_config(monkeypatch):
     monkeypatch.delenv("PUBLIC_BASE_URL", raising=False)
     assert config.public_base_url() is None

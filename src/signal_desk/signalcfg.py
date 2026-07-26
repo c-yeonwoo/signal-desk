@@ -19,7 +19,11 @@ FIELDS = ["weight_technical", "weight_fundamental", "weight_valuation",
           "weight_reversion", "weight_flow", "weight_quality", "weight_momentum",
           "weight_short",
           "strong_buy_threshold", "buy_threshold", "sell_threshold", "strong_sell_threshold",
-          "regime_adaptive"]
+          "regime_adaptive", "rank_top_pct", "rank_min_score"]
+
+# 매수권 선정 방식은 문자열이라 숫자 FIELDS와 따로 다룬다(rank|absolute).
+MODE_FIELD = "selection_mode"
+MODES = ("rank", "absolute")
 
 # P3: 정성 승격 모드 — combine()과 분리. 이번 PR은 off|shadow만.
 _QUAL_KEY = "qualitative_promotion"
@@ -35,12 +39,14 @@ def get_config() -> SignalConfig:
     for f in FIELDS:
         if f in ov and ov[f] is not None:
             setattr(cfg, f, float(ov[f]))
+    if ov.get(MODE_FIELD) in MODES:
+        cfg.selection_mode = ov[MODE_FIELD]
     return cfg
 
 
 def get_dict() -> dict:
     cfg = get_config()
-    return {f: getattr(cfg, f) for f in FIELDS}
+    return {**{f: getattr(cfg, f) for f in FIELDS}, MODE_FIELD: cfg.selection_mode}
 
 
 _HISTORY_KEY = "signal_config_history"
@@ -53,6 +59,8 @@ def set_dict(data: dict) -> dict:
     for f in FIELDS:
         if f in data and data[f] is not None:
             ov[f] = round(float(data[f]), 3)
+    if data.get(MODE_FIELD) in MODES:
+        ov[MODE_FIELD] = data[MODE_FIELD]
     db.kv_set(_KEY, ov)
     return get_dict()
 
@@ -144,19 +152,31 @@ def qualitative_promotion_status(metrics: dict | None = None) -> dict:
 def effective_config(regime_result: dict | None, macro_result: dict | None,
                      base: SignalConfig | None = None,
                      flow_result: dict | None = None) -> tuple[SignalConfig, dict]:
-    """국면·거시·시장수급을 반영한 '실효' 설정. base가 국면 적응(on)이면 약세·비우호 국면 / 외국인·
-    기관 순매도에서 매수/강력매수 임계값을 상향한다. 반환: (config, {bump, reasons, effective_buy_threshold}).
+    """국면·거시·시장수급을 반영한 '실효' 설정.
 
+    - `selection_mode="rank"`(기본): 문턱은 건드리지 않고 **총 익스포저**만 줄인다. 국면이 자격을
+      정하면 나쁜 시장에서 후보가 0이 되어 손실도 학습도 없는 상태가 된다(2026-07-26 진단).
+    - `selection_mode="absolute"`: 기존 동작 — 약세·비우호·순매도에서 매수 문턱을 상향한다.
+
+    반환: (config, {bump, reasons, effective_buy_threshold, mode, exposure, exposure_reasons}).
     api._signals와 bot이 이 하나를 공유해 시그널 표시·자동매매가 동일 기준을 쓰게 한다.
     """
     base = base or get_config()
-    info = {"bump": 0.0, "reasons": [], "effective_buy_threshold": base.buy_threshold}
+    exp = regime_mod.target_exposure(regime_result, macro_result, flow_result)
+    info = {"bump": 0.0, "reasons": [], "effective_buy_threshold": base.buy_threshold,
+            "mode": base.selection_mode, "exposure": 1.0, "exposure_reasons": []}
     if base.regime_adaptive < 0.5:
+        return base, info
+    if base.selection_mode == "rank":
+        # 국면 적응이 '크기'로 들어간다. reasons를 함께 채워 UI·브리핑이 이유를 그대로 보여준다.
+        info.update(exposure=exp["exposure"], exposure_reasons=exp["reasons"],
+                    reasons=exp["reasons"])
         return base, info
     b = regime_mod.buy_threshold_bump(regime_result, macro_result, flow_result)
     if not b["bump"]:
         return base, info
     cfg = replace(base, buy_threshold=base.buy_threshold + b["bump"],
                   strong_buy_threshold=base.strong_buy_threshold + b["bump"])
-    info = {"bump": b["bump"], "reasons": b["reasons"], "effective_buy_threshold": cfg.buy_threshold}
+    info.update(bump=b["bump"], reasons=b["reasons"],
+                effective_buy_threshold=cfg.buy_threshold)
     return cfg, info

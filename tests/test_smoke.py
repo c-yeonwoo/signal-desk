@@ -103,6 +103,12 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "prec >= 55" not in html and "sellPrec >= 55" not in html
     # 북극성 D7 관리자 카드 — 지표가 화면에 없으면 아무도 보지 않는다
     assert 'id="d7-body"' in html and "loadD7" in html and "북극성 D7" in html
+    # 매수권이 절대문턱인지 횡단면 분위인지 화면이 말해야 한다(봇·브리핑과 같은 기준)
+    assert "매수권 상위" in html and "익스포저" in html
+    # 문턱이 점수 분포 밖으로 나가면 즉시 보이게 — 2026-07-26에 실제로 벌어졌던 실패
+    assert "threshold_above_max" in html and "매수가 산술적으로 불가능합니다" in html
+    # 시세가 멈추면 문턱·분위를 어떻게 바꿔도 매일 같은 결과가 나온다
+    assert "signal_drift" in html and "점수 동결 의심" in html
     assert 'aria-label="종합점수 이상"' in html and 'aria-label="팩터 강도 이상"' in html
     assert "toggleSignalFilterDrawer" in html and 'id="sig-filter-fab"' in html
 
