@@ -268,6 +268,30 @@ def test_advisor_shadow_verdict_requires_significance():
     assert "significant" in line, f"판정이 유의성과 무관하다: {line}"
 
 
+def test_scoring_factors_are_snapshotted_and_in_factor_ic(tmp_path, monkeypatch):
+    """점수에 들어가는 팩터가 PIT·factor_ic에서 빠져 있으면 그 팩터는 영원히 측정 불가.
+
+    실측: short는 evaluate/combine·두뇌에 있는데 snapshot_signals와 FACTOR_COLS에 없었다.
+    qualitative는 combine 밖(shadow)이라 SCORING_FACTORS에 없고 FACTOR_COLS에만 있어도 된다."""
+    from signal_desk.signals import accuracy
+    from signal_desk.signals.engine import SignalResult
+    from signal_desk import store as store_mod
+
+    missing_ic = set(accuracy.SCORING_FACTORS) - set(accuracy.FACTOR_COLS)
+    assert not missing_ic, f"점수 팩터가 factor_ic 밖에 있다: {missing_ic}"
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    sig = SignalResult(ticker="005930", name="삼성전자", score=1.0, kind="BUY",
+                       confidence=0.5, technical_score=0.1, fundamental_score=0.0,
+                       has_fundamental=False, reasons=[], short_ratio=0.18, has_short=True)
+    store_mod.snapshot_signals([sig], date="2026-07-24")
+    row = store_mod.load_signal_history().iloc[0]
+    for col in accuracy.SCORING_FACTORS:
+        assert col in row.index, f"PIT 스냅샷에 점수 팩터 '{col}' 없음"
+    assert float(row["short"]) == 0.18
+
+
 def _accuracy_fixture():
     """PIT 히스토리 + 종가. 20거래일 성숙 구간을 확보한다."""
     dates = _dates(60)
