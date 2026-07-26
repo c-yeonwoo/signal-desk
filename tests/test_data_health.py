@@ -61,6 +61,31 @@ def test_data_health_includes_freshness(tmp_path, monkeypatch):
     assert isinstance(out.get("freshness"), list) and out["freshness"]
 
 
+def test_kb_refresh_stall_is_visible_per_target(tmp_path, monkeypatch):
+    """다이제스트 신선도를 전체 max()로 재면 정지를 못 잡는다 — 거시·US가 매일 갱신되면
+    국내 종목이 몇 주 멈춰도 '방금 갱신'으로 보인다(실제로 7일 놓쳤다). 대상별로 센다."""
+    monkeypatch.chdir(tmp_path)
+    import time
+
+    from signal_desk import db, kb
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    old = int(time.time() - 20 * 86400)
+    db.kb_digest_set("005930", "삼성전자", 0.1, "요약", [], 3, newest_ts=old)
+    c = db.conn()
+    c.execute("UPDATE kb_digest SET updated=? WHERE ticker='005930'", (old,))
+    c.commit()
+    c.close()
+    db.kb_digest_set("_MARKET", "거시", 0.0, "오늘 시황", [], 5, newest_ts=int(time.time()))  # 방금 갱신
+
+    st = kb.refresh_status([{"ticker": "005930", "name": "삼성전자"}])
+    assert st["targets"] == 1 and st["fresh"] == 0        # 거시가 최신이어도 대상은 밀려 있다
+    assert "삼성전자" in st["stale_names"]
+    assert st["blocked_reason"]                          # 이유 없는 0은 화면에서 정상과 구분되지 않는다
+
+    st2 = kb.refresh_status([])
+    assert st2["blocked_reason"] and "대상" in st2["blocked_reason"]
+
+
 def test_snapshot_signals_accumulates_pit(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)

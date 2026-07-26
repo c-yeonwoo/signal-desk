@@ -318,9 +318,42 @@ data.krx.co.kr 무료 가입). 계정만 있으면 상장폐지 종목 포함 PI
 | 임베딩 문턱이 백엔드와 안 맞음 | 절대 cosine 0.78이 e5에선 전부 오탐(중립 0.891~0.916 vs 악재 0.900~0.957로 겹침) | 중립 앵커 대비 **마진** 판정 + 검색은 BM25가 후보를 정하고 dense는 재정렬만 |
 | shadow에 판정 규칙 없음 | climate는 diverge 건수만, 컨센서스는 축적만 | `accuracy.diff_verdict`(유의성 기반) 공유 + `climate.shadow_verdict` + `store.consensus_readiness`(측정 가능 날짜·ETA) |
 
+**이어서 발견 — 종목 KB 수집이 7일 멈춰 있었다 (2026-07-27)**
+
+원문 문서 보존 규칙(`db.kb_prune`: 뉴스 종목당 30건·90일, pending 14일, 인사이트 60건·180일)은
+정상이었지만 **호출처가 `kb.refresh()`의 마지막 한 줄뿐**이었고, 그 루프에 per-target 예외 처리가
+없었다. 한 종목 수집이 던지면 나머지 종목 다이제스트·prune·증분 임베드가 전부 스킵된다.
+실제 상태: `naver_news` 최신 07-20, 국내 다이제스트 최고 24일 경과, 인사이트 원문 107건(한도 60).
+수동으로 한 번 돌리자 **인사이트 47건 + 고아 임베딩 47건이 즉시 삭제**됐다.
+
+가려진 이유는 신선도를 전체 다이제스트 `max(updated)`로 쟀기 때문이다 — 거시·US는 매일 갱신돼서
+화면상 '0.2시간 전'이었다.
+
+| 대응 | 내용 |
+|---|---|
+| 실패 격리 | `kb._refresh_one` 분리 + per-target try/except, 실패 종목 이름·예외형을 `kv:kb_refresh_last`에 남김 |
+| 정리 보장 | prune·임베드는 실패와 무관하게 실행 |
+| 정지 노출 | `kb.refresh_status()` — 수집 대상 중 신선한 종목 수·밀린 종목 이름·차단 이유. `/api/data-health`의 `kb_refresh` |
+| 재발 방지 | `test_redteam.test_one_bad_ticker_does_not_stop_collection_or_pruning` |
+
+**관리자 IA 재배치 (2026-07-27)**
+
+엔진 탭 한 곳에 헬스·제안·실측·shadow·감사·D7·LLM비용이 세로로 쌓여 있었고, 데이터 진단은 버튼을
+눌러야 나왔고, `/api/data-health`가 이미 돌려주던 `warnings_veto`·`kb_retrieval`·`consensus_readiness`는
+**화면에 렌더되지 않고 있었다**(shadow API 2개도 UI 없음).
+
+- 서브탭 5축: **운영·데이터 / 엔진 / 검증·실측 / KB·리서치 / 콘텐츠**. 옛 해시(`#admin/shortform`,
+  `#admin/watch`)는 별칭으로 새 탭에 매핑.
+- 운영·데이터: 데이터 상태(자동 로드) + 「조용한 0 점검」 표(투자경고 veto·KB 종목 수집·KB 검색 벡터·
+  컨센서스 축적, 각 항목에 이유) + 수집 실행은 접이식 + LLM 비용 + D7.
+- 검증·실측: 실측 성과 · 정성 승격 · **shadow 판정(advisor·climate 신규 노출)** · 감사 가설.
+  판정 조건을 충족한 shadow가 있으면 서브탭에 `판정` 배지.
+- KB·리서치: 소스별 수집·백필을 접이식으로 접고, 조사 후보를 KB의 한 뷰로 흡수.
+- 진입 기본값을 KB에서 **운영·데이터**로 변경 — 멈춘 게 있으면 먼저 보이게.
+
 **남은 것**
 - `kb_events` 0건 — KB가 매매에 닿는 유일한 선(DART confirmed → Decision veto)에 데이터가 없다.
-  다이제스트 커버리지도 27/200종목. 대상 선정(`_kb_targets`)을 넓힐지 판단 필요.
+  다이제스트 커버리지도 28/200종목. 위 수집 정지가 원인의 일부이므로 정상화 후 재측정.
 - 컨센서스 PIT는 여전히 미반영. `consensus_readiness`가 ready를 띄우면 리비전 팩터 IC부터 잰다.
 - 정성(KB) 점수는 combine 밖 유지(설계). 승격 게이트의 `priority`/`threshold`는 미구현.
 - LLM 지출 중 시그널·봇에 닿지 않는 것들(audit·hypothesis·about/moves·narrative) — 관측·표시

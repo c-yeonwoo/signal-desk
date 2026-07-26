@@ -310,6 +310,38 @@ def test_shadow_verdicts_share_one_significance_rule():
             f"{mod.__name__}이 자체 판정 통계를 쓴다"
 
 
+def test_one_bad_ticker_does_not_stop_collection_or_pruning(tmp_path, monkeypatch):
+    """수집 루프에 per-target 격리가 없으면 한 종목의 예외가 나머지 종목·정리·임베드를 전부 죽인다.
+
+    실측(2026-07-27): 종목 뉴스 경로가 7일간 멈춰 다이제스트가 안 갱신됐고, 마지막 줄에 있던
+    db.kb_prune()도 같이 건너뛰어 인사이트 원문 47건이 보존 한도(60건)를 넘긴 채 남아 있었다.
+    화면은 아무 이상도 보여주지 않았다 — 실패는 log.warning 한 줄뿐이었다."""
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db, kb
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+
+    calls, pruned = [], []
+
+    def fake_one(ticker, name, codes, news_n, lookback_days):
+        calls.append(ticker)
+        if ticker == "000660":
+            raise RuntimeError("naver 4xx")
+        return True
+
+    monkeypatch.setattr(kb, "_refresh_one", fake_one)
+    monkeypatch.setattr(kb.ingest_dart, "corp_codes", lambda: {})
+    monkeypatch.setattr(db, "kb_prune", lambda: pruned.append(1) or {"news_deleted": 0})
+
+    out = kb.refresh([{"ticker": "005930", "name": "삼성전자"},
+                      {"ticker": "000660", "name": "SK하이닉스"},
+                      {"ticker": "035720", "name": "카카오"}])
+    assert calls == ["005930", "000660", "035720"]      # 실패 뒤 종목도 수집한다
+    assert out["updated"] == 2 and len(out["failed"]) == 1
+    assert out["failed"][0]["ticker"] == "000660"       # 어느 종목이 실패했는지 이름으로 남는다
+    assert pruned, "실패가 있으면 정리(prune)가 건너뛰어진다 — 원문이 무한 누적된다"
+    assert (db.kv_get("kb_refresh_last") or {}).get("failed"), "마지막 실행 결과가 화면에 못 닿는다"
+
+
 def test_scoring_factors_are_snapshotted_and_in_factor_ic(tmp_path, monkeypatch):
     """점수에 들어가는 팩터가 PIT·factor_ic에서 빠져 있으면 그 팩터는 영원히 측정 불가.
 

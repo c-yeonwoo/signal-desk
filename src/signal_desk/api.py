@@ -78,8 +78,13 @@ def _daily_kb_collect():
     try:  # 확정 국면 주도섹터 + BUY/보유/관심 — 종목 뉴스 다이제스트
         targets = _kb_targets()
         if targets:
-            out = kb.refresh(targets)
+            out = kb.refresh(targets)  # per-target 격리 — 한 종목 실패가 나머지·prune을 죽이지 않는다
             got = got or bool(out.get("updated"))
+            if out.get("failed"):
+                log.warning("KB 종목 자동수집 일부 실패 %d/%d — 관리자 데이터 상태에 노출됨",
+                            len(out["failed"]), out.get("targets") or 0)
+        else:
+            log.warning("KB 종목 수집 대상 0 — 확정 국면 주도섹터·보유·관심종목이 비었다")
     except Exception as e:
         log.warning("KB 종목 자동수집 실패: %s", type(e).__name__)
     if got:
@@ -1678,17 +1683,27 @@ def data_health_get():
     track record 신뢰의 전제(실데이터) + 어떤 소스가 오래됐는지 한눈에."""
     fresh = store.data_freshness()
     digests = db.kb_digests_all()
-    if digests:  # KB 다이제스트 신선도(최신 갱신 기준)
+    try:
+        kb_refresh = kb.refresh_status(_kb_targets())
+    except Exception as e:
+        log.warning("KB 수집 상태 계산 실패: %s", type(e).__name__)
+        kb_refresh = {"blocked_reason": f"상태 계산 실패({type(e).__name__})"}
+    if digests:
+        # 신선도는 '수집 대상 중 신선한 것'으로 판정한다 — 전체 max()는 거시·US 다이제스트가 매일
+        # 갱신되는 것에 가려 국내 종목 수집이 몇 주 멈춰도 '방금 갱신'으로 보인다(실제로 7일 놓쳤다).
         latest = max((d.get("updated") or 0) for d in digests.values())
         age_h = (time.time() - latest) / 3600 if latest else None
         fresh.append({"key": "kb", "label": "KB 다이제스트", "rows": len(digests),
                       "updated": (datetime.datetime.fromtimestamp(latest).strftime("%Y-%m-%d %H:%M")
                                   if latest else None),
                       "age_hours": round(age_h, 1) if age_h is not None else None,
-                      "stale": age_h is None or age_h > 48})
+                      "stale": bool(kb_refresh.get("blocked_reason")) or age_h is None or age_h > 48,
+                      "note": kb_refresh.get("blocked_reason")})
     return {**store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift(),
             # veto·검색이 조용히 비어 있는 경우를 이유와 함께 드러낸다(0은 정상일 수도, 고장일 수도).
             "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),
+            # 종목 KB 수집이 멈췄는지 — 실패 종목 이름까지. 조용히 빠진 종목도 조용한 0이다.
+            "kb_refresh": kb_refresh,
             # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.
             "consensus_readiness": store.consensus_readiness()}
 
