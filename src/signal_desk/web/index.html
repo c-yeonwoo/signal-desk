@@ -5736,7 +5736,8 @@ async function loadShadows(){
   const el = document.getElementById('shadow-body');
   if (!el) return;
   const fetchJson = async (u) => { try { return await (await fetch(u)).json(); } catch (e) { return null; } };
-  const [adv, clim] = await Promise.all([fetchJson('/api/advisor-shadow'), fetchJson('/api/climate-shadow')]);
+  const [adv, clim, kbc] = await Promise.all([fetchJson('/api/advisor-shadow'),
+    fetchJson('/api/climate-shadow'), fetchJson('/api/kb-coverage-shadow')]);
   const pct = (v) => v == null ? '–' : ((v > 0 ? '+' : '') + fmtNum(v, 2) + '%');
   const block = (title, desc, v, extra) => {
     if (!v) return `<div style="margin-bottom:12px"><b>${title}</b><div style="color:var(--dim-2);font-size:12px">불러오지 못했습니다.</div></div>`;
@@ -5752,18 +5753,25 @@ async function loadShadows(){
         <span style="color:var(--dim)"> · 오차(95%) ±${v.delta_ci95_pp == null ? '–' : fmtNum(v.delta_ci95_pp, 2)}%p
         · 성숙표본 ${v.matured ?? v.matured_smaller_side ?? 0}/${v.min_samples ?? '–'}</span></div>
       ${extra || ''}
+      ${(v.caveats || []).map(c => `<div style="color:var(--dim-2);font-size:11px;margin-top:2px">· ${esc(c)}</div>`).join('')}
       ${reason ? `<div style="color:#b45309;font-size:12px;margin-top:3px">${esc(reason)}</div>` : ''}</div>`;
   };
+  const cov = kbc && kbc.coverage;
   el.className = '';
   el.innerHTML =
-    block('자문 선별(advisor)', '봇의 LLM 선별 vs 점수순 폴백. 구조적으로 advisor에게 불리한 비교라 음수를 실력으로 읽지 않습니다.',
+    block('KB 근거 커버리지', '원문이 있는 매수 후보가 없는 후보보다 나았는지. 게이트 통과는 “스팸이 아니다”라는 뜻일 뿐이어서, KB의 값어치는 이렇게 채점해야 알 수 있습니다.',
+          kbc, cov
+            ? `<div style="color:var(--dim);font-size:12px">지금 커버리지 ${cov.with_docs}/${cov.universe}종목(${fmtNum(cov.with_docs_pct, 1)}%) · 다이제스트 ${cov.digests} · 원문 ${cov.docs_total}건`
+              + `${kbc.pit_rows != null ? ` · PIT ${kbc.pit_rows}행 / 재구성 ${kbc.reconstructed_rows}행` : ''}</div>`
+            : '')
+    + block('자문 선별(advisor)', '봇의 LLM 선별 vs 점수순 폴백. 구조적으로 advisor에게 불리한 비교라 음수를 실력으로 읽지 않습니다.',
           adv, adv && adv.runs != null
             ? `<div style="color:var(--dim);font-size:12px">회차 ${adv.runs} · 자문 사용 ${adv.advisor_used_runs ?? 0} · 기권 ${adv.abstained_runs ?? 0} · 갈린 회차 ${adv.divergent_runs ?? 0}</div>`
             : '')
     + block('기후(climate)', '기후 판정이 매수라고 본 종목 vs 기존 시그널만 매수라고 본 종목의 실현수익률 차이.', clim);
   const b = document.getElementById('admin-verify-badge');
   if (b) {
-    const n = [adv, clim].filter(v => v && v.verdict_ready).length;
+    const n = [adv, clim, kbc].filter(v => v && v.verdict_ready).length;
     b.style.display = n ? '' : 'none';
     b.textContent = n ? '판정' : '';
     b.title = n ? '유의성 조건을 충족한 shadow가 있습니다 — 사람이 판단할 차례' : '';

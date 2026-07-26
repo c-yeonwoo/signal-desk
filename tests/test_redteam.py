@@ -294,7 +294,7 @@ def test_shadow_verdicts_share_one_significance_rule():
     """shadow마다 판정 통계를 따로 짜면 그 구현 차이가 판정 차이로 둔갑한다(대조군 교훈과 같다)."""
     import inspect
 
-    from signal_desk.signals import accuracy, advisor_shadow, climate
+    from signal_desk.signals import accuracy, advisor_shadow, climate, kb_coverage
 
     v = accuracy.diff_verdict([0.10, 0.11, 0.09], [0.01, 0.02, 0.0], min_samples=3)
     assert v["delta_pct"] is not None and v["verdict_ready"] is True
@@ -305,7 +305,7 @@ def test_shadow_verdicts_share_one_significance_rule():
     # 표본 미달은 유의해 보여도 판정 불가
     thin = accuracy.diff_verdict([0.10, 0.11], [0.0, 0.01], min_samples=20)
     assert thin["verdict_ready"] is False and "표본" in thin["blocked_reason"]
-    for mod in (advisor_shadow, climate):
+    for mod in (advisor_shadow, climate, kb_coverage):
         assert "mean_diff_se_pp" in inspect.getsource(mod) or "diff_verdict" in inspect.getsource(mod), \
             f"{mod.__name__}이 자체 판정 통계를 쓴다"
 

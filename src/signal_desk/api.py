@@ -398,6 +398,7 @@ _ADMIN_PATHS = {
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
     "/api/morning-digest", "/api/morning-digest/test",
     "/api/d7",
+    "/api/advisor-shadow", "/api/climate-shadow", "/api/kb-coverage-shadow",
 }
 
 
@@ -1832,9 +1833,14 @@ def bot_decisions_get():
 
 
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
-def _kb_targets(limit_candidates: int = 12, lead_limit: int = 10) -> list[dict]:
-    """KB 갱신 대상 — ⓪외부 후보 ①lead ②VIX soft ③BUY ④보유 ⑤관심.
-    전 종목 아님. 외부 후보는 조사 큐 우선(점수 가산 없음)."""
+def _kb_targets(limit_candidates: int = 16, lead_limit: int = 10,
+                near_limit: int = 24) -> list[dict]:
+    """KB 갱신 대상 — ⓪외부 후보 ①lead ②VIX soft ③매수권+점수 상위 ④보유 ⑤관심.
+
+    전 종목은 아니다(비용). 다만 대상이 좁으면 KB는 어느 판단에도 닿지 못한다 — 다이제스트
+    커버리지가 200종목 중 28이었고 `kb_events`는 0건이었다. 매수권만이 아니라 **문턱 근접
+    상위**까지 넣는 이유는, 사기 전에 근거가 있어야 하고 정보 유무를 사후에 비교
+    (`signals/kb_coverage.py`)할 수 있어야 하기 때문이다."""
     from signal_desk import external_watch
     names = {u["ticker"]: u["name"] for u in store.load_universe()}
     for u in store.load_us_universe() or []:
@@ -1872,13 +1878,18 @@ def _kb_targets(limit_candidates: int = 12, lead_limit: int = 10) -> list[dict]:
     except Exception as e:
         log.warning("KB lead 타깃 실패: %s", type(e).__name__)
 
-    # ③ BUY 상위
-    buy_n = 0
+    # ③ 매수권 + 문턱 근접 상위 — 커버리지가 좁으면 KB는 어느 결정에도 닿지 못한다.
+    #    kind=="BUY" 문자열 비교는 STRONG_BUY(우선매수)를 빠뜨렸다 → is_buy로 판정한다.
     if store.is_ready():
-        for s in _signals():
-            if s.kind == "BUY" and buy_n < limit_candidates:
+        from signal_desk.signals.engine import is_buy
+        sigs = sorted(_signals(), key=lambda s: s.score, reverse=True)
+        buy_n = 0
+        for s in sigs:                       # 매수 판정 종목
+            if is_buy(s.kind) and buy_n < limit_candidates:
                 add(s.ticker)
                 buy_n += 1
+        for s in sigs[:near_limit]:          # 점수 상위(매수 대기·근접) — 사기 전에 근거가 있어야 한다
+            add(s.ticker)
     for tk in db.bot_position_tickers_all():
         add(tk)
     for tk in db.fav_tickers_all():
@@ -2282,6 +2293,16 @@ def morning_digest_test(request: Request):
     ok = notify.push(text)
     log.info("아침 브리핑 테스트 발송 %s", "성공" if ok else "실패")
     return {"ok": ok, "text": text}
+
+
+@app.get("/api/kb-coverage-shadow")
+def kb_coverage_shadow_get(request: Request):
+    """KB 원문이 있는 매수 후보가 더 나았는지 — 기존 데이터만 쓰는 실측 비교(LLM 비용 0).
+    게이트 통과는 '스팸이 아니다'를 뜻할 뿐이라, KB의 값어치는 이렇게 채점해야 알 수 있다. 관리자."""
+    _admin_or_403(request)
+    from signal_desk.signals import kb_coverage
+    return {**kb_coverage.shadow(store.load_all_dated_closes()),
+            "coverage": kb_coverage.coverage_now()}
 
 
 @app.get("/api/advisor-shadow")
