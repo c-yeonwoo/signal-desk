@@ -93,6 +93,8 @@ def harness(
     exposure: bool = typer.Option(False, "--exposure", help="국면 익스포저 적용"),
     sweep: bool = typer.Option(False, "--sweep", help="분위·보유기간 조합 일괄 비교"),
     market: str = typer.Option("kr", "--market", help="kr|us — 횡단면 순위는 한 시장 안에서만"),
+    shuffle: bool = typer.Option(False, "--shuffle",
+                                 help="누수 검사 — 점수와 수익률의 짝을 어긋나게 하고 돌린다"),
 ):
     """포트폴리오 백테스트 — 횡단면 분위 규칙 vs 무작위 대조군 vs 동일가중 벤치마크.
 
@@ -119,7 +121,8 @@ def harness(
     seen_warnings: list[str] = []
     for tp, h in combos:
         cfg = hz.HarnessConfig(top_pct=tp, rebalance_days=h, cost_pct=cost,
-                               random_trials=trials, use_exposure=exposure)
+                               random_trials=trials, use_exposure=exposure,
+                               shuffle_returns=shuffle)
         regimes = hz.regimes_at(panel, hz._rebalance_indices(panel, cfg)) if exposure else None
         out = hz.run(panel, cfg, regimes)
         if not out["ready"]:

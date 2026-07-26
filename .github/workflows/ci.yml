@@ -1,0 +1,25 @@
+name: CI
+
+# 규칙은 강제되지 않으면 권고문이다. CLAUDE.md의 지표 규칙들을 실제로 막는 곳이 여기다.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"    # 3.14 금지 — pandas/pyarrow 세그폴트 이력(CLAUDE.md)
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: 전체 테스트
+        run: pytest -q
+      - name: 레드팀 — 도구가 거짓말하는지 검사
+        # 양성 대조군이 깨지면 다른 모든 '판정 불가'는 발견이 아니라 도구 고장이다.
+        # 따로 한 번 더 돌려, 실패 시 어느 층이 무너졌는지 로그에서 바로 보이게 한다.
+        run: pytest tests/test_harness.py tests/test_redteam.py -q --no-header

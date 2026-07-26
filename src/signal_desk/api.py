@@ -2208,6 +2208,40 @@ def advisor_shadow_get(request: Request):
     return advisor_shadow.summary(store.load_all_dated_closes())
 
 
+@app.get("/api/audit/hypotheses")
+def audit_hypotheses_get(request: Request):
+    """감사 가설 큐 — "이 숫자가 틀렸다면 왜일까" 목록. 관측용, 엔진 영향 없음. 관리자."""
+    _admin_or_403(request)
+    from signal_desk import audit
+    return audit.summary()
+
+
+@app.post("/api/audit/run")
+def audit_run(request: Request):
+    """가설 생성 1회 실행. LLM은 가설만 쓰고 판정하지 않는다 — 판정은 tests/test_redteam.py."""
+    _admin_or_403(request)
+    from signal_desk import audit
+    out = audit.generate()
+    log.info("감사 가설 생성 %s (저장 %s)", "성공" if out.get("ready") else "비활성",
+             out.get("saved", 0))
+    return {**out, **audit.summary()}
+
+
+@app.post("/api/audit/hypotheses/{hid}")
+def audit_hypothesis_status(hid: str, request: Request, payload: dict = Body(...)):
+    """가설 상태 변경 — promoted(테스트로 승격) / dismissed(기각). 사람만 누른다."""
+    _admin_or_403(request)
+    from fastapi import HTTPException
+
+    from signal_desk import audit
+    status = (payload or {}).get("status") or ""
+    if status not in db.AUDIT_STATUSES:
+        raise HTTPException(400, f"status는 {db.AUDIT_STATUSES} 중 하나여야 합니다")
+    if not db.audit_hypothesis_set_status(hid, status, (payload or {}).get("note") or ""):
+        raise HTTPException(404, "가설을 찾을 수 없습니다")
+    return {"ok": True, **audit.summary()}
+
+
 @app.get("/api/external-watch")
 def external_watch_get(request: Request):
     """외부 후보 조사 큐 — 관리자. 시그널 점수 가산 없음."""

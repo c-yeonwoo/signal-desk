@@ -17,8 +17,15 @@ def _dates(n: int) -> list[str]:
 
 
 def _panel(closes: dict[str, list[float]]) -> hz.Panel:
-    n = max(len(v) for v in closes.values())
     return hz.build_panel({t: (_dates(len(v)), v) for t, v in closes.items()})
+
+
+def _tech_only():
+    """합성 시장은 모멘텀(252거래일 필요)이 거의 안 켜져 커버리지 차단에 걸린다.
+    측정 대상을 정확히 이름 붙인다 — 기술 팩터 순위의 판별력."""
+    from dataclasses import replace
+    from signal_desk.signals.engine import SignalConfig
+    return replace(SignalConfig(), weight_reversion=0.0, weight_momentum=0.0)
 
 
 # ---------------------------------------------------------------- build_panel
@@ -106,15 +113,14 @@ def test_ties_are_not_broken_by_universe_order():
 
 # ---------------------------------------------------- 양성 대조군 / 음성 대조군
 
-def _predictable_panel(n_days: int = 300, n_names: int = 60) -> hz.Panel:
-    """상위 10종목은 꾸준히 오르고 나머지는 진동만 하는 시장.
-    기술 팩터가 오르는 쪽을 잡아내므로 하네스는 '판별력 있음'을 내야 한다."""
+def _predictable_panel(n_days: int = 320, n_names: int = 40, period: int = 30) -> hz.Panel:
+    """기술 팩터가 실제로 앞날을 맞히는 시장(전방 5일 IC +0.31) — 종목마다 위상이 다른 진동장.
+    RSI 기반 팩터는 과매수를 피하므로 '꾸준히 오르는 시장'은 양성 대조군이 될 수 없다."""
     closes = {}
     for i in range(n_names):
-        if i < 10:
-            closes[f"W{i}"] = [100.0 * (1.004 ** j) for j in range(n_days)]
-        else:
-            closes[f"L{i}"] = [100.0 + math.sin((j + i * 7) / 6) * 3 for j in range(n_days)]
+        phase = i * period / n_names
+        closes[f"S{i}"] = [100 + 12 * math.sin(2 * math.pi * (j + phase) / period) + j * 0.02
+                           for j in range(n_days)]
     return _panel(closes)
 
 
@@ -122,7 +128,8 @@ def test_detects_a_real_edge_positive_control():
     """엣지가 실재하면 '판별력 있음'이 나와야 한다.
     이게 안 되면 다른 모든 '판정 불가'는 도구 고장을 뜻할 뿐 아무 정보가 없다."""
     out = hz.run(_predictable_panel(), hz.HarnessConfig(
-        top_pct=10.0, rebalance_days=5, random_trials=100, min_score=-99.0, cost_pct=0.0))
+        top_pct=10.0, rebalance_days=5, random_trials=100, min_score=-99.0, cost_pct=0.0,
+        signal_config=_tech_only()))
     assert out["ready"]
     assert out["vs_random"]["percentile"] >= 95, out
     assert out["verdict"] == "판별력 있음", out["verdict_why"]

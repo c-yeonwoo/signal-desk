@@ -67,6 +67,11 @@ CREATE TABLE IF NOT EXISTS brain_proposals(id TEXT PRIMARY KEY, kind TEXT NOT NU
     title TEXT, body_ko TEXT, rationale_ko TEXT, patch TEXT, baseline TEXT, evidence TEXT,
     method_key TEXT, confidence TEXT, status TEXT NOT NULL DEFAULT 'draft',
     note TEXT, created INTEGER, reviewed INTEGER);
+-- 감사 가설 큐 — LLM이 "이 숫자가 틀렸다면 왜일까"를 적어두는 곳. 판정권은 없다.
+-- 반증 방법(falsifier)이 없는 항목은 저장하지 않는다. 승격은 사람이 테스트로 옮길 때만.
+CREATE TABLE IF NOT EXISTS audit_hypotheses(id TEXT PRIMARY KEY, target TEXT, title TEXT,
+    claim TEXT, falsifier TEXT, check_hint TEXT, severity TEXT NOT NULL DEFAULT 'medium',
+    status TEXT NOT NULL DEFAULT 'pending', note TEXT, created INTEGER, reviewed INTEGER);
 CREATE TABLE IF NOT EXISTS bot_equity(uid INTEGER, market TEXT NOT NULL DEFAULT 'kr', date TEXT,
     total_eval REAL, cash REAL, invested REAL, PRIMARY KEY(uid, market, date));
 CREATE TABLE IF NOT EXISTS kb_embeddings(
@@ -1323,6 +1328,65 @@ def shortform_recent_tickers(within_sec: int) -> set[str]:
                      (int(time.time()) - within_sec,)).fetchall()
     c.close()
     return {t for (t,) in rows}
+
+
+# ---------- audit_hypotheses (감사 가설 큐 — 관측만, 엔진에 영향 없음) ----------
+_AUDIT_COLS = ("id,target,title,claim,falsifier,check_hint,severity,status,note,"
+               "created,reviewed")
+AUDIT_STATUSES = ("pending", "promoted", "dismissed")
+
+
+def _audit_row(r) -> dict:
+    (hid, target, title, claim, falsifier, check_hint, severity, status, note,
+     created, reviewed) = r
+    return {"id": hid, "target": target, "title": title, "claim": claim,
+            "falsifier": falsifier, "check_hint": check_hint, "severity": severity,
+            "status": status, "note": note, "created": created, "reviewed": reviewed}
+
+
+def audit_hypothesis_upsert(item: dict) -> None:
+    """가설 upsert. id를 내용 해시로 만들어 같은 지적이 매주 쌓이지 않게 한다."""
+    c = conn()
+    c.execute(f"INSERT OR IGNORE INTO audit_hypotheses({_AUDIT_COLS}) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+              (item["id"], item.get("target"), item.get("title"), item.get("claim"),
+               item.get("falsifier"), item.get("check_hint"),
+               item.get("severity") or "medium", item.get("status") or "pending",
+               item.get("note"), item.get("created") or int(time.time()),
+               item.get("reviewed")))
+    c.commit()
+    c.close()
+
+
+def audit_hypothesis_list(status: str | None = None, limit: int = 50) -> list[dict]:
+    c = conn()
+    if status:
+        rows = c.execute(f"SELECT {_AUDIT_COLS} FROM audit_hypotheses WHERE status=? "
+                         "ORDER BY created DESC LIMIT ?", (status, limit)).fetchall()
+    else:
+        rows = c.execute(f"SELECT {_AUDIT_COLS} FROM audit_hypotheses "
+                         "ORDER BY created DESC LIMIT ?", (limit,)).fetchall()
+    c.close()
+    return [_audit_row(r) for r in rows]
+
+
+def audit_hypothesis_set_status(hid: str, status: str, note: str = "") -> bool:
+    if status not in AUDIT_STATUSES:
+        raise ValueError(f"unknown status: {status}")
+    c = conn()
+    cur = c.execute("UPDATE audit_hypotheses SET status=?, note=?, reviewed=? WHERE id=?",
+                    (status, note or None, int(time.time()), hid))
+    c.commit()
+    ok = cur.rowcount > 0
+    c.close()
+    return ok
+
+
+def audit_pending_count() -> int:
+    c = conn()
+    n = c.execute("SELECT COUNT(*) FROM audit_hypotheses WHERE status='pending'").fetchone()[0]
+    c.close()
+    return n
 
 
 # ---------- brain_proposals (두뇌 개선 제안 큐 — 관리자 승인 후 엔진 반영) ----------

@@ -108,7 +108,11 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 문턱이 점수 분포 밖으로 나가면 즉시 보이게 — 2026-07-26에 실제로 벌어졌던 실패
     assert "threshold_above_max" in html and "매수가 산술적으로 불가능합니다" in html
     # 시세가 멈추면 문턱·분위를 어떻게 바꿔도 매일 같은 결과가 나온다
-    assert "signal_drift" in html and "점수 동결 의심" in html
+    assert "signal_drift" in html
+    # 감사 가설 카드 — 판정이 아니라 관측이라는 문구가 화면에 남아 있어야 한다
+    assert "감사 가설" in html
+    assert "tests/test_redteam.py" in html
+    assert "/api/audit/run" in html and "점수 동결 의심" in html
     assert 'aria-label="종합점수 이상"' in html and 'aria-label="팩터 강도 이상"' in html
     assert "toggleSignalFilterDrawer" in html and 'id="sig-filter-fab"' in html
 
