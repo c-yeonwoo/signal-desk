@@ -84,5 +84,65 @@ def report():
     console.print(table)
 
 
+@app.command()
+def harness(
+    top_pct: float = typer.Option(3.0, "--top-pct", help="매수권 분위(%)"),
+    hold: int = typer.Option(5, "--hold", help="보유·리밸런스 주기(거래일)"),
+    cost: float = typer.Option(0.25, "--cost", help="왕복 거래비용(%)"),
+    trials: int = typer.Option(200, "--trials", help="무작위 대조군 시행 수"),
+    exposure: bool = typer.Option(False, "--exposure", help="국면 익스포저 적용"),
+    sweep: bool = typer.Option(False, "--sweep", help="분위·보유기간 조합 일괄 비교"),
+    market: str = typer.Option("kr", "--market", help="kr|us — 횡단면 순위는 한 시장 안에서만"),
+):
+    """포트폴리오 백테스트 — 횡단면 분위 규칙 vs 무작위 대조군 vs 동일가중 벤치마크.
+
+    절대 수익률은 생존편향(유니버스=오늘 기준 상위 200)으로 부풀려져 있으므로 판단 근거로 쓰지
+    않는다. 판단은 **무작위 대조군 백분위**로 한다 — 대조군도 같은 편향을 받는다.
+    """
+    from signal_desk import store
+    from signal_desk.signals import harness as hz
+
+    if not store.is_ready():
+        console.print("[red]캐시가 없습니다.[/red] 먼저 `sigdesk fetch`를 실행하세요.")
+        raise typer.Exit(1)
+    console.print("[dim]패널 구성 중…[/dim]")
+    uni = store.load_us_universe() if market == "us" else store.load_universe()
+    panel = hz.build_panel(store.load_all_dated_closes(), {u["ticker"] for u in uni})
+    console.print(f"[dim]{market.upper()} · {len(panel.dates)}거래일 · {len(panel.closes)}종목 "
+                  f"({panel.dates[0]}~{panel.dates[-1]})[/dim]")
+
+    combos = ([(tp, h) for tp in (1.0, 3.0, 5.0, 10.0) for h in (5, 20)] if sweep
+              else [(top_pct, hold)])
+    table = Table(title="포트폴리오 하네스 — 판단은 '무작위 대비 백분위'로")
+    for c in ("분위", "보유", "전략 누적", "위상편차", "무작위 중위", "초과", "백분위", "판정"):
+        table.add_column(c, justify="left" if c == "판정" else "right")
+    seen_warnings: list[str] = []
+    for tp, h in combos:
+        cfg = hz.HarnessConfig(top_pct=tp, rebalance_days=h, cost_pct=cost,
+                               random_trials=trials, use_exposure=exposure)
+        regimes = hz.regimes_at(panel, hz._rebalance_indices(panel, cfg)) if exposure else None
+        out = hz.run(panel, cfg, regimes)
+        if not out["ready"]:
+            console.print(f"[red]{out['reason']}[/red]")
+            raise typer.Exit(1)
+        s, r = out["strategy"], out["vs_random"]
+        pct, verdict = r["percentile"], out["verdict"]
+        color = {"판별력 있음": "green", "역판별력": "red"}.get(verdict, "yellow")
+        table.add_row(f"{tp:g}%", f"{h}일", f"{s['total_ret_pct']:+.1f}%",
+                      f"{s['phase_spread_pp']:.1f}pp", f"{r['median_total_pct']:+.1f}%",
+                      f"{r['excess_pp']:+.1f}pp",
+                      f"{pct:.1f}%" if pct is not None else "–",
+                      f"[{color}]{verdict}[/{color}]")
+        for w in out["warnings"]:
+            if w not in seen_warnings:
+                seen_warnings.append(w)
+    console.print(table)
+    for w in seen_warnings:
+        console.print(f"[yellow]![/yellow] {w}")
+    console.print("[dim]백분위 = 무작위 대조군 중 전략보다 못한 시행의 비율. 95% 이상이라야 "
+                  "순위 판별력의 증거로 볼 수 있다(생존편향은 대조군과 공유). 전략·대조군 모두 "
+                  "리밸런스 위상 전부를 돌려 평균낸 값이다.[/dim]")
+
+
 if __name__ == "__main__":
     app()
