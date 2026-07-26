@@ -43,20 +43,25 @@ def test_phrase_expansion_veto_without_exact_term():
     assert kb.event_severity(note) == "critical"
 
 
-def test_semantic_veto_with_mock_embed(monkeypatch):
-    """cosine 경로 — 임베딩을 강제로 일치시켜 시맨틱 veto 발화."""
-    unit = [1.0] + [0.0] * (kb_embed.DIM - 1)
+def test_semantic_veto_fires_on_margin_not_absolute_cosine(monkeypatch):
+    """의미 벡터에선 절대 cosine으로 문턱을 만들 수 없다(무관 문장끼리도 0.8~0.9).
+    판정은 '악재 프로토타입 − 중립 앵커' 마진이어야 한다."""
+    bad_axis = [1.0] + [0.0] * (kb_embed.DIM - 1)
+    neutral_axis = [0.0, 1.0] + [0.0] * (kb_embed.DIM - 2)
 
     def fake_embed(texts):
-        return [list(unit) for _ in texts]
+        # 중립 앵커만 다른 축, 나머지(문서·악재 프로토타입)는 악재 축 → 마진 큼
+        return [list(neutral_axis) if t in kb._NEUTRAL_ANCHORS else list(bad_axis) for t in texts]
 
     monkeypatch.setattr(kb_embed, "embed_texts", fake_embed)
     monkeypatch.setattr(kb_embed, "semantic_capable", lambda: True)
-    monkeypatch.setattr(kb_embed, "EVENT_SEMANTIC_TAU", 0.99)
-    # 키워드·구문에도 안 걸리게 무관한 문장 + mock으로 cosine=1
     flag, note = kb.detect_event([{"title": "전혀 다른 제목 XYZ", "summary": "본문", "source": "naver_news"}])
-    assert flag is True
-    assert "의미근접" in note
+    assert flag is True and "중립대비" in note
+
+    # 악재만큼 중립에도 가까우면(마진 0) 발화하지 않는다 — 절대값만 높은 건 근거가 아니다
+    monkeypatch.setattr(kb_embed, "embed_texts", lambda texts: [list(bad_axis) for _ in texts])
+    assert kb.detect_event([{"title": "전혀 다른 제목 XYZ", "summary": "본문",
+                             "source": "naver_news"}])[0] is False
 
 
 def test_neutral_news_not_vetoed():

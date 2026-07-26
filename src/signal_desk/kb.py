@@ -57,6 +57,18 @@ _EVENT_PROTOTYPES: list[tuple[str, str, list[str]]] = [
     ("영업정지", "serious", ["영업정지", "영업 활동 정지", "업무정지 처분"]),
 ]
 
+# 시맨틱 판정용 중립 앵커 — '악재에 얼마나 가까운가'를 절대값으로 못 재기 때문에 필요하다.
+# 실측(2026-07-27, multilingual-e5-small): 악재 프로토타입 대비 cosine이 중립뉴스 0.891~0.916,
+# 실제 악재 0.900~0.957로 **겹친다**. 절대 문턱은 어디에 둬도 한쪽을 틀린다. 그래서 같은 문서를
+# 중립 앵커에도 재서 '악재 − 중립' 마진으로 판정한다(상대 비교).
+_NEUTRAL_ANCHORS = [
+    "실적 발표 영업이익 증가 매출 성장",
+    "신제품 출시 신규 사업 진출 계획",
+    "주가 상승 마감 외국인 기관 순매수",
+    "증권사 목표주가 상향 투자의견 매수",
+    "수요 증가 업황 개선 전망",
+]
+
 # DART 공시 전용 키워드 — 공시는 구조화·공신력 있어 뉴스보다 확실(뉴스 본문 오탐 없이 source=='dart'에만 매칭).
 _DISC_CRITICAL = ["감자", "상장폐지", "상장적격성", "감사의견 거절", "감사의견 부적정", "회생절차", "부도", "파산"]
 _DISC_SERIOUS = ["유상증자", "전환사채", "신주인수권부사채", "최대주주 변경", "공급계약 해지", "소송 등의 제기"]
@@ -532,7 +544,12 @@ def detect_event(items: list[dict]) -> tuple[bool, str]:
 
 
 def _detect_event_semantic(items: list[dict]) -> tuple[bool, str]:
-    """임베딩 cosine ≥ τ 이면 악재 후보. hashing은 공유 n-gram이 강할 때만(τ↑)."""
+    """임베딩으로 악재 후보 판정(veto 전용, 점수 팩터 아님).
+
+    의미 벡터(e5·openai)는 무관한 한국어 문장끼리도 cosine 0.8~0.9가 나와서 **절대 문턱을 만들 수
+    없다**(_NEUTRAL_ANCHORS 주석의 실측 참고). 그래서 '악재 프로토타입 − 중립 앵커' 마진으로 본다.
+    해시 폴백은 희소 n-gram 벡터라 무관 쌍이 0 근처이므로 절대 cosine 문턱을 그대로 쓴다.
+    """
     try:
         from signal_desk import kb_embed
     except Exception:
@@ -545,23 +562,28 @@ def _detect_event_semantic(items: list[dict]) -> tuple[bool, str]:
             meta.append(it)
     if not texts:
         return False, ""
+    semantic = kb_embed.semantic_capable()
     try:
         doc_vecs = kb_embed.embed_texts(texts)
         proto_labels = [label for label, _sev, _ph in _EVENT_PROTOTYPES]
-        proto_texts = [" · ".join(ph) for _l, _s, ph in _EVENT_PROTOTYPES]
-        proto_vecs = kb_embed.embed_texts(proto_texts)
+        proto_vecs = kb_embed.embed_texts([" · ".join(ph) for _l, _s, ph in _EVENT_PROTOTYPES])
+        neutral_vecs = kb_embed.embed_texts(_NEUTRAL_ANCHORS) if semantic else []
     except Exception:
         return False, ""
-    tau = kb_embed.EVENT_SEMANTIC_TAU
-    if not kb_embed.semantic_capable():
-        tau = max(tau, 0.88)
-    best = (0.0, "", "")
+    best = (0.0, "", "", 0.0)   # (악재 cosine, label, title, 마진)
     for it, dv in zip(meta, doc_vecs):
+        neutral = max((kb_embed.cosine(dv, nv) for nv in neutral_vecs), default=0.0)
         for label, pv in zip(proto_labels, proto_vecs):
             s = kb_embed.cosine(dv, pv)
             if s > best[0]:
-                best = (s, label, (it.get("title") or "")[:60])
-    if best[0] >= tau and best[1]:
+                best = (s, label, (it.get("title") or "")[:60], s - neutral)
+    if not best[1]:
+        return False, ""
+    if semantic:
+        if best[3] >= kb_embed.EVENT_SEMANTIC_MARGIN:
+            return True, f"{best[1]}(중립대비 +{best[3]:.2f}) — {best[2]}"
+        return False, ""
+    if best[0] >= max(kb_embed.EVENT_SEMANTIC_TAU, 0.88):
         return True, f"{best[1]}(의미근접 {best[0]:.2f}) — {best[2]}"
     return False, ""
 

@@ -118,15 +118,21 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
     try:
         quotes = toss.prices(syms) if syms else {}
     except Exception as e:
-        log.warning("실시간가 조회 실패(무시): %s", type(e).__name__)
+        # 실패 시 오버레이를 남기면 낡은 장중가가 계속 시그널·체결가로 쓰인다(조용한 고정).
+        # 종가로 되돌리고 캐시를 비워, 최소한 '오래된 종가'라는 정직한 상태가 되게 한다.
+        log.warning("실시간가 조회 실패 — 종가로 복귀: %s", type(e).__name__)
+        store.clear_live_quotes()
         store.note_live_attempt("no_quotes", open_markets)
+        _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
         return
     if quotes:
         store.set_live_quotes(quotes)
         store.note_live_attempt("ok", open_markets)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
-    else:  # 토큰 실패 등으로 빈 응답 — 오버레이 유지 안 함, 시도 기록만
+    else:  # 토큰 실패 등으로 빈 응답 — 낡은 오버레이를 남기지 않고 종가로 복귀
+        store.clear_live_quotes()
         store.note_live_attempt("no_quotes", open_markets)
+        _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
 
 
 def _open_markets() -> list[str]:
@@ -283,12 +289,26 @@ def _daily_maintenance(enabled: list[str]) -> None:
         _signals.cache_clear()
     except Exception as e:
         log.warning("마감후 공매도 갱신 실패: %s", type(e).__name__)
+    try:   # 투자경고·거래정지·VI 갱신 — 봇의 매수 veto가 이 집합을 근거로 쓴다. 수동 갱신에만
+           # 걸려 있으면 아무도 안 눌러 veto가 영구히 빈 집합이 된다(가드레일 없음과 동일).
+        n_warn = store.fetch_warnings([u["ticker"] for u in store.load_universe()])
+        st = store.warnings_status()
+        if st["blocked_reason"]:
+            log.warning("투자경고 veto 데이터 없음(%s) — 매수 가드레일이 비어 있다", st["blocked_reason"])
+        else:
+            log.info("투자경고 갱신: 활성 %d종목", n_warn)
+    except Exception as e:
+        log.warning("마감후 투자경고 수집 실패: %s", type(e).__name__)
     try:   # 애널 컨센서스 일별 PIT 스냅샷 축적 — 리비전/목표가v2용(아직 미반영, 데이터만 쌓음)
         store.fetch_consensus(store.load_universe())
     except Exception as e:
         log.warning("마감후 컨센서스 수집 실패: %s", type(e).__name__)
     try:
-        store.snapshot_signals(_signals())  # 팩터 PIT 스냅샷 누적(향후 팩터 백테스트용)
+        # PIT 스냅샷은 종가 기준이어야 한다 — 장중 실시간가 오버레이가 남아 있으면 장중가로 계산한
+        # 점수가 저장되는데 채점은 종가로 한다(accuracy). 같은 날짜에 두 기준이 섞이면 실측이 오염된다.
+        store.clear_live_quotes()
+        _signals.cache_clear()
+        store.snapshot_signals(_signals(), date=_kst_today())  # 팩터 PIT 스냅샷(거래일=KST)
     except Exception as e:
         log.warning("시그널 스냅샷 실패: %s", type(e).__name__)
     try:
@@ -683,8 +703,7 @@ def portfolio_heatmap(request: Request, market: str = ""):
 def _signals():
     cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())  # 약세·비우호·외인기관 순매도면 매수 기준 상향
     return evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
-                    config=cfg, sentiment=kb.sentiment_map(), flows=store.load_flows(),
-                    shorts=store.load_short())
+                    config=cfg, **store.kr_engine_inputs())  # 입력 한 벌은 봇과 공유
 
 
 @lru_cache(maxsize=1)
@@ -1667,7 +1686,24 @@ def data_health_get():
                                   if latest else None),
                       "age_hours": round(age_h, 1) if age_h is not None else None,
                       "stale": age_h is None or age_h > 48})
-    return {**store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift()}
+    return {**store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift(),
+            # veto·검색이 조용히 비어 있는 경우를 이유와 함께 드러낸다(0은 정상일 수도, 고장일 수도).
+            "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),
+            # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.
+            "consensus_readiness": store.consensus_readiness()}
+
+
+def _kb_retrieval_status() -> dict:
+    """KB 검색 품질의 전제 — dense 임베딩이 진짜 의미 벡터인지. 해시 폴백은 저장은 되지만
+    동의어·패러프레이즈를 못 잡아 사실상 BM25 단독이다. 화면상 구분이 안 되면 몇 주를 속는다."""
+    from signal_desk import kb_embed
+    mid = kb_embed.model_id()
+    return {"backend": kb_embed.backend(), "model": mid,
+            "semantic": kb_embed.semantic_capable(),
+            "embedded": len(db.kb_embeddings_for_model(mid)),
+            "pending": len(db.kb_entries_missing_embed(mid, limit=10000)),
+            "blocked_reason": None if kb_embed.semantic_capable()
+            else "해시 폴백 — OPENAI_API_KEY 또는 pip install -e \".[embed]\" 필요"}
 
 
 @app.get("/api/live-status")
@@ -2196,9 +2232,10 @@ def hypothesis_refresh(request: Request):
 
 @app.get("/api/climate-shadow")
 def climate_shadow_get(request: Request):
-    """기후 vs 기존 kind 일별 shadow 요약 — 관측용 · 봇/문턱 미연동. 관리자."""
+    """기후 vs 기존 kind 일별 shadow 요약 + 실측 판정 — 관측용 · 봇/문턱 미연동. 관리자."""
     _admin_or_403(request)
-    return climate.shadow_summary()
+    return {**climate.shadow_summary(),
+            "verdict": climate.shadow_verdict(store.load_all_dated_closes())}
 
 
 @app.get("/api/morning-digest")
@@ -2498,7 +2535,7 @@ def signal_events_get(ticker: str, market: str = "kospi"):
 
 
 # ---------- 안내 에이전트(챗봇) — 도구 실행은 여기(실데이터 접근). 재분석 없이 READ만 ----------
-_CHAT_KIND_KO = {"STRONG_BUY": "강력매수", "BUY": "매수", "HOLD": "관망", "SELL": "매도", "STRONG_SELL": "강력매도"}
+_CHAT_KIND_KO = {"STRONG_BUY": "우선매수", "BUY": "매수", "HOLD": "관망", "SELL": "매도", "STRONG_SELL": "우선매도"}
 
 
 def _chat_resolve_ticker(query: str) -> str | None:

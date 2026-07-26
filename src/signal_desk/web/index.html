@@ -2206,7 +2206,7 @@ async function loadRegime(){
       const why = (ad.exposure_reasons || []).join(', ');
       adapt.classList.add('is-on'); adapt.classList.remove('open');
       adapt.innerHTML = `<button type="button" class="adapt-chip" onclick="this.parentElement.classList.toggle('open')" title="${esc(why)}">`
-        + `매수권 상위 ${sel.rank_slots ?? '–'}종목 · 익스포저 ${Math.round(ad.exposure * 100)}%</button>`
+        + `매수 후보 ${sel.rank_slots ?? '–'}자리 · 자금 한도 ${Math.round(ad.exposure * 100)}%</button>`
         + `<span class="adapt-full">${esc(why)}</span>`;
     } else if (ad.bump > 0) {
       const why = (ad.reasons || []).join(', ');
@@ -2724,7 +2724,7 @@ function renderSignalList(){
       <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div></td>
       <td style="font-size:12px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}${badges(r)}</td>
-      <td><span class="sig-pill ${r.kind}">${kindLabel(r.kind)}</span>${climatePill(r.climate)}</td>
+      <td><span class="sig-pill ${r.kind}" title="${esc(kindHint(r.kind))}">${kindLabel(r.kind)}</span>${climatePill(r.climate)}</td>
     </tr>`).join('');
     el.innerHTML = rows.length
     ? `<table class="dtable"><thead><tr><th></th><th>종목</th><th>섹터</th><th>시그널</th></tr></thead>
@@ -2735,8 +2735,8 @@ function renderSignalList(){
         const nearN = (_signalRows || []).filter(isNearBuy).length;
         if (_precisionBucket === 'buy') {
           return `<div class="placeholder sig-empty">
-            <div class="se-title">오늘 매수권 0 · 고장 아님</div>
-            <div class="se-body">정밀도 우선이라 매수권이 드문 날입니다. 매수기준 +${fmtNum(_effBuyThreshold, 1)}
+            <div class="se-title">오늘 매수 후보 0 · 고장 아닐 수 있음</div>
+            <div class="se-body">추세·실적·경고 게이트에 상위권이 막히면 자리가 비기도 합니다. 막차 점수 +${fmtNum(_effBuyThreshold, 1)}
               ${_adaptBump > 0 ? `(국면·거시로 +${fmtNum(_adaptBump, 1)} 상향)` : ''}.
               ${nearN ? `점수만 보면 가까운 종목 ${nearN}개가 있습니다.` : '관심종목을 넣으면 매수 대기 리스트에 남은 조건이 보입니다.'}</div>
             <div class="se-actions">
@@ -2827,10 +2827,19 @@ async function gotoPaperFromSignal(ticker){
 }
 
 const _ZONE_COLOR = { STRONG_BUY: '#0b7a3b', BUY: '#22c55e', SELL: '#dc2626', STRONG_SELL: '#b3121a' };
-const _KIND_LABEL = { STRONG_BUY: '강한매수권', BUY: '매수권', HOLD: '관망', SELL: '매도권', STRONG_SELL: '강한매도권' };
+// 뱃지 문구 = 지금 모드(순위)의 의미. STRONG_BUY는 절대 '강함'이 아니라 오늘 매수 후보 중 더 위.
+const _KIND_LABEL = { STRONG_BUY: '우선매수', BUY: '매수', HOLD: '관망', SELL: '매도', STRONG_SELL: '우선매도' };
+const _KIND_HINT = {
+  STRONG_BUY: '오늘 매수 후보 안에서도 순위가 더 위인 종목',
+  BUY: '오늘 같은 시장(국내 후보군) 점수 상위권 — 살 후보',
+  HOLD: '오늘은 매수/매도 후보 아님',
+  SELL: '점수·규칙상 매도 쪽',
+  STRONG_SELL: '매도 후보 중에서도 더 강한 쪽',
+};
 const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
 const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';
 const kindLabel = (k) => _KIND_LABEL[k] || k;
+const kindHint = (k) => _KIND_HINT[k] || '';
 const _CLIM_TIP = '기후 · 기존 시그널과 별개 · 이슈 흐름 파급 실험 · 봇 미반영';
 function climatePill(c){
   if (!c || !c.kind) return '';
@@ -2882,7 +2891,7 @@ function updatePrecisionStrip(){
           </button>`;
         }).join('')}</div>`
       : '';
-    el.innerHTML = `<div class="sp-hero">오늘 매수권 <span class="sp-n">0</span> · 정밀도 우선 · 고장 아님</div>`
+    el.innerHTML = `<div class="sp-hero">오늘 매수 후보 <span class="sp-n">0</span> · 게이트에 막힌 날일 수 있음</div>`
       + `<div class="sp-why">${whyThr}`
       + (nearN
         ? ` 점수만 보면 가까운 종목 <span class="sp-n">${nearN}</span>개 — 아래를 눌러 자세히 보세요.`
@@ -2890,19 +2899,19 @@ function updatePrecisionStrip(){
       + `</div>${nearList}`
       + `<div class="sp-actions">`
       + (nearN ? `<button type="button" class="btn${_precisionBucket === 'near' ? ' on' : ''} primary" onclick="filterPrecisionBucket('near')">근접만</button>` : '')
-      + `<button type="button" class="btn${_precisionBucket === 'buy' ? ' on' : ''}" onclick="filterPrecisionBucket('buy')">매수권만</button>`
+      + `<button type="button" class="btn${_precisionBucket === 'buy' ? ' on' : ''}" onclick="filterPrecisionBucket('buy')">매수만</button>`
       + (_precisionBucket ? `<button type="button" class="btn" onclick="filterPrecisionBucket('${_precisionBucket}')">필터 해제</button>` : '')
       + `</div>`;
     return;
   }
   el.classList.remove('is-empty-buy');
-  el.innerHTML = `<div><b>정밀도 우선</b> · 신호가 드문 게 정상입니다`
-    + ` · 오늘 <span class="sp-n">매수권 ${buyN}</span>`
+  el.innerHTML = `<div><b>오늘 순위 기준</b> · 국내 후보 안에서 위를 고릅니다`
+    + ` · <span class="sp-n">매수 ${buyN}</span>`
     + (nearN ? ` · <span class="sp-n">근접 ${nearN}</span>` : '')
-    + (sellN ? ` · 매도권 ${sellN}` : '')
-    + ` · 매수기준 <b>+${fmtNum(thr, 1)}</b></div>`
+    + (sellN ? ` · 매도 ${sellN}` : '')
+    + ` · 막차 점수 <b>+${fmtNum(thr, 1)}</b></div>`
     + `<div class="sp-actions">`
-    + `<button type="button" class="btn${_precisionBucket === 'buy' ? ' on' : ''}" onclick="filterPrecisionBucket('buy')">매수권만</button>`
+    + `<button type="button" class="btn${_precisionBucket === 'buy' ? ' on' : ''}" onclick="filterPrecisionBucket('buy')">매수만</button>`
     + (nearN ? `<button type="button" class="btn${_precisionBucket === 'near' ? ' on' : ''}" onclick="filterPrecisionBucket('near')">근접만</button>` : '')
     + (_precisionBucket ? `<button type="button" class="btn" onclick="filterPrecisionBucket('${_precisionBucket}')">필터 해제</button>` : '')
     + `</div>`;
@@ -3120,7 +3129,7 @@ function _paintSignalDetail(ticker, item){
         <div class="hero-top">
           ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
           ${chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
-          <span class="sig-pill ${item.kind}" style="font-size:13px;margin-left:auto">${kindLabel(item.kind)}</span>
+          <span class="sig-pill ${item.kind}" style="font-size:13px;margin-left:auto" title="${esc(kindHint(item.kind))}">${kindLabel(item.kind)}</span>
           ${climatePill(item.climate)}
         </div>
         <div class="hero-reason">${esc(heroReason(item))}</div>
@@ -5407,13 +5416,18 @@ function _renderEngineGate(gate){
     const why = (gate.exposure_reasons || []).map(esc).join(' · ') || '국면 가산 없음';
     strip.style.display = '';
     strip.style.borderColor = 'var(--line)';
-    strip.innerHTML = `<b>매수권 선정 · 횡단면 분위</b> — 상위 ${sel.rank_top_pct}%(${sel.rank_slots ?? '–'}종목)`
-      + ` · 선정 <b>${sel.eligible ?? '–'}</b>건 · 컷오프 ${fmtNum(sel.cutoff_score, 2)}`
-      + ` · 익스포저 <b>${gate.exposure != null ? Math.round(gate.exposure * 100) + '%' : '–'}</b>`
+    const expPct = gate.exposure != null ? Math.round(gate.exposure * 100) : null;
+    strip.innerHTML = `<b>오늘 매수 후보</b> — 국내 후보 ${sel.universe ?? '–'}종목을 점수순으로 세워`
+      + ` 상위 ${sel.rank_top_pct}%(<b>${sel.rank_slots ?? '–'}</b>자리)만 ‘매수’`
+      + ` · 선정 <b>${sel.eligible ?? '–'}</b>건 · 막차 점수 ${fmtNum(sel.cutoff_score, 2)}`
+      + (expPct != null ? ` · 자금 한도 <b>${expPct}%</b>` : '')
       + `<div style="color:var(--dim);margin-top:3px">${why}</div>`
-      + `<div style="color:var(--dim-2);margin-top:3px">점수 분포 max ${fmtNum(dist.max, 2)} · p99 ${fmtNum(dist.p99, 2)}`
-      + ` · 중위 ${fmtNum(dist.median, 2)} (옛 절대문턱 ${fmtNum(gate.base_buy_threshold, 1)})`
-      + ` · 게이트 차단 ${sel.gate_blocked ?? 0}종목</div>`;
+      + `<div style="color:var(--dim-2);margin-top:3px">`
+      + `같은 섹터가 아니라 <b>국내 후보 전체</b>에서 오늘 순위를 매깁니다. `
+      + `‘우선매수’는 그 매수 후보 중 더 위(대략 앞 1/3). `
+      + `자금 한도=페이퍼 봇이 쓸 수 있는 평가액 비율(나머지 현금). `
+      + `게이트 차단 ${sel.gate_blocked ?? 0}종목`
+      + ` · 분포 max ${fmtNum(dist.max, 2)} · 중위 ${fmtNum(dist.median, 2)}</div>`;
     return;
   }
   if (sel.threshold_above_max) {
@@ -5557,7 +5571,7 @@ async function loadLlmUsage(){
 }
 
 // 실측 성과(track record) — 실제 낸 시그널이 이후 수익률로 얼마나 맞았나. 매일 누적.
-const _ACC_KIND = { STRONG_BUY: '강력매수', BUY: '매수', SELL: '매도', STRONG_SELL: '강력매도' };
+const _ACC_KIND = { STRONG_BUY: '우선매수', BUY: '매수', SELL: '매도', STRONG_SELL: '우선매도' };
 const _ACC_FACTOR = { technical: '기술', fundamental: '기본', valuation: '밸류', reversion: '낙폭',
   qualitative: 'KB 정성', flow: '수급', quality: '퀄리티', momentum: '모멘텀', short: '공매도' };
 async function loadQualPromo(){

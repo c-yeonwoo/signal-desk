@@ -98,6 +98,47 @@ def _spearman_ic(pairs: list[tuple[float, float]]) -> float | None:
     return cov / (vx * vy) ** 0.5
 
 
+def mean_diff_se_pp(a: list[float], b: list[float]) -> float | None:
+    """두 평균 차이의 표준오차(%p) — 관측 분산 기반. 양쪽 모두 2개 이상일 때만.
+    "표본 N개 모이면 판정"이라는 착각을 막기 위해 모든 shadow가 이 한 구현을 공유한다."""
+    if len(a) < 2 or len(b) < 2:
+        return None
+
+    def _var(xs: list[float]) -> float:
+        m = sum(xs) / len(xs)
+        return sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
+
+    return round((_var(a) / len(a) + _var(b) / len(b)) ** 0.5 * 100, 2)
+
+
+def diff_verdict(a: list[float], b: list[float], *, min_samples: int = _MIN_IC_SAMPLES) -> dict:
+    """두 수익률 집합(a=검증 대상, b=대조군)의 평균차 판정 — shadow 공용.
+
+    판정은 표본 수가 아니라 유의성으로 한다: 부호는 |delta| > CI95일 때만 읽고, 그 전까지는
+    `blocked_reason`이 이유를 말한다. 관측만 쌓고 사람이 들여다봐야 아는 shadow는 안 보게 되므로,
+    `verdict_ready`가 True면 관리자 화면에 판정 알림으로 떠야 한다."""
+    avg_a = round(sum(a) / len(a) * 100, 2) if a else None
+    avg_b = round(sum(b) / len(b) * 100, 2) if b else None
+    delta = round(avg_a - avg_b, 2) if avg_a is not None and avg_b is not None else None
+    se = mean_diff_se_pp(a, b)
+    ci95 = round(1.96 * se, 2) if se is not None else None
+    significant = bool(delta is not None and ci95 is not None and abs(delta) > ci95)
+    matured = min(len(a), len(b))
+    if matured == 0:
+        reason = "성숙 표본 없음 — horizon 경과 대기"
+    elif matured < min_samples:
+        reason = f"표시 시작 표본 미달({matured}/{min_samples}) — 판정 불가"
+    elif not significant:
+        reason = "리프트가 오차 범위 안 — 무정보"
+    else:
+        reason = None
+    return {"n": len(a), "n_control": len(b), "avg_pct": avg_a, "control_avg_pct": avg_b,
+            "delta_pct": delta, "delta_se_pp": se, "delta_ci95_pp": ci95,
+            "delta_significant": significant, "matured": matured, "min_samples": min_samples,
+            "verdict_ready": bool(matured >= min_samples and significant),
+            "blocked_reason": reason}
+
+
 def _precision(rets: list[float], *, up: bool) -> float | None:
     """방향 정밀도(%) — 무변동(정확히 0)은 적중으로 세지 않는다."""
     if not rets:

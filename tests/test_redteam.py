@@ -268,6 +268,48 @@ def test_advisor_shadow_verdict_requires_significance():
     assert "significant" in line, f"판정이 유의성과 무관하다: {line}"
 
 
+def test_bot_and_ui_score_from_one_input_set():
+    """봇과 화면이 서로 다른 입력으로 점수를 내면 '매수 후보'와 실제 매수가 갈라지고, 그 차이는
+    어느 화면에도 안 나타난다(공매도가 봇 경로에만 빠져 있었다).
+
+    입력을 한 함수(store.kr_engine_inputs)로 모으고, evaluate가 받는 국내 입력이 그 안에 다
+    들어있는지 기계로 확인한다 — 새 팩터를 evaluate에 추가하고 한쪽만 배선하면 여기서 걸린다."""
+    import inspect
+
+    from signal_desk import store as store_mod
+    from signal_desk.signals import engine as eng
+
+    # 국내 입력이 아닌 것만 예외로 둔다(US 전용·계산 파라미터). 새 kwarg는 기본적으로 배선 대상.
+    not_kr_data = {"universe", "prices", "fundamentals", "config", "earnings_dates", "today"}
+    expected = set(inspect.signature(eng.evaluate).parameters) - not_kr_data
+    src = inspect.getsource(store_mod.kr_engine_inputs)
+    for key in expected:
+        assert f'"{key}"' in src, f"kr_engine_inputs에 '{key}' 누락 — 봇·UI가 갈라진다"
+    api_src = inspect.getsource(__import__("signal_desk.api", fromlist=["_signals"])._signals)
+    bot_src = inspect.getsource(__import__("signal_desk.bot", fromlist=["x"])._market_signals)
+    assert "kr_engine_inputs" in api_src and "kr_engine_inputs" in bot_src
+
+
+def test_shadow_verdicts_share_one_significance_rule():
+    """shadow마다 판정 통계를 따로 짜면 그 구현 차이가 판정 차이로 둔갑한다(대조군 교훈과 같다)."""
+    import inspect
+
+    from signal_desk.signals import accuracy, advisor_shadow, climate
+
+    v = accuracy.diff_verdict([0.10, 0.11, 0.09], [0.01, 0.02, 0.0], min_samples=3)
+    assert v["delta_pct"] is not None and v["verdict_ready"] is True
+    # 분산이 크면 같은 표본 수여도 판정 불가여야 한다
+    noisy = accuracy.diff_verdict([0.5, -0.4, 0.3], [0.0, 0.1, -0.1], min_samples=3)
+    assert noisy["delta_significant"] is False and noisy["verdict_ready"] is False
+    assert "오차" in (noisy["blocked_reason"] or "")
+    # 표본 미달은 유의해 보여도 판정 불가
+    thin = accuracy.diff_verdict([0.10, 0.11], [0.0, 0.01], min_samples=20)
+    assert thin["verdict_ready"] is False and "표본" in thin["blocked_reason"]
+    for mod in (advisor_shadow, climate):
+        assert "mean_diff_se_pp" in inspect.getsource(mod) or "diff_verdict" in inspect.getsource(mod), \
+            f"{mod.__name__}이 자체 판정 통계를 쓴다"
+
+
 def test_scoring_factors_are_snapshotted_and_in_factor_ic(tmp_path, monkeypatch):
     """점수에 들어가는 팩터가 PIT·factor_ic에서 빠져 있으면 그 팩터는 영원히 측정 불가.
 

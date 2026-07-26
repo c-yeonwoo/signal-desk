@@ -301,8 +301,10 @@ def _market_signals(market: str, mr: dict):
     universe = store.load_universe()
     prices = store.load_price_series()
     fundamentals = store.load_fundamentals()
+    # 입력은 UI(api._signals)와 같은 한 벌을 쓴다(store.kr_engine_inputs) — 따로 나열하면
+    # 한쪽에만 팩터가 빠져 화면의 '매수 후보'와 실제 매수가 갈라진다.
     sigs = engine.evaluate(universe, prices, fundamentals, config=mr["eff_cfg"],
-                           sentiment=kb.sentiment_map(), flows=store.load_flows())
+                           **store.kr_engine_inputs())
     return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}
 
 
