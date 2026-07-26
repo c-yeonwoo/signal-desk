@@ -34,7 +34,12 @@ _HANGUL = re.compile(r"[가-힣]+")
 
 # 하이브리드·veto 임계(설정 한곳)
 HYBRID_ALPHA = 0.55          # dense 가중(나머진 BM25). 임베딩 없으면 0으로 취급
-EVENT_SEMANTIC_TAU = 0.78    # 보수적 — 오탐보다 미탐 허용(키워드 OR로 보완)
+# 해시 폴백 전용 절대 cosine 문턱 — 희소 n-gram 벡터라 무관 쌍은 0 근처다.
+EVENT_SEMANTIC_TAU = 0.78
+# 의미 벡터(e5·openai) 전용 — 절대 cosine이 아니라 '악재 프로토타입 − 중립 앵커' 마진.
+# 실측 분포(2026-07-27, e5-small): 중립뉴스 마진 −0.067~−0.019 / 명백한 악재 +0.055 이상.
+# 그 사이에서 고른 값이고, 앵커 표본이 작으니 오탐이 보이면 앵커를 늘려 다시 재는 게 먼저다.
+EVENT_SEMANTIC_MARGIN = 0.03
 _OPENAI_URL = "https://api.openai.com/v1/embeddings"
 
 

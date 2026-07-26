@@ -147,7 +147,11 @@ def retrieve(query: str, k: int = 5, *, alpha: float | None = None) -> list[dict
     if not dens_n:
         a = 0.0  # dense 없으면 순수 BM25
 
-    idxs = set(bm_n) | set(dens_n)
+    # 후보는 **어휘 신호(BM25)가 있는 문서**로 제한하고 dense는 그 안에서 재정렬만 한다.
+    # 의미 벡터는 '아무것도 안 맞음'을 못 가른다 — 실측(2026-07-27, e5-small, 코퍼스 297건):
+    # 무관 질의("고양이 사료")의 최고 cosine 0.844 vs 관련 질의 0.873, 중위는 각각 0.790·0.812로
+    # 사실상 같다. dense가 후보를 만들면 어떤 질의에도 상위 k개가 나와서 검색이 늘 '찾았다'고 한다.
+    idxs = set(bm_n) if dens_n else set(bm_n) | set(dens_n)
     scored = []
     for i in idxs:
         s = (1 - a) * bm_n.get(i, 0.0) + a * dens_n.get(i, 0.0)

@@ -52,6 +52,42 @@ def test_fetch_warnings_keeps_cache_when_request_fails(tmp_path, monkeypatch):
     assert saved["035420"] == ["VI"]                # 신규
 
 
+def test_warnings_status_separates_never_fetched_from_none_active(tmp_path, monkeypatch):
+    """경고 0종목이 '정상'인지 '미수집'인지 구분돼야 한다 — 못 구분하면 veto가 죽은 걸 몇 주 못 본다."""
+    monkeypatch.chdir(tmp_path)
+    cache = tmp_path / "data/cache"
+    cache.mkdir(parents=True)
+    monkeypatch.setattr(toss, "available", lambda: True)
+    st = store.warnings_status()
+    assert st["fetched"] is False and st["blocked_reason"]      # 파일 없음 → 이유가 붙는다
+    (cache / "warnings.json").write_text("{}", encoding="utf-8")
+    st = store.warnings_status()
+    assert st["fetched"] is True and st["active"] == 0 and st["blocked_reason"] is None
+
+
+def test_daily_maintenance_refreshes_the_buy_veto(tmp_path, monkeypatch):
+    """투자경고 수집이 수동 갱신에만 걸려 있으면 아무도 안 눌러 veto가 영구히 빈다."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    from signal_desk import api
+    calls: list[list] = []
+    monkeypatch.setattr(api, "kb", type("_", (), {"refresh": staticmethod(lambda t: None)}))
+    monkeypatch.setattr(api, "_kb_targets", lambda: [])
+    monkeypatch.setattr(api, "_signals", type("_", (), {"cache_clear": staticmethod(lambda: None),
+                                                        "__call__": staticmethod(lambda: [])})())
+    monkeypatch.setattr(api, "_regime", type("_", (), {"cache_clear": staticmethod(lambda: None)}))
+    monkeypatch.setattr(api.store, "prices_need_deep_backfill", lambda: False)
+    for name in ("fetch_prices", "fetch_flows", "fetch_market_flow", "fetch_short",
+                 "fetch_consensus", "snapshot_signals"):
+        monkeypatch.setattr(api.store, name, lambda *a, **k: [])
+    monkeypatch.setattr(api.store, "load_universe", lambda: [{"ticker": "005930"}])
+    monkeypatch.setattr(api.store, "fetch_warnings", lambda tks: calls.append(tks) or 0)
+    monkeypatch.setattr(api.climate, "snapshot_shadow", lambda s: None)
+    monkeypatch.setattr(api.db, "kv_set", lambda k, v: None)
+    api._daily_maintenance([])
+    assert calls == [["005930"]]                               # 자동 루프가 veto 데이터를 갱신한다
+
+
 def test_retry_after_reads_header_and_clamps():
     class H(dict):
         def get(self, k, default=None):

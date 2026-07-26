@@ -335,6 +335,74 @@ def load_consensus_latest() -> dict[str, dict]:
     return {r["ticker"]: {k: r[k] for k in df.columns} for _, r in latest.iterrows()}
 
 
+def kr_engine_inputs() -> dict:
+    """국내 evaluate에 넣는 데이터 입력 한 벌(config 제외) — UI와 봇이 같은 함수를 쓰게 한다.
+
+    한쪽에만 팩터가 빠지면 화면의 '매수 후보'와 봇이 실제로 사는 종목이 갈라지는데, 그 차이는
+    어느 화면에도 안 나타난다(공매도가 봇에만 빠져 있었다). 새 팩터 입력은 여기에만 추가한다."""
+    from signal_desk import kb
+    return {"sentiment": kb.sentiment_map(), "flows": load_flows(), "shorts": load_short()}
+
+
+def _market_dates() -> list[str]:
+    """국내 거래일 목록(오래된→최신) — 성숙 판정용. 실시간 잠정봉은 포함하지 않는다."""
+    if not PRICES_FILE.exists():
+        return []
+    df = _read_parquet(PRICES_FILE)
+    if df.empty or "date" not in df.columns:
+        return []
+    return sorted({str(d) for d in df["date"].tolist()})
+
+
+# 컨센서스 리비전(Δ목표주가·Δ선행EPS)을 '측정'할 수 있게 되는 조건. 날짜 단위 IC 관측 수이고
+# 종목 표본 수가 아니다 — 같은 날 200종목은 하나의 관측에 가깝다(횡단면이 서로 독립이 아니다).
+REVISION_MIN_TESTABLE_DATES = 20
+REVISION_HORIZON = 20
+
+
+def consensus_readiness(*, horizon: int = REVISION_HORIZON,
+                        need: int = REVISION_MIN_TESTABLE_DATES) -> dict:
+    """컨센서스 축적이 언제 '판정 가능'해지는지 — 축적만 하는 데이터에 판정 날짜를 붙인다.
+
+    조건이 없는 축적은 영원히 안 본다. 여기서 재는 것은 **측정 가능 시점**이지 반영 시점이 아니다
+    (판별력이 판정 불가인 동안 가중치·부호를 만지지 않는다는 원칙은 그대로다).
+
+    testable = Δ를 계산할 이전 스냅샷이 있고, 이후 horizon 거래일 종가까지 존재하는 날짜.
+    """
+    df = load_consensus_history()
+    if df.empty or "date" not in df.columns:
+        return {"days": 0, "tickers": 0, "testable_dates": 0, "need": need, "horizon": horizon,
+                "ready": False, "blocked_reason": "컨센서스 스냅샷 없음(평일 마감 후 누적)",
+                "eta_trading_days": need + horizon, "eta_date": None}
+    dates = sorted({str(d) for d in df["date"].tolist()})
+    mkt = _market_dates()
+    testable = 0
+    if mkt:
+        for cd in dates[1:]:                       # 첫 날짜는 Δ 계산 불가
+            nxt = next((k for k, d in enumerate(mkt) if d > cd), None)
+            if nxt is not None and nxt + horizon <= len(mkt) - 1:
+                testable += 1
+    future_needed = max(0, need - len(dates))
+    eta_days = 0 if testable >= need else future_needed + horizon
+    eta_date = None
+    if eta_days:
+        d, left = datetime.date.today(), eta_days
+        while left > 0:                            # 휴일 미반영 추정(영업일 기준)
+            d += datetime.timedelta(days=1)
+            if d.weekday() < 5:
+                left -= 1
+        eta_date = d.isoformat()
+    return {"days": len(dates), "tickers": int(df["ticker"].nunique()),
+            "first_date": dates[0], "last_date": dates[-1],
+            "testable_dates": testable, "need": need, "horizon": horizon,
+            "ready": testable >= need,
+            "blocked_reason": None if testable >= need
+            else f"측정 가능 날짜 {testable}/{need} — Δ 계산 후 {horizon}거래일 성숙 대기",
+            "eta_trading_days": eta_days, "eta_date": eta_date,
+            "note": "측정 가능 시점이지 반영 시점이 아니다. 조건 충족 시 리비전 팩터 IC를 재고, "
+                    "판별력이 확인되기 전에는 점수에 넣지 않는다."}
+
+
 def _market_flow_summary(records: list[dict]) -> dict:
     """토스 시장전체 투자자 거래 레코드(최신→과거) → 외국인·기관 순매수 5/20일 누적(원, 조원 환산).
     smart_net = 외국인+기관(스마트머니). 순수함수(테스트 분리)."""
@@ -920,6 +988,20 @@ def load_warned_tickers() -> set[str]:
     if not WARNINGS_FILE.exists():
         return set()
     return set(json.loads(WARNINGS_FILE.read_text(encoding="utf-8")).keys())
+
+
+def warnings_status() -> dict:
+    """투자경고 veto의 데이터 상태 — 경고 0종목이 '정상'인지 '미수집'인지 구분한다.
+    veto 집합이 조용히 비면 매수 가드레일이 없는 것과 같으므로 이유를 붙여 노출한다."""
+    from signal_desk.ingest import toss
+    available = toss.available()
+    if not WARNINGS_FILE.exists():
+        return {"fetched": False, "active": 0, "updated": None, "toss_available": available,
+                "blocked_reason": "미수집 — 토스 미설정" if not available else "미수집 — 아직 한 번도 안 받음"}
+    return {"fetched": True, "active": len(load_warned_tickers()),
+            "updated": datetime.datetime.fromtimestamp(
+                WARNINGS_FILE.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
+            "toss_available": available, "blocked_reason": None}
 
 
 def fetch_us_fundamentals_edgar(tickers: list[str], max_calls: int = 40) -> int:

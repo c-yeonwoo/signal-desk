@@ -321,3 +321,45 @@ def shadow_summary(*, limit_days: int = 14) -> dict[str, Any]:
         "days": days,
         "disclaimer": "기후 shadow · 기존 시그널과 별개 · 봇 미연동 · 승격 전 관측",
     }
+
+
+def shadow_verdict(closes_by_ticker, *, horizon: int = 20, min_samples: int = 20) -> dict:
+    """기후 판정이 기존 kind보다 나았는지 — 불일치 종목의 실현수익률로 채점한다.
+
+    diverge 건수만 세는 관측은 "달랐다"는 것 말고 아무것도 말하지 않는다. 판정 조건(유의성)을
+    코드에 박아 두고, 충족되면 관리자 화면에 뜨게 한다. 승격 자체는 사람이 한다.
+
+    비교: (기후=매수 & 기존≠매수) vs (기존=매수 & 기후≠매수) 두 집합의 horizon 실현수익률.
+    """
+    import json
+
+    from signal_desk.signals import accuracy
+    from signal_desk.signals.engine import is_buy
+
+    path = _shadow_path()
+    if not path.exists():
+        return {"ready": False, "blocked_reason": "기후 shadow 스냅샷 없음(마감 후 적재)"}
+    try:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"ready": False, "blocked_reason": "climate_shadow.json 파싱 실패"}
+    clim_only: list[float] = []
+    base_only: list[float] = []
+    for date in sorted(blob.keys()):
+        for row in (blob[date] or {}).get("rows") or []:
+            ck, bk = row.get("clim_kind") or "", row.get("base_kind") or ""
+            if is_buy(ck) == is_buy(bk):
+                continue                     # 매수 여부가 같으면 판정에 쓸 불일치가 아니다
+            series = closes_by_ticker.get(row.get("ticker"))
+            if not series:
+                continue
+            dates, closes = series
+            ret = accuracy.forward_returns(dates, closes, date, (horizon,)).get(horizon)
+            if ret is None:
+                continue                     # 미성숙 — 표본에서 제외(정직한 표본)
+            (clim_only if is_buy(ck) else base_only).append(ret)
+    v = accuracy.diff_verdict(clim_only, base_only, min_samples=min_samples)
+    return {"ready": v["matured"] > 0, "horizon": horizon, **v,
+            "note": "기후=매수·기존≠매수 집합 vs 그 반대 집합의 실현수익률 차이. "
+                    "verdict_ready가 True여도 반영은 사람이 결정한다(측정되지 않은 것으로 파라미터를 바꾸지 않는다).",
+            "disclaimer": "기후 shadow · 봇 미연동 · 승격 게이트 아님"}

@@ -65,6 +65,31 @@ def test_fetch_consensus_append_and_dedup(tmp_path, monkeypatch):
     assert latest["005930"]["price_target_mean"] == 100.0
 
 
+def test_consensus_readiness_gives_a_date_not_just_a_count(tmp_path, monkeypatch):
+    """축적만 하는 데이터엔 '언제 판정 가능한가'가 붙어야 한다 — 조건 없는 축적은 영원히 안 본다."""
+    monkeypatch.chdir(tmp_path)
+    import pandas as pd
+
+    from signal_desk import store
+    importlib.reload(store)
+    (tmp_path / "data" / "cache").mkdir(parents=True)
+
+    r = store.consensus_readiness()
+    assert r["ready"] is False and r["blocked_reason"] and r["eta_trading_days"] > 0
+
+    # 스냅샷 3일 + 이후 종가 충분 → Δ 계산 가능한 날짜는 2개(첫 날은 Δ 불가)
+    dates = [f"2026-01-{d:02d}" for d in range(1, 29)]
+    pd.DataFrame([{"date": d, "ticker": "005930", "open": 1.0, "close": 1.0, "volume": 1}
+                  for d in dates]).to_parquet(store.PRICES_FILE, index=False)
+    pd.DataFrame([{"date": d, "ticker": "005930", "price_target_mean": 1.0}
+                  for d in dates[:3]]).to_parquet(store.CONSENSUS_HISTORY_FILE, index=False)
+    r = store.consensus_readiness(horizon=5, need=2)
+    assert r["days"] == 3 and r["testable_dates"] == 2 and r["ready"] is True
+    # 표본이 모자라면 판정 날짜(추정)를 낸다
+    r = store.consensus_readiness(horizon=5, need=40)
+    assert r["ready"] is False and r["eta_date"] and r["eta_trading_days"] == 37 + 5
+
+
 def test_fetch_consensus_circuit_breaker(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     from signal_desk import store

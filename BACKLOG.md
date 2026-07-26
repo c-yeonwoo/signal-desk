@@ -300,6 +300,32 @@
 data.krx.co.kr 무료 가입). 계정만 있으면 상장폐지 종목 포함 PIT 유니버스를 만들 수 있는지
 확인 가능 — **사용자 액션 필요, 미검증**.
 
+## 데이터 흐름 진단 — 죽은 게이트·갈라진 점수·해시 벡터 (2026-07-27)
+
+"수집한 데이터가 적재적소에 쓰이고 있나"를 시그널 수명주기·두뇌 레이어·KB 세 갈래로 점검한
+결과. 라이브 점수 경로(시세·재무·수급·공매도 + 국면 게이트)는 유기적이었고, 문제는 **경로 밖에서
+조용히 비어 있던 것들**이었다.
+
+**고친 것**
+
+| 발견 | 실체 | 대응 |
+|---|---|---|
+| 투자경고 veto가 한 번도 발동 안 함 | `fetch_warnings` 호출처가 관리자 수동뿐 → `warnings.json` 부재 → `load_warned_tickers()` 항상 빈 집합 | 일일 루프에 추가 + `store.warnings_status()`로 '정상 0/미수집 0' 구분 노출 |
+| 봇과 화면의 점수가 다름 | 봇 국내 경로가 `evaluate`에 `shorts` 미전달(가중치 0.15) | 입력을 `store.kr_engine_inputs()` 한 벌로 공유 + `evaluate` 시그니처 대조 검사 |
+| PIT 스냅샷 오염 가능 | 15:40 스냅샷 시점에 장중가 오버레이가 남으면 장중가 점수가 저장되는데 채점은 종가 | 스냅샷 직전 오버레이 해제 + 거래일 KST |
+| 시세 실패 시 낡은 장중가 고정 | 예외·빈 응답 경로가 오버레이를 안 걷음 | 실패 시 종가 복귀 + 캐시 무효화 |
+| "KB 벡터화" 실체가 해시 | 297건 전부 `hashing-v1`, `semantic_capable()=False` — 동의어를 못 잡음 | `[embed]` extra로 e5-small 전환·재임베딩, 백엔드를 관리자 화면에 노출 |
+| 임베딩 문턱이 백엔드와 안 맞음 | 절대 cosine 0.78이 e5에선 전부 오탐(중립 0.891~0.916 vs 악재 0.900~0.957로 겹침) | 중립 앵커 대비 **마진** 판정 + 검색은 BM25가 후보를 정하고 dense는 재정렬만 |
+| shadow에 판정 규칙 없음 | climate는 diverge 건수만, 컨센서스는 축적만 | `accuracy.diff_verdict`(유의성 기반) 공유 + `climate.shadow_verdict` + `store.consensus_readiness`(측정 가능 날짜·ETA) |
+
+**남은 것**
+- `kb_events` 0건 — KB가 매매에 닿는 유일한 선(DART confirmed → Decision veto)에 데이터가 없다.
+  다이제스트 커버리지도 27/200종목. 대상 선정(`_kb_targets`)을 넓힐지 판단 필요.
+- 컨센서스 PIT는 여전히 미반영. `consensus_readiness`가 ready를 띄우면 리비전 팩터 IC부터 잰다.
+- 정성(KB) 점수는 combine 밖 유지(설계). 승격 게이트의 `priority`/`threshold`는 미구현.
+- LLM 지출 중 시그널·봇에 닿지 않는 것들(audit·hypothesis·about/moves·narrative) — 관측·표시
+  가치는 있으나 비용 대비 소비처를 한 번 정리할 필요.
+
 ## US 클래스주 심볼 불일치 + 무한 재시도 (2026-07-26)
 
 로그를 30분마다 채우던 `BRK-B`/`BF-B` 오류의 원인. S&P500 원본은 `BRK.B`/`BF.B`인데

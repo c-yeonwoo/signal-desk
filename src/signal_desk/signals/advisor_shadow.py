@@ -117,17 +117,10 @@ def _avg(rets: list[float]) -> float | None:
 
 
 def _se_pp(a: list[float], b: list[float]) -> float | None:
-    """두 평균 차이의 표준오차(%p). 표본분산 기반이라 "20쌍이면 판정 가능"이라는 착각을 막는다.
-    양쪽 모두 2개 이상이어야 계산된다."""
-    if len(a) < 2 or len(b) < 2:
-        return None
-
-    def _var(xs: list[float]) -> float:
-        m = sum(xs) / len(xs)
-        return sum((x - m) ** 2 for x in xs) / (len(xs) - 1)
-
-    se = (_var(a) / len(a) + _var(b) / len(b)) ** 0.5
-    return round(se * 100, 2)
+    """두 평균 차이의 표준오차(%p) — 구현은 accuracy 한 곳에 두고 공유한다(shadow마다 따로 짜면
+    그 차이가 판정 차이로 둔갑한다)."""
+    from signal_desk.signals.accuracy import mean_diff_se_pp
+    return mean_diff_se_pp(a, b)
 
 
 def summary(

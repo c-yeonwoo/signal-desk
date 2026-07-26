@@ -110,3 +110,29 @@ def test_snapshot_shadow_and_summary(tmp_path, monkeypatch):
     assert summary["ready"] is True
     assert summary["days"][-1]["date"] == "2099-01-02"
     assert summary["days"][-1]["n"] >= 1
+
+
+def test_shadow_verdict_scores_disagreements_not_just_counts(tmp_path, monkeypatch):
+    """diverge 건수만 세는 관측은 '달랐다'는 것 말고 아무것도 말하지 않는다.
+    불일치 종목의 실현수익률로 채점하고, 판정은 표본 수가 아니라 유의성으로 한다."""
+    import json
+
+    from signal_desk import store
+
+    monkeypatch.setattr(store, "CACHE_DIR", tmp_path)
+    dates = [f"2099-01-{d:02d}" for d in range(1, 20)]
+    rows = [{"ticker": "AAA", "base_kind": "HOLD", "clim_kind": "BUY", "q": 0.3},
+            {"ticker": "BBB", "base_kind": "BUY", "clim_kind": "HOLD", "q": -0.3}]
+    blob = {d: {"as_of": "2099-01-01", "n": 2, "diverge": 2, "rows": rows} for d in dates[:6]}
+    (tmp_path / "climate_shadow.json").write_text(json.dumps(blob), encoding="utf-8")
+
+    # 기후가 매수라 한 AAA는 오르고, 기존이 매수라 한 BBB는 빠진다 → 기후 쪽 우위
+    closes = {"AAA": (dates, [100.0 + 3 * i for i in range(len(dates))]),
+              "BBB": (dates, [100.0 - 3 * i for i in range(len(dates))])}
+    v = climate.shadow_verdict(closes, horizon=5, min_samples=3)
+    assert v["ready"] is True and v["matured"] == 6
+    assert v["delta_pct"] > 0 and v["verdict_ready"] is True
+
+    # 성숙 구간이 없으면 판정 불가 — 이유가 붙는다
+    v2 = climate.shadow_verdict(closes, horizon=200, min_samples=3)
+    assert v2["verdict_ready"] is False and v2["blocked_reason"]
