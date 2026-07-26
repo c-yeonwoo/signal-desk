@@ -94,6 +94,17 @@ def _authorized_get(url: str, *, headers: dict[str, str]) -> dict | list | None:
     try:
         return _once(tok)
     except urllib.error.HTTPError as e:
+        if e.code == 429:  # STOCK ~5 TPS 등 — Retry-After 후 1회만 재시도
+            wait = _retry_after(e, default=1.0)
+            log.warning("토스 요청 한도(%s): %.1fs 후 1회 재시도",
+                        url.split("?")[0].replace(_BASE, ""), wait)
+            time.sleep(wait)
+            try:
+                return _once(tok)
+            except urllib.error.HTTPError as e2:
+                log.warning("토스 요청 실패(%s): HTTP %s %s", url.split("?")[0].replace(_BASE, ""),
+                            e2.code, _http_detail(e2))
+                return None
         if e.code != 401:
             log.warning("토스 요청 실패(%s): HTTP %s %s", url.split("?")[0].replace(_BASE, ""),
                         e.code, _http_detail(e))
@@ -117,6 +128,15 @@ def _authorized_get(url: str, *, headers: dict[str, str]) -> dict | list | None:
     except Exception as e:
         log.warning("토스 요청 실패(%s): %s", url.split("?")[0].replace(_BASE, ""), type(e).__name__)
         return None
+
+
+def _retry_after(err: urllib.error.HTTPError, default: float = 1.0) -> float:
+    """429 Retry-After 헤더(초). 없거나 이상하면 default. 상한 30초."""
+    raw = err.headers.get("Retry-After") if err.headers else None
+    try:
+        return max(0.2, min(30.0, float(raw)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _get(path: str, params: dict | None = None) -> dict | list | None:
@@ -225,9 +245,14 @@ def daily_ohlcv(symbol: str, count: int = 200) -> list[dict]:
     return out
 
 
-def warnings(symbol: str) -> list[str]:
-    """활성 투자경고/거래정지/과열/VI 유형 목록. 없으면 빈 리스트(=정상)."""
+def warnings(symbol: str) -> list[str] | None:
+    """활성 투자경고/거래정지/과열/VI 유형 목록. 없으면 [](=정상). 요청 실패는 None.
+
+    STOCK 그룹 ~5 TPS — 호출 측에서 종목 사이 간격을 둬야 한다. 실패와 '경고 없음'을
+    같은 []로 주면 부분 수집이 기존 캐시를 통째로 지운다."""
     body = _get(f"/api/v1/stocks/{symbol}/warnings")
+    if body is None:
+        return None
     return [w for r in _rows(body) if (w := r.get("warningType"))]
 
 
