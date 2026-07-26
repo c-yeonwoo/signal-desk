@@ -442,3 +442,42 @@ def test_short_history_blocks_the_verdict_end_to_end():
         signal_config=_tech_only()))
     assert out["verdict"] == "판정 불가"
     assert "표본" in out["verdict_why"], out["verdict_why"]
+
+
+def test_same_day_same_ticker_counts_once(tmp_path, monkeypatch):
+    """성향이 다른 봇 3개가 같은 종목을 사면 같은 판단이 3번 기록된다. 그대로 세면 승률이
+    시그널 정확도가 아니라 **종목 인기도**로 가중된다 — 셋 다 산 종목이 오르면 3승이 된다.
+
+    실측(2026-07-27): 매수 판단 39건 중 고유 (종목·날짜)는 31건이었고, 161390은 하루 3건이었다."""
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+
+    ids = [db.bot_decision_log("161390", "한국타이어", "buy", 1.5, "규칙", {}, 10000.0)
+           for _ in range(3)]                      # 같은 날 같은 종목 — 봇 3개
+    other = db.bot_decision_log("005930", "삼성전자", "buy", 1.2, "규칙", {}, 70000.0)
+    db.bot_decision_set_outcome(ids[0], 10.0)      # 오른 종목: 3봇이 다 샀다
+    db.bot_decision_set_outcome(ids[1], 10.0)
+    db.bot_decision_set_outcome(ids[2], 10.0)
+    db.bot_decision_set_outcome(other, -5.0)       # 내린 종목: 1봇만 샀다
+
+    card = db.bot_decision_scorecard()
+    assert card["resolved"] == 2, "중복 판단이 표본 수를 부풀린다"
+    assert card["win_rate"] == 50.0, f"인기 종목이 승률을 끌어올린다: {card['win_rate']}"
+    assert card["deduped_from"] == 4, "몇 건이 접혔는지 안 보이면 중복 계수가 다시 생긴다"
+    assert len(db.bot_decisions_recent(40)) == 2   # advisor 학습 재료도 같은 판단을 3번 먹지 않는다
+
+
+def test_alert_scan_does_not_depend_on_a_bot_being_on(tmp_path, monkeypatch):
+    """관심종목 시그널 변동 알림은 페이퍼 봇과 무관한 기능인데, 루프가 '봇 켠 유저'만 순회해서
+    봇 활성화에 딸려 있었다. 개인 봇을 없애면 이 결합이 알림을 통째로 죽인다.
+
+    기능의 대상 집합은 그 기능이 정의한다 — 옆 기능의 on/off가 정하는 게 아니다."""
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+
+    db.fav_add(7, "ticker", "005930", "삼성전자")   # 봇은 켠 적 없는 유저
+    db.fav_add(8, "sector", "반도체", "반도체")      # 종목 관심 없음 → 스캔 대상 아님
+    assert db.user_bots_enabled() == []
+    assert db.uids_with_ticker_favorites() == [7]

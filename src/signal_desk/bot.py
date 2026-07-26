@@ -88,45 +88,6 @@ def us_signals() -> list:
     return sorted(api._us_signals().values(), key=lambda s: s.score, reverse=True)
 
 
-def us_state(capital: float = 10000.0) -> dict:
-    """해외(US) 대시보드 상태 — 판단 미리보기 전용(계좌 미연동). 국내 봇과 동일한 결정 로직을
-    US 시그널에 적용한 계획만 보여준다(실행 없음)."""
-    return {"market": "us", "kis_connected": False, "balance": None,
-            "us_market_hours": is_us_market_hours(), "preview": us_preview(capital),
-            "live_connected": False}
-
-
-def us_preview(capital: float = 10000.0, style: str | None = None) -> dict:
-    """US 자동매매 '판단 미리보기'(주문 없음) — 시그널 기반 매수 후보 + 분할 진입 계획(USD).
-
-    ⚠️ US 실주문·잔고는 KIS 해외 API를 미국장 개장 중 검증한 뒤 연결 예정(현재 미연결). 이 함수는
-    국내 봇과 동일한 결정 로직(성향·분할·최소점수·악재 veto)을 US 시그널에 적용한 계획만 보여준다."""
-    style = strategy.normalize(style or "balanced")
-    p = strategy.preset(style)
-    sigs = us_signals()
-    hist = store.load_us_price_series()
-    tranches = strategy.entry_tranches(style)
-    tranche_alloc = capital * p["position_pct"] / tranches  # 1트랜치 배분(USD)
-    eligible = [s for s in sigs if engine.is_buy(s.kind) and s.score >= p["min_buy_score"] and not s.event_risk]
-    buys = []
-    for s in eligible[:p["max_new_buys_per_run"] * 3]:
-        closes = hist.get(s.ticker) or []
-        price = closes[-1] if closes else None
-        if not price:
-            continue
-        qty = int(tranche_alloc // price)
-        if qty < 1:
-            continue
-        buys.append({"ticker": s.ticker, "name": us_ko.name_ko(s.ticker, s.name), "kind": s.kind, "score": round(s.score, 2),
-                     "price": round(price, 2), "qty": qty, "alloc": round(qty * price, 2),
-                     "qualitative": bool(s.has_qualitative)})
-    return {"ready": True, "style": style, "style_label": strategy.STYLE_LABEL.get(style, style),
-            "capital": capital, "tranches": tranches, "position_pct": p["position_pct"],
-            "min_buy_score": p["min_buy_score"], "eligible": len(eligible), "buys": buys,
-            "connected": False,
-            "note": "US 실주문·잔고는 미국장 개장 시 KIS 해외 API 검증 후 연결 예정 — 현재는 미리보기 전용"}
-
-
 def _live_price(ticker: str, fallback: float) -> float:
     """현재가(가격캐시 종가). paper는 종가 기준이라 캐시가 곧 체결가. 없으면 fallback."""
     live = paper.current_price(ticker)
@@ -237,8 +198,23 @@ def snapshot_positions(uid: int, market: str = "kr") -> bool:
     return True
 
 
-def get_state(uid: int, market: str = "kr") -> dict:
-    """유저 포트폴리오 탭용 종합 상태(시장별) — 봇 설정/현금·평가금액/보유종목/최근거래."""
+def ledger_state(style: str = "balanced", market: str = "kr") -> dict:
+    """공개 장부(성향별 레퍼런스 봇) 상태 — 현금·평가금액·보유종목·최근거래.
+
+    개인 페이퍼 계좌는 제거됐다(2026-07-27). 리셋·시드 변경이 가능한 장부는 track record가 아니다:
+    성적이 나쁘면 초기화하면 그만이라 남은 장부는 항상 좋아 보인다. 공개 장부는 리셋 불가·시드
+    고정이라 그 편향이 없다."""
+    ensure_reference_bots()
+    style = strategy.normalize(style)
+    uid = next((u for u, s in REFERENCE_BOTS.items() if s == style), None)
+    if uid is None:
+        return {"error": f"알 수 없는 성향: {style}"}
+    return {**_state(uid, market), "style": style,
+            "label": strategy.STYLE_LABEL.get(style, style)}
+
+
+def _state(uid: int, market: str = "kr") -> dict:
+    """봇 계좌 종합 상태(시장별) — 설정/현금·평가금액/보유종목/최근거래."""
     cfg = _cfg(uid)
     bal = paper.balance(uid, market)
     reconcile_positions(uid, bal, market)
@@ -266,24 +242,16 @@ def get_state(uid: int, market: str = "kr") -> dict:
     }
 
 
-def set_enabled(uid: int, enabled: bool) -> None:
-    db.user_bot_set_enabled(uid, enabled)
-
-
 def set_style(uid: int, style: str) -> str:
-    """유저 트레이딩 성향 변경. 정규화된 style 반환(숫자 파라미터는 조회 때 프리셋에서 파생)."""
+    """봇 성향 지정(레퍼런스 봇 부트스트랩·테스트 전용). 외부 노출 경로는 없다."""
     style = strategy.normalize(style)
     db.user_bot_set_style(uid, style)
     return style
 
 
-def set_seed(uid: int, seed_cash: float, market: str = "kr") -> None:
-    """유저 초기 시드 변경(시장별). 다음 초기화 때 이 금액으로 리셋된다(기존 계좌엔 즉시 반영 안 됨)."""
-    db.user_bot_set_seed(uid, max(0.0, float(seed_cash)), market)
-
-
 def reset(uid: int) -> None:
-    """유저 봇 초기화 — 포지션·거래·예약·일일기준선 삭제 + 페이퍼 현금 시드로 리셋."""
+    """봇 계좌 초기화 — 포지션·거래·예약·일일기준선 삭제 + 페이퍼 현금 시드로 리셋.
+    공개 장부에는 이 경로가 노출되지 않는다(리셋 가능한 장부는 증거가 아니다)."""
     db.bot_reset(uid)
 
 

@@ -67,11 +67,12 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "8팩터" in html
     assert 'id="bot-acct-status"' in html
     assert 'id="w_qualitative"' not in html
-    assert "executeReservations" in html
-    assert 'id="bot-exec-res-btn"' in html
-    assert "페이퍼 계좌" in html
+    # 개인 페이퍼 봇 조작 UI는 전부 사라져야 한다(공개 장부는 읽기 전용)
+    for gone in ("executeReservations", "makeReservations", "toggleBot()", "resetBot()",
+                 "setSeed()", "runBotNow()", "previewBot()", 'id="bot-seed"', 'id="bot-toggle-btn"'):
+        assert gone not in html, f"{gone}가 아직 남아 있다"
+    assert "리셋·시드 변경 없음" in html
     assert 'id="bot-us"' not in html
-    assert "ON은 국내·해외 공통" in html
     assert "openHelp()" in html
     assert html.count('onclick="openHelp()"') == 1  # footer only — 시그널 헤더에 고아 버튼 금지
     # sticky footer 셸 회귀 방지 — main이 shrink되면 관리자 긴 페이지에서 footer가 떠버림
@@ -80,10 +81,11 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 종목 상세: 개요는 종목명과 같은 왼쪽 블록(pane-title-block), 최근 행보는 지표 패널
     assert 'pane-title-block' in html and 'id="signal-about"' in html and "sig-about.is-on" in html
     assert "종목 개요" in html and "최근 행보" in html
-    assert "모의투자 연습장" in html
-    assert "가상 돈으로 연습해보기" not in html  # 구 카피 금지
-    assert "gotoPaperFromSignal" in html and "페이퍼에서 같은 규칙으로 추적" in html
-    assert 'id="paper-from-signal"' in html
+    # 연습장 카피는 제거 — 개인 모의계좌가 없으므로 그런 장부도 없다
+    assert "모의투자 연습장" not in html and "가상 돈으로 연습해보기" not in html
+    assert "gotoPaperFromSignal" not in html and "페이퍼에서 같은 규칙으로 추적" not in html
+    assert 'id="paper-from-signal"' not in html
+    assert "trackFromSignal" in html and "관심종목에 추가하고 변동 알림 받기" in html
     assert 'data-cseg="hypo"' in html and 'id="cycle-seg-hypo"' in html
     assert 'id="hypo-graph"' in html and "drawHypothesisTree" in html
     assert "orient: 'LR'" in html and "roam: true" in html
@@ -141,25 +143,24 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "accuracy_at_approve" in html
 
 
-def test_bot_state_and_toggle(tmp_path, monkeypatch):
+def test_public_ledger_is_read_only(tmp_path, monkeypatch):
+    """공개 장부는 조회만 된다 — 개인 페이퍼 봇(켜기·시드·초기화·수동실행)은 제거됐다.
+
+    리셋할 수 있는 장부는 track record가 아니다: 성적이 나쁘면 초기화하면 그만이라 남은 장부만
+    좋아 보인다(백테스트에서 경계한 생존편향과 같은 병)."""
     client = _fresh_client(tmp_path, monkeypatch)
     client.post("/api/auth/signup", json={"email": "bot@b.com", "pw": "abcdef"})
 
-    r = client.get("/api/bot/state")
+    r = client.get("/api/ledger/state?style=balanced")
     assert r.status_code == 200
-    assert r.json()["enabled"] is False  # 기본값 OFF
+    body = r.json()
+    assert body["style"] == "balanced" and body["market"] == "kr"
 
-    r = client.post("/api/bot/toggle", json={"enabled": True})
-    assert r.status_code == 200 and r.json()["ok"] is True
-    assert client.get("/api/bot/state").json()["enabled"] is True
-
-
-def test_bot_manual_run_reports_reason_when_not_configured(tmp_path, monkeypatch):
-    client = _fresh_client(tmp_path, monkeypatch)
-    client.post("/api/auth/signup", json={"email": "e@b.com", "pw": "abcdef"})
-    r = client.post("/api/bot/run")
-    assert r.status_code == 200
-    assert r.json()["ok"] is False  # KIS 키 없는 테스트 환경이라 정상적으로 실패 사유 반환
+    for path, method in [("/api/bot/toggle", "post"), ("/api/bot/run", "post"), ("/api/bot/reset", "post"),
+                         ("/api/bot/seed", "post"), ("/api/bot/style", "post"), ("/api/bot/preview", "post"),
+                         ("/api/bot/reserve", "post"), ("/api/bot/state", "get")]:
+        resp = getattr(client, method)(path, **({"json": {}} if method == "post" else {}))
+        assert resp.status_code == 404, f"{path}가 아직 살아 있다 — 개인 장부 조작 경로"
 
 
 def test_signal_chart_no_data(tmp_path, monkeypatch):

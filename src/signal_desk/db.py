@@ -162,6 +162,33 @@ def conn() -> sqlite3.Connection:
     return c
 
 
+_REFERENCE_BOT_UIDS = (900001, 900002, 900003)  # bot.REFERENCE_BOTS와 같은 값(순환 import 회피)
+
+
+_PERSONAL_PAPER_DROPPED = "migrated:personal_paper_dropped"
+
+
+def _drop_personal_paper_accounts(c: sqlite3.Connection) -> None:
+    """개인 페이퍼 계좌 잔여 데이터 1회 정리 — 남은 페이퍼 장부는 레퍼런스 3봇뿐이다(2026-07-27).
+
+    켜기·시드·초기화 경로가 사라졌으므로 개인 uid의 봇 행은 다시 늘지 않는다. 매 연결마다 도는
+    영구 청소부로 두면 안 된다 — 그건 마이그레이션이 아니라 '개인 uid는 봇을 못 갖는다'는 규칙을
+    DELETE로 강제하는 것이고, 나중에 다른 이유로 uid를 쓰면 조용히 지워버린다."""
+    if c.execute("SELECT 1 FROM kv WHERE k=?", (_PERSONAL_PAPER_DROPPED,)).fetchone():
+        return
+    keep = ",".join(str(u) for u in _REFERENCE_BOT_UIDS)
+    for t in ("user_bot", "bot_positions", "bot_trades", "bot_reservations", "bot_equity"):
+        c.execute(f"DELETE FROM {t} WHERE uid NOT IN ({keep})")
+    rows = c.execute("SELECT k FROM kv WHERE k LIKE 'paper_account:%' OR k LIKE 'bot_day_equity%'").fetchall()
+    for (k,) in rows:
+        parts = k.split(":")
+        if len(parts) > 1 and parts[1].isdigit() and int(parts[1]) not in _REFERENCE_BOT_UIDS:
+            c.execute("DELETE FROM kv WHERE k=?", (k,))
+    c.execute("INSERT OR REPLACE INTO kv(k,v,ts) VALUES(?,?,?)",
+              (_PERSONAL_PAPER_DROPPED, "1", int(time.time())))
+    c.commit()
+
+
 def _migrate(c: sqlite3.Connection) -> None:
     """가벼운 ADD COLUMN 마이그레이션 — CREATE TABLE IF NOT EXISTS는 기존 테이블에 새 컬럼을
     안 붙여줘서, 이미 만들어진 DB에도 신규 컬럼을 채워준다."""
@@ -181,6 +208,7 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE bot_reservations ADD COLUMN market TEXT NOT NULL DEFAULT 'kr'")
     if "seed_cash_us" not in {r[1] for r in c.execute("PRAGMA table_info(user_bot)").fetchall()}:
         c.execute("ALTER TABLE user_bot ADD COLUMN seed_cash_us REAL NOT NULL DEFAULT 10000")
+    _drop_personal_paper_accounts(c)
     dcols = {r[1] for r in c.execute("PRAGMA table_info(kb_digest)").fetchall()}
     if "newest_ts" not in dcols:  # 최신 원자료 발행 시각(신선도 판정용)
         c.execute("ALTER TABLE kb_digest ADD COLUMN newest_ts INTEGER")
@@ -489,9 +517,20 @@ def user_bot_set_seed(uid: int, seed_cash: float, market: str = "kr") -> None:
 
 
 def user_bots_enabled() -> list[int]:
-    """봇이 켜진 유저 uid 목록 — 백그라운드 루프가 순회 대상."""
+    """봇이 켜진 uid 목록. 개인 페이퍼 봇 제거 후에는 레퍼런스 봇만 여기 남는다."""
     c = conn()
     rows = c.execute("SELECT uid FROM user_bot WHERE enabled=1").fetchall()
+    c.close()
+    return [r[0] for r in rows]
+
+
+def uids_with_ticker_favorites() -> list[int]:
+    """관심종목을 하나라도 가진 유저 — 시그널 변동 알림 스캔 대상.
+
+    이전에는 '봇을 켠 유저'만 스캔해서, 알림이라는 별개 기능이 페이퍼 봇 활성화에 딸려 있었다.
+    기능의 대상 집합은 그 기능이 정의하는 것이지 옆 기능의 on/off가 정하는 게 아니다."""
+    c = conn()
+    rows = c.execute("SELECT DISTINCT uid FROM favorites WHERE kind='ticker'").fetchall()
     c.close()
     return [r[0] for r in rows]
 
@@ -1196,10 +1235,18 @@ def bot_decision_log(ticker: str, name: str, action: str, score: float | None,
     return rid
 
 
+# 같은 종목·같은 날 판단은 1건으로 센다. 성향이 다른 봇 3개가 같은 종목을 사면 같은 판단이
+# 3번 기록되는데(실측: 39건 중 8건 중복, 161390은 하루 3건), 그대로 세면 승률이 **시그널 정확도가
+# 아니라 종목 인기도**로 가중된다 — 세 봇이 다 산 종목이 오르면 3승, 하나만 산 종목이 오르면 1승이다.
+_DECISION_DEDUP = ("SELECT MIN(id) FROM bot_decisions GROUP BY ticker, action, date(ts,'unixepoch')")
+
+
 def bot_decisions_recent(limit: int = 40) -> list[dict]:
+    """최근 판단(중복 제거). 성향별 봇이 같은 날 같은 종목을 사도 판단 자체는 하나다."""
     c = conn()
     rows = c.execute("SELECT ticker,name,action,score,rationale,context,decided_price,ts,outcome_pct,outcome_ts "
-                     "FROM bot_decisions ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+                     f"FROM bot_decisions WHERE id IN ({_DECISION_DEDUP}) "
+                     "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     c.close()
     return [{"ticker": t, "name": n, "action": a, "score": sc, "rationale": r,
              "context": json.loads(cx or "{}"), "decided_price": dp, "ts": ts,
@@ -1209,20 +1256,25 @@ def bot_decisions_recent(limit: int = 40) -> list[dict]:
 
 def bot_decision_scorecard() -> dict:
     """실현된 매수 판단 성적표 — 승률·평균/최고/최악 실현수익(3일). 미실현(outcome_pct NULL) 제외.
-    시그널이 실제로 맞았는지의 공개 증거(③ track record)."""
+    공개 장부가 실제로 맞았는지의 증거(③ track record). 중복 판단은 1건으로 센다."""
     c = conn()
     n, wins, avg, best, worst = c.execute(
         "SELECT COUNT(*), SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END), "
         "AVG(outcome_pct), MAX(outcome_pct), MIN(outcome_pct) "
-        "FROM bot_decisions WHERE action='buy' AND outcome_pct IS NOT NULL").fetchone()
-    total = c.execute("SELECT COUNT(*) FROM bot_decisions WHERE action='buy'").fetchone()[0] or 0
+        f"FROM bot_decisions WHERE action='buy' AND outcome_pct IS NOT NULL AND id IN ({_DECISION_DEDUP})"
+    ).fetchone()
+    total = c.execute("SELECT COUNT(*) FROM bot_decisions WHERE action='buy' "
+                      f"AND id IN ({_DECISION_DEDUP})").fetchone()[0] or 0
+    dupes = c.execute("SELECT COUNT(*) FROM bot_decisions WHERE action='buy'").fetchone()[0] or 0
     c.close()
     n = n or 0
     return {"resolved": n, "pending": total - n,
             "win_rate": round(wins / n * 100, 1) if n else None,
             "avg_outcome_pct": round(avg, 2) if avg is not None else None,
             "best_pct": round(best, 2) if best is not None else None,
-            "worst_pct": round(worst, 2) if worst is not None else None}
+            "worst_pct": round(worst, 2) if worst is not None else None,
+            # 중복이 몇 건 접혔는지 드러낸다 — 안 보이면 다시 중복으로 세는 코드가 생긴다.
+            "deduped_from": dupes}
 
 
 def bot_decision_set_outcome(decision_id: int, outcome_pct: float) -> None:

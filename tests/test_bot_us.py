@@ -43,7 +43,7 @@ def test_us_state_and_reset(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _setup(monkeypatch)
     bot.run_once(UID, market="us")
-    st = bot.get_state(UID, "us")
+    st = bot._state(UID, "us")
     assert st["market"] == "us" and st["currency"] == "USD" and st["positions"]
     bot.reset(UID)  # 초기화는 양 시장 모두
     assert db.bot_positions_all(UID, "us") == [] and paper.balance(UID, "us")["cash"] == 10_000
