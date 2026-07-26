@@ -1305,12 +1305,19 @@ def snapshot_signals(signals, date: str | None = None) -> int:
     if not signals:
         return 0
     date = date or datetime.date.today().isoformat()
+    # KB 원문 커버리지도 그날 값으로 함께 남긴다 — 나중에 `fetched`로 재구성하면 prune이 지운
+    # 문서만큼 과소집계돼(오래된 날짜일수록 심함) '정보 있음/없음' 비교가 편향된다.
+    try:
+        from signal_desk import db
+        kb_docs = db.kb_doc_counts()
+    except Exception:
+        kb_docs = {}
     rows = [{"date": date, "ticker": s.ticker, "score": round(s.score, 3), "kind": s.kind,
              "technical": round(s.technical_score, 3), "fundamental": round(s.fundamental_score, 3),
              "valuation": s.valuation_percentile, "reversion": round(s.reversion_score, 3),
              "qualitative": s.qualitative_score, "flow": s.flow_intensity,
              "quality": s.quality_points, "momentum": s.momentum_ret,
-             "short": s.short_ratio} for s in signals]
+             "short": s.short_ratio, "kb_docs": kb_docs.get(s.ticker, 0)} for s in signals]
     df_new = pd.DataFrame(rows)
     if SIGNAL_HISTORY_FILE.exists():
         old = _read_parquet(SIGNAL_HISTORY_FILE)

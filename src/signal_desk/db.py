@@ -748,6 +748,22 @@ def kb_entry_urls_existing(urls: list[str]) -> set[str]:
     return found
 
 
+def kb_doc_counts(*, before_ts: float | None = None) -> dict[str, int]:
+    """ticker -> confirmed 원문 문서 수. before_ts를 주면 그 시점 이전에 수집된 것만 센다.
+
+    PIT 재구성용이지만 완전하지 않다 — `kb_prune`이 지운 문서는 과거에 존재했더라도 여기 없어서
+    오래된 날짜일수록 과소집계된다(보존 한도 안의 최근 구간에서만 쓸 것)."""
+    c = conn()
+    q = "SELECT ticker, COUNT(*) FROM kb_entries WHERE status='confirmed'"
+    args: list = []
+    if before_ts is not None:
+        q += " AND fetched < ?"
+        args.append(int(before_ts))
+    rows = c.execute(q + " GROUP BY ticker", args).fetchall()
+    c.close()
+    return {r[0]: int(r[1]) for r in rows}
+
+
 def kb_documents(ticker: str | None = None, doc_class: str | None = None, limit: int = 100) -> list[dict]:
     """문서 대시보드용 — 전체(또는 필터) 문서 목록(최신순)."""
     c = conn()
