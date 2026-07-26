@@ -89,7 +89,7 @@ def harness(
     top_pct: float = typer.Option(3.0, "--top-pct", help="매수권 분위(%)"),
     hold: int = typer.Option(5, "--hold", help="보유·리밸런스 주기(거래일)"),
     cost: float = typer.Option(0.25, "--cost", help="왕복 거래비용(%)"),
-    trials: int = typer.Option(200, "--trials", help="무작위 대조군 시행 수"),
+    trials: int = typer.Option(100, "--trials", help="대조군 시행 수(시행마다 전 위상 재시뮬)"),
     exposure: bool = typer.Option(False, "--exposure", help="국면 익스포저 적용"),
     sweep: bool = typer.Option(False, "--sweep", help="분위·보유기간 조합 일괄 비교"),
     market: str = typer.Option("kr", "--market", help="kr|us — 횡단면 순위는 한 시장 안에서만"),
@@ -142,9 +142,16 @@ def harness(
     console.print(table)
     for w in seen_warnings:
         console.print(f"[yellow]![/yellow] {w}")
-    console.print("[dim]백분위 = 무작위 대조군 중 전략보다 못한 시행의 비율. 95% 이상이라야 "
-                  "순위 판별력의 증거로 볼 수 있다(생존편향은 대조군과 공유). 전략·대조군 모두 "
-                  "리밸런스 위상 전부를 돌려 평균낸 값이다.[/dim]")
+    if len(combos) > 1:
+        # 조합을 여러 개 동시에 보면 그중 하나가 우연히 95%를 넘을 확률이 조합 수만큼 커진다.
+        chance = (1 - 0.95 ** len(combos)) * 100
+        console.print(f"[yellow]![/yellow] 조합 {len(combos)}개를 한 번에 봤다 — 판별력이 전혀 "
+                      f"없어도 그중 하나가 95%를 넘을 확률이 약 {chance:.0f}%다. 한 칸이 초록이란 "
+                      f"이유로 그 조합을 고르면 그건 측정이 아니라 고르기다")
+    console.print("[dim]백분위 = 대조군(같은 시뮬레이터에 라벨 치환한 점수) 중 전략보다 못한 "
+                  "시행의 비율. 95% 이상이라야 순위 판별력의 증거로 볼 수 있다(생존편향·거래비용·"
+                  "회전율은 대조군과 공유). 전략·대조군 모두 리밸런스 위상 전부를 돌려 평균낸 "
+                  "값이다.[/dim]")
 
 
 if __name__ == "__main__":

@@ -131,6 +131,27 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
     return combined
 
 
+def prices_depth_days() -> int:
+    """저장된 일봉의 최대 이력 길이(달력일). 가장 깊은 종목 기준 — 신규 상장 종목이 섞여도
+    '얼마나 과거까지 받아봤나'를 그대로 보여준다. 캐시가 없으면 0."""
+    if not PRICES_FILE.exists():
+        return 0
+    df = _read_parquet(PRICES_FILE)
+    if df.empty:
+        return 0
+    oldest = datetime.date.fromisoformat(str(df["date"].min())[:10])
+    return (datetime.date.today() - oldest).days
+
+
+def prices_need_deep_backfill(days: int = PRICE_HISTORY_DAYS) -> bool:
+    """목표 이력(days)에 크게 못 미치면 True → 다음 수집에서 전량 백필.
+
+    불리언 플래그(prices_deep_backfilled)로 한 번만 백필하던 방식은 목표 깊이를 나중에 올려도
+    래치가 걸린 채 얕은 이력으로 영구히 남는다(실제로 400일치만 쌓인 채 5년으로 올라간 이력 있음).
+    실제 커버리지를 재면 목표를 올린 다음 수집에서 스스로 다시 채운다."""
+    return prices_depth_days() < int(days * 0.8)
+
+
 def fetch_flows(universe: list[dict] | None = None, days: int = 20, time_budget: float = 30.0) -> dict:
     """최근 days 거래일 투자자별 순매수(외국인·기관, KR)를 종목별로 수집 → flows.json.
     intensity = (외국인+기관 순매수) / 전체 거래량 — 종목 규모 무관하게 [-1,1]로 자기정규화(수급 강도).
