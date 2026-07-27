@@ -1256,7 +1256,7 @@ def bot_decisions_recent(limit: int = 40) -> list[dict]:
 
 def bot_decision_scorecard() -> dict:
     """실현된 매수 판단 성적표 — 승률·평균/최고/최악 실현수익(3일). 미실현(outcome_pct NULL) 제외.
-    공개 장부가 실제로 맞았는지의 증거(③ track record). 중복 판단은 1건으로 센다."""
+    트레이딩이 실제로 맞았는지의 증거(③ track record). 중복 판단은 1건으로 센다."""
     c = conn()
     n, wins, avg, best, worst = c.execute(
         "SELECT COUNT(*), SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END), "

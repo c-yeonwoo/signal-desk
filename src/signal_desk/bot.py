@@ -199,10 +199,10 @@ def snapshot_positions(uid: int, market: str = "kr") -> bool:
 
 
 def ledger_state(style: str = "balanced", market: str = "kr") -> dict:
-    """공개 장부(성향별 레퍼런스 봇) 상태 — 현금·평가금액·보유종목·최근거래.
+    """트레이딩(성향별 레퍼런스 봇) 상태 — 현금·평가금액·보유종목·최근거래.
 
     개인 페이퍼 계좌는 제거됐다(2026-07-27). 리셋·시드 변경이 가능한 장부는 track record가 아니다:
-    성적이 나쁘면 초기화하면 그만이라 남은 장부는 항상 좋아 보인다. 공개 장부는 리셋 불가·시드
+    성적이 나쁘면 초기화하면 그만이라 남은 장부는 항상 좋아 보인다. 트레이딩은 리셋 불가·시드
     고정이라 그 편향이 없다."""
     ensure_reference_bots()
     style = strategy.normalize(style)
@@ -251,7 +251,7 @@ def set_style(uid: int, style: str) -> str:
 
 def reset(uid: int) -> None:
     """봇 계좌 초기화 — 포지션·거래·예약·일일기준선 삭제 + 페이퍼 현금 시드로 리셋.
-    공개 장부에는 이 경로가 노출되지 않는다(리셋 가능한 장부는 증거가 아니다)."""
+    트레이딩에는 이 경로가 노출되지 않는다(리셋 가능한 장부는 증거가 아니다)."""
     db.bot_reset(uid)
 
 

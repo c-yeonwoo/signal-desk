@@ -210,7 +210,7 @@ def _bot_loop_iteration() -> None:
         _morning_digest()  # 아침 정기 요약(텔레그램 채널) — 앱 안 열어도 오는 맥락
     except Exception as e:
         log.warning("아침 브리핑 실패(무시): %s", type(e).__name__)
-    # 페이퍼 봇은 레퍼런스 3봇(공개 장부)뿐이다 — 개인 페이퍼 계좌는 제거됐다(2026-07-27).
+    # 페이퍼 봇은 레퍼런스 3봇(트레이딩)뿐이다 — 개인 페이퍼 계좌는 제거됐다(2026-07-27).
     enabled = [uid for uid in db.user_bots_enabled() if uid in bot.REFERENCE_BOTS]
     open_markets = _open_markets()
     try:  # 배포 환경 US 시세 자동 점진 적재(us_prices는 gitignore로 캐시 없음) — 다 차면 no-op
@@ -1738,22 +1738,22 @@ def _mkt(v) -> str:
 
 # 개인 페이퍼 봇(켜기·시드·성향·초기화·수동실행·예약)은 제거됐다(2026-07-27).
 # 이유: 리셋·시드 변경이 가능한 장부는 track record가 아니다(나쁘면 초기화하면 그만 → 생존편향).
-# 남은 페이퍼 경로는 리셋 불가·시드 고정의 **레퍼런스 3봇 공개 장부**뿐이다.
+# 남은 페이퍼 경로는 리셋 불가·시드 고정의 **레퍼런스 3봇 트레이딩**뿐이다.
 @app.get("/api/reference-performance")
 def reference_performance_get(market: str = "kr"):
-    """공개 장부 — 성향별 레퍼런스 봇 3개의 track record. 시그널 신뢰의 공개 증거."""
+    """트레이딩 — 성향별 레퍼런스 봇 3개의 track record. 시그널 신뢰의 공개 증거."""
     return bot.reference_performance(_mkt(market))
 
 
 @app.get("/api/ledger/state")
 def ledger_state_get(style: str = "balanced", market: str = "kr"):
-    """공개 장부 상세 — 선택 성향의 현금·평가액·보유종목·최근거래. 읽기 전용(조작 경로 없음)."""
+    """트레이딩 상세 — 선택 성향의 현금·평가액·보유종목·최근거래. 읽기 전용(조작 경로 없음)."""
     return bot.ledger_state(str(style or "balanced"), _mkt(market))
 
 
 @app.get("/api/bot/decisions")
 def bot_decisions_get():
-    """공개 장부의 의사결정 저널 — 최근 결정 + 사후수익(같은 종목·같은 날은 1건)."""
+    """트레이딩의 의사결정 저널 — 최근 결정 + 사후수익(같은 종목·같은 날은 1건)."""
     return {"decisions": db.bot_decisions_recent(40)}
 
 
@@ -2565,9 +2565,9 @@ def _make_chat_dispatch(uid: int, is_toss_owner: bool = False):
                     "점수": round(s.score, 2), "섹터": sectors.sector_of(s.ticker)} for s in rows[:lim]]
             return _j({"개수": len(out), "목록": out})
         if name == "get_portfolio":
-            # 개인 페이퍼 계좌는 없다 — 공개 장부(균형형)를 보여준다.
+            # 개인 페이퍼 계좌는 없다 — 트레이딩(균형형)을 보여준다.
             st = bot.ledger_state("balanced", "kr")
-            return _j({"장부": "모의운용(균형형) · 사용자 개인 계좌 아님",
+            return _j({"장부": "트레이딩(균형형) · 사용자 개인 계좌 아님",
                        "현금": st.get("cash"), "총평가": st.get("total_eval"), "총손익률%": st.get("pnl_pct"),
                        "보유": [{"종목": p.get("name"), "코드": p.get("ticker"), "수량": p.get("qty"),
                                 "손익률%": p.get("last_pnl_pct")} for p in (st.get("positions") or [])]})
