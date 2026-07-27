@@ -85,7 +85,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "모의투자 연습장" not in html and "가상 돈으로 연습해보기" not in html
     assert "gotoPaperFromSignal" not in html and "페이퍼에서 같은 규칙으로 추적" not in html
     assert 'id="paper-from-signal"' not in html
-    assert "trackFromSignal" in html and "관심종목에 추가하고 변동 알림 받기" in html
+    assert "관심종목에 추가하고 변동 알림 받기" not in html
+    assert "toggleFav" in html  # 관심종목은 목록 ★로만
     assert 'data-cseg="hypo"' in html and 'id="cycle-seg-hypo"' in html
     assert 'id="hypo-graph"' in html and "drawHypothesisTree" in html
     assert "orient: 'LR'" in html and "roam: true" in html
@@ -128,9 +129,12 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "#4f46e5" not in html  # 구 인디고 잔재 금지
     assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
     assert ">페이퍼<" in html  # 탭명 (구 '내 자산')
-    assert 'id="sig-precision"' in html
+    assert 'id="sig-precision"' not in html  # 왼쪽 패널 상단 정밀도 카드 제거
+    assert 'id="buylist-card"' not in html  # 매수 대기 리스트 상단 카드 제거
+    assert 'id="qf-extwatch"' not in html  # 조사 후보 퀵칩 제거(스크리너 경로는 유지)
     assert "정밀도 우선" in html
-    assert "is-empty-buy" in html  # 매수권 0일 히어로
+    assert "모의운용" in html  # 구 '공개 장부' 네이밍
+    assert "공개 장부" not in html and "공개장부" not in html
     assert "trust-paper-muted" in html  # 페이퍼 승률 ≠ 실측 헤드라인
     assert "고장 아닐 수 있음" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
@@ -144,7 +148,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
 
 
 def test_public_ledger_is_read_only(tmp_path, monkeypatch):
-    """공개 장부는 조회만 된다 — 개인 페이퍼 봇(켜기·시드·초기화·수동실행)은 제거됐다.
+    """모의운용(레퍼런스 봇)은 조회만 된다 — 개인 페이퍼 봇(켜기·시드·초기화·수동실행)은 제거됐다.
 
     리셋할 수 있는 장부는 track record가 아니다: 성적이 나쁘면 초기화하면 그만이라 남은 장부만
     좋아 보인다(백테스트에서 경계한 생존편향과 같은 병)."""

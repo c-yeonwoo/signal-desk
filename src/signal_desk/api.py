@@ -2567,7 +2567,7 @@ def _make_chat_dispatch(uid: int, is_toss_owner: bool = False):
         if name == "get_portfolio":
             # 개인 페이퍼 계좌는 없다 — 공개 장부(균형형)를 보여준다.
             st = bot.ledger_state("balanced", "kr")
-            return _j({"장부": "공개 장부(균형형) · 사용자 개인 계좌 아님",
+            return _j({"장부": "모의운용(균형형) · 사용자 개인 계좌 아님",
                        "현금": st.get("cash"), "총평가": st.get("total_eval"), "총손익률%": st.get("pnl_pct"),
                        "보유": [{"종목": p.get("name"), "코드": p.get("ticker"), "수량": p.get("qty"),
                                 "손익률%": p.get("last_pnl_pct")} for p in (st.get("positions") or [])]})
