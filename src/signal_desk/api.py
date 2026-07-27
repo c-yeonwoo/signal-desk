@@ -801,6 +801,8 @@ def _hold_tag(r, *, buy_blocked: bool) -> str | None:
     reasons = " ".join(getattr(r, "reasons", None) or [])
     if "[실적]" in reasons and "보류" in reasons:
         return "실적"
+    if "[급락]" in reasons:
+        return "급락"
     if "[추세]" in reasons and "차단" in reasons:
         return "추세"
     if "매수권" in reasons and "밖" in reasons:

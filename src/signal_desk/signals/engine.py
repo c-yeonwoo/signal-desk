@@ -74,6 +74,12 @@ class SignalConfig:
     # 이벤트 회피 — precision 우선). 0이면 비활성. 미 어닝 캘린더만 있어 사실상 US 전용.
     earnings_gate_days: int = 7
 
+    # 급락 게이트(떨어지는 칼·당일): 모멘텀(12-1)은 최근 1개월을 빼고, 추세 게이트는 MA 역배열만
+    # 봐서 폭등 직후 −18%에도 우선매수가 남을 수 있다(HD현대에너지솔루션 2026-07-27). 일·이틀
+    # 급락이면 매수권·분위 승격을 막는다(gate_blocked). 0이면 해당 창 비활성.
+    crash_gate_1d_pct: float = -8.0    # 1거래일 수익률(%) 이하
+    crash_gate_2d_pct: float = -12.0   # 2거래일 누적 수익률(%) 이하
+
     rsi_period: int = 14
     rsi_oversold: float = 30
     rsi_overbought: float = 70
@@ -341,6 +347,44 @@ def _apply_earnings_gate(
     return True
 
 
+def _crash_reason(closes: list[float], i: int, config: SignalConfig) -> str | None:
+    """급락 게이트 사유 문구. 해당 없으면 None. 매도 신호는 호출측에서 건드리지 않는다."""
+    # 0.0은 비활성 — `or 0` 쓰면 안 된다(0.0이 falsy).
+    thr1 = float(config.crash_gate_1d_pct)
+    thr2 = float(config.crash_gate_2d_pct)
+    if thr1 >= 0 and thr2 >= 0:
+        return None
+    # 비율로 비교(×100 부동소수로 −8%가 −7.999…가 되는 경계 오차 회피)
+    eps = 1e-12
+    if thr1 < 0 and i >= 1 and closes[i - 1] > 0:
+        r1 = closes[i] / closes[i - 1] - 1
+        if r1 <= thr1 / 100 + eps:
+            return f"[급락] 1일 {r1 * 100:+.1f}% — 단기 급락으로 신규 매수 보류(관망)"
+    if thr2 < 0 and i >= 2 and closes[i - 2] > 0:
+        r2 = closes[i] / closes[i - 2] - 1
+        if r2 <= thr2 / 100 + eps:
+            return f"[급락] 2일 {r2 * 100:+.1f}% — 단기 급락으로 신규 매수 보류(관망)"
+    return None
+
+
+def _apply_crash_gate(
+    combined: dict, closes: list[float], i: int, config: SignalConfig
+) -> bool:
+    """단기 급락 시 신규 매수 보류. 이미 BUY면 HOLD로 강등하고, HOLD여도 gated=True로 두어
+    이후 횡단면 분위 승격(apply_cross_sectional)이 급락 종목을 우선매수로 올리지 못하게 한다.
+    매도·청산은 그대로. 반환: 게이트 적용 여부."""
+    if is_sell(combined.get("kind") or HOLD):
+        return False
+    reason = _crash_reason(closes, i, config)
+    if not reason:
+        return False
+    if combined["kind"] in BUY_KINDS:
+        combined["kind"] = HOLD
+    combined["gated"] = True
+    combined["reasons"] = [*combined["reasons"], reason]
+    return True
+
+
 # 5단계 시그널 종류
 STRONG_BUY, BUY, HOLD, SELL, STRONG_SELL = "STRONG_BUY", "BUY", "HOLD", "SELL", "STRONG_SELL"
 BUY_KINDS = (STRONG_BUY, BUY)
@@ -580,6 +624,7 @@ def evaluate(
         _apply_trend_gate(combined, closes, series, i_last, config, market_ret_20d)
         edate = earnings_dates.get(ticker)
         earnings_soon = _apply_earnings_gate(combined, _days_until(edate, today), config)
+        _apply_crash_gate(combined, closes, i_last, config)
 
         entry = sentiment.get(ticker) or {}
         from signal_desk.signals import decision as decmod
@@ -691,6 +736,7 @@ def replay_signal_kinds(closes: list[float], config: SignalConfig | None = None)
     for i in range(len(closes)):
         combined = combine(_price_only_components(closes, series, i, config), config)
         _apply_trend_gate(combined, closes, series, i, config)
+        _apply_crash_gate(combined, closes, i, config)
         kinds.append(combined["kind"])
     return kinds
 
@@ -718,6 +764,7 @@ def chart_scores_and_zones(
             continue
         combined = combine(_price_only_components(closes, series, k, config), config)
         _apply_trend_gate(combined, closes, series, k, config)
+        _apply_crash_gate(combined, closes, k, config)
         kinds.append(combined["kind"])
         sources.append("replay")
         reasons_at.append(combined["reasons"])
@@ -795,6 +842,7 @@ def _run_backtest(
                 fund_metrics = hist.get(str(py)) if py else None
             combined = combine(_replay_components(window, series, i, config, fund_metrics), config)
             _apply_trend_gate(combined, window, series, i, config)
+            _apply_crash_gate(combined, window, i, config)
             kind = combined["kind"]
             if kind == HOLD:
                 continue
