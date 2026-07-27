@@ -520,6 +520,20 @@
     .market-bar-end { margin-left:0; flex:1 1 auto; justify-content:flex-end; }
     .sig-quickfilters { max-width:100%; }
   }
+  /* 필터 FAB·스크림 기본 숨김(데스크톱). media(640)에서 FAB만 다시 켠다.
+     scrim을 기본 미숨김이면 빈 버튼이 스크리너 위에 떠 보인다. */
+  #sig-filter-fab { display:none; margin:0 10px 8px; width:calc(100% - 20px); justify-content:center;
+    padding:8px 12px; font-size:13px; font-weight:600; }
+  #sig-filter-scrim { display:none; border:0; padding:0; margin:0; background:transparent;
+    width:0; height:0; overflow:hidden; appearance:none; -webkit-appearance:none; }
+  /* 조용한 0 표 — dtable nowrap이 긴 상태문장을 카드 밖으로 민다 */
+  #data-health { overflow-x:auto; max-width:100%; }
+  #data-health table.dtable { table-layout:fixed; width:100%; }
+  #data-health table.dtable th, #data-health table.dtable td { white-space:normal; word-break:keep-all;
+    overflow-wrap:anywhere; vertical-align:top; }
+  #data-health table.dtable td.num, #data-health table.dtable th.num { white-space:nowrap; }
+  #data-health table.dtable th:nth-child(1), #data-health table.dtable td:nth-child(1) { width:36%; }
+  #data-health table.dtable th:nth-child(2), #data-health table.dtable td:nth-child(2) { width:16%; }
   @media (max-width:640px){
     header { padding:10px 14px; gap:8px 6px; align-items:center; }
     header h1 { font-size:17px; flex:1 1 auto; min-width:0; }
@@ -566,11 +580,10 @@
       content:"필터·스크리너"; display:block; font-weight:700; font-size:14px; color:var(--txt);
       padding:4px 2px 10px; border-bottom:1px solid var(--line); margin-bottom:10px;
     }
-    #sig-filter-scrim { display:none; position:fixed; inset:0; z-index:89; background:rgba(11,18,32,.35); border:0; padding:0; }
+    #sig-filter-scrim { position:fixed; inset:0; z-index:89; background:rgba(11,18,32,.35);
+      width:auto; height:auto; overflow:visible; }
     #sig-filter-scrim.on { display:block; }
   }
-  #sig-filter-fab { display:none; margin:0 10px 8px; width:calc(100% - 20px); justify-content:center;
-    padding:8px 12px; font-size:13px; font-weight:600; }
 
   #authGate { position:fixed; inset:0; z-index:9999; display:none; align-items:center; justify-content:center;
     background:var(--bg); }
@@ -757,7 +770,7 @@
           <button type="button" id="qf-nearonly" class="qchip" style="display:none" onclick="filterPrecisionBucket('near')">근접만</button>
         </div>
         <button type="button" id="sig-filter-fab" class="btn" onclick="toggleSignalFilterDrawer()" aria-controls="sig-screener">필터·스크리너 <span id="screen-count-fab" style="color:var(--dim);font-weight:400"></span></button>
-        <button type="button" id="sig-filter-scrim" onclick="closeSignalFilterDrawer()" aria-label="필터 닫기"></button>
+        <button type="button" id="sig-filter-scrim" onclick="closeSignalFilterDrawer()" aria-label="필터 닫기" tabindex="-1"></button>
         <details id="sig-screener" style="margin:0 12px 10px">
           <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">필터·스크리너 <span id="screen-count" style="color:var(--dim);font-weight:400"></span></summary>
           <div class="screen-body">
@@ -4533,8 +4546,10 @@ function renderDataHealth(d){
     const kbr = d.kb_retrieval;
     if (kbr) q('KB 검색 벡터', !kbr.blocked_reason,
                `${esc(kbr.backend || '–')}${kbr.semantic ? '' : ' (해시)'}`, kbr.blocked_reason,
-               `${esc(kbr.model || '')} · 임베드 ${kbr.embedded ?? 0}건 · `
-               + '해시 폴백이면 동의어·패러프레이즈를 못 잡아 사실상 BM25 단독이다.');
+               'KB 하이브리드 검색용 임베딩(시그널 점수와 무관). '
+               + `우선순위: OpenAI → 로컬(e5) → 해시. 지금 ${esc(kbr.model || kbr.backend || '–')} · `
+               + `임베드 ${kbr.embedded ?? 0}건`
+               + (kbr.semantic ? '' : ' · 해시면 동의어를 못 잡아 BM25 단독에 가깝다.'));
     const eq = d.event_queue;
     if (eq) q('이벤트 후보 대기', !eq.expiring_soon, `${eq.pending ?? 0}건`,
               eq.expiring_soon ? `${eq.expiring_soon}건이 ${eq.soon_hours ?? 24}시간 내 만료 — 확인 안 하면 사라집니다`
@@ -4544,10 +4559,17 @@ function renderDataHealth(d){
               + (eq.soon_items && eq.soon_items.length
                  ? ' · 임박: ' + esc(eq.soon_items.map(s => `${s.ticker}(${s.hours_left}h)`).join(', ')) : ''));
     const cr = d.consensus_readiness;
-    if (cr) q('컨센서스 축적', !!cr.ready, `${cr.testable_dates ?? 0}/${cr.need ?? '–'}일`,
-              cr.ready ? '측정 가능 — 리비전 팩터 IC부터 잰다'
-                       : (cr.eta_date ? `측정 가능 예상 ${cr.eta_date}` : cr.blocked_reason),
-              '축적만 하는 데이터에 붙인 판정 날짜. 측정 가능 ≠ 점수 반영.');
+    if (cr) {
+      // testable = Δ 계산 가능 + horizon(20)거래일 성숙. 스냅샷 일수와 다르다.
+      const snap = cr.days != null ? ` · 스냅샷 ${cr.days}일` : '';
+      q('컨센서스 축적', !!cr.ready,
+        `측정 ${cr.testable_dates ?? 0}/${cr.need ?? '–'}${snap}`,
+        cr.ready ? '측정 가능 — 리비전 팩터 IC부터 잰다'
+                 : (cr.blocked_reason || (cr.eta_date ? `측정 가능 예상 ${cr.eta_date}` : null)),
+        '측정 가능 = 목표가 Δ + 20거래일 종가까지 있는 날짜 수. 쌓인 스냅샷만으로는 0이다. '
+        + '측정 가능 ≠ 점수 반영.'
+        + (cr.eta_date && !cr.ready ? ` 예상 ${cr.eta_date}.` : ''));
+    }
     if (rowsQuiet.length) {
       html += `<b style="display:block;margin-top:12px">🔎 조용한 0 점검 <span style="color:var(--dim);font-weight:600">· 비어 있으면 이유</span></b>`
         + `<table class="dtable" style="margin-top:6px"><thead><tr><th>항목</th><th class="num">현재</th><th>상태</th></tr></thead><tbody>${rowsQuiet.join('')}</tbody></table>`;
@@ -4737,8 +4759,8 @@ async function loadKbEvents(){
   fEl.innerHTML = chip('결정 적격', 'eligible') + chip('후보 / 검토용', 'candidate');
   const isCand = _kbEventView === 'candidate';
   document.getElementById('kb-view-desc').innerHTML = isCand
-    ? 'Sonnet이 비-DART 원문에서 추출한 <b>조사 후보</b>. <b>Decision·점수·매매에 반영되지 않음</b>. '
-      + 'confirmed 승격·Attention 연동은 P2.'
+    ? 'Sonnet이 비-DART 원문에서 추출한 <b>조사 후보</b>. 자동 승격 없음 — 관리자가 '
+      + '<b>Decision 반영 / 표시만 / 기각</b>을 고른다. 점수 가산은 없다.'
     : '구조화 <b>결정 이벤트</b>(DART 공시 등). Decision 입력용이며 <b>점수 가산 없음</b>. '
       + 'eligible=의사결정 반영 · 근거 URL이 있는 confirmed만.';
   try {
@@ -4761,17 +4783,42 @@ async function loadKbEvents(){
       const badge = isCand
         ? `<div style="font-size:11px;color:var(--dim)">candidate · conf ${fmtNum(ev.confidence, 2)}</div>`
         : `<div style="font-size:11px;color:var(--dim)">${ev.decision_eligible ? 'eligible' : '표시만'}</div>`;
+      const acts = isCand
+        ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
+            <button type="button" class="btn primary" style="padding:2px 8px;font-size:12px"
+              onclick="reviewKbEvent(${ev.id},'confirm')">Decision 반영</button>
+            <button type="button" class="btn" style="padding:2px 8px;font-size:12px"
+              onclick="reviewKbEvent(${ev.id},'attention')">표시만</button>
+            <button type="button" class="btn" style="padding:2px 8px;font-size:12px;color:var(--sig-sell)"
+              onclick="reviewKbEvent(${ev.id},'reject')">기각</button>
+          </div>`
+        : '';
       return `<tr style="vertical-align:top">
         <td><span style="font-weight:700;color:${sevColor[ev.severity] || 'var(--dim)'}">${esc(ev.severity || '')}</span>${badge}</td>
         <td>${esc(ev.ticker || '–')}<div style="font-size:12px;color:var(--dim)">${esc(ev.decision_action || 'none')} · ${esc(ev.trust_tier || '')}</div></td>
         <td style="white-space:normal">${link}
           ${cite ? `<div style="font-size:12px;color:var(--dim);margin-top:2px">“${cite}”</div>` : ''}
-          <div style="font-size:12px;color:var(--dim)">${esc(ev.event_type || '')} · ${_kbFmtTs(ev.detected_at)}</div></td>
+          <div style="font-size:12px;color:var(--dim)">${esc(ev.event_type || '')} · ${_kbFmtTs(ev.detected_at)}</div>
+          ${acts}</td>
       </tr>`;
     }).join('');
     el.className = '';
     el.innerHTML = `<table class="dtable"><thead><tr><th>심각도</th><th>종목</th><th>요약·근거</th></tr></thead><tbody>${rows}</tbody></table>`;
   } catch (e) { el.textContent = '불러오지 못했습니다.'; }
+}
+async function reviewKbEvent(eventId, action){
+  const labels = { confirm: 'Decision 반영', attention: '표시만', reject: '기각' };
+  if (!confirm(`이 후보를「${labels[action] || action}」처리할까요?`)) return;
+  try {
+    const r = await fetch('/api/kb/events/review', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event_id: eventId, action }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || d.ok === false) { alert(d.detail || d.reason || '처리 실패'); return; }
+    loadKbEvents();
+    loadDataHealth({ force: true, render: false });
+  } catch (e) { alert('요청 실패'); }
 }
 let _kbSrcFilter = '';
 async function loadKbSources(){

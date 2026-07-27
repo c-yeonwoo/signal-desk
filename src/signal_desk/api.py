@@ -386,7 +386,7 @@ _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/engine/qualitative-promotion",
     "/api/backtest/analysis",
     "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents", "/api/kb/digests",
-    "/api/kb/events", "/api/kb/sources", "/api/kb/sources/lifecycle",
+    "/api/kb/events", "/api/kb/events/review", "/api/kb/sources", "/api/kb/sources/lifecycle",
     "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube", "/api/kb/collect-rss",
     "/api/shortform/generate", "/api/shortform/generate-performance",
     "/api/shortform/queue", "/api/shortform/candidates",
@@ -2066,6 +2066,24 @@ def kb_events_get(ticker: str | None = None, limit: int = 50, active: bool = Fal
         it["evidence"] = db.kb_event_evidence(it["id"])
     return {"items": items, "view": v if v in ("eligible", "candidate", "all") else "eligible",
             "policy_version": policy}
+
+
+@app.post("/api/kb/events/review")
+def kb_events_review(request: Request, data: dict = Body(...)):
+    """후보 이벤트 사람 검토 — confirm(Decision 가능)|attention(표시만)|reject.
+    자동 승격 없음. Decision은 confirmed+eligible만 소비."""
+    _admin_or_403(request)
+    try:
+        eid = int((data or {}).get("event_id"))
+    except (TypeError, ValueError):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="event_id 필요")
+    action = str((data or {}).get("action") or "").strip().lower()
+    out = kb.review_candidate_event(eid, action)
+    if not out.get("ok"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=out.get("reason") or "실패")
+    return out
 
 
 @app.get("/api/kb/sources")

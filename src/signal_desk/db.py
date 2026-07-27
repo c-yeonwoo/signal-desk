@@ -1209,6 +1209,36 @@ def kb_event_exists(event_key: str) -> bool:
     return row is not None
 
 
+def kb_event_get(event_id: int) -> dict | None:
+    c = conn()
+    row = c.execute(f"SELECT {_EVT_COLS} FROM kb_events WHERE id=?", (int(event_id),)).fetchone()
+    c.close()
+    return _evt_row(row) if row else None
+
+
+def kb_event_review(event_id: int, *, status: str, decision_eligible: bool,
+                    decision_action: str, rationale_suffix: str | None = None) -> dict | None:
+    """후보 이벤트 사람 검토 — status/eligible/action만 갱신. 없으면 None."""
+    ev = kb_event_get(event_id)
+    if not ev:
+        return None
+    now = int(time.time())
+    rationale = ev.get("rationale") or ""
+    if rationale_suffix:
+        note = f" · {rationale_suffix}"
+        if note not in rationale:
+            rationale = (rationale + note).strip(" ·")[:400]
+    c = conn()
+    c.execute(
+        "UPDATE kb_events SET status=?, decision_eligible=?, decision_action=?, "
+        "rationale=?, updated=? WHERE id=?",
+        (status, 1 if decision_eligible else 0, decision_action, rationale, now, int(event_id)),
+    )
+    c.commit()
+    c.close()
+    return kb_event_get(event_id)
+
+
 def kb_event_evidence(event_id: int) -> list[dict]:
     c = conn()
     rows = c.execute(
