@@ -24,7 +24,7 @@ def test_active_covers_live_engine_factors():
     # 엔진에 실제로 있는 8팩터 + 게이트가 카탈로그에 active로 등재돼야 함
     assert {"technical", "fundamental", "valuation_xs", "reversion", "flow",
             "quality_fscore", "momentum_12_1", "short_interest"} <= active
-    assert {"regime_gate", "trend_gate", "earnings_gate", "kb_event_veto"} <= active
+    assert {"regime_gate", "trend_gate", "earnings_gate", "crash_gate", "kb_event_veto"} <= active
 
 
 def test_roadmap_candidates_present():
