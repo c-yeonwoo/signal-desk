@@ -94,6 +94,10 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "흐름 생성" in html and "/api/hypothesis" in html
     assert "최근 이슈 흐름" in html
     assert "clim-pill" in html and "climatePill" in html and "기후" in html
+    # 시그널 열: td에 flex 금지(행 붕괴) — 안쪽 .sig-pills만 flex
+    assert "sig-pills" in html
+    assert ".sig-list .sig-cell { display:flex" not in html
+    assert "td에 display:flex 금지" in html
     assert "지금 이 가정과 안 맞음" not in html
     assert "무게↑" not in html and "갈래 무게" not in html
     assert "지금 더 가까움" in html

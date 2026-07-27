@@ -192,13 +192,16 @@
   .sig-list { flex:0 0 min(480px, 38vw); min-width:280px; max-height:calc(100dvh - 200px); overflow-y:auto; overflow-x:hidden; padding:0; }
   .sig-list table.dtable { table-layout:fixed; width:100%; }
   .sig-list table.dtable th, .sig-list table.dtable td { padding:11px 10px; }
+  /* dtable td의 nowrap보다 구체적으로 — 종목·섹터·시그널 셀은 줄바꿈 */
   .sig-list table.dtable td:nth-child(2),
-  .sig-list table.dtable td:nth-child(3) { white-space:normal; word-break:keep-all; }  /* 종목·섹터 줄바꿈 */
+  .sig-list table.dtable td:nth-child(3),
+  .sig-list table.dtable td.sig-cell { white-space:normal; word-break:keep-all; overflow-wrap:anywhere; }
   .sig-list .dtable th { position:sticky; top:48px; background:var(--panel); z-index:1; user-select:none; }
-  /* 관망+기후 두 pill이 한 줄에 잘리지 않게 — 가운데·줄바꿈 */
-  .sig-list .sig-cell { display:flex; flex-wrap:wrap; gap:4px; align-items:center; justify-content:center;
-    white-space:normal; }
-  .sig-list .sig-cell .clim-pill { margin-left:0; }
+  /* td에 display:flex 금지 — table-cell이 깨져 행 높·정렬이 붕괴한다(삼성전자처럼 pill 2개일 때 특히).
+     flex는 안쪽 .sig-pills에만. */
+  .sig-list td.sig-cell { vertical-align:middle; text-align:center; }
+  .sig-list .sig-pills { display:flex; flex-wrap:wrap; gap:4px; align-items:center; justify-content:center; }
+  .sig-list .sig-pills .clim-pill { margin-left:0; }
   .sig-list .dtable th .col-resizer {
     position:absolute; right:-3px; top:0; bottom:0; width:8px; cursor:col-resize; z-index:2;
   }
@@ -2778,7 +2781,7 @@ function renderSignalList(){
       <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div></td>
       <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}${badges(r)}</td>
-      <td class="sig-cell"><span class="sig-pill ${r.kind}" title="${esc(kindHint(r.kind))}">${kindLabel(r.kind)}</span>${climatePill(r.climate)}</td>
+      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(kindHint(r.kind))}">${kindLabel(r.kind)}</span>${climatePill(r.climate)}</div></td>
     </tr>`).join('');
     el.innerHTML = rows.length
     ? `<table class="dtable sig-table"><colgroup>
@@ -2845,12 +2848,14 @@ function _saveSigCols(w){
   try { localStorage.setItem(_SIG_COL_KEY, JSON.stringify(w)); } catch (e) {}
 }
 function applySigColWidths(table){
+  // 별 열 36px 고정 — 나머지를 %로 나눠 100%+36px 오버플로를 막는다.
   const w = _loadSigCols();
   const set = (cls, v) => { const c = table.querySelector('col.' + cls); if (c) c.style.width = v; };
+  const rem = (pct) => `calc((100% - 36px) * ${ (pct / 100).toFixed(4) })`;
   set('col-star', '36px');
-  set('col-name', w.name.toFixed(1) + '%');
-  set('col-sector', w.sector.toFixed(1) + '%');
-  set('col-sig', w.sig.toFixed(1) + '%');
+  set('col-name', rem(w.name));
+  set('col-sector', rem(w.sector));
+  set('col-sig', rem(w.sig));
 }
 function bindSigColResize(table){
   table.querySelectorAll('.col-resizer').forEach(handle => {
