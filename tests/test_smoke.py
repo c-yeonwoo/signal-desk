@@ -67,7 +67,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "8팩터" in html
     assert 'id="bot-acct-status"' in html
     assert 'id="w_qualitative"' not in html
-    # 개인 페이퍼 봇 조작 UI는 전부 사라져야 한다(공개 장부는 읽기 전용)
+    # 개인 페이퍼 봇 조작 UI는 전부 사라져야 한다(트레이딩은 읽기 전용)
     for gone in ("executeReservations", "makeReservations", "toggleBot()", "resetBot()",
                  "setSeed()", "runBotNow()", "previewBot()", 'id="bot-seed"', 'id="bot-toggle-btn"'):
         assert gone not in html, f"{gone}가 아직 남아 있다"
@@ -85,8 +85,9 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "모의투자 연습장" not in html and "가상 돈으로 연습해보기" not in html
     assert "gotoPaperFromSignal" not in html and "페이퍼에서 같은 규칙으로 추적" not in html
     assert 'id="paper-from-signal"' not in html
-    assert "관심종목에 추가하고 변동 알림 받기" not in html
-    assert "toggleFav" in html  # 관심종목은 목록 ★로만
+    # 히어로 CTA 제거 — 관심종목 등록은 리스트 ★ 하나로 통일(같은 일을 두 곳에서 하지 않는다)
+    assert "trackFromSignal" not in html and "관심종목에 추가하고 변동 알림 받기" not in html
+    assert 'class="fav-star' in html and "toggleFav(" in html
     assert 'data-cseg="hypo"' in html and 'id="cycle-seg-hypo"' in html
     assert 'id="hypo-graph"' in html and "drawHypothesisTree" in html
     assert "orient: 'LR'" in html and "roam: true" in html
@@ -125,16 +126,21 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "/detail?market=" in html  # 클릭 시 상세 병렬 fetch
     assert "_ensureSignalChart" in html  # 차트 DOM 파괴 후 재생성(국내 차트 미표시 방지)
     assert "--c-ma20" in html and "--c-price" in html  # 차트 팔레트 = CSS 변수
-    assert "--brand-500:#0F766E" in html or "--brand-500: #0F766E" in html  # Ink Desk teal
+    assert "--brand-500:#0F6B62" in html or "--brand-500: #0F6B62" in html  # Ink Desk teal
     assert "#4f46e5" not in html  # 구 인디고 잔재 금지
+    # 참조되는데 정의가 없으면 색이 조용히 안 먹는다 — 별칭은 :root에 있어야 한다
+    root = html.split(":root {", 1)[1].split("}", 1)[0]
+    for alias in ("--sell:", "--warn:", "--down:", "--fg:", "--panel-2:", "--mono:"):
+        assert alias in root, f"{alias} 미정의"
     assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
     assert ">페이퍼<" in html  # 탭명 (구 '내 자산')
-    assert 'id="sig-precision"' not in html  # 왼쪽 패널 상단 정밀도 카드 제거
-    assert 'id="buylist-card"' not in html  # 매수 대기 리스트 상단 카드 제거
-    assert 'id="qf-extwatch"' not in html  # 조사 후보 퀵칩 제거(스크리너 경로는 유지)
+    # 정밀도는 카드가 아니라 헤더 한 줄 카운트(#sig-precision). 매수대기·조사후보 퀵칩은 제거.
+    assert 'id="sig-precision"' in html and 'class="sig-head"' in html
+    assert 'id="buylist-card"' not in html
+    assert 'id="qf-extwatch"' not in html and 'id="screen-extwatch"' in html
     assert "정밀도 우선" in html
-    assert "모의운용" in html  # 구 '공개 장부' 네이밍
-    assert "공개 장부" not in html and "공개장부" not in html
+    assert "트레이딩" in html  # 구 '공개 장부' → #282 '모의운용' 후보를 거쳐 확정
+    assert "공개 장부" not in html and "공개장부" not in html and "모의운용" not in html
     assert "trust-paper-muted" in html  # 페이퍼 승률 ≠ 실측 헤드라인
     assert "고장 아닐 수 있음" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
@@ -148,7 +154,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
 
 
 def test_public_ledger_is_read_only(tmp_path, monkeypatch):
-    """모의운용(레퍼런스 봇)은 조회만 된다 — 개인 페이퍼 봇(켜기·시드·초기화·수동실행)은 제거됐다.
+    """트레이딩은 조회만 된다 — 개인 페이퍼 봇(켜기·시드·초기화·수동실행)은 제거됐다.
 
     리셋할 수 있는 장부는 track record가 아니다: 성적이 나쁘면 초기화하면 그만이라 남은 장부만
     좋아 보인다(백테스트에서 경계한 생존편향과 같은 병)."""
