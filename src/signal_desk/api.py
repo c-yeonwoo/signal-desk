@@ -792,18 +792,41 @@ def _attention_events(ticker: str, limit: int = 5) -> list[dict]:
     return out
 
 
+def _hold_tag(r, *, buy_blocked: bool) -> str | None:
+    """리스트용 짧은 관망 사유 — 점수 높은데 관망인 행이 '버그처럼' 보이지 않게."""
+    if getattr(r, "kind", None) != "HOLD":
+        return None
+    if buy_blocked or getattr(r, "event_risk", False):
+        return "악재"
+    reasons = " ".join(getattr(r, "reasons", None) or [])
+    if "[실적]" in reasons and "보류" in reasons:
+        return "실적"
+    if "[추세]" in reasons and "차단" in reasons:
+        return "추세"
+    if "매수권" in reasons and "밖" in reasons:
+        return "매수권밖"
+    if getattr(r, "gate_blocked", False):
+        return "게이트"
+    return None
+
+
 def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct,
                           mktcap, vol, vol_avg, per, pbr, roe=None, div_yield=None) -> dict:
     """리스트 API용 요약 행 — reasons/narrative/about/moves/target/kb 제외(클릭 시 detail)."""
     dec = _decision_payload(r)
+    buy_blocked = bool(dec.get("buy_blocked"))
     return {
         "ticker": r.ticker, "name": name, "score": round(r.score, 4), "kind": r.kind,
         "confidence": r.confidence, "factor_scores": getattr(r, "factor_scores", {}) or {},
-        "event_risk": bool(dec.get("buy_blocked")),
-        "decision_buy_blocked": bool(dec.get("buy_blocked")),
+        "event_risk": buy_blocked,
+        "decision_buy_blocked": buy_blocked,
         "earnings_soon": bool(getattr(r, "earnings_soon", False)),
         "earnings_date": getattr(r, "earnings_date", None),
         "valuation_percentile": getattr(r, "valuation_percentile", None),
+        "gate_blocked": bool(getattr(r, "gate_blocked", False)),
+        "rank": getattr(r, "rank", None),
+        "rank_eligible": bool(getattr(r, "rank_eligible", False)),
+        "hold_tag": _hold_tag(r, buy_blocked=buy_blocked),
         "price": price, "change_pct": change_pct, "mktcap": mktcap,
         "vol": vol, "vol_avg": vol_avg, "per": per, "pbr": pbr, "roe": roe,
         "div_yield": div_yield, "sector": sector,
