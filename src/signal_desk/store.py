@@ -871,6 +871,16 @@ def load_us_price_series() -> dict[str, list[float]]:
     return _overlay_closes(series)
 
 
+def load_us_dates_by_ticker() -> dict[str, list[str]]:
+    """US ticker → 날짜 리스트(load_us_price_series와 길이 정합, 잠정봉 포함)."""
+    _, _, dates = _us_prices_raw()
+    if _LIVE_QUOTES:
+        today = datetime.date.today().isoformat()
+        dates = {t: (ds + [today]) if (_LIVE_QUOTES.get(t) and ds) else ds
+                 for t, ds in dates.items()}
+    return dates
+
+
 def load_us_quotes() -> dict[str, dict]:
     """US 종목별 최신 거래량·20일 평균 거래량(정렬·표기용). 시총은 데이터 소스 없어 미제공."""
     _, quotes, _ = _us_prices_raw()

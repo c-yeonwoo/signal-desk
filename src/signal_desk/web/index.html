@@ -2788,7 +2788,7 @@ function renderSignalList(){
       <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div></td>
       <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}${badges(r)}</td>
-      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(kindHint(r.kind))}">${kindLabel(r.kind)}</span>${holdNote(r)}${climatePill(r.climate)}</div></td>
+      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(sigPillTitle(r))}">${kindLabel(r.kind)}</span>${holdNote(r)}${climatePill(r.climate)}</div></td>
     </tr>`).join('');
     el.innerHTML = rows.length
     ? `<table class="dtable sig-table"><colgroup>
@@ -2960,6 +2960,26 @@ const _HOLD_TAG_TIP = {
   매수권밖: '점수는 있어도 오늘 매수권(상위 분위) 밖',
   게이트: '매수 게이트로 보류',
 };
+// 진입 품질 — kind와 별축. 뱃지 옆에 안 붙이고 호버 툴팁에만.
+function entryTip(r){
+  const e = r && r.entry;
+  if (!e) return '';
+  const isUS = _sigMarket === 'us';
+  const px = e.fire_price == null ? '' : (isUS
+    ? ('$' + fmtNum(e.fire_price, e.fire_price < 100 ? 2 : 0))
+    : (fmtNum(e.fire_price, 0) + '원'));
+  const up = (e.run_up_pct > 0 ? '+' : '') + fmtNum(e.run_up_pct, 1) + '%';
+  const age = e.age_days === 0 ? '오늘 발동' : (e.age_days + '일 전 발동');
+  let s = ` · 진입 ${e.quality_ko}(${age}`;
+  if (px) s += ` · ${px}→지금 ${up}`;
+  s += ')';
+  if (e.remain_upside_pct != null)
+    s += ` · 목표가 여력 +${fmtNum(e.remain_upside_pct, 1)}%`;
+  return s;
+}
+function sigPillTitle(r){
+  return kindHint(r.kind) + entryTip(r);
+}
 const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
 const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';
 const kindLabel = (k) => _KIND_LABEL[k] || k;
@@ -3268,7 +3288,7 @@ function _paintSignalDetail(ticker, item){
         <div class="hero-top">
           ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
           ${chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
-          <span class="sig-pill ${item.kind}" style="font-size:13px;margin-left:auto" title="${esc(kindHint(item.kind))}">${kindLabel(item.kind)}</span>
+          <span class="sig-pill ${item.kind}" style="font-size:13px;margin-left:auto" title="${esc(sigPillTitle(item))}">${kindLabel(item.kind)}</span>
           ${climatePill(item.climate)}
         </div>
         <div class="hero-reason">${esc(heroReason(item))}</div>

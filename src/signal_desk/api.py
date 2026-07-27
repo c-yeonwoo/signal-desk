@@ -31,8 +31,8 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, hypothesis, macro, narrative, opportunity, rebalance, regime,
-    regime_zone, relative, scenario, target, valuation,
+    accuracy, climate, entry_quality, hypothesis, macro, narrative, opportunity, rebalance,
+    regime, regime_zone, relative, scenario, target, valuation,
 )
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
@@ -900,12 +900,15 @@ def _us_signal_detail(ticker: str) -> dict | None:
     d["moves"] = company.recent_moves(ticker, name)
     d["kb"] = None
     d["target"] = target.compute(price, mc.get("per"), us_med_per, closes)
+    d["remain_upside_pct"] = _remain_upside(d["target"])
     d["opp_tags"] = opportunity.classify(r)
     d["decision"] = _decision_payload(r)
     d["attention_events"] = _attention_events(ticker)
     if d["decision"].get("buy_blocked") and r.kind in ("BUY", "STRONG_BUY"):
         d["attention_conflict"] = True  # 매수 신호 vs 이벤트 리스크
     climate.annotate_rows([d])
+    _annotate_entry([d], market="us")
+    d.pop("remain_upside_pct", None)
     return d
 
 
@@ -944,11 +947,14 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     d["target"] = target.compute(d["price"], f.get("per"), sec_med.get(sector) or med_per,
                                  store.load_price_series().get(ticker),
                                  analyst_target=c.get("price_target_mean"), fwd_eps=c.get("fwd1_eps"))
+    d["remain_upside_pct"] = _remain_upside(d["target"])
     d["decision"] = _decision_payload(r)
     d["attention_events"] = _attention_events(ticker)
     if d["decision"].get("buy_blocked") and r.kind in ("BUY", "STRONG_BUY"):
         d["attention_conflict"] = True
     climate.annotate_rows([d])
+    _annotate_entry([d], market="kospi")
+    d.pop("remain_upside_pct", None)
     return d
 
 
@@ -968,6 +974,37 @@ def _annotate_external_watch(items: list[dict]) -> list[dict]:
     return items
 
 
+def _remain_upside(tgt: dict | None) -> float | None:
+    """목표가 앵커 중 양(+)의 최소 여력 — 보수적으로 '남은 쪽'."""
+    if not tgt:
+        return None
+    vals = [tgt.get(k) for k in (
+        "value_upside_pct", "fwd_value_upside_pct",
+        "analyst_upside_pct", "resistance_upside_pct")]
+    pos = [float(v) for v in vals if isinstance(v, (int, float)) and v > 0]
+    return min(pos) if pos else None
+
+
+def _annotate_entry(items: list[dict], *, market: str = "kospi") -> list[dict]:
+    """매수권 행에 진입 품질(에피소드 발동가·추격도). kind는 건드리지 않는다."""
+    if not items:
+        return items
+    today = _kst_today()
+    try:
+        # US는 아직 일별 PIT 스냅샷이 없어 hist가 비고, 당일 발동(신선)만 잡힌다.
+        hist_by = entry_quality.history_kinds_by_ticker(store.load_signal_history())
+    except Exception:
+        hist_by = {}
+    if market == "us":
+        closes_by = store.load_us_price_series()
+        dates_by = store.load_us_dates_by_ticker()
+    else:
+        closes_by = store.load_price_series()
+        dates_by = store.load_dates_by_ticker()
+    return entry_quality.annotate_rows(
+        items, hist_by=hist_by, dates_by=dates_by, closes_by=closes_by, today=today)
+
+
 @app.get("/api/signals")
 def signals_get(request: Request, market: str = "kospi"):
     """시그널 리스트(요약). 상세 필드(about/moves/target/reasons/narrative/kb)는
@@ -982,10 +1019,13 @@ def signals_get(request: Request, market: str = "kospi"):
         except Exception as e:
             log.warning("D7 방문 기록 실패: %s", type(e).__name__)
     if market == "us":
-        items = _us_signal_items()
-        if not items:
+        raw = _us_signal_items()
+        if not raw:
             return {"ready": False, "items": [], "message": "미국 종목 시세가 아직 없습니다 — 백필 후 표시됩니다."}
-        return {"ready": True, "items": climate.annotate_rows(_annotate_external_watch(items)), "slim": True}
+        # lru 캐시 행을 직접 변이하지 않는다
+        items = [dict(x) for x in raw]
+        items = climate.annotate_rows(_annotate_external_watch(items))
+        return {"ready": True, "items": _annotate_entry(items, market="us"), "slim": True}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
@@ -1002,7 +1042,8 @@ def signals_get(request: Request, market: str = "kospi"):
             vol=q.get("vol"), vol_avg=q.get("vol_avg"),
             per=f.get("per"), pbr=f.get("pbr"), roe=f.get("roe"),
             div_yield=round(dps / px * 100, 2) if (dps and px) else None))
-    return {"ready": True, "items": climate.annotate_rows(_annotate_external_watch(items)), "slim": True}
+    items = climate.annotate_rows(_annotate_external_watch(items))
+    return {"ready": True, "items": _annotate_entry(items, market="kospi"), "slim": True}
 
 
 @app.get("/api/signals/{ticker}/detail")
