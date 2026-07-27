@@ -2978,8 +2978,17 @@ function entryTip(r){
     s += ` · 목표가 여력 +${fmtNum(e.remain_upside_pct, 1)}%`;
   return s;
 }
+// 선반영 의심 — 호재 이벤트 전 사전 상승 관측. 뱃지 옆 칩 없이 호버만.
+function pricedInTip(r){
+  const p = r && r.priced_in;
+  if (!p || !p.flag) return '';
+  const tip = p.tip_ko || ('선반영 의심 · 이벤트 전 '
+    + (p.window_days || 5) + '거래일 '
+    + ((p.pre_return_pct > 0 ? '+' : '') + fmtNum(p.pre_return_pct, 1) + '%'));
+  return ' · ' + tip;
+}
 function sigPillTitle(r){
-  return kindHint(r.kind) + entryTip(r);
+  return kindHint(r.kind) + entryTip(r) + pricedInTip(r);
 }
 const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
 const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';

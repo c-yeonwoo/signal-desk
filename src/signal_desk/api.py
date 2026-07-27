@@ -31,8 +31,8 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, entry_quality, hypothesis, macro, narrative, opportunity, rebalance,
-    regime, regime_zone, relative, scenario, target, valuation,
+    accuracy, climate, entry_quality, hypothesis, macro, narrative, opportunity, priced_in,
+    rebalance, regime, regime_zone, relative, scenario, target, valuation,
 )
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
@@ -910,6 +910,7 @@ def _us_signal_detail(ticker: str) -> dict | None:
         d["attention_conflict"] = True  # 매수 신호 vs 이벤트 리스크
     climate.annotate_rows([d])
     _annotate_entry([d], market="us")
+    _annotate_priced_in([d], market="us")
     d.pop("remain_upside_pct", None)
     return d
 
@@ -956,6 +957,7 @@ def _kr_signal_detail(ticker: str) -> dict | None:
         d["attention_conflict"] = True
     climate.annotate_rows([d])
     _annotate_entry([d], market="kospi")
+    _annotate_priced_in([d], market="kospi")
     d.pop("remain_upside_pct", None)
     return d
 
@@ -1007,6 +1009,30 @@ def _annotate_entry(items: list[dict], *, market: str = "kospi") -> list[dict]:
         items, hist_by=hist_by, dates_by=dates_by, closes_by=closes_by, today=today)
 
 
+def _annotate_priced_in(items: list[dict], *, market: str = "kospi") -> list[dict]:
+    """호재 이벤트 전 사전 상승 → 선반영 의심(관측). kind·점수는 건드리지 않는다."""
+    if not items:
+        return items
+    today = _kst_today()
+    try:
+        events = db.kb_events_active()
+    except Exception:
+        events = []
+    if market == "us":
+        closes_by = store.load_us_price_series()
+        dates_by = store.load_us_dates_by_ticker()
+    else:
+        closes_by = store.load_price_series()
+        dates_by = store.load_dates_by_ticker()
+    return priced_in.annotate_rows(
+        items,
+        events_by=priced_in.events_by_ticker(events),
+        dates_by=dates_by,
+        closes_by=closes_by,
+        today=today,
+    )
+
+
 @app.get("/api/signals")
 def signals_get(request: Request, market: str = "kospi"):
     """시그널 리스트(요약). 상세 필드(about/moves/target/reasons/narrative/kb)는
@@ -1027,7 +1053,8 @@ def signals_get(request: Request, market: str = "kospi"):
         # lru 캐시 행을 직접 변이하지 않는다
         items = [dict(x) for x in raw]
         items = climate.annotate_rows(_annotate_external_watch(items))
-        return {"ready": True, "items": _annotate_entry(items, market="us"), "slim": True}
+        items = _annotate_entry(items, market="us")
+        return {"ready": True, "items": _annotate_priced_in(items, market="us"), "slim": True}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
@@ -1045,7 +1072,8 @@ def signals_get(request: Request, market: str = "kospi"):
             per=f.get("per"), pbr=f.get("pbr"), roe=f.get("roe"),
             div_yield=round(dps / px * 100, 2) if (dps and px) else None))
     items = climate.annotate_rows(_annotate_external_watch(items))
-    return {"ready": True, "items": _annotate_entry(items, market="kospi"), "slim": True}
+    items = _annotate_entry(items, market="kospi")
+    return {"ready": True, "items": _annotate_priced_in(items, market="kospi"), "slim": True}
 
 
 @app.get("/api/signals/{ticker}/detail")

@@ -99,7 +99,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert ".sig-list .sig-cell { display:flex" not in html
     assert "td에 display:flex 금지" in html
     # 진입 품질은 뱃지 옆이 아니라 시그널 pill 호버 툴팁에만
-    assert "entryTip" in html and "sigPillTitle" in html
+    assert "entryTip" in html and "pricedInTip" in html and "sigPillTitle" in html
     assert "지금 이 가정과 안 맞음" not in html
     assert "무게↑" not in html and "갈래 무게" not in html
     assert "지금 더 가까움" in html
