@@ -497,28 +497,44 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
         pool_by = {s.ticker: s for s in pool}
 
         rationale_by = {}
-        picks = advisor.select_buys(
-            [{"ticker": s.ticker, "name": s.name, "score": s.score, "confidence": s.confidence, "reasons": s.reasons}
-             for s in pool],
-            context, {t: db.kb_digest_get(t) for t in pool_by}, advisor.build_lessons(), slots,
-        ) if pool else None
+        advice = None
+        if pool:
+            try:
+                g = advisor_shadow.gate(
+                    style=cfg.get("trading_style"),
+                    summary=advisor_shadow.cached_summary())
+            except Exception as e:
+                log.warning("advisor gate 계산 실패(%s) — 선별 유지", type(e).__name__)
+                g = {"active": True, "fallback": "abstain"}
+            advice = advisor.advise(
+                [{"ticker": s.ticker, "name": s.name, "score": s.score,
+                  "confidence": s.confidence, "reasons": s.reasons} for s in pool],
+                context, {t: db.kb_digest_get(t) for t in pool_by},
+                advisor.build_lessons(), slots,
+                style=cfg.get("trading_style"), gate=g,
+            )
+        picks = advice.picks if advice else None
         if picks:
             advisor_used = True
             candidates = [pool_by[p["ticker"]] for p in picks if p["ticker"] in pool_by]
             rationale_by = {p["ticker"]: p["rationale"] for p in picks}
         elif picks is None:
-            candidates = pool[:slots]      # 사용 불가(키 없음·실패) → 결정론적 점수순 폴백
+            candidates = pool[:slots]      # 사용 불가·kill→score → 결정론적 점수순 폴백
         else:
-            # 기권([]): "살 게 없다"는 판단을 폴백 매수로 뒤집지 않는다. 하락장에서 특히 중요.
+            # 기권·kill→abstain: 폴백 매수로 뒤집지 않는다.
             advisor_used = True
             candidates = []
-        if not dry_run:
-            # LLM 선별이 점수순 폴백보다 나았는지 나중에 채점하기 위한 관측(선별 결과에 개입 없음)
+        if not dry_run and pool:
             try:
                 advisor_shadow.record(
                     uid=uid, market=market, slots=slots, picks=picks,
                     style=cfg.get("trading_style"),
                     pool=[{"ticker": s.ticker, "score": s.score} for s in pool],
+                    detail=({
+                        "reason": advice.reason, "vetoed": advice.vetoed,
+                        "primary": advice.primary, "killed": advice.killed,
+                    } if advice else None),
+                    outcome_override=(advice.outcome if advice and advice.killed else None),
                 )
             except Exception as e:
                 log.warning("advisor shadow 기록 실패: %s", type(e).__name__)
@@ -713,18 +729,30 @@ def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -
               and s.ticker not in held and not s.event_risk and s.ticker not in warned]
     pool = sorted(strong, key=lambda s: s.score, reverse=True)[:max(slots * 3, 6)]
     pool_by = {s.ticker: s for s in pool}
-    picks = advisor.select_buys(
-        [{"ticker": s.ticker, "name": s.name, "score": s.score, "confidence": s.confidence, "reasons": s.reasons}
-         for s in pool],
-        context, {t: db.kb_digest_get(t) for t in pool_by}, advisor.build_lessons(), slots,
-    ) if (pool and slots > 0) else None
+    if pool and slots > 0:
+        try:
+            g = advisor_shadow.gate(
+                style=cfg.get("trading_style"),
+                summary=advisor_shadow.cached_summary())
+        except Exception:
+            g = {"active": True, "fallback": "abstain"}
+        advice = advisor.advise(
+            [{"ticker": s.ticker, "name": s.name, "score": s.score,
+              "confidence": s.confidence, "reasons": s.reasons} for s in pool],
+            context, {t: db.kb_digest_get(t) for t in pool_by},
+            advisor.build_lessons(), slots,
+            style=cfg.get("trading_style"), gate=g,
+        )
+        picks = advice.picks
+    else:
+        picks = None
 
     if picks:
         chosen = [(pool_by[p["ticker"]], p["rationale"]) for p in picks if p["ticker"] in pool_by]
     elif picks is None:
-        chosen = [(s, None) for s in pool[:slots]]   # 사용 불가 → 점수순 폴백
+        chosen = [(s, None) for s in pool[:slots]]   # 사용 불가·kill→score → 점수순 폴백
     else:
-        chosen = []                                  # 기권 → 예약 0건(폴백 매수로 뒤집지 않는다)
+        chosen = []                                  # 기권·kill→abstain → 예약 0건
 
     reservations = []
     if not dry_run:

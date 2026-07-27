@@ -5780,6 +5780,16 @@ async function setQualPromo(mode){
 
 // shadow는 '판정 알림'까지 만들어야 끝난다 — 판정 조건은 서버(accuracy.diff_verdict)가 갖고 있고,
 // 여기서는 그 결과를 띄우고 판정 가능한 것이 있으면 서브탭 배지로 알린다. 승격은 사람이 한다.
+async function setAdvisorHarness(patch){
+  try {
+    const r = await (await fetch('/api/advisor-harness', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch || {}),
+    })).json();
+    if (r.detail || r.ok === false) { alert(r.detail || '저장 실패'); return; }
+    loadShadows();
+  } catch (e) { alert('요청 실패'); }
+}
 async function loadShadows(){
   const el = document.getElementById('shadow-body');
   if (!el) return;
@@ -5829,14 +5839,33 @@ async function loadShadows(){
         const unpaired = (adv.paired_n > 0 && adv.delta_pct != null)
           ? `<div style="color:var(--dim-2);font-size:12px;margin-top:2px">unpaired(진단) ${pct(adv.delta_pct)} — 상위 vs 하위라 불리함</div>`
           : '';
+        const h = adv.harness || {}, g = adv.gate || {};
+        const killOn = h.kill_enabled !== false;
+        const chalOn = h.challenger_enabled !== false;
+        const gateLine = g.active === false
+          ? `<div style="color:var(--sig-sell);font-size:13px;margin-top:4px;font-weight:600">⛔ LLM 선별 OFF · ${esc(g.reason || '')} · fallback ${esc(g.fallback || 'abstain')}</div>`
+          : `<div style="color:var(--dim);font-size:12px;margin-top:4px">게이트 ON · kill ${killOn ? '자동' : '끔'} · challenger ${chalOn ? 'veto' : '끔'}`
+            + `${h.manual_override ? ` · 수동 ${esc(h.manual_override)}` : ''}</div>`;
+        const harnessBtns = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
+          <button type="button" class="btn" style="padding:2px 8px;font-size:12px"
+            onclick="setAdvisorHarness({challenger_enabled:${chalOn ? 'false' : 'true'}})">Challenger ${chalOn ? '끄기' : '켜기'}</button>
+          <button type="button" class="btn" style="padding:2px 8px;font-size:12px"
+            onclick="setAdvisorHarness({kill_enabled:${killOn ? 'false' : 'true'}})">Kill 자동 ${killOn ? '끄기' : '켜기'}</button>
+          <button type="button" class="btn" style="padding:2px 8px;font-size:12px"
+            onclick="setAdvisorHarness({manual_override:null})">수동해제</button>
+          <button type="button" class="btn" style="padding:2px 8px;font-size:12px"
+            onclick="setAdvisorHarness({manual_override:'force_off'})">강제 OFF</button>
+          <button type="button" class="btn" style="padding:2px 8px;font-size:12px"
+            onclick="setAdvisorHarness({manual_override:'force_on'})">강제 ON</button>
+        </div>`;
         return block('자문 선별(advisor)',
-          '봇의 LLM 선별 vs 점수순 폴백. 같은 회차·같은 순위의 교체 쌍으로 비교합니다.',
+          '봇의 LLM 선별 vs 점수순 폴백. paired 유의 패배 시 선별을 끄고, Challenger는 픽을 제거만 합니다.',
           view,
           `<div style="color:var(--dim);font-size:13px">회차 ${adv.runs} · 자문 사용 ${adv.advisor_used_runs ?? 0}`
             + ` · 기권 ${adv.abstained_runs ?? 0} · 갈린 회차 ${adv.divergent_runs ?? 0}`
             + ` · 교체 쌍 ${adv.paired_n ?? 0}</div>`
             + (styles ? `<div style="color:var(--dim);font-size:12px;margin-top:2px">성향별 · ${styles}</div>` : '')
-            + unpaired);
+            + unpaired + gateLine + harnessBtns);
       })()
     + block('기후(climate)', '기후 판정이 매수라고 본 종목 vs 기존 시그널만 매수라고 본 종목의 실현수익률 차이.', clim);
   const b = document.getElementById('admin-verify-badge');

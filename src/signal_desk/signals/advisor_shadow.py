@@ -1,6 +1,6 @@
-"""봇 LLM 자문 shadow — advisor 선별 vs 점수순 폴백을 나란히 기록하고 나중에 채점한다.
+"""봇 LLM 자문 shadow — advisor 선별 vs 점수순 폴백을 나란히 기록·채점하고, 유의 패배 시 경로를 끈다.
 
-`advisor.select_buys()`는 LLM이 봇의 매수 종목에 실제로 영향을 주는 유일한 경로인데,
+`advisor.advise()`는 LLM이 봇의 매수 종목에 실제로 영향을 주는 유일한 경로인데,
 "그날 점수순으로 그냥 샀을 때보다 나았는가"를 재는 지표가 없었다. 이 모듈은 매 회차의
 LLM 선택과 결정론적 폴백 선택을 함께 남기고, 이후 실현수익으로 둘을 비교한다.
 
@@ -12,7 +12,8 @@ base_only)만이 advisor의 순효과다. 채점 규약(다음 거래일 진입�
 unpaired 평균차는 advisor에게 구조적으로 불리하다. 회차 안 pool 순위로 교체 쌍을 맞춘
 `paired_delta`가 실력 판정의 정본이고, unpaired `delta_pct`는 하위호환·진단용으로 남긴다.
 
-관측·채점 전용: 선별 로직·수량·문턱·리스크 규칙에는 개입하지 않는다.
+**게이트(2026-07-27)**: `paired_verdict_ready` 이고 Δ가 유의 음수면 LLM 선별을 끈다
+(`gate()`). Challenger 사용 여부도 여기 설정으로 켠다. LLM끼리 합의로 끄지 않는다.
 """
 
 from __future__ import annotations
@@ -42,6 +43,106 @@ MIN_SAMPLES = 20
 # bot.REFERENCE_BOTS와 동일 — bot을 import하면 순환. 과거 기록에 style이 없을 때 uid로 폴백.
 _REF_STYLE = {900001: "conservative", 900002: "balanced", 900003: "aggressive"}
 _STYLES = ("conservative", "balanced", "aggressive")
+_HARNESS_KEY = "advisor_harness"
+_SUMMARY_CACHE: tuple[str, dict[str, Any]] | None = None
+_DEFAULT_HARNESS = {
+    "kill_enabled": True,       # paired 유의 패배 시 LLM 선별 OFF
+    "kill_fallback": "abstain",  # abstain|score — 패배 시 기본은 매수 안 함
+    "challenger_enabled": True,  # 2차 veto(제거만)
+    "manual_override": None,     # force_on|force_off|None
+}
+
+
+def harness_config() -> dict[str, Any]:
+    from signal_desk import db
+    raw = db.kv_get(_HARNESS_KEY) or {}
+    if not isinstance(raw, dict):
+        raw = {}
+    out = dict(_DEFAULT_HARNESS)
+    out["kill_enabled"] = bool(raw.get("kill_enabled", out["kill_enabled"]))
+    fb = raw.get("kill_fallback") or out["kill_fallback"]
+    out["kill_fallback"] = fb if fb in ("abstain", "score") else "abstain"
+    out["challenger_enabled"] = bool(raw.get("challenger_enabled", out["challenger_enabled"]))
+    mo = raw.get("manual_override")
+    out["manual_override"] = mo if mo in ("force_on", "force_off") else None
+    return out
+
+
+def set_harness_config(data: dict) -> dict[str, Any]:
+    from signal_desk import db
+    cur = harness_config()
+    if "kill_enabled" in data:
+        cur["kill_enabled"] = bool(data["kill_enabled"])
+    if data.get("kill_fallback") in ("abstain", "score"):
+        cur["kill_fallback"] = data["kill_fallback"]
+    if "challenger_enabled" in data:
+        cur["challenger_enabled"] = bool(data["challenger_enabled"])
+    if "manual_override" in data:
+        mo = data["manual_override"]
+        cur["manual_override"] = mo if mo in ("force_on", "force_off") else None
+    db.kv_set(_HARNESS_KEY, cur)
+    return cur
+
+
+def challenger_enabled() -> bool:
+    return bool(harness_config().get("challenger_enabled", True))
+
+
+def cached_summary(
+    closes_by_ticker: dict[str, tuple[list[str], list[float]]] | None = None,
+) -> dict[str, Any]:
+    """같은 날 gate/요약 재계산을 피한다(레퍼런스 3봇 × closes 로드 비용)."""
+    global _SUMMARY_CACHE
+    today = _kst_today()
+    if _SUMMARY_CACHE and _SUMMARY_CACHE[0] == today:
+        return _SUMMARY_CACHE[1]
+    if closes_by_ticker is None:
+        from signal_desk import store
+        closes_by_ticker = store.load_all_dated_closes()
+    s = summary(closes_by_ticker)
+    _SUMMARY_CACHE = (today, s)
+    return s
+
+
+def gate(*, style: str | None = None, summary: dict | None = None) -> dict[str, Any]:
+    """LLM 선별 경로 on/off — 기계(paired shadow). LLM 상호검증 아님.
+
+    active=False 이고 fallback=abstain → 매수 0.
+    active=False 이고 fallback=score → 점수순 폴백(select None과 동일).
+    """
+    cfg = harness_config()
+    fb = cfg["kill_fallback"]
+    if cfg.get("manual_override") == "force_on":
+        return {"active": True, "reason": None, "fallback": fb, "source": "manual_on"}
+    if cfg.get("manual_override") == "force_off":
+        return {"active": False, "reason": "관리자 강제 OFF", "fallback": fb,
+                "source": "manual_off"}
+    if not cfg.get("kill_enabled", True):
+        return {"active": True, "reason": None, "fallback": fb, "source": "kill_disabled"}
+
+    s = summary if summary is not None else {}
+    if style and style in (s.get("by_style") or {}):
+        st = s["by_style"][style]
+        if st.get("paired_verdict_ready") and (st.get("paired_delta_pct") or 0) < 0:
+            return {
+                "active": False, "fallback": fb, "source": "style_shadow",
+                "reason": (f"성향 {style} paired Δ {st['paired_delta_pct']}%p "
+                           f"(유의 패배 · 쌍 {st.get('paired_n')})"),
+                "paired_delta_pct": st.get("paired_delta_pct"),
+                "paired_n": st.get("paired_n"),
+            }
+    if s.get("paired_verdict_ready") and (s.get("paired_delta_pct") or 0) < 0:
+        return {
+            "active": False, "fallback": fb, "source": "global_shadow",
+            "reason": (f"전체 paired Δ {s['paired_delta_pct']}%p "
+                       f"(유의 패배 · 쌍 {s.get('paired_n')})"),
+            "paired_delta_pct": s.get("paired_delta_pct"),
+            "paired_n": s.get("paired_n"),
+        }
+    return {"active": True, "reason": None, "fallback": fb, "source": "ok",
+            "paired_verdict_ready": bool(s.get("paired_verdict_ready")),
+            "paired_delta_pct": s.get("paired_delta_pct"),
+            "paired_n": s.get("paired_n")}
 
 
 def _kst_today() -> str:
@@ -93,16 +194,19 @@ def record(
     slots: int,
     style: str | None = None,
     date: str | None = None,
+    detail: dict | None = None,
+    outcome_override: str | None = None,
 ) -> bool:
     """한 회차의 선별 결과를 남긴다. pool은 점수 내림차순([{ticker,score}]).
 
     같은 (날짜·유저·시장)의 첫 회차만 남긴다 — 봇 루프가 하루에 여러 번 도는데,
     그날 실제로 자리를 잡은 결정은 첫 회차이고 이후는 잔여 슬롯 관측이라 표본이 편향된다.
 
-    picks의 세 상태를 구분해 기록한다(`outcome`):
+    picks의 상태를 구분해 기록한다(`outcome`):
       - 종목 리스트 → `picked`
       - `[]` → `abstained`. LLM이 "살 게 없다"고 판단한 회차. 점수순은 샀으므로 비교 대상이다.
       - `None` → `unavailable`. 키 없음·실패. advisor 성적으로 세면 안 된다.
+      - `killed` → shadow 게이트가 LLM 경로를 끔. 채점에서 제외(강제 기권을 LLM 실력으로 안 셈).
     반환: 새로 기록했으면 True.
     """
     if not pool or slots <= 0:
@@ -114,13 +218,17 @@ def record(
         return False
     baseline = [p["ticker"] for p in pool[:slots]]
     llm = [p["ticker"] for p in (picks or [])]
-    outcome = "unavailable" if picks is None else ("picked" if picks else "abstained")
+    if outcome_override in ("picked", "abstained", "unavailable", "killed"):
+        outcome = outcome_override
+    else:
+        outcome = "unavailable" if picks is None else ("picked" if picks else "abstained")
     row = {
         "uid": uid,
         "market": market,
         "slots": slots,
         "outcome": outcome,
-        "advisor_used": outcome != "unavailable",
+        # killed·unavailable 은 LLM 실력 표본이 아니다
+        "advisor_used": outcome in ("picked", "abstained"),
         "pool": [{"t": p["ticker"], "s": round(float(p["score"]), 3)} for p in pool[:POOL_KEEP]],
         "baseline": baseline,
         "llm": llm,
@@ -131,6 +239,12 @@ def record(
     st = style if style in _STYLES else _REF_STYLE.get(uid)
     if st:
         row["style"] = st
+    if detail and isinstance(detail, dict):
+        # reason·vetoed·primary 등 진단용(채점 키 아님)
+        slim = {k: detail[k] for k in ("reason", "vetoed", "primary", "killed")
+                if k in detail and detail[k] not in (None, [], "")}
+        if slim:
+            row["detail"] = slim
     day.append(row)
     _save(blob)
     return True
@@ -232,7 +346,8 @@ def summary(
     """
     blob = _load()
     if not blob:
-        return {"ready": False, "days": [], "message": "advisor shadow 기록 없음(봇 회차마다 누적)"}
+        return {"ready": False, "days": [], "message": "advisor shadow 기록 없음(봇 회차마다 누적)",
+                "harness": harness_config(), "gate": gate(summary={})}
 
     llm_only_rets: list[float] = []
     base_only_rets: list[float] = []
@@ -261,7 +376,7 @@ def summary(
             runs += 1
             # outcome 없는 과거 기록은 advisor_used로 유추(기권 구분 도입 전 데이터)
             outcome = rec.get("outcome") or ("picked" if rec.get("advisor_used") else "unavailable")
-            if outcome == "unavailable":
+            if outcome in ("unavailable", "killed"):
                 continue
             used += 1
             lo, bo = rec.get("llm_only") or [], rec.get("base_only") or []
@@ -355,5 +470,13 @@ def summary(
                          "표본 20은 표시 시작 기준이며 판정 근거가 아니다 — "
                          "부호는 |delta| > ci95일 때만 읽는다."),
         "days": days[-limit_days:],
-        "disclaimer": "advisor shadow · 관측 전용 · 선별 로직·수량·문턱 미변경",
+        "disclaimer": ("advisor shadow · paired 유의 패배 시 LLM 선별 kill "
+                       "· challenger는 veto만 · 수량·문턱·리스크 규칙은 미변경"),
+        "harness": harness_config(),
+        "gate": gate(summary={
+            "paired_verdict_ready": paired["paired_verdict_ready"],
+            "paired_delta_pct": paired["paired_delta_pct"],
+            "paired_n": paired["paired_n"],
+            "by_style": style_out,
+        }),
     }

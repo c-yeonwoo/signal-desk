@@ -397,7 +397,8 @@ _ADMIN_PATHS = {
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
     "/api/morning-digest", "/api/morning-digest/test",
     "/api/d7",
-    "/api/advisor-shadow", "/api/climate-shadow", "/api/kb-coverage-shadow",
+    "/api/advisor-shadow", "/api/advisor-harness",
+    "/api/climate-shadow", "/api/kb-coverage-shadow",
 }
 
 
@@ -2246,6 +2247,28 @@ def kb_coverage_shadow_get(request: Request):
     from signal_desk.signals import kb_coverage
     return {**kb_coverage.shadow(store.load_all_dated_closes()),
             "coverage": kb_coverage.coverage_now()}
+
+
+@app.get("/api/advisor-harness")
+def advisor_harness_get(request: Request):
+    """advisor kill/challenger 설정 + 현재 gate 상태. 관리자."""
+    _admin_or_403(request)
+    from signal_desk.signals import advisor_shadow
+    s = advisor_shadow.cached_summary()
+    return {"harness": advisor_shadow.harness_config(),
+            "gate": advisor_shadow.gate(summary=s),
+            "paired_verdict_ready": s.get("paired_verdict_ready"),
+            "paired_delta_pct": s.get("paired_delta_pct"),
+            "paired_n": s.get("paired_n")}
+
+
+@app.post("/api/advisor-harness")
+def advisor_harness_set(request: Request, data: dict = Body(default={})):
+    """kill_enabled · kill_fallback(abstain|score) · challenger_enabled · manual_override.
+    관리자. 수량·문턱·리스크 규칙은 건드리지 않는다."""
+    _admin_or_403(request)
+    from signal_desk.signals import advisor_shadow
+    return {"ok": True, "harness": advisor_shadow.set_harness_config(data or {})}
 
 
 @app.get("/api/advisor-shadow")
