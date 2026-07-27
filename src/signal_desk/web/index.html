@@ -1133,28 +1133,34 @@
   </div>
 
   <div id="view-admin" class="view-doc" style="display:none">
+    <!-- 관리자 첫 화면 = 오늘 할 일. 탭·전문어보다 '지금 누를 것'이 먼저다. -->
+    <div id="admin-todo" class="card" style="margin:0 0 12px;padding:12px 14px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:6px">오늘 할 일</div>
+      <div id="admin-todo-body" style="font-size:13px;color:var(--dim)">점검 중…</div>
+    </div>
     <div class="seg-toggle" id="admin-seg" style="margin-bottom:14px">
-      <button class="on" data-aseg="ops" onclick="switchAdminSeg('ops')">운영·데이터 <span id="admin-ops-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
+      <button class="on" data-aseg="ops" onclick="switchAdminSeg('ops')">점검 <span id="admin-ops-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
       <button data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 <span id="admin-engine-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
-      <button data-aseg="verify" onclick="switchAdminSeg('verify')">검증·실측 <span id="admin-verify-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--accent);color:#fff;font-size:11px;font-weight:700"></span></button>
-      <button data-aseg="kb" onclick="switchAdminSeg('kb')">KB·리서치</button>
-      <button data-aseg="content" onclick="switchAdminSeg('content')">콘텐츠</button>
+      <button data-aseg="verify" onclick="switchAdminSeg('verify')">성적 <span id="admin-verify-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--accent);color:#fff;font-size:11px;font-weight:700"></span></button>
+      <button data-aseg="kb" onclick="switchAdminSeg('kb')">뉴스 <span id="admin-kb-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
+      <button data-aseg="content" onclick="switchAdminSeg('content')">발행</button>
     </div>
 
     <div id="admin-ops" style="display:none">
-    <p class="page-desc" style="margin:0 0 12px">데이터가 <b>들어오고 있는지</b>를 보는 곳입니다. 0은 정상일 수도 고장일 수도 있어서, 비어 있는 항목은 <b>이유</b>를 같이 적습니다. 엔진 값은 여기서 바꾸지 않습니다.</p>
     <div class="card" style="margin-top:0">
       <div class="row" style="align-items:baseline">
-        <b style="font-size:15px">데이터 상태 <span style="color:var(--dim);font-weight:600;font-size:13px">· 신선도 · veto · 검색 · 축적</span></b>
+        <b style="font-size:15px">데이터 상태</b>
         <button class="btn" onclick="loadDataHealth({force:true})" style="margin-left:auto">다시 점검</button>
       </div>
+      <p class="page-desc" style="margin:6px 0 0">비어 있으면 <b>이유</b>를 같이 봅니다. 엔진 숫자는 여기서 바꾸지 않습니다.
+        <button type="button" class="linkish" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">자세히</button>
+        <span class="more-block" hidden>신선도·투자경고·KB 검색·컨센서스 축적. 0이 정상일 수도 고장일 수도 있어 이유를 붙입니다.</span></p>
       <div id="data-health" style="margin-top:10px;font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px">불러오는 중…</div>
     </div>
 
     <details class="card" id="ops-collect-details" style="margin-top:16px">
-      <summary style="cursor:pointer;font-weight:700;font-size:15px">수집 실행 <span style="color:var(--dim);font-weight:600;font-size:13px">· 시세·재무·거시·유니버스 (수 분 소요)</span></summary>
-      <p class="page-desc" style="margin:10px 0 0">KOSPI 유니버스·시세·재무(DART)·거시(FRED/ECOS)·거장 13F·S&P500 유니버스를 한 번에 수집합니다.
-        <b>배포 후 최초 1회 필수</b> — 이걸 눌러야 시그널·백테스트·저평가가 실데이터로 채워집니다. 평소에는 자동 루프가 돌므로 누를 일이 없습니다.</p>
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">수동 수집 <span style="color:var(--dim);font-weight:600;font-size:13px">· 평소엔 자동 · 배포 직후 1회</span></summary>
+      <p class="page-desc" style="margin:10px 0 0">시세·재무·거시·유니버스를 한 번에 받습니다. 평소 자동 루프가 돌므로 거의 누르지 않습니다.</p>
       <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
         <span id="refresh-result" class="stat-label" style="margin:0 auto 0 0"></span>
         <button class="btn" onclick="showEgressIp()" title="토스 등 외부 API IP 화이트리스트 등록용">서버 IP</button>
@@ -1163,45 +1169,41 @@
       <div id="egress-ip" style="display:none;margin-top:10px;font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px"></div>
     </details>
 
-    <div class="card" id="llm-usage-card" style="margin-top:16px">
-      <div style="font-weight:700;font-size:15px">이 앱 추정 LLM 비용 <span style="color:var(--dim);font-weight:600;font-size:13px">· 공유 키와 분리</span></div>
-      <p class="page-desc" style="margin:8px 0 4px">Signal Desk 호출만 집계합니다. 공개 단가 기준 추정 · 캐시/배치 할인 미반영 · Anthropic 콘솔 청구와 다를 수 있습니다.</p>
-      <div id="llm-usage-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
-    </div>
-
-    <div class="card" id="d7-card" style="margin-top:16px">
-      <div style="font-weight:700;font-size:15px">북극성 D7 <span style="color:var(--dim);font-weight:600;font-size:13px">· 가입 후 7일 내 시그널 탭 재방문</span></div>
-      <p class="page-desc" style="margin:8px 0 4px">가입 <b>다음날부터 7일</b> 안에 시그널 탭을 한 번이라도 다시 연 유저 비율입니다. 아직 7일이 안 지난 유저는 분모에서 빼고 따로 셉니다 — 넣으면 최근 가입자가 많을 때 값이 낮게 보입니다.</p>
-      <div id="d7-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
-    </div>
+    <details class="card" id="ops-metrics-details" style="margin-top:16px" ontoggle="if(this.open){loadLlmUsage();loadD7();}">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">비용·리텐션 <span style="color:var(--dim);font-weight:600;font-size:13px">· LLM 추정 · D7</span></summary>
+      <div id="llm-usage-card" style="margin-top:10px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:4px">LLM 추정 비용</div>
+        <div id="llm-usage-body" class="placeholder" style="padding:12px 0">펼치면 불러옵니다…</div>
+      </div>
+      <div id="d7-card" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+        <div style="font-weight:700;font-size:13px;margin-bottom:4px">북극성 D7 · 7일 내 시그널 재방문</div>
+        <div id="d7-body" class="placeholder" style="padding:12px 0">펼치면 불러옵니다…</div>
+      </div>
+    </details>
     </div><!-- /#admin-ops -->
 
     <div id="admin-engine" style="display:none">
-    <p class="page-desc" style="margin:0 0 12px">흐름: <b>헬스 진단 → 개선 제안(승인)</b>. 제안 카드에 <b>얕은 A/B</b>(추정 composite IC 전후)를 붙여 방향을 보고, 심판은 승인 후 <b>검증·실측 탭</b>에서 봅니다. 수동 가중·백테스트는 필요할 때만 펼칩니다.</p>
     <div id="engine-gate-strip" style="display:none;margin:0 0 12px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2,transparent);font-size:13px;line-height:1.45"></div>
 
-    <div class="card" id="brain-card" style="margin-top:0">
-      <div class="row" style="align-items:baseline;justify-content:space-between">
-        <div style="font-weight:700;font-size:15px">두뇌 레이어 <span style="color:var(--dim);font-weight:600;font-size:13px">· 엔진 헬스</span></div>
-        <span id="brain-score" style="font-family:var(--mono,monospace);font-size:13px;color:var(--dim)"></span>
-      </div>
-      <p class="page-desc" style="margin:8px 0 6px">소스→팩터→게이트→엔진→실측→진단→제안. 아래 카드에서 승인하면 엔진에 반영됩니다. <span id="brain-summary" style="color:var(--dim)"></span></p>
-      <div id="brain-graph" style="width:100%;height:360px"></div>
-      <div id="brain-legend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin:4px 0 2px"></div>
-      <div id="brain-findings" style="margin-top:8px"></div>
-    </div>
-
-    <div class="card" id="brain-proposals-card" style="margin-top:16px">
+    <div class="card" id="brain-proposals-card" style="margin-top:0">
       <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div style="font-weight:700;font-size:15px">개선 제안 <span style="color:var(--dim);font-weight:600;font-size:13px">· 승인 후에만 엔진 반영 · 얕은 A/B</span></div>
+        <div style="font-weight:700;font-size:15px">개선 제안 <span style="color:var(--dim);font-weight:600;font-size:13px">· 승인해야 반영</span></div>
         <div class="row" style="gap:6px;margin:0">
-          <button class="btn" onclick="refreshBrainProposals()" id="bp-refresh-btn">제안 새로고침</button>
+          <button class="btn" onclick="refreshBrainProposals()" id="bp-refresh-btn">새로고침</button>
         </div>
       </div>
-      <p class="page-desc" style="margin:8px 0 10px">잘 안 맞는 팩터는 비중↓, 잘 맞는 팩터는 비중↑, 매수 적중률에 따라 문턱± — 모두 <b>살짝</b>만. “무엇이 바뀌는지·왜”만 보고 승인/반려하세요. 자동 적용 없음.</p>
+      <p class="page-desc" style="margin:8px 0 10px">비중·문턱을 <b>살짝</b> 바꾸는 초안입니다. 승인/반려만 하면 됩니다.</p>
       <div id="brain-proposals-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       <div id="brain-proposals-history" style="margin-top:12px;font-size:13px;color:var(--dim)"></div>
     </div>
+
+    <details class="card" id="brain-card" style="margin-top:16px" ontoggle="if(this.open) loadBrain()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">엔진 건강 <span id="brain-score" style="font-family:var(--mono,monospace);font-size:13px;color:var(--dim);font-weight:600"></span></summary>
+      <p class="page-desc" style="margin:8px 0 6px"><span id="brain-summary" style="color:var(--dim)"></span></p>
+      <div id="brain-graph" style="width:100%;height:360px"></div>
+      <div id="brain-legend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin:4px 0 2px"></div>
+      <div id="brain-findings" style="margin-top:8px"></div>
+    </details>
 
     <details class="card" id="engine-manual-details" style="margin-top:16px">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">수동 가중치·임계값 <span style="color:var(--dim);font-weight:600;font-size:13px">· 필요할 때만</span></summary>
@@ -1256,81 +1258,47 @@
     </div><!-- /#admin-engine -->
 
     <div id="admin-verify" style="display:none">
-    <p class="page-desc" style="margin:0 0 12px">엔진을 <b>믿을 근거</b>가 모이는 곳입니다. 실측 track record가 본선이고, 아래 shadow들은 <b>아직 점수·봇에 반영되지 않은</b> 관측입니다. 판정은 표본 수가 아니라 <b>유의성</b>으로 하며, 판정이 떠도 반영은 사람이 결정합니다.</p>
-
     <div class="card" id="accuracy-card" style="margin-top:0">
-      <div style="font-weight:700;font-size:15px">실측 성과 <span style="color:var(--dim);font-weight:600;font-size:13px">· track record</span></div>
-      <p class="page-desc" style="margin:8px 0 4px">장 마감 후 그날 <b>실제로 낸 시그널</b>을 저장하고, 약 20거래일 뒤 수익률로 채점합니다. 봇이 샀는지와 무관하고, 백테스트(시뮬)와도 다릅니다.</p>
+      <div style="font-weight:700;font-size:15px">실측 성적</div>
+      <p class="page-desc" style="margin:8px 0 4px">그날 낸 시그널을 약 20거래일 뒤 수익률로 채점합니다. 봇 체결·시뮬 백테스트와 다릅니다.</p>
       <div id="accuracy-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
 
-    <div class="card" id="qual-promo-card" style="margin-top:16px">
-      <div style="font-weight:700;font-size:15px">정성(KB) 승격 관측 <span style="color:var(--dim);font-weight:600;font-size:13px">· shadow</span></div>
-      <p class="page-desc" style="margin:8px 0 4px">확정 이벤트는 Decision veto · <b>정성 점수는 종합점수·매수 임계값·페이퍼 봇에 반영되지 않습니다</b>. 실측 IC·워크포워드 게이트를 보고 shadow 관측만 켭니다.</p>
-      <div id="qual-promo-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
-    </div>
+    <details class="card" id="verify-observe-details" style="margin-top:16px" ontoggle="if(this.open){loadQualPromo();loadShadows();}">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">아직 점수에 안 넣는 관측 <span style="color:var(--dim);font-weight:600;font-size:13px">· 자문·기후·정성</span></summary>
+      <p class="page-desc" style="margin:10px 0 8px">판정이 떠도 자동 반영하지 않습니다. 사람이 보고 결정합니다.</p>
+      <div id="qual-promo-card" style="margin-bottom:14px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:4px">정성(KB) 관측</div>
+        <div id="qual-promo-body" class="placeholder" style="padding:12px 0">펼치면 불러옵니다…</div>
+      </div>
+      <div id="shadow-cards" style="padding-top:12px;border-top:1px solid var(--line)">
+        <div style="font-weight:700;font-size:13px;margin-bottom:4px">자문 선별 · 기후</div>
+        <div id="shadow-body" class="placeholder" style="padding:12px 0">펼치면 불러옵니다…</div>
+      </div>
+    </details>
 
-    <div class="card" id="shadow-cards" style="margin-top:16px">
-      <div style="font-weight:700;font-size:15px">shadow 판정 <span style="color:var(--dim);font-weight:600;font-size:13px">· 자문 선별 · 기후</span></div>
-      <p class="page-desc" style="margin:8px 0 10px">둘 다 <b>관측 전용</b>입니다. 각 항목은 판정 조건(유의성)을 코드에 갖고 있어서, 충족되면 여기에 <b>판정 가능</b>으로 뜹니다 — 그전까지 표시되는 것은 “왜 아직 판정할 수 없는지”입니다.</p>
-      <div id="shadow-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
-    </div>
-
-    <div class="card" id="audit-card" style="margin-top:16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-        <div style="font-weight:700;font-size:15px">감사 가설 <span style="color:var(--dim);font-weight:600;font-size:13px">· “이 숫자가 틀렸다면 왜일까”</span></div>
+    <details class="card" id="audit-card" style="margin-top:16px" ontoggle="if(this.open) loadAudit()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">감사 가설 <span style="color:var(--dim);font-weight:600;font-size:13px">· 숫자 이상 의심만</span></summary>
+      <div style="display:flex;justify-content:flex-end;margin:8px 0">
         <button class="btn ghost" onclick="runAudit(this)">가설 생성</button>
       </div>
-      <p class="page-desc" style="margin:8px 0 4px">LLM이 계측 스냅샷을 읽고 <b>반증 가능한 의심</b>만 적어둡니다. 판정도 제안도 아니며 엔진·봇에 아무 영향을 주지 않습니다 — 확인된 것만 사람이 <code>tests/test_redteam.py</code>로 옮깁니다. 룩어헤드·누수·base rate 같은 항목은 이미 CI가 기계적으로 막고 있어 여기 나오지 않습니다.</p>
-      <div id="audit-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
-    </div>
+      <p class="page-desc" style="margin:0 0 4px">엔진을 바꾸지 않습니다. 확인된 것만 <code>tests/test_redteam.py</code>로 옮깁니다.</p>
+      <div id="audit-body" class="placeholder" style="padding:16px 0">펼치면 불러옵니다…</div>
+    </details>
     </div><!-- /#admin-verify -->
 
     <div id="admin-kb" style="display:none">
     <div class="card" style="margin-top:0">
       <div class="row" style="align-items:baseline">
-        <b style="font-size:15px">KB · 리서치 <span style="color:var(--dim);font-weight:600;font-size:13px">· 지식베이스 원문·요약·조사 큐</span></b>
+        <b style="font-size:15px">뉴스 · 이벤트</b>
         <span id="fanding-result" class="stat-label" style="margin:0 0 0 auto"></span>
-        <button class="btn" onclick="refreshKb()" style="margin-left:8px" title="수집 대상 종목의 뉴스·공시 → 다이제스트 갱신(자동 루프와 같은 경로)">종목 뉴스 갱신</button>
-      </div>
-      <p class="page-desc" style="margin:6px 0 10px">뉴스·리포트를 문서 단위로 수집·요약·분류해 KB에 쌓습니다. 시그널의 정성 판단(악재 veto)과 봇 자문이 이 KB만 근거로 씁니다. 수집이 멈췄는지는 <b>운영·데이터</b> 탭에서 이유와 함께 보입니다.</p>
-
-      <details id="kb-collect-details" style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 12px;margin-bottom:12px">
-        <summary style="cursor:pointer;font-size:13px;font-weight:700">소스별 수집 · 백필 <span style="color:var(--dim);font-weight:600;font-size:13px">· 평소엔 자동 루프가 처리</span></summary>
-        <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">
-          <button class="btn" onclick="collectFanding()">미주은 수집</button>
-          <button class="btn" onclick="collectFanding(90)" title="지난 3개월 전량 백필(초기 1회)">↩3개월</button>
-          <button class="btn" onclick="collectOutstanding()">아웃스탠딩 수집</button>
-          <button class="btn" onclick="collectYoutube()">유튜브 수집</button>
-          <button class="btn" onclick="collectRss()" title="해외 전문가·기관 RSS(Damodaran·Ben Carlson 등) → 거시 KB">해외 RSS 수집</button>
-        </div>
-      </details>
-
-      <div id="kb-import-box" style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:12px">
-        <b style="font-size:13px">📄 리포트·원문 추가</b>
-        <p class="page-desc" style="margin:4px 0 8px">PDF·이미지를 <b>끌어다 놓거나</b> 원문을 붙여넣으면 LLM이 요약·분류해 KB에 보강합니다. <b>종목코드는 선택</b> — 비우면 문서 내용을 이해해 <b>종목/시황/섹터</b>를 알아서 판단해 라우팅합니다. 스캔·이미지는 모델이 직접 인식(OCR).</p>
-        <div class="row" style="gap:6px;flex-wrap:wrap">
-          <input id="imp_ticker" class="ctrl" placeholder="종목코드(선택 — 비우면 자동)" style="flex:0 0 200px">
-          <input id="imp_title" class="ctrl" placeholder="제목(선택)" style="flex:1 1 200px">
-        </div>
-        <div id="imp-dropzone" style="margin-top:8px;border:2px dashed var(--line);border-radius:var(--r-md);
-          padding:18px;text-align:center;color:var(--dim);font-size:13px;cursor:pointer;transition:.15s">
-          📎 <b>PDF·이미지를 여기로 끌어다 놓기</b> 또는 클릭해서 선택
-          <div id="imp-file-name" style="color:var(--accent);font-size:13px;margin-top:4px"></div>
-        </div>
-        <input id="imp_file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style="display:none">
-        <textarea id="imp_text" class="ctrl" placeholder="또는 리포트/기사 원문 텍스트를 붙여넣으세요" style="width:100%;min-height:80px;margin-top:8px;resize:vertical"></textarea>
-        <div class="row" style="margin-top:6px;gap:8px;flex-wrap:wrap">
-          <span id="imp-result" class="stat-label" style="margin:0 auto 0 0"></span>
-          <button class="btn" onclick="uploadDoc()">파일 업로드</button>
-          <button class="btn primary" onclick="importDoc()">텍스트 추가</button>
-        </div>
+        <button class="btn" onclick="refreshKb()" style="margin-left:8px" title="수집 대상 종목의 뉴스·공시 → 다이제스트 갱신">뉴스 갱신</button>
       </div>
 
-      <div class="seg-toggle" id="kb-view-seg" style="margin-bottom:10px">
-        <button class="on" data-kbview="digest" onclick="setKbView('digest')">종목별 요약(시그널이 쓰는 것)</button>
-        <button data-kbview="docs" onclick="setKbView('docs')">원문 문서</button>
-        <button data-kbview="events" onclick="setKbView('events')">결정 이벤트</button>
+      <div class="seg-toggle" id="kb-view-seg" style="margin:12px 0 10px">
+        <button class="on" data-kbview="events" onclick="setKbView('events')">이벤트</button>
+        <button data-kbview="digest" onclick="setKbView('digest')">종목 요약</button>
+        <button data-kbview="docs" onclick="setKbView('docs')">원문</button>
         <button data-kbview="sources" onclick="setKbView('sources')">소스</button>
         <button data-kbview="watch" onclick="setKbView('watch')">조사 후보</button>
       </div>
@@ -1339,6 +1307,34 @@
         <div id="kbdoc-filters" class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px"></div>
         <div id="kbdoc-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
       </div>
+      <details id="kb-collect-details" style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:8px 12px;margin-top:12px">
+        <summary style="cursor:pointer;font-size:13px;font-weight:700">소스 수집 · 원문 추가 <span style="color:var(--dim);font-weight:600">· 필요할 때만</span></summary>
+        <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">
+          <button class="btn" onclick="collectFanding()">미주은</button>
+          <button class="btn" onclick="collectFanding(90)" title="지난 3개월 백필">↩3개월</button>
+          <button class="btn" onclick="collectOutstanding()">아웃스탠딩</button>
+          <button class="btn" onclick="collectYoutube()">유튜브</button>
+          <button class="btn" onclick="collectRss()" title="해외 RSS">해외 RSS</button>
+        </div>
+        <div id="kb-import-box" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)">
+          <div class="row" style="gap:6px;flex-wrap:wrap">
+            <input id="imp_ticker" class="ctrl" placeholder="종목코드(선택)" style="flex:0 0 160px">
+            <input id="imp_title" class="ctrl" placeholder="제목(선택)" style="flex:1 1 160px">
+          </div>
+          <div id="imp-dropzone" style="margin-top:8px;border:2px dashed var(--line);border-radius:var(--r-md);
+            padding:14px;text-align:center;color:var(--dim);font-size:13px;cursor:pointer">
+            PDF·이미지 끌어다 놓기 또는 클릭
+            <div id="imp-file-name" style="color:var(--accent);font-size:13px;margin-top:4px"></div>
+          </div>
+          <input id="imp_file" type="file" accept="application/pdf,image/png,image/jpeg,image/webp" style="display:none">
+          <textarea id="imp_text" class="ctrl" placeholder="또는 원문 붙여넣기" style="width:100%;min-height:64px;margin-top:8px;resize:vertical"></textarea>
+          <div class="row" style="margin-top:6px;gap:8px;flex-wrap:wrap">
+            <span id="imp-result" class="stat-label" style="margin:0 auto 0 0"></span>
+            <button class="btn" onclick="uploadDoc()">파일 업로드</button>
+            <button class="btn primary" onclick="importDoc()">텍스트 추가</button>
+          </div>
+        </div>
+      </details>
       <div id="kb-watch-panel" style="display:none">
         <p class="ew-disc" id="ew-disclaimer">직접 넣은 종목의 조사 대기열입니다. 시그널·매수 권유가 아니며 엔진 점수에 가산되지 않습니다.</p>
         <div class="ew-stats">
@@ -1380,14 +1376,15 @@
     <div id="admin-content" style="display:none">
     <div class="card" style="margin-top:0">
       <div class="row" style="align-items:baseline">
-        <b style="font-size:15px">숏폼 콘텐츠 <span style="color:var(--dim);font-weight:600;font-size:13px">· 후보 선택 → 카드+스크립트 생성 → 검수 (관리자)</span></b>
+        <b style="font-size:15px">숏폼 발행</b>
         <span id="sf-result" class="stat-label" style="margin:0 0 0 auto"></span>
       </div>
-      <p class="page-desc" style="margin:6px 0 12px">시그널 순 후보에서 <b>만들 종목을 선택</b>하면 그 종목만 <b>스크립트+세로 데이터 카드</b>를 생성합니다. 규제상 <b>정보 제공·교육 목적</b>(투자 권유·수치 보장 없음)으로만, <b>사람이 검수·승인한 뒤</b> 발행합니다.</p>
+      <p class="page-desc" style="margin:6px 0 12px">후보 고르기 → 생성 → 검수. 투자 권유가 아닙니다.</p>
 
-      <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
-        <div class="row" style="align-items:baseline;gap:6px;flex-wrap:wrap">
-          <b style="font-size:13px">🖼️ 카드 배경 이미지</b>
+      <details style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
+        <summary style="cursor:pointer;font-weight:700;font-size:13px">배경 · TTS 설정</summary>
+        <div class="row" style="align-items:baseline;gap:6px;flex-wrap:wrap;margin-top:8px">
+          <b style="font-size:13px">카드 배경</b>
           <input type="file" id="sf-bg-file" accept="image/*" style="font-size:13px">
           <button class="btn primary" onclick="uploadSfBg()">업로드</button>
           <span style="color:var(--dim-2);font-size:13px">또는 URL</span>
@@ -1404,29 +1401,28 @@
           <span id="sf-tts-result" class="stat-label" style="margin:0"></span>
           <audio id="sf-tts-audio" controls style="display:none;height:32px"></audio>
         </div>
-        <div style="color:var(--dim-2);font-size:12px;margin-top:4px">Typecast TTS 연결 확인용. <b>.env에 TYPECAST_API_KEY</b>가 있어야 동작(voice·model은 config 기본값). 영상 렌더(ffmpeg)는 다음 단계.</div>
-      </div>
+        <div style="color:var(--dim-2);font-size:12px;margin-top:4px">Typecast TTS 연결 확인용. <b>.env에 TYPECAST_API_KEY</b>가 있어야 동작.</div>
+      </details>
 
       <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
         <div class="row" style="align-items:baseline">
-          <b style="font-size:13px">① 후보 (시그널 순)</b>
-          <button class="btn" onclick="loadCandidates()" style="margin-left:8px">후보 불러오기</button>
-          <button class="btn primary" onclick="genSelected()" style="margin-left:auto">선택 항목 생성</button>
+          <b style="font-size:13px">① 후보</b>
+          <button class="btn" onclick="loadCandidates()" style="margin-left:8px">불러오기</button>
+          <button class="btn primary" onclick="genSelected()" style="margin-left:auto">선택 생성</button>
         </div>
-        <div id="sf-candidates" class="placeholder" style="padding:12px 0">‘후보 불러오기’를 눌러주세요.</div>
+        <div id="sf-candidates" class="placeholder" style="padding:12px 0">‘불러오기’를 눌러주세요.</div>
       </div>
 
       <div style="background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;margin-bottom:14px">
         <div class="row" style="align-items:baseline;gap:6px;flex-wrap:wrap">
-          <b style="font-size:13px">① 성과 숏폼</b>
-          <span class="stat-label" style="margin:0">레퍼런스 봇 track record를 콘텐츠로</span>
+          <b style="font-size:13px">② 성과 숏폼</b>
           <button class="btn" onclick="genPerfShort('conservative')" style="margin-left:auto">안정형</button>
           <button class="btn" onclick="genPerfShort('balanced')">균형형</button>
           <button class="btn" onclick="genPerfShort('aggressive')">공격형</button>
         </div>
       </div>
 
-      <b style="font-size:13px">② 검수 큐</b>
+      <b style="font-size:13px">③ 검수 큐</b>
       <div class="seg-toggle" id="sf-view-seg" style="margin:8px 0 10px">
         <button class="on" data-sfview="draft" onclick="setSfView('draft')">검수 대기</button>
         <button data-sfview="approved" onclick="setSfView('approved')">승인됨</button>
@@ -1626,7 +1622,11 @@ function switchTab(t){
   if (t === 'signal') { loadSignals(); loadRegimeZone(); loadRelativeStrength(); }
   if (t === 'cycle') switchCycleSeg(_cycleSeg);   // 인사이트: 사이클/밸류체인/학습/거장 서브탭
   if (t === 'trading') switchTradingSeg(_tradingSeg);
-  if (t === 'admin') switchAdminSeg(_adminSeg);
+  if (t === 'admin') {
+    const parts = decodeURIComponent(location.hash.slice(1)).split('/');
+    const hashSeg = parts[0] === 'admin' ? parts[1] : null;
+    enterAdmin(hashSeg);
+  }
   if (t === 'mypage') fillMyPage();
   // 서브내비 있는 탭은 해시를 sub-switcher가 '#tab/seg'로 씀 → 여기선 안 건드림(새로고침 시 서브탭 유지)
   if (!_SEGS[t] && location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
@@ -4571,10 +4571,19 @@ function _setAdminOpsBadge(d){
   let n = (d.freshness || []).filter(f => f.stale).length;
   if (d.signal_drift && d.signal_drift.frozen) n++;
   ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => { if (d[k] && d[k].blocked_reason) n++; });
-  if (d.event_queue && d.event_queue.expiring_soon) n++;   // 만료되면 되돌릴 수 없다 — 배지로 끌어올린다
+  // 이벤트 후보는 뉴스 탭 배지로 — 점검 배지와 이중 카운트하지 않는다
   b.style.display = n ? '' : 'none';
   b.textContent = n || '';
   b.title = n ? '확인이 필요한 데이터 항목' : '';
+  const kbBadge = document.getElementById('admin-kb-badge');
+  if (kbBadge) {
+    const eq = d.event_queue || {};
+    const kn = eq.expiring_soon || eq.pending || 0;
+    kbBadge.style.display = kn ? '' : 'none';
+    kbBadge.textContent = kn || '';
+    kbBadge.title = kn ? '이벤트 후보 확인' : '';
+  }
+  renderAdminTodo();
 }
 
 function renderDataHealth(d){
@@ -4819,20 +4828,18 @@ function _initDropzone(){
 
 const _CLASS_COLOR = { 리포트: '#0F6B62', 실적: '#0369a1', 공시: '#0F6B62', 이벤트: '#8f2626', 시황: '#b45309', 뉴스: '#64748b', 미분류: '#94a3b8' };
 const classBadge = (c) => `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;color:#fff;background:${_CLASS_COLOR[c] || '#94a3b8'}">${esc(c || '미분류')}</span>`;
-let _kbView = 'digest';
+let _kbView = 'events';
 function setKbView(v){
-  _kbView = v;
-  document.querySelectorAll('#kb-view-seg button').forEach(b => b.classList.toggle('on', b.dataset.kbview === v));
-  document.getElementById('kbdoc-filters').style.display = (v === 'docs' || v === 'events') ? '' : 'none';
-  const watch = v === 'watch';
-  // 조사 후보는 '문서를 보는' 뷰가 아니라 '조사 대상을 넣는' 뷰라 문서 패널·업로드 박스를 비운다.
+  _kbView = v || 'events';
+  document.querySelectorAll('#kb-view-seg button').forEach(b => b.classList.toggle('on', b.dataset.kbview === _kbView));
+  document.getElementById('kbdoc-filters').style.display = (_kbView === 'docs' || _kbView === 'events') ? '' : 'none';
+  const watch = _kbView === 'watch';
   document.getElementById('kb-doc-panel').style.display = watch ? 'none' : '';
   document.getElementById('kb-watch-panel').style.display = watch ? '' : 'none';
-  document.getElementById('kb-import-box').style.display = watch ? 'none' : '';
-  document.getElementById('kb-collect-details').style.display = watch ? 'none' : '';
+  const collect = document.getElementById('kb-collect-details');
+  if (collect) collect.style.display = watch ? 'none' : '';
   if (watch) {
-    document.getElementById('kb-view-desc').innerHTML = '직접 넣은 종목의 <b>조사 대기열</b>. KB를 우선 모아 우리 점수·정성으로 볼 뿐, '
-      + '<b>엔진 점수 가산은 없습니다</b>. 출처 크롤링도 없습니다.';
+    document.getElementById('kb-view-desc').innerHTML = '직접 넣은 조사 대기열. 점수 가산 없음.';
     loadExternalWatch();
     return;
   }
@@ -4848,13 +4855,11 @@ async function loadKbEvents(){
   const el = document.getElementById('kbdoc-body'), fEl = document.getElementById('kbdoc-filters');
   const chip = (label, val) => `<button class="btn${_kbEventView === val ? ' primary' : ''}" style="padding:3px 10px;font-size:13px" onclick="_kbEventView='${val}';loadKbEvents()">${label}</button>`;
   fEl.style.display = '';
-  fEl.innerHTML = chip('결정 적격', 'eligible') + chip('후보 / 검토용', 'candidate');
+  fEl.innerHTML = chip('확정', 'eligible') + chip('후보', 'candidate');
   const isCand = _kbEventView === 'candidate';
   document.getElementById('kb-view-desc').innerHTML = isCand
-    ? 'Sonnet이 비-DART 원문에서 추출한 <b>조사 후보</b>. 자동 승격 없음 — 관리자가 '
-      + '<b>Decision 반영 / 표시만 / 기각</b>을 고른다. 점수 가산은 없다.'
-    : '구조화 <b>결정 이벤트</b>(DART 공시 등). Decision 입력용이며 <b>점수 가산 없음</b>. '
-      + 'eligible=의사결정 반영 · 근거 URL이 있는 confirmed만.';
+    ? '뉴스에서 뽑은 <b>후보</b>. 승인해야 매매에 반영됩니다(점수 가산 없음).'
+    : '공시 등 <b>확정 이벤트</b>. 매매 게이트용 · 점수 가산 없음.';
   try {
     const d = await (await fetch('/api/kb/events?view=' + encodeURIComponent(_kbEventView))).json();
     const items = d.items || [];
@@ -5102,28 +5107,120 @@ function fillMyPage(){
   document.getElementById('mp_email').textContent = _userEmail || '';
 }
 
-// ===== 관리자 세부탭 — 운영·데이터 / 엔진 / 검증·실측 / KB·리서치 / 콘텐츠 =====
-// 관심사별로 묶는다: 데이터가 들어오는지(운영) · 값을 바꾸는 곳(엔진) · 믿을 근거(검증) ·
-// 지식·조사(KB) · 발행물(콘텐츠). 비용 큰 액션은 각 탭의 접이식 안에 둔다.
+// ===== 관리자 — 오늘 할 일 먼저, 탭은 짧게(점검/엔진/성적/뉴스/발행) =====
 const _ADMIN_PANELS = { ops: 'admin-ops', engine: 'admin-engine', verify: 'admin-verify',
                         kb: 'admin-kb', content: 'admin-content' };
-const _ADMIN_SEG_ALIAS = { shortform: 'content', watch: 'kb' };   // 옛 해시·북마크 호환
-let _adminSeg = 'ops';   // 기본은 운영·데이터 — 수집이 멈췄는지부터 보이게
-function switchAdminSeg(seg){
+const _ADMIN_SEG_ALIAS = { shortform: 'content', watch: 'kb' };
+let _adminSeg = 'ops';
+let _adminEntered = false;   // 스마트 랜딩은 세션당 1회
+function switchAdminSeg(seg, { pin = true } = {}){
   seg = _ADMIN_SEG_ALIAS[seg] || (_ADMIN_PANELS[seg] ? seg : 'ops');
   _adminSeg = seg;
+  if (pin) _adminEntered = true;
   document.querySelectorAll('#admin-seg button').forEach(b => b.classList.toggle('on', b.dataset.aseg === seg));
   Object.entries(_ADMIN_PANELS).forEach(([s, id]) => {
     const el = document.getElementById(id);
     if (el) el.style.display = s === seg ? '' : 'none';
   });
-  loadDataHealth({ render: seg === 'ops' });   // 어느 탭에 있어도 '운영' 배지로 정지가 드러나게
-  if (seg === 'ops') { loadLlmUsage(); loadD7(); }
-  if (seg === 'engine') { loadEngine(); loadBrain(); loadBrainProposals(); }   // 백테스트·수동가중은 접이식
-  if (seg === 'verify') { loadAccuracy(); loadQualPromo(); loadShadows(); loadAudit(); }
+  loadDataHealth({ render: seg === 'ops' }).then(() => renderAdminTodo());
+  // 비용·D7·엔진그래프·관측/감사는 접이식 — 펼칠 때 로드
+  if (seg === 'engine') {
+    loadEngine();
+    loadBrainProposals();
+    const br = document.getElementById('brain-card');
+    if (br && br.open) loadBrain();
+  }
+  if (seg === 'verify') {
+    loadAccuracy();
+    const obs = document.getElementById('verify-observe-details');
+    if (obs && obs.open) { loadQualPromo(); loadShadows(); }
+    const au = document.getElementById('audit-card');
+    if (au && au.open) loadAudit();
+  }
   if (seg === 'kb') { setKbView(_kbView); _initDropzone(); }
   if (seg === 'content') { loadShortform(); loadSfBg(); }
-  history.replaceState(null, '', '#admin/' + seg);   // 새로고침 시 서브탭 유지
+  history.replaceState(null, '', '#admin/' + seg);
+  renderAdminTodo();
+}
+
+function _badgeN(id){
+  const b = document.getElementById(id);
+  if (!b || b.style.display === 'none') return 0;
+  return parseInt(b.textContent, 10) || 0;
+}
+function renderAdminTodo(){
+  const el = document.getElementById('admin-todo-body');
+  if (!el) return;
+  const items = [];
+  const d = _dhCache;
+  if (d) {
+    const stale = (d.freshness || []).filter(f => f.stale).length;
+    if (stale) items.push({ seg: 'ops', text: `오래된 데이터 ${stale}건 — 점검` });
+    if (d.signal_drift && d.signal_drift.frozen) items.push({ seg: 'ops', text: '점수 동결 의심 — 점검' });
+    if (d.event_queue && (d.event_queue.pending || d.event_queue.expiring_soon)) {
+      const n = d.event_queue.expiring_soon || d.event_queue.pending;
+      items.push({ seg: 'kb', text: `이벤트 후보 ${n}건 — 승인/기각`, view: 'events', cand: true });
+    }
+    ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => {
+      if (d[k] && d[k].blocked_reason) items.push({ seg: 'ops', text: d[k].blocked_reason });
+    });
+  }
+  const eng = _badgeN('admin-engine-badge');
+  if (eng) items.push({ seg: 'engine', text: `엔진 제안 ${eng}건 — 승인/반려` });
+  const ver = _badgeN('admin-verify-badge');
+  if (ver) items.push({ seg: 'verify', text: '성적 판정 가능 — 확인' });
+  if (!items.length) {
+    el.innerHTML = '<span style="color:var(--sig-buy)">지금 급한 일 없음</span>'
+      + ' <span style="color:var(--dim-2)">· 평소엔 점검 탭만 보면 됩니다</span>';
+    return;
+  }
+  // 중복 문구 정리
+  const seen = new Set();
+  const uniq = items.filter(it => { if (seen.has(it.text)) return false; seen.add(it.text); return true; });
+  el.innerHTML = uniq.slice(0, 5).map(it =>
+    `<button type="button" class="btn" style="margin:0 6px 6px 0;padding:4px 10px;font-size:13px"
+      onclick="adminTodoGo('${it.seg}'${it.cand ? ',true' : ''})">${esc(it.text)}</button>`).join('');
+}
+function adminTodoGo(seg, openCand){
+  switchAdminSeg(seg);
+  if (seg === 'kb' && openCand) {
+    _kbEventView = 'candidate';
+    setKbView('events');
+  }
+}
+async function enterAdmin(hashSeg){
+  // 해시가 구체 탭이면 그대로. 아니면 배지 있는 첫 탭으로.
+  const explicit = hashSeg && _ADMIN_PANELS[hashSeg] && hashSeg !== 'ops';
+  await loadDataHealth({ render: false });
+  // 제안·판정 배지용 가벼운 prefetch(본문은 해당 탭에서)
+  try {
+    const bp = await (await fetch('/api/brain/proposals?status=draft')).json();
+    _setEngineBadge((bp.items || []).length);
+  } catch (e) {}
+  try {
+    const adv = await (await fetch('/api/advisor-shadow')).json();
+    const ready = !!(adv && (adv.paired_verdict_ready ?? adv.verdict_ready));
+    const b = document.getElementById('admin-verify-badge');
+    if (b) { b.style.display = ready ? '' : 'none'; b.textContent = ready ? '판정' : ''; }
+  } catch (e) {}
+  const eq = (_dhCache && _dhCache.event_queue) || {};
+  const kbBadge = document.getElementById('admin-kb-badge');
+  if (kbBadge) {
+    const n = eq.expiring_soon || eq.pending || 0;
+    kbBadge.style.display = n ? '' : 'none';
+    kbBadge.textContent = n || '';
+  }
+  let pick = 'ops';
+  if (explicit) pick = hashSeg;
+  else if (!_adminEntered) {
+    if (_badgeN('admin-ops-badge')) pick = 'ops';
+    else if ((eq.expiring_soon || eq.pending) > 0) pick = 'kb';
+    else if (_badgeN('admin-engine-badge')) pick = 'engine';
+    else if (_badgeN('admin-verify-badge')) pick = 'verify';
+  } else {
+    pick = _adminSeg || 'ops';
+  }
+  switchAdminSeg(pick, { pin: true });
 }
 
 // ===== 조사 후보 큐(관리자) — 수동 종목 · KB 우선 · 점수 가산 없음 =====
@@ -5524,6 +5621,7 @@ function _setEngineBadge(n){
   if (!b) return;
   if (n > 0) { b.style.display = ''; b.textContent = String(n); }
   else { b.style.display = 'none'; b.textContent = ''; }
+  renderAdminTodo();
 }
 function _patchLine(patch, baseline){
   return Object.entries(patch || {}).map(([k, v]) => {
@@ -5877,6 +5975,7 @@ async function loadShadows(){
     b.textContent = n ? '판정' : '';
     b.title = n ? '유의성 조건을 충족한 shadow가 있습니다 — 사람이 판단할 차례' : '';
   }
+  renderAdminTodo();
 }
 
 async function loadD7(){
