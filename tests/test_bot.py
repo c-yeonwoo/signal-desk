@@ -66,7 +66,9 @@ def test_advisor_abstention_buys_nothing(tmp_path, monkeypatch):
            {"AAA": [100.0], "BBB": [100.0]},
            [_sig("AAA", "가", "BUY", 2.4), _sig("BBB", "나", "BUY", 2.0)], min_buy_score=0.0)
     _seed(10_000_000.0)
-    monkeypatch.setattr(bot.advisor, "select_buys", lambda *a, **k: [])
+    monkeypatch.setattr(
+        bot.advisor, "advise",
+        lambda *a, **k: bot.advisor.BuyAdvice([], reason="test_abstain"))
     out = bot.run_once(UID)
     assert out["ok"] and out["buys"] == []
     assert db.bot_positions_all(UID) == []
@@ -83,7 +85,9 @@ def test_advisor_unavailable_falls_back_to_score_order(tmp_path, monkeypatch):
            {"AAA": [100.0], "BBB": [100.0]},
            [_sig("AAA", "가", "BUY", 2.4), _sig("BBB", "나", "BUY", 2.0)], min_buy_score=0.0)
     _seed(10_000_000.0)
-    monkeypatch.setattr(bot.advisor, "select_buys", lambda *a, **k: None)
+    monkeypatch.setattr(
+        bot.advisor, "advise",
+        lambda *a, **k: bot.advisor.BuyAdvice(None, reason="test_unavailable"))
     out = bot.run_once(UID)
     assert [b["ticker"] for b in out["buys"]] == ["AAA", "BBB"]  # 점수순 상위 2(슬롯)
     from signal_desk.signals import advisor_shadow

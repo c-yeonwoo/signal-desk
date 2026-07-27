@@ -258,14 +258,17 @@ def test_missing_universe_join_is_named_not_silent():
 def test_advisor_shadow_verdict_requires_significance():
     """표본 수만으로 판정하지 않는다 — 20쌍의 SE는 ±3.8%p다."""
     from signal_desk.signals import advisor_shadow
-    src = advisor_shadow.summary.__doc__ or ""
     import inspect
     code = inspect.getsource(advisor_shadow)
     assert "delta_significant" in code
-    assert "verdict_ready" in code
-    idx = code.index("verdict_ready")
-    line = code[idx:code.index("\n", idx)]
-    assert "significant" in line, f"판정이 유의성과 무관하다: {line}"
+    # 할당식만 본다(독스트링의 paired_verdict_ready 언급과 구분)
+    assert '"verdict_ready":' in code or "verdict_ready =" in code
+    for line in code.splitlines():
+        if '"verdict_ready":' in line or line.strip().startswith("verdict_ready"):
+            assert "significant" in line, f"판정이 유의성과 무관하다: {line}"
+            break
+    else:
+        raise AssertionError("verdict_ready 할당식을 찾지 못했다")
 
 
 def test_bot_and_ui_score_from_one_input_set():
