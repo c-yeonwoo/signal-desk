@@ -126,6 +126,8 @@ validate bar(종목 import Opus · 거시 Opus)는 **유지·강화**. 풀이 �
 - URL·evidence_text 없으면 저장 안 함 · 종목당 호출 상한
 - `sentiment_map()` / `kb_events_active(decision_only=True)`에 후보 미포함
 - 관리자: 결정 적격 / 후보 토글 · `GET /api/kb/events?view=candidate`
+- 후보 승격은 **사람만** — `POST /api/kb/events/review` (`confirm`|`attention`|`reject`).
+  LLM/하네스 자동 적격 판단 없음. `confirm`이어도 호재·info는 Decision 미반영(비대칭).
 
 ### P2 수용 기준
 - `signals/decision.py`가 confirmed+eligible만으로 buy_blocked / holding_action 산출

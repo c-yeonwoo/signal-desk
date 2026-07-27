@@ -780,6 +780,50 @@ def _extract_candidate_event(ticker: str, item: dict) -> dict | None:
     }
 
 
+def _action_for_confirm(severity: str, direction: str) -> tuple[bool, str]:
+    """사람 승인 시 Decision 반영 여부. 악재 critical/serious만 eligible — 호재로 BUY 만들지 않음."""
+    sev = (severity or "").lower()
+    dire = (direction or "").lower()
+    if sev == "critical" and dire != "positive":
+        return True, "exit"
+    if sev == "serious" and dire != "positive":
+        return True, "buy_block"
+    return False, "attention"
+
+
+def review_candidate_event(event_id: int, action: str) -> dict:
+    """후보 이벤트 사람 검토. action=confirm|attention|reject.
+    LLM/하네스 자동 승격 없음 — Decision 입력은 관리자 확인(또는 DART 규칙)만."""
+    ev = db.kb_event_get(int(event_id))
+    if not ev:
+        return {"ok": False, "reason": "이벤트 없음"}
+    if (ev.get("status") or "") != "candidate":
+        return {"ok": False, "reason": f"후보가 아님(status={ev.get('status')})"}
+    act = (action or "").strip().lower()
+    if act == "reject":
+        out = db.kb_event_review(
+            int(event_id), status="rejected", decision_eligible=False,
+            decision_action="none", rationale_suffix="관리자 기각")
+        return {"ok": True, "event": out, "action": "reject"}
+    if act == "attention":
+        out = db.kb_event_review(
+            int(event_id), status="confirmed", decision_eligible=False,
+            decision_action="attention",
+            rationale_suffix="관리자 표시만(Decision 미반영)")
+        return {"ok": True, "event": out, "action": "attention"}
+    if act == "confirm":
+        eligible, d_action = _action_for_confirm(ev.get("severity") or "", ev.get("direction") or "")
+        # confirm이어도 호재·info는 Decision 미반영(비대칭). UI는 attention과 같은 결과지만
+        # '승인' 경로로 남긴다.
+        out = db.kb_event_review(
+            int(event_id), status="confirmed", decision_eligible=eligible,
+            decision_action=d_action,
+            rationale_suffix=("관리자 Decision 반영" if eligible else "관리자 승인·Decision 비대상"))
+        return {"ok": True, "event": out, "action": "confirm",
+                "decision_eligible": eligible, "decision_action": d_action}
+    return {"ok": False, "reason": "action은 confirm|attention|reject"}
+
+
 def sync_candidate_events(ticker: str, items: list[dict]) -> int:
     """새로 들어온 비-DART 뉴스 → candidate 카드(+evidence). decision_eligible 항상 False.
     URL·근거 없으면 스킵. 종목당 상한. LLM 없거나 실패 시 0."""
