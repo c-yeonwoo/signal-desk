@@ -109,7 +109,9 @@ def _shadow_snapshot() -> dict:
     from signal_desk.signals import advisor_shadow
     out = advisor_shadow.summary(store.load_all_dated_closes())
     keep = ("ready", "runs", "matured_pairs", "delta_pct", "delta_ci95_pp",
-            "delta_significant", "verdict_ready", "min_samples")
+            "delta_significant", "verdict_ready", "min_samples",
+            "paired_n", "paired_delta_pct", "paired_delta_ci95_pp",
+            "paired_delta_significant", "paired_verdict_ready")
     return {k: out.get(k) for k in keep if k in out}
 
 

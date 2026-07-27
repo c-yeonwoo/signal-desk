@@ -176,6 +176,10 @@ def test_records_advisor_shadow_only_on_real_runs(tmp_path, monkeypatch):
     bot.run_once(UID)
     out = advisor_shadow.summary({})
     assert out["runs"] == 1 and out["advisor_used_runs"] == 0  # LLM 키 없음 → 폴백으로 기록
+    # 성향이 기록에 남아 성향별 집계가 가능하다(레퍼런스 uid 폴백 포함)
+    blob = advisor_shadow._load()
+    day = next(iter(blob.values()))
+    assert day[0].get("style") in ("conservative", "balanced", "aggressive")
 
 
 def test_rank_mode_buys_relative_best_even_when_all_below_old_threshold(tmp_path, monkeypatch):

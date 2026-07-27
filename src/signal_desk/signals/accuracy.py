@@ -111,6 +111,18 @@ def mean_diff_se_pp(a: list[float], b: list[float]) -> float | None:
     return round((_var(a) / len(a) + _var(b) / len(b)) ** 0.5 * 100, 2)
 
 
+def paired_mean_diff_se_pp(diffs: list[float]) -> float | None:
+    """쌍별 차이(a−b, 수익률 비율) 목록 평균의 표준오차(%p).
+
+    unpaired `mean_diff_se_pp`와 달리 같은 회차·같은 순위에서 맞춘 교체 쌍의 SE다.
+    advisor shadow처럼 '상위 vs 하위' 구조 편향을 빼려면 이쪽을 쓴다."""
+    if len(diffs) < 2:
+        return None
+    m = sum(diffs) / len(diffs)
+    var = sum((x - m) ** 2 for x in diffs) / (len(diffs) - 1)
+    return round((var / len(diffs)) ** 0.5 * 100, 2)
+
+
 def diff_verdict(a: list[float], b: list[float], *, min_samples: int = _MIN_IC_SAMPLES) -> dict:
     """두 수익률 집합(a=검증 대상, b=대조군)의 평균차 판정 — shadow 공용.
 
