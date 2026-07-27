@@ -948,7 +948,7 @@
         서비스가 직접 운영하는 <b style="color:var(--txt)">가상 계좌 3개</b> — 같은 시그널을 매일 자동 집행하고
         <b style="color:var(--txt)">리셋하지 않습니다</b>.
         <button type="button" class="linkish" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">자세히</button>
-        <span class="more-block" hidden>성적이 나쁘면 초기화해 버리는 장부는 증거가 될 수 없어서입니다.
+        <span class="more-block" hidden>성적이 나쁘면 초기화해 버리는 트레이딩은 증거가 될 수 없어서입니다.
         실제 증권사 주문과 무관하고, 내 실보유 포트폴리오와도 합쳐지지 않습니다.</span>
       </div>
     </div>
@@ -2379,7 +2379,7 @@ async function loadScorecard(){
       const wr = matureOk && bot.win_rate != null ? ` · 승률 ${fmtNum(bot.win_rate, 1)}%` : '';
       tail = `<span class="trust-tail"><span class="trust-badge bot">트레이딩</span>`
         + `<span style="color:var(--dim)">체결 ${bot.resolved}건${wr}</span>`
-        + `<button type="button" class="linkish" onclick="switchTab('trading')">장부</button></span>`;
+        + `<button type="button" class="linkish" onclick="switchTab('trading')">트레이딩</button></span>`;
     }
     tail += `<button type="button" class="linkish trust-more" onclick="toggleTrustLegend()">용어</button>`;
     rows[0] = rows[0].replace(/<\/div>$/, tail + '</div>');
@@ -3763,7 +3763,7 @@ async function loadBotState(){
       + ` · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b> · 손절 -7% / 익절 +15%</span>`
       + `<button type="button" class="linkish" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">전체 규칙</button>`
       + `<span class="more-block" hidden>`
-      + `매일 자동으로 공용 시그널을 이 장부에 적용(강한 BUY 후보 → AI 최종 선별) · `
+      + `매일 자동으로 공용 시그널을 이 트레이딩에 적용(강한 BUY 후보 → AI 최종 선별) · `
       + `종가 기준 가상 체결 · 장중에만 매매(장외 스킵) · `
       + `한 사이클 최대 ${cfg.max_new_buys_per_run}건 · 트레일링 -5%`
       + (d.rotation ? ` · 컨빅션 로테이션(${esc(d.style_label)}): `

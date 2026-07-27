@@ -141,6 +141,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "정밀도 우선" in html
     assert "트레이딩" in html  # 구 '공개 장부' → #282 '모의운용' 후보를 거쳐 확정
     assert "공개 장부" not in html and "공개장부" not in html and "모의운용" not in html
+    assert ">장부<" not in html  # UI 라벨 잔재 — 전부 트레이딩
     assert "trust-paper-muted" in html  # 페이퍼 승률 ≠ 실측 헤드라인
     assert "고장 아닐 수 있음" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
