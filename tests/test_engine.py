@@ -56,7 +56,8 @@ def test_evaluate_produces_sorted_signals_without_fundamentals_or_valuation():
     results = engine.evaluate(universe, {"005930": closes})
     assert len(results) == 1
     r = results[0]
-    assert r.kind == "BUY"
+    # 유니버스 1종이면 매수권 1자리·우선 1자리 → STRONG_BUY(절대 BUY였던 때도 동일)
+    assert engine.is_buy(r.kind)
     assert r.has_fundamental is False
     assert r.has_valuation is False  # fundamentals 미제공 -> PER/PBR 없음
     assert r.technical_score == pytest.approx(1.5)

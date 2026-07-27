@@ -89,6 +89,40 @@ def test_absolute_buy_outside_rank_is_demoted():
     assert rs[-1].kind == "HOLD" and "매수권" in rs[-1].reasons[-1]
 
 
+def test_absolute_buy_still_gets_strong_slot_by_rank():
+    """절대 classify가 이미 BUY여도 매수권 앞자리는 우선매수여야 한다.
+
+    버그 재현(US 스크린샷): 게이트로 상위가 빠지면 ≥1.2 종목은 BUY로 남고,
+    그 아래 <1.2만 STRONG_BUY로 승격돼 점수↔라벨이 뒤집혔다."""
+    cfg = SignalConfig(selection_mode="rank", rank_top_pct=3.0, rank_min_score=0.0)
+    named = [
+        ("ACGL", 1.41, True), ("FOX", 1.32, False), ("FOXA", 1.31, False),
+        ("SOLV", 1.26, False), ("UHS", 1.22, True), ("EG", 1.20, True),
+        ("HIG", 1.12, False), ("F", 1.04, False),
+    ]
+    pad = [(f"P{i}", 0.50 - i * 0.001, False) for i in range(492)]
+    rs = []
+    for t, s, g in named + pad:
+        rs.append(_sig(t, s, kind=engine.classify(s, cfg), gate_blocked=g))
+    rs = sorted(rs, key=lambda r: r.score, reverse=True)
+    engine.apply_cross_sectional(rs, cfg)
+    by = {r.ticker: r for r in rs}
+    assert by["ACGL"].kind == "HOLD" and by["ACGL"].rank_eligible is False
+    # 게이트로 빠진 자리를 채운 상위 적격 5자리(k=15의 앞 1/3) = 우선매수
+    assert by["FOX"].kind == "STRONG_BUY" and by["FOX"].rank_eligible
+    assert by["FOXA"].kind == "STRONG_BUY"
+    assert by["SOLV"].kind == "STRONG_BUY"
+    assert by["HIG"].kind == "STRONG_BUY"   # 절대 점수 <1.2여도 적격 4번째 → 우선
+    assert by["F"].kind == "STRONG_BUY"
+    # 뒤집힘 금지: 매수권 안에서 더 낮은 점수가 더 강한 kind면 안 된다
+    # (고치기 전엔 FOX=BUY · HIG=STRONG_BUY 로 여기가 실패했다)
+    elig = [r for r in rs if r.rank_eligible]
+    strength = {"STRONG_BUY": 2, "BUY": 1}
+    for a, b in zip(elig, elig[1:]):
+        assert strength[a.kind] >= strength[b.kind], (a.ticker, a.kind, b.ticker, b.kind)
+    assert by["FOX"].kind == "STRONG_BUY" and by["HIG"].kind == "STRONG_BUY"
+
+
 def test_sell_side_untouched_by_rank():
     """매도는 절대 기준 그대로 — 하락장에서 청산을 억제하지 않는다."""
     cfg = SignalConfig(selection_mode="rank", rank_top_pct=50.0)

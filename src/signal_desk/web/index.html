@@ -202,6 +202,8 @@
   .sig-list td.sig-cell { vertical-align:middle; text-align:center; }
   .sig-list .sig-pills { display:flex; flex-wrap:wrap; gap:4px; align-items:center; justify-content:center; }
   .sig-list .sig-pills .clim-pill { margin-left:0; }
+  .sig-list .hold-tag { font-size:10px; font-weight:600; color:var(--dim-2); letter-spacing:.02em;
+    border:1px solid var(--line); border-radius:var(--r-sm); padding:1px 5px; line-height:1.3; }
   .sig-list .dtable th .col-resizer {
     position:absolute; right:-3px; top:0; bottom:0; width:8px; cursor:col-resize; z-index:2;
   }
@@ -2777,11 +2779,16 @@ function renderSignalList(){
   const badges = (r) => (r.opp_tags || []).map(t =>
     `<span class="opp-badge">${t}</span>`).join('')
     + (r.external_watch ? '<span class="ext-badge" title="외부 조사 후보 · 점수 가산 없음">조사</span>' : '');
+  const holdNote = (r) => {
+    if (r.kind !== 'HOLD' || !r.hold_tag) return '';
+    const tip = _HOLD_TAG_TIP[r.hold_tag] || r.hold_tag;
+    return `<span class="hold-tag" title="${esc(tip)}">${esc(r.hold_tag)}</span>`;
+  };
   const body = rows.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}">
       <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div></td>
       <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}${badges(r)}</td>
-      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(kindHint(r.kind))}">${kindLabel(r.kind)}</span>${climatePill(r.climate)}</div></td>
+      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(kindHint(r.kind))}">${kindLabel(r.kind)}</span>${holdNote(r)}${climatePill(r.climate)}</div></td>
     </tr>`).join('');
     el.innerHTML = rows.length
     ? `<table class="dtable sig-table"><colgroup>
@@ -2940,11 +2947,18 @@ const _ZONE_COLOR = { STRONG_BUY: '#0a5f3e', BUY: '#2F9E68', SELL: '#B23B3B', ST
 // 뱃지 문구 = 지금 모드(순위)의 의미. STRONG_BUY는 절대 '강함'이 아니라 오늘 매수 후보 중 더 위.
 const _KIND_LABEL = { STRONG_BUY: '우선매수', BUY: '매수', HOLD: '관망', SELL: '매도', STRONG_SELL: '우선매도' };
 const _KIND_HINT = {
-  STRONG_BUY: '오늘 매수 후보 안에서도 순위가 더 위인 종목',
-  BUY: '오늘 같은 시장(국내 후보군) 점수 상위권 — 살 후보',
-  HOLD: '오늘은 매수/매도 후보 아님',
+  STRONG_BUY: '오늘 매수권 안에서도 순위가 더 위(앞 1/3) — 점수가 아니라 상대 순위',
+  BUY: '오늘 같은 시장 매수권(상위 분위) — 살 후보. 점수가 높아도 게이트면 관망',
+  HOLD: '오늘은 매수/매도 후보 아님(게이트·매수권 밖·점수 부족)',
   SELL: '점수·규칙상 매도 쪽',
   STRONG_SELL: '매도 후보 중에서도 더 강한 쪽',
+};
+const _HOLD_TAG_TIP = {
+  악재: '악재·결정 이벤트로 매수 차단',
+  실적: '실적발표 임박 — 발표 전 신규 매수 보류',
+  추세: '하락추세 확인(종가<MA20<MA60) — 반등 전 관망',
+  매수권밖: '점수는 있어도 오늘 매수권(상위 분위) 밖',
+  게이트: '매수 게이트로 보류',
 };
 const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
 const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';
@@ -3031,18 +3045,20 @@ function syncQuickFilters(){
   near.textContent = `근접 ${nearN}`;
   near.classList.toggle('on', _precisionBucket === 'near');
 }
-// '점수는 높은데 왜 관망?' 설명 — 추세 게이트 또는 국면 상향된 매수 기준 미달을 짚어 준다.
+// '점수는 높은데 왜 관망?' — rank 모드에선 게이트·매수권 밖이 본래 이유(절대 문턱 미달 문구는 쓰지 않음).
 function whyHoldNote(item){
   if (!item || item.kind !== 'HOLD') return '';
+  const tip = (t) => ` <span style="color:var(--sell);font-size:12px">ⓘ ${t}</span>`;
+  if (item.hold_tag && _HOLD_TAG_TIP[item.hold_tag])
+    return tip(_HOLD_TAG_TIP[item.hold_tag]
+      + (item.hold_tag === '실적' && item.earnings_date ? ' · ' + item.earnings_date : ''));
   if (item.earnings_soon && (item.reasons || []).some(r => r.includes('실적') && r.includes('보류')))
-    return ` <span style="color:var(--sell);font-size:12px">ⓘ 실적발표 임박 — 발표 전 신규 매수 보류(관망)${item.earnings_date ? ' · ' + esc(item.earnings_date) : ''}</span>`;
-  const trendGated = (item.reasons || []).some(r => r.includes('추세') && r.includes('차단'));
-  if (trendGated)
-    return ` <span style="color:var(--sell);font-size:12px">ⓘ 하락추세로 매수 보류(종가<MA20<MA60) — 반등 확인 전 관망</span>`;
-  if (item.score >= 1.2) {  // 기본 매수 기준(+1.2)은 넘지만 관망 → 국면 상향된 기준 미달
-    const bumpTxt = _adaptBump > 0 ? ` (${_adaptReasons.join(', ')})` : '';
-    return ` <span style="color:var(--sell);font-size:12px">ⓘ 점수는 매수권이나 현재 매수 기준 +${fmtNum(_effBuyThreshold, 1)}${bumpTxt} 미달 → 관망</span>`;
-  }
+    return tip(`실적발표 임박 — 발표 전 신규 매수 보류${item.earnings_date ? ' · ' + item.earnings_date : ''}`);
+  if ((item.reasons || []).some(r => r.includes('추세') && r.includes('차단')))
+    return tip('하락추세로 매수 보류(종가<MA20<MA60) — 반등 확인 전 관망');
+  if ((item.reasons || []).some(r => r.includes('매수권') && r.includes('밖')))
+    return tip('점수는 있어도 오늘 매수권(상위 분위) 밖');
+  if (item.gate_blocked) return tip('매수 게이트로 보류 — 점수와 별개');
   return '';
 }
 

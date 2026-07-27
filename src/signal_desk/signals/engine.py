@@ -406,11 +406,16 @@ def apply_cross_sectional(results: list[SignalResult],
                     and not r.event_risk)
         r.rank_eligible = eligible
         if eligible:
-            if not is_buy(r.kind):
-                r.kind = STRONG_BUY if taken < max(1, k // 3) else BUY
+            # 절대 classify가 이미 BUY여도 자리 순서로 다시 나눈다.
+            # 예전엔 `if not is_buy`라서 절대 BUY(≥1.2)는 STRONG 승격이 스킵되고,
+            # 그 아래 절대 HOLD(<1.2)만 우선매수 자리를 먹어 점수↔라벨이 뒤집혔다.
+            strong_n = max(1, k // 3)
+            new_kind = STRONG_BUY if taken < strong_n else BUY
+            if r.kind != new_kind:
                 r.reasons = [*r.reasons,
-                             f"[선정] 시장 {n}종목 중 {r.rank}위(매수권 {k}자리) — "
+                             f"[선정] 시장 {n}종목 중 {r.rank}위(매수권 {k}자리·우선 {strong_n}) — "
                              f"절대 문턱이 아니라 같은 시장 안의 상대 순위로 고른 종목"]
+            r.kind = new_kind
             taken += 1
         elif is_buy(r.kind):
             # 절대 문턱은 넘었지만 상대 순위가 밖 → 매수권 아님(모드 하나만 유효해야 한다)
