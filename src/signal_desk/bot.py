@@ -517,6 +517,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
             try:
                 advisor_shadow.record(
                     uid=uid, market=market, slots=slots, picks=picks,
+                    style=cfg.get("trading_style"),
                     pool=[{"ticker": s.ticker, "score": s.score} for s in pool],
                 )
             except Exception as e:

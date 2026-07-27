@@ -306,8 +306,14 @@ def test_shadow_verdicts_share_one_significance_rule():
     thin = accuracy.diff_verdict([0.10, 0.11], [0.0, 0.01], min_samples=20)
     assert thin["verdict_ready"] is False and "표본" in thin["blocked_reason"]
     for mod in (advisor_shadow, climate, kb_coverage):
-        assert "mean_diff_se_pp" in inspect.getsource(mod) or "diff_verdict" in inspect.getsource(mod), \
+        src = inspect.getsource(mod)
+        assert ("mean_diff_se_pp" in src or "diff_verdict" in src
+                or "paired_mean_diff_se_pp" in src), \
             f"{mod.__name__}이 자체 판정 통계를 쓴다"
+    # paired SE도 accuracy 한곳에 — advisor_shadow가 자체 분산식을 짜면 안 된다
+    adv_src = inspect.getsource(advisor_shadow)
+    assert "paired_mean_diff_se_pp" in adv_src
+    assert "def paired_mean_diff_se_pp" not in adv_src
 
 
 def test_one_bad_ticker_does_not_stop_collection_or_pruning(tmp_path, monkeypatch):
