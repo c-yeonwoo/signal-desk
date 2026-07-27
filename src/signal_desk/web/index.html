@@ -190,9 +190,21 @@
   .macro-callout .mco-body li { margin:2px 0; }
   .sig-workspace { display:flex; gap:20px; align-items:flex-start; }  /* stretch 금지 — 긴 리스트가 차트 컬럼을 뷰포트 밖으로 늘려 차트를 폭발시켰음 */
   .sig-list { flex:0 0 min(480px, 38vw); min-width:280px; max-height:calc(100dvh - 200px); overflow-y:auto; overflow-x:hidden; padding:0; }
+  .sig-list table.dtable { table-layout:fixed; width:100%; }
   .sig-list table.dtable th, .sig-list table.dtable td { padding:11px 10px; }
-  .sig-list table.dtable td:nth-child(2) { white-space:normal; }  /* 긴 종목명은 줄바꿈(가로 스크롤 방지) */
-  .sig-list .dtable th { position:sticky; top:48px; background:var(--panel); z-index:1; }
+  .sig-list table.dtable td:nth-child(2),
+  .sig-list table.dtable td:nth-child(3) { white-space:normal; word-break:keep-all; }  /* 종목·섹터 줄바꿈 */
+  .sig-list .dtable th { position:sticky; top:48px; background:var(--panel); z-index:1; user-select:none; }
+  /* 관망+기후 두 pill이 한 줄에 잘리지 않게 — 가운데·줄바꿈 */
+  .sig-list .sig-cell { display:flex; flex-wrap:wrap; gap:4px; align-items:center; justify-content:center;
+    white-space:normal; }
+  .sig-list .sig-cell .clim-pill { margin-left:0; }
+  .sig-list .dtable th .col-resizer {
+    position:absolute; right:-3px; top:0; bottom:0; width:8px; cursor:col-resize; z-index:2;
+  }
+  .sig-list .dtable th .col-resizer:hover,
+  .sig-list .dtable th .col-resizer.dragging { background:var(--ring, rgba(15,107,98,.35)); }
+  body.col-resizing { cursor:col-resize !important; user-select:none !important; }
   .sig-toolbar { position:sticky; top:0; z-index:3; display:flex; gap:8px; padding:12px;
     background:var(--panel); }
   .sig-toolbar #sig-search { flex:1 1 auto; min-width:0; }
@@ -558,7 +570,9 @@
     /* 섹터 열을 두면 표가 419px이 되어 시그널 pill이 화면 밖으로 밀린다 —
        시그널 탭에서 시그널이 가로 스크롤 뒤에 숨는 건 말이 안 된다. 맥락인 섹터를 접는다. */
     .sig-list table.dtable th:nth-child(3), .sig-list table.dtable td:nth-child(3) { display:none; }
-    .sig-list table.dtable th:nth-child(4), .sig-list table.dtable td:nth-child(4) { text-align:right; }
+    /* 시그널 열은 .sig-cell flex 가운데 정렬 유지(우측 정렬이면 기후 pill이 잘리기 쉬움) */
+    .sig-list table.dtable th:nth-child(4) { text-align:center; }
+    .sig-list .col-resizer { display:none; }  /* 좁은 화면은 섹터 열이 접혀 리사이즈 의미 없음 */
     .sig-head { padding:12px 12px 0; }
     #chat-fab { width:48px; height:48px; font-size:21px; }
     .market-bar #regime-detail { flex:1 1 100%; }
@@ -2764,10 +2778,18 @@ function renderSignalList(){
       <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div></td>
       <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}${badges(r)}</td>
-      <td><span class="sig-pill ${r.kind}" title="${esc(kindHint(r.kind))}">${kindLabel(r.kind)}</span>${climatePill(r.climate)}</td>
+      <td class="sig-cell"><span class="sig-pill ${r.kind}" title="${esc(kindHint(r.kind))}">${kindLabel(r.kind)}</span>${climatePill(r.climate)}</td>
     </tr>`).join('');
     el.innerHTML = rows.length
-    ? `<table class="dtable"><thead><tr><th></th><th>종목</th><th>섹터</th><th>시그널</th></tr></thead>
+    ? `<table class="dtable sig-table"><colgroup>
+         <col class="col-star"><col class="col-name"><col class="col-sector"><col class="col-sig">
+       </colgroup>
+       <thead><tr>
+         <th></th>
+         <th data-col="name">종목<span class="col-resizer" data-edge="name" title="드래그로 너비 조절"></span></th>
+         <th data-col="sector">섹터<span class="col-resizer" data-edge="sector" title="드래그로 너비 조절"></span></th>
+         <th data-col="sig">시그널</th>
+       </tr></thead>
        <tbody>${body}</tbody></table>`
     : (() => {
         if (q) return `<div class="placeholder sig-empty"><div class="se-title">검색 결과 없음</div>
@@ -2800,6 +2822,76 @@ function renderSignalList(){
   });
   el.querySelectorAll('.fav-star').forEach(s => {
     s.addEventListener('click', (ev) => { ev.stopPropagation(); toggleFav(s.dataset.fav, s); });
+  });
+  const tbl = el.querySelector('table.sig-table');
+  if (tbl) { applySigColWidths(tbl); bindSigColResize(tbl); }
+}
+
+// 시그널 표 열 너비 — 별 열 고정, 종목·섹터·시그널 % 합 100. 드래그로 조절·localStorage 유지.
+const _SIG_COL_KEY = 'sigdesk.sigCols.v1';
+const _SIG_COL_DEFAULT = { name: 36, sector: 30, sig: 34 };
+function _loadSigCols(){
+  try {
+    const raw = JSON.parse(localStorage.getItem(_SIG_COL_KEY) || 'null');
+    if (!raw || typeof raw !== 'object') return { ..._SIG_COL_DEFAULT };
+    const name = Math.max(18, Math.min(60, Number(raw.name) || _SIG_COL_DEFAULT.name));
+    const sector = Math.max(14, Math.min(50, Number(raw.sector) || _SIG_COL_DEFAULT.sector));
+    const sig = Math.max(18, Math.min(55, Number(raw.sig) || _SIG_COL_DEFAULT.sig));
+    const s = name + sector + sig;
+    return { name: name / s * 100, sector: sector / s * 100, sig: sig / s * 100 };
+  } catch (e) { return { ..._SIG_COL_DEFAULT }; }
+}
+function _saveSigCols(w){
+  try { localStorage.setItem(_SIG_COL_KEY, JSON.stringify(w)); } catch (e) {}
+}
+function applySigColWidths(table){
+  const w = _loadSigCols();
+  const set = (cls, v) => { const c = table.querySelector('col.' + cls); if (c) c.style.width = v; };
+  set('col-star', '36px');
+  set('col-name', w.name.toFixed(1) + '%');
+  set('col-sector', w.sector.toFixed(1) + '%');
+  set('col-sig', w.sig.toFixed(1) + '%');
+}
+function bindSigColResize(table){
+  table.querySelectorAll('.col-resizer').forEach(handle => {
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const edge = handle.dataset.edge;  // name | sector
+      const startX = e.clientX;
+      const w0 = _loadSigCols();
+      const tableW = table.getBoundingClientRect().width || 1;
+      handle.classList.add('dragging');
+      document.body.classList.add('col-resizing');
+      const onMove = (ev) => {
+        const dxPct = (ev.clientX - startX) / tableW * 100;
+        let name = w0.name, sector = w0.sector, sig = w0.sig;
+        if (edge === 'name') {
+          name = Math.max(18, Math.min(60, w0.name + dxPct));
+          const rest = 100 - name;
+          const ratio = (w0.sector + w0.sig) || 1;
+          sector = rest * (w0.sector / ratio);
+          sig = rest * (w0.sig / ratio);
+        } else {
+          sector = Math.max(14, Math.min(50, w0.sector + dxPct));
+          // name 고정, sector↑이면 sig↓
+          const maxSector = 100 - w0.name - 18;
+          sector = Math.min(sector, maxSector);
+          sig = 100 - w0.name - sector;
+          name = w0.name;
+        }
+        const next = { name, sector, sig };
+        _saveSigCols(next);
+        applySigColWidths(table);
+      };
+      const onUp = () => {
+        handle.classList.remove('dragging');
+        document.body.classList.remove('col-resizing');
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    });
   });
 }
 
