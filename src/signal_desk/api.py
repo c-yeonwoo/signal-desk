@@ -146,8 +146,11 @@ def _open_markets() -> list[str]:
 
 
 def _quote_loop_iteration() -> None:
-    """시세 전용 틱 — 토스 현재가 오버레이만(봇/LLM 없음)."""
-    _refresh_live_quotes(_open_markets())
+    """시세 틱 + (KR 장중) DART 공시 lite poll. 봇/Sonnet 없음."""
+    open_m = _open_markets()
+    _refresh_live_quotes(open_m)
+    if "kr" in open_m:
+        _maybe_poll_disclosures()
 
 
 _DIGEST_PREV_KEY = "morning_digest_buy_count"
@@ -326,7 +329,8 @@ def _daily_maintenance(enabled: list[str]) -> None:
 
 
 async def _quote_loop():
-    """장중 토스 현재가 전용 루프(기본 10분). 봇/LLM과 분리해 시세만 자주 갱신."""
+    """장중 토스 현재가 루프(기본 10분). KR 장중이면 DART lite poll도 같은 틱에서 시도
+    (간격은 KB_DART_LITE_INTERVAL_MINUTES, 기본 15분 kv 가드)."""
     interval = config.quote_refresh_interval_minutes() * 60
     await asyncio.sleep(5)
     while True:
@@ -385,7 +389,8 @@ async def _auth_gate(request: Request, call_next):
 _ADMIN_PATHS = {
     "/api/refresh", "/api/engine/config", "/api/engine/reset", "/api/engine/qualitative-promotion",
     "/api/backtest/analysis",
-    "/api/kb/refresh", "/api/kb/import", "/api/kb/import-file", "/api/kb/documents", "/api/kb/digests",
+    "/api/kb/refresh", "/api/kb/poll-disclosures", "/api/kb/import", "/api/kb/import-file",
+    "/api/kb/documents", "/api/kb/digests",
     "/api/kb/events", "/api/kb/events/review", "/api/kb/sources", "/api/kb/sources/lifecycle",
     "/api/kb/collect-fanding", "/api/kb/collect-outstanding", "/api/kb/collect-youtube", "/api/kb/collect-rss",
     "/api/shortform/generate", "/api/shortform/generate-performance",
@@ -1842,6 +1847,8 @@ def data_health_get():
             "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),
             # 종목 KB 수집이 멈췄는지 — 실패 종목 이름까지. 조용히 빠진 종목도 조용한 0이다.
             "kb_refresh": kb_refresh,
+            # 장중 DART lite(공시→Decision만). 하루 1회 full refresh와 별개.
+            "dart_lite": db.kv_get("kb_dart_lite_last") or {},
             # 사람 확인 대기 중인 이벤트 후보 — 안 보면 유효한 악재가 만료로 조용히 사라진다.
             "event_queue": db.kb_event_queue_status(),
             # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.
@@ -1896,6 +1903,74 @@ def bot_decisions_get():
 
 
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
+def _kb_lite_targets(max_tickers: int | None = None) -> list[dict]:
+    """장중 DART lite 대상 — 매수권 + 보유 + 관심(KR만). lead/near/Sonnet 경로 제외."""
+    cap = max_tickers if max_tickers is not None else config.kb_dart_lite_max_tickers()
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    targets, seen = [], set()
+
+    def add(ticker: str) -> None:
+        if ticker in seen or ticker not in names:
+            return
+        if not (len(ticker) == 6 and ticker.isdigit()):
+            return
+        targets.append({"ticker": ticker, "name": names[ticker]})
+        seen.add(ticker)
+
+    if store.is_ready():
+        from signal_desk.signals.engine import is_buy
+        try:
+            for s in sorted(_signals(), key=lambda x: x.score, reverse=True):
+                if is_buy(s.kind):
+                    add(s.ticker)
+                if len(targets) >= cap:
+                    break
+        except Exception as e:
+            log.warning("lite 매수권 타깃 실패: %s", type(e).__name__)
+    for tk in db.bot_position_tickers_all():
+        if len(targets) >= cap:
+            break
+        add(tk)
+    for tk in db.fav_tickers_all():
+        if len(targets) >= cap:
+            break
+        add(tk)
+    return targets[:cap]
+
+
+def _maybe_poll_disclosures() -> dict | None:
+    """KR 장중 DART lite poll(간격·enabled 가드). 신규 Decision이면 시그널 캐시 무효화."""
+    if not config.kb_dart_lite_enabled():
+        return None
+    if not config.dart_key():
+        return None
+    interval = config.kb_dart_lite_interval_minutes() * 60
+    last = db.kv_get("kb_dart_lite_at")
+    last_ts = None
+    if isinstance(last, dict):
+        last_ts = last.get("ts")
+    elif isinstance(last, (int, float)):
+        last_ts = last
+    if last_ts is not None and (time.time() - float(last_ts)) < interval:
+        return None
+    # 시작 시각을 먼저 찍는다 — 느린 DART가 겹쳐 돌지 않게
+    db.kv_set("kb_dart_lite_at", {"ts": int(time.time())})
+    targets = _kb_lite_targets()
+    if not targets:
+        return {"polled": 0, "synced": 0, "new_eligible": [], "reason": "no_targets"}
+    try:
+        out = kb.poll_disclosures(targets)
+    except Exception as e:
+        log.warning("DART lite poll 실패: %s", type(e).__name__)
+        return {"ok": False, "error": type(e).__name__}
+    if out.get("new_eligible"):
+        _signals.cache_clear()
+        _clear_us_signal_caches()
+        log.info("DART lite: 신규 Decision %d종목 — 시그널 캐시 갱신 (%s)",
+                 len(out["new_eligible"]), ", ".join(out["new_eligible"][:8]))
+    return out
+
+
 def _kb_targets(limit_candidates: int = 16, lead_limit: int = 10,
                 near_limit: int = 24) -> list[dict]:
     """KB 갱신 대상 — ⓪외부 후보 ①lead ②VIX soft ③매수권+점수 상위 ④보유 ⑤관심.
@@ -1958,6 +2033,23 @@ def _kb_targets(limit_candidates: int = 16, lead_limit: int = 10,
     for tk in db.fav_tickers_all():
         add(tk)
     return targets
+
+
+@app.post("/api/kb/poll-disclosures")
+def kb_poll_disclosures():
+    """장중용 DART 공시만 즉시 수집(Sonnet/뉴스 없음). 신규 Decision이면 시그널 캐시 무효화.
+    간격 가드를 무시하는 관리자 수동 트리거."""
+    if not config.dart_key():
+        return {"ok": False, "reason": "DART_API_KEY 없음"}
+    targets = _kb_lite_targets()
+    if not targets:
+        return {"ok": False, "reason": "lite 대상 없음(매수권·보유·관심)"}
+    db.kv_set("kb_dart_lite_at", {"ts": int(time.time())})
+    out = kb.poll_disclosures(targets)
+    if out.get("new_eligible"):
+        _signals.cache_clear()
+        _clear_us_signal_caches()
+    return {"ok": True, **out}
 
 
 @app.post("/api/kb/refresh")

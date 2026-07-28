@@ -234,6 +234,39 @@ def quote_refresh_interval_minutes() -> int:
     return int(os.environ.get("QUOTE_REFRESH_INTERVAL_MINUTES", "10"))
 
 
+def kb_dart_lite_enabled() -> bool:
+    """장중 DART 공시 lite poll on/off. 기본 on. Sonnet/뉴스 없이 공시→kb_events만."""
+    raw = (os.environ.get("KB_DART_LITE_ENABLED") or "1").strip().lower()
+    return raw not in ("0", "false", "off", "no")
+
+
+def kb_dart_lite_interval_minutes() -> int:
+    """장중 DART lite poll 간격(분). 기본 15. KR 장중에만 돈다."""
+    try:
+        n = int(os.environ.get("KB_DART_LITE_INTERVAL_MINUTES", "15"))
+    except ValueError:
+        n = 15
+    return max(5, min(n, 120))
+
+
+def kb_dart_lite_max_tickers() -> int:
+    """lite poll 대상 상한(매수권·보유·관심 합). DART list.json 종목당 1콜."""
+    try:
+        n = int(os.environ.get("KB_DART_LITE_MAX_TICKERS", "40"))
+    except ValueError:
+        n = 40
+    return max(5, min(n, 120))
+
+
+def kb_dart_corp_codes_ttl_hours() -> int:
+    """corpCode.xml zip 캐시 TTL(시간). 기본 24 — refresh마다 재다운로드 방지."""
+    try:
+        n = int(os.environ.get("KB_DART_CORP_CODES_TTL_HOURS", "24"))
+    except ValueError:
+        n = 24
+    return max(1, min(n, 168))
+
+
 def morning_digest_hour() -> int | None:
     """아침 브리핑 발송 시각(KST 시, 평일). 기본 7시. `off`/`0` 이하면 발송 안 함.
     텔레그램 미설정이면 값과 무관하게 no-op."""
