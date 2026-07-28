@@ -1206,8 +1206,12 @@ def kb_event_queue_status(*, now: int | None = None, soon_hours: int = 24) -> di
     soon = [{"ticker": r[0], "severity": r[1], "summary": r[2],
              "hours_left": (round((r[3] - ts) / 3600, 1) if r[3] else None)}
             for r in rows if r[3] and r[3] <= cutoff]
+    # SLA: 만료 임박이 있거나 pending≥5면 관리자 즉시 처리 대상
+    sla_alert = bool(soon) or len(rows) >= 5
     return {"pending": len(rows), "expiring_soon": len(soon), "soon_items": soon[:8],
-            "soon_hours": soon_hours}
+            "soon_hours": soon_hours, "sla_alert": sla_alert,
+            "note": ("만료 임박·적체 — 확인 안 하면 유효 악재가 사라집니다"
+                     if sla_alert else "큐 안정")}
 
 
 def kb_event_exists(event_key: str) -> bool:

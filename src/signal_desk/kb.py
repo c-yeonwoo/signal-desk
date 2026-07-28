@@ -707,6 +707,46 @@ def sync_disclosure_events(ticker: str, items: list[dict]) -> int:
     return n
 
 
+def extend_expiring_candidates(*, within_hours: int = 24,
+                               extend_days: int | None = None,
+                               max_n: int = 30) -> dict:
+    """만료 임박 candidate의 TTL을 한 번 연장 — 사람 검토 전에 조용히 사라지는 것 방지.
+
+    rationale에 'TTL연장'이 이미 있으면 재연장하지 않는다(무한 연장 금지).
+    """
+    from signal_desk import db as _db
+    days = extend_days if extend_days is not None else EVENT_TTL_DAYS
+    ts = int(time.time())
+    cutoff = ts + within_hours * 3600
+    c = _db.conn()
+    rows = c.execute(
+        "SELECT id, ticker, summary, expires_at, rationale FROM kb_events "
+        "WHERE status='candidate' AND expires_at IS NOT NULL AND expires_at<=? "
+        "AND expires_at>=? ORDER BY expires_at ASC LIMIT ?",
+        (cutoff, ts, max_n),
+    ).fetchall()
+    extended = []
+    for eid, ticker, summary, exp, rationale in rows:
+        rat = rationale or ""
+        if "TTL연장" in rat:
+            continue
+        new_exp = int(exp) + days * 86400
+        note = f" · TTL연장(+{days}d, 검토 대기)"
+        new_rat = (rat + note).strip(" ·")[:400]
+        c.execute(
+            "UPDATE kb_events SET expires_at=?, rationale=?, updated=? WHERE id=?",
+            (new_exp, new_rat, ts, int(eid)),
+        )
+        extended.append({"id": int(eid), "ticker": ticker, "summary": (summary or "")[:60]})
+    c.commit()
+    c.close()
+    out = {"extended": len(extended), "items": extended[:10], "within_hours": within_hours}
+    if extended:
+        _db.kv_set("kb_candidate_ttl_extend_last", {**out, "ts": ts})
+        log.info("후보 이벤트 TTL 연장 %d건", len(extended))
+    return out
+
+
 def corp_codes_cached(*, ttl_hours: int | None = None) -> dict[str, str]:
     """DART corpCode zip — kv 캐시. refresh/lite poll이 매번 다운로드하지 않게."""
     ttl_h = ttl_hours if ttl_hours is not None else config.kb_dart_corp_codes_ttl_hours()

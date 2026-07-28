@@ -31,9 +31,9 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, entry_quality, episode_state, execution_gate, hypothesis, macro,
-    narrative, opportunity, priced_in, rebalance, regime, regime_zone, relative, scenario,
-    target, valuation,
+    accuracy, climate, crowding, entry_quality, episode_state, execution_gate, horizon,
+    hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime, regime_zone,
+    relative, revision, scenario, sector_rel, target, valuation,
 )
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
@@ -152,6 +152,7 @@ def _quote_loop_iteration() -> None:
     _refresh_live_quotes(open_m)
     if "kr" in open_m:
         _maybe_poll_disclosures()
+        _maybe_extend_candidate_ttl()
 
 
 _DIGEST_PREV_KEY = "morning_digest_buy_count"
@@ -181,6 +182,8 @@ def _morning_digest_text(date: datetime.date | None = None, *,
         selection=selection_summary(sigs, cfg),
         exposure=adapt.get("exposure"),
         exposure_reasons=adapt.get("exposure_reasons"),
+        event_queue=db.kb_event_queue_status(),
+        crowding=crowding.assess(sigs),
     )
     if remember:
         db.kv_set(_DIGEST_PREV_KEY, str(len(digest.buy_signals(sigs))))
@@ -925,6 +928,7 @@ def _us_signal_detail(ticker: str) -> dict | None:
     _annotate_entry([d], market="us")
     _annotate_priced_in([d], market="us")
     _annotate_episode([d], market="us")
+    _annotate_trader_layers([d], market="us")
     d.pop("remain_upside_pct", None)
     return d
 
@@ -973,6 +977,7 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     _annotate_entry([d], market="kospi")
     _annotate_priced_in([d], market="kospi")
     _annotate_episode([d], market="kospi")
+    _annotate_trader_layers([d], market="kospi")
     d.pop("remain_upside_pct", None)
     return d
 
@@ -1085,6 +1090,50 @@ def _annotate_episode(items: list[dict], *, market: str = "kospi") -> list[dict]
     return episode_state.annotate_rows(items, market=market, today=_kst_today())
 
 
+def _annotate_trader_layers(items: list[dict], *, market: str = "kospi") -> list[dict]:
+    """리비전·horizon·섹터상대 — kind 불변 관측 층."""
+    if not items:
+        return items
+    if market == "us":
+        closes_by = store.load_us_price_series()
+    else:
+        closes_by = store.load_price_series()
+    horizon.annotate_rows(items, closes_by)
+    try:
+        revision.annotate_rows(items, revision.load_deltas())
+    except Exception:
+        pass
+    mom, flow = {}, {}
+    for r in items:
+        t = r.get("ticker")
+        if not t:
+            continue
+        fs = r.get("factor_scores") or {}
+        if "momentum" in fs and fs["momentum"] is not None:
+            try:
+                mom[t] = float(fs["momentum"])
+            except (TypeError, ValueError):
+                pass
+        # SignalResult 경로: momentum_ret on raw — list row may lack it
+        if t not in mom and r.get("momentum_ret") is not None:
+            try:
+                mom[t] = float(r["momentum_ret"])
+            except (TypeError, ValueError):
+                pass
+        if "flow" in fs and fs["flow"] is not None:
+            try:
+                flow[t] = float(fs["flow"])
+            except (TypeError, ValueError):
+                pass
+        elif r.get("flow_intensity") is not None:
+            try:
+                flow[t] = float(r["flow_intensity"])
+            except (TypeError, ValueError):
+                pass
+    sector_rel.annotate_rows(items, momentum_by=mom, flow_by=flow)
+    return items
+
+
 @app.get("/api/signals")
 def signals_get(request: Request, market: str = "kospi"):
     """시그널 리스트(요약). 상세 필드(about/moves/target/reasons/narrative/kb)는
@@ -1107,7 +1156,11 @@ def signals_get(request: Request, market: str = "kospi"):
         items = climate.annotate_rows(_annotate_external_watch(items))
         items = _annotate_entry(items, market="us")
         items = _annotate_priced_in(items, market="us")
-        return {"ready": True, "items": _annotate_episode(items, market="us"), "slim": True}
+        items = _annotate_episode(items, market="us")
+        items = _annotate_trader_layers(items, market="us")
+        crowd = crowding.assess(items)
+        db.kv_set("crowding_last_us", {**crowd, "ts": int(time.time())})
+        return {"ready": True, "items": items, "slim": True, "crowding": crowd}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
@@ -1127,7 +1180,11 @@ def signals_get(request: Request, market: str = "kospi"):
     items = climate.annotate_rows(_annotate_external_watch(items))
     items = _annotate_entry(items, market="kospi")
     items = _annotate_priced_in(items, market="kospi")
-    return {"ready": True, "items": _annotate_episode(items, market="kospi"), "slim": True}
+    items = _annotate_episode(items, market="kospi")
+    items = _annotate_trader_layers(items, market="kospi")
+    crowd = crowding.assess(items)
+    db.kv_set("crowding_last", {**crowd, "ts": int(time.time())})
+    return {"ready": True, "items": items, "slim": True, "crowding": crowd}
 
 
 @app.get("/api/signals/{ticker}/detail")
@@ -1858,7 +1915,46 @@ def data_health_get():
             # 사람 확인 대기 중인 이벤트 후보 — 안 보면 유효한 악재가 만료로 조용히 사라진다.
             "event_queue": db.kb_event_queue_status(),
             # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.
-            "consensus_readiness": store.consensus_readiness()}
+            "consensus_readiness": store.consensus_readiness(),
+            "revision_ic": _revision_ic_status(),
+            # 콜드 경로에서 전체 시그널 재계산을 피한다 — lru 캐시 히트 시만 편중 평가.
+            "crowding": _crowding_status()}
+
+
+def _revision_ic_status() -> dict:
+    """리비전 팩터 IC 스냅샷 — ready 전엔 측정 불가 사유만."""
+    ready = store.consensus_readiness()
+    if not ready.get("ready"):
+        return {"ready": False, "blocked_reason": ready.get("blocked_reason"),
+                "eta_date": ready.get("eta_date")}
+    try:
+        deltas = revision.load_deltas()
+        ic = revision.measure_ic(
+            deltas, store.load_price_series(), store.load_dates_by_ticker(),
+            horizon=int(ready.get("horizon") or 20),
+        )
+        db.kv_set("revision_ic_last", {**ic, "ts": int(time.time())})
+        return {"ready": True, **ic}
+    except Exception as e:
+        return {"ready": False, "blocked_reason": type(e).__name__}
+
+
+def _crowding_status() -> dict:
+    """편중 — 시그널 캐시가 있으면 즉시, 없으면 빈 상태(관리자 점검이 시그널을 강제 워밍하지 않음)."""
+    if not store.is_ready():
+        return {"n_buy": 0, "warn": False, "note": "시세 미준비"}
+    info = getattr(_signals, "cache_info", None)
+    if callable(info) and info().currsize == 0:
+        cached = db.kv_get("crowding_last")
+        if isinstance(cached, dict):
+            return cached
+        return {"n_buy": 0, "warn": False, "note": "시그널 미워밍 — /api/signals 조회 후 갱신"}
+    try:
+        out = crowding.assess(_signals())
+        db.kv_set("crowding_last", {**out, "ts": int(time.time())})
+        return out
+    except Exception as e:
+        return {"n_buy": 0, "warn": False, "note": type(e).__name__}
 
 
 def _kb_retrieval_status() -> dict:
@@ -1942,6 +2038,19 @@ def _kb_lite_targets(max_tickers: int | None = None) -> list[dict]:
             break
         add(tk)
     return targets[:cap]
+
+
+def _maybe_extend_candidate_ttl() -> dict | None:
+    """만료 임박 후보 TTL 1회 연장(하루 가드). 사람 검토 전에 사라지지 않게."""
+    if db.kv_get("kb_candidate_ttl_date") == _kst_today():
+        return None
+    try:
+        out = kb.extend_expiring_candidates()
+    except Exception as e:
+        log.warning("후보 TTL 연장 실패: %s", type(e).__name__)
+        return None
+    db.kv_set("kb_candidate_ttl_date", _kst_today())
+    return out
 
 
 def _maybe_poll_disclosures() -> dict | None:

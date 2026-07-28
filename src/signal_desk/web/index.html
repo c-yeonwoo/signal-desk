@@ -774,6 +774,8 @@
           </div>
           <div id="sig-precision" class="sig-precision" style="display:none"></div>
         </div>
+        <div id="sig-crowd-banner" style="display:none;margin:0 12px 8px;padding:7px 10px;font-size:12px;line-height:1.45;
+          background:rgba(180,83,9,.08);border:1px solid #b45309;border-radius:var(--r-md);color:#92400e"></div>
         <!-- 정보 우선순위: 시황(리본) → 성적(trust) → 검색/필터 → 리스트 → 상세(차트) -->
         <div class="sig-toolbar">
           <input id="sig-search" class="ctrl" type="search" placeholder="종목명·코드 검색" aria-label="종목명·코드 검색" oninput="renderSignalList()">
@@ -2506,6 +2508,17 @@ function applySignalData(d, bt){
   const el = document.getElementById('signal-body');
   _backtestByKind = {};
   if (bt && bt.ready) (bt.by_signal || []).forEach(r => { _backtestByKind[r.kind] = r; });
+  const crowdEl = document.getElementById('sig-crowd-banner');
+  if (crowdEl) {
+    const c = d && d.crowding;
+    if (c && c.warn) {
+      crowdEl.style.display = '';
+      crowdEl.textContent = '편중 경고 · ' + (c.note || (c.top_sector + ' ' + c.top_pct + '%'));
+    } else {
+      crowdEl.style.display = 'none';
+      crowdEl.textContent = '';
+    }
+  }
   if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
   if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
   _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
@@ -3005,8 +3018,38 @@ function demoteTip(r){
   const why = e.demote_reason || r.hold_tag || '해제';
   return hm ? ` · ${hm} ${why}으로 매수권 해제` : ` · ${why}으로 매수권 해제`;
 }
+function horizonTip(r){
+  const h = r && r.horizon;
+  if (!h || !h.label) return '';
+  const rets = h.rets || {};
+  const parts = ['5d', '20d', '60d'].map(k => {
+    const v = rets[k];
+    if (v == null) return null;
+    return k + ' ' + (v > 0 ? '+' : '') + fmtNum(v, 1) + '%';
+  }).filter(Boolean);
+  return ' · 지평 ' + h.label + (parts.length ? '(' + parts.join(' · ') + ')' : '');
+}
+function revisionTip(r){
+  const d = r && r.revision;
+  if (!d || !d.signal) return '';
+  const dir = d.signal > 0 ? '상향' : '하향';
+  const bits = [];
+  if (d.d_eps_pct != null) bits.push('EPS ' + (d.d_eps_pct > 0 ? '+' : '') + fmtNum(d.d_eps_pct, 1) + '%');
+  if (d.d_pt_pct != null) bits.push('목표가 ' + (d.d_pt_pct > 0 ? '+' : '') + fmtNum(d.d_pt_pct, 1) + '%');
+  return ' · 리비전' + dir + (bits.length ? '(' + bits.join(' · ') + ')' : '');
+}
+function sectorRelTip(r){
+  const s = r && r.sector_rel;
+  if (!s) return '';
+  const bits = [];
+  if (s.momentum_pct != null)
+    bits.push('섹터모멘텀 ' + fmtNum(s.momentum_pct, 0) + '%' + (s.momentum_hot ? ' 과열' : ''));
+  if (s.flow_pct != null) bits.push('섹터수급 ' + fmtNum(s.flow_pct, 0) + '%');
+  return bits.length ? ' · ' + bits.join(' · ') : '';
+}
 function sigPillTitle(r){
-  return kindHint(r.kind) + entryTip(r) + pricedInTip(r) + demoteTip(r);
+  return kindHint(r.kind) + entryTip(r) + pricedInTip(r) + demoteTip(r)
+    + horizonTip(r) + revisionTip(r) + sectorRelTip(r);
 }
 const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
 const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';
@@ -4731,11 +4774,11 @@ function renderDataHealth(d){
                + `임베드 ${kbr.embedded ?? 0}건`
                + (kbr.semantic ? '' : ' · 해시면 동의어를 못 잡아 BM25 단독에 가깝다.'));
     const eq = d.event_queue;
-    if (eq) q('이벤트 후보 대기', !eq.expiring_soon, `${eq.pending ?? 0}건`,
-              eq.expiring_soon ? `${eq.expiring_soon}건이 ${eq.soon_hours ?? 24}시간 내 만료 — 확인 안 하면 사라집니다`
-                               : (eq.pending ? '만료 임박 없음' : null),
+    if (eq) q('이벤트 후보 대기', !eq.sla_alert, `${eq.pending ?? 0}건`,
+              eq.sla_alert ? (eq.note || `${eq.expiring_soon || 0}건 만료 임박·적체`)
+                           : (eq.pending ? '만료 임박 없음' : null),
               '사람 확인을 기다리는 악재 후보. 후보는 5일 뒤 자동 만료돼서, 안 보면 유효한 악재가 '
-              + '반영도 안 된 채 조용히 사라진다.'
+              + '반영도 안 된 채 조용히 사라진다. 임박 건은 TTL 1회 연장.'
               + (eq.soon_items && eq.soon_items.length
                  ? ' · 임박: ' + esc(eq.soon_items.map(s => `${s.ticker}(${s.hours_left}h)`).join(', ')) : ''));
     const cr = d.consensus_readiness;
@@ -4750,6 +4793,16 @@ function renderDataHealth(d){
         + '측정 가능 ≠ 점수 반영.'
         + (cr.eta_date && !cr.ready ? ` 예상 ${cr.eta_date}.` : ''));
     }
+    const ric = d.revision_ic;
+    if (ric) q('리비전 IC', !!ric.ready_for_score || (!ric.blocked_reason && ric.ic != null),
+               ric.ic != null ? `IC ${ric.ic} (n=${ric.n ?? 0})` : (ric.ready ? '측정중' : '대기'),
+               ric.blocked_reason || (ric.ready_for_score ? '점수 투입 후보' : (ric.note || null)),
+               '컨센 Δ vs 선행수익 스피어만. IC≥0.02·표본≥20일 때만 점수 반영 후보.');
+    const crowd = d.crowding;
+    if (crowd) q('매수권 편중', !crowd.warn,
+                 crowd.n_buy != null ? `${crowd.n_buy}종목` : '–',
+                 crowd.warn ? (crowd.note || '섹터 쏠림') : (crowd.note || null),
+                 '매수권 섹터 집중도 ≥40%(n≥3)면 crowded 경고. 점수·kind 불변.');
     if (rowsQuiet.length) {
       html += `<b style="display:block;margin-top:12px">🔎 조용한 0 점검 <span style="color:var(--dim);font-weight:600">· 비어 있으면 이유</span></b>`
         + `<table class="dtable" style="margin-top:6px"><thead><tr><th>항목</th><th class="num">현재</th><th>상태</th></tr></thead><tbody>${rowsQuiet.join('')}</tbody></table>`;
@@ -5236,9 +5289,14 @@ function renderAdminTodo(){
     const stale = (d.freshness || []).filter(f => f.stale).length;
     if (stale) items.push({ seg: 'ops', text: `오래된 데이터 ${stale}건 — 점검` });
     if (d.signal_drift && d.signal_drift.frozen) items.push({ seg: 'ops', text: '점수 동결 의심 — 점검' });
-    if (d.event_queue && (d.event_queue.pending || d.event_queue.expiring_soon)) {
-      const n = d.event_queue.expiring_soon || d.event_queue.pending;
-      items.push({ seg: 'kb', text: `이벤트 후보 ${n}건 — 승인/기각`, view: 'events', cand: true });
+    if (d.event_queue && (d.event_queue.sla_alert || d.event_queue.pending || d.event_queue.expiring_soon)) {
+      const eq = d.event_queue;
+      const n = eq.expiring_soon || eq.pending;
+      const prefix = eq.sla_alert ? '⚠ SLA ' : '';
+      items.push({ seg: 'kb', text: `${prefix}이벤트 후보 ${n}건 — 승인/기각`, view: 'events', cand: true });
+    }
+    if (d.crowding && d.crowding.warn) {
+      items.push({ seg: 'ops', text: `편중 경고 · ${d.crowding.note || '매수권 섹터 쏠림'}` });
     }
     ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => {
       if (d[k] && d[k].blocked_reason) items.push({ seg: 'ops', text: d[k].blocked_reason });
