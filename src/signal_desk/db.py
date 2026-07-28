@@ -1086,6 +1086,14 @@ def _evt_row(r) -> dict:
     return d
 
 
+def kb_event_exists(event_key: str) -> bool:
+    """event_key 존재 여부 — lite poll에서 '신규' 판정용."""
+    c = conn()
+    row = c.execute("SELECT 1 FROM kb_events WHERE event_key=?", (event_key,)).fetchone()
+    c.close()
+    return row is not None
+
+
 def kb_event_upsert(event: dict, evidence: dict | None = None) -> int:
     """event_key 기준 upsert. evidence가 있으면 primary evidence 1건 보장(중복 url 스킵)."""
     now = int(time.time())

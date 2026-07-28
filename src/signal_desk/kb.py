@@ -639,6 +639,16 @@ def _classify_disclosure(report_nm: str) -> dict | None:
     return None
 
 
+def _disclosure_event_key(ticker: str, it: dict, meta: dict) -> str:
+    rcept = (it.get("rcept_no") or "").strip()
+    url = (it.get("url") or "").strip()
+    if not rcept and "rcpNo=" in url:
+        rcept = url.split("rcpNo=", 1)[-1].split("&", 1)[0]
+    if rcept:
+        return f"dart:{rcept}"
+    return f"dart:{ticker}:{meta['matched']}:{it.get('published') or ''}"
+
+
 def sync_disclosure_events(ticker: str, items: list[dict]) -> int:
     """DART 공시 items → kb_events(+evidence). official tier · 근거 URL 필수. 저장 건수 반환."""
     n = 0
@@ -654,10 +664,7 @@ def sync_disclosure_events(ticker: str, items: list[dict]) -> int:
         url = (it.get("url") or "").strip()
         if not url:
             continue  # 근거 없는 카드 금지
-        rcept = (it.get("rcept_no") or "").strip()
-        if not rcept and "rcpNo=" in url:
-            rcept = url.split("rcpNo=", 1)[-1].split("&", 1)[0]
-        event_key = f"dart:{rcept}" if rcept else f"dart:{ticker}:{meta['matched']}:{it.get('published') or ''}"
+        event_key = _disclosure_event_key(ticker, it, meta)
         published = it.get("published") or ""
         effective = None
         if len(published) >= 10 and published[4] == "-":
@@ -698,6 +705,81 @@ def sync_disclosure_events(ticker: str, items: list[dict]) -> int:
         )
         n += 1
     return n
+
+
+def corp_codes_cached(*, ttl_hours: int | None = None) -> dict[str, str]:
+    """DART corpCode zip — kv 캐시. refresh/lite poll이 매번 다운로드하지 않게."""
+    ttl_h = ttl_hours if ttl_hours is not None else config.kb_dart_corp_codes_ttl_hours()
+    cached = db.kv_get("dart_corp_codes", max_age=ttl_h * 3600)
+    if isinstance(cached, dict) and cached:
+        return {str(k): str(v) for k, v in cached.items()}
+    codes = ingest_dart.corp_codes()
+    if codes:
+        db.kv_set("dart_corp_codes", codes)
+    return codes
+
+
+def poll_disclosures(targets: list[dict], *, codes: dict[str, str] | None = None) -> dict:
+    """장중 lite poll — DART 공시→kb_events만. 뉴스·Sonnet·digest·embed·prune 없음.
+
+    반환: {polled, synced, new_eligible: [ticker], new_events: [{ticker,summary,severity}],
+           failed: [{ticker,error}], skipped_no_code}
+    """
+    codes = codes if codes is not None else corp_codes_cached()
+    polled = synced = skipped = 0
+    new_eligible: list[str] = []
+    new_events: list[dict] = []
+    failed: list[dict] = []
+    seen_elig: set[str] = set()
+    for t in targets:
+        ticker = (t.get("ticker") or "").strip()
+        name = t.get("name") or ticker
+        if not ticker:
+            continue
+        # DART는 KR 6자리. US·기타는 스킵.
+        if not (len(ticker) == 6 and ticker.isdigit()):
+            continue
+        polled += 1
+        corp = codes.get(ticker)
+        if not corp:
+            skipped += 1
+            continue
+        try:
+            items = _disclosure_items(corp)
+            fresh_eligible: list[dict] = []
+            for it in items:
+                title = (it.get("title") or "").replace("[공시] ", "", 1)
+                meta = _classify_disclosure(title)
+                if not meta or not meta.get("decision_eligible"):
+                    continue
+                if not (it.get("url") or "").strip():
+                    continue
+                key = _disclosure_event_key(ticker, it, meta)
+                if db.kb_event_exists(key):
+                    continue
+                fresh_eligible.append({
+                    "ticker": ticker, "name": name,
+                    "summary": f"{meta['matched']} — {title[:80]}",
+                    "severity": meta["severity"],
+                    "event_key": key,
+                })
+            n = sync_disclosure_events(ticker, items)
+            synced += n
+            for ev in fresh_eligible:
+                new_events.append(ev)
+                if ticker not in seen_elig:
+                    new_eligible.append(ticker)
+                    seen_elig.add(ticker)
+        except Exception as e:
+            failed.append({"ticker": ticker, "name": name, "error": type(e).__name__})
+            log.warning("DART lite poll 실패 %s(%s): %s", name, ticker, type(e).__name__)
+    out = {
+        "polled": polled, "synced": synced, "skipped_no_code": skipped,
+        "new_eligible": new_eligible, "new_events": new_events, "failed": failed,
+        "targets": len(targets),
+    }
+    db.kv_set("kb_dart_lite_last", {**out, "ts": int(time.time())})
+    return out
 
 
 # ---------- P1b: 비-DART Sonnet candidate 이벤트 (Decision eligible 아님) ----------
@@ -1197,7 +1279,7 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
     """
     updated, failed = 0, []
     try:
-        codes = ingest_dart.corp_codes()  # stock_code→corp_code(1회). 키 없으면 {}
+        codes = corp_codes_cached()  # stock_code→corp_code(캐시). 키 없으면 {}
     except Exception as e:
         log.warning("DART corp_codes 실패(%s) — 공시 없이 뉴스만 수집", type(e).__name__)
         codes = {}
@@ -1267,7 +1349,11 @@ def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3) ->
 def sentiment_map() -> dict[str, dict]:
     """ticker -> {score, reasons, decision, event_*} — engine이 소비.
     Decision은 confirmed+decision_eligible 이벤트만(P2). 레거시 digest event_flag는
-    참고용으로 남기고 매수 차단/청산에는 쓰지 않는다."""
+    참고용으로 남기고 매수 차단/청산에는 쓰지 않는다.
+
+    digest가 아직 없는 종목이라도 활성 Decision 이벤트가 있으면 포함한다 —
+    장중 DART lite poll 직후 veto가 시그널에 안 붙는 구멍을 막는다.
+    """
     from signal_desk.signals import decision as decmod
     out = {}
     for ticker, dg in db.kb_digests_all().items():
@@ -1289,6 +1375,25 @@ def sentiment_map() -> dict[str, dict]:
             "score": dg.get("sentiment", 0.0), "reasons": reasons,
             "age_hours": age_h, "stale": bool(age_h is not None and age_h > 72),
             "event_risk": dec.buy_blocked,  # 별칭
+            "event_note": dec.summary,
+            "event_severity": dec.severity or "",
+            "event_id": dec.event_id,
+            "decision": dec,
+        }
+    # digest 없는 Decision 종목(lite poll만 돈 경우)
+    for ev in db.kb_events_active(decision_only=True):
+        ticker = ev.get("ticker")
+        if not ticker or ticker.startswith("_") or ticker in out:
+            continue
+        events = db.kb_events_active(ticker, decision_only=True)
+        dec = decmod.decide(events)
+        if not dec.buy_blocked:
+            continue
+        out[ticker] = {
+            "score": 0.0,
+            "reasons": [f"[이벤트] {dec.summary}"] if dec.summary else [],
+            "age_hours": None, "stale": False,
+            "event_risk": True,
             "event_note": dec.summary,
             "event_severity": dec.severity or "",
             "event_id": dec.event_id,
