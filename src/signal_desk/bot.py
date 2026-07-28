@@ -18,7 +18,7 @@ from signal_desk import config, db, kb, llm, signalcfg, store, strategy
 from signal_desk.broker import paper
 from signal_desk.reference import cycle, us_ko
 from signal_desk.signals import (
-    advisor, advisor_shadow, engine, execution_gate, macro, regime, risk,
+    advisor, advisor_shadow, engine, execution_gate, macro, regime, risk, vol_sizing,
 )
 from signal_desk.signals import decision as decmod
 
@@ -542,20 +542,23 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
             except Exception as e:
                 log.warning("advisor shadow 기록 실패: %s", type(e).__name__)
 
+        ref_vol = vol_sizing.median_vol(prices, [c.ticker for c in candidates])
         for s in candidates:
             closes = prices.get(s.ticker)
             if not closes:
                 continue
             live = _live_price(s.ticker, closes[-1])
-            alloc = min(tranche_alloc, cash, room)             # ① 목표비중 K분할 ∩ 국면 익스포저 잔여
+            vscale = vol_sizing.scale(vol_sizing.realized_vol(closes), ref_vol)
+            alloc = min(tranche_alloc * vscale, cash, room)  # ① 분할∩익스포저 · 고변동↓
             qty = int(alloc // live)
             if qty < 1:
                 continue  # 배분금액보다 1주가 비싸면 스킵(정수주 제약)
             basis = (f"시장 상위 {s.rank_pct:.1f}%"
                      if eng_cfg.selection_mode == "rank" and s.rank_pct is not None
                      else f"≥{cfg['min_buy_score']:.1f}")
+            vol_note = f" · vol×{vscale:.2f}" if abs(vscale - 1.0) > 0.02 else ""
             quant = (f"점수 {s.score:+.2f}({basis}·신뢰도 {s.confidence:.2f}) · "
-                     f"익스포저 {exposure * 100:.0f}% · "
+                     f"익스포저 {exposure * 100:.0f}%{vol_note} · "
                      f"분할 1/{tranches}트랜치(약 {int(alloc):,}{unit}) ÷ {int(live):,}{unit} = {qty}주")
             llm_reason = rationale_by.get(s.ticker)
             note = (f"[AI] {llm_reason} · {quant}") if llm_reason else quant

@@ -113,6 +113,8 @@ def build_morning(
     selection: dict | None = None,
     exposure: float | None = None,
     exposure_reasons: list[str] | None = None,
+    event_queue: dict | None = None,
+    crowding: dict | None = None,
 ) -> str:
     """아침 브리핑 본문. signals는 SignalResult 리스트(국내), threshold는 국면 반영 유효 문턱.
 
@@ -164,6 +166,17 @@ def build_morning(
         lines.append(f"매수 근접({label}까지 {NEAR_GAP:.1f} 이내) {len(near)}")
         for s in near[:_NEAR_LIMIT]:
             lines.append(f"· {s.name} {float(s.score):+.2f} ({near_ref - float(s.score):.2f} 남음)")
+
+    eq = event_queue or {}
+    if eq.get("sla_alert") or eq.get("expiring_soon"):
+        lines.append("")
+        lines.append(
+            f"⚠ 이벤트 후보 {eq.get('pending', 0)}건"
+            f" · {eq.get('expiring_soon', 0)}건 만료 임박 — 관리자 승인 필요"
+        )
+    if crowding and crowding.get("warn"):
+        lines.append("")
+        lines.append(f"⚠ 편중 {crowding.get('note')}")
 
     lines += ["", _accuracy_line(accuracy)]
     if app_url:
