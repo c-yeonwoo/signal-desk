@@ -17,7 +17,9 @@ from zoneinfo import ZoneInfo
 from signal_desk import config, db, kb, llm, signalcfg, store, strategy
 from signal_desk.broker import paper
 from signal_desk.reference import cycle, us_ko
-from signal_desk.signals import advisor, advisor_shadow, engine, macro, regime, risk
+from signal_desk.signals import (
+    advisor, advisor_shadow, engine, execution_gate, macro, regime, risk,
+)
 from signal_desk.signals import decision as decmod
 
 log = logging.getLogger("signal_desk.bot")
@@ -273,6 +275,7 @@ def _market_signals(market: str, mr: dict):
     # 한쪽에만 팩터가 빠져 화면의 '매수 후보'와 실제 매수가 갈라진다.
     sigs = engine.evaluate(universe, prices, fundamentals, config=mr["eff_cfg"],
                            **store.kr_engine_inputs())
+    execution_gate.apply_from_store(sigs, market="kospi", today=_today())
     return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}
 
 
