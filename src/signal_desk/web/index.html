@@ -2955,6 +2955,8 @@ const _KIND_HINT = {
 };
 const _HOLD_TAG_TIP = {
   악재: '악재·결정 이벤트로 매수권 해제(관망) — 점수와 별개',
+  선반영: '호재 공시 전 이미 급등 — 선반영 의심으로 신규 매수 보류',
+  추격: '시그널 발동 후 많이 올라 진입이 늦음 — 신규 매수 보류',
   실적: '실적발표 임박 — 발표 전 신규 매수 보류',
   급락: '단기 급락(1일 −8% 또는 2일 −12%) — 매수권 해제(관망)',
   추세: '하락추세 확인(종가<MA20<MA60) — 반등 전 관망',
@@ -3423,7 +3425,7 @@ function _paintSignalDetail(ticker, item){
       + (demoteHm ? ` · ${esc(demoteHm)}` : '')
       + (ep.demote_reason ? ` · ${esc(ep.demote_reason)}` : '')
       + ` <span style="font-weight:600;color:var(--dim)">· 장중 전이</span></div>`
-    : (item && item.kind === 'HOLD' && (item.hold_tag === '급락' || item.hold_tag === '악재')
+    : (item && item.kind === 'HOLD' && ['급락','악재','추격','선반영'].includes(item.hold_tag)
       ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">${esc(item.hold_tag)} — 매수권 해제(관망)</div>` : '');
   const dec = item && item.decision;
   const holdLabel = dec && dec.holding_action === 'exit' ? '보유 시 전량 청산'

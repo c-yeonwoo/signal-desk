@@ -31,8 +31,9 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, entry_quality, episode_state, hypothesis, macro, narrative, opportunity,
-    priced_in, rebalance, regime, regime_zone, relative, scenario, target, valuation,
+    accuracy, climate, entry_quality, episode_state, execution_gate, hypothesis, macro,
+    narrative, opportunity, priced_in, rebalance, regime, regime_zone, relative, scenario,
+    target, valuation,
 )
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
@@ -715,6 +716,7 @@ def _signals():
     cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())  # 약세·비우호·외인기관 순매도면 매수 기준 상향
     results = evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
                        config=cfg, **store.kr_engine_inputs())  # 입력 한 벌은 봇과 공유
+    execution_gate.apply_from_store(results, market="kospi", today=_kst_today())
     _sync_episode_state(results, market="kospi")
     return results
 
@@ -806,6 +808,10 @@ def _hold_tag(r, *, buy_blocked: bool) -> str | None:
     if buy_blocked or getattr(r, "event_risk", False):
         return "악재"
     reasons = " ".join(getattr(r, "reasons", None) or [])
+    if "[선반영]" in reasons:
+        return "선반영"
+    if "[추격]" in reasons:
+        return "추격"
     if "[실적]" in reasons and "보류" in reasons:
         return "실적"
     if "[급락]" in reasons:
@@ -2643,6 +2649,7 @@ def _us_signals():
     results = evaluate(store.load_us_universe(), prices,
                        fundamentals=fundamentals, sentiment=kb.sentiment_map(),
                        earnings_dates=store.load_us_earnings_calendar())
+    execution_gate.apply_from_store(results, market="us", today=_kst_today())
     _sync_episode_state(results, market="us")
     return {s.ticker: s for s in results}
 
