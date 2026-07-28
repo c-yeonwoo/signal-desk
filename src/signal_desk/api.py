@@ -31,8 +31,8 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, entry_quality, hypothesis, macro, narrative, opportunity, priced_in,
-    rebalance, regime, regime_zone, relative, scenario, target, valuation,
+    accuracy, climate, entry_quality, episode_state, hypothesis, macro, narrative, opportunity,
+    priced_in, rebalance, regime, regime_zone, relative, scenario, target, valuation,
 )
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
@@ -708,8 +708,10 @@ def portfolio_heatmap(request: Request, market: str = ""):
 @lru_cache(maxsize=1)
 def _signals():
     cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())  # 약세·비우호·외인기관 순매도면 매수 기준 상향
-    return evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
-                    config=cfg, **store.kr_engine_inputs())  # 입력 한 벌은 봇과 공유
+    results = evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
+                       config=cfg, **store.kr_engine_inputs())  # 입력 한 벌은 봇과 공유
+    _sync_episode_state(results, market="kospi")
+    return results
 
 
 @lru_cache(maxsize=1)
@@ -911,6 +913,7 @@ def _us_signal_detail(ticker: str) -> dict | None:
     climate.annotate_rows([d])
     _annotate_entry([d], market="us")
     _annotate_priced_in([d], market="us")
+    _annotate_episode([d], market="us")
     d.pop("remain_upside_pct", None)
     return d
 
@@ -958,6 +961,7 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     climate.annotate_rows([d])
     _annotate_entry([d], market="kospi")
     _annotate_priced_in([d], market="kospi")
+    _annotate_episode([d], market="kospi")
     d.pop("remain_upside_pct", None)
     return d
 
@@ -1033,6 +1037,43 @@ def _annotate_priced_in(items: list[dict], *, market: str = "kospi") -> list[dic
     )
 
 
+def _sync_episode_state(results, *, market: str) -> None:
+    """시그널 재계산 직후 kind 전이만 kv에 기록(실패해도 본계산은 유지)."""
+    if not results:
+        return
+    try:
+        if market == "us":
+            qmap = store.load_us_quotes()
+        else:
+            qmap = _quotes()
+    except Exception:
+        qmap = {}
+    rows = []
+    for r in results:
+        q = qmap.get(r.ticker) or {}
+        px = q.get("price") if isinstance(q, dict) else None
+        dec = _decision_payload(r)
+        buy_blocked = bool(dec.get("buy_blocked"))
+        rows.append({
+            "ticker": r.ticker, "kind": r.kind, "price": px,
+            "hold_tag": _hold_tag(r, buy_blocked=buy_blocked),
+            "event_risk": bool(getattr(r, "event_risk", False) or buy_blocked),
+            "decision_buy_blocked": buy_blocked,
+            "reasons": list(getattr(r, "reasons", None) or []),
+        })
+    try:
+        episode_state.observe_rows(rows, market=market, today=_kst_today())
+    except Exception as e:
+        log.warning("시그널 전이 로그 실패: %s", type(e).__name__)
+
+
+def _annotate_episode(items: list[dict], *, market: str = "kospi") -> list[dict]:
+    """장중 전이(first_buy/demote)를 행에 붙이고 당일 진입가 보정."""
+    if not items:
+        return items
+    return episode_state.annotate_rows(items, market=market, today=_kst_today())
+
+
 @app.get("/api/signals")
 def signals_get(request: Request, market: str = "kospi"):
     """시그널 리스트(요약). 상세 필드(about/moves/target/reasons/narrative/kb)는
@@ -1054,7 +1095,8 @@ def signals_get(request: Request, market: str = "kospi"):
         items = [dict(x) for x in raw]
         items = climate.annotate_rows(_annotate_external_watch(items))
         items = _annotate_entry(items, market="us")
-        return {"ready": True, "items": _annotate_priced_in(items, market="us"), "slim": True}
+        items = _annotate_priced_in(items, market="us")
+        return {"ready": True, "items": _annotate_episode(items, market="us"), "slim": True}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
@@ -1073,7 +1115,8 @@ def signals_get(request: Request, market: str = "kospi"):
             div_yield=round(dps / px * 100, 2) if (dps and px) else None))
     items = climate.annotate_rows(_annotate_external_watch(items))
     items = _annotate_entry(items, market="kospi")
-    return {"ready": True, "items": _annotate_priced_in(items, market="kospi"), "slim": True}
+    items = _annotate_priced_in(items, market="kospi")
+    return {"ready": True, "items": _annotate_episode(items, market="kospi"), "slim": True}
 
 
 @app.get("/api/signals/{ticker}/detail")
@@ -2505,9 +2548,11 @@ def _us_signals():
     if not prices:
         return {}
     fundamentals = {t: mc for t, mc in store.us_marketcaps(prices).items() if mc.get("per") or mc.get("pbr")}
-    return {s.ticker: s for s in evaluate(store.load_us_universe(), prices,
-                                          fundamentals=fundamentals, sentiment=kb.sentiment_map(),
-                                          earnings_dates=store.load_us_earnings_calendar())}
+    results = evaluate(store.load_us_universe(), prices,
+                       fundamentals=fundamentals, sentiment=kb.sentiment_map(),
+                       earnings_dates=store.load_us_earnings_calendar())
+    _sync_episode_state(results, market="us")
+    return {s.ticker: s for s in results}
 
 
 @app.get("/api/gurus")

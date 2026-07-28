@@ -2954,9 +2954,9 @@ const _KIND_HINT = {
   STRONG_SELL: '매도 후보 중에서도 더 강한 쪽',
 };
 const _HOLD_TAG_TIP = {
-  악재: '악재·결정 이벤트로 매수 차단',
+  악재: '악재·결정 이벤트로 매수권 해제(관망) — 점수와 별개',
   실적: '실적발표 임박 — 발표 전 신규 매수 보류',
-  급락: '단기 급락(1일 −8% 또는 2일 −12%) — 신규 매수 보류',
+  급락: '단기 급락(1일 −8% 또는 2일 −12%) — 매수권 해제(관망)',
   추세: '하락추세 확인(종가<MA20<MA60) — 반등 전 관망',
   매수권밖: '점수는 있어도 오늘 매수권(상위 분위) 밖',
   게이트: '매수 게이트로 보류',
@@ -2987,8 +2987,24 @@ function pricedInTip(r){
     + ((p.pre_return_pct > 0 ? '+' : '') + fmtNum(p.pre_return_pct, 1) + '%'));
   return ' · ' + tip;
 }
+function fmtKstHm(ts){
+  if (ts == null) return '';
+  try {
+    return new Date(Number(ts) * 1000).toLocaleTimeString('ko-KR', {
+      timeZone: 'Asia/Seoul', hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+  } catch (_) { return ''; }
+}
+// 장중 매수권 해제 — hold_tag 칩 + 호버에 시각. 조용히 HOLD만 두지 않는다.
+function demoteTip(r){
+  const e = r && r.episode;
+  if (!e || !e.demoted_at || r.kind !== 'HOLD') return '';
+  const hm = fmtKstHm(e.demoted_at);
+  const why = e.demote_reason || r.hold_tag || '해제';
+  return hm ? ` · ${hm} ${why}으로 매수권 해제` : ` · ${why}으로 매수권 해제`;
+}
 function sigPillTitle(r){
-  return kindHint(r.kind) + entryTip(r) + pricedInTip(r);
+  return kindHint(r.kind) + entryTip(r) + pricedInTip(r) + demoteTip(r);
 }
 const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
 const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';
@@ -3400,10 +3416,20 @@ function _paintSignalDetail(ticker, item){
   const kbEl = document.getElementById('signal-kb');
   const earnWarn = (item && item.earnings_soon)
     ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">실적발표 임박${item.earnings_date ? ' (' + esc(item.earnings_date) + ')' : ''} — 발표 전 신규 매수 보류(관망)</div>` : '';
+  const ep = item && item.episode;
+  const demoteHm = ep && ep.demoted_at ? fmtKstHm(ep.demoted_at) : '';
+  const demoteWarn = (item && item.kind === 'HOLD' && ep && ep.demoted_at)
+    ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">매수권 해제`
+      + (demoteHm ? ` · ${esc(demoteHm)}` : '')
+      + (ep.demote_reason ? ` · ${esc(ep.demote_reason)}` : '')
+      + ` <span style="font-weight:600;color:var(--dim)">· 장중 전이</span></div>`
+    : (item && item.kind === 'HOLD' && (item.hold_tag === '급락' || item.hold_tag === '악재')
+      ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">${esc(item.hold_tag)} — 매수권 해제(관망)</div>` : '');
   const dec = item && item.decision;
   const holdLabel = dec && dec.holding_action === 'exit' ? '보유 시 전량 청산'
     : (dec && dec.holding_action === 'trim' ? '보유 시 절반 축소' : '');
-  const evWarn = (dec && dec.buy_blocked
+  const evWarn = demoteWarn
+    + (dec && dec.buy_blocked
     ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">⚠ Decision — 신규 매수 차단`
       + (holdLabel ? ` · ${holdLabel}` : '')
       + ` <span style="font-weight:600;color:var(--dim)">· 점수 미반영</span>`

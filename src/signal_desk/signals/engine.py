@@ -133,7 +133,7 @@ class SignalResult:
     rank: int | None = None        # 시장 내 점수 순위(1=최상위) — 횡단면 선정용
     rank_pct: float | None = None  # 시장 내 점수 상위 백분위(1.0=상위 1%) — 표시용
     rank_eligible: bool = False    # 매수권(상위 분위 + 최소점수 + 게이트 통과)
-    gate_blocked: bool = False     # 추세·실적 게이트로 매수 보류됨(분위 안이어도 승격 금지)
+    gate_blocked: bool = False     # 추세·실적·급락·악재 게이트로 매수 보류(분위 안이어도 승격 금지)
     reasons: list[str] = field(default_factory=list)
     narrative: str = ""
     factor_scores: dict[str, float] = field(default_factory=dict)  # 팩터별 방향·강도 [-1,1] — 시각화용
@@ -385,6 +385,54 @@ def _apply_crash_gate(
     return True
 
 
+def _decision_from_entry(entry: dict | None) -> Decision:
+    """sentiment_map 한 줄 → Decision. Decision 객체·dict·레거시 event_* 모두 허용."""
+    from signal_desk.signals import decision as decmod
+    entry = entry or {}
+    dec_raw = entry.get("decision")
+    if isinstance(dec_raw, decmod.Decision):
+        return dec_raw
+    if isinstance(dec_raw, dict) and dec_raw:
+        return decmod.Decision(
+            buy_blocked=bool(dec_raw.get("buy_blocked")),
+            holding_action=dec_raw.get("holding_action") or "none",
+            event_id=dec_raw.get("event_id"),
+            severity=dec_raw.get("severity"),
+            summary=str(dec_raw.get("summary") or ""),
+            policy_version=str(dec_raw.get("policy_version") or decmod.POLICY_VERSION),
+        )
+    return decmod.decision_from_legacy(
+        event_risk=bool(entry.get("event_risk")),
+        event_severity=str(entry.get("event_severity") or ""),
+        event_note=str(entry.get("event_note") or ""),
+        event_id=entry.get("event_id"),
+    )
+
+
+def _apply_event_veto(combined: dict, dec: Decision) -> bool:
+    """Decision.buy_blocked면 급락 게이트와 같이 BUY→HOLD + gated.
+
+    예전엔 event_risk가 분위 승격만 막고(absolute 모드·표시) kind를 BUY로 남겨
+    '매수 pill + 악재 경고' 충돌이 났다. 하드 강등으로 hold_tag 악재가 리스트에 보이게 한다.
+    매도·청산 kind는 건드리지 않는다(보유 trim/exit는 bot이 holding_action으로 처리).
+    """
+    if not dec or not dec.buy_blocked:
+        return False
+    if is_sell(combined.get("kind") or HOLD):
+        return False
+    if combined["kind"] in BUY_KINDS:
+        combined["kind"] = HOLD
+    combined["gated"] = True
+    note = (dec.summary or "").strip()
+    sev = (dec.severity or "").strip()
+    head = note[:120] if note else (sev or "결정 이벤트")
+    combined["reasons"] = [
+        *combined["reasons"],
+        f"[악재] {head} — 신규 매수 보류(관망)",
+    ]
+    return True
+
+
 # 5단계 시그널 종류
 STRONG_BUY, BUY, HOLD, SELL, STRONG_SELL = "STRONG_BUY", "BUY", "HOLD", "SELL", "STRONG_SELL"
 BUY_KINDS = (STRONG_BUY, BUY)
@@ -625,28 +673,9 @@ def evaluate(
         edate = earnings_dates.get(ticker)
         earnings_soon = _apply_earnings_gate(combined, _days_until(edate, today), config)
         _apply_crash_gate(combined, closes, i_last, config)
-
         entry = sentiment.get(ticker) or {}
-        from signal_desk.signals import decision as decmod
-        dec_raw = entry.get("decision")
-        if isinstance(dec_raw, decmod.Decision):
-            dec = dec_raw
-        elif isinstance(dec_raw, dict) and dec_raw:
-            dec = decmod.Decision(
-                buy_blocked=bool(dec_raw.get("buy_blocked")),
-                holding_action=dec_raw.get("holding_action") or "none",
-                event_id=dec_raw.get("event_id"),
-                severity=dec_raw.get("severity"),
-                summary=str(dec_raw.get("summary") or ""),
-                policy_version=str(dec_raw.get("policy_version") or decmod.POLICY_VERSION),
-            )
-        else:
-            dec = decmod.decision_from_legacy(
-                event_risk=bool(entry.get("event_risk")),
-                event_severity=str(entry.get("event_severity") or ""),
-                event_note=str(entry.get("event_note") or ""),
-                event_id=entry.get("event_id"),
-            )
+        dec = _decision_from_entry(entry)
+        _apply_event_veto(combined, dec)
         result = SignalResult(
             ticker=ticker, name=name, score=combined["score"], kind=combined["kind"],
             confidence=combined["confidence"], technical_score=round(tech_score, 2),
