@@ -176,12 +176,12 @@ def macro_rss_feeds() -> list[dict]:
 
 
 def youtube_max_per_channel() -> int:
-    """유튜브 1회 수집 시 채널당 최대 영상 수. YOUTUBE_MAX_PER_CHANNEL(.env) 또는 기본 20.
-    최초 백필 땐 크게, 평소엔 낮게(증분·하루1회 자동수집이라 평소엔 새 영상만 들어옴)."""
+    """유튜브 1회 수집 시 채널당 최대 영상 수. YOUTUBE_MAX_PER_CHANNEL(.env) 또는 기본 5.
+    증분이라 이미 본 URL은 스킵. 첫 백필만 env로 크게(예: 20) 올리면 된다."""
     try:
-        return max(1, int(os.environ.get("YOUTUBE_MAX_PER_CHANNEL", "20")))
+        return max(1, int(os.environ.get("YOUTUBE_MAX_PER_CHANNEL", "5")))
     except ValueError:
-        return 20
+        return 5
 
 
 def broker_backend() -> str:

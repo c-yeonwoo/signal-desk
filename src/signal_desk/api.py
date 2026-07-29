@@ -285,6 +285,8 @@ def _daily_maintenance(enabled: list[str]) -> None:
     except Exception as e:
         log.warning("US 유예 목록 조회 실패: %s", type(e).__name__)
     try:
+        # 아침 _daily_kb_collect 가 이미 돌렸어도 오후 뉴스·공시는 여기 한 번 더 본다.
+        # 신규 URL 없으면 kb._refresh_one 이 LLM 다이제스트를 스킵한다.
         kb.refresh(_kb_targets())
         _signals.cache_clear()
     except Exception as e:

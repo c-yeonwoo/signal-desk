@@ -71,8 +71,8 @@ def test_candidate_dedup_no_second_extract(tmp_path, monkeypatch):
         return _fake_extract(ticker, item)
 
     monkeypatch.setattr(kb, "_extract_candidate_event", once)
-    items = [{"title": "이슈", "source": "naver_news", "url": "https://n.example/dup",
-              "published": "2026-07-18", "summary": "s"}]
+    items = [{"title": "과징금 부과 이슈", "source": "naver_news", "url": "https://n.example/dup",
+              "published": "2026-07-18", "summary": "공정위 제재"}]
     assert kb.sync_candidate_events("005930", items) == 1
     assert kb.sync_candidate_events("005930", items) == 0
     assert n["c"] == 1
@@ -81,8 +81,8 @@ def test_candidate_dedup_no_second_extract(tmp_path, monkeypatch):
 def test_refresh_candidates_only_on_new_urls(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.db, "DB", tmp_path / "app.db")
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [
-        {"title": "신규 악재 보도", "source": "naver_news", "published": "2026-07-18",
-         "url": "https://n.example/new1", "summary": "내용"},
+        {"title": "검찰 압수수색 보도", "source": "naver_news", "published": "2026-07-18",
+         "url": "https://n.example/new1", "summary": "횡령 혐의 수사"},
     ])
     monkeypatch.setattr(kb.ingest_dart, "corp_codes", lambda: {"005930": "00126380"})
     monkeypatch.setattr(kb.ingest_dart, "disclosures", lambda *a, **k: [])
