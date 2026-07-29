@@ -122,8 +122,9 @@
   .macro-chip .mc-value { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
   .macro-chip .mc-chg { font-size:11px; font-variant-numeric:tabular-nums; }
   .mc-bad { color:var(--sig-sell); } .mc-good { color:var(--sig-buy); } .mc-flat { color:var(--dim); }
-  /* 한 행에 3개까지 붙는다. 전부 초록으로 채우면 시그널 색과 경쟁해서 정작 신호가 안 보인다 */
-  .opp-badge { display:inline-block; margin-left:5px; padding:1px 7px; border-radius:var(--r-sm); font-size:var(--fs-2xs);
+  /* 기회 유형 — 종목명 아래. 섹터 열에 붙이면 섹터 속성처럼 읽힌다 */
+  .sig-tags { display:flex; flex-wrap:wrap; gap:3px; margin-top:3px; }
+  .opp-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-sm); font-size:var(--fs-2xs);
     background:transparent; color:var(--dim); border:1px solid var(--line); font-weight:500; vertical-align:middle; }
   /* 기후 시그널 — 기존 sig-pill과 격리 (하늘·슬레이트·바이올렛) */
   .clim-pill { display:inline-block; margin-left:5px; padding:2px 8px; border-radius:var(--r-sm);
@@ -133,7 +134,7 @@
   .clim-pill.HOLD { background:#f1f5f9; color:#475569; border-color:#cbd5e1; }
   .clim-pill.SELL { background:#faf5ff; color:#7e22ce; border-color:#d8b4fe; }
   .clim-pill.STRONG_SELL { background:#f5f3ff; color:#5b21b6; border-color:#c4b5fd; }
-  .ext-badge { display:inline-block; margin-left:5px; padding:1px 7px; border-radius:var(--r-sm); font-size:11px;
+  .ext-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-sm); font-size:11px;
     background:#fff7ed; color:#B45309; border:1px solid #fed7aa; font-weight:700; vertical-align:middle; letter-spacing:.01em; }
   /* 외부 후보 조사 큐 — 관리자 */
   .ew-hero { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:var(--r-lg);
@@ -2789,9 +2790,11 @@ function renderSignalList(){
     : sort === 'volume' ? '평균 ' + fmtVol(r.vol_avg)
     : (r.score > 0 ? '+' : '') + fmtNum(r.score, 2);
   const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
-  const badges = (r) => (r.opp_tags || []).map(t =>
-    `<span class="opp-badge">${t}</span>`).join('')
-    + (r.external_watch ? '<span class="ext-badge" title="외부 조사 후보 · 점수 가산 없음">조사</span>' : '');
+  const badges = (r) => {
+    const tags = (r.opp_tags || []).map(t => `<span class="opp-badge">${esc(t)}</span>`).join('')
+      + (r.external_watch ? '<span class="ext-badge" title="외부 조사 후보 · 점수 가산 없음">조사</span>' : '');
+    return tags ? `<div class="sig-tags">${tags}</div>` : '';
+  };
   const holdNote = (r) => {
     if (r.kind !== 'HOLD' || !r.hold_tag) return '';
     const tip = _HOLD_TAG_TIP[r.hold_tag] || r.hold_tag;
@@ -2799,8 +2802,8 @@ function renderSignalList(){
   };
   const body = rows.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}">
       <td>${star(r.ticker)}</td>
-      <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div></td>
-      <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}${badges(r)}</td>
+      <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div>${badges(r)}</td>
+      <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}</td>
       <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(sigPillTitle(r))}">${kindLabel(r.kind)}</span>${holdNote(r)}${climatePill(r.climate)}</div></td>
     </tr>`).join('');
     el.innerHTML = rows.length
