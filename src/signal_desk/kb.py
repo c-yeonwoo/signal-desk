@@ -1,11 +1,11 @@
-"""지식베이스(KB) — 뉴스·영상 원자료를 '한 번 더 가공'(요약·감성)해 종목별 다이제스트로 적재.
+"""지식베이스(KB) — 뉴스·영상 원자료를 다이제스트로 적재.
 
-흐름: ingest.news.collect(원자료) → db.kb_entry_add_many(원자료 보관) → build_digest(LLM 요약·감성)
-→ db.kb_digest_set(가공 결과 보관). 다이제스트는 (1) 시그널의 정성적 팩터(signals/qualitative.py)와
-(2) 봇 LLM 자문(signals/advisor.py)의 입력으로 재사용된다.
+흐름: news.collect → entry 보관 → (신규 URL일 때만) build_digest → kb_digest_set.
+다이제스트 sentiment는 combine() 점수에 넣지 않는다(표시·자문·shadow용).
+매매 veto의 본체는 DART Decision(+사람 승인 후보).
 
-리소스 절약: 전 종목이 아니라 호출자가 넘긴 대상(보유·후보·관심종목)만 갱신한다.
-LLM 미설정 시 규칙기반(키워드) 감성으로 폴백 — KB는 여전히 쌓인다.
+비용 가드: 신규 URL 없으면 Sonnet/Haiku 다이제스트 재호출 스킵.
+종목 다이제스트는 Haiku, 후보 이벤트·거시 요약만 Sonnet.
 """
 
 from __future__ import annotations
@@ -946,6 +946,23 @@ def review_candidate_event(event_id: int, action: str) -> dict:
     return {"ok": False, "reason": "action은 confirm|attention|reject"}
 
 
+# 후보 Sonnet 호출 전 키워드 프리필터 — 잡음 헤드라인에 "event=false" 한 방씩 쓰지 않게.
+# veto 키워드보다 넓게(호재 수주·계약 포함). 여기에 안 걸리면 LLM 없이 스킵.
+_CANDIDATE_HINTS = tuple(dict.fromkeys(
+    _EVENT_CRITICAL + _EVENT_SERIOUS + _DISC_CRITICAL + _DISC_SERIOUS + _DISC_GOOD + [
+        "수주", "계약", "영업이익", "적자", "흑자", "어닝", "가이던스", "하향", "상향",
+        "투자의견", "목표가", "소송", "기소", "분식", "리콜", "과징금", "제재",
+        "유상증자", "전환사채", "최대주주", "상장폐지", "거래정지", "자기주식",
+        "무상증자", "공급계약", "횡령", "배임", "압수수색", "감사의견",
+    ]
+))
+
+
+def _candidate_worth_extracting(item: dict) -> bool:
+    text = f"{item.get('title') or ''} {item.get('summary') or ''}"
+    return any(h in text for h in _CANDIDATE_HINTS)
+
+
 def sync_candidate_events(ticker: str, items: list[dict]) -> int:
     """새로 들어온 비-DART 뉴스 → candidate 카드(+evidence). decision_eligible 항상 False.
     URL·근거 없으면 스킵. 종목당 상한. LLM 없거나 실패 시 0."""
@@ -967,6 +984,8 @@ def sync_candidate_events(ticker: str, items: list[dict]) -> int:
         src = db.kb_source_get(source_key) or db.kb_source_get("naver_news")
         if src and not src.get("enabled"):
             continue
+        if not _candidate_worth_extracting(it):
+            continue  # 잡음 — Sonnet "event=false" 비용 절약
         trust = (src or {}).get("trust_tier") or "medium"
         meta = _extract_candidate_event(ticker, it)
         if not meta:
@@ -1043,7 +1062,10 @@ def _rule_digest(name: str, items: list[dict]) -> dict:
 
 def build_digest(name: str, items: list[dict]) -> dict:
     """원자료 → {sentiment[-1..1], summary, points[≤3]}. LLM 우선, 실패 시 규칙기반.
-    단순 헤드라인 재서술이 아니라 실적·수요·비용·정책·수급 등 경제적 함의를 뽑는다."""
+
+    종목 다이제스트는 Haiku(DIGEST_MODEL). 점수 combine에 안 들어가서 Sonnet 품질비가 안 나온다.
+    경제적 함의 프롬프트는 유지하되, 모델만 다운그레이드한다.
+    """
     if not items:
         return {"sentiment": 0.0, "summary": "최근 수집된 뉴스·영상이 없습니다.", "points": []}
     if llm.available():
@@ -1064,7 +1086,7 @@ def build_digest(name: str, items: list[dict]) -> dict:
             ' "summary": "한국어 1~2문장 — 무엇이 바뀌었고 왜 경제적으로 중요한지",\n'
             ' "points": ["핵심 포인트 최대 3개 — 동사+대상+함의 (짧게)"]}'
         )
-        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_QUALITY_MODEL)
+        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
         if out and isinstance(out.get("sentiment"), (int, float)):
             s = max(-1.0, min(1.0, float(out["sentiment"])))
             pts = [str(p) for p in (out.get("points") or [])][:3]
@@ -1282,7 +1304,11 @@ def macro_digest() -> dict | None:
 
 
 def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days: int) -> bool:
-    """한 종목 수집·다이제스트 갱신. 수집물이 없으면 False."""
+    """한 종목 수집·다이제스트 갱신. 수집물이 없으면 False.
+
+    신규 URL(뉴스·공시)이 없고 기존 다이제스트가 있으면 LLM 다이제스트를 다시 돌리지 않는다 —
+    같은 헤드라인으로 Sonnet/Haiku를 하루 두 번 태우던 경로가 비용의 본체였다.
+    """
     news_items = news.collect(name, news_n=news_n, lookback_days=lookback_days)
     disc = _disclosure_items(codes.get(ticker))  # DART 주요공시(악재 veto·호재 근거) — 뉴스보다 확실
     items = disc + news_items
@@ -1291,13 +1317,30 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
     for it in items:  # 문서 유형 분류(공시는 이미 지정됨 → 뉴스만 분류)
         if not it.get("doc_class"):
             it["doc_class"] = classify_document(it, "news")
-    # P1b: 신규 비-DART만 Sonnet 후보 추출(재수집 URL은 스킵 — 비용)
-    news_urls = [it["url"] for it in news_items if it.get("url")]
-    already = db.kb_entry_urls_existing(news_urls)
+    # 증분 판정은 ingest 전 — INSERT 이후엔 전부 '이미 있음'이 된다
+    all_urls = [it["url"] for it in items if it.get("url")]
+    already = db.kb_entry_urls_existing(all_urls)
     new_news = [it for it in news_items if it.get("url") and it["url"] not in already]
+    new_disc = [it for it in disc if it.get("url") and it["url"] not in already]
+    no_url_new = [it for it in items if not it.get("url")]  # URL 없는 항목은 매번 신규로 본다
     ingest_stock_batch(ticker, items)  # P1: source registry 게이트
     sync_disclosure_events(ticker, disc)  # P0: 구조화 이벤트 카드(공식 공시)
     sync_candidate_events(ticker, new_news)  # P1b: candidate only · Decision 미반영
+    existing = db.kb_digest_get(ticker)
+    if not new_news and not new_disc and not no_url_new and existing:
+        # 이벤트 플래그만 Decision 기준으로 동기화(요약 재생성 X)
+        event_flag, event_note = detect_event(items)
+        active = _active_decision_event(ticker)
+        if active:
+            event_flag, event_note = True, active.get("summary") or event_note
+        if bool(existing.get("event_flag")) != bool(event_flag) or (existing.get("event_note") or "") != (event_note or ""):
+            db.kb_digest_set(
+                ticker, name, float(existing.get("sentiment") or 0),
+                existing.get("summary") or "", existing.get("points") or [],
+                len(items), newest_ts=existing.get("newest_ts") or _newest_ts(items),
+                event_flag=event_flag, event_note=event_note,
+            )
+        return False  # LLM 비용 0 · updated 카운트에도 안 잡힘
     digest = build_digest(name, items)
     # digest 플래그는 레거시·폴백 — Decision은 active event 우선(sentiment_map)
     event_flag, event_note = detect_event(items)
