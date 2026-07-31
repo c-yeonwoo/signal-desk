@@ -1,8 +1,11 @@
 """P1b: 비-DART Sonnet 후보 추출 → 자동 판정(명확 악재만 Decision)."""
 
+import datetime
 import time
 
 from signal_desk import db, kb
+
+_TODAY = datetime.date.today().isoformat()
 
 
 def _fake_extract(ticker, item):
@@ -23,7 +26,7 @@ def test_sync_candidate_auto_confirms_clear_negative(tmp_path, monkeypatch):
     monkeypatch.setattr(kb, "_extract_candidate_event", _fake_extract)
     items = [{
         "title": "검찰, ○○ 압수수색", "source": "naver_news",
-        "published": "2026-07-18", "url": "https://n.example/cand1",
+        "published": _TODAY, "url": "https://n.example/cand1",
         "summary": "횡령 혐의 수사",
     }]
     assert kb.sync_candidate_events("005930", items) == 1
@@ -52,7 +55,7 @@ def test_sync_candidate_auto_rejects_ambiguous(tmp_path, monkeypatch):
 
     monkeypatch.setattr(kb, "_extract_candidate_event", soft)
     assert kb.sync_candidate_events("005930", [{
-        "title": "관측 이슈", "source": "naver_news", "published": "2026-07-18",
+        "title": "관측 이슈", "source": "naver_news", "published": _TODAY,
         "url": "https://n.example/soft", "summary": "소송 언급",
     }]) == 1
     assert db.kb_events_list(status="candidate") == []
@@ -71,8 +74,8 @@ def test_candidate_requires_url_and_skips_dart(tmp_path, monkeypatch):
 
     monkeypatch.setattr(kb, "_extract_candidate_event", track)
     assert kb.sync_candidate_events("005930", [
-        {"title": "x", "source": "naver_news", "url": "", "published": "2026-07-01"},
-        {"title": "공시", "source": "dart", "url": "https://dart.example/1", "published": "2026-07-01"},
+        {"title": "x", "source": "naver_news", "url": "", "published": _TODAY},
+        {"title": "공시", "source": "dart", "url": "https://dart.example/1", "published": _TODAY},
     ]) == 0
     assert calls == []
 
@@ -88,7 +91,7 @@ def test_candidate_dedup_no_second_extract(tmp_path, monkeypatch):
 
     monkeypatch.setattr(kb, "_extract_candidate_event", once)
     items = [{"title": "과징금 부과 이슈", "source": "naver_news", "url": "https://n.example/dup",
-              "published": "2026-07-18", "summary": "공정위 제재"}]
+              "published": _TODAY, "summary": "공정위 제재"}]
     assert kb.sync_candidate_events("005930", items) == 1
     assert kb.sync_candidate_events("005930", items) == 0
     assert n["c"] == 1
@@ -97,7 +100,7 @@ def test_candidate_dedup_no_second_extract(tmp_path, monkeypatch):
 def test_refresh_candidates_only_on_new_urls(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.db, "DB", tmp_path / "app.db")
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [
-        {"title": "검찰 압수수색 보도", "source": "naver_news", "published": "2026-07-18",
+        {"title": "검찰 압수수색 보도", "source": "naver_news", "published": _TODAY,
          "url": "https://n.example/new1", "summary": "횡령 혐의 수사"},
     ])
     monkeypatch.setattr(kb.ingest_dart, "corp_codes", lambda: {"005930": "00126380"})

@@ -2,7 +2,7 @@
 
 흐름: news.collect → entry 보관 → (신규 URL일 때만) build_digest → kb_digest_set.
 다이제스트 sentiment는 combine() 점수에 넣지 않는다(표시·자문·shadow용).
-매매 veto의 본체는 DART Decision(+사람 승인 후보).
+매매 veto의 본체는 DART Decision(+뉴스 후보 자동 판정).
 
 비용 가드: 신규 URL 없으면 Sonnet/Haiku 다이제스트 재호출 스킵.
 종목 다이제스트는 Haiku, 후보 이벤트·거시 요약만 Sonnet.
