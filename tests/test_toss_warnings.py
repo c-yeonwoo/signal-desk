@@ -77,8 +77,10 @@ def test_daily_maintenance_refreshes_the_buy_veto(tmp_path, monkeypatch):
                                                         "__call__": staticmethod(lambda: [])})())
     monkeypatch.setattr(api, "_regime", type("_", (), {"cache_clear": staticmethod(lambda: None)}))
     monkeypatch.setattr(api.store, "prices_need_deep_backfill", lambda: False)
+    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda batch=0: {"filled": 0, "stale": 0})
+    monkeypatch.setattr(api, "_clear_us_signal_caches", lambda: None)
     for name in ("fetch_prices", "fetch_flows", "fetch_market_flow", "fetch_short",
-                 "fetch_consensus", "snapshot_signals"):
+                 "fetch_consensus", "snapshot_signals", "us_price_deferred_tickers"):
         monkeypatch.setattr(api.store, name, lambda *a, **k: [])
     monkeypatch.setattr(api.store, "load_universe", lambda: [{"ticker": "005930"}])
     monkeypatch.setattr(api.store, "fetch_warnings", lambda tks: calls.append(tks) or 0)

@@ -65,8 +65,10 @@ def _quiet_maintenance(monkeypatch):
     monkeypatch.setattr(api, "_signals", type("_", (), {"cache_clear": staticmethod(lambda: None),
                                                         "__call__": staticmethod(lambda: [])})())
     monkeypatch.setattr(api, "_regime", type("_", (), {"cache_clear": staticmethod(lambda: None)}))
+    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda batch=0: {"filled": 0, "stale": 0})
+    monkeypatch.setattr(api, "_clear_us_signal_caches", lambda: None)
     for name in ("fetch_flows", "fetch_market_flow", "fetch_short", "fetch_consensus",
-                 "snapshot_signals", "load_universe"):
+                 "snapshot_signals", "load_universe", "us_price_deferred_tickers"):
         monkeypatch.setattr(api.store, name, lambda *a, **k: [])
     monkeypatch.setattr(api.climate, "snapshot_shadow", lambda s: None)
     monkeypatch.setattr(api.db, "kv_set", lambda k, v: None)
@@ -79,6 +81,17 @@ def test_daily_maintenance_refreshes_prices_without_bot_users(monkeypatch, _quie
     monkeypatch.setattr(api.store, "fetch_prices", lambda u, full=False: calls.append(full))
     api._daily_maintenance([])
     assert calls == [False]                            # 증분 갱신이 돌았다
+
+
+def test_daily_maintenance_refreshes_stale_us_prices(monkeypatch, _quiet_maintenance):
+    """US는 누락 백필만으론 안 된다 — 마감후 루프가 stale 종목을 다시 당겨야 한다."""
+    seen: list[int] = []
+    monkeypatch.setattr(api.store, "prices_need_deep_backfill", lambda: False)
+    monkeypatch.setattr(api.store, "fetch_prices", lambda u, full=False: None)
+    monkeypatch.setattr(api, "_refresh_us_prices_stale",
+                        lambda batch=0: (seen.append(batch), {"filled": 3, "stale": 0})[1])
+    api._daily_maintenance([])
+    assert seen == [0]                                 # batch=0 → stale 전량
 
 
 def test_daily_maintenance_backfills_when_history_is_short(monkeypatch, _quiet_maintenance):
@@ -107,6 +120,7 @@ def test_maintenance_runs_after_the_close_on_weekdays(monkeypatch):
     monkeypatch.setattr(api.db, "user_bots_enabled", lambda: [])
     monkeypatch.setattr(api, "_open_markets", lambda: [])
     monkeypatch.setattr(api, "_backfill_us_prices_batch", lambda n: {"filled": 0, "missing": 0})
+    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda n: {"filled": 0, "stale": 0})
     monkeypatch.setattr(api, "_backfill_about_batch", lambda n: 0)
     monkeypatch.setattr(api, "_backfill_moves_batch", lambda n: 0)
     monkeypatch.setattr(api, "_daily_maintenance", lambda enabled: ran.append("ran"))
