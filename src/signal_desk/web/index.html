@@ -3610,59 +3610,90 @@ function _syncChartModeButtons(){
     hint.innerHTML = txt;
   }
 }
+function _chartUrl(ticker, { withFlow = false } = {}){
+  if (ticker === INDEX_TICKER) return '/api/market/chart';
+  const mkt = _sigMarket === 'us' ? 'us' : 'kospi';
+  const q = new URLSearchParams();
+  if (mkt === 'us') q.set('market', 'us');
+  if (withFlow && mkt !== 'us') q.set('flow', '1');
+  const qs = q.toString();
+  return `/api/signals/${encodeURIComponent(ticker)}/chart` + (qs ? '?' + qs : '');
+}
+async function _ensureChartFlow(ticker){
+  // 자세히 모드 수급 — 기본 차트 응답에 없으면 그때만 추가 fetch(캐시 병합).
+  if (!_chartCache || _chartCache.ticker !== ticker) return;
+  const d = _chartCache.d;
+  if (!d || d.flow_loaded || _sigMarket === 'us' || ticker === INDEX_TICKER) return;
+  try {
+    const extra = await (await fetch(_chartUrl(ticker, { withFlow: true }))).json();
+    if (_selectedTicker !== ticker || !_chartCache || _chartCache.ticker !== ticker) return;
+    if (!extra.ready) return;
+    d.flow_foreign = extra.flow_foreign;
+    d.flow_inst = extra.flow_inst;
+    d.flow_loaded = true;
+    if (_chartMode === 'detail') _drawSignalChart(ticker, _chartCache.item, d);
+  } catch (e) { /* 수급 실패해도 본 차트는 유지 */ }
+}
 function setChartMode(mode){
   if (!['simple', 'trend', 'detail'].includes(mode)) return;
   _chartMode = mode;
   try { localStorage.setItem('sig_chart_mode', mode); } catch (e) {}
   _syncChartModeButtons();
-  if (_chartCache && _chartCache.ticker === _selectedTicker)
+  if (_chartCache && _chartCache.ticker === _selectedTicker) {
     _drawSignalChart(_chartCache.ticker, _chartCache.item, _chartCache.d);
+    if (mode === 'detail') _ensureChartFlow(_chartCache.ticker);
+  }
 }
 _syncChartModeButtons();
 
 async function showSignalChart(ticker, item){
-  // 리스트는 요약만 — 상세(/detail)와 차트를 병렬 fetch. 요약으로 히어로를 먼저 그리고 상세로 보강.
+  // 리스트는 요약만 — 차트 먼저 그리고 상세(/detail)는 뒤에서 보강(느린 쪽이 차트 페인트을 막지 않게).
   _paintSignalDetail(ticker, item);
   renderPeers(ticker);
   renderEvents(ticker);
   const holder = document.getElementById('signal-chart');
+  holder.textContent = '차트 불러오는 중…';
   const mkt = _sigMarket === 'us' ? 'us' : 'kospi';
-  const chartUrl = ticker === INDEX_TICKER ? '/api/market/chart'
-    : `/api/signals/${encodeURIComponent(ticker)}/chart` + (mkt === 'us' ? '?market=us' : '');
+  const wantFlow = _chartMode === 'detail' && mkt !== 'us' && ticker !== INDEX_TICKER;
   const detailUrl = ticker === INDEX_TICKER ? null
     : `/api/signals/${encodeURIComponent(ticker)}/detail?market=${mkt}`;
+  const detailP = detailUrl ? fetch(detailUrl).then(r => r.json()).catch(() => null) : Promise.resolve(null);
   try {
-    const [detail, d] = await Promise.all([
-      detailUrl ? fetch(detailUrl).then(r => r.json()).catch(() => null) : Promise.resolve(null),
-      fetch(chartUrl).then(r => r.json()),
-    ]);
+    const d = await (await fetch(_chartUrl(ticker, { withFlow: wantFlow }))).json();
     if (_selectedTicker !== ticker) return;  // 빠른 클릭 레이스
-    if (detail && detail.ready && detail.item) {
-      item = Object.assign({}, item || {}, detail.item);
-      _signalItems[ticker] = item;
-      _paintSignalDetail(ticker, item);  // about/moves/target/reasons 보강
-    }
-    // BUY/SELL 쉬운 해설 — 상세(개요 캐시) 반영 뒤 1회만
-    if (ticker !== INDEX_TICKER && item && item.kind && item.kind !== 'HOLD') {
-      const narrEl = document.getElementById('signal-narrative');
-      if (narrEl) fetchNarrativeV2(ticker, narrEl);
-    }
     if (!d.ready) {
       _disposeSignalChart();
       _chartCache = null;
       _paintChartAsof(null);
       holder.textContent = '차트 데이터가 없습니다.';
-      return;
+    } else {
+      _chartCache = { ticker, item, d };
+      _paintChartAsof(d);
+      _drawSignalChart(ticker, item, d);
+      if (_chartMode === 'detail' && !d.flow_loaded) _ensureChartFlow(ticker);
     }
-    _chartCache = { ticker, item, d };
-    _paintChartAsof(d);
-    _drawSignalChart(ticker, item, d);
   } catch (e) {
+    if (_selectedTicker !== ticker) return;
     _disposeSignalChart();
     _chartCache = null;
     _paintChartAsof(null);
     holder.textContent = '차트를 불러오지 못했습니다.';
   }
+  // 상세·해설은 차트와 분리 — 지연돼도 차트는 이미 그려진 상태
+  try {
+    const detail = await detailP;
+    if (_selectedTicker !== ticker) return;
+    if (detail && detail.ready && detail.item) {
+      item = Object.assign({}, item || {}, detail.item);
+      _signalItems[ticker] = item;
+      if (_chartCache && _chartCache.ticker === ticker) _chartCache.item = item;
+      _paintSignalDetail(ticker, item);
+    }
+    if (ticker !== INDEX_TICKER && item && item.kind && item.kind !== 'HOLD') {
+      const narrEl = document.getElementById('signal-narrative');
+      if (narrEl) fetchNarrativeV2(ticker, narrEl);
+    }
+  } catch (e) { /* 상세 실패는 차트와 무관 */ }
 }
 
 /** 차트 가격 기준일 · 시세 파일/실시간 갱신 시각 */

@@ -50,9 +50,20 @@ def _trend_date(row: dict) -> str | None:
     return None
 
 
+# 차트 클릭마다 네이버 HTTP를 치면 체감이 느리다 — 프로세스 메모리 TTL 캐시.
+_FLOW_CACHE: dict[tuple[str, int], tuple[float, list[dict] | None]] = {}
+_FLOW_CACHE_TTL_SEC = 30 * 60
+
+
 def investor_flow_series(code: str, days: int = 120) -> list[dict] | None:
     """일별 외국인·기관 순매수 시계열(오래된→최신). 차트 수급 패널용.
     반환: [{date, foreign_net, inst_net, volume}, ...] — 실패/무자료 시 None."""
+    import time
+    key = (str(code), int(days))
+    now = time.time()
+    hit = _FLOW_CACHE.get(key)
+    if hit and (now - hit[0]) < _FLOW_CACHE_TTL_SEC:
+        return hit[1]
     url = f"https://m.stock.naver.com/api/stock/{code}/trend"
     req = urllib.request.Request(url, headers={"User-Agent": _UA, "accept": "application/json"})
     try:
@@ -60,11 +71,14 @@ def investor_flow_series(code: str, days: int = 120) -> list[dict] | None:
             rows = json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         log.warning("네이버 수급 실패(%s): HTTP %s", code, e.code)
+        _FLOW_CACHE[key] = (now, None)
         return None
     except Exception as e:
         log.warning("네이버 수급 실패(%s): %s", code, type(e).__name__)
+        _FLOW_CACHE[key] = (now, None)
         return None
     if not isinstance(rows, list) or not rows:
+        _FLOW_CACHE[key] = (now, None)
         return None
     out: list[dict] = []
     for row in rows[: max(1, days)]:
@@ -78,10 +92,12 @@ def investor_flow_series(code: str, days: int = 120) -> list[dict] | None:
             "volume": _num(row.get("accumulatedTradingVolume")),
         })
     if not out:
+        _FLOW_CACHE[key] = (now, None)
         return None
     out.reverse()  # API는 보통 최신→과거 — 차트 dates와 맞춰 오래된→최신
     # 날짜 오름차순 보장
     out.sort(key=lambda x: x["date"])
+    _FLOW_CACHE[key] = (now, out)
     return out
 
 

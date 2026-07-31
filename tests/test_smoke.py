@@ -217,5 +217,9 @@ def test_signal_chart_with_data(tmp_path, monkeypatch):
     assert len(d["rsi"]) == len(history)
     assert "macd" in d and "macd_signal" in d and "macd_hist" in d
     assert "scores" in d and len(d["scores"]) == len(history)
-    assert len(d["flow_foreign"]) == len(history)
-    assert d["flow_foreign"][0] == 0.0
+    assert d.get("flow_loaded") is False  # 기본 클릭 경로에선 수급 HTTP 생략
+    r2 = client.get("/api/signals/005930/chart?flow=1")
+    d2 = r2.json()
+    assert d2["flow_loaded"] is True
+    assert len(d2["flow_foreign"]) == len(history)
+    assert d2["flow_foreign"][0] == 0.0
