@@ -55,5 +55,6 @@ Lv  Verdict        shadow / harness / 레드팀                  [기계 · 경�
 |---|---|
 | L0~L3·L5·Lv (기존 엔진·advisor·bot·shadow) | ✅ 운영 중 |
 | L4 Desk Report v1 (`signals/desk_report.py`) | ✅ 템플릿 |
+| UI 「오늘」카드 (precision·편중·데스크 병합) | ✅ 시그널 탭 접기 요약 |
 | Lx Product Reviewer 스케치 | ✅ 모듈·문서 (자동 스케줄은 후속) |
 | L1 역할 분리 LLM / L2 다라운드 토론 | ⬜ 승격제 — 보류 |

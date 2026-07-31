@@ -438,6 +438,7 @@ LLM 비용 카드로 관찰한다.
 - ✅ L4 Desk Report 템플릿 (`signals/desk_report.py` · `/api/signals` · 시그널 탭 접기)
 - ✅ 미분류 쏠림 ≠ crowded (`crowding.data_quality`)
 - ✅ Lx Product Reviewer 스케치 (`product_reviewer.py` · `POST /api/product-review/run`)
+- ✅ 시그널 UI 밀도 — 「오늘」카드로 precision·편중·데스크 병합 · trust 기본 접기 · 리스트/히어로 축약
 - ⬜ Lx 야간 자동 스케줄 · 타사 provider 교차검열
 - ⬜ L1 역할분리 LLM / L2 다라운드 — **shadow 유의 승리면만** (지금 보류)
 
