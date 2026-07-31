@@ -430,6 +430,17 @@ LLM 비용 카드로 관찰한다.
 
 **미착수**: 주기 실행(큐가 소음이 되면 아무도 안 본다 — 큰 변경 뒤 수동 실행이 지금 규모에 맞다).
 
+## Desk Hierarchy — 권한 사다리 (2026-07-31)
+
+정본: [docs/desk-hierarchy.md](docs/desk-hierarchy.md) · Lx: [docs/product-reviewer.md](docs/product-reviewer.md).
+
+에이전트 부서 풀빌드가 아니라 **위로 갈수록 기권·제거만** 하는 권한 위계.
+- ✅ L4 Desk Report 템플릿 (`signals/desk_report.py` · `/api/signals` · 시그널 탭 접기)
+- ✅ 미분류 쏠림 ≠ crowded (`crowding.data_quality`)
+- ✅ Lx Product Reviewer 스케치 (`product_reviewer.py` · `POST /api/product-review/run`)
+- ⬜ Lx 야간 자동 스케줄 · 타사 provider 교차검열
+- ⬜ L1 역할분리 LLM / L2 다라운드 — **shadow 유의 승리면만** (지금 보류)
+
 ### 리뷰보드 Now 잔여 (2026-07-22)
 
 | 항목 | 상태 |
