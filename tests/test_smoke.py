@@ -115,7 +115,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 북극성 D7 관리자 카드 — 지표가 화면에 없으면 아무도 보지 않는다
     assert 'id="d7-body"' in html and "loadD7" in html and "북극성 D7" in html
     # 매수 후보가 순위인지 절대문턱인지 화면이 말해야 한다(봇·브리핑과 같은 기준)
-    assert "오늘 매수 후보" in html and ("자금 한도" in html or "익스포저" in html)
+    assert "renderTodayCard" in html and ("자금 한도" in html or "익스포저" in html)
     # 문턱이 점수 분포 밖으로 나가면 즉시 보이게 — 2026-07-26에 실제로 벌어졌던 실패
     assert "threshold_above_max" in html and "매수가 산술적으로 불가능합니다" in html
     # 시세가 멈추면 문턱·분위를 어떻게 바꿔도 매일 같은 결과가 나온다
@@ -141,8 +141,9 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
         assert alias in root, f"{alias} 미정의"
     assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
     assert ">페이퍼<" in html  # 탭명 (구 '내 자산')
-    # 정밀도는 카드가 아니라 헤더 한 줄 카운트(#sig-precision). 매수대기·조사후보 퀵칩은 제거.
-    assert 'id="sig-precision"' in html and 'class="sig-head"' in html
+    # 상태(precision·편중·데스크)는 「오늘」카드 하나. 매수대기·조사후보 퀵칩은 제거.
+    assert 'id="sig-today"' in html and 'class="sig-head"' in html
+    assert "renderTodayCard" in html
     assert 'id="buylist-card"' not in html
     assert 'id="qf-extwatch"' not in html and 'id="screen-extwatch"' in html
     assert "정밀도 우선" in html
@@ -154,7 +155,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "enterAdmin" in html and "renderAdminTodo" in html
     assert 'data-aseg="ops"' in html and "점검" in html and "enterAdmin(" in html
     assert "trust-paper-muted" in html  # 페이퍼 승률 ≠ 실측 헤드라인
-    assert "고장 아닐 수 있음" in html
+    assert "고장 아님" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
     assert "우선매수" in html and "kindHint" in html  # 순위 의미를 드러내는 라벨·힌트
     assert 'id="ob-step-desk"' in html  # 온보딩 3스텝: 데스크 용어 안내
