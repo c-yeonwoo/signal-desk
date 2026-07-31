@@ -216,7 +216,7 @@
 
 | 축 | 이전 | 이후 |
 |---|---|---|
-| 매수권 | 절대 문턱(`buy_threshold`) | **횡단면 분위** `selection_mode="rank"` · 상위 `rank_top_pct`(기본 3% = 200종목 중 6자리) + 최소점수 `rank_min_score=0.5` |
+| 매수권 | 절대 문턱(`buy_threshold`) | **횡단면 분위** `selection_mode="rank"` · 상위 `rank_top_pct`(기본 3% = 200종목 중 6자리) + 최소점수 `rank_min_score=1.2`(`buy_threshold` 동기) · 창 밖 채우기 금지 |
 | 국면 | 매수 문턱 상향(자격) | **총 익스포저**(크기) `regime.target_exposure` — 강세 1.0 / 중립 0.7 / 과열 0.6 / 약세 0.4 / 조정 0.2, 거시·수급은 곱연산, **하한 0.15** |
 | 추세 게이트 | 역배열이면 무조건 BUY→HOLD | **상대 기준** — 시장 20일 수익 중위값보다 덜 빠졌으면 게이트 완화(`_downtrend_blocking`) |
 | 봇 성향 | `min_buy_score` 절대값 1.3~1.9 | 분위 폭(보수 1% / 균형 2% / 공격 3%) — 절대값은 `absolute` 모드에서만 |

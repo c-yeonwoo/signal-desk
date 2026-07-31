@@ -151,12 +151,8 @@ def build_morning(
             lines.append(f"🟢 {s.name} {float(s.score):+.2f}")
         if len(buys) > _BUY_LIMIT:
             lines.append(f"… 외 {len(buys) - _BUY_LIMIT}종목")
-    elif ranked:
-        # 분위 모드에서 0건은 정상이 아니다 — 악재 veto·게이트·최소점수로 전부 막힌 예외 상황
-        lines.append(f"매수 시그널 0{change} — 상위 종목이 전부 악재·게이트·최소점수에 막혔습니다."
-                     " 드문 경우라 관리자 확인이 필요합니다.")
     else:
-        # 매수 0일이 정상 동작임을 매번 같은 문장으로 — 앱의 '매수 0일 히어로'와 같은 톤
+        # 분위·절대 모두 매수 0일이 정상 — 최소점수·게이트로 자리가 비는 날이 신뢰의 본체
         lines.append(f"매수 시그널 0{change} — 기준을 넘은 종목이 없습니다. 정밀도 우선이라 그렇고,"
                      " 고장이 아닙니다. 오늘은 기다리는 날입니다.")
 

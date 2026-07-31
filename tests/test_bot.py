@@ -187,16 +187,15 @@ def test_records_advisor_shadow_only_on_real_runs(tmp_path, monkeypatch):
 
 
 def test_rank_mode_buys_relative_best_even_when_all_below_old_threshold(tmp_path, monkeypatch):
-    """분위 모드: 점수가 전부 옛 문턱(1.6) 아래여도 시장 상위는 매수한다.
+    """분위 모드: 성향 절대문턱(1.6) 아래여도 최소점수(1.2) 넘는 시장 상위는 매수한다.
 
-    2026-07-26 진단의 핵심 — 관측 최고점수 1.91 < 유효문턱 2.0~2.4라서 10거래일간 매수 1건이었다.
-    상대 순위로 고르면 시장이 나빠도 후보가 비지 않는다.
+    엔진 floor(1.2)는 지키되, 성향 min_buy_score(1.6)는 rank 본매수에 쓰지 않는다.
     """
     monkeypatch.chdir(tmp_path)
     universe = [{"ticker": f"T{i}", "name": f"종목{i}"} for i in range(20)]
     prices = {f"T{i}": [100.0] for i in range(20)}
-    # 전 종목 0.6~1.1 — 절대문턱 모드였다면 매수 0건
-    signals = [_sig(f"T{i}", f"종목{i}", "HOLD", 0.6 + i * 0.025) for i in range(20)]
+    # 1.20~1.58 — floor는 넘기고 성향 1.6은 전원 미달
+    signals = [_sig(f"T{i}", f"종목{i}", "HOLD", 1.20 + i * 0.02) for i in range(20)]
     _setup(monkeypatch, universe, prices, signals, mode="rank", rank_top_pct=10.0,
            max_new_buys_per_run=10, min_buy_score=1.6)
     _seed(10_000_000.0)

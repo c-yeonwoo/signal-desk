@@ -60,11 +60,12 @@ class SignalConfig:
     # PIT 스냅샷 2,000건(200종목×10거래일)의 최고점수 1.91 · p99 1.45인데 유효문턱이 2.0~2.4여서
     # 10거래일간 매수 1건. 8팩터를 가중평균 후 ×3 하는 구조상 2.0을 넘으려면 정규화 팩터 평균이
     # 0.67이어야 해서, 강세장에서도 거의 발생하지 않는다(strong_buy 2.0은 관측 0건).
-    # rank는 시장이 나빠도 "상대적으로 가장 좋은 N%"가 항상 존재해 후보가 비지 않는다.
-    # 매도는 절대 기준을 유지한다 — 청산은 억제하지 않는다는 기존 원칙 그대로.
+    # rank는 같은 시장 안 상대 순위로 고른다. 다만 최소점수 미달이면 후보 0이 정상
+    # (매일 약한 BUY를 찍으면 신뢰가 떨어진다). 매도는 절대 기준 유지.
     selection_mode: str = "rank"
     rank_top_pct: float = 3.0     # 시장 내 상위 N%를 매수권으로(200종목이면 6종목)
-    rank_min_score: float = 0.5   # 분위 안이라도 이 점수 미만이면 제외 — 폭락장 '최악 중 최선' 방지
+    # buy_threshold와 동기화 — 절대 BUY도 안 될 점수를 분위 승격하지 않는다
+    rank_min_score: float = 1.2
 
     # 국면 적응: 1이면 약세·조정·거시 비우호 국면에서 매수 임계값을 자동 상향(regime.buy_threshold_bump).
     # 0이면 임계값 고정. (관리자 조정 필드 — signalcfg.FIELDS에 포함)
@@ -474,9 +475,12 @@ def apply_cross_sectional(results: list[SignalResult],
                           config: SignalConfig | None = None) -> list[SignalResult]:
     """횡단면 분위로 매수권을 정한다(절대 문턱 대체). results는 점수 내림차순 정렬 상태를 가정.
 
-    모든 종목에 `rank_pct`(상위 백분위)를 채우고, 상위 `rank_top_pct` 이내 · `rank_min_score`
+    모든 종목에 `rank_pct`(상위 백분위)를 채우고, **원 상위 k자리 안** · `rank_min_score`
     이상 · 게이트 미차단인 종목만 `rank_eligible`로 표시하고 kind를 BUY로 승격한다.
     승격은 매수권 표시일 뿐이고, 실제 매수 크기는 국면 익스포저(regime.target_exposure)가 정한다.
+
+    상위가 게이트면 그 자리는 **공석** — k 밖 약한 종목으로 채우지 않는다.
+    (예전엔 다음 순위가 올라와 매일 슬롯이 찼고, 최소점수 0.5와 겹쳐 신뢰가 떨어졌다.)
 
     분위를 봇 성향별로 더 좁힐 수 있게 `rank_pct`는 전 종목에 남긴다(넓히는 건 불가 — 엔진
     분위가 앱 전체의 '매수권' 정의다).
@@ -486,13 +490,13 @@ def apply_cross_sectional(results: list[SignalResult],
         return results
     n = len(results)
     k = rank_slots(n, config.rank_top_pct)
-    # 매수권 k자리는 순위를 내려가며 채운다 — 상위에 악재·게이트 종목이 있으면 그 자리를 비우는 게
-    # 아니라 다음 순위가 올라온다. 그러지 않으면 veto 몇 건이 조용히 후보 수를 깎는다(원래 버그와 동종).
     taken = 0
     for idx, r in enumerate(results):
         r.rank = idx + 1
         r.rank_pct = round((idx + 1) / n * 100, 2)
-        eligible = (taken < k
+        in_window = r.rank <= k
+        eligible = (in_window
+                    and taken < k
                     and r.score >= config.rank_min_score
                     and not r.gate_blocked
                     and not r.event_risk)
@@ -510,9 +514,16 @@ def apply_cross_sectional(results: list[SignalResult],
             r.kind = new_kind
             taken += 1
         elif is_buy(r.kind):
-            # 절대 문턱은 넘었지만 상대 순위가 밖 → 매수권 아님(모드 하나만 유효해야 한다)
+            # 절대 문턱은 넘었지만 상대 순위·최소점수·게이트로 탈락 → 매수권 아님
             r.kind = HOLD
             r.reasons = [*r.reasons, f"[선정] 시장 {n}종목 중 {r.rank}위 — 매수권({k}자리) 밖"]
+        elif in_window and (r.gate_blocked or r.event_risk or r.score < config.rank_min_score):
+            # 창 안이지만 공석 — 왜 비었는지 남긴다(조용한 0 방지)
+            if r.gate_blocked or r.event_risk:
+                note = "게이트·악재로 자리 공석"
+            else:
+                note = f"최소점수 {config.rank_min_score:.1f} 미달로 자리 공석"
+            r.reasons = [*r.reasons, f"[선정] 시장 {n}종목 중 {r.rank}위 — {note}"]
     return results
 
 

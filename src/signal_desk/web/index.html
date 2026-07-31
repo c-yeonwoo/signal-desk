@@ -2285,8 +2285,10 @@ async function loadRegime(){
       const why = (ad.exposure_reasons || []).join(', ');
       adapt.classList.add('is-on'); adapt.classList.remove('open');
       adapt.innerHTML = `<button type="button" class="adapt-chip" onclick="this.parentElement.classList.toggle('open')" title="${esc(why)}">`
-        + `매수 후보 ${sel.rank_slots ?? '–'}자리 · 자금 한도 ${Math.round(ad.exposure * 100)}%</button>`
-        + `<span class="adapt-full">${esc(why)}</span>`;
+        + `선정 ${sel.eligible ?? 0}/${sel.rank_slots ?? '–'} · 자금 한도 ${Math.round(ad.exposure * 100)}%</button>`
+        + `<span class="adapt-full">${esc(why)}`
+        + (sel.rank_min_score != null ? ` · 최소점수 ${fmtNum(sel.rank_min_score, 1)}` : '')
+        + `</span>`;
     } else if (ad.bump > 0) {
       const why = (ad.reasons || []).join(', ');
       adapt.classList.add('is-on'); adapt.classList.remove('open');
@@ -3110,8 +3112,9 @@ function updatePrecisionStrip(){
           </button>`;
         }).join('')}</div>`
       : '';
-    el.innerHTML = `<div class="sp-hero">오늘 매수 후보 <span class="sp-n">0</span> · 게이트에 막힌 날일 수 있음</div>`
+    el.innerHTML = `<div class="sp-hero">오늘 매수 후보 <span class="sp-n">0</span> · 정밀도 우선 · 고장 아님</div>`
       + `<div class="sp-why">${whyThr}`
+      + ` 최소점수·게이트·상위 분위에 못 미치면 자리가 비습니다.`
       + (nearN
         ? ` 점수만 보면 가까운 종목 <span class="sp-n">${nearN}</span>개 — 아래를 눌러 자세히 보세요.`
         : ` 관심종목 3개를 넣으면 매수 대기 리스트에 “무엇이 남았는지”가 채워집니다.`)

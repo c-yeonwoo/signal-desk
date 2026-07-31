@@ -33,14 +33,18 @@ def test_rank_slots_never_zero():
 
 
 def test_buys_relative_best_when_everything_below_absolute_threshold():
-    """관측된 실제 분포(최고 1.9 · 중위 0.3)에서 절대문턱 1.2+는 후보를 거의 못 만든다."""
+    """분위는 상대 순위로 고르되, 최소점수(buy_threshold와 동기 1.2) 미만은 승격하지 않는다."""
     scores = [1.9, 1.7, 1.4, 1.4, 1.3, 1.1] + [0.3] * 194
     results, cfg = _ranked(scores)
     eligible = [r for r in results if r.rank_eligible]
-    assert len(eligible) == 6                      # 200종목 × 3%
+    assert len(eligible) == 5                      # 1.1은 floor 미달 · 자리 공석
+    assert all(r.score >= cfg.rank_min_score for r in eligible)
     assert all(engine.is_buy(r.kind) for r in eligible)
     assert eligible[0].rank == 1 and eligible[0].kind == "STRONG_BUY"
     assert "상대 순위" in " ".join(eligible[-1].reasons)
+    # 6위(1.1)는 창 안이지만 최소점수 미달 → 공석 사유
+    sixth = next(r for r in results if r.rank == 6)
+    assert sixth.rank_eligible is False and "최소점수" in " ".join(sixth.reasons)
 
 
 def test_absolute_mode_can_produce_zero_candidates():
@@ -62,21 +66,22 @@ def test_min_score_floor_blocks_least_bad_in_crash():
     assert [r for r in results if r.rank_eligible] == []
 
 
-def test_gated_ticker_does_not_consume_a_slot():
-    """추세·실적 게이트로 막힌 종목은 매수권이 아니고, 그 자리를 비워두지도 않는다 —
-    다음 순위가 올라온다. veto 몇 건이 조용히 후보 수를 깎으면 원래 버그와 같은 결과가 된다."""
+def test_gated_ticker_leaves_slot_vacant():
+    """게이트된 상위는 매수권이 아니고, k 밖 다음 순위로 채우지 않는다 — 공석이 정상.
+    (예전엔 다음 순위가 올라와 매일 슬롯이 찼다.)"""
     cfg = SignalConfig(selection_mode="rank", rank_top_pct=50.0)   # 2종목 → 1자리
     rs = [_sig("A", 2.0, gate_blocked=True), _sig("B", 1.5)]
     engine.apply_cross_sectional(rs, cfg)
     assert rs[0].rank_eligible is False and rs[0].kind == "HOLD"
-    assert rs[1].rank_eligible is True and engine.is_buy(rs[1].kind)
+    assert "공석" in " ".join(rs[0].reasons)
+    assert rs[1].rank_eligible is False and rs[1].rank == 2  # 창 밖
 
 
-def test_event_veto_still_wins_and_next_rank_fills_in():
+def test_event_veto_leaves_slot_vacant():
     cfg = SignalConfig(selection_mode="rank", rank_top_pct=50.0)
     rs = [_sig("A", 2.0, event_risk=True), _sig("B", 1.5)]
     engine.apply_cross_sectional(rs, cfg)
-    assert rs[0].rank_eligible is False and rs[1].rank_eligible is True
+    assert rs[0].rank_eligible is False and rs[1].rank_eligible is False
 
 
 def test_absolute_buy_outside_rank_is_demoted():
@@ -177,20 +182,20 @@ def test_gate_unchanged_when_market_context_missing():
     assert engine._downtrend_blocking(closes, series, i, cfg, 5.0) is True
 
 
-def test_evaluate_produces_buy_candidates_in_a_falling_market():
-    """엔드투엔드 — 전 종목이 하락 중이어도 상대적으로 나은 종목은 매수권에 들어온다.
-    (예전 동작: 추세 게이트가 전 종목을 HOLD로 강등 → 매수권 0)"""
+def test_evaluate_relative_strength_still_ranks_in_falling_market():
+    """엔드투엔드 — 전 종목 하락이어도 상대 상위는 순위·상대강도 예외를 받는다.
+    최소점수 floor 때문에 매수권 0일 수 있다(정밀도 우선 · 정상)."""
     universe = [{"ticker": f"T{i}", "name": f"종목{i}"} for i in range(20)]
     # T0이 가장 덜 빠지고, 뒤로 갈수록 더 빠진다
     prices = {f"T{i}": _falling(daily=-0.001 - i * 0.0005) for i in range(20)}
     cfg = SignalConfig(selection_mode="rank", rank_top_pct=10.0)
     results = engine.evaluate(universe, prices, config=cfg)
-    picks = [r for r in results if r.rank_eligible]
-    assert picks, "하락장에서도 상대 상위는 매수권에 있어야 한다"
-    assert picks[0].ticker == "T0"                    # 가장 덜 빠진 종목
-    assert all(engine.is_buy(r.kind) for r in picks)
+    by = {r.ticker: r for r in results}
+    assert by["T0"].rank == 1
+    # 상대강도 예외로 추세 게이트에 전멸하지 않아야 한다(점수·사유에 상대강도 흔적)
+    assert by["T0"].gate_blocked is False or "상대강도" in " ".join(by["T0"].reasons)
     s = engine.selection_summary(results, cfg)
-    assert s["mode"] == "rank" and s["eligible"] == len(picks) == s["rank_slots"]
+    assert s["mode"] == "rank" and s["eligible"] <= s["rank_slots"]
 
 
 def test_market_return_is_median_not_mean():
