@@ -241,7 +241,8 @@
   .sig-about .sa-label { color:var(--dim-2); font-size:12px; font-weight:700; margin-right:6px; }
   .sig-about .sa-text { color:var(--txt); }
   .sig-chart-pane { overflow-y:auto; }
-  #signal-chart { flex:0 0 auto; height:560px; width:100%; }  /* 고정 높이 — flex 성장이면 긴 리스트/stretch에 끌려 차트가 폭발(10000px+)했음. 하단 지표패널 px 고정이라 560이면 종가 패널도 넉넉 */
+  #signal-chart { flex:0 0 auto; height:560px; width:100%; position:relative; }  /* 고정 높이 — flex 성장이면 긴 리스트/stretch에 끌려 차트가 폭발(10000px+)했음. 하단 지표패널 px 고정이라 560이면 종가 패널도 넉넉 */
+  #signal-chart.is-loading { opacity:0.45; pointer-events:none; transition:opacity .12s ease; }
   /* 차트 아래 상세는 서브탭으로 하나씩 — 차트를 밀어내지 않도록 높이 제한 */
   .detail-tabs { display:flex; gap:2px; flex-wrap:wrap; align-items:center;
     border-bottom:1px solid var(--line); margin-top:24px; }
@@ -3669,21 +3670,32 @@ function setChartMode(mode){
 }
 _syncChartModeButtons();
 
+let _chartAbort = null;  // 빠른 종목 전환 시 이전 /chart·/detail 응답을 버린다
 async function showSignalChart(ticker, item){
   // 리스트는 요약만 — 차트 먼저 그리고 상세(/detail)는 뒤에서 보강(느린 쪽이 차트 페인트을 막지 않게).
   _paintSignalDetail(ticker, item);
   renderPeers(ticker);
   renderEvents(ticker);
   const holder = document.getElementById('signal-chart');
-  holder.textContent = '차트 불러오는 중…';
+  // 이미 그린 차트를 textContent로 지우면 ECharts가 죽고 '불러오는 중'만 보여 체감이 더 느리다.
+  // 캐시된 차트가 있으면 흐리게만 두고, 없을 때만 플레이스홀더.
+  if (_signalChart && _chartCache) holder.classList.add('is-loading');
+  else holder.textContent = '차트 불러오는 중…';
+  if (_chartAbort) try { _chartAbort.abort(); } catch (e) {}
+  _chartAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  const signal = _chartAbort ? _chartAbort.signal : undefined;
   const mkt = _sigMarket === 'us' ? 'us' : 'kospi';
   const wantFlow = _chartMode === 'detail' && mkt !== 'us' && ticker !== INDEX_TICKER;
   const detailUrl = ticker === INDEX_TICKER ? null
     : `/api/signals/${encodeURIComponent(ticker)}/detail?market=${mkt}`;
-  const detailP = detailUrl ? fetch(detailUrl).then(r => r.json()).catch(() => null) : Promise.resolve(null);
+  const detailP = detailUrl
+    ? fetch(detailUrl, signal ? { signal } : undefined).then(r => r.json()).catch(() => null)
+    : Promise.resolve(null);
   try {
-    const d = await (await fetch(_chartUrl(ticker, { withFlow: wantFlow }))).json();
+    const d = await (await fetch(_chartUrl(ticker, { withFlow: wantFlow }),
+                                 signal ? { signal } : undefined)).json();
     if (_selectedTicker !== ticker) return;  // 빠른 클릭 레이스
+    holder.classList.remove('is-loading');
     if (!d.ready) {
       _disposeSignalChart();
       _chartCache = null;
@@ -3696,7 +3708,9 @@ async function showSignalChart(ticker, item){
       if (_chartMode === 'detail' && !d.flow_loaded) _ensureChartFlow(ticker);
     }
   } catch (e) {
+    if (e && e.name === 'AbortError') return;
     if (_selectedTicker !== ticker) return;
+    holder.classList.remove('is-loading');
     _disposeSignalChart();
     _chartCache = null;
     _paintChartAsof(null);
