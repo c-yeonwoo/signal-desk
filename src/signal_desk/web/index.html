@@ -496,16 +496,20 @@
   .trust-badge.sim { background:var(--bg); color:var(--dim); border:1px solid var(--line-strong); }
   .trust-badge.accum { background:var(--bg); color:var(--dim-2); border:1px dashed var(--line-strong); }
   .trust-badge.bot { background:var(--accent-weak); color:var(--txt); border:1px solid var(--line); }
-  /* 성적 스트립은 한 줄이 원칙. 매일 오는 화면에서 메타 설명이 3줄이면 콘텐츠가 아니라 서문이다 */
+  /* 성적은 매일 안 바뀌므로 기본 접기 — 펼쳐야 본문 */
   #signal-trust { display:none; font-size:var(--fs-xs); line-height:1.5;
     background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--accent);
-    border-radius:var(--r-md); padding:10px 16px; margin-bottom:12px; }
+    border-radius:var(--r-md); padding:0; margin-bottom:10px; }
+  #signal-trust > summary { cursor:pointer; list-style:none; padding:8px 14px; font-weight:600;
+    color:var(--dim); display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  #signal-trust > summary::-webkit-details-marker { display:none; }
+  #signal-trust > summary .trust-sum-n { color:var(--txt); font-weight:700; }
+  #signal-trust[open] > summary { border-bottom:1px solid var(--line); }
+  #signal-trust .trust-body { padding:8px 14px 10px; }
   #signal-trust .trust-row { display:flex; flex-wrap:wrap; align-items:baseline; gap:6px 10px; }
   #signal-trust .trust-row + .trust-row { margin-top:6px; padding-top:6px; border-top:1px solid var(--line); }
-  /* 페이퍼는 실측 아래 2순위 — 성적 줄 꼬리에 붙이되 구분선으로 층위를 남긴다 */
   #signal-trust .trust-tail { display:inline-flex; align-items:baseline; gap:6px; padding-left:10px;
     margin-left:2px; border-left:1px solid var(--line); }
-  /* 2순위 줄(매도 정밀도·페이퍼) — 매수 실측과 같은 무게로 읽히면 안 된다 */
   #signal-trust .trust-row.trust-paper-muted { font-size:var(--fs-2xs); color:var(--dim); }
   #signal-trust .trust-row.trust-paper-muted b { font-weight:600; color:var(--dim); }
   #signal-trust .trust-more { margin-left:auto; font-size:var(--fs-2xs); color:var(--dim-2); font-weight:500; }
@@ -590,12 +594,8 @@
        셀 여백을 줄이고 코드·점수 줄은 붙여 둔다 — 줄바꿈은 종목명에서만. */
     .sig-list table.dtable th, .sig-list table.dtable td { padding:10px 6px; }
     .sig-list table.dtable td .sig-metric { white-space:nowrap; }
-    /* 섹터 열을 두면 표가 419px이 되어 시그널 pill이 화면 밖으로 밀린다 —
-       시그널 탭에서 시그널이 가로 스크롤 뒤에 숨는 건 말이 안 된다. 맥락인 섹터를 접는다. */
-    .sig-list table.dtable th:nth-child(3), .sig-list table.dtable td:nth-child(3) { display:none; }
-    /* 시그널 열은 .sig-cell flex 가운데 정렬 유지(우측 정렬이면 기후 pill이 잘리기 쉬움) */
     .sig-list table.dtable th:nth-child(4) { text-align:center; }
-    .sig-list .col-resizer { display:none; }  /* 좁은 화면은 섹터 열이 접혀 리사이즈 의미 없음 */
+    .sig-list .col-resizer { display:none; }
     .sig-head { padding:12px 12px 0; }
     #chat-fab { width:48px; height:48px; font-size:21px; }
     .market-bar #regime-detail { flex:1 1 100%; }
@@ -630,28 +630,35 @@
   .auth-points { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
   .auth-points span { font-size:12px; color:var(--accent); background:var(--accent-weak);
     padding:4px 9px; border-radius:999px; }
-  /* 패널 헤더 1줄: 시장 세그 + 오늘 카운트 */
+  /* 패널 헤더: 시장 세그 · 아래 「오늘」카드가 상태·공석·편중을 한곳에 */
   .sig-head { display:flex; align-items:center; gap:10px; padding:12px 12px 0; flex-wrap:wrap; }
-  .sig-precision { margin-left:auto; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
-    font-size:var(--fs-xs); line-height:1.5; color:var(--dim); font-variant-numeric:tabular-nums; }
-  .sig-precision b { color:var(--txt); }
-  .sig-precision .sp-n { color:var(--txt); font-weight:700; }
-  .sig-precision .sp-c { color:var(--dim-2); }
-  .sig-precision .sp-actions { display:inline-flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
-  .sig-precision .sp-actions .btn { padding:2px 9px; font-size:12px; }
-  .sig-precision .sp-actions .btn.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-  /* 매수권 0일 — 첫 세션 히어로(셀프서브: 빈날을 제품 실패로 읽지 않게). 이때만 블록으로 펼친다 */
-  .sig-precision.is-empty-buy { display:block; width:100%; margin:2px 0 0; padding:12px 14px;
-    border:1px solid var(--line); border-left:3px solid var(--accent); border-radius:var(--r-md);
-    background:var(--panel); font-size:var(--fs-sm); }
-  .sig-precision .sp-hero { font-size:13px; font-weight:700; color:var(--txt); line-height:1.4; }
-  .sig-precision .sp-why { margin-top:5px; font-size:13px; color:var(--dim); line-height:1.5; }
-  .sig-precision .sp-near { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
-  .sig-precision .sp-near-row { display:flex; align-items:center; gap:8px; padding:5px 8px;
+  .sig-today { display:none; margin:8px 12px 0; border:1px solid var(--line); border-radius:var(--r-md);
+    background:var(--bg); font-size:var(--fs-xs); line-height:1.45; }
+  .sig-today.is-on { display:block; }
+  .sig-today.is-empty { border-left:3px solid var(--accent); background:var(--panel); }
+  .sig-today > summary { cursor:pointer; list-style:none; padding:8px 10px; display:flex;
+    align-items:center; gap:8px; flex-wrap:wrap; color:var(--dim); font-variant-numeric:tabular-nums; }
+  .sig-today > summary::-webkit-details-marker { display:none; }
+  .sig-today .st-n { color:var(--txt); font-weight:700; }
+  .sig-today .st-c { color:var(--dim-2); }
+  .sig-today .st-chip { display:inline-block; padding:1px 7px; border-radius:var(--r-sm); font-size:11px;
+    font-weight:700; border:1px solid var(--line-strong); color:var(--dim); background:var(--panel); }
+  .sig-today .st-chip.warn { border-color:#b45309; color:#92400e; background:rgba(180,83,9,.08); }
+  .sig-today .st-chip.dq { color:var(--dim); }
+  .sig-today .st-more { margin-left:auto; font-size:11px; color:var(--dim-2); font-weight:600; }
+  .sig-today[open] > summary { border-bottom:1px solid var(--line); }
+  .sig-today .st-body { padding:8px 10px 10px; color:var(--dim); font-size:12px; }
+  .sig-today .st-actions { display:inline-flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+  .sig-today .st-actions .btn { padding:2px 9px; font-size:12px; }
+  .sig-today .st-actions .btn.on { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .sig-today .sp-near { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+  .sig-today .sp-near-row { display:flex; align-items:center; gap:8px; padding:5px 8px;
     border:1px solid var(--line); border-radius:var(--r-sm); background:var(--bg); cursor:pointer;
     font-size:13px; color:var(--txt); text-align:left; width:100%; font-family:inherit; }
-  .sig-precision .sp-near-row:hover { border-color:var(--accent); background:var(--accent-weak); }
-  .sig-precision .sp-near-row .sp-gap { margin-left:auto; font-size:12px; color:var(--dim-2); white-space:nowrap; }
+  .sig-today .sp-near-row:hover { border-color:var(--accent); background:var(--accent-weak); }
+  .sig-today .sp-near-row .sp-gap { margin-left:auto; font-size:12px; color:var(--dim-2); white-space:nowrap; }
+  /* 섹터는 상세에 있고 리스트 스캔을 방해한다 — 전 폭에서 열 숨김 */
+  .sig-list table.dtable th:nth-child(3), .sig-list table.dtable td:nth-child(3) { display:none; }
   .sig-empty { padding:20px 14px; text-align:left; }
   .sig-empty .se-title { font-size:14px; font-weight:700; color:var(--txt); margin-bottom:6px; }
   .sig-empty .se-body { font-size:13px; color:var(--dim); line-height:1.55; margin-bottom:10px; }
@@ -780,26 +787,21 @@
 
 <main>
   <div id="view-signal" class="view-app" style="display:none">
-    <div id="signal-trust"></div>
+    <details id="signal-trust"><summary id="signal-trust-sum">성적</summary><div class="trust-body" id="signal-trust-body"></div></details>
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
-        <!-- 패널 헤더는 3줄로 고정: 시장·오늘 카운트 / 검색·정렬 / 퀵필터·스크리너.
-             컨트롤이 6층이던 시절 리스트가 340px 아래에서 시작했다 — 목록을 보러 온 화면이었다. -->
+        <!-- 상태(precision·편중·데스크)는 「오늘」카드 하나. 리스트 시작을 위로. -->
         <div class="sig-head">
           <div class="seg-toggle" id="sig-market-seg" style="margin:0">
             <button class="on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
             <button data-mkt="us" onclick="switchSignalMarket('us')">해외</button>
           </div>
-          <div id="sig-precision" class="sig-precision" style="display:none"></div>
         </div>
-        <div id="sig-crowd-banner" style="display:none;margin:0 12px 8px;padding:7px 10px;font-size:12px;line-height:1.45;
-          background:rgba(180,83,9,.08);border:1px solid #b45309;border-radius:var(--r-md);color:#92400e"></div>
-        <details id="sig-desk-report" style="display:none;margin:0 12px 8px;padding:8px 10px;font-size:12px;line-height:1.5;
-          background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md)">
-          <summary style="cursor:pointer;font-weight:700;color:var(--txt)">데스크 보고</summary>
-          <div id="sig-desk-report-body" style="margin-top:6px;color:var(--dim)"></div>
+        <details id="sig-today" class="sig-today">
+          <summary><span id="sig-today-line"></span><span id="sig-today-chips"></span><span class="st-more">상세</span></summary>
+          <div class="st-body" id="sig-today-body"></div>
         </details>
-        <!-- 정보 우선순위: 시황(리본) → 성적(trust) → 검색/필터 → 리스트 → 상세(차트) -->
+        <!-- 정보 우선순위: 시황 → 오늘 → 검색/필터 → 리스트 → 상세 -->
         <div class="sig-toolbar">
           <input id="sig-search" class="ctrl" type="search" placeholder="종목명·코드 검색" aria-label="종목명·코드 검색" oninput="renderSignalList()">
           <select id="sig-sort" class="ctrl" aria-label="시그널 목록 정렬" onchange="renderSignalList()">
@@ -2377,7 +2379,9 @@ function toggleTrustLegend(){
 }
 async function loadScorecard(){
   const el = document.getElementById('signal-trust');
-  if (!el) return;
+  const body = document.getElementById('signal-trust-body');
+  const sum = document.getElementById('signal-trust-sum');
+  if (!el || !body) return;
   try {
     const [acc, bot] = await Promise.all([
       fetch('/api/accuracy').then(r => r.json()).catch(() => ({ ready: false })),
@@ -2388,24 +2392,24 @@ async function loadScorecard(){
     const need = acc.ic_min_samples || _TRUST_MATURE_N;
     const matured = cov.matured_primary || 0;
     const matureOk = !!acc.ready && matured >= need;
+    let sumTxt = '성적';
     if (matureOk) {
       const prec = acc.buy_precision_pct;
       const pc = liftColor(acc.buy_lift_pp, acc.lift_min_pp);
+      sumTxt = `성적 · 매수 정밀도 <span class="trust-sum-n" style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</span>`;
       rows.push(`<div class="trust-row"><span class="trust-badge live">실측</span>`
         + `<b>시그널 성적</b> · 매수 정밀도 <b style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</b>`
         + liftNote(acc.buy_lift_pp, (acc.baseline || {}).up_pct, acc.buy_precision_ci_pp)
         + ` <span style="color:var(--dim-2)">(${acc.primary_horizon || 20}거래일 · 표본 ${acc.buy_sample || matured})</span></div>`);
       rows.push(sellPrecisionRow(acc, need));
     } else {
-      // 성숙 전에는 '왜 숫자가 없는지'가 본문이다 — 다만 매일 같은 문장을 읽힐 필요는 없어 배지 툴팁으로
+      sumTxt = `성적 · 누적중 <span class="trust-sum-n">${matured}/${need}</span>`;
       rows.push(`<div class="trust-row"><span class="trust-badge accum"`
         + ` title="표본이 차기 전까지 정밀도 숫자는 표시하지 않습니다">누적중</span>`
         + `<b>시그널 성적</b>`
         + ` <span style="color:var(--dim)">성숙 ${matured}/${need}`
         + ` · ${cov.dates || 0}일 · 시그널 ${(cov.rows || 0).toLocaleString()}건</span></div>`);
     }
-    // 페이퍼는 실측과 같은 무게로 승률을 두지 않음 — 별도 줄이 아니라 성적 줄 꼬리에 붙인다.
-    // 용어 토글도 같은 줄 오른쪽 끝에 둔다(별도 줄로 빼면 한 줄짜리 카드가 두 줄이 된다).
     let tail = '';
     if (bot.resolved) {
       const wr = matureOk && bot.win_rate != null ? ` · 승률 ${fmtNum(bot.win_rate, 1)}%` : '';
@@ -2415,10 +2419,11 @@ async function loadScorecard(){
     }
     tail += `<button type="button" class="linkish trust-more" onclick="toggleTrustLegend()">용어</button>`;
     rows[0] = rows[0].replace(/<\/div>$/, tail + '</div>');
-    el.innerHTML = rows.join('')
+    if (sum) sum.innerHTML = sumTxt;
+    body.innerHTML = rows.join('')
       + `<div class="trust-legend" id="trust-legend" hidden>실측=그날 시그널 채점 · 시뮬=가격 백테스트`
       + ` · 트레이딩=시스템 봇 가상 체결 · 누적중=표본 부족</div>`;
-    el.style.display = 'block';  // CSS 기본 none — ''로 두면 시트로 돌아가 영구 숨김
+    el.style.display = 'block';
   } catch (e) { el.style.display = 'none'; }
 }
 
@@ -2528,32 +2533,19 @@ function switchSignalMarket(m){
 let _sigCache = {};                 // market -> { d, bt, ts }
 const _SIG_TTL = 3 * 60 * 1000;     // 이보다 오래되면 화면은 캐시로 즉시 그리고 백그라운드 재검증
 
+// 시그널 응답 메타 — 「오늘」카드가 precision·편중·데스크를 한곳에 씀
+let _sigTodayMeta = { crowding: null, desk_report: null, selection: null };
+
 // 시그널 응답(d)·백테스트(bt)를 화면에 반영. 선택 종목은 가능하면 유지(재검증 시 차트 깜빡임 방지).
 function applySignalData(d, bt){
   const el = document.getElementById('signal-body');
   _backtestByKind = {};
   if (bt && bt.ready) (bt.by_signal || []).forEach(r => { _backtestByKind[r.kind] = r; });
-  const crowdEl = document.getElementById('sig-crowd-banner');
-  if (crowdEl) {
-    const c = d && d.crowding;
-    if (c && c.warn) {
-      crowdEl.style.display = '';
-      crowdEl.style.background = 'rgba(180,83,9,.08)';
-      crowdEl.style.borderColor = '#b45309';
-      crowdEl.style.color = '#92400e';
-      crowdEl.textContent = '편중 경고 · ' + (c.note || (c.top_sector + ' ' + c.top_pct + '%'));
-    } else if (c && c.data_quality) {
-      crowdEl.style.display = '';
-      crowdEl.style.background = 'rgba(100,116,139,.08)';
-      crowdEl.style.borderColor = 'var(--line-strong)';
-      crowdEl.style.color = 'var(--dim)';
-      crowdEl.textContent = '데이터 · ' + (c.note || '섹터맵 공백');
-    } else {
-      crowdEl.style.display = 'none';
-      crowdEl.textContent = '';
-    }
-  }
-  renderDeskReport(d && d.desk_report);
+  _sigTodayMeta = {
+    crowding: (d && d.crowding) || null,
+    desk_report: (d && d.desk_report) || null,
+    selection: (d && d.selection) || null,
+  };
   if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
   if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
   _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
@@ -2824,21 +2816,26 @@ function renderSignalList(){
     : sort === 'volume' ? '평균 ' + fmtVol(r.vol_avg)
     : (r.score > 0 ? '+' : '') + fmtNum(r.score, 2);
   const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
+  // 기회 뱃지: 필터 중이거나 매수권일 때만 최대 1개 — 전 행 나열은 스캔을 죽인다
   const badges = (r) => {
-    const tags = (r.opp_tags || []).map(t => `<span class="opp-badge">${esc(t)}</span>`).join('')
-      + (r.external_watch ? '<span class="ext-badge" title="외부 조사 후보 · 점수 가산 없음">조사</span>' : '');
-    return tags ? `<div class="sig-tags">${tags}</div>` : '';
+    const showOpp = _oppFilter || _isBuy(r.kind);
+    const tag = showOpp ? ((_oppFilter && (r.opp_tags || []).includes(_oppFilter))
+      ? _oppFilter : (r.opp_tags || [])[0]) : null;
+    const bits = [];
+    if (tag) bits.push(`<span class="opp-badge">${esc(tag)}</span>`);
+    if (r.external_watch) bits.push('<span class="ext-badge" title="외부 조사 후보 · 점수 가산 없음">조사</span>');
+    return bits.length ? `<div class="sig-tags">${bits.join('')}</div>` : '';
   };
   const holdNote = (r) => {
     if (r.kind !== 'HOLD' || !r.hold_tag) return '';
     const tip = _HOLD_TAG_TIP[r.hold_tag] || r.hold_tag;
     return `<span class="hold-tag" title="${esc(tip)}">${esc(r.hold_tag)}</span>`;
   };
-  const body = rows.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}">
+  const body = rows.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}" title="${r.sector ? esc(r.sector) : ''}">
       <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div>${badges(r)}</td>
       <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}</td>
-      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(sigPillTitle(r))}">${kindLabel(r.kind)}</span>${holdNote(r)}${climatePill(r.climate)}</div></td>
+      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(sigPillTitle(r))}">${kindLabel(r.kind)}</span>${holdNote(r)}</div></td>
     </tr>`).join('');
     el.innerHTML = rows.length
     ? `<table class="dtable sig-table"><colgroup>
@@ -2856,13 +2853,12 @@ function renderSignalList(){
           <div class="se-body">"${esc(q)}"에 맞는 종목이 없습니다.</div></div>`;
         const nearN = (_signalRows || []).filter(isNearBuy).length;
         if (_precisionBucket === 'buy') {
+          // 긴 설명은 「오늘」카드에만 — 리스트는 짧게
           return `<div class="placeholder sig-empty">
-            <div class="se-title">오늘 매수 후보 0 · 고장 아닐 수 있음</div>
-            <div class="se-body">추세·실적·경고 게이트에 상위권이 막히면 자리가 비기도 합니다. 막차 점수 +${fmtNum(_effBuyThreshold, 1)}
-              ${_adaptBump > 0 ? `(국면·거시로 +${fmtNum(_adaptBump, 1)} 상향)` : ''}.
-              ${nearN ? `점수만 보면 가까운 종목 ${nearN}개가 있습니다.` : '필터를 낮추거나 근접 후보를 확인해 보세요.'}</div>
+            <div class="se-title">매수 필터 · 0건</div>
+            <div class="se-body">${nearN ? `근접 ${nearN}개를 보거나 필터를 해제하세요.` : '위 「오늘」카드 상세를 확인하세요.'}</div>
             <div class="se-actions">
-              ${nearN ? `<button type="button" class="btn primary" onclick="filterPrecisionBucket('near')">근접 ${nearN}개 보기</button>` : ''}
+              ${nearN ? `<button type="button" class="btn primary" onclick="filterPrecisionBucket('near')">근접 ${nearN}개</button>` : ''}
               <button type="button" class="btn" onclick="filterPrecisionBucket('buy')">필터 해제</button>
             </div></div>`;
         }
@@ -3115,76 +3111,100 @@ function filterPrecisionBucket(bucket){
   renderSignalList();
   syncQuickFilters();
 }
-function renderDeskReport(rep){
-  const box = document.getElementById('sig-desk-report');
-  const body = document.getElementById('sig-desk-report-body');
-  if (!box || !body) return;
-  if (!rep || !rep.ready) { box.style.display = 'none'; body.innerHTML = ''; return; }
-  box.style.display = '';
-  const sum = box.querySelector('summary');
-  if (sum) sum.textContent = '데스크 보고 · ' + (rep.headline || '');
-  const buys = (rep.buys || []).map(b =>
-    `${esc(b.name)} ${b.score > 0 ? '+' : ''}${fmtNum(b.score, 2)}`).join(' · ') || '없음';
-  const vac = (rep.vacancies || []).map(v =>
-    `<div>· ${esc(v.name)} (${v.rank}위) — ${esc(v.note)}</div>`).join('');
-  const why = (rep.reasons || []).map(r => `<div>· ${esc(r)}</div>`).join('');
-  const layers = (rep.layers || []).map(l =>
-    `<span style="margin-right:8px"><b>${esc(l.id)}</b> ${esc(l.summary || '')}</span>`).join('');
-  body.innerHTML = `<div style="margin-bottom:4px">${layers}</div>`
-    + `<div><b>매수</b> ${buys}</div>`
-    + (vac ? `<div style="margin-top:4px"><b>공석</b>${vac}</div>` : '')
-    + (why ? `<div style="margin-top:4px">${why}</div>` : '')
-    + `<div style="margin-top:6px;font-size:11px;color:var(--dim-2)">${esc(rep.disclaimer || '')}</div>`;
-}
-function updatePrecisionStrip(){
-  const el = document.getElementById('sig-precision');
-  if (!el) return;
-  if (!_signalRows || !_signalRows.length) { el.style.display = 'none'; el.classList.remove('is-empty-buy'); return; }
+function updatePrecisionStrip(){ renderTodayCard(); }
+
+/** precision · 편중/맵공백 · 데스크 보고를 「오늘」한 카드로. 기본은 한 줄, 0일·이상만 자동 펼침. */
+function renderTodayCard(){
+  const box = document.getElementById('sig-today');
+  const lineEl = document.getElementById('sig-today-line');
+  const chipsEl = document.getElementById('sig-today-chips');
+  const body = document.getElementById('sig-today-body');
+  if (!box || !lineEl || !chipsEl || !body) return;
+  if (!_signalRows || !_signalRows.length) {
+    box.classList.remove('is-on', 'is-empty');
+    return;
+  }
   const buyN = _signalRows.filter(r => _isBuy(r.kind)).length;
   const sellN = _signalRows.filter(r => _isSell(r.kind)).length;
   const nearRows = _signalRows.filter(isNearBuy).slice()
     .sort((a, b) => (b.score || 0) - (a.score || 0));
   const nearN = nearRows.length;
   const thr = _effBuyThreshold;
+  const sel = (_sigTodayMeta && _sigTodayMeta.selection) || {};
+  const rep = (_sigTodayMeta && _sigTodayMeta.desk_report) || {};
+  const crowd = (_sigTodayMeta && _sigTodayMeta.crowding) || {};
+  const slots = sel.rank_slots ?? (rep.selection && rep.selection.rank_slots);
+  const eligible = sel.eligible ?? (rep.selection && rep.selection.eligible) ?? buyN;
+
+  let line = buyN === 0
+    ? `<span class="st-n">매수 0</span> <span class="st-c">· 정밀도 우선 · 고장 아님</span>`
+    : `<span class="st-n">매수 ${buyN}</span>`
+      + (nearN ? ` <span class="st-c">근접 ${nearN}</span>` : '')
+      + (sellN ? ` <span class="st-c">매도 ${sellN}</span>` : '');
+  if (slots != null) line += ` <span class="st-c">· 선정 ${eligible ?? 0}/${slots}</span>`;
+  else line += ` <span class="st-c" title="오늘 매수로 인정되는 최저 종합점수">· 문턱 +${fmtNum(thr, 1)}</span>`;
+  lineEl.innerHTML = line;
+
+  const chips = [];
+  if (crowd.warn) chips.push(`<span class="st-chip warn" title="${esc(crowd.note || '')}">편중</span>`);
+  else if (crowd.data_quality) chips.push(`<span class="st-chip dq" title="${esc(crowd.note || '')}">맵공백</span>`);
+  const vacN = (rep.vacancies || []).length;
+  if (vacN) chips.push(`<span class="st-chip" title="창 안 공석">공석 ${vacN}</span>`);
+  chipsEl.innerHTML = chips.join('');
+
   const whyThr = _adaptBump > 0
-    ? `매수기준이 기본보다 <b>+${fmtNum(_adaptBump, 1)}</b> 올라 <b>+${fmtNum(thr, 1)}</b>입니다`
+    ? `매수기준이 기본보다 <b>+${fmtNum(_adaptBump, 1)}</b> → <b>+${fmtNum(thr, 1)}</b>`
       + (_adaptReasons.length ? ` (${esc(_adaptReasons.slice(0, 2).join(', '))})` : '') + '.'
     : `매수기준 <b>+${fmtNum(thr, 1)}</b>.`;
-  el.style.display = '';
+  const buys = (rep.buys || []).map(b =>
+    `${esc(b.name)} ${b.score > 0 ? '+' : ''}${fmtNum(b.score, 2)}`).join(' · ');
+  const vac = (rep.vacancies || []).map(v =>
+    `<div>· ${esc(v.name)} (${v.rank}위) — ${esc(v.note)}</div>`).join('');
+  const why = (rep.reasons || []).map(r => `<div>· ${esc(r)}</div>`).join('');
+  let detail = '';
   if (buyN === 0) {
-    el.classList.add('is-empty-buy');
-    const top = nearRows.slice(0, 5);
-    const nearList = top.length
-      ? `<div class="sp-near">${top.map(r => {
-          const gap = Math.max(0, thr - (r.score || 0));
-          return `<button type="button" class="sp-near-row" data-ticker="${esc(r.ticker)}"
-            onclick="selectSignalRow('${esc(r.ticker)}')">
-            <span style="font-weight:600">${esc(r.name)}</span>
-            <span style="color:var(--dim)">${r.score > 0 ? '+' : ''}${fmtNum(r.score, 2)}</span>
-            <span class="sp-gap">문턱까지 ${fmtNum(gap, 2)}</span>
-          </button>`;
-        }).join('')}</div>`
-      : '';
-    el.innerHTML = `<div class="sp-hero">오늘 매수 후보 <span class="sp-n">0</span> · 정밀도 우선 · 고장 아님</div>`
-      + `<div class="sp-why">${whyThr}`
-      + ` 최소점수·게이트·상위 분위에 못 미치면 자리가 비습니다.`
-      + (nearN
-        ? ` 점수만 보면 가까운 종목 <span class="sp-n">${nearN}</span>개 — 아래를 눌러 자세히 보세요.`
-        : ` 관심종목 3개를 넣으면 매수 대기 리스트에 “무엇이 남았는지”가 채워집니다.`)
-      + `</div>${nearList}`
-      + `<div class="sp-actions">`
+    detail += `<div style="font-weight:700;color:var(--txt);margin-bottom:4px">오늘은 기다리는 날입니다</div>`
+      + `<div>${whyThr} 최소점수·게이트·분위에 못 미치면 자리가 비습니다.`
+      + (nearN ? ` 가까운 종목 <b>${nearN}</b>개.` : ' 관심종목을 넣으면 대기 리스트가 채워집니다.')
+      + `</div>`;
+    if (nearRows.length) {
+      detail += `<div class="sp-near">${nearRows.slice(0, 5).map(r => {
+        const gap = Math.max(0, thr - (r.score || 0));
+        return `<button type="button" class="sp-near-row" onclick="selectSignalRow('${esc(r.ticker)}')">
+          <span style="font-weight:600">${esc(r.name)}</span>
+          <span style="color:var(--dim)">${r.score > 0 ? '+' : ''}${fmtNum(r.score, 2)}</span>
+          <span class="sp-gap">문턱까지 ${fmtNum(gap, 2)}</span></button>`;
+      }).join('')}</div>`;
+    }
+    detail += `<div class="st-actions">`
       + (nearN ? `<button type="button" class="btn${_precisionBucket === 'near' ? ' on' : ''} primary" onclick="filterPrecisionBucket('near')">근접만</button>` : '')
       + `<button type="button" class="btn${_precisionBucket === 'buy' ? ' on' : ''}" onclick="filterPrecisionBucket('buy')">매수만</button>`
       + (_precisionBucket ? `<button type="button" class="btn" onclick="filterPrecisionBucket('${_precisionBucket}')">필터 해제</button>` : '')
       + `</div>`;
-    return;
+  } else {
+    if (buys) detail += `<div><b>매수</b> ${buys}</div>`;
+    if (vac) detail += `<div style="margin-top:4px"><b>공석</b>${vac}</div>`;
   }
-  el.classList.remove('is-empty-buy');
-  // 문장이 아니라 숫자만. 필터 버튼은 퀵필터 줄과 중복이라 여기서 뺐다.
-  el.innerHTML = `<span class="sp-n">매수 ${buyN}</span>`
-    + (nearN ? `<span class="sp-c">근접 ${nearN}</span>` : '')
-    + (sellN ? `<span class="sp-c">매도 ${sellN}</span>` : '')
-    + `<span class="sp-c" title="오늘 매수로 인정되는 최저 종합점수">문턱 +${fmtNum(thr, 1)}</span>`;
+  if (crowd.warn || crowd.data_quality) {
+    detail += `<div style="margin-top:6px">${esc(crowd.note || '')}</div>`;
+  }
+  if (why) detail += `<div style="margin-top:4px">${why}</div>`;
+  if (rep.disclaimer) {
+    detail += `<div style="margin-top:6px;font-size:11px;color:var(--dim-2)">${esc(rep.disclaimer)}</div>`;
+  }
+  body.innerHTML = detail || '<div class="st-c">추가 메모 없음</div>';
+
+  box.classList.add('is-on');
+  box.classList.toggle('is-empty', buyN === 0);
+  // 매수 0·편중·맵공백·공석이 있을 때만 자동 펼침(매일 같은 장문은 접기)
+  const autoOpen = buyN === 0 || crowd.warn || crowd.data_quality || vacN > 0;
+  if (autoOpen && !box.dataset.userClosed) box.open = true;
+  if (!box.dataset.toggleBound) {
+    box.dataset.toggleBound = '1';
+    box.addEventListener('toggle', () => {
+      box.dataset.userClosed = box.open ? '' : '1';
+    });
+  }
 }
 // 근접 후보가 있는 날만 '근접만' 퀵필터를 띄운다 — 늘 있는 버튼은 늘 무시된다.
 function syncQuickFilters(){
@@ -3413,27 +3433,20 @@ function _paintSignalDetail(ticker, item){
     const priceStr = item.price != null ? (isUS ? '$' + fmtNum(item.price, 2) : fmtNum(item.price, 0) + '원') : '';
     const up = bestUpside(item);
     const scoreC = item.score > 0 ? 'var(--sig-buy)' : item.score < 0 ? 'var(--sig-sell)' : 'var(--txt)';
+    // 리스트에 이미 있는 pill·점수는 반복하지 않음 — 가격·한 줄 이유·상승여력만
     heroEl.style.display = '';
     heroEl.innerHTML = `<div class="hero-card ${item.kind}">
         <div class="hero-top">
           ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
           ${chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
           <span class="sig-pill ${item.kind}" style="font-size:13px;margin-left:auto" title="${esc(sigPillTitle(item))}">${kindLabel(item.kind)}</span>
-          ${climatePill(item.climate)}
         </div>
         <div class="hero-reason">${esc(heroReason(item))}</div>
         <div class="hero-metrics">
-          <span>점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b></span>
-          <span>신뢰도 <b>${fmtNum(item.confidence, 2)}</b></span>
           ${up != null ? `<span>목표가 상승여력 <b style="color:var(--sig-buy)">+${fmtNum(up, 1)}%</b></span>` : ''}
-          <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}</span>
+          <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
+          + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b></span>
         </div>
-        ${item.climate && item.climate.reason
-          ? `<div style="font-size:12px;color:#0369a1;margin-top:6px">기후 · ${esc(item.climate.reason)}</div>`
-          : ''}
-        ${(item.kind === 'BUY' || item.kind === 'STRONG_BUY')
-          ? `<div style="font-size:12px;color:var(--dim-2);margin-top:6px">중기 신호 — 몇 주~몇 달 흐름으로 보세요</div>`
-          : ''}
       </div>`;
   } else heroEl.style.display = 'none';
   const qEl = document.getElementById('signal-quote');
