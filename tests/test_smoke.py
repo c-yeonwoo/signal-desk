@@ -158,6 +158,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "고장 아님" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
     assert "Strong Buy" in html and "kindHint" in html  # 순위 의미를 드러내는 라벨·힌트
+    assert "hero-runup" in html and "발동 후" in html  # Buy+ 히어로: 발동가 대비 수익률
+    assert "hero-card.BUY" in html and "rgba(14,122,79" in html  # Buy+ 은은한 배경
     assert 'id="ob-step-desk"' in html  # 온보딩 3스텝: 데스크 용어 안내
     assert "obFinish('paper')" in html or 'obFinish("paper")' in html
     assert "trust-legend" in html
