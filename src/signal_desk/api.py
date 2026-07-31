@@ -1493,7 +1493,9 @@ def _anchor_today_score(scores: list, ticker: str, market: str) -> list:
     if not scores:
         return scores
     cache = _us_signals if market == "us" else _signals
-    if cache.cache_info().currsize == 0:
+    info = getattr(cache, "cache_info", None)
+    # lru_cache가 아니면(테스트 stub) 그대로 조회. cold(currsize=0)일 때만 스킵.
+    if callable(info) and info().currsize == 0:
         return scores
     try:
         if market == "us":
