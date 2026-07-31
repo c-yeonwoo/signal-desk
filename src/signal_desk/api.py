@@ -523,7 +523,10 @@ def favorites_del(request: Request, kind: str, key: str):
 
 
 # ---------- 알림 (#16 관심종목 시그널 변동) ----------
-_KIND_KO = {"BUY": "매수", "SELL": "매도", "HOLD": "관망"}
+_KIND_KO = {
+    "STRONG_BUY": "Strong Buy", "BUY": "Buy", "HOLD": "Hold",
+    "SELL": "Sell", "STRONG_SELL": "Strong Sell",
+}
 
 
 def _scan_alerts(uid: int) -> None:
@@ -2943,7 +2946,10 @@ def signal_events_get(ticker: str, market: str = "kospi"):
 
 
 # ---------- 안내 에이전트(챗봇) — 도구 실행은 여기(실데이터 접근). 재분석 없이 READ만 ----------
-_CHAT_KIND_KO = {"STRONG_BUY": "우선매수", "BUY": "매수", "HOLD": "관망", "SELL": "매도", "STRONG_SELL": "우선매도"}
+_CHAT_KIND_KO = {
+    "STRONG_BUY": "Strong Buy", "BUY": "Buy", "HOLD": "Hold",
+    "SELL": "Sell", "STRONG_SELL": "Strong Sell",
+}
 
 
 def _chat_resolve_ticker(query: str) -> str | None:
