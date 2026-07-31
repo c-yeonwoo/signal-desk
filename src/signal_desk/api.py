@@ -1522,9 +1522,10 @@ def _chart_freshness(dates: list[str], market: str = "kospi") -> dict:
 
 
 @app.get("/api/signals/{ticker}/chart")
-def signal_chart_get(ticker: str, market: str = "kospi"):
+def signal_chart_get(ticker: str, market: str = "kospi", flow: bool = False):
     """종목 가격+지표 시계열(차트용) — 종가/MA20·60·120/RSI/MACD. market=us면 미국 시세.
-    최근 _CHART_BARS만 보내고, 점수·zones는 한 패스로 계산(클릭 지연 완화)."""
+    최근 _CHART_BARS만 보내고, 점수·zones는 한 패스로 계산(클릭 지연 완화).
+    flow=1일 때만 네이버 수급을 붙인다(자세히 모드) — 기본 클릭 경로에서 HTTP를 빼 체감 지연을 줄인다."""
     history = store.load_us_price_history(ticker) if market == "us" else store.load_price_history(ticker)
     if not history:
         return {"ready": False, "dates": []}
@@ -1537,21 +1538,24 @@ def signal_chart_get(ticker: str, market: str = "kospi"):
     actual_dates = [d for d in dates if d in stored]
     scores, zones = chart_scores_and_zones(dates, closes, stored=stored)
     scores = _anchor_today_score(scores, ticker, market)
-    # 일별 수급(KR만) — 차트 dates에 정렬. 없으면 null 배열(패널은 비움).
+    # 일별 수급(KR·flow=1만) — 차트 dates에 정렬. 없으면 null 배열(패널은 비움).
     # 주의: flow_foreign = flow_inst = [...] 는 같은 리스트를 공유하므로 절대 쓰지 말 것.
     n = len(dates)
     flow_foreign: list = [None] * n
     flow_inst: list = [None] * n
-    if market != "us":
+    flow_loaded = False
+    if flow and market != "us":
         try:
             from signal_desk.ingest import naver
             series_flow = naver.investor_flow_series(ticker, days=min(260, max(60, n)))
+            flow_loaded = True
             if series_flow:
                 by_d = {r["date"]: r for r in series_flow}
                 flow_foreign = [(by_d[d]["foreign_net"] if d in by_d else None) for d in dates]
                 flow_inst = [(by_d[d]["inst_net"] if d in by_d else None) for d in dates]
         except Exception as e:
             log.warning("차트 수급 패널 스킵(%s): %s", ticker, type(e).__name__)
+            flow_loaded = True
     quote = None
     if market != "us":
         try:
@@ -1572,6 +1576,7 @@ def signal_chart_get(ticker: str, market: str = "kospi"):
         "scores": scores,
         "flow_foreign": flow_foreign,
         "flow_inst": flow_inst,
+        "flow_loaded": flow_loaded,
         "actual_from": actual_dates[0] if actual_dates else None,  # 이 날짜 이후는 실측(그 전은 재현)
         "macd": series["macd"]["macd"],
         "macd_signal": series["macd"]["signal"],

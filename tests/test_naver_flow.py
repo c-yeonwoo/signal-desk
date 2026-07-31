@@ -10,12 +10,14 @@ def test_trend_date_formats():
 
 
 def test_investor_flow_series_parses_and_sorts(monkeypatch):
+    naver._FLOW_CACHE.clear()
     rows = [
         {"bizdate": "20260714", "foreignerPureBuyQuant": "+100", "organPureBuyQuant": "-50",
          "accumulatedTradingVolume": "1,000"},
         {"bizdate": "20260710", "foreignerPureBuyQuant": "-20", "organPureBuyQuant": "+30",
          "accumulatedTradingVolume": "800"},
     ]
+    calls = {"n": 0}
 
     class _Resp:
         def __enter__(self): return self
@@ -24,12 +26,18 @@ def test_investor_flow_series_parses_and_sorts(monkeypatch):
             import json
             return json.dumps(rows).encode()
 
-    monkeypatch.setattr(naver.urllib.request, "urlopen", lambda *a, **k: _Resp())
+    def open_once(*a, **k):
+        calls["n"] += 1
+        return _Resp()
+
+    monkeypatch.setattr(naver.urllib.request, "urlopen", open_once)
     out = naver.investor_flow_series("005930", days=10)
     assert out and len(out) == 2
     assert out[0]["date"] == "2026-07-10"  # 오래된→최신
     assert out[0]["foreign_net"] == -20
     assert out[1]["inst_net"] == -50
+    assert naver.investor_flow_series("005930", days=10) is out  # TTL 캐시 — HTTP 재호출 없음
+    assert calls["n"] == 1
 
 
 def test_investor_flow_aggregates_series(monkeypatch):
