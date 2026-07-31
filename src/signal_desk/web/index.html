@@ -95,6 +95,13 @@
   .view-app { padding:20px clamp(16px,2.5vw,36px) 24px; width:100%; box-sizing:border-box; flex:0 0 auto; }
   .split { display:flex; gap:20px; align-items:flex-start; }
   .split > .card { flex:1 1 50%; min-width:0; }
+  /* 페이퍼 봇: 보유·거래(표) 넓게 · 포트폴리오 차트는 좁게 */
+  .split.split-7-3 > .card:first-child { flex:7 1 0; }
+  .split.split-7-3 > .card:last-child { flex:3 1 0; }
+  @media (max-width:900px){
+    .split.split-7-3 { flex-direction:column; }
+    .split.split-7-3 > .card { flex:1 1 auto; width:100%; }
+  }
   .card-row { display:flex; gap:16px; margin-bottom:20px; }
   .card-row > .card { flex:1 1 0; min-width:0; }
   .stat-label { color:var(--dim); font-size:13px; margin-bottom:4px; }
@@ -1015,7 +1022,7 @@
         <div class="stat-label" id="bot-acct-status" style="margin:0"></div>
         <div class="stat-label" id="bot-rules" style="margin:6px 0 0"></div>
       </div>
-      <div class="split">
+      <div class="split split-7-3">
         <div class="card">
           <b style="font-size:14px">보유종목</b>
           <div id="bot-holdings-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
