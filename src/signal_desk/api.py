@@ -32,9 +32,9 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, crowding, entry_quality, episode_state, execution_gate, horizon,
-    hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime, regime_zone,
-    relative, revision, scenario, sector_rel, target, valuation,
+    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_gate,
+    horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
+    regime_zone, relative, revision, scenario, sector_rel, target, valuation,
 )
 from signal_desk.signals.engine import (
     SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
@@ -420,6 +420,7 @@ _ADMIN_PATHS = {
     "/api/d7",
     "/api/advisor-shadow", "/api/advisor-harness",
     "/api/climate-shadow", "/api/kb-coverage-shadow",
+    "/api/product-review", "/api/product-review/run",
 }
 
 
@@ -1180,15 +1181,22 @@ def signals_get(request: Request, market: str = "kospi"):
         items = _annotate_priced_in(items, market="us")
         items = _annotate_episode(items, market="us")
         items = _annotate_trader_layers(items, market="us")
+        us_sigs = list((_us_signals() or {}).values())
+        cfg = signalcfg.get_config()
+        sel = selection_summary(us_sigs, cfg)
         crowd = crowding.assess(items)
+        report = desk_report.build(
+            us_sigs, selection=sel, crowding=crowd, market="us")
         db.kv_set("crowding_last_us", {**crowd, "ts": int(time.time())})
-        return {"ready": True, "items": items, "slim": True, "crowding": crowd}
+        return {"ready": True, "items": items, "slim": True, "crowding": crowd,
+                "selection": sel, "desk_report": report}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
     quotes = _quotes()
     fundamentals = store.load_fundamentals()
-    for r in _signals():
+    sigs = list(_signals())
+    for r in sigs:
         q = quotes.get(r.ticker) or {}
         f = fundamentals.get(r.ticker) or {}
         px = q.get("price")
@@ -1204,9 +1212,19 @@ def signals_get(request: Request, market: str = "kospi"):
     items = _annotate_priced_in(items, market="kospi")
     items = _annotate_episode(items, market="kospi")
     items = _annotate_trader_layers(items, market="kospi")
-    crowd = crowding.assess(items)
+    cfg, adapt = signalcfg.effective_config(
+        _regime(), _macro(), flow_result=store.load_market_flow())
+    sel = selection_summary(sigs, cfg)
+    crowd = crowding.assess(sigs)
+    report = desk_report.build(
+        sigs, selection=sel, crowding=crowd,
+        exposure=adapt.get("exposure"),
+        exposure_reasons=adapt.get("exposure_reasons"),
+        market="kospi")
     db.kv_set("crowding_last", {**crowd, "ts": int(time.time())})
-    return {"ready": True, "items": items, "slim": True, "crowding": crowd}
+    db.kv_set("desk_report_last", report)
+    return {"ready": True, "items": items, "slim": True, "crowding": crowd,
+            "selection": sel, "desk_report": report}
 
 
 @app.get("/api/signals/{ticker}/detail")
@@ -2677,6 +2695,25 @@ def audit_hypothesis_status(hid: str, request: Request, payload: dict = Body(...
     if not db.audit_hypothesis_set_status(hid, status, (payload or {}).get("note") or ""):
         raise HTTPException(404, "가설을 찾을 수 없습니다")
     return {"ok": True, **audit.summary()}
+
+
+@app.get("/api/product-review")
+def product_review_get(request: Request):
+    """Lx 제품 리뷰 최근분 — 매매 경로 밖. docs/product-reviewer.md"""
+    _admin_or_403(request)
+    from signal_desk import product_reviewer
+    return product_reviewer.summary()
+
+
+@app.post("/api/product-review/run")
+def product_review_run(request: Request):
+    """제품 리뷰 1회 — BACKLOG 후보만. 엔진·봇 불변."""
+    _admin_or_403(request)
+    from signal_desk import product_reviewer
+    out = product_reviewer.generate()
+    log.info("제품 리뷰 %s (저장 %s)", "성공" if out.get("ready") else "비활성",
+             out.get("saved", 0))
+    return {**out, **product_reviewer.summary()}
 
 
 @app.get("/api/external-watch")

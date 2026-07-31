@@ -173,6 +173,9 @@ def build_morning(
     if crowding and crowding.get("warn"):
         lines.append("")
         lines.append(f"⚠ 편중 {crowding.get('note')}")
+    elif crowding and crowding.get("data_quality"):
+        lines.append("")
+        lines.append(f"ℹ 데이터 {crowding.get('note')}")
 
     lines += ["", _accuracy_line(accuracy)]
     if app_url:

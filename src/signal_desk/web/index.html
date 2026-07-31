@@ -794,6 +794,11 @@
         </div>
         <div id="sig-crowd-banner" style="display:none;margin:0 12px 8px;padding:7px 10px;font-size:12px;line-height:1.45;
           background:rgba(180,83,9,.08);border:1px solid #b45309;border-radius:var(--r-md);color:#92400e"></div>
+        <details id="sig-desk-report" style="display:none;margin:0 12px 8px;padding:8px 10px;font-size:12px;line-height:1.5;
+          background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md)">
+          <summary style="cursor:pointer;font-weight:700;color:var(--txt)">데스크 보고</summary>
+          <div id="sig-desk-report-body" style="margin-top:6px;color:var(--dim)"></div>
+        </details>
         <!-- 정보 우선순위: 시황(리본) → 성적(trust) → 검색/필터 → 리스트 → 상세(차트) -->
         <div class="sig-toolbar">
           <input id="sig-search" class="ctrl" type="search" placeholder="종목명·코드 검색" aria-label="종목명·코드 검색" oninput="renderSignalList()">
@@ -2533,12 +2538,22 @@ function applySignalData(d, bt){
     const c = d && d.crowding;
     if (c && c.warn) {
       crowdEl.style.display = '';
+      crowdEl.style.background = 'rgba(180,83,9,.08)';
+      crowdEl.style.borderColor = '#b45309';
+      crowdEl.style.color = '#92400e';
       crowdEl.textContent = '편중 경고 · ' + (c.note || (c.top_sector + ' ' + c.top_pct + '%'));
+    } else if (c && c.data_quality) {
+      crowdEl.style.display = '';
+      crowdEl.style.background = 'rgba(100,116,139,.08)';
+      crowdEl.style.borderColor = 'var(--line-strong)';
+      crowdEl.style.color = 'var(--dim)';
+      crowdEl.textContent = '데이터 · ' + (c.note || '섹터맵 공백');
     } else {
       crowdEl.style.display = 'none';
       crowdEl.textContent = '';
     }
   }
+  renderDeskReport(d && d.desk_report);
   if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
   if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
   _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
@@ -3099,6 +3114,27 @@ function filterPrecisionBucket(bucket){
   if (buyCb) buyCb.checked = (_precisionBucket === 'buy');
   renderSignalList();
   syncQuickFilters();
+}
+function renderDeskReport(rep){
+  const box = document.getElementById('sig-desk-report');
+  const body = document.getElementById('sig-desk-report-body');
+  if (!box || !body) return;
+  if (!rep || !rep.ready) { box.style.display = 'none'; body.innerHTML = ''; return; }
+  box.style.display = '';
+  const sum = box.querySelector('summary');
+  if (sum) sum.textContent = '데스크 보고 · ' + (rep.headline || '');
+  const buys = (rep.buys || []).map(b =>
+    `${esc(b.name)} ${b.score > 0 ? '+' : ''}${fmtNum(b.score, 2)}`).join(' · ') || '없음';
+  const vac = (rep.vacancies || []).map(v =>
+    `<div>· ${esc(v.name)} (${v.rank}위) — ${esc(v.note)}</div>`).join('');
+  const why = (rep.reasons || []).map(r => `<div>· ${esc(r)}</div>`).join('');
+  const layers = (rep.layers || []).map(l =>
+    `<span style="margin-right:8px"><b>${esc(l.id)}</b> ${esc(l.summary || '')}</span>`).join('');
+  body.innerHTML = `<div style="margin-bottom:4px">${layers}</div>`
+    + `<div><b>매수</b> ${buys}</div>`
+    + (vac ? `<div style="margin-top:4px"><b>공석</b>${vac}</div>` : '')
+    + (why ? `<div style="margin-top:4px">${why}</div>` : '')
+    + `<div style="margin-top:6px;font-size:11px;color:var(--dim-2)">${esc(rep.disclaimer || '')}</div>`;
 }
 function updatePrecisionStrip(){
   const el = document.getElementById('sig-precision');
@@ -4822,10 +4858,10 @@ function renderDataHealth(d){
                ric.blocked_reason || (ric.ready_for_score ? '점수 투입 후보' : (ric.note || null)),
                '컨센 Δ vs 선행수익 스피어만. IC≥0.02·표본≥20일 때만 점수 반영 후보.');
     const crowd = d.crowding;
-    if (crowd) q('매수권 편중', !crowd.warn,
+    if (crowd) q('매수권 편중', !crowd.warn && !crowd.data_quality,
                  crowd.n_buy != null ? `${crowd.n_buy}종목` : '–',
-                 crowd.warn ? (crowd.note || '섹터 쏠림') : (crowd.note || null),
-                 '매수권 섹터 집중도 ≥40%(n≥3)면 crowded 경고. 점수·kind 불변.');
+                 crowd.warn || crowd.data_quality ? (crowd.note || '섹터 쏠림') : (crowd.note || null),
+                 '업종 집중 ≥40%(n≥3)만 crowded. 미분류 쏠림은 섹터맵 공백(편중 아님).');
     if (rowsQuiet.length) {
       html += `<b style="display:block;margin-top:12px">🔎 조용한 0 점검 <span style="color:var(--dim);font-weight:600">· 비어 있으면 이유</span></b>`
         + `<table class="dtable" style="margin-top:6px"><thead><tr><th>항목</th><th class="num">현재</th><th>상태</th></tr></thead><tbody>${rowsQuiet.join('')}</tbody></table>`;
@@ -5320,6 +5356,8 @@ function renderAdminTodo(){
     }
     if (d.crowding && d.crowding.warn) {
       items.push({ seg: 'ops', text: `편중 경고 · ${d.crowding.note || '매수권 섹터 쏠림'}` });
+    } else if (d.crowding && d.crowding.data_quality) {
+      items.push({ seg: 'ops', text: `섹터맵 공백 · ${d.crowding.note || '미분류'}` });
     }
     ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => {
       if (d[k] && d[k].blocked_reason) items.push({ seg: 'ops', text: d[k].blocked_reason });
