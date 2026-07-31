@@ -1485,8 +1485,15 @@ def qualitative_promotion_set(request: Request, data: dict = Body(...)):
 def _anchor_today_score(scores: list, ticker: str, market: str) -> list:
     """차트 점수 시계열의 '오늘'(마지막 점)을 현재 시그널 점수(전 팩터)로 맞춘다.
     과거 점은 시점별 재무·수급 스냅샷이 없어 가격기반(기술·낙폭·모멘텀) 재현이라 리스트 점수와
-    다를 수 있는데, 최신 점만이라도 시그널 리스트와 일치시켜 혼동을 줄인다."""
+    다를 수 있는데, 최신 점만이라도 시그널 리스트와 일치시켜 혼동을 줄인다.
+
+    시그널 캐시가 비어 있으면(장중 quote 루프가 10분마다 비움) 전 종목 evaluate를 차트 경로에서
+    돌리지 않는다 — cold 호출이 300~500ms라 클릭 체감이 끊긴다. 리스트를 이미 본 뒤에는
+    캐시가 따뜻해 거의 공짜다."""
     if not scores:
+        return scores
+    cache = _us_signals if market == "us" else _signals
+    if cache.cache_info().currsize == 0:
         return scores
     try:
         if market == "us":
@@ -1570,16 +1577,11 @@ def signal_chart_get(ticker: str, market: str = "kospi", flow: bool = False):
         except Exception as e:
             log.warning("차트 수급 패널 스킵(%s): %s", ticker, type(e).__name__)
             flow_loaded = True
-    quote = None
-    if market != "us":
-        try:
-            quote = _quotes().get(ticker)
-        except Exception:
-            quote = None
+    # quote는 리스트/히어로가 이미 들고 있고 프론트도 차트 응답의 quote를 쓰지 않는다.
+    # _quotes() cold 호출이 parquet 전체 재파싱이라 클릭 경로에서 뺀다.
     return {
         "ready": True,
         "ticker": ticker,
-        "quote": quote,  # US는 헤더 quote 별도 없음(현재가는 항목에)
         "dates": dates,
         "close": closes,
         "ma20": series["ma_short"],

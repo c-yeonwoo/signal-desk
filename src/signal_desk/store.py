@@ -133,6 +133,7 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
                 .sort_values(["ticker", "date"]).reset_index(drop=True))
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     _write_parquet(combined, PRICES_FILE)
+    clear_kr_price_cache()
     return combined
 
 
@@ -1181,27 +1182,54 @@ def _overlay_closes(series: dict[str, list[float]]) -> dict[str, list[float]]:
             for t, closes in series.items()}
 
 
+# KR 시세 프로세스 캐시 — 차트 클릭마다 2.7MB parquet + iterrows 하면 체감이 느리다.
+# US와 같이 mtime이 같으면 파생 dict만 재사용하고, 실시간 오버레이는 호출 시점에 얹는다.
+_kr_px_cache: dict = {"mtime": None, "series": {}, "dates": {}}
+
+
+def clear_kr_price_cache() -> None:
+    """테스트·강제 무효화용. 일반 경로는 파일 mtime 변경으로 자동 무효화."""
+    _kr_px_cache["mtime"] = None
+    _kr_px_cache["series"] = {}
+    _kr_px_cache["dates"] = {}
+
+
+def _kr_prices_raw() -> tuple[dict[str, list[float]], dict[str, list[str]]]:
+    """prices.parquet 1회 읽어 (종가열, 날짜열). mtime 캐시."""
+    if not PRICES_FILE.exists():
+        clear_kr_price_cache()
+        return {}, {}
+    mtime = PRICES_FILE.stat().st_mtime
+    if _kr_px_cache["mtime"] == mtime and _kr_px_cache["series"] is not None:
+        return _kr_px_cache["series"], _kr_px_cache["dates"]
+    df = _read_parquet(PRICES_FILE)
+    if df.empty:
+        clear_kr_price_cache()
+        _kr_px_cache["mtime"] = mtime
+        return {}, {}
+    df = df.sort_values(["ticker", "date"])
+    series: dict[str, list[float]] = {}
+    dates: dict[str, list[str]] = {}
+    for t, g in df.groupby("ticker"):
+        key = str(t)
+        series[key] = [float(c) for c in g["close"].tolist()]
+        dates[key] = [str(d)[:10] for d in g["date"].tolist()]
+    _kr_px_cache["mtime"] = mtime
+    _kr_px_cache["series"] = series
+    _kr_px_cache["dates"] = dates
+    return series, dates
+
+
 def load_price_series() -> dict[str, list[float]]:
     """ticker -> 종가 리스트(오래된→최신). engine.evaluate()/backtest_summary()에 바로 투입 가능.
     장중 실시간가가 설정돼 있으면 마지막에 잠정봉 1개를 얹는다(set_live_quotes)."""
-    if not PRICES_FILE.exists():
-        return {}
-    df = _read_parquet(PRICES_FILE)
-    if df.empty:
-        return {}
-    df = df.sort_values(["ticker", "date"])
-    return _overlay_closes({ticker: g["close"].tolist() for ticker, g in df.groupby("ticker")})
+    series, _ = _kr_prices_raw()
+    return _overlay_closes(series)
 
 
 def load_dates_by_ticker() -> dict[str, list[str]]:
     """ticker -> 날짜 리스트(오래된→최신) — load_price_series()와 동일 정렬. point-in-time 백테스트용."""
-    if not PRICES_FILE.exists():
-        return {}
-    df = _read_parquet(PRICES_FILE)
-    if df.empty:
-        return {}
-    df = df.sort_values(["ticker", "date"])
-    dates = {ticker: [str(d) for d in g["date"].tolist()] for ticker, g in df.groupby("ticker")}
+    _, dates = _kr_prices_raw()
     if _LIVE_QUOTES:  # load_price_series의 잠정봉과 길이 정합 유지(백테스트 date-close 짝 안 깨지게)
         today = datetime.date.today().isoformat()
         dates = {t: (ds + [today]) if (_LIVE_QUOTES.get(t) and ds) else ds for t, ds in dates.items()}
@@ -1209,17 +1237,15 @@ def load_dates_by_ticker() -> dict[str, list[str]]:
 
 
 def load_price_history(ticker: str) -> list[dict]:
-    """단일 종목의 (date, close) 시계열(오래된→최신) — 차트용, 날짜를 유지한다."""
-    if not PRICES_FILE.exists():
+    """단일 종목의 (date, close) 시계열(오래된→최신) — 차트용, 날짜를 유지한다.
+    프로세스 캐시에서 꺼내 전체 parquet 재읽기·iterrows를 피한다.
+    장중 잠정봉은 올리지 않는다(시그널 점수 축과 달리 차트는 확정 종가 기준)."""
+    series, dates = _kr_prices_raw()
+    closes = series.get(ticker)
+    ds = dates.get(ticker)
+    if not closes or not ds:
         return []
-    df = _read_parquet(PRICES_FILE)
-    if df.empty:
-        return []
-    df = df[df["ticker"] == ticker].sort_values("date")
-    if df.empty:
-        return []
-    # date는 반드시 str — Timestamp가 섞이면 차트 JSON/카테고리 축이 깨질 수 있음
-    return [{"date": str(row["date"])[:10], "close": float(row["close"])} for _, row in df.iterrows()]
+    return [{"date": d, "close": c} for d, c in zip(ds, closes)]
 
 
 def load_index_history() -> list[dict]:
