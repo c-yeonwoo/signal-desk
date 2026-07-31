@@ -5,7 +5,17 @@
 
 from __future__ import annotations
 
+import math
+
 _HORIZONS = (("5d", 5), ("20d", 20), ("60d", 60))
+
+
+def _px(v) -> float | None:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if math.isfinite(f) and f > 0 else None
 
 
 def returns_at(closes: list[float], i: int | None = None) -> dict[str, float | None]:
@@ -13,13 +23,15 @@ def returns_at(closes: list[float], i: int | None = None) -> dict[str, float | N
     if not closes:
         return {k: None for k, _ in _HORIZONS}
     i = len(closes) - 1 if i is None else i
+    cur = _px(closes[i]) if 0 <= i < len(closes) else None
     out: dict[str, float | None] = {}
     for key, n in _HORIZONS:
         j = i - n
-        if j < 0 or closes[j] <= 0:
+        base = _px(closes[j]) if j >= 0 else None
+        if cur is None or base is None:
             out[key] = None
             continue
-        out[key] = round((closes[i] / closes[j] - 1.0) * 100.0, 2)
+        out[key] = round((cur / base - 1.0) * 100.0, 2)
     return out
 
 

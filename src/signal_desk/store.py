@@ -1235,22 +1235,37 @@ def load_quotes(vol_window: int = 20) -> dict[str, dict]:
     df = df.sort_values(["ticker", "date"])
     out: dict[str, dict] = {}
     for ticker, g in df.groupby("ticker"):
-        closes = g["close"].tolist()
-        # 장중 실시간가가 있으면 현재가=live, 전일=마지막 종가(오늘 잠정봉의 직전 = 어제 종가)
+        # parquet 결측이 float('nan')으로 오면 JSON 직렬화가 깨진다 — 유한값만 쓴다
+        closes = [float(c) for c in g["close"].tolist() if c == c]
+        if not closes:
+            continue
         live = _LIVE_QUOTES.get(ticker)
-        price = float(live) if live else float(closes[-1])
-        prev = float(closes[-1]) if live else (float(closes[-2]) if len(closes) > 1 else price)
+        try:
+            live_f = float(live) if live is not None and live == live else None
+        except (TypeError, ValueError):
+            live_f = None
+        # 장중 실시간가가 있으면 현재가=live, 전일=마지막 종가
+        price = live_f if live_f is not None and live_f > 0 else closes[-1]
+        prev = closes[-1] if live_f is not None and live_f > 0 else (
+            closes[-2] if len(closes) > 1 else price)
+        if not (price > 0 and prev > 0):
+            continue
         vol = vol_avg = None
         if has_vol:
             vols = [float(v) for v in g["volume"].tolist() if v == v]  # NaN 제외
             if vols:
                 vol = vols[-1]
                 vol_avg = round(sum(vols[-vol_window:]) / len(vols[-vol_window:]), 1)
+        mcap = (fundamentals.get(ticker) or {}).get("mktcap")
+        try:
+            mcap = float(mcap) if mcap is not None and mcap == mcap else None
+        except (TypeError, ValueError):
+            mcap = None
         out[ticker] = {
             "price": round(price, 2),
             "prev_close": round(prev, 2),
-            "change_pct": round((price / prev - 1) * 100, 2) if prev else 0.0,
-            "mktcap": (fundamentals.get(ticker) or {}).get("mktcap"),
+            "change_pct": round((price / prev - 1) * 100, 2),
+            "mktcap": mcap,
             "vol": vol,
             "vol_avg": vol_avg,
         }

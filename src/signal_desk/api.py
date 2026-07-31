@@ -23,6 +23,7 @@ from fastapi import Body, FastAPI, Request
 from fastapi import File as FastFile
 from fastapi import Form, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from signal_desk.jsonutil import finite_or_none, json_safe
 
 from signal_desk import (
     auth, bot, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
@@ -376,7 +377,16 @@ async def _lifespan(app: FastAPI):
     bot_task.cancel()
 
 
-app = FastAPI(title="signal-desk", lifespan=_lifespan)
+class SafeJSONResponse(JSONResponse):
+    """NaN/Inf를 null로 바꿔 직렬화 — 시세 결측 한 건이 /api/signals 전체를 500으로 만들지 않게."""
+
+    def render(self, content) -> bytes:
+        return json.dumps(
+            json_safe(content), ensure_ascii=False, allow_nan=False, separators=(",", ":"),
+        ).encode("utf-8")
+
+
+app = FastAPI(title="signal-desk", lifespan=_lifespan, default_response_class=SafeJSONResponse)
 
 
 @app.middleware("http")
@@ -835,21 +845,31 @@ def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct
     """리스트 API용 요약 행 — reasons/narrative/about/moves/target/kb 제외(클릭 시 detail)."""
     dec = _decision_payload(r)
     buy_blocked = bool(dec.get("buy_blocked"))
+    score = finite_or_none(r.score)
+    conf = finite_or_none(r.confidence)
+    factors = {
+        k: finite_or_none(v) for k, v in (getattr(r, "factor_scores", {}) or {}).items()
+    }
     return {
-        "ticker": r.ticker, "name": name, "score": round(r.score, 4), "kind": r.kind,
-        "confidence": r.confidence, "factor_scores": getattr(r, "factor_scores", {}) or {},
+        "ticker": r.ticker, "name": name,
+        "score": round(score, 4) if score is not None else 0.0,
+        "kind": r.kind,
+        "confidence": conf if conf is not None else 0.0,
+        "factor_scores": factors,
         "event_risk": buy_blocked,
         "decision_buy_blocked": buy_blocked,
         "earnings_soon": bool(getattr(r, "earnings_soon", False)),
         "earnings_date": getattr(r, "earnings_date", None),
-        "valuation_percentile": getattr(r, "valuation_percentile", None),
+        "valuation_percentile": finite_or_none(getattr(r, "valuation_percentile", None)),
         "gate_blocked": bool(getattr(r, "gate_blocked", False)),
         "rank": getattr(r, "rank", None),
         "rank_eligible": bool(getattr(r, "rank_eligible", False)),
         "hold_tag": _hold_tag(r, buy_blocked=buy_blocked),
-        "price": price, "change_pct": change_pct, "mktcap": mktcap,
-        "vol": vol, "vol_avg": vol_avg, "per": per, "pbr": pbr, "roe": roe,
-        "div_yield": div_yield, "sector": sector,
+        "price": finite_or_none(price), "change_pct": finite_or_none(change_pct),
+        "mktcap": finite_or_none(mktcap),
+        "vol": finite_or_none(vol), "vol_avg": finite_or_none(vol_avg),
+        "per": finite_or_none(per), "pbr": finite_or_none(pbr), "roe": finite_or_none(roe),
+        "div_yield": finite_or_none(div_yield), "sector": sector,
         "opp_tags": opportunity.classify(r),
     }
 
