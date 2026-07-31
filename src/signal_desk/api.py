@@ -229,6 +229,13 @@ def _bot_loop_iteration() -> None:
                      bf["filled"], bf["missing"], bf.get("deferred", 0))
     except Exception as e:
         log.warning("US 시세 자동 백필 실패(무시): %s", type(e).__name__)
+    try:  # 이미 있는 종목도 며칠째 안 움직이면 증분 갱신(백필 no-op만으론 7/2에 영구 고정됨)
+        rf = _refresh_us_prices_stale(25)
+        if rf["filled"]:
+            _clear_us_signal_caches()
+            log.info("US 시세 자동 갱신 %d종목(잔여 stale %s)", rf["filled"], rf["stale"])
+    except Exception as e:
+        log.warning("US 시세 자동 갱신 실패(무시): %s", type(e).__name__)
     about_n = moves_n = 0
     try:  # 사업 개요(무엇을 하는 회사) LLM 증분 백필 — 캐시 없는 종목만, 다 차면 no-op
         about_n = _backfill_about_batch(15)
@@ -278,6 +285,13 @@ def _daily_maintenance(enabled: list[str]) -> None:
             log.info("시세 전량 백필 완료(목표 %d일)", store.PRICE_HISTORY_DAYS)
     except Exception as e:
         log.warning("마감후 시세 갱신 실패: %s", type(e).__name__)
+    try:   # US도 KR과 같이 하루 1회 갱신 — 누락 백필만 돌리면 '한 번 채운' 종목이 영원히 멈춘다
+        rf = _refresh_us_prices_stale(batch=0)  # 0=stale 전량
+        if rf["filled"]:
+            _clear_us_signal_caches()
+            log.info("마감후 US 시세 갱신 %d종목", rf["filled"])
+    except Exception as e:
+        log.warning("마감후 US 시세 갱신 실패: %s", type(e).__name__)
     try:   # 자동 백필에서 빠진 US 종목을 하루 한 번 드러낸다(유예는 조용한 0이니 이름을 붙인다)
         deferred = store.us_price_deferred_tickers()
         if deferred:
@@ -1737,6 +1751,27 @@ def _backfill_us_prices_batch(batch: int = 60) -> dict:
     return {"filled": filled, "missing": max(0, len(missing) - batch), "deferred": deferred}
 
 
+def _refresh_us_prices_stale(batch: int = 60, *,
+                             max_age_days: int = store.US_STALE_DAYS,
+                             days: int = 60) -> dict:
+    """이미 시세가 있는 종목 중 마지막 일봉이 오래된 것만 짧게 재수집. batch=0이면 stale 전량.
+
+    누락 백필과 분리한다 — 유니버스가 다 채워진 뒤에도 일봉이 안 움직이면(실측: 499종목이
+    7/2에 고정) 시그널·봇이 멈춘 가격으로 돈다. days는 이력 wipe 없이 upsert되므로 짧아도 된다."""
+    universe = [u["ticker"] for u in store.load_us_universe()]
+    if not universe:
+        return {"filled": 0, "stale": 0}
+    skip = store.us_price_skips()
+    stale = [t for t in store.us_prices_stale_tickers(universe, max_age_days=max_age_days)
+             if not store.us_price_deferred(t, skip)]
+    if not stale:
+        return {"filled": 0, "stale": 0}
+    targets = stale if batch <= 0 else stale[:batch]
+    filled = store.fetch_us_prices(targets, days=days)
+    remain = 0 if batch <= 0 else max(0, len(stale) - batch)
+    return {"filled": filled, "stale": remain}
+
+
 def _about_targets_kr() -> list[dict]:
     return [{"ticker": u["ticker"], "name": u["name"], "sector": sectors.sector_of(u["ticker"]), "market": "kr"}
             for u in store.load_universe()]
@@ -1796,6 +1831,11 @@ def _refresh_us(data: dict) -> dict:
         # 비어 있으므로 갱신을 여러 번 누르면 전량이 채워진다(요청당 타임아웃 피하려 배치).
         us_prices = _backfill_us_prices_batch(int(data.get("us_price_batch") or 60))
         log.info("US 시세 증분 백필 %d종목(잔여 %s)", us_prices["filled"], us_prices["missing"])
+        # 이미 채워진 종목의 stale 일봉도 같이 당긴다 — 백필만 하면 '다 있음'인데 날짜는 멈춘다.
+        us_refresh = _refresh_us_prices_stale(int(data.get("us_price_refresh_batch") or 120))
+        log.info("US 시세 stale 갱신 %d종목(잔여 %s)", us_refresh["filled"], us_refresh["stale"])
+        us_prices = {**us_prices, "refreshed": us_refresh["filled"],
+                     "stale_remaining": us_refresh["stale"]}
         idx = gurus_ref.build_name_index(us_uni)  # 거장 보유종목(비 S&P500 포함) → 시세 수집(뱃지용, 스로틀)
         us_tks = sorted({t for g in store.load_gurus() for h in g.get("holdings", [])
                          if (t := gurus_ref.match_ticker(h.get("name", ""), idx))})
@@ -1810,6 +1850,8 @@ def _refresh_us(data: dict) -> dict:
     moves_n = _backfill_moves_batch(20)  # 최근 행보 LLM 증분 백필(KB 문서 있는 종목만)
     return {"us_fund_filled": us_filled, "us_universe_size": len(us_fund) or None,
             "us_prices_filled": us_prices["filled"], "us_prices_missing": us_prices["missing"],
+            "us_prices_refreshed": us_prices.get("refreshed", 0),
+            "us_prices_stale_remaining": us_prices.get("stale_remaining", 0),
             "about_generated": about_n, "moves_generated": moves_n}
 
 

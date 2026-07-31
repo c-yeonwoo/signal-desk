@@ -1,7 +1,14 @@
 """배포 환경 US 시세 증분 백필 — us_prices.parquet은 gitignore라 배포 시 비어 있으므로
-갱신/백그라운드 루프가 S&P500 시세를 점진 적재해 시그널 노출을 회복해야 한다."""
+갱신/백그라운드 루프가 S&P500 시세를 점진 적재해 시그널 노출을 회복해야 한다.
 
-from signal_desk import api
+누락 백필과 별개로, 이미 채워진 종목의 stale 일봉도 주기적으로 다시 당겨야 한다
+(실측: 백필 no-op만 돌면 499종목이 7/2에 고정)."""
+
+import datetime
+
+import pandas as pd
+
+from signal_desk import api, store
 
 
 def test_backfill_picks_only_missing_and_respects_batch(monkeypatch):
@@ -45,3 +52,64 @@ def test_backfill_empty_universe(monkeypatch):
     monkeypatch.setattr(api.store, "load_us_price_series", lambda: {})
     out = api._backfill_us_prices_batch()
     assert out == {"filled": 0, "missing": 0, "deferred": 0}
+
+
+def test_stale_refresh_skips_fresh_and_respects_batch(monkeypatch):
+    today = datetime.date.today()
+    universe = [{"ticker": t} for t in ("AAPL", "MSFT", "GOOG", "AMZN")]
+    last = {"AAPL": today.isoformat(),                                    # 신선
+            "MSFT": (today - datetime.timedelta(days=10)).isoformat(),    # stale
+            "GOOG": (today - datetime.timedelta(days=5)).isoformat(),     # stale
+            "AMZN": (today - datetime.timedelta(days=1)).isoformat()}     # 신선(1일)
+    requested: list[list[str]] = []
+
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: universe)
+    monkeypatch.setattr(api.store, "us_price_last_dates", lambda: last)
+    monkeypatch.setattr(api.store, "us_prices_stale_tickers",
+                        lambda tickers=None, max_age_days=3, as_of=None:
+                        [t for t in (tickers or [u["ticker"] for u in universe])
+                         if last.get(t, "") < (today - datetime.timedelta(days=max_age_days)).isoformat()])
+    monkeypatch.setattr(api.store, "us_price_skips", lambda: {})
+    monkeypatch.setattr(api.store, "us_price_deferred", lambda t, skip=None: False)
+    monkeypatch.setattr(api.store, "fetch_us_prices",
+                        lambda ts, days=60: (requested.append(list(ts)), len(ts))[1])
+
+    out = api._refresh_us_prices_stale(batch=1)
+    assert requested == [["MSFT"]]          # stale 중 앞에서 1개만
+    assert out == {"filled": 1, "stale": 1}  # GOOG 남음
+
+
+def test_stale_refresh_noop_when_fresh(monkeypatch):
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [{"ticker": "AAPL"}])
+    monkeypatch.setattr(api.store, "us_prices_stale_tickers", lambda *a, **k: [])
+    monkeypatch.setattr(api.store, "us_price_skips", lambda: {})
+    called = {"n": 0}
+    monkeypatch.setattr(api.store, "fetch_us_prices",
+                        lambda *a, **k: called.__setitem__("n", called["n"] + 1) or 0)
+    assert api._refresh_us_prices_stale(batch=50) == {"filled": 0, "stale": 0}
+    assert called["n"] == 0
+
+
+def test_fetch_us_prices_short_window_keeps_old_history(tmp_path, monkeypatch):
+    """짧은 days 갱신이 과거 일봉을 지우면 안 된다 — 예전엔 요청 종목 행을 통째로 교체했다."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    old = [{"date": "2025-01-02", "ticker": "AAPL", "open": 1.0, "close": 1.0, "volume": 1},
+           {"date": "2025-06-01", "ticker": "AAPL", "open": 2.0, "close": 2.0, "volume": 1},
+           {"date": "2025-06-01", "ticker": "MSFT", "open": 9.0, "close": 9.0, "volume": 1}]
+    pd.DataFrame(old).to_parquet(store.US_PRICES_FILE, index=False)
+
+    def fake_ohlcv(sym, count=200):
+        if sym != "AAPL":
+            return []
+        return [{"date": "2026-07-31", "open": 3.0, "close": 3.0, "volume": 2}]
+
+    monkeypatch.setattr(store, "_symbol_candidates", lambda t, r: [t])
+    from signal_desk.ingest import toss
+    monkeypatch.setattr(toss, "available", lambda: True)
+    monkeypatch.setattr(toss, "daily_ohlcv", fake_ohlcv)
+
+    assert store.fetch_us_prices(["AAPL"], days=5) == 1
+    series = store.load_us_price_series()
+    assert series["AAPL"] == [1.0, 2.0, 3.0]   # 과거 2봉 + 신규
+    assert series["MSFT"] == [9.0]             # 다른 종목 보존

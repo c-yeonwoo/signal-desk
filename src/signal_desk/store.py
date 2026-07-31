@@ -52,6 +52,7 @@ SIGNAL_HISTORY_FILE = CACHE_DIR / "signal_history.parquet"  # 일별 종목 시�
 PRICE_HISTORY_DAYS = 1825  # 약 5년 — 모멘텀(60일 최강)·다중국면 팩터/백테스트 신뢰도. 최초 1회 전량, 이후 증분
 US_SKIP_AFTER_FAILS = 3    # 이만큼 연속 실패하면 자동 백필에서 잠시 빼둔다(수동 갱신은 무시)
 US_SKIP_DAYS = 7           # 유예 기간 — 상장·표기 변경이 반영될 만한 간격
+US_STALE_DAYS = 3          # 마지막 일봉이 이보다 오래되면 갱신 대상(금→월 주말 포함)
 
 
 def _write_json(path: Path, data) -> None:
@@ -761,6 +762,30 @@ def us_price_deferred_tickers() -> list[str]:
     return sorted(t for t in skip if us_price_deferred(t, skip))
 
 
+def us_price_last_dates() -> dict[str, str]:
+    """ticker → 마지막 일봉 날짜(YYYY-MM-DD). 캐시 없으면 빈 dict."""
+    if not US_PRICES_FILE.exists():
+        return {}
+    df = _read_parquet(US_PRICES_FILE)
+    if df.empty or "ticker" not in df.columns or "date" not in df.columns:
+        return {}
+    return {str(t): str(d)[:10] for t, d in df.groupby("ticker")["date"].max().items()}
+
+
+def us_prices_stale_tickers(tickers: list[str] | None = None, *,
+                            max_age_days: int = US_STALE_DAYS,
+                            as_of: datetime.date | None = None) -> list[str]:
+    """마지막 일봉이 cutoff보다 오래된(또는 없는) 티커. 유예 여부는 호출측에서 거른다.
+
+    누락 백필(`_backfill_us_prices_batch`)과 역할이 다르다 — 여기는 '이미 있던 종목이
+    며칠째 안 움직인' 경우를 잡는다. max_age_days=3이면 금→월 주말에도 금요일 종가는 신선."""
+    as_of = as_of or datetime.date.today()
+    cutoff = (as_of - datetime.timedelta(days=int(max_age_days))).isoformat()
+    last = us_price_last_dates()
+    universe = tickers if tickers is not None else [u["ticker"] for u in load_us_universe()]
+    return [t for t in universe if str(last.get(t) or "")[:10] < cutoff]
+
+
 def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
     """지정 티커들의 미국 일봉을 수집해 us_prices.parquet에 병합(upsert). 반환: 성공 종목 수.
 
@@ -769,14 +794,15 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
     (EXCD)도 탐지 결과를 us_exchanges.json에 캐시해 재탐지를 피한다. 어느 표기로도 실패하면
     연속 실패 횟수를 남겨(us_price_skip.json) 자동 백필이 무한 재시도하지 않게 한다.
 
-    기존 parquet에 있던 다른 종목은 보존하고, 이번에 받은 종목만 갱신한다."""
+    (ticker, date) 단위로 keep='last' 병합한다 — 짧은 days로 일일 갱신해도 과거 이력이 지워지지
+    않는다(예전엔 요청 종목 행을 통째로 갈아끼워 days=60 갱신이 5년치를 날렸다)."""
     from signal_desk.ingest import toss, us
     use_toss = toss.available()  # 토스 우선(KR+US 단일·표준443·안정) → 미설정 시 KIS 폴백
     exch = _load_us_exchanges()
     syms = _load_json_dict(US_SYMBOLS_FILE)
     skip = _load_json_dict(US_PRICE_SKIP_FILE)
     existing = _read_parquet(US_PRICES_FILE) if US_PRICES_FILE.exists() else pd.DataFrame()
-    frames = [existing[existing["ticker"].isin(tickers) == False]] if not existing.empty else []
+    rows: list[dict] = []
     ok = 0
     for t in tickers:
         bars: list[dict] | None = None
@@ -802,12 +828,17 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
                         t, "/".join(us.symbol_variants(t)), skip[t]["fails"])
             continue
         skip.pop(t, None)
-        frames.append(pd.DataFrame([{"ticker": t, **b} for b in bars]))
+        rows.extend({"ticker": t, **b} for b in bars)
         ok += 1
-    if frames:
-        df = pd.concat(frames, ignore_index=True)[["date", "ticker", "open", "close", "volume"]]
+    if rows:
+        new = pd.DataFrame(rows)
+        combined = pd.concat([existing, new], ignore_index=True) if not existing.empty else new
+        combined = (combined.drop_duplicates(subset=["ticker", "date"], keep="last")
+                    .sort_values(["ticker", "date"]).reset_index(drop=True)
+                    [["date", "ticker", "open", "close", "volume"]])
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _write_parquet(df, US_PRICES_FILE)
+        _write_parquet(combined, US_PRICES_FILE)
+        clear_us_price_cache()
     _write_json(US_EXCHANGES_FILE, exch)
     _write_json(US_SYMBOLS_FILE, syms)
     _write_json(US_PRICE_SKIP_FILE, skip)
