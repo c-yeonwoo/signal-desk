@@ -1,19 +1,20 @@
-"""후보 이벤트 사람 검토 — confirm/attention/reject. 자동 승격 없음."""
+"""후보 이벤트 검토 — 자동 판정(명확 악재 confirm / 애매 reject) + 수동 오버라이드."""
 
 from signal_desk import db, kb
 
 
-def _seed_candidate(tmp_path, monkeypatch, *, severity="serious", direction="negative"):
+def _seed_candidate(tmp_path, monkeypatch, *, severity="serious", direction="negative",
+                    confidence=0.8):
     monkeypatch.setattr(db, "DB", tmp_path / "app.db")
     eid = db.kb_event_upsert(
         {
-            "event_key": "news:test:1",
+            "event_key": f"news:test:{severity}:{direction}:{confidence}",
             "scope_type": "stock",
             "ticker": "005930",
             "event_type": "litigation",
             "direction": direction,
             "severity": severity,
-            "confidence": 0.8,
+            "confidence": confidence,
             "trust_tier": "medium",
             "status": "candidate",
             "decision_eligible": False,
@@ -68,3 +69,35 @@ def test_non_candidate_rejected(tmp_path, monkeypatch):
     kb.review_candidate_event(eid, "confirm")
     out = kb.review_candidate_event(eid, "confirm")
     assert out["ok"] is False
+
+
+def test_auto_confirm_clear_negative(tmp_path, monkeypatch):
+    eid = _seed_candidate(tmp_path, monkeypatch, severity="critical", confidence=0.85)
+    out = kb.auto_review_candidate(eid)
+    assert out["ok"] and out["action"] == "confirm" and out["by"] == "auto"
+    ev = db.kb_event_get(eid)
+    assert ev["status"] == "confirmed" and ev["decision_eligible"] is True
+    assert "자동 Decision 반영" in (ev.get("rationale") or "")
+
+
+def test_auto_reject_ambiguous_low_confidence(tmp_path, monkeypatch):
+    eid = _seed_candidate(tmp_path, monkeypatch, severity="serious", confidence=0.4)
+    out = kb.auto_review_candidate(eid)
+    assert out["ok"] and out["action"] == "reject"
+    assert db.kb_event_get(eid)["status"] == "rejected"
+
+
+def test_auto_reject_watch_and_positive(tmp_path, monkeypatch):
+    w = _seed_candidate(tmp_path, monkeypatch, severity="watch", confidence=0.9)
+    assert kb.auto_review_candidate(w)["action"] == "reject"
+    p = _seed_candidate(tmp_path, monkeypatch, severity="serious", direction="positive",
+                        confidence=0.95)
+    assert kb.auto_review_candidate(p)["action"] == "reject"
+
+
+def test_auto_review_pending_drains_queue(tmp_path, monkeypatch):
+    _seed_candidate(tmp_path, monkeypatch, severity="serious", confidence=0.9)
+    _seed_candidate(tmp_path, monkeypatch, severity="info", confidence=0.9)
+    out = kb.auto_review_pending_candidates()
+    assert out["seen"] == 2 and out["confirmed"] == 1 and out["rejected"] == 1
+    assert db.kb_events_list(status="candidate") == []
