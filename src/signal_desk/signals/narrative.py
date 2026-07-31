@@ -9,8 +9,8 @@ BUY/SELL만 고품질 모델 호출 — HOLD는 규칙 문장만(비용·노이�
 
 from __future__ import annotations
 
-_KIND_WORD = {"STRONG_BUY": "우선매수", "BUY": "매수", "HOLD": "관망",
-              "SELL": "매도", "STRONG_SELL": "우선매도"}
+_KIND_WORD = {"STRONG_BUY": "Strong Buy", "BUY": "Buy", "HOLD": "Hold",
+              "SELL": "Sell", "STRONG_SELL": "Strong Sell"}
 
 
 def _group_by_tag(reasons: list[str]) -> dict[str, list[str]]:

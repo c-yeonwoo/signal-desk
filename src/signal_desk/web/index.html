@@ -477,7 +477,7 @@
   .sf-card-prev svg { width:100% !important; height:auto !important; display:block; }
   /* 알약(999px)은 개수가 많아지면 사탕처럼 보인다. 각진 라운드 + 낮은 채도로 정보 태그답게 */
   .sig-pill { display:inline-block; padding:3px 9px; border-radius:var(--r-sm); font-size:var(--fs-2xs);
-    font-weight:600; letter-spacing:.01em; color:#fff; }
+    font-weight:600; letter-spacing:.01em; color:#fff; white-space:nowrap; }
   .sig-pill.STRONG_BUY { background:#0a5f3e; }
   .sig-pill.BUY { background:var(--sig-buy); }
   .sig-pill.SELL { background:var(--sig-sell); }
@@ -917,7 +917,7 @@
     <div id="cycle-seg-vc" style="display:none">
       <h3 class="page-head" style="font-size:18px;margin-top:0" id="vc-anchor">밸류체인 <span style="color:var(--dim);font-size:13px;font-weight:600">· 주도섹터를 누르면 여기로 연결</span></h3>
       <p class="page-desc">섹터별 업스트림~다운스트림 구조와 국내(코스피)·해외 대표기업. 국내 기업의 현재
-        시그널(관망 제외)이 뱃지로 표시되며, 누르면 시그널 차트로 이동합니다. (큐레이션 스냅샷 · 추천 아님)</p>
+        시그널(Hold 제외)이 뱃지로 표시되며, 누르면 시그널 차트로 이동합니다. (큐레이션 스냅샷 · 추천 아님)</p>
       <div id="vc-cycle-banner" style="margin-bottom:10px"></div>
       <div class="vc-sectors" id="vc-sectors"></div>
       <div id="vc-detail"><div class="placeholder">불러오는 중…</div></div>
@@ -1249,7 +1249,7 @@
           <span class="pipe-arrow">→</span>
           <div class="pipe-step"><div class="ps-n">3 · 결합</div><div class="ps-t">가중 결합</div><div class="ps-d">가중평균(없는 팩터는 재정규화 제외) → 종합점수</div></div>
           <span class="pipe-arrow">→</span>
-          <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">게이트 → 5단계</div><div class="ps-d">국면·추세·어닝·KB악재 veto 후 강력매수~강력매도</div></div>
+          <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">게이트 → 5단계</div><div class="ps-d">국면·추세·어닝·KB악재 veto 후 Strong Buy~Strong Sell</div></div>
           <span class="pipe-arrow">→</span>
           <div class="pipe-step"><div class="ps-n">5 · 검증</div><div class="ps-t">시뮬 · 실측</div><div class="ps-d">가격 백테스트(시뮬) + PIT track record(실측)</div></div>
           <span class="pipe-arrow">→</span>
@@ -1265,10 +1265,10 @@
         <div class="field">퀄리티 <input type="number" step="0.05" min="0" id="w_quality" class="ctrl"></div>
         <div class="field">모멘텀 <input type="number" step="0.05" min="0" id="w_momentum" class="ctrl"></div>
         <div class="field">공매도 <input type="number" step="0.05" min="0" id="w_short" class="ctrl"></div>
-        <div class="field">강력매수 임계값 <input type="number" step="0.1" id="th_sbuy" class="ctrl"></div>
+        <div class="field">Strong Buy 임계값 <input type="number" step="0.1" id="th_sbuy" class="ctrl"></div>
         <div class="field">매수 임계값 <input type="number" step="0.1" id="th_buy" class="ctrl"></div>
         <div class="field">매도 임계값 <input type="number" step="0.1" id="th_sell" class="ctrl"></div>
-        <div class="field">강력매도 임계값 <input type="number" step="0.1" id="th_ssell" class="ctrl"></div>
+        <div class="field">Strong Sell 임계값 <input type="number" step="0.1" id="th_ssell" class="ctrl"></div>
       </div>
       <label class="field" style="flex-direction:row;align-items:center;gap:8px;margin-top:12px;cursor:pointer">
         <input type="checkbox" id="cfg_regime_adaptive" style="width:auto">
@@ -1554,10 +1554,10 @@
     </div>
     <div style="line-height:1.75;font-size:13px;color:var(--txt)">
       <b>종합점수(−3 ~ +3)로 5단계 판정</b><br>
-      강력매수 ≥ <b>+2.0</b> · 매수 ≥ <b>+1.2</b> · <b>관망 −1.2 ~ +1.2</b> · 매도 ≤ <b>−1.2</b> · 강력매도 ≤ <b>−2.0</b><br>
+      Strong Buy ≥ <b>+2.0</b> · Buy ≥ <b>+1.2</b> · <b>Hold −1.2 ~ +1.2</b> · Sell ≤ <b>−1.2</b> · Strong Sell ≤ <b>−2.0</b><br>
       <b>팩터 가중</b>: 기술 35 · 재무 30 · 모멘텀 30 · 낙폭 20 · 수급 20 · 저평가 15 · 퀄리티 15 · 공매도 15
       <span style="color:var(--dim-2)">(데이터 있는 팩터끼리 재정규화 · KB 악재는 점수 미반영·veto · 추세·어닝·국면 게이트)</span><br>
-      <span style="color:var(--sell)">※ 약세·조정 국면이면 매수 기준이 자동 상향돼, 점수가 +1.2를 넘어도 관망일 수 있습니다.</span>
+      <span style="color:var(--sell)">※ 약세·조정 국면이면 매수 기준이 자동 상향돼, 점수가 +1.2를 넘어도 Hold일 수 있습니다.</span>
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);color:var(--dim);font-size:13px">
         각 지표의 뜻·왜 보는지는
         <a href="#cycle/learn" onclick="document.getElementById('helpDlg').close()" style="color:var(--accent);font-weight:600">인사이트 › 학습</a>
@@ -2991,21 +2991,21 @@ function selectSignalRow(ticker){
 
 const _ZONE_COLOR = { STRONG_BUY: '#0a5f3e', BUY: '#2F9E68', SELL: '#B23B3B', STRONG_SELL: '#8f2626' };
 // 뱃지 문구 = 지금 모드(순위)의 의미. STRONG_BUY는 절대 '강함'이 아니라 오늘 매수 후보 중 더 위.
-const _KIND_LABEL = { STRONG_BUY: '우선매수', BUY: '매수', HOLD: '관망', SELL: '매도', STRONG_SELL: '우선매도' };
+const _KIND_LABEL = { STRONG_BUY: 'Strong Buy', BUY: 'Buy', HOLD: 'Hold', SELL: 'Sell', STRONG_SELL: 'Strong Sell' };
 const _KIND_HINT = {
   STRONG_BUY: '오늘 매수권 안에서도 순위가 더 위(앞 1/3) — 점수가 아니라 상대 순위',
-  BUY: '오늘 같은 시장 매수권(상위 분위) — 살 후보. 점수가 높아도 게이트면 관망',
-  HOLD: '오늘은 매수/매도 후보 아님(게이트·매수권 밖·점수 부족)',
-  SELL: '점수·규칙상 매도 쪽',
-  STRONG_SELL: '매도 후보 중에서도 더 강한 쪽',
+  BUY: '오늘 같은 시장 매수권(상위 분위) — 살 후보. 점수가 높아도 게이트면 Hold',
+  HOLD: '오늘은 Buy/Sell 후보 아님(게이트·매수권 밖·점수 부족)',
+  SELL: '점수·규칙상 Sell 쪽',
+  STRONG_SELL: 'Sell 후보 중에서도 더 강한 쪽',
 };
 const _HOLD_TAG_TIP = {
-  악재: '악재·결정 이벤트로 매수권 해제(관망) — 점수와 별개',
+  악재: '악재·결정 이벤트로 매수권 해제(Hold) — 점수와 별개',
   선반영: '호재 공시 전 이미 급등 — 선반영 의심으로 신규 매수 보류',
   추격: '시그널 발동 후 많이 올라 진입이 늦음 — 신규 매수 보류',
   실적: '실적발표 임박 — 발표 전 신규 매수 보류',
-  급락: '단기 급락(1일 −8% 또는 2일 −12%) — 매수권 해제(관망)',
-  추세: '하락추세 확인(종가<MA20<MA60) — 반등 전 관망',
+  급락: '단기 급락(1일 −8% 또는 2일 −12%) — 매수권 해제(Hold)',
+  추세: '하락추세 확인(종가<MA20<MA60) — 반등 전 Hold',
   매수권밖: '점수는 있어도 오늘 매수권(상위 분위) 밖',
   게이트: '매수 게이트로 보류',
 };
@@ -3384,9 +3384,9 @@ async function renderEvents(ticker){
 function heroReason(item){
   if (!item) return '';
   if (item.kind === 'HOLD') {
-    if ((item.reasons || []).some(r => r.includes('추세') && r.includes('차단'))) return '하락추세로 매수 보류 — 반등 확인 전 관망';
-    if (item.score >= 1.2) return '점수는 매수권이나 현재 매수 기준 미달 → 관망';
-    return '뚜렷한 매매 신호 없음 — 관망';
+    if ((item.reasons || []).some(r => r.includes('추세') && r.includes('차단'))) return '하락추세로 매수 보류 — 반등 확인 전 Hold';
+    if (item.score >= 1.2) return '점수는 매수권이나 현재 매수 기준 미달 → Hold';
+    return '뚜렷한 매매 신호 없음 — Hold';
   }
   const rs = (item.reasons || []).map(r => r.replace(/^\[[^\]]+\]\s*/, '').trim()).filter(Boolean);
   return rs.slice(0, 2).join(' · ') || kindLabel(item.kind);
@@ -5824,8 +5824,8 @@ const _BP_FIELD_KO = {
   weight_technical: '기술', weight_fundamental: '기본', weight_valuation: '저평가',
   weight_reversion: '낙폭', weight_flow: '수급', weight_quality: '퀄리티',
   weight_momentum: '모멘텀', weight_short: '공매도',
-  buy_threshold: '매수 임계', strong_buy_threshold: '강력매수 임계',
-  sell_threshold: '매도 임계', strong_sell_threshold: '강력매도 임계',
+  buy_threshold: 'Buy 임계', strong_buy_threshold: 'Strong Buy 임계',
+  sell_threshold: 'Sell 임계', strong_sell_threshold: 'Strong Sell 임계',
 };
 function _setEngineBadge(n){
   const b = document.getElementById('admin-engine-badge');
@@ -5873,13 +5873,13 @@ function _renderEngineGate(gate){
     strip.style.borderColor = 'var(--line)';
     const expPct = gate.exposure != null ? Math.round(gate.exposure * 100) : null;
     strip.innerHTML = `<b>오늘 매수 후보</b> — 국내 후보 ${sel.universe ?? '–'}종목을 점수순으로 세워`
-      + ` 상위 ${sel.rank_top_pct}%(<b>${sel.rank_slots ?? '–'}</b>자리)만 ‘매수’`
+      + ` 상위 ${sel.rank_top_pct}%(<b>${sel.rank_slots ?? '–'}</b>자리)만 Buy`
       + ` · 선정 <b>${sel.eligible ?? '–'}</b>건 · 막차 점수 ${fmtNum(sel.cutoff_score, 2)}`
       + (expPct != null ? ` · 자금 한도 <b>${expPct}%</b>` : '')
       + `<div style="color:var(--dim);margin-top:3px">${why}</div>`
       + `<div style="color:var(--dim-2);margin-top:3px">`
       + `같은 섹터가 아니라 <b>국내 후보 전체</b>에서 오늘 순위를 매깁니다. `
-      + `‘우선매수’는 그 매수 후보 중 더 위(대략 앞 1/3). `
+      + `Strong Buy는 그 매수 후보 중 더 위(대략 앞 1/3). `
       + `자금 한도=페이퍼 봇이 쓸 수 있는 평가액 비율(나머지 현금). `
       + `게이트 차단 ${sel.gate_blocked ?? 0}종목`
       + ` · 분포 max ${fmtNum(dist.max, 2)} · 중위 ${fmtNum(dist.median, 2)}</div>`;
@@ -6026,7 +6026,7 @@ async function loadLlmUsage(){
 }
 
 // 실측 성과(track record) — 실제 낸 시그널이 이후 수익률로 얼마나 맞았나. 매일 누적.
-const _ACC_KIND = { STRONG_BUY: '우선매수', BUY: '매수', SELL: '매도', STRONG_SELL: '우선매도' };
+const _ACC_KIND = { STRONG_BUY: 'Strong Buy', BUY: 'Buy', SELL: 'Sell', STRONG_SELL: 'Strong Sell' };
 const _ACC_FACTOR = { technical: '기술', fundamental: '기본', valuation: '밸류', reversion: '낙폭',
   qualitative: 'KB 정성', flow: '수급', quality: '퀄리티', momentum: '모멘텀', short: '공매도' };
 async function loadQualPromo(){

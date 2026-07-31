@@ -157,7 +157,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "trust-paper-muted" in html  # 페이퍼 승률 ≠ 실측 헤드라인
     assert "고장 아님" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
-    assert "우선매수" in html and "kindHint" in html  # 순위 의미를 드러내는 라벨·힌트
+    assert "Strong Buy" in html and "kindHint" in html  # 순위 의미를 드러내는 라벨·힌트
     assert 'id="ob-step-desk"' in html  # 온보딩 3스텝: 데스크 용어 안내
     assert "obFinish('paper')" in html or 'obFinish("paper")' in html
     assert "trust-legend" in html
