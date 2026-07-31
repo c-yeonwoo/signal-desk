@@ -422,7 +422,24 @@
   table.dtable td { padding:9px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
   table.dtable tr:last-child td { border-bottom:none; }
   table.dtable td.num, table.dtable th.num { text-align:right; font-variant-numeric:tabular-nums; }
-  table.dtable td.reasons { white-space:normal; color:var(--dim); font-size:var(--fs-sm); min-width:220px; }
+  table.dtable td.reasons { white-space:normal; color:var(--dim); font-size:var(--fs-sm);
+    word-break:keep-all; overflow-wrap:anywhere; vertical-align:top; }
+  /* 최근 거래내역 — 근거(note)가 길면 표가 카드·split 밖으로 밀린다. 고정폭 + 근거열만 줄바꿈 */
+  #bot-trades-body { overflow-x:auto; max-width:100%; }
+  #bot-trades-body table.dtable { table-layout:fixed; width:100%; }
+  #bot-trades-body table.dtable th:nth-child(1),
+  #bot-trades-body table.dtable td:nth-child(1) { width:9.5rem; white-space:normal; }
+  #bot-trades-body table.dtable th:nth-child(2),
+  #bot-trades-body table.dtable td:nth-child(2) { width:5.5rem; white-space:normal; overflow-wrap:anywhere; }
+  #bot-trades-body table.dtable th:nth-child(3),
+  #bot-trades-body table.dtable td:nth-child(3) { width:3.2rem; }
+  #bot-trades-body table.dtable th:nth-child(4),
+  #bot-trades-body table.dtable td:nth-child(4),
+  #bot-trades-body table.dtable th:nth-child(5),
+  #bot-trades-body table.dtable td:nth-child(5) { width:4.2rem; }
+  #bot-trades-body table.dtable td.reasons { width:auto; min-width:0; }
+  #bot-trades-body .trade-note { color:var(--dim); font-size:12px; margin-top:2px; line-height:1.45;
+    white-space:normal; word-break:keep-all; overflow-wrap:anywhere; }
   #signal-factors .fct-title { font-size:13px; font-weight:700; margin-bottom:6px; }
   .fct-row { display:flex; align-items:center; gap:8px; margin:3px 0; }
   .fct-label { flex:0 0 52px; font-size:13px; color:var(--dim); text-align:right; }
@@ -3936,7 +3953,7 @@ async function loadBotState(){
         <td class="num">${t.qty}</td><td class="num">${fmtNum(t.price, 0)}</td>
         <td class="reasons">
           <span style="font-weight:600">${_REASON_LABEL[t.reason] || esc(t.reason)}</span>${t.score != null ? ` <span style="color:var(--dim)">· 점수 ${t.score > 0 ? '+' : ''}${fmtNum(t.score, 2)}</span>` : ''}
-          ${t.note ? `<div style="color:var(--dim);font-size:12px;margin-top:2px">${esc(t.note)}</div>` : ''}
+          ${t.note ? `<div class="trade-note">${esc(t.note)}</div>` : ''}
         </td>
       </tr>`).join('');
       tEl.innerHTML = `<table class="dtable"><thead><tr>
