@@ -140,15 +140,15 @@ def test_rank_mode_header_shows_slots_and_exposure():
     assert "매수 근접(컷오프까지" in out and "다종목" in out
 
 
-def test_rank_mode_zero_buys_is_flagged_not_normalized():
-    """분위 모드에서 0건은 '정밀도 우선이라 정상'이 아니다 — 전부 막힌 예외 상황이다."""
+def test_rank_mode_zero_buys_is_normal():
+    """분위 모드 매수 0일도 정밀도 우선의 정상 — 최소점수·게이트로 자리가 비는 날."""
     out = digest.build_morning(
         signals=[_sig("A", "가", "HOLD", 0.2)], regime_label="약세", threshold=1.2,
         base_threshold=1.2, date=_D,
         selection={"mode": "rank", "universe": 200, "rank_slots": 6, "cutoff_score": None},
         exposure=0.4)
-    assert "매수 시그널 0" in out and "관리자 확인이 필요" in out
-    assert "기다리는 날" not in out
+    assert "매수 시그널 0" in out and "기다리는 날" in out
+    assert "관리자 확인이 필요" not in out
 
 
 def test_absolute_mode_header_unchanged():

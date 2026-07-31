@@ -38,6 +38,9 @@ def get_config() -> SignalConfig:
     ov = db.kv_get(_KEY) or {}
     for f in FIELDS:
         if f in ov and ov[f] is not None:
+            # 레거시 기본 0.5가 kv에 남아 있으면 새 기본(1.2)을 가린다 — 스킵
+            if f == "rank_min_score" and float(ov[f]) == 0.5:
+                continue
             setattr(cfg, f, float(ov[f]))
     if ov.get(MODE_FIELD) in MODES:
         cfg.selection_mode = ov[MODE_FIELD]

@@ -22,8 +22,9 @@ def test_crash_gate_two_day_window():
 
 
 def test_crash_gate_blocks_rank_promotion_even_from_hold():
-    """절대 BUY가 아니어도 gated면 분위가 우선매수로 올리지 못한다(HD현대 케이스)."""
-    cfg = SignalConfig(selection_mode="rank", rank_top_pct=50.0, rank_min_score=0.0,
+    """절대 BUY가 아니어도 gated면 분위가 우선매수로 올리지 못한다(HD현대 케이스).
+    창 안 다음 순위(B)는 공석을 메울 수 있다 — 게이트된 A만 탈락."""
+    cfg = SignalConfig(selection_mode="rank", rank_top_pct=100.0, rank_min_score=0.0,
                        crash_gate_1d_pct=-8.0)
     # 점수만 보면 상위인데 급락 게이트
     a = SignalResult(ticker="A", name="A", score=2.0, kind="HOLD", confidence=0.5,

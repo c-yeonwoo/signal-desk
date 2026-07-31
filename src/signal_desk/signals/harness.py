@@ -45,7 +45,7 @@ from signal_desk.signals.engine import SignalConfig
 @dataclass
 class HarnessConfig:
     top_pct: float = 3.0          # 매수권 분위(엔진 rank_top_pct와 같은 의미)
-    min_score: float = 0.5        # 매수권 최소점수(엔진 rank_min_score)
+    min_score: float = 1.2        # 매수권 최소점수(엔진 rank_min_score와 동기화)
     rebalance_days: int = 5       # 리밸런스 주기(거래일). 보유기간과 같다.
     cost_pct: float = 0.25        # 왕복 거래비용(수수료+세금+슬리피지) — 회전율에 비례 차감
     warmup: int = 130             # 지표가 안정되기 전 구간은 건너뛴다(MA120·모멘텀)
