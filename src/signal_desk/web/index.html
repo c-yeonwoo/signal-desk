@@ -268,13 +268,19 @@
   /* 히어로 결론 카드 — 시그널 색으로 좌측 강조, 결론·이유·핵심지표 */
   .hero-card { border:1px solid var(--line); border-left:4px solid var(--sig-neutral); border-radius:var(--r-md);
     background:var(--bg); padding:9px 12px; margin:2px 0 8px; }
-  .hero-card.BUY, .hero-card.STRONG_BUY { border-left-color:var(--sig-buy); }
+  .hero-card.BUY, .hero-card.STRONG_BUY {
+    border-left-color:var(--sig-buy);
+    border-color:rgba(14,122,79,.28);
+    background:linear-gradient(135deg, rgba(14,122,79,.10) 0%, rgba(14,122,79,.04) 52%, #f3faf6 100%);
+  }
   .hero-card.SELL, .hero-card.STRONG_SELL { border-left-color:var(--sig-sell); }
   .hero-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
   .hero-price { font-size:21px; font-weight:700; color:var(--txt); }
   .hero-reason { font-size:13px; color:var(--txt); margin:5px 0 6px; line-height:1.45; font-weight:600; }
   .hero-metrics { display:flex; gap:14px; flex-wrap:wrap; font-size:13px; color:var(--dim); }
   .hero-metrics b { font-variant-numeric:tabular-nums; }
+  .hero-runup { color:var(--sig-buy); font-weight:700; }
+  .hero-runup.down { color:var(--sig-sell); }
   .hero-tk { margin-left:auto; color:var(--dim-2); }
   /* 안내 에이전트(챗봇) */
   #chat-fab { position:fixed; right:max(16px, var(--safe-right)); bottom:max(16px, var(--safe-bottom));
@@ -3440,6 +3446,22 @@ function _paintSignalDetail(ticker, item){
     const priceStr = item.price != null ? (isUS ? '$' + fmtNum(item.price, 2) : fmtNum(item.price, 0) + '원') : '';
     const up = bestUpside(item);
     const scoreC = item.score > 0 ? 'var(--sig-buy)' : item.score < 0 ? 'var(--sig-sell)' : 'var(--txt)';
+    // Buy+만: 연속 매수권 에피소드 발동가 대비 현재 수익률(entry.run_up_pct)
+    let runUpHtml = '';
+    const ent = item.entry;
+    if (_isBuy(item.kind) && ent && ent.run_up_pct != null) {
+      const ru = Number(ent.run_up_pct);
+      const ruCls = ru < 0 ? 'hero-runup down' : 'hero-runup';
+      const ruTxt = (ru > 0 ? '+' : '') + fmtNum(ru, 1) + '%';
+      const age = ent.age_days === 0 ? '오늘 발동' : (ent.age_days + '거래일 유지');
+      const firePx = ent.fire_price == null ? '' : (isUS
+        ? ('$' + fmtNum(ent.fire_price, ent.fire_price < 100 ? 2 : 0))
+        : (fmtNum(ent.fire_price, 0) + '원'));
+      const tip = '연속 Buy 구간이 시작된 날의 종가(또는 당일 첫 매수권 가격) 대비. 중간에 Hold로 끊기면 새 에피소드.';
+      runUpHtml = `<span class="${ruCls}" title="${esc(tip)}">발동 후 <b>${ruTxt}</b>`
+        + (firePx ? ` <span style="font-weight:500;color:var(--dim)">(${esc(firePx)}→)</span>` : '')
+        + ` <span style="font-weight:500;color:var(--dim)">· ${esc(age)}</span></span>`;
+    }
     // 리스트에 이미 있는 pill·점수는 반복하지 않음 — 가격·한 줄 이유·상승여력만
     heroEl.style.display = '';
     heroEl.innerHTML = `<div class="hero-card ${item.kind}">
@@ -3450,6 +3472,7 @@ function _paintSignalDetail(ticker, item){
         </div>
         <div class="hero-reason">${esc(heroReason(item))}</div>
         <div class="hero-metrics">
+          ${runUpHtml}
           ${up != null ? `<span>목표가 상승여력 <b style="color:var(--sig-buy)">+${fmtNum(up, 1)}%</b></span>` : ''}
           <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
           + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b></span>
