@@ -4782,7 +4782,7 @@ function _setAdminOpsBadge(d){
     const kn = eq.expiring_soon || eq.pending || 0;
     kbBadge.style.display = kn ? '' : 'none';
     kbBadge.textContent = kn || '';
-    kbBadge.title = kn ? '이벤트 후보 확인' : '';
+    kbBadge.title = kn ? '이벤트 후보 잔여(자동 판정 대기)' : '';
   }
   renderAdminTodo();
 }
@@ -4853,13 +4853,10 @@ function renderDataHealth(d){
                + `임베드 ${kbr.embedded ?? 0}건`
                + (kbr.semantic ? '' : ' · 해시면 동의어를 못 잡아 BM25 단독에 가깝다.'));
     const eq = d.event_queue;
-    if (eq) q('이벤트 후보 대기', !eq.sla_alert, `${eq.pending ?? 0}건`,
-              eq.sla_alert ? (eq.note || `${eq.expiring_soon || 0}건 만료 임박·적체`)
-                           : (eq.pending ? '만료 임박 없음' : null),
-              '사람 확인을 기다리는 악재 후보. 후보는 5일 뒤 자동 만료돼서, 안 보면 유효한 악재가 '
-              + '반영도 안 된 채 조용히 사라진다. 임박 건은 TTL 1회 연장.'
-              + (eq.soon_items && eq.soon_items.length
-                 ? ' · 임박: ' + esc(eq.soon_items.map(s => `${s.ticker}(${s.hours_left}h)`).join(', ')) : ''));
+    if (eq) q('이벤트 후보 잔여', (eq.pending ?? 0) === 0, `${eq.pending ?? 0}건`,
+              (eq.pending ?? 0) ? '자동 판정 대기(곧 비움)' : null,
+              '뉴스 후보는 추출 직후 자동 판정: 명확한 악재만 Decision 반영, 애매하면 기각. '
+              + '잔여가 있으면 일일 루프가 비운다. 사람 승인 큐가 아님.');
     const cr = d.consensus_readiness;
     if (cr) {
       // testable = Δ 계산 가능 + horizon(20)거래일 성숙. 스냅샷 일수와 다르다.
@@ -5066,18 +5063,18 @@ async function loadKbEvents(){
   const el = document.getElementById('kbdoc-body'), fEl = document.getElementById('kbdoc-filters');
   const chip = (label, val) => `<button class="btn${_kbEventView === val ? ' primary' : ''}" style="padding:3px 10px;font-size:13px" onclick="_kbEventView='${val}';loadKbEvents()">${label}</button>`;
   fEl.style.display = '';
-  fEl.innerHTML = chip('확정', 'eligible') + chip('후보', 'candidate');
+  fEl.innerHTML = chip('확정', 'eligible') + chip('후보(잔여)', 'candidate');
   const isCand = _kbEventView === 'candidate';
   document.getElementById('kb-view-desc').innerHTML = isCand
-    ? '뉴스에서 뽑은 <b>후보</b>. 승인해야 매매에 반영됩니다(점수 가산 없음).'
-    : '공시 등 <b>확정 이벤트</b>. 매매 게이트용 · 점수 가산 없음.';
+    ? '뉴스 후보는 <b>자동 판정</b>합니다. 명확한 악재(critical/serious·negative·conf≥0.7)만 Decision 반영, 애매하면 기각. 이 목록은 처리 전 잔여(보통 비어 있음).'
+    : '공시·자동 확정 악재 등 <b>확정 이벤트</b>. 매매 게이트용 · 점수 가산 없음.';
   try {
     const d = await (await fetch('/api/kb/events?view=' + encodeURIComponent(_kbEventView))).json();
     const items = d.items || [];
     if (!items.length) {
       el.className = '';
       el.innerHTML = isCand
-        ? '<div class="placeholder" style="padding:16px 0">후보 이벤트가 없습니다 — KB 갱신 시 신규 뉴스에서만 추출됩니다.</div>'
+        ? '<div class="placeholder" style="padding:16px 0">잔여 후보 없음 — 신규 뉴스는 추출 직후 자동 판정됩니다.</div>'
         : '<div class="placeholder" style="padding:16px 0">활성 이벤트가 없습니다 — KB 뉴스 갱신 후 DART 공시가 쌓입니다.</div>';
       return;
     }
@@ -5089,44 +5086,19 @@ async function loadKbEvents(){
         ? `<a href="${esc(evd.url)}" target="_blank" rel="noopener">${esc((ev.summary || '').slice(0, 72))}</a>`
         : esc((ev.summary || '').slice(0, 72));
       const badge = isCand
-        ? `<div style="font-size:11px;color:var(--dim)">candidate · conf ${fmtNum(ev.confidence, 2)}</div>`
+        ? `<div style="font-size:11px;color:var(--dim)">대기 · conf ${fmtNum(ev.confidence, 2)}</div>`
         : `<div style="font-size:11px;color:var(--dim)">${ev.decision_eligible ? 'eligible' : '표시만'}</div>`;
-      const acts = isCand
-        ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:6px">
-            <button type="button" class="btn primary" style="padding:2px 8px;font-size:12px"
-              onclick="reviewKbEvent(${ev.id},'confirm')">Decision 반영</button>
-            <button type="button" class="btn" style="padding:2px 8px;font-size:12px"
-              onclick="reviewKbEvent(${ev.id},'attention')">표시만</button>
-            <button type="button" class="btn" style="padding:2px 8px;font-size:12px;color:var(--sig-sell)"
-              onclick="reviewKbEvent(${ev.id},'reject')">기각</button>
-          </div>`
-        : '';
       return `<tr style="vertical-align:top">
         <td><span style="font-weight:700;color:${sevColor[ev.severity] || 'var(--dim)'}">${esc(ev.severity || '')}</span>${badge}</td>
         <td>${esc(ev.ticker || '–')}<div style="font-size:12px;color:var(--dim)">${esc(ev.decision_action || 'none')} · ${esc(ev.trust_tier || '')}</div></td>
         <td style="white-space:normal">${link}
           ${cite ? `<div style="font-size:12px;color:var(--dim);margin-top:2px">“${cite}”</div>` : ''}
-          <div style="font-size:12px;color:var(--dim)">${esc(ev.event_type || '')} · ${_kbFmtTs(ev.detected_at)}</div>
-          ${acts}</td>
+          <div style="font-size:12px;color:var(--dim)">${esc(ev.event_type || '')} · ${_kbFmtTs(ev.detected_at)}</div></td>
       </tr>`;
     }).join('');
     el.className = '';
     el.innerHTML = `<table class="dtable"><thead><tr><th>심각도</th><th>종목</th><th>요약·근거</th></tr></thead><tbody>${rows}</tbody></table>`;
   } catch (e) { el.textContent = '불러오지 못했습니다.'; }
-}
-async function reviewKbEvent(eventId, action){
-  const labels = { confirm: 'Decision 반영', attention: '표시만', reject: '기각' };
-  if (!confirm(`이 후보를「${labels[action] || action}」처리할까요?`)) return;
-  try {
-    const r = await fetch('/api/kb/events/review', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_id: eventId, action }),
-    });
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok || d.ok === false) { alert(d.detail || d.reason || '처리 실패'); return; }
-    loadKbEvents();
-    loadDataHealth({ force: true, render: false });
-  } catch (e) { alert('요청 실패'); }
 }
 let _kbSrcFilter = '';
 async function loadKbSources(){
@@ -5368,11 +5340,9 @@ function renderAdminTodo(){
     const stale = (d.freshness || []).filter(f => f.stale).length;
     if (stale) items.push({ seg: 'ops', text: `오래된 데이터 ${stale}건 — 점검` });
     if (d.signal_drift && d.signal_drift.frozen) items.push({ seg: 'ops', text: '점수 동결 의심 — 점검' });
-    if (d.event_queue && (d.event_queue.sla_alert || d.event_queue.pending || d.event_queue.expiring_soon)) {
-      const eq = d.event_queue;
-      const n = eq.expiring_soon || eq.pending;
-      const prefix = eq.sla_alert ? '⚠ SLA ' : '';
-      items.push({ seg: 'kb', text: `${prefix}이벤트 후보 ${n}건 — 승인/기각`, view: 'events', cand: true });
+    if (d.event_queue && (d.event_queue.pending || 0) > 0) {
+      const n = d.event_queue.pending;
+      items.push({ seg: 'kb', text: `이벤트 후보 잔여 ${n}건 — 자동 판정 대기`, view: 'events', cand: true });
     }
     if (d.crowding && d.crowding.warn) {
       items.push({ seg: 'ops', text: `편중 경고 · ${d.crowding.note || '매수권 섹터 쏠림'}` });

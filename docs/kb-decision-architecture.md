@@ -122,12 +122,13 @@ validate bar(종목 import Opus · 거시 Opus)는 **유지·강화**. 풀이 �
 
 ### P1b 수용 기준
 - `refresh()`의 **신규** 비-DART 뉴스만 Sonnet(`DIGEST_QUALITY_MODEL`) 후보 추출
-- 카드: `status=candidate`, `decision_eligible=0`, `decision_action=none`, `policy_version=p1b`
+- 추출 직후 **자동 판정**: `negative` + `critical|serious` + `confidence≥0.7` → `confirm`(Decision),
+  그 외(호재·info/watch·mixed/unknown·저신뢰) → `reject`. 사람 승인 큐에 쌓지 않음.
+- 잔여 candidate는 일일 루프 `auto_review_pending_candidates`가 비움.
 - URL·evidence_text 없으면 저장 안 함 · 종목당 호출 상한
-- `sentiment_map()` / `kb_events_active(decision_only=True)`에 후보 미포함
-- 관리자: 결정 적격 / 후보 토글 · `GET /api/kb/events?view=candidate`
-- 후보 승격은 **사람만** — `POST /api/kb/events/review` (`confirm`|`attention`|`reject`).
-  LLM/하네스 자동 적격 판단 없음. `confirm`이어도 호재·info는 Decision 미반영(비대칭).
+- `sentiment_map()` / `kb_events_active(decision_only=True)`에 미확정 후보 미포함
+- 관리자: 확정 / 잔여 후보 조회 · `GET /api/kb/events?view=candidate`(보통 비어 있음)
+- `POST /api/kb/events/review`는 예외 오버라이드용. `confirm`이어도 호재·info는 Decision 미반영(비대칭).
 
 ### P2 수용 기준
 - `signals/decision.py`가 confirmed+eligible만으로 buy_blocked / holding_action 산출

@@ -2084,13 +2084,14 @@ def _kb_lite_targets(max_tickers: int | None = None) -> list[dict]:
 
 
 def _maybe_extend_candidate_ttl() -> dict | None:
-    """만료 임박 후보 TTL 1회 연장(하루 가드). 사람 검토 전에 사라지지 않게."""
+    """잔여 뉴스 후보를 하루 1회 자동 판정으로 비운다(명확 악재 confirm · 애매 reject).
+    예전 TTL 연장은 사람 검토 대기용이었고, 자동 판정 이후엔 큐를 남기지 않는다."""
     if db.kv_get("kb_candidate_ttl_date") == _kst_today():
         return None
     try:
-        out = kb.extend_expiring_candidates()
+        out = kb.auto_review_pending_candidates()
     except Exception as e:
-        log.warning("후보 TTL 연장 실패: %s", type(e).__name__)
+        log.warning("후보 자동 판정 실패: %s", type(e).__name__)
         return None
     db.kv_set("kb_candidate_ttl_date", _kst_today())
     return out
@@ -2458,8 +2459,8 @@ def kb_events_get(ticker: str | None = None, limit: int = 50, active: bool = Fal
 
 @app.post("/api/kb/events/review")
 def kb_events_review(request: Request, data: dict = Body(...)):
-    """후보 이벤트 사람 검토 — confirm(Decision 가능)|attention(표시만)|reject.
-    자동 승격 없음. Decision은 confirmed+eligible만 소비."""
+    """후보 이벤트 수동 오버라이드 — confirm|attention|reject.
+    운영 기본은 추출 직후 자동 판정. Decision은 confirmed+eligible만 소비."""
     _admin_or_403(request)
     try:
         eid = int((data or {}).get("event_id"))
@@ -2467,7 +2468,7 @@ def kb_events_review(request: Request, data: dict = Body(...)):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="event_id 필요")
     action = str((data or {}).get("action") or "").strip().lower()
-    out = kb.review_candidate_event(eid, action)
+    out = kb.review_candidate_event(eid, action, by="admin")
     if not out.get("ok"):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=out.get("reason") or "실패")

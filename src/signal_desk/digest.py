@@ -164,11 +164,10 @@ def build_morning(
             lines.append(f"· {s.name} {float(s.score):+.2f} ({near_ref - float(s.score):.2f} 남음)")
 
     eq = event_queue or {}
-    if eq.get("sla_alert") or eq.get("expiring_soon"):
+    if (eq.get("pending") or 0) > 0:
         lines.append("")
         lines.append(
-            f"⚠ 이벤트 후보 {eq.get('pending', 0)}건"
-            f" · {eq.get('expiring_soon', 0)}건 만료 임박 — 관리자 승인 필요"
+            f"이벤트 후보 잔여 {eq.get('pending', 0)}건 — 자동 판정 대기"
         )
     if crowding and crowding.get("warn"):
         lines.append("")
