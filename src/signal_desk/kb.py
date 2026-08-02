@@ -5,7 +5,8 @@
 매매 veto의 본체는 DART Decision(+뉴스 후보 자동 판정).
 
 비용 가드: 신규 URL 없으면 Sonnet/Haiku 다이제스트 재호출 스킵.
-종목 다이제스트는 Haiku, 후보 이벤트·거시 요약만 Sonnet.
+종목 다이제스트·거시 원문 압축은 Haiku, 후보 이벤트·최종 거시 톤(build_macro_digest)만 Sonnet.
+일일 자동 수집은 기본 OFF(config.kb_auto_collect) — 학습 원료는 관리자 수동.
 """
 
 from __future__ import annotations
@@ -1171,7 +1172,10 @@ def import_macro(title: str, text: str, url: str = "", published: str = "", summ
 
 
 def _macro_source_summary(title: str, text: str) -> str:
-    """긴 원문(자막 등)을 거시 KB 저장용 시장 관점 요약으로 압축. LLM 없거나 실패 시 앞부분 폴백."""
+    """긴 원문(자막 등)을 거시 KB 저장용 시장 관점 요약으로 압축. LLM 없거나 실패 시 앞부분 폴백.
+
+    항목별 압축은 Haiku(DIGEST_MODEL) — '자막→2~4문장'에 Sonnet이 필요 없다.
+    최종 시장 톤은 build_macro_digest(Sonnet) 1회에 맡긴다."""
     text = text.strip()
     if len(text) <= 600 or not llm.available():
         return text[:600]
@@ -1179,7 +1183,7 @@ def _macro_source_summary(title: str, text: str) -> str:
               "거시 흐름·자산시장 시사점 위주로, 과장·추천 없이 사실 기반. 스크립트에 없는 내용은 지어내지 마라.")
     user = (f"제목: {title}\n스크립트:\n{text[:9000]}\n\n"
             'JSON으로만: {"summary": "한국어 2~4문장 핵심 요약", "points": ["핵심 포인트 최대 3개 짧게"]}')
-    out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_QUALITY_MODEL)
+    out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL)
     if out and out.get("summary"):
         pts = [str(p) for p in (out.get("points") or [])][:3]
         return (str(out["summary"]) + (" · " + " · ".join(pts) if pts else ""))[:600]
@@ -1230,10 +1234,15 @@ def collect_youtube(max_per_channel: int | None = None, force: bool = False) -> 
                 continue
             pub = v.get("published") or ""
             summary = _macro_source_summary(title, raw)  # 긴 자막은 LLM 요약, 원문은 raw 보관
+            # RSS와 같이 항목별 digest 재계산을 끄고(기본 rebuild=True면 영상마다 Sonnet),
+            # 배치 끝에 1회만 돌린다.
             r = import_macro(f"[{channel}] {title}", raw, url=url, published=pub, summary=summary,
-                             source_key=sk, display_name=f"YouTube @{handle}", parent_key="youtube")
+                             rebuild=False, source_key=sk, display_name=f"YouTube @{handle}",
+                             parent_key="youtube")
             if r.get("ok"):
                 macro.append({"channel": channel, "title": title, "published": pub, "chars": len(raw)})
+                if url:
+                    seen.add(url)
             else:
                 skipped.append({"video_id": vid, "title": title, "why": r.get("reason", "미저장")})
                 # 게이트 거절은 ingest_document가 rejected 카운트. 그 외 실패만 보정.
@@ -1241,6 +1250,8 @@ def collect_youtube(max_per_channel: int | None = None, force: bool = False) -> 
                 if why and "게이트" not in why and "퇴출" not in why and "비활성" not in why and "등록" not in why:
                     db.kb_sources_touch(sk, "rejected", error=why[:200], rejected=1)
         reviews.append(evaluate_source_quality(sk))
+    if macro:
+        _rebuild_macro_digest()  # 배치 끝에 Sonnet 톤 요약 1회
     log.info("youtube 수집: 거시 %d · 스킵 %d · 오류 %d", len(macro), len(skipped), len(errors))
     return {"ok": True, "imported": [], "macro": macro, "skipped": skipped, "errors": errors,
             "source_reviews": reviews}
