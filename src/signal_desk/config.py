@@ -184,6 +184,16 @@ def youtube_max_per_channel() -> int:
         return 5
 
 
+def kb_auto_collect() -> bool:
+    """일일 자동 KB LLM 수집(유튜브·RSS·미주은·종목 refresh) on/off.
+
+    기본 OFF — 시그널 점수·봇 수익률에 KB 자동 Sonnet이 기여한다는 실측이 없고,
+    학습용(#cycle/hypo)은 관리자 수동 수집·흐름 생성에 맡긴다. 예전처럼 돌리려면
+    KB_AUTO_COLLECT=1."""
+    v = (os.environ.get("KB_AUTO_COLLECT") or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
 def broker_backend() -> str:
     """국내 자동매매 브로커 백엔드 — 'kis'(모의투자 실계좌) 또는 'paper'(자체 모의계좌).
     BROKER_BACKEND(.env) 우선, 미설정 시 KIS 자격증명 있으면 kis, 없으면 paper.

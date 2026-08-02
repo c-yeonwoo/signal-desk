@@ -65,33 +65,39 @@ def _kst_today() -> str:
 
 
 def _daily_kb_collect():
-    """외부 KB 소스(미주은·오건영·유튜브·해외 전문가 RSS) 하루 1회 자동수집 — 증분이라 새 글만 적재.
-    best-effort(개별 실패 무시), fanding tt 만료 등은 조용히 스킵. 새 인사이트/시황 반영 위해 캐시 무효화.
-    사이클 확정 국면 lead 섹터 종목 뉴스(kb.refresh)도 하루 1회 soft 포함."""
+    """하루 1회 유지보수 훅.
+
+    KB LLM 자동수집(유튜브·RSS·미주은·종목 digest)은 기본 OFF(`config.kb_auto_collect`).
+    트레이딩 예산과 학습 예산을 분리한다 — 자동 Sonnet은 수익률 실측이 없고, 학습(#cycle/hypo)은
+    관리자 수동 수집·흐름 생성에 맡긴다. 무료 US 재무 백필만 항상 돈다.
+    KB_AUTO_COLLECT=1 이면 예전처럼 LLM 수집을 켠다."""
     if db.kv_get("kb_collect_date") == _kst_today():
         return
     got = False
-    for fn in (kb.collect_fanding, kb.collect_outstanding, kb.collect_youtube, kb.collect_rss_macro):
-        try:
-            out = fn()
-            got = got or bool(out.get("imported") or out.get("macro"))
+    if config.kb_auto_collect():
+        for fn in (kb.collect_fanding, kb.collect_outstanding, kb.collect_youtube, kb.collect_rss_macro):
+            try:
+                out = fn()
+                got = got or bool(out.get("imported") or out.get("macro"))
+            except Exception as e:
+                log.warning("KB 자동수집 실패(%s): %s", getattr(fn, "__name__", "?"), type(e).__name__)
+        try:  # 확정 국면 주도섹터 + BUY/보유/관심 — 종목 뉴스 다이제스트
+            targets = _kb_targets()
+            if targets:
+                out = kb.refresh(targets)  # per-target 격리 — 한 종목 실패가 나머지·prune을 죽이지 않는다
+                got = got or bool(out.get("updated"))
+                if out.get("failed"):
+                    log.warning("KB 종목 자동수집 일부 실패 %d/%d — 관리자 데이터 상태에 노출됨",
+                                len(out["failed"]), out.get("targets") or 0)
+            else:
+                log.warning("KB 종목 수집 대상 0 — 확정 국면 주도섹터·보유·관심종목이 비었다")
         except Exception as e:
-            log.warning("KB 자동수집 실패(%s): %s", getattr(fn, "__name__", "?"), type(e).__name__)
-    try:  # 확정 국면 주도섹터 + BUY/보유/관심 — 종목 뉴스 다이제스트
-        targets = _kb_targets()
-        if targets:
-            out = kb.refresh(targets)  # per-target 격리 — 한 종목 실패가 나머지·prune을 죽이지 않는다
-            got = got or bool(out.get("updated"))
-            if out.get("failed"):
-                log.warning("KB 종목 자동수집 일부 실패 %d/%d — 관리자 데이터 상태에 노출됨",
-                            len(out["failed"]), out.get("targets") or 0)
-        else:
-            log.warning("KB 종목 수집 대상 0 — 확정 국면 주도섹터·보유·관심종목이 비었다")
-    except Exception as e:
-        log.warning("KB 종목 자동수집 실패: %s", type(e).__name__)
-    if got:
-        _signals.cache_clear()
-        _macro.cache_clear()
+            log.warning("KB 종목 자동수집 실패: %s", type(e).__name__)
+        if got:
+            _signals.cache_clear()
+            _macro.cache_clear()
+    else:
+        log.info("KB 자동수집 스킵(KB_AUTO_COLLECT off) — 학습 원료는 관리자 수동 수집")
     try:  # US 재무 백필 — EDGAR(순이익·자기자본, 무료·무제한) 위주 + AV(섹터 등) 소량. 여러 날 걸쳐 전량 채움
         us = [u["ticker"] for u in store.load_us_universe()]
         if us:
@@ -237,20 +243,22 @@ def _bot_loop_iteration() -> None:
     except Exception as e:
         log.warning("US 시세 자동 갱신 실패(무시): %s", type(e).__name__)
     about_n = moves_n = 0
-    try:  # 사업 개요(무엇을 하는 회사) LLM 증분 백필 — 캐시 없는 종목만, 다 차면 no-op
-        about_n = _backfill_about_batch(15)
-        if about_n:
-            log.info("사업 개요 자동 백필 %d종목", about_n)
-    except Exception as e:
-        log.warning("사업 개요 자동 백필 실패(무시): %s", type(e).__name__)
-    try:  # 최근 행보 LLM 증분 백필 — KB 문서 있고 캐시 오래된 종목만(새 뉴스 반영)
-        moves_n = _backfill_moves_batch(10)
-        if moves_n:
-            log.info("최근 행보 자동 백필 %d종목", moves_n)
-    except Exception as e:
-        log.warning("최근 행보 자동 백필 실패(무시): %s", type(e).__name__)
-    if about_n or moves_n:  # evaluate는 그대로, 리스트 문구만 갱신
-        _us_signal_items.cache_clear()
+    # about/moves는 UX 문구(트레이딩 점수 아님). 주말 Haiku drip을 끊고 평일만 증분.
+    if _kst_now().weekday() < 5:
+        try:  # 사업 개요(무엇을 하는 회사) LLM 증분 백필 — 캐시 없는 종목만, 다 차면 no-op
+            about_n = _backfill_about_batch(15)
+            if about_n:
+                log.info("사업 개요 자동 백필 %d종목", about_n)
+        except Exception as e:
+            log.warning("사업 개요 자동 백필 실패(무시): %s", type(e).__name__)
+        try:  # 최근 행보 LLM 증분 백필 — KB 문서 있고 캐시 오래된 종목만(새 뉴스 반영)
+            moves_n = _backfill_moves_batch(10)
+            if moves_n:
+                log.info("최근 행보 자동 백필 %d종목", moves_n)
+        except Exception as e:
+            log.warning("최근 행보 자동 백필 실패(무시): %s", type(e).__name__)
+        if about_n or moves_n:  # evaluate는 그대로, 리스트 문구만 갱신
+            _us_signal_items.cache_clear()
     for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
         for mkt in open_markets:
             try:  # 예약 주문 먼저(목표가+추격폭 이내만) — run_once와 별개 경로
@@ -299,13 +307,14 @@ def _daily_maintenance(enabled: list[str]) -> None:
                         len(deferred), ", ".join(deferred[:10]))
     except Exception as e:
         log.warning("US 유예 목록 조회 실패: %s", type(e).__name__)
-    try:
-        # 아침 _daily_kb_collect 가 이미 돌렸어도 오후 뉴스·공시는 여기 한 번 더 본다.
-        # 신규 URL 없으면 kb._refresh_one 이 LLM 다이제스트를 스킵한다.
-        kb.refresh(_kb_targets())
-        _signals.cache_clear()
-    except Exception as e:
-        log.warning("마감후 KB 갱신 실패: %s", e)
+    if config.kb_auto_collect():
+        try:
+            # KB_AUTO_COLLECT=1 일 때만 — 아침 수집에 이은 오후 종목 digest.
+            # 신규 URL 없으면 kb._refresh_one 이 LLM 다이제스트를 스킵한다.
+            kb.refresh(_kb_targets())
+            _signals.cache_clear()
+        except Exception as e:
+            log.warning("마감후 KB 갱신 실패: %s", e)
     try:   # 종목별·시장 수급(외국인·기관 순매수) 일일 갱신 — 수급 팩터/국면이 신선하게 유지되도록
         store.fetch_flows(store.load_universe())
         store.fetch_market_flow()
