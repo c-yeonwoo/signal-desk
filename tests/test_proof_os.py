@@ -106,3 +106,38 @@ def test_save_load_harness_last(tmp_path, monkeypatch):
     got = store.load_harness_last()
     assert got["ready"] and got["verdict"] == "판별력 있음"
     assert got["market"] == "kr" and got.get("saved_at")
+
+
+def test_run_harness_saves_when_cache_ready(tmp_path, monkeypatch):
+    """API/마감루프가 쓰는 store.run_harness — 패널만 스텁해도 저장 경로를 검증."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    from signal_desk import store
+    from signal_desk.signals import harness as hz
+
+    monkeypatch.setattr(store, "is_ready", lambda: True)
+    monkeypatch.setattr(store, "load_universe",
+                        lambda: [{"ticker": "A"}, {"ticker": "B"}])
+    dates = [f"2025-01-{i:02d}" for i in range(1, 28)] + [
+        f"2025-02-{i:02d}" for i in range(1, 28)]
+    n = len(dates)
+    closes = {
+        "A": (dates, [100.0 + i * 0.1 for i in range(n)]),
+        "B": (dates, [50.0 + i * 0.05 for i in range(n)]),
+    }
+    monkeypatch.setattr(store, "load_all_dated_closes", lambda: closes)
+    # 짧은 패널은 min_periods에 걸릴 수 있어 run을 스텁한다.
+    monkeypatch.setattr(hz, "build_panel",
+                        lambda dc, tickers=None: hz.Panel(dates=dates, closes={
+                            "A": closes["A"][1], "B": closes["B"][1]}))
+    monkeypatch.setattr(
+        hz, "run",
+        lambda panel, cfg=None, regimes=None: {
+            "ready": True, "verdict": "판별력 있음", "verdict_why": "stub",
+            "vs_random": {"percentile": 97.0}, "strategy": {}, "benchmark": {},
+            "warnings": [], "coverage_pct": 80.0, "fired_pct": {},
+        })
+    out = store.run_harness(market="kr", trials=10)
+    assert out["ready"] and out["verdict"] == "판별력 있음"
+    assert out["vs_random"]["percentile"] == 97.0
+    assert store.load_harness_last()["verdict"] == "판별력 있음"

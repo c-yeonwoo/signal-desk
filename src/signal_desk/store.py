@@ -1436,11 +1436,44 @@ def save_harness_last(result: dict, *, market: str = "kr") -> None:
 
 def load_harness_last() -> dict:
     if not HARNESS_LAST_FILE.exists():
-        return {"ready": False, "reason": "harness 미실행 — `sigdesk harness` 후 저장됨"}
+        return {"ready": False,
+                "reason": "harness 미실행 — 관리자 증명 OS 「하네스 실행」또는 `sigdesk harness`"}
     try:
         return json.loads(HARNESS_LAST_FILE.read_text(encoding="utf-8"))
     except Exception as e:
         return {"ready": False, "reason": f"harness_last.json 파싱 실패: {type(e).__name__}"}
+
+
+def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
+                cost: float = 0.25, trials: int = 40, exposure: bool = False) -> dict:
+    """유니버스·시세로 하네스를 돌리고 harness_last.json에 저장. Proof OS·관리자 API용.
+
+    trials 기본 40 — CLI 기본(100)보다 가볍게. 판정 문턱(백분위≥95%)은 동일.
+    """
+    from signal_desk.signals import harness as hz
+
+    market = "us" if market == "us" else "kr"
+    if not is_ready():
+        return {"ready": False, "reason": "캐시 없음 — 데이터 갱신 후 재시도"}
+    uni = load_us_universe() if market == "us" else load_universe()
+    if not uni:
+        return {"ready": False, "reason": f"{market} 유니버스 없음"}
+    panel = hz.build_panel(load_all_dated_closes(), {u["ticker"] for u in uni})
+    if len(panel.dates) < 50:
+        return {"ready": False, "reason": f"시세 일수 부족({len(panel.dates)})"}
+    cfg = hz.HarnessConfig(
+        top_pct=float(top_pct), rebalance_days=int(hold), cost_pct=float(cost),
+        random_trials=max(10, min(int(trials), 200)), use_exposure=bool(exposure),
+    )
+    regimes = (hz.regimes_at(panel, hz._rebalance_indices(panel, cfg))
+               if cfg.use_exposure else None)
+    out = hz.run(panel, cfg, regimes)
+    if not out.get("ready"):
+        return out
+    blob = {**out, "top_pct": cfg.top_pct, "hold_days": cfg.rebalance_days,
+            "trials": cfg.random_trials}
+    save_harness_last(blob, market=market)
+    return load_harness_last()
 
 
 def load_signal_history():

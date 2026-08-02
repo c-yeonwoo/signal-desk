@@ -115,6 +115,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 북극성 A = 증명 OS. D7은 부차 리텐션(계측만 유지).
     assert 'id="proof-os-body"' in html and "loadProofOs" in html and "증명 OS" in html
     assert "/api/proof" in html and "loadPickReason" in html
+    assert "runHarnessFromProof" in html and "/api/harness/run" in html
     assert 'id="d7-body"' in html and "loadD7" in html and "리텐션 D7" in html
     assert "북극성 D7" not in html
     # 매수 후보가 순위인지 절대문턱인지 화면이 말해야 한다(봇·브리핑과 같은 기준)
