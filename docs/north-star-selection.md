@@ -39,7 +39,9 @@ C를 세게 해서 B가 줄어도, C 전용 성적이 받쳐 주면 Decision 변
 ## 증명 OS
 
 `GET /api/proof` — A를 1열, B/C를 참고열로 모은다.  
-픽 이유: `GET /api/pick-reason?date=&ticker=` (PIT ⊕ 실현수익 ⊕ 봇 저번).
+하네스: 관리자 「하네스 실행」→ `POST /api/harness/run` (또는 `sigdesk harness`).  
+없으면/7일 지나면 마감 루프가 백그라운드로 갱신.  
+픽 이유: `GET /api/pick-reason?date=&ticker=` (PIT ⊕ 실현수익 ⊕ 봇 저널).
 
 ## 비북극성 (동결·Later)
 

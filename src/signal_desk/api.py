@@ -352,6 +352,21 @@ def _daily_maintenance(enabled: list[str]) -> None:
         climate.snapshot_shadow(_signals())  # 기후 vs 기존 kind 관측(봇 미연동)
     except Exception as e:
         log.warning("기후 shadow 스냅샷 실패: %s", type(e).__name__)
+    try:
+        # Proof OS A.harness — 없거나 7일 이상이면 백그라운드로 갱신(CLI 없이도 prod에 쌓임).
+        hz = store.load_harness_last()
+        stale = True
+        if hz.get("ready") and hz.get("saved_at"):
+            try:
+                saved = datetime.datetime.fromisoformat(str(hz["saved_at"]).replace("Z", "+00:00"))
+                stale = (datetime.datetime.now(datetime.timezone.utc) - saved).days >= 7
+            except Exception:
+                stale = True
+        if stale:
+            _harness_job_start("kr", 40, False)
+            log.info("마감후 harness 백그라운드 갱신 시작(stale/missing)")
+    except Exception as e:
+        log.warning("마감후 harness 스케줄 실패: %s", type(e).__name__)
     for uid in enabled:
         bot.snapshot_positions(uid, "kr")
         bot.snapshot_positions(uid, "us")
@@ -443,7 +458,7 @@ _ADMIN_PATHS = {
     "/api/d7",
     "/api/advisor-shadow", "/api/advisor-harness",
     "/api/climate-shadow", "/api/kb-coverage-shadow",
-    "/api/proof", "/api/pick-reason",
+    "/api/proof", "/api/pick-reason", "/api/harness/run",
     "/api/product-review", "/api/product-review/run",
 }
 
@@ -1456,7 +1471,57 @@ def proof_get(request: Request):
     관리자. 문서는 docs/north-star-selection.md."""
     _admin_or_403(request)
     from signal_desk.signals import proof as proof_mod
-    return proof_mod.collect()
+    out = proof_mod.collect()
+    out["harness_job"] = _harness_job_status()
+    return out
+
+
+# 하네스는 수십 초 — HTTP 타임아웃을 피하려고 백그라운드 실행 후 harness_last를 읽는다.
+_harness_job: dict = {"running": False, "started_at": None, "finished_at": None,
+                      "error": None, "market": None}
+_harness_job_lock = threading.Lock()
+
+
+def _harness_job_status() -> dict:
+    with _harness_job_lock:
+        return dict(_harness_job)
+
+
+def _harness_job_start(market: str, trials: int, exposure: bool) -> dict:
+    with _harness_job_lock:
+        if _harness_job["running"]:
+            return {"ok": False, "started": False, "running": True,
+                    "started_at": _harness_job["started_at"],
+                    "message": "이미 실행 중 — 끝나면 증명 OS를 새로고침하세요"}
+        _harness_job.update(running=True, started_at=time.time(), finished_at=None,
+                            error=None, market=market)
+
+    def _run():
+        try:
+            store.run_harness(market=market, trials=trials, exposure=exposure)
+        except Exception as e:
+            log.warning("harness 백그라운드 실패: %s", e)
+            with _harness_job_lock:
+                _harness_job["error"] = f"{type(e).__name__}: {e}"
+        finally:
+            with _harness_job_lock:
+                _harness_job["running"] = False
+                _harness_job["finished_at"] = time.time()
+
+    threading.Thread(target=_run, name="harness-run", daemon=True).start()
+    return {"ok": True, "started": True, "running": True, "market": market,
+            "trials": trials, "message": "백그라운드 실행 시작 — 10~40초 후 새로고침"}
+
+
+@app.post("/api/harness/run")
+def harness_run_post(request: Request, body: dict = Body(default={})):
+    """포트폴리오 하네스 실행 → harness_last.json. 관리자. Proof OS A열."""
+    _admin_or_403(request)
+    body = body or {}
+    market = "us" if body.get("market") == "us" else "kr"
+    trials = int(body.get("trials") or 40)
+    exposure = bool(body.get("exposure") or False)
+    return _harness_job_start(market, trials, exposure)
 
 
 @app.get("/api/pick-reason")
