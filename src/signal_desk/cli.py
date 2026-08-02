@@ -128,6 +128,8 @@ def harness(
         if not out["ready"]:
             console.print(f"[red]{out['reason']}[/red]")
             raise typer.Exit(1)
+        # Proof OS A열이 읽도록 마지막(또는 단일) 런을 캐시. sweep이면 마지막 조합이 남는다.
+        store.save_harness_last({**out, "top_pct": tp, "hold_days": h}, market=market)
         s, r = out["strategy"], out["vs_random"]
         pct, verdict = r["percentile"], out["verdict"]
         color = {"판별력 있음": "green", "역판별력": "red"}.get(verdict, "yellow")
@@ -140,6 +142,7 @@ def harness(
             if w not in seen_warnings:
                 seen_warnings.append(w)
     console.print(table)
+    console.print("[dim]결과 저장 → data/cache/harness_last.json (GET /api/proof A.harness)[/dim]")
     for w in seen_warnings:
         console.print(f"[yellow]![/yellow] {w}")
     if len(combos) > 1:

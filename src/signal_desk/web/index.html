@@ -1222,7 +1222,7 @@
         <div id="llm-usage-body" class="placeholder" style="padding:12px 0">펼치면 불러옵니다…</div>
       </div>
       <div id="d7-card" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
-        <div style="font-weight:700;font-size:13px;margin-bottom:4px">북극성 D7 · 7일 내 시그널 재방문</div>
+        <div style="font-weight:700;font-size:13px;margin-bottom:4px">리텐션 D7(부차) · 7일 내 시그널 재방문</div>
         <div id="d7-body" class="placeholder" style="padding:12px 0">펼치면 불러옵니다…</div>
       </div>
     </details>
@@ -1231,7 +1231,22 @@
     <div id="admin-engine" style="display:none">
     <div id="engine-gate-strip" style="display:none;margin:0 0 12px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2,transparent);font-size:13px;line-height:1.45"></div>
 
-    <div class="card" id="brain-proposals-card" style="margin-top:0">
+    <div class="card" id="proof-os-card" style="margin-top:0">
+      <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div style="font-weight:700;font-size:15px">증명 OS <span style="color:var(--dim);font-weight:600;font-size:13px">· 북극성 A 선택 품질</span></div>
+        <button class="btn" onclick="loadProofOs()" id="proof-refresh-btn">새로고침</button>
+      </div>
+      <p class="page-desc" style="margin:8px 0 10px">엔진 변경 승격은 <b>A(IC·shadow·harness)</b>가 기본입니다. 페이퍼(B)·Decision(C)는 참고열입니다.</p>
+      <div id="proof-os-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
+      <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
+        <input id="pick-reason-date" placeholder="YYYY-MM-DD" style="width:120px;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
+        <input id="pick-reason-ticker" placeholder="종목코드" style="width:100px;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
+        <button class="btn" onclick="loadPickReason()">픽 이유</button>
+      </div>
+      <div id="pick-reason-body" style="margin-top:8px;font-size:13px;color:var(--dim)"></div>
+    </div>
+
+    <div class="card" id="brain-proposals-card" style="margin-top:16px">
       <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <div style="font-weight:700;font-size:15px">개선 제안 <span style="color:var(--dim);font-weight:600;font-size:13px">· 승인해야 반영</span></div>
         <div class="row" style="gap:6px;margin:0">
@@ -5376,6 +5391,7 @@ function switchAdminSeg(seg, { pin = true } = {}){
   loadDataHealth({ render: seg === 'ops' }).then(() => renderAdminTodo());
   // 비용·D7·엔진그래프·관측/감사는 접이식 — 펼칠 때 로드
   if (seg === 'engine') {
+    loadProofOs();
     loadEngine();
     loadBrainProposals();
     const br = document.getElementById('brain-card');
@@ -5955,6 +5971,81 @@ function _renderEngineGate(gate){
     + ` — 기본 문턱 ${fmtNum(base, 1)} → <b>유효 ${fmtNum(eff, 1)}</b> (+${fmtNum(bump, 1)})`
     + `<div style="color:var(--dim);margin-top:3px">${why}</div>`
     + `<div style="color:var(--dim-2);margin-top:3px">이건 실측 트래커 성숙과 무관합니다. 약세·비우호·순매도일 때 일부러 매수를 줄입니다.</div>`;
+}
+async function loadProofOs(){
+  const el = document.getElementById('proof-os-body');
+  if (!el) return;
+  el.className = 'placeholder';
+  el.textContent = '불러오는 중…';
+  try {
+    const d = await (await fetch('/api/proof')).json();
+    if (d.detail) { el.textContent = d.detail; return; }
+    const A = d.A || {}, B = d.B || {}, C = d.C || {};
+    const acc = A.accuracy || {};
+    const hz = A.harness || {};
+    const sh = A.shadows || {};
+    const ic = acc.factor_ic || {};
+    const shLine = (name, v) => {
+      v = v || {};
+      if (v.verdict_ready) return `<span style="color:var(--sig-buy)">${name} 판정가능 ${v.delta_pct == null ? '' : ((v.delta_pct > 0 ? '+' : '') + fmtNum(v.delta_pct, 2) + '%p')}</span>`;
+      return `<span style="color:var(--dim)">${name} ${(v.blocked_reason || '대기').slice(0, 40)}</span>`;
+    };
+    const drift = A.signal_drift || {};
+    el.className = '';
+    el.innerHTML = `
+      <div style="font-size:12px;color:var(--dim);margin-bottom:8px">${esc(d.promotion_rule || '')}</div>
+      <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px">
+        <div style="padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2,transparent)">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">A · 선택 품질</div>
+          <div style="font-size:13px">매수 리프트 <b>${acc.buy_lift_pp == null ? '–' : ((acc.buy_lift_pp > 0 ? '+' : '') + fmtNum(acc.buy_lift_pp, 1) + '%p')}</b>
+            <span style="color:var(--dim)"> · score IC ${ic.score == null ? '–' : fmtNum(ic.score, 3)}</span></div>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">${esc((acc.coverage && acc.coverage.blocked_reason) || (acc.blocked_reason) || '')}</div>
+          <div style="font-size:12px;margin-top:6px;line-height:1.55">
+            ${shLine('advisor', sh.advisor)}<br>${shLine('climate', sh.climate)}<br>${shLine('kb', sh.kb_coverage)}
+          </div>
+          <div style="font-size:12px;margin-top:6px">harness
+            <b>${hz.verdict || (hz.blocked_reason || '미실행')}</b>
+            <span style="color:var(--dim)">${hz.percentile == null ? '' : ' · p' + fmtNum(hz.percentile, 1)}</span>
+          </div>
+          ${drift.frozen ? `<div style="color:#b45309;font-size:12px;margin-top:4px">점수 동결 의심 — ${esc(drift.note || '')}</div>` : ''}
+        </div>
+        <div style="padding:10px 12px;border:1px solid var(--line);border-radius:10px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">B · 페이퍼(종속)</div>
+          <div style="font-size:13px">승률 ${B.paper_scorecard && B.paper_scorecard.win_rate != null ? fmtNum(B.paper_scorecard.win_rate, 1) + '%' : '–'}
+            <span style="color:var(--dim)"> · 확정 ${B.paper_scorecard ? (B.paper_scorecard.resolved || 0) : 0}</span></div>
+          <div style="font-size:12px;color:var(--dim);margin-top:6px">${esc(B.note || '')}</div>
+        </div>
+        <div style="padding:10px 12px;border:1px solid var(--line);border-radius:10px">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">C · Decision</div>
+          <div style="font-size:12px;color:var(--dim);line-height:1.45">${esc(C.note || '')}</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--dim-2);margin-top:8px">combine 미포함: 정성·거시·사이클·hypo · <code>docs/north-star-selection.md</code></div>`;
+  } catch (e) {
+    el.className = '';
+    el.textContent = '불러오지 못했습니다.';
+  }
+}
+async function loadPickReason(){
+  const el = document.getElementById('pick-reason-body');
+  const date = (document.getElementById('pick-reason-date') || {}).value || '';
+  const ticker = (document.getElementById('pick-reason-ticker') || {}).value || '';
+  if (!el) return;
+  if (!date || !ticker) { el.textContent = '날짜와 종목코드를 입력하세요.'; return; }
+  el.textContent = '불러오는 중…';
+  try {
+    const d = await (await fetch('/api/pick-reason?date=' + encodeURIComponent(date)
+      + '&ticker=' + encodeURIComponent(ticker))).json();
+    if (!d.ready) { el.textContent = d.blocked_reason || d.detail || '없음'; return; }
+    const p = d.pick || {};
+    const fwd = d.forward_ret_pct || {};
+    const reasons = (p.reasons || []).slice(0, 8).map(r => `<div>· ${esc(r)}</div>`).join('');
+    el.innerHTML = `<div style="color:var(--text)"><b>${esc(p.ticker)}</b> ${esc(p.kind || '')}
+      · 점수 ${p.score == null ? '–' : fmtNum(p.score, 2)}
+      · rank ${p.rank ?? '–'}${p.gate_blocked ? ' · <span style="color:var(--sell)">gate</span>' : ''}
+      · h5 ${fwd.h5 == null ? '–' : fmtNum(fwd.h5, 2) + '%'} · h20 ${fwd.h20 == null ? '–' : fmtNum(fwd.h20, 2) + '%'}</div>
+      <div style="margin-top:6px">${reasons || '<span style="color:var(--dim)">reasons 없음(구 PIT)</span>'}</div>`;
+  } catch (e) { el.textContent = '요청 실패'; }
 }
 async function loadBrainProposals(){
   const el = document.getElementById('brain-proposals-body');

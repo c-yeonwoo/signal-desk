@@ -112,8 +112,11 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 정밀도 색·해석은 절대값이 아니라 기준선 대비 리프트 — 하락장 오독 방지
     assert "liftColor" in html and "liftNote" in html and "기준선" in html
     assert "prec >= 55" not in html and "sellPrec >= 55" not in html
-    # 북극성 D7 관리자 카드 — 지표가 화면에 없으면 아무도 보지 않는다
-    assert 'id="d7-body"' in html and "loadD7" in html and "북극성 D7" in html
+    # 북극성 A = 증명 OS. D7은 부차 리텐션(계측만 유지).
+    assert 'id="proof-os-body"' in html and "loadProofOs" in html and "증명 OS" in html
+    assert "/api/proof" in html and "loadPickReason" in html
+    assert 'id="d7-body"' in html and "loadD7" in html and "리텐션 D7" in html
+    assert "북극성 D7" not in html
     # 매수 후보가 순위인지 절대문턱인지 화면이 말해야 한다(봇·브리핑과 같은 기준)
     assert "renderTodayCard" in html and ("자금 한도" in html or "익스포저" in html)
     # 문턱이 점수 분포 밖으로 나가면 즉시 보이게 — 2026-07-26에 실제로 벌어졌던 실패

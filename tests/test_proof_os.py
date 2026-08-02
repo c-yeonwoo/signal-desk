@@ -1,0 +1,108 @@
+"""증명 OS · 픽 이유 — 북극성 A 계약."""
+
+from __future__ import annotations
+
+import json
+
+from signal_desk.signals import pick_reason, proof
+from signal_desk.signals.engine import SignalResult
+from signal_desk.signals.decision import Decision
+
+
+def _sig(**kw):
+    base = dict(
+        ticker="005930", name="삼성전자", score=1.8, kind="BUY", confidence=0.6,
+        technical_score=0.4, fundamental_score=0.2, has_fundamental=True,
+        reasons=["[기술] RSI 28 — 과매도", "[선정] 시장 200종목 중 3위"],
+        factor_scores={"technical": 0.5, "fundamental": 0.2},
+        rank=3, rank_pct=1.5, rank_eligible=True, gate_blocked=False,
+    )
+    base.update(kw)
+    return SignalResult(**base)
+
+
+def test_from_signal_includes_reasons_and_decision():
+    s = _sig(decision=Decision(True, "trim", 9, "serious", "실적 하향", "p2"),
+             event_risk=True, gate_blocked=True)
+    pr = pick_reason.from_signal(s)
+    assert pr["ticker"] == "005930"
+    assert pr["rank"] == 3 and pr["gate_blocked"] is True
+    assert "[기술]" in pr["reasons"][0]
+    assert pr["decision"]["severity"] == "serious"
+    assert pr["decision"]["buy_blocked"] is True
+
+
+def test_history_meta_roundtrip_in_snapshot(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    from signal_desk import store
+
+    s = _sig(gate_blocked=True, rank=2, rank_eligible=False,
+             decision=Decision(True, "exit", 1, "critical", "상폐 위험", "p2"))
+    store.snapshot_signals([s], date="2026-08-01")
+    df = store.load_signal_history()
+    row = df.iloc[0].to_dict()
+    assert int(row["gate_blocked"]) == 1
+    assert int(row["rank"]) == 2
+    assert row["decision_severity"] == "critical"
+    reasons = pick_reason.parse_reasons_json(row["reasons_json"])
+    assert any("RSI" in r for r in reasons)
+    rebuilt = pick_reason.from_history_row(row)
+    assert rebuilt["gate_blocked"] and rebuilt["decision"]["severity"] == "critical"
+
+
+def test_postmortem_ready_and_forward():
+    rows = [{
+        "date": "2026-07-01", "ticker": "AAA", "score": 1.5, "kind": "BUY",
+        "technical": 0.3, "fundamental": 0.1, "valuation": 80, "reversion": 0.0,
+        "qualitative": None, "flow": None, "quality": None, "momentum": None,
+        "short": None, "rank": 1, "rank_eligible": 1, "gate_blocked": 0,
+        "event_risk": 0, "decision_severity": None, "decision_blocked": 0,
+        "decision_summary": None,
+        "reasons_json": json.dumps(["[기술] 골든크로스"], ensure_ascii=False),
+    }]
+    # 시그널일 다음 거래일 진입 → h5 성숙하려면 날짜 6개+
+    dates = [f"2026-07-{d:02d}" for d in range(1, 12)]
+    closes = [100.0 + i for i in range(len(dates))]
+    out = pick_reason.postmortem(
+        "2026-07-01", "AAA",
+        history_rows=rows,
+        closes_by_ticker={"AAA": (dates, closes)},
+        bot_decisions=[],
+    )
+    assert out["ready"] is True
+    assert out["pick"]["reasons"][0].startswith("[기술]")
+    assert out["forward_ret_pct"]["h5"] is not None
+
+
+def test_proof_build_marks_a_primary():
+    payload = proof.build(
+        accuracy={"ready": True, "buy_lift_pp": 4.0, "factor_ic": {"score": 0.1},
+                  "coverage": {"rows": 100, "matured_primary": 40}},
+        advisor_shadow={"verdict_ready": True, "paired_delta_pct": 1.2,
+                        "paired_verdict_ready": True, "paired_n": 25},
+        climate_shadow={"verdict_ready": False, "blocked_reason": "표본 미달"},
+        kb_coverage_shadow={"verdict_ready": False, "blocked_reason": "대기"},
+        harness_last={"ready": True, "verdict": "판별력 있음",
+                      "vs_random": {"percentile": 97.0}, "saved_at": "t"},
+        paper_scorecard={"resolved": 3, "win_rate": 66.7},
+    )
+    assert payload["north_star"] == "selection"
+    assert payload["A"]["primary"] is True
+    assert payload["B"]["primary"] is False
+    assert payload["contract"]["qualitative_in_combine"] is False
+    assert payload["A"]["harness"]["verdict"] == "판별력 있음"
+    assert "advisor" in payload["A"]["shadows_verdict_ready"]
+
+
+def test_save_load_harness_last(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    from signal_desk import store
+    store.save_harness_last(
+        {"ready": True, "verdict": "판별력 있음", "vs_random": {"percentile": 96}},
+        market="kr",
+    )
+    got = store.load_harness_last()
+    assert got["ready"] and got["verdict"] == "판별력 있음"
+    assert got["market"] == "kr" and got.get("saved_at")
