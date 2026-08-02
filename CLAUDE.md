@@ -1,10 +1,11 @@
 # CLAUDE.md — signal-desk
 
-"감이 아니라 검증된 적중률로 매수/매도 시그널"을 주는 주식 매매 타이밍 논스톱 플랫폼.
-자매 프로젝트 [Signal APT](https://github.com/c-yeonwoo/apt-signal)(아파트 매매 타이밍)의
-서비스 본체·아키텍처를 ~75% 그대로 이식하고, 자산이 부동산→주식으로 바뀐 만큼 내용물만
-재해석한다. 기존 주식 프로토타입(`brightdesk`)의 기능·인사이트는 20~30%만 체리피킹—
-자세한 내용은 [NOTES-cherrypick.md](NOTES-cherrypick.md) 참고.
+개인 R&D용 시스템 트레이딩 랩. 시그널(선택 품질)을 계산·증명하고, 페이퍼 봇으로
+타이밍을 검증하며 알고리즘을 디벨롭한다. 외부 소비자 성장이 1순위가 아니다.
+북극성 **A = 선택 품질(IC·shadow·harness + 이유 재생)** —
+[docs/north-star-selection.md](docs/north-star-selection.md).
+자매 [Signal APT](https://github.com/c-yeonwoo/apt-signal) 아키텍처를 주식으로 재해석.
+체리픽: [NOTES-cherrypick.md](NOTES-cherrypick.md).
 
 ## 무엇인가
 
@@ -43,13 +44,12 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 ## 현재 상태
 
-**1단계~MVP**
-- [x] FastAPI + 인증 + 온보딩 미니플로우(성향·관심종목)
-- [x] SPA 4탭: 시그널 · 페이퍼 · 인사이트 · 관리자
-- [x] 8팩터 엔진 + 4게이트 + 실측 트래커 + 두뇌 레이어(읽기 전용)
-- [x] 페이퍼 공개 장부(레퍼런스 3봇) — KIS 실주문·개인 모의계좌 경로 모두 제거
-- [x] 신뢰 UI 가드(누적중/시뮬) · 의견≠신호 레이어 배지
-- [ ] 트래커 성숙 후 가중 재확정 · 공개 성과 대시보드 — [BACKLOG.md](BACKLOG.md)
+**R&D 랩 (북극성 A)**
+- [x] 8팩터 엔진 + 게이트 + PIT 실측 + harness/shadow/redteam
+- [x] 증명 OS `GET /api/proof` · 픽 이유 `GET /api/pick-reason` · PIT reasons/gate
+- [x] 페이퍼 레퍼런스 봇(시그널·타이밍 증명용, PnL은 종속 지표)
+- [ ] A 유의 개선 후에만 가중·매수권 재확정 · qualitative priority 승격
+- 동결: 온보딩/D7/숏폼 성장 — [BACKLOG.md](BACKLOG.md)
 
 다음에 붙일 기능의 상세 우선순위·범위·의존관계는 [BACKLOG.md](BACKLOG.md) 참고.
 ## 핵심 개념 (부동산 → 주식 번역, 요약)

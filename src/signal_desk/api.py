@@ -443,6 +443,7 @@ _ADMIN_PATHS = {
     "/api/d7",
     "/api/advisor-shadow", "/api/advisor-harness",
     "/api/climate-shadow", "/api/kb-coverage-shadow",
+    "/api/proof", "/api/pick-reason",
     "/api/product-review", "/api/product-review/run",
 }
 
@@ -1447,6 +1448,35 @@ def accuracy_get():
         return {"ready": False, "reason": "아직 저장된 시그널 이력이 없습니다(매일 마감 후 누적)."}
     rows = df.to_dict("records")
     return {"ready": True, **accuracy.realized_accuracy(rows, store.load_all_dated_closes())}
+
+
+@app.get("/api/proof")
+def proof_get(request: Request):
+    """증명 OS — 북극성 A(선택 품질: IC·shadow·harness) 1열 + B(페이퍼)·C(Decision) 참고.
+    관리자. 문서는 docs/north-star-selection.md."""
+    _admin_or_403(request)
+    from signal_desk.signals import proof as proof_mod
+    return proof_mod.collect()
+
+
+@app.get("/api/pick-reason")
+def pick_reason_get(request: Request, date: str = "", ticker: str = ""):
+    """픽 이유 사후 재생 — PIT ⊕ 실현수익 ⊕ 봇 저널. 관리자.
+    date=YYYY-MM-DD, ticker=종목코드."""
+    _admin_or_403(request)
+    date, ticker = (date or "").strip(), (ticker or "").strip()
+    if not date or not ticker:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="date·ticker 필수")
+    from signal_desk.signals import pick_reason as pr
+    df = store.load_signal_history()
+    rows = [] if df.empty else df.to_dict("records")
+    return pr.postmortem(
+        date, ticker,
+        history_rows=rows,
+        closes_by_ticker=store.load_all_dated_closes(),
+        bot_decisions=db.bot_decisions_recent(80),
+    )
 
 
 def _qualitative_promotion_payload() -> dict:

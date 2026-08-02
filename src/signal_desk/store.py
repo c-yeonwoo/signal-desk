@@ -48,6 +48,7 @@ MARKET_FLOW_FILE = CACHE_DIR / "market_flow.json"  # 시장 전체(KOSPI) 외국
 SHORTFORM_BG_FILE = CACHE_DIR / "shortform_bg.img"  # 숏폼 카드 배경 업로드 원본(1장) — data URI 대신 짧은 URL로 서빙
 COMPANY_PROFILES_FILE = CACHE_DIR / "company_profiles.json"  # DART 기업개황(설립연도·대표·영문명) — 숏폼 기업 소개
 SIGNAL_HISTORY_FILE = CACHE_DIR / "signal_history.parquet"  # 일별 종목 시그널·팩터 스냅샷(PIT) — 향후 팩터 백테스트용
+HARNESS_LAST_FILE = CACHE_DIR / "harness_last.json"  # 마지막 sigdesk harness 결과 — Proof OS A열
 
 PRICE_HISTORY_DAYS = 1825  # 약 5년 — 모멘텀(60일 최강)·다중국면 팩터/백테스트 신뢰도. 최초 1회 전량, 이후 증분
 US_SKIP_AFTER_FAILS = 3    # 이만큼 연속 실패하면 자동 백필에서 잠시 빼둔다(수동 갱신은 무시)
@@ -1383,7 +1384,11 @@ def data_freshness() -> list[dict]:
 def snapshot_signals(signals, date: str | None = None) -> int:
     """오늘의 종목별 시그널·팩터값을 point-in-time으로 기록(일 1회). 수급·퀄리티·정성은 과거 PIT
     데이터가 없어 사전 백테스트가 불가했는데, 오늘부터 쌓아 향후 팩터 백테스트를 가능하게 한다.
-    같은 날 재실행 시 그 날짜를 덮어쓴다. 반환: 기록한 종목 수."""
+    같은 날 재실행 시 그 날짜를 덮어쓴다. 반환: 기록한 종목 수.
+
+    2026-08-03+: rank·gate·reasons·Decision 요약을 같이 남겨 pick-reason 사후 재생이 가능하게 한다.
+    구행은 해당 열이 비어 있을 수 있다.
+    """
     if not signals:
         return 0
     date = date or datetime.date.today().isoformat()
@@ -1394,12 +1399,19 @@ def snapshot_signals(signals, date: str | None = None) -> int:
         kb_docs = db.kb_doc_counts()
     except Exception:
         kb_docs = {}
-    rows = [{"date": date, "ticker": s.ticker, "score": round(s.score, 3), "kind": s.kind,
-             "technical": round(s.technical_score, 3), "fundamental": round(s.fundamental_score, 3),
-             "valuation": s.valuation_percentile, "reversion": round(s.reversion_score, 3),
-             "qualitative": s.qualitative_score, "flow": s.flow_intensity,
-             "quality": s.quality_points, "momentum": s.momentum_ret,
-             "short": s.short_ratio, "kb_docs": kb_docs.get(s.ticker, 0)} for s in signals]
+    from signal_desk.signals import pick_reason as pr
+    rows = []
+    for s in signals:
+        meta = pr.history_meta(s)
+        rows.append({
+            "date": date, "ticker": s.ticker, "score": round(s.score, 3), "kind": s.kind,
+            "technical": round(s.technical_score, 3), "fundamental": round(s.fundamental_score, 3),
+            "valuation": s.valuation_percentile, "reversion": round(s.reversion_score, 3),
+            "qualitative": s.qualitative_score, "flow": s.flow_intensity,
+            "quality": s.quality_points, "momentum": s.momentum_ret,
+            "short": s.short_ratio, "kb_docs": kb_docs.get(s.ticker, 0),
+            **meta,
+        })
     df_new = pd.DataFrame(rows)
     if SIGNAL_HISTORY_FILE.exists():
         old = _read_parquet(SIGNAL_HISTORY_FILE)
@@ -1409,6 +1421,26 @@ def snapshot_signals(signals, date: str | None = None) -> int:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     _write_parquet(df_new, SIGNAL_HISTORY_FILE)
     return len(rows)
+
+
+def save_harness_last(result: dict, *, market: str = "kr") -> None:
+    """CLI harness 결과를 Proof OS가 읽도록 저장. 판정 필드는 harness.run 출력을 그대로."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    blob = {
+        **result,
+        "market": market,
+        "saved_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    HARNESS_LAST_FILE.write_text(json.dumps(blob, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_harness_last() -> dict:
+    if not HARNESS_LAST_FILE.exists():
+        return {"ready": False, "reason": "harness 미실행 — `sigdesk harness` 후 저장됨"}
+    try:
+        return json.loads(HARNESS_LAST_FILE.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"ready": False, "reason": f"harness_last.json 파싱 실패: {type(e).__name__}"}
 
 
 def load_signal_history():

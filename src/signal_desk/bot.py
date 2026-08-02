@@ -571,7 +571,10 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
                                       result["order_no"], score=s.score, note=note, market=market)
                     db.bot_position_upsert(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), qty, live, live,
                                             _today(), market=market)
-                    db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, context, live)  # 공용 저널(학습)
+                    from signal_desk.signals import pick_reason as _pr
+                    buy_ctx = {**(context or {}), "pick": _pr.from_signal(s),
+                               "uid": uid, "qty": qty, "market": market}
+                    db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, buy_ctx, live)
                     cash -= qty * live
                     room -= qty * live
                     plan["ok"] = True
