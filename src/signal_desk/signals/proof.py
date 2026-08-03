@@ -1,7 +1,8 @@
-"""증명 OS — 북극성 A(선택 품질)를 1열로, B/C를 참고로 모은다.
+"""시그널 판별력 보드 — A(IC·shadow·harness)를 1열로, B/C를 참고로 모은다.
 
 조각(accuracy · shadow · harness · paper scorecard)은 이미 있다.
 없는 것은 **한 계약으로 읽는 진입점**뿐이라 여기서 조립만 한다(판정 로직 복제 금지).
+화면 이름은 「시그널 판별력」(구 증명 OS / 북극성 A).
 """
 
 from __future__ import annotations
@@ -97,7 +98,7 @@ def build(
         "version": PROOF_VERSION,
         "north_star": NORTH_STAR,
         "promotion_rule": (
-            "엔진·가중·매수권 변경 승격은 A(IC/shadow/harness) 유의 개선이 기본. "
+            "엔진·가중·매수권 변경은 시그널 판별력(A: IC/shadow/harness) 유의 개선이 기본. "
             "B(페이퍼)는 타이밍·체결 정합 참고. C는 Decision PR 전용."
         ),
         "contract": {
@@ -112,7 +113,7 @@ def build(
             "doc": "docs/north-star-selection.md",
         },
         "A": {
-            "name": "선택 품질",
+            "name": "시그널 판별력",
             "primary": True,
             "accuracy": a_acc,
             "shadows": shadows,
@@ -125,7 +126,7 @@ def build(
             "name": "페이퍼 타이밍(종속)",
             "primary": False,
             "paper_scorecard": b_paper,
-            "note": "PnL 극대화가 북극성 아님. 시그널이 사·스킵·게이트와 맞는지 확인용.",
+            "note": "PnL 극대화가 1순위 아님. 시그널이 사·스킵·게이트와 맞는지 확인용.",
         },
         "C": {
             "name": "Decision 회피",

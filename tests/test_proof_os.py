@@ -88,6 +88,7 @@ def test_proof_build_marks_a_primary():
         paper_scorecard={"resolved": 3, "win_rate": 66.7},
     )
     assert payload["north_star"] == "selection"
+    assert payload["A"]["name"] == "시그널 판별력"
     assert payload["A"]["primary"] is True
     assert payload["B"]["primary"] is False
     assert payload["contract"]["qualitative_in_combine"] is False

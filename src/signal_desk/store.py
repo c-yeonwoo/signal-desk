@@ -48,7 +48,7 @@ MARKET_FLOW_FILE = CACHE_DIR / "market_flow.json"  # 시장 전체(KOSPI) 외국
 SHORTFORM_BG_FILE = CACHE_DIR / "shortform_bg.img"  # 숏폼 카드 배경 업로드 원본(1장) — data URI 대신 짧은 URL로 서빙
 COMPANY_PROFILES_FILE = CACHE_DIR / "company_profiles.json"  # DART 기업개황(설립연도·대표·영문명) — 숏폼 기업 소개
 SIGNAL_HISTORY_FILE = CACHE_DIR / "signal_history.parquet"  # 일별 종목 시그널·팩터 스냅샷(PIT) — 향후 팩터 백테스트용
-HARNESS_LAST_FILE = CACHE_DIR / "harness_last.json"  # 마지막 sigdesk harness 결과 — Proof OS A열
+HARNESS_LAST_FILE = CACHE_DIR / "harness_last.json"  # 마지막 sigdesk harness 결과 — 시그널 판별력 A열
 
 PRICE_HISTORY_DAYS = 1825  # 약 5년 — 모멘텀(60일 최강)·다중국면 팩터/백테스트 신뢰도. 최초 1회 전량, 이후 증분
 US_SKIP_AFTER_FAILS = 3    # 이만큼 연속 실패하면 자동 백필에서 잠시 빼둔다(수동 갱신은 무시)
@@ -1424,7 +1424,7 @@ def snapshot_signals(signals, date: str | None = None) -> int:
 
 
 def save_harness_last(result: dict, *, market: str = "kr") -> None:
-    """CLI harness 결과를 Proof OS가 읽도록 저장. 판정 필드는 harness.run 출력을 그대로."""
+    """CLI harness 결과를 시그널 판별력 보드가 읽도록 저장. 판정 필드는 harness.run 출력 그대로."""
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     blob = {
         **result,
@@ -1437,7 +1437,7 @@ def save_harness_last(result: dict, *, market: str = "kr") -> None:
 def load_harness_last() -> dict:
     if not HARNESS_LAST_FILE.exists():
         return {"ready": False,
-                "reason": "harness 미실행 — 관리자 증명 OS 「하네스 실행」또는 `sigdesk harness`"}
+                "reason": "harness 미실행 — 관리자 「시그널 판별력」하네스 실행 또는 `sigdesk harness`"}
     try:
         return json.loads(HARNESS_LAST_FILE.read_text(encoding="utf-8"))
     except Exception as e:

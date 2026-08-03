@@ -128,7 +128,7 @@ def harness(
         if not out["ready"]:
             console.print(f"[red]{out['reason']}[/red]")
             raise typer.Exit(1)
-        # Proof OS A열이 읽도록 마지막(또는 단일) 런을 캐시. sweep이면 마지막 조합이 남는다.
+        # 시그널 판별력 A열이 읽도록 마지막(또는 단일) 런을 캐시. sweep이면 마지막 조합이 남는다.
         store.save_harness_last({**out, "top_pct": tp, "hold_days": h}, market=market)
         s, r = out["strategy"], out["vs_random"]
         pct, verdict = r["percentile"], out["verdict"]

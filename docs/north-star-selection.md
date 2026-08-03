@@ -1,6 +1,7 @@
-# 북극성 — 선택 품질 (A)
+# 시그널 판별력 (A) — 제품 1순위 지표
 
-> 합의(2026-08-03): 이 앱의 1순위는 **잘 고르는가(+ 그 이유)** 다.  
+> 화면 이름: **시그널 판별력** (구 “증명 OS” / “북극성 A”).  
+> 합의(2026-08-03): 1순위는 **잘 고르는가(+ 그 이유)**.  
 > 외부 소비자 리텐션(D7)이 아니다. 페이퍼 봇은 시그널·타이밍 증명용 종속 지표.
 
 관련: [verification-system.md](verification-system.md) · [desk-hierarchy.md](desk-hierarchy.md) ·
@@ -8,13 +9,13 @@
 
 ## 한 줄
 
-**북극성 A = 시그널이 종목을 고르는 판별력(IC · shadow · harness)과, 고른 이유를 사후 재생할 수 있는가.**
+**시그널 판별력(A) = 종목을 고르는 판별력(IC · shadow · harness)과, 고른 이유를 사후 재생할 수 있는가.**
 
 ## 층 (충돌 시 타이브레이커)
 
 | 층 | 이름 | 질문 | 승격/머지 |
 |---|---|---|---|
-| **A** | 선택 품질 | 눈이 좋아졌나? | **필수** — IC lift · shadow `verdict_ready` · harness 판별력 |
+| **A** | 시그널 판별력 | 눈이 좋아졌나? | **필수** — IC lift · shadow `verdict_ready` · harness |
 | **B** | 페이퍼 타이밍 | 그 시그널이 체결 경로에서도 사나? | 참고 — PnL이 아니라 체결·스킵·게이트 정합 |
 | **C** | Decision 회피 | 악재 veto가 사고를 줄였나? | Decision/KB PR만 1순위 |
 
@@ -36,14 +37,14 @@ C를 세게 해서 B가 줄어도, C 전용 성적이 받쳐 주면 Decision 변
 거시·산업·이슈를 알파로 쓰려면 **A 층 shadow를 이긴 뒤** Decision·exposure·priority로만 승격한다.
 `combine` 직접 투입은 Later · 별도 게이트.
 
-## 증명 OS
+## 시그널 판별력 보드
 
 `GET /api/proof` — A를 1열, B/C를 참고열로 모은다.  
 하네스: 관리자 「하네스 실행」→ `POST /api/harness/run` (또는 `sigdesk harness`).  
 없으면/7일 지나면 마감 루프가 백그라운드로 갱신.  
 픽 이유: `GET /api/pick-reason?date=&ticker=` (PIT ⊕ 실현수익 ⊕ 봇 저널).
 
-## 비북극성 (동결·Later)
+## 1순위 아님 (동결·Later)
 
 - D7 · 온보딩 확장 · 숏폼 성장 · 외부 사용자 리텐션  
 - 소비자 Empty UX 실험(강의 부대가 다시 열리기 전)
