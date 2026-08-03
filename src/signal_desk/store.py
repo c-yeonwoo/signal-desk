@@ -1446,7 +1446,7 @@ def load_harness_last() -> dict:
 
 def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
                 cost: float = 0.25, trials: int = 40, exposure: bool = False) -> dict:
-    """유니버스·시세로 하네스를 돌리고 harness_last.json에 저장. Proof OS·관리자 API용.
+    """유니버스·시세로 하네스를 돌리고 harness_last.json에 저장. 시그널 판별력·관리자 API용.
 
     trials 기본 40 — CLI 기본(100)보다 가볍게. 판정 문턱(백분위≥95%)은 동일.
     """
