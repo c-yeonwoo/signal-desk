@@ -1,8 +1,8 @@
 # CLAUDE.md — signal-desk
 
-개인 R&D용 시스템 트레이딩 랩. 시그널(선택 품질)을 계산·증명하고, 페이퍼 봇으로
-타이밍을 검증하며 알고리즘을 디벨롭한다. 외부 소비자 성장이 1순위가 아니다.
-북극성 **A = 선택 품질(IC·shadow·harness + 이유 재생)** —
+개인 R&D용 시스템 트레이딩 랩. 시그널 판별력(IC·shadow·harness + 이유 재생)을
+1순위로 두고, 페이퍼 봇으로 타이밍을 검증하며 알고리즘을 디벨롭한다.
+외부 소비자 성장이 1순위가 아니다 —
 [docs/north-star-selection.md](docs/north-star-selection.md).
 자매 [Signal APT](https://github.com/c-yeonwoo/apt-signal) 아키텍처를 주식으로 재해석.
 체리픽: [NOTES-cherrypick.md](NOTES-cherrypick.md).
@@ -44,9 +44,9 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 ## 현재 상태
 
-**R&D 랩 (북극성 A)**
+**R&D 랩 (시그널 판별력 = A)**
 - [x] 8팩터 엔진 + 게이트 + PIT 실측 + harness/shadow/redteam
-- [x] 증명 OS `GET /api/proof` · 픽 이유 `GET /api/pick-reason` · PIT reasons/gate
+- [x] 시그널 판별력 `GET /api/proof` · 픽 이유 `GET /api/pick-reason` · PIT reasons/gate
 - [x] 페이퍼 레퍼런스 봇(시그널·타이밍 증명용, PnL은 종속 지표)
 - [ ] A 유의 개선 후에만 가중·매수권 재확정 · qualitative priority 승격
 - 동결: 온보딩/D7/숏폼 성장 — [BACKLOG.md](BACKLOG.md)

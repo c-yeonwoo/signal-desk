@@ -1233,13 +1233,13 @@
 
     <div class="card" id="proof-os-card" style="margin-top:0">
       <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <div style="font-weight:700;font-size:15px">증명 OS <span style="color:var(--dim);font-weight:600;font-size:13px">· 북극성 A 선택 품질</span></div>
+        <div style="font-weight:700;font-size:15px">시그널 판별력 <span style="color:var(--dim);font-weight:600;font-size:13px">· IC · shadow · harness</span></div>
         <div class="row" style="gap:6px;margin:0">
           <button class="btn" onclick="runHarnessFromProof()" id="proof-harness-btn">하네스 실행</button>
           <button class="btn" onclick="loadProofOs()" id="proof-refresh-btn">새로고침</button>
         </div>
       </div>
-      <p class="page-desc" style="margin:8px 0 10px">엔진 변경 승격은 <b>A(IC·shadow·harness)</b>가 기본입니다. 페이퍼(B)·Decision(C)는 참고열입니다.</p>
+      <p class="page-desc" style="margin:8px 0 10px">엔진을 바꿀 때는 <b>시그널 판별력(A)</b>이 기본입니다. 페이퍼(B)·Decision(C)는 참고입니다.</p>
       <div id="proof-os-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
         <input id="pick-reason-date" placeholder="YYYY-MM-DD" style="width:120px;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
@@ -6031,7 +6031,7 @@ async function loadProofOs(){
       <div style="font-size:12px;color:var(--dim);margin-bottom:8px">${esc(d.promotion_rule || '')}</div>
       <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px">
         <div style="padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2,transparent)">
-          <div style="font-weight:700;font-size:13px;margin-bottom:6px">A · 선택 품질</div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">A · 시그널 판별력</div>
           <div style="font-size:13px">매수 리프트 <b>${acc.buy_lift_pp == null ? '–' : ((acc.buy_lift_pp > 0 ? '+' : '') + fmtNum(acc.buy_lift_pp, 1) + '%p')}</b>
             <span style="color:var(--dim)"> · score IC ${ic.score == null ? '–' : fmtNum(ic.score, 3)}</span></div>
           <div style="font-size:12px;color:var(--dim);margin-top:4px">${esc((acc.coverage && acc.coverage.blocked_reason) || (acc.blocked_reason) || '')}</div>

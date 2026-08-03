@@ -353,7 +353,7 @@ def _daily_maintenance(enabled: list[str]) -> None:
     except Exception as e:
         log.warning("기후 shadow 스냅샷 실패: %s", type(e).__name__)
     try:
-        # Proof OS A.harness — 없거나 7일 이상이면 백그라운드로 갱신(CLI 없이도 prod에 쌓임).
+        # 시그널 판별력 A.harness — 없거나 7일 이상이면 백그라운드로 갱신(CLI 없이도 prod에 쌓임).
         hz = store.load_harness_last()
         stale = True
         if hz.get("ready") and hz.get("saved_at"):
@@ -1467,7 +1467,7 @@ def accuracy_get():
 
 @app.get("/api/proof")
 def proof_get(request: Request):
-    """증명 OS — 북극성 A(선택 품질: IC·shadow·harness) 1열 + B(페이퍼)·C(Decision) 참고.
+    """시그널 판별력 보드 — A(IC·shadow·harness) 1열 + B(페이퍼)·C(Decision) 참고.
     관리자. 문서는 docs/north-star-selection.md."""
     _admin_or_403(request)
     from signal_desk.signals import proof as proof_mod
@@ -1492,7 +1492,7 @@ def _harness_job_start(market: str, trials: int, exposure: bool) -> dict:
         if _harness_job["running"]:
             return {"ok": False, "started": False, "running": True,
                     "started_at": _harness_job["started_at"],
-                    "message": "이미 실행 중 — 끝나면 증명 OS를 새로고침하세요"}
+                    "message": "이미 실행 중 — 끝나면 시그널 판별력을 새로고침하세요"}
         _harness_job.update(running=True, started_at=time.time(), finished_at=None,
                             error=None, market=market)
 
@@ -1515,7 +1515,7 @@ def _harness_job_start(market: str, trials: int, exposure: bool) -> dict:
 
 @app.post("/api/harness/run")
 def harness_run_post(request: Request, body: dict = Body(default={})):
-    """포트폴리오 하네스 실행 → harness_last.json. 관리자. Proof OS A열."""
+    """포트폴리오 하네스 실행 → harness_last.json. 관리자. 시그널 판별력 A열."""
     _admin_or_403(request)
     body = body or {}
     market = "us" if body.get("market") == "us" else "kr"

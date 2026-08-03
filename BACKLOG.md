@@ -183,23 +183,23 @@
     → 비용·측정 불일치.
 
 
-## 북극성 (2026-08-03 재고정) — 선택 품질 A
+## 시그널 판별력 (2026-08-03 재고정) — A
 
 이 앱은 **개인 R&D 시스템 트레이딩 랩**이다. 1순위는 시그널이 **잘 고르는가(+ 이유 재생)**.  
-정의·계약·증명 OS: [docs/north-star-selection.md](docs/north-star-selection.md).
+화면명 「시그널 판별력」·계약: [docs/north-star-selection.md](docs/north-star-selection.md).
 
 | 층 | 역할 | 승격 |
 |---|---|---|
-| **A** IC · shadow · harness | 선택 품질 | 엔진 변경 **필수** |
+| **A** IC · shadow · harness | 시그널 판별력 | 엔진 변경 **필수** |
 | **B** 페이퍼 봇 | 시그널·타이밍 증명(종속) | 참고 |
 | **C** Decision veto | 사고 회피 | Decision/KB PR만 |
 
-- **증명 OS**: `GET /api/proof` · 픽 이유 `GET /api/pick-reason` · harness → `harness_last.json`
+- **보드**: `GET /api/proof` · 픽 이유 `GET /api/pick-reason` · harness → `harness_last.json`
 - **종합 계약**: 거시·산업·KB·hypo는 L0 `combine` 미투입. Decision / exposure / shadow 승격만.
 - **동결(Later)**: 온보딩 확장 · 숏폼 성장 · 외부 리텐션 실험 · D7 목표치 합의.
-  D7 계측 자체는 유지하되 북극성 아님 — [docs/north-star-d7.md](docs/north-star-d7.md).
+  D7 계측은 유지하되 1순위 아님 — [docs/north-star-d7.md](docs/north-star-d7.md).
 
-### (폐기된 북극성) D7 — 2026-07-21~08-02
+### (폐기된 1순위) D7 — 2026-07-21~08-02
 
 셀프서브·강의 부대 전제의 리텐션 지표. 계측(`signal_visits` · `/api/d7`)은 남아 있다.
 작업 큐에서 A에 양보한다.

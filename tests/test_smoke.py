@@ -112,8 +112,9 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 정밀도 색·해석은 절대값이 아니라 기준선 대비 리프트 — 하락장 오독 방지
     assert "liftColor" in html and "liftNote" in html and "기준선" in html
     assert "prec >= 55" not in html and "sellPrec >= 55" not in html
-    # 북극성 A = 증명 OS. D7은 부차 리텐션(계측만 유지).
-    assert 'id="proof-os-body"' in html and "loadProofOs" in html and "증명 OS" in html
+    # 시그널 판별력 보드(구 증명 OS). D7은 부차 리텐션(계측만 유지).
+    assert 'id="proof-os-body"' in html and "loadProofOs" in html and "시그널 판별력" in html
+    assert "증명 OS" not in html and "북극성 A" not in html
     assert "/api/proof" in html and "loadPickReason" in html
     assert "runHarnessFromProof" in html and "/api/harness/run" in html
     assert 'id="d7-body"' in html and "loadD7" in html and "리텐션 D7" in html
