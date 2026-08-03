@@ -52,8 +52,10 @@ def test_combine_renormalizes_across_weighted_components():
 def test_evaluate_produces_sorted_signals_without_fundamentals_or_valuation():
     universe = [{"ticker": "005930", "name": "삼성전자"}]
     # 꾸준히 하락 -> RSI 과매도로 BUY 트리거 (짧은 시계열이라 MACD/MA는 미형성 -> RSI 단독)
+    # H1 기본은 technical=0이라, 기술 경로 검증은 가중을 켠 config로 한다.
     closes = [100 - i for i in range(20)]
-    results = engine.evaluate(universe, {"005930": closes})
+    cfg = engine.SignalConfig(weight_technical=0.35, weight_momentum=0.0, weight_reversion=0.0)
+    results = engine.evaluate(universe, {"005930": closes}, config=cfg)
     assert len(results) == 1
     r = results[0]
     # 유니버스 1종이면 매수권 1자리·우선 1자리 → STRONG_BUY(절대 BUY였던 때도 동일)
@@ -61,6 +63,16 @@ def test_evaluate_produces_sorted_signals_without_fundamentals_or_valuation():
     assert r.has_fundamental is False
     assert r.has_valuation is False  # fundamentals 미제공 -> PER/PBR 없음
     assert r.technical_score == pytest.approx(1.5)
+
+
+def test_h1_default_technical_weight_is_zero():
+    """harness H1 승격 — 랭킹 가중 기본 0. 계산 자체는 남는다."""
+    assert engine.SignalConfig().weight_technical == 0.0
+    universe = [{"ticker": "005930", "name": "삼성전자"}]
+    closes = [100 - i for i in range(20)]
+    r = engine.evaluate(universe, {"005930": closes})[0]
+    assert r.technical_score == pytest.approx(1.5)  # 팩터 값은 산출
+    assert not engine.is_buy(r.kind)  # 가중 0 + 짧은 시계열 → 점수에 안 실림
 
 
 def test_evaluate_skips_ticker_without_prices():
@@ -169,9 +181,11 @@ def test_walk_forward_splits_into_windows():
 
 def test_signal_zones_compresses_consecutive_buy_days():
     # 20일 연속 하락 -> RSI(14)가 정의되는 인덱스 14부터 계속 과매도(0) -> BUY 구간 하나로 압축
+    # (차트 재현용 — technical 가중을 켠 설정. 라이브 H1 기본과 별개)
     closes = [100 - i for i in range(20)]
     dates = [f"2026-01-{i + 1:02d}" for i in range(20)]
-    zones = engine.signal_zones(dates, closes)
+    cfg = engine.SignalConfig(weight_technical=0.35, weight_momentum=0.0, weight_reversion=0.0)
+    zones = engine.signal_zones(dates, closes, config=cfg)
     assert len(zones) == 1
     z = zones[0]
     assert (z["start"], z["end"], z["kind"]) == ("2026-01-15", "2026-01-20", "BUY")
@@ -202,7 +216,8 @@ def test_signal_zones_does_not_merge_across_sources():
     closes = [100 - i for i in range(20)]   # 지속 하락 → 인덱스 14~ 과매도 BUY(재현)
     dates = [f"2026-01-{i + 1:02d}" for i in range(20)]
     stored = {"2026-01-20": {"kind": "BUY", "score": 2.5}}   # 마지막 날만 실측
-    zones = engine.signal_zones(dates, closes, stored=stored)
+    cfg = engine.SignalConfig(weight_technical=0.35, weight_momentum=0.0, weight_reversion=0.0)
+    zones = engine.signal_zones(dates, closes, config=cfg, stored=stored)
     assert any(z["actual"] for z in zones) and any(not z["actual"] for z in zones)
     last = [z for z in zones if z["end"] == "2026-01-20"][0]
     assert last["actual"] is True and last["score"] == 2.5

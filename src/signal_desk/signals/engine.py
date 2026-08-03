@@ -34,7 +34,9 @@ from signal_desk.signals.decision import Decision, decision_from_legacy, empty_d
 
 @dataclass
 class SignalConfig:
-    weight_technical: float = 0.35
+    # H1(2026-08-03): harness 가격순위 ablation — technical=0 → 판별력 있음(p100, 최악위상>중위).
+    # 횡단면 IC≈0인 타이밍 팩터라 랭킹 가중에서 제외. 게이트·차트·reasons 계산은 유지(가중만 0).
+    weight_technical: float = 0.0
     weight_fundamental: float = 0.30
     weight_valuation: float = 0.15
     weight_reversion: float = 0.20

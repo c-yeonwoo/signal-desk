@@ -22,10 +22,12 @@ def _panel(closes: dict[str, list[float]]) -> hz.Panel:
 
 def _tech_only():
     """합성 시장은 모멘텀(252거래일 필요)이 거의 안 켜져 커버리지 차단에 걸린다.
-    측정 대상을 정확히 이름 붙인다 — 기술 팩터 순위의 판별력."""
+    측정 대상을 정확히 이름 붙인다 — 기술 팩터 순위의 판별력.
+    (라이브 기본은 H1로 technical=0이라, 양성 대조군은 가중을 명시한다.)"""
     from dataclasses import replace
     from signal_desk.signals.engine import SignalConfig
-    return replace(SignalConfig(), weight_reversion=0.0, weight_momentum=0.0)
+    return replace(SignalConfig(), weight_technical=0.35,
+                   weight_reversion=0.0, weight_momentum=0.0)
 
 
 # ---------------------------------------------------------------- build_panel

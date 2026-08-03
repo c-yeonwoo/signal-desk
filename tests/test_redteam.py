@@ -37,9 +37,11 @@ def _dates(n: int) -> list[str]:
 def _tech_only() -> SignalConfig:
     """합성 시장은 300거래일이라 모멘텀(252일 필요)·낙폭과대가 거의 안 켜진다.
     그 상태로 기본 설정을 쓰면 커버리지 차단에 걸려 **모든 검사가 이유 없이 통과**한다.
-    측정하는 것을 정확히 이름 붙인다 — 여기서 보는 건 기술 팩터 순위의 판별력이다."""
+    측정하는 것을 정확히 이름 붙인다 — 여기서 보는 건 기술 팩터 순위의 판별력이다.
+    (라이브 H1 기본 technical=0이라 양성 대조군은 가중을 명시한다.)"""
     from dataclasses import replace
-    return replace(SignalConfig(), weight_reversion=0.0, weight_momentum=0.0)
+    return replace(SignalConfig(), weight_technical=0.35,
+                   weight_reversion=0.0, weight_momentum=0.0)
 
 
 def _panel(closes: dict[str, list[float]]) -> hz.Panel:
@@ -439,9 +441,11 @@ def test_low_coverage_factor_cannot_be_certified():
 def test_coverage_gate_only_counts_weighted_factors():
     """가중치 0인 팩터는 애초에 쓰지 않으므로 차단 사유가 될 수 없다."""
     from dataclasses import replace
-    cfg = replace(SignalConfig(), weight_momentum=0.0, weight_reversion=0.0)
+    cfg = replace(SignalConfig(), weight_technical=0.35,
+                  weight_momentum=0.0, weight_reversion=0.0)
     assert hz._weighted_factors(cfg) == {"technical"}
     assert "momentum" in hz._weighted_factors(SignalConfig())
+    assert "technical" not in hz._weighted_factors(SignalConfig())  # H1
 
 
 def test_short_history_blocks_the_verdict_end_to_end():

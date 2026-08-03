@@ -7,7 +7,21 @@ from signal_desk.signals.engine import SignalConfig
 def test_default_matches_engine_defaults(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = signalcfg.get_config()
-    assert cfg.weight_technical == 0.35 and cfg.buy_threshold == 1.2
+    assert cfg.weight_technical == 0.0 and cfg.buy_threshold == 1.2
+
+
+def test_h1_strips_legacy_technical_weight_from_kv(tmp_path, monkeypatch):
+    """옛 기본 0.35가 kv에 있으면 일회 제거하고 새 기본 0을 쓴다. 이후 0.35 재저장은 유지."""
+    monkeypatch.chdir(tmp_path)
+    db.kv_set("signal_config", {"weight_technical": 0.35, "weight_momentum": 0.4})
+    cfg = signalcfg.get_config()
+    assert cfg.weight_technical == 0.0
+    assert cfg.weight_momentum == 0.4
+    ov = db.kv_get("signal_config") or {}
+    assert "weight_technical" not in ov
+    assert db.kv_get("signal_config_h1_migrated")
+    signalcfg.set_dict({"weight_technical": 0.35})
+    assert signalcfg.get_config().weight_technical == 0.35
 
 
 def test_set_and_get_override(tmp_path, monkeypatch):
@@ -24,6 +38,7 @@ def test_reset_restores_defaults(tmp_path, monkeypatch):
     assert signalcfg.get_config().weight_momentum == 0.5
     signalcfg.reset()
     assert signalcfg.get_config().weight_momentum == 0.30
+    assert signalcfg.get_config().weight_technical == 0.0
 
 
 def test_qualitative_weight_not_admin_tunable(tmp_path, monkeypatch):

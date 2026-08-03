@@ -14,6 +14,7 @@ from signal_desk.signals import regime as regime_mod
 from signal_desk.signals.engine import SignalConfig
 
 _KEY = "signal_config"
+_H1_MIGRATED_KEY = "signal_config_h1_migrated"  # technical 0.35→0 일회 마이그레이션
 # 관리자 조정 대상(점수에 실제 들어가는 팩터만 — KB 정성은 veto/shadow라 가중치 UI 제외)
 FIELDS = ["weight_technical", "weight_fundamental", "weight_valuation",
           "weight_reversion", "weight_flow", "weight_quality", "weight_momentum",
@@ -36,6 +37,25 @@ def get_config() -> SignalConfig:
     """저장된 오버라이드를 얹은 SignalConfig. 없으면 기본값."""
     cfg = SignalConfig()
     ov = db.kv_get(_KEY) or {}
+    # H1(2026-08-03): 옛 기본 0.35가 kv에 있으면 한 번만 제거 → 새 기본 0. 플래그 후엔
+    # 관리자가 0.35를 다시 넣어도 유지된다.
+    if not db.kv_get(_H1_MIGRATED_KEY):
+        stripped = False
+        if isinstance(ov, dict) and "weight_technical" in ov:
+            try:
+                if abs(float(ov["weight_technical"]) - 0.35) < 1e-9:
+                    ov = {k: v for k, v in ov.items() if k != "weight_technical"}
+                    db.kv_set(_KEY, ov)
+                    stripped = True
+                    append_history({
+                        "ts": int(time.time()), "source": "migrate_h1",
+                        "before": {"weight_technical": 0.35},
+                        "after": {"weight_technical": 0.0},
+                        "note": "harness H1 — technical 가중 0 (옛 kv 기본 제거)",
+                    })
+            except (TypeError, ValueError):
+                pass
+        db.kv_set(_H1_MIGRATED_KEY, {"ts": int(time.time()), "stripped": stripped})
     for f in FIELDS:
         if f in ov and ov[f] is not None:
             # 레거시 기본 0.5가 kv에 남아 있으면 새 기본(1.2)을 가린다 — 스킵
