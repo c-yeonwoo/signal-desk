@@ -194,7 +194,8 @@
 | **B** 페이퍼 봇 | 시그널·타이밍 증명(종속) | 참고 |
 | **C** Decision veto | 사고 회피 | Decision/KB PR만 |
 
-- **보드**: `GET /api/proof` · 픽 이유 `GET /api/pick-reason` · harness → `harness_last.json`
+- **보드**: `GET /api/proof` · harness → `harness_last.json`
+- **픽 이유**: 시그널 상세 `pit`(최근 PIT 한 줄) · `GET /api/pick-reason`는 관리자 딥다이브
 - **종합 계약**: 거시·산업·KB·hypo는 L0 `combine` 미투입. Decision / exposure / shadow 승격만.
 - **동결(Later)**: 온보딩 확장 · 숏폼 성장 · 외부 리텐션 실험 · D7 목표치 합의.
   D7 계측은 유지하되 1순위 아님 — [docs/north-star-d7.md](docs/north-star-d7.md).

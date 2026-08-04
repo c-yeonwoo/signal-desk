@@ -1271,11 +1271,28 @@ def signals_get(request: Request, market: str = "kospi"):
 
 @app.get("/api/signals/{ticker}/detail")
 def signal_detail_get(ticker: str, market: str = "kospi"):
-    """종목 상세 — 리스트에 없는 해설·사업개요·목표가·KB. 차트와 병렬 fetch용."""
+    """종목 상세 — 리스트에 없는 해설·사업개요·목표가·KB. 차트와 병렬 fetch용.
+    KR은 최근 PIT 픽 요약을 `pit`로 붙인다(없으면 null) — 히어로 한 줄용, 새 탭 없음."""
     item = _us_signal_detail(ticker) if market == "us" else _kr_signal_detail(ticker)
     if not item:
-        return {"ready": False, "item": None}
-    return {"ready": True, "item": item}
+        return {"ready": False, "item": None, "pit": None}
+    pit = None
+    if market != "us":
+        try:
+            from signal_desk.signals import pick_reason as pr
+            df = store.load_signal_history()
+            if not df.empty:
+                pm = pr.latest(
+                    ticker,
+                    history_rows=df.to_dict("records"),
+                    closes_by_ticker=store.load_all_dated_closes(),
+                    bot_decisions=None,  # 상세 응답 가볍게 — 봇 저널은 /api/pick-reason
+                )
+                pit = pr.slim_for_detail(pm)
+        except Exception as e:
+            log.debug("detail pit attach skip: %s", type(e).__name__)
+            pit = None
+    return {"ready": True, "item": item, "pit": pit}
 
 
 def _buylist(uid: int) -> list[dict]:

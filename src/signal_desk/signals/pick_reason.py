@@ -169,3 +169,39 @@ def postmortem(date: str, ticker: str, *, history_rows: list[dict],
         "bot_decisions": decisions[:10],
         "note": "forward는 시그널 다음 거래일 진입·horizon 종가(accuracy 규약).",
     }
+
+
+def latest(ticker: str, *, history_rows: list[dict],
+           closes_by_ticker: dict,
+           bot_decisions: list[dict] | None = None) -> dict:
+    """종목의 가장 최근 PIT 날짜로 postmortem. 없으면 ready=False."""
+    dates = sorted(
+        {str(r.get("date")) for r in history_rows if str(r.get("ticker")) == ticker
+         and r.get("date")},
+        reverse=True,
+    )
+    if not dates:
+        return {"ready": False, "blocked_reason": f"{ticker} PIT 스냅샷 없음"}
+    return postmortem(
+        dates[0], ticker,
+        history_rows=history_rows,
+        closes_by_ticker=closes_by_ticker,
+        bot_decisions=bot_decisions,
+    )
+
+
+def slim_for_detail(pm: dict) -> dict | None:
+    """시그널 상세 히어로용 — 있을 때만 한 줄. 새 패널을 만들지 않는다."""
+    if not pm or not pm.get("ready"):
+        return None
+    pick = pm.get("pick") or {}
+    fwd = pm.get("forward_ret_pct") or {}
+    return {
+        "date": pm.get("date"),
+        "kind": pick.get("kind"),
+        "score": pick.get("score"),
+        "rank": pick.get("rank"),
+        "gate_blocked": bool(pick.get("gate_blocked")),
+        "forward_ret_pct": {"h5": fwd.get("h5"), "h20": fwd.get("h20")},
+        "reasons": list(pick.get("reasons") or [])[:4],
+    }
