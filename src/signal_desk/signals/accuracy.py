@@ -13,6 +13,8 @@ lookahead 위험), 이 모듈은 store.snapshot_signals가 매일 PIT로 저장�
 
 from __future__ import annotations
 
+import math
+
 from .engine import ACTIONABLE_KINDS, BUY, SELL, STRONG_BUY, STRONG_SELL, is_buy
 
 # 실측 트래커 기본 horizon(거래일). 20일을 헤드라인 정밀도 기준으로 쓴다.
@@ -25,11 +27,25 @@ FACTOR_COLS = ("technical", "fundamental", "valuation", "reversion",
 # combine()/evaluate()가 점수에 넣는 팩터 — FACTOR_COLS가 이걸 커버하는지 레드팀이 검사한다.
 SCORING_FACTORS = ("technical", "fundamental", "valuation", "reversion",
                    "flow", "quality", "momentum", "short")
+# 종합점수 IC — 보드/proof가 읽는 키. 입력 팩터가 아니라 산출물이라 SCORING_FACTORS 밖.
+IC_EXTRA_COLS = ("score",)
 _MIN_IC_SAMPLES = 20  # 이보다 표본이 적으면 IC는 신뢰 불가 → None
 # 정밀도는 기준선(base rate) 대비 리프트로만 판정한다. 하락장에서는 아무 종목이나 '매도'라고
 # 찍어도 정밀도가 60%를 넘기 때문에, 절대값 55%는 잘한 것도 못한 것도 아니다.
 # 이 값은 "우연·시장 드리프트로 설명되지 않는다"고 부를 최소 리프트(%p)다.
 MIN_LIFT_PP = 3.0
+
+
+def _finite_float(v) -> float | None:
+    """IC용 스칼라. None·NaN·inf는 제외 — NaN은 `is not None`을 통과한 뒤
+    Spearman 정렬/동점 루프를 비정상적으로 느리게 만든다(실측: valuation NaN ≈ 멈춤)."""
+    if v is None:
+        return None
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return None
+    return fv if math.isfinite(fv) else None
 
 # P3 정성 승격 게이트(shadow 관측 → 향후 priority/threshold 승인용). combine()과 무관.
 PROMOTION_MIN_SAMPLES = 80
@@ -187,13 +203,14 @@ def realized_accuracy(
     """
     # 티어별 horizon별 실현수익 누적
     by_tier = {k: {h: [] for h in horizons} for k in ACTIONABLE_KINDS}
-    ic_pairs = {c: [] for c in FACTOR_COLS}  # 팩터값 → primary horizon 수익
+    ic_cols = FACTOR_COLS + IC_EXTRA_COLS
+    # horizon별 IC 쌍 — primary가 아직 안 익어도 짧은 horizon으로 팩터 판별력을 본다.
+    ic_pairs = {h: {c: [] for c in ic_cols} for h in horizons}
     dates_seen: set[str] = set()
     tickers_seen: set[str] = set()
     rows_total = matured_primary = 0
-    # 기준선용 — HOLD까지 포함한 전 표본의 primary horizon 수익. "아무 종목이나 찍었을 때"가
-    # 몇 %였는지가 없으면 정밀도 숫자는 방향조차 해석할 수 없다.
-    base_rets: list[float] = []
+    # 기준선용 — HOLD까지 포함한 전 표본의 horizon별 수익.
+    base_by_h: dict[int, list[float]] = {h: [] for h in horizons}
 
     for r in history_rows:
         ticker = r.get("ticker")
@@ -209,14 +226,14 @@ def realized_accuracy(
         if not rets:
             continue
         tickers_seen.add(ticker)
-        # 팩터 IC는 전체(HOLD 포함) 표본에서 primary horizon 수익으로
         if primary in rets:
             matured_primary += 1
-            base_rets.append(rets[primary])
-            for c in FACTOR_COLS:
-                v = r.get(c)
-                if v is not None:
-                    ic_pairs[c].append((float(v), rets[primary]))
+        for h, ret in rets.items():
+            base_by_h[h].append(ret)
+            for c in ic_cols:
+                fv = _finite_float(r.get(c))
+                if fv is not None:
+                    ic_pairs[h][c].append((fv, ret))
         if kind in by_tier:
             for h, ret in rets.items():
                 by_tier[kind][h].append(ret)
@@ -238,60 +255,120 @@ def realized_accuracy(
 
     tiers = {h: {k: _tier_stats(k, h) for k in ACTIONABLE_KINDS} for h in horizons}
 
-    # 헤드라인: 매수(BUY+STRONG_BUY) 시그널의 primary horizon 방향 정밀도
-    buy_rets = by_tier[BUY].get(primary, []) + by_tier[STRONG_BUY].get(primary, [])
-    buy_precision = _precision(buy_rets, up=True)
-    # 매도 사이드도 같은 규약으로 계산 — 숏(인버스 포함) 검토의 전제 검증용 관측치.
-    # 봇·문턱·combine과 무관하고, 표본이 매수보다 훨씬 적을 수 있어 UI는 별도 가드가 필요하다.
-    sell_rets = by_tier[SELL].get(primary, []) + by_tier[STRONG_SELL].get(primary, [])
-    sell_precision = _precision(sell_rets, up=False)
+    def _side_stats(h: int) -> dict:
+        buy_rets = by_tier[BUY].get(h, []) + by_tier[STRONG_BUY].get(h, [])
+        sell_rets = by_tier[SELL].get(h, []) + by_tier[STRONG_SELL].get(h, [])
+        base = base_by_h[h]
+        buy_precision = _precision(buy_rets, up=True)
+        sell_precision = _precision(sell_rets, up=False)
+        base_up = _precision(base, up=True)
+        base_down = _precision(base, up=False)
+        return {
+            "horizon": h,
+            "buy_precision_pct": buy_precision,
+            "buy_sample": len(buy_rets),
+            "buy_precision_ci_pp": _ci_half_pp(buy_precision, len(buy_rets)),
+            "buy_lift_pp": (round(buy_precision - base_up, 1)
+                            if buy_precision is not None and base_up is not None else None),
+            "sell_precision_pct": sell_precision,
+            "sell_sample": len(sell_rets),
+            "sell_precision_ci_pp": _ci_half_pp(sell_precision, len(sell_rets)),
+            "sell_lift_pp": (round(sell_precision - base_down, 1)
+                             if sell_precision is not None and base_down is not None else None),
+            "baseline": {
+                "sample": len(base),
+                "up_pct": base_up,
+                "down_pct": base_down,
+                "avg_ret_pct": (round(sum(base) / len(base) * 100, 2) if base else None),
+            },
+        }
 
-    # 기준선(naive 예측기) — 전 표본을 "항상 매수"/"항상 매도"로 찍었을 때의 정밀도.
-    # 시장 드리프트가 그대로 들어가므로 하락장이면 down_pct가 60%를 넘는 게 정상이다.
-    base_up = _precision(base_rets, up=True)
-    base_down = _precision(base_rets, up=False)
-    buy_lift = (round(buy_precision - base_up, 1)
-                if buy_precision is not None and base_up is not None else None)
-    sell_lift = (round(sell_precision - base_down, 1)
-                 if sell_precision is not None and base_down is not None else None)
+    by_horizon = {h: _side_stats(h) for h in horizons}
+    # 헤드라인: primary가 익으면 그대로, 아니면 성숙 표본이 있는 가장 긴 horizon으로 임시 표시.
+    # (h20 대기 중에도 fund/flow IC·단기 리프트를 볼 수 있어야 가중치를 돌릴 수 있다.)
+    headline_h = primary if matured_primary > 0 else next(
+        (h for h in sorted(horizons, reverse=True) if base_by_h[h]), None)
+    head = by_horizon.get(headline_h) if headline_h is not None else None
+    base_rets = base_by_h.get(primary) or []
 
-    factor_ic = {c: (round(ic, 3) if (ic := _spearman_ic(ic_pairs[c])) is not None else None)
-                 for c in FACTOR_COLS}
+    ic_h = headline_h if headline_h is not None else (
+        primary if primary in ic_pairs else next(iter(ic_pairs), None))
+    factor_ic = ({c: (round(ic, 3) if (ic := _spearman_ic(ic_pairs[ic_h][c])) is not None else None)
+                  for c in ic_cols} if ic_h is not None else {c: None for c in ic_cols})
 
     return {
-        "ready": matured_primary > 0,
+        "ready": matured_primary > 0 or bool(headline_h and base_by_h[headline_h]),
         "horizons": list(horizons),
         "primary_horizon": primary,
+        "headline_horizon": headline_h,
+        "primary_ready": matured_primary > 0,
         "hit_threshold_pct": round(hit_ret * 100, 2),
         "tiers": tiers,
-        "buy_precision_pct": buy_precision,          # "매수 찍은 것 중 오른 비율"
-        "buy_sample": len(buy_rets),
-        "buy_precision_ci_pp": _ci_half_pp(buy_precision, len(buy_rets)),
-        "buy_lift_pp": buy_lift,                     # 기준선 대비 초과분 — 판정은 이 값으로만
-        "sell_precision_pct": sell_precision,        # "매도 찍은 것 중 내린 비율"(숏 관측용)
-        "sell_sample": len(sell_rets),
-        "sell_precision_ci_pp": _ci_half_pp(sell_precision, len(sell_rets)),
-        "sell_lift_pp": sell_lift,
-        # 기준선 — 같은 기간·같은 유니버스를 아무 방향으로 찍었을 때의 성적
-        "baseline": {
-            "sample": len(base_rets),
-            "up_pct": base_up,                       # "항상 매수" naive 정밀도
-            "down_pct": base_down,                   # "항상 매도" naive 정밀도
-            "avg_ret_pct": (round(sum(base_rets) / len(base_rets) * 100, 2)
-                            if base_rets else None),  # 시장 드리프트(%)
+        "by_horizon": by_horizon,
+        # 임시 헤드라인(primary 미성숙)에서 매수 표본이  Tiny면 리프트를 숨긴다(n=1 노이즈).
+        **_headline_side(head, primary_ready=matured_primary > 0),
+        "baseline": (head or {}).get("baseline") or {
+            "sample": len(base_rets), "up_pct": None, "down_pct": None, "avg_ret_pct": None,
         },
         "lift_min_pp": MIN_LIFT_PP,
-        "factor_ic": factor_ic,                      # Spearman IC (팩터값↑ vs 미래수익)
+        "factor_ic": factor_ic,                      # Spearman IC (팩터·score ↑ vs 미래수익)
+        "factor_ic_horizon": ic_h,
         "ic_min_samples": _MIN_IC_SAMPLES,
-        "coverage": {
-            "rows": rows_total,
-            "dates": len(dates_seen),
-            "from": min(dates_seen) if dates_seen else None,
-            "to": max(dates_seen) if dates_seen else None,
-            "tickers_matched": len(tickers_seen),
-            "matured_primary": matured_primary,      # primary horizon 성숙 표본 수
-            **_join_diagnosis(dates_seen, closes_by_ticker, tickers_seen, matured_primary),
-        },
+        "coverage": _coverage_block(
+            rows_total, dates_seen, tickers_seen, matured_primary,
+            closes_by_ticker, base_by_h, horizons, primary, headline_h),
+    }
+
+
+def _headline_side(head: dict | None, *, primary_ready: bool) -> dict:
+    """헤드라인 매수/매도 칸.
+
+    primary가 익기 전 임시 horizon에서는 표본 < IC 최소치면 정밀도·리프트를 숨긴다.
+    (실측: BUY 1건에 buy_lift -40%p가 보드에 뜨던 것.) primary 성숙 후에는 작은 표본도
+    숫자를 내고 CI 반폭으로 읽는다(기존 계약).
+    """
+    if not head:
+        return {
+            "buy_precision_pct": None, "buy_sample": 0, "buy_precision_ci_pp": None,
+            "buy_lift_pp": None,
+            "sell_precision_pct": None, "sell_sample": 0, "sell_precision_ci_pp": None,
+            "sell_lift_pp": None,
+        }
+    buy_n = head.get("buy_sample") or 0
+    sell_n = head.get("sell_sample") or 0
+    buy_ok = primary_ready or buy_n >= _MIN_IC_SAMPLES
+    sell_ok = primary_ready or sell_n >= _MIN_IC_SAMPLES
+    return {
+        "buy_precision_pct": head.get("buy_precision_pct") if buy_ok else None,
+        "buy_sample": buy_n,
+        "buy_precision_ci_pp": head.get("buy_precision_ci_pp") if buy_ok else None,
+        "buy_lift_pp": head.get("buy_lift_pp") if buy_ok else None,
+        "sell_precision_pct": head.get("sell_precision_pct") if sell_ok else None,
+        "sell_sample": sell_n,
+        "sell_precision_ci_pp": head.get("sell_precision_ci_pp") if sell_ok else None,
+        "sell_lift_pp": head.get("sell_lift_pp") if sell_ok else None,
+    }
+
+
+def _coverage_block(rows_total, dates_seen, tickers_seen, matured_primary,
+                    closes_by_ticker, base_by_h, horizons, primary, headline_h) -> dict:
+    diag = _join_diagnosis(dates_seen, closes_by_ticker, tickers_seen, matured_primary)
+    interim_note = None
+    if matured_primary == 0 and headline_h and headline_h != primary:
+        interim_note = (f"primary h{primary} 미성숙 — 임시로 h{headline_h} "
+                        f"({len(base_by_h[headline_h])}표본) 표시")
+        # 임시 헤드라인이 있으면 '0=고장'으로 읽히지 않게 차단 문구를 비운다.
+        diag["blocked_reason"] = None
+    return {
+        "rows": rows_total,
+        "dates": len(dates_seen),
+        "from": min(dates_seen) if dates_seen else None,
+        "to": max(dates_seen) if dates_seen else None,
+        "tickers_matched": len(tickers_seen),
+        "matured_primary": matured_primary,
+        "matured_by_horizon": {str(h): len(base_by_h[h]) for h in horizons},
+        "interim_note": interim_note,
+        **diag,
     }
 
 

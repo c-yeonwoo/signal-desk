@@ -305,8 +305,45 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
             if picks_log else 0.0}
 
 
+def scores_from_pit(panel: Panel, history_rows: list[dict]
+                    ) -> tuple[dict[str, list[float | None]], dict]:
+    """PIT `signal_history` 점수 → 패널 날짜축. 스냅샷 없는 날은 None.
+
+    가격 재계산 하네스는 fund/flow를 못 넣는다(룩어헤드). PIT 점수는 그날 라이브가 쓴
+    전 팩터 합성이라, 스냅샷이 쌓인 구간에서만 그 순위의 포트폴리오 판별력을 잰다.
+    """
+    idx = {d: i for i, d in enumerate(panel.dates)}
+    scores: dict[str, list[float | None]] = {t: [None] * len(panel) for t in panel.closes}
+    filled = 0
+    dates_hit: set[str] = set()
+    for r in history_rows:
+        t = str(r.get("ticker") or "")
+        d = str(r.get("date") or "")
+        if t not in scores or d not in idx:
+            continue
+        try:
+            v = float(r["score"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if not math.isfinite(v):
+            continue
+        scores[t][idx[d]] = v
+        filled += 1
+        dates_hit.add(d)
+    meta = {
+        "pit_cells": filled,
+        "pit_dates": len(dates_hit),
+        "pit_from": min(dates_hit) if dates_hit else None,
+        "pit_to": max(dates_hit) if dates_hit else None,
+        "coverage_pct": round(filled / max(1, len(panel) * max(1, len(panel.closes))) * 100, 2),
+    }
+    return scores, meta
+
+
 def run(panel: Panel, cfg: HarnessConfig | None = None,
-        regimes: dict[int, str] | None = None) -> dict:
+        regimes: dict[int, str] | None = None,
+        scores: dict[str, list[float | None]] | None = None,
+        score_source: str = "price") -> dict:
     """전략(횡단면 분위 top N%) + 무작위 대조군 + 동일가중 벤치마크를 같은 날짜축에서 비교.
 
     리밸런스 위상을 전부 돌려 평균 내고(`phase_average`), 위상 간 편차를 함께 낸다. 편차가
@@ -314,9 +351,16 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     떨어진다.
 
     regimes: {rebalance_index: 국면라벨}. use_exposure=True일 때만 쓰인다.
+    scores: 외부 점수 패널(PIT 등). 주면 가격 재계산을 건너뛴다.
+    score_source: \"price\" | \"pit\" — 결과에 기록(판독용).
     """
     cfg = cfg or HarnessConfig()
-    scores, coverage, fired = _score_series(panel, cfg.signal_config)
+    if scores is None:
+        scores, coverage, fired = _score_series(panel, cfg.signal_config)
+        score_source = "price"
+    else:
+        coverage, fired = {}, {}
+        score_source = score_source or "external"
     if cfg.invert_scores:
         scores = {t: [(-v if v is not None else None) for v in row] for t, row in scores.items()}
     phases = range(cfg.rebalance_days) if cfg.phase_average else [0]
@@ -328,10 +372,19 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         idxs = _rebalance_indices(panel, cfg, ph)
         if not idxs:
             continue
+        # PIT 모드는 스냅샷 날짜에만 점수가 있다 — 그 날이 하나도 없는 위상은 건너뛴다.
+        if score_source == "pit":
+            idxs = [i for i in idxs
+                    if any(scores.get(t) and scores[t][i] is not None for t in panel.closes)]
+            if not idxs:
+                continue
         phase_idxs.append(idxs)
         runs.append(_run_phase(panel, cfg, scores, idxs, regimes, series_cache, tie_rng))
     if not runs:
-        return {"ready": False, "reason": f"표본 부족 — 거래일 {len(panel)}일"}
+        reason = f"표본 부족 — 거래일 {len(panel)}일"
+        if score_source == "pit":
+            reason = "PIT 스냅샷이 리밸런스 구간에 없음 — 마감 스냅샷이 더 쌓여야 한다"
+        return {"ready": False, "reason": reason}
 
     ppy = 252 / cfg.rebalance_days
     totals = [(r["equity"][-1] - 1) * 100 for r in runs]
@@ -342,7 +395,7 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     percentile = round(better / len(rnd["totals"]) * 100, 1) if rnd["totals"] else None
     excess = strat_total - rnd["median"]
 
-    weighted = _weighted_factors(cfg.signal_config)
+    weighted = _weighted_factors(cfg.signal_config) if score_source == "price" else set()
     weak = [n for n, pct in coverage.items() if pct < 60 and n in weighted]
     warnings = [f"{name} 이력 커버리지 {coverage[name]}% — 대부분의 시점에서 계산조차 안 됐다. "
                 f"이 팩터의 결과는 읽지 말 것" for name in weak]
@@ -358,12 +411,18 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     if cfg.shuffle_returns:
         warnings.append("셔플 모드 — 점수와 수익률의 짝을 어긋나게 했다. "
                         "여기서 판별력이 나오면 그건 누수다")
+    if score_source == "pit":
+        warnings.append("PIT 점수 모드 — 스냅샷에 저장된 라이브 점수(fund/flow 포함)로 순위를 잰다. "
+                        "스냅샷 구간 밖은 비어 있어 표본이 짧다")
+    # PIT 짧은 구간은 min_periods를 낮춰도 되지만, 기본 문턱을 뚫지 못하면 판정 불가가 정직하다.
+    min_periods = cfg.min_periods if score_source == "price" else min(cfg.min_periods, 5)
     verdict, why = _verdict(percentile, min(totals), max(totals), rnd["median"],
-                            periods=runs[0]["periods"], min_periods=cfg.min_periods,
+                            periods=runs[0]["periods"], min_periods=min_periods,
                             weak_factors=weak)
 
     return {
         "ready": True,
+        "score_source": score_source,
         "config": {"top_pct": cfg.top_pct, "hold_days": cfg.rebalance_days,
                    "cost_pct": cfg.cost_pct, "min_score": cfg.min_score,
                    "use_exposure": cfg.use_exposure, "phases": len(runs),

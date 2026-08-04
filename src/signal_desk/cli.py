@@ -85,6 +85,42 @@ def report():
 
 
 @app.command()
+def accuracy():
+    """PIT 시그널 이력 × 종가 → 매수 리프트·팩터 IC (시그널 판별력 실측).
+
+    h20이 안 익었으면 임시로 더 짧은 horizon을 헤드라인으로 쓴다. NaN 팩터값은 IC에서 제외.
+    """
+    from signal_desk import store
+    from signal_desk.signals import accuracy as acc
+
+    df = store.load_signal_history()
+    if df.empty:
+        console.print("[red]PIT 시그널 이력 없음[/red] — 장 마감 후 스냅샷이 쌓이면 측정됩니다.")
+        raise typer.Exit(1)
+    console.print("[dim]종가 조인·채점 중…[/dim]")
+    out = acc.realized_accuracy(df.to_dict("records"), store.load_all_dated_closes())
+    cov = out.get("coverage") or {}
+    hh = out.get("headline_horizon")
+    console.print(
+        f"[green]ready={out.get('ready')}[/green] · headline h{hh}"
+        f"{'' if out.get('primary_ready') else ' (임시)'}"
+        f" · buy_lift {out.get('buy_lift_pp')}%p"
+        f" · buy_prec {out.get('buy_precision_pct')}% (n={out.get('buy_sample')})"
+    )
+    if cov.get("interim_note"):
+        console.print(f"[yellow]{cov['interim_note']}[/yellow]")
+    base = out.get("baseline") or {}
+    console.print(
+        f"[dim]baseline up {base.get('up_pct')}% · matured_primary "
+        f"{cov.get('matured_primary')} · price_to {cov.get('price_data_to')}[/dim]"
+    )
+    ic = out.get("factor_ic") or {}
+    parts = [f"{k} {v:+.3f}" for k, v in ic.items() if v is not None]
+    console.print("IC @" + f"h{out.get('factor_ic_horizon')}: "
+                  + (" · ".join(parts) if parts else "(표본 부족)"))
+
+
+@app.command()
 def harness(
     top_pct: float = typer.Option(3.0, "--top-pct", help="매수권 분위(%)"),
     hold: int = typer.Option(5, "--hold", help="보유·리밸런스 주기(거래일)"),
@@ -95,6 +131,8 @@ def harness(
     market: str = typer.Option("kr", "--market", help="kr|us — 횡단면 순위는 한 시장 안에서만"),
     shuffle: bool = typer.Option(False, "--shuffle",
                                  help="누수 검사 — 점수와 수익률의 짝을 어긋나게 하고 돌린다"),
+    pit: bool = typer.Option(False, "--pit",
+                             help="PIT signal_history 점수(fund/flow 포함)로 순위 — 스냅샷 구간만"),
 ):
     """포트폴리오 백테스트 — 횡단면 분위 규칙 vs 무작위 대조군 vs 동일가중 벤치마크.
 
@@ -112,10 +150,21 @@ def harness(
     panel = hz.build_panel(store.load_all_dated_closes(), {u["ticker"] for u in uni})
     console.print(f"[dim]{market.upper()} · {len(panel.dates)}거래일 · {len(panel.closes)}종목 "
                   f"({panel.dates[0]}~{panel.dates[-1]})[/dim]")
+    pit_scores = None
+    if pit:
+        hdf = store.load_signal_history()
+        if hdf.empty:
+            console.print("[red]PIT 스냅샷 없음[/red] — `--pit`은 signal_history가 필요합니다.")
+            raise typer.Exit(1)
+        pit_scores, meta = hz.scores_from_pit(panel, hdf.to_dict("records"))
+        console.print(f"[dim]PIT 점수 {meta['pit_cells']}셀 · "
+                      f"{meta['pit_from']}~{meta['pit_to']} ({meta['pit_dates']}일)[/dim]")
 
     combos = ([(tp, h) for tp in (1.0, 3.0, 5.0, 10.0) for h in (5, 20)] if sweep
               else [(top_pct, hold)])
-    table = Table(title="포트폴리오 하네스 — 판단은 '무작위 대비 백분위'로")
+    title = ("포트폴리오 하네스 (PIT 점수)" if pit
+             else "포트폴리오 하네스 — 판단은 '무작위 대비 백분위'로")
+    table = Table(title=title)
     for c in ("분위", "보유", "전략 누적", "위상편차", "무작위 중위", "초과", "백분위", "판정"):
         table.add_column(c, justify="left" if c == "판정" else "right")
     seen_warnings: list[str] = []
@@ -124,12 +173,15 @@ def harness(
                                random_trials=trials, use_exposure=exposure,
                                shuffle_returns=shuffle)
         regimes = hz.regimes_at(panel, hz._rebalance_indices(panel, cfg)) if exposure else None
-        out = hz.run(panel, cfg, regimes)
+        out = (hz.run(panel, cfg, regimes, scores=pit_scores, score_source="pit") if pit
+               else hz.run(panel, cfg, regimes))
         if not out["ready"]:
             console.print(f"[red]{out['reason']}[/red]")
             raise typer.Exit(1)
         # 시그널 판별력 A열이 읽도록 마지막(또는 단일) 런을 캐시. sweep이면 마지막 조합이 남는다.
-        store.save_harness_last({**out, "top_pct": tp, "hold_days": h}, market=market)
+        # 기본(가격) 하네스만 보드 정본으로 저장 — PIT는 표본이 짧아 덮어쓰지 않는다.
+        if not pit:
+            store.save_harness_last({**out, "top_pct": tp, "hold_days": h}, market=market)
         s, r = out["strategy"], out["vs_random"]
         pct, verdict = r["percentile"], out["verdict"]
         color = {"판별력 있음": "green", "역판별력": "red"}.get(verdict, "yellow")
@@ -142,7 +194,10 @@ def harness(
             if w not in seen_warnings:
                 seen_warnings.append(w)
     console.print(table)
-    console.print("[dim]결과 저장 → data/cache/harness_last.json (GET /api/proof A.harness)[/dim]")
+    if pit:
+        console.print("[dim]PIT 모드는 harness_last를 덮지 않습니다(보드 정본=가격 하네스).[/dim]")
+    else:
+        console.print("[dim]결과 저장 → data/cache/harness_last.json (GET /api/proof A.harness)[/dim]")
     for w in seen_warnings:
         console.print(f"[yellow]![/yellow] {w}")
     if len(combos) > 1:
