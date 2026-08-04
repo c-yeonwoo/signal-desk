@@ -161,3 +161,16 @@ def test_random_baseline_is_phase_averaged():
         return t[int(len(t) * 0.75)] - t[int(len(t) * 0.25)]
 
     assert iqr(spread_multi) < iqr(single), "위상 평균은 대조군 분산을 줄여야 한다"
+
+
+def test_scores_from_pit_aligns_to_panel_dates():
+    panel = _panel({"A": [100.0 + i for i in range(10)], "B": [50.0 + i for i in range(10)]})
+    rows = [
+        {"date": panel.dates[3], "ticker": "A", "score": 1.5},
+        {"date": panel.dates[3], "ticker": "B", "score": 0.2},
+        {"date": "2099-01-01", "ticker": "A", "score": 9.0},  # 패널 밖
+    ]
+    scores, meta = hz.scores_from_pit(panel, rows)
+    assert scores["A"][3] == 1.5 and scores["B"][3] == 0.2
+    assert scores["A"][0] is None
+    assert meta["pit_cells"] == 2 and meta["pit_dates"] == 1

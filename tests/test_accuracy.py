@@ -165,3 +165,41 @@ def test_unmatched_ticker_skipped():
         [{"date": "2026-01-01", "ticker": "GHOST", "kind": "BUY"}], {}, horizons=(5,))
     assert out["ready"] is False
     assert out["coverage"]["rows"] == 1 and out["coverage"]["tickers_matched"] == 0
+
+
+def test_nan_factor_skipped_in_ic_and_does_not_hang():
+    """parquet NaN은 is not None을 통과한다 — IC에서 빼지 않으면 Spearman이 멈출 수 있다."""
+    import math
+    closes, rows = {}, []
+    for i in range(30):
+        d, c = _closes(start=100.0, n=30, step=(i - 15) * 0.5)
+        t = f"T{i}"
+        closes[t] = (d, c)
+        rows.append({"date": "2026-01-01", "ticker": t, "kind": "HOLD", "score": float(i),
+                     "momentum": float(i), "technical": 0, "fundamental": 0,
+                     "valuation": math.nan if i < 5 else float(i),  # 5건만 NaN → 25≥min
+                     "reversion": 0, "qualitative": 0, "flow": 0, "quality": 0})
+    out = accuracy.realized_accuracy(rows, closes, horizons=(5,), primary=5)
+    assert out["factor_ic"]["momentum"] is not None
+    assert out["factor_ic"]["score"] is not None and out["factor_ic"]["score"] > 0.9
+    assert out["factor_ic"]["valuation"] is not None  # NaN 행만 제외하고 계산
+
+
+def test_interim_headline_when_primary_not_mature():
+    """h20 미성숙이어도 h5 표본이 있으면 임시 헤드라인·IC를 낸다."""
+    closes, rows = {}, []
+    for i in range(25):
+        # 봉 12개 → 진입 다음+h5는 가능, h20은 불가
+        d, c = _closes(start=100.0, n=12, step=(i - 12) * 0.3)
+        t = f"T{i}"
+        closes[t] = (d, c)
+        rows.append({"date": "2026-01-01", "ticker": t, "kind": "HOLD", "score": float(i),
+                     "momentum": float(i), "technical": 0, "fundamental": float(i),
+                     "valuation": 50, "reversion": 0, "qualitative": 0, "flow": 0, "quality": 0})
+    out = accuracy.realized_accuracy(rows, closes, horizons=(5, 20), primary=20)
+    assert out["primary_ready"] is False
+    assert out["headline_horizon"] == 5
+    assert out["ready"] is True
+    assert out["factor_ic_horizon"] == 5
+    assert out["factor_ic"]["fundamental"] is not None
+    assert out["coverage"]["interim_note"]

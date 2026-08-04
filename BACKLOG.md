@@ -195,6 +195,7 @@
 | **C** Decision veto | 사고 회피 | Decision/KB PR만 |
 
 - **보드**: `GET /api/proof` · harness → `harness_last.json`
+- **실측**: `sigdesk accuracy` (PIT IC·리프트, h20 전이면 임시 horizon) · `sigdesk harness --pit` (스냅샷 점수)
 - **픽 이유**: 시그널 상세 `pit`(최근 PIT 한 줄) · `GET /api/pick-reason`는 관리자 딥다이브
 - **종합 계약**: 거시·산업·KB·hypo는 L0 `combine` 미투입. Decision / exposure / shadow 승격만.
 - **동결(Later)**: 온보딩 확장 · 숏폼 성장 · 외부 리텐션 실험 · D7 목표치 합의.

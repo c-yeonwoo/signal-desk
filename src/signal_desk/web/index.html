@@ -6037,7 +6037,7 @@ async function loadProofOs(){
             const line = parts.filter(Boolean).join(' · ');
             return line ? ('IC ' + line) : '';
           })()}</div>
-          <div style="font-size:12px;color:var(--dim);margin-top:4px">${esc((acc.coverage && acc.coverage.blocked_reason) || (acc.blocked_reason) || '')}</div>
+          <div style="font-size:12px;color:var(--dim);margin-top:4px">${esc((acc.coverage && (acc.coverage.interim_note || acc.coverage.blocked_reason)) || (acc.blocked_reason) || '')}${acc.headline_horizon && !acc.primary_ready ? ` · h${acc.headline_horizon}` : ''}</div>
           <div style="font-size:12px;margin-top:6px;line-height:1.55">
             ${shLine('advisor', sh.advisor)}<br>${shLine('climate', sh.climate)}<br>${shLine('kb', sh.kb_coverage)}
           </div>
