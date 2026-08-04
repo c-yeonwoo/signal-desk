@@ -75,6 +75,31 @@ def test_postmortem_ready_and_forward():
     assert out["forward_ret_pct"]["h5"] is not None
 
 
+def test_latest_picks_most_recent_date():
+    rows = [
+        {"date": "2026-07-01", "ticker": "AAA", "score": 1.0, "kind": "BUY",
+         "technical": 0.1, "fundamental": None, "valuation": None, "reversion": None,
+         "qualitative": None, "flow": None, "quality": None, "momentum": None,
+         "short": None, "rank": 2, "rank_eligible": 1, "gate_blocked": 0,
+         "event_risk": 0, "decision_severity": None, "decision_blocked": 0,
+         "decision_summary": None, "reasons_json": "[]"},
+        {"date": "2026-07-08", "ticker": "AAA", "score": 1.8, "kind": "STRONG_BUY",
+         "technical": 0.2, "fundamental": None, "valuation": None, "reversion": None,
+         "qualitative": None, "flow": None, "quality": None, "momentum": None,
+         "short": None, "rank": 1, "rank_eligible": 1, "gate_blocked": 0,
+         "event_risk": 0, "decision_severity": None, "decision_blocked": 0,
+         "decision_summary": None,
+         "reasons_json": json.dumps(["[모멘텀] 상위"], ensure_ascii=False)},
+    ]
+    out = pick_reason.latest(
+        "AAA", history_rows=rows, closes_by_ticker={}, bot_decisions=None)
+    assert out["ready"] and out["date"] == "2026-07-08"
+    slim = pick_reason.slim_for_detail(out)
+    assert slim["date"] == "2026-07-08" and slim["rank"] == 1
+    assert slim["reasons"][0].startswith("[모멘텀]")
+    assert pick_reason.slim_for_detail({"ready": False}) is None
+
+
 def test_proof_build_marks_a_primary():
     payload = proof.build(
         accuracy={"ready": True, "buy_lift_pp": 4.0, "factor_ic": {"score": 0.1},

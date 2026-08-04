@@ -1241,12 +1241,7 @@
       </div>
       <p class="page-desc" style="margin:8px 0 10px">엔진을 바꿀 때는 <b>시그널 판별력(A)</b>이 기본입니다. 페이퍼(B)·Decision(C)는 참고입니다.</p>
       <div id="proof-os-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
-      <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap;align-items:center">
-        <input id="pick-reason-date" placeholder="YYYY-MM-DD" style="width:120px;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
-        <input id="pick-reason-ticker" placeholder="종목코드" style="width:100px;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">
-        <button class="btn" onclick="loadPickReason()">픽 이유</button>
-      </div>
-      <div id="pick-reason-body" style="margin-top:8px;font-size:13px;color:var(--dim)"></div>
+      <p class="page-desc" style="margin:10px 0 0;font-size:12px;color:var(--dim)">픽 스냅샷·실현수익은 시그널 탭에서 종목을 열면 히어로에 한 줄로 붙습니다.</p>
     </div>
 
     <div class="card" id="brain-proposals-card" style="margin-top:16px">
@@ -3495,6 +3490,7 @@ function _paintSignalDetail(ticker, item){
           ${up != null ? `<span>목표가 상승여력 <b style="color:var(--sig-buy)">+${fmtNum(up, 1)}%</b></span>` : ''}
           <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
           + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b></span>
+          ${_pitHeroLine(item._pit)}
         </div>
       </div>`;
   } else heroEl.style.display = 'none';
@@ -3740,6 +3736,7 @@ async function showSignalChart(ticker, item){
     if (_selectedTicker !== ticker) return;
     if (detail && detail.ready && detail.item) {
       item = Object.assign({}, item || {}, detail.item);
+      if (detail.pit) item._pit = detail.pit;
       _signalItems[ticker] = item;
       if (_chartCache && _chartCache.ticker === ticker) _chartCache.item = item;
       _paintSignalDetail(ticker, item);
@@ -6034,6 +6031,12 @@ async function loadProofOs(){
           <div style="font-weight:700;font-size:13px;margin-bottom:6px">A · 시그널 판별력</div>
           <div style="font-size:13px">매수 리프트 <b>${acc.buy_lift_pp == null ? '–' : ((acc.buy_lift_pp > 0 ? '+' : '') + fmtNum(acc.buy_lift_pp, 1) + '%p')}</b>
             <span style="color:var(--dim)"> · score IC ${ic.score == null ? '–' : fmtNum(ic.score, 3)}</span></div>
+          <div style="font-size:12px;color:var(--dim);margin-top:3px;font-variant-numeric:tabular-nums">${(() => {
+            const keys = [['momentum','mom'],['technical','tech'],['fundamental','fund'],['flow','flow']];
+            const parts = keys.map(([k, lab]) => ic[k] == null ? null : `${lab} ${fmtNum(ic[k], 2)}`);
+            const line = parts.filter(Boolean).join(' · ');
+            return line ? ('IC ' + line) : '';
+          })()}</div>
           <div style="font-size:12px;color:var(--dim);margin-top:4px">${esc((acc.coverage && acc.coverage.blocked_reason) || (acc.blocked_reason) || '')}</div>
           <div style="font-size:12px;margin-top:6px;line-height:1.55">
             ${shLine('advisor', sh.advisor)}<br>${shLine('climate', sh.climate)}<br>${shLine('kb', sh.kb_coverage)}
@@ -6058,32 +6061,22 @@ async function loadProofOs(){
           <div style="font-size:12px;color:var(--dim);line-height:1.45">${esc(C.note || '')}</div>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--dim-2);margin-top:8px">combine 미포함: 정성·거시·사이클·hypo · <code>docs/north-star-selection.md</code></div>`;
+      <div style="font-size:11px;color:var(--dim-2);margin-top:8px">combine 미포함: 정성·거시·사이클·hypo</div>`;
   } catch (e) {
     el.className = '';
     el.textContent = '불러오지 못했습니다.';
   }
 }
-async function loadPickReason(){
-  const el = document.getElementById('pick-reason-body');
-  const date = (document.getElementById('pick-reason-date') || {}).value || '';
-  const ticker = (document.getElementById('pick-reason-ticker') || {}).value || '';
-  if (!el) return;
-  if (!date || !ticker) { el.textContent = '날짜와 종목코드를 입력하세요.'; return; }
-  el.textContent = '불러오는 중…';
-  try {
-    const d = await (await fetch('/api/pick-reason?date=' + encodeURIComponent(date)
-      + '&ticker=' + encodeURIComponent(ticker))).json();
-    if (!d.ready) { el.textContent = d.blocked_reason || d.detail || '없음'; return; }
-    const p = d.pick || {};
-    const fwd = d.forward_ret_pct || {};
-    const reasons = (p.reasons || []).slice(0, 8).map(r => `<div>· ${esc(r)}</div>`).join('');
-    el.innerHTML = `<div style="color:var(--text)"><b>${esc(p.ticker)}</b> ${esc(p.kind || '')}
-      · 점수 ${p.score == null ? '–' : fmtNum(p.score, 2)}
-      · rank ${p.rank ?? '–'}${p.gate_blocked ? ' · <span style="color:var(--sell)">gate</span>' : ''}
-      · h5 ${fwd.h5 == null ? '–' : fmtNum(fwd.h5, 2) + '%'} · h20 ${fwd.h20 == null ? '–' : fmtNum(fwd.h20, 2) + '%'}</div>
-      <div style="margin-top:6px">${reasons || '<span style="color:var(--dim)">reasons 없음(구 PIT)</span>'}</div>`;
-  } catch (e) { el.textContent = '요청 실패'; }
+function _pitHeroLine(pit){
+  if (!pit || !pit.date) return '';
+  const fwd = pit.forward_ret_pct || {};
+  const bits = [`스냅 ${pit.date}`];
+  if (pit.rank != null) bits.push('r' + pit.rank);
+  if (pit.gate_blocked) bits.push('gate');
+  if (fwd.h20 != null) bits.push('h20 ' + (fwd.h20 > 0 ? '+' : '') + fmtNum(fwd.h20, 1) + '%');
+  else if (fwd.h5 != null) bits.push('h5 ' + (fwd.h5 > 0 ? '+' : '') + fmtNum(fwd.h5, 1) + '%');
+  const tip = (pit.reasons || []).slice(0, 3).join(' · ') || '최근 PIT 스냅샷';
+  return `<span style="color:var(--dim);font-weight:500" title="${esc(tip)}">${esc(bits.join(' · '))}</span>`;
 }
 async function loadBrainProposals(){
   const el = document.getElementById('brain-proposals-body');

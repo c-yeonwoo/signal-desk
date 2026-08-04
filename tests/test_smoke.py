@@ -115,7 +115,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 시그널 판별력 보드(구 증명 OS). D7은 부차 리텐션(계측만 유지).
     assert 'id="proof-os-body"' in html and "loadProofOs" in html and "시그널 판별력" in html
     assert "증명 OS" not in html and "북극성 A" not in html
-    assert "/api/proof" in html and "loadPickReason" in html
+    assert "/api/proof" in html and "_pitHeroLine" in html
+    assert "loadPickReason" not in html  # 관리자 폼 제거 — 시그널 상세 히어로로 흡수
     assert "runHarnessFromProof" in html and "/api/harness/run" in html
     assert 'id="d7-body"' in html and "loadD7" in html and "리텐션 D7" in html
     assert "북극성 D7" not in html
