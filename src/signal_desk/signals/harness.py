@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import math
 import random
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from signal_desk.signals import engine, regime as regime_mod
@@ -153,6 +154,8 @@ def _score_series(panel: Panel, config: SignalConfig
 def scores_with_pit_fundamentals(
     panel: Panel, config: SignalConfig, hist: dict, *,
     shares: dict[str, float], universe: list[dict] | None = None,
+    universe_at: "Callable[[str], set[str] | None] | None" = None,
+    mktcap_anchors: dict | None = None, price_on: dict | None = None,
 ) -> tuple[dict[str, list[float | None]], dict[str, float], dict[str, float], dict]:
     """가격 3팩터 + **시점별 재무** 3팩터 = 6팩터 점수 시계열.
 
@@ -166,6 +169,11 @@ def scores_with_pit_fundamentals(
 
     수급·공매도는 여기 없다. `flows.json`·`short.json`이 시계열이 아니라 현재값 스냅샷이라
     **백필이 원리적으로 불가능**하다 — 그래서 이것은 6팩터이고 8팩터가 아니다.
+
+    `universe_at(date) -> set[ticker] | None` 을 주면 **그 날 유니버스 밖 종목은 점수를 내지 않는다**
+    (생존편향 제거, N5). None 을 돌려주는 날짜는 스냅샷이 없는 구간이므로 아무 점수도 내지 않는다 —
+    오늘 유니버스로 폴백하지 않는다(그러면 그 구간만 편향이 남고 결과가 뭘 재는지 불분명해진다).
+    대조군(`_permuted_scores`)은 각 티커의 **자기 가용성을 유지**하므로 같은 제약을 공유한다.
     """
     from signal_desk.signals import pit_fundamentals as pf
 
@@ -205,9 +213,12 @@ def scores_with_pit_fundamentals(
             if t not in price_at:
                 continue
             mm = dict(m)
-            sh, px = shares.get(t), price_at[t]
-            if sh and px:
-                mktcap = px * sh
+            # 시가총액은 **시점 앵커**를 우선한다(월 스냅샷의 mktcap). 앵커가 없으면 주식수 근사로
+            # 폴백하는데, 폐지·이탈 종목은 현재 시총이 없어 폴백도 안 된다 — 그러면 저평가가 빠지고
+            # 재정규화 편향으로 극단 점수가 나온다(2026-08-05 실측: 매수권 6자리 중 4.62자리).
+            mktcap = pf.mktcap_at(t, date_str, price_at[t], anchors=mktcap_anchors or {},
+                                  price_on=price_on, shares=shares)
+            if mktcap:
                 ni, eq = mm.get("net_income"), mm.get("equity")
                 if ni and ni > 0:
                     mm["per"] = round(mktcap / ni, 2)
@@ -216,11 +227,20 @@ def scores_with_pit_fundamentals(
             metrics[t] = mm
         if not metrics:
             continue
+        uni_set = universe_at(date_str) if universe_at is not None else None
+        if universe_at is not None and not uni_set:
+            continue                              # 스냅샷 없는 구간 → 점수 없음(폴백하지 않는다)
+        if uni_set is not None:
+            metrics = {t: m for t, m in metrics.items() if t in uni_set}
+            if not metrics:
+                continue
         val_scores = pf.valuation_scores_at(metrics, universe)
         if first_date is None:
             first_date = date_str
         dates_with_fund += 1
         for ticker, (vals, offset, series) in prepared.items():
+            if uni_set is not None and ticker not in uni_set:
+                continue                          # 그 날 유니버스 밖 — 후보가 아니다
             j = i - offset
             if j < 0 or j >= len(vals):
                 continue
@@ -244,6 +264,7 @@ def scores_with_pit_fundamentals(
             scores[ticker][i] = engine.combine(comps, config)["score"]
 
     meta = {"fund_from": first_date, "fund_dates": dates_with_fund,
+            "universe_mode": "pit" if universe_at is not None else "today",
             "fiscal_years": sorted(str(y) for y, v in fy_cache.items() if v),
             "note": ("수급·공매도는 시계열 이력이 없어 제외 — 6팩터다. "
                      "재무는 (FY+1)-04-01 부터 사용(법정기한 기반 보수적 규칙).")}
@@ -621,7 +642,40 @@ def _permuted_scores(scores: dict[str, list[float | None]], rng: random.Random) 
     keys = list(scores)
     src = keys[:]
     rng.shuffle(src)
-    return {k: scores[s] for k, s in zip(keys, src)}
+    out: dict[str, list[float | None]] = {}
+    for k, donor in zip(keys, src):
+        mask, row = scores[k], scores[donor]
+        # **자기 가용성(mask)은 그대로 두고 값만 기증자에게서 받는다.**
+        # 2026-08-05: 시계열을 통째로 맞바꾸면 None 패턴까지 옮겨가 대조군이 **전략이 살 수 없던
+        # 종목**을 살 수 있게 된다(시점별 유니버스·PIT 재무에서 종목마다 가용 날짜가 다르므로).
+        # 이미 폐지돼 forward-fill 된 종목을 대조군만 담으면 그 0% 수익이 대조군을 끌어내려
+        # 전략이 좋아 보인다 — 이 파일이 경계하는 "기계적 차이가 판별력으로 둔갑"이다.
+        # 기증자가 그 날 값이 없으면 **직전 값**을 쓴다(대조군 점수는 정보가 없어야 하는 값이므로
+        # 낡아도 무해하다). 이렇게 하면 날짜별 후보 수·지속성·회전율이 전략과 같게 유지된다.
+        filled = _fill_both_ways(row)
+        if all(v is None for v in filled):
+            filled = _fill_both_ways(mask)      # 기증자가 통째로 비었으면 자기 값(가용성 우선)
+        out[k] = [filled[i] if mask[i] is not None else None for i in range(len(mask))]
+    return out
+
+
+def _fill_both_ways(row: list[float | None]) -> list[float | None]:
+    """앞뒤로 채운 사본. 대조군 점수는 **정보가 없어야 하는 값**이므로 낡거나 당겨써도 무해하다 —
+    중요한 것은 그 종목이 그 날 후보였는지(가용성)를 전략과 똑같이 유지하는 것이다."""
+    out = list(row)
+    last: float | None = None
+    for i, v in enumerate(out):
+        if v is not None:
+            last = v
+        elif last is not None:
+            out[i] = last
+    nxt: float | None = None
+    for i in range(len(out) - 1, -1, -1):
+        if out[i] is not None:
+            nxt = out[i]
+        elif nxt is not None:
+            out[i] = nxt
+    return out
 
 
 def _null_distribution(panel: Panel, cfg: HarnessConfig, scores: dict,

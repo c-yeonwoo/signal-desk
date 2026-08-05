@@ -58,6 +58,42 @@ def fetch(full: bool = typer.Option(False, "--full", "-f",
         console.print(f"[green]재무데이터 {len(fundamentals)}종목[/green] → {store.FUNDAMENTALS_FILE}")
 
 
+@app.command("fetch-universe-history")
+def fetch_universe_history_cmd(
+    months: int = typer.Option(60, "--months", help="거슬러 올라갈 개월 수(월 1회 스냅샷)"),
+    force: bool = typer.Option(False, "--force", help="이미 받은 달도 다시 받는다"),
+):
+    """시점별(PIT) 유니버스 백필 — 생존편향 제거의 원천.
+
+    각 달 첫 거래일의 시총 상위 200을 KRX Open API(`sto/stk_bydd_trd`)로 받아 캐시한다.
+    그 응답은 **그 날 상장돼 있던** 종목이라 지금 폐지된 종목도 들어 있다.
+    이미 받은 달은 건너뛴다(재실행이 싸다).
+    """
+    from signal_desk import store
+
+    console.print(f"[dim]PIT 유니버스 백필 — 최근 {months}개월, 월 1회 스냅샷[/dim]")
+    r = store.fetch_universe_history(months_back=months, force=force)
+    if not r["ok"]:
+        console.print(f"[red]{r.get('reason')}[/red]")
+        raise typer.Exit(1)
+    console.print(f"[green]스냅샷 {r['snapshots']}개[/green] (신규 {r['added']}) · "
+                  f"{r['from']} ~ {r['to']} · 고유 종목 [bold]{r['tickers_total']}[/bold]")
+    if r["failed"]:
+        console.print(f"[yellow]![/yellow] 실패한 달: {', '.join(r['failed'])}")
+    if r["changes"]:
+        console.print("[dim]최근 편입/편출:[/dim]")
+        for c in r["changes"]:
+            console.print(f"[dim]  {c['date']}  진입 +{c['in']} · 이탈 −{c['out']}[/dim]")
+    # 시세 백필은 **개수를 보고한 뒤** 별도로 돈다 — 몇 종목인지 모르는 채 시작하지 않는다.
+    have = set(store.load_all_dated_closes())
+    need = [u for u in store.pit_universe_tickers() if u["ticker"] not in have]
+    console.print(f"[bold]시세 필요:[/bold] {len(need)}종목 (이미 있음 "
+                  f"{r['tickers_total'] - len(need)})")
+    if need:
+        console.print("[dim]다음: `sigdesk fetch --full` 로 시세를 받으세요 "
+                      "(모멘텀이 252거래일을 요구하므로 5년 전량).[/dim]")
+
+
 @app.command()
 def report():
     """수집된 캐시로 종목별 시그널을 Rich 테이블로 출력."""

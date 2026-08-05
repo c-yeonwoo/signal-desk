@@ -931,3 +931,65 @@ def test_zero_buy_line_states_the_actual_cause():
     assert "고장 아님</span>" not in html, "매수 0에 하드코딩된 변호가 남아 있다"
     assert "고장 아닙니다" not in html, "온보딩이 매수 0을 무조건 정상이라 가르친다"
     assert "zeroWhy" in html and "게이트 차단" in html and "창" in html
+
+
+# --------------------------------------------------- 시점별 유니버스 (N5)
+
+def test_the_null_shares_the_same_per_date_candidate_set():
+    """대조군은 **전략이 살 수 있던 종목만** 살 수 있어야 한다.
+
+    라벨 치환이 시계열을 통째로 맞바꾸면 None 패턴까지 옮겨간다. 종목마다 가용 날짜가 다른
+    경우(시점별 유니버스·PIT 재무) 대조군이 전략이 못 산 종목 — 이미 폐지돼 forward-fill 된
+    종목까지 — 을 담게 되고, 그 0% 수익이 대조군을 끌어내려 전략이 좋아 보인다.
+    """
+    import random as _r
+    scores = {
+        "A": [1.0, 1.0, 1.0, 1.0],          # 항상 유니버스 안
+        "B": [None, None, 2.0, 2.0],        # 뒤늦게 편입
+        "C": [3.0, 3.0, None, None],        # 중간에 이탈(폐지 가정)
+    }
+    for seed in range(12):
+        perm = hz._permuted_scores(scores, _r.Random(seed))
+        for i in range(4):
+            have = {t for t, row in scores.items() if row[i] is not None}
+            got = {t for t, row in perm.items() if row[i] is not None}
+            assert got == have, f"seed={seed} i={i}: 후보 집합이 달라졌다 {got} != {have}"
+
+
+def test_universe_at_never_uses_a_future_snapshot(tmp_path, monkeypatch):
+    """`universe_at(d)`는 **d 이하** 스냅샷만 쓴다 — 미래 편입 목록을 쓰면 그게 룩어헤드다."""
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import store
+    monkeypatch.setattr(store, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(store, "UNIVERSE_HISTORY_FILE", tmp_path / "universe_history.json")
+    store._write_json(store.UNIVERSE_HISTORY_FILE, {
+        "2024-01-02": [{"ticker": "A", "name": "에이"}],
+        "2024-06-03": [{"ticker": "A", "name": "에이"}, {"ticker": "B", "name": "비"}],
+    })
+    assert store.universe_at("2023-12-31") is None, "첫 스냅샷 이전인데 목록을 돌려줬다"
+    assert [u["ticker"] for u in store.universe_at("2024-01-02")] == ["A"]
+    assert [u["ticker"] for u in store.universe_at("2024-05-30")] == ["A"], "미래 스냅샷을 당겨썼다"
+    assert [u["ticker"] for u in store.universe_at("2024-06-03")] == ["A", "B"]
+    assert [u["ticker"] for u in store.universe_at("2026-01-01")] == ["A", "B"]
+
+
+def test_pit_universe_restricts_the_panel_and_settles_delistings():
+    """시점별 유니버스가 후보를 제한하고, 폐지 종목은 **마지막 종가로 정산**된다.
+
+    `build_panel`이 결측을 직전 값으로 채우므로(상장 이전만 None) 폐지 후 구간은 마지막 종가가
+    유지된다 = 마지막 거래일 종가 청산. 우연히 맞는 동작에 의존하지 않도록 여기서 박는다.
+    """
+    dates = _dates(6)
+    panel = hz.build_panel({
+        "KEEP": (dates, [100.0, 101.0, 102.0, 103.0, 104.0, 105.0]),
+        "DEAD": (dates[:3], [100.0, 90.0, 50.0]),        # 3일째 폐지 — 이후 데이터 없음
+    })
+    # 폐지 후에도 패널에는 마지막 종가가 유지된다(청산 처리).
+    assert panel.closes["DEAD"][2] == 50.0
+    assert panel.closes["DEAD"][5] == 50.0, "폐지 종목이 패널에서 사라지면 생존편향이 남는다"
+
+    # 시점별 유니버스: 앞 3일은 DEAD 포함, 뒤 3일은 제외 → 점수가 None 이어야 한다.
+    uni_at = {d: ({"KEEP", "DEAD"} if i < 3 else {"KEEP"}) for i, d in enumerate(dates)}
+    scores = {t: [(1.0 if t in uni_at[d] else None) for d in dates] for t in panel.closes}
+    assert scores["DEAD"][:3] == [1.0, 1.0, 1.0]
+    assert scores["DEAD"][3:] == [None, None, None], "유니버스에서 빠졌는데 점수가 남았다"
