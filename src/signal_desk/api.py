@@ -1636,6 +1636,29 @@ def harness_preregistered_get(request: Request, market: str = "kr"):
     return store.harness_board("us" if market == "us" else "kr")
 
 
+@app.get("/api/verdict")
+def api_verdict(market: str = "kr"):
+    """시그널 판별력 **판정 상태** — 첫 화면(신뢰 스트립)이 읽는다. 로그인만 필요, 관리자 아님.
+
+    `/api/harness/preregistered`는 관리자 전용이다(가설 원문·설정 해시·이력이 붙는다). 첫 화면에
+    판정을 올리려면 그 라우트를 열 수는 없으니 **판정 상태만** 내는 라우트를 따로 둔다.
+    백분위는 `harness_board`가 이미 요건 미충족일 때 None으로 비워 준다 — 여기서 다시 계산하지
+    않고 그 값을 그대로 쓴다(두 곳에서 조립하면 화면과 보드가 갈라진다).
+    """
+    b = store.harness_board("us" if market == "us" else "kr")
+    if not b.get("ready"):
+        return {"ready": False, "verdict": b.get("verdict") or "판정 불가",
+                "verdict_why": b.get("verdict_why") or b.get("reason") or ""}
+    return {
+        "ready": True, "market": b["market"], "status": b["status"],
+        "verdict": b["verdict"], "verdict_why": b["verdict_why"],
+        "percentile": b.get("percentile"),          # 요건 미충족이면 None(보드가 비운다)
+        "requirement": b.get("requirement"),
+        "threshold_pct": b.get("threshold_pct"), "n_registered": b.get("n_registered"),
+        "counterfactual_looks": b.get("counterfactual_looks") or [],
+    }
+
+
 @app.get("/api/harness/runs")
 def harness_runs_get(request: Request, limit: int = 20):
     """판정 이력(append-only). 관리자. `preregistered_id`가 null이면 탐색 실행이다."""

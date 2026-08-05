@@ -1552,3 +1552,91 @@ def test_counterfactual_look_never_becomes_the_board_headline():
     d4 = next(r for r in board["looks"] if r["id"] == "d4-no-trend-gate-oos")
     assert d4["counterfactual"] is True and d4["diff_from_live"] == ["trend_gate"]
     assert d4["oos_from"] == "2026-08-07"
+
+
+# ── X4: 판별력을 첫 화면으로 ───────────────────────────────────────────────────
+# 진단(2026-08-05): `판별력` 이라는 문자열이 index.html에 세 곳뿐이고 **전부 관리자**였다.
+# 시그널 첫 화면은 접힌 <details> 안 백테스트 숫자를 대신 보여줬다.
+
+def test_verdict_route_never_leaks_percentile_before_requirements_are_met(tmp_path, monkeypatch):
+    """요건 미충족 동안 백분위를 화면에 내지 않는다 — 매일 보이면 매일 보게 되고 그게 다중검정이다."""
+    import importlib
+
+    from fastapi.testclient import TestClient
+
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import api as api_mod
+    from signal_desk import db as db_mod
+    importlib.reload(db_mod)
+    importlib.reload(api_mod)
+
+    c = TestClient(api_mod.app)
+    assert c.get("/api/verdict").status_code == 401, "비로그인에 판정을 내주면 안 된다"
+    su = c.post("/api/auth/signup", json={"email": "verdict-probe@e.com", "pw": "abcdef12"})
+    assert su.status_code == 200, su.text
+    r = c.get("/api/verdict")
+    assert r.status_code == 200, r.text
+    d = r.json()
+    if not d.get("ready"):
+        # 사전등록 파일을 못 찾는 임시 cwd — 그래도 백분위는 없어야 한다.
+        assert "percentile" not in d or d["percentile"] is None
+        assert d["verdict"] == "판정 불가"
+        return
+    assert d["ready"] is True
+    req = d["requirement"] or {}
+    if not req.get("met"):
+        assert d["percentile"] is None, "요건 미충족인데 백분위가 새어 나왔다"
+        assert d["verdict"] in ("판정 보류", "판정 불가", "무효"), d["verdict"]
+    # 문턱·등록 수를 같이 내야 한다 — 백분위만 보면 무엇과 비교하는지 알 수 없다.
+    assert d["threshold_pct"] and d["n_registered"] >= 1
+    # 진척은 이름과 숫자로 — "곧 나옵니다"로 쓰면 언제인지 모른다.
+    assert "min_effective_periods" in req and "min_pit_dates" in req
+
+
+def test_real_board_withholds_percentile_until_requirements_are_met():
+    """**실제 사전등록 파일**로도 같은 것을 본다 — 위 라우트 검사는 임시 cwd라 not-ready로 빠질 수 있다."""
+    from signal_desk import store
+
+    b = store.harness_board("kr")
+    assert b["ready"], b
+    for row in b["looks"]:
+        req = row["requirement"] or {}
+        if row["status"] != "locked":
+            assert row["percentile"] is None, (row["id"], row["percentile"])
+            assert row["verdict"] in ("판정 보류", "무효"), row["verdict"]
+            # 무엇이 남았는지 이름과 숫자로 — 이유 없는 보류는 조용한 0과 같다.
+            assert row["verdict_why"], row["id"]
+        assert req.get("min_effective_periods") and req.get("min_pit_dates")
+    if b["status"] != "locked":
+        assert b["percentile"] is None, b["percentile"]
+
+
+def test_verdict_route_reuses_the_board_and_does_not_recompute():
+    """판정을 두 곳에서 조립하면 화면과 보드가 갈라지고 그 차이는 어디에도 안 뜬다."""
+    import inspect
+
+    from signal_desk import api as api_mod
+
+    src = inspect.getsource(api_mod.api_verdict)
+    assert "harness_board" in src, "판정 라우트가 보드를 안 쓰고 따로 계산한다"
+    for forbidden in ("percentile =", "better", "sidak_threshold_pct("):
+        assert forbidden not in src, f"판정 라우트가 {forbidden!r}로 값을 재계산한다"
+
+
+def test_first_screen_shows_the_verdict_before_the_score():
+    """첫 화면 신뢰 스트립의 **첫 줄**이 판정이어야 한다(성적·페이퍼보다 먼저)."""
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "function verdictRow(" in html
+    assert "rows.unshift(verdictRow(hz))" in html, "판정 줄이 맨 앞에 들어가지 않는다"
+    assert "fetch('/api/verdict')" in html
+    # 접힌 요약도 판정부터 — "'판정 불가'가 12px 회색으로, 확신은 초록"이었던 것을 뒤집는다.
+    assert "let sumTxt = `판별력" in html
+    # 보류 분기가 백분위를 **읽지도** 않아야 한다 — 보드가 실수로 실어 보내도 화면은 안 그린다.
+    body = html.split("function verdictRow(", 1)[1].split("\nfunction ", 1)[0]
+    hold = body.split("// 보류", 1)[1]
+    assert "percentile" not in hold, "보류 분기에서 백분위를 그린다"
+    # locked 분기만 백분위를 쓴다.
+    locked = body.split("if (hz.status === 'locked')", 1)[1].split("// 보류", 1)[0]
+    assert "hz.percentile" in locked
