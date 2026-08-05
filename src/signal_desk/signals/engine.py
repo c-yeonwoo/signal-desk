@@ -78,6 +78,12 @@ class SignalConfig:
     # 0이면 비활성. 점수는 그대로 내고 **매수권에서만** 뺀다 — 조용히 지우면 왜 없는지 모른다.
     min_data_coverage: float = 0.80
 
+    # 하락추세 게이트(떨어지는 칼 차단) 사용 여부. 1=적용 · 0=미적용.
+    # **설정으로 끌 수 있어야 사전등록·하네스로 검증할 수 있다** — "검사에 넣을 수 없는 파라미터는
+    # 검증된 적이 없다". 실측 진단(2026-08-06): 게이트를 끄면 백분위 71.5 → 92.5, 대신 위상편차가
+    # 73.2 → 109.4pp로 커졌다. 그 결과를 **보고 난 뒤**라 채택은 OOS 사전등록으로만 한다.
+    trend_gate: float = 1.0
+
     # 국면 적응: 1이면 약세·조정·거시 비우호 국면에서 매수 임계값을 자동 상향(regime.buy_threshold_bump).
     # 0이면 임계값 고정. (관리자 조정 필드 — signalcfg.FIELDS에 포함)
     regime_adaptive: float = 1.0
@@ -353,6 +359,8 @@ def _apply_trend_gate(
     이 위험을 알고 HOLD여도 gated를 세우고 있었다(그 docstring 참고) — 게이트 3개가 정책이
     둘로 갈라져 있었다. 이제 셋 다 같은 규약이다.
     """
+    if not float(getattr(config, "trend_gate", 1.0) or 0.0):
+        return combined                            # 게이트 미적용(사전등록 D4 family)
     if _downtrend_blocking(closes, series, i, config, market_ret_20d):
         if combined["kind"] in BUY_KINDS:
             combined["kind"] = HOLD

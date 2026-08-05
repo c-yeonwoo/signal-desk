@@ -23,7 +23,9 @@ FIELDS = ["weight_technical", "weight_fundamental", "weight_valuation",
           "regime_adaptive", "rank_top_pct", "rank_min_score",
           # X2 재정규화 편향 게이트 — 관리자·하네스·CLI가 모두 이 값으로 실험할 수 있어야 한다
           # ("검사에 넣을 수 없는 파라미터는 검증된 적이 없다").
-          "min_data_coverage"]
+          "min_data_coverage",
+          # D4 — 하락추세 게이트 on/off. 사전등록 family로 OOS 검증 중(등록일 이후 구간).
+          "trend_gate"]
 
 # 매수권 선정 방식은 문자열이라 숫자 FIELDS와 따로 다룬다(rank|absolute).
 MODE_FIELD = "selection_mode"

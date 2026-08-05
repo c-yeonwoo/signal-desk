@@ -300,7 +300,13 @@ def scores_with_pit_fundamentals(
 
 def _gated(panel: Panel, ticker: str, i: int, config: SignalConfig,
            market_ret: float | None, series_cache: dict) -> bool:
-    """라이브와 같은 상대 추세 게이트. 시장 대비 상대강도 우위면 막지 않는다."""
+    """라이브와 같은 상대 추세 게이트. 시장 대비 상대강도 우위면 막지 않는다.
+
+    `config.trend_gate == 0` 이면 적용하지 않는다 — 라이브 `_apply_trend_gate` 와 같은 스위치를
+    본다. 하네스만 따로 끄는 플래그를 두면 그게 곧 "라이브와 다른 전략을 재는" 경로다.
+    """
+    if not float(getattr(config, "trend_gate", 1.0) or 0.0):
+        return False
     row = panel.closes[ticker]
     vals = [v for v in row if v is not None]
     offset = len(row) - len(vals)

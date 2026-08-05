@@ -31,6 +31,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tomllib
+from datetime import date as _date
 from pathlib import Path
 
 DEFAULT_PATH = Path("docs/preregistered.toml")
@@ -107,64 +108,108 @@ def load(path: Path | str | None = None) -> dict:
         return out
 
     base = raw.get("base") or {}
-    looks_raw = raw.get("looks") or []
-    if not looks_raw:
-        out["reason"] = "등록된 look이 없다([[looks]] 비어 있음)"
+    # 파일은 **family 여러 개**를 담을 수 있다. `[base]` + `[[looks]]` 가 첫 family이고,
+    # 설정이 다른 가설은 `[[families]]` 로 따로 등록한다 — 같은 family 안에서 설정이 다르면
+    # 순차 관측이 아니라 별개 실험이고 Šidák 가정이 깨진다(아래 검증).
+    groups: list[tuple[dict, list[dict]]] = []
+    if raw.get("looks"):
+        groups.append((base, list(raw["looks"])))
+    for fam in raw.get("families") or []:
+        fam_base = {**base, **{k: v for k, v in fam.items() if k != "looks"}}
+        groups.append((fam_base, list(fam.get("looks") or [])))
+    if not any(lks for _, lks in groups):
+        out["reason"] = "등록된 look이 없다([[looks]]·[[families]] 비어 있음)"
         return out
-
-    base_cfg_hash = config_hash(base.get("config") or {})
-    base_hz = {k: (base.get("harness") or {}).get(k) for k in _HARNESS_KEYS}
 
     looks: list[dict] = []
     seen: set[str] = set()
-    for lk in looks_raw:
-        lid = str(lk.get("id") or "").strip()
-        if not lid:
-            out["reason"] = "id 없는 look이 있다"
-            return out
-        if lid in seen:
-            out["reason"] = f"id 중복: {lid}"
-            return out
-        seen.add(lid)
+    fam_names: set[str] = set()
+    for gbase, looks_raw in groups:
+      base_cfg_hash = config_hash(gbase.get("config") or {})
+      base_hz = {k: (gbase.get("harness") or {}).get(k) for k in _HARNESS_KEYS}
+      fam_name = str(gbase.get("family") or "")
+      if not fam_name:
+          out["reason"] = "family 이름이 없는 등록 묶음이 있다"
+          return out
+      if fam_name in fam_names:
+          out["reason"] = f"family 중복: {fam_name}"
+          return out
+      fam_names.add(fam_name)
+      for lk in looks_raw:
+          lid = str(lk.get("id") or "").strip()
+          if not lid:
+              out["reason"] = "id 없는 look이 있다"
+              return out
+          if lid in seen:
+              out["reason"] = f"id 중복: {lid}"
+              return out
+          seen.add(lid)
 
-        src = str(lk.get("score_source") or base.get("score_source") or "")
-        cfg = _merged(base, lk, "config")
-        hz_cfg = _merged(base, lk, "harness")
-        req = _merged(base, lk, "requirement")
-        dec = _merged(base, lk, "decision")
+          src = str(lk.get("score_source") or gbase.get("score_source") or "")
+          cfg = _merged(gbase, lk, "config")
+          hz_cfg = _merged(gbase, lk, "harness")
+          req = _merged(gbase, lk, "requirement")
+          dec = _merged(gbase, lk, "decision")
 
-        if src not in CANONICAL_SOURCES:
-            out["reason"] = (f"{lid}: score_source={src!r}는 정본이 될 수 없다 "
-                             f"(허용: {', '.join(CANONICAL_SOURCES)})")
-            return out
-        # 같은 가설의 순차 관측인데 설정이 다르면 순차가 아니라 별개 실험이다 → Šidák 가정도 깨진다.
-        if config_hash(cfg) != base_cfg_hash:
-            out["reason"] = (f"{lid}: look의 설정이 [base.config]와 다르다 — 같은 가설의 순차 관측이 "
-                             f"아니라 별개 실험이다. 별개로 보려면 family를 나눠 등록할 것")
-            return out
-        if {k: hz_cfg.get(k) for k in _HARNESS_KEYS} != base_hz:
-            out["reason"] = (f"{lid}: look의 하네스 설정이 [base.harness]와 다르다 "
-                             f"— 같은 가설의 순차 관측이 아니다")
-            return out
-        for k in ("min_effective_periods", "min_pit_dates"):
-            if not isinstance(req.get(k), int) or req[k] <= 0:
-                out["reason"] = f"{lid}: requirement.{k}가 양의 정수여야 한다"
-                return out
+          if src not in CANONICAL_SOURCES:
+              out["reason"] = (f"{lid}: score_source={src!r}는 정본이 될 수 없다 "
+                               f"(허용: {', '.join(CANONICAL_SOURCES)})")
+              return out
+          # 같은 가설의 순차 관측인데 설정이 다르면 순차가 아니라 별개 실험이다 → Šidák 가정도 깨진다.
+          if config_hash(cfg) != base_cfg_hash:
+              out["reason"] = (f"{lid}: look의 설정이 [base.config]와 다르다 — 같은 가설의 순차 관측이 "
+                               f"아니라 별개 실험이다. 별개로 보려면 family를 나눠 등록할 것")
+              return out
+          if {k: hz_cfg.get(k) for k in _HARNESS_KEYS} != base_hz:
+              out["reason"] = (f"{lid}: look의 하네스 설정이 [base.harness]와 다르다 "
+                               f"— 같은 가설의 순차 관측이 아니다")
+              return out
+          for k in ("min_effective_periods", "min_pit_dates"):
+              if not isinstance(req.get(k), int) or req[k] <= 0:
+                  out["reason"] = f"{lid}: requirement.{k}가 양의 정수여야 한다"
+                  return out
+          # OOS 구간 — 이 날짜 **이후** 거래일만 쓴다. 탐색으로 이미 본 구간을 그 뒤에 등록하면
+          # 사후등록이므로, 결과를 본 가설은 `from_date`를 등록일 이후로 걸어야 정본이 된다.
+          fd = req.get("from_date")
+          if fd is not None:
+              try:
+                  _date.fromisoformat(str(fd))
+              except ValueError:
+                  out["reason"] = f"{lid}: requirement.from_date가 YYYY-MM-DD가 아니다: {fd!r}"
+                  return out
+              if str(fd) < str(lk.get("registered_at") or ""):
+                  out["reason"] = (f"{lid}: from_date({fd})가 registered_at"
+                                   f"({lk.get('registered_at')}) 보다 이르다 — OOS가 아니다")
+                  return out
 
-        looks.append({
-            "id": lid,
-            "role": str(lk.get("role") or "final"),
-            "family": str(base.get("family") or ""),
-            "score_source": src,
-            "market": str(lk.get("market") or base.get("market") or "kr"),
-            "hypothesis": (lk.get("hypothesis") or "").strip(),
-            "registered_at": str(lk.get("registered_at") or ""),
-            "config": cfg,
-            "config_hash": config_hash(cfg),
-            "harness": hz_cfg,
-            "requirement": req,
-            "decision": dec,
-        })
+          # 반사실 family — 라이브와 **의도적으로** 다른 키를 선언해야 한다.
+          diff_keys = tuple(gbase.get("diff_from_live") or ())
+          if diff_keys:
+              bad = [k for k in diff_keys if k not in cfg]
+              if bad:
+                  out["reason"] = (f"{lid}: diff_from_live에 등록 config에 없는 키가 있다: {bad}")
+                  return out
+              if not req.get("from_date"):
+                  out["reason"] = (f"{lid}: 반사실 family(diff_from_live)는 결과를 본 뒤 등록되는 "
+                                   f"경우가 많아 requirement.from_date가 필수다")
+                  return out
+          looks.append({
+              "id": lid,
+              "role": str(lk.get("role") or "final"),
+              "family": fam_name,
+              # 라이브와 다른 키. 비어 있으면 라이브 그 자체를 재는 family다.
+              "diff_from_live": diff_keys,
+              "counterfactual": bool(diff_keys),
+              "score_source": src,
+              "market": str(lk.get("market") or gbase.get("market") or "kr"),
+              "hypothesis": (lk.get("hypothesis") or "").strip(),
+              "registered_at": str(lk.get("registered_at") or ""),
+              "config": cfg,
+              "config_hash": config_hash(cfg),
+              "harness": hz_cfg,
+              "requirement": req,
+              "decision": dec,
+          })
 
     out["ok"] = True
     out["base"] = base
@@ -174,18 +219,26 @@ def load(path: Path | str | None = None) -> dict:
     return out
 
 
-def config_agrees_with_engine(cfg: dict) -> tuple[bool, str]:
+def config_agrees_with_engine(cfg: dict, *, allow_diff: tuple[str, ...] = ()) -> tuple[bool, str]:
     """사전등록 설정이 **지금 돌아가는 엔진**과 같은지. (ok, 사유).
 
     설정의 진실이 세 곳에 있다 — `engine.SignalConfig` 소스 기본값, `kv:signal_config` 오버라이드,
     이 파일. H1(technical 0.35→0)처럼 **소스 상수**를 바꾸면 사전등록이 조용히 낡는다.
     낡은 등록으로 확정한 판정은 잰 것과 돌아가는 것이 다르므로 증거가 아니다.
+
+    `allow_diff`는 **반사실(counterfactual) family가 의도적으로 다르게 둔 키**다(D4의
+    `trend_gate`). 이 검사를 통째로 끄면 안 된다 — 나머지 키가 조용히 낡으면 "라이브에서 한 가지만
+    바꾼 것"이라는 전제가 거짓이 되고, 그러면 그 판정은 무엇의 증거도 아니다. 그래서 선언한 키만
+    면제하고 **나머지는 전부 대조**한다. 면제 키는 `diff_from_live`로 파일에 적어 커밋된다.
     """
     from signal_desk import signalcfg
 
     live = signalcfg.get_config()
+    allow = set(allow_diff or ())
     diffs = []
     for k, v in (cfg or {}).items():
+        if k in allow:
+            continue
         if not hasattr(live, k):
             diffs.append(f"{k}: 엔진에 없는 필드")
             continue

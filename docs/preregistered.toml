@@ -6,8 +6,11 @@
 # 규칙 셋:
 #  1. 값을 바꾸면 **커밋**된다. DB에 두면 조용히 고칠 수 있어서 '사전'이 성립하지 않는다.
 #  2. 요건 충족일에 **단 한 번** 판정하고 동면한다. 재판정은 새 id를 등록해야 한다.
-#  3. Šidák n = 아래 pit look 총수(현재 2 → 문턱 97.47%). **lock 상태와 무관하게 고정**이다 —
-#     interim이 확정되면 n이 줄어 final 문턱이 저절로 95%로 내려가는 사후 완화를 막는다.
+#  3. Šidák n = **파일 전체의 정본 look 총수**(현재 3 → 문턱 98.30%). family를 나눠도 n은 줄지
+#     않는다 — 파일을 쪼개 n을 낮추는 것이 곧 사후 완화다. **lock 상태와도 무관하게 고정**이다
+#     (interim이 확정되면 n이 줄어 final 문턱이 저절로 내려가는 완화를 막는다).
+#  4. **결과를 본 가설은 `requirement.from_date`로 OOS 구간을 걸어야** 정본이 된다. 탐색으로
+#     숫자를 본 조합을 그 뒤에 등록하면 사후등록이고, 사전등록의 의미가 사라진다.
 #
 # 왜 look이 둘인가: final 요건(PIT 150거래일)은 2027-02경에 도달한다. 그때까지 눈을 감을 수 없어
 # interim(60거래일, 2026-10경)을 함께 등록했다. 두 번 보는 대가로 문턱을 95 → 97.47로 올린다.
@@ -17,7 +20,7 @@ family       = "pit-8factor-rank3-hold5"
 score_source = "pit"                    # 가격 하네스는 technical·reversion·momentum 셋만 계산한다
 market       = "kr"                     # 횡단면 순위는 한 시장 안에서만
 
-# signalcfg.FIELDS(16) + selection_mode. 2026-08-06 engine.SignalConfig 실측과 일치.
+# signalcfg.FIELDS(17) + selection_mode. 2026-08-06 engine.SignalConfig 실측과 일치.
 # `test_redteam.test_preregistered_config_covers_every_engine_field` 가 누락을 막는다 —
 # 새 점수 필드가 등록에서 빠지면 그 파라미터는 검증된 적 없이 판정에 섞인다.
 # weight_qualitative 는 FIELDS 에 없다(KB 정성은 veto/shadow) → 사전등록·해시 대상이 아니다.
@@ -43,6 +46,7 @@ rank_min_score        = 1.2
 # **미검증 변경이다**: 판별력이 `판정 불가`인 동안 넣은 게이트이므로 이 판정의 대상은 이 게이트를
 # 포함한 규칙이다. 값을 바꾸면 새 look을 등록해야 한다(같은 id로 재판정하지 않는다).
 min_data_coverage     = 0.80
+trend_gate            = 1.0     # 하락추세 게이트 적용(현행). D4 family가 0.0으로 대조한다
 selection_mode        = "rank"
 
 [base.harness]
@@ -94,3 +98,87 @@ min_pit_dates         = 150   # 2026-08-05 기준 19거래일 → +131거래일 
 [looks.decision]
 if_pass = "종합점수를 순위 근거로 확정. 가중치 변경 게이트(N2)를 연다."
 if_fail = "종합점수를 순위 근거로 쓰지 않는다. rank 창·게이트 재설계로 이동."
+
+
+# ============================================================================
+# family 2 — D4: 하락추세 게이트를 뺀 랭킹
+# ============================================================================
+#
+# **이 family는 결과를 이미 본 가설이다.** 2026-08-06 진단 실행에서 게이트를 끄면 백분위가
+# 71.5 → 92.5로 올랐다(대신 위상편차 73.2 → 109.4pp). 그 숫자를 근거로 여기 등록하면
+# 사후등록이므로, `from_date` 로 **등록일 이후 거래일만** 쓰게 못 박는다 — 그 구간은 아직
+# 아무도 보지 못했다.
+#
+# 왜 별개 family인가: `trend_gate` 가 다르므로 같은 family의 순차 관측이 아니다(설정이 다르면
+# Šidák 가정이 깨진다 — `prereg.load` 가 이걸 거부한다). 대신 **파일 전체 n에 포함**되어
+# 문턱이 97.47 → 98.30%로 모두 올라간다. 가설을 하나 더 보는 대가다.
+#
+# 무엇을 재지 않는가: 이 등록은 게이트를 **끄는** 쪽만 본다. 레포 규칙이 권하는
+# "자격이 아니라 크기로"(익스포저 하한 > 0)는 하네스에 종목별 사이징이 없어 아직 구현되지
+# 않았다 — 구현하면 그때 세 번째 family로 등록한다(그리고 n은 또 올라간다).
+
+[[families]]
+family       = "pit-6factor-rank3-hold5-no-trend-gate"
+score_source = "price6"
+market       = "kr"
+# 라이브와 **의도적으로** 다른 키. 이것만 면제되고 나머지 16개는 엔진과 대조된다 —
+# 검사를 통째로 끄면 "라이브에서 한 가지만 바꾼 것"이라는 전제가 조용히 거짓이 된다.
+diff_from_live = ["trend_gate"]
+
+[families.config]
+weight_technical      = 0.0
+weight_fundamental    = 0.30
+weight_valuation      = 0.15
+weight_reversion      = 0.20
+weight_flow           = 0.20
+weight_quality        = 0.15
+weight_momentum       = 0.30
+weight_short          = 0.15
+strong_buy_threshold  = 2.0
+buy_threshold         = 1.2
+sell_threshold        = -1.2
+strong_sell_threshold = -2.0
+regime_adaptive       = 1.0
+rank_top_pct          = 3.0
+rank_min_score        = 1.2
+min_data_coverage     = 0.80
+trend_gate            = 0.0     # ← family 1과 여기만 다르다
+selection_mode        = "rank"
+
+[families.harness]
+hold     = 5
+cost_pct = 0.25
+trials   = 200
+exposure = false
+top_pct  = 3.0
+
+[[families.looks]]
+id            = "d4-no-trend-gate-oos"
+role          = "final"
+registered_at = "2026-08-06"
+hypothesis    = """
+하락추세 게이트(종가<MA20<MA60 역배열에서 매수 차단)를 **빼면** 6팩터 상위 3%·5일 보유 랭킹의
+판별력이 라벨 치환 대조군 대비 문턱을 넘는다.
+
+이 등록의 성격을 분명히 적어 둔다:
+
+- **결과를 이미 본 가설이다.** 2026-08-06 진단 실행(전 구간 2024-04-01~2026-08-04)에서
+  게이트 ON 백분위 71.5 · OFF 92.5였다. 그래서 `from_date = 2026-08-07` 로 등록일 이후
+  거래일만 쓴다. 그 구간은 등록 시점에 존재하지 않았다.
+- **절대 수익률은 판단에 쓰지 않는다.** OFF가 +165.5%로 ON(+98.8%)보다 높았지만, 그건
+  게이트를 뺐으니 더 많이 산 결과이기도 하다. 판단은 백분위뿐이다.
+- **위상편차가 커지는 것은 예상된 대가다.** ON 73.2pp → OFF 109.4pp. 통과해도 이건
+  "게이트가 쓸모없다"가 아니라 "이 지평·이 창에서 순위 정보가 게이트 손실보다 크다"는 뜻이다.
+- 실패하면 게이트를 유지한다. 그 경우 D4의 남은 선택지는 **자격이 아니라 크기로**
+  (익스포저 하한 > 0) 이고, 그건 하네스에 종목별 사이징을 넣은 뒤 별도 family로 등록한다.
+- Šidák n=3(문턱 98.30%). family를 나눠도 n은 줄지 않는다.
+"""
+
+[families.looks.requirement]
+min_effective_periods = 30      # 실효 = periods − 매수 0건 기간(최악 위상 기준)
+min_pit_dates         = 150     # OOS 구간 안에서 센다 — 약 2027-03
+from_date             = "2026-08-07"   # 등록 다음 거래일부터. 이 앞은 이미 본 구간이다
+
+[families.looks.decision]
+if_pass = "하락추세 게이트를 매수 자격에서 제외한다(수동 변경 + unproven 해제). 게이트 문구는 표시용으로 남긴다."
+if_fail = "게이트를 유지한다. 다음 후보는 '자격이 아니라 크기로' — 종목별 사이징을 하네스에 넣고 새 family로 등록."
