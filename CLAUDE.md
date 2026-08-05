@@ -391,6 +391,16 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
   것이다. 대상 집합은 옆 기능의 on/off가 아니라 그 기능의 정의에서 뽑는다
   (`db.uids_with_ticker_favorites`).
 
+- **판정 상태는 첫 화면 첫 줄이고, 백분위는 요건이 찬 뒤에만 쓴다(2026-08-06).** `판별력`이라는
+  문자열이 `index.html`에 세 곳뿐이고 **전부 관리자**였다 — 시그널 첫 화면은 접힌 `<details>` 안
+  백테스트 숫자를 대신 보여줬다. 이제 신뢰 스트립 첫 줄이 `판정 보류 · 실효 n/N · PIT n/N일`이고
+  접힌 요약도 판정부터 쓴다(`verdictRow`). **보류 분기는 `percentile`을 읽지도 않는다** — 보드가
+  실수로 실어 보내도 화면은 안 그린다(`test_first_screen_shows_the_verdict_before_the_score`).
+- **첫 화면에 판정을 올리려고 관리자 라우트를 열지 않는다.** `/api/harness/preregistered`는 가설
+  원문·설정 해시·이력이 붙은 관리자 전용이다. **판정 상태만** 내는 `/api/verdict`를 따로 뒀고,
+  백분위는 `harness_board`가 이미 비운 값을 **그대로 쓴다** — 두 곳에서 조립하면 화면과 보드가
+  갈라지고 그 차이는 어디에도 안 뜬다(`test_verdict_route_reuses_the_board_and_does_not_recompute`).
+
 ## 화면 규칙 (2026-07-27 리디자인에서 실제로 틀렸던 것)
 
 - **참조하는 CSS 변수는 반드시 `:root`에 정의한다.** `var(--sell)`이 48곳에서 쓰였는데 정의가 없어

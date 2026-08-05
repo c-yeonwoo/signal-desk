@@ -510,6 +510,11 @@
   .trust-badge.sim { background:var(--bg); color:var(--dim); border:1px solid var(--line-strong); }
   .trust-badge.accum { background:var(--bg); color:var(--dim-2); border:1px dashed var(--line-strong); }
   .trust-badge.bot { background:var(--accent-weak); color:var(--txt); border:1px solid var(--line); }
+  /* 판별력 판정 상태 — 첫 화면 첫 줄에 쓴다. 확신처럼 보이면 안 되므로 초록을 쓰지 않는다. */
+  .trust-badge.verdict { background:var(--panel-2); color:var(--txt); border:1px solid var(--line-strong); }
+  .trust-badge.verdict-hold { background:var(--bg); color:var(--dim); border:1px dashed var(--line-strong); }
+  .trust-row.trust-verdict { font-size:14px; }
+  .trust-row.trust-verdict b { font-size:15px; }
   /* 성적은 매일 안 바뀌므로 기본 접기 — 펼쳐야 본문 */
   #signal-trust { display:none; font-size:var(--fs-xs); line-height:1.5;
     background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--accent);
@@ -2430,6 +2435,48 @@ function sellPrecisionRow(acc, need){
     + ` <span style="color:var(--dim-2)">(${h}거래일 · 표본 ${n} · 매도 찍은 것 중 내린 비율)</span>`
     + ` <span style="color:var(--dim-2)">· 숏 관측용 · 봇 미반영</span></div>`;
 }
+// ⓪ 판별력 판정 — **첫 화면 첫 줄**. 진단(2026-08-05)에서 `판별력`이라는 문자열은 index.html에
+// 세 곳뿐이고 전부 관리자였다. 시그널 첫 화면은 접힌 <details> 안 백테스트 숫자를 대신 보여줬다.
+//
+// 규칙: **요건 미충족 동안 백분위를 내지 않는다.** 매일 보이면 매일 보게 되고 그게 곧 다중검정이다
+// (`store.harness_board`가 같은 이유로 percentile을 None으로 비운다). 보류 상태에서는
+// `판정 보류 · 실효 n/N · PIT n/N일`만 쓴다 — 숫자는 관리자 이력 표에서만 본다.
+function verdictRow(hz){
+  if (!hz || hz.ready === false) {
+    return `<div class="trust-row trust-verdict"><span class="trust-badge verdict-hold">판정</span>`
+      + `<b>시그널 판별력 — 판정 불가</b>`
+      + ` <span style="color:var(--dim)">${esc(hz && hz.verdict_why || '사전등록 보드를 읽을 수 없습니다')}</span></div>`;
+  }
+  const req = hz.requirement || {};
+  const thr = hz.threshold_pct;
+  const nreg = hz.n_registered;
+  const meta = `<span style="color:var(--dim-2)">문턱 ${fmtNum(thr, 2)}%`
+    + (nreg > 1 ? ` · 사전등록 ${nreg}개 Šidák 보정` : '') + `</span>`;
+  if (hz.status === 'locked') {
+    const p = hz.percentile;
+    const ok = p != null && thr != null && p >= thr;
+    const c = ok ? 'var(--sig-buy)' : 'var(--txt)';
+    return `<div class="trust-row trust-verdict"><span class="trust-badge verdict">판정</span>`
+      + `<b>시그널 판별력 <span style="color:${c}">${esc(hz.verdict || '–')}</span></b>`
+      + ` <span style="color:var(--dim)">백분위 ${fmtNum(p, 1)}%</span> ${meta}</div>`;
+  }
+  // 보류 — 진척만 쓴다. 백분위 자리에 숫자를 넣지 않는다.
+  const bits = [];
+  if (req.min_effective_periods)
+    bits.push(`실효 ${req.effective_periods ?? 0}/${req.min_effective_periods}기간`
+      + (req.effective_periods_source === 'estimated' ? '(추정)' : ''));
+  if (req.min_pit_dates)
+    bits.push(`PIT ${req.pit_dates ?? 0}/${req.min_pit_dates}일`);
+  const cf = (hz.counterfactual_looks || []).length;
+  return `<div class="trust-row trust-verdict"><span class="trust-badge verdict-hold"`
+    + ` title="요건이 찰 때까지 백분위를 화면에 내지 않습니다 — 매일 보는 것이 곧 다중검정입니다">판정</span>`
+    + `<b>시그널 판별력 — ${esc(hz.verdict || '판정 보류')}</b>`
+    + (bits.length ? ` <span style="color:var(--dim)">${bits.join(' · ')}</span>` : '')
+    + ` ${meta}`
+    + (cf ? ` <span style="color:var(--dim-2)">· 대안 가설 ${cf}건 검증 중</span>` : '')
+    + `<button type="button" class="linkish" onclick="switchTab('admin')">근거</button></div>`;
+}
+
 function toggleTrustLegend(){
   const el = document.getElementById('trust-legend');
   if (el) el.hidden = !el.hidden;
@@ -2440,27 +2487,32 @@ async function loadScorecard(){
   const sum = document.getElementById('signal-trust-sum');
   if (!el || !body) return;
   try {
-    const [acc, bot] = await Promise.all([
+    const [acc, bot, hz] = await Promise.all([
       fetch('/api/accuracy').then(r => r.json()).catch(() => ({ ready: false })),
       fetch('/api/signal-scorecard').then(r => r.json()).catch(() => ({ resolved: 0 })),
+      fetch('/api/verdict').then(r => r.json()).catch(() => ({ ready: false })),
     ]);
     const rows = [];
     const cov = acc.coverage || {};
     const need = acc.ic_min_samples || _TRUST_MATURE_N;
     const matured = cov.matured_primary || 0;
     const matureOk = !!acc.ready && matured >= need;
-    let sumTxt = '성적';
+    // 접힌 요약도 **판정부터** 쓴다. 진단에서 "'판정 불가'가 12px 회색으로, 확신은 초록
+    // 그라디언트로"였던 것을 뒤집는다 — 성적 숫자보다 판정 상태가 먼저 읽혀야 한다.
+    const vTxt = (!hz || hz.ready === false) ? '판정 불가'
+      : (hz.status === 'locked' ? (hz.verdict || '–') : (hz.verdict || '판정 보류'));
+    let sumTxt = `판별력 <span class="trust-sum-n">${esc(vTxt)}</span>`;
     if (matureOk) {
       const prec = acc.buy_precision_pct;
       const pc = liftColor(acc.buy_lift_pp, acc.lift_min_pp);
-      sumTxt = `성적 · 매수 정밀도 <span class="trust-sum-n" style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</span>`;
+      sumTxt += ` · 매수 정밀도 <span class="trust-sum-n" style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</span>`;
       rows.push(`<div class="trust-row"><span class="trust-badge live">실측</span>`
         + `<b>시그널 성적</b> · 매수 정밀도 <b style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</b>`
         + liftNote(acc.buy_lift_pp, (acc.baseline || {}).up_pct, acc.buy_precision_ci_pp)
         + ` <span style="color:var(--dim-2)">(${acc.primary_horizon || 20}거래일 · 표본 ${acc.buy_sample || matured})</span></div>`);
       rows.push(sellPrecisionRow(acc, need));
     } else {
-      sumTxt = `성적 · 누적중 <span class="trust-sum-n">${matured}/${need}</span>`;
+      sumTxt += ` · 성적 누적중 <span class="trust-sum-n">${matured}/${need}</span>`;
       rows.push(`<div class="trust-row"><span class="trust-badge accum"`
         + ` title="표본이 차기 전까지 정밀도 숫자는 표시하지 않습니다">누적중</span>`
         + `<b>시그널 성적</b>`
@@ -2479,6 +2531,8 @@ async function loadScorecard(){
     }
     tail += `<button type="button" class="linkish trust-more" onclick="toggleTrustLegend()">용어</button>`;
     rows[0] = rows[0].replace(/<\/div>$/, tail + '</div>');
+    // 판정 줄을 **맨 앞에** 넣는다. 성적·페이퍼보다 먼저 읽혀야 한다.
+    rows.unshift(verdictRow(hz));
     if (sum) sum.innerHTML = sumTxt;
     body.innerHTML = rows.join('')
       + `<div class="trust-legend" id="trust-legend" hidden>실측=그날 시그널 채점 · 시뮬=가격 백테스트`
