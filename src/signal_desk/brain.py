@@ -28,7 +28,7 @@ _SOURCES = [  # (freshness key, 표시명)
     ("prices", "국내 시세"), ("us_prices", "미국 시세"), ("fundamentals", "재무"),
     ("flows", "수급"), ("short", "공매도"), ("consensus", "컨센서스"), ("macro", "거시"),
 ]
-_IC_MIN_WARN = 20   # IC 신뢰 최소 표본(미만이면 판정 보류)
+_IC_MIN_DATES = 20  # IC 관측 **날짜** 최소치(accuracy._MIN_IC_DATES와 같은 규약). 행 수가 아니다.
 # 타이밍/게이트 역할 팩터 — 5.5년 실측상 횡단면 IC≈0(랭킹 알파 아님). 진입 타이밍·추세게이트로
 # 기능하므로 낮은/음수 IC를 경고하지 않는다(오탐 방지). 랭킹 알파는 모멘텀 등이 담당.
 _TIMING_FACTORS = {"technical", "reversion"}
@@ -38,7 +38,10 @@ def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) 
     """엔진 헬스 스냅샷: {score, level, nodes[], edges[], findings[], summary}."""
     fresh = {f["key"]: f for f in (freshness or [])}
     factor_ic = (accuracy or {}).get("factor_ic") or {}
-    ic_samples = ((accuracy or {}).get("coverage") or {}).get("matured_primary", 0)
+    # IC 판정은 **날짜 단위**로 한다 — 행 수(`matured_primary`)로 세면 하루치 200종목이 표본 200이
+    # 되어 문턱을 즉시 통과한다. 행 수는 정밀도 헤드라인에만 쓴다.
+    ic_stats = (accuracy or {}).get("factor_ic_stats") or {}
+    ic_min_dates = int((accuracy or {}).get("ic_min_dates") or _IC_MIN_DATES)
     weights = weights or {}
 
     nodes: list[dict] = []
@@ -69,19 +72,30 @@ def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) 
     for key, label, srcs, wkey in _FACTORS:
         w = weights.get(wkey)
         ss = src_status(srcs)
+        stat = ic_stats.get(key) or {}
+        # `factor_ic[key]`는 날짜 요건·유의성을 통과했을 때만 값이다. 통과 못 하면 이유를 낸다 —
+        # 예전에는 pooled IC 스칼라가 늘 값으로 있어서 `N=행수`와 함께 "가중 재검토 후보"를 띄웠다.
         ic = factor_ic.get(key)
+        nd = int(stat.get("n_dates") or 0)
         st = "ok"
         metric = f"w={w:.2f}" if isinstance(w, (int, float)) else "—"
         if ss == "stale":
             st = "stale"
-        elif ic is not None and key in _TIMING_FACTORS:
+        elif ic is None:
+            why = stat.get("blocked_reason")
+            metric += f" · IC {nd}/{ic_min_dates}일" if nd else " · IC 미측정"
+            if why:
+                findings.append({"level": "info", "text": f"{label} 팩터 — {why}"})
+        elif key in _TIMING_FACTORS:
             metric += f" · IC{ic:+.2f}"  # 타이밍/게이트 역할 — 낮은/음수 IC 정상(경고 안 함)
-            if ic_samples >= _IC_MIN_WARN and ic < 0:
+            if ic < 0:
                 findings.append({"level": "info", "text": f"{label} 팩터 IC {ic:+.2f} — 타이밍/게이트 역할이라 횡단면 IC 낮음이 정상"})
-        elif ic is not None and ic_samples >= _IC_MIN_WARN and ic < 0:
+        elif ic < 0:
             st = "warn"; metric += f" · IC{ic:+.2f}"
-            findings.append({"level": "warn", "text": f"{label} 팩터 IC 음수({ic:+.2f}, N={ic_samples}) — 가중 재검토 후보"})
-        elif ic is not None:
+            findings.append({"level": "warn",
+                             "text": (f"{label} 팩터 IC 음수({ic:+.2f}, {nd}거래일 · "
+                                      f"p={stat.get('p')}) — 가중 재검토 후보")})
+        else:
             metric += f" · IC{ic:+.2f}"
         if ss != "stale":
             active_factors += 1
@@ -111,7 +125,10 @@ def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) 
     tracker_ready = bool((accuracy or {}).get("ready"))
     days = cov.get("dates") or 0
     if tracker_ready:
-        tstat, tmetric = "ok", f"성숙 {ic_samples}건"
+        # 행 수와 IC 날짜 수를 **같이** 낸다 — 행만 보이면 "표본 2200건"으로 읽힌다.
+        ic_days = max((int((s or {}).get("n_dates") or 0) for s in ic_stats.values()), default=0)
+        tmetric = f"성숙 {cov.get('matured_primary') or 0}건 · IC {ic_days}/{ic_min_dates}일"
+        tstat = "ok" if ic_days >= ic_min_dates else "idle"
     else:
         tstat, tmetric = "idle", f"누적 {days}일 · 성숙 0"
         findings.append({"level": "info", "text": f"실측 트래커 누적 {days}일차 — 20거래일 성숙 후 팩터 IC·진단 가동"})

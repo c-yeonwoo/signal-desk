@@ -6176,6 +6176,14 @@ async function loadProofOs(){
           <div style="font-size:13px">매수 리프트 <b>${acc.buy_lift_pp == null ? '–' : ((acc.buy_lift_pp > 0 ? '+' : '') + fmtNum(acc.buy_lift_pp, 1) + '%p')}</b>
             <span style="color:var(--dim)"> · score IC ${ic.score == null ? '–' : fmtNum(ic.score, 3)}</span></div>
           <div style="font-size:12px;color:var(--dim);margin-top:3px;font-variant-numeric:tabular-nums">${(() => {
+            // IC가 '–'인 이유를 쓴다 — 날짜 부족(정상 대기)과 무유의(측정됐지만 무정보)는 대응이 다르다.
+            const st = acc.factor_ic_stats || {};
+            const sc = st.score || {};
+            if (sc.ic == null) {
+              const need = acc.ic_min_dates || 20;
+              return sc.n_dates ? `IC 판정 보류 · 횡단면 ${sc.n_dates}/${need}거래일`
+                                : 'IC 미측정 · 성숙 스냅샷 대기';
+            }
             const keys = [['momentum','mom'],['technical','tech'],['fundamental','fund'],['flow','flow']];
             const parts = keys.map(([k, lab]) => ic[k] == null ? null : `${lab} ${fmtNum(ic[k], 2)}`);
             const line = parts.filter(Boolean).join(' · ');
@@ -6679,18 +6687,36 @@ async function loadAccuracy(){
         <td style="font-weight:700">${s.hit_rate == null ? '–' : fmtNum(s.hit_rate, 1) + '%'}</td>
         ${retCell(s.avg_ret)}</tr>`;
     }).join('') || '<tr><td colspan="4" style="color:var(--dim-2)">성숙 표본 없음</td></tr>';
-    const ics = Object.entries(d.factor_ic || {}).filter(([, v]) => v != null)
-      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-    const icRows = ics.length ? ics.map(([f, v]) => {
+    // 팩터 IC — 날짜 단위 횡단면 + 검정. 크기만 그리면 그게 판별력처럼 읽히므로
+    // 요건 미달·무유의는 **막대를 그리지 않고** 이유를 쓴다(base rate 없는 비율과 같은 규칙).
+    const icStats = d.factor_ic_stats || {};
+    const needD = d.ic_min_dates || 20;
+    const icEntries = Object.entries(icStats)
+      .filter(([, s]) => s && (s.n_dates || 0) > 0)
+      .sort((a, b) => (b[1].ic != null) - (a[1].ic != null)
+        || Math.abs(b[1].ic_mean || 0) - Math.abs(a[1].ic_mean || 0));
+    const icRows = icEntries.length ? icEntries.map(([f, s]) => {
+      const label = `<span style="width:72px;color:var(--dim)">${_ACC_FACTOR[f] || f}</span>`;
+      if (s.ic == null) {
+        const why = s.n_dates < needD ? `${s.n_dates}/${needD}일` : '0과 구분 불가';
+        return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13px">
+          ${label}<span style="flex:1;color:var(--dim-2)">판정 보류 · ${why}</span>
+          <span style="width:64px;text-align:right;color:var(--dim-2)">${s.ic_mean == null ? '–'
+            : (s.ic_mean > 0 ? '+' : '') + fmtNum(s.ic_mean, 3)}</span></div>`;
+      }
+      const v = s.ic;
       const w = Math.min(100, Math.abs(v) * 100 / 0.15);
       const c = v > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)';
       return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13px">
-        <span style="width:72px;color:var(--dim)">${_ACC_FACTOR[f] || f}</span>
+        ${label}
         <span style="flex:1;background:var(--line);border-radius:4px;height:8px;position:relative">
           <span style="position:absolute;left:${v < 0 ? 'auto' : '50%'};right:${v < 0 ? '50%' : 'auto'};width:${w / 2}%;height:100%;background:${c};border-radius:4px"></span>
           <span style="position:absolute;left:50%;top:-2px;width:1px;height:12px;background:var(--line-strong)"></span></span>
-        <span style="width:48px;text-align:right;font-weight:700;color:${c}">${v > 0 ? '+' : ''}${fmtNum(v, 3)}</span></div>`;
-    }).join('') : `<div style="color:var(--dim-2);font-size:13px">표본 ${need}건 이상 쌓이면 표시됩니다.</div>`;
+        <span style="width:64px;text-align:right;font-weight:700;color:${c}">${v > 0 ? '+' : ''}${fmtNum(v, 3)}</span>
+        <span style="width:104px;text-align:right;color:var(--dim-2);font-size:12px">±${fmtNum(s.ci95, 3)} · ${s.n_dates}일 · p${fmtNum(s.p, 3)}</span></div>`;
+    }).join('') : `<div style="color:var(--dim-2);font-size:13px">횡단면 IC 관측 0일 — 성숙 스냅샷 대기.</div>`;
+    const icNote = `<div style="color:var(--dim-2);font-size:12px;margin-top:4px">날짜별 횡단면
+      순위상관의 평균 · Newey-West 보정 · 요건 ${needD}거래일. 같은 날 200종목은 하나의 관측이다.</div>`;
     el.className = '';
     el.innerHTML = `
       <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:2px">
@@ -6701,8 +6727,9 @@ async function loadAccuracy(){
       ${baseBlock}
       ${sellBlock}
       <table class="dtable" style="margin-top:8px"><thead><tr><th>티어</th><th>표본</th><th>적중률</th><th>평균수익</th></tr></thead><tbody>${tierRows}</tbody></table>
-      <div style="font-size:13px;font-weight:700;margin:16px 0 4px">팩터 예측력 <span style="color:var(--dim);font-weight:500">· Spearman IC (팩터값↑ vs ${h}일 수익, 양수=예측 유효)</span></div>
+      <div style="font-size:13px;font-weight:700;margin:16px 0 4px">팩터 예측력 <span style="color:var(--dim);font-weight:500">· 횡단면 IC (팩터값↑ vs ${h}일 수익, 양수=예측 유효)</span></div>
       ${icRows}
+      ${icNote}
       <p class="page-desc" style="margin:10px 0 0;font-size:12px;color:var(--dim-2)">${covLine} · ${h}거래일 성숙 <b>${matured}</b>건. 밸류는 저평가일수록 값이 낮아 IC 부호가 반대로 해석됩니다.</p>`;
   } catch (e) { el.className = ''; el.textContent = '불러오지 못했습니다.'; }
 }

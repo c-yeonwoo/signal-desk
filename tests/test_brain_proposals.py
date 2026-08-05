@@ -21,12 +21,30 @@ def _open_gate(monkeypatch):
     monkeypatch.setattr(brain_proposals, "_verdict_gate", lambda *, automated: (True, ""))
 
 
+# 2026-08-06 X1: 제안은 IC **스칼라**가 아니라 `accuracy.cross_sectional_ic` 산출물을 본다.
+# 옛 계약은 `(ic, n)`이었고 n에 행 수(`matured_primary`)가 들어갔다 — 하루치 200종목이 표본 200이
+# 되어 문턱을 즉시 통과했다. 이 헬퍼는 **유의한** 통계를 만든다(그래야 제안이 생성된다).
+def _stat(ic, *, n_dates=30, p=0.001, significant=True, horizon=20):
+    return {"ic": ic, "ic_mean": ic, "n_dates": n_dates, "n_pairs": n_dates * 190,
+            "independent_dates": n_dates // horizon, "breadth_median": 190,
+            "horizon": horizon, "ic_std": 0.05, "ic_ir": 1.0, "se": 0.02, "se_naive": 0.02,
+            "ci95": 0.04, "t": 5.0, "p": p, "significant": significant,
+            "nw_lag": horizon - 1, "nw_degenerate": False, "se_floored": False,
+            "zero_variance": False, "min_dates": 20, "thin_dates": 0,
+            "blocked_reason": None if significant else "IC가 0과 구분 불가 — 가중치 근거로 쓸 수 없음"}
+
+
+def _acc(stats: dict, **extra) -> dict:
+    return {"ready": True, "coverage": {"matured_primary": 45},
+            "factor_ic": {k: v["ic"] for k, v in stats.items()},
+            "factor_ic_stats": stats, "ic_min_dates": 20, **extra}
+
+
 def test_automated_proposals_are_blocked_until_the_verdict_is_locked(tmp_path, monkeypatch):
     """게이트가 닫혀 있으면 제안이 **생성되지 않는다**(큐가 비고 이유가 남는다)."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(db, "DB", tmp_path / "app.db")
-    acc = {"ready": True, "coverage": {"matured_primary": 999},
-           "factor_ic": {"short": -0.20, "momentum": 0.20}}
+    acc = _acc({"short": _stat(-0.20), "momentum": _stat(0.20)})
     out = brain_proposals.refresh(acc, dict(_WEIGHTS))
     assert out["created"] == 0 and out.get("gated") is True
     assert "자동 제안" in out["reason"], out["reason"]
@@ -45,29 +63,57 @@ def test_composite_ic_estimate_direction():
 
 def test_build_nudge_negative_ic(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    d = brain_proposals.build_weight_nudge("short", -0.05, 40, _WEIGHTS)
+    d = brain_proposals.build_weight_nudge("short", _stat(-0.05), _WEIGHTS)
     assert d is not None
     assert d["kind"] == "weight_nudge"
     assert "공매도" in d["title"]
     assert d["patch"]["weight_short"] == 0.10  # 0.15 - 0.05
     assert "잘 안 맞" in d["body_ko"]
     assert d["confidence"] in ("low", "medium", "high")
+    # 근거 문구에 n·CI·p가 있어야 한다 — IC 크기만 쓰면 그게 판별력처럼 읽힌다.
+    for token in ("IC", "±", "거래일", "독립", "p="):
+        assert token in d["rationale_ko"], d["rationale_ko"]
+    ev = d["evidence"]
+    assert ev["n_dates"] == 30 and ev["significant"] is True and ev["p"] == 0.001
 
 
 def test_build_boost_positive_ic(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    d = brain_proposals.build_weight_boost("momentum", 0.12, 40, _WEIGHTS)
+    d = brain_proposals.build_weight_boost("momentum", _stat(0.12), _WEIGHTS)
     assert d is not None
     assert "높이기" in d["title"]
     assert d["patch"]["weight_momentum"] == 0.25
     assert d["evidence"]["direction"] == "up"
 
 
-def test_build_skips_timing_and_weak(tmp_path, monkeypatch):
+def test_build_skips_timing_weak_and_insignificant(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    assert brain_proposals.build_weight_nudge("technical", -0.05, 40, _WEIGHTS) is None
-    assert brain_proposals.build_weight_boost("momentum", 0.02, 40, _WEIGHTS) is None  # IC 너무 작음
-    assert brain_proposals.build_weight_nudge("short", -0.05, 5, _WEIGHTS) is None
+    assert brain_proposals.build_weight_nudge("technical", _stat(-0.05), _WEIGHTS) is None
+    assert brain_proposals.build_weight_boost("momentum", _stat(0.02), _WEIGHTS) is None  # IC 너무 작음
+    # 유의하지 않은 IC로는 어느 방향도 제안하지 않는다 — 크기가 아니라 유의성이 게이트다.
+    weak = _stat(-0.30, significant=False, p=0.42)
+    assert brain_proposals.build_weight_nudge("short", weak, _WEIGHTS) is None
+    assert brain_proposals.build_weight_boost("momentum", _stat(0.30, significant=False),
+                                             _WEIGHTS) is None
+    # 통계 자체가 없으면(옛 pooled 스칼라만 있는 응답) 아무것도 만들지 않는다.
+    assert brain_proposals.build_weight_nudge("short", None, _WEIGHTS) is None
+    assert brain_proposals.ic_usable(None)[0] is False
+
+
+def test_refresh_names_why_each_factor_was_unusable(tmp_path, monkeypatch):
+    """0의 이유는 변호가 아니라 점검 결과여야 한다 — 팩터 이름과 함께 낸다."""
+    _open_gate(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    signalcfg.set_dict(_WEIGHTS)
+    acc = _acc({"short": _stat(-0.20, significant=False, p=0.4),
+                "momentum": {**_stat(0.20), "ic": None, "significant": False,
+                             "n_dates": 10, "blocked_reason": "IC 날짜 10/20일 — 판정 불가"}})
+    out = brain_proposals.refresh(acc, signalcfg.get_dict())
+    assert out["created"] == 0
+    assert any("공매도" in x for x in out["ic_skipped"]), out["ic_skipped"]
+    assert any("10/20일" in x for x in out["ic_skipped"]), out["ic_skipped"]
+    assert "안정권" not in out["reason"]
 
 
 def test_threshold_nudge_low_and_high_precision(tmp_path, monkeypatch):
@@ -92,13 +138,8 @@ def test_refresh_creates_down_up_and_approve(tmp_path, monkeypatch):
     _open_gate(monkeypatch)
     monkeypatch.chdir(tmp_path)
     signalcfg.set_dict(_WEIGHTS)
-    acc = {
-        "ready": True,
-        "factor_ic": {"short": -0.06, "momentum": 0.10, "technical": -0.04},
-        "coverage": {"matured_primary": 45},
-        "buy_precision_pct": 40.0,
-        "buy_sample": 25,
-    }
+    acc = _acc({"short": _stat(-0.06), "momentum": _stat(0.10), "technical": _stat(-0.04)},
+               buy_precision_pct=40.0, buy_sample=25)
     out = brain_proposals.refresh(acc, signalcfg.get_dict())
     assert out["ok"] and out["created"] >= 2
     drafts = db.brain_proposal_list(status="draft")
@@ -141,7 +182,7 @@ def test_reject_leaves_config(tmp_path, monkeypatch):
     _open_gate(monkeypatch)
     monkeypatch.chdir(tmp_path)
     signalcfg.set_dict(_WEIGHTS)
-    acc = {"ready": True, "factor_ic": {"flow": -0.04}, "coverage": {"matured_primary": 30}}
+    acc = _acc({"flow": _stat(-0.04)})
     brain_proposals.refresh(acc, signalcfg.get_dict())
     draft = db.brain_proposal_list(status="draft")[0]
     w0 = signalcfg.get_dict()["weight_flow"]
@@ -154,7 +195,7 @@ def test_refresh_idempotent_same_factor_draft(tmp_path, monkeypatch):
     _open_gate(monkeypatch)
     monkeypatch.chdir(tmp_path)
     signalcfg.set_dict(_WEIGHTS)
-    acc = {"ready": True, "factor_ic": {"quality": -0.07}, "coverage": {"matured_primary": 50}}
+    acc = _acc({"quality": _stat(-0.07)})
     brain_proposals.refresh(acc, signalcfg.get_dict())
     brain_proposals.refresh(acc, signalcfg.get_dict())
     drafts = [d for d in db.brain_proposal_list(status="draft")
@@ -166,7 +207,7 @@ def test_double_approve_rejected(tmp_path, monkeypatch):
     _open_gate(monkeypatch)
     monkeypatch.chdir(tmp_path)
     signalcfg.set_dict(_WEIGHTS)
-    acc = {"ready": True, "factor_ic": {"short": -0.05}, "coverage": {"matured_primary": 40}}
+    acc = _acc({"short": _stat(-0.05)})
     brain_proposals.refresh(acc, signalcfg.get_dict())
     pid = db.brain_proposal_list(status="draft")[0]["id"]
     assert brain_proposals.review(pid, "approved")["ok"]
