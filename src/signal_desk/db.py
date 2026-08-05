@@ -48,9 +48,12 @@ CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, tick
 CREATE TABLE IF NOT EXISTS kb_digest(ticker TEXT PRIMARY KEY, name TEXT, sentiment REAL, summary TEXT,
     points TEXT, n_sources INTEGER, updated INTEGER, newest_ts INTEGER,
     event_flag INTEGER NOT NULL DEFAULT 0, event_note TEXT);
+-- horizon_days: 채점 지평(거래일). NULL 이면 **지평이 섞인 옛 채점**이라 리프트 계산에서 뺀다.
+-- 2026-08-05 진단: 채점이 `closes[-1]`(오늘 종가)을 써서 보유 기간이 "채점 루프가 돌 때까지"로
+-- 판단마다 달랐다(실측 3.0~6.1일). 지평이 섞이면 비교 가능한 base rate 를 만들 수 없다.
 CREATE TABLE IF NOT EXISTS bot_decisions(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, name TEXT,
     action TEXT, score REAL, rationale TEXT, context TEXT, decided_price REAL, ts INTEGER,
-    outcome_pct REAL, outcome_ts INTEGER);
+    outcome_pct REAL, outcome_ts INTEGER, horizon_days INTEGER, entry_date TEXT, exit_date TEXT);
 CREATE TABLE IF NOT EXISTS bot_reservations(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT, name TEXT,
     side TEXT, target_price REAL, max_chase_pct REAL, reason TEXT, status TEXT, created INTEGER, resolved INTEGER,
     market TEXT NOT NULL DEFAULT 'kr');
@@ -237,6 +240,10 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE bot_reservations ADD COLUMN market TEXT NOT NULL DEFAULT 'kr'")
     if "seed_cash_us" not in {r[1] for r in c.execute("PRAGMA table_info(user_bot)").fetchall()}:
         c.execute("ALTER TABLE user_bot ADD COLUMN seed_cash_us REAL NOT NULL DEFAULT 10000")
+    bdcols = {r[1] for r in c.execute("PRAGMA table_info(bot_decisions)").fetchall()}
+    for col, ddl in (("horizon_days", "INTEGER"), ("entry_date", "TEXT"), ("exit_date", "TEXT")):
+        if bdcols and col not in bdcols:
+            c.execute(f"ALTER TABLE bot_decisions ADD COLUMN {col} {ddl}")
     _drop_personal_paper_accounts(c)
     dcols = {r[1] for r in c.execute("PRAGMA table_info(kb_digest)").fetchall()}
     if "newest_ts" not in dcols:  # 최신 원자료 발행 시각(신선도 판정용)
@@ -1326,17 +1333,30 @@ def bot_decisions_recent(limit: int = 40) -> list[dict]:
 
 
 def bot_decision_scorecard() -> dict:
-    """실현된 매수 판단 성적표 — 승률·평균/최고/최악 실현수익(3일). 미실현(outcome_pct NULL) 제외.
-    트레이딩이 실제로 맞았는지의 증거(③ track record). 중복 판단은 1건으로 센다."""
+    """실현된 매수 판단 성적표. 미실현(outcome_pct NULL) 제외. 중복 판단은 1건으로 센다.
+
+    **고정 지평(`horizon_days IS NOT NULL`)만 승률·리프트에 쓴다.** 2026-08-05 진단에서 옛 채점이
+    `closes[-1]`(오늘 종가)을 써서 보유 기간이 판단마다 달랐다(3.0~6.1일). 지평이 섞인 비율은
+    비교 대상이 없으므로 base rate 를 붙일 수 없다 — 섞인 건수는 `mixed_horizon_n` 으로 드러낸다.
+    """
     c = conn()
     n, wins, avg, best, worst = c.execute(
         "SELECT COUNT(*), SUM(CASE WHEN outcome_pct>0 THEN 1 ELSE 0 END), "
         "AVG(outcome_pct), MAX(outcome_pct), MIN(outcome_pct) "
-        f"FROM bot_decisions WHERE action='buy' AND outcome_pct IS NOT NULL AND id IN ({_DECISION_DEDUP})"
+        f"FROM bot_decisions WHERE action='buy' AND outcome_pct IS NOT NULL "
+        f"AND horizon_days IS NOT NULL AND id IN ({_DECISION_DEDUP})"
     ).fetchone()
     total = c.execute("SELECT COUNT(*) FROM bot_decisions WHERE action='buy' "
                       f"AND id IN ({_DECISION_DEDUP})").fetchone()[0] or 0
     dupes = c.execute("SELECT COUNT(*) FROM bot_decisions WHERE action='buy'").fetchone()[0] or 0
+    mixed = c.execute("SELECT COUNT(*) FROM bot_decisions WHERE action='buy' "
+                      "AND outcome_pct IS NOT NULL AND horizon_days IS NULL "
+                      f"AND id IN ({_DECISION_DEDUP})").fetchone()[0] or 0
+    hz = c.execute("SELECT DISTINCT horizon_days FROM bot_decisions WHERE action='buy' "
+                   "AND horizon_days IS NOT NULL ORDER BY horizon_days").fetchall()
+    days = c.execute("SELECT DISTINCT entry_date FROM bot_decisions WHERE action='buy' "
+                     "AND outcome_pct IS NOT NULL AND horizon_days IS NOT NULL "
+                     "AND entry_date IS NOT NULL ORDER BY entry_date").fetchall()
     c.close()
     n = n or 0
     return {"resolved": n, "pending": total - n,
@@ -1345,13 +1365,27 @@ def bot_decision_scorecard() -> dict:
             "best_pct": round(best, 2) if best is not None else None,
             "worst_pct": round(worst, 2) if worst is not None else None,
             # 중복이 몇 건 접혔는지 드러낸다 — 안 보이면 다시 중복으로 세는 코드가 생긴다.
-            "deduped_from": dupes}
+            "deduped_from": dupes,
+            # 지평이 섞인 옛 채점은 리프트에서 뺐다. 몇 건을 뺐는지 밝히지 않으면 표본이
+            # 조용히 줄어든 것처럼 보인다.
+            "mixed_horizon_n": mixed,
+            "horizon_days": [int(r[0]) for r in hz],
+            "entry_dates": [str(r[0]) for r in days]}
 
 
-def bot_decision_set_outcome(decision_id: int, outcome_pct: float) -> None:
+def bot_decision_set_outcome(decision_id: int, outcome_pct: float, *,
+                             horizon_days: int = 3,
+                             entry_date: str | None = None,
+                             exit_date: str | None = None) -> None:
+    """판단 한 건의 사후수익 확정. **지평을 반드시 남긴다.**
+
+    `horizon_days`가 없는 행은 스코어카드가 리프트 계산에서 뺀다(비교 가능한 base rate 를 만들 수
+    없으므로). 그래서 새 채점은 어느 경로로 들어와도 지평을 기록해야 한다 — 기본값을 두는 이유다.
+    """
     c = conn()
-    c.execute("UPDATE bot_decisions SET outcome_pct=?, outcome_ts=? WHERE id=?",
-              (outcome_pct, int(time.time()), decision_id))
+    c.execute("UPDATE bot_decisions SET outcome_pct=?, outcome_ts=?, horizon_days=?, "
+              "entry_date=?, exit_date=? WHERE id=?",
+              (outcome_pct, int(time.time()), int(horizon_days), entry_date, exit_date, decision_id))
     c.commit()
     c.close()
 

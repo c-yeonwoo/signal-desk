@@ -1898,3 +1898,68 @@ def stall_report() -> dict:
         "harness_days": harness_days,
         "harness_last_run": last_run,
     }
+
+
+def decision_baseline(entry_dates: list[str], horizon_days: int) -> dict:
+    """봇 판단 승률에 붙일 **같은 관례의 기준선** — "그 날 아무거나 샀으면".
+
+    같은 진입일·같은 지평·같은 진입/청산 관례(종가→종가)로 유니버스 전체를 센다. 관례가 하나라도
+    다르면 리프트가 거짓이 된다 — 2026-08-05 진단에서 `win_rate`(장중 진입·가변 지평)와
+    `baseline_buy_pct`(익일 종가·정확히 5거래일)를 비교해 "+0.4%p"라는 없는 숫자를 만들었다.
+
+    반환: `{up_pct, sample, avg_ret_pct, dates}`. 표본이 없으면 `up_pct=None`.
+    """
+    if not entry_dates or horizon_days <= 0:
+        return {"up_pct": None, "sample": 0, "avg_ret_pct": None, "dates": 0}
+    dated = load_all_dated_closes()
+    wins = tot = 0
+    rets: list[float] = []
+    used: set[str] = set()
+    for ticker, pair in dated.items():
+        dates, closes = pair
+        idx = {d: i for i, d in enumerate(dates)}
+        for ed in entry_dates:
+            i = idx.get(ed)
+            if i is None:
+                continue
+            j = i + horizon_days
+            if j >= len(closes):
+                continue
+            a, b = closes[i], closes[j]
+            if not a or not b:
+                continue
+            r = (b / a - 1) * 100
+            rets.append(r)
+            tot += 1
+            wins += 1 if r > 0 else 0
+            used.add(ed)
+    if not tot:
+        return {"up_pct": None, "sample": 0, "avg_ret_pct": None, "dates": 0}
+    return {"up_pct": round(wins / tot * 100, 1), "sample": tot,
+            "avg_ret_pct": round(sum(rets) / tot, 2), "dates": len(used)}
+
+
+def decision_scorecard_with_baseline() -> dict:
+    """스코어카드 + 같은 관례 기준선 + 리프트 + 신뢰구간 반폭.
+
+    비율만 내보내면 읽는 사람이 좋은지 나쁜지 모른다. **base rate 없는 비율은 화면에 내지 않는다** —
+    그래서 이 함수가 붙기 전의 `win_rate` 단독 노출은 규칙 위반이었다.
+    """
+    from signal_desk import db
+
+    card = db.bot_decision_scorecard()
+    hz = card.get("horizon_days") or []
+    h = hz[0] if len(hz) == 1 else None
+    base = (decision_baseline(card.get("entry_dates") or [], h) if h
+            else {"up_pct": None, "sample": 0, "avg_ret_pct": None, "dates": 0})
+    wr, n = card.get("win_rate"), card.get("resolved") or 0
+    lift = round(wr - base["up_pct"], 1) if (wr is not None and base["up_pct"] is not None) else None
+    # 이항 표준오차 × 1.96. n이 작으면 리프트가 오차 안에 들어가고, 그러면 무정보라고 말해야 한다.
+    ci = None
+    if wr is not None and n:
+        p = wr / 100
+        ci = round(1.96 * ((p * (1 - p) / n) ** 0.5) * 100, 1)
+    return {**card, "baseline": base, "lift_pp": lift, "ci_pp": ci,
+            "horizon_note": (f"판단일 다음 거래일 종가 진입 → {h}거래일 뒤 종가 청산(기준선과 동일 관례)"
+                             if h else "지평이 섞여 있어 기준선을 붙일 수 없다"),
+            "informative": bool(lift is not None and ci is not None and abs(lift) > ci)}

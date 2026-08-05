@@ -140,28 +140,58 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
     return {"eff_cfg": eff_cfg, "adapt": adapt, "context": context}
 
 
+# 채점 지평(거래일). 이 값을 고정해야 base rate 를 같은 관례로 만들 수 있다.
+OUTCOME_HORIZON_DAYS = 3
+
+
 def _update_decision_outcomes(prices: dict[str, list[float]]) -> None:
-    """과거 매수 의사결정의 사후수익을 확정(3일 경과분) — advisor 학습 재료."""
-    now = int(datetime.datetime.now(_KST).timestamp())
-    for d in db.bot_decisions_recent(60):
+    """과거 매수 판단의 사후수익을 **고정 지평**으로 확정한다.
+
+    2026-08-05 진단: 옛 코드가 `closes[-1]`(오늘 종가)을 썼다. 그러면 보유 기간이 "채점 루프가
+    실제로 돌 때까지"가 되어 판단마다 달라진다(실측 3.0~6.1 달력일). **지평이 섞인 비율에는
+    비교 가능한 base rate 를 붙일 수 없다** — 승률 42.3% 옆에 아무 기준선도 못 적은 이유였다.
+
+    이제 `판단일 다음 거래일 종가 진입 → OUTCOME_HORIZON_DAYS 거래일 뒤 종가 청산`으로 잰다.
+    `accuracy.py` 와 같은 관례이므로 유니버스 base rate 와 직접 비교된다. 진입가로 `decided_price`
+    (장중 체결가)를 쓰지 않는 이유도 그것이다 — 유니버스 쪽에 대응물이 없다.
+    청산일 종가가 아직 없으면 **건너뛴다**(대기). 지금 채점하려고 오늘 종가를 쓰면 옛 버그다.
+    """
+    dated = store.load_all_dated_closes()
+    for d in db.bot_decisions_recent(120):
         if d.get("outcome_pct") is not None or d.get("action") != "buy":
             continue
-        if now - d["ts"] < _OUTCOME_AGE_SEC:
+        pair = dated.get(d["ticker"])
+        if not pair:
             continue
-        closes = prices.get(d["ticker"])
-        if not closes or not d.get("decided_price"):
+        dates, closes = pair
+        dec_date = datetime.datetime.fromtimestamp(d["ts"], _KST).strftime("%Y-%m-%d")
+        # 판단일 이후 첫 거래일이 진입, 그로부터 h거래일 뒤가 청산.
+        entry_i = next((i for i, dt in enumerate(dates) if dt > dec_date), None)
+        if entry_i is None:
             continue
-        outcome = (closes[-1] / d["decided_price"] - 1) * 100
-        # bot_decisions_recent에 id가 없어 직접 갱신은 생략하지 않도록 id 포함 조회 필요 →
-        # 여기서는 최신 조회분에 id가 없으므로, kv 기반이 아닌 별도 경로로 갱신한다.
-        _set_outcome_by_match(d, outcome)
+        exit_i = entry_i + OUTCOME_HORIZON_DAYS
+        if exit_i >= len(dates):
+            continue                                  # 아직 안 익었다 — 다음 실행에서
+        entry, exit_px = closes[entry_i], closes[exit_i]
+        if not entry or not exit_px:
+            continue
+        _set_outcome_by_match(d, (exit_px / entry - 1) * 100,
+                              horizon_days=OUTCOME_HORIZON_DAYS,
+                              entry_date=dates[entry_i], exit_date=dates[exit_i])
 
 
-def _set_outcome_by_match(decision: dict, outcome_pct: float) -> None:
-    """decisions_recent가 id를 안 주므로, ticker+ts로 정확히 한 건 갱신."""
+def _set_outcome_by_match(decision: dict, outcome_pct: float, *, horizon_days: int,
+                          entry_date: str, exit_date: str) -> None:
+    """decisions_recent가 id를 안 주므로, ticker+ts로 정확히 한 건 갱신.
+
+    `horizon_days`·`entry_date`·`exit_date`를 함께 남긴다 — 지평이 없는 행은 스코어카드가
+    리프트 계산에서 뺀다(비교 대상이 없는 비율이라).
+    """
     c = db.conn()
-    c.execute("UPDATE bot_decisions SET outcome_pct=?, outcome_ts=? WHERE ticker=? AND ts=? AND outcome_pct IS NULL",
-              (round(outcome_pct, 2), int(datetime.datetime.now(_KST).timestamp()), decision["ticker"], decision["ts"]))
+    c.execute("UPDATE bot_decisions SET outcome_pct=?, outcome_ts=?, horizon_days=?, "
+              "entry_date=?, exit_date=? WHERE ticker=? AND ts=? AND outcome_pct IS NULL",
+              (round(outcome_pct, 2), int(datetime.datetime.now(_KST).timestamp()),
+               int(horizon_days), entry_date, exit_date, decision["ticker"], decision["ts"]))
     c.commit()
     c.close()
 

@@ -161,7 +161,10 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "enterAdmin" in html and "renderAdminTodo" in html
     assert 'data-aseg="ops"' in html and "점검" in html and "enterAdmin(" in html
     assert "trust-paper-muted" in html  # 페이퍼 승률 ≠ 실측 헤드라인
-    assert "고장 아님" in html
+    # 2026-08-05(N4): "매수 0 · 고장 아님" 하드코딩을 없앴다. 원인이 rank창인지 게이트인지
+    # 수집 정지인지 가리지 않고 전부 정상이라 변호하면 고장 조사를 막는다. 이제 점검 결과를 쓴다.
+    assert "고장 아님" not in html
+    assert "zeroWhy" in html and "게이트 차단" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
     assert "Strong Buy" in html and "kindHint" in html  # 순위 의미를 드러내는 라벨·힌트
     assert "hero-runup" in html and "발동 후" in html  # Buy+ 히어로: 발동가 대비 수익률
