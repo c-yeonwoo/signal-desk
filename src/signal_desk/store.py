@@ -525,8 +525,40 @@ def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None
             if equity and equity > 0:
                 metrics["pbr"] = round(mktcap / equity, 2)
         out[ticker] = metrics
+    # 퀄리티(축약 F-Score)는 재무의 **파생값**이다 — 여기서 같이 채운다.
+    # 2026-08-05 진단: `compute_quality()`의 호출처가 관리자 수동 refresh 하나뿐이었고(분기 1회 조건),
+    # `sigdesk fetch`(CLI)는 이 함수만 불렀다. 이 함수가 dict를 새로 써서 저장하므로 **CLI로 갱신할
+    # 때마다 quality가 지워졌다** — 실측 `quality.has=True 0/198`, 가중 0.15가 통째로 미발동.
+    # 파생값을 원본 쓰는 함수 밖에 두면 어느 호출자든 잊을 수 있다. 안으로 넣어 잊을 수 없게 한다.
+    _attach_quality(out)
     _write_json(FUNDAMENTALS_FILE, out)
     return out
+
+
+def _attach_quality(fund: dict) -> int:
+    """`fund`에 축약 F-Score를 붙인다(제자리 수정). 반환: 계산된 종목 수.
+
+    이력이 없으면 조용히 넘기지 않고 이유를 로그로 남긴다 — 가중 0.15가 미발동인데 화면에
+    "커버리지 0%"만 뜨면 '이력 부족'과 '배선 누락'을 구분할 수 없다(실제로 못 했다).
+    """
+    from signal_desk.signals import quality
+
+    hist = load_fundamentals_history()
+    if not hist:
+        log.warning("퀄리티 미계산 — fundamentals_history 없음(가중 %s 미발동). "
+                    "`fetch_fundamentals_history` 를 먼저 돌려야 한다", "weight_quality")
+        return 0
+    prev_year = str(datetime.date.today().year - 2)
+    n = 0
+    for t, m in fund.items():
+        if not isinstance(m, dict):
+            continue
+        m["quality"] = quality.evaluate(m, (hist.get(t) or {}).get(prev_year) or {})
+        if m["quality"].get("has"):
+            n += 1
+    if not n:
+        log.warning("퀄리티 계산했으나 has=True 0건 — 전년(%s) 재무가 비었는지 확인", prev_year)
+    return n
 
 
 def update_valuation() -> int:
@@ -638,19 +670,15 @@ def load_fundamentals_history() -> dict[str, dict]:
 
 
 def compute_quality() -> int:
-    """당해 재무(fundamentals) + 전년(fundamentals_history)으로 축약 F-Score를 계산해 fundamentals.json에
-    quality로 저장(엔진 퀄리티 팩터가 읽음). 당해=전년도(year-1) 기준이라 직전 비교연도는 year-2."""
-    from signal_desk.signals import quality
+    """캐시된 재무에 축약 F-Score를 다시 붙인다(관리자 수동 경로용).
+
+    평소에는 `fetch_fundamentals`가 안에서 같이 채우므로 부를 필요가 없다 — 이 함수만 있고
+    호출을 잊는 구조였던 것이 2026-08-05 진단에서 발견된 버그다(`_attach_quality` 주석 참고).
+    """
     fund = load_fundamentals()
     if not fund:
         return 0
-    hist = load_fundamentals_history()
-    prev_year = str(datetime.date.today().year - 2)
-    n = 0
-    for t, m in fund.items():
-        prev = (hist.get(t) or {}).get(prev_year) or {}
-        m["quality"] = quality.evaluate(m, prev)
-        n += 1
+    n = _attach_quality(fund)
     _write_json(FUNDAMENTALS_FILE, fund)
     return n
 

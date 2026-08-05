@@ -658,3 +658,37 @@ def test_locked_verdict_is_invalidated_when_the_config_changes(tmp_path, monkeyp
               "verdict_locked_at": "2026-08-05T00:00:00Z"}
     assert prereg.board_status(locked, current_hash="aaaaaaaaaaaa") == "locked"
     assert prereg.board_status(locked, current_hash="bbbbbbbbbbbb") == "invalidated"
+
+
+def test_fundamentals_write_never_drops_the_quality_factor(tmp_path, monkeypatch):
+    """재무를 쓰는 경로는 **파생값(퀄리티)까지** 남겨야 한다.
+
+    2026-08-05 진단: `compute_quality()`의 호출처가 관리자 수동 refresh 하나뿐이었고
+    `sigdesk fetch`(CLI)는 `fetch_fundamentals`만 불렀다. 이 함수가 dict를 새로 써서 저장하므로
+    **CLI로 갱신할 때마다 quality가 지워졌다** — 실측 `has=True 0/198`, 가중 0.15가 통째로 미발동.
+    "커버리지 0%"가 화면에 뜨는데 원인이 이력 부족이 아니라 배선 누락이면 데이터를 더 받아도
+    영원히 안 낫는다. 파생값은 원본을 쓰는 함수 안에서 채운다.
+    """
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import store
+    monkeypatch.setattr(store, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(store, "FUNDAMENTALS_FILE", tmp_path / "fundamentals.json")
+    monkeypatch.setattr(store, "FUNDAMENTALS_HISTORY_FILE", tmp_path / "fundamentals_history.json")
+
+    import datetime as _dt
+    prev_year = str(_dt.date.today().year - 2)
+    store._write_json(store.FUNDAMENTALS_HISTORY_FILE, {
+        "005930": {prev_year: {"roe": 8.0, "debt_ratio": 30.0,
+                               "revenue_growth": 5.0, "net_income": 3.0e13}}})
+    fund = {"005930": {"roe": 10.0, "debt_ratio": 28.0,
+                       "revenue_growth": 10.0, "net_income": 4.5e13, "equity": 4.0e14}}
+    assert store._attach_quality(fund) == 1
+    q = fund["005930"]["quality"]
+    assert q["has"] is True and q["points"] >= 3, q
+    # 이력이 없으면 **없는 퀄리티를 만들어내지 않는다**(has=True를 지어내면 그게 조용한 거짓이다).
+    # 이미 있던 값은 지우지 않는다 — 낡은 실값과 날조된 값은 다르다. 대신 이유를 로그로 남긴다.
+    store._write_json(store.FUNDAMENTALS_HISTORY_FILE, {})
+    fresh = {"005930": {"roe": 10.0, "debt_ratio": 28.0, "revenue_growth": 10.0,
+                        "net_income": 4.5e13, "equity": 4.0e14}}
+    assert store._attach_quality(fresh) == 0
+    assert "quality" not in fresh["005930"], "이력이 없는데 퀄리티를 만들어냈다"
