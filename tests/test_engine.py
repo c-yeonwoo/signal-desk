@@ -50,6 +50,13 @@ def test_combine_renormalizes_across_weighted_components():
 
 
 def test_evaluate_produces_sorted_signals_without_fundamentals_or_valuation():
+    """재무 없이도 점수는 나온다 — 다만 커버리지 게이트(X2)로 **매수권은 아니다**.
+
+    2026-08-06 이전에는 재무·저평가·수급·퀄리티·공매도가 전부 없어도 남은 기술 팩터로
+    재정규화돼 STRONG_BUY가 나왔다. 실측 200종목에서 이 편향은 `|점수|` 평균 1.070(커버리지
+    최하) vs 0.303(전 팩터)로 나타났고, 상위 3위가 전부 5/8 팩터였다.
+    점수는 그대로 낸다 — 조용히 지우면 왜 없는지 모른다.
+    """
     universe = [{"ticker": "005930", "name": "삼성전자"}]
     # 꾸준히 하락 -> RSI 과매도로 BUY 트리거 (짧은 시계열이라 MACD/MA는 미형성 -> RSI 단독)
     # H1 기본은 technical=0이라, 기술 경로 검증은 가중을 켠 config로 한다.
@@ -58,11 +65,50 @@ def test_evaluate_produces_sorted_signals_without_fundamentals_or_valuation():
     results = engine.evaluate(universe, {"005930": closes}, config=cfg)
     assert len(results) == 1
     r = results[0]
-    # 유니버스 1종이면 매수권 1자리·우선 1자리 → STRONG_BUY(절대 BUY였던 때도 동일)
-    assert engine.is_buy(r.kind)
+    assert r.score > 0                      # 점수는 낸다
     assert r.has_fundamental is False
-    assert r.has_valuation is False  # fundamentals 미제공 -> PER/PBR 없음
+    assert r.has_valuation is False          # fundamentals 미제공 -> PER/PBR 없음
     assert r.technical_score == pytest.approx(1.5)
+    # 커버리지 게이트: 기술만 있으니 미달 → 매수권 밖. 이유가 근거 문구에 남는다.
+    assert r.low_coverage is True and not engine.is_buy(r.kind)
+    assert r.rank_eligible is False
+    assert sorted(r.missing_factors) == ["flow", "fundamental", "momentum",
+                                         "quality", "short", "valuation"]
+    assert any("데이터 커버리지" in x for x in r.reasons), r.reasons
+
+    # 양성 대조군: 게이트를 끄면 예전 동작(매수권)이 그대로 나온다 —
+    # 게이트가 "아무것도 통과 못 하게" 만든 게 아니라는 확인.
+    off = engine.SignalConfig(weight_technical=0.35, weight_momentum=0.0,
+                              weight_reversion=0.0, min_data_coverage=0.0)
+    r2 = engine.evaluate(universe, {"005930": closes}, config=off)[0]
+    assert engine.is_buy(r2.kind) and r2.rank_eligible is True
+    assert r2.low_coverage is False
+
+
+def test_coverage_ratios_are_exposed_and_split_conditional_from_missing():
+    """`weight_sum_ratio`(점수가 나눈 비율)와 `data_coverage`(조건 미발동 제외)는 다른 값이다."""
+    cfg = engine.SignalConfig()
+    total = engine.total_weight(cfg)
+    assert total == pytest.approx(sum(getattr(cfg, f) for f in engine.SCORE_WEIGHT_FIELDS))
+
+    # 전 팩터 데이터 있음 + 낙폭과대만 미발동 → 데이터 커버리지는 1.0(조건 미발동은 결함 아님)
+    full = engine.data_coverage({k.removeprefix("weight_"): True
+                                 for k in engine.SCORE_WEIGHT_FIELDS} | {"reversion": False}, cfg)
+    assert full["ratio"] == pytest.approx(1.0) and full["missing"] == []
+    assert "reversion" in full["excluded"]
+
+    # 수급·공매도가 없으면 그 가중치만큼 떨어지고 **이름으로** 낸다
+    part = engine.data_coverage({"technical": True, "fundamental": True, "valuation": True,
+                                 "quality": True, "momentum": True,
+                                 "flow": False, "short": False}, cfg)
+    assert sorted(part["missing"]) == ["flow", "short"]
+    assert part["ratio"] < 1.0
+
+    # 그 실행이 원리적으로 못 보는 팩터는 분모에서 빼야 한다 — 안 빼면 하네스가 전 종목 미달이 된다
+    harness_like = engine.data_coverage({"technical": True, "momentum": True}, cfg,
+                                        unavailable=("fundamental", "valuation", "flow",
+                                                     "quality", "short"))
+    assert harness_like["ratio"] == pytest.approx(1.0), harness_like
 
 
 def test_h1_default_technical_weight_is_zero():

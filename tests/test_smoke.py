@@ -165,6 +165,13 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 수집 정지인지 가리지 않고 전부 정상이라 변호하면 고장 조사를 막는다. 이제 점검 결과를 쓴다.
     assert "고장 아님" not in html
     assert "zeroWhy" in html and "게이트 차단" in html
+    # 2026-08-06(X2): 재정규화 편향을 화면에 노출한다. 새 절대 문턱(커버리지 요건)은 **분포와
+    # 함께** 내야 한다 — 값만 보이면 다음 사람이 근거 없이 다시 튜닝한다.
+    assert "데이터 커버리지 요건" in html and "blocked_in_window" in html
+    assert "데이터부족" in html and "재정규화" in html
+    # IC는 숫자 하나로 내보내지 않는다(X1) — 요건 미달은 막대 대신 이유를 쓴다.
+    assert "factor_ic_stats" in html and "판정 보류" in html
+    assert "횡단면" in html and "Newey-West" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
     assert "Strong Buy" in html and "kindHint" in html  # 순위 의미를 드러내는 라벨·힌트
     assert "hero-runup" in html and "발동 후" in html  # Buy+ 히어로: 발동가 대비 수익률

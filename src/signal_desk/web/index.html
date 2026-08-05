@@ -3068,6 +3068,7 @@ const _HOLD_TAG_TIP = {
   추세: '하락추세 확인(종가<MA20<MA60) — 반등 전 Hold',
   매수권밖: '점수는 있어도 오늘 매수권(상위 분위) 밖',
   게이트: '매수 게이트로 보류',
+  데이터부족: '팩터 데이터가 모자라 매수권 제외 — 남은 팩터로 재정규화돼 점수가 부풀려져 있다',
 };
 // 진입 품질 — kind와 별축. 뱃지 옆에 안 붙이고 호버 툴팁에만.
 function entryTip(r){
@@ -3206,6 +3207,10 @@ function renderTodayCard(){
     const over = sel.over_threshold ?? (rep.selection && rep.selection.over_threshold);
     if (_dhCache && _dhCache.stall_line) bits.push('수집 정지 감지 — 데이터 상태를 먼저 확인하세요');
     if (blocked) bits.push(`게이트 차단 ${blocked}종목`);
+    // 커버리지 게이트(X2)도 매수 0의 원인이다 — 창 안 몇 자리가 이걸로 비었는지가 핵심.
+    const cv = sel.coverage || (rep.selection && rep.selection.coverage) || {};
+    if (cv.blocked_in_window) bits.push(`데이터 커버리지 미달로 창 ${cv.blocked_in_window}자리 공석`
+      + (cv.min_required ? ` (요건 ${Math.round(cv.min_required * 100)}%)` : ''));
     if (over != null && slots != null && over > slots) bits.push(`문턱 통과 ${over} > 창 ${slots}자리`);
     if (!bits.length) bits.push('문턱을 넘은 종목이 없음');
     return ' <span class="st-c">· ' + bits.join(' · ') + '</span>';
@@ -6000,7 +6005,22 @@ function _renderEngineGate(gate){
       + `Strong Buy는 그 매수 후보 중 더 위(대략 앞 1/3). `
       + `자금 한도=페이퍼 봇이 쓸 수 있는 평가액 비율(나머지 현금). `
       + `게이트 차단 ${sel.gate_blocked ?? 0}종목`
-      + ` · 분포 max ${fmtNum(dist.max, 2)} · 중위 ${fmtNum(dist.median, 2)}</div>`;
+      + ` · 분포 max ${fmtNum(dist.max, 2)} · 중위 ${fmtNum(dist.median, 2)}`
+      + (() => {
+        // 새 절대 문턱은 **분포와 함께** 노출한다 — 값만 보이면 다음 사람이 다시 튜닝한다.
+        const cv = sel.coverage || {};
+        if (!cv.measured) return '';
+        const d = cv.distribution || {};
+        return `<br>데이터 커버리지 요건 <b>${Math.round((cv.min_required || 0) * 100)}%</b>`
+          + ` — 차단 ${cv.blocked ?? 0}/${cv.measured}종목`
+          + (cv.blocked_in_window ? ` (창 ${cv.blocked_in_window}자리)` : '')
+          + ` · 분포 p5 ${fmtNum(d.p5, 2)} · 중위 ${fmtNum(d.median, 2)}`
+          + ` · 전 팩터 ${cv.full_coverage ?? 0}종목`
+          + (Object.keys(cv.missing_by_factor || {}).length
+            ? ` · 없는 팩터 ${Object.entries(cv.missing_by_factor).slice(0, 3)
+                .map(([k, v]) => `${_ACC_FACTOR[k] || k} ${v}`).join(' · ')}` : '');
+      })()
+      + `</div>`;
     return;
   }
   if (sel.threshold_above_max) {

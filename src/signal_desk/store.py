@@ -1452,6 +1452,11 @@ def snapshot_signals(signals, date: str | None = None) -> int:
             "qualitative": s.qualitative_score, "flow": s.flow_intensity,
             "quality": s.quality_points, "momentum": s.momentum_ret,
             "short": s.short_ratio, "kb_docs": kb_docs.get(s.ticker, 0),
+            # 재정규화 편향(X2)을 **사후에 채점**할 수 있게 그날 값으로 남긴다. 나중에 재구성하면
+            # 그 시점 데이터 상태를 알 수 없다(KB 커버리지와 같은 이유).
+            "weight_sum_ratio": getattr(s, "weight_sum_ratio", None),
+            "data_coverage": getattr(s, "data_coverage", None),
+            "low_coverage": bool(getattr(s, "low_coverage", False)),
             **meta,
         })
     df_new = pd.DataFrame(rows)
@@ -1484,6 +1489,59 @@ def load_harness_last() -> dict:
         return json.loads(HARNESS_LAST_FILE.read_text(encoding="utf-8"))
     except Exception as e:
         return {"ready": False, "reason": f"harness_last.json 파싱 실패: {type(e).__name__}"}
+
+
+def pit_fund_scores(panel, sc, uni: list[dict]):
+    """PIT 재무 6팩터 점수 한 벌 — **하네스를 부르는 모든 경로가 이 함수를 쓴다.**
+
+    반환 `(scores, coverage_pct, fired_pct, meta, covers, universe_note, panel)`.
+    패널은 PIT 유니버스로 넓혀 되돌려준다(폐지·이탈 종목이 애초에 없으면 생존편향이 남는다).
+
+    왜 함수로 뺐나: `store.run_harness`는 시점별 유니버스·시총 앵커를 쓰는데 `sigdesk harness
+    --pit-fund` 는 **오늘 유니버스로** 돌고 있었다. 같은 이름의 실행이 서로 다른 편향을 갖고,
+    그 차이는 어느 출력에도 나타나지 않았다 — 봇/화면이 `shorts` 를 달리 넘겨 갈라졌던 것과
+    같은 병이다. 입력 조립은 한 곳에서만 한다.
+    """
+    from signal_desk.signals import harness as hz
+    from signal_desk.signals import pit_fundamentals as pf
+
+    hist = load_fundamentals_history()
+    if not hist:
+        return None, None, None, {"error": "연도별 재무 없음 — `fetch_fundamentals_history` 먼저"}, \
+            None, None, panel
+    price_now = {t: [v for v in row if v is not None][-1]
+                 for t, row in panel.closes.items() if any(v is not None for v in row)}
+    shares = pf.shares_estimate(load_fundamentals(), price_now)
+    if not shares:
+        return None, None, None, {"error": "시가총액·현재가가 없어 발행주식수를 근사할 수 없다"}, \
+            None, None, panel
+
+    uni_hist = load_universe_history()
+    uni_at = None
+    if uni_hist:
+        _cache: dict[str, set[str] | None] = {}
+
+        def uni_at(date_str: str) -> set[str] | None:      # noqa: F811
+            if date_str not in _cache:
+                items = universe_at(date_str)
+                _cache[date_str] = {u["ticker"] for u in items} if items else None
+            return _cache[date_str]
+
+        pit_tickers = {u["ticker"] for u in pit_universe_tickers()}
+        panel = hz.build_panel(load_all_dated_closes(), pit_tickers)
+    anchors = pf.mktcap_anchors(uni_hist) if uni_hist else {}
+    # 앵커일 종가만 뽑아 둔다(전 날짜를 넘기면 메모리가 커진다).
+    anchor_days = sorted(uni_hist) if uni_hist else []
+    idx = {d: i for i, d in enumerate(panel.dates)}
+    price_on: dict[str, dict[str, float]] = {
+        t: {d: row[idx[d]] for d in anchor_days if d in idx and row[idx[d]] is not None}
+        for t, row in panel.closes.items()}
+    scores, cov6, fired6, meta6, covers = hz.scores_with_pit_fundamentals(
+        panel, sc, hist, shares=shares, universe=uni, universe_at=uni_at,
+        mktcap_anchors=anchors, price_on=price_on)
+    note = (f"universe=pit(스냅샷 {len(uni_hist)}개, 종목 {len(pit_tickers)})"
+            if uni_hist else "universe=today(생존편향 잔존)")
+    return scores, cov6, fired6, meta6, covers, note, panel
 
 
 def signal_config_dict(sc) -> dict:
@@ -1537,7 +1595,7 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         signal_config=sc,
     )
     scores, source, pit_dates = None, "price", None
-    cov6 = fired6 = None
+    cov6 = fired6 = covers = None
     universe_note = None
     if pit:
         hdf = load_signal_history()
@@ -1546,50 +1604,15 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         scores, meta = hz.scores_from_pit(panel, hdf.to_dict("records"))
         source, pit_dates = "pit", meta.get("pit_dates")
     elif pit_fund:
-        hist = load_fundamentals_history()
-        if not hist:
-            return {"ready": False,
-                    "reason": "연도별 재무 없음 — `fetch_fundamentals_history` 를 먼저 돌려야 한다"}
-        price_now = {t: [v for v in row if v is not None][-1]
-                     for t, row in panel.closes.items() if any(v is not None for v in row)}
-        shares = pf.shares_estimate(load_fundamentals(), price_now)
-        if not shares:
-            return {"ready": False, "reason": "시가총액·현재가가 없어 발행주식수를 근사할 수 없다"}
-        # 시점별 유니버스가 있으면 쓴다(생존편향 제거). 없으면 오늘 유니버스로 돌고 그 사실을
-        # meta·이력에 남긴다 — 무엇으로 돌았는지 모르는 판정은 증거가 아니다.
-        uni_hist = load_universe_history()
-        uni_at = None
-        if uni_hist:
-            _cache: dict[str, set[str] | None] = {}
-
-            def uni_at(date_str: str) -> set[str] | None:      # noqa: F811
-                if date_str not in _cache:
-                    items = universe_at(date_str)
-                    _cache[date_str] = {u["ticker"] for u in items} if items else None
-                return _cache[date_str]
-
-        # 패널은 PIT 유니버스 합집합으로 넓힌다 — 오늘의 200으로 만들면 폐지·이탈 종목이 애초에 없다.
-        if uni_hist:
-            pit_tickers = {u["ticker"] for u in pit_universe_tickers()}
-            panel = hz.build_panel(load_all_dated_closes(), pit_tickers)
-        anchors = pf.mktcap_anchors(uni_hist) if uni_hist else {}
-        # 앵커일 종가만 뽑아 둔다(전 날짜를 넘기면 메모리가 커진다).
-        anchor_days = sorted(uni_hist) if uni_hist else []
-        price_on: dict[str, dict[str, float]] = {}
-        for t, row in panel.closes.items():
-            idx = {d: i for i, d in enumerate(panel.dates)}
-            price_on[t] = {d: row[idx[d]] for d in anchor_days
-                           if d in idx and row[idx[d]] is not None}
-        scores, cov6, fired6, meta6 = hz.scores_with_pit_fundamentals(
-            panel, sc, hist, shares=shares, universe=uni, universe_at=uni_at,
-            mktcap_anchors=anchors, price_on=price_on)
+        # 점수 조립은 `pit_fund_scores` 한 곳에서만 한다 — CLI가 오늘 유니버스로 돌던 갈라짐을 막는다.
+        scores, cov6, fired6, meta6, covers, universe_note, panel = pit_fund_scores(panel, sc, uni)
+        if scores is None:
+            return {"ready": False, "reason": meta6.get("error") or "PIT 재무 점수 조립 실패"}
         source, pit_dates = "price6", meta6.get("fund_dates")
-        universe_note = (f"universe=pit(스냅샷 {len(uni_hist)}개, 종목 {len(pit_tickers)})"
-                         if uni_hist else "universe=today(생존편향 잔존)")
     regimes = (hz.regimes_at(panel, hz._rebalance_indices(panel, cfg))
                if cfg.use_exposure else None)
     out = (hz.run(panel, cfg, regimes, scores=scores, score_source=source,
-                  coverage=cov6, fired=fired6) if scores is not None
+                  coverage=cov6, fired=fired6, covers=covers) if scores is not None
            else hz.run(panel, cfg, regimes))
     if not out.get("ready"):
         return out
