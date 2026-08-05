@@ -1491,6 +1491,25 @@ def load_harness_last() -> dict:
         return {"ready": False, "reason": f"harness_last.json 파싱 실패: {type(e).__name__}"}
 
 
+def _slice_after(from_date: str, scores, panel, covers):
+    """`from_date` 이후 거래일만 남긴 (scores, panel, covers, 자른 일수).
+
+    점수·커버리지는 **패널 인덱스에 정렬된 리스트**라 같은 위치에서 함께 잘라야 한다.
+    한쪽만 자르면 인덱스가 밀려 다른 날짜의 점수로 채점하게 된다.
+    """
+    from signal_desk.signals import harness as hz
+
+    keep = [i for i, d in enumerate(panel.dates) if d >= from_date]
+    if not keep:
+        return scores, hz.Panel(dates=[], closes={}), covers, len(panel.dates)
+    lo = keep[0]
+    new_panel = hz.Panel(dates=panel.dates[lo:],
+                         closes={t: row[lo:] for t, row in panel.closes.items()})
+    new_scores = ({t: row[lo:] for t, row in scores.items()} if scores is not None else None)
+    new_covers = ({t: row[lo:] for t, row in covers.items()} if covers else covers)
+    return new_scores, new_panel, new_covers, lo
+
+
 def pit_fund_scores(panel, sc, uni: list[dict]):
     """PIT 재무 6팩터 점수 한 벌 — **하네스를 부르는 모든 경로가 이 함수를 쓴다.**
 
@@ -1561,7 +1580,8 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
                 cost: float = 0.25, trials: int = 40, exposure: bool = False,
                 signal_config=None, pit: bool = False, pit_fund: bool = False,
                 preregistered_id: str | None = None, lock: bool = False,
-                threshold_pct: float | None = None, n_registered: int | None = None) -> dict:
+                threshold_pct: float | None = None, n_registered: int | None = None,
+                from_date: str | None = None) -> dict:
     """하네스를 돌리고 **이력에 남긴다**. 보드 정본은 사전등록된 확정 실행만 갱신한다.
 
     `signal_config`를 안 주면 `signalcfg.get_config()`(소스 기본값 + kv 오버라이드)를 검사한다.
@@ -1609,6 +1629,16 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         if scores is None:
             return {"ready": False, "reason": meta6.get("error") or "PIT 재무 점수 조립 실패"}
         source, pit_dates = "price6", meta6.get("fund_dates")
+    # OOS 구간(사전등록 `requirement.from_date`) — 그 날짜 **이후** 거래일만 남긴다.
+    # 탐색으로 이미 본 구간을 그 뒤에 등록하면 사후등록이므로, 결과를 본 가설은 이 창으로만 잰다.
+    # 점수·커버리지 패널을 만든 **뒤에** 자른다: 지표 워밍업(MA120·모멘텀 252일)에 필요한
+    # 과거를 먼저 잘라내면 창 앞부분 팩터가 조용히 빠져 "그 구간을 쟀다"는 말이 거짓이 된다.
+    if from_date:
+        scores, panel, covers, cut = _slice_after(from_date, scores, panel, covers)
+        if len(panel.dates) < 3:
+            return {"ready": False,
+                    "reason": (f"OOS 구간({from_date} 이후) 거래일 {len(panel.dates)}일 — "
+                               f"아직 판정할 표본이 없다")}
     regimes = (hz.regimes_at(panel, hz._rebalance_indices(panel, cfg))
                if cfg.use_exposure else None)
     out = (hz.run(panel, cfg, regimes, scores=scores, score_source=source,
@@ -1617,6 +1647,9 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
     if not out.get("ready"):
         return out
 
+    if from_date:
+        out["oos_from"] = from_date
+        out["oos_dates"] = len(panel.dates)
     cfg_dict = signal_config_dict(sc)
     hz_dict = {"hold": cfg.rebalance_days, "cost_pct": cfg.cost_pct,
                "trials": cfg.random_trials, "exposure": cfg.use_exposure,
@@ -1794,7 +1827,8 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
     if look is None:
         return {"ready": False, "reason": f"사전등록에 없는 id: {look_id}"}
 
-    ok, why = prereg.config_agrees_with_engine(look["config"])
+    ok, why = prereg.config_agrees_with_engine(
+        look["config"], allow_diff=tuple(look.get("diff_from_live") or ()))
     if not ok:
         return {"ready": False, "reason": why}
 
@@ -1812,7 +1846,8 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
         trials=int(hzc.get("trials") or 200), exposure=bool(hzc.get("exposure") or False),
         signal_config=_signal_config_from(look["config"]), pit=pit, pit_fund=pit_fund,
         preregistered_id=look_id, lock=False,
-        threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"])
+        threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"],
+        from_date=(look["requirement"] or {}).get("from_date"))
     if not out.get("ready"):
         return out
     prog = prereg.progress(look, effective_periods=out.get("effective_periods") or 0,
@@ -1825,6 +1860,7 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
             trials=int(hzc.get("trials") or 200), exposure=bool(hzc.get("exposure") or False),
             signal_config=_signal_config_from(look["config"]), pit=pit, pit_fund=pit_fund,
             preregistered_id=look_id, lock=True,
+            from_date=(look["requirement"] or {}).get("from_date"),
             threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"])
     return {**out, "progress": prog, "board_updated": False}
 
@@ -1863,6 +1899,11 @@ def harness_board(market: str = "kr", *, path=None) -> dict:
         prog["effective_periods_source"] = eff_src
         row = {
             "id": lk["id"], "role": lk["role"], "family": lk["family"],
+            # 반사실 family — 라이브가 일부러 안 돌리는 설정을 재는 look. 보드 헤드라인이 될 수
+            # 없다(아래). 통과해도 그건 "라이브 전략이 판별력 있다"는 뜻이 아니다.
+            "counterfactual": bool(lk.get("counterfactual")),
+            "diff_from_live": list(lk.get("diff_from_live") or ()),
+            "oos_from": (lk["requirement"] or {}).get("from_date"),
             "hypothesis": lk["hypothesis"], "score_source": lk["score_source"],
             "status": status, "threshold_pct": reg["threshold_pct"],
             "n_registered": reg["n_canonical"], "config_hash": cur_hash,
@@ -1886,8 +1927,12 @@ def harness_board(market: str = "kr", *, path=None) -> dict:
                        verdict_why=" · ".join(miss) or "요건 충족 — 다음 실행에서 확정")
         looks_out.append(row)
 
-    final = next((r for r in looks_out if r["role"] == "final"), None)
-    head = final or (looks_out[0] if looks_out else None)
+    # 헤드라인은 **라이브를 재는 family**의 final이다. 반사실 look(D4 등)은 role이 final이어도
+    # 헤드라인이 되지 않는다 — 그 판정이 `prereg.change_allowed`(N2 게이트)를 열면, 라이브가
+    # 돌리지 않는 설정의 성적으로 라이브 파라미터 변경이 허가된다.
+    live_looks = [r for r in looks_out if not r["counterfactual"]]
+    final = next((r for r in live_looks if r["role"] == "final"), None)
+    head = final or (live_looks[0] if live_looks else None)
     return {
         "ready": True, "market": market,
         "threshold_pct": reg["threshold_pct"], "n_registered": reg["n_canonical"],
@@ -1897,8 +1942,12 @@ def harness_board(market: str = "kr", *, path=None) -> dict:
         "percentile": head.get("percentile") if head else None,
         "requirement": head["requirement"] if head else None,
         "looks": looks_out,
-        "note": ("정본은 role=final이다. interim은 중간 판독이며 채택 근거가 아니다. "
-                 "요건 미충족 동안 백분위는 보드에 내지 않는다(매일 보는 것이 곧 다중검정)."),
+        # 반사실 look은 목록에만 있고 헤드라인·게이트에는 쓰이지 않는다.
+        "counterfactual_looks": [r["id"] for r in looks_out if r["counterfactual"]],
+        "note": ("정본은 **라이브 family**의 role=final이다. interim은 중간 판독이며 채택 근거가 "
+                 "아니고, 반사실 family(diff_from_live)는 라이브가 돌리지 않는 설정이라 헤드라인·"
+                 "게이트에 쓰지 않는다. 요건 미충족 동안 백분위는 보드에 내지 않는다"
+                 "(매일 보는 것이 곧 다중검정)."),
     }
 
 

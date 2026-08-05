@@ -1254,10 +1254,16 @@ def test_preregistered_config_covers_every_engine_field():
     from signal_desk import prereg, signalcfg
 
     reg = prereg.load()
-    base = (reg.get("base") or {}).get("config") or {}
-    missing = [f for f in signalcfg.FIELDS if f not in base]
-    assert not missing, f"사전등록에 없는 엔진 필드: {missing}"
-    assert signalcfg.MODE_FIELD in base
+    assert reg["ok"], reg["reason"]
+    # family가 여러 개면 **각 family의 config**를 다 본다 — 하나만 검사하면 나머지는 빠진다.
+    seen = set()
+    for lk in reg["looks"]:
+        cfg = lk["config"]
+        missing = [f for f in signalcfg.FIELDS if f not in cfg]
+        assert not missing, f"{lk['id']}: 사전등록에 없는 엔진 필드: {missing}"
+        assert signalcfg.MODE_FIELD in cfg
+        seen.add(lk["family"])
+    assert len(seen) >= 1
 
 
 # ── X3: 게이트 투명화 ──────────────────────────────────────────────────────────
@@ -1387,3 +1393,162 @@ def test_harness_leaves_gated_slots_empty_like_live():
     # 상위 2자리가 전부 게이트면 매수는 0이어야 한다 — 3~4위로 채우면 이 값이 2가 된다.
     assert out["strategy"]["avg_picks"] == 0.0, out["strategy"]["avg_picks"]
     assert out["empty_periods"] == out["periods"], (out["empty_periods"], out["periods"])
+
+
+def test_preregistered_seen_hypotheses_require_an_oos_window():
+    """결과를 본 가설은 `from_date`로 아직 보지 않은 구간을 걸어야 정본이 된다.
+
+    D4(추세 게이트 off)는 2026-08-06 진단에서 백분위 92.5를 **보고 나서** 등록했다. 그대로
+    전 구간에 걸면 사후등록이다. 규칙: `from_date >= registered_at`, 그리고 그 창으로만 잰다.
+    """
+    from signal_desk import prereg
+
+    reg = prereg.load()
+    assert reg["ok"], reg["reason"]
+    d4 = next((lk for lk in reg["looks"] if lk["id"] == "d4-no-trend-gate-oos"), None)
+    assert d4 is not None, "D4 OOS look이 등록에서 사라졌다"
+    fd = (d4["requirement"] or {}).get("from_date")
+    assert fd and fd >= d4["registered_at"], (fd, d4["registered_at"])
+    assert d4["config"]["trend_gate"] == 0.0
+    # family가 달라야 한다 — 같은 family면 설정 불일치로 load가 거부한다(Šidák 가정).
+    fam1 = next(lk for lk in reg["looks"] if lk["id"].endswith("-final")
+                and lk["id"] != "d4-no-trend-gate-oos")
+    assert d4["family"] != fam1["family"]
+    assert fam1["config"]["trend_gate"] == 1.0
+    # family를 나눠도 n은 줄지 않는다 — 파일을 쪼개 문턱을 낮추는 것이 사후 완화다.
+    assert reg["n_canonical"] == 3 and reg["threshold_pct"] == prereg.sidak_threshold_pct(3)
+    assert reg["threshold_pct"] > prereg.sidak_threshold_pct(2)
+
+
+def tmp_path_factory_dir():
+    """레드팀 전용 임시 디렉토리 — 사전등록 파싱 검사에서 toml을 여러 개 쓴다."""
+    import pathlib
+    import tempfile
+    return pathlib.Path(tempfile.mkdtemp())
+
+
+def test_prereg_rejects_config_drift_within_a_family_and_bad_oos():
+    """같은 family 안 설정 불일치·이른 from_date는 **파싱 단계에서** 막는다."""
+    from signal_desk import prereg
+
+    good = '''
+[base]
+family = "f1"
+score_source = "pit"
+market = "kr"
+[base.config]
+weight_momentum = 0.30
+[base.harness]
+hold = 5
+cost_pct = 0.25
+trials = 200
+exposure = false
+[[looks]]
+id = "a"
+role = "final"
+registered_at = "2026-08-06"
+[looks.requirement]
+min_effective_periods = 30
+min_pit_dates = 150
+'''
+    p = tmp_path_factory_dir() / "ok.toml"
+    p.write_text(good, encoding="utf-8")
+    assert prereg.load(p)["ok"]
+
+    # from_date가 registered_at보다 이르면 OOS가 아니다
+    bad = good.replace("min_pit_dates = 150",
+                       'min_pit_dates = 150\nfrom_date = "2026-01-01"')
+    p2 = tmp_path_factory_dir() / "bad_oos.toml"
+    p2.write_text(bad, encoding="utf-8")
+    r = prereg.load(p2)
+    assert not r["ok"] and "OOS가 아니다" in r["reason"], r["reason"]
+
+    # 같은 family 안에서 설정이 다르면 순차 관측이 아니다
+    drift = good + '''
+[[looks]]
+id = "b"
+role = "final"
+registered_at = "2026-08-06"
+[looks.config]
+weight_momentum = 0.10
+[looks.requirement]
+min_effective_periods = 30
+min_pit_dates = 150
+'''
+    p3 = tmp_path_factory_dir() / "drift.toml"
+    p3.write_text(drift, encoding="utf-8")
+    r3 = prereg.load(p3)
+    assert not r3["ok"] and "별개 실험" in r3["reason"], r3["reason"]
+
+    # family 이름 중복도 막는다
+    dup = good + '''
+[[families]]
+family = "f1"
+score_source = "pit"
+[families.config]
+weight_momentum = 0.30
+[families.harness]
+hold = 5
+cost_pct = 0.25
+trials = 200
+exposure = false
+[[families.looks]]
+id = "c"
+role = "final"
+registered_at = "2026-08-06"
+[families.looks.requirement]
+min_effective_periods = 30
+min_pit_dates = 150
+'''
+    p4 = tmp_path_factory_dir() / "dup.toml"
+    p4.write_text(dup, encoding="utf-8")
+    r4 = prereg.load(p4)
+    assert not r4["ok"] and "family 중복" in r4["reason"], r4["reason"]
+
+
+def test_oos_slice_cuts_scores_panel_and_covers_together():
+    """OOS 창으로 자를 때 점수·패널·커버리지를 **같은 위치에서** 잘라야 한다.
+
+    한쪽만 자르면 인덱스가 밀려 다른 날짜의 점수로 채점한다 — 결과는 나오지만 무엇을 잰
+    것인지 알 수 없다.
+    """
+    from signal_desk import store
+    from signal_desk.signals import harness as h
+
+    dates = _dates(10)
+    panel = h.Panel(dates=list(dates),
+                    closes={"A": [100.0 + i for i in range(10)]})
+    scores = {"A": [float(i) for i in range(10)]}
+    covers = {"A": [1.0] * 10}
+    cut_from = dates[4]
+    ns, np_, nc, lo = store._slice_after(cut_from, scores, panel, covers)
+    assert lo == 4
+    assert np_.dates == dates[4:]
+    assert np_.closes["A"] == [104.0, 105.0, 106.0, 107.0, 108.0, 109.0]
+    assert ns["A"] == [4.0, 5.0, 6.0, 7.0, 8.0, 9.0]
+    assert nc["A"] == [1.0] * 6
+    # 세 리스트 길이가 같아야 한다 — 어긋나면 다른 날짜로 채점한다.
+    assert len(np_.dates) == len(ns["A"]) == len(nc["A"])
+
+
+def test_counterfactual_look_never_becomes_the_board_headline():
+    """반사실 판정이 헤드라인이 되면 `prereg.change_allowed`(N2)가 잘못 열린다.
+
+    D4는 `role = "final"` 인데 라이브가 일부러 안 돌리는 설정(`trend_gate = 0`)을 잰다.
+    그 성적으로 라이브 파라미터 변경을 허가하면, 돌리지 않는 전략의 증거로 돌리는 전략을 바꾸는 것이다.
+    """
+    from signal_desk import store
+
+    board = store.harness_board("kr")
+    assert board["ready"], board
+    ids = [r["id"] for r in board["looks"]]
+    assert "d4-no-trend-gate-oos" in ids, "D4가 보드 목록에서 사라졌다"
+    assert board["counterfactual_looks"] == ["d4-no-trend-gate-oos"], board["counterfactual_looks"]
+    # 헤드라인은 라이브 family의 final이어야 한다.
+    head_id = next((r["id"] for r in board["looks"]
+                    if r["verdict"] == board["verdict"]
+                    and r["requirement"] == board["requirement"]), None)
+    assert head_id != "d4-no-trend-gate-oos"
+    d4 = next(r for r in board["looks"] if r["id"] == "d4-no-trend-gate-oos")
+    assert d4["counterfactual"] is True and d4["diff_from_live"] == ["trend_gate"]
+    assert d4["oos_from"] == "2026-08-07"
