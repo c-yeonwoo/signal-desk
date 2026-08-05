@@ -38,10 +38,15 @@ DEFAULT_PATH = Path("docs/preregistered.toml")
 # 문턱의 기준 유의수준. Šidák: α₁ = 1 − (1 − α)^(1/n)
 ALPHA = 0.05
 
-# 정본으로 삼을 수 있는 점수 출처. 가격 하네스는 `_score_series`가 technical·reversion·momentum
-# 셋만 계산하고 `_price_only_components`가 "기본/저평가는 시점별 재무 스냅샷이 없어 범위 밖"이라
-# 적고 있다 — 8팩터를 재는 것이 아니므로 정본이 될 수 없다(탐색 도구로만 남긴다).
-CANONICAL_SOURCES = ("pit",)
+# 정본으로 삼을 수 있는 점수 출처.
+#  - "pit"    : 그날 라이브가 낸 점수 스냅샷. 8팩터 전부, 룩어헤드 원리적으로 없음.
+#  - "price6" : 시점별 재무(FY+1-04-01 규칙)로 복원한 6팩터. 수급·공매도(가중 0.35)는
+#               시계열 이력이 없어 백필 불가라 빠진다.
+# "price"(3팩터)는 제외한다 — `_score_series`가 technical·reversion·momentum 셋만 계산하는데
+# 그 결과를 "8팩터 시그널의 판별력"으로 읽으면 이름과 다른 전략을 측정한 것이 된다.
+# price6가 허용되는 이유는 팩터가 더 많아서가 아니라 **이름이 정직해서**다 — 등록할 때
+# hypothesis에 "6팩터이고 수급·공매도는 빠졌다"를 반드시 적는다.
+CANONICAL_SOURCES = ("pit", "price6")
 
 _HARNESS_KEYS = ("hold", "cost_pct", "trials", "exposure")
 

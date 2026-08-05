@@ -1487,7 +1487,7 @@ def signal_config_dict(sc) -> dict:
 
 def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
                 cost: float = 0.25, trials: int = 40, exposure: bool = False,
-                signal_config=None, pit: bool = False,
+                signal_config=None, pit: bool = False, pit_fund: bool = False,
                 preregistered_id: str | None = None, lock: bool = False,
                 threshold_pct: float | None = None, n_registered: int | None = None) -> dict:
     """하네스를 돌리고 **이력에 남긴다**. 보드 정본은 사전등록된 확정 실행만 갱신한다.
@@ -1504,6 +1504,7 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
     """
     from signal_desk import db, prereg, signalcfg
     from signal_desk.signals import harness as hz
+    from signal_desk.signals import pit_fundamentals as pf
 
     market = "us" if market == "us" else "kr"
     if not is_ready():
@@ -1522,15 +1523,30 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         signal_config=sc,
     )
     scores, source, pit_dates = None, "price", None
+    cov6 = fired6 = None
     if pit:
         hdf = load_signal_history()
         if hdf.empty:
             return {"ready": False, "reason": "PIT 스냅샷 없음 — 마감 스냅샷이 쌓여야 한다"}
         scores, meta = hz.scores_from_pit(panel, hdf.to_dict("records"))
         source, pit_dates = "pit", meta.get("pit_dates")
+    elif pit_fund:
+        hist = load_fundamentals_history()
+        if not hist:
+            return {"ready": False,
+                    "reason": "연도별 재무 없음 — `fetch_fundamentals_history` 를 먼저 돌려야 한다"}
+        price_now = {t: [v for v in row if v is not None][-1]
+                     for t, row in panel.closes.items() if any(v is not None for v in row)}
+        shares = pf.shares_estimate(load_fundamentals(), price_now)
+        if not shares:
+            return {"ready": False, "reason": "시가총액·현재가가 없어 발행주식수를 근사할 수 없다"}
+        scores, cov6, fired6, meta6 = hz.scores_with_pit_fundamentals(
+            panel, sc, hist, shares=shares, universe=uni)
+        source, pit_dates = "price6", meta6.get("fund_dates")
     regimes = (hz.regimes_at(panel, hz._rebalance_indices(panel, cfg))
                if cfg.use_exposure else None)
-    out = (hz.run(panel, cfg, regimes, scores=scores, score_source=source) if scores is not None
+    out = (hz.run(panel, cfg, regimes, scores=scores, score_source=source,
+                  coverage=cov6, fired=fired6) if scores is not None
            else hz.run(panel, cfg, regimes))
     if not out.get("ready"):
         return out
@@ -1717,6 +1733,7 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
 
     hzc = look["harness"]
     pit = look["score_source"] == "pit"
+    pit_fund = look["score_source"] == "price6"
     pre = pit_dates_count() if pit else None
 
     # 잠금 여부는 실행 결과의 실효 기간으로 정해진다 → 먼저 돌리고, 요건을 만족하면 그 실행을 잠근다.
@@ -1726,20 +1743,20 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
         market=look["market"], top_pct=float(hzc.get("top_pct") or look["config"].get("rank_top_pct") or 3.0),
         hold=int(hzc.get("hold") or 5), cost=float(hzc.get("cost_pct") or 0.25),
         trials=int(hzc.get("trials") or 200), exposure=bool(hzc.get("exposure") or False),
-        signal_config=_signal_config_from(look["config"]), pit=pit,
+        signal_config=_signal_config_from(look["config"]), pit=pit, pit_fund=pit_fund,
         preregistered_id=look_id, lock=False,
         threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"])
     if not out.get("ready"):
         return out
     prog = prereg.progress(look, effective_periods=out.get("effective_periods") or 0,
-                           pit_dates=pre or 0)
+                           pit_dates=(pre if pit else out.get("pit_dates")) or 0)
     if prog["met"] and not already:
         # 요건 충족 첫 실행 — 같은 실행을 잠긴 것으로 다시 남기고 보드를 갱신한다.
         return run_harness(
             market=look["market"], top_pct=float(hzc.get("top_pct") or look["config"].get("rank_top_pct") or 3.0),
             hold=int(hzc.get("hold") or 5), cost=float(hzc.get("cost_pct") or 0.25),
             trials=int(hzc.get("trials") or 200), exposure=bool(hzc.get("exposure") or False),
-            signal_config=_signal_config_from(look["config"]), pit=pit,
+            signal_config=_signal_config_from(look["config"]), pit=pit, pit_fund=pit_fund,
             preregistered_id=look_id, lock=True,
             threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"])
     return {**out, "progress": prog, "board_updated": False}

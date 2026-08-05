@@ -133,6 +133,8 @@ def harness(
                                  help="누수 검사 — 점수와 수익률의 짝을 어긋나게 하고 돌린다"),
     pit: bool = typer.Option(False, "--pit",
                              help="PIT signal_history 점수(fund/flow 포함)로 순위 — 스냅샷 구간만"),
+    pit_fund: bool = typer.Option(False, "--pit-fund",
+                                  help="시점별 재무로 복원한 6팩터 순위 — 재무·저평가·퀄리티 포함"),
     preregistered: str = typer.Option("", "--preregistered",
                                       help="사전등록 id로 실행 — **보드 정본이 될 수 있는 유일한 경로**"),
     config_json: str = typer.Option("", "--config-json",
@@ -148,6 +150,7 @@ def harness(
 
     from signal_desk import db, prereg, signalcfg, store
     from signal_desk.signals import harness as hz
+    from signal_desk.signals import pit_fundamentals as pf
 
     if not store.is_ready():
         console.print("[red]캐시가 없습니다.[/red] 먼저 `sigdesk fetch`를 실행하세요.")
@@ -188,7 +191,25 @@ def harness(
     panel = hz.build_panel(store.load_all_dated_closes(), {u["ticker"] for u in uni})
     console.print(f"[dim]{market.upper()} · {len(panel.dates)}거래일 · {len(panel.closes)}종목 "
                   f"({panel.dates[0]}~{panel.dates[-1]})[/dim]")
+    if pit and pit_fund:
+        console.print("[red]--pit 와 --pit-fund 는 같이 못 씁니다.[/red] "
+                      "전자는 스냅샷 점수, 후자는 시점별 재무 복원입니다.")
+        raise typer.Exit(1)
     pit_scores = None
+    cov6 = fired6 = None
+    if pit_fund:
+        hist = store.load_fundamentals_history()
+        if not hist:
+            console.print("[red]연도별 재무 없음[/red] — `--pit-fund` 는 fundamentals_history 가 필요합니다.")
+            raise typer.Exit(1)
+        price_now = {t: [v for v in row if v is not None][-1]
+                     for t, row in panel.closes.items() if any(v is not None for v in row)}
+        shares = pf.shares_estimate(store.load_fundamentals(), price_now)
+        pit_scores, cov6, fired6, meta6 = hz.scores_with_pit_fundamentals(
+            panel, signalcfg.get_config(), hist, shares=shares, universe=uni)
+        console.print(f"[dim]시점별 재무 {meta6['fund_dates']}거래일 "
+                      f"({meta6['fund_from']}~) · FY {', '.join(meta6['fiscal_years'])} · "
+                      f"수급·공매도 제외(6팩터)[/dim]")
     if pit:
         hdf = store.load_signal_history()
         if hdf.empty:
@@ -200,7 +221,8 @@ def harness(
 
     combos = ([(tp, h) for tp in (1.0, 3.0, 5.0, 10.0) for h in (5, 20)] if sweep
               else [(top_pct, hold)])
-    title = ("포트폴리오 하네스 (PIT 8팩터 점수)" if pit
+    title = ("포트폴리오 하네스 (시점별 재무 6팩터 — 수급·공매도 제외)" if pit_fund
+             else "포트폴리오 하네스 (PIT 8팩터 점수)" if pit
              else "기술·모멘텀 부분집합 탐색 — 가격 재계산은 8팩터가 아니다(기본/저평가 범위 밖)")
     table = Table(title=title)
     for c in ("분위", "보유", "전략 누적", "위상편차", "무작위 중위", "초과", "백분위", "판정"):
@@ -213,8 +235,13 @@ def harness(
                                signal_config=store._signal_config_from(overrides)
                                if overrides else signalcfg.get_config())
         regimes = hz.regimes_at(panel, hz._rebalance_indices(panel, cfg)) if exposure else None
-        out = (hz.run(panel, cfg, regimes, scores=pit_scores, score_source="pit") if pit
-               else hz.run(panel, cfg, regimes))
+        if pit_fund:
+            out = hz.run(panel, cfg, regimes, scores=pit_scores, score_source="price6",
+                         coverage=cov6, fired=fired6)
+        elif pit:
+            out = hz.run(panel, cfg, regimes, scores=pit_scores, score_source="pit")
+        else:
+            out = hz.run(panel, cfg, regimes)
         if not out["ready"]:
             console.print(f"[red]{out['reason']}[/red]")
             raise typer.Exit(1)
