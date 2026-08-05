@@ -13,6 +13,26 @@ _WEIGHTS = {
 }
 
 
+# 2026-08-05 판정 게이트(N2): 정본 판정이 `판별력 있음` 으로 확정되기 전에는 **자동 제안을
+# 만들지 않는다**. 아래 테스트들은 제안 생성·승인 로직 자체를 보는 것이므로 게이트를 열고 돈다.
+# 게이트가 닫힌 동작은 `test_redteam.py` 의 N2 검사들이 본다 — 여기서 게이트를 끄는 것이
+# "게이트가 없어도 통과"를 뜻하지 않게 그쪽에 검사를 따로 두었다.
+def _open_gate(monkeypatch):
+    monkeypatch.setattr(brain_proposals, "_verdict_gate", lambda *, automated: (True, ""))
+
+
+def test_automated_proposals_are_blocked_until_the_verdict_is_locked(tmp_path, monkeypatch):
+    """게이트가 닫혀 있으면 제안이 **생성되지 않는다**(큐가 비고 이유가 남는다)."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    acc = {"ready": True, "coverage": {"matured_primary": 999},
+           "factor_ic": {"short": -0.20, "momentum": 0.20}}
+    out = brain_proposals.refresh(acc, dict(_WEIGHTS))
+    assert out["created"] == 0 and out.get("gated") is True
+    assert "자동 제안" in out["reason"], out["reason"]
+    assert db.brain_proposal_draft_count() == 0
+
+
 def test_composite_ic_estimate_direction():
     weights = dict(_WEIGHTS)
     factor_ic = {"short": -0.10, "momentum": 0.10, "technical": 0.0}
@@ -69,6 +89,7 @@ def test_threshold_nudge_low_and_high_precision(tmp_path, monkeypatch):
 
 
 def test_refresh_creates_down_up_and_approve(tmp_path, monkeypatch):
+    _open_gate(monkeypatch)
     monkeypatch.chdir(tmp_path)
     signalcfg.set_dict(_WEIGHTS)
     acc = {
@@ -109,6 +130,7 @@ def test_refresh_creates_down_up_and_approve(tmp_path, monkeypatch):
 
 
 def test_refresh_skips_immature_tracker(tmp_path, monkeypatch):
+    _open_gate(monkeypatch)
     monkeypatch.chdir(tmp_path)
     out = brain_proposals.refresh({"ready": False}, _WEIGHTS)
     assert out["created"] == 0 and out.get("reason")
@@ -116,6 +138,7 @@ def test_refresh_skips_immature_tracker(tmp_path, monkeypatch):
 
 
 def test_reject_leaves_config(tmp_path, monkeypatch):
+    _open_gate(monkeypatch)
     monkeypatch.chdir(tmp_path)
     signalcfg.set_dict(_WEIGHTS)
     acc = {"ready": True, "factor_ic": {"flow": -0.04}, "coverage": {"matured_primary": 30}}
@@ -128,6 +151,7 @@ def test_reject_leaves_config(tmp_path, monkeypatch):
 
 
 def test_refresh_idempotent_same_factor_draft(tmp_path, monkeypatch):
+    _open_gate(monkeypatch)
     monkeypatch.chdir(tmp_path)
     signalcfg.set_dict(_WEIGHTS)
     acc = {"ready": True, "factor_ic": {"quality": -0.07}, "coverage": {"matured_primary": 50}}
@@ -139,6 +163,7 @@ def test_refresh_idempotent_same_factor_draft(tmp_path, monkeypatch):
 
 
 def test_double_approve_rejected(tmp_path, monkeypatch):
+    _open_gate(monkeypatch)
     monkeypatch.chdir(tmp_path)
     signalcfg.set_dict(_WEIGHTS)
     acc = {"ready": True, "factor_ic": {"short": -0.05}, "coverage": {"matured_primary": 40}}

@@ -1281,6 +1281,7 @@
         </div>
       </div>
       <p class="page-desc" style="margin:8px 0 10px">비중·문턱을 <b>살짝</b> 바꾸는 초안입니다. 승인/반려만 하면 됩니다.</p>
+      <div id="engine-unproven"></div>
       <div id="brain-proposals-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       <div id="brain-proposals-history" style="margin-top:12px;font-size:13px;color:var(--dim)"></div>
     </div>
@@ -5422,6 +5423,7 @@ function switchAdminSeg(seg, { pin = true } = {}){
   if (seg === 'engine') {
     loadProofOs();
     loadExperiments();     // 진단은 탭 진입 시 자동 로드 — 눌러야 보이는 정보는 아무도 안 본다
+    renderUnprovenBanner();
     loadEngine();
     loadBrainProposals();
     const br = document.getElementById('brain-card');
@@ -6209,6 +6211,32 @@ function _pitHeroLine(pit){
   const tip = (pit.reasons || []).slice(0, 3).join(' · ') || '최근 PIT 스냅샷';
   return `<span style="color:var(--dim);font-weight:500" title="${esc(tip)}">${esc(bits.join(' · '))}</span>`;
 }
+let _bpGateReason = '';
+async function refreshBrainProposals(){
+  const btn = document.getElementById('bp-refresh-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '생성 중…'; }
+  try {
+    const d = await (await fetch('/api/brain/proposals/refresh', { method: 'POST' })).json();
+    _bpGateReason = d.gated ? (d.reason || '') : '';
+    await loadBrainProposals();
+  } finally { if (btn) { btn.disabled = false; btn.textContent = '새로고침'; } }
+}
+// 미검증(판정 전) 변경이 몇 건인지 상설 표시 — 조용히 쌓이면 나중에 그 값을 근거로 착각한다.
+async function renderUnprovenBanner(){
+  const host = document.getElementById('engine-unproven');
+  if (!host) return;
+  try {
+    const d = await (await fetch('/api/engine/config/history?limit=50')).json();
+    const un = (d.history || d.items || []).filter(e => e && e.unproven);
+    if (!un.length) { host.innerHTML = ''; return; }
+    const last = un[0] || {};
+    host.innerHTML = `<div style="border:1px solid var(--sell);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:12.5px">`
+      + `<b style="color:var(--sell)">미검증 변경 ${un.length}건</b>`
+      + ` <span style="color:var(--dim)">— 판별력 판정이 확정되기 전에 바꾼 값입니다.</span>`
+      + (last.override_reason ? `<div style="margin-top:4px;color:var(--dim)">최근 사유: ${esc(String(last.override_reason))}</div>` : '')
+      + `</div>`;
+  } catch (e) { /* 배너는 실패해도 화면을 막지 않는다 */ }
+}
 async function loadBrainProposals(){
   const el = document.getElementById('brain-proposals-body');
   const histEl = document.getElementById('brain-proposals-history');
@@ -6221,8 +6249,12 @@ async function loadBrainProposals(){
     const accSum = d.accuracy_summary || {};
     if (!items.length) {
       el.className = 'placeholder';
-      el.innerHTML = '대기 중인 제안이 없습니다. 실측이 쌓이면 <b>제안 새로고침</b>으로 초안을 만들 수 있습니다.'
-        + '<div style="margin-top:8px;font-size:13px;color:var(--dim-2)">트래커는 “그날 낸 시그널 → 20일 뒤 성적”만 봅니다. 봇이 안 사도 시그널이 있으면 쌓입니다.</div>';
+      el.innerHTML = (_bpGateReason
+          ? `<b style="color:var(--sell)">판정 전이라 제안을 만들지 않습니다</b>`
+            + `<div style="margin-top:6px;font-size:13px;color:var(--dim)">${esc(_bpGateReason)}</div>`
+            + `<div style="margin-top:6px;font-size:12.5px;color:var(--dim-2)">큐를 비워 두는 이유 — 쌓인 제안은 배지로 떠서 승인을 유도하는 압력이 됩니다. 판정이 확정되면 자동으로 다시 생성됩니다.</div>`
+          : '대기 중인 제안이 없습니다. 실측이 쌓이면 <b>제안 새로고침</b>으로 초안을 만들 수 있습니다.'
+            + '<div style="margin-top:8px;font-size:13px;color:var(--dim-2)">트래커는 “그날 낸 시그널 → 20일 뒤 성적”만 봅니다. 봇이 안 사도 시그널이 있으면 쌓입니다.</div>');
     } else {
       el.className = '';
       el.innerHTML = items.map(it => {
@@ -6268,20 +6300,6 @@ async function loadBrainProposals(){
     }
   } catch (e) {
     el.className = ''; el.textContent = '불러오지 못했습니다.';
-  }
-}
-async function refreshBrainProposals(){
-  const btn = document.getElementById('bp-refresh-btn');
-  if (btn) { btn.disabled = true; btn.textContent = '생성 중…'; }
-  try {
-    const d = await (await fetch('/api/brain/proposals/refresh', { method: 'POST' })).json();
-    if (d.reason && !(d.created)) {
-      const el = document.getElementById('brain-proposals-body');
-      if (el) { el.className = 'placeholder'; el.textContent = d.reason; }
-    }
-    await loadBrainProposals();
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '제안 새로고침'; }
   }
 }
 async function reviewBrainProposal(id, status){
@@ -6654,7 +6672,21 @@ async function saveEngine(){
     const body = {};
     for (const [id, key] of Object.entries(_ENGINE_FIELDS)) body[key] = parseFloat(document.getElementById(id).value);
     body.regime_adaptive = document.getElementById('cfg_regime_adaptive').checked ? 1 : 0;
-    await fetch('/api/engine/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    // 판정 게이트(N2): 판정이 확정되지 않았으면 사유를 받아 이력에 남긴다. 막지 않는 이유는
+    // 순수하게 잠그면 engine.py 소스를 직접 편집하는 우회로가 생기기 때문이다(H1이 그랬다).
+    let r = await fetch('/api/engine/config', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let d = await r.json();
+    if (r.status === 400 && /사유/.test(d.detail || '')) {
+      const reason = prompt((d.detail || '') + '\n\n왜 지금 바꾸는지 적어 주세요(이력에 남습니다):', '');
+      if (!reason || !reason.trim()) { alert('취소했습니다 — 값은 바뀌지 않았습니다.'); return; }
+      r = await fetch('/api/engine/config', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, override_reason: reason.trim() }) });
+      d = await r.json();
+    }
+    if (!r.ok) { alert(d.detail || '적용 실패'); return; }
+    if (d.unproven) alert('미검증 변경으로 기록했습니다 — 판별력 판정이 확정되기 전의 변경입니다.');
     await loadEngine();  // 재계산된 백테스트 반영
   } finally { btn.disabled = false; btn.textContent = t; }
 }
