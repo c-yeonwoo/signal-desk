@@ -28,7 +28,8 @@ def test_universe_by_marketcap_handles_alternate_field_name(monkeypatch):
     fake_rows = [{"ISU_CD": "111110", "ISU_NM": "가나다", "MKT_CAP": "100"}]
     monkeypatch.setattr(kapi, "daily_trading", lambda bas_dd: fake_rows)
     out = kapi.universe_by_marketcap("20260630")
-    assert out == [{"ticker": "111110", "name": "가나다"}]
+    # mktcap 을 함께 돌려준다(2026-08-05, N5) — 시점별 시가총액이 PIT 백테스트의 PER/PBR 앵커다.
+    assert out == [{"ticker": "111110", "name": "가나다", "mktcap": 100.0}]
 
 
 def test_universe_by_marketcap_excludes_preferred_shares(monkeypatch):
@@ -38,7 +39,9 @@ def test_universe_by_marketcap_excludes_preferred_shares(monkeypatch):
     ]
     monkeypatch.setattr(kapi, "daily_trading", lambda bas_dd: fake_rows)
     out = kapi.universe_by_marketcap("20260630")
-    assert out == [{"ticker": "005930", "name": "삼성전자"}]
+    assert [{"ticker": r["ticker"], "name": r["name"]} for r in out] == \
+        [{"ticker": "005930", "name": "삼성전자"}]
+    assert out[0]["mktcap"] > 0
 
 
 def test_is_common_share():

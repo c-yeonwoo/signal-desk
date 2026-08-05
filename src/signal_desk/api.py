@@ -359,6 +359,7 @@ def _daily_maintenance(enabled: list[str]) -> None:
         ("gurus", "거장 13F", lambda: store.fetch_gurus()),
         ("us_earnings", "미국 실적일정", lambda: store.fetch_us_earnings_calendar()),
         ("fund_hist", "연도별 재무(PIT)", lambda: store.fetch_fundamentals_history(store.load_universe())),
+        ("universe_hist", "PIT 유니버스(월 스냅샷)", lambda: store.fetch_universe_history()),
     ):
         try:
             if not _is_stale(key):

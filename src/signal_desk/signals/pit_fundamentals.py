@@ -26,14 +26,20 @@ DART 공시목록 API에 실제 접수일(`rcept_dt`)이 있어(`ingest/dart.py:
 틀리는 방향이 안전한 쪽이다(룩어헤드를 만들지 않는다). 대가는 며칠~2주의 정보 지연이고,
 그건 5일 보유 전략에서 판별력을 과소평가하게 만들 뿐 과대평가하지 않는다.
 
-## 시가총액 근사
+## 시가총액 — 시점 앵커를 쓴다
 
-PER/PBR은 시점 시가총액이 필요한데 발행주식수 이력이 없다. 현재 시총과 현재가로 주식수를 역산해
-**일정하다고 가정**한다: `shares ≈ mktcap_now / price_now`, `mktcap(t) ≈ shares × price(t)`.
+PER/PBR은 시점 시가총액이 필요하다. 두 경로가 있고 **앞쪽이 정확하다.**
 
-액면분할·증자가 있으면 그 구간이 틀린다. 다만 (a) 라벨 치환 대조군이 **같은 근사를 공유**하므로
-백분위 비교는 유효하고, (b) 틀리는 방향이 종목별로 무작위라 순위에 체계적 편향을 주지 않는다.
-이 근사가 싫으면 `us_fundamentals` 처럼 발행주식수 이력을 따로 받아야 한다 — 지금은 없다.
+1. **PIT 스냅샷 앵커(권장)** — 월 1회 KRX 유니버스 스냅샷에 그 시점 `mktcap` 이 들어 있다.
+   `mktcap(t) = mktcap(앵커) × price(t) / price(앵커)`. 앵커가 한 달 안이라 주식수 변동 영향이 작고,
+   **지금 유니버스에 없는(폐지·이탈) 종목에도 적용된다** — 그게 생존편향 제거의 전제다.
+2. **현재값 역산(폴백)** — `shares ≈ mktcap_now / price_now`, `mktcap(t) ≈ shares × price(t)`.
+   지금 유니버스에 있는 종목만 가능하다(폐지 종목은 `mktcap_now` 가 없다). 스냅샷이 없을 때만 쓴다.
+
+2026-08-05 실측: 폴백만 쓰면 PIT 전용 105종목 중 시총을 얻는 종목이 **0개**였다. 그러면 그 종목들은
+저평가·재무·퀄리티가 전부 빠져 **가격 3팩터(사실상 모멘텀 단독)로만 점수를 받고**, 분모가 작아
+극단 점수가 나와 매수권 6자리 중 평균 4.62자리를 차지했다. 유니버스에서 편향을 없앴는데
+**시총·재무 경로로 되살아난** 것이다.
 
 ## 남는 한계 (이 모듈이 해결하지 않는 것)
 
@@ -62,6 +68,41 @@ def latest_fiscal_year(date_str: str) -> int:
     """
     y, m = int(date_str[:4]), int(date_str[5:7])
     return y - 1 if m >= DISCLOSURE_MONTH else y - 2
+
+
+def mktcap_anchors(universe_history: dict) -> dict[str, list[tuple[str, float]]]:
+    """`{ticker: [(스냅샷일, mktcap), …]}` — 오래된→최신. PIT 시가총액 앵커.
+
+    폐지·이탈 종목도 그 시점 시총이 남아 있으므로 현재값 역산으로는 못 하는 것을 한다.
+    """
+    out: dict[str, list[tuple[str, float]]] = {}
+    for d in sorted(universe_history or {}):
+        for u in universe_history[d] or []:
+            mc = u.get("mktcap")
+            t = str(u.get("ticker") or "")
+            if t and mc:
+                out.setdefault(t, []).append((d, float(mc)))
+    return out
+
+
+def mktcap_at(ticker: str, date_str: str, price: float, *,
+              anchors: dict[str, list[tuple[str, float]]],
+              price_on: "dict[str, dict[str, float]] | None" = None,
+              shares: dict[str, float] | None = None) -> float | None:
+    """그 날짜 시가총액. 앵커가 있으면 앵커 기준, 없으면 주식수 근사 폴백.
+
+    앵커 선택은 **date 이하 가장 최근**이다 — 미래 스냅샷을 쓰면 룩어헤드다.
+    """
+    rows = (anchors or {}).get(ticker) or []
+    cand = [(d, mc) for d, mc in rows if d <= date_str]
+    if cand:
+        anchor_date, anchor_mc = cand[-1]
+        base = ((price_on or {}).get(ticker) or {}).get(anchor_date)
+        if base and base > 0 and price:
+            return anchor_mc * price / base
+        return anchor_mc                       # 앵커일 종가를 모르면 앵커 시총을 그대로(보수적)
+    sh = (shares or {}).get(ticker)
+    return price * sh if (sh and price) else None
 
 
 def shares_estimate(fundamentals_now: dict, price_now: dict[str, float]) -> dict[str, float]:

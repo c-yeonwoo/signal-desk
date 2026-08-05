@@ -27,6 +27,9 @@ log = logging.getLogger("signal_desk.store")
 
 CACHE_DIR = Path("data/cache")
 UNIVERSE_FILE = CACHE_DIR / "universe.json"
+# 시점별(PIT) 유니버스 — 월 1회 스냅샷. 생존편향 제거의 원천(docs/prd-pit-universe.md).
+UNIVERSE_HISTORY_FILE = CACHE_DIR / "universe_history.json"
+_UNIVERSE_CALL_GAP_SEC = 0.4   # PIT 유니버스 백필 콜 간격
 PRICES_FILE = CACHE_DIR / "prices.parquet"
 FUNDAMENTALS_FILE = CACHE_DIR / "fundamentals.json"
 FUNDAMENTALS_HISTORY_FILE = CACHE_DIR / "fundamentals_history.json"  # point-in-time 백테스트용 연도별 재무
@@ -605,7 +608,10 @@ def fetch_fundamentals_history(universe: list[dict] | None = None,
         _write_json(FUNDAMENTALS_HISTORY_FILE, {})
         return {}
 
-    out: dict[str, dict] = {}
+    # 기존 캐시에 **병합**한다. 통째로 덮어쓰면 일부 종목만 갱신할 때 나머지가 지워진다 —
+    # 2026-08-05에 PIT 유니버스 106종목만 넘겼다가 기존 199종목을 잃었다(캐시라 복구했지만,
+    # 부분 갱신이 나머지를 지우는 것은 #324의 quality 와 같은 병이다).
+    out: dict[str, dict] = dict(load_fundamentals_history())
     for item in universe:
         ticker = item["ticker"]
         corp_code = codes.get(ticker)
@@ -1411,6 +1417,9 @@ def data_freshness() -> list[dict]:
         e("fund_hist", "연도별 재무(PIT 백테스트)", FUNDAMENTALS_HISTORY_FILE, 100,
           _json_rows(FUNDAMENTALS_HISTORY_FILE)),
         e("us_earnings", "미국 실적일정(게이트)", US_EARNINGS_FILE, 8),
+        # 월 1회 갱신 → 40일. 등록하지 않으면 낡아도 화면에 안 뜬다(N1 규칙).
+        e("universe_hist", "PIT 유니버스(월 스냅샷)", UNIVERSE_HISTORY_FILE, 40,
+          _json_rows(UNIVERSE_HISTORY_FILE)),
     ]
 
 
@@ -1529,6 +1538,7 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
     )
     scores, source, pit_dates = None, "price", None
     cov6 = fired6 = None
+    universe_note = None
     if pit:
         hdf = load_signal_history()
         if hdf.empty:
@@ -1545,9 +1555,37 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         shares = pf.shares_estimate(load_fundamentals(), price_now)
         if not shares:
             return {"ready": False, "reason": "시가총액·현재가가 없어 발행주식수를 근사할 수 없다"}
+        # 시점별 유니버스가 있으면 쓴다(생존편향 제거). 없으면 오늘 유니버스로 돌고 그 사실을
+        # meta·이력에 남긴다 — 무엇으로 돌았는지 모르는 판정은 증거가 아니다.
+        uni_hist = load_universe_history()
+        uni_at = None
+        if uni_hist:
+            _cache: dict[str, set[str] | None] = {}
+
+            def uni_at(date_str: str) -> set[str] | None:      # noqa: F811
+                if date_str not in _cache:
+                    items = universe_at(date_str)
+                    _cache[date_str] = {u["ticker"] for u in items} if items else None
+                return _cache[date_str]
+
+        # 패널은 PIT 유니버스 합집합으로 넓힌다 — 오늘의 200으로 만들면 폐지·이탈 종목이 애초에 없다.
+        if uni_hist:
+            pit_tickers = {u["ticker"] for u in pit_universe_tickers()}
+            panel = hz.build_panel(load_all_dated_closes(), pit_tickers)
+        anchors = pf.mktcap_anchors(uni_hist) if uni_hist else {}
+        # 앵커일 종가만 뽑아 둔다(전 날짜를 넘기면 메모리가 커진다).
+        anchor_days = sorted(uni_hist) if uni_hist else []
+        price_on: dict[str, dict[str, float]] = {}
+        for t, row in panel.closes.items():
+            idx = {d: i for i, d in enumerate(panel.dates)}
+            price_on[t] = {d: row[idx[d]] for d in anchor_days
+                           if d in idx and row[idx[d]] is not None}
         scores, cov6, fired6, meta6 = hz.scores_with_pit_fundamentals(
-            panel, sc, hist, shares=shares, universe=uni)
+            panel, sc, hist, shares=shares, universe=uni, universe_at=uni_at,
+            mktcap_anchors=anchors, price_on=price_on)
         source, pit_dates = "price6", meta6.get("fund_dates")
+        universe_note = (f"universe=pit(스냅샷 {len(uni_hist)}개, 종목 {len(pit_tickers)})"
+                         if uni_hist else "universe=today(생존편향 잔존)")
     regimes = (hz.regimes_at(panel, hz._rebalance_indices(panel, cfg))
                if cfg.use_exposure else None)
     out = (hz.run(panel, cfg, regimes, scores=scores, score_source=source,
@@ -1574,7 +1612,8 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         "verdict": out.get("verdict"), "verdict_why": out.get("verdict_why"),
         "is_locked": bool(lock and preregistered_id),
         "warnings_json": json.dumps(out.get("warnings") or [], ensure_ascii=False),
-        "note": None if preregistered_id else "탐색 실행 — 보드 정본 아님",
+        "note": " · ".join(x for x in (
+            (None if preregistered_id else "탐색 실행 — 보드 정본 아님"), universe_note) if x) or None,
     })
 
     blob = {**out, "top_pct": cfg.top_pct, "hold_days": cfg.rebalance_days,
@@ -1963,3 +2002,112 @@ def decision_scorecard_with_baseline() -> dict:
             "horizon_note": (f"판단일 다음 거래일 종가 진입 → {h}거래일 뒤 종가 청산(기준선과 동일 관례)"
                              if h else "지평이 섞여 있어 기준선을 붙일 수 없다"),
             "informative": bool(lift is not None and ci is not None and abs(lift) > ci)}
+
+
+# ------------------------------------------------- 시점별(PIT) 유니버스 (N5)
+#
+# 왜: 유니버스가 "오늘 기준 시총 상위 200"이라 5년 백테스트에 2022년의 상위 200이나 그 뒤 폐지된
+# 종목이 처음부터 없었다. 대조군이 같은 편향을 공유하므로 백분위 자체는 유효하지만, 편향이
+# 팩터마다 다르게 작용한다 — 실측으로 3팩터(모멘텀 단독) 95.0 vs 6팩터 53.5였고 모멘텀은
+# "오늘 상위 200"에서 특히 잘 나온다. 그 차이를 가르려면 시점별 유니버스가 필요하다.
+#
+# BACKLOG §0은 "진짜 편입종목 리스트는 공식 API에 없음"이라 적었지만, 막힌 것은 코스피200
+# **편입종목**이었고 우리 유니버스는 애초에 시총 상위 200 근사다. `sto/stk_bydd_trd`(승인 완료)가
+# `basDd` 를 받고 그 응답은 **그 날 상장돼 있던** 종목이므로 지금 폐지된 종목도 들어 있다.
+# 2026-08-05 실측: 20220208 까지 7개 날짜 전부 200종목 반환 — 5년 전 구간이 열린다.
+
+
+def load_universe_history() -> dict[str, list[dict]]:
+    if not UNIVERSE_HISTORY_FILE.exists():
+        return {}
+    try:
+        return json.loads(UNIVERSE_HISTORY_FILE.read_text(encoding="utf-8"))
+    except Exception as e:                       # noqa: BLE001 — 깨진 캐시가 전체를 막지 않게
+        log.warning("universe_history 파싱 실패: %s", type(e).__name__)
+        return {}
+
+
+def universe_at(date: str) -> list[dict] | None:
+    """`date` **이하**의 가장 최근 스냅샷. 없으면 None.
+
+    **미래 스냅샷을 절대 쓰지 않는다** — 그게 이 기능의 룩어헤드 경계다. 첫 스냅샷보다 이전
+    날짜는 오늘 유니버스로 폴백하지 않고 None을 돌려준다(D4: 없으면 점수를 내지 않는다).
+    """
+    hist = load_universe_history()
+    if not hist:
+        return None
+    keys = sorted(k for k in hist if k <= str(date))
+    return hist[keys[-1]] if keys else None
+
+
+def pit_universe_tickers() -> list[dict]:
+    """전 스냅샷 합집합 — 시세 백필 입력. 같은 ticker는 가장 최근 이름을 쓴다."""
+    hist = load_universe_history()
+    out: dict[str, str] = {}
+    for d in sorted(hist):
+        for u in hist[d] or []:
+            t = str(u.get("ticker") or "")
+            if t:
+                out[t] = str(u.get("name") or t)
+    return [{"ticker": t, "name": n} for t, n in sorted(out.items())]
+
+
+def _month_anchors(months_back: int) -> list[datetime.date]:
+    """각 달의 1일(오래된→최신). 실제 거래일 탐색은 호출자가 앞으로 최대 5일 밀며 한다."""
+    today = datetime.date.today()
+    out = []
+    y, m = today.year, today.month
+    for _ in range(months_back):
+        out.append(datetime.date(y, m, 1))
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    return sorted(out)
+
+
+def fetch_universe_history(months_back: int = 60, force: bool = False) -> dict:
+    """월 1회 PIT 유니버스 스냅샷을 백필한다. 이미 있는 달은 건너뛴다(재실행이 싸야 자동 루프에 넣는다).
+
+    한 달이 실패해도 **그 달만 건너뛰고 이름과 함께 로그**로 남긴다 — 배치는 항목별로 격리한다.
+    """
+    from signal_desk import config
+    from signal_desk.ingest import krx_open_api
+
+    if not config.krx_key():
+        return {"ok": False, "reason": "KRX_API_KEY 없음 — PIT 유니버스를 만들 수 없다",
+                "snapshots": 0, "added": 0, "failed": []}
+    hist = load_universe_history()
+    added, failed, prev_set = 0, [], None
+    changes: list[dict] = []
+    for anchor in _month_anchors(months_back):
+        key_month = anchor.strftime("%Y-%m")
+        if not force and any(k.startswith(key_month) for k in hist):
+            continue
+        items = None
+        for delta in range(6):                   # 주말·공휴일이면 앞으로 밀며 첫 거래일 탐색
+            d = anchor + datetime.timedelta(days=delta)
+            if d > datetime.date.today():
+                break
+            items = krx_open_api.universe_by_marketcap(d.strftime("%Y%m%d"), limit=200)
+            time.sleep(_UNIVERSE_CALL_GAP_SEC)   # 60콜을 연속으로 때리지 않는다
+            if items:
+                hist[d.strftime("%Y-%m-%d")] = items
+                added += 1
+                cur = {u["ticker"] for u in items}
+                if prev_set is not None:
+                    changes.append({"date": d.strftime("%Y-%m-%d"),
+                                    "in": len(cur - prev_set), "out": len(prev_set - cur)})
+                prev_set = cur
+                break
+        if not items:
+            failed.append(key_month)
+            log.warning("PIT 유니버스 조회 실패: %s", key_month)
+    if added or force:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _write_json(UNIVERSE_HISTORY_FILE, hist)
+    keys = sorted(hist)
+    return {"ok": bool(keys), "snapshots": len(keys), "added": added, "failed": failed,
+            "tickers_total": len(pit_universe_tickers()),
+            "from": keys[0] if keys else None, "to": keys[-1] if keys else None,
+            "changes": changes[-12:],
+            "reason": None if keys else "스냅샷 0개 — 키·서비스 승인 확인"}

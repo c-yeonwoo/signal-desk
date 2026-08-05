@@ -17,6 +17,7 @@ import datetime
 import json
 import logging
 import urllib.error
+import time
 import urllib.parse
 import urllib.request
 
@@ -26,6 +27,8 @@ log = logging.getLogger("signal_desk.ingest.krx_open_api")
 
 BASE = "https://data-dbg.krx.co.kr/svc/apis"
 _TIMEOUT = 30
+_RETRIES = 2          # 일시 오류로 그 달이 통째로 비는 것을 막는다
+_BACKOFF_SEC = 1.5    # 콜 간 간격 — rate limit 회피(KIS 403 이력)
 
 # 실응답 검증 전까지 후보 필드명 목록 — 하나라도 있으면 사용, 전부 없으면 명확히 실패시킴
 _CODE_FIELDS = ("ISU_SRT_CD", "ISU_CD", "SRTN_CD")
@@ -41,14 +44,25 @@ def _request(path: str, params: dict) -> list[dict] | None:
     req = urllib.request.Request(
         f"{BASE}/{path}?{qs}", headers={"AUTH_KEY": key}
     )
-    try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        log.error("KRX Open API HTTP 오류(%s): %s", path, e)
-        return None
-    except Exception as e:
-        log.error("KRX Open API 요청 실패(%s): %s", path, e)
+    # 단발 시도였다. 날짜별 백필은 수십~수백 콜이라 일시 오류 한 번에 그 달이 통째로 빈다.
+    # KIS 토큰에서 이미 배운 교훈이 있다("짧은 간격으로 재요청하면 HTTP 403") — 간격을 둔다.
+    body = None
+    for attempt in range(_RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as e:
+            if attempt >= _RETRIES:
+                log.error("KRX Open API HTTP 오류(%s): %s", path, e)
+                return None
+            time.sleep(_BACKOFF_SEC * (attempt + 1))
+        except Exception as e:
+            if attempt >= _RETRIES:
+                log.error("KRX Open API 요청 실패(%s): %s", path, e)
+                return None
+            time.sleep(_BACKOFF_SEC * (attempt + 1))
+    if body is None:
         return None
 
     if "respCode" in body:  # {"respCode":"401","respMsg":"..."} 형태의 오류 응답
@@ -117,7 +131,11 @@ def universe_by_marketcap(bas_dd: str, limit: int = 200) -> list[dict]:
         return []
 
     ranked.sort(key=lambda r: r["mktcap"], reverse=True)
-    return [{"ticker": r["ticker"], "name": r["name"]} for r in ranked[:limit]]
+    # mktcap 을 버리지 않고 함께 돌려준다 — 시점별 시가총액이 있으면 PIT 백테스트가
+    # `mktcap_now / price_now` 역산 없이 **그 시점 앵커**로 PER/PBR 을 계산할 수 있고,
+    # 지금 유니버스에 없는(폐지·이탈) 종목에도 적용된다.
+    return [{"ticker": r["ticker"], "name": r["name"], "mktcap": r["mktcap"]}
+            for r in ranked[:limit]]
 
 
 def market_caps(max_lookback_days: int = 5) -> dict[str, float]:
