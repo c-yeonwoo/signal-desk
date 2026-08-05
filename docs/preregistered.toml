@@ -17,7 +17,9 @@ family       = "pit-8factor-rank3-hold5"
 score_source = "pit"                    # 가격 하네스는 technical·reversion·momentum 셋만 계산한다
 market       = "kr"                     # 횡단면 순위는 한 시장 안에서만
 
-# signalcfg.FIELDS(15) + selection_mode. 2026-08-05 engine.SignalConfig 실측과 일치.
+# signalcfg.FIELDS(16) + selection_mode. 2026-08-06 engine.SignalConfig 실측과 일치.
+# `test_redteam.test_preregistered_config_covers_every_engine_field` 가 누락을 막는다 —
+# 새 점수 필드가 등록에서 빠지면 그 파라미터는 검증된 적 없이 판정에 섞인다.
 # weight_qualitative 는 FIELDS 에 없다(KB 정성은 veto/shadow) → 사전등록·해시 대상이 아니다.
 [base.config]
 weight_technical      = 0.0     # H1(2026-08-03) ablation으로 0
@@ -35,6 +37,12 @@ strong_sell_threshold = -2.0
 regime_adaptive       = 1.0
 rank_top_pct          = 3.0
 rank_min_score        = 1.2
+# X2(2026-08-06) 재정규화 편향 게이트. 매수권에 요구하는 데이터 커버리지 하한.
+# 이 값이 없으면 팩터가 빠진 종목이 남은 팩터로 재정규화돼 극단 점수를 받는다(실측 |점수| 평균
+# 1.070 vs 0.303). 실측 분포로 0.80을 골랐다 — 0.75는 상위6 중 0자리, 0.90은 6자리(매수 0).
+# **미검증 변경이다**: 판별력이 `판정 불가`인 동안 넣은 게이트이므로 이 판정의 대상은 이 게이트를
+# 포함한 규칙이다. 값을 바꾸면 새 look을 등록해야 한다(같은 id로 재판정하지 않는다).
+min_data_coverage     = 0.80
 selection_mode        = "rank"
 
 [base.harness]

@@ -112,9 +112,16 @@ def _computable(name: str, i: int, config: SignalConfig) -> bool:
     return True                                # technical — 워밍업 이후 항상 계산됨
 
 
+# 가격 재계산 경로가 **원리적으로** 볼 수 없는 팩터(이력 자체가 없다). 종목의 결함이 아니므로
+# 커버리지 분모에서 뺀다 — `data_coverage(unavailable=)` 주석 참고.
+_PRICE_UNAVAILABLE = ("fundamental", "valuation", "flow", "quality", "short")
+_PIT_UNAVAILABLE = ("flow", "short")
+
+
 def _score_series(panel: Panel, config: SignalConfig
-                  ) -> tuple[dict[str, list[float | None]], dict[str, float], dict[str, float]]:
-    """종목별 전 구간 가격기반 점수 + 팩터 계산가능률 + 발동률.
+                  ) -> tuple[dict[str, list[float | None]], dict[str, float],
+                             dict[str, float], dict[str, list[float | None]]]:
+    """종목별 전 구간 가격기반 점수 + 팩터 계산가능률 + 발동률 + (종목·날짜)별 데이터 커버리지.
 
     라이브 엔진과 같은 `_price_only_components`·`combine`을 쓴다 — 백테스트가 별도 공식을 쓰면
     무엇을 검증한 건지 알 수 없다.
@@ -124,6 +131,7 @@ def _score_series(panel: Panel, config: SignalConfig
     "모멘텀 전략"이라고 적힌 빈 칸이 남는다. 커버리지가 낮은 팩터의 숫자는 읽지 말아야 한다.
     """
     scores: dict[str, list[float | None]] = {}
+    cov: dict[str, list[float | None]] = {}
     names = ("technical", "reversion", "momentum")
     can = dict.fromkeys(names, 0)              # 계산 가능(이력 충분)
     fired = dict.fromkeys(names, 0)            # 실제 가중치가 붙음
@@ -135,6 +143,7 @@ def _score_series(panel: Panel, config: SignalConfig
         offset = len(row) - len(vals)          # 상장 이전 구간 길이
         series = engine.compute_indicator_series(vals, config)
         out: list[float | None] = [None] * len(row)
+        cov[ticker] = [None] * len(row)
         for i in range(len(vals)):
             comps = engine._price_only_components(vals, series, i, config)
             for name, (_, w, _) in zip(names, comps):
@@ -144,11 +153,17 @@ def _score_series(panel: Panel, config: SignalConfig
                     can[name] += 1
             total += 1
             out[offset + i] = engine.combine(comps, config)["score"]
+            # 커버리지 게이트를 라이브와 대칭으로 걸려면 (종목·날짜)별 커버리지가 필요하다.
+            # 가격 경로가 원리적으로 볼 수 없는 팩터는 분모에서 뺀다 — 안 빼면 전 종목이
+            # 미달로 매수 0이 되고 게이트가 검증 불가가 된다.
+            cov[ticker][offset + i] = engine.data_coverage(
+                {"technical": True, "momentum": _computable("momentum", i, config)},
+                config, unavailable=_PRICE_UNAVAILABLE)["ratio"]
         scores[ticker] = out
     if not total:
-        return scores, {}, {}
+        return scores, {}, {}, cov
     pct = lambda d: {k: round(v / total * 100, 1) for k, v in d.items()}  # noqa: E731
-    return scores, pct(can), pct(fired)
+    return scores, pct(can), pct(fired), cov
 
 
 def scores_with_pit_fundamentals(
@@ -156,7 +171,8 @@ def scores_with_pit_fundamentals(
     shares: dict[str, float], universe: list[dict] | None = None,
     universe_at: "Callable[[str], set[str] | None] | None" = None,
     mktcap_anchors: dict | None = None, price_on: dict | None = None,
-) -> tuple[dict[str, list[float | None]], dict[str, float], dict[str, float], dict]:
+) -> tuple[dict[str, list[float | None]], dict[str, float], dict[str, float], dict,
+           dict[str, list[float | None]]]:
     """가격 3팩터 + **시점별 재무** 3팩터 = 6팩터 점수 시계열.
 
     가격 재계산 하네스가 3팩터(사실상 모멘텀 단독)인 이유는 재무 이력이 없어서가 아니라
@@ -191,6 +207,7 @@ def scores_with_pit_fundamentals(
                             engine.compute_indicator_series(vals, config))
 
     scores: dict[str, list[float | None]] = {t: [None] * len(panel) for t in prepared}
+    cov: dict[str, list[float | None]] = {t: [None] * len(panel) for t in prepared}
     # 재무 기본값(연도별)은 사업연도가 바뀔 때만 다시 만든다. PER/PBR·저평가 percentile 은
     # 가격이 움직이므로 날짜마다 다시 계산한다.
     fy_cache: dict[int, dict[str, dict]] = {}
@@ -262,6 +279,13 @@ def scores_with_pit_fundamentals(
                     can["quality"] += 1
             total += 1
             scores[ticker][i] = engine.combine(comps, config)["score"]
+            # 라이브와 **같은** 커버리지 게이트를 걸려면 (종목·날짜)별 커버리지가 필요하다.
+            # 수급·공매도는 이 경로가 원리적으로 못 보므로 분모에서 뺀다.
+            cov[ticker][i] = engine.data_coverage(
+                {"technical": True, "momentum": _computable("momentum", j, config),
+                 "fundamental": bool(m), "quality": bool((m or {}).get("quality", {}).get("has")),
+                 "valuation": bool(m and m.get("per") is not None and m.get("pbr") is not None)},
+                config, unavailable=_PIT_UNAVAILABLE)["ratio"]
 
     meta = {"fund_from": first_date, "fund_dates": dates_with_fund,
             "universe_mode": "pit" if universe_at is not None else "today",
@@ -269,9 +293,9 @@ def scores_with_pit_fundamentals(
             "note": ("수급·공매도는 시계열 이력이 없어 제외 — 6팩터다. "
                      "재무는 (FY+1)-04-01 부터 사용(법정기한 기반 보수적 규칙).")}
     if not total:
-        return scores, {}, {}, meta
+        return scores, {}, {}, meta, cov
     pct = lambda d: {k: round(v / total * 100, 1) for k, v in d.items()}  # noqa: E731
-    return scores, pct(can), pct(fired), meta
+    return scores, pct(can), pct(fired), meta, cov
 
 
 def _gated(panel: Panel, ticker: str, i: int, config: SignalConfig,
@@ -370,14 +394,21 @@ def _weighted_factors(config: SignalConfig) -> set[str]:
 
 def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
                regimes: dict[int, str] | None, series_cache: dict, tie_rng: random.Random,
-               ) -> dict:
-    """한 위상(고정된 리밸런스 날짜 집합)에 대한 전략·벤치마크 시뮬레이션."""
+               covers: dict[str, list[float | None]] | None = None) -> dict:
+    """한 위상(고정된 리밸런스 날짜 집합)에 대한 전략·벤치마크 시뮬레이션.
+
+    `covers`는 (종목·날짜)별 데이터 커버리지다. **대조군에도 같은 것을 넘긴다** — 라벨을
+    치환해도 커버리지는 티커에 붙어 있어야 기계적 조건이 같고, 남는 차이가 점수의 정보량뿐이다.
+    한쪽만 게이트를 걸면 그 차이가 판별력으로 둔갑한다(#326·#329에서 두 번 겪었다).
+    """
     scfg = cfg.signal_config
     equity, bench, picks_log = [1.0], [1.0], []
     held: set[str] = set()
     per_period_ret: list[float] = []
     universe_by_date: dict[int, list[str]] = {}
     empty_periods = 0
+    cov_blocked = 0
+    min_cov = float(getattr(scfg, "min_data_coverage", 0.0) or 0.0)
 
     for i in idxs:
         avail = [t for t, row in panel.closes.items()
@@ -398,6 +429,13 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
             if scores[t][i] < cfg.min_score:
                 continue
             if _gated(panel, t, i, scfg, market_ret, series_cache):
+                continue
+            # 라이브 `apply_cross_sectional`과 같은 커버리지 게이트(X2). 커버리지를 모르면
+            # 막지 않는다 — 전 종목 차단은 신중함이 아니라 0으로 나누기다.
+            c = (covers or {}).get(t)
+            cv = c[i] if (c and i < len(c)) else None
+            if min_cov > 0 and cv is not None and cv < min_cov:
+                cov_blocked += 1
                 continue
             picks.append(t)
 
@@ -423,6 +461,9 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
     return {"equity": equity, "bench": bench, "metrics": _metrics(equity, ppy),
             "bench_metrics": _metrics(bench, ppy), "universe_by_date": universe_by_date,
             "empty_periods": empty_periods, "periods": len(idxs),
+            # 커버리지 게이트가 실제로 몇 번 후보를 걸렀나. 0이면 완화가 아무 것도 안 막은 것 —
+            # "있는 것처럼 보이지만 효과 없는 게이트"를 여기서 드러낸다.
+            "coverage_blocked": cov_blocked, "min_data_coverage": min_cov,
             "win_rate_pct": round(sum(1 for r in per_period_ret if r > 0)
                                   / len(per_period_ret) * 100, 1) if per_period_ret else 0.0,
             "avg_picks": round(sum(p["picks"] for p in picks_log) / len(picks_log), 1)
@@ -469,7 +510,8 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         scores: dict[str, list[float | None]] | None = None,
         score_source: str = "price",
         coverage: dict[str, float] | None = None,
-        fired: dict[str, float] | None = None) -> dict:
+        fired: dict[str, float] | None = None,
+        covers: dict[str, list[float | None]] | None = None) -> dict:
     """전략(횡단면 분위 top N%) + 무작위 대조군 + 동일가중 벤치마크를 같은 날짜축에서 비교.
 
     리밸런스 위상을 전부 돌려 평균 내고(`phase_average`), 위상 간 편차를 함께 낸다. 편차가
@@ -479,10 +521,13 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     regimes: {rebalance_index: 국면라벨}. use_exposure=True일 때만 쓰인다.
     scores: 외부 점수 패널(PIT 등). 주면 가격 재계산을 건너뛴다.
     score_source: \"price\" | \"pit\" — 결과에 기록(판독용).
+    covers: (종목·날짜)별 데이터 커버리지. 라이브 `apply_cross_sectional`과 같은 커버리지
+      게이트를 걸기 위해 필요하다. **안 주면 게이트가 안 걸린다** — 그러면 하네스는 라이브가
+      돌리지 않는 전략을 재는 것이므로 `coverage_blocked`를 결과에 실어 드러낸다.
     """
     cfg = cfg or HarnessConfig()
     if scores is None:
-        scores, coverage, fired = _score_series(panel, cfg.signal_config)
+        scores, coverage, fired, covers = _score_series(panel, cfg.signal_config)
         score_source = "price"
     else:
         # 외부 점수(PIT 스냅샷·PIT 재무)도 커버리지를 받으면 차단 대상이 된다. 안 주면 빈 dict —
@@ -507,7 +552,7 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
             if not idxs:
                 continue
         phase_idxs.append(idxs)
-        runs.append(_run_phase(panel, cfg, scores, idxs, regimes, series_cache, tie_rng))
+        runs.append(_run_phase(panel, cfg, scores, idxs, regimes, series_cache, tie_rng, covers))
     if not runs:
         reason = f"표본 부족 — 거래일 {len(panel)}일"
         if score_source == "pit":
@@ -518,7 +563,7 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     totals = [(r["equity"][-1] - 1) * 100 for r in runs]
     strat_total = sum(totals) / len(totals)
     spread = max(totals) - min(totals)
-    rnd = _null_distribution(panel, cfg, scores, phase_idxs, regimes, series_cache)
+    rnd = _null_distribution(panel, cfg, scores, phase_idxs, regimes, series_cache, covers)
     better = sum(1 for r in rnd["totals"] if r < strat_total)
     percentile = round(better / len(rnd["totals"]) * 100, 1) if rnd["totals"] else None
     excess = strat_total - rnd["median"]
@@ -544,6 +589,16 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     if cfg.shuffle_returns:
         warnings.append("셔플 모드 — 점수와 수익률의 짝을 어긋나게 했다. "
                         "여기서 판별력이 나오면 그건 누수다")
+    # 커버리지 게이트(X2)가 하네스에 실제로 걸렸는지 드러낸다. `covers`가 없으면 하네스는
+    # 라이브가 돌리지 않는 전략을 잰 것이다 — 조용히 넘기면 무엇을 검증했는지 알 수 없다.
+    min_cov = float(getattr(cfg.signal_config, "min_data_coverage", 0.0) or 0.0)
+    cov_blocked = sum(r.get("coverage_blocked", 0) for r in runs)
+    if min_cov > 0 and not covers:
+        warnings.append(f"커버리지 게이트 {min_cov:.0%}가 설정돼 있는데 하네스에 커버리지 패널이 "
+                        f"없어 걸리지 않았다 — 라이브와 다른 전략을 잰 결과다")
+    elif min_cov > 0 and cov_blocked == 0:
+        warnings.append(f"커버리지 게이트 {min_cov:.0%}가 후보를 한 번도 막지 않았다 — "
+                        f"있는 것처럼 보이지만 효과가 없는 완화다")
     if score_source == "pit":
         warnings.append("PIT 점수 모드 — 스냅샷에 저장된 라이브 점수(fund/flow 포함)로 순위를 잰다. "
                         "스냅샷 구간 밖은 비어 있어 표본이 짧다")
@@ -586,6 +641,10 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         "verdict_why": why,
         "coverage_pct": coverage,
         "fired_pct": fired,
+        # 커버리지 게이트(X2)가 라이브와 대칭으로 걸렸는지. `panel_given`이 False면 게이트가
+        # 안 걸린 것이고, 그건 라이브와 다른 전략을 잰 결과다.
+        "data_coverage_gate": {"min_required": min_cov, "blocked": cov_blocked,
+                               "panel_given": bool(covers)},
         "warnings": warnings,
         "note": ("절대 수익률은 생존편향(유니버스=오늘 기준 상위 200)으로 부풀려져 있다. "
                  "판단은 vs_random.percentile로 — 무작위 대조군도 같은 편향을 받는다."),
@@ -680,7 +739,8 @@ def _fill_both_ways(row: list[float | None]) -> list[float | None]:
 
 def _null_distribution(panel: Panel, cfg: HarnessConfig, scores: dict,
                        phase_idxs: list[list[int]], regimes: dict[int, str] | None,
-                       series_cache: dict) -> dict:
+                       series_cache: dict,
+                       covers: dict[str, list[float | None]] | None = None) -> dict:
     """귀무분포 — 전략과 **똑같은 시뮬레이터**를 라벨 치환한 점수로 돌린다.
 
     대조군을 별도 코드 경로로 만들면 비용·게이트·보유 종목 수 같은 기계적 차이가 판별력으로
@@ -688,6 +748,10 @@ def _null_distribution(panel: Panel, cfg: HarnessConfig, scores: dict,
 
     각 시행도 **전략과 똑같이 모든 위상을 돌려 평균**낸다. 전략만 위상 평균으로 분산을 줄이고
     대조군은 단일 위상으로 두면, 전략이 이기는 게 아니라 대조군만 흔들려서 이겨 보인다.
+
+    `covers`도 전략과 **같은 것**을 넘긴다. 커버리지는 티커에 붙은 데이터 사실이라 라벨 치환과
+    무관하다 — 대조군만 게이트를 안 걸면 대조군이 더 많이 살 수 있게 되고 그 차이가 판별력으로
+    둔갑한다.
     """
     rng = random.Random(cfg.seed)
     totals: list[float] = []
@@ -696,7 +760,7 @@ def _null_distribution(panel: Panel, cfg: HarnessConfig, scores: dict,
         per_phase = []
         for idxs in phase_idxs:
             r = _run_phase(panel, cfg, perm, idxs, regimes, series_cache,
-                           random.Random(cfg.seed))
+                           random.Random(cfg.seed), covers)
             per_phase.append((r["equity"][-1] - 1) * 100)
         totals.append(sum(per_phase) / len(per_phase))
     totals.sort()

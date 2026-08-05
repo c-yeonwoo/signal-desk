@@ -209,7 +209,6 @@ def harness(
 
     from signal_desk import db, prereg, signalcfg, store
     from signal_desk.signals import harness as hz
-    from signal_desk.signals import pit_fundamentals as pf
 
     if not store.is_ready():
         console.print("[red]캐시가 없습니다.[/red] 먼저 `sigdesk fetch`를 실행하세요.")
@@ -255,20 +254,20 @@ def harness(
                       "전자는 스냅샷 점수, 후자는 시점별 재무 복원입니다.")
         raise typer.Exit(1)
     pit_scores = None
-    cov6 = fired6 = None
+    cov6 = fired6 = covers = None
     if pit_fund:
-        hist = store.load_fundamentals_history()
-        if not hist:
-            console.print("[red]연도별 재무 없음[/red] — `--pit-fund` 는 fundamentals_history 가 필요합니다.")
+        # `store.pit_fund_scores` 를 쓴다 — 예전엔 여기서 따로 조립해 **오늘 유니버스**로 돌았고
+        # (생존편향 잔존) `store.run_harness` 는 PIT 유니버스로 돌았다. 같은 이름의 실행이 서로
+        # 다른 편향을 가졌고 그 차이가 어느 출력에도 안 나타났다.
+        pit_scores, cov6, fired6, meta6, covers, uni_note, panel = store.pit_fund_scores(
+            panel, store._signal_config_from(overrides) if overrides else signalcfg.get_config(),
+            uni)
+        if pit_scores is None:
+            console.print(f"[red]{meta6.get('error')}[/red]")
             raise typer.Exit(1)
-        price_now = {t: [v for v in row if v is not None][-1]
-                     for t, row in panel.closes.items() if any(v is not None for v in row)}
-        shares = pf.shares_estimate(store.load_fundamentals(), price_now)
-        pit_scores, cov6, fired6, meta6 = hz.scores_with_pit_fundamentals(
-            panel, signalcfg.get_config(), hist, shares=shares, universe=uni)
         console.print(f"[dim]시점별 재무 {meta6['fund_dates']}거래일 "
                       f"({meta6['fund_from']}~) · FY {', '.join(meta6['fiscal_years'])} · "
-                      f"수급·공매도 제외(6팩터)[/dim]")
+                      f"수급·공매도 제외(6팩터) · {uni_note}[/dim]")
     if pit:
         hdf = store.load_signal_history()
         if hdf.empty:
@@ -296,7 +295,7 @@ def harness(
         regimes = hz.regimes_at(panel, hz._rebalance_indices(panel, cfg)) if exposure else None
         if pit_fund:
             out = hz.run(panel, cfg, regimes, scores=pit_scores, score_source="price6",
-                         coverage=cov6, fired=fired6)
+                         coverage=cov6, fired=fired6, covers=covers)
         elif pit:
             out = hz.run(panel, cfg, regimes, scores=pit_scores, score_source="pit")
         else:
@@ -338,6 +337,13 @@ def harness(
             if w not in seen_warnings:
                 seen_warnings.append(w)
     console.print(table)
+    # 커버리지 게이트(X2)가 하네스에 실제로 걸렸는지 — 안 걸렸으면 라이브와 다른 전략을 잰 것이다.
+    g = out.get("data_coverage_gate") or {}
+    if g.get("min_required"):
+        console.print(f"[dim]커버리지 게이트 {g['min_required']:.0%} — "
+                      + ("패널 있음 · 차단 " + str(g.get("blocked", 0)) + "회"
+                         if g.get("panel_given") else "[yellow]패널 없음 · 미적용[/yellow]")
+                      + "[/dim]")
     console.print("[dim]탐색 실행 — 이력에만 남았습니다(GET /api/harness/runs). 보드 정본은 "
                   "`--preregistered <id>` 로 사전등록 조합을 돌릴 때만 갱신됩니다.[/dim]")
     for w in seen_warnings:

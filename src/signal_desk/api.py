@@ -915,6 +915,8 @@ def _hold_tag(r, *, buy_blocked: bool) -> str | None:
         return "추세"
     if "매수권" in reasons and "밖" in reasons:
         return "매수권밖"
+    if getattr(r, "low_coverage", False):
+        return "데이터부족"
     if getattr(r, "gate_blocked", False):
         return "게이트"
     return None
@@ -942,6 +944,11 @@ def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct
         "earnings_date": getattr(r, "earnings_date", None),
         "valuation_percentile": finite_or_none(getattr(r, "valuation_percentile", None)),
         "gate_blocked": bool(getattr(r, "gate_blocked", False)),
+        # 재정규화 편향 노출(X2) — 커버리지가 낮은 종목의 점수는 남은 팩터로 부풀려져 있다.
+        "weight_sum_ratio": finite_or_none(getattr(r, "weight_sum_ratio", None)),
+        "data_coverage": finite_or_none(getattr(r, "data_coverage", None)),
+        "missing_factors": list(getattr(r, "missing_factors", None) or []),
+        "low_coverage": bool(getattr(r, "low_coverage", False)),
         "rank": getattr(r, "rank", None),
         "rank_eligible": bool(getattr(r, "rank_eligible", False)),
         "hold_tag": _hold_tag(r, buy_blocked=buy_blocked),

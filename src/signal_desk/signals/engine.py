@@ -69,6 +69,15 @@ class SignalConfig:
     # buy_threshold와 동기화 — 절대 BUY도 안 될 점수를 분위 승격하지 않는다
     rank_min_score: float = 1.2
 
+    # 매수권에 요구하는 **데이터 커버리지** 하한(조건 미발동은 누락으로 안 셈 — `data_coverage`).
+    # 재정규화 편향 때문에 팩터가 빠진 종목이 남은 팩터로 재정규화돼 극단 점수를 받는다.
+    # 실측 200종목 분포로 정했다: p5 0.759 · p25 0.862 · 중위 1.000.
+    #   0.75 → 4종목 차단(상위6 중 0자리) = 아무것도 안 막는다
+    #   0.80 → 27종목 차단(상위6 중 3자리)  ← 채택
+    #   0.90 → 94종목 차단(상위6 중 6자리) = 매수 0, 즉 0으로 나누기
+    # 0이면 비활성. 점수는 그대로 내고 **매수권에서만** 뺀다 — 조용히 지우면 왜 없는지 모른다.
+    min_data_coverage: float = 0.80
+
     # 국면 적응: 1이면 약세·조정·거시 비우호 국면에서 매수 임계값을 자동 상향(regime.buy_threshold_bump).
     # 0이면 임계값 고정. (관리자 조정 필드 — signalcfg.FIELDS에 포함)
     regime_adaptive: float = 1.0
@@ -137,6 +146,14 @@ class SignalResult:
     rank_pct: float | None = None  # 시장 내 점수 상위 백분위(1.0=상위 1%) — 표시용
     rank_eligible: bool = False    # 매수권(상위 분위 + 최소점수 + 게이트 통과)
     gate_blocked: bool = False     # 추세·실적·급락·악재 게이트로 매수 보류(분위 안이어도 승격 금지)
+    # ── 재정규화 편향 노출 (X2) ──
+    # `weight_sum_ratio`: 점수가 **실제로 나눈** 가중합 / 전체 가중합. 낮을수록 남은 팩터로
+    # 재정규화돼 점수가 극단으로 간다(실측 |점수| 1.070 vs 0.303).
+    weight_sum_ratio: float | None = None
+    # `data_coverage`: 조건 미발동(낙폭과대)을 뺀 데이터 커버리지. 게이트가 보는 값.
+    data_coverage: float | None = None
+    missing_factors: list[str] = field(default_factory=list)  # 데이터 없어 빠진 팩터(이름)
+    low_coverage: bool = False      # 데이터 커버리지 미달로 매수권 제외
     reasons: list[str] = field(default_factory=list)
     narrative: str = ""
     factor_scores: dict[str, float] = field(default_factory=dict)  # 팩터별 방향·강도 [-1,1] — 시각화용
@@ -465,6 +482,50 @@ def classify(score: float, config: SignalConfig | None = None) -> str:
     return HOLD
 
 
+# 점수 팩터 → 가중치 필드. `combine`은 컴포넌트 이름을 모르므로 커버리지는 여기서 센다.
+SCORE_WEIGHT_FIELDS = ("weight_technical", "weight_fundamental", "weight_valuation",
+                       "weight_reversion", "weight_flow", "weight_quality",
+                       "weight_momentum", "weight_short")
+# **조건부 팩터** — 조건이 발동해야 가중치를 갖는다(`_reversion_component` 주석 참고).
+# '계산 불가'와 '조건 미발동'은 나눠 센다: 낙폭과대는 급락 때만 발동해 평상시 발동률이 2.5%인데,
+# 이걸 데이터 부족으로 세면 데이터를 아무리 더 받아도 커버리지가 영원히 안 오른다.
+CONDITIONAL_FACTORS = ("reversion",)
+
+
+def total_weight(config: SignalConfig | None = None) -> float:
+    """점수 팩터 가중치의 전체 합 — 재정규화 비율의 분모."""
+    config = config or SignalConfig()
+    return sum(float(getattr(config, f, 0.0) or 0.0) for f in SCORE_WEIGHT_FIELDS)
+
+
+def data_coverage(has: dict[str, bool], config: SignalConfig | None = None, *,
+                  unavailable: tuple[str, ...] = ()) -> dict:
+    """`{factor: 데이터있음}` → 데이터 커버리지. **조건 미발동은 누락으로 세지 않는다.**
+
+    반환 `ratio`는 (셀 수 있는 가중합 − 데이터 없어서 빠진 가중합) / 셀 수 있는 가중합이다.
+    `missing`은 이름으로 낸다 — "누락 2개"만 적으면 어느 팩터인지 몰라 조사가 안 된다.
+
+    `unavailable`은 **그 실행이 원리적으로 볼 수 없는** 팩터다(하네스의 수급·공매도는 시계열
+    이력 자체가 없다). 분자·분모에서 같이 빼야 한다 — 종목의 결함이 아닌 것을 종목에 물리면
+    price6 하네스가 전 종목 커버리지 미달로 매수 0이 되고, 게이트는 검증 불가가 된다.
+    조건부 팩터(`reversion`)를 빼는 것과 같은 이유다.
+    """
+    config = config or SignalConfig()
+    skip = set(CONDITIONAL_FACTORS) | set(unavailable or ())
+    countable = sum(float(getattr(config, f, 0.0) or 0.0) for f in SCORE_WEIGHT_FIELDS
+                    if f.removeprefix("weight_") not in skip)
+    missing, lost = [], 0.0
+    for f in SCORE_WEIGHT_FIELDS:
+        key = f.removeprefix("weight_")
+        if key in skip or has.get(key, False):
+            continue
+        missing.append(key)
+        lost += float(getattr(config, f, 0.0) or 0.0)
+    return {"ratio": (round((countable - lost) / countable, 4) if countable else None),
+            "missing": missing, "lost_weight": round(lost, 4),
+            "countable_weight": round(countable, 4), "excluded": sorted(skip)}
+
+
 def rank_slots(universe_n: int, top_pct: float) -> int:
     """상위 top_pct%가 몇 종목인지. 최소 1종목 — 유니버스가 작으면 반올림으로 0이 되어
     "상대적으로 가장 좋은 종목"조차 못 고르는 일이 생긴다(200종목 3% = 6종목)."""
@@ -497,11 +558,18 @@ def apply_cross_sectional(results: list[SignalResult],
         r.rank = idx + 1
         r.rank_pct = round((idx + 1) / n * 100, 2)
         in_window = r.rank <= k
+        # 데이터 커버리지 미달 — 점수는 그대로 두고 매수권에서만 뺀다(X2).
+        # 커버리지를 모르는 종목(None)은 막지 않는다: 재무 없는 시장에서 전부 차단되면
+        # 그건 신중함이 아니라 0으로 나누기다.
+        r.low_coverage = bool(config.min_data_coverage > 0
+                              and r.data_coverage is not None
+                              and r.data_coverage < config.min_data_coverage)
         eligible = (in_window
                     and taken < k
                     and r.score >= config.rank_min_score
                     and not r.gate_blocked
-                    and not r.event_risk)
+                    and not r.event_risk
+                    and not r.low_coverage)
         r.rank_eligible = eligible
         if eligible:
             # 절대 classify가 이미 BUY여도 자리 순서로 다시 나눈다.
@@ -518,10 +586,17 @@ def apply_cross_sectional(results: list[SignalResult],
         elif is_buy(r.kind):
             # 절대 문턱은 넘었지만 상대 순위·최소점수·게이트로 탈락 → 매수권 아님
             r.kind = HOLD
-            r.reasons = [*r.reasons, f"[선정] 시장 {n}종목 중 {r.rank}위 — 매수권({k}자리) 밖"]
-        elif in_window and (r.gate_blocked or r.event_risk or r.score < config.rank_min_score):
+            why = (f"데이터 커버리지 {r.data_coverage:.0%} < {config.min_data_coverage:.0%}"
+                   if r.low_coverage else f"매수권({k}자리) 밖")
+            r.reasons = [*r.reasons, f"[선정] 시장 {n}종목 중 {r.rank}위 — {why}"]
+        elif in_window and (r.gate_blocked or r.event_risk or r.low_coverage
+                            or r.score < config.rank_min_score):
             # 창 안이지만 공석 — 왜 비었는지 남긴다(조용한 0 방지)
-            if r.gate_blocked or r.event_risk:
+            if r.low_coverage:
+                note = (f"데이터 커버리지 {r.data_coverage:.0%} < {config.min_data_coverage:.0%}"
+                        f" — 없는 팩터: {', '.join(r.missing_factors) or '없음'}"
+                        f" (남은 팩터로 재정규화돼 점수가 부풀려진다)")
+            elif r.gate_blocked or r.event_risk:
                 note = "게이트·악재로 자리 공석"
             else:
                 note = f"최소점수 {config.rank_min_score:.1f} 미달로 자리 공석"
@@ -564,6 +639,38 @@ def selection_summary(results: list[SignalResult],
         "distribution": {"max": pct(0), "p90": pct(10), "p99": pct(1), "median": pct(50)},
         "threshold_above_max": bool(n and config.selection_mode == "absolute"
                                     and scores[0] < config.buy_threshold),
+        # 커버리지 게이트(X2) — 문턱은 점수 분포처럼 **커버리지 분포와 함께** 봐야 한다.
+        # 새 절대 문턱을 만들 때 그 값이 분포의 어디인지 화면에 안 내면 다음 사람이 다시 튜닝한다.
+        "coverage": _coverage_summary(results, config),
+    }
+
+
+def _coverage_summary(results: list[SignalResult], config: SignalConfig) -> dict:
+    """데이터 커버리지 분포 + 게이트가 실제로 막은 수. 어느 팩터가 몇 종목에서 빠졌는지도 낸다."""
+    covs = sorted(r.data_coverage for r in results if r.data_coverage is not None)
+    m = len(covs)
+
+    def q(p: float) -> float | None:
+        return round(covs[min(m - 1, int(m * p))], 3) if m else None
+
+    missing: dict[str, int] = {}
+    for r in results:
+        for f in r.missing_factors or ():
+            missing[f] = missing.get(f, 0) + 1
+    k = rank_slots(len(results), config.rank_top_pct)
+    window = results[:k]              # 점수 내림차순 가정 — 상위 k자리
+    return {
+        "min_required": config.min_data_coverage,
+        "measured": m,
+        "blocked": sum(1 for r in results if r.low_coverage),
+        # 상위 k자리 중 몇 자리가 커버리지로 비었나 — 전체 차단 수보다 이게 매수 0을 설명한다.
+        "blocked_in_window": sum(1 for r in window if r.low_coverage),
+        "distribution": {"min": q(0.0), "p5": q(0.05), "p25": q(0.25),
+                         "median": q(0.50), "max": (round(covs[-1], 3) if m else None)},
+        "full_coverage": sum(1 for r in results if not (r.missing_factors or ())),
+        # 조건부 팩터는 여기 안 센다 — 데이터를 더 받아도 안 오르는 값이라 섞으면 판정이 막힌다.
+        "missing_by_factor": dict(sorted(missing.items(), key=lambda kv: -kv[1])),
+        "conditional_factors": list(CONDITIONAL_FACTORS),
     }
 
 
@@ -572,6 +679,19 @@ def combine(components: list[tuple[float, float, list[str]]], config: SignalConf
 
     가중치 0인 컴포넌트는 가중평균에는 기여하지 않지만(사실상 제외와 동일), 근거 문구는
     그대로 reasons에 포함된다 — 예: "재무데이터 없음" 안내.
+
+    ## 재정규화 편향 (2026-08-06 X2)
+
+    분모가 **발동한 가중치의 합**이라, 팩터가 빠진 종목은 남은 팩터로 재정규화돼 극단 점수가
+    나온다. 실측(200종목): `|점수|` 평균이 커버리지 순으로 1.070 / 0.805 / 0.638 / **0.303** —
+    데이터가 가장 적은 종목이 가장 센 점수를 받고, 전 팩터를 가진 3종목은 최고 +0.43으로
+    사실상 매수 불가였다. 상위 3위가 전부 5/8 팩터였고 유일한 매수권 종목도 그랬다.
+
+    분모를 전체 가중합으로 바꾸면(=결측을 중립 0으로 반영) 편향은 사라지지만 **모든 종목의
+    점수가 변한다.** 판별력이 `판정 불가`인 동안 점수 정의를 바꾸는 것은 곡선 맞추기라
+    지금은 하지 않는다. 대신 (a) `weight_sum_ratio`를 산출물에 실어 노출하고,
+    (b) 데이터 커버리지가 낮은 종목을 **매수권에서** 뺀다(점수는 그대로 낸다 — 조용히 지우면
+    왜 없는지 모른다). 분모 교체는 하네스에 넣어 재는 것이 먼저다.
     """
     config = config or SignalConfig()
 
@@ -583,7 +703,11 @@ def combine(components: list[tuple[float, float, list[str]]], config: SignalConf
     confidence = round(abs(2 * ind.sigmoid(score) - 1) * 100) / 100
     reasons = [r for _, _, rs in components for r in rs]
 
-    return {"score": round(score, 2), "kind": kind, "confidence": confidence, "reasons": reasons}
+    total = total_weight(config)
+    return {"score": round(score, 2), "kind": kind, "confidence": confidence, "reasons": reasons,
+            "weight_sum": round(weight_sum, 4), "weight_total": round(total, 4),
+            # 점수가 **실제로 나눈** 가중합의 비율. 1.0이면 전 팩터가 발동했다.
+            "weight_sum_ratio": (round(weight_sum / total, 4) if total else None)}
 
 
 def evaluate(
@@ -686,6 +810,11 @@ def evaluate(
             (sh_norm, sh_weight, sh_reasons),        # 공매도 거래비중(KR) — 하방 리스크 감점
         ]
         combined = combine(components, config)
+        # 커버리지는 `has_*` 플래그를 아는 여기서 센다 — `combine`은 컴포넌트 이름을 모른다.
+        cov = data_coverage({"technical": True, "fundamental": fund.has_data,
+                            "valuation": has_valuation, "reversion": has_reversion,
+                            "flow": has_flow, "quality": has_quality,
+                            "momentum": has_momentum, "short": has_short}, config)
         _apply_trend_gate(combined, closes, series, i_last, config, market_ret_20d)
         edate = earnings_dates.get(ticker)
         earnings_soon = _apply_earnings_gate(combined, _days_until(edate, today), config)
@@ -709,6 +838,9 @@ def evaluate(
             decision=dec,
             earnings_date=edate, earnings_soon=earnings_soon,
             gate_blocked=bool(combined.get("gated")),
+            weight_sum_ratio=combined.get("weight_sum_ratio"),
+            data_coverage=cov["ratio"],
+            missing_factors=cov["missing"],
             reasons=combined["reasons"],
             factor_scores=factor_scores,
         )

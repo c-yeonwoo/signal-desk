@@ -1130,3 +1130,131 @@ def test_ic_se_is_never_smaller_than_iid():
     trend = [0.05 + 0.01 * i for i in range(20)]
     nw2 = accuracy._newey_west_se(trend, 4)
     assert nw2["se"] > nw2["se_naive"], (nw2["se"], nw2["se_naive"])
+
+
+# ── X2: 재정규화 편향 노출 + 커버리지 게이트 ────────────────────────────────────
+# 실측(2026-08-06, 200종목): `combine`의 분모가 **발동한 가중치의 합**이라, 팩터가 빠진 종목이
+# 남은 팩터로 재정규화돼 극단 점수를 받았다.
+#   커버리지 <0.60 → |점수| 평균 1.070 / 0.60~0.80 → 0.805 / 0.80~0.95 → 0.638 / ≥0.95 → 0.303
+# 상위 3위가 전부 5/8 팩터였고, **유일한 매수권 종목도 5/8**이었다. 전 팩터 3종목은 최고 +0.43.
+
+def test_renormalization_bias_is_exposed_not_hidden():
+    """커버리지가 낮으면 점수가 커진다는 사실이 **산출물에 실려** 있어야 한다."""
+    from signal_desk.signals import engine as eng
+
+    cfg = eng.SignalConfig(weight_technical=0.35, min_data_coverage=0.0)
+    universe = [{"ticker": "A", "name": "A"}]
+    closes = [100 - i for i in range(20)]
+    r = eng.evaluate(universe, {"A": closes}, config=cfg)[0]
+    assert r.weight_sum_ratio is not None and 0 < r.weight_sum_ratio < 1
+    assert r.data_coverage is not None
+    assert r.missing_factors, "어느 팩터가 없는지 이름으로 안 내면 조사가 안 된다"
+    # `combine` 자체도 비율을 낸다 — 소비자가 SignalResult를 안 거쳐도 알 수 있어야 한다.
+    c = eng.combine([(1.0, 0.35, []), (0.0, 0.0, [])], cfg)
+    assert c["weight_sum_ratio"] == round(0.35 / eng.total_weight(cfg), 4)
+
+
+def test_conditional_factors_are_not_counted_as_missing_data():
+    """조건 미발동(낙폭과대)을 데이터 부족으로 세면 데이터를 더 받아도 커버리지가 안 오른다."""
+    from signal_desk.signals import engine as eng
+
+    cfg = eng.SignalConfig()
+    assert "reversion" in eng.CONDITIONAL_FACTORS
+    has_all_but_reversion = {f.removeprefix("weight_"): True for f in eng.SCORE_WEIGHT_FIELDS}
+    has_all_but_reversion["reversion"] = False
+    cov = eng.data_coverage(has_all_but_reversion, cfg)
+    assert cov["ratio"] == 1.0, "조건 미발동이 커버리지를 깎으면 안 된다"
+    assert "reversion" not in cov["missing"]
+
+
+def test_coverage_gate_blocks_the_buy_window_but_not_the_score():
+    """게이트는 **매수권만** 막는다. 점수를 지우면 왜 없는지 화면에서 알 수 없다."""
+    from signal_desk.signals import engine as eng
+
+    cfg = eng.SignalConfig(weight_technical=0.35, min_data_coverage=0.80)
+    r = eng.evaluate([{"ticker": "A", "name": "A"}], {"A": [100 - i for i in range(20)]},
+                     config=cfg)[0]
+    assert r.score != 0 and r.low_coverage is True and r.rank_eligible is False
+    assert any("커버리지" in x for x in r.reasons)
+    sel = eng.selection_summary([r], cfg)
+    # 0의 이유를 세는 쪽도 커버리지를 알아야 한다(변호가 아니라 점검 결과).
+    assert sel["coverage"]["blocked"] == 1 and sel["coverage"]["blocked_in_window"] == 1
+    assert sel["coverage"]["min_required"] == 0.80
+    assert sel["coverage"]["distribution"]["median"] is not None, "문턱은 분포와 함께 낸다"
+
+
+def test_coverage_gate_is_not_a_divide_by_zero():
+    """커버리지를 **모르는** 종목(None)은 막지 않는다 — 전 종목 차단은 신중함이 아니다."""
+    from signal_desk.signals import engine as eng
+
+    cfg = eng.SignalConfig(min_data_coverage=0.99)
+    r = eng.SignalResult(ticker="A", name="A", score=2.0, kind="BUY", confidence=0.9,
+                         technical_score=1.0, fundamental_score=0.0, has_fundamental=False,
+                         data_coverage=None)
+    eng.apply_cross_sectional([r], cfg)
+    assert r.low_coverage is False and r.rank_eligible is True
+
+
+def test_harness_applies_the_same_coverage_gate_as_live():
+    """하네스가 커버리지 게이트를 안 걸면 **라이브가 돌리지 않는 전략**을 잰 결과다.
+
+    실측 병력: 봇/화면이 `shorts`를 안 넘겨 점수가 갈라졌고(2026-07-27), 하네스가
+    `signal_config` 없이 소스 상수를 쟀다(2026-08-05). 같은 병을 게이트에서 반복하지 않는다.
+    """
+    from signal_desk.signals import harness as h
+
+    # 게이트가 설정돼 있는데 커버리지 패널을 안 주면 경고로 드러나야 한다.
+    dates = _dates(400)
+    closes = {f"T{i}": (dates, [100.0 * (1.0 + (i - 5) * 0.002) ** k for k in range(400)])
+              for i in range(12)}
+    panel = h.build_panel(closes)
+    scores = {t: [1.5] * len(dates) for t in closes}
+    cfg = h.HarnessConfig(random_trials=10, min_periods=1, phase_average=False,
+                          signal_config=h.SignalConfig(min_data_coverage=0.80))
+    out = h.run(panel, cfg, scores=scores, score_source="pit", coverage={}, fired={})
+    assert out["ready"], out
+    assert out["data_coverage_gate"]["panel_given"] is False
+    assert any("커버리지 패널이" in w for w in out["warnings"]), out["warnings"]
+
+    # 패널을 주면 실제로 막고, 막은 횟수를 낸다.
+    covers = {t: [(0.5 if t == "T11" else 1.0)] * len(dates) for t in closes}
+    out2 = h.run(panel, cfg, scores=scores, score_source="pit", coverage={}, fired={},
+                 covers=covers)
+    assert out2["data_coverage_gate"]["panel_given"] is True
+    assert out2["data_coverage_gate"]["blocked"] > 0, out2["data_coverage_gate"]
+    assert not any("커버리지 패널이" in w for w in out2["warnings"])
+
+
+def test_price_harness_does_not_charge_stocks_for_factors_it_cannot_see():
+    """하네스가 원리적으로 못 보는 팩터(수급·공매도)를 종목에 물리면 매수 0이 된다."""
+    from signal_desk.signals import engine as eng
+    from signal_desk.signals import harness as h
+
+    cfg = eng.SignalConfig()
+    price_cov = eng.data_coverage({"technical": True, "momentum": True}, cfg,
+                                  unavailable=h._PRICE_UNAVAILABLE)
+    assert price_cov["ratio"] == 1.0, price_cov
+    pit_cov = eng.data_coverage({"technical": True, "momentum": True, "fundamental": True,
+                                 "valuation": True, "quality": True}, cfg,
+                                unavailable=h._PIT_UNAVAILABLE)
+    assert pit_cov["ratio"] == 1.0, pit_cov
+    # 그런데 재무가 없으면 PIT 경로에서도 떨어져야 한다(그게 게이트의 목적이다).
+    thin = eng.data_coverage({"technical": True, "momentum": True}, cfg,
+                            unavailable=h._PIT_UNAVAILABLE)
+    assert thin["ratio"] < 1.0 and sorted(thin["missing"]) == ["fundamental", "quality",
+                                                              "valuation"]
+
+
+def test_preregistered_config_covers_every_engine_field():
+    """`signalcfg.FIELDS`의 모든 필드가 사전등록 `[base.config]`에 있어야 한다.
+
+    `config_agrees_with_engine`은 **등록된 키만** 비교한다. 새 점수 필드를 등록에 안 넣으면
+    그 파라미터는 검증된 적 없이 판정에 섞이고, 낡은 등록으로 확정한 판정은 증거가 아니다.
+    """
+    from signal_desk import prereg, signalcfg
+
+    reg = prereg.load()
+    base = (reg.get("base") or {}).get("config") or {}
+    missing = [f for f in signalcfg.FIELDS if f not in base]
+    assert not missing, f"사전등록에 없는 엔진 필드: {missing}"
+    assert signalcfg.MODE_FIELD in base

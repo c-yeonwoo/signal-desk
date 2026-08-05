@@ -20,7 +20,10 @@ FIELDS = ["weight_technical", "weight_fundamental", "weight_valuation",
           "weight_reversion", "weight_flow", "weight_quality", "weight_momentum",
           "weight_short",
           "strong_buy_threshold", "buy_threshold", "sell_threshold", "strong_sell_threshold",
-          "regime_adaptive", "rank_top_pct", "rank_min_score"]
+          "regime_adaptive", "rank_top_pct", "rank_min_score",
+          # X2 재정규화 편향 게이트 — 관리자·하네스·CLI가 모두 이 값으로 실험할 수 있어야 한다
+          # ("검사에 넣을 수 없는 파라미터는 검증된 적이 없다").
+          "min_data_coverage"]
 
 # 매수권 선정 방식은 문자열이라 숫자 FIELDS와 따로 다룬다(rank|absolute).
 MODE_FIELD = "selection_mode"
