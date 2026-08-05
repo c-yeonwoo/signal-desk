@@ -1,0 +1,88 @@
+# 사전등록 — 무엇을 언제 어떤 설정으로 재기로 했는지를 **미리** 못 박는다.
+#
+# 이 파일이 정본을 정한다. 여기에 없는 실행은 아무리 좋은 백분위가 나와도 보드에 오르지 않는다
+# (`src/signal_desk/prereg.py` · docs/prd-harness-preregistration.md).
+#
+# 규칙 셋:
+#  1. 값을 바꾸면 **커밋**된다. DB에 두면 조용히 고칠 수 있어서 '사전'이 성립하지 않는다.
+#  2. 요건 충족일에 **단 한 번** 판정하고 동면한다. 재판정은 새 id를 등록해야 한다.
+#  3. Šidák n = 아래 pit look 총수(현재 2 → 문턱 97.47%). **lock 상태와 무관하게 고정**이다 —
+#     interim이 확정되면 n이 줄어 final 문턱이 저절로 95%로 내려가는 사후 완화를 막는다.
+#
+# 왜 look이 둘인가: final 요건(PIT 150거래일)은 2027-02경에 도달한다. 그때까지 눈을 감을 수 없어
+# interim(60거래일, 2026-10경)을 함께 등록했다. 두 번 보는 대가로 문턱을 95 → 97.47로 올린다.
+
+[base]
+family       = "pit-8factor-rank3-hold5"
+score_source = "pit"                    # 가격 하네스는 technical·reversion·momentum 셋만 계산한다
+market       = "kr"                     # 횡단면 순위는 한 시장 안에서만
+
+# signalcfg.FIELDS(15) + selection_mode. 2026-08-05 engine.SignalConfig 실측과 일치.
+# weight_qualitative 는 FIELDS 에 없다(KB 정성은 veto/shadow) → 사전등록·해시 대상이 아니다.
+[base.config]
+weight_technical      = 0.0     # H1(2026-08-03) ablation으로 0
+weight_fundamental    = 0.30
+weight_valuation      = 0.15
+weight_reversion      = 0.20
+weight_flow           = 0.20
+weight_quality        = 0.15    # 커버리지 0% — 측정 불가한 가중치가 실려 있다
+weight_momentum       = 0.30    # 최대 가중. 코드 주석상 "트래커 라이브 IC로 확정" 예정 = 잠정
+weight_short          = 0.15    # 커버리지 9.1%(200건이 한 날짜에 몰려 있어 IC 쌍 0)
+strong_buy_threshold  = 2.0
+buy_threshold         = 1.2
+sell_threshold        = -1.2
+strong_sell_threshold = -2.0
+regime_adaptive       = 1.0
+rank_top_pct          = 3.0
+rank_min_score        = 1.2
+selection_mode        = "rank"
+
+[base.harness]
+hold     = 5
+cost_pct = 0.25
+trials   = 200      # 격자 0.5%p. 40이면 문턱 97.47%를 표현조차 못 한다
+exposure = false    # 하네스는 익스포저 100%. 라이브(약세 국면 40%)와 다르다 — 아래 참고
+top_pct  = 3.0
+
+[[looks]]
+id            = "pit-8factor-rank3-hold5-interim"
+role          = "interim"
+registered_at = "2026-08-05"
+hypothesis    = """
+PIT 8팩터 종합점수 상위 3%(6자리)·5일 보유 랭킹은 라벨 치환 대조군보다 상위에 있다.
+
+이 관측은 중간 판독이며 **채택 근거가 아니다** — 통과해도 final까지 가중치를 바꾸지 않는다.
+실패해도 기각하지 않는다(표본 부족과 판별력 부재를 이 표본으로는 구분할 수 없다).
+
+세 가지를 미리 적어 둔다:
+- hold=5는 실측 채점 지평(20거래일)과 다르다. hold=20은 실효 30기간에 600거래일(약 2.4년)이
+  필요해 현실적이지 않아 5로 등록한다. 즉 이 판정은 5일 보유 랭킹의 판별력이다.
+- 하네스는 익스포저 100%로 재고 라이브는 국면에 따라 줄인다(관측일 기준 40%). 익스포저는
+  "점수에 미래 정보가 있는가"라는 귀무가설과 무관한 사이징 레이어이므로 섞지 않는다 —
+  섞으면 국면 룰의 오류가 판별력 판정에 스며들어 무엇이 실패했는지 못 가른다.
+- Šidák n=2(문턱 97.47%)는 독립 다중검정이 아니라 같은 가설의 2회 순차 관측에 대한 보수적
+  대용이다. 두 관측은 양의 상관이라 필요한 것보다 엄격한 쪽으로 틀린다 — 그 방향은 받아들인다.
+"""
+[looks.requirement]
+min_effective_periods = 12    # 실효 = periods − 매수 0건 기간(최악 위상 기준)
+min_pit_dates         = 60    # 2026-08-05 기준 19거래일 → +41거래일 (약 2026-10)
+
+[looks.decision]
+if_pass = "중간 판독 통과. 채택 보류 — final 요건까지 대기. 가중치 변경 게이트는 열지 않는다."
+if_fail = "중간 판독 실패. 그래도 final까지 대기한다(표본 부족과 판별력 부재를 구분 못 하므로)."
+
+[[looks]]
+id            = "pit-8factor-rank3-hold5-final"
+role          = "final"
+registered_at = "2026-08-05"
+hypothesis    = """
+같은 가설의 확정 관측. **이 결과만 정본이다.**
+요건은 기존 `harness.min_periods`(30)를 그대로 존중한다 — 임의로 낮추는 것이 곧 고르기다.
+"""
+[looks.requirement]
+min_effective_periods = 30
+min_pit_dates         = 150   # 2026-08-05 기준 19거래일 → +131거래일 (약 2027-02)
+
+[looks.decision]
+if_pass = "종합점수를 순위 근거로 확정. 가중치 변경 게이트(N2)를 연다."
+if_fail = "종합점수를 순위 근거로 쓰지 않는다. rank 창·게이트 재설계로 이동."

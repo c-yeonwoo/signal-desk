@@ -405,6 +405,10 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
                  f"이 결과를 {n} 팩터의 성적으로 읽지 말 것"
                  for n in weighted if n not in weak and fired.get(n, 0) < 10]
     empty = sum(r["empty_periods"] for r in runs)
+    # 실효 기간 = 매수가 실제로 있던 리밸런스 횟수. 위상마다 다르므로 **최악 위상**을 쓴다 —
+    # 이 파일이 수익률에 대해 이미 최악 위상을 요구하는 것과 같은 이유다(평균은 미참여를 가린다).
+    eff_per_phase = [r["periods"] - r["empty_periods"] for r in runs]
+    effective_periods = min(eff_per_phase) if eff_per_phase else 0
     if empty:
         warnings.append(f"{empty}/{sum(r['periods'] for r in runs)}기간은 매수 0건(현금) — "
                         f"수익률이 아니라 미참여로 나온 숫자다")
@@ -414,11 +418,11 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     if score_source == "pit":
         warnings.append("PIT 점수 모드 — 스냅샷에 저장된 라이브 점수(fund/flow 포함)로 순위를 잰다. "
                         "스냅샷 구간 밖은 비어 있어 표본이 짧다")
-    # PIT 짧은 구간은 min_periods를 낮춰도 되지만, 기본 문턱을 뚫지 못하면 판정 불가가 정직하다.
-    min_periods = cfg.min_periods if score_source == "price" else min(cfg.min_periods, 5)
+    # PIT 완화(min(cfg.min_periods, 5))를 제거했다 — `periods`가 전체 리밸런스 횟수라 5든 30이든
+    # 아무 것도 막지 못했고, 대신 실효 3~4기간의 결과가 판정으로 나갔다. 이제 실효 기간으로 센다.
     verdict, why = _verdict(percentile, min(totals), max(totals), rnd["median"],
-                            periods=runs[0]["periods"], min_periods=min_periods,
-                            weak_factors=weak)
+                            periods=runs[0]["periods"], min_periods=cfg.min_periods,
+                            effective_periods=effective_periods, weak_factors=weak)
 
     return {
         "ready": True,
@@ -428,6 +432,10 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
                    "use_exposure": cfg.use_exposure, "phases": len(runs),
                    "periods": runs[0]["periods"],
                    "from": panel.dates[phase_idxs[0][0]], "to": panel.dates[phase_idxs[-1][-1]]},
+        # 판정이 실제로 몇 기간의 결과인지. `periods`와 다르면 그 차이가 미참여(현금) 기간이다.
+        "periods": runs[0]["periods"],
+        "empty_periods": empty,
+        "effective_periods": effective_periods,
         "strategy": {
             "total_ret_pct": round(strat_total, 1),
             "phase_spread_pp": round(spread, 1),
@@ -457,6 +465,7 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
 
 def _verdict(percentile: float | None, phase_min: float, phase_max: float,
              random_median: float, *, periods: int = 10 ** 6, min_periods: int = 0,
+             effective_periods: int | None = None,
              weak_factors: list[str] | None = None) -> tuple[str, str]:
     """숫자를 행동으로 옮겨도 되는지의 판정. 기본값은 '판정 불가'다. (짧은 라벨, 사유).
 
@@ -465,10 +474,19 @@ def _verdict(percentile: float | None, phase_min: float, phase_max: float,
 
     표본·커버리지 미달은 경고가 아니라 **차단**이다. 경고로 두면 표 아래 회색 글씨로 밀려나고,
     숫자만 인용돼 돌아다닌다. 실제로 커버리지 5.9%짜리 모멘텀 결과를 그렇게 읽을 뻔했다.
+
+    표본은 `periods`(전체 리밸런스 횟수)가 아니라 **`effective_periods`(매수가 실제로 있던 기간)**로
+    센다. 2026-08-05 진단: PIT 점수가 없는 날은 후보가 비어 매수 0건이 되는데, 리밸런스 인덱스는
+    가격 패널 전체에 깔리므로 hold=5면 218회쯤 된다. 실제 신호가 4기간뿐이어도 `218 >= min_periods`로
+    통과했다. 미참여 기간을 표본으로 세면 "표본 218회"라는 문장이 거짓이 된다.
     """
     if percentile is None:
         return "판정 불가", "대조군 없음"
-    if periods < min_periods:
+    eff = periods if effective_periods is None else effective_periods
+    if eff < min_periods:
+        if eff != periods:
+            return "판정 불가", (f"실효 리밸런스 표본 {eff}회 < 최소 {min_periods}회 "
+                              f"(전체 {periods}회 중 {periods - eff}회는 매수 0건)")
         return "판정 불가", f"리밸런스 표본 {periods}회 < 최소 {min_periods}회"
     if weak_factors and percentile >= 95:
         return "판정 불가", (f"{', '.join(weak_factors)} 커버리지 미달 — 이 결과는 이름과 다른 "

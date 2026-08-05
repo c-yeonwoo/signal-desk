@@ -151,6 +151,35 @@ CREATE TABLE IF NOT EXISTS llm_usage(
     cost_usd REAL NOT NULL DEFAULT 0,
     ok INTEGER NOT NULL DEFAULT 1);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage(ts);
+-- 하네스 판정 이력 — **append-only**. UPDATE·DELETE 경로를 만들지 않는다.
+-- 왜: harness_last.json 1슬롯을 덮어쓰는 구조라 "판정이 마지막으로 돌린 결과"였다. 설정 변경에는
+-- 이력이 있는데(signal_config_history) 가장 중요한 산출물인 판정에는 없었다. 무엇을 언제 어떤
+-- 설정으로 쟀는지 재구성할 수 없으면 그 판정은 증거가 아니다. docs/prd-harness-preregistration.md F5.
+-- preregistered_id 가 NULL 이면 탐색 실행이며 정본이 될 수 없다(is_locked 는 항상 0).
+CREATE TABLE IF NOT EXISTS harness_runs(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ran_at TEXT NOT NULL,
+    preregistered_id TEXT,
+    score_source TEXT NOT NULL,
+    market TEXT NOT NULL,
+    config_json TEXT NOT NULL,
+    config_hash TEXT NOT NULL,
+    harness_json TEXT NOT NULL,
+    percentile REAL,
+    threshold_pct REAL,
+    n_registered INTEGER,
+    periods INTEGER,
+    empty_periods INTEGER,
+    effective_periods INTEGER,
+    pit_dates INTEGER,
+    price_data_to TEXT,
+    verdict TEXT,
+    verdict_why TEXT,
+    is_locked INTEGER NOT NULL DEFAULT 0,
+    warnings_json TEXT,
+    note TEXT);
+CREATE INDEX IF NOT EXISTS idx_harness_runs_ran_at ON harness_runs(ran_at);
+CREATE INDEX IF NOT EXISTS idx_harness_runs_prereg ON harness_runs(preregistered_id, ran_at);
 """
 
 
@@ -1703,3 +1732,68 @@ def llm_usage_summary(days: int = 30) -> dict:
         "by_model": [{"model": k, **v} for k, v in models],
         "note": "추정 비용(공개 단가·캐시/배치 미반영). Anthropic 콘솔 청구와 다를 수 있음. 이 앱 호출분만 집계.",
     }
+
+
+# ---------------------------------------------------------------- 하네스 판정 이력
+#
+# append-only. 이 아래에 UPDATE·DELETE 함수를 추가하지 말 것 — 덮어쓸 수 있는 판정은 증거가 아니다.
+# docs/prd-harness-preregistration.md F5.
+
+_HARNESS_RUN_COLS = (
+    "id,ran_at,preregistered_id,score_source,market,config_json,config_hash,harness_json,"
+    "percentile,threshold_pct,n_registered,periods,empty_periods,effective_periods,"
+    "pit_dates,price_data_to,verdict,verdict_why,is_locked,warnings_json,note")
+
+
+def harness_run_insert(row: dict) -> int:
+    """판정 실행 1건을 이력에 남긴다. `preregistered_id`가 없으면 `is_locked`는 강제로 0이다.
+
+    잠금(정본 확정)을 호출자 판단에 맡기지 않는 이유: 탐색 실행이 우연히 문턱을 넘었을 때
+    "이건 정본으로 하자"가 되는 경로를 코드에서 없애야 한다. 사전등록이 없으면 잠기지 않는다.
+    """
+    locked = int(bool(row.get("is_locked"))) if row.get("preregistered_id") else 0
+    c = conn()
+    cur = c.execute(
+        "INSERT INTO harness_runs(ran_at,preregistered_id,score_source,market,config_json,"
+        "config_hash,harness_json,percentile,threshold_pct,n_registered,periods,empty_periods,"
+        "effective_periods,pit_dates,price_data_to,verdict,verdict_why,is_locked,warnings_json,note) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (row.get("ran_at") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
+         row.get("preregistered_id"), row.get("score_source") or "price",
+         row.get("market") or "kr", row.get("config_json") or "{}",
+         row.get("config_hash") or "", row.get("harness_json") or "{}",
+         row.get("percentile"), row.get("threshold_pct"), row.get("n_registered"),
+         row.get("periods"), row.get("empty_periods"), row.get("effective_periods"),
+         row.get("pit_dates"), row.get("price_data_to"),
+         row.get("verdict"), row.get("verdict_why"), locked,
+         row.get("warnings_json") or "[]", row.get("note")))
+    c.commit()
+    rid = cur.lastrowid
+    c.close()
+    return rid
+
+
+def harness_run_get(rid: int) -> dict | None:
+    c = conn()
+    r = c.execute(f"SELECT {_HARNESS_RUN_COLS} FROM harness_runs WHERE id=?", (rid,)).fetchone()
+    c.close()
+    return dict(zip(_HARNESS_RUN_COLS.split(","), r)) if r else None
+
+
+def harness_runs_recent(limit: int = 20) -> list[dict]:
+    c = conn()
+    rows = c.execute(f"SELECT {_HARNESS_RUN_COLS} FROM harness_runs "
+                     "ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
+    c.close()
+    cols = _HARNESS_RUN_COLS.split(",")
+    return [dict(zip(cols, r)) for r in rows]
+
+
+def harness_locked_run(preregistered_id: str) -> dict | None:
+    """그 look의 **최초** 확정 실행. 요건 충족일 1회 판정이므로 가장 이른 것이 정본이다."""
+    c = conn()
+    r = c.execute(f"SELECT {_HARNESS_RUN_COLS} FROM harness_runs "
+                  "WHERE preregistered_id=? AND is_locked=1 ORDER BY id ASC LIMIT 1",
+                  (preregistered_id,)).fetchone()
+    c.close()
+    return dict(zip(_HARNESS_RUN_COLS.split(","), r)) if r else None

@@ -353,18 +353,26 @@ def _daily_maintenance(enabled: list[str]) -> None:
     except Exception as e:
         log.warning("기후 shadow 스냅샷 실패: %s", type(e).__name__)
     try:
-        # 시그널 판별력 A.harness — 없거나 7일 이상이면 백그라운드로 갱신(CLI 없이도 prod에 쌓임).
-        hz = store.load_harness_last()
-        stale = True
-        if hz.get("ready") and hz.get("saved_at"):
-            try:
-                saved = datetime.datetime.fromisoformat(str(hz["saved_at"]).replace("Z", "+00:00"))
-                stale = (datetime.datetime.now(datetime.timezone.utc) - saved).days >= 7
-            except Exception:
-                stale = True
-        if stale:
-            _harness_job_start("kr", 40, False)
-            log.info("마감후 harness 백그라운드 갱신 시작(stale/missing)")
+        # 사전등록 판정 — 진척은 매일 세지만(스냅샷 날짜만 읽으므로 싸다) **하네스는 요건 90%
+        # 도달 후에만** 돌린다. 매일 돌리면 매일 판정을 보게 되고 그게 곧 다중검정이다.
+        # (2026-08-05 이전에는 "7일 이상 낡으면 가격 하네스 40시행"이었다. 가격 하네스는
+        #  technical·reversion·momentum 셋만 재므로 더 이상 정본이 아니다 — 탐색 도구로 강등.)
+        board = store.harness_board("kr")
+        if board.get("ready"):
+            for lk in board.get("looks") or []:
+                if lk.get("status") != "pending":
+                    continue
+                rq = lk.get("requirement") or {}
+                near = (rq.get("effective_periods", 0) >= 0.9 * max(1, rq.get("min_effective_periods", 1))
+                        and rq.get("pit_dates", 0) >= 0.9 * max(1, rq.get("min_pit_dates", 1)))
+                if near:
+                    log.info("사전등록 요건 임박 — 하네스 실행: %s (실효 %s/%s · PIT %s/%s)",
+                             lk["id"], rq.get("effective_periods"), rq.get("min_effective_periods"),
+                             rq.get("pit_dates"), rq.get("min_pit_dates"))
+                    _harness_job_start("kr", 200, False, look_id=lk["id"])
+                    break
+        else:
+            log.warning("사전등록 보드 없음: %s", board.get("reason"))
     except Exception as e:
         log.warning("마감후 harness 스케줄 실패: %s", type(e).__name__)
     for uid in enabled:
@@ -459,6 +467,7 @@ _ADMIN_PATHS = {
     "/api/advisor-shadow", "/api/advisor-harness",
     "/api/climate-shadow", "/api/kb-coverage-shadow",
     "/api/proof", "/api/pick-reason", "/api/harness/run",
+    "/api/harness/preregistered", "/api/harness/runs",
     "/api/product-review", "/api/product-review/run",
 }
 
@@ -1495,7 +1504,7 @@ def proof_get(request: Request):
 
 # 하네스는 수십 초 — HTTP 타임아웃을 피하려고 백그라운드 실행 후 harness_last를 읽는다.
 _harness_job: dict = {"running": False, "started_at": None, "finished_at": None,
-                      "error": None, "market": None}
+                      "error": None, "market": None, "look_id": None}
 _harness_job_lock = threading.Lock()
 
 
@@ -1504,18 +1513,35 @@ def _harness_job_status() -> dict:
         return dict(_harness_job)
 
 
-def _harness_job_start(market: str, trials: int, exposure: bool) -> dict:
+def _harness_job_start(market: str, trials: int, exposure: bool, *,
+                       look_id: str | None = None, overrides: dict | None = None) -> dict:
+    """하네스를 백그라운드로 돌린다.
+
+    `look_id`가 있으면 **사전등록 실행**이다 — 요건 충족 시 보드 정본을 확정할 수 있는 유일한 경로.
+    없으면 **탐색 실행**이고 이력에만 쌓인다(보드 불변). `overrides`는 탐색용 가중치·선정 룰.
+    """
     with _harness_job_lock:
         if _harness_job["running"]:
             return {"ok": False, "started": False, "running": True,
                     "started_at": _harness_job["started_at"],
                     "message": "이미 실행 중 — 끝나면 시그널 판별력을 새로고침하세요"}
         _harness_job.update(running=True, started_at=time.time(), finished_at=None,
-                            error=None, market=market)
+                            error=None, market=market, look_id=look_id)
 
     def _run():
         try:
-            store.run_harness(market=market, trials=trials, exposure=exposure)
+            if look_id:
+                out = store.run_preregistered(look_id)
+                if out.get("board_updated") is not False and out.get("ready"):
+                    log.info("사전등록 판정 확정: %s → %s", look_id, out.get("verdict"))
+            else:
+                ov = overrides or {}
+                store.run_harness(
+                    market=market, trials=trials, exposure=exposure,
+                    top_pct=float(ov.get("rank_top_pct") or 3.0),
+                    hold=int(ov.get("hold") or 5), cost=float(ov.get("cost_pct") or 0.25),
+                    pit=bool(ov.get("pit")),
+                    signal_config=store._signal_config_from(ov) if ov else None)
         except Exception as e:
             log.warning("harness 백그라운드 실패: %s", e)
             with _harness_job_lock:
@@ -1527,18 +1553,52 @@ def _harness_job_start(market: str, trials: int, exposure: bool) -> dict:
 
     threading.Thread(target=_run, name="harness-run", daemon=True).start()
     return {"ok": True, "started": True, "running": True, "market": market,
-            "trials": trials, "message": "백그라운드 실행 시작 — 10~40초 후 새로고침"}
+            "trials": trials, "look_id": look_id,
+            "board_updated": bool(look_id),
+            "message": ("사전등록 실행 시작 — 요건 충족 시에만 판정이 확정됩니다"
+                        if look_id else "탐색 실행 시작 — 이력에만 남고 보드는 바뀌지 않습니다")}
 
 
 @app.post("/api/harness/run")
 def harness_run_post(request: Request, body: dict = Body(default={})):
-    """포트폴리오 하네스 실행 → harness_last.json. 관리자. 시그널 판별력 A열."""
+    """하네스 실행. 관리자.
+
+    `mode="preregistered"` + `id` → 사전등록 실행(요건 충족 시 보드 확정).
+    `mode="explore"`(기본) → 탐색 실행. `config`로 가중치·선정 룰을 덮어 시험한다.
+    **탐색은 보드를 건드리지 않는다** — 응답의 `board_updated`가 false다.
+    """
     _admin_or_403(request)
     body = body or {}
+    if body.get("mode") == "preregistered":
+        look_id = str(body.get("id") or "").strip()
+        if not look_id:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="mode=preregistered면 id 필수")
+        return _harness_job_start("kr", 200, False, look_id=look_id)
     market = "us" if body.get("market") == "us" else "kr"
     trials = int(body.get("trials") or 40)
     exposure = bool(body.get("exposure") or False)
-    return _harness_job_start(market, trials, exposure)
+    ov = dict(body.get("config") or {})
+    for k in ("hold", "cost_pct", "pit"):
+        if k in (body.get("harness") or {}):
+            ov[k] = (body["harness"])[k]
+    return _harness_job_start(market, trials, exposure, overrides=ov or None)
+
+
+@app.get("/api/harness/preregistered")
+def harness_preregistered_get(request: Request, market: str = "kr"):
+    """사전등록 목록 + 요건 진척·상태. 관리자. 파싱 실패도 이유와 함께 낸다(조용한 0 금지)."""
+    _admin_or_403(request)
+    return store.harness_board("us" if market == "us" else "kr")
+
+
+@app.get("/api/harness/runs")
+def harness_runs_get(request: Request, limit: int = 20):
+    """판정 이력(append-only). 관리자. `preregistered_id`가 null이면 탐색 실행이다."""
+    _admin_or_403(request)
+    rows = db.harness_runs_recent(max(1, min(int(limit or 20), 200)))
+    return {"runs": rows, "count": len(rows),
+            "note": "탐색 실행(preregistered_id=null)은 보드 정본이 아니다."}
 
 
 @app.get("/api/pick-reason")

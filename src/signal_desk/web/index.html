@@ -1244,6 +1244,35 @@
       <p class="page-desc" style="margin:10px 0 0;font-size:12px;color:var(--dim)">픽 스냅샷·실현수익은 시그널 탭에서 종목을 열면 히어로에 한 줄로 붙습니다.</p>
     </div>
 
+    <!-- 실험 — 가설을 제품 안에서 시험한다. 2026-08-05 이전에는 이 단계가 제품에 없어서
+         H1·H2를 engine.py 소스를 편집하고 터미널에서 돌렸다(결과는 gitignore 밑, 재현 스크립트 없음). -->
+    <div class="card" id="experiment-card" style="margin-top:16px">
+      <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div style="font-weight:700;font-size:15px">실험 <span style="color:var(--dim);font-weight:600;font-size:13px">· 사전등록 · 탐색 · 이력</span></div>
+        <div class="row" style="gap:6px;margin:0">
+          <button class="btn" onclick="loadExperiments()" id="exp-refresh-btn">새로고침</button>
+        </div>
+      </div>
+      <p class="page-desc" style="margin:8px 0 10px">보드 정본은 <b>사전등록된 조합</b>만입니다(<code>docs/preregistered.toml</code> — 바꾸면 커밋에 남습니다). 탐색 실행은 이력에만 쌓이고 <b>보드를 바꾸지 않습니다</b>.</p>
+      <div id="exp-prereg" class="placeholder" style="padding:8px 0">불러오는 중…</div>
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;font-size:13px;font-weight:600">탐색 실행 — 가중치·선정 룰을 바꿔 시험</summary>
+        <p class="page-desc" style="margin:8px 0 6px;font-size:12px">여기서 바꾼 값은 <b>저장되지 않습니다</b>. 하네스만 그 설정으로 돌려 보고 결과는 이력에 남습니다.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap;margin:0 0 8px">
+          <label style="font-size:12px">모멘텀 <input type="number" step="0.05" id="exp-w-momentum" style="width:70px"></label>
+          <label style="font-size:12px">재무 <input type="number" step="0.05" id="exp-w-fundamental" style="width:70px"></label>
+          <label style="font-size:12px">저평가 <input type="number" step="0.05" id="exp-w-valuation" style="width:70px"></label>
+          <label style="font-size:12px">rank 상위% <input type="number" step="0.5" id="exp-rank-top" style="width:70px"></label>
+          <label style="font-size:12px">보유일 <input type="number" step="1" id="exp-hold" style="width:60px"></label>
+          <label style="font-size:12px"><input type="checkbox" id="exp-pit"> PIT 점수</label>
+          <button class="btn" onclick="runExploratoryHarness()" id="exp-run-btn">탐색 실행</button>
+        </div>
+        <div id="exp-run-msg" style="font-size:12px;color:var(--dim)"></div>
+      </details>
+      <div style="font-size:13px;font-weight:700;margin:14px 0 6px">판정 이력 <span style="color:var(--dim);font-weight:500;font-size:12px">· append-only</span></div>
+      <div id="exp-runs" class="placeholder" style="padding:8px 0">불러오는 중…</div>
+    </div>
+
     <div class="card" id="brain-proposals-card" style="margin-top:16px">
       <div class="row" style="align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap">
         <div style="font-weight:700;font-size:15px">개선 제안 <span style="color:var(--dim);font-weight:600;font-size:13px">· 승인해야 반영</span></div>
@@ -5392,6 +5421,7 @@ function switchAdminSeg(seg, { pin = true } = {}){
   // 비용·D7·엔진그래프·관측/감사는 접이식 — 펼칠 때 로드
   if (seg === 'engine') {
     loadProofOs();
+    loadExperiments();     // 진단은 탭 진입 시 자동 로드 — 눌러야 보이는 정보는 아무도 안 본다
     loadEngine();
     loadBrainProposals();
     const br = document.getElementById('brain-card');
@@ -5812,7 +5842,7 @@ async function loadBacktestAnalysis(){
     el.innerHTML = `
       <div style="font-size:13px;font-weight:700;margin:4px 0 6px">팩터별 기여도 <span style="color:var(--dim);font-weight:500">· 매수 시그널 ${d.factors.primary_horizon}일 기준</span></div>
       <table class="dtable"><thead><tr><th>팩터</th><th>표본</th><th>적중률</th><th>평균수익</th></tr></thead><tbody>${facRows}</tbody></table>
-      ${best ? `<p class="page-desc" style="margin:8px 0 0">🏆 <b>${esc(best.label)}</b> 팩터가 단독 적중률 ${fmtNum(best.winrate, 1)}%로 가장 높습니다 — 이 팩터의 가중치를 높이면 승률 개선 여지가 있습니다.</p>` : ''}
+      ${best ? `<p class="page-desc" style="margin:8px 0 0">단독 적중률 최고는 <b>${esc(best.label)}</b> ${fmtNum(best.winrate, 1)}%입니다 — 기준선 없는 단독 적중률이므로 <b>가중치 변경 근거가 아닙니다</b>. 가중치는 사전등록 판정이 확정된 뒤에만 바꿉니다.</p>` : ''}
       <div style="font-size:13px;font-weight:700;margin:18px 0 6px">워크포워드 <span style="color:var(--dim);font-weight:500">· 시간 구간별 out-of-sample 안정성</span></div>
       <table class="dtable"><thead><tr><th>구간</th><th>표본</th><th>적중률</th></tr></thead><tbody>${wfRows}</tbody></table>
       ${spread != null ? `<p class="page-desc" style="margin:8px 0 0">구간 간 적중률 편차 <b>${fmtNum(spread, 1)}%p</b>${spread >= 15 ? ' — 편차가 커서 특정 시기에 치우친(과최적화 의심) 신호일 수 있습니다.' : ' — 구간 간 비교적 안정적입니다.'}</p>` : ''}
@@ -5972,6 +6002,93 @@ function _renderEngineGate(gate){
     + `<div style="color:var(--dim);margin-top:3px">${why}</div>`
     + `<div style="color:var(--dim-2);margin-top:3px">이건 실측 트래커 성숙과 무관합니다. 약세·비우호·순매도일 때 일부러 매수를 줄입니다.</div>`;
 }
+// ---- 실험 카드 (사전등록 · 탐색 · 이력) --------------------------------------
+// 보드 정본과 탐색을 화면에서도 갈라 둔다. 탐색 버튼이 보드를 못 건드린다는 사실을 문구로만
+// 말하면 다음 사람이 안 믿는다 — 응답의 board_updated 를 그대로 보여준다.
+async function loadExperiments(){
+  const pre = document.getElementById('exp-prereg');
+  const runs = document.getElementById('exp-runs');
+  try {
+    const b = await (await fetch('/api/harness/preregistered')).json();
+    if (b.detail) { pre.textContent = b.detail; return; }
+    if (!b.ready) {
+      pre.innerHTML = `<div style="color:var(--sell);font-size:13px">${esc(b.reason || '사전등록 없음')}</div>`;
+    } else {
+      pre.innerHTML = `<div style="font-size:12px;color:var(--dim);margin-bottom:6px">`
+        + `문턱 <b>${fmtNum(b.threshold_pct, 2)}%</b> · 등록 ${b.n_registered} look`
+        + `${b.n_registered > 1 ? ' (Šidák 보정 — 등록 수로 고정, lock돼도 안 느슨해짐)' : ''}</div>`
+        + (b.looks || []).map(lk => {
+            const rq = lk.requirement || {};
+            const pctEff = Math.min(100, Math.round(100 * rq.effective_periods / Math.max(1, rq.min_effective_periods)));
+            const pctPit = Math.min(100, Math.round(100 * rq.pit_dates / Math.max(1, rq.min_pit_dates)));
+            const est = rq.effective_periods_source === 'estimated' ? ' (추정)' : '';
+            const color = lk.status === 'locked' ? 'var(--buy-strong,var(--brand))'
+                        : lk.status === 'invalidated' ? 'var(--sell)' : 'var(--dim)';
+            return `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:6px">
+              <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+                <div style="font-size:13px;font-weight:700">${esc(lk.role)} <span style="color:var(--dim);font-weight:500;font-size:12px">${esc(lk.id)}</span></div>
+                <div style="font-size:12px;color:${color};font-weight:600">${esc(lk.status)} · ${esc(lk.verdict || '')}</div>
+              </div>
+              <div style="font-size:12px;color:var(--dim);margin-top:3px">${esc(lk.verdict_why || '')}</div>
+              <div style="font-size:12px;margin-top:4px">실효 기간 ${rq.effective_periods}/${rq.min_effective_periods}${est} (${pctEff}%) · PIT ${rq.pit_dates}/${rq.min_pit_dates}일 (${pctPit}%)</div>
+              ${lk.percentile != null ? `<div style="font-size:12px;margin-top:2px">백분위 <b>${fmtNum(lk.percentile, 1)}</b></div>` : ''}
+              <details style="margin-top:4px"><summary style="cursor:pointer;font-size:12px;color:var(--dim)">가설·판정 기준</summary>
+                <pre style="white-space:pre-wrap;font-size:11.5px;color:var(--dim);margin:6px 0 0">${esc(lk.hypothesis || '')}</pre>
+                <div style="font-size:11.5px;color:var(--dim);margin-top:4px">통과: ${esc((lk.decision||{}).if_pass || '')}<br>실패: ${esc((lk.decision||{}).if_fail || '')}</div>
+              </details>
+            </div>`;
+          }).join('');
+    }
+    const h = await (await fetch('/api/harness/runs?limit=20')).json();
+    const rows = (h.runs || []).map(r => `<tr>
+        <td>${esc(String(r.ran_at || '').slice(0, 16).replace('T', ' '))}</td>
+        <td>${r.preregistered_id ? esc(r.preregistered_id.split('-').pop()) : '<span style="color:var(--dim-2)">탐색</span>'}</td>
+        <td>${esc(r.score_source || '')}</td>
+        <td>${r.percentile == null ? '–' : fmtNum(r.percentile, 1)}</td>
+        <td>${r.effective_periods == null ? '–' : r.effective_periods + '/' + r.periods}</td>
+        <td>${esc(r.verdict || '')}</td>
+        <td>${r.is_locked ? '<b>정본</b>' : ''}</td>
+        <td style="color:var(--dim-2);font-size:11px">${esc(String(r.config_hash || '').slice(0, 8))}</td>
+      </tr>`).join('');
+    runs.innerHTML = rows
+      ? `<table class="dtable"><thead><tr><th>실행</th><th>등록</th><th>점수</th><th>백분위</th><th>실효/전체</th><th>판정</th><th></th><th>설정</th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<div style="font-size:13px;color:var(--dim)">아직 실행 이력이 없습니다.</div>';
+  } catch (e) {
+    pre.textContent = '불러오기 실패: ' + e;
+  }
+}
+async function runExploratoryHarness(){
+  const btn = document.getElementById('exp-run-btn');
+  const msg = document.getElementById('exp-run-msg');
+  const num = id => { const v = document.getElementById(id).value; return v === '' ? null : Number(v); };
+  const cfg = {};
+  const map = { 'exp-w-momentum': 'weight_momentum', 'exp-w-fundamental': 'weight_fundamental',
+                'exp-w-valuation': 'weight_valuation', 'exp-rank-top': 'rank_top_pct' };
+  for (const [id, key] of Object.entries(map)) { const v = num(id); if (v != null) cfg[key] = v; }
+  const hz = {};
+  const hold = num('exp-hold'); if (hold != null) hz.hold = hold;
+  if (document.getElementById('exp-pit').checked) hz.pit = true;
+  if (btn) { btn.disabled = true; btn.textContent = '실행 중…'; }
+  msg.textContent = '';
+  try {
+    const r = await (await fetch('/api/harness/run', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'explore', market: 'kr', trials: 40, config: cfg, harness: hz }),
+    })).json();
+    if (r.detail) { msg.textContent = r.detail; return; }
+    msg.innerHTML = esc(r.message || '') + ` <span style="color:var(--dim-2)">· 보드 갱신: ${r.board_updated ? '예' : '아니오'}</span>`;
+    for (let i = 0; i < 40; i++) {
+      await new Promise(res => setTimeout(res, 2500));
+      const d = await (await fetch('/api/proof')).json();
+      if (!(d.harness_job || {}).running) {
+        if ((d.harness_job || {}).error) msg.textContent = '실패: ' + d.harness_job.error;
+        await loadExperiments();
+        break;
+      }
+    }
+  } catch (e) { msg.textContent = '실패: ' + e; }
+  finally { if (btn) { btn.disabled = false; btn.textContent = '탐색 실행'; } }
+}
 async function runHarnessFromProof(){
   const btn = document.getElementById('proof-harness-btn');
   if (btn) { btn.disabled = true; btn.textContent = '실행 중…'; }
@@ -6044,8 +6161,22 @@ async function loadProofOs(){
           <div style="font-size:12px;margin-top:6px">harness
             <b>${hz.verdict || (hz.blocked_reason || '미실행')}</b>
             <span style="color:var(--dim)">${hz.percentile == null ? '' : ' · p' + fmtNum(hz.percentile, 1)}</span>
-            ${hz.saved_at ? `<span style="color:var(--dim-2)"> · ${esc(String(hz.saved_at).slice(0, 10))}</span>` : ''}
+            ${hz.threshold_pct != null ? `<span style="color:var(--dim)"> · 문턱 ${fmtNum(hz.threshold_pct, 2)}%${hz.n_registered > 1 ? ` (사전등록 ${hz.n_registered} look Šidák)` : ''}</span>` : ''}
+            ${hz.saved_at && hz.status === 'locked' ? `<span style="color:var(--dim-2)"> · ${esc(String(hz.saved_at).slice(0, 10))}</span>` : ''}
           </div>
+          ${hz.verdict_why ? `<div style="font-size:12px;color:var(--dim);margin-top:2px">${esc(hz.verdict_why)}</div>` : ''}
+          ${(hz.looks || []).map(lk => {
+            const rq = lk.requirement || {};
+            const est = rq.effective_periods_source === 'estimated' ? ' <span style="color:var(--dim-2)">(추정)</span>' : '';
+            return `<div style="font-size:12px;margin-top:4px;line-height:1.5">
+              <b>${esc(lk.role)}</b> <span style="color:var(--dim)">${esc(lk.status)}</span>
+              · 실효 ${rq.effective_periods}/${rq.min_effective_periods}${est}
+              · PIT ${rq.pit_dates}/${rq.min_pit_dates}일
+              ${lk.percentile != null ? ` · <b>p${fmtNum(lk.percentile, 1)}</b>` : ''}
+            </div>`;
+          }).join('')}
+          ${hz.status === 'pending' ? `<div style="font-size:12px;color:var(--dim-2);margin-top:4px">요건 충족 전까지 백분위를 내지 않습니다 — 매일 보는 것이 곧 다중검정입니다.</div>` : ''}
+          ${hz.status === 'invalidated' ? `<div style="font-size:12px;color:var(--sell);margin-top:4px">판정 이후 설정이 바뀌었습니다 — 새 id로 재등록해야 합니다.</div>` : ''}
           ${jobLine}
           ${!hz.ready && !job.running ? `<div style="font-size:12px;color:var(--dim);margin-top:4px">「하네스 실행」을 누르면 서버에서 돌립니다(CLI 불필요).</div>` : ''}
           ${drift.frozen ? `<div style="color:#b45309;font-size:12px;margin-top:4px">점수 동결 의심 — ${esc(drift.note || '')}</div>` : ''}
