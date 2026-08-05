@@ -692,3 +692,51 @@ def test_fundamentals_write_never_drops_the_quality_factor(tmp_path, monkeypatch
                         "net_income": 4.5e13, "equity": 4.0e14}}
     assert store._attach_quality(fresh) == 0
     assert "quality" not in fresh["005930"], "이력이 없는데 퀄리티를 만들어냈다"
+
+
+def test_pit_fundamentals_never_use_data_before_it_was_disclosable():
+    """시점별 재무는 **공시 전 정보를 쓰면 안 된다** — 그게 룩어헤드다.
+
+    `fundamentals_history.json`에 연도별 재무가 있는데도 가격 하네스가 3팩터였던 이유는
+    데이터가 없어서가 아니라 "언제부터 알 수 있었나"가 없어서였다. FY Y 사업보고서는 이듬해
+    3월 말이 법정기한이므로 `{'2024': …}`를 2024-01-01부터 쓰면 최대 15개월 룩어헤드다.
+    """
+    from signal_desk.signals import pit_fundamentals as pf
+
+    assert pf.latest_fiscal_year("2026-08-05") == 2025    # FY2025는 2026-03 공시 → 가용
+    assert pf.latest_fiscal_year("2026-04-01") == 2025    # 경계: 4/1부터 열린다
+    assert pf.latest_fiscal_year("2026-03-31") == 2024    # 3/31엔 아직 FY2024까지만
+    assert pf.latest_fiscal_year("2024-01-02") == 2022
+
+    hist = {"A": {"2024": {"roe": 9.0, "net_income": 1.0e12, "equity": 1.0e13,
+                           "debt_ratio": 30.0, "revenue_growth": 5.0},
+                  "2023": {"roe": 7.0, "net_income": 0.8e12, "equity": 0.9e13,
+                           "debt_ratio": 35.0, "revenue_growth": 3.0}}}
+    # 경계의 핵심: FY2024가 열리는 날(2025-04-01) 전에는 **FY2023을 쓴다**.
+    # FY2024를 먼저 쓰면 그게 룩어헤드다 — 아직 공시되지 않은 실적으로 과거를 채점하는 것이다.
+    before = pf.metrics_at(hist, "2025-03-31", shares={}, price_at={})
+    assert before["A"]["roe"] == 7.0, "공시 전 FY2024를 당겨썼다(룩어헤드)"
+    after = pf.metrics_at(hist, "2025-04-01", shares={"A": 1.0e8}, price_at={"A": 50000.0})
+    assert after["A"]["roe"] == 9.0, "공시일이 지났는데 낡은 연도를 쓴다"
+    assert after["A"]["quality"]["has"] is True, "전년 대비 개선을 못 세면 퀄리티가 죽는다"
+    assert after["A"]["per"] == round(50000.0 * 1.0e8 / 1.0e12, 2)
+    # 이력에 그 연도가 아예 없으면 재무를 만들어내지 않는다(조용히 3팩터로 떨어뜨리지 않는다).
+    assert pf.metrics_at(hist, "2024-03-31", shares={}, price_at={}) == {}   # FY2022 없음
+
+
+def test_six_factor_backtest_is_not_labeled_as_eight(tmp_path):
+    """6팩터 백테스트를 8팩터라고 부르면 안 된다 — 수급·공매도는 백필이 원리적으로 불가능하다.
+
+    `flows.json`·`short.json`은 시계열이 아니라 현재값 스냅샷 1개다. 이름을 정직하게 붙이지
+    않으면 `harness_last`의 `fired_pct`가 3팩터인데 "8팩터 판별력"으로 읽혔던 일이 반복된다.
+    """
+    from signal_desk.signals import harness as hz_mod
+    from signal_desk.signals import pit_fundamentals as pf
+
+    src = hz_mod.scores_with_pit_fundamentals.__doc__ or ""
+    assert "6팩터" in src and "8팩터" in src, "무엇이 빠졌는지 문서에 없다"
+    assert "flows.json" in (pf.__doc__ or ""), "백필 불가 사유가 모듈 문서에 없다"
+    # price6는 정본 자격이 있지만 price(3팩터)는 없다.
+    from signal_desk import prereg
+    assert "price6" in prereg.CANONICAL_SOURCES
+    assert "price" not in prereg.CANONICAL_SOURCES

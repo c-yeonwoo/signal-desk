@@ -150,6 +150,109 @@ def _score_series(panel: Panel, config: SignalConfig
     return scores, pct(can), pct(fired)
 
 
+def scores_with_pit_fundamentals(
+    panel: Panel, config: SignalConfig, hist: dict, *,
+    shares: dict[str, float], universe: list[dict] | None = None,
+) -> tuple[dict[str, list[float | None]], dict[str, float], dict[str, float], dict]:
+    """가격 3팩터 + **시점별 재무** 3팩터 = 6팩터 점수 시계열.
+
+    가격 재계산 하네스가 3팩터(사실상 모멘텀 단독)인 이유는 재무 이력이 없어서가 아니라
+    **"언제부터 알 수 있었나"가 없어서**였다. `pit_fundamentals`가 그 매핑을 준다
+    (FY Y → (Y+1)-04-01 부터 사용 가능, 법정기한 기반 보수적 규칙).
+
+    재무가 없는 날짜는 점수를 **내지 않는다(None)**. 조용히 3팩터로 떨어뜨리면 표에는
+    "6팩터"라고 적힌 3팩터 결과가 남는다 — 그게 이 파일이 반복해서 경계하는 실패다.
+    비운 날짜는 `run`이 `empty_periods`로 세고 `effective_periods`에서 빼 준다.
+
+    수급·공매도는 여기 없다. `flows.json`·`short.json`이 시계열이 아니라 현재값 스냅샷이라
+    **백필이 원리적으로 불가능**하다 — 그래서 이것은 6팩터이고 8팩터가 아니다.
+    """
+    from signal_desk.signals import pit_fundamentals as pf
+
+    names = ("technical", "reversion", "momentum", "fundamental", "valuation", "quality")
+    can = dict.fromkeys(names, 0)
+    fired = dict.fromkeys(names, 0)
+    total = 0
+
+    prepared: dict[str, tuple[list[float], int, dict]] = {}
+    for ticker, row in panel.closes.items():
+        vals = [v for v in row if v is not None]
+        if len(vals) < 60:
+            continue
+        prepared[ticker] = (vals, len(row) - len(vals),
+                            engine.compute_indicator_series(vals, config))
+
+    scores: dict[str, list[float | None]] = {t: [None] * len(panel) for t in prepared}
+    # 재무 기본값(연도별)은 사업연도가 바뀔 때만 다시 만든다. PER/PBR·저평가 percentile 은
+    # 가격이 움직이므로 날짜마다 다시 계산한다.
+    fy_cache: dict[int, dict[str, dict]] = {}
+    first_date = None
+    dates_with_fund = 0
+
+    for i, date_str in enumerate(panel.dates):
+        fy = pf.latest_fiscal_year(date_str)
+        base = fy_cache.get(fy)
+        if base is None:
+            base = pf.metrics_at(hist, date_str, shares={}, price_at={})   # 가격 없이 재무+퀄리티만
+            fy_cache[fy] = base
+        if not base:
+            continue                                  # 그 시점엔 알 수 있는 재무가 없다 → 점수 없음
+        price_at = {t: prepared[t][0][i - prepared[t][1]]
+                    for t in prepared
+                    if 0 <= i - prepared[t][1] < len(prepared[t][0])}
+        metrics: dict[str, dict] = {}
+        for t, m in base.items():
+            if t not in price_at:
+                continue
+            mm = dict(m)
+            sh, px = shares.get(t), price_at[t]
+            if sh and px:
+                mktcap = px * sh
+                ni, eq = mm.get("net_income"), mm.get("equity")
+                if ni and ni > 0:
+                    mm["per"] = round(mktcap / ni, 2)
+                if eq and eq > 0:
+                    mm["pbr"] = round(mktcap / eq, 2)
+            metrics[t] = mm
+        if not metrics:
+            continue
+        val_scores = pf.valuation_scores_at(metrics, universe)
+        if first_date is None:
+            first_date = date_str
+        dates_with_fund += 1
+        for ticker, (vals, offset, series) in prepared.items():
+            j = i - offset
+            if j < 0 or j >= len(vals):
+                continue
+            comps = engine._price_only_components(vals, series, j, config)
+            comps = comps + pf.components_at(ticker, metrics.get(ticker), val_scores, config)
+            for name, (_, w, _) in zip(names, comps):
+                if w:
+                    fired[name] += 1
+            for name in ("technical", "reversion", "momentum"):
+                if _computable(name, j, config):
+                    can[name] += 1
+            # 재무 3팩터의 '계산 가능'은 그날 그 종목에 재무가 있었는가로 센다.
+            m = metrics.get(ticker)
+            if m:
+                can["fundamental"] += 1
+                if m.get("per") is not None and m.get("pbr") is not None:
+                    can["valuation"] += 1
+                if (m.get("quality") or {}).get("has"):
+                    can["quality"] += 1
+            total += 1
+            scores[ticker][i] = engine.combine(comps, config)["score"]
+
+    meta = {"fund_from": first_date, "fund_dates": dates_with_fund,
+            "fiscal_years": sorted(str(y) for y, v in fy_cache.items() if v),
+            "note": ("수급·공매도는 시계열 이력이 없어 제외 — 6팩터다. "
+                     "재무는 (FY+1)-04-01 부터 사용(법정기한 기반 보수적 규칙).")}
+    if not total:
+        return scores, {}, {}, meta
+    pct = lambda d: {k: round(v / total * 100, 1) for k, v in d.items()}  # noqa: E731
+    return scores, pct(can), pct(fired), meta
+
+
 def _gated(panel: Panel, ticker: str, i: int, config: SignalConfig,
            market_ret: float | None, series_cache: dict) -> bool:
     """라이브와 같은 상대 추세 게이트. 시장 대비 상대강도 우위면 막지 않는다."""
@@ -343,7 +446,9 @@ def scores_from_pit(panel: Panel, history_rows: list[dict]
 def run(panel: Panel, cfg: HarnessConfig | None = None,
         regimes: dict[int, str] | None = None,
         scores: dict[str, list[float | None]] | None = None,
-        score_source: str = "price") -> dict:
+        score_source: str = "price",
+        coverage: dict[str, float] | None = None,
+        fired: dict[str, float] | None = None) -> dict:
     """전략(횡단면 분위 top N%) + 무작위 대조군 + 동일가중 벤치마크를 같은 날짜축에서 비교.
 
     리밸런스 위상을 전부 돌려 평균 내고(`phase_average`), 위상 간 편차를 함께 낸다. 편차가
@@ -359,7 +464,9 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         scores, coverage, fired = _score_series(panel, cfg.signal_config)
         score_source = "price"
     else:
-        coverage, fired = {}, {}
+        # 외부 점수(PIT 스냅샷·PIT 재무)도 커버리지를 받으면 차단 대상이 된다. 안 주면 빈 dict —
+        # 그러면 `weak_factors`가 비어 "이름과 다른 전략을 측정한 것"을 못 잡는다.
+        coverage, fired = dict(coverage or {}), dict(fired or {})
         score_source = score_source or "external"
     if cfg.invert_scores:
         scores = {t: [(-v if v is not None else None) for v in row] for t, row in scores.items()}
@@ -395,7 +502,8 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     percentile = round(better / len(rnd["totals"]) * 100, 1) if rnd["totals"] else None
     excess = strat_total - rnd["median"]
 
-    weighted = _weighted_factors(cfg.signal_config) if score_source == "price" else set()
+    weighted = (_weighted_factors(cfg.signal_config)
+                if score_source in ("price", "price6") else set())
     weak = [n for n, pct in coverage.items() if pct < 60 and n in weighted]
     warnings = [f"{name} 이력 커버리지 {coverage[name]}% — 대부분의 시점에서 계산조차 안 됐다. "
                 f"이 팩터의 결과는 읽지 말 것" for name in weak]
