@@ -134,7 +134,7 @@ def test_save_load_harness_last(tmp_path, monkeypatch):
     assert got["market"] == "kr" and got.get("saved_at")
 
 
-def test_run_harness_saves_when_cache_ready(tmp_path, monkeypatch):
+def test_only_preregistered_locked_runs_reach_the_board(tmp_path, monkeypatch):
     """API/마감루프가 쓰는 store.run_harness — 패널만 스텁해도 저장 경로를 검증."""
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)
@@ -158,12 +158,32 @@ def test_run_harness_saves_when_cache_ready(tmp_path, monkeypatch):
                             "A": closes["A"][1], "B": closes["B"][1]}))
     monkeypatch.setattr(
         hz, "run",
-        lambda panel, cfg=None, regimes=None: {
+        lambda panel, cfg=None, regimes=None, scores=None, score_source="price": {
             "ready": True, "verdict": "판별력 있음", "verdict_why": "stub",
             "vs_random": {"percentile": 97.0}, "strategy": {}, "benchmark": {},
             "warnings": [], "coverage_pct": 80.0, "fired_pct": {},
+            "periods": 40, "empty_periods": 0, "effective_periods": 40,
         })
+
+    # (1) 사전등록 없는 탐색 실행 — 결과는 돌려주지만 **보드 정본은 건드리지 않는다**.
+    #     2026-08-05 이전에는 여기서도 harness_last.json을 덮었다. 8조합 스윕의 마지막 칸이
+    #     보드에 남는 경로가 그것이었다(우연 통과 확률 33.7%) — 초록 칸을 고르는 건 측정이 아니다.
     out = store.run_harness(market="kr", trials=10)
     assert out["ready"] and out["verdict"] == "판별력 있음"
     assert out["vs_random"]["percentile"] == 97.0
+    assert out["board_updated"] is False
+    assert not store.load_harness_last().get("ready"), "탐색 실행이 보드를 덮었다"
+
+    # (2) 사전등록 + 요건 충족 확정만 보드를 갱신한다.
+    locked = store.run_harness(market="kr", trials=10,
+                               preregistered_id="test-look", lock=True)
+    assert locked["verdict"] == "판별력 있음"
     assert store.load_harness_last()["verdict"] == "판별력 있음"
+    assert store.load_harness_last()["preregistered_id"] == "test-look"
+
+    # (3) 이력에는 둘 다 남고, 탐색 실행은 절대 잠기지 않는다.
+    from signal_desk import db
+    runs = db.harness_runs_recent(10)
+    assert len(runs) == 2
+    assert [r["is_locked"] for r in runs] == [1, 0]          # 최신순
+    assert runs[1]["preregistered_id"] is None

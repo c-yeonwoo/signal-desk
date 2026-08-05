@@ -66,6 +66,7 @@ def build(
     climate_shadow: dict | None = None,
     kb_coverage_shadow: dict | None = None,
     harness_last: dict | None = None,
+    harness_board: dict | None = None,
     paper_scorecard: dict | None = None,
     signal_drift: dict | None = None,
     qualitative_promotion: dict | None = None,
@@ -79,15 +80,38 @@ def build(
     }
     ready_shadows = [k for k, v in shadows.items() if v.get("verdict_ready")]
     hz = harness_last or {}
-    a_harness = {
-        "ready": bool(hz.get("ready")),
-        "verdict": hz.get("verdict"),
-        "verdict_why": hz.get("verdict_why"),
-        "percentile": (hz.get("vs_random") or {}).get("percentile"),
-        "saved_at": hz.get("saved_at"),
-        "market": hz.get("market"),
-        "blocked_reason": None if hz.get("ready") else (hz.get("reason") or "하네스 미실행 — sigdesk harness"),
-    }
+    # 사전등록 보드가 있으면 그것이 정본이다 — 판정은 등록된 조합의 요건 충족 1회로만 확정된다.
+    # `harness_last`는 그 확정 실행의 사본이므로 보드가 없을 때만 단독으로 쓴다(하위 호환).
+    if harness_board and harness_board.get("ready"):
+        a_harness = {
+            "ready": True,
+            "status": harness_board.get("status"),
+            "verdict": harness_board.get("verdict"),
+            "verdict_why": harness_board.get("verdict_why"),
+            # 요건 미충족 동안 백분위를 내지 않는다 — 매일 보는 것이 곧 다중검정이다.
+            "percentile": harness_board.get("percentile"),
+            "threshold_pct": harness_board.get("threshold_pct"),
+            "n_registered": harness_board.get("n_registered"),
+            "requirement": harness_board.get("requirement"),
+            "looks": harness_board.get("looks"),
+            "saved_at": hz.get("saved_at"),
+            "market": harness_board.get("market"),
+            "blocked_reason": None,
+            "note": harness_board.get("note"),
+        }
+    else:
+        reason = ((harness_board or {}).get("reason")
+                  or hz.get("reason") or "하네스 미실행 — sigdesk harness")
+        a_harness = {
+            "ready": bool(hz.get("ready")),
+            "status": (harness_board or {}).get("status") or "unregistered",
+            "verdict": hz.get("verdict"),
+            "verdict_why": hz.get("verdict_why"),
+            "percentile": (hz.get("vs_random") or {}).get("percentile"),
+            "saved_at": hz.get("saved_at"),
+            "market": hz.get("market"),
+            "blocked_reason": None if hz.get("ready") else reason,
+        }
     b_paper = paper_scorecard or {"resolved": 0, "pending": 0, "win_rate": None}
     c_note = (
         "Decision/KB veto는 점수 가산이 아니다. 이 층은 이벤트 청산·매수 차단 PR의 성적이다. "
@@ -163,6 +187,7 @@ def collect() -> dict:
         "kb_coverage",
         lambda: {**kb_coverage.shadow(closes), "coverage": kb_coverage.coverage_now()})
     parts["harness"] = _safe("harness_last", store.load_harness_last)
+    parts["harness_board"] = _safe("harness_board", lambda: store.harness_board("kr"))
     parts["paper"] = _safe("paper", db.bot_decision_scorecard)
     parts["drift"] = _safe("drift", store.signal_drift)
 
@@ -182,6 +207,7 @@ def collect() -> dict:
         climate_shadow=parts["climate"]["data"] if parts["climate"]["ok"] else None,
         kb_coverage_shadow=parts["kb_cov"]["data"] if parts["kb_cov"]["ok"] else None,
         harness_last=parts["harness"]["data"] if parts["harness"]["ok"] else None,
+        harness_board=parts["harness_board"]["data"] if parts["harness_board"]["ok"] else None,
         paper_scorecard=parts["paper"]["data"] if parts["paper"]["ok"] else None,
         signal_drift=parts["drift"]["data"] if parts["drift"]["ok"] else None,
         qualitative_promotion=parts["qual"]["data"] if parts["qual"]["ok"] else None,

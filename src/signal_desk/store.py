@@ -1444,12 +1444,37 @@ def load_harness_last() -> dict:
         return {"ready": False, "reason": f"harness_last.json 파싱 실패: {type(e).__name__}"}
 
 
-def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
-                cost: float = 0.25, trials: int = 40, exposure: bool = False) -> dict:
-    """유니버스·시세로 하네스를 돌리고 harness_last.json에 저장. 시그널 판별력·관리자 API용.
+def signal_config_dict(sc) -> dict:
+    """`SignalConfig` → 사전등록·해시와 같은 모양의 dict(`signalcfg.FIELDS` + `selection_mode`).
 
-    trials 기본 40 — CLI 기본(100)보다 가볍게. 판정 문턱(백분위≥95%)은 동일.
+    `signalcfg.get_dict()`는 라이브 설정만 낸다. 하네스는 임의 설정을 검사하므로 같은 모양을
+    만드는 함수가 따로 필요하다 — 모양이 다르면 해시가 달라져 F11·F12 비교가 조용히 어긋난다.
     """
+    from signal_desk import signalcfg
+
+    out = {f: getattr(sc, f) for f in signalcfg.FIELDS if hasattr(sc, f)}
+    out[signalcfg.MODE_FIELD] = getattr(sc, signalcfg.MODE_FIELD, "rank")
+    return out
+
+
+def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
+                cost: float = 0.25, trials: int = 40, exposure: bool = False,
+                signal_config=None, pit: bool = False,
+                preregistered_id: str | None = None, lock: bool = False,
+                threshold_pct: float | None = None, n_registered: int | None = None) -> dict:
+    """하네스를 돌리고 **이력에 남긴다**. 보드 정본은 사전등록된 확정 실행만 갱신한다.
+
+    `signal_config`를 안 주면 `signalcfg.get_config()`(소스 기본값 + kv 오버라이드)를 검사한다.
+    전에는 인자가 아예 없어 `HarnessConfig`의 `default_factory=SignalConfig`가 걸렸고, 그래서
+    **화면·봇이 쓰는 설정과 판정이 재는 설정이 갈라져 있었다** — 가중치를 바꿔도 판정이 안 변했다.
+    `effective_config()`가 아니라 `get_config()`인 이유: 국면 적응(익스포저·문턱)은 하네스가 쓰지
+    않기로 했고(D10), `effective_config`는 regime·macro·flow를 `api`에서 조립해 받으므로
+    `store`가 부르면 순환 import가 된다.
+
+    `preregistered_id`가 없으면 **탐색 실행**이다 — 이력에만 쌓이고 `harness_last.json`을
+    건드리지 않는다. 우연히 문턱을 넘은 탐색 결과가 보드에 남는 경로를 코드에서 없앤다.
+    """
+    from signal_desk import db, prereg, signalcfg
     from signal_desk.signals import harness as hz
 
     market = "us" if market == "us" else "kr"
@@ -1461,19 +1486,56 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
     panel = hz.build_panel(load_all_dated_closes(), {u["ticker"] for u in uni})
     if len(panel.dates) < 50:
         return {"ready": False, "reason": f"시세 일수 부족({len(panel.dates)})"}
+
+    sc = signal_config if signal_config is not None else signalcfg.get_config()
     cfg = hz.HarnessConfig(
         top_pct=float(top_pct), rebalance_days=int(hold), cost_pct=float(cost),
         random_trials=max(10, min(int(trials), 200)), use_exposure=bool(exposure),
+        signal_config=sc,
     )
+    scores, source, pit_dates = None, "price", None
+    if pit:
+        hdf = load_signal_history()
+        if hdf.empty:
+            return {"ready": False, "reason": "PIT 스냅샷 없음 — 마감 스냅샷이 쌓여야 한다"}
+        scores, meta = hz.scores_from_pit(panel, hdf.to_dict("records"))
+        source, pit_dates = "pit", meta.get("pit_dates")
     regimes = (hz.regimes_at(panel, hz._rebalance_indices(panel, cfg))
                if cfg.use_exposure else None)
-    out = hz.run(panel, cfg, regimes)
+    out = (hz.run(panel, cfg, regimes, scores=scores, score_source=source) if scores is not None
+           else hz.run(panel, cfg, regimes))
     if not out.get("ready"):
         return out
+
+    cfg_dict = signal_config_dict(sc)
+    hz_dict = {"hold": cfg.rebalance_days, "cost_pct": cfg.cost_pct,
+               "trials": cfg.random_trials, "exposure": cfg.use_exposure,
+               "top_pct": cfg.top_pct, "seed": cfg.seed}
+    db.harness_run_insert({
+        "preregistered_id": preregistered_id, "score_source": out.get("score_source") or source,
+        "market": market,
+        "config_json": json.dumps(cfg_dict, ensure_ascii=False, sort_keys=True),
+        "config_hash": prereg.config_hash(cfg_dict),
+        "harness_json": json.dumps(hz_dict, ensure_ascii=False, sort_keys=True),
+        "percentile": (out.get("vs_random") or {}).get("percentile"),
+        "threshold_pct": threshold_pct, "n_registered": n_registered,
+        "periods": out.get("periods"), "empty_periods": out.get("empty_periods"),
+        "effective_periods": out.get("effective_periods"),
+        "pit_dates": pit_dates, "price_data_to": panel.dates[-1] if panel.dates else None,
+        "verdict": out.get("verdict"), "verdict_why": out.get("verdict_why"),
+        "is_locked": bool(lock and preregistered_id),
+        "warnings_json": json.dumps(out.get("warnings") or [], ensure_ascii=False),
+        "note": None if preregistered_id else "탐색 실행 — 보드 정본 아님",
+    })
+
     blob = {**out, "top_pct": cfg.top_pct, "hold_days": cfg.rebalance_days,
-            "trials": cfg.random_trials}
-    save_harness_last(blob, market=market)
-    return load_harness_last()
+            "trials": cfg.random_trials, "signal_config": cfg_dict,
+            "config_hash": prereg.config_hash(cfg_dict),
+            "preregistered_id": preregistered_id}
+    if lock and preregistered_id:
+        save_harness_last(blob, market=market)
+        return load_harness_last()
+    return {**blob, "board_updated": False}
 
 
 def load_signal_history():
@@ -1581,3 +1643,148 @@ def price_sanity(tickers: list[str] | None = None) -> dict:
     return {"ok": True, "toss": True, "scaled_suspect": scaled_suspect,
             "verdict": "스케일/합성 의심 — 실데이터 교체 필요" if scaled_suspect else "실데이터로 판단(비율≈1)",
             "rows": rows}
+
+
+# ------------------------------------------------------- 사전등록 판정 보드 (PRD N3)
+
+def pit_dates_count() -> int:
+    """PIT 스냅샷이 있는 **거래일 수**. 요건 진척의 분자다(행 수가 아니라 날짜 수).
+
+    행으로 세면 하루 200종목이 200관측으로 부풀어 요건이 즉시 충족된 것처럼 보인다 —
+    같은 날 200종목은 하나의 관측이다.
+    """
+    df = load_signal_history()
+    if df.empty or "date" not in df.columns:
+        return 0
+    return int(df["date"].astype(str).nunique())
+
+
+def _signal_config_from(cfg: dict):
+    from dataclasses import replace
+
+    from signal_desk.signals.engine import SignalConfig
+    base = SignalConfig()
+    known = {k: v for k, v in (cfg or {}).items() if hasattr(base, k)}
+    return replace(base, **known)
+
+
+def run_preregistered(look_id: str, *, path=None) -> dict:
+    """사전등록된 look 하나를 그대로 실행한다. **정본이 될 수 있는 유일한 경로.**
+
+    잠금(확정) 판단을 호출자에게 맡기지 않는다 — 요건 충족 여부를 이 함수가 실행 결과로
+    직접 계산하고, 이미 확정된 look이면 다시 잠그지 않는다(요건 충족일 1회 판정 후 동면).
+    """
+    from signal_desk import db, prereg
+
+    reg = prereg.load(path)
+    if not reg["ok"]:
+        return {"ready": False, "reason": reg["reason"]}
+    look = next((lk for lk in reg["looks"] if lk["id"] == look_id), None)
+    if look is None:
+        return {"ready": False, "reason": f"사전등록에 없는 id: {look_id}"}
+
+    ok, why = prereg.config_agrees_with_engine(look["config"])
+    if not ok:
+        return {"ready": False, "reason": why}
+
+    hzc = look["harness"]
+    pit = look["score_source"] == "pit"
+    pre = pit_dates_count() if pit else None
+
+    # 잠금 여부는 실행 결과의 실효 기간으로 정해진다 → 먼저 돌리고, 요건을 만족하면 그 실행을 잠근다.
+    # 1패스로 끝내려고 run_harness에 lock을 두 번 넘기지 않고, 여기서 미리 계산할 수 있는 것만 계산한다.
+    already = db.harness_locked_run(look_id)
+    out = run_harness(
+        market=look["market"], top_pct=float(hzc.get("top_pct") or look["config"].get("rank_top_pct") or 3.0),
+        hold=int(hzc.get("hold") or 5), cost=float(hzc.get("cost_pct") or 0.25),
+        trials=int(hzc.get("trials") or 200), exposure=bool(hzc.get("exposure") or False),
+        signal_config=_signal_config_from(look["config"]), pit=pit,
+        preregistered_id=look_id, lock=False,
+        threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"])
+    if not out.get("ready"):
+        return out
+    prog = prereg.progress(look, effective_periods=out.get("effective_periods") or 0,
+                           pit_dates=pre or 0)
+    if prog["met"] and not already:
+        # 요건 충족 첫 실행 — 같은 실행을 잠긴 것으로 다시 남기고 보드를 갱신한다.
+        return run_harness(
+            market=look["market"], top_pct=float(hzc.get("top_pct") or look["config"].get("rank_top_pct") or 3.0),
+            hold=int(hzc.get("hold") or 5), cost=float(hzc.get("cost_pct") or 0.25),
+            trials=int(hzc.get("trials") or 200), exposure=bool(hzc.get("exposure") or False),
+            signal_config=_signal_config_from(look["config"]), pit=pit,
+            preregistered_id=look_id, lock=True,
+            threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"])
+    return {**out, "progress": prog, "board_updated": False}
+
+
+def harness_board(market: str = "kr", *, path=None) -> dict:
+    """`/api/proof` A.harness — 사전등록 기준 판정 보드.
+
+    **요건 미충족 상태에서 백분위를 내지 않는다.** 매일 보이면 매일 보게 되고 그게 peeking이다.
+    이력 표에서는 볼 수 있다 — 이력은 진단용이고 보드는 판정용이다.
+    """
+    from signal_desk import db, prereg
+
+    reg = prereg.load(path)
+    if not reg["ok"]:
+        return {"ready": False, "status": "unregistered", "reason": reg["reason"],
+                "verdict": "판정 불가", "verdict_why": reg["reason"]}
+
+    pit_dates = pit_dates_count()
+    looks_out = []
+    for lk in reg["looks"]:
+        if lk["market"] != market:
+            continue
+        locked = db.harness_locked_run(lk["id"])
+        cur_hash = prereg.config_hash(lk["config"])
+        status = prereg.board_status(locked, current_hash=cur_hash)
+        # 실효 기간은 하네스를 돌려야 정확하다. 매일 돌리지 않으므로 (a) 마지막 실행의 실측값,
+        # (b) 없으면 pit_dates//hold 상한 추정을 쓰고 **어느 쪽인지 라벨을 붙인다**.
+        recent = next((r for r in db.harness_runs_recent(200)
+                       if r["preregistered_id"] == lk["id"]), None)
+        hold = int((lk["harness"] or {}).get("hold") or 5)
+        if recent and recent.get("effective_periods") is not None:
+            eff, eff_src = int(recent["effective_periods"]), "measured"
+        else:
+            eff, eff_src = pit_dates // max(1, hold), "estimated"
+        prog = prereg.progress(lk, effective_periods=eff, pit_dates=pit_dates)
+        prog["effective_periods_source"] = eff_src
+        row = {
+            "id": lk["id"], "role": lk["role"], "family": lk["family"],
+            "hypothesis": lk["hypothesis"], "score_source": lk["score_source"],
+            "status": status, "threshold_pct": reg["threshold_pct"],
+            "n_registered": reg["n_canonical"], "config_hash": cur_hash,
+            "requirement": prog, "decision": lk["decision"],
+            "last_run_at": recent["ran_at"] if recent else None,
+        }
+        if status == "locked":
+            row.update(percentile=locked.get("percentile"), verdict=locked.get("verdict"),
+                       verdict_why=locked.get("verdict_why"),
+                       locked={"at": locked.get("ran_at"), "config_hash": locked.get("config_hash")})
+        elif status == "invalidated":
+            row.update(percentile=None, verdict="무효",
+                       verdict_why="판정 이후 설정이 바뀌었다 — 새 id로 재등록해야 한다")
+        else:
+            miss = []
+            if prog["remaining_effective_periods"]:
+                miss.append(f"실효 기간 {prog['effective_periods']}/{prog['min_effective_periods']}")
+            if prog["remaining_pit_dates"]:
+                miss.append(f"PIT {prog['pit_dates']}/{prog['min_pit_dates']}일")
+            row.update(percentile=None, verdict="판정 보류",
+                       verdict_why=" · ".join(miss) or "요건 충족 — 다음 실행에서 확정")
+        looks_out.append(row)
+
+    final = next((r for r in looks_out if r["role"] == "final"), None)
+    head = final or (looks_out[0] if looks_out else None)
+    return {
+        "ready": True, "market": market,
+        "threshold_pct": reg["threshold_pct"], "n_registered": reg["n_canonical"],
+        "status": head["status"] if head else "unregistered",
+        "verdict": head["verdict"] if head else "판정 불가",
+        "verdict_why": head["verdict_why"] if head else "이 시장에 등록된 look이 없다",
+        "percentile": head.get("percentile") if head else None,
+        "requirement": head["requirement"] if head else None,
+        "looks": looks_out,
+        "note": ("정본은 role=final이다. interim은 중간 판독이며 채택 근거가 아니다. "
+                 "요건 미충족 동안 백분위는 보드에 내지 않는다(매일 보는 것이 곧 다중검정)."),
+    }

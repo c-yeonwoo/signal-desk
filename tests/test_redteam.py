@@ -494,3 +494,167 @@ def test_alert_scan_does_not_depend_on_a_bot_being_on(tmp_path, monkeypatch):
     db.fav_add(8, "sector", "반도체", "반도체")      # 종목 관심 없음 → 스캔 대상 아님
     assert db.user_bots_enabled() == []
     assert db.uids_with_ticker_favorites() == [7]
+
+
+# ---------------------------------------------- 사전등록·판정 이력 (PRD N3)
+#
+# 왜 여기인가: N3가 고치는 것은 "판정이 무엇을 재는가"다. 그건 성능이 아니라 **정직성**의
+# 문제이므로 레드팀에 속한다. 아래 검사가 하나라도 빨간불이면 보드의 판정을 인용하면 안 된다.
+# 근거: docs/prd-harness-preregistration.md (F2·F5·F6·F9·F11·F12)
+
+
+def test_harness_checks_the_config_the_engine_actually_runs(tmp_path, monkeypatch):
+    """하네스는 `engine.py` 하드코딩 기본값이 아니라 **지금 돌아가는 설정**을 검사해야 한다.
+
+    2026-08-05 진단: `store.run_harness`가 `HarnessConfig`를 `signal_config` 없이 만들어
+    `default_factory=SignalConfig`가 걸렸다. 시그널 탭·봇은 `signalcfg`를 쓰는데 판정만
+    소스 상수를 쟀다 — 가중치를 바꿔도 판정이 안 변하는 구조다. 지금은 오버라이드가 비어
+    우연히 일치할 뿐이다.
+    """
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db, signalcfg, store
+    from signal_desk.signals import harness as hz_mod
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+
+    signalcfg.set_dict({"weight_momentum": 0.05})       # 라이브 설정을 기본값과 다르게
+
+    seen: dict = {}
+
+    def _capture(panel, cfg=None, regimes=None, scores=None, score_source="price"):
+        seen["cfg"] = cfg
+        return {"ready": False, "reason": "stub"}
+
+    monkeypatch.setattr(store, "is_ready", lambda: True)
+    monkeypatch.setattr(store, "load_universe", lambda: [{"ticker": "A"}])
+    monkeypatch.setattr(store, "load_all_dated_closes",
+                        lambda: {"A": (_dates(60), [100.0 + i for i in range(60)])})
+    monkeypatch.setattr(hz_mod, "run", _capture)
+
+    store.run_harness(market="kr")
+    assert seen["cfg"].signal_config.weight_momentum == 0.05, (
+        "하네스가 라이브 설정을 무시하고 소스 상수를 쟀다")
+
+
+def test_verdict_blocks_when_most_periods_bought_nothing():
+    """표본 게이트는 **실효 기간**으로 세야 한다.
+
+    `periods`는 `len(idxs)` = 전체 리밸런스 횟수다. PIT 점수가 없는 날은 후보가 비어 매수 0건이
+    되는데, 가격 패널 전체(1,228거래일)에 리밸런스가 깔리므로 hold=5면 218회쯤 된다.
+    실제 신호가 4기간뿐이어도 `218 >= min_periods`로 통과한다 — `min_periods`를 PIT에서 5로
+    낮춘 완화는 아무 것도 바꾸지 않으면서 막아야 할 것을 막지 못했다.
+    """
+    v, why = hz._verdict(99.0, phase_min=50.0, phase_max=60.0, random_median=10.0,
+                         periods=218, effective_periods=4, min_periods=30)
+    assert v == "판정 불가", f"실효 4기간에 판정을 내렸다: {v} / {why}"
+    assert "실효" in why and "218" in why, why
+
+
+def test_exploratory_runs_never_become_the_board(tmp_path, monkeypatch):
+    """탐색 실행과 스윕은 이력에만 남고 보드 정본을 덮으면 안 된다.
+
+    `cli.py`가 combos 루프 **안에서** 저장해 8조합 스윕의 마지막 칸이 정본이 됐다. 조합을
+    여러 개 보면 판별력이 없어도 하나가 95%를 넘을 확률이 33.7%다 — 그중 하나가 보드에
+    남는 것은 측정이 아니라 고르기다.
+    """
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db, store
+    from signal_desk.signals import harness as hz_mod
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    monkeypatch.setattr(store, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(store, "HARNESS_LAST_FILE", tmp_path / "harness_last.json")
+
+    monkeypatch.setattr(store, "is_ready", lambda: True)
+    monkeypatch.setattr(store, "load_universe", lambda: [{"ticker": "A"}])
+    monkeypatch.setattr(store, "load_all_dated_closes",
+                        lambda: {"A": (_dates(60), [100.0 + i for i in range(60)])})
+    monkeypatch.setattr(hz_mod, "run", lambda *a, **k: {
+        "ready": True, "verdict": "판별력 있음", "verdict_why": "stub",
+        "vs_random": {"percentile": 99.0}, "strategy": {},
+        "periods": 10, "empty_periods": 0, "effective_periods": 10, "warnings": []})
+
+    store.run_harness(market="kr")                       # 사전등록 없는 탐색 실행
+    assert not store.HARNESS_LAST_FILE.exists(), "탐색 실행이 보드 정본을 만들었다"
+
+
+def test_only_preregistered_runs_can_lock_a_verdict(tmp_path, monkeypatch):
+    """`preregistered_id`가 없는 실행은 절대 정본이 될 수 없다."""
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+
+    rid = db.harness_run_insert({
+        "preregistered_id": None, "score_source": "pit", "market": "kr",
+        "config_json": "{}", "config_hash": "deadbeef", "harness_json": "{}",
+        "percentile": 99.0, "threshold_pct": 95.0, "n_registered": 1,
+        "periods": 40, "empty_periods": 0, "effective_periods": 40,
+        "pit_dates": 200, "price_data_to": "2026-08-05",
+        "verdict": "판별력 있음", "verdict_why": "stub", "warnings_json": "[]"})
+    row = db.harness_run_get(rid)
+    assert row["is_locked"] == 0, "사전등록 없는 실행이 정본으로 잠겼다"
+
+
+def test_sidak_threshold_scales_with_registered_looks():
+    """조합을 여러 개 보면 문턱을 올려야 한다. n=1이면 95%, n=2면 97.47%."""
+    from signal_desk import prereg
+    assert prereg.sidak_threshold_pct(1) == pytest.approx(95.0, abs=0.01)
+    assert prereg.sidak_threshold_pct(2) == pytest.approx(97.47, abs=0.01)
+    assert prereg.sidak_threshold_pct(8) == pytest.approx(99.36, abs=0.01)
+
+
+def test_sidak_threshold_does_not_loosen_when_a_look_locks():
+    """interim이 확정되면 남은 look의 문턱이 저절로 느슨해지는 일이 없어야 한다.
+
+    초안은 `n = status != locked 인 항목 수`였다. 그러면 interim이 잠기는 순간 n이 2→1로 줄어
+    final의 문턱이 97.47% → 95%로 내려간다. 사후 완화다 — n은 **파일 등록 수**로 고정한다.
+    """
+    from signal_desk import prereg
+    looks = [{"id": "a", "role": "interim", "score_source": "pit", "status": "locked"},
+             {"id": "b", "role": "final", "score_source": "pit", "status": "pending"}]
+    assert prereg.threshold_for(looks, "b") == pytest.approx(97.47, abs=0.01)
+
+
+def test_interim_and_final_must_measure_the_same_thing(tmp_path):
+    """같은 가설의 2회 관측인데 설정이 다르면 순차 관측이 아니라 별개 실험이다 — 로드 거절."""
+    from signal_desk import prereg
+    p = tmp_path / "preregistered.toml"
+    p.write_text(
+        '[base]\nfamily="f"\nscore_source="pit"\nmarket="kr"\n'
+        '[base.config]\nweight_momentum=0.30\n'
+        '[base.harness]\nhold=5\ntrials=200\nexposure=false\ncost_pct=0.25\n'
+        '[[looks]]\nid="f-interim"\nrole="interim"\nregistered_at="2026-08-05"\n'
+        'hypothesis="h"\n[looks.requirement]\nmin_effective_periods=12\nmin_pit_dates=60\n'
+        '[looks.config]\nweight_momentum=0.10\n'          # base와 다르다 → 거절
+        '[[looks]]\nid="f-final"\nrole="final"\nregistered_at="2026-08-05"\n'
+        'hypothesis="h"\n[looks.requirement]\nmin_effective_periods=30\nmin_pit_dates=150\n',
+        encoding="utf-8")
+    out = prereg.load(p)
+    assert out["ok"] is False
+    assert "설정" in out["reason"], out["reason"]
+
+
+def test_preregistered_config_must_match_the_running_engine(tmp_path, monkeypatch):
+    """사전등록 설정이 지금 엔진과 다르면 확정을 막아야 한다.
+
+    설정의 진실이 세 곳에 있다 — `engine.SignalConfig` 소스 기본값, `kv:signal_config`
+    오버라이드, 사전등록 파일. H1처럼 **소스 상수**를 바꾸면 사전등록이 조용히 낡는다.
+    """
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db, prereg, signalcfg
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+
+    live = signalcfg.get_config()
+    stale = {"weight_momentum": round(live.weight_momentum + 0.10, 3)}
+    ok, reason = prereg.config_agrees_with_engine(stale)
+    assert ok is False and "다르" in reason, reason
+
+
+def test_locked_verdict_is_invalidated_when_the_config_changes(tmp_path, monkeypatch):
+    """판정이 살아 있으려면 잰 것과 돌아가는 것이 같아야 한다."""
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db, prereg
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+
+    locked = {"config_hash": "aaaaaaaaaaaa", "verdict": "판별력 있음",
+              "verdict_locked_at": "2026-08-05T00:00:00Z"}
+    assert prereg.board_status(locked, current_hash="aaaaaaaaaaaa") == "locked"
+    assert prereg.board_status(locked, current_hash="bbbbbbbbbbbb") == "invalidated"
