@@ -37,8 +37,9 @@ from signal_desk.signals import (
     regime_zone, relative, revision, scenario, sector_rel, target, valuation,
 )
 from signal_desk.signals.engine import (
-    SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones, combine,
-    compute_indicator_series, evaluate, factor_contribution, selection_summary, walk_forward,
+    GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
+    combine, compute_indicator_series, evaluate, factor_contribution, selection_summary,
+    walk_forward,
 )
 
 config.load_env()
@@ -896,6 +897,12 @@ def _attention_events(ticker: str, limit: int = 5) -> list[dict]:
     return out
 
 
+# 게이트 태그 우선순위 — 여러 개가 걸리면 위쪽을 보여준다(가장 강한 차단 사유).
+# 예전엔 근거 문구를 `[추세]` 같은 접두어로 **문자열 파싱**해서 뒤집어 맞췄고, 문구를 고치면
+# 태그가 조용히 사라졌다. 이제 `SignalResult.gates` 구조를 읽고, 그 매핑을 레드팀이 검사한다.
+_GATE_TAG_ORDER = ("event", "crash", "earnings", "trend", "coverage")
+
+
 def _hold_tag(r, *, buy_blocked: bool) -> str | None:
     """리스트용 짧은 관망 사유 — 점수 높은데 관망인 행이 '버그처럼' 보이지 않게."""
     if getattr(r, "kind", None) != "HOLD":
@@ -903,20 +910,19 @@ def _hold_tag(r, *, buy_blocked: bool) -> str | None:
     if buy_blocked or getattr(r, "event_risk", False):
         return "악재"
     reasons = " ".join(getattr(r, "reasons", None) or [])
+    # 선반영·추격은 게이트가 아니라 실행 품질(execution_gate) 판정이라 문구로 남아 있다.
     if "[선반영]" in reasons:
         return "선반영"
     if "[추격]" in reasons:
         return "추격"
-    if "[실적]" in reasons and "보류" in reasons:
-        return "실적"
-    if "[급락]" in reasons:
-        return "급락"
-    if "[추세]" in reasons and "차단" in reasons:
-        return "추세"
+    gates = set(getattr(r, "gates", None) or ())
+    if getattr(r, "low_coverage", False):
+        gates.add("coverage")
+    for key in _GATE_TAG_ORDER:
+        if key in gates:
+            return GATE_LABELS[key]
     if "매수권" in reasons and "밖" in reasons:
         return "매수권밖"
-    if getattr(r, "low_coverage", False):
-        return "데이터부족"
     if getattr(r, "gate_blocked", False):
         return "게이트"
     return None
@@ -944,6 +950,9 @@ def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct
         "earnings_date": getattr(r, "earnings_date", None),
         "valuation_percentile": finite_or_none(getattr(r, "valuation_percentile", None)),
         "gate_blocked": bool(getattr(r, "gate_blocked", False)),
+        # 게이트 투명화(X3) — 무엇이 막았는지 구조로 낸다(화면이 문구를 파싱하지 않게).
+        "gates": list(getattr(r, "gates", None) or []),
+        "gates_relaxed": list(getattr(r, "gates_relaxed", None) or []),
         # 재정규화 편향 노출(X2) — 커버리지가 낮은 종목의 점수는 남은 팩터로 부풀려져 있다.
         "weight_sum_ratio": finite_or_none(getattr(r, "weight_sum_ratio", None)),
         "data_coverage": finite_or_none(getattr(r, "data_coverage", None)),
