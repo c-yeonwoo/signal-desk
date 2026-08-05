@@ -99,6 +99,49 @@ def _selection_line(selection: dict | None, exposure: float | None,
     return line
 
 
+_STALL_NAMES = 3        # 이름을 다 적으면 브리핑이 길어진다. 3개 + "외 N개".
+
+
+def stall_line(stall: dict | None) -> str | None:
+    """수집 정지 한 줄. **브리핑 첫 줄**에 온다 — 아래로 밀면 안 읽힌다.
+
+    이 레포에서 같은 병이 네 번 재발했다(시세 3주 정지 · `warnings.json` 부재 · 소스 4종이 수동
+    버튼 전용 · `compute_quality` 호출 누락). 네 번 다 "수집 코드는 있는데 아무도 안 불렀다"였고,
+    네 번 다 **화면에 안 떠서** 몇 주씩 몰랐다. 그래서 진단이 아니라 **알림**으로 만든다.
+
+    정상일 때는 아무것도 반환하지 않는다(None) — 매일 초록불을 쓰면 그것도 안 읽히게 된다.
+    """
+    if not stall or stall.get("ok"):
+        return None
+    bits: list[str] = []
+    missing = stall.get("missing_files") or []
+    if missing:
+        bits.append("파일 없음 " + " · ".join(missing[:_STALL_NAMES])
+                    + (f" 외 {len(missing) - _STALL_NAMES}개" if len(missing) > _STALL_NAMES else ""))
+    stale = [e for e in (stall.get("stale") or []) if e.get("updated")]
+    if stale:
+        names = [f"{e['label']}({e['age_hours'] / 24:.0f}일)" if e.get("age_hours") is not None
+                 else e["label"] for e in stale[:_STALL_NAMES]]
+        bits.append("갱신 멈춤 " + " · ".join(names)
+                    + (f" 외 {len(stale) - _STALL_NAMES}개" if len(stale) > _STALL_NAMES else ""))
+    pit = stall.get("pit") or {}
+    if pit.get("missing_n"):
+        # 결측일을 이름으로 적는다 — "몇 건"만 적으면 어느 날이 빈지 몰라 조사가 안 된다.
+        days = pit.get("missing") or []
+        bits.append(f"PIT 스냅샷 결측 {pit['missing_n']}거래일(" + ", ".join(d[5:] for d in days[:4])
+                    + (f" 외 {len(days) - 4}일" if len(days) > 4 else "") + ")")
+    elif pit.get("reason"):
+        bits.append(f"PIT {pit['reason']}")
+    hd = stall.get("harness_days")
+    if hd is not None and hd >= 7:
+        bits.append(f"판별력 검사 {hd}일 경과")
+    elif hd is None:
+        bits.append("판별력 검사 이력 없음")
+    if not bits:
+        return None
+    return "🔧 " + " / ".join(bits)
+
+
 def build_morning(
     *,
     signals: list[Any],
@@ -115,6 +158,7 @@ def build_morning(
     exposure_reasons: list[str] | None = None,
     event_queue: dict | None = None,
     crowding: dict | None = None,
+    stall: dict | None = None,
 ) -> str:
     """아침 브리핑 본문. signals는 SignalResult 리스트(국내), threshold는 국면 반영 유효 문턱.
 
@@ -138,6 +182,11 @@ def build_morning(
     ) if near_ref is not None else []
 
     lines = [f"☀️ {_date_line(d)} 아침 브리핑", ""]
+    # 정지 탐지는 **맨 위**. 데이터가 멈춘 채로 아래 숫자를 읽으면 낡은 값을 오늘 값으로 믿는다.
+    sl = stall_line(stall)
+    if sl:
+        lines.append(sl)
+        lines.append("")
     zone = f"시장 ZONE {regime_label}" if regime_label else "시장 ZONE 판정 없음"
     head = (_selection_line(selection, exposure, exposure_reasons) if ranked
             else _threshold_line(threshold, base_threshold, bump_reasons))

@@ -4905,6 +4905,14 @@ function renderDataHealth(d){
   if (!box) return;
   try {
     let html = '';
+    // 정지 배너 — **맨 위**. 브리핑 첫 줄과 같은 문장(서버가 만든 것을 그대로 쓴다).
+    // 문구를 프런트에서 다시 조립하면 알림과 화면이 갈라지고 그 차이는 어디에도 안 나타난다.
+    if (d.stall_line) {
+      html += `<div style="border:1px solid var(--sell);border-radius:8px;padding:9px 11px;margin:0 0 12px;font-size:13px">`
+        + `<b style="color:var(--sell)">수집 정지 감지</b>`
+        + `<div style="margin-top:4px;color:var(--dim)">${esc(String(d.stall_line).replace(/^🔧\s*/, ''))}</div>`
+        + `<div style="margin-top:4px;color:var(--dim-2);font-size:12px">아침 브리핑 첫 줄에도 같은 내용이 갑니다.</div></div>`;
+    }
     // 데이터 신선도(항상) — 소스별 최종 갱신·경과·건수·상태
     if (d.freshness && d.freshness.length) {
       const fmtAge = h => h == null ? '–' : (h >= 24 ? (h / 24).toFixed(1) + '일' : h.toFixed(1) + '시간') + ' 전';
