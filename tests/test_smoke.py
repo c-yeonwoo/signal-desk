@@ -171,6 +171,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "데이터부족" in html and "재정규화" in html
     # IC는 숫자 하나로 내보내지 않는다(X1) — 요건 미달은 막대 대신 이유를 쓴다.
     assert "factor_ic_stats" in html and "판정 보류" in html
+    # 2026-08-06(X3): 게이트 투명화 — 합계가 아니라 게이트별·창 자리 기준으로 쓴다.
+    assert "window_causes" in html and "완화 발동" in html
     assert "횡단면" in html and "Newey-West" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
     assert "Strong Buy" in html and "kindHint" in html  # 순위 의미를 드러내는 라벨·힌트

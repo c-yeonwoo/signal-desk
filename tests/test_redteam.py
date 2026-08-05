@@ -1258,3 +1258,132 @@ def test_preregistered_config_covers_every_engine_field():
     missing = [f for f in signalcfg.FIELDS if f not in base]
     assert not missing, f"사전등록에 없는 엔진 필드: {missing}"
     assert signalcfg.MODE_FIELD in base
+
+
+# ── X3: 게이트 투명화 ──────────────────────────────────────────────────────────
+# 실측(2026-08-06): 게이트 3개가 정책이 둘로 갈라져 있었다. `_apply_crash_gate` 는 HOLD여도
+# `gated=True` 를 세우는데(그 docstring이 이유를 설명한다) `_apply_trend_gate`·
+# `_apply_earnings_gate` 는 `kind not in BUY_KINDS` 면 early-return 했다. 그래서
+# `rank_min_score < buy_threshold` 인 구간의 점수는 게이트가 안 걸린 채 분위 승격으로
+# **STRONG_BUY가 됐다** — 재현: 하락추세 확인 종목이 점수 +0.80에 매수권을 받았고 근거에
+# 추세 언급조차 없었다. 그리고 `gate_blocked` 는 BUY 강등만 세어 **17종목**이라 했는데
+# 실제 추세 차단은 **67종목**이었고, 완화는 7종목 발동했는데 화면상 0건이었다.
+
+def test_every_buy_gate_marks_gated_regardless_of_kind():
+    """게이트가 kind에 따라 다르게 동작하면 분위 승격이 그 게이트를 우회한다."""
+    from signal_desk.signals import engine as eng
+
+    # rank_min_score를 buy_threshold보다 낮춰 '그 사이 점수'를 만든다(둘 다 관리자 편집 가능).
+    cfg = eng.SignalConfig(weight_technical=0.35, weight_reversion=0.0, buy_threshold=1.2,
+                           rank_min_score=0.1, min_data_coverage=0.0)
+    closes = [100 - i * 0.4 for i in range(80)]          # 확인된 하락추세
+    series = eng.compute_indicator_series(closes, cfg)
+    assert eng._downtrend_confirmed(closes, series, len(closes) - 1, cfg), "픽스처가 하락추세가 아니다"
+    r = eng.evaluate([{"ticker": "A", "name": "A"}], {"A": closes}, config=cfg)[0]
+    assert 0.1 <= r.score < 1.2, f"픽스처 점수가 문턱 사이가 아니다: {r.score}"
+    assert r.gates == ["trend"], r.gates
+    assert r.gate_blocked is True
+    assert r.rank_eligible is False, "하락추세 종목이 분위 승격으로 매수권을 받았다"
+    assert not eng.is_buy(r.kind)
+
+
+def test_gate_blocks_are_counted_per_gate_and_in_window():
+    """게이트별로, 그리고 **창 안 자리 기준**으로 센다. 합계 하나는 매수 0을 설명하지 못한다."""
+    from signal_desk.signals import engine as eng
+
+    cfg = eng.SignalConfig(weight_technical=0.35, weight_reversion=0.0, min_data_coverage=0.0,
+                           rank_top_pct=50.0)
+    down = [100 - i * 0.4 for i in range(80)]
+    up = [100 * 1.004 ** i for i in range(80)]
+    res = eng.evaluate([{"ticker": "D", "name": "D"}, {"ticker": "U", "name": "U"}],
+                       {"D": down, "U": up}, config=cfg)
+    g = eng.selection_summary(res, cfg)["gates"]
+    assert g["blocked"].get("trend") == 1, g
+    assert set(g["labels"]) >= {"trend", "earnings", "crash", "event", "coverage"}
+    assert "window_slots" in g and isinstance(g["window_causes"], list)
+    # 창 안 원인은 라벨과 자리 수를 같이 낸다 — 키만 내면 화면이 다시 매핑을 만든다.
+    for c in g["window_causes"]:
+        assert set(c) == {"gate", "label", "slots"} and c["slots"] > 0
+
+
+def test_gate_relaxation_is_recorded_even_when_not_a_buy():
+    """완화를 BUY일 때만 기록하면 '있는지 모르는 완화'가 된다(실측 7종목이 화면상 0건이었다)."""
+    from signal_desk.signals import engine as eng
+
+    cfg = eng.SignalConfig(weight_technical=0.0, weight_reversion=0.0, min_data_coverage=0.0)
+    # 하락추세지만 시장(-20%)보다 덜 빠진 종목 → 완화 대상. 점수는 BUY가 아니다.
+    mild = [100 - i * 0.3 for i in range(80)]
+    crash = [100 * 0.985 ** i for i in range(80)]
+    res = eng.evaluate([{"ticker": "M", "name": "M"}, {"ticker": "C", "name": "C"}],
+                       {"M": mild, "C": crash}, config=cfg)
+    m = next(r for r in res if r.ticker == "M")
+    assert not eng.is_buy(m.kind), "픽스처가 BUY면 옛 경로로도 기록돼 검사가 무의미하다"
+    assert "trend" in m.gates_relaxed, (m.gates, m.gates_relaxed, m.reasons)
+    assert "trend" not in m.gates
+    assert eng.selection_summary(res, cfg)["gates"]["relaxed"].get("trend") == 1
+
+
+def test_hold_tag_reads_gate_structure_not_reason_strings():
+    """화면 태그가 근거 문구 파싱이면 문구를 고칠 때 태그가 조용히 사라진다."""
+    from signal_desk import api as api_mod
+    from signal_desk.signals import engine as eng
+
+    r = eng.SignalResult(ticker="A", name="A", score=0.5, kind="HOLD", confidence=0.5,
+                         technical_score=0.0, fundamental_score=0.0, has_fundamental=False,
+                         gates=["trend"], reasons=[])       # 근거 문구 없음 — 구조만 있다
+    assert api_mod._hold_tag(r, buy_blocked=False) == eng.GATE_LABELS["trend"]
+    r2 = eng.SignalResult(ticker="B", name="B", score=0.5, kind="HOLD", confidence=0.5,
+                          technical_score=0.0, fundamental_score=0.0, has_fundamental=False,
+                          low_coverage=True, reasons=[])
+    assert api_mod._hold_tag(r2, buy_blocked=False) == eng.GATE_LABELS["coverage"]
+    # 태그 우선순위에 쓰는 키가 전부 GATE_LABELS에 있어야 한다(오타면 KeyError로 즉시 터진다).
+    assert set(api_mod._GATE_TAG_ORDER) <= set(eng.GATE_LABELS)
+
+
+def test_harness_reports_gate_block_counts():
+    """하네스도 게이트가 몇 번 막았는지 낸다 — 0이면 게이트 없는 전략을 잰 것이다."""
+    from signal_desk.signals import harness as h
+
+    dates = _dates(400)
+    closes = {f"T{i}": (dates, [100.0 * (1.0 - 0.004) ** k if i < 6
+                                else 100.0 * 1.004 ** k for k in range(400)])
+              for i in range(12)}
+    panel = h.build_panel(closes)
+    scores = {t: [2.0] * len(dates) for t in closes}
+    cfg = h.HarnessConfig(random_trials=10, min_periods=1, phase_average=False,
+                          signal_config=h.SignalConfig(min_data_coverage=0.0))
+    out = h.run(panel, cfg, scores=scores, score_source="pit", coverage={}, fired={})
+    assert out["ready"], out
+    assert "gate_blocks" in out and "trend" in out["gate_blocks"]
+    assert out["gate_blocks"]["trend"] > 0, out["gate_blocks"]
+
+
+def test_harness_leaves_gated_slots_empty_like_live():
+    """게이트로 막힌 자리를 **k 밖 다음 순위로 채우면** 게이트가 보유 수를 줄이지 못한다.
+
+    실측(2026-08-06): 하네스 픽 루프가 `ranked` 전체를 돌며 `len(picks) >= k` 에서 끊어,
+    추세 게이트가 1076회 걸렸는데도 켜고 끈 결과의 백분위·매수0기간·평균보유수가 **완전히
+    같았다**(90.0 · 529 · 3.1). 같은 날 라이브는 매수권 0/6자리였다. 하네스의 게이트는
+    사실상 재정렬이었고, 게이트 없는 전략을 재고 있었다 — 같은 병의 네 번째 재발이다.
+    """
+    from signal_desk.signals import harness as h
+
+    dates = _dates(400)
+    # 상위 2종목은 하락추세(게이트 대상), 나머지는 상승추세. 점수는 하락추세 쪽이 더 높게 준다.
+    closes = {}
+    for i in range(20):
+        down = i < 2
+        closes[f"T{i}"] = (dates, [(100.0 * (1.0 - 0.004) ** k) if down
+                                   else (100.0 * 1.003 ** k) for k in range(400)])
+    panel = h.build_panel(closes)
+    scores = {t: [(3.0 if t in ("T0", "T1") else 2.0)] * len(dates) for t in closes}
+    cfg = h.HarnessConfig(top_pct=10.0, random_trials=10, min_periods=1, phase_average=False,
+                          signal_config=h.SignalConfig(min_data_coverage=0.0))
+    out = h.run(panel, cfg, scores=scores, score_source="pit", coverage={}, fired={})
+    assert out["ready"], out
+    k = h.engine.rank_slots(20, 10.0)                      # 20종목 · 10% → 2자리
+    assert k == 2
+    assert out["gate_blocks"]["trend"] > 0, "게이트가 안 걸리면 검사가 무의미하다"
+    # 상위 2자리가 전부 게이트면 매수는 0이어야 한다 — 3~4위로 채우면 이 값이 2가 된다.
+    assert out["strategy"]["avg_picks"] == 0.0, out["strategy"]["avg_picks"]
+    assert out["empty_periods"] == out["periods"], (out["empty_periods"], out["periods"])

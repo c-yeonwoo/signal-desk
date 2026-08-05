@@ -154,6 +154,11 @@ class SignalResult:
     data_coverage: float | None = None
     missing_factors: list[str] = field(default_factory=list)  # 데이터 없어 빠진 팩터(이름)
     low_coverage: bool = False      # 데이터 커버리지 미달로 매수권 제외
+    # ── 게이트 투명화 (X3) ──
+    # `gate_blocked` 불리언 하나로는 무엇이 막았는지 알 수 없었다. 화면이 근거 문구를
+    # 문자열 파싱(`[추세]` 접두어)해서 뒤집어 맞추고 있었고, 그 매핑이 어디에도 검사되지 않았다.
+    gates: list[str] = field(default_factory=list)          # 발동한 게이트 키(GATE_LABELS)
+    gates_relaxed: list[str] = field(default_factory=list)  # 조건은 걸렸으나 완화된 게이트
     reasons: list[str] = field(default_factory=list)
     narrative: str = ""
     factor_scores: dict[str, float] = field(default_factory=dict)  # 팩터별 방향·강도 [-1,1] — 시각화용
@@ -318,24 +323,50 @@ def _downtrend_blocking(
     return not (own is not None and own > market_ret_20d)
 
 
+# 매수 게이트 — 키와 표시명. `gate_blocked` 불리언 하나로는 무엇이 막았는지 알 수 없어서
+# 화면이 근거 문구를 문자열 파싱하고 있었다(`[추세]`·`[급락]` 접두어). 구조로 남긴다.
+GATE_LABELS = {
+    "trend": "추세", "earnings": "실적", "crash": "급락", "event": "악재",
+    "coverage": "데이터부족",
+}
+
+
+def _mark_gate(combined: dict, key: str, reason: str) -> None:
+    """게이트 발동을 **구조로** 기록한다. 문구는 사람용, `gates`는 집계용."""
+    combined["gated"] = True
+    combined["gates"] = [*(combined.get("gates") or []), key]
+    combined["reasons"] = [*combined["reasons"], reason]
+
+
 def _apply_trend_gate(
     combined: dict, closes: list[float], series: dict, i: int, config: SignalConfig,
     market_ret_20d: float | None = None,
 ) -> dict:
     """확인된 하락추세에서 종합 매수신호를 관망으로 강등(떨어지는 칼 차단). 낙폭과대 기여는
     컴포넌트 단계(_price_only_components/evaluate)에서 이미 무효화됨.
-    시장 대비 상대강도 우위면 게이트를 적용하지 않는다(_downtrend_blocking)."""
-    if combined["kind"] not in BUY_KINDS:
-        return combined
+    시장 대비 상대강도 우위면 게이트를 적용하지 않는다(_downtrend_blocking).
+
+    **kind가 BUY가 아니어도 `gated`를 세운다.** 예전엔 여기서 early-return 해서, `rank_min_score`
+    가 `buy_threshold` 보다 낮으면 그 사이 점수(classify → HOLD)가 `gate_blocked=False` 로 남고
+    `apply_cross_sectional` 이 그걸 **STRONG_BUY로 승격**했다 — 실측 재현: 하락추세 확인 종목이
+    점수 +0.80에 매수권을 받았고 근거 문구에 추세 언급조차 없었다. `_apply_crash_gate` 는 이미
+    이 위험을 알고 HOLD여도 gated를 세우고 있었다(그 docstring 참고) — 게이트 3개가 정책이
+    둘로 갈라져 있었다. 이제 셋 다 같은 규약이다.
+    """
     if _downtrend_blocking(closes, series, i, config, market_ret_20d):
-        combined["kind"] = HOLD
-        combined["gated"] = True
-        combined["reasons"] = [*combined["reasons"],
-                               "[추세] 하락추세 확인(종가<MA20<MA60) — 반등 전 매수 차단(관망)"]
+        if combined["kind"] in BUY_KINDS:
+            combined["kind"] = HOLD
+        _mark_gate(combined, "trend",
+                   "[추세] 하락추세 확인(종가<MA20<MA60) — 반등 전 매수 차단(관망)")
     elif _downtrend_confirmed(closes, series, i, config):
+        # 완화도 기록한다. 예전엔 BUY일 때만 남겨서, 실측 74종목 중 7종목이 완화됐는데
+        # 화면상 완화 발동은 0건이었다 — "있는지 모르는 완화"는 없는 것과 같다.
+        combined["gate_relaxed"] = [*(combined.get("gate_relaxed") or []), "trend"]
         combined["reasons"] = [
             *combined["reasons"],
-            f"[추세] 하락추세지만 시장(20일 {market_ret_20d:+.1f}%) 대비 상대강도 우위 — 게이트 완화",
+            f"[추세] 하락추세지만 시장(20일 {market_ret_20d:+.1f}%) 대비 상대강도 우위 — 게이트 완화"
+            if market_ret_20d is not None else
+            "[추세] 하락추세지만 게이트 완화 조건 충족",
         ]
     return combined
 
@@ -359,11 +390,11 @@ def _apply_earnings_gate(
     window = config.earnings_gate_days
     if window <= 0 or days_until is None or not (0 <= days_until <= window):
         return False
+    # 추세 게이트와 같은 이유로 kind와 무관하게 gated를 세운다 — 분위 승격이 우회하지 못하게.
     if combined["kind"] in BUY_KINDS:
         combined["kind"] = HOLD
-        combined["gated"] = True
-        combined["reasons"] = [*combined["reasons"],
-                               f"[실적] {days_until}일 뒤 실적발표 예정 — 발표 전 신규 매수 보류(관망)"]
+    _mark_gate(combined, "earnings",
+               f"[실적] {days_until}일 뒤 실적발표 예정 — 발표 전 신규 매수 보류(관망)")
     return True
 
 
@@ -400,8 +431,7 @@ def _apply_crash_gate(
         return False
     if combined["kind"] in BUY_KINDS:
         combined["kind"] = HOLD
-    combined["gated"] = True
-    combined["reasons"] = [*combined["reasons"], reason]
+    _mark_gate(combined, "crash", reason)
     return True
 
 
@@ -442,14 +472,10 @@ def _apply_event_veto(combined: dict, dec: Decision) -> bool:
         return False
     if combined["kind"] in BUY_KINDS:
         combined["kind"] = HOLD
-    combined["gated"] = True
     note = (dec.summary or "").strip()
     sev = (dec.severity or "").strip()
     head = note[:120] if note else (sev or "결정 이벤트")
-    combined["reasons"] = [
-        *combined["reasons"],
-        f"[악재] {head} — 신규 매수 보류(관망)",
-    ]
+    _mark_gate(combined, "event", f"[악재] {head} — 신규 매수 보류(관망)")
     return True
 
 
@@ -642,6 +668,41 @@ def selection_summary(results: list[SignalResult],
         # 커버리지 게이트(X2) — 문턱은 점수 분포처럼 **커버리지 분포와 함께** 봐야 한다.
         # 새 절대 문턱을 만들 때 그 값이 분포의 어디인지 화면에 안 내면 다음 사람이 다시 튜닝한다.
         "coverage": _coverage_summary(results, config),
+        # 게이트 투명화(X3) — `gate_blocked 17` 하나로는 무엇이 매수 0을 만들었는지 모른다.
+        # 실측: 추세 17 · 급락 1이고 **상위 6자리 중 5자리가 추세**였다.
+        "gates": _gate_summary(results, config),
+    }
+
+
+def _gate_summary(results: list[SignalResult], config: SignalConfig) -> dict:
+    """게이트별 차단 수 — 전체 · 상위 k자리 · 완화 발동. 이름과 함께 낸다.
+
+    **창 안 차단 수가 핵심이다.** 전체 17종목이 막혔어도 상위 6자리를 안 건드리면 매수 0의
+    원인이 아니다. 실측은 반대였다 — 추세 게이트가 상위 6자리 중 5자리를 먹었다.
+    """
+    k = rank_slots(len(results), config.rank_top_pct)
+    window = results[:k]                       # 점수 내림차순 가정
+    keys = list(GATE_LABELS)
+    counted = {"coverage": sum(1 for r in results if r.low_coverage)}
+    win = {"coverage": sum(1 for r in window if r.low_coverage)}
+    relaxed: dict[str, int] = {}
+    for key in keys:
+        if key == "coverage":
+            continue
+        counted[key] = sum(1 for r in results if key in (r.gates or ()))
+        win[key] = sum(1 for r in window if key in (r.gates or ()))
+        relaxed[key] = sum(1 for r in results if key in (r.gates_relaxed or ()))
+    # 창 자리를 실제로 앗아간 게이트만 골라 정렬 — 매수 0의 원인 순서다.
+    top_causes = sorted(((k2, v) for k2, v in win.items() if v), key=lambda kv: -kv[1])
+    return {
+        "labels": dict(GATE_LABELS),
+        "blocked": {k2: v for k2, v in counted.items() if v},
+        "blocked_in_window": {k2: v for k2, v in win.items() if v},
+        "relaxed": {k2: v for k2, v in relaxed.items() if v},
+        "window_slots": k,
+        # 창 안에서 어떤 게이트도 안 걸렸는데 매수 0이면 원인은 게이트가 아니다(점수·창).
+        "window_causes": [{"gate": k2, "label": GATE_LABELS.get(k2, k2), "slots": v}
+                          for k2, v in top_causes],
     }
 
 
@@ -838,6 +899,8 @@ def evaluate(
             decision=dec,
             earnings_date=edate, earnings_soon=earnings_soon,
             gate_blocked=bool(combined.get("gated")),
+            gates=list(combined.get("gates") or []),
+            gates_relaxed=list(combined.get("gate_relaxed") or []),
             weight_sum_ratio=combined.get("weight_sum_ratio"),
             data_coverage=cov["ratio"],
             missing_factors=cov["missing"],

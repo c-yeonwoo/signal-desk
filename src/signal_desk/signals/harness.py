@@ -407,7 +407,7 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
     per_period_ret: list[float] = []
     universe_by_date: dict[int, list[str]] = {}
     empty_periods = 0
-    cov_blocked = 0
+    cov_blocked = trend_blocked = 0
     min_cov = float(getattr(scfg, "min_data_coverage", 0.0) or 0.0)
 
     for i in idxs:
@@ -423,12 +423,17 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
         tie_rng.shuffle(shuffled)
         ranked = sorted(shuffled, key=lambda t: scores[t][i], reverse=True)
         picks: list[str] = []
-        for t in ranked:
-            if len(picks) >= k:
-                break
+        # **후보는 상위 k자리뿐이다.** 예전엔 `ranked` 전체를 돌며 `len(picks) >= k` 에서 끊어,
+        # 게이트로 막힌 자리를 **k 밖 다음 순위로 채웠다**. 라이브 `apply_cross_sectional` 은
+        # 그 자리를 공석으로 둔다("k 밖 약한 종목으로 채우지 않는다"). 그래서 하네스의 게이트는
+        # 사실상 재정렬이었고 보유 수를 줄이지 못했다 — 실측: 추세 게이트가 1076회 걸렸는데
+        # 켜고 끈 결과의 백분위·매수0기간·평균보유수가 **완전히 같았다**(90.0 · 529 · 3.1).
+        # 같은 날 라이브는 매수권 0/6자리였다. 게이트 없는 전략을 재고 있었던 것이다.
+        for t in ranked[:k]:
             if scores[t][i] < cfg.min_score:
                 continue
             if _gated(panel, t, i, scfg, market_ret, series_cache):
+                trend_blocked += 1
                 continue
             # 라이브 `apply_cross_sectional`과 같은 커버리지 게이트(X2). 커버리지를 모르면
             # 막지 않는다 — 전 종목 차단은 신중함이 아니라 0으로 나누기다.
@@ -464,6 +469,8 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
             # 커버리지 게이트가 실제로 몇 번 후보를 걸렀나. 0이면 완화가 아무 것도 안 막은 것 —
             # "있는 것처럼 보이지만 효과 없는 게이트"를 여기서 드러낸다.
             "coverage_blocked": cov_blocked, "min_data_coverage": min_cov,
+            # 게이트가 실제로 몇 번 후보를 걸렀나(X3). 0이면 하네스는 게이트 없는 전략을 잰 것이다.
+            "trend_blocked": trend_blocked,
             "win_rate_pct": round(sum(1 for r in per_period_ret if r > 0)
                                   / len(per_period_ret) * 100, 1) if per_period_ret else 0.0,
             "avg_picks": round(sum(p["picks"] for p in picks_log) / len(picks_log), 1)
@@ -645,6 +652,10 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         # 안 걸린 것이고, 그건 라이브와 다른 전략을 잰 결과다.
         "data_coverage_gate": {"min_required": min_cov, "blocked": cov_blocked,
                                "panel_given": bool(covers)},
+        # 게이트별 차단 횟수(X3) — 합계 하나면 무엇이 매수 0을 만들었는지 알 수 없다.
+        # 실측 라이브에서 추세 게이트가 상위 6자리 중 5자리를 먹었다.
+        "gate_blocks": {"trend": sum(r.get("trend_blocked", 0) for r in runs),
+                        "coverage": cov_blocked},
         "warnings": warnings,
         "note": ("절대 수익률은 생존편향(유니버스=오늘 기준 상위 200)으로 부풀려져 있다. "
                  "판단은 vs_random.percentile로 — 무작위 대조군도 같은 편향을 받는다."),
