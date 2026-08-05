@@ -860,3 +860,74 @@ def test_morning_brief_puts_the_stall_line_first():
     body = [ln for ln in text.split("\n") if ln.strip()]
     assert body[0].startswith("☀️")
     assert body[1].startswith("🔧"), f"정지 줄이 첫 본문이 아니다: {body[:3]}"
+
+
+# --------------------------------------------------- 무기준선 비율 0건 (N4)
+
+def test_mixed_horizon_outcomes_are_excluded_from_the_win_rate(tmp_path, monkeypatch):
+    """지평이 섞인 비율에는 **비교 가능한 base rate 를 붙일 수 없다** → 리프트에서 뺀다.
+
+    2026-08-05 진단: 옛 채점이 `closes[-1]`(오늘 종가)을 써서 보유 기간이 판단마다 달랐다
+    (실측 3.0~6.1 달력일). 그 상태로 `baseline_buy_pct`(익일 종가·정확히 5거래일)와 비교해
+    "리프트 +0.4%p"라는 **없는 숫자**를 만들었다. 몇 건을 뺐는지도 함께 드러낸다.
+    """
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+
+    old = db.bot_decision_log("005930", "삼성전자", "buy", 1.5, "규칙", {}, 70000.0)
+    new = db.bot_decision_log("000660", "SK하이닉스", "buy", 1.4, "규칙", {}, 200000.0)
+    # 옛 방식: 지평 없이 기록(직접 UPDATE 로 재현)
+    c = db.conn()
+    c.execute("UPDATE bot_decisions SET outcome_pct=?, horizon_days=NULL WHERE id=?", (10.0, old))
+    c.commit(); c.close()
+    db.bot_decision_set_outcome(new, -5.0, horizon_days=3,
+                                entry_date="2026-08-04", exit_date="2026-08-07")
+
+    card = db.bot_decision_scorecard()
+    assert card["resolved"] == 1, "지평 혼재 행이 승률에 섞였다"
+    assert card["mixed_horizon_n"] == 1, "몇 건을 뺐는지 안 보인다"
+    assert card["horizon_days"] == [3]
+    assert card["entry_dates"] == ["2026-08-04"]
+
+
+def test_baseline_uses_the_same_convention_as_the_win_rate(tmp_path, monkeypatch):
+    """기준선은 **같은 진입일·같은 지평·같은 진입/청산 관례**여야 한다.
+
+    관례가 하나라도 다르면 리프트가 거짓이다. 여기서는 종가→종가 h거래일로 통일했다.
+    """
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import store
+    dates = ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07"]
+    monkeypatch.setattr(store, "load_all_dated_closes", lambda: {
+        "UP": (dates, [100.0, 100.0, 101.0, 102.0, 110.0]),     # 08-04 진입 → 08-07 +10%
+        "DOWN": (dates, [100.0, 100.0, 99.0, 98.0, 90.0]),      # -10%
+    })
+    b = store.decision_baseline(["2026-08-04"], 3)
+    assert b["sample"] == 2 and b["up_pct"] == 50.0, b
+    assert b["avg_ret_pct"] == 0.0
+    # 청산일이 아직 없으면 표본에 넣지 않는다(오늘 종가로 대신하지 않는다).
+    assert store.decision_baseline(["2026-08-06"], 3)["sample"] == 0
+
+
+def test_win_rate_never_ships_without_a_baseline_in_the_frontend():
+    """화면의 승률은 `liftNote`/`liftText` 를 **반드시** 지난다.
+
+    `liftNote/liftColor/liftText` 는 잘 만들어져 있었는데 승률 렌더 한 곳만 우회했다.
+    데이터가 마르면 가드 없는 경로만 살아남는다 — 그래서 문자열 수준으로 검사한다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    for ln in html.split("\n"):
+        if "승률 " in ln and "fmtNum(" in ln and "win_rate" in ln:
+            assert ("liftNote" in ln or "liftText" in ln or "liftColor" in ln
+                    or "mixed_horizon_n" in ln), f"기준선 없이 승률을 렌더한다: {ln.strip()[:120]}"
+
+
+def test_zero_buy_line_states_the_actual_cause():
+    """`매수 0`의 이유는 **점검 결과**여야 한다 — "고장 아님"을 무조건 쓰면 조사를 막는다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "고장 아님</span>" not in html, "매수 0에 하드코딩된 변호가 남아 있다"
+    assert "고장 아닙니다" not in html, "온보딩이 매수 0을 무조건 정상이라 가르친다"
+    assert "zeroWhy" in html and "게이트 차단" in html and "창" in html

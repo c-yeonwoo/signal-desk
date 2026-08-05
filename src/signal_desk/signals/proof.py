@@ -112,7 +112,10 @@ def build(
             "market": hz.get("market"),
             "blocked_reason": None if hz.get("ready") else reason,
         }
-    b_paper = paper_scorecard or {"resolved": 0, "pending": 0, "win_rate": None}
+    # base rate 없는 비율은 내보내지 않는다 — 소비자가 좋은지 나쁜지 알 수 없다.
+    b_paper = paper_scorecard or {"resolved": 0, "pending": 0, "win_rate": None,
+                                  "baseline": {"up_pct": None}, "lift_pp": None, "ci_pp": None,
+                                  "informative": False}
     c_note = (
         "Decision/KB veto는 점수 가산이 아니다. 이 층은 이벤트 청산·매수 차단 PR의 성적이다. "
         "A/B만으로 veto를 롤백하지 말 것."
@@ -188,7 +191,7 @@ def collect() -> dict:
         lambda: {**kb_coverage.shadow(closes), "coverage": kb_coverage.coverage_now()})
     parts["harness"] = _safe("harness_last", store.load_harness_last)
     parts["harness_board"] = _safe("harness_board", lambda: store.harness_board("kr"))
-    parts["paper"] = _safe("paper", db.bot_decision_scorecard)
+    parts["paper"] = _safe("paper", store.decision_scorecard_with_baseline)
     parts["drift"] = _safe("drift", store.signal_drift)
 
     def _qual():

@@ -1662,7 +1662,7 @@
         <div class="ob-g-row"><span class="trust-badge sim">시뮬</span><span>과거 가격으로 돌린 백테스트입니다. 참고용이며 실측이 아닙니다.</span></div>
         <div class="ob-g-row"><span class="trust-badge bot">트레이딩</span><span>서비스가 운영하는 가상 계좌 3개(안정·균형·공격)의 체결입니다. 리셋하지 않고 계속 쌓습니다.</span></div>
       </div>
-      <p class="ob-hint">시그널은 <b>정밀도 우선</b>이라 매수권이 드뭅니다. 고장 아닙니다. 목록의 ★로 관심종목을 넣으면 시그널이 바뀔 때 알려드려요.</p>
+      <p class="ob-hint">시그널은 <b>정밀도 우선</b>이라 매수권이 드뭅니다. 매수 0인 날은 화면이 <b>그 이유</b>(게이트 차단·창 밖·수집 상태)를 함께 보여줍니다 — 정상인지 고장인지 거기서 가릅니다. 목록의 ★로 관심종목을 넣으면 시그널이 바뀔 때 알려드려요.</p>
       <div class="ob-foot">
         <button type="button" class="btn" onclick="obBackFavs()">뒤로</button>
         <button type="button" class="btn" id="ob-finish-paper" style="margin-left:auto" onclick="obFinish('paper')">트레이딩 보기</button>
@@ -2469,7 +2469,10 @@ async function loadScorecard(){
     }
     let tail = '';
     if (bot.resolved) {
-      const wr = matureOk && bot.win_rate != null ? ` · 승률 ${fmtNum(bot.win_rate, 1)}%` : '';
+      // 신뢰 스트립도 기준선 없이는 승률을 쓰지 않는다(리프트가 있으면 함께 적는다).
+      const wr = (matureOk && bot.win_rate != null && (bot.baseline || {}).up_pct != null)
+        ? ` · 승률 ${fmtNum(bot.win_rate, 1)}%${liftText(bot.lift_pp, bot.ci_pp)}`
+        : (bot.mixed_horizon_n ? ` · 승률 집계 대기(지평 혼재 ${bot.mixed_horizon_n}건 제외)` : '');
       tail = `<span class="trust-tail"><span class="trust-badge bot">트레이딩</span>`
         + `<span style="color:var(--dim)">체결 ${bot.resolved}건${wr}</span>`
         + `<button type="button" class="linkish" onclick="switchTab('trading')">트레이딩</button></span>`;
@@ -3193,8 +3196,22 @@ function renderTodayCard(){
   const slots = sel.rank_slots ?? (rep.selection && rep.selection.rank_slots);
   const eligible = sel.eligible ?? (rep.selection && rep.selection.eligible) ?? buyN;
 
+  // 매수 0의 이유를 **점검 결과로** 쓴다. 2026-08-05 이전에는 "정밀도 우선"이라는 변호가
+  // 무조건 렌더됐다 — 원인이 rank창인지 게이트인지 커버리지인지 수집 정지인지 가리지 않고
+  // 전부 정상이라고 말했다. 변호가 고장 조사를 막는다.
+  const zeroWhy = (() => {
+    if (buyN !== 0) return '';
+    const bits = [];
+    const blocked = sel.gate_blocked ?? (rep.selection && rep.selection.gate_blocked);
+    const over = sel.over_threshold ?? (rep.selection && rep.selection.over_threshold);
+    if (_dhCache && _dhCache.stall_line) bits.push('수집 정지 감지 — 데이터 상태를 먼저 확인하세요');
+    if (blocked) bits.push(`게이트 차단 ${blocked}종목`);
+    if (over != null && slots != null && over > slots) bits.push(`문턱 통과 ${over} > 창 ${slots}자리`);
+    if (!bits.length) bits.push('문턱을 넘은 종목이 없음');
+    return ' <span class="st-c">· ' + bits.join(' · ') + '</span>';
+  })();
   let line = buyN === 0
-    ? `<span class="st-n">매수 0</span> <span class="st-c">· 정밀도 우선 · 고장 아님</span>`
+    ? `<span class="st-n">매수 0</span>` + zeroWhy
     : `<span class="st-n">매수 ${buyN}</span>`
       + (nearN ? ` <span class="st-c">근접 ${nearN}</span>` : '')
       + (sellN ? ` <span class="st-c">매도 ${sellN}</span>` : '');
@@ -6193,8 +6210,24 @@ async function loadProofOs(){
         </div>
         <div style="padding:10px 12px;border:1px solid var(--line);border-radius:10px">
           <div style="font-weight:700;font-size:13px;margin-bottom:6px">B · 페이퍼(종속)</div>
-          <div style="font-size:13px">승률 ${B.paper_scorecard && B.paper_scorecard.win_rate != null ? fmtNum(B.paper_scorecard.win_rate, 1) + '%' : '–'}
-            <span style="color:var(--dim)"> · 확정 ${B.paper_scorecard ? (B.paper_scorecard.resolved || 0) : 0}</span></div>
+          ${(() => {
+            const p = B.paper_scorecard || {};
+            const base = (p.baseline || {}).up_pct;
+            // base rate 없는 비율은 내보내지 않는다 — liftNote/liftColor 를 반드시 지난다.
+            const c = liftColor(p.lift_pp, 3.0);
+            const wr = p.win_rate == null ? '–' : fmtNum(p.win_rate, 1) + '%';
+            let html = `<div style="font-size:13px">승률 <b style="color:${c}">${wr}</b>`
+              + `<span style="color:var(--dim)"> · 확정 ${p.resolved || 0}</span></div>`;
+            if (p.win_rate != null && base != null) {
+              html += `<div style="font-size:12px;color:var(--dim);margin-top:2px">`
+                + liftNote(p.lift_pp, base, p.ci_pp) + `</div>`;
+            } else if (p.mixed_horizon_n) {
+              html += `<div style="font-size:12px;color:var(--dim);margin-top:2px">`
+                + `기준선 없음 — ${p.mixed_horizon_n}건은 채점 지평이 섞여 리프트에서 제외했습니다`
+                + `<div style="color:var(--dim-2)">${esc(p.horizon_note || '')}</div></div>`;
+            }
+            return html;
+          })()}
           <div style="font-size:12px;color:var(--dim);margin-top:6px">${esc(B.note || '')}</div>
         </div>
         <div style="padding:10px 12px;border:1px solid var(--line);border-radius:10px">

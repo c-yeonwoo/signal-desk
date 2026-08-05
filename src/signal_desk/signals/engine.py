@@ -557,6 +557,10 @@ def selection_summary(results: list[SignalResult],
         "eligible": len(eligible),
         "cutoff_score": round(min((r.score for r in eligible), default=0.0), 2) if eligible else None,
         "gate_blocked": sum(1 for r in results if r.gate_blocked),
+        # 문턱은 넘었는데 창(rank_slots) 밖이라 못 산 종목을 세려면 이 수가 필요하다.
+        # 2026-08-05 진단: 매수 0의 원인이 게이트인지 창인지 화면이 구분하지 못했다(둘 다
+        # "정밀도 우선 · 고장 아님"으로 렌더). 실측은 문턱 통과 26 · 창 6자리 · 게이트 차단 11이었다.
+        "over_threshold": sum(1 for r in results if r.score >= config.rank_min_score),
         "distribution": {"max": pct(0), "p90": pct(10), "p99": pct(1), "median": pct(50)},
         "threshold_above_max": bool(n and config.selection_mode == "absolute"
                                     and scores[0] < config.buy_threshold),

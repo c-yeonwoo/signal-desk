@@ -1478,7 +1478,7 @@ def signal_scorecard_get():
     집계 + 최근 실현 판단 목록. 백테스트(가상 재현)와 달리 '실제 결정'의 사후검증."""
     resolved = [d for d in db.bot_decisions_recent(80)
                 if d.get("action") == "buy" and d.get("outcome_pct") is not None]
-    return {**db.bot_decision_scorecard(),
+    return {**store.decision_scorecard_with_baseline(),
             "recent": [{"ticker": d["ticker"], "name": d["name"], "score": d["score"],
                         "outcome_pct": d["outcome_pct"], "ts": d["ts"]} for d in resolved[:20]]}
 
