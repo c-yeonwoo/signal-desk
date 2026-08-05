@@ -228,3 +228,50 @@ def progress(look: dict, *, effective_periods: int, pit_dates: int) -> dict:
         "remaining_pit_dates": max(0, need_pit - pit),
         "met": eff >= need_eff and pit >= need_pit,
     }
+
+
+# ------------------------------------------------------- 파라미터 변경 게이트 (N2)
+
+def verdict_state(board: dict | None) -> tuple[bool, str]:
+    """정본(final) 판정이 파라미터 변경을 허용하는 상태인가. (proven, 사유).
+
+    `proven`은 **role=final 이 locked 이고 판정이 '판별력 있음'** 일 때만 True다.
+    interim 통과는 채택 근거가 아니다(등록 파일의 `if_pass`에 그렇게 적혀 있다).
+    """
+    if not board or not board.get("ready"):
+        return False, ((board or {}).get("reason") or "판별력 보드 없음")
+    final = next((lk for lk in (board.get("looks") or []) if lk.get("role") == "final"), None)
+    if final is None:
+        return False, "정본(final) look이 등록돼 있지 않다"
+    if final.get("status") != "locked":
+        return False, f"정본 판정 미확정 — {final.get('verdict')}: {final.get('verdict_why') or ''}".strip()
+    if final.get("verdict") != "판별력 있음":
+        return False, f"정본 판정이 '{final.get('verdict')}' — 변경 근거가 없다"
+    return True, ""
+
+
+def change_allowed(board: dict | None, *, automated: bool,
+                   override_reason: str = "") -> tuple[bool, str, bool]:
+    """가중치·문턱을 바꿔도 되는가. (allowed, 사유, unproven).
+
+    두 경로를 **다르게** 다룬다.
+
+    - **자동 제안(`automated=True`)은 하드 차단.** 판정 없이 LLM이 가중치를 제안하고 사람은
+      승인 버튼만 누르는 경로가 곧 곡선 맞추기다. 게이트가 열릴 때까지 큐를 비워 둔다 —
+      쌓인 큐는 화면 배지로 떠서 승인을 유도하는 압력이 된다.
+    - **수동은 사유를 받고 통과시킨다.** 순수하게 잠그면 진짜 바꿔야 할 때 `engine.py` 소스를
+      직접 편집하는 우회로가 생기고(H1이 그랬다) 그 변경은 이력에 남지 않는다. 통과시키되
+      `unproven=True`로 표시해 이력과 화면에 남긴다 — 미검증 변경을 **재무제표에 기록**한다.
+
+    `unproven`이 True면 호출자는 그 사실을 `signalcfg.append_history`에 함께 남겨야 한다.
+    """
+    proven, why = verdict_state(board)
+    if proven:
+        return True, "", False
+    if automated:
+        return False, (f"판정 전에는 자동 제안을 만들지 않습니다 — {why}. "
+                       f"측정되지 않은 것을 근거로 파라미터를 바꾸지 않습니다."), False
+    if not (override_reason or "").strip():
+        return False, (f"미검증 상태에서 값을 바꾸려면 사유가 필요합니다 — {why}. "
+                       f"`override_reason` 에 왜 지금 바꾸는지 적어 주세요(이력에 남습니다)."), True
+    return True, "", True

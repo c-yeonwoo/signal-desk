@@ -263,12 +263,29 @@ def _upsert_draft(draft: dict, baseline: dict, today: str) -> dict:
     return item
 
 
+def _verdict_gate(*, automated: bool) -> tuple[bool, str]:
+    """판별력 판정이 파라미터 변경을 허용하는지. 실패해도 예외를 던지지 않는다(이유를 화면에 낸다)."""
+    try:
+        from signal_desk import prereg, store
+        ok, why, _ = prereg.change_allowed(store.harness_board("kr"), automated=automated)
+        return ok, why
+    except Exception as e:                      # noqa: BLE001 — 게이트가 죽으면 **막는 쪽**이 안전하다
+        return False, f"판별력 보드를 읽을 수 없어 제안을 보류합니다: {type(e).__name__}"
+
+
 def refresh(accuracy: dict, weights: dict | None = None) -> dict:
     """실측 accuracy → draft 제안 upsert. 트래커 미성숙이면 생성 스킵.
 
     반환: {ok, created, reason?, items[]}
     """
     weights = weights or signalcfg.get_dict()
+    # 판정 게이트(N2) — 정본 판정이 확정되기 전에는 **제안을 만들지 않는다**.
+    # 생성을 허용하고 승인만 막으면 큐가 쌓이고, 쌓인 큐는 관리자 화면 배지로 떠서 승인을
+    # 유도하는 압력이 된다. 그리고 지금 측정된 상태는 IC 0과 구분 불가 · 6팩터 백분위 53.5다 —
+    # 그 위에서 LLM이 가중치를 제안하면 그건 곡선 맞추기다.
+    gate_ok, gate_why = _verdict_gate(automated=True)
+    if not gate_ok:
+        return {"ok": True, "created": 0, "reason": gate_why, "items": [], "gated": True}
     if not (accuracy or {}).get("ready"):
         return {"ok": True, "created": 0,
                 "reason": (
@@ -348,6 +365,9 @@ def review(pid: str, status: str, note: str = "", accuracy: dict | None = None) 
 
     applied = None
     if status == "approved":
+        gate_ok, gate_why = _verdict_gate(automated=True)
+        if not gate_ok:
+            return {"ok": False, "error": gate_why, "id": pid, "status": status, "gated": True}
         before = signalcfg.get_dict()
         patch = {k: v for k, v in (item.get("patch") or {}).items() if k in signalcfg.FIELDS}
         if not patch:

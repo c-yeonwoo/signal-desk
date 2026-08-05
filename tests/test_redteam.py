@@ -740,3 +740,67 @@ def test_six_factor_backtest_is_not_labeled_as_eight(tmp_path):
     from signal_desk import prereg
     assert "price6" in prereg.CANONICAL_SOURCES
     assert "price" not in prereg.CANONICAL_SOURCES
+
+
+# --------------------------------------------------- 판정 게이트 (N2)
+
+def _pending_board() -> dict:
+    return {"ready": True, "looks": [
+        {"role": "interim", "status": "locked", "verdict": "판별력 있음"},
+        {"role": "final", "status": "pending", "verdict": "판정 보류",
+         "verdict_why": "실효 기간 4/30"}]}
+
+
+def _proven_board() -> dict:
+    return {"ready": True, "looks": [
+        {"role": "final", "status": "locked", "verdict": "판별력 있음"}]}
+
+
+def test_interim_pass_does_not_open_the_parameter_gate():
+    """interim 통과는 채택 근거가 아니다 — 등록 파일의 `if_pass`에 그렇게 적혀 있다."""
+    from signal_desk import prereg
+    proven, why = prereg.verdict_state(_pending_board())
+    assert proven is False and "미확정" in why, why
+    assert prereg.verdict_state(_proven_board())[0] is True
+
+
+def test_automated_proposals_are_hard_blocked_before_a_verdict():
+    """판정 전에는 **제안을 만들지도 않는다**.
+
+    생성을 허용하고 승인만 막으면 큐가 쌓이고, 쌓인 큐는 관리자 화면 배지로 떠서 승인을
+    유도하는 압력이 된다. 그리고 지금 측정된 상태는 IC 0과 구분 불가 · 6팩터 백분위 53.5다 —
+    그 위에서 LLM이 가중치를 제안하면 곡선 맞추기다. 사유 오버라이드도 자동 경로엔 없다.
+    """
+    from signal_desk import prereg
+    ok, why, unproven = prereg.change_allowed(_pending_board(), automated=True,
+                                              override_reason="아무 사유를 적어도")
+    assert ok is False and unproven is False
+    assert "자동 제안" in why, why
+    assert prereg.change_allowed(_proven_board(), automated=True)[0] is True
+
+
+def test_manual_change_is_recorded_as_unproven_not_blocked():
+    """수동 변경은 막지 않고 **미검증으로 기록**한다.
+
+    순수하게 잠그면 진짜 바꿔야 할 때 `engine.py` 소스를 직접 편집하는 우회로가 생기고
+    (H1이 그랬다) 그 변경은 이력에 남지 않는다. 사유를 받아 통과시키고 표시한다.
+    """
+    from signal_desk import prereg
+    board = _pending_board()
+    ok, why, unproven = prereg.change_allowed(board, automated=False)
+    assert ok is False and unproven is True and "사유" in why, why
+    ok, why, unproven = prereg.change_allowed(board, automated=False,
+                                             override_reason="rank 창 6→12 실험")
+    assert ok is True and unproven is True, "미검증 표시 없이 통과시켰다"
+    # 판정이 확정되면 사유 없이도 통과하고 unproven 이 아니다.
+    assert prereg.change_allowed(_proven_board(), automated=False) == (True, "", False)
+
+
+def test_broken_board_blocks_instead_of_opening():
+    """게이트가 읽을 수 없으면 **막는 쪽**이 안전하다 — fail-open 은 게이트가 없는 것과 같다."""
+    from signal_desk import prereg
+    for bad in (None, {}, {"ready": False, "reason": "사전등록 파일 없음"}):
+        assert prereg.change_allowed(bad, automated=True)[0] is False
+        assert prereg.change_allowed(bad, automated=False, override_reason="x")[0] is True, \
+            "수동은 사유가 있으면 통과(우회로를 만들지 않는다)"
+        assert prereg.change_allowed(bad, automated=False)[0] is False

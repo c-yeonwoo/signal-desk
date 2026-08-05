@@ -3567,11 +3567,24 @@ def engine_config_get():
 
 @app.post("/api/engine/config")
 def engine_config_set(data: dict = Body(...)):
-    """가중치·임계값 저장 → 시그널/백테스트 캐시 무효화(즉시 반영)."""
+    """가중치·임계값 저장 → 시그널/백테스트 캐시 무효화(즉시 반영).
+
+    판정 게이트(N2): 정본 판정이 `판별력 있음`으로 확정되지 않았으면 `override_reason` 이 필요하다.
+    막지 않고 **기록**하는 이유 — 순수하게 잠그면 진짜 바꿔야 할 때 `engine.py` 소스를 직접
+    편집하는 우회로가 생기고(H1이 그랬다) 그 변경은 이력에 남지 않는다.
+    """
+    from signal_desk import prereg
+    reason = str((data or {}).pop("override_reason", "") or "").strip()
+    allowed, why, unproven = prereg.change_allowed(
+        store.harness_board("kr"), automated=False, override_reason=reason)
+    if not allowed:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail=why)
     before = signalcfg.get_dict()
     out = signalcfg.set_dict(data)
     signalcfg.append_history({
         "ts": int(time.time()), "source": "manual",
+        "unproven": unproven, "override_reason": reason or None,
         "before": before, "after": out, "patch": {
             k: out[k] for k in out if before.get(k) != out.get(k)
         },
@@ -3579,7 +3592,7 @@ def engine_config_set(data: dict = Body(...)):
     _signals.cache_clear()
     _backtest.cache_clear()
     _backtest_analysis.cache_clear()
-    return {"ok": True, "config": out}
+    return {"ok": True, "config": out, "unproven": unproven}
 
 
 @app.post("/api/engine/reset")
