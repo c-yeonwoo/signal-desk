@@ -177,6 +177,7 @@ def _morning_digest_text(date: datetime.date | None = None, *,
     sigs = list(_signals())
     prev_raw = db.kv_get(_DIGEST_PREV_KEY)
     text = digest.build_morning(
+        stall=_safe_stall(),
         signals=sigs,
         regime_label=(_regime() or {}).get("regime"),  # UI 시그널 탭 '시장 ZONE' pill과 같은 값
         threshold=adapt["effective_buy_threshold"],
@@ -280,6 +281,14 @@ def _bot_loop_iteration() -> None:
         _daily_maintenance(enabled)
 
 
+def _is_stale(key: str) -> bool:
+    """`store.data_freshness()` 가 그 소스를 stale이라 하는가. 임계는 그 함수 한 곳에만 둔다."""
+    try:
+        return any(e["key"] == key and e.get("stale") for e in store.data_freshness())
+    except Exception:                              # noqa: BLE001 — 못 읽으면 건너뛴다(수동 경로 있음)
+        return False
+
+
 def _daily_maintenance(enabled: list[str]) -> None:
     """하루 1회(평일 마감 후): 시세·수급 갱신 + 공용 KB 갱신 + 유저별 종가 스냅샷.
 
@@ -340,6 +349,24 @@ def _daily_maintenance(enabled: list[str]) -> None:
         store.fetch_consensus(store.load_universe())
     except Exception as e:
         log.warning("마감후 컨센서스 수집 실패: %s", type(e).__name__)
+    # 자동 루프에 없어서 **수동 버튼 전용**이던 소스들(2026-08-05 진단). 아무도 안 눌러
+    # macro는 32일, gurus는 32일, fundamentals_history는 32일 낡아 있었고 us_earnings가 낡으면
+    # 실적 게이트가 조용히 안 걸린다. 매일 부르지 않고 **`data_freshness`가 stale이라 할 때만**
+    # 부른다 — 임계는 그 함수 한 곳에 있고, 여기서 따로 정하면 두 곳이 갈라진다.
+    for key, label, fn in (
+        ("macro", "거시(FRED)", lambda: store.fetch_macro()),
+        ("macro_kr", "거시(ECOS)", lambda: store.fetch_macro_kr()),
+        ("gurus", "거장 13F", lambda: store.fetch_gurus()),
+        ("us_earnings", "미국 실적일정", lambda: store.fetch_us_earnings_calendar()),
+        ("fund_hist", "연도별 재무(PIT)", lambda: store.fetch_fundamentals_history(store.load_universe())),
+    ):
+        try:
+            if not _is_stale(key):
+                continue
+            fn()
+            log.info("자동 갱신(stale): %s", label)
+        except Exception as e:
+            log.warning("자동 갱신 실패 %s: %s", label, type(e).__name__)
     try:
         # PIT 스냅샷은 종가 기준이어야 한다 — 장중 실시간가 오버레이가 남아 있으면 장중가로 계산한
         # 점수가 저장되는데 채점은 종가로 한다(accuracy). 같은 날짜에 두 기준이 섞이면 실측이 오염된다.
@@ -2163,6 +2190,9 @@ def data_health_get():
     """데이터 진단(관리자) — 시세 스케일 정합(price_sanity) + 소스별 신선도(마지막 갱신·경과·stale).
     track record 신뢰의 전제(실데이터) + 어떤 소스가 오래됐는지 한눈에."""
     fresh = store.data_freshness()
+    # 브리핑 첫 줄과 **같은 함수**를 쓴다. 같은 판단을 두 곳에서 조립하면 화면과 알림이 다른
+    # 말을 하게 되고, 그 차이는 어느 화면에도 안 나타난다.
+    stall = _safe_stall()
     digests = db.kb_digests_all()
     try:
         kb_refresh = kb.refresh_status(_kb_targets())
@@ -2180,7 +2210,9 @@ def data_health_get():
                       "age_hours": round(age_h, 1) if age_h is not None else None,
                       "stale": bool(kb_refresh.get("blocked_reason")) or age_h is None or age_h > 48,
                       "note": kb_refresh.get("blocked_reason")})
-    return {**store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift(),
+    return {
+        "stall": stall,
+        "stall_line": digest.stall_line(stall),**store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift(),
             # veto·검색이 조용히 비어 있는 경우를 이유와 함께 드러낸다(0은 정상일 수도, 고장일 수도).
             "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),
             # 종목 KB 수집이 멈췄는지 — 실패 종목 이름까지. 조용히 빠진 종목도 조용한 0이다.
@@ -2826,6 +2858,15 @@ def climate_shadow_get(request: Request):
     _admin_or_403(request)
     return {**climate.shadow_summary(),
             "verdict": climate.shadow_verdict(store.load_all_dated_closes())}
+
+
+def _safe_stall() -> dict | None:
+    """정지 탐지 재료. 실패해도 브리핑을 막지 않는다(브리핑이 안 오면 그게 더 큰 침묵이다)."""
+    try:
+        return store.stall_report()
+    except Exception as e:                       # noqa: BLE001
+        log.warning("정지 탐지 실패: %s", type(e).__name__)
+        return None
 
 
 @app.get("/api/morning-digest")

@@ -804,3 +804,59 @@ def test_broken_board_blocks_instead_of_opening():
         assert prereg.change_allowed(bad, automated=False, override_reason="x")[0] is True, \
             "수동은 사유가 있으면 통과(우회로를 만들지 않는다)"
         assert prereg.change_allowed(bad, automated=False)[0] is False
+
+
+# --------------------------------------------------- 정지 탐지 (N1)
+
+def test_stall_line_is_silent_when_healthy_and_loud_when_not():
+    """정상일 때는 아무 말도 하지 않는다 — 매일 초록불을 쓰면 그것도 안 읽히게 된다."""
+    from signal_desk import digest
+    assert digest.stall_line(None) is None
+    assert digest.stall_line({"ok": True}) is None
+    line = digest.stall_line({
+        "ok": False, "missing_files": ["투자경고(토스)"],
+        "stale": [{"label": "거시(FRED)", "age_hours": 24 * 32, "updated": "2026-07-03 00:08"}],
+        "pit": {"missing_n": 7, "missing": ["2026-07-13", "2026-07-27", "2026-07-28",
+                                           "2026-07-29", "2026-07-30", "2026-07-31",
+                                           "2026-08-03"]},
+        "harness_days": 9})
+    assert line.startswith("🔧")
+    assert "투자경고" in line and "거시(FRED)(32일)" in line
+    # 결측일을 **이름으로** 적는다 — "7건"만 적으면 어느 날이 빈지 몰라 조사가 안 된다.
+    assert "07-13" in line and "7거래일" in line
+    assert "판별력 검사 9일 경과" in line
+
+
+def test_pit_gap_is_measured_against_the_trading_calendar(tmp_path, monkeypatch):
+    """스냅샷 정지는 **파일 신선도로 안 잡힌다** — 거래일 달력과 대조해야 한다.
+
+    2026-08 진단: 시세가 백필로 최신이라 `stale_prices=false`가 되어 스냅샷 결측을 가렸고
+    `blocked_reason`도 null이었다. mtime을 보는 어느 플래그도 이걸 못 잡는다.
+    """
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import store
+    monkeypatch.setattr(store, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(store, "SIGNAL_HISTORY_FILE", tmp_path / "signal_history.parquet")
+    monkeypatch.setattr(store, "_market_dates",
+                        lambda: ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06"])
+
+    import pandas as pd
+    store._write_parquet(pd.DataFrame([{"date": "2026-08-03", "ticker": "A", "score": 1.0},
+                                       {"date": "2026-08-06", "ticker": "A", "score": 1.0}]),
+                         store.SIGNAL_HISTORY_FILE)
+    gap = store.pit_gap_days()
+    assert gap["pit_dates"] == 2
+    assert gap["missing"] == ["2026-08-04", "2026-08-05"], gap
+    assert gap["missing_n"] == 2
+
+
+def test_morning_brief_puts_the_stall_line_first():
+    """정지 탐지는 **맨 위**. 아래로 밀면 안 읽히고, 멈춘 데이터로 아래 숫자를 믿게 된다."""
+    from signal_desk import digest
+    text = digest.build_morning(
+        signals=[], regime_label="약세", threshold=1.2, base_threshold=1.2,
+        stall={"ok": False, "missing_files": ["투자경고(토스)"], "stale": [],
+               "pit": {"missing_n": 0, "missing": []}, "harness_days": 0})
+    body = [ln for ln in text.split("\n") if ln.strip()]
+    assert body[0].startswith("☀️")
+    assert body[1].startswith("🔧"), f"정지 줄이 첫 본문이 아니다: {body[:3]}"

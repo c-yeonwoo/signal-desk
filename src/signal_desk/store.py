@@ -1406,6 +1406,11 @@ def data_freshness() -> list[dict]:
         e("gurus", "거장 13F", GURUS_FILE, 40),
         e("us_fund", "미국 재무(EDGAR)", US_FUNDAMENTALS_FILE, 100, _json_rows(US_FUNDAMENTALS_FILE)),
         e("signal_hist", "시그널 히스토리(PIT)", SIGNAL_HISTORY_FILE, 4),
+        # 2026-08-05 진단: 이 둘이 freshness 목록에 없어서 **자동 루프에 없다는 사실이 화면에
+        # 안 떴다**. us_earnings 가 낡으면 실적 게이트가 조용히 안 걸린다.
+        e("fund_hist", "연도별 재무(PIT 백테스트)", FUNDAMENTALS_HISTORY_FILE, 100,
+          _json_rows(FUNDAMENTALS_HISTORY_FILE)),
+        e("us_earnings", "미국 실적일정(게이트)", US_EARNINGS_FILE, 8),
     ]
 
 
@@ -1832,4 +1837,64 @@ def harness_board(market: str = "kr", *, path=None) -> dict:
         "looks": looks_out,
         "note": ("정본은 role=final이다. interim은 중간 판독이며 채택 근거가 아니다. "
                  "요건 미충족 동안 백분위는 보드에 내지 않는다(매일 보는 것이 곧 다중검정)."),
+    }
+
+
+# ------------------------------------------------------- 정지 탐지 (N1)
+
+def pit_gap_days(limit_dates: int = 60) -> dict:
+    """PIT 스냅샷이 **거래일인데 비어 있는** 날을 센다.
+
+    왜 mtime으로 안 되나: 시세가 백필로 최신이면 `stale_prices=false`가 되어 **스냅샷 정지를
+    가린다**. 실제로 2026-08 진단에서 시세는 08-04까지 정상인데 스냅샷은 며칠 비어 있었고
+    `blocked_reason`은 null이었다 — 어느 플래그도 안 잡았다. 그래서 파일 신선도가 아니라
+    **거래일 달력과 대조**한다.
+    """
+    df = load_signal_history()
+    if df.empty or "date" not in df.columns:
+        return {"pit_dates": 0, "missing": [], "missing_n": 0, "from": None, "to": None,
+                "reason": "PIT 스냅샷 없음"}
+    snap = sorted({str(d) for d in df["date"].astype(str)})
+    market = [d for d in _market_dates() if snap[0] <= d <= snap[-1]]
+    if limit_dates and len(market) > limit_dates:
+        market = market[-limit_dates:]
+    have = set(snap)
+    missing = [d for d in market if d not in have]
+    return {"pit_dates": len(snap), "missing": missing, "missing_n": len(missing),
+            "from": snap[0], "to": snap[-1], "reason": None}
+
+
+def stall_report() -> dict:
+    """수집이 멈췄는지 한 번에 판단할 재료. 브리핑 첫 줄·관리자 배너가 같은 함수를 쓴다.
+
+    같은 판단을 두 곳에서 조립하면 화면과 알림이 다른 말을 하게 된다.
+    """
+    import datetime as _dt
+
+    fresh = data_freshness()
+    stale = [{"key": e["key"], "label": e["label"], "updated": e["updated"],
+              "age_hours": e["age_hours"]}
+             for e in fresh if e.get("stale")]
+    missing_file = [e for e in stale if not e.get("updated")]
+    gap = pit_gap_days()
+
+    harness_days = None
+    last_run = None
+    try:
+        from signal_desk import db
+        runs = db.harness_runs_recent(1)
+        if runs:
+            last_run = runs[0]["ran_at"]
+            ran = _dt.datetime.fromisoformat(str(last_run).replace("Z", "+00:00"))
+            harness_days = (_dt.datetime.now(_dt.timezone.utc) - ran).days
+    except Exception:                                 # noqa: BLE001 — 없으면 None(이유는 화면에)
+        harness_days = None
+
+    return {
+        "ok": not stale and not gap["missing_n"],
+        "stale": stale,
+        "missing_files": [e["label"] for e in missing_file],
+        "pit": gap,
+        "harness_days": harness_days,
+        "harness_last_run": last_run,
     }
