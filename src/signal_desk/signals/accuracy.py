@@ -29,7 +29,13 @@ SCORING_FACTORS = ("technical", "fundamental", "valuation", "reversion",
                    "flow", "quality", "momentum", "short")
 # 종합점수 IC — 보드/proof가 읽는 키. 입력 팩터가 아니라 산출물이라 SCORING_FACTORS 밖.
 IC_EXTRA_COLS = ("score",)
-_MIN_IC_SAMPLES = 20  # 이보다 표본이 적으면 IC는 신뢰 불가 → None
+_MIN_IC_SAMPLES = 20  # 행 단위 표본 최소치 — 정밀도·diff_verdict용(한 행 = 한 판단)
+# IC는 **날짜 단위**로 센다. 같은 날 200종목은 하나의 관측에 가깝다(횡단면이 서로 독립이 아니다) —
+# store.REVISION_MIN_TESTABLE_DATES와 같은 규약. 행으로 세면 하루치 200건이 표본 200이 되어
+# 문턱을 즉시 통과하고, 실제로 `short IC −0.148`이 **단 하루**(200/2200행)에서 나왔다.
+_MIN_IC_DATES = 20
+# 하루 횡단면에 이보다 적은 종목이 있으면 그 날의 IC는 노이즈다 → 그 날짜를 버린다.
+_MIN_IC_BREADTH = 10
 # 정밀도는 기준선(base rate) 대비 리프트로만 판정한다. 하락장에서는 아무 종목이나 '매도'라고
 # 찍어도 정밀도가 60%를 넘기 때문에, 절대값 55%는 잘한 것도 못한 것도 아니다.
 # 이 값은 "우연·시장 드리프트로 설명되지 않는다"고 부를 최소 리프트(%p)다.
@@ -82,29 +88,30 @@ def _forward_returns(dates: list[str], closes: list[float], signal_date: str,
 forward_returns = _forward_returns  # 같은 채점 규약을 쓰는 다른 관측 모듈용(advisor_shadow 등)
 
 
-def _spearman_ic(pairs: list[tuple[float, float]]) -> float | None:
-    """(factor_value, fwd_ret) 쌍의 순위상관(Spearman IC). 의존성 없이 직접 계산."""
-    xs = [p[0] for p in pairs]
-    ys = [p[1] for p in pairs]
-    n = len(xs)
-    if n < _MIN_IC_SAMPLES:
+def _ranks(vals: list[float]) -> list[float]:
+    """동점은 평균 순위(ties → average rank)."""
+    n = len(vals)
+    order = sorted(range(n), key=lambda i: vals[i])
+    out = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j < n and vals[order[j]] == vals[order[i]]:
+            j += 1
+        avg = (i + j - 1) / 2.0
+        for k in range(i, j):
+            out[order[k]] = avg
+        i = j
+    return out
+
+
+def _spearman(pairs: list[tuple[float, float]], *, min_n: int) -> float | None:
+    """(factor_value, fwd_ret) 쌍의 순위상관. 의존성 없이 직접 계산."""
+    n = len(pairs)
+    if n < min_n:
         return None
-
-    def _rank(vals: list[float]) -> list[float]:
-        order = sorted(range(n), key=lambda i: vals[i])
-        ranks = [0.0] * n
-        i = 0
-        while i < n:  # 동점은 평균 순위(ties → average rank)
-            j = i
-            while j < n and vals[order[j]] == vals[order[i]]:
-                j += 1
-            avg = (i + j - 1) / 2.0
-            for k in range(i, j):
-                ranks[order[k]] = avg
-            i = j
-        return ranks
-
-    rx, ry = _rank(xs), _rank(ys)
+    rx = _ranks([p[0] for p in pairs])
+    ry = _ranks([p[1] for p in pairs])
     mx, my = sum(rx) / n, sum(ry) / n
     cov = sum((rx[i] - mx) * (ry[i] - my) for i in range(n))
     vx = sum((rx[i] - mx) ** 2 for i in range(n))
@@ -112,6 +119,194 @@ def _spearman_ic(pairs: list[tuple[float, float]]) -> float | None:
     if vx <= 0 or vy <= 0:
         return None
     return cov / (vx * vy) ** 0.5
+
+
+def _spearman_ic(pairs: list[tuple[float, float]]) -> float | None:
+    """행 단위 pooled Spearman.
+
+    **팩터 IC에는 쓰지 말 것** — 날짜를 섞으면 시장 드리프트가 상관으로 들어온다
+    (상승일엔 전 종목 수익이 양수라, 팩터 분포에 날짜별 수준 차이만 있어도 상관이 생긴다).
+    팩터 IC는 `cross_sectional_ic`를 쓴다. 여기 남긴 이유는 정성 shadow처럼
+    **애초에 횡단면이 아닌** 관측(`qualitative_promotion_metrics`)이 이 계약을 쓰기 때문이다.
+    """
+    return _spearman(pairs, min_n=_MIN_IC_SAMPLES)
+
+
+# ── 검정 통계 ─────────────────────────────────────────────────────────────────
+# IC 하나만 내보내면 크기가 판별력처럼 읽힌다. 실측: `momentum −0.341`이 가중 0.30을 정당화하는
+# 근거로 쓰였는데 그 값에는 n·CI·t·p가 없었고, 날짜로 세면 10일(비중첩 2일)이었다.
+
+
+def _betacf(a: float, b: float, x: float) -> float:
+    """정규화 불완전베타의 연분수(Lentz). scipy 없이 t-분포 p를 내기 위한 최소 구현."""
+    MAXIT, EPS, FPMIN = 300, 3e-16, 1e-300
+    qab, qap, qam = a + b, a + 1.0, a - 1.0
+    c = 1.0
+    d = 1.0 - qab * x / qap
+    if abs(d) < FPMIN:
+        d = FPMIN
+    d = 1.0 / d
+    h = d
+    for m in range(1, MAXIT + 1):
+        m2 = 2 * m
+        aa = m * (b - m) * x / ((qam + m2) * (a + m2))
+        d = 1.0 + aa * d
+        if abs(d) < FPMIN:
+            d = FPMIN
+        c = 1.0 + aa / c
+        if abs(c) < FPMIN:
+            c = FPMIN
+        d = 1.0 / d
+        h *= d * c
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2))
+        d = 1.0 + aa * d
+        if abs(d) < FPMIN:
+            d = FPMIN
+        c = 1.0 + aa / c
+        if abs(c) < FPMIN:
+            c = FPMIN
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < EPS:
+            break
+    return h
+
+
+def _betainc(a: float, b: float, x: float) -> float:
+    """정규화 불완전베타 I_x(a, b)."""
+    if x <= 0.0:
+        return 0.0
+    if x >= 1.0:
+        return 1.0
+    lbeta = math.lgamma(a + b) - math.lgamma(a) - math.lgamma(b)
+    lfront = lbeta + a * math.log(x) + b * math.log1p(-x)
+    if x < (a + 1.0) / (a + b + 2.0):
+        return math.exp(lfront) * _betacf(a, b, x) / a
+    return 1.0 - math.exp(lfront) * _betacf(b, a, 1.0 - x) / b
+
+
+def t_two_sided_p(t: float | None, dof: int) -> float | None:
+    """Student-t 양측 p. dof가 작을 때 정규근사는 p를 과소평가한다(n=10에서 30% 이상)."""
+    if t is None or dof <= 0:
+        return None
+    if not math.isfinite(t):
+        return 0.0
+    return _betainc(dof / 2.0, 0.5, dof / (dof + t * t))
+
+
+def _newey_west_se(xs: list[float], lag: int) -> dict:
+    """평균의 Newey-West(Bartlett) 표준오차 — `{se, se_naive, degenerate, floored}`.
+
+    h거래일 수익률을 매일 계산하면 창이 h−1일씩 겹쳐 IC 시계열이 자기상관을 갖는다. 소박한 SE는
+    그만큼 작아지고 t는 부풀려진다(실측: 10일 h5에서 momentum 소박한 t = −5.18, 비중첩 2일로는 −1.62).
+
+    **SE 하한은 소박한 SE로 둔다.** NW가 더 작게 나오는 경우가 있었다(reversion: 소박한 t −6.85 →
+    NW t −10.68) — 음의 자기상관을 추정한 결과인데, n=10에서 lag 4까지 자기공분산을 추정한 값을
+    믿고 iid보다 **더 정밀하다**고 주장하는 셈이다. 이건 통계적 항등식이 아니라 **보수성 선택**이고,
+    적용 여부를 `floored`로 남긴다. 게이트가 읽을 수 없을 때는 막는 쪽이 안전하다는 규칙과 같은 이유다.
+    """
+    n = len(xs)
+    if n < 2:
+        return {"se": None, "se_naive": None, "degenerate": False, "floored": False}
+    m = sum(xs) / n
+    dev = [x - m for x in xs]
+    g0 = sum(d * d for d in dev) / n
+    naive = (sum(d * d for d in dev) / (n - 1) / n) ** 0.5   # 표본분산(n−1) 기반 평균의 SE
+    if g0 <= 0:
+        return {"se": 0.0, "se_naive": 0.0, "degenerate": False, "floored": False}
+    lag = max(0, min(int(lag), n - 1))
+    s = g0
+    for j in range(1, lag + 1):
+        gj = sum(dev[i] * dev[i - j] for i in range(j, n)) / n
+        s += 2.0 * (1.0 - j / (lag + 1.0)) * gj
+    if s <= 0:                                              # 자기공분산 합이 음수로 발산(소표본)
+        return {"se": naive, "se_naive": naive, "degenerate": True, "floored": True}
+    nw = (s / n) ** 0.5
+    return {"se": max(nw, naive), "se_naive": naive,
+            "degenerate": False, "floored": bool(nw < naive)}
+
+
+def cross_sectional_ic(pairs_by_date: dict[str, list[tuple[float, float]]], *,
+                       horizon: int, min_dates: int = _MIN_IC_DATES,
+                       min_breadth: int = _MIN_IC_BREADTH) -> dict:
+    """날짜별 횡단면 Spearman IC → 시계열의 평균·SE·t·p.
+
+    반환 `ic`는 **날짜 수 요건을 채웠을 때만** 값이고, 아니면 None이며 `blocked_reason`이 이유를 말한다.
+    `significant`가 False인 IC로 가중치를 바꾸면 곡선 맞추기다 — 소비자(brain_proposals)가 이 키를 본다.
+    """
+    dates = sorted(pairs_by_date)
+    series: list[tuple[str, float, int]] = []
+    thin = 0
+    for d in dates:
+        pairs = pairs_by_date[d]
+        if len(pairs) < min_breadth:
+            thin += 1
+            continue
+        ic = _spearman(pairs, min_n=min_breadth)
+        if ic is not None:
+            series.append((d, ic, len(pairs)))
+    n = len(series)
+    vals = [v for _, v, _ in series]
+    breadths = sorted(b for _, _, b in series)
+    out = {
+        "ic": None,
+        "n_dates": n,
+        "n_pairs": sum(b for _, _, b in series),
+        "thin_dates": thin,
+        "breadth_median": (breadths[n // 2] if n else None),
+        "horizon": horizon,
+        "min_dates": min_dates,
+        "ic_mean": (round(sum(vals) / n, 4) if n else None),
+        "ic_std": None, "ic_ir": None, "se": None, "se_naive": None, "ci95": None,
+        "t": None, "p": None, "significant": False, "zero_variance": False,
+        "nw_lag": max(0, int(horizon) - 1), "nw_degenerate": False, "se_floored": False,
+        # 겹치는 창을 몇 개의 독립 관측으로 볼 수 있는지 — "10일"과 "10관측"을 혼동하지 않게 같이 낸다.
+        "independent_dates": (n // max(1, int(horizon)) if n else 0),
+        "blocked_reason": None,
+    }
+    if n == 0:
+        out["blocked_reason"] = (f"횡단면 IC 날짜 0개 — 성숙 스냅샷 대기"
+                                 + (f" (종목 부족으로 버린 날짜 {thin}개)" if thin else ""))
+        return out
+    mean = sum(vals) / n
+    if n > 1:
+        var = sum((v - mean) ** 2 for v in vals) / (n - 1)
+        out["ic_std"] = round(var ** 0.5, 4)
+        if var > 0:
+            out["ic_ir"] = round(mean / var ** 0.5, 3)
+    nw = _newey_west_se(vals, out["nw_lag"])
+    se = nw["se"]
+    out["nw_degenerate"] = nw["degenerate"]
+    out["se_floored"] = nw["floored"]
+    out["se_naive"] = (round(nw["se_naive"], 4) if nw["se_naive"] is not None else None)
+    if se is not None and se > 0:
+        out["se"] = round(se, 4)
+        out["ci95"] = round(1.96 * se, 4)
+        t = mean / se
+        out["t"] = round(t, 2)
+        p = t_two_sided_p(t, n - 1)
+        out["p"] = (round(p, 4) if p is not None else None)
+    elif se == 0.0:
+        # 날짜별 IC가 전부 동일 → 분산 0. 극한에서 t = ±∞ 이므로 p = 0 이 맞다.
+        # (평균도 0이면 정보가 없으므로 p = 1.) 합성 픽스처에서만 나오는 경계이지만,
+        # 여기서 None으로 두면 완벽한 팩터가 `무유의`로 찍혀 검사가 거짓 실패를 낸다.
+        # inf는 JSON으로 내보내면 표준이 아니라 유한값으로 클램프하고 사실을 플래그로 남긴다.
+        out["se"] = 0.0
+        out["ci95"] = 0.0
+        out["zero_variance"] = True
+        out["t"] = (999.99 if mean > 0 else -999.99) if mean else None
+        out["p"] = (0.0 if mean else 1.0)
+    if n < min_dates:
+        out["blocked_reason"] = (
+            f"IC 날짜 {n}/{min_dates}일 — 판정 불가"
+            f"(h{horizon} 중첩이라 독립 관측 ≈ {out['independent_dates']}개)")
+        return out
+    out["ic"] = round(mean, 4)
+    out["significant"] = bool(out["p"] is not None and out["p"] < 0.05)
+    if not out["significant"]:
+        out["blocked_reason"] = "IC가 0과 구분 불가 — 가중치 근거로 쓸 수 없음"
+    return out
 
 
 def mean_diff_se_pp(a: list[float], b: list[float]) -> float | None:
@@ -205,7 +400,9 @@ def realized_accuracy(
     by_tier = {k: {h: [] for h in horizons} for k in ACTIONABLE_KINDS}
     ic_cols = FACTOR_COLS + IC_EXTRA_COLS
     # horizon별 IC 쌍 — primary가 아직 안 익어도 짧은 horizon으로 팩터 판별력을 본다.
-    ic_pairs = {h: {c: [] for c in ic_cols} for h in horizons}
+    # **날짜로 한 겹 더 나눈다**: 팩터 IC는 그 날 종목 간 순위상관(횡단면)이라, 날짜를 섞으면
+    # 시장 드리프트가 상관으로 들어온다. `{horizon: {factor: {date: [(값, 수익)]}}}`.
+    ic_pairs: dict[int, dict[str, dict[str, list]]] = {h: {c: {} for c in ic_cols} for h in horizons}
     dates_seen: set[str] = set()
     tickers_seen: set[str] = set()
     rows_total = matured_primary = 0
@@ -233,7 +430,7 @@ def realized_accuracy(
             for c in ic_cols:
                 fv = _finite_float(r.get(c))
                 if fv is not None:
-                    ic_pairs[h][c].append((fv, ret))
+                    ic_pairs[h][c].setdefault(sig_date, []).append((fv, ret))
         if kind in by_tier:
             for h, ret in rets.items():
                 by_tier[kind][h].append(ret)
@@ -293,8 +490,12 @@ def realized_accuracy(
 
     ic_h = headline_h if headline_h is not None else (
         primary if primary in ic_pairs else next(iter(ic_pairs), None))
-    factor_ic = ({c: (round(ic, 3) if (ic := _spearman_ic(ic_pairs[ic_h][c])) is not None else None)
-                  for c in ic_cols} if ic_h is not None else {c: None for c in ic_cols})
+    # 팩터 IC는 날짜별 횡단면 → 시계열 검정. `factor_ic`는 **요건을 채운 날에만** 값이 들어간다
+    # (같은 shape을 유지해 소비자 계약은 그대로, 값의 의미만 정직해진다).
+    factor_ic_stats = ({c: cross_sectional_ic(ic_pairs[ic_h][c], horizon=ic_h) for c in ic_cols}
+                       if ic_h is not None else
+                       {c: cross_sectional_ic({}, horizon=primary) for c in ic_cols})
+    factor_ic = {c: s["ic"] for c, s in factor_ic_stats.items()}
 
     return {
         "ready": matured_primary > 0 or bool(headline_h and base_by_h[headline_h]),
@@ -311,9 +512,14 @@ def realized_accuracy(
             "sample": len(base_rets), "up_pct": None, "down_pct": None, "avg_ret_pct": None,
         },
         "lift_min_pp": MIN_LIFT_PP,
-        "factor_ic": factor_ic,                      # Spearman IC (팩터·score ↑ vs 미래수익)
+        # 날짜별 횡단면 Spearman IC의 시계열 평균. 요건 미달·무유의면 None(값 대신 이유를 낸다).
+        "factor_ic": factor_ic,
+        # 판정에 필요한 것 전부 — n_dates·ci95·t·p·significant·blocked_reason.
+        # 크기만 내보내면 그 크기가 판별력처럼 읽힌다.
+        "factor_ic_stats": factor_ic_stats,
         "factor_ic_horizon": ic_h,
         "ic_min_samples": _MIN_IC_SAMPLES,
+        "ic_min_dates": _MIN_IC_DATES,
         "coverage": _coverage_block(
             rows_total, dates_seen, tickers_seen, matured_primary,
             closes_by_ticker, base_by_h, horizons, primary, headline_h),

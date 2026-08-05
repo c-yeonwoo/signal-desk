@@ -28,7 +28,8 @@ _WEIGHT_KEY = {k: f"weight_{k}" for k in _FACTOR_KO}
 _DELTA = 0.05          # 한 번에 바꾸는 최대 폭(보수)
 _WEIGHT_FLOOR = 0.05
 _WEIGHT_CEIL = 0.50
-_IC_MIN_SAMPLES = 20
+_IC_MIN_SAMPLES = 20   # 행 단위 — 임계 nudge(정밀도)용. IC에는 쓰지 않는다.
+_IC_MIN_DATES = 20     # IC 관측 날짜 최소치(accuracy._MIN_IC_DATES와 같은 규약)
 _IC_BOOST_MIN = 0.05   # 이 이상 양수 IC만 비중 ↑ 후보
 _THR_DELTA = 0.10
 _THR_FLOOR = 0.90
@@ -38,12 +39,54 @@ _PREC_HIGH = 58.0
 _METHOD_KEY = "ic_weighting"
 
 
-def _confidence(ic: float, n: int) -> str:
-    if n >= 60 and abs(ic) >= 0.08:
+def ic_usable(stat: dict | None) -> tuple[bool, str]:
+    """이 IC를 가중치 근거로 쓸 수 있는가 — `(가능, 이유)`.
+
+    **크기가 아니라 유의성으로 판단한다.** 예전 게이트는 `matured_primary`(행) ≥ 20이었는데,
+    `factor_ic`는 그 시점에 이미 **날짜를 섞은 pooled 상관**이었다. 하루치 200종목이 표본 200으로
+    세어져 문턱을 즉시 통과했고, 실제로 `short IC −0.148`이 **단 하루**에서 나온 값이었다.
+    지금은 `accuracy.cross_sectional_ic`가 날짜 단위 n·Newey-West SE·t·p를 주므로 그걸 본다.
+    """
+    if not isinstance(stat, dict):
+        return False, "IC 통계 없음 — 횡단면 IC를 계산하지 못했다"
+    if stat.get("ic") is None or not stat.get("significant"):
+        return False, str(stat.get("blocked_reason") or "IC가 0과 구분 불가")
+    return True, ""
+
+
+def _confidence(stat: dict) -> str:
+    """신뢰 등급 — 날짜 수와 p로 정한다(IC 절댓값은 등급의 근거가 아니다)."""
+    n = int(stat.get("n_dates") or 0)
+    p = stat.get("p")
+    if p is None:
+        return "low"
+    if n >= _IC_MIN_DATES * 3 and p < 0.01:
         return "high"
-    if n >= _IC_MIN_SAMPLES and abs(ic) >= 0.03:
+    if n >= _IC_MIN_DATES and p < 0.05:
         return "medium"
     return "low"
+
+
+def _ic_evidence(stat: dict) -> dict:
+    """제안 evidence에 남길 IC 통계 — 나중에 "무슨 근거로 바꿨나"를 재구성할 수 있어야 한다."""
+    return {k: stat.get(k) for k in
+            ("n_dates", "independent_dates", "breadth_median", "horizon",
+             "ic_ir", "ci95", "t", "p", "significant", "nw_lag", "se_floored")}
+
+
+def _ic_rationale(label: str, stat: dict) -> str:
+    """근거 문구 — IC 하나만 쓰지 않는다. n·CI·p 없이 내보내면 크기가 판별력처럼 읽힌다."""
+    ic = stat.get("ic")
+    ci = stat.get("ci95")
+    bits = [f"{label} 예측력(IC) {ic:+.3f}"]
+    if ci is not None:
+        bits[0] += f" ±{ci:.3f}"
+    bits.append(f"관측 {int(stat.get('n_dates') or 0)}거래일"
+                f"(독립 ≈ {int(stat.get('independent_dates') or 0)})")
+    if stat.get("p") is not None:
+        bits.append(f"p={stat['p']:.4f}")
+    bits.append(f"신뢰 {_conf_ko(_confidence(stat))}")
+    return " · ".join(bits)
 
 
 def _conf_ko(c: str) -> str:
@@ -93,11 +136,17 @@ def _attach_shallow_ab(draft: dict, accuracy: dict, weights: dict) -> dict:
     return draft
 
 
-def build_weight_nudge(factor: str, ic: float, n: int, weights: dict) -> dict | None:
-    """음수 IC 랭킹 팩터 → 비중 ↓ 제안 1장."""
+def build_weight_nudge(factor: str, stat: dict, weights: dict) -> dict | None:
+    """**유의하게** 음수인 IC 랭킹 팩터 → 비중 ↓ 제안 1장.
+
+    `stat`은 `accuracy.cross_sectional_ic` 산출물이다 — 스칼라 IC만 받던 옛 시그니처는
+    n·p를 호출자가 버릴 수 있어서(그리고 실제로 행 단위 n을 넘겼다) 없앴다.
+    """
     if factor in _TIMING_FACTORS or factor not in _FACTOR_KO:
         return None
-    if n < _IC_MIN_SAMPLES or ic is None or ic >= 0:
+    usable, _ = ic_usable(stat)
+    ic = (stat or {}).get("ic")
+    if not usable or ic >= 0:
         return None
     wkey = _WEIGHT_KEY[factor]
     cur = float(weights.get(wkey) or 0)
@@ -107,7 +156,7 @@ def build_weight_nudge(factor: str, ic: float, n: int, weights: dict) -> dict | 
     if new_w >= cur:
         return None
     label = _FACTOR_KO[factor]
-    conf = _confidence(ic, n)
+    conf = _confidence(stat)
     return {
         "kind": "weight_nudge",
         "title": f"{label} 비중을 조금 줄이기",
@@ -116,16 +165,14 @@ def build_weight_nudge(factor: str, ic: float, n: int, weights: dict) -> dict | 
             f"이 팩터에 덜 기대도록 비중을 {cur:.2f} → {new_w:.2f}로 살짝 낮춥니다. "
             f"한 번에 크게 바꾸지 않습니다."
         ),
-        "rationale_ko": (
-            f"{label} 예측력(IC) {ic:+.2f} · 표본 {n}건 · 신뢰 {_conf_ko(conf)}"
-        ),
+        "rationale_ko": _ic_rationale(label, stat),
         "patch": {wkey: new_w},
         "evidence": {
             "key": f"w_down_{factor}",
             "factor": factor,
             "direction": "down",
             "factor_ic": round(ic, 4),
-            "matured_primary": n,
+            **_ic_evidence(stat),
             "from_weight": cur,
             "to_weight": new_w,
         },
@@ -134,11 +181,13 @@ def build_weight_nudge(factor: str, ic: float, n: int, weights: dict) -> dict | 
     }
 
 
-def build_weight_boost(factor: str, ic: float, n: int, weights: dict) -> dict | None:
-    """양수 IC 랭킹 팩터 → 비중 ↑ 제안 1장(보수적 상한)."""
+def build_weight_boost(factor: str, stat: dict, weights: dict) -> dict | None:
+    """**유의한** 양수 IC 랭킹 팩터 → 비중 ↑ 제안 1장(보수적 상한)."""
     if factor in _TIMING_FACTORS or factor not in _FACTOR_KO:
         return None
-    if n < _IC_MIN_SAMPLES or ic is None or ic < _IC_BOOST_MIN:
+    usable, _ = ic_usable(stat)
+    ic = (stat or {}).get("ic")
+    if not usable or ic < _IC_BOOST_MIN:
         return None
     wkey = _WEIGHT_KEY[factor]
     cur = float(weights.get(wkey) or 0)
@@ -148,7 +197,7 @@ def build_weight_boost(factor: str, ic: float, n: int, weights: dict) -> dict | 
     if new_w <= cur:
         return None
     label = _FACTOR_KO[factor]
-    conf = _confidence(ic, n)
+    conf = _confidence(stat)
     return {
         "kind": "weight_nudge",
         "title": f"{label} 비중을 조금 높이기",
@@ -157,16 +206,14 @@ def build_weight_boost(factor: str, ic: float, n: int, weights: dict) -> dict | 
             f"이 팩터에 조금 더 기대도록 비중을 {cur:.2f} → {new_w:.2f}로 살짝 올립니다. "
             f"한 번에 크게 바꾸지 않습니다."
         ),
-        "rationale_ko": (
-            f"{label} 예측력(IC) {ic:+.2f} · 표본 {n}건 · 신뢰 {_conf_ko(conf)}"
-        ),
+        "rationale_ko": _ic_rationale(label, stat),
         "patch": {wkey: new_w},
         "evidence": {
             "key": f"w_up_{factor}",
             "factor": factor,
             "direction": "up",
             "factor_ic": round(ic, 4),
-            "matured_primary": n,
+            **_ic_evidence(stat),
             "from_weight": cur,
             "to_weight": new_w,
         },
@@ -302,16 +349,23 @@ def refresh(accuracy: dict, weights: dict | None = None) -> dict:
                     f"시그널을 낸 뒤 20거래일이 지나야 채점됩니다(봇 매매 여부와 무관)."
                 ),
                 "items": []}
-    factor_ic = accuracy.get("factor_ic") or {}
+    # IC 통계(날짜 단위 n·CI·t·p). 없으면 스칼라 IC 하나로 제안하지 않는다 —
+    # 그건 예전 pooled 상관이고, 크기만으로 가중치를 바꾸는 게 정확히 막으려는 것이다.
+    ic_stats = accuracy.get("factor_ic_stats") or {}
     today = date.today().isoformat().replace("-", "")
     created, items = 0, []
     baseline = dict(weights)
+    skipped: list[str] = []
 
-    # 1) 음수 IC → 비중 ↓ (해당 팩터마다)
-    for factor, ic in factor_ic.items():
-        if not isinstance(ic, (int, float)):
+    # 1) **유의하게** 음수인 IC → 비중 ↓ (해당 팩터마다)
+    for factor, stat in ic_stats.items():
+        if factor in _TIMING_FACTORS or factor not in _FACTOR_KO:
             continue
-        draft = build_weight_nudge(factor, float(ic), n, weights)
+        usable, why = ic_usable(stat)
+        if not usable:
+            skipped.append(f"{_FACTOR_KO[factor]}: {why}")
+            continue
+        draft = build_weight_nudge(factor, stat, weights)
         if not draft:
             continue
         _attach_shallow_ab(draft, accuracy, weights)
@@ -321,13 +375,14 @@ def refresh(accuracy: dict, weights: dict | None = None) -> dict:
     # 2) 가장 강한 양수 IC 1개만 비중 ↑ (카드 폭증 방지)
     best_up = None
     best_ic = _IC_BOOST_MIN - 1
-    for factor, ic in factor_ic.items():
-        if not isinstance(ic, (int, float)):
+    for factor, stat in ic_stats.items():
+        if not ic_usable(stat)[0]:
             continue
-        if float(ic) > best_ic:
-            cand = build_weight_boost(factor, float(ic), n, weights)
+        ic = float(stat["ic"])
+        if ic > best_ic:
+            cand = build_weight_boost(factor, stat, weights)
             if cand:
-                best_up, best_ic = cand, float(ic)
+                best_up, best_ic = cand, ic
     if best_up:
         _attach_shallow_ab(best_up, accuracy, weights)
         items.append(_upsert_draft(best_up, baseline, today))
@@ -341,9 +396,14 @@ def refresh(accuracy: dict, weights: dict | None = None) -> dict:
         created += 1
 
     if not items:
-        return {"ok": True, "created": 0, "items": [],
-                "reason": "지금은 바꿀 만한 제안이 없습니다(팩터 IC·매수 정밀도 모두 안정권)."}
-    return {"ok": True, "created": created, "items": items}
+        # 「안정권이라 제안 없음」은 변호였다. 0의 이유는 점검 결과여야 한다 —
+        # 팩터별로 왜 못 썼는지(날짜 부족인지 무유의인지)를 이름과 함께 낸다.
+        reason = "지금은 바꿀 만한 제안이 없습니다."
+        if skipped:
+            reason += " IC를 근거로 쓸 수 없는 팩터 — " + " / ".join(skipped)
+        return {"ok": True, "created": 0, "items": [], "reason": reason,
+                "ic_skipped": skipped}
+    return {"ok": True, "created": created, "items": items, "ic_skipped": skipped}
 
 
 def review(pid: str, status: str, note: str = "", accuracy: dict | None = None) -> dict:

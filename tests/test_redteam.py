@@ -993,3 +993,140 @@ def test_pit_universe_restricts_the_panel_and_settles_delistings():
     scores = {t: [(1.0 if t in uni_at[d] else None) for d in dates] for t in panel.closes}
     assert scores["DEAD"][:3] == [1.0, 1.0, 1.0]
     assert scores["DEAD"][3:] == [None, None, None], "유니버스에서 빠졌는데 점수가 남았다"
+
+
+# ── X1: 팩터 IC는 횡단면 · 날짜 단위 · 검정 동반 ────────────────────────────────
+# 실측(2026-08-06): `factor_ic`는 2,200행을 한 덩어리로 푼 pooled 상관이었고, 최소 표본은
+# `_MIN_IC_SAMPLES=20`을 **행**으로 셌다. 그래서 `short IC −0.148`이 단 하루(200/2200행)에서
+# 나왔고, `store.py`가 같은 파일에 "같은 날 200종목은 하나의 관측"이라 적어 둔 것과 모순이었다.
+# 그 숫자가 `brain_proposals`의 가중치 nudge 근거로 그대로 흘러갔다.
+
+def _ic_panel(n_dates, n_tickers, *, ic_sign=1.0, factor="momentum", bars=90):
+    """(rows, closes) — 날짜 × 종목 패널. 팩터가 클수록 이후 수익이 높다(ic_sign<0이면 반대)."""
+    cal = [f"2026-01-{d:02d}" if d <= 31 else f"2026-02-{d - 31:02d}" for d in range(1, bars + 1)]
+    closes = {}
+    for i in range(n_tickers):
+        r = (i - n_tickers / 2.0) * ic_sign * 0.002
+        closes[f"T{i}"] = (cal, [100.0 * (1.0 + r) ** k for k in range(bars)])
+    rows = []
+    for d in cal[:n_dates]:
+        for i in range(n_tickers):
+            row = {"date": d, "ticker": f"T{i}", "kind": "HOLD", "technical": 0, "fundamental": 0,
+                   "valuation": 50, "reversion": 0, "qualitative": 0, "flow": 0, "quality": 0,
+                   "momentum": 0, "short": 0, "score": 0}
+            row[factor] = float(i)
+            rows.append(row)
+    return rows, closes
+
+
+def test_factor_ic_is_gated_by_dates_not_rows():
+    """행이 2,200개여도 날짜가 1개면 IC를 내지 않는다 — 그 반대가 실제 버그였다."""
+    from signal_desk.signals import accuracy
+
+    rows, closes = _ic_panel(1, 200)
+    out = accuracy.realized_accuracy(rows, closes, horizons=(5,), primary=5)
+    s = out["factor_ic_stats"]["momentum"]
+    assert s["n_pairs"] == 200 and s["n_dates"] == 1
+    assert out["factor_ic"]["momentum"] is None, "하루치 횡단면으로 IC가 나오면 옛 버그가 돌아왔다"
+    assert accuracy._MIN_IC_DATES >= 20
+
+
+def test_factor_ic_and_stats_never_disagree():
+    """`factor_ic[k]`와 `factor_ic_stats[k]['ic']`는 같은 값이어야 한다.
+
+    두 곳에서 조립하면(UI는 앞, 게이트는 뒤) 화면과 판정이 갈라지고 그 차이는 어디에도 안 뜬다.
+    """
+    from signal_desk.signals import accuracy
+
+    for n_d in (1, 15, 25):
+        rows, closes = _ic_panel(n_d, 30)
+        out = accuracy.realized_accuracy(rows, closes, horizons=(5,), primary=5)
+        for k, s in out["factor_ic_stats"].items():
+            assert out["factor_ic"][k] == s["ic"], f"{k} @ {n_d}일: {out['factor_ic'][k]} vs {s['ic']}"
+            # 값이 있으면 반드시 유의하고 차단 이유가 없다(그 역도 성립).
+            assert (s["ic"] is not None) == (s["significant"] and not s["blocked_reason"])
+
+
+def test_ic_carries_n_ci_t_and_p():
+    """IC를 크기만 내보내지 않는다 — 기준선 없는 비율과 같은 착각이다."""
+    from signal_desk.signals import accuracy
+
+    rows, closes = _ic_panel(25, 30)
+    out = accuracy.realized_accuracy(rows, closes, horizons=(5,), primary=5)
+    s = out["factor_ic_stats"]["momentum"]
+    for key in ("n_dates", "independent_dates", "breadth_median", "ci95", "t", "p",
+                "significant", "ic_ir", "nw_lag", "horizon", "blocked_reason"):
+        assert key in s, f"IC 통계에 {key}가 없다"
+    # 중첩 창을 독립 관측으로 세지 않는다.
+    assert s["independent_dates"] == s["n_dates"] // 5
+    # proof(공개 A열)·brain에도 통계가 실린다 — 한쪽만 고치면 다른 쪽이 옛 숫자를 계속 보여준다.
+    from signal_desk.signals import proof
+    slim = proof._accuracy_slim(out)
+    assert slim["factor_ic_stats"]["momentum"]["n_dates"] == 25
+    assert slim["ic_min_dates"] == accuracy._MIN_IC_DATES
+
+
+def test_cross_sectional_ic_is_not_fooled_by_mixing_dates():
+    """날짜 안에서는 무정보인데 날짜 수준이 시장과 같이 움직이면 pooled는 속고 횡단면은 안 속는다."""
+    from signal_desk.signals import accuracy
+
+    bars, n_d, n_t = 90, 24, 20
+    cal = [f"2026-01-{d:02d}" if d <= 31 else f"2026-02-{d - 31:02d}" for d in range(1, bars + 1)]
+    path = [100.0]
+    for k in range(1, bars):
+        path.append(path[-1] * (1.03 if (k // 5) % 2 == 0 else 0.97))
+    closes = {f"T{i}": (cal, list(path)) for i in range(n_t)}   # 전 종목 동일 경로
+    rows = []
+    for j, d in enumerate(cal[:n_d]):
+        level = 10.0 if (j // 5) % 2 == 0 else 0.0              # 오르는 구간엔 팩터 수준도 높다
+        for i in range(n_t):
+            rows.append({"date": d, "ticker": f"T{i}", "kind": "HOLD", "technical": 0,
+                         "fundamental": 0, "valuation": 50, "reversion": 0, "qualitative": 0,
+                         "flow": 0, "quality": 0, "short": 0, "score": 0,
+                         "momentum": level + (i % 2) * 0.001})
+    pooled_pairs = []
+    for r in rows:
+        rets = accuracy._forward_returns(*closes[r["ticker"]], r["date"], (5,))
+        if 5 in rets:
+            pooled_pairs.append((r["momentum"], rets[5]))
+    pooled = accuracy._spearman_ic(pooled_pairs)
+    out = accuracy.realized_accuracy(rows, closes, horizons=(5,), primary=5)
+    mean = out["factor_ic_stats"]["momentum"]["ic_mean"]
+    assert pooled is not None and abs(pooled) > 0.5, f"pooled가 안 속으면 검사가 무의미: {pooled}"
+    assert mean is None or abs(mean) < 0.05, f"횡단면 IC가 시장 드리프트를 먹었다: {mean}"
+
+
+def test_weight_proposals_require_significant_ic():
+    """유의하지 않은 IC로는 가중치를 제안하지 않는다 — 크기가 게이트면 곡선 맞추기가 된다."""
+    from signal_desk import brain_proposals
+
+    weights = {f"weight_{k}": 0.20 for k in
+               ("technical", "fundamental", "valuation", "reversion", "flow",
+                "quality", "momentum", "short")}
+    base = {"ic": -0.30, "n_dates": 30, "independent_dates": 1, "breadth_median": 190,
+            "horizon": 20, "ci95": 0.04, "t": -5.0, "p": 0.001, "significant": True,
+            "ic_ir": -1.0, "se_floored": False, "nw_lag": 19, "blocked_reason": None}
+    assert brain_proposals.build_weight_nudge("short", base, weights) is not None
+    for bad in ({**base, "significant": False, "p": 0.42,
+                 "blocked_reason": "IC가 0과 구분 불가"},
+                {**base, "ic": None, "significant": False,
+                 "blocked_reason": "IC 날짜 10/20일 — 판정 불가"}):
+        assert brain_proposals.build_weight_nudge("short", bad, weights) is None
+        assert brain_proposals.ic_usable(bad)[0] is False
+    # 신뢰 등급은 날짜 수와 p로 정한다(IC 절댓값이 등급을 올리지 못한다).
+    assert brain_proposals._confidence({**base, "n_dates": 30, "p": 0.001}) == "medium"
+    assert brain_proposals._confidence({**base, "n_dates": 60, "p": 0.30}) == "low"
+    assert brain_proposals._confidence({**base, "n_dates": 60, "p": 0.001}) == "high"
+
+
+def test_ic_se_is_never_smaller_than_iid():
+    """겹치는 h일 창의 SE를 iid보다 작게 주장하지 않는다(보수성 선택 · floored로 노출)."""
+    from signal_desk.signals import accuracy
+
+    alt = [0.1 if i % 2 == 0 else -0.1 for i in range(20)]     # 강한 음의 자기상관
+    nw = accuracy._newey_west_se(alt, 4)
+    assert nw["floored"] is True and nw["se"] == nw["se_naive"]
+    # 양의 자기상관이면 NW가 커진다 — 그쪽은 하한이 아니라 실제 보정이 걸려야 한다.
+    trend = [0.05 + 0.01 * i for i in range(20)]
+    nw2 = accuracy._newey_west_se(trend, 4)
+    assert nw2["se"] > nw2["se_naive"], (nw2["se"], nw2["se_naive"])

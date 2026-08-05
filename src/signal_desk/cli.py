@@ -150,10 +150,33 @@ def accuracy():
         f"[dim]baseline up {base.get('up_pct')}% · matured_primary "
         f"{cov.get('matured_primary')} · price_to {cov.get('price_data_to')}[/dim]"
     )
-    ic = out.get("factor_ic") or {}
-    parts = [f"{k} {v:+.3f}" for k, v in ic.items() if v is not None]
-    console.print("IC @" + f"h{out.get('factor_ic_horizon')}: "
-                  + (" · ".join(parts) if parts else "(표본 부족)"))
+    # IC는 숫자 하나로 찍지 않는다 — 크기만 보이면 그게 판별력처럼 읽힌다.
+    stats = out.get("factor_ic_stats") or {}
+    console.print(f"\n[bold]횡단면 IC @h{out.get('factor_ic_horizon')}[/bold] "
+                  f"(날짜 단위 · Newey-West · 요건 {out.get('ic_min_dates')}거래일)")
+    t = Table(box=None, pad_edge=False)
+    for col in ("팩터", "평균IC", "±CI95", "n일", "독립", "폭", "t", "p", "판정"):
+        t.add_column(col, justify="right" if col != "팩터" else "left")
+    for k, s in stats.items():
+        f = lambda v, d=3: (f"{v:+.{d}f}" if isinstance(v, (int, float)) else "–")  # noqa: E731
+        if s.get("ic") is not None and s.get("significant"):
+            mark = "[green]유의[/green]"
+        elif s.get("n_dates"):
+            mark = f"[dim]{'무유의' if s.get('ic') is not None else '날짜부족'}[/dim]"
+        else:
+            mark = "[dim]미측정[/dim]"
+        t.add_row(k, f(s.get("ic_mean")), f(s.get("ci95")), str(s.get("n_dates") or 0),
+                  str(s.get("independent_dates") or 0), str(s.get("breadth_median") or "–"),
+                  f(s.get("t"), 2), (f"{s['p']:.4f}" if s.get("p") is not None else "–"), mark)
+    console.print(t)
+    # 차단 이유는 **이유별로** 묶는다. "외 9팩터 동일"로 뭉치면 quality·short의
+    # `성숙 스냅샷 대기`(고장 후보)가 `날짜 부족`(정상 대기)에 섞여 안 보인다.
+    grouped: dict[str, list[str]] = {}
+    for k, s in stats.items():
+        if s.get("blocked_reason"):
+            grouped.setdefault(s["blocked_reason"], []).append(k)
+    for why, ks in grouped.items():
+        console.print(f"[yellow]{why}[/yellow] [dim]— {', '.join(ks)}[/dim]")
 
 
 @app.command()
