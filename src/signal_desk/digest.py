@@ -187,7 +187,9 @@ def build_morning(
     if sl:
         lines.append(sl)
         lines.append("")
-    zone = f"시장 ZONE {regime_label}" if regime_label else "시장 ZONE 판정 없음"
+    # 2026-08-06: `시장 ZONE` → `지금 시장`. 인사이트 탭의 `경기 사이클`과 **구분**하는 것이
+    # 이 라벨의 목적이므로(다개월 사이클 vs 오늘의 코스피 상태) 그 대비는 유지한다.
+    zone = f"지금 시장 {regime_label}" if regime_label else "지금 시장 판정 없음"
     head = (_selection_line(selection, exposure, exposure_reasons) if ranked
             else _threshold_line(threshold, base_threshold, bump_reasons))
     lines.append(f"{zone} · {head}")

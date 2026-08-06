@@ -25,7 +25,7 @@ def test_buy_list_and_zone_header():
                  _sig("C", "먼종목", "HOLD", 0.2)],
         regime_label="중립", threshold=1.2, base_threshold=1.2, date=_D)
     assert "7/24(금) 아침 브리핑" in out
-    assert "시장 ZONE 중립" in out and "매수문턱 1.20" in out
+    assert "지금 시장 중립" in out and "매수문턱 1.20" in out
     assert "매수 시그널 2" in out
     assert out.index("나") < out.index("가")      # 점수 내림차순
     assert "먼종목" not in out                    # HOLD·근접 아님 → 미노출

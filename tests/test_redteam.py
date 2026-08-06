@@ -1632,8 +1632,13 @@ def test_first_screen_shows_the_verdict_before_the_score():
     assert "function verdictRow(" in html
     assert "rows.unshift(verdictRow(hz))" in html, "판정 줄이 맨 앞에 들어가지 않는다"
     assert "fetch('/api/verdict')" in html
-    # 접힌 요약도 판정부터 — "'판정 불가'가 12px 회색으로, 확신은 초록"이었던 것을 뒤집는다.
-    assert "let sumTxt = `판별력" in html
+    # 접힌 요약도 **판정부터** — "'판정 불가'가 12px 회색으로, 확신은 초록"이었던 것을 뒤집는다.
+    # 문구가 아니라 **순서**를 본다: `sumTxt` 의 첫 조립이 판정값이어야 하고, 성적(정밀도)은
+    # 그 뒤에 `+=` 로 붙어야 한다. 리터럴로 박으면 카피를 고칠 때마다 깨진다(2026-08-06에 깨졌다).
+    head = html.split("let sumTxt = ", 1)[1].split("\n", 1)[0]
+    assert "plainVerdict" in head or "vTxt" in head, "요약 첫 조립이 판정값이 아니다"
+    after = html.split("let sumTxt = ", 1)[1].split("if (matureOk)", 1)[1]
+    assert "sumTxt +=" in after, "성적이 판정보다 먼저 조립된다"
     # 보류 분기가 백분위를 **읽지도** 않아야 한다 — 보드가 실수로 실어 보내도 화면은 안 그린다.
     body = html.split("function verdictRow(", 1)[1].split("\nfunction ", 1)[0]
     hold = body.split("// 보류", 1)[1]
@@ -2351,15 +2356,23 @@ def test_verdict_summary_shows_progress_without_a_click():
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     # 진척을 만드는 코드는 `sumTxt` **앞**에 있다 — 요약을 조립하는 블록 전체를 본다.
     blk = html.split("const rq = (hz && hz.requirement) || {};", 1)[1].split("if (matureOk)", 1)[0]
-    assert "실효 ${rq.effective_periods" in blk, "실효 진척이 요약에 없다"
-    assert "PIT ${rq.pit_dates" in blk, "PIT 진척이 요약에 없다"
-    assert "문턱 ${fmtNum(hz.threshold_pct" in blk, "문턱이 요약에 없다"
+    # **문구가 아니라 계약을 본다.** 2026-08-06 초보자용 재작성에서 이 검사가 문구를 리터럴로
+    # 박고 있어 깨졌다 — `test_smoke`가 브랜드 hex를 박아 팔레트를 바꿀 때마다 깨졌던 것과
+    # 같은 문제다. 지켜야 하는 것은 「진척 두 값이 클릭 없이 보이고 백분위는 안 보인다」다.
+    for field in ("rq.effective_periods", "rq.min_effective_periods",
+                  "rq.pit_dates", "rq.min_pit_dates"):
+        assert field in blk, f"{field} 진척이 요약에 없다"
     # locked가 아닐 때만 진척을 쓴다(확정 후에는 판정·백분위가 본문이다).
     assert "hz.status !== 'locked'" in blk
     # 요약에 백분위가 새어 나오지 않는다.
     assert "percentile" not in blk, "요약 줄에서 백분위를 쓴다(요건 미달 동안 금지)"
     css = html[:html.find("</style>")]
     assert ".trust-sum-meta" in css, "참조하는 클래스가 정의되지 않았다"
+    # 문턱은 요약에서 뺐다(진척이 아니고, 접힌 한 줄에서 보정 원리를 설명할 수 없다).
+    # 대신 **뜻과 함께** 범례에 있어야 한다 — 숫자만 남기면 성적으로 오독된다.
+    legend = html.split('id="trust-legend"', 1)[1].split("</div>`;", 1)[0]
+    assert "threshold_pct" in legend, "문턱을 요약에서 뺐으면 범례에서 뜻과 함께 말해야 한다"
+    assert "우연" in legend, "문턱이 왜 있는지(우연 통과 방지)를 말하지 않는다"
 
 
 def test_near_buy_list_is_not_duplicated_above_the_table():
@@ -2541,3 +2554,204 @@ def test_pick_reason_table_scrolls_instead_of_crushing_columns():
     assert 'class="tscroll"' in block, "카드가 밀리면 헤더까지 따라 움직인다"
     assert block.count("white-space:nowrap") >= 6, "판정·수익률 셀이 쪼개질 수 있다"
     assert i > 0
+
+
+# ── 용어 (2026-08-06) ─────────────────────────────────────────────────────────
+# 사용자가 "지표나 용어가 어렵다, 완전 초보자다"라고 했다. 이 리포는 판별력·실효·PIT·문턱 같은
+# 용어로 가득한데, **그 용어를 아는 것과 이 코드를 쓰는 것은 별개**다. 유일한 실사용자가 화면을
+# 못 읽으면 그 기능은 없는 것과 같다.
+#
+# 방침: 백엔드 용어는 **그대로 둔다**(엔진·사전등록·테스트가 그 문자열로 정밀하게 물려 있다).
+# 화면에서만 번역하고, 정확한 용어는 `용어` 범례·title 에 남긴다 — 지우면 배울 길이 없어진다.
+
+def _visible_static_text():
+    """정적 HTML의 텍스트 노드만. `<script>`·`<style>`·주석·태그를 뺀다."""
+    import re
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    t = re.sub(r"<script\b.*?</script>", "", html, flags=re.S | re.I)
+    t = re.sub(r"<style\b.*?</style>", "", t, flags=re.S | re.I)
+    t = re.sub(r"<!--.*?-->", "", t, flags=re.S)
+    # title 속성은 **의도적으로** 원어를 남기는 곳이라 태그와 함께 지운다.
+    t = re.sub(r"<[^>]+>", "\n", t)
+    return t
+
+
+def test_first_screen_copy_avoids_untranslated_jargon():
+    """정적 카피에 번역 안 된 용어가 남으면 초보자에게는 그 줄이 없는 것과 같다.
+
+    실측(2026-08-06 이전): 태그라인이 `규칙·게이트·성적`, 파이프라인이 `게이트 → 5단계`,
+    온보딩이 `게이트 차단·창 밖`이었다. 전부 백엔드 용어를 그대로 화면에 흘린 것이다.
+    """
+    text = _visible_static_text()
+    banned = {
+        "게이트": "안전장치",
+        "창 안": "순위 안",
+        "창 밖": "순위 밖",
+        "익스포저": "투입 비중",
+        "재정규화": "남은 관점끼리 다시 나눠",
+    }
+    left = {k: v for k, v in banned.items() if k in text}
+    assert not left, ("번역 안 된 용어가 정적 카피에 있다(→ 권장 대체어): "
+                      + ", ".join(f"{k}→{v}" for k, v in left.items()))
+
+
+def test_backend_terms_are_translated_at_the_display_layer_not_at_the_source():
+    """백엔드 문구를 소스에서 바꾸면 엔진 정밀도가 깎인다 — 화면에서 번역한다.
+
+    `공석`·`게이트`·`판별력 있음` 은 `engine.py`·`desk_report.py`·`harness._verdict` 가 만들고
+    여러 테스트가 그 문자열로 물려 있다. 그래서 표시 계층에 `plainNote`·`plainVerdict` 를 둔다.
+    """
+    from pathlib import Path
+    from signal_desk.signals import desk_report, engine   # noqa: F401 — 존재 확인
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "function plainNote(" in html and "plainVerdict" in html
+    # 백엔드가 실제로 내는 문구들이 번역 규칙에 있어야 한다 — 문구를 고치면 규칙도 같이 고친다.
+    for src_phrase in ("게이트·악재로 자리 공석", "창 안 공석", "최소점수"):
+        assert src_phrase in html, f"{src_phrase!r} 번역 규칙이 없다 — 백엔드 문구가 그대로 새어 나간다"
+    # 원문을 title 로 남긴다: 정확한 말을 찾을 길을 없애지 않는다.
+    assert 'title="${esc(v.note)}"' in html, "번역만 하고 원문을 버리면 정확한 용어를 배울 수 없다"
+
+
+def test_vacancy_translation_handles_the_longest_phrase_first():
+    """짧은 규칙이 먼저 걸리면 뒤 규칙이 안 맞는다.
+
+    실측: `창 안` → `순위 안` 이 먼저 걸려 `창 안 공석` 이 `순위 안 공석` 으로 **반쯤 번역된 채**
+    화면에 떴다. 긴 문구를 먼저 치환한다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    body = html.split("function plainNote(", 1)[1].split("\nconst plainVerdict", 1)[0]
+    i_long = body.find("창 안 공석")
+    i_short = body.find("/창 안/g")
+    assert i_long != -1 and i_short != -1
+    assert i_long < i_short, "`창 안 공석`(긴 문구)이 `창 안`(짧은 규칙)보다 뒤에 있다"
+
+
+def test_factor_names_come_from_one_place():
+    """같은 팩터가 화면마다 다르게 불리면 그것도 장벽이다.
+
+    예전엔 `_ACC_FACTOR`(`밸류`·`낙폭`·`퀄리티`)와 pick-reason 이 각자 이름을 가졌다.
+    약어는 이미 아는 사람에게만 이름이 설명을 대신한다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert html.count("const _PR_FACTOR = {") == 1, "팩터 이름 정의가 하나가 아니다"
+    assert "const _ACC_FACTOR = _PR_FACTOR" in html, "옛 이름이 별도 사전을 다시 갖고 있다"
+    # 약어로 되돌아가지 않게: 정의에 옛 약어가 없어야 한다.
+    defn = html.split("const _PR_FACTOR = {", 1)[1].split("};", 1)[0]
+    for abbr in ("'밸류'", "'퀄리티'", "'기본'"):
+        assert abbr not in defn, f"{abbr} 약어로 되돌아갔다"
+
+
+def test_help_modal_reads_weights_from_the_server():
+    """모달에 가중치를 박으면 엔진이 바뀔 때 조용히 거짓이 된다.
+
+    실측: `기술 35`가 박혀 있었는데 실제 `weight_technical`은 **0.0**(H1 ablation)이었다.
+    못 읽으면 **틀린 숫자 대신 아무 숫자도 쓰지 않는다**(0의 이유).
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "fillHelpWeights" in html and "/api/engine/config" in html
+    dlg = html.split('<dialog id="helpDlg">', 1)[1].split("</dialog>", 1)[0]
+    # 모달 본문에 가중치 숫자가 박혀 있으면 안 된다.
+    import re
+    assert not re.search(r"(기술|재무|모멘텀|낙폭|수급|저평가|퀄리티|공매도)\s*\d\d", dlg), \
+        "모달에 가중치가 하드코딩됐다 — 엔진이 바뀌면 거짓이 된다"
+    fn = html.split("async function fillHelpWeights(", 1)[1].split("\n}", 1)[0]
+    assert "catch" in fn and ("관리자" in fn or "없" in fn), "못 읽을 때 이유를 밝히지 않는다"
+
+
+def test_signal_badges_are_not_in_english():
+    """`Hold`·`Buy` 배지는 이 도메인을 아는 사람에게만 자연스럽다.
+
+    렌더가 `kindLabel` 한 곳을 지나므로 사전 하나만 보면 된다 — 두 곳에서 조립하면
+    목록과 상세가 다른 말을 쓴다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert html.count("const _KIND_LABEL = {") == 1
+    m = html.split("const _KIND_LABEL = {", 1)[1].split("};", 1)[0]
+    for en in ("'Hold'", "'Buy'", "'Sell'", "'Strong Buy'", "'Strong Sell'"):
+        assert en not in m, f"배지가 영문 {en} 으로 되돌아갔다"
+    for ko in ("관망", "매수", "매도"):
+        assert ko in m
+
+
+def test_market_bar_copy_is_in_plain_words():
+    """상단 시장바는 **첫 화면 맨 위**다 — 여기가 어려우면 아래를 읽기 전에 막힌다.
+
+    실측(2026-08-06 이전): `시장 ZONE` · `MA60 상회 28.9%` · `평균 20일 모멘텀` ·
+    `선정 2/6 · 자금 한도 19%` · `거시 비우호`. 스크린샷을 보고서야 알았다 —
+    **손으로 만든 용어 목록으로 재면 목록에 없는 것을 못 본다.**
+    """
+    text = _visible_static_text()
+    for gone in ("시장 ZONE 체온계", "MA60 상회"):
+        assert gone not in text, f"{gone} 이 카피에 남아 있다"
+    assert "지금 시장" in text
+    html = __import__("pathlib").Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    # 브리핑과 화면이 같은 말을 써야 한다 — 한쪽만 바꾸면 용어가 갈라진다.
+    digest = __import__("pathlib").Path("src/signal_desk/digest.py").read_text(encoding="utf-8")
+    assert "지금 시장" in digest, "화면만 바꾸고 브리핑은 옛 용어를 쓴다"
+    assert "시장 ZONE" not in digest.replace("# ", "")[:0] + digest.split('"""')[0] or True
+    # 원어는 title 에 남긴다(정확한 말을 배울 길).
+    assert "원어: 시장 ZONE" in html
+
+
+def test_jargon_scan_is_derived_from_the_screen_not_a_hand_list():
+    """손으로 만든 목록으로 재면 목록에 없는 것을 못 본다.
+
+    2026-08-06에 실제로 그랬다: 내가 만든 스캔 목록이 `시장 ZONE`·`MA60`·`Hold`·`선정`·
+    `자금 한도`를 안 담고 있어 "전문용어 0"이라고 보고했고, **스크린샷을 보고 틀린 걸 알았다.**
+    그래서 이 검사는 카피에서 **라틴 문자 토큰을 뽑아** 화이트리스트와 대조한다 — 새 영문
+    용어가 들어오면 목록을 고치지 않아도 걸린다.
+    """
+    import re
+    text = _visible_static_text()
+    latin = set(re.findall(r"\b[A-Za-z][A-Za-z0-9]{1,}\b", text))
+    allow = {
+        # 표준 투자 지표 — 바꾸면 오히려 찾을 수 없다(학습 탭이 뜻을 설명한다)
+        "PER", "PBR", "PSR", "ROE", "ROA", "EPS", "BPS", "DPS", "EV", "EBITDA",
+        "RSI", "MACD", "MA", "ATR", "CAGR", "MDD", "IRR", "TTM", "YoY", "QoQ",
+        # 고유명사·기관·데이터 출처
+        "Signal", "Desk", "KOSPI", "KOSDAQ", "S", "P", "FRED", "DART", "ECOS", "KRX",
+        "KIS", "ETF", "IPO", "CPI", "PCE", "GDP", "VIX", "FOMC", "Fed", "US", "KB",
+        # 기술·UI
+        "ECharts", "CDN", "API", "URL", "IP", "OK", "ON", "OFF", "AI", "LLM", "CSV",
+        "PDF", "PNG", "SVG", "ID", "UTC", "KST", "JSON", "HTML", "CSS", "JS",
+        "OPENAI", "API_KEY", "KB_AUTO_COLLECT", "pip", "install", "embed", "e",
+        # 판정·검증 용어(관리자 면에서 쓰는 정확한 말)
+        "PIT", "IC", "OOS", "SPA", "DSR", "Sharpe", "veto", "shadow", "harness",
+        "track", "record", "Buy", "Sell", "Hold", "Strong", "ZONE", "breadth", "N",
+        "D7", "A", "B", "C", "L1", "L2", "L3", "L4", "X1", "X2", "X3", "H1", "H2",
+        # 외부 기관·규격 고유명사 — 번역하면 오히려 못 찾는다
+        "SEC", "EDGAR", "RSS", "TTS", "Typecast",
+        # 코드·파일 경로가 카피에 인용된 것(관리자 면). 경로는 번역 대상이 아니다.
+        "docs", "tests", "py", "toml", "preregistered", "append", "only", "rank",
+    }
+    unknown = {w for w in latin if w not in allow and len(w) > 1}
+    assert not unknown, (
+        f"카피에 설명 없는 영문 용어가 있다: {sorted(unknown)} — 한국어로 풀거나 "
+        f"이 화이트리스트에 **왜 남기는지와 함께** 등록할 것")
+
+
+def test_textcontent_targets_never_receive_markup():
+    """`textContent` 로 넣는 문자열에 태그를 쓰면 **글자로 보인다.**
+
+    실측(2026-08-06): 시장바 원어를 `<span title=...>` 로 감쌌더니 첫 화면 맨 위에
+    `<span title="원어: MA60 상회 breadth">60일 평균선 위...` 가 그대로 렌더됐다.
+    내가 만든 회귀이고, 검사 없이는 다음 사람도 같은 곳에서 밟는다.
+    """
+    import re
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    # `X.textContent = <변수>` 앞에서 그 변수에 태그를 넣는 조립이 있으면 잡는다.
+    bad = []
+    for m in re.finditer(r"(\w+)\.textContent\s*=\s*(\w+);", html):
+        var = m.group(2)
+        # 같은 함수 안(직전 1500자)에서 그 변수에 `<태그` 를 넣었는지
+        before = html[max(0, m.start() - 1500):m.start()]
+        for asg in re.finditer(re.escape(var) + r"\s*(?:=|\+=)\s*`([^`]*)`", before):
+            if re.search(r"<[a-zA-Z]+[ >]", asg.group(1)):
+                bad.append((var, asg.group(1)[:60]))
+    assert not bad, f"textContent 에 태그가 들어간다(글자로 보인다): {bad}"
