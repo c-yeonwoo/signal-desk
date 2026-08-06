@@ -290,6 +290,25 @@ def _is_stale(key: str) -> bool:
         return False
 
 
+def _auto_refresh_note(key: str, label: str, reason: str | None) -> None:
+    """stale 자동 갱신의 **결과**를 kv에 남긴다 — 실패가 화면에 안 뜨면 매일 실패해도 모른다.
+
+    `kb.refresh` 가 `kv:kb_refresh_last` 로 어느 항목이 실패했는지 이름과 함께 남기는 것과 같은
+    규약이다. 성공하면 해당 키를 지운다(오래된 실패가 유령으로 남지 않게).
+    """
+    try:
+        cur = json.loads(db.kv_get("auto_refresh_last") or "{}")
+        if not isinstance(cur, dict):
+            cur = {}
+        if reason:
+            cur[key] = {"label": label, "reason": reason, "at": _kst_today()}
+        else:
+            cur.pop(key, None)
+        db.kv_set("auto_refresh_last", json.dumps(cur, ensure_ascii=False))
+    except Exception as e:                         # noqa: BLE001 — 기록 실패가 갱신을 막지 않는다
+        log.warning("자동 갱신 기록 실패 %s: %s", key, type(e).__name__)
+
+
 def _daily_maintenance(enabled: list[str]) -> None:
     """하루 1회(평일 마감 후): 시세·수급 갱신 + 공용 KB 갱신 + 유저별 종가 스냅샷.
 
@@ -362,12 +381,22 @@ def _daily_maintenance(enabled: list[str]) -> None:
         ("fund_hist", "연도별 재무(PIT)", lambda: store.fetch_fundamentals_history(store.load_universe())),
         ("universe_hist", "PIT 유니버스(월 스냅샷)", lambda: store.fetch_universe_history()),
     ):
+        # **반환값을 확인한다.** 예전엔 `fn()` 결과를 버리고 성공 로그만 찍었다 —
+        # `fetch_universe_history`가 `{"ok": False, "reason": "KRX_API_KEY 없음"}` 을 돌려줘도
+        # `자동 갱신(stale): PIT 유니버스` 로 찍혀 성공처럼 보였고, 파일은 영원히 안 생기는데
+        # stale 판정은 계속 True라 **매일 실패하며 매일 성공 로그를 남겼다**(프로덕션 실측).
         try:
             if not _is_stale(key):
                 continue
-            fn()
+            r = fn()
+            if isinstance(r, dict) and r.get("ok") is False:
+                _auto_refresh_note(key, label, str(r.get("reason") or "이유 없음"))
+                log.warning("자동 갱신 거부 %s: %s", label, r.get("reason"))
+                continue
+            _auto_refresh_note(key, label, None)
             log.info("자동 갱신(stale): %s", label)
         except Exception as e:
+            _auto_refresh_note(key, label, f"{type(e).__name__}")
             log.warning("자동 갱신 실패 %s: %s", label, type(e).__name__)
     try:
         # PIT 스냅샷은 종가 기준이어야 한다 — 장중 실시간가 오버레이가 남아 있으면 장중가로 계산한
@@ -2247,6 +2276,11 @@ def data_health_get():
     fresh = store.data_freshness()
     # 저장소가 배포를 넘어 살아남는지 — 리셋 불가 장부의 전제다.
     storage = store.storage_report()
+    # stale 자동 갱신이 **거부**된 소스(키 없음 등). 성공 로그만 찍고 넘어가면 매일 실패해도 모른다.
+    try:
+        auto_refresh = json.loads(db.kv_get("auto_refresh_last") or "{}")
+    except Exception:                              # noqa: BLE001
+        auto_refresh = {}
     # 브리핑 첫 줄과 **같은 함수**를 쓴다. 같은 판단을 두 곳에서 조립하면 화면과 알림이 다른
     # 말을 하게 되고, 그 차이는 어느 화면에도 안 나타난다.
     stall = _safe_stall()
@@ -2272,6 +2306,8 @@ def data_health_get():
         "stall_line": digest.stall_line(stall),
         # 저장소가 배포를 넘어 살아남는지 — 리셋 불가 장부의 전제. 볼륨 미마운트를 증상으로 잡는다.
         "storage": storage,
+        # 자동 갱신이 거부된 소스 — 이름과 이유. 비어 있으면 전부 정상이다.
+        "auto_refresh_blocked": auto_refresh,
         **store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift(),
             # veto·검색이 조용히 비어 있는 경우를 이유와 함께 드러낸다(0은 정상일 수도, 고장일 수도).
             "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),

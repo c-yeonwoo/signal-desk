@@ -2077,3 +2077,80 @@ def test_wide_tables_scroll_inside_their_own_container():
     assert ".tscroll { overflow-x:auto;" in css
     assert ".tscroll > table.dtable { min-width:max-content; }" in css
     assert '<div class="tscroll"><table class="dtable"><thead><tr><th>모델</th>' in html
+
+
+# ── 프로덕션에서만 죽는 것 ──────────────────────────────────────────────────────
+# 2026-08-06 프로덕션 실측: #323~#337을 전부 배포했는데 `/api/verdict`가
+# `판정 불가 · 사전등록 파일 없음` 이었다. 원인은 코드가 아니라 **Dockerfile**이었다 —
+# `COPY pyproject.toml README.md ./` + `COPY src ./src` 뿐이라 `docs/` 가 이미지에 없었다.
+# 로컬 테스트는 전부 통과한다(파일이 있으니까). 배포 산출물을 검사하지 않으면 못 잡는다.
+
+def test_runtime_read_files_outside_src_are_in_the_docker_image():
+    """`src/` 밖 상대경로를 런타임에 읽으면 그 파일이 이미지에 복사돼야 한다.
+
+    `data/` 밑은 볼륨이라 예외다(캐시는 이미지에 넣지 않는다 — `.dockerignore`가 막는다).
+    """
+    import re
+    from pathlib import Path
+
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    copied = " ".join(re.findall(r"^COPY\s+(.+)$", dockerfile, re.M))
+    missing = []
+    for py in Path("src/signal_desk").rglob("*.py"):
+        for lit in re.findall(r'Path\("([^"]+)"\)', py.read_text(encoding="utf-8")):
+            if lit.startswith(("data/", ".", "/")) or "*" in lit:
+                continue
+            top = lit.split("/", 1)[0]
+            if lit not in copied and top not in copied.split():
+                missing.append(f"{py.name}: {lit}")
+    assert not missing, (
+        f"런타임에 읽는데 이미지에 없는 파일: {missing} — Dockerfile에 COPY를 추가하거나 "
+        f"패키지 안으로 옮길 것")
+
+
+def test_prereg_file_is_copied_explicitly():
+    """사전등록 정본이 이미지에 있어야 판정 보드가 산다 — 프로덕션에서 통째로 죽었던 지점."""
+    from pathlib import Path
+
+    from signal_desk import prereg
+
+    dockerfile = Path("Dockerfile").read_text(encoding="utf-8")
+    assert str(prereg.DEFAULT_PATH) in dockerfile, (
+        f"{prereg.DEFAULT_PATH}가 Dockerfile에 없다 — 프로덕션에서 '사전등록 파일 없음'이 된다")
+    assert prereg.DEFAULT_PATH.exists(), "리포에 사전등록 파일이 없다"
+
+
+def test_stale_auto_refresh_checks_the_return_value():
+    """`{"ok": False}`를 버리고 성공 로그만 찍으면 **매일 실패하며 매일 성공처럼 보인다.**
+
+    프로덕션 실측: `fetch_universe_history`가 `KRX_API_KEY 없음`으로 거부됐는데
+    `자동 갱신(stale): PIT 유니버스` 로 찍혔다. 파일은 안 생기고 stale 판정은 계속 True라
+    매일 같은 일이 반복됐고 화면에는 아무 것도 안 떴다.
+    """
+    import inspect
+
+    from signal_desk import api as api_mod
+
+    src = inspect.getsource(api_mod._daily_maintenance)
+    blk = src.split("for key, label, fn in (", 1)[1]
+    assert "r = fn()" in blk, "반환값을 받지 않는다"
+    assert 'r.get("ok") is False' in blk, "ok=False를 확인하지 않는다"
+    assert "_auto_refresh_note" in blk, "실패를 기록하지 않는다"
+    # 성공 시에는 기록을 지운다 — 오래된 실패가 유령으로 남으면 화면이 거짓말한다.
+    note = inspect.getsource(api_mod._auto_refresh_note)
+    assert "cur.pop(key, None)" in note
+
+
+def test_auto_refresh_failures_reach_the_screen():
+    """기록만 하고 화면에 안 띄우면 아무도 안 본다(수집 정지·저장소 배너와 같은 규약)."""
+    import inspect
+    from pathlib import Path
+
+    from signal_desk import api as api_mod
+
+    assert '"auto_refresh_blocked"' in inspect.getsource(api_mod.data_health_get)
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "auto_refresh_blocked" in html and "자동 갱신이 거부된 소스" in html
+    # 이유를 이름과 함께 — "1건 실패"만 쓰면 무엇을 고쳐야 하는지 모른다.
+    blk = html.split("const ar = d.auto_refresh_blocked", 1)[1][:900]
+    assert "ar[k].reason" in blk and "ar[k].label" in blk
