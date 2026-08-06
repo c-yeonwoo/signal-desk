@@ -12,6 +12,12 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir .
 
+# **사전등록 정본은 런타임에 읽는다** — `prereg.DEFAULT_PATH = Path("docs/preregistered.toml")`.
+# 이미지에 없으면 프로덕션에서 판정 보드가 통째로 죽는다("사전등록 파일 없음"). 실제로 그랬다:
+# #323~#337을 다 배포하고도 `/api/verdict`가 판정 불가였다. 파일 하나를 명시적으로 복사한다
+# (`COPY docs ./docs` 로 뭉치면 `.dockerignore` 의 `*.md` 때문에 무엇이 들어가는지 헷갈린다).
+COPY docs/preregistered.toml ./docs/preregistered.toml
+
 # 데이터 캐시/SQLite는 볼륨으로 마운트 권장(백업 대상): -v signal_desk_data:/app/data
 ENV HOST=0.0.0.0 PORT=8765 APP_ENV=prod
 EXPOSE 8765

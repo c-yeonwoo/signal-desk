@@ -1484,6 +1484,11 @@ def data_freshness() -> list[dict]:
         # 월 1회 갱신 → 40일. 등록하지 않으면 낡아도 화면에 안 뜬다(N1 규칙).
         e("universe_hist", "PIT 유니버스(월 스냅샷)", UNIVERSE_HISTORY_FILE, 40,
           _json_rows(UNIVERSE_HISTORY_FILE)),
+        # 유예 목록 — 2026-08-06 프로덕션 점검에서 이 목록에 없어 화면에 안 뜨고 있었다.
+        # "새 캐시 파일을 만들면 그 목록에 등록하는 것까지가 한 세트다"라고 적어 둔 규칙 위반이었다.
+        # 유예는 정상 동작이라 stale 임계를 길게(30일) 두고, **몇 종목이 유예 중인지**를 rows로 낸다.
+        e("us_price_skip", "미국 시세 유예 목록", US_PRICE_SKIP_FILE, 30,
+          _json_rows(US_PRICE_SKIP_FILE)),
     ]
 
 

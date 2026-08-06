@@ -5036,6 +5036,18 @@ function renderDataHealth(d){
         + `<div style="margin-top:4px;color:var(--dim)">${esc(String(d.stall_line).replace(/^🔧\s*/, ''))}</div>`
         + `<div style="margin-top:4px;color:var(--dim-2);font-size:12px">아침 브리핑 첫 줄에도 같은 내용이 갑니다.</div></div>`;
     }
+    // 자동 갱신 거부 배너 — 키 없음 등으로 **매일 실패하는데 성공 로그만 찍히던** 것.
+    const ar = d.auto_refresh_blocked || {};
+    const arKeys = Object.keys(ar);
+    if (arKeys.length) {
+      html += `<div style="border:1px solid var(--sell);border-radius:8px;padding:9px 11px;margin:0 0 12px;font-size:13px">`
+        + `<b style="color:var(--sell)">자동 갱신이 거부된 소스 ${arKeys.length}건</b>`
+        + arKeys.map(k => `<div style="margin-top:4px;color:var(--dim)">`
+            + `${esc(ar[k].label || k)} — ${esc(ar[k].reason || '')}`
+            + `${ar[k].at ? ` <span style="color:var(--dim-2)">(${esc(ar[k].at)})</span>` : ''}</div>`).join('')
+        + `<div style="margin-top:4px;color:var(--dim-2);font-size:12px">매일 다시 시도하지만`
+        + ` 원인을 고치지 않으면 파일이 생기지 않습니다.</div></div>`;
+    }
     // 저장소 휘발성 배너 — 정지 배너 바로 아래. 볼륨이 없으면 배포마다 장부가 지워지고,
     // 지워진 것은 조용하다(새 DB가 만들어져 "누적 중"으로 보인다). 정상일 때는 아무 말도 안 한다.
     const sto = d.storage || {};

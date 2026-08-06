@@ -415,6 +415,23 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
   것이다. 대상 집합은 옆 기능의 on/off가 아니라 그 기능의 정의에서 뽑는다
   (`db.uids_with_ticker_favorites`).
 
+- **런타임에 읽는 파일이 배포 이미지에 있는지 검사한다(2026-08-06 프로덕션 점검).** #323~#337을
+  전부 배포했는데 `/api/verdict`가 `판정 불가 · 사전등록 파일 없음`이었다. 코드가 아니라
+  **Dockerfile**이 문제였다 — `COPY pyproject.toml README.md ./` + `COPY src ./src` 뿐이라
+  `docs/preregistered.toml`이 이미지에 없었다. **로컬 테스트는 전부 통과한다**(파일이 있으니까).
+  `test_runtime_read_files_outside_src_are_in_the_docker_image`가 `src/` 밖 상대경로 리터럴을
+  전부 훑어 Dockerfile의 COPY와 대조한다(`data/` 밑은 볼륨이라 예외). 그리고 **이미지를 실제로
+  빌드해 실행**해서 확인했다 — 검사만으로는 `.dockerignore` 상호작용을 못 본다.
+- **`{"ok": False}`를 버리고 성공 로그를 찍으면 매일 실패하며 매일 성공처럼 보인다.** stale 자동
+  갱신 루프가 `fn()` 반환값을 버렸다. `fetch_universe_history`가 `KRX_API_KEY 없음`으로 거부됐는데
+  `자동 갱신(stale): PIT 유니버스`로 찍혔고, 파일은 안 생기는데 stale 판정은 계속 True라 **4일간
+  같은 일이 반복되며 화면엔 아무 것도 안 떴다.** 반환값을 확인해 `kv:auto_refresh_last`에 이름과
+  이유를 남기고 배너로 띄운다. 성공하면 그 항목을 지운다(오래된 실패가 유령으로 남지 않게).
+- **프로덕션은 로컬과 다른 것이 깨진다 — 배포 산출물을 지문 감별한다.** 프로덕션 `index.html`의
+  sha256을 로컬과 대조하는 것만으로 (a) 어느 커밋까지 배포됐는지, (b) 내가 머지했다고 믿은 것이
+  실제로 들어갔는지를 동시에 알 수 있다. `/api/*`는 인증 미들웨어가 **라우팅 전에** 401을 내므로
+  없는 경로도 401이다 — 라우트 존재 판독에 쓸 수 없다.
+
 - **비용 상한은 라우트가 아니라 호출 모듈에 둔다(2026-08-06).** `/api/chat`에만 걸면 `llm`을 부르는
   나머지 10개 모듈(kb·audit·advisor·narrative·hypothesis·rebalance·bot·company·shortform·api)이
   조용히 우회한다. `llm.budget_state()`가 **모든** 호출자에게 걸리고, 라우트는 **폭주 속도**만 본다
