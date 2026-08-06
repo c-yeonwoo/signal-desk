@@ -2360,3 +2360,35 @@ def test_verdict_summary_shows_progress_without_a_click():
     assert "percentile" not in blk, "요약 줄에서 백분위를 쓴다(요건 미달 동안 금지)"
     css = html[:html.find("</style>")]
     assert ".trust-sum-meta" in css, "참조하는 클래스가 정의되지 않았다"
+
+
+def test_near_buy_list_is_not_duplicated_above_the_table():
+    """근접 목록은 **바로 아래 표의 상위 행과 같은 종목**이다(기본 정렬이 시그널순이므로 항상).
+
+    실측: 근접 5종목 = 표 상위 5행(000990·002380·298040·039490·005440) — 표는 섹터·시그널
+    배지·관심★까지 더 보여준다. 유일한 추가 정보였던 `문턱까지`는 5행 전부 **0.00**이었다.
+    이 종목들은 문턱을 **이미 통과**하고 게이트로 막힌 것이라(헤더가 `문턱 통과 31 > 창 6자리`),
+    "문턱에 아직 못 미쳤다"는 반대 인상을 준다 — 중복인데다 오해를 만들었다.
+    """
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    for dead in ('class="sp-near"', "sp-near-row", "sp-gap", "문턱까지 ${fmtNum(gap"):
+        assert dead not in html, f"근접 목록이 되살아났다: {dead}"
+    # 개수와 필터 진입점은 남아야 한다 — 목록만 없앤 것이고 기능을 없앤 게 아니다.
+    assert "가까운 종목 <b>${nearN}</b>개" in html
+    assert "filterPrecisionBucket('near')" in html
+
+
+def test_toolbar_search_does_not_force_a_second_line_on_desktop():
+    """`flex:1 1 100%` 는 폭이 남는 데스크톱에서도 무조건 줄을 바꾼다.
+
+    실측: 463px 패널에서 툴바가 108px(2줄)이었다. 미디어쿼리 안이라고 생각하고 넣었는데
+    기본 CSS였다. basis를 140px로 주면 들어갈 때는 한 줄, 안 들어갈 때만 접힌다.
+    """
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    css = html[:html.find("</style>")]
+    assert "#sig-search { order:3; flex:1 1 140px; }" in css
+    assert "#sig-search { order:3; flex:1 1 100%; }" not in css
