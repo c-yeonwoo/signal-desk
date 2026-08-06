@@ -1640,3 +1640,57 @@ def test_first_screen_shows_the_verdict_before_the_score():
     # locked 분기만 백분위를 쓴다.
     locked = body.split("if (hz.status === 'locked')", 1)[1].split("// 보류", 1)[0]
     assert "hz.percentile" in locked
+
+
+# ── X5: 닿지 않는 표면 ─────────────────────────────────────────────────────────
+# 2026-08-06: X5의 원래 계획은 "표면 덜어내기"(숏폼·D7·온보딩 삭제)였는데, 그 셋은
+# `docs/north-star-selection.md:49` 가 이미 **동결**로 결정한 것들이다 — 동결이 결정이고
+# 지우는 건 V1·V2에 아무것도 더하지 않는다. 실제 문제는 기능이 많은 게 아니라
+# **닿지 않는 기능**이 많은 것이었다: 라우트 112개 중 11개가 화면·CLI 어디서도 안 불렸고,
+# 그중 `/api/pick-reason` 은 북극성 A의 절반("고른 이유를 사후 재생")인데 화면이 없었다.
+
+# 부르는 곳이 없어도 되는 라우트 — **이유를 하나씩 적는다.** 통째로 스킵하면 새로 생긴
+# 고아 라우트가 조용히 섞이고, 그게 정확히 이 검사가 막으려는 것이다.
+_ROUTES_WITHOUT_UI = {
+    # 외부(cron·스케줄러)가 부른다
+    "/api/morning-digest": "외부 스케줄러가 부른다(브리핑 발송)",
+    "/api/morning-digest/test": "발송 검증용 수동 호출",
+    # 서버가 URL을 만들어 클라이언트에 내려준다 → 정적 grep으로는 안 잡힌다
+    "/api/shortform/background-image": "서버가 캐시버스트 URL을 만들어 kv로 내려준다",
+    # 아직 화면이 없는 것 — **삭제 후보가 아니라 미완성 표시다.**
+    "/api/pick-reason": "북극성 A의 절반(고른 이유 재생) — 화면 미연결. 지우지 말고 붙일 것",
+    "/api/buylist": "매수 대기 목록 API — 화면은 시그널 목록에서 자체 계산. 중복 여부 확인 필요",
+    "/api/methods": "방법론 문서 API — 화면 미연결",
+    "/api/valuation": "저평가 스크리너 API — 화면은 시그널 payload로 필터. 중복 여부 확인 필요",
+    "/api/bot/decisions": "봇 판단 저널 — 화면 미연결(트레이딩 탭은 체결만 보여준다)",
+    "/api/kb/events/review": "KB 이벤트 검수 — 큐가 0건이라 화면 경로가 안 만들어졌다",
+    "/api/kb/poll-disclosures": "공시 폴링 수동 트리거 — 일일 루프가 대신 부른다",
+}
+
+
+def test_every_api_route_has_a_caller_or_a_stated_reason():
+    """라우트를 만들고 화면에 안 붙이면 그 기능은 존재하지만 닿을 수 없다.
+
+    `product_reviewer` 가 그랬다 — 라우트 2개가 있는데 UI 버튼이 없고 `kv:product_review_last`
+    가 없어 **한 번도 실행된 적이 없었다**. 새 라우트를 붙이지 않은 채 넘어가면 이 검사가 잡는다.
+    """
+    import re
+    from pathlib import Path
+
+    api = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    callers = (Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+               + Path("src/signal_desk/cli.py").read_text(encoding="utf-8"))
+    routes = {p for _, p in re.findall(r'@app\.(get|post|delete)\("([^"]+)"', api)}
+    orphans = sorted(p for p in routes
+                     if not p.startswith(("/api/auth", "/health")) and "{" not in p
+                     and p not in callers)
+    unexplained = [p for p in orphans if p not in _ROUTES_WITHOUT_UI]
+    assert not unexplained, (
+        f"부르는 곳이 없는 새 라우트: {unexplained} — 화면에 붙이거나 "
+        f"_ROUTES_WITHOUT_UI에 **이유와 함께** 등록할 것")
+    # 반대 방향도 본다: 사라진 라우트가 허용 목록에 유령으로 남으면 목록이 낡는다.
+    stale = [p for p in _ROUTES_WITHOUT_UI if p not in routes]
+    assert not stale, f"허용 목록에 없는 라우트가 남아 있다: {stale}"
+    # 목록이 자라기만 하는 것을 막는다. 지금 10개이고, 늘리려면 이 숫자를 같이 올려야 한다.
+    assert len(_ROUTES_WITHOUT_UI) <= 10, (
+        f"닿지 않는 라우트가 {len(_ROUTES_WITHOUT_UI)}개로 늘었다 — 붙이거나 지울 것")
