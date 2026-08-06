@@ -2003,3 +2003,77 @@ def test_trial_counts_are_visible_in_admin():
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     assert "h.trial_counts" in html and "distinct_configs" in html
     assert "고르기를 보정" in html, "왜 이 수를 보여주는지 화면에 안 쓰여 있다"
+
+# ── 모바일 레이아웃 ────────────────────────────────────────────────────────────
+# 2026-08-06 실측(375px): 시그널 종목 표가 깨져 있었다. `table-layout: fixed` + `<colgroup>`인데
+# 모바일 미디어쿼리가 `섹터` 열의 th/td만 `display:none` 하고 **`<col>`의 인라인 width는 그대로
+# 남아** 보이지 않는 열이 30%(103px)를 계속 예약했다 — 인라인 스타일은 미디어쿼리가 못 이긴다.
+# 결과: 종목명이 `HD한국조선해` + `양`으로 쪼개지고 배지가 줄바꿈돼 행 높이가 80~119px로 들쭉날쭉.
+
+def test_mobile_breakpoint_matches_between_css_and_js():
+    """열을 접는 폭이 CSS와 JS에서 다르면 열은 숨겼는데 폭은 남거나 그 반대가 된다."""
+    import re
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    js_px = re.search(r"_SIG_NARROW_PX\s*=\s*(\d+)", html)
+    assert js_px, "_SIG_NARROW_PX가 없다"
+    # 섹터 열을 접는 미디어쿼리의 max-width를 찾는다.
+    css = html[:html.find("</style>")]
+    hide = css.find("th:nth-child(3), .sig-list table.dtable td:nth-child(3) { display:none; }")
+    assert hide > 0, "섹터 열을 접는 미디어쿼리를 못 찾았다"
+    mq = re.findall(r"@media \(max-width:(\d+)px\)", css[:hide])
+    assert mq, "미디어쿼리 브레이크포인트를 못 찾았다"
+    assert int(mq[-1]) == int(js_px.group(1)), (
+        f"CSS {mq[-1]}px vs JS {js_px.group(1)}px — 열 접기 폭이 어긋난다")
+
+
+def test_hidden_table_column_uses_display_none_not_zero_width():
+    """`<col>`을 폭 0으로 두면 fixed 레이아웃이 다음 열 몫을 그 0폭 열에 먹인다.
+
+    실측: col-sector `width:0` → 배지 셀 폭 **0** / `display:none` → **148** ✓.
+    폭 0일 때 `매수권밖`이 한 글자씩 세로로 쪼개졌다 — 에러가 아니라 이상한 모양으로만 렌더된다.
+    """
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    fn = html.split("function applySigColWidths(", 1)[1].split("\n}", 1)[0]
+    assert "sector.style.display = narrow ? 'none' : ''" in fn, "섹터 열을 display로 접지 않는다"
+    # 폭 0으로 되돌아가는 회귀를 막는다.
+    assert "set('col-sector', narrow ? '0'" not in html
+    # 좁은 폭에서 남는 두 열이 100%를 나눠 가져야 한다(안 하면 30%가 죽은 공간으로 남는다).
+    assert "w.name / (w.name + w.sig) * 100" in fn
+
+
+def test_signal_column_widths_recompute_on_resize():
+    """회전·창 크기 변경에 다시 계산하지 않으면 세로→가로 전환 후 깨진 채 남는다."""
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    # 리스너를 **하나만** 둔다 — 같은 일을 두 곳에서 시키면 하나를 고칠 때 다른 쪽이 남는다.
+    assert html.count("window.addEventListener('resize'") == 1
+    blk = html.split("window.addEventListener('resize'", 1)[1][:900]
+    assert "applySigColWidths" in blk
+
+
+def test_label_value_pairs_do_not_break_across_lines():
+    """라벨과 값이 서로 다른 줄에 놓이면 짝이 깨진다(375px에서 `PBR` / `1.57`이 분리됐다)."""
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    css = html[:html.find("</style>")]
+    assert ".sig-quote .q-pair { white-space:nowrap; }" in css
+    # 라벨만 span이고 값이 맨 텍스트 노드로 남는 옛 패턴이 돌아오지 않게 한다.
+    assert '<span class="q-k">PER</span> ${' not in html
+    assert "const pair = (k, v) =>" in html
+
+
+def test_wide_tables_scroll_inside_their_own_container():
+    """넓은 표가 조상 카드를 가로로 밀면 헤더·문단까지 따라 움직여 읽던 위치를 잃는다."""
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    css = html[:html.find("</style>")]
+    assert ".tscroll { overflow-x:auto;" in css
+    assert ".tscroll > table.dtable { min-width:max-content; }" in css
+    assert '<div class="tscroll"><table class="dtable"><thead><tr><th>모델</th>' in html
