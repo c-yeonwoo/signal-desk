@@ -27,7 +27,7 @@ from signal_desk.jsonutil import finite_or_none, json_safe
 
 from signal_desk import (
     auth, bot, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
-    notify, shortform, signalcfg, store, strategy,
+    llm, notify, shortform, signalcfg, store, strategy,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
@@ -441,6 +441,12 @@ async def _bot_loop():
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    try:
+        # 저장소 휘발성 탐지 — 배포마다 카운터가 1로 돌아오면 볼륨이 없다는 뜻이다.
+        # 지워진 DB는 조용하다(새로 만들어져 화면이 "누적 중"으로 보인다).
+        store.mark_boot()
+    except Exception as e:
+        log.warning("부팅 기록 실패: %s", type(e).__name__)
     try:
         bot.ensure_reference_bots()  # 공용 레퍼런스 봇(성향별) 부트스트랩 — 루프가 자동 운용
     except Exception as e:
@@ -1697,9 +1703,14 @@ def _qualitative_promotion_payload() -> dict:
 
 @app.get("/api/engine/llm-usage")
 def llm_usage_get(request: Request, days: int = 30):
-    """이 앱 LLM 호출 추정 비용(공유 키와 분리). Anthropic 콘솔 ≠ 이 숫자."""
+    """이 앱 LLM 호출 추정 비용(공유 키와 분리). Anthropic 콘솔 ≠ 이 숫자.
+
+    예산 상태를 **같이** 낸다 — 상한이 화면에 없으면 왜 LLM이 조용한지 알 수 없다.
+    """
     _admin_or_403(request)
-    return {"ready": True, **db.llm_usage_summary(days=max(1, min(int(days or 30), 365)))}
+    return {"ready": True, "budget": llm.budget_state(),
+            "chat_rate_limit": dict(_CHAT_RL),
+            **db.llm_usage_summary(days=max(1, min(int(days or 30), 365)))}
 
 
 @app.get("/api/engine/qualitative-promotion")
@@ -2229,6 +2240,8 @@ def data_health_get():
     """데이터 진단(관리자) — 시세 스케일 정합(price_sanity) + 소스별 신선도(마지막 갱신·경과·stale).
     track record 신뢰의 전제(실데이터) + 어떤 소스가 오래됐는지 한눈에."""
     fresh = store.data_freshness()
+    # 저장소가 배포를 넘어 살아남는지 — 리셋 불가 장부의 전제다.
+    storage = store.storage_report()
     # 브리핑 첫 줄과 **같은 함수**를 쓴다. 같은 판단을 두 곳에서 조립하면 화면과 알림이 다른
     # 말을 하게 되고, 그 차이는 어느 화면에도 안 나타난다.
     stall = _safe_stall()
@@ -2251,7 +2264,10 @@ def data_health_get():
                       "note": kb_refresh.get("blocked_reason")})
     return {
         "stall": stall,
-        "stall_line": digest.stall_line(stall),**store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift(),
+        "stall_line": digest.stall_line(stall),
+        # 저장소가 배포를 넘어 살아남는지 — 리셋 불가 장부의 전제. 볼륨 미마운트를 증상으로 잡는다.
+        "storage": storage,
+        **store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift(),
             # veto·검색이 조용히 비어 있는 경우를 이유와 함께 드러낸다(0은 정상일 수도, 고장일 수도).
             "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),
             # 종목 KB 수집이 멈췄는지 — 실패 종목 이름까지. 조용히 빠진 종목도 조용한 0이다.
@@ -3386,15 +3402,39 @@ def _toss_holdings_summary() -> dict | None:
             "총손익률%": round(float(pl.get("rate", 0)) * 100, 2), "보유": items}
 
 
+# 대화는 유저가 직접 트리거하는 유일한 LLM 경로다 → 분당 빈도도 막는다.
+# 예산 상한(일·월)은 `llm.budget_state()`가 **모든** 호출자에게 걸고, 여기는 **폭주 속도**만 본다.
+# 둘은 다른 것을 막는다 — 상한은 총액, 레이트리밋은 한 사람이 한 번에 쏟는 양.
+_CHAT_RL = {"limit": 20, "window": 300}      # 5분에 20턴
+
+
+def _chat_guard(request: Request) -> JSONResponse | None:
+    """레이트리밋 + 예산. 막히면 **이유를 그대로** 돌려준다 — 조용한 빈 답변은 고장처럼 보인다."""
+    if _rate_limited(request, "chat", limit=_CHAT_RL["limit"], window=_CHAT_RL["window"]):
+        return JSONResponse({"ok": False, "reply": (
+            f"질문이 너무 잦습니다({_CHAT_RL['window'] // 60}분에 {_CHAT_RL['limit']}턴). "
+            f"잠시 후 다시 시도해 주세요.")}, status_code=429)
+    st = llm.budget_state()
+    if not st["ok"]:
+        return JSONResponse({"ok": False, "reply": st["reason"], "budget": st}, status_code=429)
+    return None
+
+
 @app.post("/api/chat")
 def chat_post(request: Request, data: dict = Body(...)):
     """안내 에이전트 — 이미 계산된 시그널·KB·포폴을 도구로 조회해 대화로 풀어준다(재분석·자문 없음)."""
     message = (data.get("message") or "").strip()
     if not message:
         return {"ok": False, "reply": "무엇이 궁금한지 적어 주세요."}
+    blocked = _chat_guard(request)
+    if blocked is not None:
+        return blocked
     history = data.get("history") or []   # [{role, content}] — 프런트가 최근 몇 턴만 전달
-    return chat.answer(message, history=history[-8:],
-                       dispatch=_make_chat_dispatch(_uid(request), _is_toss_owner(request)))
+    try:
+        return chat.answer(message, history=history[-8:],
+                           dispatch=_make_chat_dispatch(_uid(request), _is_toss_owner(request)))
+    except llm.BudgetExceeded as e:       # 대화 중 상한에 닿은 경우
+        return JSONResponse({"ok": False, "reply": str(e)}, status_code=429)
 
 
 @app.post("/api/chat/stream")
@@ -3403,6 +3443,9 @@ def chat_stream(request: Request, data: dict = Body(...)):
     message = (data.get("message") or "").strip()
     history = (data.get("history") or [])[-8:]
     uid, owner = _uid(request), _is_toss_owner(request)
+    blocked = _chat_guard(request)
+    if blocked is not None:
+        return blocked
 
     def gen():
         if not message:
@@ -3414,6 +3457,9 @@ def chat_stream(request: Request, data: dict = Body(...)):
             for kind, payload in chat.answer_stream(message, history=history, dispatch=dispatch):
                 if kind == "text" and payload:
                     yield "data: " + json.dumps({"delta": payload}, ensure_ascii=False) + "\n\n"
+        except llm.BudgetExceeded as e:
+            # 예산 차단을 "오류가 발생했어요"로 뭉개면 고장과 구분이 안 된다.
+            yield "data: " + json.dumps({"delta": "\n" + str(e)}, ensure_ascii=False) + "\n\n"
         except Exception:
             yield "data: " + json.dumps({"delta": "\n(오류가 발생했어요.)"}, ensure_ascii=False) + "\n\n"
         yield "data: [DONE]\n\n"

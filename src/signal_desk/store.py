@@ -1380,6 +1380,70 @@ def _json_rows(path) -> int | None:
         return None
 
 
+def _boot_stamp() -> str:
+    """부팅 시각(UTC ISO, 초 단위). 저장소 진단용이라 타임존 논의가 필요 없다."""
+    return datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def storage_report() -> dict:
+    """저장소가 **배포를 넘어 살아남는지** 진단한다. Railway 볼륨 미마운트를 앱이 스스로 잡는다.
+
+    왜 필요한가: `data/cache/app.db`에 유저·레퍼런스 봇 장부·PIT 스냅샷·판정 이력이 들어 있다.
+    볼륨이 없으면 **배포마다 전부 지워진다** — "리셋할 수 있는 장부는 track record가 아니다"라고
+    적어 두고 리셋을 인프라가 대신 해 주는 상태다. 그리고 지워진 것은 조용하다: 새 DB가 만들어져
+    화면은 "누적 중"으로 보인다(정지 탐지와 같은 병).
+
+    판정 근거는 **부팅 카운터**다. `kv:storage_first_boot`(최초 1회 기록)와 `kv:storage_boot_count`가
+    있으면 저장소가 이전 프로세스를 기억한다는 뜻이다. 배포 후에도 count가 늘어나면 볼륨이 있고,
+    매번 1로 돌아오면 휘발성이다. 볼륨 설정을 코드가 알 방법은 없으므로 **증상으로 판정한다.**
+    """
+    import shutil
+
+    from signal_desk import db
+
+    boot_count = int(db.kv_get("storage_boot_count") or 0)
+    first = db.kv_get("storage_first_boot")
+    dbf = CACHE_DIR / "app.db"
+    exists = dbf.exists()
+    try:
+        du = shutil.disk_usage(str(CACHE_DIR if CACHE_DIR.exists() else "."))
+        free_mb = round(du.free / 1e6, 1)
+    except Exception:                            # noqa: BLE001
+        free_mb = None
+    # 휘발성 의심: 부팅을 여러 번 했는데 카운터가 1이거나, DB는 있는데 최초 부팅 기록이 없다.
+    suspected, reason = False, None
+    if not first:
+        suspected, reason = True, "최초 부팅 기록이 없다 — 첫 실행이거나 저장소가 지워졌다"
+    elif boot_count <= 1 and exists:
+        suspected, reason = True, ("부팅 카운터가 1이다 — 이전 프로세스를 기억하지 못한다"
+                                  "(볼륨 미마운트 의심)")
+    return {
+        "data_dir": str(CACHE_DIR.resolve()) if CACHE_DIR.exists() else str(CACHE_DIR),
+        "db_exists": exists,
+        "db_bytes": (dbf.stat().st_size if exists else 0),
+        "first_boot": first,
+        "boot_count": boot_count,
+        "free_mb": free_mb,
+        "ephemeral_suspected": suspected,
+        "reason": reason,
+        # 볼륨은 인프라 설정이라 코드가 단정할 수 없다 — 무엇을 확인해야 하는지 문장으로 남긴다.
+        "how_to_verify": ("배포를 한 번 한 뒤 boot_count가 늘어나면 볼륨이 살아 있다. "
+                          "1로 돌아오면 Railway 볼륨을 data/ 에 마운트해야 한다."),
+    }
+
+
+def mark_boot() -> dict:
+    """부팅을 기록한다(카운터 +1, 최초 시각은 1회만). `storage_report`가 이걸 읽는다."""
+    from signal_desk import db
+
+    n = int(db.kv_get("storage_boot_count") or 0) + 1
+    db.kv_set("storage_boot_count", str(n))
+    if not db.kv_get("storage_first_boot"):
+        db.kv_set("storage_first_boot", _boot_stamp())
+    db.kv_set("storage_last_boot", _boot_stamp())
+    return {"boot_count": n}
+
+
 def data_freshness() -> list[dict]:
     """데이터 소스별 최종 갱신 시각·경과·행수·stale 여부(캐시 파일 mtime 기준). 관리자 신선도 대시보드용.
     stale_days 초과면 stale=True(소스별 갱신 주기에 맞춘 임계)."""

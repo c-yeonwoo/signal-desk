@@ -391,6 +391,27 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
   것이다. 대상 집합은 옆 기능의 on/off가 아니라 그 기능의 정의에서 뽑는다
   (`db.uids_with_ticker_favorites`).
 
+- **비용 상한은 라우트가 아니라 호출 모듈에 둔다(2026-08-06).** `/api/chat`에만 걸면 `llm`을 부르는
+  나머지 10개 모듈(kb·audit·advisor·narrative·hypothesis·rebalance·bot·company·shortform·api)이
+  조용히 우회한다. `llm.budget_state()`가 **모든** 호출자에게 걸리고, 라우트는 **폭주 속도**만 본다
+  (`_chat_guard` — 상한은 총액, 레이트리밋은 한 사람이 한 번에 쏟는 양. 둘은 다른 것을 막는다).
+  지출을 **못 읽으면 막는다** — `db.llm_spend_usd`가 0.0(안 씀)과 None(모름)을 구분하고,
+  모를 때 통과시키면 fail-open이라 게이트가 없는 것과 같다.
+- **"단일 호출 지점"이라는 전제는 확인해야 한다.** 예산 게이트를 `_post_json`에 걸었더니
+  `stream_call`이 통째로 우회했다 — SSE는 자기 요청을 따로 만들고, 그게 하필 막아야 할
+  `/api/chat/stream` 경로였다. `test_budget_gate_covers_every_network_call_site_in_llm`이
+  `urlopen`을 부르는 함수마다 앞에 예산 판정이 있는지 검사한다.
+- **차단을 None으로 돌려주면 "키 없음"과 같아 보인다.** 예산 초과는 `BudgetExceeded` 예외로 올린다 —
+  `llm.py`의 `except Exception` 11곳이 전부 이걸 먼저 재발생시킨다. 안 그러면 화면에서
+  "LLM 미연동"과 "예산 초과"를 가를 수 없다(0의 이유 규칙). 라우트는 429 + 이유 문장을 낸다.
+- **저장소가 배포를 넘어 살아남는지 앱이 스스로 잡는다.** `data/cache/app.db`에 유저·레퍼런스 봇
+  장부·PIT 스냅샷·판정 이력이 들어 있고, 볼륨이 없으면 **배포마다 전부 지워진다** — "리셋할 수
+  있는 장부는 track record가 아니다"라고 적어 두고 리셋을 인프라가 대신 해 주는 상태다. 그리고
+  지워진 것은 조용하다(새 DB가 만들어져 화면이 "누적 중"으로 보인다). 볼륨 설정을 코드가 알 방법은
+  없으므로 **증상으로 판정한다**: `store.mark_boot()`의 부팅 카운터가 이전 프로세스를 기억하는지
+  (`storage_report`). 배포 후 카운터가 늘면 볼륨이 있고, 1로 돌아오면 휘발성이다.
+  정상일 때는 배너를 띄우지 않는다 — 매일 초록불은 곧 안 읽힌다.
+
 - **라우트를 만들고 화면에 안 붙이면 그 기능은 존재하지만 닿을 수 없다(2026-08-06).** 라우트 112개
   중 **11개가 화면·CLI 어디서도 안 불렸다.** `product_reviewer`는 라우트 2개가 있는데 UI 버튼이
   없고 `kv:product_review_last`가 없어 **한 번도 실행된 적이 없었다**(`audit.py`와 역할도 겹쳤다) —
