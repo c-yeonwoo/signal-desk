@@ -30,9 +30,14 @@ weight_fundamental    = 0.30
 weight_valuation      = 0.15
 weight_reversion      = 0.20
 weight_flow           = 0.20
-weight_quality        = 0.15    # 커버리지 0% — 측정 불가한 가중치가 실려 있다
+# 2026-08-06 정정: "커버리지 0%"는 낡은 서술이었다. 실측 라이브 발동 198/200(99%)이고
+# 하네스 price6 재구성 커버리지도 98.3%다. 0이었던 것은 **PIT 스냅샷 기록**이며
+# 2026-08-06 스냅샷부터 채워진다(그 앞 11일은 0) — 즉 IC 20일 시계가 이제 시작됐다.
+weight_quality        = 0.15
 weight_momentum       = 0.30    # 최대 가중. 코드 주석상 "트래커 라이브 IC로 확정" 예정 = 잠정
-weight_short          = 0.15    # 커버리지 9.1%(200건이 한 날짜에 몰려 있어 IC 쌍 0)
+# 2026-08-06 실측: 라이브 발동 154/200(77%). PIT 스냅샷은 08-04부터 기록(그 앞 10일은 0)이라
+# IC 날짜가 2일뿐이다 — 20일 요건까지 대기. 하네스 price6은 시계열 이력이 없어 원리적으로 불가.
+weight_short          = 0.15
 strong_buy_threshold  = 2.0
 buy_threshold         = 1.2
 sell_threshold        = -1.2

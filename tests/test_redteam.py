@@ -2425,3 +2425,119 @@ def test_pit_universe_backfill_reports_the_reason_for_zero():
     assert api_src.count('"/api/pit-universe/backfill"') >= 2, "GET 상태 라우트가 없다"
     assert 'r.get("reason")' in api_src or "r.get('reason')" in api_src
     assert "거부:" in html, "화면이 거부 이유를 별도 문장으로 내지 않는다"
+
+
+# ── 고른 이유 재생 (2026-08-06) ────────────────────────────────────────────────
+# `/api/pick-reason`은 판별력의 절반("고른 이유를 사후 재생")인데 화면이 없었다. #320이 지운
+# 것은 **날짜·종목을 타이핑하는 맹목 폼**이고, 이번에 붙인 것은 목록이다 — 그 구분이 사라지면
+# 다음 리팩터가 다시 폼으로 되돌린다.
+
+def test_pick_reason_is_reachable_without_typing_anything():
+    """무엇을 볼지 몰라도 닿을 수 있어야 한다.
+
+    #320이 폼을 지운 이유가 "이미 알아야 쓸 수 있다"였다. 날짜는 실제 스냅샷 목록에서,
+    종목은 그 날 픽 목록에서 고른다 — 입력창이 있으면 그 결함이 돌아온 것이다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert 'id="pr-date"' in html and "loadPickReasonDates" in html
+    assert 'id="pr-ticker"' not in html, "종목을 타이핑하게 만들면 #320이 지운 그 폼이다"
+    # 히어로 한 줄은 대체되지 않는다 — 한 종목 요약과 날짜별 딥다이브는 다른 질문이다.
+    assert "_pitHeroLine" in html
+
+
+def test_pick_reason_route_serves_all_three_modes_from_one_path():
+    """목록·상세를 **한 라우트**로 낸다. 고아 라우트 허용목록이 10/10 만석이므로
+    진입점을 늘리는 것이 곧 그 상한을 미는 것이다."""
+    from pathlib import Path
+    api = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    assert api.count('@app.get("/api/pick-reason")') == 1
+    for mode in ('"mode": "dates"', '"mode": "picks"', '"mode": "detail"'):
+        assert mode in api, f"{mode} 분기가 없다"
+    assert "/api/pick-reason/" not in api, "하위 경로를 새로 만들면 허용목록 상한을 민다"
+
+
+def test_empty_reasons_say_why_they_are_empty():
+    """근거가 빈 것을 공백으로 두면 "이유 없는 픽"으로 읽힌다.
+
+    실측(2026-08-06): `reasons_json` non-null 400/2400행 = 12일 중 2일뿐. 근거·순위 컬럼이
+    2026-08-04에 추가됐기 때문이고 **수집 실패가 아니다** — 0의 이유를 말해야 한다.
+    """
+    from pathlib import Path
+    from signal_desk.signals import pick_reason as pr
+    rows = [{"date": "2026-07-10", "ticker": "005930", "score": 1.0, "kind": "BUY",
+             "reasons_json": None},
+            {"date": "2026-08-06", "ticker": "005930", "score": 1.0, "kind": "BUY",
+             "reasons_json": '["[기술] RSI 41"]'}]
+    ds = {d["date"]: d for d in pr.available_dates(rows)}
+    assert ds["2026-07-10"]["reasons_recorded"] is False
+    assert ds["2026-07-10"]["reasons_note"], "빈 이유에 설명이 없다"
+    assert pr.SCHEMA_REASONS_FROM in ds["2026-07-10"]["reasons_note"]
+    assert ds["2026-08-06"]["reasons_recorded"] is True
+    assert ds["2026-08-06"]["reasons_note"] is None, "정상일 때 문구를 띄우면 곧 안 읽힌다"
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "근거 문구가 저장되지 않았습니다" in html
+
+
+def test_pick_reason_list_and_detail_share_one_forward_return_convention():
+    """목록과 상세가 수익률을 따로 조립하면 두 숫자가 갈라지고 그 차이는 어디에도 안 뜬다."""
+    src = (Path_ := __import__("pathlib").Path)("src/signal_desk/signals/pick_reason.py").read_text(encoding="utf-8")
+    # 두 함수 모두 accuracy.forward_returns 를 쓴다(자체 계산 금지).
+    body = src[src.index("def picks_on("):]
+    assert "acc.forward_returns(" in body, "picks_on 이 규약 함수를 쓰지 않는다"
+    pm = src[src.index("def postmortem("):src.index("def latest(")]
+    assert "acc.forward_returns(" in pm
+
+
+def test_pick_reason_payload_has_no_nan():
+    """NaN 은 유효 JSON 이 아니다. FastAPI 가 정화해 주지만 CLI·테스트가 직접 json.dumps 하면
+    터진다 — 산출물 쪽에서 None 으로 통일한다."""
+    import json
+    from signal_desk.signals import pick_reason as pr
+    nan = float("nan")
+    rows = [{"date": "2026-07-10", "ticker": "005930", "score": nan, "kind": "HOLD",
+             "rank": nan, "data_coverage": nan, "reasons_json": None}]
+    out = pr.picks_on("2026-07-10", history_rows=rows, closes_by_ticker={})
+    json.dumps(out, allow_nan=False)      # NaN 이 남아 있으면 ValueError
+    assert out["picks"][0]["score"] is None and out["picks"][0]["data_coverage"] is None
+
+
+def test_qualitative_weight_is_documented_as_not_entering_the_score():
+    """`weight_qualitative = 0.15` 는 combine 미투입이다 — 이름이 가중처럼 읽혀 실제로
+    2026-08-06 감사가 "정성이 점수의 9.4%"라고 잘못 집계했다.
+
+    combine 에 넣으려면 `signalcfg.FIELDS` 와 사전등록에 **먼저** 넣어야 한다. 안 그러면
+    검증된 적 없는 파라미터가 판정에 섞인다.
+    """
+    from pathlib import Path
+    from signal_desk import signalcfg
+    src = Path("src/signal_desk/signals/engine.py").read_text(encoding="utf-8")
+    if "weight_qualitative" in signalcfg.FIELDS:
+        # 승격했다면 사전등록에도 있어야 한다(둘 다 넣는 규칙).
+        toml = Path("docs/preregistered.toml").read_text(encoding="utf-8")
+        assert "weight_qualitative" in toml, "FIELDS 에 넣었으면 사전등록에도 넣어야 한다"
+        return
+    # 미승격 상태의 계약: 반환값을 버린다는 것이 코드에 드러나야 한다.
+    assert "combine 미투입" in src, "죽은 가중 필드에 설명이 없다"
+    # **주석을 지운 뒤 센다.** 설명 주석에 옛 이름을 적으면 오탐이 난다 — 같은 함정을
+    # 미정의 CSS 변수 검사에서 이미 한 번 밟았다(주석 안 `var()`를 세고 있었다).
+    code = "\n".join(ln.split("#")[0] for ln in src.split("\n"))
+    assert "qual_norm" not in code and "qual_weight" not in code, (
+        "쓰지 않는 값을 팩터 이름으로 받으면 combine 에 들어간다고 읽힌다")
+
+
+def test_pick_reason_table_scrolls_instead_of_crushing_columns():
+    """좁은 폭에서 6열을 100%에 맞추면 열이 으깨져 `강력매수`가 **글자당 한 줄**로 쪼개진다.
+
+    실측 375px: 표 297px · 셀 높이 80px+. `min-width`를 줘서 `.tscroll` 안에서 표만
+    스크롤하게 고쳤다(고친 뒤 전 셀 35px = 한 줄). **넘침이 0이어도 읽을 수 없으면
+    고쳐진 게 아니다** — 이번에 내가 넘침만 재고 가독성을 안 봤다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    i = html.index('id="pr-body"')
+    block = html[html.index("function renderPickReason"):]
+    assert "min-width:520px" in block, "표에 min-width 가 없으면 열이 으깨진다"
+    assert 'class="tscroll"' in block, "카드가 밀리면 헤더까지 따라 움직인다"
+    assert block.count("white-space:nowrap") >= 6, "판정·수익률 셀이 쪼개질 수 있다"
+    assert i > 0
