@@ -1669,8 +1669,13 @@ def harness_runs_get(request: Request, limit: int = 20):
     """판정 이력(append-only). 관리자. `preregistered_id`가 null이면 탐색 실행이다."""
     _admin_or_403(request)
     rows = db.harness_runs_recent(max(1, min(int(limit or 20), 200)))
-    return {"runs": rows, "count": len(rows),
-            "note": "탐색 실행(preregistered_id=null)은 보드 정본이 아니다."}
+    # 시도 횟수 집계(L4) — Deflated Sharpe의 N이 어디서 왔는지 보여야 한다. 이 수가 커지면
+    # 문턱(기대 최대 Sharpe)이 올라간다: 고르기의 대가를 화면에 남긴다.
+    trials = db.harness_trial_counts()
+    return {"runs": rows, "count": len(rows), "trial_counts": trials,
+            "note": ("탐색 실행(preregistered_id=null)은 보드 정본이 아니다. "
+                     "`trial_counts.distinct_configs`가 지금까지 돌려본 서로 다른 설정 수이고, "
+                     "Deflated Sharpe가 그 수로 고르기를 보정한다.")}
 
 
 @app.get("/api/pick-reason")

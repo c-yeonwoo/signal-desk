@@ -6178,9 +6178,17 @@ async function loadExperiments(){
         <td>${r.is_locked ? '<b>정본</b>' : ''}</td>
         <td style="color:var(--dim-2);font-size:11px">${esc(String(r.config_hash || '').slice(0, 8))}</td>
       </tr>`).join('');
-    runs.innerHTML = rows
-      ? `<table class="dtable"><thead><tr><th>실행</th><th>등록</th><th>점수</th><th>백분위</th><th>실효/전체</th><th>판정</th><th></th><th>설정</th></tr></thead><tbody>${rows}</tbody></table>`
-      : '<div style="font-size:13px;color:var(--dim)">아직 실행 이력이 없습니다.</div>';
+    // 시도 횟수(L4) — Deflated Sharpe의 N이 어디서 왔는지. 이 수가 커지면 문턱이 올라간다.
+    const tc = h.trial_counts || {};
+    const trialLine = tc.distinct_configs == null ? '' :
+      `<div style="font-size:12px;color:var(--dim);margin-bottom:8px">`
+      + `시도 <b>${tc.distinct_configs}</b>조합 (실행 ${tc.runs}회 · 재현 ${tc.repeats}) · `
+      + `조정 가능 파라미터 ${tc.tunable_params}개`
+      + `<span style="color:var(--dim-2)"> — Deflated Sharpe가 이 수로 고르기를 보정합니다. `
+      + `많이 시도할수록 통과 문턱이 올라갑니다.</span></div>`;
+    runs.innerHTML = trialLine + (rows
+      ? `<div class="tscroll"><table class="dtable"><thead><tr><th>실행</th><th>등록</th><th>점수</th><th>백분위</th><th>실효/전체</th><th>판정</th><th></th><th>설정</th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : '<div style="font-size:13px;color:var(--dim)">아직 실행 이력이 없습니다.</div>');
   } catch (e) {
     pre.textContent = '불러오기 실패: ' + e;
   }
