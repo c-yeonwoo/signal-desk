@@ -9,22 +9,33 @@
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <style>
   :root {
-    /* ── Signal Desk — Ink Desk + Signal Teal ── */
+    /* ── Signal Desk — Neutral Desk + Signal Teal (2026-08-06 개편) ──
+       개편 전 진단(수치): 유채색이 전부 극단 명도(브랜드·매수 L16~31%, 배경·라인 L81~95%)라
+       중간 명도에 색이 없었고, 브랜드(H174)와 매수(H156)가 18°밖에 안 떨어져 매수 신호가
+       브랜드에 묻혔다. 배경은 웜 베이지(H40)인데 브랜드는 쿨 청록(H174) — 거의 보색이라
+       서로를 탁하게 만들었다. 그래서 "대비는 있는데 색이 없는" 화면이었다.
+       고친 방향: 배경을 중성 회청(H210)으로, 브랜드를 진수 청록(H190 L34%)으로 밝히고,
+       매수(H156)와 34° 벌린다. 의미 색(매수 녹·매도 적)은 유지한다. */
     /* Brand (CTA·선택만). 매수/매도 semantic과 분리 */
-    --brand-50:#eef6f4; --brand-100:#d9ebe7; --brand-500:#0F6B62; --brand-600:#0d5f57; --brand-700:#0a4a44;
+    --brand-50:#E6F4F6; --brand-100:#C7E7EC; --brand-500:#0E8C9E; --brand-600:#0B7585; --brand-700:#085A67;
     --accent:var(--brand-500); --accent-hover:var(--brand-600); --accent-ink:#fff;
-    --accent-weak:var(--brand-50); --ring:rgba(15,107,98,.22);
-    /* Neutrals — paper desk */
-    --bg:#F5F3EF; --panel:#ffffff; --line:#e7e4dd; --line-strong:#d6d2c8;
+    --accent-weak:var(--brand-50); --ring:rgba(14,140,158,.26);
+    /* Neutrals — 중성 회청. 웜 베이지를 버려 브랜드와 밑도 충돌을 없앤다 */
+    --bg:#F7F8FA; --panel:#ffffff; --line:#E3E7ED; --line-strong:#CBD2DC;
     --txt:#151A22; --dim:#5f6775; --dim-2:#949aa6;
-    /* Semantic — 매매 방향만. 채도를 낮춰 '신호'일 때만 눈에 띄게 한다 */
-    --sig-buy:#0E7A4F; --sig-sell:#B23B3B; --sig-neutral:#949aa6; --sig-watch:var(--sig-watch); --sig-strong:#0E7A4F;
+    /* Semantic — 매매 방향. 매도는 L46→50%로 살짝 밝혀 검정 느낌을 뺀다 */
+    --sig-buy:#0E7A4F; --sig-sell:#C43B3B; --sig-neutral:#949aa6;
+    /* **자기 참조였다**(`--sig-watch:var(--sig-watch)`) — CSS 순환 참조는 무효값이 되어
+       이 토큰과 이걸 쓰는 `--warn`·`--c-ma60`이 전부 무색으로 렌더됐다. 실제 값을 준다. */
+    --sig-watch:#D97706;
+    --sig-strong:#0B6B45;
     /* alias — 예전 이름으로 참조하는 곳이 많다. 미정의로 두면 색이 조용히 안 먹는다 */
     --sell:var(--sig-sell); --buy:var(--sig-buy); --warn:var(--sig-watch); --down:var(--sig-sell);
     --fg:var(--txt); --panel-2:var(--bg);
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
-    /* Chart — 좌=점수 · 우=가격(최신 끝이 오른쪽이라 가격 눈금을 그쪽에) */
-    --c-price:#1a2233; --c-ma20:#0e7490; --c-ma60:var(--sig-watch); --c-ma120:#B23B3B; --c-rsi:#8a93a3; --c-score:#0E7A4F;
+    /* Chart — 좌=점수 · 우=가격. 브랜드 톤 안에서 서로 구분되게(기본 팔레트를 쓰지 않는다) */
+    --c-price:#1a2233; --c-ma20:#0E8C9E; --c-ma60:var(--sig-watch); --c-ma120:#C43B3B;
+    --c-rsi:#8a93a3; --c-score:#0E7A4F;
     /* Type — 최소 11px. 10px 이하는 '정보가 많아 보이는' 착시일 뿐 읽히지 않는다 */
     --fs-2xs:11px; --fs-xs:12px; --fs-sm:13px; --fs-base:14px; --fs-md:15px; --fs-lg:17px; --fs-xl:21px; --fs-2xl:27px;
     --lh-tight:1.35; --lh:1.55;
@@ -51,12 +62,20 @@
            align-items:center; gap:14px; flex-wrap:wrap; min-height:60px; box-sizing:border-box;
            background:var(--panel); box-shadow:var(--shadow-sm); position:relative; z-index:600; }
   header h1 { font-size:17px; margin:0; white-space:nowrap; letter-spacing:-.01em; }
+  /* 워드마크에 브랜드 색을 준다 — 헤더가 전부 무채색이면 화면에 정체성이 없다.
+     'Signal'만 브랜드, 'Desk'는 본문색으로 둬서 브랜드가 소리치지 않게 한다. */
+  header h1 .wm-a { color:var(--accent); }
+  header h1 .wm-b { color:var(--txt); }
+  /* 활성 탭에 밑줄 — 배경 틴트만으론 어느 탭인지 스캔이 안 된다(탭 4개가 다 연한 청록). */
+  .tab.on { box-shadow:inset 0 -2px 0 var(--accent); }
   .tabs { display:flex; gap:4px; }
   .tab { padding:8px 15px; border:1px solid transparent; border-radius:var(--r-sm); background:transparent;
          color:var(--dim); cursor:pointer; font-size:var(--fs-md); font-weight:600; transition:background .12s,color .12s; }
   .tab:hover { background:var(--brand-50); color:var(--accent); }
   .tab.on { color:var(--accent); background:var(--accent-weak); border-color:var(--ring); }
   .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  /* 시황 바에 얕은 틴트 — 흰 헤더 아래 흰 바라 층이 안 보였다. 3% 정도면 경계만 생긴다. */
+  .market-bar { background:linear-gradient(var(--brand-50), var(--bg)); }
   /* 시황 바 — 한 줄 밀도 우선(오른쪽 end 슬롯에 live·거시토글) */
   .market-bar { display:flex; align-items:center; gap:7px 10px; flex-wrap:nowrap;
     padding:7px clamp(16px,3.5vw,28px); border-bottom:1px solid var(--line); background:var(--panel); }
@@ -137,7 +156,7 @@
   .clim-pill { display:inline-block; margin-left:5px; padding:2px 8px; border-radius:var(--r-sm);
     font-size:11px; font-weight:700; letter-spacing:.01em; border:1px solid transparent; vertical-align:middle; }
   .clim-pill.STRONG_BUY { background:#e0f2fe; color:#0369a1; border-color:#7dd3fc; }
-  .clim-pill.BUY { background:#ecfeff; color:#0e7490; border-color:#67e8f9; }
+  .clim-pill.BUY { background:var(--brand-50); color:var(--brand-600); border-color:var(--brand-100); }
   .clim-pill.HOLD { background:#f1f5f9; color:#475569; border-color:#cbd5e1; }
   .clim-pill.SELL { background:#faf5ff; color:#7e22ce; border-color:#d8b4fe; }
   .clim-pill.STRONG_SELL { background:#f5f3ff; color:#5b21b6; border-color:#c4b5fd; }
@@ -148,7 +167,7 @@
     background:
       radial-gradient(900px 220px at 8% -20%, rgba(15,118,110,.12), transparent 55%),
       linear-gradient(165deg, #151A22 0%, #132033 48%, #0f1a2a 100%);
-    color:#F5F3EF; padding:22px 22px 18px; margin-bottom:14px; }
+    color:var(--bg); padding:22px 22px 18px; margin-bottom:14px; }
   .ew-hero::after { content:""; position:absolute; right:-40px; top:-50px; width:220px; height:220px;
     border-radius:50%; background:rgba(11,143,90,.14); pointer-events:none; }
   .ew-kicker { font-size:12px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
@@ -743,7 +762,7 @@
 <body>
 
 <header>
-  <h1>Signal Desk</h1>
+  <h1><span class="wm-a">Signal</span> <span class="wm-b">Desk</span></h1>
   <div class="tabs">
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="트레이딩 · 내 포트폴리오">페이퍼</button>
@@ -1942,10 +1961,10 @@ function _hypoChain(id){
 }
 function _hypoDotColor(kind, selected, emphasized){
   if (kind === 'root') return '#151A22';
-  if (kind === 'if') return selected ? '#0F6B62' : '#5f6775';
-  if (kind === 'action') return emphasized ? '#0F6B62' : '#6b7280';
-  if (kind === 'outcome') return emphasized ? '#0F6B62' : '#949aa6';
-  if (emphasized) return '#0F6B62';
+  if (kind === 'if') return selected ? '#0E8C9E' : '#5f6775';
+  if (kind === 'action') return emphasized ? '#0E8C9E' : '#6b7280';
+  if (kind === 'outcome') return emphasized ? '#0E8C9E' : '#949aa6';
+  if (emphasized) return '#0E8C9E';
   return '#9aa3b5';
 }
 function _hypoToEcharts(node, activeIf, parentEmphasized){
@@ -1969,7 +1988,7 @@ function _hypoToEcharts(node, activeIf, parentEmphasized){
   if (kind === 'fork' && emphasized) size = 12;
   if (kind === 'action') size = 8;
   const lineW = emphasized || selected || kind === 'root' ? 2.1 : 1.05;
-  const lineC = emphasized || selected || kind === 'root' ? '#0F766E88' : '#d6d2c8';
+  const lineC = emphasized || selected || kind === 'root' ? '#0E8C9E88' : '#CBD2DC';
   return {
     name: title,
     value: node.id,
@@ -1981,7 +2000,7 @@ function _hypoToEcharts(node, activeIf, parentEmphasized){
     symbolSize: size,
     itemStyle: {
       color: _hypoDotColor(kind, selected, emphasized),
-      borderColor: emphasized ? '#0F6B62' : '#fff',
+      borderColor: emphasized ? '#0E8C9E' : '#fff',
       borderWidth: selected || emphasized ? 2 : 1,
       shadowBlur: 0,
     },
@@ -2023,7 +2042,7 @@ function drawHypothesisTree(tree){
       backgroundColor: 'rgba(11,18,32,.94)',
       borderWidth: 0,
       padding: [10, 14],
-      textStyle: { color: '#F5F3EF', fontFamily: font, fontSize: 12, lineHeight: 18 },
+      textStyle: { color: '#F7F8FA', fontFamily: font, fontSize: 12, lineHeight: 18 },
       formatter: p => {
         const id = p.data && (p.data.hypoId || p.data.value);
         const n = _hypoById[id];
@@ -2081,8 +2100,8 @@ function drawHypothesisTree(tree){
       leaves: {
         label: { position: 'right', verticalAlign: 'middle', align: 'left', distance: 10, fontFamily: font },
       },
-      lineStyle: { color: '#d6d2c8', width: 1.15, curveness: 0.4 },
-      emphasis: { focus: 'descendant', itemStyle: { borderColor: '#0F6B62', borderWidth: 2 } },
+      lineStyle: { color: '#CBD2DC', width: 1.15, curveness: 0.4 },
+      emphasis: { focus: 'descendant', itemStyle: { borderColor: '#0E8C9E', borderWidth: 2 } },
     }],
   });
   _hypoChart.off('click');
@@ -3149,7 +3168,7 @@ function selectSignalRow(ticker){
   showSignalChart(ticker, _signalItems[ticker]);
 }
 
-const _ZONE_COLOR = { STRONG_BUY: '#0a5f3e', BUY: '#2F9E68', SELL: '#B23B3B', STRONG_SELL: '#8f2626' };
+const _ZONE_COLOR = { STRONG_BUY: '#0a5f3e', BUY: '#2F9E68', SELL: '#C43B3B', STRONG_SELL: '#8f2626' };
 // 뱃지 문구 = 지금 모드(순위)의 의미. STRONG_BUY는 절대 '강함'이 아니라 오늘 매수 후보 중 더 위.
 const _KIND_LABEL = { STRONG_BUY: 'Strong Buy', BUY: 'Buy', HOLD: 'Hold', SELL: 'Sell', STRONG_SELL: 'Strong Sell' };
 const _KIND_HINT = {
@@ -4026,10 +4045,10 @@ function _drawSignalChart(ticker, item, d){
 
   const _css = getComputedStyle(document.documentElement);
   const _cv = (k, fb) => (_css.getPropertyValue(k).trim() || fb);
-  const C = { price: _cv('--c-price', '#1a2233'), ma20: _cv('--c-ma20', '#0e7490'),
-              ma60: _cv('--c-ma60', 'var(--sig-watch)'), ma120: _cv('--c-ma120', '#B23B3B'),
+  const C = { price: _cv('--c-price', '#1a2233'), ma20: _cv('--c-ma20', '#0E8C9E'),
+              ma60: _cv('--c-ma60', '#D97706'), ma120: _cv('--c-ma120', '#C43B3B'),
               score: _cv('--c-score', '#0E7A4F'), rsi: _cv('--c-rsi', '#64748b'),
-              fo: '#0e7490', inst: 'var(--sig-watch)',
+              fo: '#0E8C9E', inst: '#D97706',
               macd: '#64748b', signal: '#ea580c', hist: '#94a3b8' };
   const SMOOTH = 0.35;
   const isUS = _sigMarket === 'us';
@@ -4279,7 +4298,7 @@ async function loadBotState(){
     _botChart.setOption({
       tooltip: { trigger: 'item', formatter: p => `${p.name}: ${usd ? '$' : ''}${Number(p.value).toLocaleString()}${usd ? '' : '원'} (${p.percent}%)` },
       // ECharts 기본 팔레트(보라·주황)는 이 화면 어디에도 없는 색이다 — 브랜드 톤으로 고정
-      color: ['#0F6B62', '#3E8F86', '#6CADA6', '#98C7C1', 'var(--sig-watch)', '#C79A5C', '#949aa6', '#c2c7d0'],
+      color: ['#0E8C9E', '#3E8F86', '#6CADA6', '#98C7C1', '#D97706', '#C79A5C', '#949aa6', '#c2c7d0'],
       series: [{ type: 'pie', radius: ['48%', '72%'], data: pieData,
         label: { fontSize: 11, color: '#5f6775' },
         itemStyle: { borderColor: '#fff', borderWidth: 2 } }],
@@ -4510,7 +4529,7 @@ function divFreq(ms){
   if (n === 4) return { label: '분기배당', color: '#0ea5e9' };
   if (n === 2) return { label: '반기', color: '#6366f1' };
   if (n === 1) return { label: '연배당', color: '#94a3b8' };
-  return { label: '지급월 미상', color: 'var(--sig-watch)' };
+  return { label: '지급월 미상', color: '#D97706' };
 }
 // 플랜·목표를 시장별로 localStorage에 저장/복원(가벼운 영속성 — 새로고침·탭 전환에도 유지)
 const _divPlanKey = () => 'sd_divplan_' + _divMarket;
@@ -4622,7 +4641,7 @@ function recalcDividends(){
     tooltip: { trigger: 'axis', formatter: p => `${p[0].axisValue}: ${_divMoney(p[0].value, 1)}` },
     grid: { left: 60, right: 20, top: 24, bottom: 24 },
     title: { text: gap ? `배당 없는 달 ${gap}개 — 종목 추가로 채워보세요` : '12개월 모두 배당 유입 ✓',
-             textStyle: { fontSize: 11, color: gap ? 'var(--sig-watch)' : '#2F9E68', fontWeight: 600 }, left: 'center', top: 0 },
+             textStyle: { fontSize: 11, color: gap ? '#D97706' : '#2F9E68', fontWeight: 600 }, left: 'center', top: 0 },
     xAxis: { type: 'category', data: ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'] },
     yAxis: { type: 'value' },
     series: [{ type: 'bar', data: months.map(v => Math.round(v * 100) / 100),
@@ -4654,7 +4673,7 @@ function _renderDivGoal(monthlyNow, cost){
 }
 
 // ===== 포트폴리오 파이차트(봇·내꺼·거장 공용) =====
-const _PIE_COLORS = ['#0F6B62', '#0E7A4F', '#f59e0b', '#0ea5e9', '#ec4899', '#14b8a6', '#a855f7', '#ef4444', '#84cc16', '#eab308', '#64748b'];
+const _PIE_COLORS = ['#0E8C9E', '#0E7A4F', '#f59e0b', '#0ea5e9', '#ec4899', '#14b8a6', '#a855f7', '#ef4444', '#84cc16', '#eab308', '#64748b'];
 // data: [{name, value}], fmt: 값 포매터. 라벨은 큰 조각만(겹침 방지), 나머지는 호버 툴팁.
 function drawPie(holder, data, fmt){
   if (!holder || !window.echarts) return null;
@@ -4724,7 +4743,7 @@ async function loadEtfs(){
     if (!node || !window.echarts) return;
     const top = (e.holdings || []).map(h => ({ name: h.name, value: h.weight }));
     const sum = top.reduce((s, h) => s + h.value, 0);
-    if (sum < 99) top.push({ name: '기타', value: Math.round((100 - sum) * 10) / 10, itemStyle: { color: 'var(--line-strong)' } });
+    if (sum < 99) top.push({ name: '기타', value: Math.round((100 - sum) * 10) / 10, itemStyle: { color: '#CBD2DC' } });
     const ch = echarts.init(node);
     ch.setOption({
       tooltip: { trigger: 'item', formatter: p => `${esc(p.name)}<br>${p.value}%` },
@@ -4843,7 +4862,7 @@ async function loadHeatmap(market){
   ch.setOption({
     tooltip: { formatter: p => `${esc(p.name)}<br/>평가액 ${money(p.value)}` },
     series: [{ type: 'treemap', roam: false, nodeClick: false, breadcrumb: { show: true },
-      levels: [{ itemStyle: { borderColor: 'var(--line)', borderWidth: 2, gapWidth: 2 } },
+      levels: [{ itemStyle: { borderColor: '#E3E7ED', borderWidth: 2, gapWidth: 2 } },
                { itemStyle: { gapWidth: 1 }, label: { fontSize: 11 } }],
       label: { fontSize: 11, overflow: 'truncate' }, data }],
   }, true);
@@ -5079,7 +5098,7 @@ function renderDataHealth(d){
     if (d.freshness && d.freshness.length) {
       const fmtAge = h => h == null ? '–' : (h >= 24 ? (h / 24).toFixed(1) + '일' : h.toFixed(1) + '시간') + ' 전';
       const fr = d.freshness.map(f => {
-        const c = f.updated == null ? 'var(--sell)' : (f.stale ? 'var(--sig-watch)' : 'var(--sig-buy)');
+        const c = f.updated == null ? 'var(--sell)' : (f.stale ? '#D97706' : 'var(--sig-buy)');
         const st = f.updated == null ? '미수집' : (f.stale ? '오래됨' : '최신');
         return `<tr><td>${esc(f.label)}${f.note ? `<div style="color:var(--sig-watch);font-size:12px">${esc(f.note)}</div>` : ''}</td>
           <td style="color:${c}">${f.updated ? esc(f.updated) : '없음'}</td>
@@ -5117,8 +5136,8 @@ function renderDataHealth(d){
     const rowsQuiet = [];
     const q = (label, ok, val, reason, hint) => rowsQuiet.push(
       `<tr><td>${esc(label)}<div style="color:var(--dim-2);font-size:12px">${hint}</div></td>`
-      + `<td class="num" style="color:${ok ? 'var(--sig-buy)' : 'var(--sig-watch)'};font-weight:600">${val}</td>`
-      + `<td style="color:${ok ? 'var(--dim)' : 'var(--sig-watch)'}">${reason ? esc(reason) : '정상'}</td></tr>`);
+      + `<td class="num" style="color:${ok ? 'var(--sig-buy)' : '#D97706'};font-weight:600">${val}</td>`
+      + `<td style="color:${ok ? 'var(--dim)' : '#D97706'}">${reason ? esc(reason) : '정상'}</td></tr>`);
     const wv = d.warnings_veto;
     if (wv) q('투자경고 veto', !wv.blocked_reason, `${wv.active ?? 0}종목`, wv.blocked_reason,
               '거래정지·투자경고 종목의 매수를 막는 집합. 비면 가드레일이 없는 것과 같다.');
@@ -5256,7 +5275,7 @@ function _renderImportResult(d, extra){
   const rs = (d.reasons && d.reasons.length) ? ' · ' + d.reasons.join(', ') : '';
   if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `✕ ${esc(d.reason || '실패')}`; return; }
   if (d.status === 'pending') {
-    el.style.color = 'var(--sig-watch)';
+    el.style.color = '#D97706';
     el.textContent = `⚠ 보류 — 검토 필요(신뢰도 ${d.trust ?? '?'}), 시그널 미반영${rs}`;
   } else {
     el.style.color = 'var(--sig-buy)';
@@ -5317,7 +5336,7 @@ function _initDropzone(){
   };
 }
 
-const _CLASS_COLOR = { 리포트: '#0F6B62', 실적: '#0369a1', 공시: '#0F6B62', 이벤트: '#8f2626', 시황: 'var(--sig-watch)', 뉴스: '#64748b', 미분류: '#94a3b8' };
+const _CLASS_COLOR = { 리포트: '#0E8C9E', 실적: '#0369a1', 공시: '#0E8C9E', 이벤트: '#8f2626', 시황: '#D97706', 뉴스: '#64748b', 미분류: '#94a3b8' };
 const classBadge = (c) => `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;color:#fff;background:${_CLASS_COLOR[c] || '#94a3b8'}">${esc(c || '미분류')}</span>`;
 let _kbView = 'events';
 function setKbView(v){
@@ -5361,7 +5380,7 @@ async function loadKbEvents(){
         : '<div class="placeholder" style="padding:16px 0">활성 이벤트가 없습니다 — KB 뉴스 갱신 후 DART 공시가 쌓입니다.</div>';
       return;
     }
-    const sevColor = { critical: 'var(--sig-sell)', serious: 'var(--sig-watch)', watch: 'var(--dim)', info: 'var(--dim-2)' };
+    const sevColor = { critical: 'var(--sig-sell)', serious: '#D97706', watch: 'var(--dim)', info: 'var(--dim-2)' };
     const rows = items.map(ev => {
       const evd = (ev.evidence || [])[0];
       const cite = evd && evd.evidence_text ? esc((evd.evidence_text || '').slice(0, 80)) : '';

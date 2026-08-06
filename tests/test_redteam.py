@@ -2250,3 +2250,68 @@ def test_typography_stays_on_the_scale():
     assert not off, f"8단계 밖 폰트: {off}"
     weights = set(re.findall(r"font-weight:\s*(\d+)", html))
     assert weights <= {"600", "700"}, f"600·700 밖 weight: {sorted(weights - {'600','700'})}"
+
+
+def test_no_self_referencing_css_tokens():
+    """`--x: var(--x)` 는 CSS 순환 참조라 **무효값**이 되고 그 토큰을 쓰는 곳이 전부 무색이 된다.
+
+    실측(2026-08-06): `--sig-watch:var(--sig-watch)` 였다. `getPropertyValue('--sig-watch')` 가
+    빈 문자열이고 렌더 색이 본문색과 같았다(무색). 그걸 쓰는 `--warn`·`--c-ma60`도 같이 죽었고,
+    나는 이걸 모르고 작동하던 `#b45309` 12곳을 이 토큰으로 바꿔 **회귀를 만들었다**(#341).
+    """
+    import re
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    css = html[:html.find("</style>")]
+    root = css[css.find(":root"):css.find("}", css.find("--safe-right")) + 1]
+    # 주석을 지운다 — 설명 주석에 옛 형태를 적으면 오탐이 난다.
+    root = re.sub(r"/\*.*?\*/", "", root, flags=re.S)
+    circular = [m.group(1) for m in re.finditer(r"(--[a-z0-9-]+)\s*:\s*var\(\s*\1\s*\)", root)]
+    assert not circular, f"자기 참조 토큰: {circular}"
+
+
+def test_brand_and_buy_hues_are_distinguishable():
+    """브랜드와 매수 semantic이 같은 색이면 매수 신호가 브랜드에 묻힌다.
+
+    개편 전: 브랜드 H174 · 매수 H156 — **18°** 차이. 화면 대부분이 브랜드 색이라 매수 배지가
+    안 보였다. 30° 이상 벌린다.
+    """
+    import colorsys
+    import re
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    css = html[:html.find("</style>")]
+    root = css[css.find(":root"):css.find("}", css.find("--safe-right")) + 1]
+    toks = dict(re.findall(r"(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,6})\s*;", root))
+
+    def hue(hx):
+        hx = hx.lstrip("#")
+        if len(hx) == 3:
+            hx = "".join(c * 2 for c in hx)
+        r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        return colorsys.rgb_to_hls(r, g, b)[0] * 360
+
+    brand, buy = toks.get("--brand-500"), toks.get("--sig-buy")
+    assert brand and buy, (brand, buy)
+    d = abs(hue(brand) - hue(buy))
+    d = min(d, 360 - d)
+    assert d >= 30, f"브랜드({brand} H{hue(brand):.0f})와 매수({buy} H{hue(buy):.0f})가 {d:.0f}°만 떨어졌다"
+
+
+def test_button_brand_is_not_near_black():
+    """버튼 색이 L25% 아래면 '칙칙하다'로 읽힌다 — 개편 전 --accent 가 L24%였다."""
+    import colorsys
+    import re
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    css = html[:html.find("</style>")]
+    root = css[css.find(":root"):css.find("}", css.find("--safe-right")) + 1]
+    m = re.search(r"--brand-500\s*:\s*(#[0-9a-fA-F]{6})", root)
+    assert m
+    hx = m.group(1).lstrip("#")
+    r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    lightness = colorsys.rgb_to_hls(r, g, b)[1] * 100
+    assert 28 <= lightness <= 55, f"브랜드 명도 {lightness:.0f}% — 28~55% 밖(너무 어둡거나 흐리다)"
