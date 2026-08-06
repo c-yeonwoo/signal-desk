@@ -198,6 +198,10 @@ def harness(
                                       help="사전등록 id로 실행 — **보드 정본이 될 수 있는 유일한 경로**"),
     config_json: str = typer.Option("", "--config-json",
                                     help="탐색용 설정 오버라이드 JSON 파일(가중치·선정 룰)"),
+    holdout_from: str = typer.Option("", "--holdout-from",
+                                     help="이 날짜부터는 **홀드아웃** — 스윕이 보지 않는다(L1)"),
+    spa_trials: int = typer.Option(1000, "--spa-trials",
+                                   help="SPA 부트스트랩 시행 수(L2 — --sweep일 때만)"),
 ):
     """포트폴리오 백테스트 — 횡단면 분위 규칙 vs 무작위 대조군 vs 동일가중 벤치마크.
 
@@ -208,7 +212,7 @@ def harness(
     from pathlib import Path
 
     from signal_desk import db, prereg, signalcfg, store
-    from signal_desk.signals import harness as hz
+    from signal_desk.signals import harness as hz, multiplicity
 
     if not store.is_ready():
         console.print("[red]캐시가 없습니다.[/red] 먼저 `sigdesk fetch`를 실행하세요.")
@@ -249,6 +253,22 @@ def harness(
     panel = hz.build_panel(store.load_all_dated_closes(), {u["ticker"] for u in uni})
     console.print(f"[dim]{market.upper()} · {len(panel.dates)}거래일 · {len(panel.closes)}종목 "
                   f"({panel.dates[0]}~{panel.dates[-1]})[/dim]")
+    # L1 홀드아웃 — 이 날짜부터는 **스윕이 보지 않는다.** 파라미터를 고른 구간에서 성적을 다시
+    # 재면 그건 측정이 아니라 곡선 맞추기다. 홀드아웃 성적은 여기서 **출력하지 않는다** —
+    # 보면 본 것이고, 본 구간은 더 이상 홀드아웃이 아니다. 쓰려면 사전등록 `from_date`로 건다.
+    holdout_n = 0
+    if holdout_from:
+        keep = [i for i, d in enumerate(panel.dates) if d < holdout_from]
+        holdout_n = len(panel.dates) - len(keep)
+        if len(keep) < 60:
+            console.print(f"[red]홀드아웃 이전 구간이 {len(keep)}거래일 — 스윕할 표본이 없습니다.[/red]")
+            raise typer.Exit(1)
+        hi = len(keep)
+        panel = hz.Panel(dates=panel.dates[:hi],
+                         closes={t: row[:hi] for t, row in panel.closes.items()})
+        console.print(f"[yellow]홀드아웃 {holdout_from} 이후 {holdout_n}거래일 제외[/yellow] "
+                      f"[dim]— 스윕은 {len(panel.dates)}거래일만 본다. 홀드아웃 성적은 출력하지 "
+                      f"않는다(보면 홀드아웃이 아니다). 쓰려면 사전등록 from_date로 걸 것.[/dim]")
     if pit and pit_fund:
         console.print("[red]--pit 와 --pit-fund 는 같이 못 씁니다.[/red] "
                       "전자는 스냅샷 점수, 후자는 시점별 재무 복원입니다.")
@@ -286,6 +306,22 @@ def harness(
     for c in ("분위", "보유", "전략 누적", "위상편차", "무작위 중위", "초과", "백분위", "판정"):
         table.add_column(c, justify="left" if c == "판정" else "right")
     seen_warnings: list[str] = []
+    # L2(SPA)용 — 조합별 (전략 − 벤치마크) 기간 초과수익. 스윕이 끝난 뒤 한 번에 검정한다.
+    spa_diffs: dict[int, dict[str, list[float]]] = {}
+    # DSR(L3)이 고르기를 보정하려면 시도 횟수를 넘겨야 한다. 안 넘기면 `n_trials=1`이 되어
+    # 기대 최대 Sharpe가 0이 되고 **보정 없는 DSR이 "유의"로 통과한다**(실측 0.9918).
+    # 스윕 자체가 조합 수만큼의 시도이므로 이력 + 이번 조합 수를 더한다.
+    _tc = db.harness_trial_counts(market=market)
+    _sh = db.harness_sharpes(market=market)
+    _n_trials = int(_tc.get("distinct_configs") or 0) + len(combos)
+    _sr_var = None
+    if len(_sh) >= 4:
+        _m = sum(_sh) / len(_sh)
+        _sr_var = sum((x - _m) ** 2 for x in _sh) / (len(_sh) - 1)
+    _kw = {"n_trials": _n_trials, "sr_variance": _sr_var}
+    console.print(f"[dim]시도 횟수(L4): 이력 고유 {_tc.get('distinct_configs')}조합 + 이번 "
+                  f"{len(combos)}조합 = {_n_trials} · 조정 가능 파라미터 "
+                  f"{_tc.get('tunable_params')}개[/dim]")
     for tp, h in combos:
         cfg = hz.HarnessConfig(top_pct=tp, rebalance_days=h, cost_pct=cost,
                                random_trials=trials, use_exposure=exposure,
@@ -295,11 +331,11 @@ def harness(
         regimes = hz.regimes_at(panel, hz._rebalance_indices(panel, cfg)) if exposure else None
         if pit_fund:
             out = hz.run(panel, cfg, regimes, scores=pit_scores, score_source="price6",
-                         coverage=cov6, fired=fired6, covers=covers)
+                         coverage=cov6, fired=fired6, covers=covers, **_kw)
         elif pit:
-            out = hz.run(panel, cfg, regimes, scores=pit_scores, score_source="pit")
+            out = hz.run(panel, cfg, regimes, scores=pit_scores, score_source="pit", **_kw)
         else:
-            out = hz.run(panel, cfg, regimes)
+            out = hz.run(panel, cfg, regimes, **_kw)
         if not out["ready"]:
             console.print(f"[red]{out['reason']}[/red]")
             raise typer.Exit(1)
@@ -325,6 +361,13 @@ def harness(
             "warnings_json": _json.dumps(out.get("warnings") or [], ensure_ascii=False),
             "note": "CLI 탐색 실행 — 보드 정본 아님",
         })
+        # 조합별 초과수익 시계열 — 위상 평균이 아니라 **첫 위상**을 쓴다(길이가 같아야 SPA가 성립).
+        ph = out.get("phase0_rets") or {}
+        a, b = ph.get("strategy") or [], ph.get("benchmark") or []
+        if a and len(a) == len(b):
+            # **보유기간별로 나눠 담는다.** hold가 다르면 기간 수가 달라(5일 219 vs 20일 54)
+            # 같은 날짜축이 아니고 SPA가 성립하지 않는다 — 섞으면 검정이 그냥 거부된다.
+            spa_diffs.setdefault(h, {})[f"top{tp:g}%"] = [x - y for x, y in zip(a, b)]
         s, r = out["strategy"], out["vs_random"]
         pct, verdict = r["percentile"], out["verdict"]
         color = {"판별력 있음": "green", "역판별력": "red"}.get(verdict, "yellow")
@@ -344,6 +387,34 @@ def harness(
                       + ("패널 있음 · 차단 " + str(g.get("blocked", 0)) + "회"
                          if g.get("panel_given") else "[yellow]패널 없음 · 미적용[/yellow]")
                       + "[/dim]")
+    # DSR(L3) — 시도 횟수를 감안한 초과수익 Sharpe. 판정을 대체하지 않는다.
+    d = out.get("dsr") or {}
+    if d.get("sharpe") is not None:
+        console.print(f"[dim]DSR(초과수익 기준) {d.get('dsr')} · 기간 Sharpe {d['sharpe']:+.3f} · "
+                      f"시도 {d.get('n_trials')}회 기대최대 {d.get('expected_max_sharpe'):+.3f} · "
+                      f"왜도 {d.get('skew')} 첨도 {d.get('kurtosis')} · "
+                      f"T={d.get('n_periods')}[/dim]")
+        if d.get("blocked_reason"):
+            console.print(f"[dim]  → {d['blocked_reason']}[/dim]")
+    # SPA(L2) — 조합을 여러 개 봤을 때 "최고가 벤치마크보다 낫다"의 p-value. 보유기간별로 돈다.
+    for h_group in sorted(spa_diffs):
+        group = spa_diffs[h_group]
+        if len(group) < 2:
+            continue
+        spa = multiplicity.spa_test(group, trials=spa_trials)
+        if spa.get("p_value") is not None:
+            col = "green" if spa["significant"] else "yellow"
+            console.print(f"[bold]SPA[/bold] 보유 {h_group}일 · 분위 {spa['n_models']}개 · "
+                          f"T={spa['n_periods']} · 최고 [bold]{spa['best']}[/bold] · "
+                          f"통계량 {spa['statistic']} · [{col}]p={spa['p_value']}[/{col}]")
+        elif spa.get("blocked_reason"):
+            console.print(f"[yellow]SPA 불가(보유 {h_group}일)[/yellow] "
+                          f"[dim]{spa['blocked_reason']}[/dim]")
+    if any(len(g) > 1 for g in spa_diffs.values()):
+        console.print("[dim]  Hansen(2005) SPA — 정상 부트스트랩으로 조합 간 상관을 반영한다. "
+                      "Šidák보다 덜 보수적이지만 **고른 것이라는 사실은 남는다**: p가 작아도 "
+                      "사전등록 없이 채택하면 사후선택이다. 보유기간이 다르면 기간 수가 달라 "
+                      "같은 날짜축이 아니므로 보유별로 따로 검정한다.[/dim]")
     console.print("[dim]탐색 실행 — 이력에만 남았습니다(GET /api/harness/runs). 보드 정본은 "
                   "`--preregistered <id>` 로 사전등록 조합을 돌릴 때만 갱신됩니다.[/dim]")
     for w in seen_warnings:

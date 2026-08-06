@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS harness_runs(
     verdict_why TEXT,
     is_locked INTEGER NOT NULL DEFAULT 0,
     warnings_json TEXT,
+    sharpe_json TEXT,
     note TEXT);
 CREATE INDEX IF NOT EXISTS idx_harness_runs_ran_at ON harness_runs(ran_at);
 CREATE INDEX IF NOT EXISTS idx_harness_runs_prereg ON harness_runs(preregistered_id, ran_at);
@@ -261,6 +262,9 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE kb_entries ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
     if "scenes" not in {r[1] for r in c.execute("PRAGMA table_info(shortform)").fetchall()}:
         c.execute("ALTER TABLE shortform ADD COLUMN scenes TEXT")  # 장면 시퀀스(인트로+근거별 프레임) JSON
+    hcols = {r[1] for r in c.execute("PRAGMA table_info(harness_runs)").fetchall()}
+    if hcols and "sharpe_json" not in hcols:   # L3 DSR용 기간 Sharpe(시도 간 분산 실측)
+        c.execute("ALTER TABLE harness_runs ADD COLUMN sharpe_json TEXT")
     # kb_embeddings·kb_events는 _SCHEMA CREATE IF NOT EXISTS로 충분
     scols = {r[1] for r in c.execute("PRAGMA table_info(kb_sources)").fetchall()}
     if scols:  # 기존 DB에 수습·퇴출 컬럼 보강
@@ -1792,7 +1796,7 @@ def llm_usage_summary(days: int = 30) -> dict:
 _HARNESS_RUN_COLS = (
     "id,ran_at,preregistered_id,score_source,market,config_json,config_hash,harness_json,"
     "percentile,threshold_pct,n_registered,periods,empty_periods,effective_periods,"
-    "pit_dates,price_data_to,verdict,verdict_why,is_locked,warnings_json,note")
+    "pit_dates,price_data_to,verdict,verdict_why,is_locked,warnings_json,note,sharpe_json")
 
 
 def harness_run_insert(row: dict) -> int:
@@ -1806,8 +1810,9 @@ def harness_run_insert(row: dict) -> int:
     cur = c.execute(
         "INSERT INTO harness_runs(ran_at,preregistered_id,score_source,market,config_json,"
         "config_hash,harness_json,percentile,threshold_pct,n_registered,periods,empty_periods,"
-        "effective_periods,pit_dates,price_data_to,verdict,verdict_why,is_locked,warnings_json,note) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "effective_periods,pit_dates,price_data_to,verdict,verdict_why,is_locked,warnings_json,"
+        "note,sharpe_json) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (row.get("ran_at") or datetime.datetime.now(datetime.timezone.utc).isoformat(),
          row.get("preregistered_id"), row.get("score_source") or "price",
          row.get("market") or "kr", row.get("config_json") or "{}",
@@ -1816,7 +1821,8 @@ def harness_run_insert(row: dict) -> int:
          row.get("periods"), row.get("empty_periods"), row.get("effective_periods"),
          row.get("pit_dates"), row.get("price_data_to"),
          row.get("verdict"), row.get("verdict_why"), locked,
-         row.get("warnings_json") or "[]", row.get("note")))
+         row.get("warnings_json") or "[]", row.get("note"),
+         (json.dumps(row["sharpe"]) if row.get("sharpe") is not None else None)))
     c.commit()
     rid = cur.lastrowid
     c.close()
@@ -1837,6 +1843,82 @@ def harness_runs_recent(limit: int = 20) -> list[dict]:
     c.close()
     cols = _HARNESS_RUN_COLS.split(",")
     return [dict(zip(cols, r)) for r in rows]
+
+
+def harness_trial_counts(*, market: str | None = None) -> dict:
+    """**시도 횟수 집계(L4)** — 지금까지 몇 개의 서로 다른 설정을 돌려봤나.
+
+    이 리포의 핵심 실패 모드는 고르기다: *"8개 조합을 한 번에 보면 판별력이 전혀 없어도 그중
+    하나가 95%를 넘을 확률이 34%"*. 사전등록 Šidák은 **같은 가설을 몇 번 볼지**를 막지만,
+    그 앞단의 **탐색으로 몇 개 조합을 돌려봤나**는 보정되지 않았다. `harness_runs`가 append-only로
+    전부 남아 있으므로 세면 된다 — Deflated Sharpe(L3)가 이 수를 N으로 쓴다.
+
+    `distinct_configs`는 (설정 해시 + 하네스 파라미터) 조합의 고유 수다. 같은 조합을 여러 번
+    돌린 것은 새 시도가 아니다(재현이다). 반대로 가중치 하나만 달라도 새 시도로 센다.
+    """
+    c = conn()
+    where, args = "", []
+    if market:
+        where, args = " WHERE market=?", [market]
+    rows = c.execute(
+        f"SELECT config_hash, harness_json, score_source, preregistered_id, ran_at, sharpe_json "
+        f"FROM harness_runs{where}", args).fetchall() if _has_sharpe_col(c) else c.execute(
+        f"SELECT config_hash, harness_json, score_source, preregistered_id, ran_at, NULL "
+        f"FROM harness_runs{where}", args).fetchall()
+    c.close()
+    combos: dict[tuple, int] = {}
+    prereg_ids: set[str] = set()
+    first = last = None
+    for chash, hjson, src, pid, ran_at, _ in rows:
+        key = (chash, hjson, src)
+        combos[key] = combos.get(key, 0) + 1
+        if pid:
+            prereg_ids.add(pid)
+        first = ran_at if first is None or (ran_at or "") < first else first
+        last = ran_at if last is None or (ran_at or "") > last else last
+    return {
+        "runs": len(rows),
+        "distinct_configs": len(combos),
+        "repeats": len(rows) - len(combos),
+        "preregistered_ids": sorted(prereg_ids),
+        "first_run_at": first, "last_run_at": last,
+        # 바꿀 수 있는 파라미터 수 — 탐색 공간의 크기를 가늠하게 한다(시도 수와는 별개).
+        "tunable_params": len(_tunable_param_names()),
+        "param_names": _tunable_param_names(),
+    }
+
+
+def _tunable_param_names() -> list[str]:
+    from signal_desk import signalcfg
+    return [*signalcfg.FIELDS, signalcfg.MODE_FIELD]
+
+
+def _has_sharpe_col(c) -> bool:
+    return "sharpe_json" in {r[1] for r in c.execute("PRAGMA table_info(harness_runs)")}
+
+
+def harness_sharpes(*, market: str | None = None) -> list[float]:
+    """시도별 기간 Sharpe 목록 — DSR의 `sr_variance`(시도 간 Sharpe 분산) 실측용.
+
+    이론값 1/(T−1)로 대체할 수도 있지만, 실측 분산이 있으면 그쪽이 정직하다. 없으면
+    `deflated_sharpe`가 근사를 썼다고 `sr_variance_source`에 남긴다.
+    """
+    c = conn()
+    if not _has_sharpe_col(c):
+        c.close()
+        return []
+    where, args = ("", []) if not market else (" WHERE market=?", [market])
+    rows = c.execute(f"SELECT sharpe_json FROM harness_runs{where}", args).fetchall()
+    c.close()
+    out = []
+    for (raw,) in rows:
+        try:
+            v = json.loads(raw or "null")
+        except Exception:                            # noqa: BLE001
+            continue
+        if isinstance(v, (int, float)):
+            out.append(float(v))
+    return out
 
 
 def harness_locked_run(preregistered_id: str) -> dict | None:

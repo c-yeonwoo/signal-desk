@@ -39,7 +39,7 @@ import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from signal_desk.signals import engine, regime as regime_mod
+from signal_desk.signals import engine, multiplicity, regime as regime_mod
 from signal_desk.signals.engine import SignalConfig
 
 
@@ -398,6 +398,27 @@ def _weighted_factors(config: SignalConfig) -> set[str]:
                                  ("momentum", config.weight_momentum)) if w}
 
 
+def _dsr_sample(runs: list[dict]) -> list[float]:
+    """DSR의 표본 — **한 위상의 초과수익**(전략 − 벤치마크).
+
+    두 선택 다 실측으로 정한 것이다(2026-08-06):
+
+    1) **위상을 이어 붙이지 않는다.** 처음엔 5위상을 연결해 T=1093으로 썼더니 `sqrt(T−1)`이
+       33.0이 되어(독립 219 기준 14.8) z가 2.2배 부풀고 **DSR 0.979 "유의"** 가 나왔다.
+       같은 실행의 백분위는 71.5(판정 불가)였다 — 두 판정이 갈라지면 관대한 쪽이 읽힌다.
+    2) **초과수익으로 잰다.** DSR은 `Sharpe > 0`을 검정하므로, 롱온리 전략은 상승장에서
+       종목선택 능력이 없어도 Sharpe가 양수다. 벤치마크를 빼면 시장 베타가 빠지고
+       "같은 유니버스를 그냥 사는 것보다 나은가"만 남는다 — 그게 물어볼 값어치가 있는 질문이다.
+    """
+    if not runs:
+        return []
+    a = runs[0].get("per_period_ret") or []
+    b = runs[0].get("bench_per_period_ret") or []
+    if len(a) != len(b):
+        return []
+    return [x - y for x, y in zip(a, b)]
+
+
 def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
                regimes: dict[int, str] | None, series_cache: dict, tie_rng: random.Random,
                covers: dict[str, list[float | None]] | None = None) -> dict:
@@ -470,6 +491,10 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
 
     ppy = 252 / cfg.rebalance_days
     return {"equity": equity, "bench": bench, "metrics": _metrics(equity, ppy),
+            # 기간별 순수익률 — Deflated Sharpe(L3)가 왜도·첨도를 여기서 재고, SPA(L2)가
+            # 벤치마크와의 차이(loss differential)를 여기서 만든다. 요약값만으론 둘 다 못 한다.
+            "per_period_ret": per_period_ret,
+            "bench_per_period_ret": [bench[k + 1] / bench[k] - 1 for k in range(len(bench) - 1)],
             "bench_metrics": _metrics(bench, ppy), "universe_by_date": universe_by_date,
             "empty_periods": empty_periods, "periods": len(idxs),
             # 커버리지 게이트가 실제로 몇 번 후보를 걸렀나. 0이면 완화가 아무 것도 안 막은 것 —
@@ -524,7 +549,9 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         score_source: str = "price",
         coverage: dict[str, float] | None = None,
         fired: dict[str, float] | None = None,
-        covers: dict[str, list[float | None]] | None = None) -> dict:
+        covers: dict[str, list[float | None]] | None = None,
+        n_trials: int | None = None,
+        sr_variance: float | None = None) -> dict:
     """전략(횡단면 분위 top N%) + 무작위 대조군 + 동일가중 벤치마크를 같은 날짜축에서 비교.
 
     리밸런스 위상을 전부 돌려 평균 내고(`phase_average`), 위상 간 편차를 함께 낸다. 편차가
@@ -534,6 +561,10 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     regimes: {rebalance_index: 국면라벨}. use_exposure=True일 때만 쓰인다.
     scores: 외부 점수 패널(PIT 등). 주면 가격 재계산을 건너뛴다.
     score_source: \"price\" | \"pit\" — 결과에 기록(판독용).
+    n_trials: 지금까지 돌려본 **서로 다른 설정 수**(L4 — `db.harness_trial_counts`). Deflated
+        Sharpe가 이 수로 "고르기"를 보정한다. 하네스가 DB를 직접 읽지 않는 이유는 이 함수가 순수
+        함수여야 검사에 넣을 수 있기 때문이다 — 호출자(`store.run_harness`)가 세어 넘긴다.
+    sr_variance: 시도들 간 Sharpe 분산(실측). 없으면 이론값 1/(T−1)로 대체하고 어느 쪽인지 남긴다.
     covers: (종목·날짜)별 데이터 커버리지. 라이브 `apply_cross_sectional`과 같은 커버리지
       게이트를 걸기 위해 필요하다. **안 주면 게이트가 안 걸린다** — 그러면 하네스는 라이브가
       돌리지 않는 전략을 재는 것이므로 `coverage_blocked`를 결과에 실어 드러낸다.
@@ -662,6 +693,20 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         # 실측 라이브에서 추세 게이트가 상위 6자리 중 5자리를 먹었다.
         "gate_blocks": {"trend": sum(r.get("trend_blocked", 0) for r in runs),
                         "coverage": cov_blocked},
+        # Deflated Sharpe(L3) — "시도 N회를 감안해도 이 Sharpe가 남는가". 백분위 판정을
+        # **대체하지 않는다**; 고르기(다중검정)라는 별개 질문에 답한다.
+        # SPA(L2)용 — **첫 위상**의 전략·벤치마크 기간 수익률. 위상마다 길이가 다를 수 있어
+        # 조합 간 비교에는 하나를 고정해서 쓴다(같은 날짜축이 아니면 SPA가 성립하지 않는다).
+        "phase0_rets": {"strategy": (runs[0].get("per_period_ret") or []),
+                        "benchmark": (runs[0].get("bench_per_period_ret") or [])},
+        # **초과수익 기준** DSR — 시장 베타를 뺀 뒤 "시도 N회를 감안해도 남는가".
+        # 이 값이 유의해도 `verdict`는 바뀌지 않는다(판정은 백분위다) — 다른 질문에 대한 답이다.
+        "dsr": {**multiplicity.deflated_sharpe(
+            _dsr_sample(runs), n_trials=n_trials or 1,
+            sr_variance=sr_variance, periods_per_year=252 / cfg.rebalance_days),
+            "basis": "excess_over_benchmark", "phases_pooled": False,
+            "note": ("초과수익(전략−벤치마크) 한 위상 기준. 판정(verdict)은 백분위로 하고 "
+                     "DSR은 '고르기를 감안해도 남는가'만 답한다.")},
         "warnings": warnings,
         "note": ("절대 수익률은 생존편향(유니버스=오늘 기준 상위 200)으로 부풀려져 있다. "
                  "판단은 vs_random.percentile로 — 무작위 대조군도 같은 편향을 받는다."),

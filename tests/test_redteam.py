@@ -520,8 +520,9 @@ def test_harness_checks_the_config_the_engine_actually_runs(tmp_path, monkeypatc
 
     seen: dict = {}
 
-    def _capture(panel, cfg=None, regimes=None, scores=None, score_source="price"):
+    def _capture(panel, cfg=None, regimes=None, scores=None, score_source="price", **kw):
         seen["cfg"] = cfg
+        seen["kw"] = kw
         return {"ready": False, "reason": "stub"}
 
     monkeypatch.setattr(store, "is_ready", lambda: True)
@@ -1837,3 +1838,168 @@ def test_data_health_carries_storage_and_ui_renders_it():
     # 부팅 기록이 실제로 불려야 한다 — 안 부르면 카운터가 영원히 0이고 항상 의심으로 뜬다.
     life = inspect.getsource(api_mod._lifespan)
     assert "store.mark_boot()" in life
+
+
+# ── Later 티어: 다중검정 보정 ───────────────────────────────────────────────────
+# L4 시도 횟수 집계 → L3 Deflated Sharpe → L2 Hansen SPA → L1 홀드아웃.
+# 2026-08-06 실측: DSR을 처음 붙였을 때 **0.979 "유의"** 가 나왔는데 같은 실행의 백분위는
+# 71.5(판정 불가)였다. 원인 둘 — (1) 5위상을 이어 붙여 T=1093으로 써서 sqrt(T−1)이 33.0
+# (독립 219 기준 14.8)으로 부풀었고, (2) DSR은 `Sharpe > 0`을 검정하므로 롱온리 전략이
+# 상승장에서 종목선택 능력 없이도 통과했다. 초과수익·한 위상으로 고치니 **0.282**가 됐다.
+
+def test_dsr_measures_excess_over_benchmark_on_one_phase():
+    """DSR이 시장 베타를 재면 롱온리 전략이 상승장에서 공짜로 통과한다."""
+    import inspect
+
+    from signal_desk.signals import harness as h
+
+    src = inspect.getsource(h._dsr_sample)
+    assert "runs[0]" in src, "위상을 이어 붙이면 T가 부풀어 z가 커진다"
+    assert "bench_per_period_ret" in src and "x - y" in src, "초과수익으로 재지 않는다"
+    # 산출물이 기준을 **명시**해야 한다 — 안 쓰면 읽는 사람이 Sharpe 절대값으로 오해한다.
+    body = inspect.getsource(h.run)
+    assert '"basis": "excess_over_benchmark"' in body
+    assert '"phases_pooled": False' in body
+
+
+def test_dsr_does_not_change_the_verdict():
+    """DSR이 유의해도 판정은 백분위로 한다 — 두 판정이 갈라지면 관대한 쪽이 읽힌다."""
+    import inspect
+
+    from signal_desk.signals import harness as h
+
+    src = inspect.getsource(h)
+    # verdict를 정하는 함수가 dsr을 보지 않아야 한다.
+    verdict_src = inspect.getsource(h._verdict)
+    assert "dsr" not in verdict_src, "판정이 DSR을 본다 — 판정 경로가 둘이 된다"
+    assert "판정은 백분위" in src, "DSR이 판정이 아니라는 것을 코드에 적어 두지 않았다"
+
+
+def test_expected_max_sharpe_grows_with_trials():
+    """시도를 늘리면 문턱이 올라가야 한다 — 안 오르면 고르기를 보정하지 않는 것이다."""
+    from signal_desk.signals.multiplicity import expected_max_sharpe
+
+    vals = [expected_max_sharpe(n, 1 / 59) for n in (1, 2, 8, 50, 200, 1000)]
+    assert vals[0] == 0.0, "시도 1회면 고르기가 없다"
+    assert all(vals[i] < vals[i + 1] for i in range(len(vals) - 1)), vals
+
+
+def test_norm_ppf_and_cdf_match_the_table():
+    """정규 분위수·CDF가 임계표와 맞아야 E[max SR]·DSR이 의미를 갖는다."""
+    from signal_desk.signals.multiplicity import norm_cdf, norm_ppf
+
+    for p, want in ((0.975, 1.959964), (0.95, 1.644854), (0.99, 2.326348), (0.5, 0.0)):
+        assert abs(norm_ppf(p) - want) < 1e-5, (p, norm_ppf(p))
+    for z, want in ((1.959964, 0.975), (0.0, 0.5), (-2.326348, 0.01)):
+        assert abs(norm_cdf(z) - want) < 1e-6, (z, norm_cdf(z))
+    # 경계는 유한값으로 — inf를 돌려주면 그 뒤 산술이 전부 nan이 되고 nan은 "값 없음"과 같아 보인다.
+    assert abs(norm_ppf(0.0)) < 100 and abs(norm_ppf(1.0)) < 100
+
+
+def test_spa_is_calibrated_under_the_null():
+    """p-value는 **오탐률**로 검증한다 — 단일 시드로는 운 좋은/나쁜 draw를 구분할 수 없다.
+
+    실제로 시드 하나에서 귀무인데 p=0.0012가 나왔고, 처음엔 코드 결함으로 의심했다.
+    150 시드로 재니 오탐률 3.3%(명목 5%)였다 — 교정돼 있었고 그 시드가 드문 draw였다.
+    """
+    import random
+
+    from signal_desk.signals.multiplicity import spa_test
+
+    def rate(edge, seeds=40):
+        hits = 0
+        for s in range(seeds):
+            rng = random.Random(5000 + s)
+            d = {f"c{i}": [rng.gauss(edge if i == 3 else 0.0, 0.02) for _ in range(60)]
+                 for i in range(6)}
+            if spa_test(d, trials=200, seed=13 + s)["significant"]:
+                hits += 1
+        return hits / seeds
+    null_rate = rate(0.0)
+    power = rate(0.012)
+    assert null_rate <= 0.20, f"귀무 오탐률 {null_rate:.0%} — 너무 높다(교정 실패)"
+    assert power >= 0.60, f"강한 우위 검출률 {power:.0%} — 너무 낮다(아무것도 통과 못 하는 검사)"
+
+
+def test_spa_requires_a_common_date_axis():
+    """조합별 기간 수가 다르면 같은 날짜축이 아니므로 비교가 성립하지 않는다."""
+    from signal_desk.signals.multiplicity import spa_test
+
+    r = spa_test({"a": [0.01] * 20, "b": [0.01] * 19}, trials=50)
+    assert r["p_value"] is None and "같은 날짜축이 아니다" in r["blocked_reason"]
+
+
+def test_trial_counts_separate_distinct_configs_from_repeats(tmp_path, monkeypatch):
+    """같은 조합을 다시 돌린 것은 새 시도가 아니다(재현이다). 가중치 하나만 달라도 새 시도다."""
+    import importlib
+
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db as db_mod
+    importlib.reload(db_mod)
+
+    for chash, sharpe in (("aaa", 0.2), ("bbb", 0.1), ("aaa", 0.2)):
+        db_mod.harness_run_insert({"score_source": "pit", "market": "kr", "config_hash": chash,
+                                   "harness_json": '{"hold":5}', "sharpe": sharpe})
+    t = db_mod.harness_trial_counts(market="kr")
+    assert t["runs"] == 3 and t["distinct_configs"] == 2 and t["repeats"] == 1
+    assert t["tunable_params"] >= 17 and "trend_gate" in t["param_names"]
+    assert db_mod.harness_sharpes(market="kr") == [0.2, 0.1, 0.2]
+
+
+def test_holdout_is_excluded_from_the_sweep_and_never_printed():
+    """홀드아웃 성적을 출력하면 본 것이고, 본 구간은 더 이상 홀드아웃이 아니다(L1)."""
+    from pathlib import Path
+
+    src = Path("src/signal_desk/cli.py").read_text(encoding="utf-8")
+    blk = src.split("if holdout_from:", 1)[1].split("if pit and pit_fund:", 1)[0]
+    assert "d < holdout_from" in blk, "홀드아웃 이전만 남기지 않는다"
+    assert "출력하지" in blk, "홀드아웃을 출력하지 않는다는 규약이 코드에 없다"
+    # 실제 보증은 문구가 아니라 **데이터가 패널에서 사라지는 것**이다 — 잘라낸 뒤에는
+    # 하류 코드가 홀드아웃을 볼 방법이 없으므로 출력할 수도 없다.
+    assert "panel.dates[:hi]" in blk and "row[:hi]" in blk, (
+        "패널을 자르지 않으면 하류가 홀드아웃을 볼 수 있다")
+    # 표본이 너무 적으면 스윕 자체를 거부한다(자르고 나서 60거래일 미만).
+    assert "len(keep) < 60" in blk
+
+
+def test_sweep_passes_the_trial_count_to_dsr():
+    """스윕이 시도 횟수를 안 넘기면 `n_trials=1`이 되어 **보정 없는 DSR이 통과한다**.
+
+    실측(2026-08-06): 처음 스윕에 붙였을 때 `시도 1회 기대최대 +0.000 · DSR 0.9918`이 나왔다.
+    같은 스윕이 8조합을 돌리고 있었고, 그중 3칸이 백분위 95.0이었다 — 정확히 이 리포가
+    경계하는 고르기 상황인데 DSR만 통과 도장을 찍고 있었다.
+    """
+    from pathlib import Path
+
+    src = Path("src/signal_desk/cli.py").read_text(encoding="utf-8")
+    blk = src.split("for tp, h in combos:", 1)[0]
+    assert "harness_trial_counts" in blk, "스윕이 시도 횟수를 세지 않는다"
+    assert "+ len(combos)" in blk, "이번 스윕의 조합 수를 시도에 더하지 않는다"
+    body = src.split("for tp, h in combos:", 1)[1].split("console.print(table)", 1)[0]
+    assert body.count("**_kw") == 3, "hz.run 호출 세 경로 모두에 시도 수를 넘겨야 한다"
+
+
+def test_spa_groups_by_hold_period():
+    """보유기간이 다르면 기간 수가 달라(5일 219 vs 20일 54) 같은 날짜축이 아니다.
+
+    섞으면 SPA가 `조합별 기간 수가 다르다`로 거부한다 — 실측에서 그렇게 나왔다.
+    거부는 정직하지만 아무 검정도 못 하므로 보유별로 나눠 돈다.
+    """
+    from pathlib import Path
+
+    src = Path("src/signal_desk/cli.py").read_text(encoding="utf-8")
+    assert "spa_diffs.setdefault(h, {})" in src, "보유기간별로 나눠 담지 않는다"
+    assert "for h_group in sorted(spa_diffs):" in src, "보유별로 검정하지 않는다"
+
+
+def test_trial_counts_are_visible_in_admin():
+    """DSR의 N이 화면에 없으면 문턱이 왜 올라갔는지 알 수 없다."""
+    import inspect
+    from pathlib import Path
+
+    from signal_desk import api as api_mod
+
+    assert "trial_counts" in inspect.getsource(api_mod.harness_runs_get)
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "h.trial_counts" in html and "distinct_configs" in html
+    assert "고르기를 보정" in html, "왜 이 수를 보여주는지 화면에 안 쓰여 있다"

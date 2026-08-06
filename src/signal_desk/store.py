@@ -1705,15 +1705,28 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
                                f"아직 판정할 표본이 없다")}
     regimes = (hz.regimes_at(panel, hz._rebalance_indices(panel, cfg))
                if cfg.use_exposure else None)
+    # 시도 횟수(L4)를 세어 넘긴다 — 이 실행 자체도 한 번의 시도이므로 +1.
+    # 하네스는 순수 함수로 두고(검사에 넣을 수 있어야 한다) DB 읽기는 여기서 한다.
+    trials = db.harness_trial_counts(market=market)
+    sharpes = db.harness_sharpes(market=market)
+    n_trials = int(trials.get("distinct_configs") or 0) + 1
+    sr_var = None
+    if len(sharpes) >= 4:                      # 시도 간 Sharpe 분산 — 4개 미만이면 이론값을 쓴다
+        m = sum(sharpes) / len(sharpes)
+        sr_var = sum((x - m) ** 2 for x in sharpes) / (len(sharpes) - 1)
+    kw = {"n_trials": n_trials, "sr_variance": sr_var}
     out = (hz.run(panel, cfg, regimes, scores=scores, score_source=source,
-                  coverage=cov6, fired=fired6, covers=covers) if scores is not None
-           else hz.run(panel, cfg, regimes))
+                  coverage=cov6, fired=fired6, covers=covers, **kw) if scores is not None
+           else hz.run(panel, cfg, regimes, **kw))
     if not out.get("ready"):
         return out
 
     if from_date:
         out["oos_from"] = from_date
         out["oos_dates"] = len(panel.dates)
+    # 시도 이력을 결과에 싣는다 — DSR의 N이 어디서 왔는지 화면에서 보여야 한다.
+    out["trial_history"] = {**trials, "n_used": n_trials,
+                            "sr_variance_measured": (round(sr_var, 6) if sr_var else None)}
     cfg_dict = signal_config_dict(sc)
     hz_dict = {"hold": cfg.rebalance_days, "cost_pct": cfg.cost_pct,
                "trials": cfg.random_trials, "exposure": cfg.use_exposure,
@@ -1734,6 +1747,8 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         "warnings_json": json.dumps(out.get("warnings") or [], ensure_ascii=False),
         "note": " · ".join(x for x in (
             (None if preregistered_id else "탐색 실행 — 보드 정본 아님"), universe_note) if x) or None,
+        # 기간 Sharpe(비연율) — 다음 실행의 `sr_variance` 실측에 쓰인다.
+        "sharpe": (out.get("dsr") or {}).get("sharpe"),
     })
 
     blob = {**out, "top_pct": cfg.top_pct, "hold_days": cfg.rebalance_days,

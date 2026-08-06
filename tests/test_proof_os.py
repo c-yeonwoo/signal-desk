@@ -158,7 +158,7 @@ def test_only_preregistered_locked_runs_reach_the_board(tmp_path, monkeypatch):
                             "A": closes["A"][1], "B": closes["B"][1]}))
     monkeypatch.setattr(
         hz, "run",
-        lambda panel, cfg=None, regimes=None, scores=None, score_source="price": {
+        lambda panel, cfg=None, regimes=None, scores=None, score_source="price", **kw: {
             "ready": True, "verdict": "판별력 있음", "verdict_why": "stub",
             "vs_random": {"percentile": 97.0}, "strategy": {}, "benchmark": {},
             "warnings": [], "coverage_pct": 80.0, "fired_pct": {},
