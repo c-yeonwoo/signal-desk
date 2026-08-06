@@ -13,6 +13,7 @@ lookahead 위험), 이 모듈은 store.snapshot_signals가 매일 PIT로 저장�
 
 from __future__ import annotations
 
+import datetime
 import math
 
 from .engine import ACTIONABLE_KINDS, BUY, SELL, STRONG_BUY, STRONG_SELL, is_buy
@@ -309,6 +310,45 @@ def cross_sectional_ic(pairs_by_date: dict[str, list[tuple[float, float]]], *,
     return out
 
 
+
+def ic_eta(*, recorded_dates: int, matured_dates: int, need: int, horizon: int,
+           today: datetime.date | None = None) -> dict:
+    """팩터 IC가 **언제 측정 가능해지는지**. 축적만 하는 데이터엔 판정 날짜를 붙인다.
+
+    `store.consensus_readiness` 와 같은 규약이다 — 조건 없는 축적은 영원히 안 본다.
+    실측 동기(2026-08-06): `quality` 는 스냅샷 기록이 **오늘 시작**해 `n_dates=0` 이고
+    화면은 `성숙 스냅샷 대기` 만 말했다. 그게 3일 뒤인지 두 달 뒤인지 알 수 없었다.
+
+    두 단계로 막힌다:
+      ① 기록  — 팩터 값이 스냅샷에 실린 날짜 수(`recorded_dates`). 하루 1개씩 는다.
+      ② 성숙  — 그 날짜의 h거래일 뒤 종가가 있어야 IC 쌍이 된다(`matured_dates`).
+
+    그래서 남은 거래일 = (need까지 더 기록할 날짜) + (need번째 날짜가 성숙할 때까지).
+    두 번째 항은 이미 흐른 만큼 뺀다 — 스냅샷은 거래일마다 하나이므로 `recorded − need` 가
+    그 경과 거래일이다.
+
+    **측정 가능 ≠ 반영.** 판별력이 판정 불가인 동안 가중치·부호는 만지지 않는다.
+    """
+    recorded, matured = int(recorded_dates), int(matured_dates)
+    need, horizon = int(need), int(horizon)
+    if matured >= need:
+        return {"recorded_dates": recorded, "eta_trading_days": 0, "eta_date": None,
+                "blocked_by": None}
+    more_records = max(0, need - recorded)
+    elapsed = max(0, recorded - need)                  # need번째 날짜가 기록된 뒤 흐른 거래일
+    ripen = max(0, horizon - elapsed)
+    eta = more_records + ripen
+    # 무엇이 막고 있는지 — "기록이 모자라다"와 "익기를 기다린다"는 다른 상태다.
+    blocked_by = "record" if more_records else "ripen"
+    d = today or datetime.date.today()
+    left = eta
+    while left > 0:                                    # 휴일 미반영 추정(영업일 기준)
+        d += datetime.timedelta(days=1)
+        if d.weekday() < 5:
+            left -= 1
+    return {"recorded_dates": recorded, "eta_trading_days": eta,
+            "eta_date": d.isoformat() if eta else None, "blocked_by": blocked_by}
+
 def mean_diff_se_pp(a: list[float], b: list[float]) -> float | None:
     """두 평균 차이의 표준오차(%p) — 관측 분산 기반. 양쪽 모두 2개 이상일 때만.
     "표본 N개 모이면 판정"이라는 착각을 막기 위해 모든 shadow가 이 한 구현을 공유한다."""
@@ -403,6 +443,10 @@ def realized_accuracy(
     # **날짜로 한 겹 더 나눈다**: 팩터 IC는 그 날 종목 간 순위상관(횡단면)이라, 날짜를 섞으면
     # 시장 드리프트가 상관으로 들어온다. `{horizon: {factor: {date: [(값, 수익)]}}}`.
     ic_pairs: dict[int, dict[str, dict[str, list]]] = {h: {c: {} for c in ic_cols} for h in horizons}
+    # 팩터별 **기록된** 날짜 — 성숙(가격) 여부와 무관하다. `ic_pairs` 는 익은 것만 담으므로
+    # 이것 없이는 "아직 안 익음"과 "아예 기록이 안 됨"을 가를 수 없다(실측: quality 1일 · short 2일).
+    # 날짜별 폭(비어 있지 않은 종목 수)도 센다 — 횡단면 IC는 폭 요건도 있다.
+    breadth_by_factor: dict[str, dict[str, int]] = {c: {} for c in ic_cols}
     dates_seen: set[str] = set()
     tickers_seen: set[str] = set()
     rows_total = matured_primary = 0
@@ -415,6 +459,10 @@ def realized_accuracy(
         kind = r.get("kind")
         rows_total += 1
         dates_seen.add(sig_date)
+        # **가격 유무 판단보다 먼저** 센다 — 아래 `continue` 뒤에 두면 기록 수가 과소집계된다.
+        for c in ic_cols:
+            if _finite_float(r.get(c)) is not None:
+                breadth_by_factor[c][sig_date] = breadth_by_factor[c].get(sig_date, 0) + 1
         series = closes_by_ticker.get(ticker)
         if not series:
             continue
@@ -495,6 +543,13 @@ def realized_accuracy(
     factor_ic_stats = ({c: cross_sectional_ic(ic_pairs[ic_h][c], horizon=ic_h) for c in ic_cols}
                        if ic_h is not None else
                        {c: cross_sectional_ic({}, horizon=primary) for c in ic_cols})
+    # **언제 측정 가능해지는지**를 같이 낸다. `blocked_reason` 만으로는 3일 뒤인지 두 달 뒤인지
+    # 알 수 없고, 모르면 아무도 안 기다린다(=조건 없는 축적).
+    _eta_h = ic_h if ic_h is not None else primary
+    for c, st in factor_ic_stats.items():
+        wide = sum(1 for n in breadth_by_factor[c].values() if n >= _MIN_IC_BREADTH)
+        st.update(ic_eta(recorded_dates=wide, matured_dates=st.get("n_dates") or 0,
+                         need=_MIN_IC_DATES, horizon=_eta_h))
     factor_ic = {c: s["ic"] for c, s in factor_ic_stats.items()}
 
     return {
