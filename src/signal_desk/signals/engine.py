@@ -40,7 +40,14 @@ class SignalConfig:
     weight_fundamental: float = 0.30
     weight_valuation: float = 0.15
     weight_reversion: float = 0.20
-    weight_qualitative: float = 0.15  # KB(뉴스·영상) 정성 — 데이터 있을 때만 포함(없으면 재정규화 제외)
+    # **점수에 들어가지 않는다.** `qual.component`가 돌려주는 정규화점수·가중치는 폐기되고
+    # (`_ = qual_norm, qual_weight`) 표시용 `qualitative_score`·`has_qualitative`만 쓴다 —
+    # KB 정성은 veto/shadow 층이고 `combine`에 미투입이라는 계약(CLAUDE.md·화면 카피)대로다.
+    # 이름이 `weight_*`라 9.4%(0.15/1.60) 가중처럼 읽히는 것이 함정이었다: 2026-08-06 감사에서
+    # 실제로 이 값을 근거로 "정성이 점수의 9.4%"라고 잘못 집계했다. A/B 실측 Δ=0.000(16종목).
+    # `signalcfg.FIELDS`에 없어 사전등록·해시 대상도 아니다 — combine에 넣으려면 **먼저 FIELDS와
+    # 사전등록에 넣어야** 한다(안 그러면 검증된 적 없는 파라미터가 판정에 섞인다).
+    weight_qualitative: float = 0.15  # combine 미투입 — 표시·shadow 전용
     weight_flow: float = 0.20  # 수급(외국인·기관 순매수) — KR만, 데이터 있을 때만 포함
     weight_quality: float = 0.15  # 퀄리티(축약 F-Score) — 재무 건전성·개선. 데이터 있을 때만 포함
     weight_momentum: float = 0.30  # 중기 모멘텀(12-1개월) — 5.5년 실측상 가격기반 종합 IC의 주동인·과소가중
@@ -820,9 +827,12 @@ def evaluate(
         rev_norm, rev_weight, rev_reasons, rev_score_raw, has_reversion = _reversion_component(
             closes, series["rsi"], config
         )
-        qual_norm, qual_weight, qual_reasons, qual_score, has_qualitative = qual.component(
+        # `_norm`·`_weight`를 **버린다는 것을 이름으로** 드러낸다 — 예전엔 `qual_norm`·`qual_weight`
+        # 로 받아 놓고 아래에서 쓰지 않아, 읽는 사람이 combine에 들어간다고 착각했다.
+        _unused_norm, _unused_weight, qual_reasons, qual_score, has_qualitative = qual.component(
             sentiment.get(ticker), config.weight_qualitative
         )
+        del _unused_norm, _unused_weight
         flow_norm, flow_weight, flow_reasons, flow_intensity, has_flow = flow_mod.component(
             flows.get(ticker), config.weight_flow
         )

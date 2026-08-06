@@ -1708,23 +1708,43 @@ def harness_runs_get(request: Request, limit: int = 20):
 
 
 @app.get("/api/pick-reason")
-def pick_reason_get(request: Request, date: str = "", ticker: str = ""):
-    """픽 이유 사후 재생 — PIT ⊕ 실현수익 ⊕ 봇 저널. 관리자.
-    date=YYYY-MM-DD, ticker=종목코드."""
+def pick_reason_get(request: Request, date: str = "", ticker: str = "", limit: int = 40):
+    """픽 이유 사후 재생 — PIT ⊕ 실현수익 ⊕ 봇 저널. 관리자. **북극성 A의 절반.**
+
+    세 가지 모드를 **한 라우트**로 낸다 — 고아 라우트 허용목록이 10/10 만석이라
+    진입점을 늘리는 것이 곧 그 상한을 미는 것이다:
+
+    - 인자 없음 → 스냅샷 날짜 목록(각 날짜가 근거를 기록했는지 포함)
+    - `date` → 그 날 픽 목록 + 실현수익
+    - `date` + `ticker` → 상세(팩터·근거·봇 저널)
+    """
     _admin_or_403(request)
     date, ticker = (date or "").strip(), (ticker or "").strip()
-    if not date or not ticker:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="date·ticker 필수")
     from signal_desk.signals import pick_reason as pr
     df = store.load_signal_history()
     rows = [] if df.empty else df.to_dict("records")
-    return pr.postmortem(
+    if not rows:
+        # 0의 이유 — 미완성(스냅샷 미시작)과 고장(수집 끊김)을 가른다.
+        return {"ready": False, "mode": "dates", "dates": [], "picks": [],
+                "blocked_reason": "PIT 스냅샷 없음 — 마감 스냅샷이 쌓여야 재생할 수 있다"}
+    if not date:
+        return {"ready": True, "mode": "dates", "dates": pr.available_dates(rows)}
+    if not ticker:
+        out = pr.picks_on(date, history_rows=rows,
+                          closes_by_ticker=store.load_all_dated_closes(),
+                          names={u["ticker"]: u.get("name") for u in store.load_universe()},
+                          limit=max(5, min(int(limit), 200)))
+        return {**out, "mode": "picks"}
+    out = pr.postmortem(
         date, ticker,
         history_rows=rows,
         closes_by_ticker=store.load_all_dated_closes(),
         bot_decisions=db.bot_decisions_recent(80),
     )
+    nm = {u["ticker"]: u.get("name") for u in store.load_universe()}
+    if out.get("pick") and nm.get(ticker):
+        out["pick"]["name"] = nm[ticker]      # 스냅샷은 이름을 저장하지 않는다
+    return {**out, "mode": "detail"}
 
 
 def _qualitative_promotion_payload() -> dict:

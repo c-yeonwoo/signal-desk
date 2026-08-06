@@ -116,7 +116,17 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert 'id="proof-os-body"' in html and "loadProofOs" in html and "시그널 판별력" in html
     assert "증명 OS" not in html and "북극성 A" not in html
     assert "/api/proof" in html and "_pitHeroLine" in html
-    assert "loadPickReason" not in html  # 관리자 폼 제거 — 시그널 상세 히어로로 흡수
+    # #320이 지운 것은 **날짜·종목을 손으로 타이핑하는 맹목 폼**이었다 — 무엇을 볼지 이미
+    # 알아야 쓸 수 있어서 아무도 안 썼다("눌러야 보이는 정보는 아무도 안 본다"의 판본).
+    # 2026-08-06에 다시 붙인 것은 그 결함을 없앤 **목록**이다: 실제 스냅샷 날짜 드롭다운 →
+    # 그 날 전 종목을 점수순으로 + 실현수익 → 행 클릭. 타이핑할 것이 없다.
+    # 히어로 한 줄(`slim_for_detail`)은 그대로 남는다 — 한 종목·최신 스냅샷 요약이고,
+    # 이 화면은 날짜별·전 종목·근거 전체·봇 저널이다(같은 질문이 아니다).
+    assert "loadPickReason" in html and 'id="pickreason-card"' in html
+    assert "_pitHeroLine" in html, "히어로 한 줄을 지우면 안 된다 — 딥다이브가 대체하지 않는다"
+    # 맹목 폼으로 되돌아가지 않게 못박는다: 날짜는 select, 종목은 목록 클릭.
+    assert 'id="pr-date"' in html and "<select" in html
+    assert 'id="pr-ticker"' not in html, "종목을 타이핑하게 만들면 #320이 지운 그 폼이다"
     assert "runHarnessFromProof" in html and "/api/harness/run" in html
     assert 'id="d7-body"' in html and "loadD7" in html and "리텐션 D7" in html
     assert "북극성 D7" not in html

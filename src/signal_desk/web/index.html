@@ -1388,6 +1388,30 @@
       <div id="accuracy-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
 
+    <div class="card" id="pickreason-card" style="margin-top:16px">
+      <div style="font-weight:700;font-size:15px">고른 이유 되돌려보기 <span style="color:var(--dim);font-weight:600;font-size:13px">· 그날 왜 골랐고, 그 뒤 어떻게 됐나</span></div>
+      <p class="page-desc" style="margin:8px 0 0">지난 날짜를 골라 <b>그날 시그널이 무엇을 어떻게 봤는지</b>와 <b>실제로 그 뒤 올랐는지</b>를 나란히 봅니다. 예측이 맞았는지 사후에 확인하는 화면입니다.</p>
+      <details class="more-block" style="margin:8px 0 0">
+        <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--dim)">용어</summary>
+        <div style="font-size:13px;line-height:1.75;margin-top:6px">
+          <div><b>점수</b> — 8가지 관점(재무·저평가·모멘텀 등)을 하나로 합친 값. <b>클수록 좋게 봤다</b>는 뜻이고, 대략 −3 ~ +3 범위입니다.</div>
+          <div><b>판정</b> — 점수를 말로 바꾼 것. 강력매수 · 매수 · 관망 · 매도 · 강력매도.</div>
+          <div><b>매수 막힘</b> — 점수는 좋았지만 안전장치가 매수를 막은 경우(예: 하락추세, 급락 직후, 데이터 부족). 막혔으면 실제로 사지 않았습니다.</div>
+          <div><b>5일 뒤 · 20일 뒤</b> — 그 다음 거래일에 샀다고 가정하고 5거래일/20거래일 뒤 종가까지의 수익률. <b>아직</b>이라고 나오면 그만큼 날이 안 지난 것입니다.</div>
+          <div><b>커버리지</b> — 8가지 관점 중 몇 개를 실제로 볼 수 있었는지. 낮으면 적은 정보로 낸 점수입니다.</div>
+        </div>
+      </details>
+      <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap;align-items:center">
+        <label style="font-size:13px;font-weight:700">날짜</label>
+        <select id="pr-date" onchange="loadPickReason()" style="font-size:13px;padding:5px 8px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--panel);color:var(--fg)"></select>
+        <label style="font-size:13px;font-weight:700;margin-left:6px"><input type="checkbox" id="pr-buyonly" checked onchange="renderPickReason()" style="vertical-align:-2px"> 시그널이 고른 것만</label>
+        <span id="pr-meta" class="stat-label" style="margin-left:auto"></span>
+      </div>
+      <div id="pr-note" class="stat-label" style="margin-top:8px;display:none"></div>
+      <div id="pr-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+      <div id="pr-detail" style="margin-top:12px;display:none"></div>
+    </div>
+
     <details class="card" id="verify-observe-details" style="margin-top:16px" ontoggle="if(this.open){loadQualPromo();loadShadows();}">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">아직 점수에 안 넣는 관측 <span style="color:var(--dim);font-weight:600;font-size:13px">· 자문·기후·정성</span></summary>
       <p class="page-desc" style="margin:10px 0 8px">판정이 떠도 자동 반영하지 않습니다. 사람이 보고 결정합니다.</p>
@@ -5640,6 +5664,7 @@ function switchAdminSeg(seg, { pin = true } = {}){
   }
   if (seg === 'verify') {
     loadAccuracy();
+    loadPickReasonDates();
     const obs = document.getElementById('verify-observe-details');
     if (obs && obs.open) { loadQualPromo(); loadShadows(); }
     const au = document.getElementById('audit-card');
@@ -6869,6 +6894,170 @@ async function setAudit(hid, status){
   if (d.detail) { alert(d.detail); return; }
   renderAudit(d);
 }
+// 조사를 맞춘다. `관망였습니다`·`2.46로`처럼 어긋나면 초보자용으로 쓴 문장이 오히려 낯설다.
+// 종성 판정: (코드−0xAC00) % 28 !== 0 이면 종성 있음. 숫자는 읽는 소리의 종성을 본다
+// (1일·7칠·8팔 → ㄹ / 6육·0영 → ㄱ·ㅇ / 나머지는 종성 없음).
+function _koJong(str) {
+  const ch = String(str ?? '').trim().slice(-1);
+  if (/[0-9]/.test(ch)) return { '0': 'ng', '1': 'l', '6': 'k', '7': 'l', '8': 'l' }[ch] || null;
+  const c = ch.charCodeAt(0);
+  if (c >= 0xAC00 && c <= 0xD7A3) {
+    const j = (c - 0xAC00) % 28;
+    return j === 0 ? null : (j === 8 ? 'l' : 'other');
+  }
+  return null;
+}
+// 으로/로 — 종성이 없거나 ㄹ이면 '로'.
+const _koRo = w => { const j = _koJong(w); return (j === null || j === 'l') ? '로' : '으로'; };
+// 였습니다/이었습니다 — 종성이 있으면 '이었습니다'.
+const _koWas = w => _koJong(w) === null ? '였습니다' : '이었습니다';
+
+// ── 고른 이유 되돌려보기 (시그널 판별력의 절반 — 고른 이유 재생) ──────────────
+// 초보자 기준으로 쓴다: 전문용어를 1순위에 두지 않고 **무슨 일이 있었는지 문장으로** 먼저.
+// 값은 그 뒤에 보조로 붙인다.
+let _prData = null;
+
+// 팩터 이름을 **말로** 쓴다. `_ACC_FACTOR`는 `밸류`·`낙폭`·`퀄리티` 같은 약어라
+// 이 지표를 처음 보는 사람에게는 이름이 설명을 대신하지 못한다.
+const _PR_FACTOR = {
+  technical: '차트 흐름', fundamental: '실적·재무', valuation: '주가가 싼가',
+  reversion: '많이 떨어졌나', qualitative: '뉴스 분위기', flow: '누가 사고 있나',
+  quality: '회사 체질', momentum: '오르는 추세', short: '공매도 압력' };
+
+const _PR_KIND = { STRONG_BUY: '강력매수', BUY: '매수', HOLD: '관망',
+                   SELL: '매도', STRONG_SELL: '강력매도' };
+
+function _prPct(v) {
+  // '아직'과 '0%'는 다르다 — 없는 것을 0으로 보이면 안 오른 것처럼 읽힌다.
+  if (v === null || v === undefined) return '<span style="color:var(--dim)">아직</span>';
+  // 색은 크기로 — ±0.5%p 안쪽은 무채색(부호로 칠하면 −0.02%가 빨개진다)
+  const col = Math.abs(v) < 0.5 ? 'var(--dim)' : (v > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)');
+  return `<span style="color:${col};font-weight:700">${v > 0 ? '+' : ''}${v.toFixed(1)}%</span>`;
+}
+
+async function loadPickReasonDates() {
+  const sel = document.getElementById('pr-date');
+  if (!sel) return;
+  try {
+    const d = await (await fetch('/api/pick-reason')).json();
+    if (!d.ready) {
+      document.getElementById('pr-body').innerHTML =
+        `<div class="stat-label">${esc(d.blocked_reason || '되돌려볼 스냅샷이 없습니다')}</div>`;
+      return;
+    }
+    sel.innerHTML = (d.dates || []).map(x =>
+      `<option value="${x.date}">${x.date} · ${x.buys}종목 골랐음${x.reasons_recorded ? '' : ' (근거 없음)'}</option>`).join('');
+    if (sel.options.length) loadPickReason();
+  } catch (e) {
+    document.getElementById('pr-body').innerHTML = `<div class="stat-label">불러오기 실패: ${esc(String(e))}</div>`;
+  }
+}
+
+async function loadPickReason() {
+  const date = document.getElementById('pr-date')?.value;
+  if (!date) return;
+  const body = document.getElementById('pr-body');
+  body.innerHTML = '<div class="stat-label">불러오는 중…</div>';
+  document.getElementById('pr-detail').style.display = 'none';
+  try {
+    _prData = await (await fetch('/api/pick-reason?date=' + encodeURIComponent(date) + '&limit=60')).json();
+    renderPickReason();
+  } catch (e) {
+    body.innerHTML = `<div class="stat-label">불러오기 실패: ${esc(String(e))}</div>`;
+  }
+}
+
+function renderPickReason() {
+  const d = _prData, body = document.getElementById('pr-body');
+  if (!d || !d.ready) {
+    body.innerHTML = `<div class="stat-label">${esc((d && d.blocked_reason) || '데이터 없음')}</div>`;
+    return;
+  }
+  // 근거가 비어 있으면 **왜 비었는지** 말한다 — 공백은 "이유 없는 픽"으로 읽힌다.
+  const note = document.getElementById('pr-note');
+  if (d.reasons_note) {
+    note.style.display = '';
+    note.innerHTML = `이 날짜는 <b>근거 문구가 저장되지 않았습니다</b> — ${esc(d.reasons_note)}`;
+  } else note.style.display = 'none';
+
+  const buyOnly = document.getElementById('pr-buyonly')?.checked;
+  let rows = d.picks || [];
+  if (buyOnly) rows = rows.filter(p => p.kind === 'BUY' || p.kind === 'STRONG_BUY');
+
+  const meta = document.getElementById('pr-meta');
+  // 몇 개를 감췄는지 밝힌다 — 조용히 줄어든 목록은 "이게 전부"로 읽힌다.
+  const hidden = (d.picks || []).length - rows.length;
+  meta.textContent = (buyOnly && hidden > 0 ? `고른 ${rows.length}종목 · 관망 ${hidden}종목 감춤` : `${rows.length}종목`)
+    + (d.truncated ? ` (점수 상위 ${d.shown}/${d.total} 중)` : '');
+
+  if (!rows.length) {
+    body.innerHTML = `<div class="stat-label">${buyOnly
+      ? '이 날은 시그널이 고른 종목이 <b>없습니다</b> — 문턱을 넘은 종목이 없었거나 안전장치가 모두 막았습니다.'
+      : '표시할 종목이 없습니다.'}</div>`;
+    return;
+  }
+  // 좁은 폭에서 6열을 100%에 억지로 맞추면 열이 으깨져 `강력매수`가 **글자당 한 줄**로 쪼개진다
+  // (실측 375px: 표 297px · `강/력/매/수`). 넘침이 0이어도 읽을 수 없으면 고쳐진 게 아니다.
+  // min-width를 줘서 `.tscroll` 안에서 **표만** 스크롤하게 한다(카드가 밀리면 헤더까지 따라간다).
+  body.innerHTML = `<div class="tscroll"><table style="width:100%;min-width:520px;border-collapse:collapse;font-size:13px">
+    <thead><tr style="text-align:left;color:var(--dim);font-weight:700">
+      <th style="padding:6px 8px">종목</th><th style="padding:6px 8px;text-align:right">점수</th>
+      <th style="padding:6px 8px;white-space:nowrap">판정</th><th style="padding:6px 8px;white-space:nowrap">매수</th>
+      <th style="padding:6px 8px;text-align:right;white-space:nowrap">5일 뒤</th><th style="padding:6px 8px;text-align:right;white-space:nowrap">20일 뒤</th>
+    </tr></thead><tbody>${rows.map(p => `
+      <tr onclick="loadPickDetail('${p.ticker}')" style="cursor:pointer;border-top:1px solid var(--line)">
+        <td style="padding:7px 8px"><b>${esc(p.name)}</b> <span style="color:var(--dim)">${p.ticker}</span></td>
+        <td style="padding:7px 8px;text-align:right;font-weight:700">${p.score == null ? '—' : p.score.toFixed(2)}</td>
+        <td style="padding:7px 8px;white-space:nowrap">${_PR_KIND[p.kind] || esc(p.kind || '—')}</td>
+        <td style="padding:7px 8px;white-space:nowrap">${p.gate_blocked
+            ? '<span style="color:var(--sig-watch);font-weight:700">막힘</span>'
+            : (p.kind === 'BUY' || p.kind === 'STRONG_BUY' ? '<span style="color:var(--sig-buy);font-weight:700">골랐음</span>' : '<span style="color:var(--dim)">—</span>')}</td>
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap">${_prPct(p.forward_ret_pct?.h5)}</td>
+        <td style="padding:7px 8px;text-align:right;white-space:nowrap">${_prPct(p.forward_ret_pct?.h20)}</td>
+      </tr>`).join('')}</tbody></table></div>
+    <div class="stat-label" style="margin-top:8px">행을 누르면 그 종목을 왜 그렇게 봤는지 나옵니다. ${esc(d.note || '')}</div>`;
+}
+
+async function loadPickDetail(ticker) {
+  const date = document.getElementById('pr-date')?.value;
+  const el = document.getElementById('pr-detail');
+  el.style.display = '';
+  el.innerHTML = '<div class="stat-label">불러오는 중…</div>';
+  try {
+    const d = await (await fetch(`/api/pick-reason?date=${encodeURIComponent(date)}&ticker=${encodeURIComponent(ticker)}`)).json();
+    if (!d.ready) { el.innerHTML = `<div class="stat-label">${esc(d.blocked_reason || '없음')}</div>`; return; }
+    const p = d.pick, f = d.forward_ret_pct || {};
+    // 한 문장으로 먼저 말한다 — 표를 읽을 수 있는 사람만 쓰는 화면이 되지 않게.
+    const verdict = _PR_KIND[p.kind] || p.kind;
+    const bought = (p.kind === 'BUY' || p.kind === 'STRONG_BUY') && !p.gate_blocked;
+    const sc = p.score == null ? '—' : p.score.toFixed(2);
+    const lead = `<b>${esc(p.name)}</b>를 ${esc(d.date)}에 점수 <b>${sc}</b>${_koRo(sc)} 봤고 판정은 <b>${esc(verdict)}</b>${_koWas(verdict)}. `
+      + (p.gate_blocked ? '점수와 별개로 <b>안전장치가 매수를 막았습니다</b>. '
+                        : (bought ? '<b>실제로 골랐습니다</b>. ' : '매수 대상은 아니었습니다. '))
+      + (f.h5 == null ? '5거래일이 아직 안 지나 결과를 알 수 없습니다.'
+                      : `그 뒤 5거래일 수익률은 <b>${f.h5 > 0 ? '+' : ''}${f.h5.toFixed(1)}%</b>${f.h20 == null ? '였습니다 (20거래일은 아직).' : `, 20거래일은 <b>${f.h20 > 0 ? '+' : ''}${f.h20.toFixed(1)}%</b>였습니다.`}`);
+    const facts = Object.entries(p.factors || {});
+    el.innerHTML = `<div class="card" style="margin:0;background:var(--bg)">
+      <div style="font-size:14px;line-height:1.8">${lead}</div>
+      ${facts.length ? `<div style="font-weight:700;font-size:13px;margin:14px 0 2px">관점별 원점수</div>
+        <div class="stat-label" style="margin:0 0 6px">관점마다 <b>눈금이 다릅니다</b> — 서로 크기를 비교하면 안 됩니다(합칠 때 각각 −1~+1로 환산합니다). 부호만 방향으로 읽으세요.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">${facts.map(([k, v]) =>
+          `<span class="q-pair" style="font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-sm);padding:3px 8px">
+            <span class="q-k">${esc(_PR_FACTOR[k] || k)}</span> ${typeof v === 'number' ? v.toFixed(2) : esc(String(v))}</span>`).join('')}</div>` : ''}
+      ${p.reasons?.length ? `<div style="font-weight:700;font-size:13px;margin:14px 0 6px">그날 기록된 근거 ${p.reasons.length}개</div>
+        <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.8">${p.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>`
+        : `<div class="stat-label" style="margin-top:14px">이 스냅샷에는 <b>근거 문구가 저장되지 않았습니다</b> — 근거 저장은 2026-08-04 스냅샷부터입니다(수집 실패가 아닙니다).</div>`}
+      ${d.bot_decisions?.length ? `<div style="font-weight:700;font-size:13px;margin:14px 0 6px">그날 봇 판단 ${d.bot_decisions.length}건</div>
+        <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.8">${d.bot_decisions.map(b =>
+          `<li>${esc(b.action || '?')}${b.outcome_pct == null ? '' : ` · 결과 ${b.outcome_pct > 0 ? '+' : ''}${Number(b.outcome_pct).toFixed(1)}%`}${b.rationale ? ' — ' + esc(b.rationale) : ''}</li>`).join('')}</ul>`
+        : `<div class="stat-label" style="margin-top:14px">그날 이 종목에 대한 봇 판단은 없습니다.</div>`}
+    </div>`;
+    el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (e) {
+    el.innerHTML = `<div class="stat-label">불러오기 실패: ${esc(String(e))}</div>`;
+  }
+}
+
 async function loadAccuracy(){
   const el = document.getElementById('accuracy-body');
   if (!el) return;
