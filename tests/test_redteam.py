@@ -2315,3 +2315,48 @@ def test_button_brand_is_not_near_black():
     r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (0, 2, 4))
     lightness = colorsys.rgb_to_hls(r, g, b)[1] * 100
     assert 28 <= lightness <= 55, f"브랜드 명도 {lightness:.0f}% — 28~55% 밖(너무 어둡거나 흐리다)"
+
+
+def test_signal_panel_has_at_most_three_always_on_blocks():
+    """상시 노출 컨트롤은 3개까지 — 목록을 보러 온 화면에서 목록이 접히면 안 된다.
+
+    실측: 세그·오늘카드·정렬툴바·퀵필터·스크리너 **5개**가 538px을 먹고 표가 740px에서 시작했다.
+    세그를 툴바로 합치고, 퀵필터는 통째로 없앴다 — `★관심`·`매수만`은 스크리너 체크박스를
+    토글하는 **두 번째 진입점**이었고(`quickFilter`가 `screen-favonly`를 켠다), `근접만`은
+    매수0 카드에 이미 있었다. **진입점이 둘이면 사용자는 둘 다 안 쓴다.**
+    """
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    panel = html.split('<div class="sig-list card"', 1)[1].split("</table>", 1)[0]
+    # 표 앞의 상시 블록: 툴바 · 오늘카드 · 스크리너
+    assert 'class="sig-toolbar"' in panel
+    assert 'id="sig-today"' in panel
+    assert 'id="sig-screener"' in panel
+    # 없어진 것들이 돌아오지 않게
+    assert 'class="sig-quickfilters"' not in html, "퀵필터가 되살아났다(중복 진입점)"
+    assert 'class="sig-head"' not in html, "세그 전용 줄이 되살아났다"
+    for dead in ("qf-favonly", "qf-buyonly", "qf-nearonly", "function quickFilter(",
+                 "function syncQuickFilters(", "function _syncQuickChips(", ".qchip"):
+        assert dead not in html, f"죽은 코드가 남았다: {dead}"
+
+
+def test_verdict_summary_shows_progress_without_a_click():
+    """요약 줄이 폭을 다 쓰면서 `판정 보류`만 말하면 그 폭이 낭비다 — 진척을 인라인으로 올린다.
+
+    단 **백분위는 여기서도 쓰지 않는다**(요건 미달 동안 매일 보이면 그게 peeking이다).
+    """
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    # 진척을 만드는 코드는 `sumTxt` **앞**에 있다 — 요약을 조립하는 블록 전체를 본다.
+    blk = html.split("const rq = (hz && hz.requirement) || {};", 1)[1].split("if (matureOk)", 1)[0]
+    assert "실효 ${rq.effective_periods" in blk, "실효 진척이 요약에 없다"
+    assert "PIT ${rq.pit_dates" in blk, "PIT 진척이 요약에 없다"
+    assert "문턱 ${fmtNum(hz.threshold_pct" in blk, "문턱이 요약에 없다"
+    # locked가 아닐 때만 진척을 쓴다(확정 후에는 판정·백분위가 본문이다).
+    assert "hz.status !== 'locked'" in blk
+    # 요약에 백분위가 새어 나오지 않는다.
+    assert "percentile" not in blk, "요약 줄에서 백분위를 쓴다(요건 미달 동안 금지)"
+    css = html[:html.find("</style>")]
+    assert ".trust-sum-meta" in css, "참조하는 클래스가 정의되지 않았다"

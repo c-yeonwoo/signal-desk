@@ -151,7 +151,12 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
     assert ">페이퍼<" in html  # 탭명 (구 '내 자산')
     # 상태(precision·편중·데스크)는 「오늘」카드 하나. 매수대기·조사후보 퀵칩은 제거.
-    assert 'id="sig-today"' in html and 'class="sig-head"' in html
+    # `.sig-head`(국내/해외 전용 줄)는 툴바로 합쳐 없앴다 — 상시 블록을 3개로 줄이기 위해서다.
+    # 마크업 이름이 아니라 **규약**을 본다: 오늘 카드가 있고 세그가 툴바 안에 있다.
+    assert 'id="sig-today"' in html
+    assert 'class="sig-toolbar"' in html and 'id="sig-market-seg"' in html
+    tb = html.split('class="sig-toolbar"', 1)[1].split("</div>\n        <details", 1)[0]
+    assert 'id="sig-market-seg"' in tb, "시장 세그가 툴바 안에 없다"
     assert "renderTodayCard" in html
     assert 'id="buylist-card"' not in html
     assert 'id="qf-extwatch"' not in html and 'id="screen-extwatch"' in html
