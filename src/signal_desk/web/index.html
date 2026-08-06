@@ -7181,6 +7181,32 @@ async function loadPickDetail(ticker) {
   }
 }
 
+// 관점별 IC가 **언제 측정 가능해지는지** 한 줄로. 축적 중 카드에 넣는다 —
+// IC 표는 `matured < need` 동안 아예 렌더되지 않으므로(조기 return) 그 안에 두면
+// 정작 기다리는 몇 달간 아무도 못 본다. 조건 없는 축적은 영원히 안 본다.
+function icEtaLine(d) {
+  const st = d && d.factor_ic_stats;
+  if (!st) return '';
+  const byDate = {};
+  let done = 0;
+  for (const [f, s] of Object.entries(st)) {
+    if (f === 'score') continue;                     // 종합점수는 관점이 아니다
+    if (!s || !s.eta_trading_days) { done++; continue; }
+    (byDate[s.eta_date] = byDate[s.eta_date] || []).push(_PR_FACTOR[f] || f);
+  }
+  const groups = Object.entries(byDate).sort((a, b) => a[0] < b[0] ? -1 : 1);
+  if (!groups.length) return '';
+  // 같은 날짜에 여러 개면 개수로 접는다 — 8개 이름을 다 쓰면 한 줄이 세 줄이 된다.
+  const parts = groups.map(([date, names]) => {
+    const md = String(date).slice(5).replace('-', '/');
+    return names.length > 2 ? `${names.length}개 ${md}경` : `${names.join('·')} ${md}경`;
+  });
+  return `<div style="color:var(--dim-2);font-size:12px;margin-top:6px">`
+    + `관점별 판별력 측정 예정 — ${parts.join(' · ')}`
+    + (done ? ` · ${done}개 요건 충족` : '')
+    + `<br>측정 가능일이고 <b>반영일이 아니다</b> — 판정 전에는 가중치를 만지지 않는다. 휴장일 미반영 추정.</div>`;
+}
+
 async function loadAccuracy(){
   const el = document.getElementById('accuracy-body');
   if (!el) return;
@@ -7204,7 +7230,9 @@ async function loadAccuracy(){
         // 0의 이유를 말한다 — "아직 안 익음"(정상)과 "시세 수집 중단"(고장)은 화면에서 똑같이 0으로 보인다
         + `${cov.blocked_reason ? `<div style="margin-top:8px;font-size:13px;font-weight:700;color:${cov.stale_prices ? 'var(--down)' : 'var(--dim)'}">${esc(cov.blocked_reason)}</div>` : ''}`
         + `${cov.price_data_to ? `<div style="color:var(--dim-2);font-size:12px;margin-top:2px">시세 최신 ${esc(cov.price_data_to)} · 시그널 최신 ${esc(cov.to || '-')}</div>` : ''}`
-        + `${d.reason ? `<div style="color:var(--dim-2);font-size:12px;margin-top:4px">${esc(d.reason)}</div>` : ''}</div>`;
+        + `${d.reason ? `<div style="color:var(--dim-2);font-size:12px;margin-top:4px">${esc(d.reason)}</div>` : ''}`
+        + icEtaLine(d)
+        + `</div>`;
       return;
     }
     const h = d.primary_horizon;
@@ -7250,9 +7278,17 @@ async function loadAccuracy(){
       const label = `<span style="width:72px;color:var(--dim)" title="${esc(_PR_FACTOR[f] || f)}">`
         + `${esc(_PR_FACTOR_SHORT[f] || _PR_FACTOR[f] || f)}</span>`;
       if (s.ic == null) {
-        const why = s.n_dates < needD ? `${s.n_dates}/${needD}일` : '0과 구분 불가';
+        // **언제 측정 가능해지는지**를 같이 쓴다. `10/20일`만 보이면 3일 뒤인지 두 달 뒤인지
+        // 알 수 없고, 모르면 아무도 안 기다린다(=조건 없는 축적).
+        // 그리고 두 상태를 가른다: `기록이 모자람`(스냅샷에 값이 안 실림) vs `익기를 기다림`.
+        const eta = s.eta_trading_days
+          ? ` · ${s.blocked_by === 'ripen' ? '익는 중' : '기록 중'}`
+            + ` ${s.recorded_dates}/${needD}일 → <b>${esc(s.eta_date || '')}</b>경`
+          : '';
+        const why = s.n_dates < needD ? `${s.n_dates}/${needD}일 성숙` : '0과 구분 불가';
         return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13px">
-          ${label}<span style="flex:1;color:var(--dim-2)">판정 보류 · ${why}</span>
+          ${label}<span style="flex:1;color:var(--dim-2)"`
+          + ` title="${esc(s.blocked_reason || '')}">판정 보류 · ${why}${eta}</span>
           <span style="width:64px;text-align:right;color:var(--dim-2)">${s.ic_mean == null ? '–'
             : (s.ic_mean > 0 ? '+' : '') + fmtNum(s.ic_mean, 3)}</span></div>`;
       }
@@ -7268,7 +7304,9 @@ async function loadAccuracy(){
         <span style="width:104px;text-align:right;color:var(--dim-2);font-size:12px">±${fmtNum(s.ci95, 3)} · ${s.n_dates}일 · p${fmtNum(s.p, 3)}</span></div>`;
     }).join('') : `<div style="color:var(--dim-2);font-size:13px">횡단면 IC 관측 0일 — 성숙 스냅샷 대기.</div>`;
     const icNote = `<div style="color:var(--dim-2);font-size:12px;margin-top:4px">날짜별 횡단면
-      순위상관의 평균 · Newey-West 보정 · 요건 ${needD}거래일. 같은 날 200종목은 하나의 관측이다.</div>`;
+      순위상관의 평균 · Newey-West 보정 · 요건 ${needD}거래일. 같은 날 200종목은 하나의 관측이다.
+      <br>예상일은 <b>측정 가능해지는 날</b>이고 반영일이 아니다 — 판정 전에는 가중치를 만지지 않는다.
+      휴장일 미반영 추정.</div>`;
     el.className = '';
     el.innerHTML = `
       <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:2px">

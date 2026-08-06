@@ -43,10 +43,23 @@ from signal_desk.signals import engine, multiplicity, regime as regime_mod
 from signal_desk.signals.engine import SignalConfig
 
 
+# HarnessConfig 필드 → 그 값을 가진 SignalConfig 필드. `__post_init__` 이 **실제로** 당겨온다.
+# 2026-08-06 진단: `min_score` 주석이 "엔진 rank_min_score와 동기화"라고 적혀 있었는데 코드는
+# 하드코딩 `1.2` 였고 아무도 당겨오지 않았다. 둘 다 기본값이 1.2라 **우연히 일치**했을 뿐이고,
+# `rank_min_score` 는 관리자가 편집할 수 있는 `signalcfg.FIELDS` 필드다 — 바꾸면 라이브는
+# 따라가고 하네스는 1.2에 남아 **라이브가 돌리지 않는 전략**을 잰다. `signal_config` 를
+# 안 넘겨 `default_factory` 가 걸렸던 버그와 같은 기전, 다른 필드다(5번째 재발).
+# 사전등록 `config_agrees_with_engine` 은 `SignalConfig` 만 대조하므로 이걸 못 잡는다.
+# `top_pct` 는 넣지 않는다: store·CLI가 **스윕 파라미터로 명시 전달**하고 사전등록
+# `[base.harness].top_pct` 가 정본을 정한다. 미러하면 호출자 값을 조용히 무시하는 회귀가 된다.
+# 대신 엔진 `rank_top_pct` 와 어긋나면 산출물 `selection_mirror` 로 **드러낸다**.
+_MIRRORED_FROM_SIGNAL_CONFIG = {"min_score": "rank_min_score"}
+
+
 @dataclass
 class HarnessConfig:
-    top_pct: float = 3.0          # 매수권 분위(엔진 rank_top_pct와 같은 의미)
-    min_score: float = 1.2        # 매수권 최소점수(엔진 rank_min_score와 동기화)
+    top_pct: float = 3.0          # 매수권 분위(엔진 rank_top_pct와 같은 의미 · 스윕 대상)
+    min_score: float = 1.2        # 매수권 최소점수 — `rank_min_score` 에서 동기화
     rebalance_days: int = 5       # 리밸런스 주기(거래일). 보유기간과 같다.
     cost_pct: float = 0.25        # 왕복 거래비용(수수료+세금+슬리피지) — 회전율에 비례 차감
     warmup: int = 130             # 지표가 안정되기 전 구간은 건너뛴다(MA120·모멘텀)
@@ -58,6 +71,21 @@ class HarnessConfig:
     shuffle_returns: bool = False # 누수 탐지용 — 점수와 수익률의 짝을 무작위로 어긋나게 한다
     min_periods: int = 30         # 이보다 표본이 적으면 어떤 결과도 판정하지 않는다
     signal_config: SignalConfig = field(default_factory=SignalConfig)
+    # 호출자가 분위·최소점수를 **일부러** 다르게 주고 싶을 때만 True(스윕·감도분석).
+    # 기본은 라이브를 따라간다 — "검사에 넣을 수 없는 파라미터는 검증된 적이 없다".
+    override_selection: bool = False
+
+    def __post_init__(self) -> None:
+        """엔진 설정을 미러하는 필드를 **실제로** 당겨온다.
+
+        주석으로 "동기화"라고 적어 두고 코드가 안 하면, 기본값이 같은 동안은 아무도 모른다.
+        """
+        if self.override_selection:
+            return
+        for mine, theirs in _MIRRORED_FROM_SIGNAL_CONFIG.items():
+            v = getattr(self.signal_config, theirs, None)
+            if v is not None:
+                setattr(self, mine, float(v))
 
 
 @dataclass
@@ -320,6 +348,42 @@ def _gated(panel: Panel, ticker: str, i: int, config: SignalConfig,
     return engine._downtrend_blocking(vals, series, j, config, market_ret)
 
 
+
+def _selection_mirror(cfg: HarnessConfig) -> dict:
+    """하네스 선정 파라미터가 엔진과 같은지 — **어긋나면 조용히 두지 않고 드러낸다.**
+
+    `min_score` 는 `__post_init__` 이 당겨오므로 항상 같다. `top_pct` 는 스윕 파라미터라
+    호출자 값을 존중하고(미러하면 회귀), 대신 여기서 차이를 보고한다.
+    """
+    sc = cfg.signal_config
+    eng_min = float(getattr(sc, "rank_min_score", 0.0) or 0.0)
+    eng_top = float(getattr(sc, "rank_top_pct", 0.0) or 0.0)
+    return {"min_score": cfg.min_score, "engine_rank_min_score": eng_min,
+            "min_score_differs": abs(cfg.min_score - eng_min) > 1e-9,
+            "top_pct": cfg.top_pct, "engine_rank_top_pct": eng_top,
+            "top_pct_differs": abs(cfg.top_pct - eng_top) > 1e-9,
+            "override_selection": bool(cfg.override_selection)}
+
+
+def _crashed(panel: Panel, ticker: str, i: int, config: SignalConfig) -> bool:
+    """라이브 급락 게이트(`engine._crash_reason`)를 그대로 쓴다.
+
+    2026-08-06 진단: 라이브는 매수 자격에 게이트 **5개**(추세·급락·실적·악재·커버리지)를 걸고
+    하네스는 추세·커버리지 **둘**만 걸고 있었다. 급락은 `closes[i]`·`[i-1]`·`[i-2]` 와 설정만
+    쓰므로 **패널만으로 완전히 계산된다** — 원리적으로 못 보는 게 아니라 빠뜨린 것이었다.
+    실측 영향: 창 1017자리 중 14자리 차단(추세와 겹치지 않는 순증 8자리 = 0.8%).
+
+    작아 보여도 고치는 이유: 문턱(`crash_gate_1d_pct`)이 관리자 편집 가능해 언제든 커질 수 있고,
+    "게이트를 만들면 하네스에도 같이 넣는다"가 이 레포에서 네 번 재발한 병이다.
+    """
+    row = panel.closes[ticker]
+    vals = [v for v in row if v is not None]
+    j = i - (len(row) - len(vals))
+    if j < 0 or j >= len(vals):
+        return False
+    return engine._crash_reason(vals, j, config) is not None
+
+
 def _market_ret_at(panel: Panel, i: int, n: int = 20) -> float | None:
     """i 시점 유니버스 n일 수익률 중위값(%)."""
     rets = []
@@ -434,7 +498,7 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
     per_period_ret: list[float] = []
     universe_by_date: dict[int, list[str]] = {}
     empty_periods = 0
-    cov_blocked = trend_blocked = 0
+    cov_blocked = trend_blocked = crash_blocked = 0
     min_cov = float(getattr(scfg, "min_data_coverage", 0.0) or 0.0)
 
     for i in idxs:
@@ -461,6 +525,9 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
                 continue
             if _gated(panel, t, i, scfg, market_ret, series_cache):
                 trend_blocked += 1
+                continue
+            if _crashed(panel, t, i, scfg):
+                crash_blocked += 1
                 continue
             # 라이브 `apply_cross_sectional`과 같은 커버리지 게이트(X2). 커버리지를 모르면
             # 막지 않는다 — 전 종목 차단은 신중함이 아니라 0으로 나누기다.
@@ -502,6 +569,7 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
             "coverage_blocked": cov_blocked, "min_data_coverage": min_cov,
             # 게이트가 실제로 몇 번 후보를 걸렀나(X3). 0이면 하네스는 게이트 없는 전략을 잰 것이다.
             "trend_blocked": trend_blocked,
+            "crash_blocked": crash_blocked,
             "win_rate_pct": round(sum(1 for r in per_period_ret if r > 0)
                                   / len(per_period_ret) * 100, 1) if per_period_ret else 0.0,
             "avg_picks": round(sum(p["picks"] for p in picks_log) / len(picks_log), 1)
@@ -619,9 +687,20 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
                 f"이 팩터의 결과는 읽지 말 것" for name in weak]
     # 이력은 충분한데 거의 발동하지 않은 조건부 팩터 — 차단 사유는 아니지만, 그 팩터가 결과를
     # 설명한다고 읽으면 안 된다(사실상 다른 팩터 단독 전략이었다).
-    warnings += [f"{n} 발동률 {fired[n]}% — 이력은 충분하나 조건이 거의 걸리지 않았다. "
-                 f"이 결과를 {n} 팩터의 성적으로 읽지 말 것"
-                 for n in weighted if n not in weak and fired.get(n, 0) < 10]
+    # 가드는 `.get(n, 0)` 인데 문구가 `fired[n]` 이라 **발동 정보가 아예 없으면 KeyError** 였다
+    # (2026-08-06 진단에서 합성 패널로 재현: `scores` 를 직접 넘기고 `fired` 를 안 넘긴 경로).
+    # 그리고 `발동률 0%`(조건이 안 걸렸다)와 `발동 정보 없음`(재지 않았다)은 다른 상태다 —
+    # 후자가 더 나쁜데 같은 문장으로 뭉개면 안 된다(0의 이유 규칙).
+    for n in weighted:
+        if n in weak:
+            continue
+        pct = (fired or {}).get(n)
+        if pct is None:
+            warnings.append(f"{n} 발동 정보 없음 — 가중치가 걸려 있는데 발동률을 재지 않았다. "
+                            f"이 결과에 {n} 이 얼마나 기여했는지 알 수 없다")
+        elif pct < 10:
+            warnings.append(f"{n} 발동률 {pct}% — 이력은 충분하나 조건이 거의 걸리지 않았다. "
+                            f"이 결과를 {n} 팩터의 성적으로 읽지 말 것")
     empty = sum(r["empty_periods"] for r in runs)
     # 실효 기간 = 매수가 실제로 있던 리밸런스 횟수. 위상마다 다르므로 **최악 위상**을 쓴다 —
     # 이 파일이 수익률에 대해 이미 최악 위상을 요구하는 것과 같은 이유다(평균은 미참여를 가린다).
@@ -692,7 +771,23 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         # 게이트별 차단 횟수(X3) — 합계 하나면 무엇이 매수 0을 만들었는지 알 수 없다.
         # 실측 라이브에서 추세 게이트가 상위 6자리 중 5자리를 먹었다.
         "gate_blocks": {"trend": sum(r.get("trend_blocked", 0) for r in runs),
+                        "crash": sum(r.get("crash_blocked", 0) for r in runs),
                         "coverage": cov_blocked},
+        # **어떤 게이트를 걸었고 무엇을 원리적으로 못 보는지 선언한다.** 라이브는 매수 자격에
+        # 5개(추세·급락·실적·악재·커버리지)를 건다. 선언이 없으면 읽는 사람은 5개 다 돌았다고
+        # 가정하고, 그게 곧 "라이브가 돌리지 않는 전략의 성적"을 정본으로 쓰는 길이다.
+        # `실적`·`악재`는 시점별 이력(실적일정·KB 이벤트)이 없어 하네스가 볼 수 없다 —
+        # 커버리지의 `unavailable` 과 같은 구분이다(데이터 없음 ≠ 원리적으로 못 봄).
+        "gates": {
+            "applied": ["trend", "crash", "coverage"],
+            "unavailable": {
+                "earnings": "실적일정 시점별 이력 없음 — 그날 무엇이 임박이었는지 복원 불가",
+                "event": "KB 악재 이벤트 시점별 이력 없음 — 그날 무엇이 악재였는지 복원 불가",
+            },
+            "live_gate_count": len(engine.GATE_LABELS),
+        },
+        # `top_pct` 는 스윕 파라미터라 미러하지 않는다 — 엔진과 어긋나면 조용히 두지 않고 드러낸다.
+        "selection_mirror": _selection_mirror(cfg),
         # Deflated Sharpe(L3) — "시도 N회를 감안해도 이 Sharpe가 남는가". 백분위 판정을
         # **대체하지 않는다**; 고르기(다중검정)라는 별개 질문에 답한다.
         # SPA(L2)용 — **첫 위상**의 전략·벤치마크 기간 수익률. 위상마다 길이가 다를 수 있어

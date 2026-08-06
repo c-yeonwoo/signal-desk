@@ -2755,3 +2755,196 @@ def test_textcontent_targets_never_receive_markup():
             if re.search(r"<[a-zA-Z]+[ >]", asg.group(1)):
                 bad.append((var, asg.group(1)[:60]))
     assert not bad, f"textContent 에 태그가 들어간다(글자로 보인다): {bad}"
+
+
+# ── 팩터 IC 측정 예정일 (2026-08-06) ─────────────────────────────────────────
+# `quality` 는 스냅샷 기록이 **오늘 시작**해 `n_dates=0` 이었고 화면은 `성숙 스냅샷 대기` 만
+# 말했다 — 3일 뒤인지 두 달 뒤인지 알 수 없었다. 조건 없는 축적은 영원히 안 본다.
+
+def test_ic_eta_separates_missing_records_from_unripe_ones():
+    """`기록이 안 됨`과 `아직 안 익음`은 다른 상태다 — 같이 0으로 보이면 고장을 못 본다.
+
+    실측(2026-08-06): 대부분 12일 기록·10일 성숙(익는 중)인데 `quality` 는 1일 기록·0일 성숙
+    (기록 중), `short` 는 2일·0일. 같은 `n_dates=0` 이라도 남은 거래일이 24 vs 23으로 다르다.
+    """
+    from signal_desk.signals import accuracy as acc
+    # 요건을 이미 채운 경우 — 기다릴 것이 없다.
+    done = acc.ic_eta(recorded_dates=30, matured_dates=20, need=20, horizon=5)
+    assert done["eta_trading_days"] == 0 and done["eta_date"] is None
+    assert done["blocked_by"] is None
+    # 기록이 모자란 경우 — 남은 기록 + 성숙.
+    rec = acc.ic_eta(recorded_dates=1, matured_dates=0, need=20, horizon=5)
+    assert rec["blocked_by"] == "record"
+    assert rec["eta_trading_days"] == 19 + 5
+    # 기록은 찼고 익기만 기다리는 경우 — 흐른 만큼 뺀다.
+    rip = acc.ic_eta(recorded_dates=22, matured_dates=10, need=20, horizon=5)
+    assert rip["blocked_by"] == "ripen"
+    assert rip["eta_trading_days"] == 3, "이미 흐른 거래일(recorded−need)을 빼지 않는다"
+    # 단조성: 기록이 늘면 예정일이 앞당겨진다(뒤로 가면 계산이 뒤집힌 것이다).
+    prev = None
+    for r in range(1, 25):
+        e = acc.ic_eta(recorded_dates=r, matured_dates=0, need=20, horizon=5)["eta_trading_days"]
+        if prev is not None:
+            assert e <= prev, f"기록 {r}일에서 예정일이 뒤로 갔다"
+        prev = e
+
+
+def test_ic_eta_date_is_a_weekday():
+    """예정일이 주말이면 거래일 계산이 아니라 달력 계산이다."""
+    import datetime
+    from signal_desk.signals import accuracy as acc
+    for start in range(1, 15):                      # 여러 시작 요일에서
+        today = datetime.date(2026, 8, start)
+        e = acc.ic_eta(recorded_dates=5, matured_dates=0, need=20, horizon=5, today=today)
+        d = datetime.date.fromisoformat(e["eta_date"])
+        assert d.weekday() < 5, f"{today} 기준 예정일 {d} 가 주말이다"
+        assert d > today
+
+
+def test_recorded_dates_are_counted_before_the_price_guard():
+    """기록 수를 가격 유무 판단 **뒤에** 세면 과소집계된다.
+
+    `realized_accuracy` 루프는 시세가 없으면 `continue` 한다 — 그 뒤에서 세면 스냅샷에 값이
+    실려 있어도 기록으로 안 잡히고, `기록 중`인 팩터가 영원히 `0일`로 보인다.
+    """
+    from signal_desk.signals import accuracy as acc
+    rows = [{"date": "2026-08-06", "ticker": f"T{i}", "score": 1.0, "kind": "HOLD",
+             "quality": 0.5} for i in range(12)]
+    out = acc.realized_accuracy(rows, {})           # 시세 **없음**
+    st = out["factor_ic_stats"]["quality"]
+    assert st["recorded_dates"] == 1, "시세가 없으면 기록 수가 0으로 집계된다"
+    assert st["n_dates"] == 0 and st["eta_trading_days"] > 0
+
+
+def test_ic_eta_is_shown_on_screen_with_the_reflection_caveat():
+    """예정일을 화면에 내되 **측정 가능일 ≠ 반영일**을 같이 말한다.
+
+    판별력이 판정 불가인 동안 가중치·부호를 만지지 않는다는 원칙이 흐려지면, 날짜가 다가오는
+    것 자체가 변경 압력이 된다(쌓인 제안 큐가 승인을 유도하던 것과 같은 병).
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "eta_trading_days" in html and "eta_date" in html
+    assert "recorded_dates" in html, "기록 진척을 안 보여주면 무엇을 기다리는지 모른다"
+    assert "blocked_by" in html, "기록 중·익는 중을 화면이 구분하지 않는다"
+    assert "반영일이 아니다" in html, "측정 가능일을 반영일로 읽게 둔다"
+    # **축적 중 카드에도** 있어야 한다. IC 표는 `matured < need` 동안 조기 return 으로 아예
+    # 렌더되지 않으므로(실측: h20 성숙 0/20 → 표 없음) 그 안에만 두면 기다리는 몇 달간
+    # 아무도 못 본다 — 정작 그때가 예정일이 필요한 시점이다.
+    assert "function icEtaLine(" in html
+    accum = html.split("track record 누적 중", 1)[1].split("      return;", 1)[0]
+    assert "icEtaLine(d)" in accum, "축적 중 카드가 예정일을 안 보여준다"
+
+
+# ── 하네스 ⇄ 라이브 정합성 (2026-08-06 진단) ─────────────────────────────────
+# 이 레포에서 네 번 재발한 병: **검증이 라이브와 다른 전략을 잰다**
+# (`shorts` 누락 → `signal_config` 미주입 → 커버리지 게이트 라이브 전용 → 게이트 자리 되채움).
+# 5번째를 찾았다: `HarnessConfig.min_score` 가 하드코딩 1.2인데 주석은 "동기화"라고 적혀 있었다.
+
+def test_mirrored_harness_fields_are_actually_synced():
+    """`HarnessConfig` 가 엔진 필드를 미러한다고 선언하면 **실제로** 당겨와야 한다.
+
+    실측: `min_score: float = 1.2  # 엔진 rank_min_score와 동기화` 였는데 아무도 안 당겨왔다.
+    둘 다 기본값 1.2라 **우연히 일치**했고, `rank_min_score` 는 관리자가 편집할 수 있는
+    `signalcfg.FIELDS` 필드다 — 바꾸면 라이브만 따라가고 하네스는 1.2에 남는다.
+    사전등록 `config_agrees_with_engine` 은 `SignalConfig` 만 대조하므로 이걸 못 잡는다.
+    """
+    from signal_desk.signals import engine
+    from signal_desk.signals import harness as hz
+    assert hz._MIRRORED_FROM_SIGNAL_CONFIG, "미러 선언이 비었다"
+    for mine, theirs in hz._MIRRORED_FROM_SIGNAL_CONFIG.items():
+        assert hasattr(hz.HarnessConfig(), mine), f"{mine} 필드가 없다"
+        assert hasattr(engine.SignalConfig(), theirs), f"엔진에 {theirs} 가 없다"
+        # **기본값이 아닌 값**으로 확인한다 — 같은 기본값끼리는 우연히 통과한다.
+        probe = 0.37
+        c = hz.HarnessConfig(signal_config=engine.SignalConfig(**{theirs: probe}))
+        assert getattr(c, mine) == probe, (
+            f"{mine} 가 엔진 {theirs} 를 따라오지 않는다 — 하네스가 다른 전략을 잰다")
+
+
+def _hz_panel(n_tickers: int = 20, n_days: int = 200):
+    """하네스가 실제로 도는 최소 크기 패널. `run()` 은 작은 패널에서 조기 반환한다."""
+    from signal_desk.signals import harness as hz
+    dates = [f"2025-{1 + i // 28:02d}-{1 + i % 28:02d}" for i in range(n_days)]
+    return hz.build_panel({f"T{i}": (dates, [100.0 + i + j * 0.3 for j in range(n_days)])
+                           for i in range(n_tickers)})
+
+
+def _hz_cfg(**sc):
+    """게이트를 끈 기본 설정 — 검사 대상 게이트만 켜서 본다."""
+    from signal_desk.signals import engine
+    from signal_desk.signals import harness as hz
+    base = dict(trend_gate=0.0, min_data_coverage=0.0,
+                crash_gate_1d_pct=0.0, crash_gate_2d_pct=0.0)
+    base.update(sc)
+    return hz.HarnessConfig(top_pct=50.0, rebalance_days=5, cost_pct=0.0, warmup=0,
+                            random_trials=10, signal_config=engine.SignalConfig(**base))
+
+
+def test_changing_rank_min_score_changes_what_the_harness_picks():
+    """필드 일치가 아니라 **동작**으로 확인한다 — 값만 같고 루프가 다른 값을 보면 무의미하다."""
+    from signal_desk.signals import engine
+    from signal_desk.signals import harness as hz
+    panel = _hz_panel()
+    scores = {f"T{i}": [i / 10.0] * len(panel.dates) for i in range(20)}   # 0.0 ~ 1.9 고정
+    def picks(minsc):
+        out = hz.run(panel, _hz_cfg(rank_min_score=minsc), None, scores=scores)
+        assert out.get("ready") is not False, out.get("reason")
+        # `avg_picks` 는 `strategy` 아래 중첩이다 — 최상위에서 찾으면 조용히 None 이다.
+        return (out.get("strategy") or {}).get("avg_picks")
+    low, high = picks(0.0), picks(1.85)
+    assert low and high is not None
+    assert high < low, f"최소점수를 1.85로 올려도 보유 수가 안 줄었다({low} → {high})"
+
+
+def test_harness_applies_every_live_gate_it_can_compute():
+    """가격만으로 계산되는 라이브 게이트를 하네스가 빠뜨리면 **라이브가 돌리지 않는 전략**을 잰다.
+
+    실측(2026-08-06): 라이브는 매수 자격에 5개(추세·급락·실적·악재·커버리지)를 거는데 하네스는
+    추세·커버리지 둘만 걸었다. 급락은 `closes[i]`·`[i-1]`·`[i-2]` 만 쓰므로 패널로 계산된다 —
+    원리적으로 못 보는 게 아니라 빠뜨린 것이었다(창 1017자리 중 순증 8자리 = 0.8%).
+    고친 뒤 백분위 71.5 → 68.0.
+    """
+    from pathlib import Path
+    from signal_desk.signals import engine
+    from signal_desk.signals import harness as hz
+    src = Path("src/signal_desk/signals/harness.py").read_text(encoding="utf-8")
+    # 라이브 게이트 이름 전부가 `applied` 나 `unavailable` 중 하나에 **선언**돼야 한다.
+    out = hz.run(_hz_panel(), _hz_cfg(), None)
+    gates = out.get("gates") or {}
+    declared = set(gates.get("applied") or []) | set((gates.get("unavailable") or {}).keys())
+    missing = set(engine.GATE_LABELS) - declared
+    assert not missing, f"선언되지 않은 라이브 게이트: {sorted(missing)} — 걸었는지 못 보는지 밝힐 것"
+    assert gates.get("live_gate_count") == len(engine.GATE_LABELS)
+    # 못 보는 게이트는 **이유**를 하나씩 적는다(통째로 스킵하면 새 누락이 조용히 섞인다).
+    for k, why in (gates.get("unavailable") or {}).items():
+        assert why and len(why) > 10, f"{k} 를 못 보는 이유가 비었다"
+    # 급락 게이트는 라이브 함수를 그대로 쓴다 — 하네스가 자기 판본을 두면 규칙이 갈라진다.
+    assert "engine._crash_reason(" in src, "급락 게이트를 하네스가 따로 구현했다"
+
+
+def test_gate_blocks_reports_every_applied_gate():
+    """`applied` 에 있는 게이트는 **몇 번 막았는지**도 내야 한다.
+
+    0이면 "있는 것처럼 보이지만 효과 없는 게이트"이고, 그걸 드러내는 것이 이 카운터의 목적이다.
+    """
+    from signal_desk.signals import harness as hz
+    out = hz.run(_hz_panel(), _hz_cfg(), None)
+    applied = set((out.get("gates") or {}).get("applied") or [])
+    blocks = out.get("gate_blocks") or {}
+    assert applied <= set(blocks), f"차단 횟수가 없는 게이트: {sorted(applied - set(blocks))}"
+
+
+def test_selection_params_that_are_not_mirrored_are_reported():
+    """미러하지 않는 선정 파라미터(`top_pct` — 스윕 대상)는 **어긋남을 산출물에 드러낸다.**
+
+    미러하면 호출자의 스윕 값을 조용히 무시하는 회귀가 되고, 그냥 두면 조용히 갈라진다.
+    """
+    from signal_desk.signals import engine
+    from signal_desk.signals import harness as hz
+    cfg = _hz_cfg(rank_top_pct=3.0)
+    cfg.top_pct = 7.0                      # 스윕처럼 호출자가 직접 준 값
+    m = hz.run(_hz_panel(), cfg, None).get("selection_mirror") or {}
+    assert m.get("top_pct") == 7.0 and m.get("engine_rank_top_pct") == 3.0
+    assert m.get("top_pct_differs") is True, "어긋났는데 산출물이 침묵한다"
+    assert m.get("min_score_differs") is False, "미러 필드가 어긋나 있다"
