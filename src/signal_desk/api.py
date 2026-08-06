@@ -497,7 +497,6 @@ _ADMIN_PATHS = {
     "/api/climate-shadow", "/api/kb-coverage-shadow",
     "/api/proof", "/api/pick-reason", "/api/harness/run",
     "/api/harness/preregistered", "/api/harness/runs",
-    "/api/product-review", "/api/product-review/run",
 }
 
 
@@ -3012,25 +3011,6 @@ def audit_hypothesis_status(hid: str, request: Request, payload: dict = Body(...
     if not db.audit_hypothesis_set_status(hid, status, (payload or {}).get("note") or ""):
         raise HTTPException(404, "가설을 찾을 수 없습니다")
     return {"ok": True, **audit.summary()}
-
-
-@app.get("/api/product-review")
-def product_review_get(request: Request):
-    """Lx 제품 리뷰 최근분 — 매매 경로 밖. docs/product-reviewer.md"""
-    _admin_or_403(request)
-    from signal_desk import product_reviewer
-    return product_reviewer.summary()
-
-
-@app.post("/api/product-review/run")
-def product_review_run(request: Request):
-    """제품 리뷰 1회 — BACKLOG 후보만. 엔진·봇 불변."""
-    _admin_or_403(request)
-    from signal_desk import product_reviewer
-    out = product_reviewer.generate()
-    log.info("제품 리뷰 %s (저장 %s)", "성공" if out.get("ready") else "비활성",
-             out.get("saved", 0))
-    return {**out, **product_reviewer.summary()}
 
 
 @app.get("/api/external-watch")
