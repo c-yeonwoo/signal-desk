@@ -2555,6 +2555,58 @@ def _kb_targets(limit_candidates: int = 16, lead_limit: int = 10,
     return targets
 
 
+_pit_uni_job: dict = {"running": False, "started_at": None, "finished_at": None, "result": None}
+_pit_uni_lock = threading.Lock()
+
+
+@app.post("/api/pit-universe/backfill")
+def pit_universe_backfill(request: Request, body: dict = Body(default={})):
+    """PIT 유니버스(월 스냅샷) 백필 — 생존편향 제거의 원천. 관리자.
+
+    **왜 라우트가 필요한가**: `fetch_universe_history`의 진입점이 CLI와 일일 루프(15:40 KST
+    이후, stale일 때만)뿐이라 **프로덕션에서 사람이 돌릴 방법이 없었다**. 실제로 프로덕션에
+    파일이 없어 N5(#329)의 생존편향 제거가 코드로만 존재하고 작동하지 않았다.
+    "수집 코드가 있다고 데이터가 갱신되는 건 아니다" — 진입점까지가 한 세트다.
+
+    월 60콜(0.4초 간격)이라 백그라운드로 돌린다. 이미 받은 달은 건너뛰므로 재실행이 싸다.
+    """
+    _admin_or_403(request)
+    months = max(1, min(int(body.get("months") or 60), 120))
+    force = bool(body.get("force") or False)
+    with _pit_uni_lock:
+        if _pit_uni_job["running"]:
+            return {"ok": False, "started": False, "running": True,
+                    "started_at": _pit_uni_job["started_at"],
+                    "message": "이미 실행 중 — 끝나면 데이터 상태를 새로고침하세요"}
+        _pit_uni_job.update(running=True, started_at=time.time(), finished_at=None, result=None)
+
+    def _run():
+        try:
+            r = store.fetch_universe_history(months_back=months, force=force)
+            _pit_uni_job["result"] = r
+            if not r.get("ok"):
+                log.warning("PIT 유니버스 백필 거부: %s", r.get("reason"))
+            else:
+                log.info("PIT 유니버스 백필 완료 — 스냅샷 %s(신규 %s) · 고유 종목 %s",
+                         r.get("snapshots"), r.get("added"), r.get("tickers_total"))
+        except Exception as e:                     # noqa: BLE001 — 이유를 상태에 남긴다
+            log.exception("PIT 유니버스 백필 실패")
+            _pit_uni_job["result"] = {"ok": False, "reason": f"{type(e).__name__}: {e}"}
+        finally:
+            _pit_uni_job.update(running=False, finished_at=time.time())
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"ok": True, "started": True, "months": months, "force": force,
+            "message": f"백필 시작 — 최근 {months}개월 월 1회 스냅샷(이미 받은 달은 건너뜁니다)"}
+
+
+@app.get("/api/pit-universe/backfill")
+def pit_universe_backfill_status(request: Request):
+    """백필 진행·결과. 거부 이유(키 없음 등)도 여기서 읽는다 — 조용한 실패를 만들지 않는다."""
+    _admin_or_403(request)
+    return {**_pit_uni_job}
+
+
 @app.post("/api/kb/poll-disclosures")
 def kb_poll_disclosures():
     """장중용 DART 공시만 즉시 수집(Sonnet/뉴스 없음). 신규 Decision이면 시그널 캐시 무효화.
