@@ -2392,3 +2392,36 @@ def test_toolbar_search_does_not_force_a_second_line_on_desktop():
     css = html[:html.find("</style>")]
     assert "#sig-search { order:3; flex:1 1 140px; }" in css
     assert "#sig-search { order:3; flex:1 1 100%; }" not in css
+
+
+def test_pit_universe_backfill_has_a_manual_entry_point():
+    """PIT 유니버스 백필은 **프로덕션에서 사람이 돌릴 수 있어야** 한다.
+
+    2026-08-06 프로덕션 점검에서 이게 없었다 — 진입점이 CLI와 일일 루프(15:40 KST 이후,
+    stale일 때만)뿐이라 프로덕션에 파일이 없는데도 손쓸 방법이 없었다. 그동안 N5(#329)의
+    생존편향 제거는 코드로만 존재했다(프로덕션 하네스가 `score_source: price` 로 돌았다).
+
+    "수집 코드가 있다고 데이터가 갱신되는 건 아니다" 의 진입점 판본이다.
+    """
+    from pathlib import Path
+    api_src = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert '"/api/pit-universe/backfill"' in api_src, "백필 라우트가 없다"
+    assert "store.fetch_universe_history(" in api_src, "라우트가 실제 수집 함수를 부르지 않는다"
+    # 라우트만 있고 화면에 안 붙으면 "존재하지만 닿을 수 없는 기능"이다(X5).
+    assert "pitUniverseBackfill()" in html, "관리자 화면에 버튼이 없다"
+    assert "/api/pit-universe/backfill" in html, "화면이 라우트를 부르지 않는다"
+
+
+def test_pit_universe_backfill_reports_the_reason_for_zero():
+    """거부(KRX 키 없음)와 정상 0(이미 다 받음)을 화면에서 가를 수 있어야 한다.
+
+    `{"ok": False}` 를 버리고 성공처럼 보이게 하는 것이 이 리포의 재발 버그다(#339).
+    """
+    from pathlib import Path
+    api_src = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    # 상태 조회 라우트가 있어야 결과·거부 이유를 읽을 수 있다(백그라운드 실행이라 POST 응답엔 없다).
+    assert api_src.count('"/api/pit-universe/backfill"') >= 2, "GET 상태 라우트가 없다"
+    assert 'r.get("reason")' in api_src or "r.get('reason')" in api_src
+    assert "거부:" in html, "화면이 거부 이유를 별도 문장으로 내지 않는다"

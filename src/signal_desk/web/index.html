@@ -1239,6 +1239,15 @@
         <button class="btn primary" onclick="refreshData()">데이터 갱신</button>
       </div>
       <div id="egress-ip" style="display:none;margin-top:10px;font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px"></div>
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
+        <div class="stat-label" style="font-weight:700;color:var(--fg)">PIT 유니버스(월 스냅샷)</div>
+        <p class="page-desc" style="margin:4px 0 0">하네스 생존편향 제거의 원천 — 없으면 "오늘 상위 200"으로 과거를 재서 결과가 편향의 증거가 됩니다. 월 60콜, 수 분 소요. 이미 받은 달은 건너뜁니다.</p>
+        <div class="row" style="margin-top:8px;gap:6px;flex-wrap:wrap">
+          <span id="pituni-result" class="stat-label" style="margin:0 auto 0 0"></span>
+          <button class="btn" onclick="pitUniverseStatus()">진행 확인</button>
+          <button class="btn" onclick="pitUniverseBackfill()">백필 실행</button>
+        </div>
+      </div>
     </details>
 
     <details class="card" id="ops-metrics-details" style="margin-top:16px" ontoggle="if(this.open){loadLlmUsage();loadD7();}">
@@ -5166,6 +5175,38 @@ function renderDataHealth(d){
     }
     box.innerHTML = html || '데이터 없음';
   } catch (e) { box.innerHTML = '표시 실패'; }
+}
+
+async function pitUniverseBackfill() {
+  const el = document.getElementById('pituni-result');
+  el.textContent = '시작 요청...';
+  try {
+    const d = await (await fetch('/api/pit-universe/backfill', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ months: 60 }) })).json();
+    el.textContent = d.message || (d.ok ? '시작' : '실패');
+    if (d.started) setTimeout(pitUniverseStatus, 8000);
+  } catch (e) { el.textContent = '요청 실패: ' + e; }
+}
+
+async function pitUniverseStatus() {
+  const el = document.getElementById('pituni-result');
+  try {
+    const d = await (await fetch('/api/pit-universe/backfill')).json();
+    if (d.running) {
+      const sec = d.started_at ? Math.round(Date.now() / 1000 - d.started_at) : 0;
+      el.textContent = `실행 중 · ${sec}초 경과`;
+      setTimeout(pitUniverseStatus, 8000);
+      return;
+    }
+    const r = d.result;
+    if (!r) { el.textContent = '실행 이력 없음'; return; }
+    // 0의 이유를 낸다 — 거부(키 없음)와 정상 0(이미 다 받음)은 다른 문장이다.
+    el.textContent = r.ok
+      ? `완료 · 스냅샷 ${r.snapshots ?? '?'}(신규 ${r.added ?? 0}) · 고유 종목 ${r.tickers_total ?? '?'}`
+      + (r.failed && r.failed.length ? ` · 실패 ${r.failed.length}달` : '')
+      : `거부: ${r.reason || '이유 없음'}`;
+  } catch (e) { el.textContent = '조회 실패: ' + e; }
 }
 
 async function showEgressIp(){
