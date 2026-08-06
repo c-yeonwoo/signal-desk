@@ -4993,6 +4993,18 @@ function renderDataHealth(d){
         + `<div style="margin-top:4px;color:var(--dim)">${esc(String(d.stall_line).replace(/^🔧\s*/, ''))}</div>`
         + `<div style="margin-top:4px;color:var(--dim-2);font-size:12px">아침 브리핑 첫 줄에도 같은 내용이 갑니다.</div></div>`;
     }
+    // 저장소 휘발성 배너 — 정지 배너 바로 아래. 볼륨이 없으면 배포마다 장부가 지워지고,
+    // 지워진 것은 조용하다(새 DB가 만들어져 "누적 중"으로 보인다). 정상일 때는 아무 말도 안 한다.
+    const sto = d.storage || {};
+    if (sto.ephemeral_suspected) {
+      html += `<div style="border:1px solid var(--sell);border-radius:8px;padding:9px 11px;margin:0 0 12px;font-size:13px">`
+        + `<b style="color:var(--sell)">저장소가 배포를 넘어 살아남지 않을 수 있습니다</b>`
+        + `<div style="margin-top:4px;color:var(--dim)">${esc(sto.reason || '')}</div>`
+        + `<div style="margin-top:4px;color:var(--dim-2);font-size:12px">`
+        + `${esc(sto.data_dir || '')} · 부팅 ${sto.boot_count ?? '–'}회`
+        + `${sto.first_boot ? ' · 최초 ' + esc(String(sto.first_boot).slice(0, 16).replace('T', ' ')) : ''}`
+        + `<br>${esc(sto.how_to_verify || '')}</div></div>`;
+    }
     // 데이터 신선도(항상) — 소스별 최종 갱신·경과·건수·상태
     if (d.freshness && d.freshness.length) {
       const fmtAge = h => h == null ? '–' : (h >= 24 ? (h / 24).toFixed(1) + '일' : h.toFixed(1) + '시간') + ' 전';
@@ -6470,8 +6482,26 @@ async function loadLlmUsage(){
       <td class="num">${usd(m.cost_usd)}</td>
       <td class="num" style="color:var(--dim)">${(m.input_tokens || 0).toLocaleString()} / ${(m.output_tokens || 0).toLocaleString()}</td>
     </tr>`).join('') || '<tr><td colspan="4" style="color:var(--dim-2)">아직 기록 없음 — LLM 호출 후 쌓입니다.</td></tr>';
+    // 예산 상태를 **맨 위**에 — 상한이 안 보이면 왜 LLM이 조용한지 알 수 없다(0의 이유 규칙).
+    const bg = d.budget || {};
+    const rl = d.chat_rate_limit || {};
+    const pct = (u, c) => (u != null && c > 0) ? Math.min(100, Math.round(u / c * 100)) : null;
+    const bar = (label, u, c) => {
+      const q = pct(u, c);
+      const col = q == null ? 'var(--dim)' : q >= 100 ? 'var(--sell)' : q >= 80 ? 'var(--warn)' : 'var(--sig-buy)';
+      return `<div style="flex:1;min-width:150px">
+        <div style="font-size:12px;color:var(--dim)">${label} ${usd(u)} / ${usd(c)}${q == null ? '' : ` · ${q}%`}</div>
+        <div style="height:6px;background:var(--line);border-radius:3px;margin-top:4px;overflow:hidden">
+          <div style="height:100%;width:${q == null ? 0 : q}%;background:${col}"></div></div></div>`;
+    };
+    const budgetRow = `<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;
+        padding:10px 12px;border:1px solid ${bg.ok ? 'var(--line)' : 'var(--sell)'};border-radius:10px">
+      ${bar('오늘', bg.day_usd, bg.day_cap)}${bar('30일', bg.month_usd, bg.month_cap)}
+      <div style="flex:0 0 auto;font-size:12px;color:var(--dim)">대화 ${rl.limit || '–'}턴 / ${Math.round((rl.window || 0) / 60)}분</div>
+    </div>`
+      + (bg.ok ? '' : `<div style="font-size:13px;color:var(--sell);font-weight:700;margin-bottom:10px">LLM 차단 — ${esc(bg.reason || '')}</div>`);
     el.className = '';
-    el.innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    el.innerHTML = budgetRow + `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
         ${card('오늘', today)}${card('7일', week)}${card('30일', tot)}
       </div>
       <table class="dtable"><thead><tr><th>모델</th><th class="num">호출</th><th class="num">추정$</th><th class="num">in / out</th></tr></thead><tbody>${models}</tbody></table>

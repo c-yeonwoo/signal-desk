@@ -1714,6 +1714,22 @@ def llm_usage_add(*, model: str, kind: str, input_tokens: int, output_tokens: in
     c.close()
 
 
+def llm_spend_usd(*, window_sec: int) -> float | None:
+    """최근 `window_sec` 초 동안의 추정 LLM 지출(USD). 읽을 수 없으면 **None**.
+
+    예산 게이트가 이 값을 본다. 0.0과 None을 구분하는 것이 핵심이다 — 0.0은 "안 썼다"이고
+    None은 "모른다"이며, 모를 때 통과시키면 fail-open이라 게이트가 없는 것과 같다.
+    """
+    try:
+        c = conn()
+        row = c.execute("SELECT COALESCE(SUM(cost_usd), 0) FROM llm_usage WHERE ts>=? AND ok=1",
+                        (int(time.time()) - max(1, int(window_sec)),)).fetchone()
+        c.close()
+        return float(row[0] or 0.0)
+    except Exception:                            # noqa: BLE001 — 못 읽으면 막는 쪽이 안전하다
+        return None
+
+
 def llm_usage_summary(days: int = 30) -> dict:
     """기간별 호출·토큰·추정 USD + 모델별 분해. Anthropic 청구와 다를 수 있음(캐시·배치 미반영)."""
     now = int(time.time())

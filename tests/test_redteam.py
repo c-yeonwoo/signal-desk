@@ -1694,3 +1694,146 @@ def test_every_api_route_has_a_caller_or_a_stated_reason():
     # 목록이 자라기만 하는 것을 막는다. 지금 10개이고, 늘리려면 이 숫자를 같이 올려야 한다.
     assert len(_ROUTES_WITHOUT_UI) <= 10, (
         f"닿지 않는 라우트가 {len(_ROUTES_WITHOUT_UI)}개로 늘었다 — 붙이거나 지울 것")
+
+
+# ── LLM 예산 게이트 ────────────────────────────────────────────────────────────
+# 2026-08-06: `/api/chat`·`/api/chat/stream`에 레이트리밋도 예산 상한도 없었다. 30일 누적은
+# $1.11로 작았지만 상한이 없으면 대화 루프·재시도 폭발이 그대로 청구서가 된다.
+
+def test_budget_gate_covers_every_network_call_site_in_llm():
+    """상한은 라우트가 아니라 **llm 모듈**에 있어야 한다 — 호출자가 11개다.
+
+    그리고 `_post_json` 하나만 막으면 안 된다: `stream_call`은 SSE라 자기 요청을 따로 만들고,
+    그게 하필 막아야 할 `/api/chat/stream` 경로다("단일 호출 지점"이라는 전제를 확인하지 않으면
+    게이트는 있는 척만 한다).
+    """
+    import re
+    from pathlib import Path
+
+    src = Path("src/signal_desk/llm.py").read_text(encoding="utf-8")
+    # urlopen을 부르는 함수마다 그 앞에 예산 판정이 있어야 한다.
+    bodies = re.split(r"\ndef ", src)
+    opens = [b for b in bodies if "urllib.request.urlopen(" in b]
+    assert len(opens) >= 2, f"urlopen 지점이 {len(opens)}개 — 검사 전제가 깨졌다"
+    for b in opens:
+        name = b.split("(", 1)[0]
+        assert "budget_state()" in b, f"{name}: urlopen 앞에 예산 판정이 없다(게이트 우회)"
+
+
+def test_budget_block_is_distinguishable_from_missing_key():
+    """예산 차단이 None이면 '키 없음'과 같아 보인다 — 화면에서 두 상태를 가를 수 없다."""
+    import importlib
+
+    from signal_desk import llm
+
+    calls = []
+
+    def _blocked():
+        return {"ok": False, "reason": "테스트 차단", "day_usd": 9.0, "day_cap": 1.0,
+                "month_usd": 9.0, "month_cap": 10.0}
+
+    orig_state, orig_key = llm.budget_state, llm.config.anthropic_key
+    llm.budget_state = _blocked
+    llm.config.anthropic_key = lambda: "sk-test"
+    try:
+        for name, fn in (("complete", lambda: llm.complete("s", "u")),
+                         ("complete_json", lambda: llm.complete_json("s", "u")),
+                         ("messages_with_tools", lambda: llm.messages_with_tools("s", [], [])),
+                         ("stream_call", lambda: list(llm.stream_call("s", [], [])))):
+            try:
+                fn()
+                calls.append(f"{name}: 예외 없이 반환")
+            except llm.BudgetExceeded:
+                pass
+            except Exception as e:                       # noqa: BLE001
+                calls.append(f"{name}: {type(e).__name__}")
+    finally:
+        llm.budget_state = orig_state
+        llm.config.anthropic_key = orig_key
+        importlib.reload(llm)
+    assert not calls, f"예산 차단이 BudgetExceeded로 올라오지 않는다: {calls}"
+
+
+def test_budget_gate_fails_closed_when_spend_is_unreadable():
+    """지출을 못 읽으면 **막는다**. fail-open은 게이트가 없는 것과 같다."""
+    from signal_desk import llm
+
+    orig = llm.db.llm_spend_usd
+    llm.db.llm_spend_usd = lambda **_: None          # 읽기 실패
+    try:
+        st = llm.budget_state()
+        assert st["ok"] is False and "읽을 수 없" in st["reason"], st
+    finally:
+        llm.db.llm_spend_usd = orig
+    # 0.0(안 씀)은 통과해야 한다 — None과 0을 같게 취급하면 평상시에도 막힌다.
+    llm.db.llm_spend_usd = lambda **_: 0.0
+    try:
+        assert llm.budget_state()["ok"] is True
+    finally:
+        llm.db.llm_spend_usd = orig
+
+
+def test_chat_routes_are_rate_limited_and_report_the_reason():
+    """막힐 때 **이유를 그대로** 돌려준다 — 조용한 빈 답변은 고장처럼 보인다."""
+    import importlib
+
+    from fastapi.testclient import TestClient
+
+    from signal_desk import api as api_mod
+
+    src = __import__("pathlib").Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    # 두 라우트가 모두 가드를 통과해야 한다(하나만 걸면 다른 쪽으로 새어 나간다).
+    for route in ('@app.post("/api/chat")', '@app.post("/api/chat/stream")'):
+        blk = src.split(route, 1)[1].split("\n@app.", 1)[0]
+        assert "_chat_guard(request)" in blk, f"{route}에 가드가 없다"
+    assert "_rate_limited(request, \"chat\"" in src
+    importlib.reload(api_mod)
+
+
+def test_storage_report_detects_ephemeral_and_stays_quiet_when_healthy(tmp_path, monkeypatch):
+    """볼륨이 없으면 배포마다 장부가 지워지고 **그건 조용하다**(새 DB가 "누적 중"으로 보인다).
+
+    코드가 Railway 볼륨 설정을 알 방법은 없으므로 **증상으로 판정한다** — 부팅 카운터가 이전
+    프로세스를 기억하는지. 정상일 때는 아무 말도 하지 않는다(매일 초록불은 곧 안 읽힌다).
+    """
+    import importlib
+
+    monkeypatch.chdir(tmp_path)                  # 부팅 카운터는 DB 상태다 → 격리 없으면 새어 든다
+    from signal_desk import db as db_mod
+    from signal_desk import store as store_mod
+    importlib.reload(db_mod)
+
+    r0 = store_mod.storage_report()
+    assert r0["ephemeral_suspected"] is True, "최초 부팅 기록이 없으면 의심해야 한다"
+    assert r0["reason"] and r0["how_to_verify"]
+
+    store_mod.mark_boot()
+    r1 = store_mod.storage_report()
+    assert r1["boot_count"] == 1 and r1["first_boot"]
+    # 부팅 1회 + DB 존재 = 이전 프로세스를 기억하지 못한다 → 여전히 의심
+    if r1["db_exists"]:
+        assert r1["ephemeral_suspected"] is True, r1
+
+    store_mod.mark_boot()
+    r2 = store_mod.storage_report()
+    assert r2["boot_count"] == 2
+    assert r2["ephemeral_suspected"] is False, "카운터가 살아남았는데도 의심하면 오탐이다"
+    assert r2["reason"] is None
+    importlib.reload(db_mod)
+
+
+def test_data_health_carries_storage_and_ui_renders_it():
+    """진단 값을 만들어도 화면에 안 뜨면 몇 주씩 못 본다(수집 정지와 같은 병)."""
+    import inspect
+    from pathlib import Path
+
+    from signal_desk import api as api_mod
+
+    src = inspect.getsource(api_mod.data_health_get)
+    assert "store.storage_report()" in src and '"storage": storage' in src
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "ephemeral_suspected" in html, "휘발성 배너가 화면에 없다"
+    assert "how_to_verify" in html, "무엇을 확인해야 하는지 화면에 안 나온다"
+    # 부팅 기록이 실제로 불려야 한다 — 안 부르면 카운터가 영원히 0이고 항상 의심으로 뜬다.
+    life = inspect.getsource(api_mod._lifespan)
+    assert "store.mark_boot()" in life

@@ -18,6 +18,30 @@ def load_env(path: str | Path = ".env") -> None:
         os.environ.setdefault(k.strip(), v.strip())
 
 
+def _env_float(name: str, default: float) -> float:
+    """환경변수 실수 파싱. 빈 값·오타는 기본값으로 — 상한이 오타로 무한이 되면 안 된다."""
+    raw = (os.environ.get(name) or "").strip()
+    try:
+        v = float(raw)
+    except ValueError:
+        return default
+    return v if v >= 0 else default
+
+
+def llm_daily_budget_usd() -> float:
+    """일일 LLM 지출 상한(USD). 0이면 LLM 전면 차단(비활성이 아니라 명시적 0).
+
+    기본 1.0 — 실측 30일 누적이 $1.11이었으므로 하루 $1은 평상시를 막지 않으면서
+    폭주(대화 루프·재시도 폭발)를 하루 단위로 끊는다.
+    """
+    return _env_float("LLM_DAILY_BUDGET_USD", 1.0)
+
+
+def llm_monthly_budget_usd() -> float:
+    """월 지출 상한(USD). 일일 상한을 매일 다 써도 30배가 되지 않게 위에 하나 더 둔다."""
+    return _env_float("LLM_MONTHLY_BUDGET_USD", 10.0)
+
+
 def is_prod() -> bool:
     """배포 환경 여부. 로컬 dev는 APP_ENV 가 없음."""
     return os.environ.get("APP_ENV") == "prod"

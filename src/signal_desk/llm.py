@@ -16,7 +16,7 @@ import json
 import logging
 import urllib.request
 
-from signal_desk import config
+from signal_desk import config, db
 
 log = logging.getLogger("signal_desk.llm")
 
@@ -42,6 +42,46 @@ _PRICE_USD_PER_MTOK: list[tuple[str, float, float]] = [
     ("claude-haiku", 1.0, 5.0),
 ]
 _PRICE_FALLBACK = (3.0, 15.0)  # 미매칭 시 Sonnet급
+
+
+# ── 예산 게이트 ────────────────────────────────────────────────────────────────
+# 상한을 **여기 한 곳**에 둔다. `llm`을 부르는 모듈이 11개(chat·kb·audit·advisor·narrative·
+# hypothesis·rebalance·bot·company·shortform·api)이고, 라우트마다 상한을 걸면 새 호출자가
+# 조용히 우회한다 — `shorts` 누락·`signal_config` 미주입·커버리지 게이트와 같은 병이다.
+# `_post_json`이 유일한 네트워크 호출 지점이라 여기를 지나지 않고 토큰을 쓸 방법이 없다.
+_DAY = 86400
+
+
+def budget_state() -> dict:
+    """예산 상태 — `{ok, reason, day_usd, day_cap, month_usd, month_cap}`.
+
+    지출을 **못 읽으면 막는다**(fail-open은 게이트가 없는 것과 같다). 0.0(안 씀)과
+    None(모름)을 구분하는 것이 이 판정의 전부다.
+    """
+    day_cap, month_cap = config.llm_daily_budget_usd(), config.llm_monthly_budget_usd()
+    day, month = db.llm_spend_usd(window_sec=_DAY), db.llm_spend_usd(window_sec=30 * _DAY)
+    out = {"day_usd": day, "day_cap": day_cap, "month_usd": month, "month_cap": month_cap,
+           "ok": False, "reason": ""}
+    if day is None or month is None:
+        out["reason"] = "LLM 지출을 읽을 수 없어 호출을 보류합니다(예산 게이트 fail-closed)."
+        return out
+    if day_cap <= 0:
+        out["reason"] = "LLM 일일 예산이 0으로 설정돼 있습니다(LLM_DAILY_BUDGET_USD)."
+        return out
+    if day >= day_cap:
+        out["reason"] = (f"오늘 LLM 지출 ${day:.2f} / 상한 ${day_cap:.2f} — 자정(UTC 기준 24시간 창) "
+                         f"이후 다시 열립니다.")
+        return out
+    if month >= month_cap:
+        out["reason"] = f"30일 LLM 지출 ${month:.2f} / 상한 ${month_cap:.2f} — 상한을 올려야 합니다."
+        return out
+    out["ok"] = True
+    return out
+
+
+class BudgetExceeded(RuntimeError):
+    """예산 상한으로 호출이 막혔다. **키 없음(None)과 구분하려고** 예외로 낸다 —
+    둘이 같아 보이면 "LLM 미연동"과 "예산 초과"를 화면에서 가를 수 없다(0의 이유 규칙)."""
 
 
 def available() -> bool:
@@ -77,6 +117,8 @@ def _record_usage(model: str, usage: dict | None, *, kind: str, ok: bool = True)
             cost_usd=estimate_cost_usd(model, inp, out),
             ok=ok,
         )
+    except BudgetExceeded:
+        raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
     except Exception:
         log.debug("llm usage 기록 실패", exc_info=True)
 
@@ -85,6 +127,10 @@ def _post_json(body: dict, *, timeout: float = _TIMEOUT) -> dict | None:
     key = config.anthropic_key()
     if not key:
         return None
+    st = budget_state()
+    if not st["ok"]:
+        log.warning("LLM 예산 게이트 차단: %s", st["reason"])
+        raise BudgetExceeded(st["reason"])
     raw = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(_ENDPOINT, data=raw, method="POST")
     req.add_header("x-api-key", key)
@@ -107,6 +153,8 @@ def complete(system: str, user: str, *, max_tokens: int = 1024, model: str = DEF
         _record_usage(model, data.get("usage"), kind="complete")
         parts = data.get("content", [])
         return "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip() or None
+    except BudgetExceeded:
+        raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
     except Exception as e:  # 키/본문은 로깅하지 않음
         log.warning("LLM 호출 실패: %s", type(e).__name__)
         return None
@@ -125,6 +173,8 @@ def messages_with_tools(system: str, messages: list, tools: list, *,
             return None
         _record_usage(model, data.get("usage"), kind="tools")
         return {"content": data.get("content", []), "stop_reason": data.get("stop_reason")}
+    except BudgetExceeded:
+        raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
     except Exception as e:
         log.warning("LLM tools 호출 실패: %s", type(e).__name__)
         return None
@@ -140,6 +190,13 @@ def stream_call(system: str, messages: list, tools: list, *,
     if not key:
         yield ("result", None)
         return
+    # **스트리밍은 `_post_json`을 지나지 않는다** — 자기 요청을 따로 만든다. 그래서 예산 게이트를
+    # `_post_json`에만 걸었을 때 `/api/chat/stream`(=막아야 할 바로 그 경로)이 통째로 우회했다.
+    # "단일 호출 지점"이라는 전제를 확인하지 않으면 게이트는 있는 척만 한다.
+    st = budget_state()
+    if not st["ok"]:
+        log.warning("LLM 예산 게이트 차단(stream): %s", st["reason"])
+        raise BudgetExceeded(st["reason"])
     body = json.dumps({
         "model": model, "max_tokens": max_tokens, "system": system,
         "tools": tools, "messages": messages, "stream": True,
@@ -162,6 +219,8 @@ def stream_call(system: str, messages: list, tools: list, *,
                     continue
                 try:
                     ev = json.loads(payload)
+                except BudgetExceeded:
+                    raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
                 except Exception:
                     continue
                 et = ev.get("type")
@@ -183,6 +242,8 @@ def stream_call(system: str, messages: list, tools: list, *,
                     stop_reason = (ev.get("delta") or {}).get("stop_reason") or stop_reason
                     if ev.get("usage"):
                         usage = {**usage, **ev["usage"]}
+    except BudgetExceeded:
+        raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
     except Exception as e:
         log.warning("LLM 스트리밍 실패: %s", type(e).__name__)
         yield ("result", None)
@@ -194,6 +255,8 @@ def stream_call(system: str, messages: list, tools: list, *,
         if b.get("type") == "tool_use":
             try:
                 inp = json.loads(b.get("_json") or "{}")
+            except BudgetExceeded:
+                raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
             except Exception:
                 inp = {}
             content.append({"type": "tool_use", "id": b.get("id"), "name": b.get("name"), "input": inp})
@@ -221,6 +284,8 @@ def complete_vision(system: str, user: str, *, media_type: str, data_b64: str,
         _record_usage(model, data.get("usage"), kind="vision")
         parts = data.get("content", [])
         return "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip() or None
+    except BudgetExceeded:
+        raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
     except Exception as e:
         log.warning("LLM vision 호출 실패: %s", type(e).__name__)
         return None
@@ -236,11 +301,15 @@ def complete_json_vision(system: str, user: str, *, media_type: str, data_b64: s
         return None
     try:
         return json.loads(text)
+    except BudgetExceeded:
+        raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
     except Exception:
         start, end = text.find("{"), text.rfind("}")
         if start != -1 and end > start:
             try:
                 return json.loads(text[start:end + 1])
+            except BudgetExceeded:
+                raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
             except Exception:
                 return None
     return None
@@ -254,11 +323,15 @@ def complete_json(system: str, user: str, *, max_tokens: int = 1024, model: str 
         return None
     try:
         return json.loads(text)
+    except BudgetExceeded:
+        raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
     except Exception:
         start, end = text.find("{"), text.rfind("}")
         if start != -1 and end > start:
             try:
                 return json.loads(text[start:end + 1])
+            except BudgetExceeded:
+                raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
             except Exception:
                 return None
     return None
