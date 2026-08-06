@@ -18,13 +18,13 @@
     --bg:#F5F3EF; --panel:#ffffff; --line:#e7e4dd; --line-strong:#d6d2c8;
     --txt:#151A22; --dim:#5f6775; --dim-2:#949aa6;
     /* Semantic — 매매 방향만. 채도를 낮춰 '신호'일 때만 눈에 띄게 한다 */
-    --sig-buy:#0E7A4F; --sig-sell:#B23B3B; --sig-neutral:#949aa6; --sig-watch:#B45309; --sig-strong:#0E7A4F;
+    --sig-buy:#0E7A4F; --sig-sell:#B23B3B; --sig-neutral:#949aa6; --sig-watch:var(--sig-watch); --sig-strong:#0E7A4F;
     /* alias — 예전 이름으로 참조하는 곳이 많다. 미정의로 두면 색이 조용히 안 먹는다 */
     --sell:var(--sig-sell); --buy:var(--sig-buy); --warn:var(--sig-watch); --down:var(--sig-sell);
     --fg:var(--txt); --panel-2:var(--bg);
     --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
     /* Chart — 좌=점수 · 우=가격(최신 끝이 오른쪽이라 가격 눈금을 그쪽에) */
-    --c-price:#1a2233; --c-ma20:#0e7490; --c-ma60:#B45309; --c-ma120:#B23B3B; --c-rsi:#8a93a3; --c-score:#0E7A4F;
+    --c-price:#1a2233; --c-ma20:#0e7490; --c-ma60:var(--sig-watch); --c-ma120:#B23B3B; --c-rsi:#8a93a3; --c-score:#0E7A4F;
     /* Type — 최소 11px. 10px 이하는 '정보가 많아 보이는' 착시일 뿐 읽히지 않는다 */
     --fs-2xs:11px; --fs-xs:12px; --fs-sm:13px; --fs-base:14px; --fs-md:15px; --fs-lg:17px; --fs-xl:21px; --fs-2xl:27px;
     --lh-tight:1.35; --lh:1.55;
@@ -50,7 +50,7 @@
   header { flex:0 0 auto; padding:13px clamp(16px,3.5vw,28px); border-bottom:1px solid var(--line); display:flex;
            align-items:center; gap:14px; flex-wrap:wrap; min-height:60px; box-sizing:border-box;
            background:var(--panel); box-shadow:var(--shadow-sm); position:relative; z-index:600; }
-  header h1 { font-size:18px; margin:0; white-space:nowrap; letter-spacing:-.01em; }
+  header h1 { font-size:17px; margin:0; white-space:nowrap; letter-spacing:-.01em; }
   .tabs { display:flex; gap:4px; }
   .tab { padding:8px 15px; border:1px solid transparent; border-radius:var(--r-sm); background:transparent;
          color:var(--dim); cursor:pointer; font-size:var(--fs-md); font-weight:600; transition:background .12s,color .12s; }
@@ -132,7 +132,7 @@
   /* 기회 유형 — 종목명 아래. 섹터 열에 붙이면 섹터 속성처럼 읽힌다 */
   .sig-tags { display:flex; flex-wrap:wrap; gap:3px; margin-top:3px; }
   .opp-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-sm); font-size:var(--fs-2xs);
-    background:transparent; color:var(--dim); border:1px solid var(--line); font-weight:500; vertical-align:middle; }
+    background:transparent; color:var(--dim); border:1px solid var(--line); font-weight:600; vertical-align:middle; }
   /* 기후 시그널 — 기존 sig-pill과 격리 (하늘·슬레이트·바이올렛) */
   .clim-pill { display:inline-block; margin-left:5px; padding:2px 8px; border-radius:var(--r-sm);
     font-size:11px; font-weight:700; letter-spacing:.01em; border:1px solid transparent; vertical-align:middle; }
@@ -142,7 +142,7 @@
   .clim-pill.SELL { background:#faf5ff; color:#7e22ce; border-color:#d8b4fe; }
   .clim-pill.STRONG_SELL { background:#f5f3ff; color:#5b21b6; border-color:#c4b5fd; }
   .ext-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-sm); font-size:11px;
-    background:#fff7ed; color:#B45309; border:1px solid #fed7aa; font-weight:700; vertical-align:middle; letter-spacing:.01em; }
+    background:#fff7ed; color:var(--sig-watch); border:1px solid #fed7aa; font-weight:700; vertical-align:middle; letter-spacing:.01em; }
   /* 외부 후보 조사 큐 — 관리자 */
   .ew-hero { position:relative; overflow:hidden; border:1px solid var(--line); border-radius:var(--r-lg);
     background:
@@ -210,7 +210,7 @@
   .sig-list td.sig-cell { vertical-align:middle; text-align:center; }
   .sig-list .sig-pills { display:flex; flex-wrap:wrap; gap:4px; align-items:center; justify-content:center; }
   .sig-list .sig-pills .clim-pill { margin-left:0; }
-  .sig-list .hold-tag { font-size:10px; font-weight:600; color:var(--dim-2); letter-spacing:.02em;
+  .sig-list .hold-tag { font-size:11px; font-weight:600; color:var(--dim-2); letter-spacing:.02em;
     border:1px solid var(--line); border-radius:var(--r-sm); padding:1px 5px; line-height:1.3; }
   .sig-list .dtable th .col-resizer {
     position:absolute; right:-3px; top:0; bottom:0; width:8px; cursor:col-resize; z-index:2;
@@ -421,7 +421,7 @@
   .pcard { border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel);
     padding:var(--space-3) var(--space-4); }
   .pcard-title { font-weight:700; font-size:var(--fs-base); margin-bottom:var(--space-1); }
-  .pcard-title .sub { color:var(--dim); font-weight:400; font-size:var(--fs-xs); }
+  .pcard-title .sub { color:var(--dim); font-weight:600; font-size:var(--fs-xs); }
   .placeholder { color:var(--dim); font-size:var(--fs-base); padding:32px 0; text-align:center; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .field { display:flex; flex-direction:column; gap:4px; font-size:var(--fs-base); color:var(--dim); }
@@ -436,6 +436,13 @@
      따라 움직여서 어디를 읽고 있었는지 잃는다. 모바일 375px에서 모델 표가 440px였다. */
   .tscroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .tscroll > table.dtable { min-width:max-content; }
+  /* 매수 0 카드 안의 접이식 사유 — 자동 펼침 카드가 목록을 밀어내지 않게. */
+  .st-more { margin-top:6px; }
+  .st-more > summary { cursor:pointer; font-size:12px; color:var(--dim); font-weight:600;
+    list-style:none; }
+  .st-more > summary::-webkit-details-marker { display:none; }
+  .st-more > summary::before { content:"▸ "; }
+  .st-more[open] > summary::before { content:"▾ "; }
   table.dtable { width:100%; border-collapse:collapse; font-size:var(--fs-base); }
   table.dtable th { text-align:left; color:var(--dim-2); font-weight:700; font-size:var(--fs-xs);
     letter-spacing:.03em; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
@@ -537,7 +544,7 @@
     margin-left:2px; border-left:1px solid var(--line); }
   #signal-trust .trust-row.trust-paper-muted { font-size:var(--fs-2xs); color:var(--dim); }
   #signal-trust .trust-row.trust-paper-muted b { font-weight:600; color:var(--dim); }
-  #signal-trust .trust-more { margin-left:auto; font-size:var(--fs-2xs); color:var(--dim-2); font-weight:500; }
+  #signal-trust .trust-more { margin-left:auto; font-size:var(--fs-2xs); color:var(--dim-2); font-weight:600; }
   /* 의견≠신호 — 엔진 수치(신호) vs KB·챗·거장(맥락) 시각 분리 */
   .layer-badge { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.02em;
     border-radius:var(--r-sm); padding:1px 7px; vertical-align:middle; line-height:1.5; }
@@ -670,7 +677,7 @@
   .sig-today .st-c { color:var(--dim-2); }
   .sig-today .st-chip { display:inline-block; padding:1px 7px; border-radius:var(--r-sm); font-size:11px;
     font-weight:700; border:1px solid var(--line-strong); color:var(--dim); background:var(--panel); }
-  .sig-today .st-chip.warn { border-color:#b45309; color:#92400e; background:rgba(180,83,9,.08); }
+  .sig-today .st-chip.warn { border-color:var(--sig-watch); color:#92400e; background:rgba(180,83,9,.08); }
   .sig-today .st-chip.dq { color:var(--dim); }
   .sig-today .st-more { margin-left:auto; font-size:11px; color:var(--dim-2); font-weight:600; }
   .sig-today[open] > summary { border-bottom:1px solid var(--line); }
@@ -840,10 +847,10 @@
           <button type="button" id="qf-buyonly" class="qchip" onclick="quickFilter('screen-buyonly', this)">매수만</button>
           <button type="button" id="qf-nearonly" class="qchip" style="display:none" onclick="filterPrecisionBucket('near')">근접만</button>
         </div>
-        <button type="button" id="sig-filter-fab" class="btn" onclick="toggleSignalFilterDrawer()" aria-controls="sig-screener">필터·스크리너 <span id="screen-count-fab" style="color:var(--dim);font-weight:400"></span></button>
+        <button type="button" id="sig-filter-fab" class="btn" onclick="toggleSignalFilterDrawer()" aria-controls="sig-screener">필터·스크리너 <span id="screen-count-fab" style="color:var(--dim);font-weight:600"></span></button>
         <button type="button" id="sig-filter-scrim" onclick="closeSignalFilterDrawer()" aria-label="필터 닫기" tabindex="-1"></button>
         <details id="sig-screener" style="margin:0 12px 10px">
-          <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">필터·스크리너 <span id="screen-count" style="color:var(--dim);font-weight:400"></span></summary>
+          <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">필터·스크리너 <span id="screen-count" style="color:var(--dim);font-weight:600"></span></summary>
           <div class="screen-body">
             <div id="sig-opp-filters" class="row" style="gap:6px;flex-wrap:wrap"></div>
             <div id="screen-presets" class="screen-presets"></div>
@@ -929,7 +936,7 @@
 
   <div id="view-cycle" class="view-app" style="display:none">
     <div id="cycle-seg-cycle">
-      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 경기 사이클
+      <h3 class="page-head" style="font-size:17px;margin-top:0"><span class="layer-badge ctx">맥락</span> 경기 사이클
         <span style="color:var(--dim);font-size:13px;font-weight:600">· FRED 추정 · 예측 아님</span></h3>
       <!-- '시장 ZONE과 다르다'는 아래 현재 사이클 카드가 이미 말한다 — 같은 화면에서 두 번 하지 않는다 -->
       <p class="page-desc" style="margin:0 0 14px">물가·금리·나스닥으로 회복·확장·둔화·수축을 근사합니다.
@@ -940,7 +947,7 @@
     </div>
 
     <div id="cycle-seg-vc" style="display:none">
-      <h3 class="page-head" style="font-size:18px;margin-top:0" id="vc-anchor">밸류체인 <span style="color:var(--dim);font-size:13px;font-weight:600">· 주도섹터를 누르면 여기로 연결</span></h3>
+      <h3 class="page-head" style="font-size:17px;margin-top:0" id="vc-anchor">밸류체인 <span style="color:var(--dim);font-size:13px;font-weight:600">· 주도섹터를 누르면 여기로 연결</span></h3>
       <p class="page-desc">섹터별 업스트림~다운스트림 구조와 국내(코스피)·해외 대표기업. 국내 기업의 현재
         시그널(Hold 제외)이 뱃지로 표시되며, 누르면 시그널 차트로 이동합니다. (큐레이션 스냅샷 · 추천 아님)</p>
       <div id="vc-cycle-banner" style="margin-bottom:10px"></div>
@@ -949,7 +956,7 @@
     </div>
 
     <div id="cycle-seg-hypo" style="display:none">
-      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 최근 이슈 흐름
+      <h3 class="page-head" style="font-size:17px;margin-top:0"><span class="layer-badge ctx">맥락</span> 최근 이슈 흐름
         <span style="color:var(--dim);font-size:13px;font-weight:600">· 뉴스 파급 갈래 · 수동 생성 · 예측 아님</span>
         <button type="button" class="btn" id="hypo-refresh-btn" style="display:none;margin-left:10px;padding:3px 10px;font-size:13px"
           onclick="refreshHypothesis()">흐름 생성</button>
@@ -973,7 +980,7 @@
     </div>
 
     <div id="cycle-seg-learn" style="display:none">
-      <h3 class="page-head" style="font-size:18px;margin-top:0">지표·용어 학습
+      <h3 class="page-head" style="font-size:17px;margin-top:0">지표·용어 학습
         <span style="color:var(--dim);font-size:13px;font-weight:600">· 무엇을 보고 판단하는지 쉽게</span></h3>
       <p class="page-desc">시그널·투자에서 쓰는 개념을 초보도 이해되게 정리했습니다. 각 항목에 <b>쉬운 설명 · 왜 보는지 ·
         우리 시그널에서 어떻게 쓰는지</b>를 담았어요.</p>
@@ -981,7 +988,7 @@
     </div>
 
     <div id="cycle-seg-guru" style="display:none">
-      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> 거장의 포트폴리오
+      <h3 class="page-head" style="font-size:17px;margin-top:0"><span class="layer-badge ctx">맥락</span> 거장의 포트폴리오
         <span style="color:var(--dim);font-size:13px;font-weight:600">· 벤치마크 참고 · 신호 아님</span></h3>
       <p class="page-desc">유명 투자자들이 공개한 보유내역(미국 SEC 13F)입니다. <b>분기 공시 스냅샷이며 최대 45일 지연</b>,
         미국 롱 포지션만 표시됩니다(현금·채권·해외주식 제외). 엔진 시그널과 별개의 참고 자료입니다.</p>
@@ -989,7 +996,7 @@
     </div>
 
     <div id="cycle-seg-etf" style="display:none">
-      <h3 class="page-head" style="font-size:18px;margin-top:0"><span class="layer-badge ctx">맥락</span> ETF 구성종목
+      <h3 class="page-head" style="font-size:17px;margin-top:0"><span class="layer-badge ctx">맥락</span> ETF 구성종목
         <span style="color:var(--dim);font-size:13px;font-weight:600">· 참고용 · 신호 아님</span></h3>
       <p class="page-desc">유명 ETF의 상위 구성종목을 서클차트로 봅니다. <b>구성 스냅샷(근사·참고용)</b>이며 실제 비중·종목은
         수시로 바뀝니다(정확 수치는 운용사 공시 참고). 시그널·분석 대상은 아니에요.</p>
@@ -1280,7 +1287,7 @@
         </div>
         <div id="exp-run-msg" style="font-size:12px;color:var(--dim)"></div>
       </details>
-      <div style="font-size:13px;font-weight:700;margin:14px 0 6px">판정 이력 <span style="color:var(--dim);font-weight:500;font-size:12px">· append-only</span></div>
+      <div style="font-size:13px;font-weight:700;margin:14px 0 6px">판정 이력 <span style="color:var(--dim);font-weight:600;font-size:12px">· append-only</span></div>
       <div id="exp-runs" class="placeholder" style="padding:8px 0">불러오는 중…</div>
     </div>
 
@@ -1638,7 +1645,7 @@
   <div class="ob-body">
     <div class="ob-step on" id="ob-step-style">
       <div style="font-size:12px;color:var(--dim);font-weight:700;letter-spacing:.04em">1 / 3 · 시작하기</div>
-      <h3 style="margin:6px 0 4px;font-size:18px">트레이딩 성향을 고르세요</h3>
+      <h3 style="margin:6px 0 4px;font-size:17px">트레이딩 성향을 고르세요</h3>
       <p class="ob-hint">리밸런싱 제안 기준이 바뀝니다. 나중에 내 포트폴리오 탭에서 바꿀 수 있어요. 추천이 아니라 규칙 프리셋입니다.</p>
       <div class="ob-styles">
         <button type="button" class="ob-style" data-style="conservative" onclick="obPickStyle('conservative')">
@@ -1655,7 +1662,7 @@
     </div>
     <div class="ob-step" id="ob-step-favs">
       <div style="font-size:12px;color:var(--dim);font-weight:700;letter-spacing:.04em">2 / 3 · 관심종목</div>
-      <h3 style="margin:6px 0 4px;font-size:18px">지켜볼 종목 3개를 고르세요</h3>
+      <h3 style="margin:6px 0 4px;font-size:17px">지켜볼 종목 3개를 고르세요</h3>
       <p class="ob-hint">관심종목을 고르면 목록에서 ★로 모아 보고, 시그널이 바뀔 때 알림을 받을 수 있어요.</p>
       <div class="ob-chips" id="ob-chips"></div>
       <p class="ob-hint" id="ob-fav-count">0 / 3 선택</p>
@@ -1666,7 +1673,7 @@
     </div>
     <div class="ob-step" id="ob-step-desk">
       <div style="font-size:12px;color:var(--dim);font-weight:700;letter-spacing:.04em">3 / 3 · 데스크 안내</div>
-      <h3 style="margin:6px 0 4px;font-size:18px">숫자 배지를 이렇게 읽으세요</h3>
+      <h3 style="margin:6px 0 4px;font-size:17px">숫자 배지를 이렇게 읽으세요</h3>
       <p class="ob-hint">투자 권유가 아니라 <b>같은 규칙을 보고·돌려보는</b> 도구예요. 시그널이 실제로 판별력이 있는지는 첫 화면 <b>판정</b> 줄에서 봅니다.</p>
       <div class="ob-glossary">
         <div class="ob-g-row"><span class="trust-badge live">실측</span><span>그날 실제로 낸 시그널을 나중에 수익률로 채점합니다. 표본이 차기 전엔 <b>누적중</b>만 보입니다.</span></div>
@@ -3364,9 +3371,17 @@ function renderTodayCard(){
   if (crowd.warn || crowd.data_quality) {
     detail += `<div style="margin-top:6px">${esc(crowd.note || '')}</div>`;
   }
-  if (why) detail += `<div style="margin-top:4px">${why}</div>`;
-  if (rep.disclaimer) {
-    detail += `<div style="margin-top:6px;font-size:11px;color:var(--dim-2)">${esc(rep.disclaimer)}</div>`;
+  // 사유·면책은 **접어 둔다.** 이 카드는 매수 0인 날 자동으로 펼쳐지고(대부분의 날) 예전에는
+  // 439px을 먹어 종목 표가 827px 아래에서 시작했다 — 목록을 보러 온 화면에서 목록이 접힌 셈이다.
+  // 게다가 서버 `reasons` 첫 두 줄은 헤더(`zeroWhy`)가 이미 말하는 것이고, 나머지 셋은 상단
+  // 시장바의 `자금 한도`·`거시 비우호`와 같은 말이다. "같은 말을 한 화면에서 두 번 하지 않는다".
+  if (why || rep.disclaimer) {
+    detail += `<details class="st-more"><summary>사유·계산</summary>`
+      + (why ? `<div style="margin-top:4px">${why}</div>` : '')
+      + (rep.disclaimer
+          ? `<div style="margin-top:6px;font-size:11px;color:var(--dim-2)">${esc(rep.disclaimer)}</div>`
+          : '')
+      + `</details>`;
   }
   body.innerHTML = detail || '<div class="st-c">추가 메모 없음</div>';
 
@@ -3474,7 +3489,7 @@ function renderFactors(item){
       <span class="fct-val" style="color:${col}">${v > 0 ? '+' : ''}${fmtNum(v, 2)}</span>
     </div>`;
   };
-  el.innerHTML = `<div class="fct-title"><span class="layer-badge sig">신호</span> 팩터 강약 <span style="color:var(--dim-2);font-weight:400">· 종합점수를 만든 요인별 방향·강도(−1~+1)</span></div>`
+  el.innerHTML = `<div class="fct-title"><span class="layer-badge sig">신호</span> 팩터 강약 <span style="color:var(--dim-2);font-weight:600">· 종합점수를 만든 요인별 방향·강도(−1~+1)</span></div>`
     + keys.map(bar).join('');
   setDetailHas('signal-factors', true);
 }
@@ -3622,8 +3637,8 @@ function _paintSignalDetail(ticker, item){
         : (fmtNum(ent.fire_price, 0) + '원'));
       const tip = '연속 Buy 구간이 시작된 날의 종가(또는 당일 첫 매수권 가격) 대비. 중간에 Hold로 끊기면 새 에피소드.';
       runUpHtml = `<span class="${ruCls}" title="${esc(tip)}">발동 후 <b>${ruTxt}</b>`
-        + (firePx ? ` <span style="font-weight:500;color:var(--dim)">(${esc(firePx)}→)</span>` : '')
-        + ` <span style="font-weight:500;color:var(--dim)">· ${esc(age)}</span></span>`;
+        + (firePx ? ` <span style="font-weight:600;color:var(--dim)">(${esc(firePx)}→)</span>` : '')
+        + ` <span style="font-weight:600;color:var(--dim)">· ${esc(age)}</span></span>`;
     }
     // 리스트에 이미 있는 pill·점수는 반복하지 않음 — 가격·한 줄 이유·상승여력만
     heroEl.style.display = '';
@@ -3753,7 +3768,7 @@ function _paintSignalDetail(ticker, item){
     : (item && item.event_risk
       ? `<div style="color:var(--sell);font-weight:700;margin-bottom:4px">⚠ 최근 악재 감지 — 매수 후보 제외${item.event_note ? ': ' + esc(item.event_note) : ''}</div>` : ''))
     + (item && item.attention_conflict
-      ? `<div style="color:#B45309;font-weight:700;margin-bottom:4px">매수 신호와 이벤트 리스크가 충돌 — 조사 필요</div>` : '')
+      ? `<div style="color:var(--sig-watch);font-weight:700;margin-bottom:4px">매수 신호와 이벤트 리스크가 충돌 — 조사 필요</div>` : '')
     + earnWarn;
   const att = (item && item.attention_events && item.attention_events.length)
     ? `<div style="margin:8px 0 4px;font-size:13px"><b>조사 후보 이벤트</b> <span style="color:var(--dim)">· Decision/매매 미반영</span></div>`
@@ -4012,9 +4027,9 @@ function _drawSignalChart(ticker, item, d){
   const _css = getComputedStyle(document.documentElement);
   const _cv = (k, fb) => (_css.getPropertyValue(k).trim() || fb);
   const C = { price: _cv('--c-price', '#1a2233'), ma20: _cv('--c-ma20', '#0e7490'),
-              ma60: _cv('--c-ma60', '#B45309'), ma120: _cv('--c-ma120', '#B23B3B'),
+              ma60: _cv('--c-ma60', 'var(--sig-watch)'), ma120: _cv('--c-ma120', '#B23B3B'),
               score: _cv('--c-score', '#0E7A4F'), rsi: _cv('--c-rsi', '#64748b'),
-              fo: '#0e7490', inst: '#B45309',
+              fo: '#0e7490', inst: 'var(--sig-watch)',
               macd: '#64748b', signal: '#ea580c', hist: '#94a3b8' };
   const SMOOTH = 0.35;
   const isUS = _sigMarket === 'us';
@@ -4264,7 +4279,7 @@ async function loadBotState(){
     _botChart.setOption({
       tooltip: { trigger: 'item', formatter: p => `${p.name}: ${usd ? '$' : ''}${Number(p.value).toLocaleString()}${usd ? '' : '원'} (${p.percent}%)` },
       // ECharts 기본 팔레트(보라·주황)는 이 화면 어디에도 없는 색이다 — 브랜드 톤으로 고정
-      color: ['#0F6B62', '#3E8F86', '#6CADA6', '#98C7C1', '#B45309', '#C79A5C', '#949aa6', '#c2c7d0'],
+      color: ['#0F6B62', '#3E8F86', '#6CADA6', '#98C7C1', 'var(--sig-watch)', '#C79A5C', '#949aa6', '#c2c7d0'],
       series: [{ type: 'pie', radius: ['48%', '72%'], data: pieData,
         label: { fontSize: 11, color: '#5f6775' },
         itemStyle: { borderColor: '#fff', borderWidth: 2 } }],
@@ -4495,7 +4510,7 @@ function divFreq(ms){
   if (n === 4) return { label: '분기배당', color: '#0ea5e9' };
   if (n === 2) return { label: '반기', color: '#6366f1' };
   if (n === 1) return { label: '연배당', color: '#94a3b8' };
-  return { label: '지급월 미상', color: '#b45309' };
+  return { label: '지급월 미상', color: 'var(--sig-watch)' };
 }
 // 플랜·목표를 시장별로 localStorage에 저장/복원(가벼운 영속성 — 새로고침·탭 전환에도 유지)
 const _divPlanKey = () => 'sd_divplan_' + _divMarket;
@@ -4607,7 +4622,7 @@ function recalcDividends(){
     tooltip: { trigger: 'axis', formatter: p => `${p[0].axisValue}: ${_divMoney(p[0].value, 1)}` },
     grid: { left: 60, right: 20, top: 24, bottom: 24 },
     title: { text: gap ? `배당 없는 달 ${gap}개 — 종목 추가로 채워보세요` : '12개월 모두 배당 유입 ✓',
-             textStyle: { fontSize: 11, color: gap ? '#b45309' : '#2F9E68', fontWeight: 600 }, left: 'center', top: 0 },
+             textStyle: { fontSize: 11, color: gap ? 'var(--sig-watch)' : '#2F9E68', fontWeight: 600 }, left: 'center', top: 0 },
     xAxis: { type: 'category', data: ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'] },
     yAxis: { type: 'value' },
     series: [{ type: 'bar', data: months.map(v => Math.round(v * 100) / 100),
@@ -5064,15 +5079,15 @@ function renderDataHealth(d){
     if (d.freshness && d.freshness.length) {
       const fmtAge = h => h == null ? '–' : (h >= 24 ? (h / 24).toFixed(1) + '일' : h.toFixed(1) + '시간') + ' 전';
       const fr = d.freshness.map(f => {
-        const c = f.updated == null ? 'var(--sell)' : (f.stale ? '#b45309' : 'var(--sig-buy)');
+        const c = f.updated == null ? 'var(--sell)' : (f.stale ? 'var(--sig-watch)' : 'var(--sig-buy)');
         const st = f.updated == null ? '미수집' : (f.stale ? '오래됨' : '최신');
-        return `<tr><td>${esc(f.label)}${f.note ? `<div style="color:#b45309;font-size:12px">${esc(f.note)}</div>` : ''}</td>
+        return `<tr><td>${esc(f.label)}${f.note ? `<div style="color:var(--sig-watch);font-size:12px">${esc(f.note)}</div>` : ''}</td>
           <td style="color:${c}">${f.updated ? esc(f.updated) : '없음'}</td>
           <td class="num">${fmtAge(f.age_hours)}</td><td class="num">${f.rows ?? '–'}</td>
           <td style="color:${c};font-weight:600">${st}</td></tr>`;
       }).join('');
       const staleN = d.freshness.filter(f => f.stale).length;
-      html += `<b>🗂 데이터 신선도 ${staleN ? `<span style="color:#b45309">· ${staleN}개 갱신 필요</span>` : '<span style="color:var(--sig-buy)">· 모두 최신</span>'}</b>`
+      html += `<b>🗂 데이터 신선도 ${staleN ? `<span style="color:var(--sig-watch)">· ${staleN}개 갱신 필요</span>` : '<span style="color:var(--sig-buy)">· 모두 최신</span>'}</b>`
         + `<table class="dtable" style="margin-top:6px"><thead><tr><th>소스</th><th>최종 갱신</th><th class="num">경과</th><th class="num">건수</th><th>상태</th></tr></thead><tbody>${fr}</tbody></table>`;
     }
     // 점수 동결 — 시세가 멈추면 문턱·분위를 어떻게 바꿔도 매일 같은 결과가 나온다
@@ -5102,8 +5117,8 @@ function renderDataHealth(d){
     const rowsQuiet = [];
     const q = (label, ok, val, reason, hint) => rowsQuiet.push(
       `<tr><td>${esc(label)}<div style="color:var(--dim-2);font-size:12px">${hint}</div></td>`
-      + `<td class="num" style="color:${ok ? 'var(--sig-buy)' : '#b45309'};font-weight:600">${val}</td>`
-      + `<td style="color:${ok ? 'var(--dim)' : '#b45309'}">${reason ? esc(reason) : '정상'}</td></tr>`);
+      + `<td class="num" style="color:${ok ? 'var(--sig-buy)' : 'var(--sig-watch)'};font-weight:600">${val}</td>`
+      + `<td style="color:${ok ? 'var(--dim)' : 'var(--sig-watch)'}">${reason ? esc(reason) : '정상'}</td></tr>`);
     const wv = d.warnings_veto;
     if (wv) q('투자경고 veto', !wv.blocked_reason, `${wv.active ?? 0}종목`, wv.blocked_reason,
               '거래정지·투자경고 종목의 매수를 막는 집합. 비면 가드레일이 없는 것과 같다.');
@@ -5241,7 +5256,7 @@ function _renderImportResult(d, extra){
   const rs = (d.reasons && d.reasons.length) ? ' · ' + d.reasons.join(', ') : '';
   if (!d.ok) { el.style.color = 'var(--sell)'; el.textContent = `✕ ${esc(d.reason || '실패')}`; return; }
   if (d.status === 'pending') {
-    el.style.color = '#b45309';
+    el.style.color = 'var(--sig-watch)';
     el.textContent = `⚠ 보류 — 검토 필요(신뢰도 ${d.trust ?? '?'}), 시그널 미반영${rs}`;
   } else {
     el.style.color = 'var(--sig-buy)';
@@ -5302,7 +5317,7 @@ function _initDropzone(){
   };
 }
 
-const _CLASS_COLOR = { 리포트: '#0F6B62', 실적: '#0369a1', 공시: '#0F6B62', 이벤트: '#8f2626', 시황: '#b45309', 뉴스: '#64748b', 미분류: '#94a3b8' };
+const _CLASS_COLOR = { 리포트: '#0F6B62', 실적: '#0369a1', 공시: '#0F6B62', 이벤트: '#8f2626', 시황: 'var(--sig-watch)', 뉴스: '#64748b', 미분류: '#94a3b8' };
 const classBadge = (c) => `<span style="display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;color:#fff;background:${_CLASS_COLOR[c] || '#94a3b8'}">${esc(c || '미분류')}</span>`;
 let _kbView = 'events';
 function setKbView(v){
@@ -5346,7 +5361,7 @@ async function loadKbEvents(){
         : '<div class="placeholder" style="padding:16px 0">활성 이벤트가 없습니다 — KB 뉴스 갱신 후 DART 공시가 쌓입니다.</div>';
       return;
     }
-    const sevColor = { critical: 'var(--sig-sell)', serious: '#B45309', watch: 'var(--dim)', info: 'var(--dim-2)' };
+    const sevColor = { critical: 'var(--sig-sell)', serious: 'var(--sig-watch)', watch: 'var(--dim)', info: 'var(--dim-2)' };
     const rows = items.map(ev => {
       const evd = (ev.evidence || [])[0];
       const cite = evd && evd.evidence_text ? esc((evd.evidence_text || '').slice(0, 80)) : '';
@@ -5391,7 +5406,7 @@ async function loadKbSources(){
     const lifeBadge = (s) => {
       const life = s.lifecycle || 'active';
       if (life === 'eviction_candidate') return '<span style="color:var(--sig-sell);font-weight:700">퇴출후보</span>';
-      if (life === 'probation') return '<span style="color:#B45309;font-weight:700">수습</span>';
+      if (life === 'probation') return '<span style="color:var(--sig-watch);font-weight:700">수습</span>';
       return '<span style="color:var(--dim)">active</span>';
     };
     const acts = (s) => {
@@ -5493,7 +5508,7 @@ async function loadKbDocs(){
     fEl.innerHTML = chip(`전체 ${total}`, null) + (d.classes || []).map(c => counts[c] ? chip(c, c) : '').join('');
     if (!d.documents.length) { el.className = ''; el.innerHTML = '<div class="placeholder" style="padding:16px 0">문서가 없습니다 — 뉴스 갱신 또는 리포트 추가로 채워집니다.</div>'; return; }
     const pendBadge = (s) => s === 'pending'
-      ? ' <span style="display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;color:#fff;background:#b45309" title="검토 보류 — 시그널 미반영">검토보류</span>' : '';
+      ? ' <span style="display:inline-block;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;color:#fff;background:var(--sig-watch)" title="검토 보류 — 시그널 미반영">검토보류</span>' : '';
     const fmtDt = (ep) => {
       if (!ep) return '–';
       const dt = new Date(ep * 1000);
@@ -5997,10 +6012,10 @@ async function loadBacktestAnalysis(){
     const spread = d.walkforward.winrate_spread;
     el.className = '';
     el.innerHTML = `
-      <div style="font-size:13px;font-weight:700;margin:4px 0 6px">팩터별 기여도 <span style="color:var(--dim);font-weight:500">· 매수 시그널 ${d.factors.primary_horizon}일 기준</span></div>
+      <div style="font-size:13px;font-weight:700;margin:4px 0 6px">팩터별 기여도 <span style="color:var(--dim);font-weight:600">· 매수 시그널 ${d.factors.primary_horizon}일 기준</span></div>
       <table class="dtable"><thead><tr><th>팩터</th><th>표본</th><th>적중률</th><th>평균수익</th></tr></thead><tbody>${facRows}</tbody></table>
       ${best ? `<p class="page-desc" style="margin:8px 0 0">단독 적중률 최고는 <b>${esc(best.label)}</b> ${fmtNum(best.winrate, 1)}%입니다 — 기준선 없는 단독 적중률이므로 <b>가중치 변경 근거가 아닙니다</b>. 가중치는 사전등록 판정이 확정된 뒤에만 바꿉니다.</p>` : ''}
-      <div style="font-size:13px;font-weight:700;margin:18px 0 6px">워크포워드 <span style="color:var(--dim);font-weight:500">· 시간 구간별 out-of-sample 안정성</span></div>
+      <div style="font-size:13px;font-weight:700;margin:18px 0 6px">워크포워드 <span style="color:var(--dim);font-weight:600">· 시간 구간별 out-of-sample 안정성</span></div>
       <table class="dtable"><thead><tr><th>구간</th><th>표본</th><th>적중률</th></tr></thead><tbody>${wfRows}</tbody></table>
       ${spread != null ? `<p class="page-desc" style="margin:8px 0 0">구간 간 적중률 편차 <b>${fmtNum(spread, 1)}%p</b>${spread >= 15 ? ' — 편차가 커서 특정 시기에 치우친(과최적화 의심) 신호일 수 있습니다.' : ' — 구간 간 비교적 안정적입니다.'}</p>` : ''}
       ${d.has_pit ? '' : '<p class="page-desc" style="margin:8px 0 0;color:var(--sell)">※ point-in-time 재무 미수집 — 기본적 팩터 제외. /api/refresh로 수집하세요.</p>'}`;
@@ -6205,19 +6220,22 @@ async function loadExperiments(){
             const pctEff = Math.min(100, Math.round(100 * rq.effective_periods / Math.max(1, rq.min_effective_periods)));
             const pctPit = Math.min(100, Math.round(100 * rq.pit_dates / Math.max(1, rq.min_pit_dates)));
             const est = rq.effective_periods_source === 'estimated' ? ' (추정)' : '';
-            const color = lk.status === 'locked' ? 'var(--buy-strong,var(--brand))'
+            // `var(--buy-strong,var(--brand))` 였다 — **둘 다 :root에 없어서** 폴백 체인이
+            // 끝까지 비고 색이 상속색으로 렌더됐다. 미정의 변수는 에러가 아니라 무색이라
+            // 아무도 못 본다. 하필 위치가 앱에서 가장 중요한 상태(확정 판정)였다.
+            const color = lk.status === 'locked' ? 'var(--sig-buy)'
                         : lk.status === 'invalidated' ? 'var(--sell)' : 'var(--dim)';
             return `<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:6px">
               <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-                <div style="font-size:13px;font-weight:700">${esc(lk.role)} <span style="color:var(--dim);font-weight:500;font-size:12px">${esc(lk.id)}</span></div>
+                <div style="font-size:13px;font-weight:700">${esc(lk.role)} <span style="color:var(--dim);font-weight:600;font-size:12px">${esc(lk.id)}</span></div>
                 <div style="font-size:12px;color:${color};font-weight:600">${esc(lk.status)} · ${esc(lk.verdict || '')}</div>
               </div>
               <div style="font-size:12px;color:var(--dim);margin-top:3px">${esc(lk.verdict_why || '')}</div>
               <div style="font-size:12px;margin-top:4px">실효 기간 ${rq.effective_periods}/${rq.min_effective_periods}${est} (${pctEff}%) · PIT ${rq.pit_dates}/${rq.min_pit_dates}일 (${pctPit}%)</div>
               ${lk.percentile != null ? `<div style="font-size:12px;margin-top:2px">백분위 <b>${fmtNum(lk.percentile, 1)}</b></div>` : ''}
               <details style="margin-top:4px"><summary style="cursor:pointer;font-size:12px;color:var(--dim)">가설·판정 기준</summary>
-                <pre style="white-space:pre-wrap;font-size:11.5px;color:var(--dim);margin:6px 0 0">${esc(lk.hypothesis || '')}</pre>
-                <div style="font-size:11.5px;color:var(--dim);margin-top:4px">통과: ${esc((lk.decision||{}).if_pass || '')}<br>실패: ${esc((lk.decision||{}).if_fail || '')}</div>
+                <pre style="white-space:pre-wrap;font-size:12px;color:var(--dim);margin:6px 0 0">${esc(lk.hypothesis || '')}</pre>
+                <div style="font-size:12px;color:var(--dim);margin-top:4px">통과: ${esc((lk.decision||{}).if_pass || '')}<br>실패: ${esc((lk.decision||{}).if_fail || '')}</div>
               </details>
             </div>`;
           }).join('');
@@ -6329,7 +6347,7 @@ async function loadProofOs(){
     };
     const drift = A.signal_drift || {};
     const jobLine = job.running
-      ? `<div style="color:#b45309;font-size:12px;margin-top:4px">하네스 실행 중… 끝나면 새로고침</div>`
+      ? `<div style="color:var(--sig-watch);font-size:12px;margin-top:4px">하네스 실행 중… 끝나면 새로고침</div>`
       : (job.error ? `<div style="color:var(--sell);font-size:12px;margin-top:4px">하네스 오류: ${esc(job.error)}</div>` : '');
     el.className = '';
     el.innerHTML = `
@@ -6378,7 +6396,7 @@ async function loadProofOs(){
           ${hz.status === 'invalidated' ? `<div style="font-size:12px;color:var(--sell);margin-top:4px">판정 이후 설정이 바뀌었습니다 — 새 id로 재등록해야 합니다.</div>` : ''}
           ${jobLine}
           ${!hz.ready && !job.running ? `<div style="font-size:12px;color:var(--dim);margin-top:4px">「하네스 실행」을 누르면 서버에서 돌립니다(CLI 불필요).</div>` : ''}
-          ${drift.frozen ? `<div style="color:#b45309;font-size:12px;margin-top:4px">점수 동결 의심 — ${esc(drift.note || '')}</div>` : ''}
+          ${drift.frozen ? `<div style="color:var(--sig-watch);font-size:12px;margin-top:4px">점수 동결 의심 — ${esc(drift.note || '')}</div>` : ''}
         </div>
         <div style="padding:10px 12px;border:1px solid var(--line);border-radius:10px">
           <div style="font-weight:700;font-size:13px;margin-bottom:6px">B · 페이퍼(종속)</div>
@@ -6422,7 +6440,7 @@ function _pitHeroLine(pit){
   if (fwd.h20 != null) bits.push('h20 ' + (fwd.h20 > 0 ? '+' : '') + fmtNum(fwd.h20, 1) + '%');
   else if (fwd.h5 != null) bits.push('h5 ' + (fwd.h5 > 0 ? '+' : '') + fmtNum(fwd.h5, 1) + '%');
   const tip = (pit.reasons || []).slice(0, 3).join(' · ') || '최근 PIT 스냅샷';
-  return `<span style="color:var(--dim);font-weight:500" title="${esc(tip)}">${esc(bits.join(' · '))}</span>`;
+  return `<span style="color:var(--dim);font-weight:600" title="${esc(tip)}">${esc(bits.join(' · '))}</span>`;
 }
 let _bpGateReason = '';
 async function refreshBrainProposals(){
@@ -6443,7 +6461,7 @@ async function renderUnprovenBanner(){
     const un = (d.history || d.items || []).filter(e => e && e.unproven);
     if (!un.length) { host.innerHTML = ''; return; }
     const last = un[0] || {};
-    host.innerHTML = `<div style="border:1px solid var(--sell);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:12.5px">`
+    host.innerHTML = `<div style="border:1px solid var(--sell);border-radius:8px;padding:8px 10px;margin:8px 0;font-size:13px">`
       + `<b style="color:var(--sell)">미검증 변경 ${un.length}건</b>`
       + ` <span style="color:var(--dim)">— 판별력 판정이 확정되기 전에 바꾼 값입니다.</span>`
       + (last.override_reason ? `<div style="margin-top:4px;color:var(--dim)">최근 사유: ${esc(String(last.override_reason))}</div>` : '')
@@ -6465,7 +6483,7 @@ async function loadBrainProposals(){
       el.innerHTML = (_bpGateReason
           ? `<b style="color:var(--sell)">판정 전이라 제안을 만들지 않습니다</b>`
             + `<div style="margin-top:6px;font-size:13px;color:var(--dim)">${esc(_bpGateReason)}</div>`
-            + `<div style="margin-top:6px;font-size:12.5px;color:var(--dim-2)">큐를 비워 두는 이유 — 쌓인 제안은 배지로 떠서 승인을 유도하는 압력이 됩니다. 판정이 확정되면 자동으로 다시 생성됩니다.</div>`
+            + `<div style="margin-top:6px;font-size:13px;color:var(--dim-2)">큐를 비워 두는 이유 — 쌓인 제안은 배지로 떠서 승인을 유도하는 압력이 됩니다. 판정이 확정되면 자동으로 다시 생성됩니다.</div>`
           : '대기 중인 제안이 없습니다. 실측이 쌓이면 <b>제안 새로고침</b>으로 초안을 만들 수 있습니다.'
             + '<div style="margin-top:8px;font-size:13px;color:var(--dim-2)">트래커는 “그날 낸 시그널 → 20일 뒤 성적”만 봅니다. 봇이 안 사도 시그널이 있으면 쌓입니다.</div>');
     } else {
@@ -6496,7 +6514,7 @@ async function loadBrainProposals(){
     const hist = d.history || [];
     if (histEl) {
       histEl.innerHTML = hist.length
-        ? '<div style="font-weight:700;margin-bottom:4px">최근 설정 변경 <span style="font-weight:400;color:var(--dim-2);font-size:12px">· 승인 시 실측 스냅샷</span></div>'
+        ? '<div style="font-weight:700;margin-bottom:4px">최근 설정 변경 <span style="font-weight:600;color:var(--dim-2);font-size:12px">· 승인 시 실측 스냅샷</span></div>'
           + hist.map(h => {
             const when = h.ts ? new Date(h.ts * 1000).toLocaleString('ko-KR') : '';
             const src = h.source === 'brain_proposal' ? '제안 승인' : (h.source === 'manual' ? '수동' : (h.source || ''));
@@ -6668,7 +6686,7 @@ async function loadShadows(){
         · 성숙표본 ${v.matured ?? v.matured_smaller_side ?? 0}/${v.min_samples ?? '–'}</span></div>
       ${extra || ''}
       ${(v.caveats || []).map(c => `<div style="color:var(--dim-2);font-size:12px;margin-top:2px">· ${esc(c)}</div>`).join('')}
-      ${reason ? `<div style="color:#b45309;font-size:13px;margin-top:3px">${esc(reason)}</div>` : ''}</div>`;
+      ${reason ? `<div style="color:var(--sig-watch);font-size:13px;margin-top:3px">${esc(reason)}</div>` : ''}</div>`;
   };
   const cov = kbc && kbc.coverage;
   el.className = '';
@@ -6909,7 +6927,7 @@ async function loadAccuracy(){
       ${baseBlock}
       ${sellBlock}
       <table class="dtable" style="margin-top:8px"><thead><tr><th>티어</th><th>표본</th><th>적중률</th><th>평균수익</th></tr></thead><tbody>${tierRows}</tbody></table>
-      <div style="font-size:13px;font-weight:700;margin:16px 0 4px">팩터 예측력 <span style="color:var(--dim);font-weight:500">· 횡단면 IC (팩터값↑ vs ${h}일 수익, 양수=예측 유효)</span></div>
+      <div style="font-size:13px;font-weight:700;margin:16px 0 4px">팩터 예측력 <span style="color:var(--dim);font-weight:600">· 횡단면 IC (팩터값↑ vs ${h}일 수익, 양수=예측 유효)</span></div>
       ${icRows}
       ${icNote}
       <p class="page-desc" style="margin:10px 0 0;font-size:12px;color:var(--dim-2)">${covLine} · ${h}거래일 성숙 <b>${matured}</b>건. 밸류는 저평가일수록 값이 낮아 IC 부호가 반대로 해석됩니다.</p>`;
