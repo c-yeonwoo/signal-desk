@@ -228,6 +228,8 @@
     font-size:13px; color:var(--dim); }
   .sig-quote .q-price { font-size:17px; font-weight:700; color:var(--txt); }
   .sig-quote .q-k { color:var(--dim-2); }
+  /* 라벨-값 짝은 끊기지 않는다 — 375px에서 `PBR`과 `1.57`이 다른 줄에 놓였다. */
+  .sig-quote .q-pair { white-space:nowrap; }
   .sig-chart-pane { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; max-height:calc(100dvh - 200px); }
   /* 왼쪽: 종목명+개요 한 덩어리 / 오른쪽: 차트 모드 — 버튼 높이 때문에 개요가 아래로 밀려 보이지 않게 */
   .sig-chart-pane .pane-head { display:flex; align-items:flex-start; gap:10px 14px; flex-wrap:nowrap;
@@ -430,6 +432,10 @@
   ul.watchlist li { display:flex; justify-content:space-between; align-items:center;
     border:1px solid var(--line); border-radius:var(--r-md); padding:10px 14px; }
   ul.watchlist button { border:none; background:none; color:var(--sig-sell); cursor:pointer; font-size:13px; }
+  /* 넓은 표는 **자기 컨테이너 안에서만** 가로 스크롤한다. 조상 카드가 스크롤되면 헤더·문단까지
+     따라 움직여서 어디를 읽고 있었는지 잃는다. 모바일 375px에서 모델 표가 440px였다. */
+  .tscroll { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tscroll > table.dtable { min-width:max-content; }
   table.dtable { width:100%; border-collapse:collapse; font-size:var(--fs-base); }
   table.dtable th { text-align:left; color:var(--dim-2); font-weight:700; font-size:var(--fs-xs);
     letter-spacing:.03em; padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
@@ -1745,11 +1751,20 @@ function routeFromHash(){
   return true;
 }
 window.addEventListener('hashchange', routeFromHash);
+let _resizeT = null;
 window.addEventListener('resize', () => {
   if (_signalChart) _signalChart.resize();
   if (_botChart) _botChart.resize();
   if (_cycleChart) _cycleChart.resize();
   Object.values(_heatCharts || {}).forEach(c => { try { c.resize(); } catch (e) {} });
+  // 시그널 표 열 폭은 브레이크포인트를 넘나들 때 다시 계산해야 한다 — 안 하면 세로로 열었다가
+  // 가로로 돌릴 때 섹터 열이 접힌 채(또는 펴진 채) 남는다. 리스너를 따로 두지 않고 여기 붙인다.
+  clearTimeout(_resizeT);
+  _resizeT = setTimeout(() => {
+    document.querySelectorAll('table.sig-table').forEach(t => {
+      try { applySigColWidths(t); } catch (e) {}
+    });
+  }, 120);
 });
 
 function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -3014,16 +3029,40 @@ function _loadSigCols(){
 function _saveSigCols(w){
   try { localStorage.setItem(_SIG_COL_KEY, JSON.stringify(w)); } catch (e) {}
 }
+// 섹터 열을 접는 폭 — CSS 미디어쿼리(max-width:640px)와 **같은 값**이어야 한다.
+// 다르면 열은 숨겼는데 폭은 남거나 그 반대가 되고, 그 차이는 화면에서만 보인다.
+const _SIG_NARROW_PX = 640;
+
 function applySigColWidths(table){
   // 별 열 36px 고정 — 나머지를 %로 나눠 100%+36px 오버플로를 막는다.
+  //
+  // **좁은 폭에서는 섹터 열의 몫을 0으로 돌리고 나머지에 재분배한다.** 미디어쿼리가
+  // `th/td:nth-child(3)`을 `display:none` 하지만 `<col>`의 **인라인 width는 그대로 남아**
+  // 보이지 않는 열이 폭을 계속 예약했다 — 인라인 스타일은 미디어쿼리가 못 이긴다.
+  // 실측(375px): 테이블 345px인데 보이는 셀 합계가 242px로, 103px(30%)이 죽은 공간이었다.
+  // 그래서 종목명 칸이 103px로 좁아져 `HD한국조선해` + `양`으로 쪼개지고 배지도 줄바꿈됐다.
   const w = _loadSigCols();
+  const narrow = window.innerWidth <= _SIG_NARROW_PX;
+  const share = narrow
+    ? { name: w.name / (w.name + w.sig) * 100, sector: 0, sig: w.sig / (w.name + w.sig) * 100 }
+    : w;
   const set = (cls, v) => { const c = table.querySelector('col.' + cls); if (c) c.style.width = v; };
   const rem = (pct) => `calc((100% - 36px) * ${ (pct / 100).toFixed(4) })`;
   set('col-star', '36px');
-  set('col-name', rem(w.name));
-  set('col-sector', rem(w.sector));
-  set('col-sig', rem(w.sig));
+  set('col-name', rem(share.name));
+  set('col-sig', rem(share.sig));
+  // **열을 없앨 때는 `display:none`이다 — 폭 0으로 두면 안 된다.** 실측(375px):
+  //   col-sector width:0   → 배지 셀 폭 0  (fixed 레이아웃이 4번째 열 몫을 0폭 열에 먹인다)
+  //   col-sector display:none → 배지 셀 폭 148  ✓
+  // 폭 0으로 뒀을 때 `매수권밖`이 한 글자씩 세로로 쪼개졌다(`overflow-wrap:anywhere` 때문에
+  // 에러가 아니라 그냥 이상한 모양으로 렌더된다 — 미정의 CSS 변수가 무색인 것과 같은 종류).
+  const sector = table.querySelector('col.col-sector');
+  if (sector) {
+    sector.style.display = narrow ? 'none' : '';
+    sector.style.width = narrow ? '' : rem(share.sector);
+  }
 }
+
 function bindSigColResize(table){
   table.querySelectorAll('.col-resizer').forEach(handle => {
     handle.addEventListener('pointerdown', (e) => {
@@ -3611,15 +3650,19 @@ function _paintSignalDetail(ticker, item){
     const isUS = _sigMarket === 'us';
     const priceStr = isUS ? '$' + fmtNum(item.price, 2) : fmtNum(item.price, 0) + '원';
     qEl.style.display = '';
+    // 라벨과 값은 **한 덩어리(.q-pair)로 묶는다.** 예전엔 `<span class="q-k">PBR</span> 1.57` 처럼
+    // 라벨만 span이고 값은 맨 텍스트 노드라, flex-wrap이 그 사이에서 줄을 끊었다 —
+    // 375px에서 `PBR`과 `1.57`이 서로 다른 줄에 놓여 라벨-값 짝이 깨졌다.
+    const pair = (k, v) => ` <span class="q-pair"><span class="q-k">${k}</span> ${v}</span>`;
     qEl.innerHTML = `<span class="q-price">${priceStr}</span>`
       + (chg != null ? ` <span style="color:${chgColor};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : '')
-      + (item.mktcap != null ? ` <span class="q-k">시총</span> ${fmtMktcap(item.mktcap)}` : '')
-      + (item.vol != null ? ` <span class="q-k">거래량</span> ${fmtVol(item.vol)}` : '')
-      + (item.vol_avg != null ? ` <span class="q-k">(20일 평균 ${fmtVol(item.vol_avg)})</span>` : '')
-      + (item.per != null ? ` <span class="q-k">PER</span> ${fmtNum(item.per, 1)}` : '')
-      + (item.pbr != null ? ` <span class="q-k">PBR</span> ${fmtNum(item.pbr, 2)}` : '')
+      + (item.mktcap != null ? pair('시총', fmtMktcap(item.mktcap)) : '')
+      + (item.vol != null ? pair('거래량', fmtVol(item.vol)) : '')
+      + (item.vol_avg != null ? ` <span class="q-k q-pair">(20일 평균 ${fmtVol(item.vol_avg)})</span>` : '')
+      + (item.per != null ? pair('PER', fmtNum(item.per, 1)) : '')
+      + (item.pbr != null ? pair('PBR', fmtNum(item.pbr, 2)) : '')
       + (item.valuation_percentile != null
-          ? ` <span class="q-k">저평가순위</span> <b style="color:${item.valuation_percentile <= 50 ? 'var(--sig-buy)' : 'var(--dim)'}">상위 ${fmtNum(item.valuation_percentile, 0)}%</b>` : '');
+          ? pair('저평가순위', `<b style="color:${item.valuation_percentile <= 50 ? 'var(--sig-buy)' : 'var(--dim)'}">상위 ${fmtNum(item.valuation_percentile, 0)}%</b>`) : '');
   } else qEl.style.display = 'none';
   // 종목 개요는 종목명↔히어로 사이 한 줄. 최근 행보·밸류체인은 지표 패널에 유지.
   const aboutEl = document.getElementById('signal-about');
@@ -6512,7 +6555,7 @@ async function loadLlmUsage(){
     el.innerHTML = budgetRow + `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
         ${card('오늘', today)}${card('7일', week)}${card('30일', tot)}
       </div>
-      <table class="dtable"><thead><tr><th>모델</th><th class="num">호출</th><th class="num">추정$</th><th class="num">in / out</th></tr></thead><tbody>${models}</tbody></table>
+      <div class="tscroll"><table class="dtable"><thead><tr><th>모델</th><th class="num">호출</th><th class="num">추정$</th><th class="num">in / out</th></tr></thead><tbody>${models}</tbody></table></div>
       <p class="page-desc" style="margin:8px 0 0;font-size:12px;color:var(--dim-2)">${esc(d.note || '')}</p>`;
   } catch (e) { el.className = ''; el.textContent = '불러오지 못했습니다.'; }
 }
