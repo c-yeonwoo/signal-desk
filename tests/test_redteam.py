@@ -2194,3 +2194,59 @@ def test_us_price_freshness_uses_bar_dates_not_file_mtime():
     df = inspect.getsource(store_mod.data_freshness)
     assert "_us_prices_freshness()" in df
     assert 'e("us_prices"' not in df, "mtime 기반 항목이 아직 남아 있다"
+
+
+def test_zero_buy_card_does_not_push_the_list_off_screen():
+    """`매수 0` 카드는 대부분의 날 자동으로 펼쳐진다 — 그 안의 진단을 접어 두지 않으면
+    목록을 보러 온 화면에서 목록이 접힌다.
+
+    실측(1440×900): 카드 439px · 종목 표가 827px에서 시작했다. 게다가 서버 `reasons` 첫 두 줄은
+    헤더(`zeroWhy`)가 이미 말하는 것이고 나머지 셋은 상단 시장바의 `자금 한도`·`거시 비우호`와
+    같은 말이다 — "같은 말을 한 화면에서 두 번 하지 않는다".
+    """
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    blk = html.split("if (why || rep.disclaimer)", 1)
+    assert len(blk) == 2, "사유·면책이 접이식으로 감싸이지 않았다"
+    body = blk[1][:700]
+    assert '<details class="st-more">' in body and "사유·계산" in body
+    # 항상 노출로 되돌아가는 회귀를 막는다.
+    assert 'if (why) detail += `<div style="margin-top:4px">${why}</div>`;' not in html
+    css = html[:html.find("</style>")]
+    assert ".st-more {" in css, "참조하는 클래스가 :root/CSS에 정의되지 않았다"
+
+
+def test_design_tokens_have_no_undefined_references():
+    """미정의 CSS 변수는 에러가 아니라 **무색**이라 아무도 못 본다.
+
+    실측: `var(--buy-strong,var(--brand))` 가 **둘 다 미정의**여서 폴백 체인이 끝까지 비었고,
+    하필 위치가 앱에서 가장 중요한 상태(**확정 판정** locked)의 색이었다.
+    """
+    import re
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    # 주석 안 문자열은 렌더되지 않으므로 제외한다(안 하면 설명 주석이 오탐을 만든다).
+    stripped = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
+    stripped = "\n".join(re.sub(r"^\s*//.*$", "", ln) for ln in stripped.split("\n"))
+    css = html[:html.find("</style>")]
+    root = css[css.find(":root"):css.find("}", css.find(":root")) + 1]
+    defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", root))
+    used = set(re.findall(r"var\((--[a-z0-9-]+)", stripped))
+    assert not (used - defined), f"미정의 CSS 변수: {sorted(used - defined)}"
+
+
+def test_typography_stays_on_the_scale():
+    """10px 이하는 정보가 아니라 착시다. 반쪽 단계(11.5·12.5)는 척도를 흐린다."""
+    import collections
+    import re
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    sizes = collections.Counter(re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", html))
+    allowed = {11, 12, 13, 14, 15, 17, 21, 27}
+    off = {k: v for k, v in sizes.items() if float(k) not in allowed}
+    assert not off, f"8단계 밖 폰트: {off}"
+    weights = set(re.findall(r"font-weight:\s*(\d+)", html))
+    assert weights <= {"600", "700"}, f"600·700 밖 weight: {sorted(weights - {'600','700'})}"
