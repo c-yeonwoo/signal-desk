@@ -1452,7 +1452,8 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
     return out
 
 
-def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3) -> dict:
+def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3,
+                   auto_collect: bool | None = None) -> dict:
     """종목 KB 수집이 살아 있는지 — '대상 중 신선한 다이제스트 비율'로 잰다.
 
     전체 다이제스트의 max(updated)는 정지를 못 잡는다: 거시(_MARKET)·US 다이제스트가 매일 갱신되면
@@ -1478,6 +1479,13 @@ def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3) ->
     elif last.get("failed"):
         reason = (f"마지막 실행에서 {len(last['failed'])}종목 실패: "
                   + ", ".join(f["name"] for f in last["failed"][:5]))
+    elif not fresh and auto_collect is False:
+        # **동결과 고장을 구분한다.** 자동수집은 기본 OFF다(`config.kb_auto_collect` — 트레이딩
+        # 예산과 학습 예산을 분리하려는 의도적 결정). 그런데 이 함수가 "수집 루프가 멈췄을 수
+        # 있다"고 말해 프로덕션에서 **의도적 정지를 고장으로 보고**하고 있었다. 0의 이유는
+        # 미완성·동결·고장 중 어느 것인지 말해야 한다 — 셋이 화면에 똑같이 0으로 보인다.
+        reason = (f"자동수집 OFF(KB_AUTO_COLLECT 미설정) — 대상 {len(rows)}종목은 관리자 수동 "
+                  f"수집으로만 갱신된다. 고장이 아니다.")
     elif not fresh:
         reason = f"대상 {len(rows)}종목 전부 {stale_days}일 이상 미갱신 — 수집 루프가 멈췄을 수 있다"
     return {"targets": len(rows), "fresh": len(fresh), "stale": len(stale),
@@ -1486,7 +1494,7 @@ def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3) ->
             "last_run": (datetime.datetime.fromtimestamp(last["ts"]).strftime("%Y-%m-%d %H:%M")
                          if last.get("ts") else None),
             "last_updated": last.get("updated"), "last_failed": last.get("failed") or [],
-            "blocked_reason": reason}
+            "auto_collect": auto_collect, "blocked_reason": reason}
 
 
 def sentiment_map() -> dict[str, dict]:

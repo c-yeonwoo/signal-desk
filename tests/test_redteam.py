@@ -2154,3 +2154,43 @@ def test_auto_refresh_failures_reach_the_screen():
     # 이유를 이름과 함께 — "1건 실패"만 쓰면 무엇을 고쳐야 하는지 모른다.
     blk = html.split("const ar = d.auto_refresh_blocked", 1)[1][:900]
     assert "ar[k].reason" in blk and "ar[k].label" in blk
+
+
+def test_kb_status_separates_frozen_from_broken():
+    """자동수집이 **설정으로 꺼진 것**을 "루프가 멈췄을 수 있다"로 보고하면 고장 조사를 유도한다.
+
+    프로덕션 실측(2026-08-06): `kb_auto_collect`가 기본 OFF인데 화면은 `대상 44종목 전부 3일 이상
+    미갱신 — 수집 루프가 멈췄을 수 있다`였다. 0의 이유는 미완성·동결·고장 중 어느 것인지 말해야 한다.
+    """
+    from signal_desk import kb
+
+    targets = [{"ticker": "005930", "name": "삼성전자"}, {"ticker": "000660", "name": "SK하이닉스"}]
+    off = kb.refresh_status(targets, auto_collect=False)
+    assert off["auto_collect"] is False
+    assert "자동수집 OFF" in off["blocked_reason"] and "고장이 아니다" in off["blocked_reason"]
+    assert "멈췄을 수 있다" not in off["blocked_reason"]
+    on = kb.refresh_status(targets, auto_collect=True)
+    assert "멈췄을 수 있다" in (on["blocked_reason"] or ""), on["blocked_reason"]
+
+
+def test_us_price_freshness_uses_bar_dates_not_file_mtime():
+    """파일 mtime은 정지를 가린다 — 갱신기가 파일은 쓰면서 봉을 못 늘리는 경우가 있다.
+
+    실측: mtime 2일 전인데 종목별 마지막 봉은 중위 한 달 전이고 503종목 전부가 갱신기 기준
+    stale이었다. 화면은 "50시간 전"이라 거의 신선해 보였다. "정지는 파일 신선도로 안 잡힌다"는
+    규칙(PIT 스냅샷에서 배운 것)이 미국 시세에서 재발했다.
+    """
+    import inspect
+
+    from signal_desk import store as store_mod
+
+    src = inspect.getsource(store_mod._us_prices_freshness)
+    assert "us_price_last_dates" in src, "마지막 봉 날짜를 안 본다"
+    assert "us_prices_stale_tickers" in src, "뒤처진 종목 수를 안 센다"
+    assert "st_mtime" not in src, "여전히 파일 mtime을 본다"
+    # 임계는 갱신기와 **같은 상수**여야 한다 — 두 곳에 두면 화면과 실제 주기가 갈라진다.
+    assert "US_STALE_DAYS" in src
+    # data_freshness가 이 함수를 쓰는지(옛 mtime 항목이 남아 있지 않은지).
+    df = inspect.getsource(store_mod.data_freshness)
+    assert "_us_prices_freshness()" in df
+    assert 'e("us_prices"' not in df, "mtime 기반 항목이 아직 남아 있다"

@@ -1444,6 +1444,36 @@ def mark_boot() -> dict:
     return {"boot_count": n}
 
 
+def _us_prices_freshness() -> dict:
+    """미국 시세 신선도 — **종목별 마지막 봉 날짜** 기준(파일 mtime 아님).
+
+    `rows`는 뒤처진 종목 수다. 0이면 정상, 전 종목이면 수집이 멈춘 것이다.
+    """
+    entry = {"key": "us_prices", "label": "미국 시세(마지막 봉)", "updated": None,
+             "age_hours": None, "rows": None, "stale": True}
+    if not US_PRICES_FILE.exists():
+        return entry
+    try:
+        last = us_price_last_dates()
+    except Exception:                              # noqa: BLE001 — 못 읽으면 stale(막는 쪽)
+        return entry
+    dates = sorted(str(v)[:10] for v in last.values() if v)
+    if not dates:
+        return entry
+    newest = dates[-1]
+    behind = us_prices_stale_tickers(list(last), max_age_days=US_STALE_DAYS)
+    try:
+        age_h = (datetime.date.today() - datetime.date.fromisoformat(newest)).days * 24.0
+    except ValueError:
+        age_h = None
+    # `rows`는 다른 소스에서 "행 수"인데 여기서는 **뒤처진 종목 수**다 — 뜻이 다르면 밝힌다.
+    note = (f"{len(behind)}/{len(last)}종목이 마지막 봉 {US_STALE_DAYS}일 초과 — 갱신 대상"
+            if behind else None)
+    entry.update(updated=newest, age_hours=age_h, rows=len(behind),
+                 stale=bool(behind), total=len(last), note=note)
+    return entry
+
+
 def data_freshness() -> list[dict]:
     """데이터 소스별 최종 갱신 시각·경과·행수·stale 여부(캐시 파일 mtime 기준). 관리자 신선도 대시보드용.
     stale_days 초과면 stale=True(소스별 갱신 주기에 맞춘 임계)."""
@@ -1461,7 +1491,12 @@ def data_freshness() -> list[dict]:
 
     return [
         e("prices", "국내 시세", PRICES_FILE, 2),
-        e("us_prices", "미국 시세", US_PRICES_FILE, 2),
+        # **미국 시세는 파일 mtime으로 재지 않는다.** 갱신기가 파일은 쓰면서(mtime 갱신) 봉은 못
+        # 늘리는 경우가 있어 mtime이 정지를 가린다 — 실측: mtime 2일 전인데 종목별 마지막 봉은
+        # 중위 한 달 전이고 503종목 전부가 갱신기 기준 stale이었다. "정지는 파일 신선도로 안
+        # 잡힌다"는 규칙(PIT 스냅샷에서 배운 것)이 여기서 재발했다. 임계도 갱신기와 하나로 모은다
+        # (`US_STALE_DAYS`) — 두 곳에 두면 화면이 말하는 신선도와 실제 갱신 주기가 갈라진다.
+        _us_prices_freshness(),
         e("fundamentals", "재무(DART)", FUNDAMENTALS_FILE, 100, _json_rows(FUNDAMENTALS_FILE)),
         e("flows", "종목 수급(네이버)", FLOWS_FILE, 2, _json_rows(FLOWS_FILE)),
         e("short", "공매도 비중(KRX)", SHORT_FILE, 2, _json_rows(SHORT_FILE)),
