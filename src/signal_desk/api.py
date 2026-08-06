@@ -2286,7 +2286,8 @@ def data_health_get():
     stall = _safe_stall()
     digests = db.kb_digests_all()
     try:
-        kb_refresh = kb.refresh_status(_kb_targets())
+        kb_refresh = kb.refresh_status(_kb_targets(),
+                                       auto_collect=config.kb_auto_collect())
     except Exception as e:
         log.warning("KB 수집 상태 계산 실패: %s", type(e).__name__)
         kb_refresh = {"blocked_reason": f"상태 계산 실패({type(e).__name__})"}
