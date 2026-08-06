@@ -585,12 +585,14 @@
   .btn-logout { white-space:nowrap; flex:0 0 auto; }
   .btn-logout .logout-short { display:none; }
   .sig-workspace, .view-app, main, #view-signal { min-width:0; max-width:100%; }
-  /* 좁은 폭에서 세 컨트롤이 각각 한 줄이 되어 툴바가 108px을 먹었다(3줄).
-     세그+정렬을 한 줄에 두고 검색을 아래 전폭으로 → 2줄. */
+  /* 세그·검색·정렬 한 줄. 공간이 부족하면 검색만 아래로 내려간다 —
+     `flex:1 1 100%`로 두면 **폭이 남는 데스크톱에서도** 무조건 2줄이 된다(실측 463px 패널에서
+     108px을 먹었다. 미디어쿼리 안이라고 생각하고 넣었는데 기본 CSS였다). basis를 140px로 주면
+     들어갈 때는 한 줄, 안 들어갈 때만 접힌다. */
   .sig-toolbar { flex-wrap:wrap; }
   .sig-toolbar #sig-market-seg { order:1; }
   .sig-toolbar #sig-sort { order:2; }
-  .sig-toolbar #sig-search { order:3; flex:1 1 100%; }
+  .sig-toolbar #sig-search { order:3; flex:1 1 140px; }
   .alert-bell-ico { display:inline-flex; align-items:center; line-height:0; }
   .market-bar #macro-toggle { margin-left:0; flex:0 0 auto; padding:2px 10px; font-size:13px; }
 
@@ -704,12 +706,6 @@
   .sig-today .st-actions { display:inline-flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
   .sig-today .st-actions .btn { padding:2px 9px; font-size:12px; }
   .sig-today .st-actions .btn.on { background:var(--accent); color:#fff; border-color:var(--accent); }
-  .sig-today .sp-near { margin-top:8px; display:flex; flex-direction:column; gap:4px; }
-  .sig-today .sp-near-row { display:flex; align-items:center; gap:8px; padding:5px 8px;
-    border:1px solid var(--line); border-radius:var(--r-sm); background:var(--bg); cursor:pointer;
-    font-size:13px; color:var(--txt); text-align:left; width:100%; font-family:inherit; }
-  .sig-today .sp-near-row:hover { border-color:var(--accent); background:var(--accent-weak); }
-  .sig-today .sp-near-row .sp-gap { margin-left:auto; font-size:12px; color:var(--dim-2); white-space:nowrap; }
   .sig-empty { padding:20px 14px; text-align:left; }
   .sig-empty .se-title { font-size:14px; font-weight:700; color:var(--txt); margin-bottom:6px; }
   .sig-empty .se-body { font-size:13px; color:var(--dim); line-height:1.55; margin-bottom:10px; }
@@ -3365,15 +3361,12 @@ function renderTodayCard(){
       + `<div>${whyThr} 최소점수·게이트·분위에 못 미치면 자리가 비습니다.`
       + (nearN ? ` 가까운 종목 <b>${nearN}</b>개.` : ' 관심종목을 넣으면 대기 리스트가 채워집니다.')
       + `</div>`;
-    if (nearRows.length) {
-      detail += `<div class="sp-near">${nearRows.slice(0, 5).map(r => {
-        const gap = Math.max(0, thr - (r.score || 0));
-        return `<button type="button" class="sp-near-row" onclick="selectSignalRow('${esc(r.ticker)}')">
-          <span style="font-weight:600">${esc(r.name)}</span>
-          <span style="color:var(--dim)">${r.score > 0 ? '+' : ''}${fmtNum(r.score, 2)}</span>
-          <span class="sp-gap">문턱까지 ${fmtNum(gap, 2)}</span></button>`;
-      }).join('')}</div>`;
-    }
+    // 근접 5종목 목록을 여기 두지 않는다. **바로 아래 표의 상위 5행과 같은 종목**이고
+    // (기본 정렬이 시그널순이므로 항상 그렇다) 표는 섹터·시그널 배지·관심★까지 더 보여준다.
+    // 유일한 추가 정보였던 `문턱까지`는 실측에서 5행 전부 **0.00**이었다 — 이 종목들은 문턱을
+    // 이미 통과했고 게이트로 막힌 것이라(헤더가 `문턱 통과 31 > 창 6자리`라고 말한다)
+    // "문턱에 아직 못 미쳤다"는 반대 인상을 준다. 중복인데다 오해를 만들었다.
+    // 개수는 위 문장이 말하고, 이동은 아래 `근접만` 필터가 한다.
     detail += `<div class="st-actions">`
       + (nearN ? `<button type="button" class="btn${_precisionBucket === 'near' ? ' on' : ''} primary" onclick="filterPrecisionBucket('near')">근접만</button>` : '')
       + `<button type="button" class="btn${_precisionBucket === 'buy' ? ' on' : ''}" onclick="filterPrecisionBucket('buy')">매수만</button>`
