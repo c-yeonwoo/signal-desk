@@ -4017,11 +4017,9 @@ function _drawSignalChart(ticker, item, d){
   let leg = `<span style="color:var(--sig-buy);font-weight:700">● B</span> 매수`
     + ` · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도`
     + ` · <b>진한 배경</b>=실측 · <b>옅은 배경</b>=재현 · 📍=현재`;
-  if (showMa) {
-    leg += ` · <span style="color:var(--c-ma20)">━ 20일</span>`
-      + ` <span style="color:var(--c-ma60)">━ 60일</span>`
-      + ` <span style="color:var(--c-ma120)">━ 120일</span>`;
-  }
+  // MA 3선은 **ECharts 내장 범례가 이미 보여준다**(`legendData`에 단기·중기·장기가 들어간다).
+  // 여기 또 쓰면 같은 말을 한 화면에서 두 번 하는 것이고, 게다가 내장 범례는 클릭으로 계열을
+  // 켜고 끌 수 있는데 이 텍스트는 못 한다 — 기능이 있는 쪽을 남긴다.
   if (showAux) leg += ` · RSI · MACD` + (hasFlow ? ` · 수급` : '');
   if (d.actual_from) leg += ` · <b style="color:var(--txt)">${esc(d.actual_from)}~ 실측</b>`;
   if (d.live_on && d.live_updated) leg += ` · 실시간 ${esc(d.live_updated)}`;
