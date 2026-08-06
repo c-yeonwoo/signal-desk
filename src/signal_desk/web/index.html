@@ -280,11 +280,6 @@
     font-size:var(--fs-2xs); color:var(--dim-2); padding:0 4px; }
   .detail-legend .lyr-dot { margin-left:6px; }
   .detail-panels { margin-top:10px; min-height:210px; }  /* 탭 전환 시 카드·차트 높이 튐 방지 */
-  .sig-quickfilters { display:flex; gap:6px; padding:0 12px 10px; flex-wrap:wrap; }
-  .qchip { border:1px solid var(--line); background:var(--panel); color:var(--dim); border-radius:var(--r-sm);
-    padding:5px 11px; font-size:var(--fs-xs); cursor:pointer; line-height:1.4; }
-  .qchip:hover { color:var(--txt); border-color:var(--line-strong); }
-  .qchip.on { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
   /* 상세 패널은 자체 스크롤 없이 그대로 늘어남 → 차트 카드(.sig-chart-pane)만 스크롤.
      총 스크롤 = 브라우저 스크롤 + 차트 카드 스크롤 2개만. */
   /* 히어로 결론 카드 — 시그널 색으로 좌측 강조, 결론·이유·핵심지표 */
@@ -546,6 +541,8 @@
   .trust-badge.verdict { background:var(--panel-2); color:var(--txt); border:1px solid var(--line-strong); }
   .trust-badge.verdict-hold { background:var(--bg); color:var(--dim); border:1px dashed var(--line-strong); }
   .trust-row.trust-verdict { font-size:14px; }
+  /* 요약 줄의 진척·문턱 — 판정 문구보다 한 단 낮춘다(판정이 먼저 읽혀야 한다). */
+  .trust-sum-meta { color:var(--dim); font-weight:600; font-size:var(--fs-xs); }
   .trust-row.trust-verdict b { font-size:15px; }
   /* 성적은 매일 안 바뀌므로 기본 접기 — 펼쳐야 본문 */
   #signal-trust { display:none; font-size:var(--fs-xs); line-height:1.5;
@@ -588,7 +585,12 @@
   .btn-logout { white-space:nowrap; flex:0 0 auto; }
   .btn-logout .logout-short { display:none; }
   .sig-workspace, .view-app, main, #view-signal { min-width:0; max-width:100%; }
+  /* 좁은 폭에서 세 컨트롤이 각각 한 줄이 되어 툴바가 108px을 먹었다(3줄).
+     세그+정렬을 한 줄에 두고 검색을 아래 전폭으로 → 2줄. */
   .sig-toolbar { flex-wrap:wrap; }
+  .sig-toolbar #sig-market-seg { order:1; }
+  .sig-toolbar #sig-sort { order:2; }
+  .sig-toolbar #sig-search { order:3; flex:1 1 100%; }
   .alert-bell-ico { display:inline-flex; align-items:center; line-height:0; }
   .market-bar #macro-toggle { margin-left:0; flex:0 0 auto; padding:2px 10px; font-size:13px; }
 
@@ -608,7 +610,6 @@
     #regime-detail { white-space:normal; display:-webkit-box; -webkit-box-orient:vertical;
       -webkit-line-clamp:2; overflow:hidden; flex:1 1 12rem; }
     .market-bar-end { margin-left:0; flex:1 1 auto; justify-content:flex-end; }
-    .sig-quickfilters { max-width:100%; }
   }
   /* 필터 FAB·스크림 기본 숨김(데스크톱). media(640)에서 FAB만 다시 켠다.
      scrim을 기본 미숨김이면 빈 버튼이 스크리너 위에 떠 보인다. */
@@ -640,7 +641,8 @@
     .card-row > .card { flex:1 1 100%; }  /* 좁은 화면은 1열 — 42% 두 칸 압박 해소 */
     .card { overflow-x:auto; max-width:100%; }
     .macro-callout .mco-date { display:block; margin-top:2px; }
-    .sig-toolbar #sig-sort { flex:1 1 100%; }
+    /* 정렬을 전폭으로 두면 세그·검색과 합쳐 3줄이 된다(실측 150px). 세그와 나란히 둔다. */
+    .sig-toolbar #sig-sort { flex:0 0 auto; max-width:52%; }
     /* 좁은 폭에서 종목명·코드가 3줄로 쪼개져 한 행이 100px을 먹었다.
        셀 여백을 줄이고 코드·점수 줄은 붙여 둔다 — 줄바꿈은 종목명에서만. */
     .sig-list table.dtable th, .sig-list table.dtable td { padding:10px 6px; }
@@ -649,7 +651,6 @@
     .sig-list table.dtable th:nth-child(3), .sig-list table.dtable td:nth-child(3) { display:none; }
     .sig-list table.dtable th:nth-child(4) { text-align:center; }
     .sig-list .col-resizer { display:none; }
-    .sig-head { padding:12px 12px 0; }
     #chat-fab { width:48px; height:48px; font-size:21px; }
     .market-bar #regime-detail { flex:1 1 100%; }
     .market-bar-end { flex:1 1 100%; justify-content:space-between; }
@@ -684,7 +685,6 @@
   .auth-points span { font-size:12px; color:var(--accent); background:var(--accent-weak);
     padding:4px 9px; border-radius:999px; }
   /* 패널 헤더: 시장 세그 · 아래 「오늘」카드가 상태·공석·편중을 한곳에 */
-  .sig-head { display:flex; align-items:center; gap:10px; padding:12px 12px 0; flex-wrap:wrap; }
   .sig-today { display:none; margin:8px 12px 0; border:1px solid var(--line); border-radius:var(--r-md);
     background:var(--bg); font-size:var(--fs-xs); line-height:1.45; }
   .sig-today.is-on { display:block; }
@@ -842,29 +842,22 @@
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
         <!-- 상태(precision·편중·데스크)는 「오늘」카드 하나. 리스트 시작을 위로. -->
-        <div class="sig-head">
-          <div class="seg-toggle" id="sig-market-seg" style="margin:0">
-            <button class="on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
-            <button data-mkt="us" onclick="switchSignalMarket('us')">해외</button>
-          </div>
-        </div>
         <details id="sig-today" class="sig-today">
           <summary><span id="sig-today-line"></span><span id="sig-today-chips"></span><span class="st-more">상세</span></summary>
           <div class="st-body" id="sig-today-body"></div>
         </details>
         <!-- 정보 우선순위: 시황 → 오늘 → 검색/필터 → 리스트 → 상세 -->
         <div class="sig-toolbar">
+          <div class="seg-toggle" id="sig-market-seg" style="margin:0;flex:0 0 auto">
+            <button class="on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
+            <button data-mkt="us" onclick="switchSignalMarket('us')">해외</button>
+          </div>
           <input id="sig-search" class="ctrl" type="search" placeholder="종목명·코드 검색" aria-label="종목명·코드 검색" oninput="renderSignalList()">
           <select id="sig-sort" class="ctrl" aria-label="시그널 목록 정렬" onchange="renderSignalList()">
             <option value="signal">시그널순</option>
             <option value="mktcap">시총순</option>
             <option value="volume">거래량순</option>
           </select>
-        </div>
-        <div class="sig-quickfilters">
-          <button type="button" id="qf-favonly" class="qchip" onclick="quickFilter('screen-favonly', this)">★ 관심</button>
-          <button type="button" id="qf-buyonly" class="qchip" onclick="quickFilter('screen-buyonly', this)">매수만</button>
-          <button type="button" id="qf-nearonly" class="qchip" style="display:none" onclick="filterPrecisionBucket('near')">근접만</button>
         </div>
         <button type="button" id="sig-filter-fab" class="btn" onclick="toggleSignalFilterDrawer()" aria-controls="sig-screener">필터·스크리너 <span id="screen-count-fab" style="color:var(--dim);font-weight:600"></span></button>
         <button type="button" id="sig-filter-scrim" onclick="closeSignalFilterDrawer()" aria-label="필터 닫기" tabindex="-1"></button>
@@ -2542,7 +2535,22 @@ async function loadScorecard(){
     // 그라디언트로"였던 것을 뒤집는다 — 성적 숫자보다 판정 상태가 먼저 읽혀야 한다.
     const vTxt = (!hz || hz.ready === false) ? '판정 불가'
       : (hz.status === 'locked' ? (hz.verdict || '–') : (hz.verdict || '판정 보류'));
-    let sumTxt = `판별력 <span class="trust-sum-n">${esc(vTxt)}</span>`;
+    // 요약 한 줄이 1440px을 쓰면서 `판정 보류`만 말했다 — 폭을 값어치 있게 쓰려면 **진척을
+    // 인라인으로** 올린다. 클릭해야 보이는 진척은 안 보는 진척이고, X4의 의도는 판정 상태를
+    // 첫 줄에 두는 것이었다. 요건 미달 동안 **백분위는 여기서도 쓰지 않는다**(매일 보면 peeking).
+    const rq = (hz && hz.requirement) || {};
+    const prog = [];
+    if (rq.min_effective_periods)
+      prog.push(`실효 ${rq.effective_periods ?? 0}/${rq.min_effective_periods}`);
+    if (rq.min_pit_dates) prog.push(`PIT ${rq.pit_dates ?? 0}/${rq.min_pit_dates}일`);
+    const thrTxt = (hz && hz.threshold_pct)
+      ? ` <span class="trust-sum-meta">문턱 ${fmtNum(hz.threshold_pct, 2)}%`
+        + (hz.n_registered > 1 ? ` · 등록 ${hz.n_registered}` : '') + `</span>`
+      : '';
+    let sumTxt = `판별력 <span class="trust-sum-n">${esc(vTxt)}</span>`
+      + (prog.length && hz && hz.status !== 'locked'
+          ? ` <span class="trust-sum-meta">${prog.join(' · ')}</span>` : '')
+      + thrTxt;
     if (matureOk) {
       const prec = acc.buy_precision_pct;
       const pc = liftColor(acc.buy_lift_pp, acc.lift_min_pp);
@@ -2935,15 +2943,6 @@ async function loadRelativeStrength(){  // 상대강도 리더보드(시장 대�
       r.addEventListener('click', () => selectSignalRow(r.dataset.ticker)));
   } catch(e){ card.style.display = 'none'; }
 }
-function quickFilter(cbId, btn){
-  const cb = document.getElementById(cbId); if (!cb) return;
-  cb.checked = !cb.checked;
-  renderSignalList();  // 칩 활성표시는 _syncQuickChips가 처리
-}
-function _syncQuickChips(scr){  // 스크리너 체크박스 ↔ 상단 퀵칩 상태 동기화
-  const fav = document.getElementById('qf-favonly'); if (fav) fav.classList.toggle('on', !!scr.favOnly);
-  const buy = document.getElementById('qf-buyonly'); if (buy) buy.classList.toggle('on', !!scr.buyOnly);
-}
 function renderSignalList(){
   const el = document.getElementById('signal-body');
   if (!_signalRows) return;
@@ -2953,9 +2952,7 @@ function renderSignalList(){
   const scr = readScreen();
   if (scr.buyOnly) _precisionBucket = 'buy';
   else if (_precisionBucket === 'buy') _precisionBucket = null;
-  _syncQuickChips(scr);
   updatePrecisionStrip();
-  syncQuickFilters();
   let rows = _signalRows.filter(r =>
     (!q || r.name.toLowerCase().includes(q) || r.ticker.toLowerCase().includes(q))
     && (!_oppFilter || (r.opp_tags || []).includes(_oppFilter))
@@ -3289,7 +3286,6 @@ function filterPrecisionBucket(bucket){
   const buyCb = document.getElementById('screen-buyonly');
   if (buyCb) buyCb.checked = (_precisionBucket === 'buy');
   renderSignalList();
-  syncQuickFilters();
 }
 function updatePrecisionStrip(){ renderTodayCard(); }
 
@@ -3417,14 +3413,6 @@ function renderTodayCard(){
   }
 }
 // 근접 후보가 있는 날만 '근접만' 퀵필터를 띄운다 — 늘 있는 버튼은 늘 무시된다.
-function syncQuickFilters(){
-  const near = document.getElementById('qf-nearonly');
-  if (!near) return;
-  const nearN = (_signalRows || []).filter(isNearBuy).length;
-  near.style.display = nearN ? '' : 'none';
-  near.textContent = `근접 ${nearN}`;
-  near.classList.toggle('on', _precisionBucket === 'near');
-}
 // '점수는 높은데 왜 관망?' — rank 모드에선 게이트·매수권 밖이 본래 이유(절대 문턱 미달 문구는 쓰지 않음).
 function whyHoldNote(item){
   if (!item || item.kind !== 'HOLD') return '';
@@ -7111,9 +7099,7 @@ async function obFinish(dest){
     } else {
       switchTab('signal');
       const favCb = document.getElementById('screen-favonly');
-      if (favCb) favCb.checked = true;
-      const qf = document.getElementById('qf-favonly');
-      if (qf) qf.classList.add('on');
+      if (favCb) favCb.checked = true;   // 진입점은 스크리너 하나뿐이다(퀵칩 제거됨)
       renderSignalList();
       loadBuylist();
     }
