@@ -291,6 +291,32 @@ def _bot_loop_iteration() -> None:
         _daily_maintenance(enabled)
 
 
+def _ensure_quality_attached() -> int:
+    """퀄리티(회사 체질)가 비어 있으면 계산한다. **날짜 게이트와 무관하게 presence 로 판단.**
+
+    2026-08-07 프로덕션: `compute_quality` 배선은 08-05에 추가됐는데 마지막 DART 실행이
+    07-07이라 `dart_fetch_date` TTL 80일이 다음 실행을 **09-25로 밀었다**. 그 사이 200종목
+    전부 미발동이었고, 문턱 0.80에 대해 가중 0.15가 빠지니 여유가 0.08뿐이어서 **다른 관점
+    하나만 더 없으면 즉시 탈락** — 실측 `자료부족 100/200`(복구 시 31), 상위 6자리 중 5자리.
+
+    화면은 못 봤다: `update_valuation` 이 매일 같은 파일을 다시 써서 `재무 0.4시간 전`이었다.
+
+    **자동 루프와 수동 갱신이 같은 이 함수를 쓴다.** 수동 경로에만 두면 아무도 안 눌러서
+    안 돈다 — 이 리포가 시세 정지·`fetch_warnings`·`_push_trades` 에서 세 번 겪은 병이고,
+    나는 이걸 고치면서 처음엔 `_refresh_kr`(관리자 버튼 전용)에만 넣어 네 번째를 만들었다.
+    `compute_quality()` 는 API 호출이 0이라(캐시 두 파일 읽고 하나 쓰기) 매번 확인해도 공짜다.
+    """
+    if store.quality_attached_count():
+        return 0
+    n = store.compute_quality()
+    if n:
+        _signals.cache_clear()      # 점수에 가중 0.15가 새로 들어가므로 캐시를 버린다
+        log.info("퀄리티 presence 백필 — %s종목 계산(DART 게이트와 무관)", n)
+    else:
+        log.warning("퀄리티 백필 시도했으나 0건 — 재무/전년 재무가 비었는지 확인")
+    return n
+
+
 def _is_stale(key: str) -> bool:
     """`store.data_freshness()` 가 그 소스를 stale이라 하는가. 임계는 그 함수 한 곳에만 둔다."""
     try:
@@ -331,6 +357,11 @@ def _daily_maintenance(enabled: list[str]) -> None:
             log.info("시세 전량 백필 완료(목표 %d일)", store.PRICE_HISTORY_DAYS)
     except Exception as e:
         log.warning("마감후 시세 갱신 실패: %s", type(e).__name__)
+    try:   # 재무의 파생값(퀄리티)이 비어 있으면 채운다 — DART TTL 80일 뒤에 갇혀 있던 것.
+        # 여기 두는 이유: `_refresh_kr` 은 **관리자 버튼에서만** 불리므로 그쪽에만 두면 안 돈다.
+        _ensure_quality_attached()
+    except Exception as e:
+        log.warning("마감후 퀄리티 백필 실패: %s", type(e).__name__)
     try:   # US도 KR과 같이 하루 1회 갱신 — 누락 백필만 돌리면 '한 번 채운' 종목이 영원히 멈춘다
         rf = _refresh_us_prices_stale(batch=0)  # 0=stale 전량
         if rf["filled"]:
@@ -2136,24 +2167,12 @@ def _refresh_kr(data: dict) -> dict:
             store.fetch_company_profiles(universe)
         except Exception as e:
             log.warning("기업개황 백필 실패(무시): %s", type(e).__name__)
-    # 퀄리티도 **정확히 같은 병**을 앓았다(2026-08-07 프로덕션 진단). `compute_quality` 배선은
-    # 08-05에 추가됐는데 마지막 DART 실행이 07-07이라 `dart_fetch_date` TTL 80일이 다음 실행을
-    # **09-25로 밀었고**, 그 사이 퀄리티가 200종목 전부 미발동이었다. 대가가 컸다 — 문턱 0.80에
-    # 대해 가중 0.15가 통째로 빠지니 여유가 0.08뿐이어서 **다른 관점 하나만 더 없으면 즉시 탈락**,
-    # 실측 `자료부족 100/200종목`(복구 시 31)이고 상위 6자리 중 5자리가 여기 걸려 있었다.
-    # 화면은 이걸 볼 수 없었다 — `update_valuation` 이 매일 같은 파일을 다시 써서 신선도가
-    # `재무 0.4시간 전`이었다(집계 신선도가 정지를 가리는 병).
-    #
-    # 규칙: **TTL 게이트 뒤에 있는 파생값은 presence 로도 확인한다.** 날짜 게이트는 "원본이
-    # 낡았나"만 알고 "파생값이 있나"는 모르므로, 파생값을 나중에 추가하면 최대 TTL 기간 동안
-    # 조용히 빈다. `compute_quality()` 는 API 호출이 0이라(캐시 두 파일 읽고 하나 쓰기) 매
-    # 갱신마다 확인해도 공짜다.
-    if not store.quality_attached_count():
-        try:
-            n = store.compute_quality()
-            log.info("퀄리티 presence 백필 — %s종목 계산(DART 게이트와 무관)", n)
-        except Exception as e:
-            log.warning("퀄리티 백필 실패(무시): %s", type(e).__name__)
+    # 퀄리티도 **정확히 같은 병**을 앓았다(2026-08-07 진단) — `_ensure_quality_attached` 참고.
+    # 이 수동 경로와 마감후 자동 루프가 **같은 함수**를 쓴다(수동에만 두면 아무도 안 눌러서 안 돈다).
+    try:
+        _ensure_quality_attached()
+    except Exception as e:
+        log.warning("퀄리티 백필 실패(무시): %s", type(e).__name__)
     about_n = _backfill_about_batch(40)  # 사업 개요 LLM 증분 백필(국내 갱신에서도 채움)
     moves_n = _backfill_moves_batch(20)  # 최근 행보 LLM 증분 백필(KB 문서 있는 종목만)
     return {"universe_size": len(universe), "fundamentals_size": len(fundamentals),
