@@ -2813,8 +2813,11 @@ async function loadDailyChange() {
     const up = c.direction === 'up';
     const col = up ? 'var(--sig-buy)' : 'var(--sig-sell)';
     const cz = c.cause || {};
+    // **단위를 붙인다** — PIT 컬럼은 눈금이 다르다(백분위·점·%p·정규화). 단위 없이 나란히
+    // 놓으면 비교 가능한 값으로 읽힌다. 순위는 서버가 전 종목 대비 표준화해 정한다.
     const facs = narrow ? '' : (cz.factors || []).map(f =>
-      `${esc(_PR_FACTOR[f.factor] || f.factor)} ${f.delta > 0 ? '+' : ''}${fmtNum(f.delta, 2)}`).join(' · ');
+      `${esc(f.label || _PR_FACTOR[f.factor] || f.factor)} ${f.delta > 0 ? '+' : ''}`
+      + `${fmtNum(f.delta, 2)}${esc(f.unit || '')}`).join(' · ');
     // `**...**` 를 굵게 — 서버 문장에서 강조 지점을 그대로 살린다.
     const txt = esc(cz.text || '').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
     return `<div class="dchg-row">
@@ -3499,8 +3502,11 @@ async function fetchWhyNow(ticker, el){
     if (!d.ready || d.quiet) { el.style.display = 'none'; return; }
     const s = d.sector || {};
     const when = d.turned_buy_on ? `${esc(d.turned_buy_on)}에 매수권으로 바뀌었고, ` : '';
+    // **단위를 붙인다.** PIT 컬럼은 눈금이 서로 다르다(백분위·점·%p·정규화) — 단위 없이
+    // 나란히 놓으면 서로 비교 가능한 값으로 읽힌다. 순위는 서버가 표준화(z)로 정한다.
     const facs = (d.factors || []).slice(0, 3)
-      .map(f => `${esc(f.label)} ${f.delta > 0 ? '+' : ''}${f.delta.toFixed(2)}`).join(' · ');
+      .map(f => `${esc(f.label)} ${f.delta > 0 ? '+' : ''}${f.delta.toFixed(2)}${esc(f.unit || '')}`)
+      .join(' · ');
     // **escape 먼저, 그 다음 `**` 를 <b>로.** 순서를 바꾸면 서버 문장에 태그를 넣을 수 있다.
     const secLine = s.text
       ? `<div style="margin-top:4px;color:${_WHY_SECTOR_TONE[s.verdict] || 'var(--dim)'}">`
