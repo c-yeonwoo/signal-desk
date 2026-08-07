@@ -3538,3 +3538,46 @@ def test_dart_path_costs_no_llm():
     fn = kbsrc.split("def poll_disclosures(", 1)[1].split("\ndef ", 1)[0]
     for banned in ("llm.complete", "llm_mod.complete", "complete_json("):
         assert banned not in fn, f"공시 폴링이 LLM({banned})을 부른다 — 비용 0 전제가 깨진다"
+
+
+# ── 매일 열 이유 (2026-08-07) ────────────────────────────────────────────────
+# 판정 줄은 "아직 모른다"만 말한다. 그 다음에 "그래도 오늘 이건 달라졌다"가 있어야 습관이 된다.
+# 다만 **원인을 틀리게 말하면 오학습**이라, 인과 분류가 이 카드의 전부다.
+
+def test_daily_card_sits_right_under_the_verdict():
+    """판정 줄 **바로 아래**여야 한다 — 목록 뒤로 밀리면 매일 안 본다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    i_verdict = html.index('id="signal-trust"')
+    i_card = html.index('id="daily-change"')
+    i_table = html.index('class="sig-toolbar"')
+    assert i_verdict < i_card < i_table, "데일리 카드가 판정 줄 아래·툴바 위에 없다"
+    assert "loadDailyChange()" in html
+
+
+def test_daily_card_shrinks_on_narrow_widths():
+    """실측 375px에서 3행이 295px을 먹어 목록을 1042px로 밀어냈다.
+
+    매수0 카드를 439→190px로 줄인 것과 같은 문제다("목록을 보러 온 화면에서 목록이 접힌 셈").
+    브레이크포인트는 `_SIG_NARROW_PX` 하나를 공유한다 — 두 값이 갈라지면 한쪽만 접힌다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    fn = html.split("async function loadDailyChange(", 1)[1].split("\n}", 1)[0]
+    assert "_SIG_NARROW_PX" in fn, "자체 브레이크포인트를 쓰면 표 열 접기와 갈라진다"
+    assert "narrow ? 2 :" in fn, "좁은 폭에서 행을 줄이지 않는다"
+    # 감춘 수를 밝힌다 — 조용히 줄어든 목록은 "이게 전부"로 읽힌다.
+    assert "changes_total > shown.length" in fn
+    # 브레이크포인트를 넘나들 때 다시 그린다(리스너는 하나만).
+    assert html.count("addEventListener('resize'") == 1
+    blk = html.split("addEventListener('resize'", 1)[1].split("\n});", 1)[0]
+    assert "loadDailyChange()" in blk, "리사이즈 때 다시 그리지 않으면 접힌 채 남는다"
+
+
+def test_daily_card_labels_context_separately_from_cause():
+    """공시를 원인 옆에 붙이면 "이 공시 때문에 관망"이라는 없는 인과가 만들어진다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    fn = html.split("async function loadDailyChange(", 1)[1].split("\n}", 1)[0]
+    assert "layer-badge ctx" in fn, "맥락 라벨이 없다"
+    assert "dchg-ctx" in fn, "맥락이 원인과 같은 블록에 있다"

@@ -33,7 +33,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_gate,
-    goal_plan, hypo_score,
+    daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
     regime_zone, relative, revision, sector_rel, target,
 )
@@ -1807,6 +1807,36 @@ def harness_runs_get(request: Request, limit: int = 20):
             "note": ("탐색 실행(preregistered_id=null)은 보드 정본이 아니다. "
                      "`trial_counts.distinct_configs`가 지금까지 돌려본 서로 다른 설정 수이고, "
                      "Deflated Sharpe가 그 수로 고르기를 보정한다.")}
+
+
+@app.get("/api/daily-change")
+def daily_change_get():
+    """어제와 달라진 것 — **매일 열 이유.** 새 수집 없이 PIT 스냅샷 두 개만 비교한다.
+
+    "오늘 살 것"은 데일리 훅이 될 수 없다 — 실측으로 매수권 0건인 날이 대부분이고
+    (정밀도 우선 설계의 정상 결과다) 없는 날 억지로 뭘 보여주면 그게 거짓이다.
+    변화는 매일 있거나, **없다는 사실 자체가 정보**다.
+
+    원인은 점수·순위·안전장치·커버리지 **넷 중 하나**로만 말한다. 뉴스를 원인으로 쓰면
+    "이 기사 때문에 관망"이라는 없는 인과가 만들어진다(맥락은 화면이 따로 라벨한다).
+    """
+    df = store.load_signal_history()
+    rows = [] if df.empty else df.to_dict("records")
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    out = daily_change.diff(rows, names=names)
+    # 맥락(원인 아님) — 새 악재 공시가 있으면 붙인다. 없으면 없다고 말한다.
+    try:
+        st = db.kv_get("kb_dart_lite_last") or db.kv_get("kb_dart_lite_at") or {}
+        ev = st.get("new_events") if isinstance(st, dict) else None
+        out["context"] = {
+            "layer": "맥락",       # **근거가 아니다** — 화면이 이 라벨을 그대로 쓴다
+            "new_disclosures": ev or [],
+            "note": ("공시는 맥락입니다 — 등급을 바꾼 원인은 위의 점수·순위·안전장치·커버리지입니다."
+                     if ev else "오늘 새로 들어온 악재 공시는 없습니다."),
+        }
+    except Exception as e:                          # noqa: BLE001 — 맥락 실패가 본문을 막지 않는다
+        log.debug("daily-change 맥락 생략: %s", type(e).__name__)
+    return out
 
 
 @app.get("/api/pick-reason")

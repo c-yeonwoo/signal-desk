@@ -767,6 +767,16 @@
   #onboardDlg .ob-glossary .ob-g-row { display:flex; align-items:flex-start; gap:8px; font-size:13px;
     line-height:1.45; color:var(--txt); padding:8px 10px; border:1px solid var(--line); border-radius:var(--r-md); background:var(--bg); }
   #onboardDlg .ob-glossary .ob-g-row .trust-badge { flex:0 0 auto; margin-top:1px; }
+  /* 어제와 달라진 것 — 첫 화면이라 조용해야 한다. 변화가 있을 때만 색이 붙는다. */
+  .dchg { margin:8px 0 0; padding:9px 12px; border:1px solid var(--line); border-radius:var(--r-md);
+    background:var(--panel); font-size:var(--fs-sm); line-height:1.7; }
+  .dchg[hidden] { display:none; }
+  .dchg.quiet { color:var(--dim); background:transparent; border-style:dashed; }
+  .dchg-row { display:flex; gap:8px; align-items:baseline; padding:3px 0; flex-wrap:wrap; }
+  .dchg-arrow { font-weight:700; white-space:nowrap; }
+  .dchg-cause { color:var(--dim); }
+  .dchg-ctx { margin-top:6px; padding-top:6px; border-top:1px solid var(--line);
+    color:var(--dim-2); font-size:var(--fs-xs); }
   #signal-trust .trust-legend { margin-top:6px; font-size:var(--fs-2xs); color:var(--dim-2); line-height:1.5; }
   #signal-trust .trust-legend[hidden] { display:none; }
 </style>
@@ -851,6 +861,9 @@
 <main>
   <div id="view-signal" class="view-app" style="display:none">
     <details id="signal-trust"><summary id="signal-trust-sum">성적</summary><div class="trust-body" id="signal-trust-body"></div></details>
+    <!-- 매일 열 이유. 판정 줄 **바로 아래**다 — 판정은 "아직 모른다"만 말하므로 그 다음에
+         "그래도 오늘 이건 달라졌다"가 있어야 습관이 생긴다. 변화 없는 날은 한 줄로 짧게. -->
+    <div id="daily-change" class="dchg" hidden></div>
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
         <!-- 상태(precision·편중·데스크)는 「오늘」카드 하나. 리스트 시작을 위로. -->
@@ -1857,6 +1870,9 @@ window.addEventListener('resize', () => {
     document.querySelectorAll('table.sig-table').forEach(t => {
       try { applySigColWidths(t); } catch (e) {}
     });
+    // 어제와 달라진 것도 폭에 따라 행 수가 달라진다 — 안 다시 그리면 세로로 열었다가
+    // 가로로 돌릴 때 2행으로 접힌 채 남는다. 리스너를 새로 만들지 않고 여기 붙인다.
+    try { loadDailyChange(); } catch (e) {}
   }, 120);
 });
 
@@ -2595,6 +2611,7 @@ async function loadRegime(){
   }
   loadLiveStatus();
   loadScorecard();
+  loadDailyChange();   // 매일 열 이유 — 판정 줄 바로 아래
 }
 
 // ③ 신뢰 스트립 — 실측 track record(누적중 가드) + 봇 체결 성적. 백테스트 숫자는 여기 안 올림.
@@ -2747,6 +2764,66 @@ function toggleTrustLegend(){
   const el = document.getElementById('trust-legend');
   if (el) el.hidden = !el.hidden;
 }
+// ── 어제와 달라진 것 (매일 열 이유) ─────────────────────────────────────────
+// 원인은 서버가 **넷 중 하나**로 분류해 준다(점수·순위·안전장치·커버리지). 화면이 뉴스를
+// 원인처럼 붙이지 않는다 — "이 기사 때문에 관망"이라는 없는 인과를 만들면 안 된다.
+const _DCHG_CAUSE_ICON = { factor: '점수', rank: '순위', gate: '안전장치', coverage: '관점' };
+
+async function loadDailyChange() {
+  const el = document.getElementById('daily-change');
+  if (!el) return;
+  const res = await getJSON('/api/daily-change');
+  if (!res.ok || !res.data) { el.hidden = true; return; }
+  const d = res.data;
+  if (!d.ready) {
+    // 0의 이유 — 스냅샷이 하루뿐인 것과 고장은 다르다.
+    el.hidden = false; el.className = 'dchg quiet';
+    el.innerHTML = `<span>${esc(d.blocked_reason || '비교할 스냅샷이 없습니다')}</span>`;
+    return;
+  }
+  el.hidden = false;
+  const b = d.buyable || {};
+  const slotTxt = b.delta
+    ? `살 후보 <b>${b.before}→${b.after}자리</b>`
+    : `살 후보 ${b.after}자리(그대로)`;
+
+  // 변화가 없는 날은 **한 줄로 끝낸다.** 매일 장문이면 곧 안 읽힌다.
+  if (d.quiet) {
+    el.className = 'dchg quiet';
+    el.innerHTML = `<b>어제와 같습니다</b> <span>· 등급이 바뀐 종목 없음 · ${slotTxt}</span>`
+      + `<span style="color:var(--dim-2)"> · ${esc(d.prev_date)} → ${esc(d.cur_date)}</span>`;
+    return;
+  }
+  el.className = 'dchg';
+  // **좁은 폭에서는 줄인다.** 실측 375px에서 3행이 295px을 먹어 목록을 1042px로 밀어냈다 —
+  // 매수0 카드를 439→190px로 줄인 것과 같은 문제다("목록을 보러 온 화면에서 목록이 접힌 셈").
+  // 2행 + 팩터 상세 생략으로 약 150px. `_SIG_NARROW_PX` 를 공유한다(브레이크포인트 하나).
+  const narrow = window.innerWidth <= _SIG_NARROW_PX;
+  const shown = (d.changes || []).slice(0, narrow ? 2 : 6);
+  const rows = shown.map(c => {
+    const up = c.direction === 'up';
+    const col = up ? 'var(--sig-buy)' : 'var(--sig-sell)';
+    const cz = c.cause || {};
+    const facs = narrow ? '' : (cz.factors || []).map(f =>
+      `${esc(_PR_FACTOR[f.factor] || f.factor)} ${f.delta > 0 ? '+' : ''}${fmtNum(f.delta, 2)}`).join(' · ');
+    // `**...**` 를 굵게 — 서버 문장에서 강조 지점을 그대로 살린다.
+    const txt = esc(cz.text || '').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+    return `<div class="dchg-row">
+      <a href="#signal" onclick="selectSignalRow('${esc(c.ticker)}');return false" style="font-weight:700;color:var(--brand-500)">${esc(c.name)}</a>
+      <span class="dchg-arrow" style="color:${col}">${esc(c.from_ko)} → ${esc(c.to_ko)}</span>
+      <span class="dchg-cause">[${esc(_DCHG_CAUSE_ICON[cz.kind] || cz.kind || '?')}] ${txt}${facs ? ` <span style="color:var(--dim-2)">(${facs})</span>` : ''}</span>
+    </div>`;
+  }).join('');
+  // 몇 건을 감췄는지 밝힌다 — 조용히 줄어든 목록은 "이게 전부"로 읽힌다.
+  const more = d.changes_total > shown.length
+    ? `<div style="color:var(--dim-2);font-size:var(--fs-xs)">외 ${d.changes_total - shown.length}건</div>` : '';
+  const ctx = d.context || {};
+  el.innerHTML = `<div style="font-weight:700">어제와 달라진 것 <span style="font-weight:600;color:var(--dim)">· ${esc(d.prev_date)} → ${esc(d.cur_date)} · ${slotTxt}</span></div>`
+    + rows + more
+    // 맥락은 **원인과 분리**해 라벨한다. 서버가 준 `layer` 를 그대로 쓴다.
+    + `<div class="dchg-ctx"><span class="layer-badge ctx">${esc(ctx.layer || '맥락')}</span> ${esc(ctx.note || '')}</div>`;
+}
+
 async function loadScorecard(){
   const el = document.getElementById('signal-trust');
   const body = document.getElementById('signal-trust-body');
