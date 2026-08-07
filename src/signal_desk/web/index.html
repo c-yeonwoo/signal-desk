@@ -978,6 +978,8 @@
         <span style="color:var(--dim);font-size:13px;font-weight:600">· 뉴스 파급 갈래 · 수동 생성 · 예측 아님</span>
         <button type="button" class="btn" id="hypo-refresh-btn" style="display:none;margin-left:10px;padding:3px 10px;font-size:13px"
           onclick="refreshHypothesis()">흐름 생성</button>
+        <div id="hypo-stale" style="display:none;font-size:13px;margin-top:6px"></div>
+        <div id="hypo-acc" style="font-size:13px;margin-top:2px"></div>
       </h3>
       <p class="page-desc">최근 뉴스·KB에서 뽑은 <b>관심 이슈</b>를 왼쪽→오른쪽으로 이어서 읽습니다.
         <b>이렇게 이어질 때 / 다르게 갈 때</b> → 업종 파급 → <b>다시 볼 종목</b>까지.
@@ -2275,6 +2277,31 @@ async function loadHypothesis(){
     }
     if (asof) {
       const modelShort = d.source === 'llm' ? 'Sonnet' : (d.source || '캐시');
+      // **나이를 판정으로 먼저 말한다.** 원시 타임스탬프(`2026-07-26 18:46`)는 "12일 전"을
+      // 말해주지 않고, 메타 6개 사이에 묻히면 아무도 세어보지 않는다.
+      const st = d.staleness || {};
+      const stEl = document.getElementById('hypo-stale');
+      if (stEl) {
+        stEl.style.display = st.label ? '' : 'none';
+        stEl.style.color = st.stale ? 'var(--sig-watch)' : 'var(--dim)';
+        stEl.style.fontWeight = st.stale ? '700' : '600';
+        stEl.textContent = st.label || '';
+      }
+      // 정확도 — 지목한 업종이 그 뒤 시장을 이겼나. 표본 미달이면 값 대신 이유.
+      const acc = d.accuracy || {}, accEl = document.getElementById('hypo-acc');
+      if (accEl) {
+        if (acc.lift_pp != null) {
+          const v = acc.verdict || {};
+          accEl.innerHTML = `지목 업종 <b>${fmtNum(acc.mean_picked_pct, 1)}%</b>`
+            + ` · 전 종목 평균 ${fmtNum(acc.mean_baseline_pct, 1)}%`
+            + ` · <b style="color:${acc.lift_pp > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">`
+            + `${acc.lift_pp > 0 ? '+' : ''}${fmtNum(acc.lift_pp, 1)}%p</b>`
+            + ` <span style="color:var(--dim-2)">(${acc.matured}건 · ${acc.horizon_days}거래일`
+            + `${v.verdict ? ' · ' + esc(v.verdict) : ''})</span>`;
+        } else {
+          accEl.innerHTML = `<span style="color:var(--dim-2)">${esc(acc.blocked_reason || '채점 대기')}</span>`;
+        }
+      }
       asof.textContent = `${modelShort} · 수동 · ${d.generated_at || d.as_of || '–'} · DB 저장`
         + (d.source === 'fallback' ? ' · (옛 폴백 — 다시 생성 권장)' : '')
         + (ctx.cycle_phase ? ` · 사이클 ${ctx.cycle_phase}` : '')
@@ -6923,6 +6950,19 @@ async function loadLlmUsage(){
       <td class="num">${usd(m.cost_usd)}</td>
       <td class="num" style="color:var(--dim)">${(m.input_tokens || 0).toLocaleString()} / ${(m.output_tokens || 0).toLocaleString()}</td>
     </tr>`).join('') || '<tr><td colspan="4" style="color:var(--dim-2)">아직 기록 없음 — LLM 호출 후 쌓입니다.</td></tr>';
+    // **기능별 비용** — 모델별로는 "무엇을 줄일지" 정할 수 없다. 프로덕션에서 월 $64(상한 $10
+    // 초과·차단)를 27,256회가 냈는데 어느 기능인지 알 수 없었다. `legacy(...)` 는 귀속 전 옛 행이다.
+    const purposes = (d.by_purpose || []).map(q => {
+      const legacy = /^legacy\(/.test(q.purpose);
+      const unattr = q.purpose === 'unattributed';
+      return `<tr>
+      <td style="font-size:13px${legacy || unattr ? ';color:var(--dim)' : ''}">${esc(q.purpose)}`
+        + (unattr ? ' <span style="color:var(--sig-watch);font-weight:700">← 귀속 없음</span>' : '')
+        + (legacy ? ' <span style="color:var(--dim-2)">(귀속 전)</span>' : '') + `</td>
+      <td class="num">${q.calls.toLocaleString()}</td>
+      <td class="num">${usd(q.cost_usd)}</td>
+      <td class="num" style="color:var(--dim)">${(q.input_tokens || 0).toLocaleString()} / ${(q.output_tokens || 0).toLocaleString()}</td>
+    </tr>`; }).join('') || '<tr><td colspan="4" style="color:var(--dim-2)">아직 기록 없음</td></tr>';
     // 예산 상태를 **맨 위**에 — 상한이 안 보이면 왜 LLM이 조용한지 알 수 없다(0의 이유 규칙).
     const bg = d.budget || {};
     const rl = d.chat_rate_limit || {};
@@ -6945,7 +6985,10 @@ async function loadLlmUsage(){
     el.innerHTML = budgetRow + `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
         ${card('오늘', today)}${card('7일', week)}${card('30일', tot)}
       </div>
-      <div class="tscroll"><table class="dtable"><thead><tr><th>모델</th><th class="num">호출</th><th class="num">추정$</th><th class="num">in / out</th></tr></thead><tbody>${models}</tbody></table></div>
+      <div class="tscroll"><table class="dtable"><thead><tr><th>모델</th><th class="num">호출</th><th class="num">추정$</th><th class="num">in / out</th></tr></thead><tbody>${models}</tbody></table>
+      <div style="font-size:13px;font-weight:700;margin:14px 0 4px">기능별 <span style="color:var(--dim);font-weight:600">· 무엇을 줄일지 정하려면 여기를 본다</span></div>
+      <table class="mini"><thead><tr><th>기능</th><th class="num">호출</th><th class="num">비용</th><th class="num">in / out</th></tr></thead>
+      <tbody>${purposes}</tbody></table></div>
       <p class="page-desc" style="margin:8px 0 0;font-size:12px;color:var(--dim-2)">${esc(d.note || '')}</p>`;
   } catch (e) { el.className = ''; el.textContent = '불러오지 못했습니다.'; }
 }

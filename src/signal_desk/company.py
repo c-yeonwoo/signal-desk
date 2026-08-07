@@ -79,7 +79,7 @@ def _generate(ticker: str, name: str, sector: str | None, market: str,
                   "투자권유·전망·주가·수치는 절대 넣지 마라.")
         user = (f"종목: {name}({ticker}), 섹터: {sector or '미상'}\n"
                 'JSON으로만: {"about": "무엇을 하는 회사인지(근거 없으면 섹터만)"}')
-    out = llm.complete_json(system, user, max_tokens=280 if quality else 200, model=use_model)
+    out = llm.complete_json(system, user, max_tokens=280 if quality else 200, model=use_model, purpose="company")
     if out and out.get("about"):
         return str(out["about"]).strip()[:max_chars]
     return None
@@ -153,7 +153,7 @@ def _generate_moves(name: str, items: list[dict]) -> list[str] | None:
               "마라. 사실이 부족하면 빈 배열을 반환한다.")
     user = (f"회사: {name}\n헤드라인:\n{lines}\n\n"
             'JSON으로만: {"moves": ["불릿1", "불릿2", "불릿3"]}')
-    out = llm.complete_json(system, user, max_tokens=300, model=llm.CLASSIFY_MODEL)
+    out = llm.complete_json(system, user, max_tokens=300, model=llm.CLASSIFY_MODEL, purpose="company")
     if out and isinstance(out.get("moves"), list):
         moves = [str(m).strip()[:60] for m in out["moves"] if str(m).strip()][:3]
         return moves or None

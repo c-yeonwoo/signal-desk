@@ -124,7 +124,7 @@ def generate(context: dict | None = None) -> dict:
     user = (f"{_ALREADY_CHECKED}\n\n지금 계측 스냅샷:\n"
             f"{json.dumps(ctx, ensure_ascii=False, default=str)[:12000]}\n\n"
             f"가설을 최대 {MAX_HYPOTHESES}개. 반증 방법을 못 쓰겠으면 그 항목은 빼라.")
-    raw = llm.complete(_SYSTEM, user, max_tokens=_MAX_TOKENS)
+    raw = llm.complete(_SYSTEM, user, max_tokens=_MAX_TOKENS, purpose="audit")
     if not raw:
         return {"ready": False, "reason": "LLM 응답 없음", "saved": 0}
     items = parse_hypotheses(raw)

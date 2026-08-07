@@ -82,7 +82,7 @@ def explain(plan: dict, style_label: str, context: dict) -> str:
         user = (f"[성향] {style_label} · [시장] 국면 {context.get('regime')}/거시 {context.get('macro_bias')}\n"
                 f"매도 권고: {sells or '없음'} / 축소: {trims or '없음'} / 신규 편입: {adds or '없음'} / "
                 f"목표 종목당 비중 {plan['target_weight']}%\n왜 이렇게 조정하는지 설명해줘.")
-        out = llm.complete(system, user, max_tokens=400)
+        out = llm.complete(system, user, max_tokens=400, purpose="rebalance")
         if out:
             return out
     parts = []

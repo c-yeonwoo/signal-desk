@@ -64,8 +64,11 @@ def test_candidate_prefilter_allows_material(tmp_path, monkeypatch):
 def test_build_digest_uses_haiku(monkeypatch):
     seen = {}
 
-    def fake_complete(system, user, max_tokens=500, model=None):
+    # `purpose` 도 받는다 — 비용 귀속(2026-08-07)으로 추가된 인자다. fake 가 실제 시그니처를
+    # 안 따라가면 프로덕션에서만 터진다(이 테스트가 실제로 그걸 잡았다).
+    def fake_complete(system, user, max_tokens=500, model=None, purpose=None):
         seen["model"] = model
+        seen["purpose"] = purpose
         return {"sentiment": 0.2, "summary": "함의", "points": ["a"]}
 
     monkeypatch.setattr(kb.llm, "available", lambda: True)
@@ -75,3 +78,5 @@ def test_build_digest_uses_haiku(monkeypatch):
     }])
     assert out["sentiment"] == 0.2
     assert seen["model"] == kb.llm.DIGEST_MODEL
+    # 귀속이 붙어 있어야 한다 — 없으면 이 호출이 `unattributed` 로 집계된다.
+    assert seen["purpose"] == "kb"

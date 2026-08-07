@@ -148,7 +148,7 @@ def _primary_select(candidates: list[dict], context: dict, digests: dict[str, di
         'JSON으로만: {"picks": [{"ticker": "코드", "rationale": "한국어 한 줄 근거"}]}')
 
     try:
-        out = llm.complete_json(system, user, max_tokens=700)
+        out = llm.complete_json(system, user, max_tokens=700, purpose="advisor")
     except Exception as e:
         log.info("LLM 자문 호출 실패(%s) — 결정론적 폴백", type(e).__name__)
         return BuyAdvice(None, reason="api_fail")
@@ -202,7 +202,7 @@ def _challenge_veto(picks: list[dict], candidates: list[dict],
         f"[1차 선별 — 이 안에서만 veto]\n" + "\n".join(lines) + "\n\n"
         "사지 말아야 할 종목만 veto에 넣고, 나머지는 넣지 마라.")
     try:
-        out = llm.complete_json(system, user, max_tokens=400)
+        out = llm.complete_json(system, user, max_tokens=400, purpose="advisor")
     except Exception as e:
         log.info("challenger 호출 실패(%s) — 1차 픽 유지", type(e).__name__)
         return picks, []

@@ -90,5 +90,5 @@ def explain_llm(name: str, ticker: str, kind: str, score: float, reasons: list[s
             f"{about_block}[시그널 근거]\n{reason_lines}\n{kb_block}\n"
             "쉬운 한국어 해설:")
     use_model = model or llm.SIGNAL_EXPLAIN_MODEL
-    out = llm.complete(system, user, max_tokens=700, model=use_model)
+    out = llm.complete(system, user, max_tokens=700, model=use_model, purpose="narrative")
     return out.strip() if out else None

@@ -155,7 +155,7 @@ def answer_stream(message: str, history: list | None = None,
     messages.append({"role": "user", "content": message})
     for _ in range(_MAX_TURNS):
         result = None
-        for kind, payload in llm.stream_call(SYSTEM, messages, TOOLS, max_tokens=1200, model=model):
+        for kind, payload in llm.stream_call(SYSTEM, messages, TOOLS, max_tokens=1200, model=model, purpose="chat"):
             if kind == "text":
                 yield ("text", payload)
             elif kind == "result":

@@ -107,7 +107,7 @@ def _script_for(name: str, ticker: str, kind: str, reasons: list[str]) -> dict:
                 '\n\nJSON으로만 응답: {"title": "훅 제목", '
                 '"script": [{"time":"0-4s","caption":"화면자막","narration":"나레이션"}, ...(4~6줄)], '
                 '"caption": "게시물 설명(2문장, 면책 포함)", "hashtags": ["#태그", ...5개]}')
-        out = llm.complete_json(_SCRIPT_SYS, user, max_tokens=900, model=llm.NARRATIVE_MODEL)
+        out = llm.complete_json(_SCRIPT_SYS, user, max_tokens=900, model=llm.NARRATIVE_MODEL, purpose="shortform")
         if out and isinstance(out.get("script"), list) and out["script"]:
             out.setdefault("title", f"오늘의 시그널 · {name}")
             out.setdefault("caption", _DISCLAIMER)

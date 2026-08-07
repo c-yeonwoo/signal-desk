@@ -995,7 +995,7 @@ def _llm_draft_templates() -> tuple[list[dict] | None, str | None, str | None]:
         '"children":[{"label":"","sector_keys":["defense"],"evidence_query":""}]}]}]}'
     )
     model = llm_mod.DIGEST_QUALITY_MODEL
-    text = llm_mod.complete(system, user, max_tokens=4096, model=model)
+    text = llm_mod.complete(system, user, max_tokens=4096, model=model, purpose="hypothesis")
     if not text:
         return None, model, "LLM 응답이 비었습니다. 잠시 후 다시 시도하세요."
     raw = _parse_llm_json(text)
@@ -1206,7 +1206,59 @@ def refresh() -> dict:
         }
     data = build(templates=templates, source="llm", model=model)
     db.kv_set(_KV_KEY, data)
+    # **이력에도 적재한다.** kv 는 1슬롯 덮어쓰기라 지난 흐름이 매번 파괴됐고, 그래서
+    # "지목한 업종이 그 뒤 어땠나"를 한 번도 측정할 수 없었다(`harness_last.json` 과 같은 병).
+    # 적재 실패가 생성을 되돌리지는 않는다 — 흐름은 이미 kv 에 있다.
+    try:
+        db.hypo_run_insert({
+            "built_at": data.get("generated_at") or _kst_now_iso(),
+            "as_of": data.get("as_of"),
+            "source": data.get("source") or "llm", "model": model,
+            "sectors": _tree_sector_keys(data.get("tree") or {}),
+            "tickers": _tree_tickers(data.get("tree") or {}),
+            "tree": data.get("tree") or {},
+        })
+    except Exception:                              # noqa: BLE001 — 이력은 부가 기능이다
+        log.exception("이슈 흐름 이력 적재 실패")
     return data
+
+
+def _tree_sector_keys(tree: dict) -> list[str]:
+    """트리가 지목한 업종 키(중복 제거·등장 순서 유지) — 사후 채점 대상."""
+    out, seen = [], set()
+
+    def walk(n: dict) -> None:
+        for k in (n.get("sector_keys") or []):
+            if k and k not in seen:
+                seen.add(k)
+                out.append(k)
+        for s in (n.get("sectors") or []):
+            k = s.get("key") if isinstance(s, dict) else s
+            if k and k not in seen:
+                seen.add(k)
+                out.append(k)
+        for c in (n.get("children") or []):
+            walk(c)
+
+    walk(tree or {})
+    return out
+
+
+def _tree_tickers(tree: dict) -> list[str]:
+    """트리가 붙인 대표 종목(중복 제거) — 채점은 이 종목들의 실현수익률로 한다."""
+    out, seen = [], set()
+
+    def walk(n: dict) -> None:
+        for t in (n.get("tickers") or []):
+            k = t.get("ticker") if isinstance(t, dict) else t
+            if k and k not in seen:
+                seen.add(k)
+                out.append(k)
+        for c in (n.get("children") or []):
+            walk(c)
+
+    walk(tree or {})
+    return out
 
 
 def get(*, build_if_missing: bool = False) -> dict:
