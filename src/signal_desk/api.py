@@ -486,6 +486,14 @@ async def _lifespan(app: FastAPI):
     except Exception as e:
         log.warning("부팅 기록 실패: %s", type(e).__name__)
     try:
+        # 소스로 바꾼 미검증 변경을 설정 이력에 1회 남긴다 — 관리자 미검증 배너가 읽는다.
+        # 게이트를 우회한 변경일수록 기록이 남아야 한다("재무제표에 기록한다").
+        from signal_desk import strategy as _strategy
+        if _strategy.record_unproven_change():
+            log.info("미검증 변경 기록: 성향별 매수권 좁히기 제거(strategy.py)")
+    except Exception as e:
+        log.warning("미검증 변경 기록 실패: %s", type(e).__name__)
+    try:
         bot.ensure_reference_bots()  # 공용 레퍼런스 봇(성향별) 부트스트랩 — 루프가 자동 운용
     except Exception as e:
         log.warning("레퍼런스 봇 부트스트랩 실패: %s", type(e).__name__)

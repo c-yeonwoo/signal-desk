@@ -200,8 +200,12 @@ def test_rank_mode_buys_relative_best_even_when_all_below_old_threshold(tmp_path
            max_new_buys_per_run=10, min_buy_score=1.6)
     _seed(10_000_000.0)
     out = bot.run_once(UID)
-    # 균형형 성향 분위 2% × 20종목 → 최소 1종목. 최고점수 종목(T19)이 뽑힌다.
-    assert [b["ticker"] for b in out["buys"]] == ["T19"]
+    # 2026-08-07: 성향별 분위 좁히기를 없앴다 — **엔진 분위 하나**가 매수권을 정한다.
+    # 엔진 10% × 20종목 = 창 2자리 → 상위 둘(T19·T18). 예전엔 균형형 2%가 1자리로 좁혔다.
+    # 이 테스트의 요지(분위 모드에서 성향 절대문턱 1.6을 쓰지 않는다)는 그대로다 —
+    # 둘 다 1.6 미달이지만 floor 1.2는 넘는다.
+    assert [b["ticker"] for b in out["buys"]] == ["T19", "T18"]
+    assert all(b["score"] < 1.6 for b in out["buys"]), "성향 절대문턱이 다시 걸렸다"
     assert "시장 상위" in out["buys"][0]["note"]
 
 

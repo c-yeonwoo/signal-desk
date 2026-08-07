@@ -3438,3 +3438,74 @@ def test_loaders_do_not_crash_on_non_200():
             if re.search(r"\bd\.\w+\.(length|map|forEach|filter|toFixed)", blk):
                 risky.append(i + 1)
     assert not risky, f"비-200에서 즉시 터지는 로더가 남아 있다(줄 {risky})"
+
+
+# ── 성향이 후보를 좁히지 않는다 (2026-08-07) ─────────────────────────────────
+# 성향별 `rank_top_pct`(1.0/2.0/3.0)가 `max_positions`(12/10/6)를 죽이고 설계 의도를
+# 뒤집었다: 안정형 창 **2자리**(가장 집중) · 공격형 6자리(가장 분산) — 정반대였다.
+
+def test_buy_window_has_one_definition():
+    """매수권 분위는 **엔진 값 하나**다. 성향이 좁히면 화면의 매수권과 봇의 후보가 갈라진다."""
+    from signal_desk import strategy
+    for st in strategy.STYLES:
+        assert "rank_top_pct" not in strategy.PRESETS[st], \
+            f"{st} 프리셋이 매수권을 다시 좁힌다 — max_positions 가 죽는다"
+    # 접근자는 엔진 값을 그대로 돌려준다(성향과 무관).
+    for st in strategy.STYLES:
+        for eng in (1.0, 3.0, 10.0):
+            assert strategy.rank_top_pct(st, eng) == eng
+
+
+def test_styles_differ_by_position_size_not_by_window():
+    """성향은 **비중**으로 갈린다 — 같은 후보를 보고 얼마씩 담는지가 다르다.
+
+    실측 설계: 창 6자리 기준 투입 36%(안정) / 48%(균형) / 84%(공격).
+    `안정형 = 변동성↓` 과 방향이 맞아야 한다(예전엔 안정형이 가장 집중이었다).
+    """
+    from signal_desk import strategy
+    pcts = [strategy.PRESETS[s]["position_pct"] for s in ("conservative", "balanced", "aggressive")]
+    assert pcts[0] < pcts[1] < pcts[2], f"비중이 성향 순서와 어긋난다: {pcts}"
+    slots = 6
+    invest = [min(slots, strategy.PRESETS[s]["max_positions"]) * strategy.PRESETS[s]["position_pct"]
+              for s in ("conservative", "balanced", "aggressive")]
+    assert invest[0] < invest[1] < invest[2], f"투입 비중이 성향 순서와 어긋난다: {invest}"
+    assert invest[0] < 0.5, "안정형이 절반 이상 투입하면 `변동성↓` 이 아니다"
+
+
+def test_source_level_unproven_change_is_recorded():
+    """소스로 바꾼 미검증 변경도 **이력에 남는다.**
+
+    관리자 UI 게이트(`prereg.change_allowed`)는 소스 편집을 못 막는다 — 그게 그 게이트가
+    경고한 우회로다("소스를 직접 편집하면 이력에 남지 않는다" · H1이 그랬다).
+    """
+    from signal_desk import db, signalcfg, strategy
+    db.kv_set(strategy._UNPROVEN_KEY, None)
+    assert strategy.record_unproven_change() is True
+    assert strategy.record_unproven_change() is False, "매 부팅 중복 기록하면 배너가 도배된다"
+    entry = next((e for e in signalcfg.history(20)
+                  if e.get("unproven") and "strategy.py" in str(e.get("source"))), None)
+    assert entry, "미검증 변경이 이력에 없다"
+    assert entry.get("reason"), "사유 없이 기록하면 나중에 왜 바꿨는지 모른다"
+    assert "판정" in str(entry.get("verdict_at_change")), "변경 시점의 판정 상태를 남기지 않는다"
+
+
+def test_style_comparison_says_it_cannot_be_judged_yet():
+    """세 성향의 우열을 23일 표본으로 말할 수 없다 — 표가 그 사실을 밝혀야 한다.
+
+    기준선 없는 비율을 노출하지 않는다는 규칙과 같은 문제다. 숫자 셋을 나란히 놓으면
+    "안정형이 낫다"로 읽힌다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "_styleVerdictNote" in html
+    fn = html.split("function _styleVerdictNote(", 1)[1].split("\n}", 1)[0]
+    assert "판정 불가" in fn
+    assert "_STYLE_MIN_DAYS" in html and "근거가 아닙니다" in fn
+
+
+def test_cash_and_total_explain_themselves():
+    """보유 0이면 `총평가금액 = 현금` 이라 두 카드가 같은 숫자를 보여준다 — 그걸 말해야 한다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "전량 현금" in html, "보유 0 상태를 화면이 말하지 않는다"
+    assert "시드 대비" in html, "총평가금액이 시드 대비 얼마인지 안 보인다"
