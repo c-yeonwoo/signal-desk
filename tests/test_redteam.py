@@ -2327,6 +2327,29 @@ def test_us_price_staleness_is_counted_in_trading_days_not_calendar_days():
     assert "weekday()" in exp, "주말을 빼지 않는다"
 
 
+def test_signal_grade_badge_does_not_wander_between_rows():
+    """등급 배지는 **행마다 같은 위치**에 있어야 한다 — 열을 훑는 데 쓰는 값이다.
+
+    한 줄에 나란히 두고 그룹 전체를 `justify-content:center` 하면 부수 태그 폭만큼 등급이
+    밀린다. 실측(2026-08-08): 등급 배지 중심이 39·53·71·44 로 **32px 흔들렸고**(좁은 폭
+    33px), 관망·강력매수가 지그재그로 보였다. 세로로 쌓으면 각 배지가 자기 중심으로
+    정렬돼 편차가 0이 된다(실측 데스크톱·좁은 폭 모두 0px, 행 높이 비용 없음).
+    """
+    import re
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    rule = re.search(r"\.sig-list \.sig-pills \{([^}]*)\}", html)
+    assert rule, ".sig-pills 규칙이 없다"
+    body = rule.group(1)
+    assert "flex-direction:column" in body.replace(" ", ""), \
+        "등급 배지와 부수 태그를 한 줄에 두면 등급이 좌우로 흔들린다"
+    assert "align-items:center" in body.replace(" ", ""), "배지가 각자 중앙정렬되지 않는다"
+    # 그룹 전체를 중앙정렬하는 것이 **원인**이었다 — 다시 들어오면 안 된다.
+    assert "justify-content" not in body, \
+        "그룹 중앙정렬은 부수 태그 폭만큼 등급 배지를 밀어낸다(이 버그의 원인)"
+
+
 def test_zero_buy_card_does_not_push_the_list_off_screen():
     """`매수 0` 카드는 대부분의 날 자동으로 펼쳐진다 — 그 안의 진단을 접어 두지 않으면
     목록을 보러 온 화면에서 목록이 접힌다.
