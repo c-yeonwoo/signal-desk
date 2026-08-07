@@ -49,7 +49,8 @@ def _num(v) -> float | None:
     return None if f != f else f
 
 
-def _cause(prev: dict, cur: dict, *, demoted: bool) -> dict:
+def _cause(prev: dict, cur: dict, *, demoted: bool,
+           all_prev: dict | None = None, all_cur: dict | None = None) -> dict:
     """등급 변화의 **실제** 원인. 뉴스는 보지 않는다(그건 맥락이다).
 
     `demoted` 가 필요한 이유: **점수가 반대 방향으로 움직였으면 그게 원인일 수 없다.**
@@ -78,16 +79,14 @@ def _cause(prev: dict, cur: dict, *, demoted: bool) -> dict:
     same_way = (d_score is not None
                 and ((demoted and d_score < 0) or (not demoted and d_score > 0)))
     if same_way and abs(d_score) >= _SCORE_EPS:
-        moved = []
-        for f in _FACTORS:
-            a, b = _num(prev.get(f)), _num(cur.get(f))
-            if a is None or b is None or abs(b - a) < _FACTOR_EPS:
-                continue
-            moved.append({"factor": f, "before": round(a, 2), "after": round(b, 2),
-                          "delta": round(b - a, 2)})
-        moved.sort(key=lambda m: -abs(m["delta"]))
+        # **크기순으로 정렬하면 안 된다** — PIT 컬럼은 8개 중 5개가 정규화가 아니다
+        # (`valuation`=백분위 · `quality`=점 · `momentum`=수익률 · `short`=비중 · `flow`=원자료).
+        # 실측(HD현대): `주가가 싼가 -4.60`(백분위)이 `차트 흐름 -0.30`(정규화)을 이겨 1위였다.
+        # `why_now.rank_factor_moves` 와 **같은 구현을 공유한다** — 통계를 두 곳에 두면 갈라진다.
+        from signal_desk.signals.why_now import rank_factor_moves
+        moved = rank_factor_moves(prev, cur, all_a=all_prev or {}, all_b=all_cur or {}, limit=3)
         return {"kind": "factor", "text": f"점수가 {d_score:+.2f} 움직였습니다",
-                "factors": moved[:3]}
+                "factors": moved}
 
     # 점수가 거의 그대로거나 **반대로** 움직였는데 등급이 바뀌었다 → 상대 순위다.
     # **이게 가장 헷갈리는 경우다** — 실측 KCC: +1.81 → +2.04 인데 강등.
@@ -127,7 +126,7 @@ def diff(history_rows: list[dict], *, names: dict[str, str] | None = None,
         if pk == ck or pk not in _ORDER or ck not in _ORDER:
             continue
         demoted = _ORDER[ck] < _ORDER[pk]
-        cause = _cause(p, c, demoted=demoted)
+        cause = _cause(p, c, demoted=demoted, all_prev=prev, all_cur=cur)
         changes.append({
             "ticker": t, "name": nm.get(t) or t,
             "from": pk, "to": ck,

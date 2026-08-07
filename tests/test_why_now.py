@@ -78,7 +78,7 @@ def test_peers_must_exist_at_both_window_ends():
     assert r["sector"]["verdict"] == "peers_too_few"
 
 
-def test_factor_moves_are_named_and_sorted_by_size():
+def test_factor_moves_are_named_in_plain_korean():
     """어느 관점이 밀었는지 **말로** 낸다 — 초보자에게 `momentum` 은 정보가 아니다."""
     rows = _rows({
         "2026-08-01": {"A": {"score": 0.0, "kind": "HOLD", "momentum": 0.0,
@@ -94,8 +94,40 @@ def test_factor_moves_are_named_and_sorted_by_size():
     })
     r = why_now.explain(rows, "A", sector_of=_sector_of)
     labels = [f["label"] for f in r["factors"]]
-    assert labels[0] == "오르는 추세" and labels[1] == "차트 흐름"
+    assert "오르는 추세" in labels and "차트 흐름" in labels
+    assert all("momentum" != f["label"] for f in r["factors"])
     assert "누가 사고 있나" not in labels, "0.05 미만 변화는 표기하지 않는다"
+    # 표본이 적어 표준화가 불가하면 **크기순을 주장하지 않는다** — 눈금이 다르기 때문이다.
+    assert all(f["z"] is None for f in r["factors"])
+
+
+def test_percentile_does_not_outrank_a_normalized_factor():
+    """**이게 실측에서 틀렸던 것이다.** PIT 컬럼은 8개 중 5개가 정규화가 아니다.
+
+    2026-08-08 HD현대: `주가가 싼가 -4.60`(백분위 45.5→40.9)이 `차트 흐름 -0.30`(정규화)을
+    크기로 이겨 **1위로 올라왔다.** 백분위는 원래 수십 단위로 움직이므로 크기 비교가 무의미하다.
+    전 종목 대비 표준화하면 순위가 뒤집힌다.
+    """
+    day0, day1 = {}, {}
+    # 동료 12종목 — 백분위는 넓게(SD 큼), 차트 흐름은 좁게(SD 작음) 움직인다.
+    for i in range(12):
+        tk = f"P{i}"
+        day0[tk] = {"score": 0.0, "kind": "HOLD", "valuation": 50.0, "technical": 0.0}
+        day1[tk] = {"score": 0.1, "kind": "HOLD",
+                    "valuation": 50.0 + (i - 6) * 3.0,      # ±18 분위
+                    "technical": (i - 6) * 0.01}            # ±0.06
+    day0["A"] = {"score": 1.8, "kind": "BUY", "valuation": 45.5, "technical": 0.2}
+    day1["A"] = {"score": 1.6, "kind": "HOLD", "valuation": 40.9, "technical": -0.1}
+    r = why_now.explain(_rows({"2026-08-01": day0, "2026-08-05": day1}), "A")
+
+    labels = [f["label"] for f in r["factors"]]
+    assert labels[0] == "차트 흐름", f"백분위가 여전히 1위다: {labels}"
+    val = next(f for f in r["factors"] if f["factor"] == "valuation")
+    tech = next(f for f in r["factors"] if f["factor"] == "technical")
+    assert abs(val["delta"]) > abs(tech["delta"]), "원값 크기는 백분위가 더 크다(전제 확인)"
+    assert abs(val["z"]) < abs(tech["z"]), "표준화하면 차트 흐름이 더 큰 움직임이다"
+    # 눈금을 화면에 밝힌다 — 나란히 놓고 단위가 없으면 비교 가능하다고 읽힌다.
+    assert val["unit"] == "분위" and tech["unit"] == ""
 
 
 def test_turn_on_date_and_biggest_jump_are_reported():
@@ -191,3 +223,28 @@ def test_sector_threshold_is_exposed_with_the_value_not_just_a_verdict():
     for k in ("share", "peers_n", "peer_median_delta"):
         assert r["sector"][k] is not None, f"{k} 를 노출하지 않는다"
     assert r["basis"] and "인과가 아니라" in r["basis"]
+
+
+def test_daily_change_shares_the_same_scale_aware_ranking():
+    """**어제 배포한 `daily_change`(#362)도 같은 버그였다** — 같은 컬럼을 크기순으로 정렬했다.
+
+    통계를 두 곳에 두면 갈라진다. 두 화면이 같은 데이터로 다른 1위를 말하면 어느 쪽도
+    믿을 수 없다.
+    """
+    import inspect
+
+    from signal_desk.signals import daily_change
+
+    src = inspect.getsource(daily_change._cause)
+    assert "rank_factor_moves" in src, "daily_change 가 자기 정렬을 들고 있다"
+    assert "-abs(m[\"delta\"])" not in src, "크기순 정렬이 남아 있다"
+    # 전 종목을 넘겨받아야 표준화가 된다 — 안 넘기면 z 가 늘 None 이다.
+    diff_src = inspect.getsource(daily_change.diff)
+    assert "all_prev=" in diff_src and "all_cur=" in diff_src
+
+
+def test_scale_metadata_covers_every_snapshot_factor():
+    """새 팩터를 추가하면 **단위도 같이 등록**해야 한다 — 빠지면 눈금 없이 나란히 놓인다."""
+    for f in why_now._FACTORS:
+        assert f in why_now._FACTOR_UNIT, f"{f} 의 단위가 등록되지 않았다"
+        assert f in why_now._FACTOR_KO, f"{f} 의 한국어 이름이 없다"
