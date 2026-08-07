@@ -33,8 +33,9 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_gate,
+    goal_plan,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
-    regime_zone, relative, revision, scenario, sector_rel, target,
+    regime_zone, relative, revision, sector_rel, target,
 )
 from signal_desk.signals.engine import (
     GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
@@ -822,17 +823,63 @@ def rebalance_post(request: Request, data: dict = Body(default={})):
     return plan
 
 
-@app.post("/api/scenario")
-def scenario_post(request: Request, data: dict = Body(default={})):
-    """내 보유종목을 부트스트랩 몬테카를로로 전략별 N년 후 가치 분포로 투영(#9). market=kr|us로 시장 분리."""
-    holdings = _holdings_by_market(db.holdings_list(_uid(request)), data.get("market"))
+@app.post("/api/goal-plan")
+def goal_plan_post(request: Request, data: dict = Body(default={})):
+    """목표금액 달성 플랜 — 보유 + 월 적립 + 배당 재투자(세후)로 목표까지의 경로·부족분.
+
+    배당수익률은 **보유종목 실제 DPS**로 계산해 넘긴다 — 엔진이 추정하지 않는다.
+    통화가 다르면 합치지 않는다(합치면 둘 다 거짓이 된다) → `market` 으로 분리.
+    """
+    uid = _uid(request)
+    if not uid:
+        return {"ready": False, "reason": "로그인이 필요합니다."}
+    market = "us" if data.get("market") == "us" else "kr"
+    holdings = _holdings_by_market(db.holdings_list(uid), market)
     if not holdings:
-        return {"ready": False, "reason": "해당 시장의 보유종목이 없습니다."}
+        return {"ready": False, "reason": f"{'미국' if market == 'us' else '국내'} 보유종목이 없습니다."}
     if not store.is_ready():
-        return {"ready": False, "reason": "시세 데이터가 없습니다 — /api/refresh 먼저."}
+        return {"ready": False, "reason": "시세 데이터가 없습니다 — 데이터 갱신 후 재시도."}
     prices = {**store.load_price_series(), **store.load_us_price_series()}
-    years = min(max(int(data.get("years", 3)), 1), 10)
-    return scenario.project(holdings, prices, years=years)
+    currency = "USD" if market == "us" else "KRW"
+
+    # 실제 보유 DPS → 포트폴리오 배당수익률(평가액 가중). 배당 없는 종목은 0으로 들어간다.
+    divs = store.us_dividends() if market == "us" else store.kr_dividends()
+    annual_div = value = 0.0
+    with_dps, no_dps = [], []
+    for h in holdings:
+        closes = prices.get(h["ticker"])
+        if not closes:
+            continue
+        qty = float(h.get("qty") or 0)
+        value += float(closes[-1]) * qty
+        dps = float((divs.get(h["ticker"]) or {}).get("dps") or 0.0)
+        annual_div += dps * qty
+        (with_dps if h["ticker"] in divs else no_dps).append(h["ticker"])
+    div_yield = (annual_div / value) if value > 0 else 0.0
+
+    out = goal_plan.plan(
+        holdings, prices,
+        goal_amount=float(data.get("goal_amount") or 0),
+        months=int(data.get("months") or 60),
+        monthly_contribution=float(data.get("monthly") or 0),
+        div_yield_annual=div_yield, currency=currency,
+        style=str(data.get("style") or "balanced"),
+    )
+    if out.get("ready"):
+        # 제안은 **검증이 필요 없는 사실만**. 판별력이 판정 보류인 동안 '오를 종목'은 말하지 않는다.
+        div_items = holdings_dividends_get(request).get("items") or []
+        out["facts"] = goal_plan.facts(div_items, currency, plan_result=out)
+        out["market"] = market
+        # **0의 이유** — 배당수익률 0%가 "배당 안 주는 종목"인지 "배당 데이터 미수집"인지
+        # 구분한다. 둘이 같은 0으로 보이면 재투자 경로가 왜 안 붙는지 알 수 없다.
+        out["dividend_coverage"] = {
+            "holdings": len(with_dps) + len(no_dps),
+            "with_dps": len(with_dps), "missing_dps": len(no_dps),
+            "reason": None if not no_dps else (
+                f"{len(no_dps)}종목은 배당 데이터가 없어 재투자에서 빠졌습니다 — "
+                f"배당을 안 주는 종목일 수도, 아직 수집되지 않은 것일 수도 있습니다"),
+        }
+    return out
 
 
 @app.get("/api/portfolio/heatmap")

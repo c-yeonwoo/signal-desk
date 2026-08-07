@@ -3203,3 +3203,55 @@ def test_frozen_states_still_appear_in_diagnostics():
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     # `/api/data-health` 를 그리는 곳이 blocked_reason 을 여전히 렌더한다.
     assert html.count("blocked_reason") >= 3, "진단 카드에서 이유가 사라졌다"
+
+
+# ── 목표금액 플랜 (2026-08-07) ───────────────────────────────────────────────
+# `내 포트폴리오`·`배당 플래너` 가 각각 숫자만 보여주고 "그래서 뭘 해야 하나"를 말하지 않았다.
+# 옛 `시나리오 분석` 은 같은 부트스트랩·같은 성향을 쓰면서 적립·배당·목표만 없던 것이라
+# 한 화면에 둘 다 두면 같은 말을 두 번 하는 것이었다 → 흡수했다.
+
+def test_goal_plan_absorbed_the_scenario_card_without_leaving_dead_code():
+    """중복을 없앨 때 **죽은 코드를 남기지 않는다** — 안 지우면 '닿지 않는 코드'가 된다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    api = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    for gone in ("runScenario", "scn-years", "scenario-result", "/api/scenario"):
+        assert gone not in html, f"{gone} 가 화면에 남아 있다"
+    assert "/api/scenario" not in api, "흡수된 라우트가 남아 있다"
+    # 모듈은 남는다 — `goal_plan` 이 `_portfolio_returns`·`EQUITY_EXPOSURE` 를 쓴다.
+    from signal_desk.signals import goal_plan, scenario
+    assert goal_plan._MIN_HISTORY == scenario._MIN_HISTORY
+    assert "scenario" not in api.split("from signal_desk.signals import (", 1)[1].split(")", 1)[0]
+
+
+def test_goal_plan_frames_the_cards_below_it():
+    """목표는 보유 입력 **바로 다음**이다. 배당·히트맵·리밸런싱이 무엇을 위한 숫자인지
+    목표 없이는 알 수 없다 — 5번째로 밀려 있으면 새 헤드라인 기능이 묻힌다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    pane = html.split('id="trading-rebal"', 1)[1].split('id="trading-dividend"', 1)[0]
+    i_goal = pane.index("목표금액 플랜")
+    for later in ("내 보유 배당", "섹터 히트맵", "리밸런싱 성향"):
+        assert i_goal < pane.index(later), f"목표가 `{later}` 보다 뒤에 있다"
+
+
+def test_goal_chart_is_registered_with_the_single_resize_handler():
+    """차트를 리사이즈 핸들러에 안 붙이면 **폭 0으로 남는다**(모바일 실측).
+
+    리스너를 새로 만들지 않는다 — 같은 일을 두 곳에서 시키면 한쪽을 고칠 때 다른 쪽이 남는다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert html.count("addEventListener('resize'") == 1, "리사이즈 리스너가 하나가 아니다"
+    blk = html.split("addEventListener('resize'", 1)[1].split("});", 1)[0]
+    assert "_gpChart" in blk, "목표 경로 차트가 리사이즈에 등록되지 않았다"
+
+
+def test_goal_plan_labels_its_assumption_on_screen():
+    """`예측`으로 읽히지 않게 근거와 물려받은 편향을 화면에도 쓴다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "d.basis" in html and "d.caveat" in html, "근거·한계를 화면이 렌더하지 않는다"
+    # 통화가 다르면 이전 경로는 거짓이다 — 시장 전환 시 비운다.
+    sw = html.split("function setPfMarket(", 1)[1].split("\n}", 1)[0]
+    assert "gp-result" in sw, "시장을 바꿔도 이전 통화의 경로가 남는다"

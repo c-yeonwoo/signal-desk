@@ -1126,7 +1126,35 @@
         <div id="holdings-body" class="placeholder" style="padding:12px 0">위 검색창에서 종목을 찾아 보유종목을 추가하세요.</div>
       </div>
 
-      <div class="card" id="holdings-div-card" style="margin-bottom:16px;display:none">
+            <!-- 목표금액 플랜 — 보유 입력 **바로 다음**이다. 배당(연료)·히트맵·리밸런싱은 이 목표를
+           향하는 수단이고, 목표가 없으면 각각 무엇을 위한 숫자인지 알 수 없다.
+           옛 `시나리오 분석` 카드를 흡수했다 — 같은 부트스트랩·같은 성향을 쓰면서 적립·배당·목표만
+           없던 것이라 한 화면에 둘 다 두면 같은 말을 두 번 하는 것이었다. -->
+      <div class="card" style="margin-bottom:16px">
+        <div class="row" style="align-items:baseline;gap:8px;flex-wrap:wrap">
+          <b style="font-size:15px">목표금액 플랜</b>
+          <span style="color:var(--dim);font-weight:600;font-size:13px">· 지금 보유 + 월 적립 + 배당 재투자로 어디까지 가는가</span>
+        </div>
+        <div class="row" style="margin-top:10px;gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--dim)">목표금액
+            <input id="gp-goal" type="number" min="0" class="ctrl" style="max-width:150px" placeholder="예: 100000000"></label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--dim)">기간
+            <select id="gp-months" class="ctrl" style="max-width:110px">
+              <option value="36">3년</option><option value="60" selected>5년</option>
+              <option value="120">10년</option><option value="240">20년</option></select></label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--dim)">월 적립액
+            <input id="gp-monthly" type="number" min="0" class="ctrl" style="max-width:130px" placeholder="예: 500000"></label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:13px;color:var(--dim)">성향
+            <select id="gp-style" class="ctrl" style="max-width:110px" title="주식 비중(나머지는 현금) — 안정 60% · 균형 85% · 공격 100%">
+              <option value="conservative">안정형</option>
+              <option value="balanced" selected>균형형</option>
+              <option value="aggressive">공격형</option></select></label>
+          <button class="btn primary" onclick="runGoalPlan()">경로 보기</button>
+        </div>
+        <div id="gp-result" style="margin-top:12px"></div>
+      </div>
+
+<div class="card" id="holdings-div-card" style="margin-bottom:16px;display:none">
         <b style="font-size:14px">내 보유 배당 <span style="color:var(--dim);font-weight:600;font-size:13px">· 보유 배당주로 받는 예상 월/연 배당</span></b>
         <div id="holdings-div-empty" style="display:none;font-size:13px;color:var(--dim);margin-top:8px">이 시장 보유분 중 배당 데이터가 있는 종목이 없습니다.</div>
         <div id="holdings-div-body" style="margin-top:8px"></div>
@@ -1151,18 +1179,7 @@
       </div>
       <div id="rebal-result"></div>
 
-      <div class="card" style="margin-top:18px">
-        <div class="row" style="align-items:center;gap:10px">
-          <b style="font-size:15px"><span class="layer-badge ctx">맥락</span> 시나리오 분석 <span style="color:var(--dim);font-weight:600;font-size:13px">· 전략별 N년 후 가치 투영(몬테카를로)</span></b>
-          <span class="stat-label" style="margin:0 0 0 auto;line-height:1">기간</span>
-          <select id="scn-years" class="ctrl" style="max-width:90px">
-            <option value="1">1년</option><option value="3" selected>3년</option>
-            <option value="5">5년</option><option value="10">10년</option>
-          </select>
-          <button class="btn primary" onclick="runScenario()">시나리오 돌리기</button>
-        </div>
-        <div id="scenario-result" class="placeholder" style="padding:12px 0">보유종목 기준 전략별(안정·균형·공격) N년 후 예상 가치 분포를 시뮬레이션합니다. 예측이 아닙니다.</div>
-      </div>
+      
 
     </div>
 
@@ -1821,6 +1838,7 @@ window.addEventListener('resize', () => {
   if (_signalChart) _signalChart.resize();
   if (_botChart) _botChart.resize();
   if (_cycleChart) _cycleChart.resize();
+  if (_gpChart) _gpChart.resize();     // 목표 경로 팬 — 안 붙이면 폭이 0으로 남는다(모바일 실측)
   Object.values(_heatCharts || {}).forEach(c => { try { c.resize(); } catch (e) {} });
   // 시그널 표 열 폭은 브레이크포인트를 넘나들 때 다시 계산해야 한다 — 안 하면 세로로 열었다가
   // 가로로 돌릴 때 섹터 열이 접힌 채(또는 펴진 채) 남는다. 리스너를 따로 두지 않고 여기 붙인다.
@@ -4597,15 +4615,159 @@ function switchTradingSeg(seg){
   document.getElementById('trading-rebal').style.display = seg === 'rebal' ? '' : 'none';
   document.getElementById('trading-dividend').style.display = seg === 'dividend' ? '' : 'none';
   if (seg === 'bot') loadBotState();
-  if (seg === 'rebal') refreshPortfolio();   // 국내/해외 판 — 선택 시장 기준 전체 갱신
+  if (seg === 'rebal') { gpRestore(); refreshPortfolio(); }   // 국내/해외 판 — 선택 시장 기준 전체 갱신
   if (seg === 'dividend') loadDividends();
   history.replaceState(null, '', '#trading/' + seg);   // 새로고침 시 서브탭 유지
+}
+
+// ── 목표금액 플랜 ────────────────────────────────────────────────────────────
+// **예측이 아니라 가정별 경로다.** 부트스트랩은 보유종목의 과거를 물려받으므로
+// "시장이 이럴 것"이 아니라 "이 종목들이 과거처럼 계속하면"이다 — `caveat` 을 항상 함께 쓴다.
+// 목표·기간·적립액은 시장별로 저장한다(통화가 다르면 합칠 수 없다).
+let _gpChart = null;
+
+const _gpKey = () => 'sd_goalplan_' + (_pfMarket || 'kr');
+
+function _gpSave() {
+  try {
+    localStorage.setItem(_gpKey(), JSON.stringify({
+      goal: document.getElementById('gp-goal')?.value || '',
+      months: document.getElementById('gp-months')?.value || '60',
+      monthly: document.getElementById('gp-monthly')?.value || '',
+      style: document.getElementById('gp-style')?.value || 'balanced' }));
+  } catch {}
+}
+
+function gpRestore() {
+  try {
+    const v = JSON.parse(localStorage.getItem(_gpKey()) || '{}');
+    const g = document.getElementById('gp-goal'), m = document.getElementById('gp-months'),
+          c = document.getElementById('gp-monthly');
+    if (g && v.goal != null) g.value = v.goal;
+    if (m && v.months) m.value = v.months;
+    if (c && v.monthly != null) c.value = v.monthly;
+    const st = document.getElementById('gp-style');
+    if (st && v.style) st.value = v.style;
+  } catch {}
+}
+
+async function runGoalPlan() {
+  const el = document.getElementById('gp-result');
+  const goal = Number(document.getElementById('gp-goal')?.value || 0);
+  if (!goal) { el.innerHTML = '<div class="stat-label">목표금액을 넣어주세요.</div>'; return; }
+  _gpSave();
+  el.innerHTML = '<div class="stat-label">경로를 만드는 중…</div>';
+  try {
+    const d = await (await fetch('/api/goal-plan', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ market: _pfMarket || 'kr', goal_amount: goal,
+        months: Number(document.getElementById('gp-months').value),
+        monthly: Number(document.getElementById('gp-monthly')?.value || 0),
+        style: document.getElementById('gp-style')?.value || 'balanced' }) })).json();
+    renderGoalPlan(d);
+  } catch (e) { el.innerHTML = `<div class="stat-label">실패: ${esc(String(e))}</div>`; }
+}
+
+function _gpMoney(v, cur) {
+  return cur === 'USD' ? '$' + fmtNum(v, 0) : fmtKRW(v);
+}
+
+function _gpWhen(month, months) {
+  // 도달 '월 수'를 날짜로 바꿔 쓴다 — `39개월`은 언제인지 세어봐야 안다.
+  if (month == null) return `<span style="color:var(--dim)">${months}개월 안에는 못 닿음</span>`;
+  const d = new Date(); d.setMonth(d.getMonth() + month);
+  return `<b>${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}</b>`
+    + ` <span style="color:var(--dim-2)">(${month}개월)</span>`;
+}
+
+function renderGoalPlan(d) {
+  const el = document.getElementById('gp-result');
+  if (!d || !d.ready) {
+    el.innerHTML = `<div class="stat-label">${esc((d && d.reason) || '경로를 만들 수 없습니다')}</div>`;
+    return;
+  }
+  const cur = d.currency;
+  const gap50 = (d.gap_monthly || {}).p50;
+  // 한 문장으로 먼저 말한다 — 표를 읽을 수 있는 사람만 쓰는 화면이 되지 않게.
+  const lead = `지금 보유 <b>${_gpMoney(d.current_value, cur)}</b>에 월 <b>${_gpMoney(d.monthly_contribution, cur)}</b>씩 넣고`
+    + ` 배당을 세후로 재투자하면, ${d.months}개월 뒤 중간 경로는 <b>${_gpMoney(d.terminal.p50, cur)}</b>입니다.`
+    + ` 목표 ${_gpMoney(d.goal_amount, cur)} 달성 확률은 <b>${fmtNum(d.success_pct, 1)}%</b>입니다.`;
+
+  const rows = [
+    ['좋은 경로 (p90)', d.terminal.p90, d.reach_month.p90],
+    ['중간 경로 (p50)', d.terminal.p50, d.reach_month.p50],
+    ['나쁜 경로 (p10)', d.terminal.p10, d.reach_month.p10],
+  ].map(([lbl, val, rm]) =>
+    `<tr style="border-top:1px solid var(--line)">
+      <td style="padding:6px 8px">${lbl}</td>
+      <td style="padding:6px 8px;text-align:right;font-weight:700">${_gpMoney(val, cur)}</td>
+      <td style="padding:6px 8px">${_gpWhen(rm, d.months)}</td></tr>`).join('');
+
+  const facts = (d.facts || []).map(f => {
+    const col = f.severity === 'warn' ? 'var(--sig-watch)'
+      : f.severity === 'good' ? 'var(--sig-buy)' : 'var(--dim)';
+    return `<div style="padding:3px 0;font-size:13px"><span style="color:${col};font-weight:700">·</span> ${esc(f.text)}</div>`;
+  }).join('');
+
+  el.innerHTML = `<div style="font-size:14px;line-height:1.8">${lead}</div>
+    <div class="tscroll" style="margin-top:10px"><table style="width:100%;min-width:420px;border-collapse:collapse;font-size:13px">
+      <thead><tr style="text-align:left;color:var(--dim)">
+        <th style="padding:6px 8px">경로</th><th style="padding:6px 8px;text-align:right">${d.months}개월 뒤</th>
+        <th style="padding:6px 8px">목표 도달</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div id="gp-chart" style="height:260px;margin-top:10px"></div>
+    ${facts ? `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">
+      <div style="font-weight:700;font-size:13px;margin-bottom:2px">확인된 사실</div>${facts}</div>` : ''}
+    <div class="stat-label" style="margin-top:10px">주식 비중 ${Math.round(d.exposure * 100)}%(나머지 현금)
+      · 배당수익률 ${fmtNum(d.div_yield_annual_pct, 2)}%
+      · 배당세 ${fmtNum(d.div_tax_pct, 1)}% 차감 후 재투자
+      ${(d.dividend_coverage || {}).reason ? `<br>${esc(d.dividend_coverage.reason)}` : ''}</div>
+    <details class="more-block" style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--dim)">이 경로를 어떻게 만들었나</summary>
+      <div style="font-size:13px;line-height:1.75;margin-top:6px">
+        <div>${esc(d.basis)} · 시행 ${fmtNum(d.sims, 0)}회</div>
+        <div style="margin-top:4px;color:var(--sig-watch)">${esc(d.caveat)}</div>
+      </div>
+    </details>`;
+  _drawGoalFan(d);
+}
+
+function _drawGoalFan(d) {
+  const box = document.getElementById('gp-chart');
+  if (!box || !window.echarts) return;
+  if (_gpChart) { _gpChart.dispose(); _gpChart = null; }
+  _gpChart = echarts.init(box);
+  const cs = getComputedStyle(document.documentElement);
+  // ECharts 는 var() 를 해석하지 못한다 — 토큰을 hex 로 읽어서 넘긴다.
+  const c = k => cs.getPropertyValue(k).trim();
+  const xs = d.fan.map(f => f.month);
+  const cur = d.currency;
+  _gpChart.setOption({
+    grid: { left: 58, right: 14, top: 24, bottom: 26 },
+    tooltip: { trigger: 'axis', valueFormatter: v => _gpMoney(v, cur) },
+    xAxis: { type: 'category', data: xs, axisLabel: { formatter: v => v + '개월', fontSize: 11 } },
+    yAxis: { type: 'value', axisLabel: { fontSize: 11, formatter: v => cur === 'USD' ? '$' + (v / 1000).toFixed(0) + 'k' : (v / 1e8).toFixed(1) + '억' } },
+    series: [
+      { name: 'p10', type: 'line', data: d.fan.map(f => f.p10), showSymbol: false,
+        lineStyle: { opacity: 0 }, stack: 'band', areaStyle: { opacity: 0 } },
+      { name: 'p10~p90', type: 'line', data: d.fan.map(f => f.p90 - f.p10), showSymbol: false,
+        lineStyle: { opacity: 0 }, stack: 'band',
+        areaStyle: { color: c('--brand-100') || '#D5DAFB', opacity: 0.7 } },
+      { name: 'p50', type: 'line', data: d.fan.map(f => f.p50), showSymbol: false,
+        lineStyle: { width: 2, color: c('--brand-500') || '#243CDB' } },
+      { name: '목표', type: 'line', data: xs.map(() => d.goal_amount), showSymbol: false,
+        lineStyle: { width: 2, type: 'dashed', color: c('--sig-watch') || '#D97706' } },
+    ],
+    legend: { data: ['p50', '목표'], bottom: 0, itemHeight: 8, textStyle: { fontSize: 11 } },
+  });
 }
 
 // ===== 내 포트폴리오: 국내/해외 판 토글 — 하위 전체(보유·배당·히트맵·리밸런싱·시나리오)가 선택 시장 기준 =====
 let _pfMarket = 'kr';
 function setPfMarket(m){
   _pfMarket = m;
+  // 통화가 다르면 이전 경로는 그대로 두면 **거짓**이다 — 비우고 그 시장 목표를 복원한다.
+  const gr = document.getElementById('gp-result'); if (gr) gr.innerHTML = '';
+  gpRestore();
   document.querySelectorAll('#pf-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.pfm === m));
   const lbl = document.getElementById('manual-mkt-label'); if (lbl) lbl.textContent = m === 'us' ? '· 해외' : '· 국내';
   refreshPortfolio();
@@ -4615,8 +4777,8 @@ async function refreshPortfolio(){
   loadHeatmap(_pfMarket);            // 섹터 히트맵(선택 시장)
   loadHoldingsDividends(_pfMarket);  // 보유 배당(선택 시장)
   const rr = document.getElementById('rebal-result'); if (rr) rr.innerHTML = '';   // 리밸런싱은 버튼으로
-  const sc = document.getElementById('scenario-result');
-  if (sc) { sc.className = 'placeholder'; sc.style.padding = '12px 0'; sc.textContent = '전략별(안정·균형·공격) N년 후 예상 가치 분포를 시뮬레이션합니다.'; }
+  // 시장·보유가 바뀌면 이전 경로는 그대로 두면 **거짓**이다 — 비운다(목표 입력은 유지).
+  const gr = document.getElementById('gp-result'); if (gr) gr.innerHTML = '';
 }
 
 // 토스 실계좌 보유내역 — 본인(owner)만. 403이면 카드 숨김(다른 계정은 존재조차 안 보임).
@@ -5110,38 +5272,6 @@ async function runRebalance(){
   } finally { btn.disabled = false; btn.textContent = t; }
 }
 
-async function runScenario(){
-  const btn = event.target; btn.disabled = true; const t = btn.textContent; btn.textContent = '시뮬 중…';
-  const box = document.getElementById('scenario-result');
-  const years = document.getElementById('scn-years').value;
-  try {
-    const d = await (await fetch('/api/scenario', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ years: Number(years), market: _pfMarket }) })).json();
-    if (!d.ready) { box.className = 'placeholder'; box.textContent = d.reason || '시나리오 불가'; return; }
-    box.className = '';
-    const usd = (_pfMarket === 'us') || d.currency === 'USD';
-    const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));
-    const LABEL = { conservative: '안정형', balanced: '균형형', aggressive: '공격형' };
-    const rows = ['conservative', 'balanced', 'aggressive'].map(k => {
-      const s = d.strategies[k]; const tm = s.terminal, cg = s.cagr;
-      const cgCls = cg.p50 > 0 ? 'pos' : cg.p50 < 0 ? 'neg' : '';
-      return `<tr><td><b>${LABEL[k]}</b><div style="color:var(--dim);font-size:12px">주식노출 ${Math.round(s.exposure*100)}%</div></td>
-        <td class="num"><b>${fmtM(tm.p50)}</b></td>
-        <td class="num" style="color:var(--dim)">${fmtM(tm.p10)} ~ ${fmtM(tm.p90)}</td>
-        <td class="num ${cgCls}">${cg.p50 > 0 ? '+' : ''}${fmtNum(cg.p50, 1)}%<div style="color:var(--dim);font-size:12px">${cg.p10}~${cg.p90}%</div></td></tr>`;
-    }).join('');
-    const fan = d.strategies.balanced.fan.map(f =>
-      `<tr><td class="num">${f.year}년</td><td class="num" style="color:var(--dim)">${fmtM(f.p10)}</td>
-        <td class="num"><b>${fmtM(f.p50)}</b></td><td class="num" style="color:var(--dim)">${fmtM(f.p90)}</td></tr>`).join('');
-    box.innerHTML = `
-      <div class="stat-label" style="margin:0 0 8px">현재 평가액 <b>${fmtM(d.current_value)}</b> 기준 · ${d.years}년 후 · 시뮬 ${d.sims.toLocaleString()}회</div>
-      <table class="dtable"><thead><tr><th>전략</th><th class="num">중앙값(p50)</th><th class="num">범위(p10~p90)</th><th class="num">연환산(CAGR)</th></tr></thead><tbody>${rows}</tbody></table>
-      <b style="font-size:13px;display:block;margin:16px 0 4px">균형형 연도별 추이</b>
-      <table class="dtable"><thead><tr><th class="num">시점</th><th class="num">비관(p10)</th><th class="num">중앙(p50)</th><th class="num">낙관(p90)</th></tr></thead><tbody>${fan}</tbody></table>
-      <p class="page-desc" style="margin:12px 0 0;font-size:12px">${esc(d.disclaimer)}</p>`;
-  } catch(e) { box.className = 'placeholder'; box.textContent = '요청 실패'; }
-  finally { btn.disabled = false; btn.textContent = t; }
-}
 
 // 데이터 갱신을 scope별로 순차 호출 — 요청 하나에 전부 몰면 타임아웃 나므로 kr→macro→flows→us로 쪼갠다.
 // 각 단계는 독립적이라 하나가 실패해도 나머지는 계속 진행하고, 마지막에 요약을 합쳐서 보여준다.
