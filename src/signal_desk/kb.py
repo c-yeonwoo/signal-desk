@@ -219,14 +219,25 @@ def import_document(ticker: str, name: str, title: str, text: str,
             "source_key": sk}
 
 
-def _summarize_text(name: str, title: str, text: str) -> tuple[str, list[str]]:
-    """긴 원문(리포트 등) → 투자관점 요약 1~2문장 + 핵심 포인트. LLM 없으면 앞부분 발췌."""
+def _summarize_text(name: str, title: str, text: str, *,
+                    quality: bool = False) -> tuple[str, list[str]]:
+    """긴 원문(리포트 등) → 투자관점 요약 1~2문장 + 핵심 포인트. LLM 없으면 앞부분 발췌.
+
+    **기본은 Haiku다 — 이 함수는 항목별로 불린다.** `collect_fanding`·`collect_outstanding` 의
+    기사 루프가 `import_document` → 여기로 들어오므로, 수집한 기사 수만큼 호출된다(실측 수락
+    fanding 178 · outstanding 163). Sonnet을 여기 두면 '항목 압축'에 품질비를 내는 것이고,
+    시장 톤 해석은 배치 끝의 `build_macro_digest`(Sonnet) 1회가 맡는다.
+
+    `quality=True` 는 **사람이 올린 문서 1건**(관리자 PDF 업로드)에만 쓴다 — 볼륨이 1이고
+    원문이 길어 요약 품질이 그대로 근거가 된다.
+    """
     if llm.available():
         system = ("너는 한국 주식 애널리스트다. 아래 문서를 투자 관점에서 사실 기반으로 요약한다. "
                   "과장·추천 금지, 문서에 없는 내용 금지.")
         user = (f"종목: {name}\n제목: {title}\n본문:\n{text[:6000]}\n\n"
                 'JSON으로만: {"summary": "한국어 1~2문장", "points": ["핵심 ≤3개"]}')
-        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_QUALITY_MODEL, purpose="kb")
+        model = llm.DIGEST_QUALITY_MODEL if quality else llm.DIGEST_MODEL
+        out = llm.complete_json(system, user, max_tokens=500, model=model, purpose="kb")
         if out and out.get("summary"):
             return str(out["summary"])[:300], [str(p) for p in (out.get("points") or [])][:3]
     excerpt = " ".join(text.split())[:200]
@@ -459,7 +470,8 @@ def import_file(ticker: str | None, name: str, filename: str, data: bytes, media
     if media_type == "application/pdf":
         text = _pdf_text(data)
     if len(text) >= _MIN_PDF_TEXT:
-        summary, _ = _summarize_text(disp, title, text)
+        # 사람이 올린 문서 1건 — 볼륨이 1이고 원문이 길어 요약이 그대로 근거가 된다(품질 모델).
+        summary, _ = _summarize_text(disp, title, text, quality=True)
         raw, method = text, "pdf_text"
     else:  # 스캔 PDF 또는 이미지 → 모델이 직접 인식(OCR)
         summary, _ = _summarize_vision(disp, title, data, media_type)
