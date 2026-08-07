@@ -31,9 +31,28 @@ _FACTOR_KO = {
     "reversion": "많이 떨어졌나", "flow": "누가 사고 있나", "quality": "회사 체질",
     "momentum": "오르는 추세", "short": "공매도 압력",
 }
+# **PIT 스냅샷 컬럼은 눈금이 서로 다르다.** 8개 중 5개가 정규화 점수가 아니다
+# (`store.snapshot_signals` 참고):
+#   technical·fundamental·reversion → *_score       정규화 [-1,1]
+#   valuation                       → percentile    0~100
+#   quality                         → points        0~5
+#   momentum                        → ret           수익률
+#   short                           → ratio         비중 %
+#   flow                            → intensity     원자료
+# 실측(2026-08-08 HD현대): 크기순으로 정렬하니 `주가가 싼가 -4.60`(백분위 45.5→40.9)이
+# `차트 흐름 -0.30`(정규화)을 이겨서 **1위로 올라왔다.** 눈금이 다른 값을 크기로 비교한 것이다.
+# 그래서 순위는 **같은 창의 전 종목 대비 표준화된 변화**로 정한다 — 스냅샷 안의 데이터만 쓰고
+# 없는 눈금을 지어내지 않는다. 표시에는 원값과 단위를 함께 낸다.
+_FACTOR_UNIT = {
+    "technical": "", "fundamental": "", "reversion": "",     # 정규화 — 단위 없음
+    "valuation": "분위", "quality": "점", "momentum": "%p", "short": "%p", "flow": "",
+}
+_MIN_SD_SAMPLES = 8      # 이보다 적으면 표준편차가 의미 없다 → 표준화하지 않는다
 _BUY_KINDS = ("BUY", "STRONG_BUY")
-# 팩터 이동 표기 하한 — 부호가 아니라 크기로 본다(레포 규칙).
+# 팩터 이동 표기 하한 — 부호가 아니라 크기로 본다(레포 규칙). 정규화 팩터에만 쓴다.
 _FACTOR_EPS = 0.05
+# 눈금이 다른 팩터는 절대값 문턱을 만들 수 없다 → 전 종목 대비 표준편차로 잰다.
+_MIN_Z = 0.25
 # 섹터 판정 규칙. **문턱을 만들 때는 무엇을 재는지 이름으로 못박는다.**
 # `share = 섹터 동료 중위 변화 / 이 종목 변화` — 1에 가까우면 섹터가 통째로 움직인 것이다.
 _SECTOR_SHARE = 0.5      # 이 이상이면 섹터 전체
@@ -53,6 +72,61 @@ def _num(v) -> float | None:
     except (TypeError, ValueError):
         return None
     return None if f != f else f
+
+
+def _sd(xs: list[float]) -> float | None:
+    n = len(xs)
+    if n < _MIN_SD_SAMPLES:
+        return None
+    m = sum(xs) / n
+    var = sum((x - m) ** 2 for x in xs) / (n - 1)
+    return var ** 0.5 if var > 0 else None
+
+
+def rank_factor_moves(a: dict, b: dict, *, all_a: dict[str, dict], all_b: dict[str, dict],
+                      eps: float = _FACTOR_EPS, limit: int = 4) -> list[dict]:
+    """한 종목의 팩터 변화를 **전 종목 대비 표준화**해 순위를 낸다.
+
+    `a`/`b` 는 그 종목의 시작·끝 스냅샷 행, `all_a`/`all_b` 는 같은 두 날짜의 **전 종목** 행이다.
+    반환 항목: `{factor, label, before, after, delta, unit, z}` — `z` 가 순위 기준이고 화면에는
+    원값(`delta` + `unit`)을 쓴다. 표본이 적어 표준편차를 못 구하면 `z=None` 이고 그 팩터는
+    **크기 비교에서 빼고 뒤로 보낸다**(눈금을 모르는 값을 섞어 정렬하지 않는다).
+
+    `daily_change` 와 **같은 구현을 공유한다** — 통계를 두 곳에 두면 갈라진다.
+    """
+    sds: dict[str, float | None] = {}
+    for f in _FACTORS:
+        deltas = []
+        for tk, rb in all_b.items():
+            ra = all_a.get(tk)
+            if not ra:
+                continue
+            x, y = _num(ra.get(f)), _num(rb.get(f))
+            if x is not None and y is not None:
+                deltas.append(y - x)
+        sds[f] = _sd(deltas)
+
+    out = []
+    for f in _FACTORS:
+        x, y = _num(a.get(f)), _num(b.get(f))
+        if x is None or y is None:
+            continue
+        d = y - x
+        sd = sds.get(f)
+        # 정규화 팩터는 eps 로, 눈금이 다른 팩터는 **표준편차 0.25 이상** 움직였을 때만 표기한다.
+        z = (d / sd) if sd else None
+        if z is None:
+            if abs(d) < eps:
+                continue
+        elif abs(z) < _MIN_Z:
+            continue
+        out.append({"factor": f, "label": _FACTOR_KO.get(f, f),
+                    "before": round(x, 2), "after": round(y, 2), "delta": round(d, 2),
+                    "unit": _FACTOR_UNIT.get(f, ""),
+                    "z": (round(z, 2) if z is not None else None)})
+    # z 가 있는 것끼리 크기순, 없는 것은 뒤로(비교 불가라고 밝히는 것과 같다).
+    out.sort(key=lambda m: (m["z"] is None, -abs(m["z"]) if m["z"] is not None else 0))
+    return out[:limit]
 
 
 def _median(xs: list[float]) -> float | None:
@@ -128,16 +202,10 @@ def explain(history_rows: list[dict], ticker: str, *,
                 "blocked_reason": "창의 양 끝 점수가 비어 있습니다"}
     delta = round(s1 - s0, 2)
 
-    # ── 팩터별 이동: 무엇이 점수를 밀었나(크기 순) ──
-    moved = []
-    for f in _FACTORS:
-        x, y = _num(a.get(f)), _num(b.get(f))
-        if x is None or y is None or abs(y - x) < _FACTOR_EPS:
-            continue
-        moved.append({"factor": f, "label": _FACTOR_KO.get(f, f),
-                      "before": round(x, 2), "after": round(y, 2),
-                      "delta": round(y - x, 2)})
-    moved.sort(key=lambda m: -abs(m["delta"]))
+    # ── 팩터별 이동: 무엇이 점수를 밀었나 ──
+    # **크기순으로 정렬하면 안 된다** — 컬럼마다 눈금이 다르다(`_FACTOR_UNIT` 주석 참고).
+    # 같은 창의 전 종목 대비 표준화한 뒤 순위를 낸다.
+    moved = rank_factor_moves(a, b, all_a=by_date.get(d0, {}), all_b=by_date.get(d1, {}))
 
     # ── 전환일: 매수권으로 바뀐 날 / 점수가 가장 크게 뛴 날 ──
     turned_on, prev_kind = None, str(a.get("kind") or "")
@@ -185,7 +253,7 @@ def explain(history_rows: list[dict], ticker: str, *,
         "kind_before": str(a.get("kind") or ""), "kind_after": str(b.get("kind") or ""),
         "turned_buy_on": turned_on,
         "biggest_move": ({"date": jump_date, "delta": jump} if jump_date else None),
-        "factors": moved[:4],
+        "factors": moved,
         "sector": sector,
         # 변화가 거의 없으면 **이야기를 붙이지 않는다** — 없는 변화에 설명을 달면 사후 합리화다.
         "quiet": quiet,
