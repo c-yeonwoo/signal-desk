@@ -253,6 +253,12 @@
   .sig-toolbar #sig-sort { flex:0 0 auto; }
   .sig-metric { color:var(--dim-2); font-size:var(--fs-2xs); margin-top:2px;
     font-variant-numeric:tabular-nums; }
+  /* 커버리지 — **정상은 조용히, 낮으면 튀게.** 200행 전부를 칩으로 그리면 소음이 되고
+     정작 봐야 하는 `2/8관점`이 묻힌다("한 행에 태그가 3개면 정작 시그널이 안 보인다"). */
+  .cov-badge { display:inline-block; margin-left:4px; font-size:var(--fs-2xs);
+    font-weight:600; color:var(--dim-2); }
+  .cov-badge.low { padding:0 4px; border-radius:4px; font-weight:700;
+    color:#fff; background:var(--sig-watch); }
   .sig-quote { display:flex; gap:7px 14px; flex-wrap:wrap; align-items:baseline; margin:2px 0 8px;
     font-size:13px; color:var(--dim); }
   .sig-quote .q-price { font-size:17px; font-weight:700; color:var(--txt); }
@@ -1423,7 +1429,9 @@
       <details class="more-block" style="margin:8px 0 0">
         <summary style="cursor:pointer;font-size:13px;font-weight:700;color:var(--dim)">용어</summary>
         <div style="font-size:13px;line-height:1.75;margin-top:6px">
-          <div><b>점수</b> — 8가지 관점(재무·저평가·모멘텀 등)을 하나로 합친 값. <b>클수록 좋게 봤다</b>는 뜻이고, 대략 −3 ~ +3 범위입니다.</div>
+          <div><b>점수</b> — 8가지 관점(재무·저평가·모멘텀 등)을 하나로 합친 값. 각 관점을 −1~+1로 매겨 가중평균한 뒤 3을 곱하므로 <b>−3 ~ +3</b>입니다(그 밖으로 나갈 수 없습니다).</div>
+          <div style="margin-top:4px"><b>점수가 판정을 정하지 않습니다.</b> 매수는 ① 오늘 상위 순위 안 ② 안전장치 통과 ③ 볼 수 있는 관점이 충분 — 셋을 <b>모두</b> 만족해야 합니다. 그래서 점수 3.0이 관망이고 1.7이 강력매수일 수 있습니다.</div>
+          <div style="margin-top:4px"><b>높은 점수가 늘 좋은 건 아닙니다.</b> 볼 수 없는 관점은 빼고 남은 것끼리 다시 나눠 계산하므로, <b>관점이 적을수록 만점이 나오기 쉽습니다.</b> 점수 옆 <span class="cov-badge">n/8관점</span>이 낮으면 그 점수는 부풀려진 것입니다.</div>
           <div><b>판정</b> — 점수를 말로 바꾼 것. 강력매수 · 매수 · 관망 · 매도 · 강력매도.</div>
           <div><b>매수 막힘</b> — 점수는 좋았지만 안전장치가 매수를 막은 경우(예: 하락추세, 급락 직후, 데이터 부족). 막혔으면 실제로 사지 않았습니다.</div>
           <div><b>5일 뒤 · 20일 뒤</b> — 그 다음 거래일에 샀다고 가정하고 5거래일/20거래일 뒤 종가까지의 수익률. <b>아직</b>이라고 나오면 그만큼 날이 안 지난 것입니다.</div>
@@ -3185,6 +3193,23 @@ function renderSignalList(){
     if (r.external_watch) bits.push('<span class="ext-badge" title="외부 조사 후보 · 점수 가산 없음">조사</span>');
     return bits.length ? `<div class="sig-tags">${bits.join('')}</div>` : '';
   };
+  // 커버리지 배지 — **점수 옆에 붙는다.** 분모가 *발동한* 가중치의 합이라, 관점이 적을수록
+  // 만점 받기 쉽다("결측을 재정규화로 지우면 모르는 종목이 가장 센 점수를 받는다" · X2).
+  // 실측(프로덕션 200종목): 커버리지 0.2 구간 |점수| 평균 **3.00** vs 0.7~0.8 구간 0.64~0.68.
+  // 유일한 3.00 종목이 8관점 중 2개만 보고 낸 값이었다 — **높은 점수가 확신이 아니라
+  // 무지의 신호**일 수 있는데 화면에는 커버리지가 어디에도 없었다.
+  const covBadge = (r) => {
+    const c = r.data_coverage;
+    if (c == null) return '';
+    const seen = Math.round(c * 8);                 // 8관점 기준 — 사람이 세는 단위로 쓴다
+    const low = !!r.low_coverage;
+    const tip = low
+      ? `8관점 중 ${seen}개만 보고 낸 점수입니다. 남은 관점끼리 다시 나눠 계산하므로 `
+        + `점수가 부풀려져 있고, 그래서 매수 대상에서 제외됩니다.`
+      : `8관점 중 ${seen}개를 봤습니다.`;
+    return ` <span class="cov-badge${low ? ' low' : ''}" title="${esc(tip)}">${seen}/8관점</span>`;
+  };
+
   const holdNote = (r) => {
     if (r.kind !== 'HOLD' || !r.hold_tag) return '';
     const tip = _HOLD_TAG_TIP[r.hold_tag] || r.hold_tag;
@@ -3192,7 +3217,7 @@ function renderSignalList(){
   };
   const body = rows.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}" title="${r.sector ? esc(r.sector) : ''}">
       <td>${star(r.ticker)}</td>
-      <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}</div>${badges(r)}</td>
+      <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}${sort === 'signal' ? covBadge(r) : ''}</div>${badges(r)}</td>
       <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}</td>
       <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(sigPillTitle(r))}">${kindLabel(r.kind)}</span>${holdNote(r)}</div></td>
     </tr>`).join('');
@@ -3490,6 +3515,24 @@ function sectorRelTip(r){
   if (s.flow_pct != null) bits.push('섹터수급 ' + fmtNum(s.flow_pct, 0) + '%');
   return bits.length ? ' · ' + bits.join(' · ') : '';
 }
+// 상세 히어로의 커버리지 — 점수 바로 옆에 둔다. 떨어뜨려 놓으면 둘을 같이 읽지 않는다.
+function _heroCov(item) {
+  const c = item && item.data_coverage;
+  if (c == null) return '';
+  const seen = Math.round(c * 8);
+  return ` <span class="cov-badge${item.low_coverage ? ' low' : ''}">${seen}/8관점</span>`;
+}
+
+// **높은 점수 + 낮은 커버리지**는 확신이 아니라 무지의 신호다 — 그 자리에서 말한다.
+// 실측(프로덕션): 유일한 3.00 종목이 8관점 중 2개만 보고 낸 값이었고 화면 1위였다.
+function _heroCovWarn(item) {
+  if (!item || !item.low_coverage || item.data_coverage == null) return '';
+  const seen = Math.round(item.data_coverage * 8);
+  return `<div style="margin-top:6px;font-size:13px;color:var(--sig-watch);font-weight:600">`
+    + `이 점수는 <b>8관점 중 ${seen}개</b>만 보고 냈습니다 — 남은 관점끼리 다시 나눠 계산하므로 `
+    + `<b>부풀려져 있습니다.</b> 그래서 매수 대상에서 제외됩니다.</div>`;
+}
+
 function sigPillTitle(r){
   return kindHint(r.kind) + entryTip(r) + pricedInTip(r) + demoteTip(r)
     + horizonTip(r) + revisionTip(r) + sectorRelTip(r);
@@ -3896,7 +3939,9 @@ function _paintSignalDetail(ticker, item){
           ${runUpHtml}
           ${up != null ? `<span>목표가 상승여력 <b style="color:var(--sig-buy)">+${fmtNum(up, 1)}%</b></span>` : ''}
           <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
-          + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b></span>
+          + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b>`
+          + _heroCov(item) + `</span>
+          ${_heroCovWarn(item)}
           ${_pitHeroLine(item._pit)}
         </div>
       </div>`;

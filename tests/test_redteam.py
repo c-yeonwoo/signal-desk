@@ -3303,3 +3303,66 @@ def test_ui_does_not_swallow_non_json_failures():
     assert "await r.text()" in blk, "본문을 텍스트로 먼저 받지 않는다"
     assert "HTTP ${r.status}" in blk, "비-JSON 실패에서 상태코드를 안 보여준다"
     assert "how_to_fix" in blk, "조치 방법을 화면이 버린다"
+
+
+# ── 점수와 커버리지 (2026-08-07) ─────────────────────────────────────────────
+# 사용자 질문: "왜 3.0인데 관망이고 1.72인데 강력매수인가" · "+3.0이면 무조건 사야 하나".
+# 프로덕션 실측이 답이었다: 점수 3.00 종목의 커버리지가 **0.24**(8관점 중 2개)였고
+# 화면 1위였다. 분모가 *발동한* 가중치의 합이라 **관점이 적을수록 만점이 쉽다**(X2).
+# 그런데 커버리지가 화면 어디에도 없었다.
+
+def test_score_range_is_structural_not_clipped():
+    """점수는 ±3을 **넘을 수 없다** — 클리핑이 아니라 정의다.
+
+    각 관점이 [-1,1]로 정규화되고 가중평균이라 결과도 [-1,1], 거기에 3을 곱한다.
+    상한을 따로 걸 필요가 없고, 걸면 '클리핑된 값'이라는 오해가 생긴다.
+    """
+    from signal_desk.signals.engine import SignalConfig, combine
+    cfg = SignalConfig()
+    # 전 팩터 만점 → 정확히 +3
+    hi = combine([(1.0, 0.3, []), (1.0, 0.2, []), (1.0, 0.15, [])], cfg)
+    assert abs(hi["score"] - 3.0) < 1e-9
+    lo = combine([(-1.0, 0.3, []), (-1.0, 0.2, [])], cfg)
+    assert abs(lo["score"] + 3.0) < 1e-9
+    # **관점이 적어도 만점이 나온다** — 이게 사용자가 본 3.00의 정체다.
+    one = combine([(1.0, 0.15, [])], cfg)
+    assert abs(one["score"] - 3.0) < 1e-9, "관점 1개로도 +3이 나온다는 사실이 바뀌면 문서도 고칠 것"
+
+
+def test_coverage_is_shown_next_to_the_score():
+    """높은 점수 + 낮은 커버리지는 **확신이 아니라 무지의 신호**다 — 같이 보여야 한다.
+
+    실측: 프로덕션 커버리지 구간별 |점수| 평균이 0.2구간 **3.00** vs 0.7~0.8구간 0.64~0.68.
+    커버리지를 안 보여주면 사용자는 3.00을 최고 확신으로 읽는다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "covBadge" in html and "data_coverage" in html
+    assert "관점" in html
+    # 목록 행에서 점수와 **같은 칸**에 있어야 한다(떨어뜨리면 같이 안 읽는다).
+    row = html.split("const body = rows.map(", 1)[1].split("</tr>", 1)[0]
+    assert "metric(r)" in row and "covBadge(r)" in row
+    # 상세 히어로에도 · 낮으면 경고 문장까지.
+    assert "_heroCov(" in html and "_heroCovWarn(" in html
+    assert "부풀려져 있습니다" in html
+
+
+def test_glossary_says_the_score_does_not_decide_the_verdict():
+    """`3.0인데 관망`을 설명하지 않으면 사용자는 화면을 신뢰할 수 없다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "점수가 판정을 정하지 않습니다" in html
+    for cond in ("상위 순위", "안전장치", "관점이 충분"):
+        assert cond in html, f"판정 3조건 중 `{cond}` 설명이 없다"
+    assert "관점이 적을수록" in html, "커버리지가 낮을수록 만점이 쉽다는 설명이 없다"
+
+
+def test_normal_coverage_does_not_shout():
+    """200행 전부를 칩으로 그리면 정작 `2/8관점`이 묻힌다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    css = html[:html.find("</style>")]
+    base = css.split(".cov-badge {", 1)[1].split("}", 1)[0]
+    low = css.split(".cov-badge.low {", 1)[1].split("}", 1)[0]
+    assert "background" not in base, "정상 커버리지가 배경색을 가지면 소음이 된다"
+    assert "background" in low and "sig-watch" in low, "낮은 커버리지가 안 튄다"
