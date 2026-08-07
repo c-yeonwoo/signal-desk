@@ -1066,7 +1066,7 @@
       <div class="card-row">
         <div class="card"><div class="stat-label">현금</div><div class="stat-value" id="bot-cash">-</div></div>
         <div class="card"><div class="stat-label">총평가금액</div><div class="stat-value" id="bot-total">-</div></div>
-        <div class="card"><div class="stat-label">총손익률</div><div class="stat-value" id="bot-pl">-</div></div>
+        <div class="card" title="지금 들고 있는 종목만의 수익률 — (평가액 − 매입액) ÷ 매입액. 현금은 안 들어갑니다. 성적은 아래 자산곡선의 `계좌 수익률`입니다."><div class="stat-label">보유 손익률 <span style="font-weight:600;color:var(--dim-2)">· 들고 있는 것만</span></div><div class="stat-value" id="bot-pl">-</div></div>
         <div class="card"><div class="stat-label">보유종목수</div><div class="stat-value" id="bot-count">-</div></div>
       </div>
       <div class="card" style="margin-bottom:16px">
@@ -1859,6 +1859,32 @@ window.addEventListener('resize', () => {
     });
   }, 120);
 });
+
+// 상태코드를 보는 fetch — **비-200을 조용히 넘기지 않는다.**
+// 2026-08-07 실측: 세션이 만료된 채 `loadBotState` 가 401 응답(`{error,auth}`)에서
+// `d.positions.length` 로 터졌고, 트레이딩 탭은 **반쯤 그려진 채 이유를 말하지 않았다.**
+// 예산 초과(429)·서버 오류(500)도 같은 결과다. 4개 로더가 같은 병이었다
+// (`loadMacro`·`loadBotState`·`loadHeatmap`·`loadKbDocs`).
+//
+// 반환: `{ok:true, data}` 또는 `{ok:false, reason}`. 호출처는 `reason` 을 자기 컨테이너에 쓴다.
+async function getJSON(url, opts) {
+  try {
+    const r = await fetch(url, opts);
+    const raw = await r.text();
+    let d = null;
+    try { d = JSON.parse(raw); } catch { d = null; }
+    if (r.ok && d) return { ok: true, data: d };
+    // 이유는 서버가 준 것을 **먼저** 쓴다(429의 예산 사유 등). 없으면 상태코드로 말한다.
+    const reason = (d && (d.reason || d.error))
+      || (r.status === 401 ? '로그인이 필요합니다 — 새로고침해 다시 로그인하세요.'
+        : r.status === 403 ? '권한이 없습니다.'
+        : r.status === 429 ? '요청이 한도에 걸렸습니다.'
+        : `불러오지 못했습니다 (HTTP ${r.status})`);
+    return { ok: false, reason, status: r.status, data: d };
+  } catch (e) {
+    return { ok: false, reason: '네트워크 오류 — ' + String(e), status: 0 };
+  }
+}
 
 function esc(s){ return String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmtNum(n, digits){ return (n == null) ? '-' : n.toFixed(digits ?? 2); }
@@ -2863,7 +2889,10 @@ async function loadMacro(){
     } else { note.style.display = 'none'; }
   };
   try {
-    const d = await (await fetch('/api/macro')).json();
+    const d = (await getJSON('/api/macro')).data;
+    // 거시 리본은 **전역 노출**이라(어느 탭에서도 보인다) 여기서 터지면 `startApp` 초기화가
+    // 끊긴다 — 실패는 조용히 숨기고 리본만 감춘다(리본 없음이 정상 상태 중 하나다).
+    if (!d) { hide(); return; }
     renderNote(d.narrative);
     if (!d.ready || !d.indicators.length) { hide(); return; }
     sep.style.display = ''; bias.style.display = '';
@@ -4471,7 +4500,14 @@ const _REASON_LABEL = { STOP_LOSS: '손절', TAKE_PROFIT: '익절', TRAILING: '�
 
 async function loadBotState(){
   try {
-    const d = await (await fetch(`/api/ledger/state?style=${_ledgerStyle}&market=${_botMarket}`)).json();
+    const res = await getJSON(`/api/ledger/state?style=${_ledgerStyle}&market=${_botMarket}`);
+    if (!res.ok) {
+      // 0의 이유 — 반쯤 그려진 화면 대신 무엇이 막혔는지 쓴다.
+      const st = document.getElementById('bot-acct-status');
+      if (st) st.innerHTML = `<span style="color:var(--sig-watch);font-weight:700">${esc(res.reason)}</span>`;
+      return;
+    }
+    const d = res.data;
     const usd = d.currency === 'USD';
     const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));  // 통화 인지 포맷
     document.getElementById('bot-cash').textContent = fmtM(d.cash);
@@ -4598,7 +4634,7 @@ async function loadReferencePerf(){
         <td class="num">${b.n_trades}</td><td class="num">${b.days}일</td></tr>`;
     }).join('');
     el.className = '';
-    el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num">총수익률</th>
+    el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num" title="시드 대비 계좌 전체 수익률 — 이게 성적입니다">계좌 수익률</th>
       <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
       <tbody>${rows}</tbody></table>
       <div style="color:var(--dim-2);font-size:var(--fs-2xs);margin-top:8px">같은 시그널, 다른 규칙 강도로 집행한 결과 — 시그널 실측과는 다른 지표입니다.</div>`;
@@ -4617,7 +4653,13 @@ async function loadBotPerformance(){
     const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));
     const r = d.return_pct;
     const rTxt = r == null ? '–' : `<b style="color:${r >= 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">${r > 0 ? '+' : ''}${fmtNum(r, 2)}%</b>`;
-    sumEl.innerHTML = `총수익률 ${rTxt} · 시드 ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최대낙폭 ${fmtNum(d.max_drawdown_pct, 1)}% · ${d.days}일 · 거래 ${d.n_trades}건`;
+    // **이름을 구분한다.** `총손익률`(보유 기준)과 `총수익률`(계좌 기준)은 사람이 구분할 수 없고
+    // 실측에서 부호까지 반대였다(+2.43% vs −0.02%) — 어느 게 성적인지 알 수 없었다.
+    // 보유 손익률은 지금 들고 있는 것의 상태이고, **계좌 수익률이 track record**다.
+    sumEl.innerHTML = `<b>계좌 수익률 ${rTxt}</b>`
+      + `<span style="color:var(--dim-2)"> · 시드 대비 · 이게 성적입니다</span>`
+      + ` · 시드 ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최대낙폭 ${fmtNum(d.max_drawdown_pct, 1)}%`
+      + ` · ${d.days}일 · 거래 ${d.n_trades}건`;
     if (!_botEquityChart) _botEquityChart = echarts.init(holder);
     const curve = d.curve || [];
     if (!curve.length) {
@@ -5256,7 +5298,14 @@ async function loadHeatmap(market){
   if (!el || !window.echarts) return;
   const existing = echarts.getInstanceByDom(el); if (existing) existing.dispose();
   let d;
-  try { d = await (await fetch('/api/portfolio/heatmap?market=' + market)).json(); } catch (e) { return; }
+  let res;
+  try { res = await getJSON('/api/portfolio/heatmap?market=' + market); } catch (e) { return; }
+  d = res.data;
+  // **비-200이면 이유를 쓴다.** 예전엔 `d.items.forEach` 에서 터져 카드가 빈 채 남았다.
+  if (!res.ok || !d) {
+    el.innerHTML = `<div class="placeholder" style="padding:24px 0">${esc(res.reason || '불러오지 못했습니다')}</div>`;
+    return;
+  }
   if (!d.ready) { el.innerHTML = `<div class="placeholder" style="padding:24px 0">${esc(d.reason || '데이터 없음')}</div>`; return; }
   el.innerHTML = '';
   const money = market === 'us' ? (v => '$' + fmtNum(v, 0)) : (v => fmtKRW(v));   // 통화별 표기
@@ -5931,7 +5980,13 @@ async function loadKbDocs(){
     '수집된 <b>원문 문서</b> 목록입니다(각 소스 1건 = 1행, 원문 보관). 아래 요약은 이들을 종합해 만듭니다.';
   try {
     const q = _kbDocClass ? `?doc_class=${encodeURIComponent(_kbDocClass)}` : '';
-    const d = await (await fetch('/api/kb/documents' + q)).json();
+    const res = await getJSON('/api/kb/documents' + q);
+    if (!res.ok || !res.data) {
+      el.className = '';
+      el.innerHTML = `<div class="placeholder" style="padding:16px 0">${esc(res.reason || '불러오지 못했습니다')}</div>`;
+      return;
+    }
+    const d = res.data;
     const counts = d.class_counts || {};
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     const chip = (label, val) => `<button class="btn${_kbDocClass === val ? ' primary' : ''}" style="padding:3px 10px;font-size:13px" onclick="_kbDocClass=${val ? `'${val}'` : 'null'};loadKbDocs()">${label}${val && counts[val] ? ` ${counts[val]}` : ''}</button>`;

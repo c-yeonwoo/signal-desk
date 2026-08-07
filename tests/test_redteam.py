@@ -3387,3 +3387,54 @@ def test_llm_budget_caps_are_consistent_and_documented():
     env = Path(".env.example").read_text(encoding="utf-8")
     assert f"LLM_DAILY_BUDGET_USD={day:g}" in env, ".env.example 일 상한이 코드와 다르다"
     assert f"LLM_MONTHLY_BUDGET_USD={month:g}" in env, ".env.example 월 상한이 코드와 다르다"
+
+
+# ── 트레이딩 사용성 (2026-08-07) ─────────────────────────────────────────────
+
+def test_two_return_metrics_have_distinguishable_names():
+    """`총손익률`(보유 기준)과 `총수익률`(계좌 기준)은 사람이 구분할 수 없었다.
+
+    실측 같은 화면: 보유 기준 **+2.43%**(평가−매입÷매입) vs 계좌 기준 **−0.02%**(시드 대비).
+    **부호까지 반대**라 어느 게 성적인지 알 수 없었다 — 둘 다 맞는데 이름이 같은 게 문제다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "보유 손익률" in html, "보유 기준 지표 이름이 구분되지 않는다"
+    assert "계좌 수익률" in html, "계좌 기준 지표 이름이 구분되지 않는다"
+    # 옛 이름이 **화면 텍스트에** 남아 있으면 두 지표가 다시 같은 이름을 갖는다.
+    # **주석을 지운 뒤 센다** — 설명 주석에 옛 이름을 적으면 오탐이 난다(이 리포에서 네 번째로
+    # 밟은 함정: 주석 안 `var()` · 리포트 `<code>` · `store.update_valuation`).
+    import re
+    code = re.sub(r"//.*$", "", html, flags=re.M)
+    code = re.sub(r"/\*.*?\*/", "", code, flags=re.S)
+    txt = re.sub(r"<[^>]+>", "\n", code)
+    assert "총손익률" not in txt, "옛 이름 `총손익률` 이 화면에 남아 있다"
+    # 어느 것이 track record 인지 화면이 말해야 한다.
+    assert "이게 성적입니다" in html
+
+
+def test_loaders_do_not_crash_on_non_200():
+    """비-200 응답에서 터지면 화면이 **반쯤 그려진 채 침묵**한다.
+
+    실측: 세션이 만료된 채 `loadBotState` 가 401 본문(`{error,auth}`)에서
+    `d.positions.length` 로 터졌다. 예산 초과(429)·서버 오류(500)도 같은 결과다.
+    """
+    import re
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "async function getJSON(" in html, "상태코드를 보는 공용 헬퍼가 없다"
+    # 헬퍼가 서버 이유를 **먼저** 쓴다(429의 예산 사유가 상태코드 문구에 묻히면 안 된다).
+    fn = html.split("async function getJSON(", 1)[1].split("\n}", 1)[0]
+    assert "d.reason" in fn and "d.error" in fn
+    for code in ("401", "429"):
+        assert code in fn, f"{code} 를 사람이 읽을 문장으로 바꾸지 않는다"
+    # 즉시 크래시 패턴이 남아 있지 않은지 — 손 목록이 아니라 스캔이다.
+    pat = re.compile(r"await \(await fetch\([^)]*\)\)\.json\(\)")
+    lines = html.split("\n")
+    risky = []
+    for i, ln in enumerate(lines):
+        if pat.search(ln):
+            blk = "\n".join(lines[i:i + 8])
+            if re.search(r"\bd\.\w+\.(length|map|forEach|filter|toFixed)", blk):
+                risky.append(i + 1)
+    assert not risky, f"비-200에서 즉시 터지는 로더가 남아 있다(줄 {risky})"
