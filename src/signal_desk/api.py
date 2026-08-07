@@ -2525,7 +2525,16 @@ def bot_decisions_get():
 
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
 def _kb_lite_targets(max_tickers: int | None = None) -> list[dict]:
-    """장중 DART lite 대상 — 매수권 + 보유 + 관심(KR만). lead/near/Sonnet 경로 제외."""
+    """장중 DART lite 대상 — 매수권 + 보유 + 관심 + **순위 상위**(KR만). LLM 비용 0.
+
+    2026-08-07: 대상이 실측 **6종목**뿐이었다(상한은 40). 매수권이 0~2건이고 보유가 적어서다.
+    상한이 아니라 **대상 정의**가 좁았던 것이다 — 그리고 악재 veto의 목적을 생각하면 잘못된
+    정의였다: veto는 "지금 살 것"이 아니라 **"살 수 있게 될 것"** 까지 봐야 한다. 오늘 근접
+    30종목 중 하나가 내일 매수권에 들면, 그때 악재 이력이 이미 있어야 막을 수 있다.
+
+    그래서 남는 자리를 **점수 순위 상위**로 채운다. `list.json` 종목당 1콜이고 15분 간격
+    장중(6.5h)이면 40종목 = 약 1,040콜/일 — DART 일일 한도(2만) 대비 여유가 크다.
+    """
     cap = max_tickers if max_tickers is not None else config.kb_dart_lite_max_tickers()
     names = {u["ticker"]: u["name"] for u in store.load_universe()}
     targets, seen = [], set()
@@ -2556,6 +2565,16 @@ def _kb_lite_targets(max_tickers: int | None = None) -> list[dict]:
         if len(targets) >= cap:
             break
         add(tk)
+    # 남는 자리를 **점수 순위 상위**로 채운다 — 내일 매수권에 들 종목의 악재를 오늘 받아 둔다.
+    # 매수권·보유·관심을 **먼저** 채운 뒤이므로 우선순위는 그대로다(상한에 걸리면 순위 상위가 밀린다).
+    if len(targets) < cap and store.is_ready():
+        try:
+            for s in sorted(_signals(), key=lambda x: x.score, reverse=True):
+                if len(targets) >= cap:
+                    break
+                add(s.ticker)
+        except Exception as e:
+            log.warning("lite 순위 타깃 실패: %s", type(e).__name__)
     return targets[:cap]
 
 
