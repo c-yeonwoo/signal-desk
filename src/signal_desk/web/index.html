@@ -237,7 +237,11 @@
   /* td에 display:flex 금지 — table-cell이 깨져 행 높·정렬이 붕괴한다(삼성전자처럼 pill 2개일 때 특히).
      flex는 안쪽 .sig-pills에만. */
   .sig-list td.sig-cell { vertical-align:middle; text-align:center; }
-  .sig-list .sig-pills { display:flex; flex-wrap:wrap; gap:4px; align-items:center; justify-content:center; }
+  /* **세로로 쌓는다.** 한 줄에 나란히 두고 그룹 전체를 중앙정렬하면 부수 태그 폭만큼
+     등급 배지가 밀려서, 열을 훑을 때 관망·강력매수가 좌우로 흔들린다(실측 x = 19·34·43 —
+     편차 24px). 쌓으면 각 배지가 **자기 중심으로** 정렬돼 등급이 한 줄에 선다.
+     높이 비용은 0이다 — 행 높이는 종목 컬럼이 정하고(실측 80~104px) 배지 총합은 47px다. */
+  .sig-list .sig-pills { display:flex; flex-direction:column; align-items:center; gap:3px; }
   .sig-list .sig-pills .clim-pill { margin-left:0; }
   .sig-list .hold-tag { font-size:11px; font-weight:600; color:var(--dim-2); letter-spacing:.02em;
     border:1px solid var(--line); border-radius:var(--r-sm); padding:1px 5px; line-height:1.3; }
