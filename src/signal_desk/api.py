@@ -33,7 +33,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_gate,
-    goal_plan,
+    goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
     regime_zone, relative, revision, sector_rel, target,
 )
@@ -3069,8 +3069,21 @@ def kb_get(ticker: str):
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------
 @app.get("/api/hypothesis")
 def hypothesis_get():
-    """최근 이슈 흐름 트리. 캐시만 — 없으면 ready:false. 자동 LLM/생성 없음."""
-    return hypothesis.get(build_if_missing=False)
+    """최근 이슈 흐름 트리 + **신선도 판정** + 사후 채점. 캐시만 — 자동 LLM/생성 없음.
+
+    2026-08-07: 프로덕션에서 **12일 전 트리**를 `최근`이라는 이름으로 보여주고 있었다.
+    날짜는 메타 6개 사이에 원시 타임스탬프로 묻혀 있었고, 원시 날짜는 "12일 전"을 말해주지
+    않는다 — 나이를 **판정**으로 바꿔 낸다.
+    """
+    data = hypothesis.get(build_if_missing=False)
+    data["staleness"] = hypo_score.staleness(data.get("generated_at") or data.get("as_of"))
+    # 정확도 — 지목한 업종이 그 뒤 시장을 이겼나. 표본이 적으면 값 대신 이유를 낸다.
+    try:
+        data["accuracy"] = hypo_score.score(db.hypo_runs_recent(50), store.load_all_dated_closes())
+    except Exception as e:                          # noqa: BLE001 — 채점 실패가 트리를 막지 않는다
+        log.warning("이슈 흐름 채점 실패: %s", type(e).__name__)
+        data["accuracy"] = {"blocked_reason": f"채점 실패({type(e).__name__})"}
+    return data
 
 
 @app.post("/api/hypothesis/refresh")

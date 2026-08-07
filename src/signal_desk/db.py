@@ -159,6 +159,18 @@ CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage(ts);
 -- 이력이 있는데(signal_config_history) 가장 중요한 산출물인 판정에는 없었다. 무엇을 언제 어떤
 -- 설정으로 쟀는지 재구성할 수 없으면 그 판정은 증거가 아니다. docs/prd-harness-preregistration.md F5.
 -- preregistered_id 가 NULL 이면 탐색 실행이며 정본이 될 수 없다(is_locked 는 항상 0).
+CREATE TABLE IF NOT EXISTS hypo_runs(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    built_at TEXT NOT NULL,          -- ISO(KST) 생성 시각
+    as_of TEXT,                      -- 그날 거래일
+    source TEXT NOT NULL,            -- llm | rules | fallback
+    model TEXT,
+    sectors_json TEXT NOT NULL,      -- 지목한 업종 키(중복 제거) — 사후 채점 대상
+    tickers_json TEXT NOT NULL,      -- 그 업종의 대표 종목(그날 기준)
+    tree_json TEXT NOT NULL          -- 원문 트리(재생용)
+);
+CREATE INDEX IF NOT EXISTS idx_hypo_runs_built ON hypo_runs(built_at DESC);
+
 CREATE TABLE IF NOT EXISTS harness_runs(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     ran_at TEXT NOT NULL,
@@ -1526,6 +1538,42 @@ def shortform_recent_tickers(within_sec: int) -> set[str]:
     return {t for (t,) in rows}
 
 
+# ---------- hypo_runs (이슈 흐름 이력 — **append-only**) ----------
+# 2026-08-07: `kv:hypo:v4:latest` **1슬롯 덮어쓰기**라 지난 흐름이 매번 파괴됐고, 그래서
+# "지목한 업종이 그 뒤 실제로 어땠나"를 **한 번도 측정할 수 없었다**. `harness_last.json`
+# 1슬롯으로 이미 겪은 병이다(그때도 정본이 마지막 칸이 됐다). 이력이 없으면 정확도도 없다.
+
+
+def hypo_run_insert(row: dict) -> int:
+    """이슈 흐름 한 건 적재. 덮어쓰지 않는다 — 채점은 과거 표본으로만 할 수 있다."""
+    import json as _json
+    with conn() as c:
+        cur = c.execute(
+            "INSERT INTO hypo_runs(built_at, as_of, source, model, sectors_json, tickers_json, tree_json)"
+            " VALUES(?,?,?,?,?,?,?)",
+            (row["built_at"], row.get("as_of"), row.get("source") or "rules", row.get("model"),
+             _json.dumps(row.get("sectors") or [], ensure_ascii=False),
+             _json.dumps(row.get("tickers") or [], ensure_ascii=False),
+             _json.dumps(row.get("tree") or {}, ensure_ascii=False)))
+        return int(cur.lastrowid)
+
+
+def hypo_runs_recent(limit: int = 50) -> list[dict]:
+    """최신순 이력. `tree_json` 은 무거우니 기본으로 파싱하지 않는다(채점은 sectors만 쓴다)."""
+    import json as _json
+    with conn() as c:
+        rows = c.execute(
+            "SELECT id, built_at, as_of, source, model, sectors_json, tickers_json"
+            " FROM hypo_runs ORDER BY built_at DESC LIMIT ?", (int(limit),)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["sectors"] = _json.loads(d.pop("sectors_json") or "[]")
+        d["tickers"] = _json.loads(d.pop("tickers_json") or "[]")
+        out.append(d)
+    return out
+
+
 # ---------- audit_hypotheses (감사 가설 큐 — 관측만, 엔진에 영향 없음) ----------
 _AUDIT_COLS = ("id,target,title,claim,falsifier,check_hint,severity,status,note,"
                "created,reviewed")
@@ -1751,6 +1799,9 @@ def llm_usage_summary(days: int = 30) -> dict:
     today = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
     week = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
     by_model: dict[str, dict] = {}
+    # 기능별 귀속(2026-08-07). `kind` 는 `기능:전송` 형태다 — 전송만 기록하던 동안
+    # "월 $64 를 누가 썼나"를 알 수 없었다. 귀속 안 된 호출은 `unattributed` 로 **보이게** 둔다.
+    by_purpose: dict[str, dict] = {}
     for ts, model, kind, inp, out, cost in rows:
         inp, out, cost = int(inp or 0), int(out or 0), float(cost or 0)
         total["calls"] += 1
@@ -1772,11 +1823,22 @@ def llm_usage_summary(days: int = 30) -> dict:
         m["input_tokens"] += inp
         m["output_tokens"] += out
         m["cost_usd"] += cost
+        # 옛 행은 `complete`/`tools`/`stream` 처럼 전송만 있다 → 기능 자리를 `legacy` 로 둔다.
+        purpose = (str(kind or "").split(":", 1)[0]
+                   if ":" in str(kind or "") else f"legacy({kind or '?'})")
+        q = by_purpose.setdefault(purpose, {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0})
+        q["calls"] += 1
+        q["input_tokens"] += inp
+        q["output_tokens"] += out
+        q["cost_usd"] += cost
     for bucket in (total, today, week):
         bucket["cost_usd"] = round(bucket["cost_usd"], 4)
     for m in by_model.values():
         m["cost_usd"] = round(m["cost_usd"], 4)
+    for q in by_purpose.values():
+        q["cost_usd"] = round(q["cost_usd"], 4)
     models = sorted(by_model.items(), key=lambda x: -x[1]["cost_usd"])
+    purposes = sorted(by_purpose.items(), key=lambda x: -x[1]["cost_usd"])
     return {
         "days": days,
         "since_ts": since,
@@ -1784,6 +1846,8 @@ def llm_usage_summary(days: int = 30) -> dict:
         "today": today,
         "last_7d": week,
         "by_model": [{"model": k, **v} for k, v in models],
+        # 무엇을 줄일지 정하려면 **기능별**로 보여야 한다.
+        "by_purpose": [{"purpose": k, **v} for k, v in purposes],
         "note": "추정 비용(공개 단가·캐시/배치 미반영). Anthropic 콘솔 청구와 다를 수 있음. 이 앱 호출분만 집계.",
     }
 

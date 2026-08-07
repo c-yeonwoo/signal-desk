@@ -102,6 +102,19 @@ def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> floa
     return (input_tokens / 1_000_000.0) * inp_r + (output_tokens / 1_000_000.0) * out_r
 
 
+
+# 비용 귀속(2026-08-07). `_record_usage(kind=...)` 가 **전송 방식**(complete/tools/stream)만
+# 기록해서, 프로덕션 월 $64.15(상한 $10 초과·차단 중) 27,256회가 **어느 기능에서 났는지 알 수
+# 없었다.** 귀속이 없으면 무엇을 줄일지 정할 수 없다 — "비용이 부담스럽다"를 잴 수가 없다.
+# 그래서 `purpose`(기능 이름)를 진입점마다 받아 `kind` 에 `기능:전송` 으로 남긴다.
+# 기본값은 `unattributed` 다 — 조용히 뭉개지 말고 **귀속 안 된 호출도 보이게** 한다.
+_UNATTRIBUTED = "unattributed"
+
+
+def _kind(purpose: str | None, transport: str) -> str:
+    return f"{purpose or _UNATTRIBUTED}:{transport}"
+
+
 def _record_usage(model: str, usage: dict | None, *, kind: str, ok: bool = True) -> None:
     if not usage:
         return
@@ -140,7 +153,8 @@ def _post_json(body: dict, *, timeout: float = _TIMEOUT) -> dict | None:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def complete(system: str, user: str, *, max_tokens: int = 1024, model: str = DEFAULT_MODEL) -> str | None:
+def complete(system: str, user: str, *, max_tokens: int = 1024, model: str = DEFAULT_MODEL,
+             purpose: str | None = None) -> str | None:
     """system+user 프롬프트로 1회 호출해 텍스트를 반환. 키 없거나 실패 시 None.
     (temperature는 opus-4-8에서 deprecated라 보내지 않는다)"""
     try:
@@ -150,7 +164,7 @@ def complete(system: str, user: str, *, max_tokens: int = 1024, model: str = DEF
         })
         if not data:
             return None
-        _record_usage(model, data.get("usage"), kind="complete")
+        _record_usage(model, data.get("usage"), kind=_kind(purpose, "complete"))
         parts = data.get("content", [])
         return "".join(p.get("text", "") for p in parts if p.get("type") == "text").strip() or None
     except BudgetExceeded:
@@ -171,7 +185,7 @@ def messages_with_tools(system: str, messages: list, tools: list, *,
         })
         if not data:
             return None
-        _record_usage(model, data.get("usage"), kind="tools")
+        _record_usage(model, data.get("usage"), kind=_kind(purpose, "tools"))
         return {"content": data.get("content", []), "stop_reason": data.get("stop_reason")}
     except BudgetExceeded:
         raise                       # 예산 차단은 키 없음(None)과 구분해 올린다
@@ -181,7 +195,8 @@ def messages_with_tools(system: str, messages: list, tools: list, *,
 
 
 def stream_call(system: str, messages: list, tools: list, *,
-                max_tokens: int = 1200, model: str = NARRATIVE_MODEL):
+                max_tokens: int = 1200, model: str = NARRATIVE_MODEL,
+                purpose: str | None = None):
     """tool use + 토큰 스트리밍 1회 호출(제너레이터). SSE를 파싱해:
       ('text', 델타)  — 텍스트 토큰이 생성될 때마다
       ('result', {content, stop_reason})  — 마지막에 1회(블록 재구성 완료; 실패·키없음이면 None)
@@ -248,7 +263,7 @@ def stream_call(system: str, messages: list, tools: list, *,
         log.warning("LLM 스트리밍 실패: %s", type(e).__name__)
         yield ("result", None)
         return
-    _record_usage(model, usage or None, kind="stream")
+    _record_usage(model, usage or None, kind=_kind(purpose, "stream"))
     content = []
     for i in sorted(blocks):
         b = blocks[i]
@@ -315,10 +330,11 @@ def complete_json_vision(system: str, user: str, *, media_type: str, data_b64: s
     return None
 
 
-def complete_json(system: str, user: str, *, max_tokens: int = 1024, model: str = DEFAULT_MODEL) -> dict | None:
+def complete_json(system: str, user: str, *, max_tokens: int = 1024, model: str = DEFAULT_MODEL,
+                  purpose: str | None = None) -> dict | None:
     """JSON 응답을 강제·파싱. 코드펜스/잡텍스트가 섞여도 첫 {..} 블록을 관대하게 파싱. 실패 시 None."""
     sys_json = system + "\n\n반드시 유효한 JSON 하나만 출력하라. 설명·코드펜스 없이 JSON 객체만."
-    text = complete(sys_json, user, max_tokens=max_tokens, model=model)
+    text = complete(sys_json, user, max_tokens=max_tokens, model=model, purpose=purpose)
     if not text:
         return None
     try:
