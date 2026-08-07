@@ -1074,11 +1074,13 @@ def warnings_status() -> dict:
     available = toss.available()
     if not WARNINGS_FILE.exists():
         return {"fetched": False, "active": 0, "updated": None, "toss_available": available,
-                "blocked_reason": "미수집 — 토스 미설정" if not available else "미수집 — 아직 한 번도 안 받음"}
+                # 토스 미설정은 의도된 미설정 · 설정했는데 못 받은 것은 고장이다.
+                "blocked_reason": "미수집 — 토스 미설정" if not available else "미수집 — 아직 한 번도 안 받음",
+                "blocked_kind": "unconfigured" if not available else "fault"}
     return {"fetched": True, "active": len(load_warned_tickers()),
             "updated": datetime.datetime.fromtimestamp(
                 WARNINGS_FILE.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
-            "toss_available": available, "blocked_reason": None}
+            "toss_available": available, "blocked_reason": None, "blocked_kind": None}
 
 
 def fetch_us_fundamentals_edgar(tickers: list[str], max_calls: int = 40) -> int:

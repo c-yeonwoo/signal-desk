@@ -1474,11 +1474,14 @@ def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3,
     stale = [r for r in rows if not r["fresh"]]
     oldest = max((r["age_days"] for r in rows if r["age_days"] is not None), default=None)
     reason = None
+    kind = None
     if not rows:
         reason = "수집 대상 없음 — 확정 국면 주도섹터·보유·관심종목이 비었다"
+        kind = "empty"
     elif last.get("failed"):
         reason = (f"마지막 실행에서 {len(last['failed'])}종목 실패: "
                   + ", ".join(f["name"] for f in last["failed"][:5]))
+        kind = "fault"
     elif not fresh and auto_collect is False:
         # **동결과 고장을 구분한다.** 자동수집은 기본 OFF다(`config.kb_auto_collect` — 트레이딩
         # 예산과 학습 예산을 분리하려는 의도적 결정). 그런데 이 함수가 "수집 루프가 멈췄을 수
@@ -1486,15 +1489,23 @@ def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3,
         # 미완성·동결·고장 중 어느 것인지 말해야 한다 — 셋이 화면에 똑같이 0으로 보인다.
         reason = (f"자동수집 OFF(KB_AUTO_COLLECT 미설정) — 대상 {len(rows)}종목은 관리자 수동 "
                   f"수집으로만 갱신된다. 고장이 아니다.")
+        # 문구에 "고장이 아니다"라고 적어 두고도 화면 `오늘 할 일`이 이걸 버튼으로 띄웠다.
+        # 문구는 사람이 읽고 분류는 **기계가 읽는다** — 화면이 문자열을 파싱하면 그 매핑은
+        # 어디에서도 검사되지 않는다(`[추세]` 접두어 파싱과 같은 병).
+        kind = "frozen"
     elif not fresh:
         reason = f"대상 {len(rows)}종목 전부 {stale_days}일 이상 미갱신 — 수집 루프가 멈췄을 수 있다"
+        kind = "fault"
     return {"targets": len(rows), "fresh": len(fresh), "stale": len(stale),
             "oldest_age_days": oldest, "stale_days": stale_days,
             "stale_names": [r["name"] for r in stale[:8]],
             "last_run": (datetime.datetime.fromtimestamp(last["ts"]).strftime("%Y-%m-%d %H:%M")
                          if last.get("ts") else None),
             "last_updated": last.get("updated"), "last_failed": last.get("failed") or [],
-            "auto_collect": auto_collect, "blocked_reason": reason}
+            "auto_collect": auto_collect, "blocked_reason": reason,
+            # 0의 이유를 **기계가 읽을 수 있게** 분류한다: 고장 / 동결(의도된 정지) /
+            # 미설정(키 없음) / 빈 대상. `오늘 할 일`은 `fault` 만 띄운다.
+            "blocked_kind": kind}
 
 
 def sentiment_map() -> dict[str, dict]:
