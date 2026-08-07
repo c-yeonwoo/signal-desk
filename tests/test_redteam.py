@@ -3159,3 +3159,47 @@ def test_fill_push_is_silent_when_nothing_filled():
         assert pushed.call_count == 1
         assert "매수 A" in pushed.call_args[0][0]
     os.environ.pop("TELEGRAM_BOT_TOKEN"); os.environ.pop("TELEGRAM_CHAT_ID")
+
+
+# ── 오늘 할 일 = 고장만 (2026-08-07) ─────────────────────────────────────────
+# `자동수집 OFF(...) 고장이 아니다.` 라는 문구가 **할 일 버튼으로** 떠 있었다.
+# 동결을 고장으로 보고하면 고장 조사를 유도한다(#340에서 같은 병을 문구로만 고쳤다).
+
+def test_blocked_reasons_carry_a_machine_readable_kind():
+    """문구는 사람이 읽고 **분류는 기계가 읽는다.**
+
+    화면이 문자열을 파싱해 분류하면 그 매핑은 어디에서도 검사되지 않는다
+    (`[추세]` 접두어 파싱이 그랬고, 문구를 고치는 순간 태그가 조용히 사라졌다).
+    """
+    from signal_desk import kb, store
+    for name, st in (("kb.refresh_status", kb.refresh_status()),
+                     ("store.warnings_status", store.warnings_status())):
+        assert "blocked_kind" in st, f"{name} 에 blocked_kind 가 없다"
+        if st.get("blocked_reason"):
+            assert st["blocked_kind"] in ("fault", "frozen", "unconfigured", "empty"), \
+                f"{name} blocked_kind={st['blocked_kind']!r} — 분류가 없거나 낯설다"
+        else:
+            assert st["blocked_kind"] is None, f"{name}: 이유가 없는데 분류가 있다"
+
+
+def test_todo_list_hides_intentional_states_but_not_unknown_ones():
+    """할 일은 **고장만**. 다만 모르는 종류는 띄운다 — 조용히 숨기면 새 고장을 놓친다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    blk = html.split("function renderAdminTodo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "blocked_kind" in blk, "화면이 분류를 읽지 않는다"
+    assert "_NOT_A_TODO" in blk
+    # 제외 목록에 의도된 상태 셋이 들어 있어야 한다.
+    lst = blk.split("_NOT_A_TODO = new Set(", 1)[1].split(")", 1)[0]
+    for k in ("frozen", "unconfigured", "empty"):
+        assert k in lst, f"{k} 가 제외 목록에 없다"
+    # **화이트리스트 방식이 아니어야 한다** — `kind === 'fault'` 로 걸면 새 분류가 조용히 숨는다.
+    assert "=== 'fault'" not in blk, "고장만 통과시키면 모르는 종류가 숨는다(fail-loud 위반)"
+
+
+def test_frozen_states_still_appear_in_diagnostics():
+    """할 일에서 뺐다고 **정보를 지운 것은 아니다** — 진단 카드에는 그대로 남아야 한다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    # `/api/data-health` 를 그리는 곳이 blocked_reason 을 여전히 렌더한다.
+    assert html.count("blocked_reason") >= 3, "진단 카드에서 이유가 사라졌다"

@@ -2400,7 +2400,10 @@ def _kb_retrieval_status() -> dict:
             "embedded": len(db.kb_embeddings_for_model(mid)),
             "pending": len(db.kb_entries_missing_embed(mid, limit=10000)),
             "blocked_reason": None if kb_embed.semantic_capable()
-            else "해시 폴백 — OPENAI_API_KEY 또는 pip install -e \".[embed]\" 필요"}
+            else "해시 폴백 — OPENAI_API_KEY 또는 pip install -e \".[embed]\" 필요",
+            # 키를 안 넣은 것은 **의도된 미설정**이다 — 고장이 아니므로 할 일에 띄우지 않는다.
+            # 다만 진단 카드에는 그대로 남는다(벡터가 저장돼 있다는 게 의미 벡터라는 뜻은 아니다).
+            "blocked_kind": None if kb_embed.semantic_capable() else "unconfigured"}
 
 
 @app.get("/api/live-status")

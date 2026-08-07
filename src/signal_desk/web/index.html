@@ -5855,8 +5855,18 @@ function renderAdminTodo(){
     } else if (d.crowding && d.crowding.data_quality) {
       items.push({ seg: 'ops', text: `섹터맵 공백 · ${d.crowding.note || '미분류'}` });
     }
+    // **할 일은 고장만이다.** `자동수집 OFF`(의도된 동결)·`해시 폴백`(의도된 미설정)이
+    // 매일 버튼으로 떠 있었고, 두 번째 문구에는 "고장이 아니다"라고 적혀 있었다 —
+    // 동결을 고장으로 보고하면 고장 조사를 유도한다. 서버가 `blocked_kind` 로 분류한다.
+    //
+    // **모르는 종류는 띄운다**(fail-loud). 조용히 숨기는 쪽으로 기울면 새로 생긴 고장이
+    // 목록에 안 나타난다 — 할 일 목록에서 위험한 방향은 '안 보이는 것'이다.
+    const _NOT_A_TODO = new Set(['frozen', 'unconfigured', 'empty']);
     ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => {
-      if (d[k] && d[k].blocked_reason) items.push({ seg: 'ops', text: d[k].blocked_reason });
+      const st = d[k];
+      if (!st || !st.blocked_reason) return;
+      if (_NOT_A_TODO.has(st.blocked_kind)) return;      // 진단 카드에는 그대로 남는다
+      items.push({ seg: 'ops', text: st.blocked_reason });
     });
   }
   const eng = _badgeN('admin-engine-badge');
