@@ -3366,3 +3366,24 @@ def test_normal_coverage_does_not_shout():
     low = css.split(".cov-badge.low {", 1)[1].split("}", 1)[0]
     assert "background" not in base, "정상 커버리지가 배경색을 가지면 소음이 된다"
     assert "background" in low and "sig-watch" in low, "낮은 커버리지가 안 튄다"
+
+
+def test_llm_budget_caps_are_consistent_and_documented():
+    """월 상한만 올리면 **일 상한에서 매일 막힌다** — 두 게이트를 같이 봐야 한다.
+
+    2026-08-07: 월 $10 → $100 으로 올릴 때 일 $1 을 그대로 두면, 프로덕션 실측 일평균
+    $2.14(최근 7일 $3.08)에서 매일 차단된다. 올린 쪽만 보고 "열렸다"고 믿는 것이
+    이 리포가 반복해서 밟은 완화 착각이다.
+    """
+    from pathlib import Path
+    from signal_desk import config
+    day, month = config.llm_daily_budget_usd(), config.llm_monthly_budget_usd()
+    assert day > 0 and month > 0
+    # 월 상한이 일×30 이상이면 월 게이트는 **아무 것도 막지 않는다**(있는 척하는 완화).
+    assert month < day * 30, f"월 {month} ≥ 일 {day}×30 — 월 게이트가 무효다"
+    # 일 상한이 월 상한보다 크면 일 게이트가 무효다.
+    assert day < month, f"일 {day} ≥ 월 {month} — 일 게이트가 무효다"
+    # `.env.example` 이 코드 기본값과 어긋나면 배포 때 다른 값이 걸린다.
+    env = Path(".env.example").read_text(encoding="utf-8")
+    assert f"LLM_DAILY_BUDGET_USD={day:g}" in env, ".env.example 일 상한이 코드와 다르다"
+    assert f"LLM_MONTHLY_BUDGET_USD={month:g}" in env, ".env.example 월 상한이 코드와 다르다"
