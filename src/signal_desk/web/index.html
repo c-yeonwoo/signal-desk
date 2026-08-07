@@ -4513,6 +4513,26 @@ async function loadBotState(){
     document.getElementById('bot-cash').textContent = fmtM(d.cash);
     document.getElementById('bot-total').textContent = fmtM(d.total_eval);
     document.getElementById('bot-count').textContent = d.positions.length;
+    // **보유 0이면 `총평가금액 = 현금`이라 두 카드가 같은 숫자를 보여준다.** 실측에서 안정형·
+    // 균형형이 전량 현금이었고 화면은 그 사실을 말하지 않았다 — 기준이 애매해 보이는 원인이다.
+    const cashOnly = !d.positions.length;
+    const cashCard = document.getElementById('bot-cash')?.parentElement;
+    if (cashCard) {
+      cashCard.title = cashOnly
+        ? '보유 종목이 없어 총평가금액과 같습니다(전량 현금).'
+        : `총평가금액 ${fmtM(d.total_eval)} = 현금 ${fmtM(d.cash)} + 주식 ${fmtM(d.stock_eval)}`;
+    }
+    // 총평가금액에 **시드 대비**를 붙인다 — 이 카드만 보고는 벌었는지 알 수 없었다.
+    const totLbl = document.getElementById('bot-total')?.previousElementSibling
+      || document.getElementById('bot-total')?.parentElement?.querySelector('.stat-label');
+    if (totLbl && d.seed_cash) {
+      const r = (d.total_eval - d.seed_cash) / d.seed_cash * 100;
+      const col = Math.abs(r) < 0.5 ? 'var(--dim-2)' : (r > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)');
+      totLbl.innerHTML = `총평가금액 <span style="font-weight:700;color:${col}">`
+        + `${r > 0 ? '+' : ''}${fmtNum(r, 2)}%</span>`
+        + `<span style="font-weight:600;color:var(--dim-2)"> · 시드 대비</span>`
+        + (cashOnly ? `<span style="font-weight:700;color:var(--sig-watch)"> · 전량 현금</span>` : '');
+    }
 
     // 총손익률(평가손익합계/매입금액합계)
     const plEl = document.getElementById('bot-pl');
@@ -4529,7 +4549,7 @@ async function loadBotState(){
     document.getElementById('bot-acct-status').innerHTML =
       `<b style="color:var(--txt)">${esc(d.label || '')}</b> 트레이딩 · ${usd ? '해외(USD)' : '국내'} · 시드 ${fmtM(d.seed_cash)}(고정)`
       + ` · <b style="color:${d.llm_enabled ? 'var(--sig-buy)' : 'var(--dim)'}">AI 판단 ${d.llm_enabled ? 'ON' : 'OFF'}</b>`
-      + ` · <span style="color:var(--dim-2)">리셋·시드 변경 없음</span>` + killTxt;
+      + ` · <span style="color:var(--dim-2)" title="초기화 버튼을 일부러 만들지 않았습니다. 성적이 나쁠 때 리셋할 수 있는 장부는 항상 좋아 보이므로 증거가 될 수 없습니다 — 백테스트에서 경계하는 생존편향과 같은 병입니다.">리셋 불가 · 시드 고정 <b>(왜?)</b></span>` + killTxt;
     const cfg = d.config || {};
     // 운용 규칙은 10개가 넘는다. 한 문단으로 늘어놓으면 아무도 안 읽는 회색 벽이 된다 — 접어 둔다.
     document.getElementById('bot-rules').innerHTML =
@@ -4637,8 +4657,22 @@ async function loadReferencePerf(){
     el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num" title="시드 대비 계좌 전체 수익률 — 이게 성적입니다">계좌 수익률</th>
       <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
       <tbody>${rows}</tbody></table>
-      <div style="color:var(--dim-2);font-size:var(--fs-2xs);margin-top:8px">같은 시그널, 다른 규칙 강도로 집행한 결과 — 시그널 실측과는 다른 지표입니다.</div>`;
+      ${_styleVerdictNote(d)}
+      <div style="color:var(--dim-2);font-size:var(--fs-2xs);margin-top:6px">같은 시그널, 다른 규칙 강도로 집행한 결과 — 시그널 실측과는 다른 지표입니다.
+      성향은 <b>후보를 좁히지 않고 종목당 비중으로</b> 갈립니다(안정 6% · 균형 8% · 공격 14%).</div>`;
   } catch (e) { el.className = 'placeholder'; el.textContent = '불러오지 못했습니다.'; }
+}
+
+// 세 성향의 우열을 **말할 수 있는 표본인가**. 23일 실측에서 −0.63 ~ −4.53% 였는데
+// 그건 이 리포 기준(실효 30기간)으로 **구분 불가**다. 그런데 표가 세 숫자를 나란히 놓아
+// "안정형이 낫다"로 읽히게 했다 — 기준선 없는 비율을 노출하지 않는다는 규칙과 같은 문제다.
+const _STYLE_MIN_DAYS = 120;   // 대략 6개월 — 실효 30기간(5일 보유)에 해당
+function _styleVerdictNote(d) {
+  const days = Math.max(0, ...(d.bots || []).map(b => b.days || 0));
+  if (days >= _STYLE_MIN_DAYS) return '';
+  return `<div style="margin-top:8px;font-size:var(--fs-xs);color:var(--sig-watch);font-weight:600">`
+    + `성향 간 우열은 <b>아직 판정 불가</b>입니다 — 누적 ${days}일 / 최소 ${_STYLE_MIN_DAYS}일. `
+    + `이 표는 <b>무엇을 했는지</b>의 기록이고, 어느 성향이 더 나은지의 근거가 아닙니다.</div>`;
 }
 
 let _botEquityChart = null;

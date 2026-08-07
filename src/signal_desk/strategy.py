@@ -22,20 +22,38 @@ STYLE_DESC = {
 
 # entry_tranches: 목표비중을 몇 회로 나눠 분할매수할지(라오어 분할매수 응용 — 진입 타이밍 리스크 분산)
 # harvest_take_profit_pct: 횡보·약세 국면에서 '중간 실현'용 타이트 익절(추세 국면엔 위 take_profit + 트레일링 유지)
-# rank_top_pct: 매수권을 성향별로 **좁히는** 폭(횡단면 분위 모드). 엔진 분위(engine.rank_top_pct)가
-#   앱 전체의 매수권 정의이고, 성향은 그 안에서만 더 좁힐 수 있다(넓히기 불가 — 두 정의가 갈라지면
-#   화면의 '매수권'과 봇의 매수가 어긋난다). min_buy_score는 절대문턱 모드에서만 쓰인다 — 분위
-#   모드에서 절대값 1.9를 요구하면 관측 최고점수 1.91과 겹쳐 다시 매수 0건이 된다.
+#
+# ## 성향별 `rank_top_pct` 를 없앴다 (2026-08-07)
+#
+# 성향마다 매수권을 좁히던 값(안정 1.0 · 균형 2.0 · 공격 3.0)이 **`max_positions` 를 죽이고
+# 설계 의도를 뒤집고 있었다.** 200종목 기준 실제 후보 자리:
+#
+#     안정형  창 2자리  (설계 의도: 12종목 넓게 분산)   ← 가장 집중
+#     균형형  창 4자리
+#     공격형  창 6자리  (설계 의도: 6종목 소수 집중)    ← 가장 분산
+#
+# `rank_top_pct` 가 먼저 막으므로 `max_positions`(12/10/6)는 한 번도 발동하지 않았다.
+# 이제 **세 성향이 같은 후보(엔진 분위 = 창 6자리)를 보고 `position_pct` 로 갈린다**:
+#
+#     안정형  6자리 × 6%  = 투입 36% (현금 64%)
+#     균형형  6자리 × 8%  = 투입 48%
+#     공격형  6자리 × 14% = 투입 84%
+#
+# `안정형 = 변동성↓` 과 방향이 맞고, 화면의 매수권과 봇의 후보가 **하나의 정의**를 쓴다.
+# min_buy_score는 절대문턱 모드에서만 쓰인다 — 분위 모드에서 절대값 1.9를 요구하면
+# 관측 최고점수 1.91과 겹쳐 다시 매수 0건이 된다.
+#
+# **미검증 변경이다**: 판별력이 `판정 불가`인 동안 넣은 것이므로 `unproven` 으로 이력에 남는다.
 PRESETS = {
     "conservative": {"max_positions": 12, "position_pct": 0.06, "min_buy_score": 1.9, "max_new_buys_per_run": 2,
                      "stop_loss_pct": -0.05, "take_profit_pct": 0.10, "trailing_from_peak_pct": -0.04,
-                     "entry_tranches": 4, "harvest_take_profit_pct": 0.06, "rank_top_pct": 1.0},
+                     "entry_tranches": 4, "harvest_take_profit_pct": 0.06},
     "balanced": {"max_positions": 10, "position_pct": 0.08, "min_buy_score": 1.6, "max_new_buys_per_run": 2,
                  "stop_loss_pct": -0.07, "take_profit_pct": 0.15, "trailing_from_peak_pct": -0.05,
-                 "entry_tranches": 3, "harvest_take_profit_pct": 0.09, "rank_top_pct": 2.0},
+                 "entry_tranches": 3, "harvest_take_profit_pct": 0.09},
     "aggressive": {"max_positions": 6, "position_pct": 0.14, "min_buy_score": 1.3, "max_new_buys_per_run": 3,
                    "stop_loss_pct": -0.10, "take_profit_pct": 0.25, "trailing_from_peak_pct": -0.07,
-                   "entry_tranches": 2, "harvest_take_profit_pct": 0.12, "rank_top_pct": 3.0},
+                   "entry_tranches": 2, "harvest_take_profit_pct": 0.12},
 }
 
 # 추세 국면(여기선 익절을 넓게 두고 트레일링으로 수익 극대화). 그 외(횡보·약세·조정)는 중간 실현.
@@ -72,8 +90,15 @@ def entry_tranches(style: str) -> int:
 
 
 def rank_top_pct(style: str, engine_top_pct: float) -> float:
-    """성향별 매수권 분위 — 엔진 분위보다 넓힐 수는 없다(화면의 매수권과 봇이 갈라지지 않게)."""
-    return min(float(preset(style)["rank_top_pct"]), float(engine_top_pct))
+    """매수권 분위 — **엔진 값 하나만 쓴다.** 성향은 후보를 좁히지 않고 비중으로 갈린다.
+
+    2026-08-07 이전에는 성향별로 더 좁혔는데, 그게 `max_positions` 를 죽이고 설계 의도를
+    뒤집었다(안정형 창 2자리 = 가장 집중). 매수권 정의가 하나면 화면의 '매수권'과 봇의
+    후보가 갈라질 수 없다 — 갈라짐은 이 리포가 네 번 밟은 병이다.
+
+    `style` 은 시그니처 호환을 위해 남긴다(호출처가 넘긴다) — 값은 쓰지 않는다.
+    """
+    return float(engine_top_pct)
 
 
 def normalize(style: str) -> str:
@@ -99,3 +124,38 @@ def risk_config(style: str, regime: str | None = None) -> risk.RiskConfig:
         tp = p["harvest_take_profit_pct"]  # 횡보/약세 → 빨리 실현
     return risk.RiskConfig(stop_loss_pct=p["stop_loss_pct"], take_profit_pct=tp,
                            trailing_from_peak_pct=p["trailing_from_peak_pct"])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 미검증 변경 기록 (2026-08-07)
+#
+# 이 파일의 프리셋 변경은 **소스 편집**이라 관리자 UI의 판정 게이트(`prereg.change_allowed`)를
+# 지나지 않는다. 그 게이트가 경고한 우회로가 바로 이것이다 — "순수하게 잠그면 소스를 직접
+# 편집하는 우회로가 생기고 그 변경은 이력에 남지 않는다"(H1이 그랬다).
+#
+# 그래서 부팅 시 **한 번** 설정 이력에 남긴다. 관리자 화면의 미검증 배너가 이걸 읽는다.
+# 매 부팅 중복 기록하지 않도록 kv 가드를 둔다 — 배너가 같은 항목으로 도배되면 안 읽힌다.
+_UNPROVEN_KEY = "strategy_unproven:style-breadth-2026-08-07"
+
+
+def record_unproven_change() -> bool:
+    """성향별 매수권 좁히기 제거를 설정 이력에 1회 기록. 이미 있으면 False."""
+    from signal_desk import db, signalcfg
+    if db.kv_get(_UNPROVEN_KEY):
+        return False
+    signalcfg.append_history({
+        "ts": __import__("time").time(),
+        "source": "strategy.py (소스 편집 · 관리자 UI 아님)",
+        "unproven": True,
+        "reason": ("성향별 rank_top_pct(1.0/2.0/3.0) 제거 — 그 값이 max_positions(12/10/6)를 "
+                   "죽이고 설계 의도를 뒤집었다(안정형 창 2자리 = 가장 집중, 공격형 6자리 = "
+                   "가장 분산). 이제 엔진 분위 하나가 매수권을 정하고 성향은 position_pct로 "
+                   "갈린다(투입 36%/48%/84%)."),
+        "before": {"conservative.rank_top_pct": 1.0, "balanced.rank_top_pct": 2.0,
+                   "aggressive.rank_top_pct": 3.0},
+        "after": {"rank_top_pct": "엔진 값 하나만 사용(성향별 좁히기 없음)"},
+        # 판별력이 `판정 불가`인 동안 넣은 변경이라는 사실을 함께 남긴다.
+        "verdict_at_change": "판정 불가(실효 표본 미달) — 측정으로 정당화된 변경이 아니다",
+    })
+    db.kv_set(_UNPROVEN_KEY, {"recorded": True})
+    return True
