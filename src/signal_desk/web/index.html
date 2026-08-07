@@ -952,6 +952,11 @@
         <p id="chart-mode-hint" class="page-desc" style="display:none;margin:0 0 8px;font-size:13px"></p>
         <div id="signal-chart"></div>
         <div id="signal-legend" style="display:none;font-size:12px;color:var(--dim);margin:4px 0;line-height:1.55"></div>
+        <!-- 왜 지금 — **근거**(신호)다. 점수를 실제로 만든 입력의 변화이므로 맥락 탭이 아니라
+             차트 바로 아래에 둔다. 매수·매도 종목만 노출한다(관망은 대부분이라 매일 보면 안 읽힌다). -->
+        <div id="signal-whynow" style="display:none;font-size:13px;line-height:1.55;margin:6px 0;
+          padding:8px 10px;border-left:3px solid var(--accent);background:var(--accent-weak);
+          border-radius:var(--r-sm);text-align:left"></div>
         <div class="detail-tabs" id="detail-tabs" style="display:none"></div>
         <div class="detail-panels" id="detail-panels">
           <div id="signal-narrative" class="detail-panel placeholder" style="display:none;background:var(--accent-weak);
@@ -3482,6 +3487,36 @@ function renderOppFilters(){
   box.innerHTML = chip('전체', null) + OPP_TYPES.filter(t => cnt[t]).map(t => chip(t, t)).join('');
 }
 
+// 왜 지금 — 섹터인가 종목 고유인가. **LLM 없음**(PIT 스냅샷 산술)이라 매번 불러도 공짜다.
+// 이건 맥락이 아니라 **근거**다: 점수를 실제로 만든 입력의 변화라서 지어낼 여지가 없다.
+const _WHY_SECTOR_TONE = { sector: 'var(--dim)', idiosyncratic: 'var(--accent)', mixed: 'var(--dim)' };
+async function fetchWhyNow(ticker, el){
+  try {
+    const d = await (await fetch('/api/why-now?ticker=' + encodeURIComponent(ticker))).json();
+    if (_selectedTicker !== ticker || !el) return;
+    // 준비 안 됨·변화 없음이면 **아무 말도 하지 않는다** — 없는 변화에 이야기를 붙이면
+    // 사후 합리화이고, 매일 뜨는 문구는 곧 안 읽힌다.
+    if (!d.ready || d.quiet) { el.style.display = 'none'; return; }
+    const s = d.sector || {};
+    const when = d.turned_buy_on ? `${esc(d.turned_buy_on)}에 매수권으로 바뀌었고, ` : '';
+    const facs = (d.factors || []).slice(0, 3)
+      .map(f => `${esc(f.label)} ${f.delta > 0 ? '+' : ''}${f.delta.toFixed(2)}`).join(' · ');
+    // **escape 먼저, 그 다음 `**` 를 <b>로.** 순서를 바꾸면 서버 문장에 태그를 넣을 수 있다.
+    const secLine = s.text
+      ? `<div style="margin-top:4px;color:${_WHY_SECTOR_TONE[s.verdict] || 'var(--dim)'}">`
+        + esc(s.name ? '[' + s.name + '] ' : '')
+        + esc(s.text).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>') + `</div>`
+      : '';
+    el.innerHTML = `<span class="layer-badge sig">근거</span> `
+      + `<span style="font-size:12px;color:var(--dim);font-weight:600">왜 지금 · 최근 ${d.window_dates}거래일</span>`
+      + `<div style="margin-top:4px">${when}점수가 `
+      + `<b>${d.score_before.toFixed(2)} → ${d.score_after.toFixed(2)}</b>`
+      + ` (${d.score_delta > 0 ? '+' : ''}${d.score_delta.toFixed(2)}) 움직였습니다`
+      + (facs ? ` — ${facs}` : '') + `</div>` + secLine;
+    el.style.display = '';
+  } catch(e) { if (el) el.style.display = 'none'; }
+}
+
 // #17 시그널 해설 v2 — BUY/SELL만 LLM 해설(HOLD는 규칙 문장 유지). 선택 종목 바뀌면 무시.
 const _narrInflight = Object.create(null);
 async function fetchNarrativeV2(ticker, el){
@@ -4310,6 +4345,12 @@ async function showSignalChart(ticker, item){
     if (ticker !== INDEX_TICKER && item && item.kind && item.kind !== 'HOLD') {
       const narrEl = document.getElementById('signal-narrative');
       if (narrEl) fetchNarrativeV2(ticker, narrEl);
+      // 왜 지금(근거) — 시그널이 있는 종목만. 관망은 대부분이라 매일 뜨면 안 읽힌다.
+      const whyEl = document.getElementById('signal-whynow');
+      if (whyEl) fetchWhyNow(ticker, whyEl);
+    } else {
+      const whyEl = document.getElementById('signal-whynow');
+      if (whyEl) whyEl.style.display = 'none';   // 종목을 바꿨을 때 옛 문장이 남지 않게
     }
   } catch (e) { /* 상세 실패는 차트와 무관 */ }
 }
