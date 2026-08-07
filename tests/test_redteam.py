@@ -2207,12 +2207,67 @@ def test_us_price_freshness_uses_bar_dates_not_file_mtime():
     assert "us_price_last_dates" in src, "마지막 봉 날짜를 안 본다"
     assert "us_prices_stale_tickers" in src, "뒤처진 종목 수를 안 센다"
     assert "st_mtime" not in src, "여전히 파일 mtime을 본다"
-    # 임계는 갱신기와 **같은 상수**여야 한다 — 두 곳에 두면 화면과 실제 주기가 갈라진다.
-    assert "US_STALE_DAYS" in src
+    # 임계를 **아예 넘기지 않는다.** 이전엔 `max_age_days=US_STALE_DAYS` 로 같은 상수를 넘겨
+    # "두 곳이 갈라지지 않게" 했는데, 넘길 수 있으면 언젠가 다른 값이 들어간다. 판정을
+    # `us_prices_stale_tickers` 안에 두고 여기서는 인자 없이 부르면 갈라질 수가 없다.
+    assert "max_age_days" not in src and "max_trading_days" not in src, \
+        "신선도 화면이 자기 문턱을 들고 있으면 갱신기와 갈라질 수 있다"
+    # 빠진 거래일을 **이름으로** 낸다 — "2건 밀림"만 적으면 어느 날이 빈지 몰라 조사가 안 된다.
+    assert "us_missing_trading_days" in src
     # data_freshness가 이 함수를 쓰는지(옛 mtime 항목이 남아 있지 않은지).
     df = inspect.getsource(store_mod.data_freshness)
     assert "_us_prices_freshness()" in df
     assert 'e("us_prices"' not in df, "mtime 기반 항목이 아직 남아 있다"
+
+
+def test_derived_values_behind_a_ttl_gate_have_a_presence_backfill():
+    """**TTL 게이트 뒤에 있는 파생값은 presence 로도 확인해야 한다.**
+
+    2026-08-07 프로덕션: `compute_quality` 배선은 08-05에 추가됐는데 마지막 DART 실행이
+    07-07이라 `dart_fetch_date` TTL 80일이 다음 실행을 **09-25로 밀었다**. 그 사이 퀄리티가
+    200종목 전부 미발동이었고, 대가는 `자료부족 100/200종목`(복구 시 31) · 상위 6자리 중
+    5자리였다. 날짜 게이트는 "원본이 낡았나"만 알고 "파생값이 있나"는 모른다.
+
+    같은 병을 `company_profiles` 에서 이미 고쳐 놓고(바로 4줄 위) 퀄리티엔 적용하지 않았다 —
+    그래서 규약으로 못박는다.
+    """
+    import inspect
+
+    from signal_desk import api as api_mod
+
+    src = inspect.getsource(api_mod._refresh_kr)
+    assert "quality_attached_count" in src, "퀄리티 presence 확인이 없다"
+    # **`_dart_stale()` 분기 밖**에 있어야 한다 — 안에 있으면 게이트에 다시 갇힌다.
+    gate = src.index("_dart_stale()")
+    else_end = src.index("update_valuation")
+    assert src.index("quality_attached_count") > else_end > gate, \
+        "presence 백필이 DART TTL 분기 안에 있으면 게이트에 다시 갇힌다"
+    # 화면에도 드러나야 한다 — 고장이 조용하면 다음에도 몇 주씩 못 본다.
+    fresh = inspect.getsource(__import__("signal_desk.store", fromlist=["x"]).data_freshness)
+    assert "_quality_freshness()" in fresh
+
+
+def test_us_price_staleness_is_counted_in_trading_days_not_calendar_days():
+    """달력일 문턱은 주말과 결손을 가를 수 없다 — 둘 다 "3일"이 된다.
+
+    실측(2026-08-07): `US_STALE_DAYS=3` 이 마지막 봉 08-04 를 `cutoff = today-3 = 08-04` 와
+    비교해 `"08-04" < "08-04"` 거짓 → 갱신 대상 0건 · 화면 `ok` 였고, 그 사이 08-05(수)·
+    08-06(목) 미국장이 둘 다 닫혀 거래일 2일이 비어 있었다. 국내 PIT 스냅샷에 대해 적어 둔
+    규칙(`pit_gap_days` — 거래일 달력과 대조한다)을 미국 시세에만 적용하지 않은 것이다.
+    """
+    import inspect
+
+    from signal_desk import store as store_mod
+
+    src = inspect.getsource(store_mod.us_prices_stale_tickers)
+    assert "us_missing_trading_days" in src, "거래일로 세지 않는다"
+    assert "timedelta" not in src, "달력일 cutoff가 남아 있다"
+    # 기대 마지막 봉은 **저장된 봉에서 유도하면 안 된다** — 전 종목이 멈추면 달력도 같이
+    # 멈춰서 정지를 스스로 가린다(순환). 주말·마감시각이라는 외부 사실로 계산해야 한다.
+    exp = inspect.getsource(store_mod.us_expected_last_bar)
+    assert "us_price_last_dates" not in exp and "_read_parquet" not in exp, \
+        "기대일을 데이터에서 유도하면 전 종목 정지를 스스로 가린다"
+    assert "weekday()" in exp, "주말을 빼지 않는다"
 
 
 def test_zero_buy_card_does_not_push_the_list_off_screen():
