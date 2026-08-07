@@ -56,7 +56,63 @@ HARNESS_LAST_FILE = CACHE_DIR / "harness_last.json"  # 마지막 sigdesk harness
 PRICE_HISTORY_DAYS = 1825  # 약 5년 — 모멘텀(60일 최강)·다중국면 팩터/백테스트 신뢰도. 최초 1회 전량, 이후 증분
 US_SKIP_AFTER_FAILS = 3    # 이만큼 연속 실패하면 자동 백필에서 잠시 빼둔다(수동 갱신은 무시)
 US_SKIP_DAYS = 7           # 유예 기간 — 상장·표기 변경이 반영될 만한 간격
-US_STALE_DAYS = 3          # 마지막 일봉이 이보다 오래되면 갱신 대상(금→월 주말 포함)
+US_STALE_DAYS = 3          # (구) 달력일 문턱 — `us_prices_stale_tickers` 는 거래일로 센다
+# 미국 시세 신선도는 **거래일**로 센다. 달력일 문턱은 주말과 결손을 가를 수 없다 —
+# 금요일 봉이 월요일에 3일 낡은 것은 정상이고 화요일 봉이 금요일에 없는 것은 고장인데
+# 달력일로는 둘 다 "3일"이다. 실측(2026-08-07): `US_STALE_DAYS=3` 이 마지막 봉 08-04 를
+# `cutoff = today-3 = 08-04` 와 비교해 `08-04 < 08-04` 거짓 → 갱신 대상 0건 · 화면 `ok` 였고,
+# 그 사이 08-05(수)·08-06(목) 미국장이 둘 다 닫혀 **거래일 2일이 결손**이었다.
+# 이 리포가 국내 PIT 스냅샷에 대해 적어 둔 규칙(`pit_gap_days` — 거래일 달력과 대조한다)을
+# 미국 시세에만 적용하지 않은 것이고, mtime → 마지막 봉으로 고친 것(2026-08-06)의 다음 겹이다.
+US_STALE_TRADING_DAYS = 1  # 기대 마지막 봉보다 이만큼 넘게 뒤처지면 갱신 대상
+# 공휴일 여유 — 주말만 빼고 세므로 미국 공휴일이 있으면 기대일이 실제보다 하루 앞선다.
+# 달력을 외부에서 받지 않는 대신 이 여유로 오탐을 막는다(여유를 0으로 두면 공휴일마다
+# 503종목을 헛되게 재수집한다). 그래서 **거래일 1일 결손은 못 잡는다** — 밝혀 둔다.
+_US_HOLIDAY_SLACK_DAYS = US_STALE_TRADING_DAYS
+# 미국장 종가(16:00 ET)는 KST 익일 05~06시에 확정된다. 제공자 반영 지연까지 보고 08시로 둔다 —
+# 이보다 이르면 매일 아침 "하루 밀림"이 떠서 배너가 곧 안 읽힌다.
+_US_CLOSE_READY_HOUR_KST = 8
+
+
+def _kst_now() -> datetime.datetime:
+    """KST 현재 시각. 서버 TZ(UTC)로 재면 미국 봉 기대일이 하루 어긋난다."""
+    return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+
+
+def us_expected_last_bar(as_of: datetime.datetime | None = None) -> str:
+    """지금 있어야 하는 마지막 미국 일봉 날짜(주말 제외).
+
+    저장된 봉에서 거래일 달력을 유도할 수는 없다 — 전 종목이 멈추면 그 날짜가 파일에
+    없으므로 달력도 같이 멈춰 **정지를 스스로 가린다**(순환). 그래서 기대일만 외부 사실
+    (주말·미국장 마감 시각)로 계산하고, 공휴일 오차는 `_US_HOLIDAY_SLACK_DAYS` 로 흡수한다.
+    """
+    now = as_of or _kst_now()
+    base = now.date() - datetime.timedelta(days=1 if now.hour >= _US_CLOSE_READY_HOUR_KST else 2)
+    while base.weekday() >= 5:                     # 토(5)·일(6) → 금요일로
+        base -= datetime.timedelta(days=1)
+    return base.isoformat()
+
+
+def us_missing_trading_days(last: str | None, expected: str | None = None) -> list[str]:
+    """`last` 다음부터 `expected` 까지 봉이 있어야 하는 거래일(주말 제외)을 **이름으로** 낸다.
+
+    "2건 밀림"만 적으면 어느 날이 빈지 몰라 조사가 안 된다(`pit_gap_days` 와 같은 이유).
+    """
+    exp = expected or us_expected_last_bar()
+    if not last:
+        return []
+    try:
+        d = datetime.date.fromisoformat(str(last)[:10])
+        end = datetime.date.fromisoformat(exp)
+    except ValueError:
+        return []
+    out: list[str] = []
+    d += datetime.timedelta(days=1)
+    while d <= end:
+        if d.weekday() < 5:
+            out.append(d.isoformat())
+        d += datetime.timedelta(days=1)
+    return out
 
 
 def _write_json(path: Path, data) -> None:
@@ -675,6 +731,19 @@ def load_fundamentals_history() -> dict[str, dict]:
     return json.loads(FUNDAMENTALS_HISTORY_FILE.read_text(encoding="utf-8"))
 
 
+def quality_attached_count() -> int:
+    """캐시된 재무 중 퀄리티가 **실제로 붙어 있는** 종목 수.
+
+    `fetch_fundamentals` 가 안에서 채우지만 그 호출은 `dart_fetch_date` TTL 80일 뒤에 있어서,
+    파생값을 나중에 추가하면 최대 80일 동안 조용히 빈다(2026-08-07 실측 0/200). 파일 신선도로는
+    안 잡힌다 — `update_valuation` 이 매일 같은 파일을 다시 써서 `재무 0.4시간 전`이었다.
+    그래서 날짜가 아니라 **있는지**를 센다.
+    """
+    fund = load_fundamentals()
+    return sum(1 for m in fund.values()
+               if isinstance(m, dict) and (m.get("quality") or {}).get("has"))
+
+
 def compute_quality() -> int:
     """캐시된 재무에 축약 F-Score를 다시 붙인다(관리자 수동 경로용).
 
@@ -809,17 +878,28 @@ def us_price_last_dates() -> dict[str, str]:
 
 
 def us_prices_stale_tickers(tickers: list[str] | None = None, *,
-                            max_age_days: int = US_STALE_DAYS,
-                            as_of: datetime.date | None = None) -> list[str]:
-    """마지막 일봉이 cutoff보다 오래된(또는 없는) 티커. 유예 여부는 호출측에서 거른다.
+                            max_trading_days: int = US_STALE_TRADING_DAYS,
+                            as_of: datetime.datetime | None = None) -> list[str]:
+    """마지막 일봉이 **기대 마지막 거래일보다 뒤처진**(또는 없는) 티커. 유예는 호출측에서 거른다.
 
     누락 백필(`_backfill_us_prices_batch`)과 역할이 다르다 — 여기는 '이미 있던 종목이
-    며칠째 안 움직인' 경우를 잡는다. max_age_days=3이면 금→월 주말에도 금요일 종가는 신선."""
-    as_of = as_of or datetime.date.today()
-    cutoff = (as_of - datetime.timedelta(days=int(max_age_days))).isoformat()
+    며칠째 안 움직인' 경우를 잡는다.
+
+    달력일이 아니라 **주말을 뺀 거래일**로 센다(`US_STALE_TRADING_DAYS` 주석 참고) — 달력일
+    문턱은 금→월 주말과 실제 결손을 같은 "3일"로 만들어 문턱 하나로 가를 수 없었다.
+    """
+    expected = us_expected_last_bar(as_of)
     last = us_price_last_dates()
     universe = tickers if tickers is not None else [u["ticker"] for u in load_us_universe()]
-    return [t for t in universe if str(last.get(t) or "")[:10] < cutoff]
+    out = []
+    for t in universe:
+        d = str(last.get(t) or "")[:10]
+        if not d:                                  # 봉이 아예 없으면 갱신 대상
+            out.append(t)
+            continue
+        if len(us_missing_trading_days(d, expected)) > int(max_trading_days):
+            out.append(t)
+    return out
 
 
 def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
@@ -1463,17 +1543,52 @@ def _us_prices_freshness() -> dict:
     if not dates:
         return entry
     newest = dates[-1]
-    behind = us_prices_stale_tickers(list(last), max_age_days=US_STALE_DAYS)
+    behind = us_prices_stale_tickers(list(last))
     try:
         age_h = (datetime.date.today() - datetime.date.fromisoformat(newest)).days * 24.0
     except ValueError:
         age_h = None
+    # 시장 전체가 멈췄는지는 **빠진 거래일을 이름으로** 낸다 — "2건 밀림"만 적으면 어느 날이
+    # 빈지 몰라 조사가 안 된다(`pit_gap_days` 와 같은 이유). 종목별 뒤처짐과 시장 정지는
+    # 다른 고장이므로 따로 낸다: 전자는 그 종목 조회 실패, 후자는 갱신 루프 자체가 멈춘 것이다.
+    expected = us_expected_last_bar()
+    gap = us_missing_trading_days(newest, expected)
     # `rows`는 다른 소스에서 "행 수"인데 여기서는 **뒤처진 종목 수**다 — 뜻이 다르면 밝힌다.
-    note = (f"{len(behind)}/{len(last)}종목이 마지막 봉 {US_STALE_DAYS}일 초과 — 갱신 대상"
-            if behind else None)
+    parts = []
+    if gap:
+        parts.append(f"거래일 {len(gap)}일 결손({', '.join(gap[:5])}"
+                     f"{' 외' if len(gap) > 5 else ''}) — 기대 마지막 봉 {expected}")
+    if behind:
+        parts.append(f"{len(behind)}/{len(last)}종목 갱신 대상")
     entry.update(updated=newest, age_hours=age_h, rows=len(behind),
-                 stale=bool(behind), total=len(last), note=note)
+                 stale=bool(behind), total=len(last),
+                 missing_trading_days=gap, expected_last_bar=expected,
+                 note=" · ".join(parts) or None)
     return entry
+
+
+def _quality_freshness() -> dict:
+    """퀄리티(회사 체질) 커버리지 — **몇 종목에 붙어 있나**. 파일 날짜가 아니다.
+
+    0의 이유를 구분한다: 재무 자체가 없으면 `재무 미수집`(상위 고장이라 여기 책임이 아니다),
+    재무는 있는데 퀄리티가 0이면 `파생값 미계산`(이번 병 — presence 백필이 고친다).
+    """
+    fund = load_fundamentals()
+    total = len(fund)
+    if not total:
+        return {"key": "quality", "label": "회사 체질(재무 파생)", "kind": "derived",
+                "updated": None, "age_hours": None, "rows": 0, "total": 0, "stale": True,
+                "note": "재무(DART)가 없어 계산 대상이 없습니다 — 상위 수집 문제입니다"}
+    n = quality_attached_count()
+    note = None
+    if not n:
+        note = ("재무 %s종목은 있는데 퀄리티가 0건 — 파생값이 계산되지 않았습니다"
+                "(가중 0.15 미발동 · 매수 커버리지 문턱에 그대로 반영됩니다)" % total)
+    elif n < total * 0.5:
+        note = f"{n}/{total}종목만 계산됨 — 전년 재무가 비었는지 확인"
+    return {"key": "quality", "label": "회사 체질(재무 파생)", "kind": "derived",
+            "updated": None, "age_hours": None, "rows": n, "total": total,
+            "stale": not n, "note": note}
 
 
 def data_freshness() -> list[dict]:
@@ -1497,9 +1612,14 @@ def data_freshness() -> list[dict]:
         # 늘리는 경우가 있어 mtime이 정지를 가린다 — 실측: mtime 2일 전인데 종목별 마지막 봉은
         # 중위 한 달 전이고 503종목 전부가 갱신기 기준 stale이었다. "정지는 파일 신선도로 안
         # 잡힌다"는 규칙(PIT 스냅샷에서 배운 것)이 여기서 재발했다. 임계도 갱신기와 하나로 모은다
-        # (`US_STALE_DAYS`) — 두 곳에 두면 화면이 말하는 신선도와 실제 갱신 주기가 갈라진다.
+        # (`US_STALE_TRADING_DAYS`) — 두 곳에 두면 화면이 말하는 신선도와 실제 갱신 주기가 갈라진다.
         _us_prices_freshness(),
         e("fundamentals", "재무(DART)", FUNDAMENTALS_FILE, 100, _json_rows(FUNDAMENTALS_FILE)),
+        # **퀄리티는 날짜가 아니라 있는지로 잰다.** 재무의 파생값이라 원본 파일 mtime은 아무
+        # 정보가 없다 — `update_valuation` 이 매일 같은 파일을 다시 쓰므로 퀄리티가 200종목
+        # 전부 비어 있어도 위 `fundamentals` 는 `0.4시간 전`이라 말한다(2026-08-07 실측).
+        # 파생값이 TTL 게이트 뒤에 있으면 그 기간 내내 조용히 빈다는 사실을 화면에 드러낸다.
+        _quality_freshness(),
         e("flows", "종목 수급(네이버)", FLOWS_FILE, 2, _json_rows(FLOWS_FILE)),
         e("short", "공매도 비중(KRX)", SHORT_FILE, 2, _json_rows(SHORT_FILE)),
         # 컨센서스·시그널 PIT는 평일 마감후에만 쌓인다. stale_days=2면 금→일만 돼도 "오래됨"이
@@ -2107,7 +2227,11 @@ def stall_report() -> dict:
     stale = [{"key": e["key"], "label": e["label"], "updated": e["updated"],
               "age_hours": e["age_hours"]}
              for e in fresh if e.get("stale")]
-    missing_file = [e for e in stale if not e.get("updated")]
+    # `updated` 가 없으면 캐시 파일이 없는 것이지만, **파생값 항목은 파일이 아니다**(퀄리티는
+    # 재무 파일 안의 값이라 자기 mtime이 없다). 안 걸러 내면 "파일 없음"으로 잘못 보고한다.
+    missing_file = [e for e in stale
+                    if not e.get("updated")
+                    and next((f.get("kind") for f in fresh if f["key"] == e["key"]), None) != "derived"]
     gap = pit_gap_days()
 
     harness_days = None

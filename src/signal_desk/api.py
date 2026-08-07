@@ -2136,6 +2136,24 @@ def _refresh_kr(data: dict) -> dict:
             store.fetch_company_profiles(universe)
         except Exception as e:
             log.warning("기업개황 백필 실패(무시): %s", type(e).__name__)
+    # 퀄리티도 **정확히 같은 병**을 앓았다(2026-08-07 프로덕션 진단). `compute_quality` 배선은
+    # 08-05에 추가됐는데 마지막 DART 실행이 07-07이라 `dart_fetch_date` TTL 80일이 다음 실행을
+    # **09-25로 밀었고**, 그 사이 퀄리티가 200종목 전부 미발동이었다. 대가가 컸다 — 문턱 0.80에
+    # 대해 가중 0.15가 통째로 빠지니 여유가 0.08뿐이어서 **다른 관점 하나만 더 없으면 즉시 탈락**,
+    # 실측 `자료부족 100/200종목`(복구 시 31)이고 상위 6자리 중 5자리가 여기 걸려 있었다.
+    # 화면은 이걸 볼 수 없었다 — `update_valuation` 이 매일 같은 파일을 다시 써서 신선도가
+    # `재무 0.4시간 전`이었다(집계 신선도가 정지를 가리는 병).
+    #
+    # 규칙: **TTL 게이트 뒤에 있는 파생값은 presence 로도 확인한다.** 날짜 게이트는 "원본이
+    # 낡았나"만 알고 "파생값이 있나"는 모르므로, 파생값을 나중에 추가하면 최대 TTL 기간 동안
+    # 조용히 빈다. `compute_quality()` 는 API 호출이 0이라(캐시 두 파일 읽고 하나 쓰기) 매
+    # 갱신마다 확인해도 공짜다.
+    if not store.quality_attached_count():
+        try:
+            n = store.compute_quality()
+            log.info("퀄리티 presence 백필 — %s종목 계산(DART 게이트와 무관)", n)
+        except Exception as e:
+            log.warning("퀄리티 백필 실패(무시): %s", type(e).__name__)
     about_n = _backfill_about_batch(40)  # 사업 개요 LLM 증분 백필(국내 갱신에서도 채움)
     moves_n = _backfill_moves_batch(20)  # 최근 행보 LLM 증분 백필(KB 문서 있는 종목만)
     return {"universe_size": len(universe), "fundamentals_size": len(fundamentals),
@@ -2199,17 +2217,21 @@ def _backfill_us_prices_batch(batch: int = 60) -> dict:
 
 
 def _refresh_us_prices_stale(batch: int = 60, *,
-                             max_age_days: int = store.US_STALE_DAYS,
+                             max_trading_days: int = store.US_STALE_TRADING_DAYS,
                              days: int = 60) -> dict:
     """이미 시세가 있는 종목 중 마지막 일봉이 오래된 것만 짧게 재수집. batch=0이면 stale 전량.
 
     누락 백필과 분리한다 — 유니버스가 다 채워진 뒤에도 일봉이 안 움직이면(실측: 499종목이
-    7/2에 고정) 시그널·봇이 멈춘 가격으로 돈다. days는 이력 wipe 없이 upsert되므로 짧아도 된다."""
+    7/2에 고정) 시그널·봇이 멈춘 가격으로 돈다. days는 이력 wipe 없이 upsert되므로 짧아도 된다.
+
+    문턱은 **거래일** 기준이다(`store.US_STALE_TRADING_DAYS`) — 달력일 3일 문턱은 마지막 봉이
+    정확히 3일 전일 때 `08-04 < 08-04` 가 거짓이 되어 갱신 대상 0건으로 통과했고, 그 상태로
+    거래일 2일이 비어 있었다(2026-08-07 실측)."""
     universe = [u["ticker"] for u in store.load_us_universe()]
     if not universe:
         return {"filled": 0, "stale": 0}
     skip = store.us_price_skips()
-    stale = [t for t in store.us_prices_stale_tickers(universe, max_age_days=max_age_days)
+    stale = [t for t in store.us_prices_stale_tickers(universe, max_trading_days=max_trading_days)
              if not store.us_price_deferred(t, skip)]
     if not stale:
         return {"filled": 0, "stale": 0}

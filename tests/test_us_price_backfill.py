@@ -55,20 +55,21 @@ def test_backfill_empty_universe(monkeypatch):
 
 
 def test_stale_refresh_skips_fresh_and_respects_batch(monkeypatch):
-    today = datetime.date.today()
+    """`us_prices_stale_tickers` 를 **실제 함수로** 돌린다 — 가짜로 대체하면 판정 규약이
+    검사에서 빠지고, 실제로 그 틈으로 달력일 버그가 살아 있었다(2026-08-07 실측).
+
+    기대 마지막 봉을 금요일(2026-08-07)로 고정하고 거래일 갭으로 판정한다.
+    """
     universe = [{"ticker": t} for t in ("AAPL", "MSFT", "GOOG", "AMZN")]
-    last = {"AAPL": today.isoformat(),                                    # 신선
-            "MSFT": (today - datetime.timedelta(days=10)).isoformat(),    # stale
-            "GOOG": (today - datetime.timedelta(days=5)).isoformat(),     # stale
-            "AMZN": (today - datetime.timedelta(days=1)).isoformat()}     # 신선(1일)
+    last = {"AAPL": "2026-08-07",   # 갭 0 — 신선
+            "MSFT": "2026-07-24",   # 갭 10거래일 — stale
+            "GOOG": "2026-08-04",   # 갭 3거래일(05·06·07) — stale
+            "AMZN": "2026-08-06"}   # 갭 1거래일 — 공휴일 여유 안쪽이라 신선
     requested: list[list[str]] = []
 
     monkeypatch.setattr(api.store, "load_us_universe", lambda: universe)
     monkeypatch.setattr(api.store, "us_price_last_dates", lambda: last)
-    monkeypatch.setattr(api.store, "us_prices_stale_tickers",
-                        lambda tickers=None, max_age_days=3, as_of=None:
-                        [t for t in (tickers or [u["ticker"] for u in universe])
-                         if last.get(t, "") < (today - datetime.timedelta(days=max_age_days)).isoformat()])
+    monkeypatch.setattr(api.store, "us_expected_last_bar", lambda as_of=None: "2026-08-07")
     monkeypatch.setattr(api.store, "us_price_skips", lambda: {})
     monkeypatch.setattr(api.store, "us_price_deferred", lambda t, skip=None: False)
     monkeypatch.setattr(api.store, "fetch_us_prices",
