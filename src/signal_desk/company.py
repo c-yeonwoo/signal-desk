@@ -22,6 +22,16 @@ log = logging.getLogger("signal_desk.company")
 
 _KEY = "about:%s"
 _MOVES_KEY = "moves:%s"
+_FAIL_KEY = "about_fail:%s"
+# 생성이 계속 실패하는 종목은 유예한다. 안 그러면 **성공하지 못하는 종목을 30분마다 영원히
+# 재시도**한다 — 미국 시세에서 이미 겪은 병이고(`store.us_price_deferred`) 여기서 재발했다.
+# 실측(2026-08-08): `company` 라벨로 하루 525콜 · $0.61(월 $18)이 나가는데 유니버스는 703종목
+# 고정이고 캐시가 있어 진작 수렴했어야 했다. 원인은 아래 두 개다:
+#  ① `max_llm` 이 **성공만** 셌다 — 실패는 카운트되지 않아 상한이 상한이 아니었다.
+#  ② 실패를 기억하지 않아 같은 종목을 매 루프 다시 불렀고, `got=0` 이면 로그도 안 남았다
+#     (`if about_n: log.info` — 조용한 0).
+_FAIL_DEFER_AFTER = 3      # 이만큼 연속 실패하면 유예
+_FAIL_DEFER_SEC = 7 * 86400  # 유예 기간 — 데이터·프롬프트가 바뀔 만한 간격
 _about_locks: dict[str, threading.Lock] = {}
 _about_locks_mu = threading.Lock()
 
@@ -109,24 +119,74 @@ def about(ticker: str, name: str, sector: str | None = None, market: str = "kr",
     return None
 
 
-def backfill(targets: list[dict], max_llm: int = 40) -> int:
-    """targets: [{ticker, name, sector, market, us_description?}]. 아직 캐시 없는 종목만 LLM 생성·캐시.
-    비용·속도 상한(max_llm)까지만 채우고 나머지는 다음 호출에서 이어감. 생성 수 반환. LLM 없으면 0."""
+def _deferred(ticker: str, *, now: int | None = None) -> bool:
+    """연속 실패로 유예 중인가. 유예는 **자동 백필에만** 걸린다(온디맨드 생성은 무시)."""
+    import time
+    rec = None
+    try:
+        rec = db.kv_get(_FAIL_KEY % ticker)
+    except Exception:                                  # noqa: BLE001 — 못 읽으면 시도하는 쪽
+        return False
+    if not isinstance(rec, dict):
+        return False
+    if int(rec.get("fails") or 0) < _FAIL_DEFER_AFTER:
+        return False
+    last = int(rec.get("last") or 0)
+    return (now or int(time.time())) - last < _FAIL_DEFER_SEC
+
+
+def _note_fail(ticker: str) -> None:
+    import time
+    try:
+        rec = db.kv_get(_FAIL_KEY % ticker)
+        fails = int(rec.get("fails") or 0) + 1 if isinstance(rec, dict) else 1
+        db.kv_set(_FAIL_KEY % ticker, {"fails": fails, "last": int(time.time())})
+    except Exception:                                  # noqa: BLE001
+        pass
+
+
+def _clear_fail(ticker: str) -> None:
+    try:
+        db.kv_set(_FAIL_KEY % ticker, {"fails": 0, "last": 0})
+    except Exception:                                  # noqa: BLE001
+        pass
+
+
+def backfill(targets: list[dict], max_llm: int = 40) -> dict:
+    """targets: [{ticker, name, sector, market, us_description?}]. 캐시 없는 종목만 LLM 생성·캐시.
+
+    반환 `{"generated", "attempted", "failed", "deferred"}`.
+
+    **상한은 호출 수(`attempted`)에 걸린다 — 성공 수가 아니다.** 예전엔 성공만 세서, 생성이
+    실패하는 종목은 카운트되지 않고 다음 종목으로 넘어갔다. 그래서 `max_llm=15` 로 불러도
+    실패 종목이 많으면 **호출 수에 상한이 없었다.** 비용 상한이 상한이 아니면 없는 것과 같다.
+
+    실패는 기억해서 유예한다(`_deferred`) — 안 그러면 성공하지 못하는 종목을 매 루프 영원히
+    재시도한다. 그리고 실패 종목을 **이름으로** 돌려준다: 조용히 빠진 종목은 조용한 0이다.
+    """
     if not llm.available():
-        return 0
-    got = 0
+        return {"generated": 0, "attempted": 0, "failed": [], "deferred": 0}
+    got, tried, failed, deferred = 0, 0, [], 0
     for t in targets:
         tk = t.get("ticker")
         if not tk or _cache_get(tk):
             continue
+        if _deferred(tk):
+            deferred += 1
+            continue
+        if tried >= max_llm:                           # ← 호출 수 상한
+            break
+        tried += 1
         desc = _generate(tk, t.get("name", ""), t.get("sector"),
                          t.get("market", "kr"), t.get("us_description"))
         if desc:
             _cache_set(tk, desc)
+            _clear_fail(tk)
             got += 1
-            if got >= max_llm:
-                break
-    return got
+        else:
+            failed.append(tk)
+            _note_fail(tk)
+    return {"generated": got, "attempted": tried, "failed": failed, "deferred": deferred}
 
 
 # ---------- 최근 행보(최근 무엇을 했나) — KB 원자료(뉴스+공시) 기반 사실 요약 ----------
@@ -188,11 +248,15 @@ def recent_moves(ticker: str, name: str, generate: bool = False) -> list[str] | 
     return cached["moves"] if isinstance(cached, dict) and cached.get("moves") else None
 
 
-def backfill_moves(targets: list[dict], max_llm: int = 20) -> int:
-    """targets: [{ticker, name}]. KB 문서가 있고 캐시가 오래된 종목만 최근 행보 재생성. 생성 수 반환."""
+def backfill_moves(targets: list[dict], max_llm: int = 20) -> dict:
+    """targets: [{ticker, name}]. KB 문서가 있고 캐시가 오래된 종목만 최근 행보 재생성.
+
+    반환 `{"generated", "attempted", "failed", "deferred"}`. `backfill` 과 **같은 규약**이다 —
+    상한은 호출 수에 걸고 실패는 기억해 유예한다(둘 다 같은 병을 앓았다).
+    """
     if not llm.available():
-        return 0
-    got = 0
+        return {"generated": 0, "attempted": 0, "failed": [], "deferred": 0}
+    got, tried, failed, deferred = 0, 0, [], 0
     for t in targets:
         tk, nm = t.get("ticker"), t.get("name", "")
         if not tk:
@@ -206,6 +270,12 @@ def backfill_moves(targets: list[dict], max_llm: int = 20) -> int:
             cached = None
         if isinstance(cached, dict) and cached.get("sig") == sig and cached.get("moves"):
             continue  # 신선 → 스킵
+        if _deferred(tk):
+            deferred += 1
+            continue
+        if tried >= max_llm:                           # ← 호출 수 상한
+            break
+        tried += 1
         items = db.kb_entries_recent(tk, 12, confirmed_only=True)
         moves = _generate_moves(nm, items)
         if moves:
@@ -213,7 +283,9 @@ def backfill_moves(targets: list[dict], max_llm: int = 20) -> int:
                 db.kv_set(_MOVES_KEY % tk, {"moves": moves, "sig": sig})
             except Exception:
                 pass
+            _clear_fail(tk)
             got += 1
-            if got >= max_llm:
-                break
-    return got
+        else:
+            failed.append(tk)
+            _note_fail(tk)
+    return {"generated": got, "attempted": tried, "failed": failed, "deferred": deferred}

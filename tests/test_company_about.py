@@ -66,10 +66,52 @@ def test_backfill_only_uncached_and_capped(tmp_path, monkeypatch):
     targets = [{"ticker": "A", "name": "a", "sector": "s", "market": "kr"},
                {"ticker": "B", "name": "b", "sector": "s", "market": "kr"},
                {"ticker": "C", "name": "c", "sector": "s", "market": "kr"}]
-    n = company.backfill(targets, max_llm=1)  # 상한 1 → A만
-    assert n == 1
+    r = company.backfill(targets, max_llm=1)  # 상한 1 → A만
+    assert r["generated"] == 1 and r["attempted"] == 1
     assert db.kv_get("about:A") == "설명"
     assert db.kv_get("about:C") is None  # 상한으로 미처리
+
+
+def test_backfill_cap_counts_calls_not_successes(tmp_path, monkeypatch):
+    """**상한은 호출 수에 걸린다.** 예전엔 성공만 세서 실패 종목이 많으면 상한이 없었다.
+
+    실측(2026-08-08): `company` 라벨로 하루 525콜 · $0.61(월 $18)이 나가는데 유니버스는
+    703종목 고정이고 캐시가 있어 진작 수렴했어야 했다. 실패가 카운트되지 않아 같은 종목을
+    매 루프 다시 불렀고, `got=0` 이면 로그도 안 남았다(조용한 0).
+    """
+    monkeypatch.chdir(tmp_path)
+    calls = {"n": 0}
+
+    def always_fail(*a, **k):
+        calls["n"] += 1
+        return None                                    # 생성 실패
+
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(llm, "complete_json", always_fail)
+    targets = [{"ticker": f"T{i}", "name": f"n{i}", "sector": "s", "market": "kr"}
+               for i in range(20)]
+    r = company.backfill(targets, max_llm=3)
+    assert r["generated"] == 0
+    assert r["attempted"] == 3, "상한을 넘겨 호출했다"
+    assert calls["n"] == 3, f"LLM을 {calls['n']}회 불렀다 — 상한 3인데"
+    assert r["failed"] == ["T0", "T1", "T2"], "실패 종목을 이름으로 내지 않는다"
+
+
+def test_repeatedly_failing_ticker_is_deferred(tmp_path, monkeypatch):
+    """성공하지 못하는 종목을 30분마다 영원히 재시도하면 안 된다 — 미국 시세에서 겪은 병이다."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: None)
+    targets = [{"ticker": "X", "name": "x", "sector": "s", "market": "kr"}]
+    for _ in range(company._FAIL_DEFER_AFTER):
+        assert company.backfill(targets, max_llm=5)["attempted"] == 1
+    r = company.backfill(targets, max_llm=5)
+    assert r["attempted"] == 0 and r["deferred"] == 1, "연속 실패 뒤에도 계속 부른다"
+
+    # 성공하면 유예가 풀린다 — 프롬프트·데이터가 고쳐졌는데 영구 제외되면 안 된다.
+    company._clear_fail("X")
+    monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"about": "설명"})
+    assert company.backfill(targets, max_llm=5)["generated"] == 1
 
 
 # ---------- 최근 행보 ----------
