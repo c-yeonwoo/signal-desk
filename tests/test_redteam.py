@@ -2246,6 +2246,13 @@ def test_derived_values_behind_a_ttl_gate_have_a_presence_backfill():
     assert "_ensure_quality_attached" in auto, \
         "퀄리티 백필이 자동 루프에 없다 — 관리자 버튼 전용이면 안 돈다"
 
+    # **하루 1회 루프만으로는 부족하다.** `_daily_maintenance` 는 평일 마감후 1회라 금요일
+    # 저녁에 고치면 월요일까지 3일 죽어 있다(실제로 그 상황이었다). 판정이 파일 한 번 읽기라
+    # 공짜이므로 30분 루프에서도 확인한다 — 위 US 시세 증분 갱신과 같은 이유·같은 자리다.
+    loop = inspect.getsource(api_mod._bot_loop_iteration)
+    assert "_ensure_quality_attached" in loop, \
+        "자기 치유가 하루 1회면 주말이 사각지대가 된다"
+
     # **`_dart_stale()` 분기 밖**에 있어야 한다 — 안에 있으면 TTL 게이트에 다시 갇힌다.
     src = inspect.getsource(api_mod._refresh_kr)
     assert src.index("_ensure_quality_attached") > src.index("update_valuation") \

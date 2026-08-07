@@ -245,6 +245,13 @@ def _bot_loop_iteration() -> None:
             log.info("US 시세 자동 갱신 %d종목(잔여 stale %s)", rf["filled"], rf["stale"])
     except Exception as e:
         log.warning("US 시세 자동 갱신 실패(무시): %s", type(e).__name__)
+    try:  # 재무 파생값(퀄리티)이 비어 있으면 채운다 — 위 US 갱신과 **같은 이유로 여기 둔다.**
+        # 마감후 1회 루프에만 두면 금요일 저녁에 고쳐도 **월요일까지 3일** 죽어 있다. 판정 자체가
+        # 파일 한 번 읽기라(`quality_attached_count`) 30분마다 확인해도 공짜이고, 이미 채워져
+        # 있으면 즉시 반환한다. 자기 치유를 하루 1회로 두면 주말이 곧 사각지대다.
+        _ensure_quality_attached()
+    except Exception as e:
+        log.warning("퀄리티 자동 백필 실패(무시): %s", type(e).__name__)
     about_n = moves_n = 0
     # about/moves는 UX 문구(트레이딩 점수 아님). 주말 Haiku drip을 끊고 평일만 증분.
     if _kst_now().weekday() < 5:
