@@ -35,7 +35,7 @@ from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_gate,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
-    regime_zone, relative, revision, sector_rel, target,
+    regime_zone, relative, revision, sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
     GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
@@ -1875,6 +1875,31 @@ def daily_change_get():
     except Exception as e:                          # noqa: BLE001 — 맥락 실패가 본문을 막지 않는다
         log.debug("daily-change 맥락 생략: %s", type(e).__name__)
     return out
+
+
+@app.get("/api/why-now")
+def why_now_get(ticker: str = "", window: int = 10):
+    """**왜 지금 이 종목인가 — 섹터인가 종목 고유인가.** LLM·새 수집 없이 PIT 스냅샷 산술.
+
+    `daily_change` 는 **하루** 변화를 넷으로 분류한다. 여기는 **며칠~몇 주** 궤적이고, 가장
+    중요한 갈림길은 *섹터 전체가 움직였나, 이 종목만인가* 다 — 그 둘은 뜻이 완전히 다르다:
+    섹터 전체면 업종·거시 이벤트이고(종목을 고른 게 아니다), 이 종목만이면 팩터가 실제로
+    이 종목을 골라낸 것이다.
+
+    **뉴스·거시는 여기 넣지 않는다.** 이 숫자들은 점수를 실제로 만든 입력이라 근거이고,
+    뉴스를 섞으면 "이 기사 때문에 올랐다"는 없는 인과가 만들어진다(맥락은 따로 라벨한다).
+    """
+    tk = (ticker or "").strip()
+    if not tk:
+        return {"ready": False, "blocked_reason": "ticker 필요"}
+    df = store.load_signal_history()
+    if df.empty:
+        return {"ready": False, "ticker": tk,
+                "blocked_reason": "마감 스냅샷이 없습니다 — 평일 장마감 후 쌓입니다"}
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    return why_now.explain(df.to_dict("records"), tk,
+                           sector_of=sectors.sector_of, name=names.get(tk),
+                           window=max(2, min(int(window or 10), 60)))
 
 
 @app.get("/api/pick-reason")
