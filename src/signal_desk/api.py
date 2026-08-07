@@ -507,6 +507,34 @@ class SafeJSONResponse(JSONResponse):
 
 app = FastAPI(title="signal-desk", lifespan=_lifespan, default_response_class=SafeJSONResponse)
 
+@app.exception_handler(llm.BudgetExceeded)
+def _budget_exceeded_handler(request: Request, exc: llm.BudgetExceeded):
+    """예산 초과를 **429 + 이유**로 낸다. 라우트마다 붙이지 않는다.
+
+    2026-08-07: `BudgetExceeded` 를 잡는 곳이 채팅 경로 **2곳뿐**이라, LLM을 부르는 나머지
+    라우트(이슈 흐름·KB·감사·회사·숏폼·리밸런싱·내러티브·자문)가 전부 **HTTP 500** 이었다.
+    화면은 `흐름 생성 요청 실패` 만 보여주고 **왜 실패했는지 말하지 못했다** — 예산 때문인지
+    키가 없는지 서버가 죽었는지 구분이 안 됐다(0의 이유 규칙 위반).
+
+    라우트마다 `except` 를 붙이는 대신 **전역 핸들러 하나**를 둔다 — 그래야 새 라우트에서
+    또 빠지지 않는다("같은 일을 두 곳에서 시키지 않는다").
+    """
+    st = {}
+    try:
+        st = llm.budget_state()
+    except Exception:                              # noqa: BLE001 — 상태를 못 읽어도 429는 낸다
+        pass
+    return JSONResponse(
+        {"ok": False, "ready": False,
+         "reason": str(exc) or st.get("reason") or "LLM 예산 상한에 도달했습니다.",
+         "budget": st,
+         # 무엇을 하면 되는지 — 상한은 환경변수라 화면에서 못 바꾼다.
+         "how_to_fix": "환경변수 LLM_MONTHLY_BUDGET_USD(월) · LLM_DAILY_BUDGET_USD(일)를 올린 뒤 "
+                       "재배포하면 다시 열립니다. 관리자 › 점검 › LLM 사용에서 기능별 지출을 "
+                       "먼저 확인하세요."},
+        status_code=429)
+
+
 
 @app.middleware("http")
 async def _auth_gate(request: Request, call_next):

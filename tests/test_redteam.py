@@ -3255,3 +3255,51 @@ def test_goal_plan_labels_its_assumption_on_screen():
     # 통화가 다르면 이전 경로는 거짓이다 — 시장 전환 시 비운다.
     sw = html.split("function setPfMarket(", 1)[1].split("\n}", 1)[0]
     assert "gp-result" in sw, "시장을 바꿔도 이전 통화의 경로가 남는다"
+
+
+# ── LLM 예산 초과 응답 (2026-08-07) ───────────────────────────────────────────
+# 프로덕션에서 `흐름 생성` 이 **HTTP 500** 이었다. `BudgetExceeded` 를 잡는 곳이 채팅 경로
+# 2곳뿐이라 LLM을 부르는 나머지 라우트가 전부 500이었고, 화면은 `생성 요청 실패` 만 보여줬다 —
+# 예산 때문인지 키가 없는지 서버가 죽었는지 **사람이 구분할 수 없었다**.
+
+def test_budget_exceeded_becomes_429_everywhere_not_500():
+    """라우트마다 `except` 를 붙이면 새 라우트에서 또 빠진다 — **전역 핸들러 하나**로 받는다."""
+    from unittest import mock
+    from fastapi.testclient import TestClient
+    from signal_desk import api, llm
+    from pathlib import Path
+    src = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    assert "@app.exception_handler(llm.BudgetExceeded)" in src, "전역 핸들러가 없다"
+    # 인증 미들웨어가 **라우팅 전에** 401을 내므로 세션이 필요하다(401/404로 라우트 존재를
+    # 판독할 수 없다는 것과 같은 이유다).
+    from signal_desk import auth, config, db
+    with db.conn() as cx:
+        users = [(r[0], r[1]) for r in cx.execute("SELECT id, email FROM users")]
+    admins = [u for u in users if config.is_admin(u[1])]
+    if not admins:
+        import pytest
+        pytest.skip("관리자 계정이 없는 환경")
+    token = auth._new_session(admins[0][0])
+    client = TestClient(api.app, raise_server_exceptions=False)
+    client.cookies.set(auth.COOKIE, token)
+    try:
+        with mock.patch.object(llm, "available", return_value=True), \
+             mock.patch.object(llm, "complete", side_effect=llm.BudgetExceeded("상한 초과")):
+            r = client.post("/api/hypothesis/refresh")
+    finally:
+        auth.logout(token)
+    assert r.status_code == 429, f"예산 초과가 {r.status_code} 로 나온다(500이면 이유가 안 보인다)"
+    b = r.json()
+    assert "상한 초과" in (b.get("reason") or "")
+    # 무엇을 하면 되는지 — 상한은 환경변수라 화면에서 못 바꾼다.
+    assert "LLM_MONTHLY_BUDGET_USD" in (b.get("how_to_fix") or "")
+
+
+def test_ui_does_not_swallow_non_json_failures():
+    """`r.json()` 이 던지면 catch 가 원인을 삼킨다 — 텍스트로 먼저 받고 상태코드를 보여준다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    blk = html.split("async function refreshHypothesis(", 1)[1].split("\n}", 1)[0]
+    assert "await r.text()" in blk, "본문을 텍스트로 먼저 받지 않는다"
+    assert "HTTP ${r.status}" in blk, "비-JSON 실패에서 상태코드를 안 보여준다"
+    assert "how_to_fix" in blk, "조치 방법을 화면이 버린다"
