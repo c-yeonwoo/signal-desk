@@ -2728,15 +2728,25 @@ def _maybe_poll_disclosures() -> dict | None:
     return out
 
 
-def _kb_targets(limit_candidates: int = 16, lead_limit: int = 10,
-                near_limit: int = 24) -> list[dict]:
-    """KB 갱신 대상 — ⓪외부 후보 ①lead ②VIX soft ③매수권+점수 상위 ④보유 ⑤관심.
+def _kb_targets(limit_candidates: int = 16) -> list[dict]:
+    """KB(LLM) 갱신 대상 — **매수권 + 보유 + 뽑을 자리 상위 k + 관심**. 그 이상은 넣지 않는다.
 
-    전 종목은 아니다(비용). 다만 대상이 좁으면 KB는 어느 판단에도 닿지 못한다 — 다이제스트
-    커버리지가 200종목 중 28이었고 `kb_events`는 0건이었다. 매수권만이 아니라 **문턱 근접
-    상위**까지 넣는 이유는, 사기 전에 근거가 있어야 하고 정보 유무를 사후에 비교
-    (`signals/kb_coverage.py`)할 수 있어야 하기 때문이다."""
-    from signal_desk import external_watch
+    2026-08-08: 예전에는 ⓪외부후보 ①확정국면 주도섹터(10+4) ③매수권(16)+점수상위 **24** ④보유
+    ⑤관심으로 50종목이 넘었다. 종목 뉴스 1건마다 LLM이 붙으므로(`_summarize_text`·
+    `_extract_candidate_event`) 대상 수가 곧 비용이고, 실측 `naver_news` 수락이 **5,322건**이었다.
+    비용 표에서 Haiku 23,006회 · $30.21이 나온 자리가 여기다.
+
+    **왜 매수권만이 아닌가**: 뉴스는 소급 수집이 안 된다. 오늘 매수권에 든 종목의 지난주 기사는
+    이미 못 받으므로, 매수권만 모으면 전환된 그 날 이력이 0이고 "왜 갑자기 올랐나"에 답할 수 없다.
+    그래서 **뽑을 자리(k)** 까지 넣는다 — 오늘 k 안에 있는 종목이 내일 매수권에 든다.
+
+    **왜 k인가**: `engine.rank_slots` 를 그대로 쓴다(실측 200종목·상위 3% → 6자리). 예전 상수 24는
+    이 창과 무관한 숫자였고, 창을 바꾸면 조용히 어긋난다 — 같은 값을 두 곳에서 조립하지 않는다.
+
+    빠진 것(⓪외부후보·①주도섹터)은 **의도적**이다. 둘 다 "언젠가 볼 수도 있는" 집합이라 상한이
+    없고, 판단(매수·veto)에 닿지 않는 종목의 뉴스에 LLM을 쓰는 것이 비용의 대부분이었다.
+    무료 경로(`_kb_lite_targets` — DART lite, LLM 0원)는 넓게 유지한다: 악재 veto는 넓어야 한다.
+    """
     names = {u["ticker"]: u["name"] for u in store.load_universe()}
     for u in store.load_us_universe() or []:
         names.setdefault(u["ticker"], us_ko.name_ko(u["ticker"], u.get("name") or u["ticker"]))
@@ -2752,38 +2762,20 @@ def _kb_targets(limit_candidates: int = 16, lead_limit: int = 10,
             targets.append({"ticker": ticker, "name": name})
             seen.add(ticker)
 
-    # ⓪ 외부 후보 워치리스트 (Serenity 등) — 맨 앞
-    try:
-        for row in external_watch.kb_priority_targets():
-            add(row["ticker"], row.get("name"))
-    except Exception as e:
-        log.warning("KB 외부후보 타깃 실패: %s", type(e).__name__)
-
-    # ① 확정 국면 주도 섹터
-    try:
-        pos = cycle.position(store.load_macro())
-        for row in valuechain.tickers_for_lead_tags(pos.get("lead_sectors") or [], limit=lead_limit):
-            add(row["ticker"], row.get("name"))
-        risk = cycle.risk_sentiment(store.load_macro())
-        hint = risk.get("kb_hint_phase_key")
-        if hint and hint != pos.get("phase_key"):
-            for row in valuechain.tickers_for_lead_tags(
-                    cycle.lead_sectors_for(hint), limit=4):
-                add(row["ticker"], row.get("name"))
-    except Exception as e:
-        log.warning("KB lead 타깃 실패: %s", type(e).__name__)
-
-    # ③ 매수권 + 문턱 근접 상위 — 커버리지가 좁으면 KB는 어느 결정에도 닿지 못한다.
+    # ① 매수권 + 뽑을 자리 상위 k — 사기 전에 근거가 있어야 한다.
     #    kind=="BUY" 문자열 비교는 STRONG_BUY(우선매수)를 빠뜨렸다 → is_buy로 판정한다.
     if store.is_ready():
-        from signal_desk.signals.engine import is_buy
+        from signal_desk.signals import signalcfg
+        from signal_desk.signals.engine import is_buy, rank_slots
         sigs = sorted(_signals(), key=lambda s: s.score, reverse=True)
         buy_n = 0
         for s in sigs:                       # 매수 판정 종목
             if is_buy(s.kind) and buy_n < limit_candidates:
                 add(s.ticker)
                 buy_n += 1
-        for s in sigs[:near_limit]:          # 점수 상위(매수 대기·근접) — 사기 전에 근거가 있어야 한다
+        # 뽑을 자리 — 화면·엔진과 **같은 함수**로 센다(상수를 새로 만들면 창과 어긋난다).
+        k = rank_slots(len(sigs), signalcfg.get_config().rank_top_pct)
+        for s in sigs[:k]:
             add(s.ticker)
     for tk in db.bot_position_tickers_all():
         add(tk)

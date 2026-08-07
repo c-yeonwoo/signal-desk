@@ -6,7 +6,7 @@ from signal_desk import kb
 def _setup(monkeypatch, tmp_path, scope, ticker=None, name=None, sector=None):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(kb, "_pdf_text", lambda data: "국내 증시 시황 및 반도체 업황 분석 " * 30)
-    monkeypatch.setattr(kb, "_summarize_text", lambda n, t, x: ("요약", []))
+    monkeypatch.setattr(kb, "_summarize_text", lambda n, t, x, **kw: ("요약", []))
     monkeypatch.setattr(kb, "_classify_scope",
                         lambda text: {"scope": scope, "ticker": ticker, "name": name, "sector": sector})
     monkeypatch.setattr(kb, "validate_macro", lambda text, title="": {"verdict": "accept", "reasons": []})
