@@ -3509,3 +3509,32 @@ def test_cash_and_total_explain_themselves():
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     assert "전량 현금" in html, "보유 0 상태를 화면이 말하지 않는다"
     assert "시드 대비" in html, "총평가금액이 시드 대비 얼마인지 안 보인다"
+
+
+def test_dart_veto_targets_cover_what_may_become_buyable():
+    """악재 veto 대상은 "지금 살 것"이 아니라 **"살 수 있게 될 것"** 까지여야 한다.
+
+    2026-08-07 실측: 프로덕션 폴링 대상이 **6종목**뿐이었다(상한 40). 매수권이 0~2건이고
+    보유가 적어서다 — **상한이 아니라 대상 정의**가 좁았다. 오늘 근접 종목이 내일 매수권에
+    들면 그때 악재 이력이 이미 있어야 막을 수 있다. `list.json` 1콜/종목이라 LLM 비용은 0이다.
+    """
+    from pathlib import Path
+    src = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    fn = src.split("def _kb_lite_targets(", 1)[1].split("\ndef ", 1)[0]
+    # 매수권·보유·관심을 **먼저** 채운다(우선순위 유지).
+    assert "is_buy(" in fn and "bot_position_tickers_all" in fn and "fav_tickers_all" in fn
+    # 남는 자리를 순위 상위로 채운다.
+    assert fn.count("sorted(_signals()") >= 2, "남는 자리를 순위 상위로 채우지 않는다"
+    assert "살 수 있게 될 것" in fn, "왜 넓혔는지 근거가 코드에 없다"
+
+
+def test_dart_path_costs_no_llm():
+    """공시 경로는 **LLM을 쓰지 않는다** — 그래서 예산과 무관하게 켜 둘 수 있다.
+
+    이 성질이 깨지면 "비용 0이니 넓혀도 된다"는 전제가 무너진다.
+    """
+    from pathlib import Path
+    kbsrc = Path("src/signal_desk/kb.py").read_text(encoding="utf-8")
+    fn = kbsrc.split("def poll_disclosures(", 1)[1].split("\ndef ", 1)[0]
+    for banned in ("llm.complete", "llm_mod.complete", "complete_json("):
+        assert banned not in fn, f"공시 폴링이 LLM({banned})을 부른다 — 비용 0 전제가 깨진다"
