@@ -2235,13 +2235,27 @@ def test_derived_values_behind_a_ttl_gate_have_a_presence_backfill():
 
     from signal_desk import api as api_mod
 
+    # presence 로 판단하는 함수가 있어야 한다(날짜가 아니라 **있는지**).
+    ens = inspect.getsource(api_mod._ensure_quality_attached)
+    assert "quality_attached_count" in ens and "compute_quality" in ens
+
+    # **자동 루프에서 불려야 한다.** `_refresh_kr` 은 `/api/refresh` 라우트(=관리자 버튼)에서만
+    # 도달하므로 그쪽에만 두면 아무도 안 눌러서 안 돈다 — 이 리포가 시세 정지·`fetch_warnings`·
+    # `_push_trades` 에서 세 번 겪은 병이고, 이 고침의 첫 판이 네 번째였다.
+    auto = inspect.getsource(api_mod._daily_maintenance)
+    assert "_ensure_quality_attached" in auto, \
+        "퀄리티 백필이 자동 루프에 없다 — 관리자 버튼 전용이면 안 돈다"
+
+    # **`_dart_stale()` 분기 밖**에 있어야 한다 — 안에 있으면 TTL 게이트에 다시 갇힌다.
     src = inspect.getsource(api_mod._refresh_kr)
-    assert "quality_attached_count" in src, "퀄리티 presence 확인이 없다"
-    # **`_dart_stale()` 분기 밖**에 있어야 한다 — 안에 있으면 게이트에 다시 갇힌다.
-    gate = src.index("_dart_stale()")
-    else_end = src.index("update_valuation")
-    assert src.index("quality_attached_count") > else_end > gate, \
+    assert src.index("_ensure_quality_attached") > src.index("update_valuation") \
+        > src.index("_dart_stale()"), \
         "presence 백필이 DART TTL 분기 안에 있으면 게이트에 다시 갇힌다"
+
+    # 계산했으면 점수 캐시를 버려야 한다 — 가중 0.15가 새로 들어가는데 캐시가 남으면
+    # 백필은 성공했다고 로그를 찍고 화면은 그대로다.
+    assert "cache_clear" in ens, "퀄리티를 채운 뒤 시그널 캐시를 안 버린다"
+
     # 화면에도 드러나야 한다 — 고장이 조용하면 다음에도 몇 주씩 못 본다.
     fresh = inspect.getsource(__import__("signal_desk.store", fromlist=["x"]).data_freshness)
     assert "_quality_freshness()" in fresh
