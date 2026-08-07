@@ -2322,13 +2322,22 @@ async function refreshHypothesis(){
   const btn = document.getElementById('hypo-refresh-btn');
   if (btn) { btn.disabled = true; btn.textContent = '생성 중…'; }
   try {
-    const d = await (await fetch('/api/hypothesis/refresh', { method: 'POST' })).json();
-    if (d.ready) { _hypoData = d; _hypoActiveIf = null; await loadHypothesis(); }
-    else {
-      alert(d.reason || d.error || '생성 실패');
+    // **본문을 텍스트로 먼저 받는다.** 서버가 비-JSON(500 `Internal Server Error`)을 내면
+    // `r.json()` 이 던지고 catch 가 그걸 삼켜 `생성 요청 실패` 만 떴다 — 실제 원인은
+    // 예산 초과였는데 화면은 말하지 못했다(0의 이유 규칙).
+    const r = await fetch('/api/hypothesis/refresh', { method: 'POST' });
+    const raw = await r.text();
+    let d = null;
+    try { d = JSON.parse(raw); } catch { d = null; }
+    if (d && d.ready) { _hypoData = d; _hypoActiveIf = null; await loadHypothesis(); }
+    else if (d) {
+      alert([d.reason || d.error || '생성 실패', d.how_to_fix].filter(Boolean).join('\n\n'));
       if (d.kept_previous) await loadHypothesis();
+    } else {
+      // JSON 이 아니면 상태코드와 앞부분을 그대로 보여준다 — 삼키지 않는다.
+      alert(`생성 실패 (HTTP ${r.status})\n${raw.slice(0, 200)}`);
     }
-  } catch (e) { alert('생성 요청 실패'); }
+  } catch (e) { alert('생성 요청 실패 — ' + String(e)); }
   finally { if (btn) { btn.disabled = false; btn.textContent = '흐름 생성'; } }
 }
 
