@@ -1663,14 +1663,20 @@ _ROUTES_WITHOUT_UI = {
     "/api/morning-digest/test": "발송 검증용 수동 호출",
     # 서버가 URL을 만들어 클라이언트에 내려준다 → 정적 grep으로는 안 잡힌다
     "/api/shortform/background-image": "서버가 캐시버스트 URL을 만들어 kv로 내려준다",
-    # 아직 화면이 없는 것 — **삭제 후보가 아니라 미완성 표시다.**
-    "/api/pick-reason": "북극성 A의 절반(고른 이유 재생) — 화면 미연결. 지우지 말고 붙일 것",
-    "/api/buylist": "매수 대기 목록 API — 화면은 시그널 목록에서 자체 계산. 중복 여부 확인 필요",
-    "/api/methods": "방법론 문서 API — 화면 미연결",
-    "/api/valuation": "저평가 스크리너 API — 화면은 시그널 payload로 필터. 중복 여부 확인 필요",
-    "/api/bot/decisions": "봇 판단 저널 — 화면 미연결(트레이딩 탭은 체결만 보여준다)",
-    "/api/kb/events/review": "KB 이벤트 검수 — 큐가 0건이라 화면 경로가 안 만들어졌다",
+    # 일일 루프가 대신 부른다
     "/api/kb/poll-disclosures": "공시 폴링 수동 트리거 — 일일 루프가 대신 부른다",
+    # ── 아래는 **미완성 표시**다. 2026-08-06에 "확인 필요"였던 항목을 하나씩 결론냈다. ──
+    "/api/methods": (
+        "방법론 카탈로그(26건) — 원래 주석은 '두뇌 레이어가 참조'라고 했지만 부르는 곳은 이 라우트와"
+        " 자기 테스트뿐이었다(라우트 주석에 정정 기록). 커밋된 참조 데이터라 남기고, 소비자가"
+        " 생기면 그때 붙인다"),
+    "/api/bot/decisions": (
+        "봇 판단 저널 전체 — 픽 단위 저널은 `/api/pick-reason` 상세가 보여준다. 전체 목록은"
+        " 페이퍼 탭 공개 장부에 붙일 후보이고, 지금은 체결만 노출한다"),
+    "/api/kb/events/review": (
+        "KB 이벤트 검수 — 큐가 0건이라 화면 경로가 안 만들어졌다. 큐 길이·만료 임박은 배지로"
+        " 이미 뜨므로, 배지가 0이 아니게 되는 날 붙인다"),
+
 }
 
 
@@ -1697,8 +1703,16 @@ def test_every_api_route_has_a_caller_or_a_stated_reason():
     # 반대 방향도 본다: 사라진 라우트가 허용 목록에 유령으로 남으면 목록이 낡는다.
     stale = [p for p in _ROUTES_WITHOUT_UI if p not in routes]
     assert not stale, f"허용 목록에 없는 라우트가 남아 있다: {stale}"
-    # 목록이 자라기만 하는 것을 막는다. 지금 10개이고, 늘리려면 이 숫자를 같이 올려야 한다.
-    assert len(_ROUTES_WITHOUT_UI) <= 10, (
+    # **세 번째 방향**(2026-08-06에 실제로 뚫려 있었다): 화면에 붙였는데 면제 목록에 남은 것.
+    # `/api/pick-reason` 을 #347에서 붙였는데 목록에 그대로 있었고 이 검사가 못 잡았다 —
+    # 면제가 유령으로 남으면 상한(7개)이 실제보다 꽉 차 보여 다음 라우트를 밀어낸다.
+    connected = [p for p in _ROUTES_WITHOUT_UI if p in callers]
+    assert not connected, (
+        f"화면·CLI가 이미 부르는데 면제 목록에 남아 있다: {connected} — 목록에서 뺄 것")
+    # 목록이 자라기만 하는 것을 막는다. 지금 7개이고, 늘리려면 이 숫자를 같이 올려야 한다.
+    # 2026-08-06: 10 → 7. `/api/pick-reason`·`/api/buylist` 는 화면에 붙였고
+    # `/api/valuation` 은 시그널 payload(per·pbr·opp_tags) + 스크리너로 대체돼 삭제했다.
+    assert len(_ROUTES_WITHOUT_UI) <= 7, (
         f"닿지 않는 라우트가 {len(_ROUTES_WITHOUT_UI)}개로 늘었다 — 붙이거나 지울 것")
 
 
@@ -2948,3 +2962,42 @@ def test_selection_params_that_are_not_mirrored_are_reported():
     assert m.get("top_pct") == 7.0 and m.get("engine_rank_top_pct") == 3.0
     assert m.get("top_pct_differs") is True, "어긋났는데 산출물이 침묵한다"
     assert m.get("min_score_differs") is False, "미러 필드가 어긋나 있다"
+
+
+def test_promised_wait_list_actually_renders():
+    """카피가 약속한 기능은 화면에 있어야 한다.
+
+    2026-08-06 진단: 오늘 카드가 `관심종목을 넣으면 대기 리스트가 채워집니다` 라고 **약속**하고
+    CLAUDE.md 도 시그널 탭 요소로 `매수 대기` 를 적어 뒀는데, `/api/buylist` 는 라우트만 있고
+    렌더가 없었다. 허용목록의 사유는 `중복 여부 확인 필요` 였다 — 중복이 아니라 미완성이었다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert "관심종목을 넣으면 대기 리스트가 채워집니다" in html, "약속 문구가 사라졌다"
+    assert "/api/buylist" in html and "loadBuyWait" in html, "약속만 하고 렌더가 없다"
+    # 상시 블록을 늘리지 않는다 — 왼쪽 패널을 3개로 줄인 직후다. 접이식 안에서 로드한다.
+    assert "if(this.open) loadBuyWait()" in html, "닫혀 있어도 호출하면 매번 낭비다"
+    # 0의 이유 — 관심종목이 없어서인지 시그널이 없어서인지 가른다.
+    assert "★로 등록하면" in html
+
+
+def test_deleted_routes_leave_no_dangling_references():
+    """라우트를 지울 때 헬퍼·캐시 무효화·import 가 남으면 조용히 깨진다.
+
+    2026-08-06: `/api/valuation` 을 지우다 `@lru_cache` 데코레이터가 **중복으로 남고**
+    `_valuation.cache_clear()` 가 없는 함수를 불렀다(임포트 시점엔 안 터지고 수집 후에 터진다).
+    """
+    from pathlib import Path
+    import signal_desk.api as api_mod          # import 자체가 검사다
+    src = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    assert "/api/valuation" not in src, "삭제한 라우트가 남아 있다"
+    # **부분문자열로 세지 않는다** — `store.update_valuation()` 이 `_valuation` 을 포함한다.
+    # 같은 종류의 오탐(주석 안 `var()`·리포트 `<code>`)을 이미 두 번 밟았다.
+    assert "def _valuation(" not in src, "헬퍼가 남아 있다"
+    assert "_valuation.cache_clear()" not in src, "없는 함수의 cache_clear 가 남아 있다"
+    assert "@lru_cache(maxsize=1)\n@lru_cache(maxsize=1)" not in src, "데코레이터가 중복이다"
+    # 캐시 무효화 목록의 이름이 전부 실제 존재해야 한다(없는 이름은 수집 후에만 터진다).
+    blk = src.split("def _clear_signal_caches(", 1)[1].split("\n\n", 1)[0]
+    import re
+    for name in re.findall(r"(_\w+)\.cache_clear\(\)", blk):
+        assert hasattr(api_mod, name), f"{name} 가 없는데 cache_clear 를 부른다"

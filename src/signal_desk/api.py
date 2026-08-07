@@ -34,7 +34,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_gate,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
-    regime_zone, relative, revision, scenario, sector_rel, target, valuation,
+    regime_zone, relative, revision, scenario, sector_rel, target,
 )
 from signal_desk.signals.engine import (
     GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
@@ -869,11 +869,6 @@ def _backtest_analysis():
         "walkforward": walk_forward(prices, cfg, dates, hist),
         "has_pit": bool(hist),
     }
-
-
-@lru_cache(maxsize=1)
-def _valuation():
-    return valuation.screen(store.load_universe(), store.load_fundamentals())
 
 
 @lru_cache(maxsize=1)
@@ -1964,7 +1959,6 @@ def _clear_signal_caches() -> None:
     _signals.cache_clear()
     _backtest.cache_clear()
     _backtest_analysis.cache_clear()
-    _valuation.cache_clear()
     _quotes.cache_clear()
     _regime.cache_clear()
     _macro.cache_clear()
@@ -2217,15 +2211,6 @@ def refresh(data: dict = Body(default={})):
         return {"ok": False, "reason": f"알 수 없는 scope: {scope} (kr|macro|flows|us|all)"}
     _clear_signal_caches()
     return result
-
-
-@app.get("/api/valuation")
-def valuation_get():
-    """PER/PBR 저평가 순위(0=가장 저평가) — signals/valuation.py 참고. 섹터 분류 붙기 전까지는
-    전체 유니버스 내 상대 순위로 근사."""
-    if not store.is_ready():
-        return {"ready": False, "items": []}
-    return {"ready": True, "items": _valuation()}
 
 
 @app.get("/api/regime")
@@ -3760,8 +3745,15 @@ def engine_config_history(limit: int = 20):
 
 @app.get("/api/methods")
 def methods_get():
-    """퀀트 방법론 레퍼런스 카탈로그 — 두뇌 레이어(자가 진단)가 gap→검증방법 매핑에 참조.
-    active(반영)/candidate(후보)/rejected(미채택)로 분류. 산식은 창작 아닌 업계 검증분만 등재."""
+    """퀀트 방법론 레퍼런스 카탈로그(26건) — active/candidate/rejected 분류.
+    산식은 창작 아닌 업계 검증분만 등재.
+
+    **2026-08-06 정정**: 원래 주석은 "두뇌 레이어(자가 진단)가 gap→검증방법 매핑에 참조"라고
+    적혀 있었는데 `reference/quant_methods` 를 부르는 곳은 **이 라우트와 자기 테스트뿐**이었다
+    (`brain*.py` 어디에도 없다). 없는 소비자를 적어 두면 "연결돼 있다"고 믿고 넘어간다 —
+    `product_reviewer` 가 그렇게 한 번도 실행되지 않은 채 남아 있었다.
+    카탈로그 자체는 커밋된 참조 데이터라 남기고, 소비자가 없다는 사실을 여기 적는다.
+    """
     return {"methods": quant_methods.all_methods(),
             "counts": {s: len(quant_methods.by_status(s)) for s in ("active", "candidate", "rejected")}}
 
