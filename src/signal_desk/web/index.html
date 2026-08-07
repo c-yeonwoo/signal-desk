@@ -838,7 +838,7 @@
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
         <!-- 상태(precision·편중·데스크)는 「오늘」카드 하나. 리스트 시작을 위로. -->
-        <details id="sig-today" class="sig-today">
+        <details id="sig-today" class="sig-today" ontoggle="if(this.open) loadBuyWait()">
           <summary><span id="sig-today-line"></span><span id="sig-today-chips"></span><span class="st-more">상세</span></summary>
           <div class="st-body" id="sig-today-body"></div>
         </details>
@@ -3528,6 +3528,10 @@ function renderTodayCard(){
   } else {
     if (buys) detail += `<div><b>매수</b> ${buys}</div>`;
     if (vac) detail += `<div style="margin-top:4px"><b>빈자리</b>${vac}</div>`;
+    // 약속한 대기 리스트 — 펼칠 때 로드한다(닫혀 있는 동안 호출하지 않는다).
+    detail += `<div id="buywait-block" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">`
+      + `<div style="font-weight:700;font-size:13px;margin-bottom:2px">관심종목 대기</div>`
+      + `<div id="buywait-body" class="stat-label">불러오는 중…</div></div>`;
   }
   if (crowd.warn || crowd.data_quality) {
     detail += `<div style="margin-top:6px">${esc(crowd.note || '')}</div>`;
@@ -7205,6 +7209,37 @@ function icEtaLine(d) {
     + `관점별 판별력 측정 예정 — ${parts.join(' · ')}`
     + (done ? ` · ${done}개 요건 충족` : '')
     + `<br>측정 가능일이고 <b>반영일이 아니다</b> — 판정 전에는 가중치를 만지지 않는다. 휴장일 미반영 추정.</div>`;
+}
+
+// 관심종목별 "매수까지 무엇이 남았는지". `/api/buylist` 는 라우트만 있고 화면이 없었는데,
+// 온보딩·오늘카드 카피가 `관심종목을 넣으면 대기 리스트가 채워집니다` 라고 **약속**하고 있었다
+// (CLAUDE.md 도 시그널 탭 요소로 `매수 대기` 를 적어 둔다). 중복이 아니라 미완성이었다.
+//
+// 상시 블록을 늘리지 않는다 — 왼쪽 패널을 3개로 줄인 직후다. 오늘 카드의 접이식 안에 넣는다.
+const _WAIT_STATUS = { ready: ['매수 신호', 'var(--sig-buy)'], near: ['근접', 'var(--sig-watch)'],
+                       blocked: ['막힘', 'var(--sig-sell)'], far: ['거리 있음', 'var(--dim)'] };
+
+async function loadBuyWait() {
+  const el = document.getElementById('buywait-body');
+  if (!el) return;
+  try {
+    const d = await (await fetch('/api/buylist')).json();
+    const items = d.items || [];
+    if (!items.length) {
+      // 0의 이유 — 관심종목이 없어서인지, 있는데 시그널이 없어서인지 가른다.
+      el.innerHTML = `<div class="stat-label">관심종목을 ★로 등록하면 여기에 `
+        + `<b>매수까지 무엇이 남았는지</b>가 종목별로 뜹니다.</div>`;
+      return;
+    }
+    el.innerHTML = items.map(it => {
+      const [lbl, col] = _WAIT_STATUS[it.status] || _WAIT_STATUS.far;
+      const blk = (it.blockers || []).map(b => esc(plainNote(b.label))).join(' · ');
+      return `<div style="display:flex;gap:8px;align-items:baseline;padding:5px 0;border-top:1px solid var(--line)">
+        <span style="min-width:96px"><b>${esc(it.name)}</b></span>
+        <span style="color:${col};font-weight:700;font-size:12px;min-width:56px">${lbl}</span>
+        <span style="flex:1;color:var(--dim);font-size:13px">${esc(plainNote(it.hint || ''))}${blk ? ` · ${blk}` : ''}</span></div>`;
+    }).join('');
+  } catch (e) { el.innerHTML = `<div class="stat-label">불러오기 실패: ${esc(String(e))}</div>`; }
 }
 
 async function loadAccuracy(){
