@@ -1560,10 +1560,19 @@ def _us_prices_freshness() -> dict:
                      f"{' 외' if len(gap) > 5 else ''}) — 기대 마지막 봉 {expected}")
     if behind:
         parts.append(f"{len(behind)}/{len(last)}종목 갱신 대상")
+    # 배너용 짧은 문장. **경과일수로는 이 고장을 말할 수 없다** — 시장 전체 마지막 봉이
+    # 최신이어도 개별 종목 428/503이 뒤처질 수 있고, 그때 `age_hours` 는 0이라 배너가
+    # `미국 시세(0일)` 이라 적는다(실측). 무엇이 잘못됐는지를 숫자로 쓴다.
+    if gap:
+        short = f"거래일 {len(gap)}일 결손({', '.join(d[5:] for d in gap[:3])})"
+    elif behind:
+        short = f"{len(behind)}/{len(last)}종목 뒤처짐"
+    else:
+        short = None
     entry.update(updated=newest, age_hours=age_h, rows=len(behind),
                  stale=bool(behind), total=len(last),
                  missing_trading_days=gap, expected_last_bar=expected,
-                 note=" · ".join(parts) or None)
+                 note=" · ".join(parts) or None, stall_note=short)
     return entry
 
 
@@ -1588,7 +1597,9 @@ def _quality_freshness() -> dict:
         note = f"{n}/{total}종목만 계산됨 — 전년 재무가 비었는지 확인"
     return {"key": "quality", "label": "회사 체질(재무 파생)", "kind": "derived",
             "updated": None, "age_hours": None, "rows": n, "total": total,
-            "stale": not n, "note": note}
+            "stale": not n, "note": note,
+            # 파생값은 날짜가 없으므로 배너가 경과일수로 말할 수 없다 — 짧은 사유를 같이 낸다.
+            "stall_note": (f"{n}/{total}종목만 계산 — 매수 자격에 반영됨" if total else None)}
 
 
 def data_freshness() -> list[dict]:
@@ -2224,8 +2235,10 @@ def stall_report() -> dict:
     import datetime as _dt
 
     fresh = data_freshness()
+    # `stall_note` 를 함께 넘긴다 — 경과일수로 말할 수 없는 고장이 있다(파생값은 날짜가 없고,
+    # 미국 시세는 시장 마지막 봉이 최신인데 개별 종목이 뒤처질 수 있어 age가 0이다).
     stale = [{"key": e["key"], "label": e["label"], "updated": e["updated"],
-              "age_hours": e["age_hours"]}
+              "age_hours": e["age_hours"], "stall_note": e.get("stall_note")}
              for e in fresh if e.get("stale")]
     # `updated` 가 없으면 캐시 파일이 없는 것이지만, **파생값 항목은 파일이 아니다**(퀄리티는
     # 재무 파일 안의 값이라 자기 mtime이 없다). 안 걸러 내면 "파일 없음"으로 잘못 보고한다.

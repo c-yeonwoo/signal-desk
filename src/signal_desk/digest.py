@@ -118,11 +118,22 @@ def stall_line(stall: dict | None) -> str | None:
     if missing:
         bits.append("파일 없음 " + " · ".join(missing[:_STALL_NAMES])
                     + (f" 외 {len(missing) - _STALL_NAMES}개" if len(missing) > _STALL_NAMES else ""))
-    stale = [e for e in (stall.get("stale") or []) if e.get("updated")]
+    # **`updated` 가 없는 항목을 버리면 안 된다.** 예전엔 `if e.get("updated")` 로 걸렀는데,
+    # 파생값(퀄리티)은 자기 파일이 없어 날짜가 None이라 **stale 목록에 있는데도 문장에서
+    # 통째로 사라졌다**(실측: `stale=[us_prices, quality]` 인데 배너는 미국 시세만 말했다).
+    # 파일 날짜가 없는 고장은 원리적으로 알릴 수 없는 구조였고, 그건 조용한 0이다.
+    stale = list(stall.get("stale") or [])
     if stale:
-        names = [f"{e['label']}({e['age_hours'] / 24:.0f}일)" if e.get("age_hours") is not None
-                 else e["label"] for e in stale[:_STALL_NAMES]]
-        bits.append("갱신 멈춤 " + " · ".join(names)
+        def _one(e: dict) -> str:
+            # 사유가 있으면 사유를 쓴다 — 경과일수로 말할 수 없는 고장이 있다. 미국 시세는
+            # 시장 마지막 봉이 최신이어도 개별 종목 428/503이 뒤처질 수 있고 그때 age는 0이라
+            # 배너가 `미국 시세(0일)` 이 됐다(실측). 0일이라 적으면 고장이 아닌 것처럼 읽힌다.
+            if e.get("stall_note"):
+                return f"{e['label']} {e['stall_note']}"
+            if e.get("age_hours") is not None:
+                return f"{e['label']}({e['age_hours'] / 24:.0f}일)"
+            return str(e["label"])
+        bits.append("갱신 멈춤 " + " · ".join(_one(e) for e in stale[:_STALL_NAMES])
                     + (f" 외 {len(stale) - _STALL_NAMES}개" if len(stale) > _STALL_NAMES else ""))
     pit = stall.get("pit") or {}
     if pit.get("missing_n"):

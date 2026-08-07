@@ -2261,6 +2261,42 @@ def test_derived_values_behind_a_ttl_gate_have_a_presence_backfill():
     assert "_quality_freshness()" in fresh
 
 
+def test_every_stalled_source_is_actually_spoken_in_the_banner():
+    """**stale 목록에 있으면 문장에도 있어야 한다.** 조용한 고장은 없는 고장과 같다.
+
+    2026-08-07 실측: `stall_report().stale` 이 `[us_prices, quality]` 인데 배너는
+    `🔧 갱신 멈춤 미국 시세(마지막 봉)(0일)` 만 말했다. `stall_line` 이 `if e.get("updated")`
+    로 걸러서 **파일 날짜가 없는 항목을 통째로 버렸다** — 파생값(퀄리티)은 자기 파일이 없으니
+    원리적으로 알릴 수 없는 구조였다. 그리고 남은 하나는 `(0일)` 이라 적혀 고장이 아닌 것처럼
+    읽혔다(시장 마지막 봉은 최신이고 개별 종목 428/503이 뒤처진 상태였다).
+    """
+    from signal_desk import digest
+
+    stall = {"ok": False, "pit": {"missing_n": 0},
+             "stale": [
+                 {"key": "us_prices", "label": "미국 시세", "updated": "2026-08-07",
+                  "age_hours": 0, "stall_note": "428/503종목 뒤처짐"},
+                 {"key": "quality", "label": "회사 체질", "updated": None,
+                  "age_hours": None, "stall_note": "0/199종목만 계산 — 매수 자격에 반영됨"},
+             ]}
+    line = digest.stall_line(stall)
+    assert line, "정지인데 문장이 없다"
+    for e in stall["stale"]:
+        assert e["label"] in line, f"{e['key']} 가 문장에서 사라졌다"
+        assert e["stall_note"] in line, f"{e['key']} 의 사유가 문장에 없다"
+    # 경과일수로 말할 수 없는 고장을 `(0일)` 로 적으면 고장이 아닌 것처럼 읽힌다.
+    assert "(0일)" not in line
+
+    # 날짜가 있고 사유가 없는 평범한 항목은 여전히 경과일수로 말한다(회귀 방지).
+    plain = digest.stall_line({"ok": False, "pit": {"missing_n": 0},
+                               "stale": [{"key": "prices", "label": "국내 시세",
+                                          "updated": "2026-08-01", "age_hours": 72}]})
+    assert "국내 시세(3일)" in plain
+
+    # 정상일 때는 아무 말도 하지 않는다 — 매일 초록불은 곧 안 읽힌다.
+    assert digest.stall_line({"ok": True}) is None
+
+
 def test_us_price_staleness_is_counted_in_trading_days_not_calendar_days():
     """달력일 문턱은 주말과 결손을 가를 수 없다 — 둘 다 "3일"이 된다.
 
