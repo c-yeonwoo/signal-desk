@@ -3089,3 +3089,73 @@ def test_badge_colors_have_one_source():
     assert "_ZONE_TOKEN" in html and "getPropertyValue(tok)" in html
     # 폴백도 있어야 한다 — 토큰을 못 읽을 때 무색이 되면 배지가 사라진다.
     assert "_ZONE_FALLBACK" in html
+
+
+# ── 알림 배선 (2026-08-07) ────────────────────────────────────────────────────
+# `_push_trades` 는 정의만 있고 **호출처가 0** 이었다. `_bot_loop_iteration` 이
+# `result = bot.run_once(...)` 를 받아 **실패만 로그하고 성공 결과를 버렸다**.
+# 프로덕션 실측: 23일 · 175건 체결 동안 체결 알림 0건(아침 브리핑은 나갔으므로 설정 문제가 아니다).
+# 라우트에 대해 만든 고아 검사(X5)를 **알림 함수**로 확장한다.
+
+def test_every_push_helper_has_a_caller():
+    """`notify.push` 를 감싸는 함수는 부르는 곳이 있어야 한다.
+
+    라우트가 그랬듯(`product_reviewer`) 알림도 "존재하지만 닿을 수 없는" 상태가 된다.
+    차이는 라우트는 눌러 보면 알고, 알림은 **안 오는 것이 정상인지 고장인지 구분이 안 된다**는
+    점이다(체결이 없어서 안 오는 것과 배선이 없어서 안 오는 것이 똑같이 조용하다).
+    """
+    import re
+    from pathlib import Path
+    src = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    # `notify.push(` 를 부르는 def 를 모은다.
+    helpers = []
+    for m in re.finditer(r"^def (_\w+)\(", src, re.M):
+        name = m.group(1)
+        body = src[m.end():]
+        nxt = re.search(r"^(?:@|def |async def )", body, re.M)
+        body = body[:nxt.start()] if nxt else body
+        if "notify.push(" in body:
+            helpers.append(name)
+    assert helpers, "notify.push 를 감싸는 함수를 못 찾았다 — 검사가 낡았다"
+    for h in helpers:
+        calls = len(re.findall(r"(?<!def )\b" + h + r"\(", src))
+        assert calls >= 1, (
+            f"{h}() 는 notify.push 를 감싸는데 **부르는 곳이 없다** — "
+            f"체결이 없어서 안 오는 것과 배선이 없어서 안 오는 것을 사람이 구분할 수 없다")
+
+
+def test_bot_loop_does_not_discard_fill_results():
+    """`run_once`·`execute_reservations` 의 반환값을 버리면 체결이 조용해진다.
+
+    `{"ok": False}` 를 버리고 성공 로그를 찍던 #339와 같은 병이고, 이번엔 **성공 결과**를 버렸다.
+    """
+    from pathlib import Path
+    src = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
+    it = src.split("def _bot_loop_iteration(", 1)[1].split("\ndef ", 1)[0]
+    assert "bot.run_once(" in it
+    assert "_push_trades(" in it, "run_once 결과가 알림으로 가지 않는다"
+    # 예약 경로는 `run_once` 와 별개다 — 한쪽만 붙이면 예약으로 산 종목이 조용히 들어온다.
+    assert "execute_reservations(" in it
+    assert "_push_reservations(" in it, "예약 체결이 알림으로 가지 않는다"
+    # 반환값을 변수로 받는지(버리지 않는지) 확인한다.
+    import re
+    assert re.search(r"=\s*bot\.execute_reservations\(", it), "예약 반환값을 버린다"
+
+
+def test_fill_push_is_silent_when_nothing_filled():
+    """체결 0건이면 아무 말도 하지 않는다 — 매일 빈 알림을 쓰면 그것도 곧 안 읽힌다."""
+    import os
+    from unittest import mock
+    os.environ["TELEGRAM_BOT_TOKEN"] = "t"
+    os.environ["TELEGRAM_CHAT_ID"] = "1"
+    from signal_desk import api
+    with mock.patch.object(api.notify, "push", return_value=True) as pushed:
+        api._push_trades("kr", {"ok": True, "buys": [], "sells": []})
+        api._push_reservations("kr", {"ok": True, "executed": []})
+        api._push_reservations("kr", {"ok": False, "reason": "x"})
+        api._push_reservations("kr", None)
+        assert pushed.call_count == 0, "체결이 없는데 알림을 보냈다"
+        api._push_trades("kr", {"ok": True, "buys": [{"name": "A", "qty": 1}], "sells": []})
+        assert pushed.call_count == 1
+        assert "매수 A" in pushed.call_args[0][0]
+    os.environ.pop("TELEGRAM_BOT_TOKEN"); os.environ.pop("TELEGRAM_CHAT_ID")

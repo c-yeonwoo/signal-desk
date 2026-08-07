@@ -264,12 +264,20 @@ def _bot_loop_iteration() -> None:
     for uid in enabled:  # 장중인 시장만 체결(장외 스킵)
         for mkt in open_markets:
             try:  # 예약 주문 먼저(목표가+추격폭 이내만) — run_once와 별개 경로
-                bot.execute_reservations(uid, market=mkt)
+                # **반환값을 버리지 않는다.** 예약 체결도 체결이다 — 알림 대상이다.
+                res = bot.execute_reservations(uid, market=mkt)
+                _push_reservations(mkt, res)
             except Exception as e:
                 log.warning("예약 실행 실패(uid=%s, %s): %s", uid, mkt, type(e).__name__)
             result = bot.run_once(uid, market=mkt)
             if not result.get("ok"):
                 log.info("봇 실행 스킵(uid=%s, %s): %s", uid, mkt, result.get("reason"))
+            else:
+                # 2026-08-07: `_push_trades` 는 정의만 있고 **호출처가 0** 이었다. 성공 결과를
+                # 그대로 버려서 23일 · 175건 체결 동안 텔레그램 알림이 한 번도 안 나갔다
+                # (아침 브리핑은 나갔으므로 설정 문제가 아니었다). 이 레포가 반복해서 밟은
+                # "수집 코드가 있다고 갱신되는 건 아니다 — 아무도 안 부른 것"의 알림 판본이다.
+                _push_trades(mkt, result)
     # 관심종목 시그널 변동 알림은 봇과 무관한 기능이다 — 대상은 '관심종목이 있는 유저'다.
     for uid in db.uids_with_ticker_favorites():
         try:
@@ -679,6 +687,22 @@ def _push_trades(market: str, result: dict) -> None:
                      + (f" · {detail}" if detail else ""))
     if lines:
         notify.push(f"🤖 봇 체결 ({market.upper()})\n" + "\n".join(lines[:10]))
+
+
+def _push_reservations(market: str, result: dict | None) -> None:
+    """예약 주문 체결을 텔레그램으로 푸시. `run_once` 와 **별개 경로**라 따로 알린다 —
+    한쪽만 붙이면 예약으로 산 종목은 조용히 들어온다."""
+    if not notify.available() or not result or not result.get("ok"):
+        return
+    lines = []
+    for e in result.get("executed", []):
+        if e.get("skipped") or e.get("status") == "skipped":
+            continue
+        qty = e.get("qty")
+        lines.append(f"🟢 예약 매수 {e.get('name', e.get('ticker'))}"
+                     + (f" {qty}주" if qty else ""))
+    if lines:
+        notify.push(f"🤖 예약 체결 ({market.upper()})\n" + "\n".join(lines[:10]))
 
 
 @app.get("/api/alerts")
