@@ -3001,3 +3001,91 @@ def test_deleted_routes_leave_no_dangling_references():
     import re
     for name in re.findall(r"(_\w+)\.cache_clear\(\)", blk):
         assert hasattr(api_mod, name), f"{name} 가 없는데 cache_clear 를 부른다"
+
+
+# ── 팔레트 대비 (2026-08-06 인디고 전환) ─────────────────────────────────────
+# "여전히 칙칙하다"의 원인은 취향이 아니라 구조였다: `--accent` 가 `--brand-500`(#0E8C9E L34)과
+# **같은 토큰**이라 버튼 배경(26곳)과 텍스트를 겸업했고, 흰 글자 대비가 3.98로 **이미 미달**이었다.
+# 밝히면 더 깨지고 어둡게 두면 칙칙해서 빠져나갈 수 없었다. 인디고는 같은 명도에서 휘도가 낮다.
+
+def _hex_luminance(hx: str) -> float:
+    hx = hx.strip().lstrip("#")
+    if len(hx) == 3:
+        hx = "".join(c * 2 for c in hx)
+    r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4  # noqa: E731
+    return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b)
+
+
+def _contrast(a: str, b: str) -> float:
+    la, lb = _hex_luminance(a), _hex_luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _root_tokens() -> dict:
+    import re
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    css = html[:html.find("</style>")]
+    root = css[css.find(":root"):css.find("}", css.find("--safe-right")) + 1]
+    return dict(re.findall(r"(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,6})\s*;", root))
+
+
+def test_white_ink_fills_meet_contrast():
+    """흰 글자를 얹는 배경은 4.5:1 이어야 한다.
+
+    실측으로 **두 곳이 미달**이었다: `--accent`(=브랜드 #0E8C9E) 3.98, 배지 `BUY: #2F9E68` 3.38.
+    둘 다 "색이 예쁜가"가 아니라 **읽히는가**의 문제였고, 아무도 재지 않아 남아 있었다.
+    """
+    toks = _root_tokens()
+    for name in ("--brand-500", "--brand-600", "--brand-700",
+                 "--sig-buy", "--sig-buy-strong", "--sig-sell", "--sig-sell-strong"):
+        assert name in toks, f"{name} 이 :root 에 없다"
+        c = _contrast(toks[name], "#ffffff")
+        assert c >= 4.5, f"{name}={toks[name]} 흰 글자 대비 {c:.2f} < 4.5"
+
+
+def test_text_colors_meet_contrast_against_the_page_background():
+    """본문 배경 위 텍스트로 쓰는 색은 배경 대비 4.5:1 이어야 한다."""
+    toks = _root_tokens()
+    bg = toks.get("--bg") or "#F7F8FA"
+    for name in ("--brand-500", "--sig-buy", "--sig-sell"):
+        c = _contrast(toks[name], bg)
+        assert c >= 4.5, f"{name}={toks[name]} 배경({bg}) 대비 {c:.2f} < 4.5"
+
+
+def test_brand_is_vivid_enough_to_not_read_as_grey():
+    """칙칙함은 **중간 명도 유채색이 없는 것**이다.
+
+    개편 전 실측: 유채색이 전부 극단 명도(브랜드·매수 L27~34)라 L40~65 구간에 색이 없었고,
+    밝은 것은 경고색뿐이라 **부정 신호만 튀었다**. 브랜드가 그 구간에 있어야 한다.
+    """
+    import colorsys
+    toks = _root_tokens()
+    def hsl(hx):
+        hx = hx.lstrip("#")
+        r, g, b = (int(hx[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        h, l, s = colorsys.rgb_to_hls(r, g, b)
+        return round(h * 360), round(s * 100), round(l * 100)
+    _, s_brand, l_brand = hsl(toks["--brand-500"])
+    assert 42 <= l_brand <= 62, f"브랜드 명도 {l_brand}% — 중간 명도(42~62)를 벗어나면 칙칙하다"
+    assert s_brand >= 55, f"브랜드 채도 {s_brand}% — 55 미만이면 회색처럼 읽힌다"
+
+
+def test_badge_colors_have_one_source():
+    """같은 배지 색을 CSS와 JS가 각각 정하면 갈라진다.
+
+    실측: `.sig-pill.STRONG_BUY { background:#0a5f3e }` 와 `_ZONE_COLOR.STRONG_BUY` 가
+    다른 값이었다. **ECharts는 `var()`를 못 쓰므로** JS는 토큰을 hex로 해석해서 넘긴다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    import re
+    # CSS 배지는 토큰만 쓴다(하드코딩 hex 금지).
+    for m in re.finditer(r"\.sig-pill\.(STRONG_BUY|BUY|SELL|STRONG_SELL)\s*\{([^}]*)\}", html):
+        body = m.group(2)
+        assert "#" not in body, f".sig-pill.{m.group(1)} 이 hex 를 하드코딩한다: {body.strip()}"
+    # JS는 토큰에서 읽는다.
+    assert "_ZONE_TOKEN" in html and "getPropertyValue(tok)" in html
+    # 폴백도 있어야 한다 — 토큰을 못 읽을 때 무색이 되면 배지가 사라진다.
+    assert "_ZONE_FALLBACK" in html
