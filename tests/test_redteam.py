@@ -2327,6 +2327,38 @@ def test_us_price_staleness_is_counted_in_trading_days_not_calendar_days():
     assert "weekday()" in exp, "주말을 빼지 않는다"
 
 
+def test_llm_batch_caps_count_calls_not_successes():
+    """**비용 상한은 호출 수에 걸어야 한다.** 성공만 세면 상한이 상한이 아니다.
+
+    실측(2026-08-08): `company` 라벨로 하루 525콜 · $0.61(월 $18). 유니버스는 703종목 고정이고
+    캐시가 있어 진작 수렴했어야 했다. `max_llm` 이 성공만 세서 생성 실패 종목은 카운트되지 않고
+    다음 종목으로 넘어갔고, 실패를 기억하지 않아 매 루프 같은 종목을 다시 불렀다. `got=0` 이면
+    로그도 안 남았다(`if about_n: log.info` — 조용한 0).
+
+    그리고 국내→해외 이어받기가 `max_llm - 성공수` 였다 — 국내에서 상한만큼 **호출**하고도
+    해외 예산이 그대로 남아 상한이 두 배 이상 늘어났다.
+    """
+    import inspect
+
+    from signal_desk import api as api_mod
+    from signal_desk import company as company_mod
+
+    for fn in (company_mod.backfill, company_mod.backfill_moves):
+        src = inspect.getsource(fn)
+        assert "tried >= max_llm" in src, f"{fn.__name__}: 상한이 호출 수에 안 걸린다"
+        assert "attempted" in src, f"{fn.__name__}: 호출 수를 돌려주지 않는다"
+        assert "_deferred(" in src and "_note_fail(" in src, \
+            f"{fn.__name__}: 실패를 기억하지 않아 영원히 재시도한다"
+        # 성공만 세고 break 하던 옛 형태가 다시 들어오면 안 된다.
+        assert "got >= max_llm" not in src, f"{fn.__name__}: 성공 수로 상한을 건다"
+
+    # 예산은 대상군 사이에서 **호출 수**로 공유한다.
+    spend = inspect.getsource(api_mod._spend_llm_budget)
+    assert 'left -= r["attempted"]' in spend, "남은 예산을 성공 수로 계산하면 상한이 늘어난다"
+    # 실패 종목은 이름으로 남긴다 — 유예되면 자동 백필에서 빠지므로 안 적으면 이유를 모른다.
+    assert "failed[:10]" in spend or '", ".join(failed' in spend
+
+
 def test_signal_grade_badge_does_not_wander_between_rows():
     """등급 배지는 **행마다 같은 위치**에 있어야 한다 — 열을 훑는 데 쓰는 값이다.
 

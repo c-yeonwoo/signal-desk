@@ -2280,29 +2280,54 @@ def _about_targets_us() -> list[dict]:
             for u in store.load_us_universe()]
 
 
+def _spend_llm_budget(fn, batches: list, max_llm: int, label: str) -> int:
+    """`fn(targets, max_llm=…)` 를 여러 대상군에 걸쳐 부르되 **호출 수 예산을 공유**한다.
+
+    예전엔 남은 예산을 `max_llm - 성공수` 로 계산해 국내→해외로 넘겼다. 실패는 성공에 안
+    잡히므로 국내에서 상한만큼 **호출**하고도 해외에 예산이 그대로 남았다 — 상한이 두 배
+    이상으로 늘어났다. 이제 `attempted` 를 빼서 넘긴다.
+
+    실패 종목은 **이름으로** 로그에 남긴다(조용히 빠진 종목은 조용한 0이다) — 유예되면
+    자동 백필에서 빠지므로, 안 적으면 왜 개요가 없는지 알 수 없게 된다.
+    """
+    left, got, failed, deferred = max_llm, 0, [], 0
+    for targets in batches:
+        if left <= 0:
+            break
+        r = fn(targets, max_llm=left)
+        got += r["generated"]
+        left -= r["attempted"]
+        failed += r["failed"]
+        deferred += r["deferred"]
+    if failed:
+        log.warning("%s 생성 실패 %d종목: %s%s — 연속 %d회면 %d일 유예",
+                    label, len(failed), ", ".join(failed[:10]),
+                    " 외" if len(failed) > 10 else "",
+                    company._FAIL_DEFER_AFTER, company._FAIL_DEFER_SEC // 86400)
+    if deferred:
+        log.info("%s 유예 중 %d종목 — 자동 백필에서 제외(수동 생성은 유예 무시)", label, deferred)
+    return got
+
+
 def _backfill_about_batch(max_llm: int = 30) -> int:
-    """국내+해외 '사업 개요'를 LLM으로 증분 백필(캐시 없는 종목만, 상한까지). LLM 없으면 0.
+    """국내+해외 '사업 개요'를 LLM으로 증분 백필(캐시 없는 종목만, **호출 수** 상한까지).
     요청 경로가 아니라 갱신·백그라운드에서만 호출(수백 종목 동기 LLM 방지)."""
     try:
-        n = company.backfill(_about_targets_kr(), max_llm=max_llm)
-        if n < max_llm:
-            n += company.backfill(_about_targets_us(), max_llm=max_llm - n)
-        return n
+        return _spend_llm_budget(company.backfill,
+                                 [_about_targets_kr(), _about_targets_us()],
+                                 max_llm, "사업 개요")
     except Exception as e:
         log.warning("사업 개요 백필 실패(무시): %s", type(e).__name__)
         return 0
 
 
 def _backfill_moves_batch(max_llm: int = 15) -> int:
-    """국내+해외 '최근 행보'를 KB 원자료 기반으로 증분 백필(KB 문서 있고 캐시가 오래된 종목만). LLM 없으면 0."""
+    """국내+해외 '최근 행보'를 KB 원자료 기반으로 증분 백필(KB 문서 있고 캐시가 오래된 종목만)."""
     try:
         kr = [{"ticker": u["ticker"], "name": u["name"]} for u in store.load_universe()]
-        n = company.backfill_moves(kr, max_llm=max_llm)
-        if n < max_llm:
-            us = [{"ticker": u["ticker"], "name": us_ko.name_ko(u["ticker"], u["name"])}
-                  for u in store.load_us_universe()]
-            n += company.backfill_moves(us, max_llm=max_llm - n)
-        return n
+        us = [{"ticker": u["ticker"], "name": us_ko.name_ko(u["ticker"], u["name"])}
+              for u in store.load_us_universe()]
+        return _spend_llm_budget(company.backfill_moves, [kr, us], max_llm, "최근 행보")
     except Exception as e:
         log.warning("최근 행보 백필 실패(무시): %s", type(e).__name__)
         return 0
