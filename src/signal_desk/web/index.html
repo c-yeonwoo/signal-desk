@@ -1866,6 +1866,17 @@ function routeFromHash(){
 }
 window.addEventListener('hashchange', routeFromHash);
 let _resizeT = null;
+// **숨은 탭에서 그린 차트는 눌린 채로 남는다.** 백그라운드 탭은 `requestAnimationFrame` 과
+// `ResizeObserver` 콜백을 주지 않으므로(실측: `visibilityState='hidden'` 일 때 둘 다 0회),
+// 0폭에서 init 된 차트를 되살릴 경로가 없다 — 새로고침해야만 고쳐진다.
+// 탭이 보이는 순간 한 번 맞춘다. 리스너는 아래 resize 핸들러와 같은 일을 하므로 재사용한다.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  [_signalChart, _botChart, _cycleChart, _gpChart].forEach(c => {
+    try { if (c) c.resize(); } catch (e) {}
+  });
+});
+
 window.addEventListener('resize', () => {
   if (_signalChart) _signalChart.resize();
   if (_botChart) _botChart.resize();
@@ -4100,6 +4111,11 @@ function bestUpside(item){
 let _signalChart = null;
 function _disposeSignalChart(){
   if (!_signalChart) return;
+  // 관찰자를 먼저 끊는다 — 살려 두면 죽은 인스턴스에 resize를 부르고, 재생성 때 두 개가 붙는다.
+  try {
+    const dom = _signalChart.getDom();
+    if (dom && dom._ro) { dom._ro.disconnect(); delete dom._ro; }
+  } catch (e) {}
   try { _signalChart.dispose(); } catch (e) {}
   _signalChart = null;
 }
@@ -4115,6 +4131,23 @@ function _ensureSignalChart(holder){
   }
   holder.innerHTML = '';
   _signalChart = echarts.init(holder);
+  // **폭 0에서 init 되면 그 크기가 고정된다.** ECharts는 init 시점의 컨테이너 크기를 잡고,
+  // 이후 스스로 다시 재지 않는다 — 그래서 축·범례가 세로로 겹쳐 눌린 채로 남는다.
+  // 창 크기가 안 바뀌면 `window.resize` 핸들러도 안 불리므로 **영영 안 고쳐진다**(새로고침만 됨).
+  //
+  // 컨테이너가 0폭이 되는 순간은 창 크기와 무관하게 생긴다: 좁은 폭 레이아웃 전환, 패널 열림·
+  // 접힘, 열 너비 드래그, 상세 탭 지연 로드로 높이가 바뀔 때 등. 그래서 **컨테이너를 직접
+  // 관찰**한다 — `_hypoChart` 가 이미 쓰는 패턴이고, 메인 차트에만 없었다.
+  _resizeWhenLaidOut(_signalChart, holder);
+  // RO 는 **보조**다 — 이후 컨테이너가 바뀔 때(패널 접힘·열 너비 드래그·탭 전환)를 잡는다.
+  // 위 재시도가 init 시점을, RO 가 그 뒤를 맡는다. 둘 중 하나만으로는 구멍이 남는다.
+  if (window.ResizeObserver && !holder._ro) {
+    holder._ro = new ResizeObserver(() => {
+      // 0폭일 때 resize를 부르면 그 0을 다시 굳힌다 — 폭이 생겼을 때만 부른다.
+      if (holder.clientWidth > 0) { try { _signalChart && _signalChart.resize(); } catch (e) {} }
+    });
+    holder._ro.observe(holder);
+  }
   return _signalChart;
 }
 function _paintSignalDetail(ticker, item){
@@ -4690,7 +4723,25 @@ function _drawSignalChart(ticker, item, d){
     ],
     series,
   }, true);
-  chart.resize();
+  _resizeWhenLaidOut(chart, holder);
+}
+
+// **`resize()` 한 번으로는 부족하다.** 컨테이너가 아직 0폭이면 그 0을 다시 굳힐 뿐이고,
+// 이후 창 크기가 안 바뀌면 `window.resize` 핸들러도 안 불려 **새로고침 전까지 눌린 채 남는다**
+// (실측 재현: init client=0 → 컨테이너 600px → 차트 여전히 0 → `resize()` 부르니 600).
+//
+// `ResizeObserver` 만 믿을 수도 없다 — 콜백이 렌더링 사이클에 묶여 있어 백그라운드·스로틀 상태에서
+// 발화하지 않는다(실측: 이 환경에서 단독 RO도 0회). 그래서 **폭이 생길 때까지 프레임마다 확인**한다.
+function _resizeWhenLaidOut(chart, holder, tries = 60) {
+  if (!chart || !holder) return;
+  try {
+    const want = holder.clientWidth;
+    if (want > 0) {
+      if (Math.abs(chart.getWidth() - want) > 1) chart.resize();
+      return;                                  // 폭이 맞으면 끝 — 매 프레임 돌지 않는다
+    }
+  } catch (e) { return; }
+  if (tries > 0) requestAnimationFrame(() => _resizeWhenLaidOut(chart, holder, tries - 1));
 }
 
 // ===== 포트폴리오 — 자동매매봇 =====
