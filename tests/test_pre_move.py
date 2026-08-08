@@ -145,3 +145,41 @@ def test_coverage_badge_never_reads_as_a_success_probability():
     assert "성공 확률이 아닙니다" in body, "성공률이 아니라는 문구가 없다"
     for banned in ("신뢰도 ${pct}", "적중률 ${pct}", "승률 ${pct}"):
         assert banned not in body, f"{banned} — 커버리지를 성공률처럼 이름 붙였다"
+
+
+def test_coverage_emphasis_only_where_it_actually_traps():
+    """**강조는 함정에만.** 낮은 근거를 전부 튀게 하면 소음이 되고, 소음은 곧 안 읽힘이다.
+
+    실측(2026-08-08, 200종목):
+      저커버리지 31건 · 그중 **매수권 0건**(구조적 — 근거가 낮으면 매수권에서 빠진다)
+      그중 점수 음수 14건 — 안 살 종목에 경고를 붙이는 건 소음이다
+      화면 1위: 점수 3.00 · 근거 24% · HOLD ← 목록이 점수순이라 맨 위로 올라온다
+
+    그래서 "시그널 있는데 근거 낮음"은 조건이 **성립할 수 없고**, 남는 진짜 함정은
+    **점수는 매수 문턱을 넘는데 근거가 부족한 것**이다(31 → 6건).
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    body = "\n".join(ln for ln in html.split("\n") if not ln.strip().startswith("//"))
+    assert "covTraps" in body, "강조 조건이 분리돼 있지 않다"
+    assert "low_coverage && r.score != null && r.score >= buyScoreFloor()" in body, \
+        "점수 문턱을 함께 보지 않는다 — 음수 점수에도 경고가 붙는다"
+    # 강조 클래스는 함정에만 — `low ? ' low'` 로 되돌아오면 안 된다.
+    assert "cov-badge${covTraps(r) ? ' low' : ''}" in body
+    assert "cov-badge${low ? ' low' : ''}" not in body
+    # 문턱은 서버에서 — 관리자가 바꾸면 강조 대상도 같이 움직여야 한다.
+    assert "selection.rank_min_score" in body
+
+
+def test_high_coverage_is_never_visually_endorsed():
+    """**높은 근거를 강조하면 "좋은 매수"로 읽힌다** — 근거 100%짜리 점수 −2 종목도 있다.
+
+    커버리지는 성공 확률이 아니라고 못박아 놓고 시각적으로 뒤집으면 안 된다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    body = "\n".join(ln for ln in html.split("\n") if not ln.strip().startswith("//"))
+    # 높은 커버리지에 붙는 별도 강조 클래스가 생기면 안 된다.
+    assert ".cov-badge.high" not in body and "' high'" not in body
+    # 설명은 낮으면 모두 붙는다 — 강조만 아끼는 것이지 정보를 줄이는 게 아니다.
+    assert "매수 대상에서 제외됩니다" in body
