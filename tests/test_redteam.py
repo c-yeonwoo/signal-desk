@@ -3509,9 +3509,17 @@ def test_coverage_is_shown_next_to_the_score():
     # 목록 행에서 점수와 **같은 칸**에 있어야 한다(떨어뜨리면 같이 안 읽는다).
     row = html.split("const body = rows.map(", 1)[1].split("</tr>", 1)[0]
     assert "metric(r)" in row and "covBadge(r)" in row
-    # 상세 히어로에도 · 낮으면 경고 문장까지.
-    assert "_heroCov(" in html and "_heroCovWarn(" in html
-    assert "부풀려져 있습니다" in html
+    # 상세 히어로에도 점수 옆에 붙어야 한다.
+    assert "_heroCov(" in html
+    # 낮으면 **부풀림 설명이 어딘가에서 전달**돼야 한다 — 예전엔 히어로에 3줄짜리 별도 경고
+    # 블록(`_heroCovWarn`)을 뒀는데, 배지·툴팁이 같은 말을 해서 중복이었다(레포 규칙:
+    # 같은 말을 한 화면에서 두 번 하지 않는다). 블록을 뺐으므로 **배지가 유일한 전달자**다
+    # — 그래서 구현이 아니라 계약을 검사한다: 설명이 있고, 배지가 강조를 잃지 않았는지.
+    assert "부풀려져 있습니다" in html, "부풀림 설명이 화면에서 사라졌다"
+    hero = html.split("function _heroCov(", 1)[1].split("\n}", 1)[0]
+    assert "low_coverage ? ' low' : ''" in hero, \
+        "히어로 배지가 강조를 잃었다 — 경고 블록을 뺀 뒤로 이게 유일한 전달자다"
+    assert "title=" in hero, "히어로 배지에 설명 툴팁이 없다"
 
 
 def test_glossary_says_the_score_does_not_decide_the_verdict():
