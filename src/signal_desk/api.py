@@ -35,7 +35,7 @@ from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_gate,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
-    regime_zone, relative, revision, sector_rel, target, why_now,
+    pre_move, regime_zone, relative, revision, sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
     GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
@@ -1455,8 +1455,12 @@ def _annotate_entry(items: list[dict], *, market: str = "kospi") -> list[dict]:
     else:
         closes_by = store.load_price_series()
         dates_by = store.load_dates_by_ticker()
-    return entry_quality.annotate_rows(
+    items = entry_quality.annotate_rows(
         items, hist_by=hist_by, dates_by=dates_by, closes_by=closes_by, today=today)
+    # **발동 전** 사전 상승 — `entry_quality` 는 발동일부터를 재서 발동 당일 항상 0이다.
+    # 반대 방향(우리가 보기 전에 이미 얼마나 올랐나)을 재는 별개 축이고, 관측만 한다.
+    # `entry.fire_date` 를 쓰므로 `entry_quality` **뒤에** 와야 한다.
+    return pre_move.annotate(items, closes_by=closes_by, dates_by=dates_by)
 
 
 def _annotate_priced_in(items: list[dict], *, market: str = "kospi") -> list[dict]:
