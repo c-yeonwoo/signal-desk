@@ -89,3 +89,24 @@ def test_lease_is_renewed_by_the_fast_tick():
     src = inspect.getsource(api._quote_loop)
     assert "_renew_loop_ownership" in src
     assert api._LOOP_LEASE_SEC > 30 * 60, "임대가 느린 틱보다 짧으면 두 벌이 돈다"
+
+
+# ─────────────────────────── 첫 화면 호출 수 ───────────────────────────
+
+def test_inactive_detail_tabs_are_lazy():
+    """**비활성 탭은 탭을 눌렀을 때 받는다.** 서버 동시성이 1이라 호출 수가 곧 대기 시간이다.
+
+    실측(2026-08-08): 첫 화면 21개 호출이 11.2초에 정착했고, 병렬 4,430ms가 순차 3,008ms보다
+    **느렸다**(= 직렬화). 그중 `동종`·`일정`은 기본 탭(`지표·목표가`)이 아닌데도 종목을 고를
+    때마다 즉시 나갔고, `일정`은 **외부 DART를 쳐서 콜드에 16.3초**였다.
+    """
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    body = "\n".join(ln for ln in html.split("\n") if not ln.strip().startswith("//"))
+    # 종목 선택 경로에서 즉시 부르면 안 된다.
+    assert "renderPeers(ticker);" not in body, "동종을 종목 선택 시 즉시 받는다"
+    assert "renderEvents(ticker);" not in body, "일정을 종목 선택 시 즉시 받는다"
+    assert "markLazyDetail(" in body and "_LAZY_DETAIL" in body
+    # 같은 종목으로 두 번 받지 않는다(탭을 오갈 때마다 외부 DART를 치면 안 된다).
+    assert "_lazyLoaded[key] !== _selectedTicker" in body, "탭 전환마다 다시 받는다"
