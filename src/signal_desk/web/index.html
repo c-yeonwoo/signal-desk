@@ -3322,6 +3322,12 @@ function renderSignalList(){
     ((_sigTodayMeta && _sigTodayMeta.selection && _sigTodayMeta.selection.coverage
       && _sigTodayMeta.selection.coverage.min_required) ?? 0.8);
 
+  // "살 뻔한 점수"의 기준 — 매수권 진입 최소 점수. **서버가 준 값**을 쓴다(관리자가 문턱을
+  // 바꾸면 강조 대상도 같이 움직여야 한다). 없으면 강조하지 않는다(문턱을 모르면 함정도 모른다).
+  const buyScoreFloor = () =>
+    ((_sigTodayMeta && _sigTodayMeta.selection && _sigTodayMeta.selection.rank_min_score)
+      ?? Infinity);
+
   // **관점 수가 아니라 비중 비율을 쓴다.** 게이트가 실제로 보는 값이 이것이기 때문이다.
   // 예전 배지는 `round(coverage * 8)` 로 **가중치를 개수처럼 환산**해서 두 번 왜곡했다:
   //   ① 실제 발동 개수와 다르다 — 모멘텀(0.30)이 빠지면 7개가 발동해도 `6/8` 로 보인다
@@ -3330,6 +3336,20 @@ function renderSignalList(){
   //
   // **성공확률이 아니다.** "신뢰도 87%" 처럼 읽히면 안 된다 — 그런 base rate 를 우리는
   // 갖고 있지 않다(실현 18건 · 판정 불가). 이건 "엔진이 이 종목을 얼마나 볼 수 있었나"다.
+  // **강조는 함정에만 쓴다.** 낮은 근거를 전부 튀게 하면 31행이 주황색이 되는데, 그중 14건은
+  // 점수가 음수다 — 안 살 종목에 경고를 붙이는 건 소음이고, 소음은 곧 안 읽힘이다.
+  //
+  // 반대로 뒤집는 것(높은 근거를 강조)은 더 나쁘다: 근거 100%짜리 점수 −2 종목이 있고,
+  // 초록으로 칠하면 "좋은 매수"로 읽힌다 — 커버리지는 성공 확률이 아니라고 방금 못박아 놓고
+  // 시각적으로 뒤집는 셈이다.
+  //
+  // "시그널 있는데 근거 낮음"도 조건이 성립하지 않는다 — 근거가 낮으면 **애초에 매수권에서
+  // 빠지므로**(실측 저커버리지 31건 중 매수권 0건) 그 조합은 존재할 수 없다.
+  //
+  // 남는 진짜 함정: **점수는 매수 문턱을 넘는데 근거가 부족한 것.** 목록이 점수순이라
+  // 그런 종목이 화면 맨 위로 올라온다(실측 1위: 점수 3.00 · 근거 24% · HOLD).
+  // 살 뻔했는데 못 사는 자리이고, 설명이 필요한 자리도 거기뿐이다. 실측 31건 → 6건.
+  const covTraps = (r) => !!r.low_coverage && r.score != null && r.score >= buyScoreFloor();
   const covBadge = (r) => {
     const c = r.data_coverage;
     if (c == null) return '';
@@ -3345,7 +3365,9 @@ function renderSignalList(){
           + ` 남은 관점끼리 다시 나눠 계산하므로 점수도 부풀려져 있습니다.`
         : '')
       + ` 이 값은 성공 확률이 아닙니다.`;
-    return ` <span class="cov-badge${low ? ' low' : ''}" title="${esc(tip)}">근거 ${pct}%</span>`;
+    // 설명(툴팁)은 낮으면 **모두** 붙이고, **강조(색)는 함정에만** 붙인다 —
+    // 정보를 줄이는 게 아니라 시선을 아껴 쓰는 것이다.
+    return ` <span class="cov-badge${covTraps(r) ? ' low' : ''}" title="${esc(tip)}">근거 ${pct}%</span>`;
   };
 
   const holdNote = (r) => {
