@@ -110,3 +110,37 @@ def test_inactive_detail_tabs_are_lazy():
     assert "markLazyDetail(" in body and "_LAZY_DETAIL" in body
     # 같은 종목으로 두 번 받지 않는다(탭을 오갈 때마다 외부 DART를 치면 안 된다).
     assert "_lazyLoaded[key] !== _selectedTicker" in body, "탭 전환마다 다시 받는다"
+
+
+def test_fast_trade_pass_actually_runs(monkeypatch):
+    """**소스 검사만으로는 부족하다** — 이 경로는 백그라운드 루프에서만 돌고 예외가 조용하다.
+
+    `except Exception` 으로 감싸여 있어 NameError·시그니처 불일치가 로그 한 줄로 묻힌다.
+    실제로 호출해 인자와 반환 키가 맞는지 확인한다.
+    """
+    calls = {"res": [], "run": []}
+    monkeypatch.setattr(api.db, "user_bots_enabled", lambda: [1, 2])
+    monkeypatch.setattr(api.bot, "REFERENCE_BOTS", {1, 2})
+    monkeypatch.setattr(api.bot, "execute_reservations",
+                        lambda uid, market: calls["res"].append((uid, market)) or {"filled": []})
+    def fake_run(uid, market="kr", sells_only=False, dry_run=False):
+        calls["run"].append((uid, market, sells_only))
+        return {"ok": True, "sells": [{"ticker": "005930", "name": "삼성전자", "qty": 1}], "buys": []}
+    monkeypatch.setattr(api.bot, "run_once", fake_run)
+    monkeypatch.setattr(api, "_push_reservations", lambda m, r: None)
+    monkeypatch.setattr(api, "_push_trades", lambda m, r: None)
+
+    api._fast_trade_pass(["kr"])
+
+    assert calls["res"] == [(1, "kr"), (2, "kr")], "예약 체결이 봇별로 안 돈다"
+    assert calls["run"] == [(1, "kr", True), (2, "kr", True)], "sells_only 로 안 부른다"
+
+
+def test_fast_trade_pass_is_a_noop_when_market_closed(monkeypatch):
+    """장이 닫혔으면 아무것도 하지 않는다 — 장외 체결은 없는 체결이다."""
+    ran = []
+    monkeypatch.setattr(api.db, "user_bots_enabled", lambda: [1])
+    monkeypatch.setattr(api.bot, "REFERENCE_BOTS", {1})
+    monkeypatch.setattr(api.bot, "run_once", lambda *a, **k: ran.append(1) or {"ok": True})
+    api._fast_trade_pass([])
+    assert ran == []
