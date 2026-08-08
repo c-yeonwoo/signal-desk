@@ -1453,11 +1453,11 @@
         <div style="font-size:13px;line-height:1.75;margin-top:6px">
           <div><b>점수</b> — 8가지 관점(재무·저평가·모멘텀 등)을 하나로 합친 값. 각 관점을 −1~+1로 매겨 가중평균한 뒤 3을 곱하므로 <b>−3 ~ +3</b>입니다(그 밖으로 나갈 수 없습니다).</div>
           <div style="margin-top:4px"><b>점수가 판정을 정하지 않습니다.</b> 매수는 ① 오늘 상위 순위 안 ② 안전장치 통과 ③ 볼 수 있는 관점이 충분 — 셋을 <b>모두</b> 만족해야 합니다. 그래서 점수 3.0이 관망이고 1.7이 강력매수일 수 있습니다.</div>
-          <div style="margin-top:4px"><b>높은 점수가 늘 좋은 건 아닙니다.</b> 볼 수 없는 관점은 빼고 남은 것끼리 다시 나눠 계산하므로, <b>관점이 적을수록 만점이 나오기 쉽습니다.</b> 점수 옆 <span class="cov-badge">n/8관점</span>이 낮으면 그 점수는 부풀려진 것입니다.</div>
+          <div style="margin-top:4px"><b>높은 점수가 늘 좋은 건 아닙니다.</b> 볼 수 없는 관점은 빼고 남은 것끼리 다시 나눠 계산하므로, <b>관점이 적을수록 만점이 나오기 쉽습니다.</b> 점수 옆 <span class="cov-badge">근거 n%</span>가 낮으면 그 점수는 부풀려진 것입니다. 관점마다 비중이 달라 개수가 아니라 <b>비중</b>으로 셉니다.</div>
           <div><b>판정</b> — 점수를 말로 바꾼 것. 강력매수 · 매수 · 관망 · 매도 · 강력매도.</div>
           <div><b>매수 막힘</b> — 점수는 좋았지만 안전장치가 매수를 막은 경우(예: 하락추세, 급락 직후, 데이터 부족). 막혔으면 실제로 사지 않았습니다.</div>
           <div><b>5일 뒤 · 20일 뒤</b> — 그 다음 거래일에 샀다고 가정하고 5거래일/20거래일 뒤 종가까지의 수익률. <b>아직</b>이라고 나오면 그만큼 날이 안 지난 것입니다.</div>
-          <div><b>커버리지</b> — 8가지 관점 중 몇 개를 실제로 볼 수 있었는지. 낮으면 적은 정보로 낸 점수입니다.</div>
+          <div><b>근거 %</b> — 8가지 관점의 <b>비중</b> 중 실제로 볼 수 있었던 몫. 관점마다 비중이 달라(오르는 추세·실적재무가 가장 큼) 개수가 아니라 비중으로 셉니다. 낮으면 적은 정보로 낸 점수이고, 남은 관점끼리 다시 나눠 계산하므로 <b>점수가 부풀려집니다</b>. <b>성공 확률이 아닙니다.</b></div>
         </div>
       </details>
       <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap;align-items:center">
@@ -3316,16 +3316,36 @@ function renderSignalList(){
   // 실측(프로덕션 200종목): 커버리지 0.2 구간 |점수| 평균 **3.00** vs 0.7~0.8 구간 0.64~0.68.
   // 유일한 3.00 종목이 8관점 중 2개만 보고 낸 값이었다 — **높은 점수가 확신이 아니라
   // 무지의 신호**일 수 있는데 화면에는 커버리지가 어디에도 없었다.
+  // 매수 커버리지 문턱은 **서버가 준 값**을 쓴다 — 화면에 상수로 박으면 관리자가 문턱을
+  // 바꿨을 때 툴팁만 옛 값을 말한다(같은 값을 두 곳에서 조립하지 않는다).
+  const covMinRequired = () =>
+    ((_sigTodayMeta && _sigTodayMeta.selection && _sigTodayMeta.selection.coverage
+      && _sigTodayMeta.selection.coverage.min_required) ?? 0.8);
+
+  // **관점 수가 아니라 비중 비율을 쓴다.** 게이트가 실제로 보는 값이 이것이기 때문이다.
+  // 예전 배지는 `round(coverage * 8)` 로 **가중치를 개수처럼 환산**해서 두 번 왜곡했다:
+  //   ① 실제 발동 개수와 다르다 — 모멘텀(0.30)이 빠지면 7개가 발동해도 `6/8` 로 보인다
+  //   ② 같은 `6/8` 인데 통과·차단이 갈렸다(실측 65 통과 · 2 차단) — 개수로는 설명이 안 된다
+  // 팩터마다 비중이 다르기 때문이다(모멘텀·실적재무 0.30 vs 밸류·체질·공매도 0.15).
+  //
+  // **성공확률이 아니다.** "신뢰도 87%" 처럼 읽히면 안 된다 — 그런 base rate 를 우리는
+  // 갖고 있지 않다(실현 18건 · 판정 불가). 이건 "엔진이 이 종목을 얼마나 볼 수 있었나"다.
   const covBadge = (r) => {
     const c = r.data_coverage;
     if (c == null) return '';
-    const seen = Math.round(c * 8);                 // 8관점 기준 — 사람이 세는 단위로 쓴다
+    const pct = Math.round(c * 100);
+    const fired = Object.keys(r.factor_scores || {}).length;   // **진짜** 발동 개수
+    const miss = (r.missing_factors || []).map(f => _PR_FACTOR[f] || f);
     const low = !!r.low_coverage;
-    const tip = low
-      ? `8관점 중 ${seen}개만 보고 낸 점수입니다. 남은 관점끼리 다시 나눠 계산하므로 `
-        + `점수가 부풀려져 있고, 그래서 매수 대상에서 제외됩니다.`
-      : `8관점 중 ${seen}개를 봤습니다.`;
-    return ` <span class="cov-badge${low ? ' low' : ''}" title="${esc(tip)}">${seen}/8관점</span>`;
+    const tip = `엔진이 볼 수 있었던 근거의 ${pct}%입니다(관점 ${fired}개 발동).`
+      + (miss.length ? ` 없는 관점: ${miss.join(', ')}.` : '')
+      + ` 관점마다 비중이 달라 개수가 아니라 비중으로 셉니다.`
+      + (low
+        ? ` 매수 기준 ${Math.round(covMinRequired() * 100)}%에 못 미쳐 매수 대상에서 제외됩니다 —`
+          + ` 남은 관점끼리 다시 나눠 계산하므로 점수도 부풀려져 있습니다.`
+        : '')
+      + ` 이 값은 성공 확률이 아닙니다.`;
+    return ` <span class="cov-badge${low ? ' low' : ''}" title="${esc(tip)}">근거 ${pct}%</span>`;
   };
 
   const holdNote = (r) => {
@@ -3670,18 +3690,25 @@ function sectorRelTip(r){
 function _heroCov(item) {
   const c = item && item.data_coverage;
   if (c == null) return '';
-  const seen = Math.round(c * 8);
-  return ` <span class="cov-badge${item.low_coverage ? ' low' : ''}">${seen}/8관점</span>`;
+  // 리스트 배지와 **같은 단위**를 쓴다 — 한 화면에서 개수와 비중을 섞으면 어느 쪽이 게이트가
+  // 보는 값인지 알 수 없다. 게이트가 보는 것은 비중이다.
+  const fired = Object.keys(item.factor_scores || {}).length;
+  const tip = `엔진이 볼 수 있었던 근거의 ${Math.round(c * 100)}%입니다(관점 ${fired}개 발동). `
+    + `관점마다 비중이 달라 개수가 아니라 비중으로 셉니다. 성공 확률이 아닙니다.`;
+  return ` <span class="cov-badge${item.low_coverage ? ' low' : ''}" title="${esc(tip)}">`
+    + `근거 ${Math.round(c * 100)}%</span>`;
 }
 
 // **높은 점수 + 낮은 커버리지**는 확신이 아니라 무지의 신호다 — 그 자리에서 말한다.
 // 실측(프로덕션): 유일한 3.00 종목이 8관점 중 2개만 보고 낸 값이었고 화면 1위였다.
 function _heroCovWarn(item) {
   if (!item || !item.low_coverage || item.data_coverage == null) return '';
-  const seen = Math.round(item.data_coverage * 8);
+  const pct = Math.round(item.data_coverage * 100);
+  const fired = Object.keys(item.factor_scores || {}).length;
   return `<div style="margin-top:6px;font-size:13px;color:var(--sig-watch);font-weight:600">`
-    + `이 점수는 <b>8관점 중 ${seen}개</b>만 보고 냈습니다 — 남은 관점끼리 다시 나눠 계산하므로 `
-    + `<b>부풀려져 있습니다.</b> 그래서 매수 대상에서 제외됩니다.</div>`;
+    + `이 점수는 볼 수 있는 근거의 <b>${pct}%</b>만 보고 냈습니다(관점 ${fired}개) — `
+    + `남은 관점끼리 다시 나눠 계산하므로 <b>부풀려져 있습니다.</b> 그래서 매수 대상에서 `
+    + `제외됩니다.</div>`;
 }
 
 function sigPillTitle(r){
