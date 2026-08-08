@@ -1741,6 +1741,25 @@ def data_freshness() -> list[dict]:
     ]
 
 
+def _pre_run_up_by_ticker(tickers: list[str]) -> dict[str, float]:
+    """스냅샷용 사전 상승 — **그 날 종가 기준 직전 N거래일 수익률**.
+
+    스냅샷은 하루 1회이므로, 어떤 종목이 매수권으로 **전환된 날**의 행에 담긴 이 값이 곧
+    그 에피소드의 사전 상승이다. 화면 경로의 `pre_move` 는 dict 행에 붙어서 여기(`SignalResult`)
+    로는 안 넘어온다 — 가격에서 직접 계산한다.
+
+    **None 과 0 은 다르다** — 봉이 모자라면 빼고, 0으로 채우지 않는다(0은 "안 올랐다"로 읽힌다).
+    """
+    from signal_desk.signals.pre_move import trailing_return_pct
+    series = load_price_series()
+    out: dict[str, float] = {}
+    for t in tickers:
+        v = trailing_return_pct(series.get(t) or [])
+        if v is not None:
+            out[t] = round(v, 2)
+    return out
+
+
 def snapshot_signals(signals, date: str | None = None) -> int:
     """오늘의 종목별 시그널·팩터값을 point-in-time으로 기록(일 1회). 수급·퀄리티·정성은 과거 PIT
     데이터가 없어 사전 백테스트가 불가했는데, 오늘부터 쌓아 향후 팩터 백테스트를 가능하게 한다.
@@ -1759,6 +1778,12 @@ def snapshot_signals(signals, date: str | None = None) -> int:
         kb_docs = db.kb_doc_counts()
     except Exception:
         kb_docs = {}
+    # 사전 상승도 그날 값으로 남긴다 — 사후에 재구성하려면 그 시점 발동일·유니버스가 필요한데
+    # 둘 다 복원이 어렵다(KB 커버리지와 같은 이유).
+    try:
+        pre_up = _pre_run_up_by_ticker([s.ticker for s in signals])
+    except Exception:                                  # noqa: BLE001 — 관측 실패가 스냅샷을 막지 않는다
+        pre_up = {}
     from signal_desk.signals import pick_reason as pr
     rows = []
     for s in signals:
@@ -1775,6 +1800,10 @@ def snapshot_signals(signals, date: str | None = None) -> int:
             "weight_sum_ratio": getattr(s, "weight_sum_ratio", None),
             "data_coverage": getattr(s, "data_coverage", None),
             "low_coverage": bool(getattr(s, "low_coverage", False)),
+            # **발동 전 사전 상승** — 그 날 값으로 남긴다. 나중에 가격에서 재구성하려면 그 시점의
+            # 발동일·유니버스를 알아야 하는데 둘 다 사후엔 복원이 어렵다(KB 커버리지와 같은 이유).
+            # 이게 있어야 "사전 상승이 큰 매수 vs 작은 매수"를 실현 수익으로 채점할 수 있다.
+            "pre_run_up_pct": pre_up.get(s.ticker),
             **meta,
         })
     df_new = pd.DataFrame(rows)
