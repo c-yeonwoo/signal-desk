@@ -369,3 +369,37 @@ def test_rotation_aggressive_smaller_gap(tmp_path, monkeypatch):
     out = bot.run_once(UID)
     assert any(s["reason"] == "ROTATE_OUT" and s["ticker"] == "WEAK" for s in out["sells"])
     assert "STRONG" in {p["ticker"] for p in db.bot_positions_all(UID, "kr")}
+
+
+def test_sells_only_blocks_buys_but_still_sells(tmp_path, monkeypatch):
+    """빠른 틱(5분) 모드 — **매도는 하고 매수는 안 한다.**
+
+    소스 검사가 아니라 **실제로 돌려서** 확인한다. 이 경로는 백그라운드 루프에서만 도는데
+    `except Exception` 으로 감싸여 있어, 조건이 어긋나도 로그 한 줄로 묻힌다.
+
+    매수를 막는 이유는 비용이다: 매수 선별은 `advisor`(Opus)를 부르고 그 입력인 점수는 일봉
+    종가 기반이라, 5분마다 다시 계산해도 후보가 거의 그대로다 — 같은 판단에 돈만 더 낸다.
+    반면 손절·트레일링은 가격에 반응하므로 자주 볼수록 실익이 있고 비용은 0이다.
+    """
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch,
+           [{"ticker": "005930", "name": "삼성전자"}, {"ticker": "AAA", "name": "가"}],
+           {"005930": [100.0, 100.0, 90.0], "AAA": [100.0]},
+           [_sig("005930", "삼성전자", "HOLD"), _sig("AAA", "가", "BUY", 2.4)],
+           min_buy_score=0.0)
+    _seed(10_000_000.0, {"005930": {"name": "삼성전자", "qty": 10, "avg_price": 100.0}})
+
+    called = {"advise": 0}
+    orig = bot.advisor.advise
+    monkeypatch.setattr(bot.advisor, "advise",
+                        lambda *a, **k: (called.__setitem__("advise", called["advise"] + 1),
+                                         orig(*a, **k))[1])
+
+    out = bot.run_once(UID, sells_only=True)
+    assert out["ok"] is not False
+    assert len(out["sells"]) == 1, "손절이 안 걸렸다 — 빠른 틱의 존재 이유가 사라진다"
+    assert out["buys"] == [], "sells_only 인데 샀다"
+    assert called["advise"] == 0, "매수 선별(유료 경로)이 불렸다 — 비용이 그대로다"
+    # 반환 모양은 느린 틱과 같아야 한다(집계가 갈라지지 않게).
+    for k in ("ok", "sells", "buys"):
+        assert k in out

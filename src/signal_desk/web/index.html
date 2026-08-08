@@ -3904,7 +3904,36 @@ function buildDetailTabs(){
   if (active) document.getElementById(active.el).style.display = '';
   if (_signalChart) _signalChart.resize();   // 패널 높이 변화 → 차트 flex 높이 재조정
 }
-function showDetailTab(key){ _activeDetailTab = key; buildDetailTabs(); }
+// 탭을 눌렀을 때 받는 패널 — 로더와 "이 종목에 있을 법한가" 판정을 한 곳에 둔다.
+// 낙관적으로 탭을 띄우고 눌렀을 때 받는다. 받아 보니 비어 있으면 로더가 `setDetailHas(false)`
+// 를 부르고 탭이 사라진다 — 즉시 받던 예전과 **같은 결과**이고 시점만 늦다.
+const _LAZY_DETAIL = {
+  peers:  { el: 'signal-peers',  load: (t) => renderPeers(t),
+            likely: (t) => t !== INDEX_TICKER && _sigMarket !== 'us' },
+  events: { el: 'signal-events', load: (t) => renderEvents(t),
+            likely: (t) => t !== INDEX_TICKER },
+};
+let _lazyLoaded = {};        // {key: ticker} — 이 종목으로 이미 받았나
+
+function markLazyDetail(ticker){
+  _lazyLoaded = {};
+  Object.entries(_LAZY_DETAIL).forEach(([k, p]) => {
+    setDetailHas(p.el, !!p.likely(ticker));
+    const el = document.getElementById(p.el);
+    if (el && p.likely(ticker)) el.innerHTML = '';
+  });
+}
+
+function showDetailTab(key){
+  _activeDetailTab = key;
+  buildDetailTabs();
+  const p = _LAZY_DETAIL[key];
+  // 선택이 바뀐 뒤의 늦은 응답은 로더가 `_selectedTicker` 로 이미 버린다(레이스 방지).
+  if (p && _lazyLoaded[key] !== _selectedTicker) {
+    _lazyLoaded[key] = _selectedTicker;
+    try { p.load(_selectedTicker); } catch (e) { /* 탭 전환이 실패로 막히지 않게 */ }
+  }
+}
 
 function renderFactors(item){
   const el = document.getElementById('signal-factors');
@@ -4295,8 +4324,10 @@ let _chartAbort = null;  // 빠른 종목 전환 시 이전 /chart·/detail 응�
 async function showSignalChart(ticker, item){
   // 리스트는 요약만 — 차트 먼저 그리고 상세(/detail)는 뒤에서 보강(느린 쪽이 차트 페인트을 막지 않게).
   _paintSignalDetail(ticker, item);
-  renderPeers(ticker);
-  renderEvents(ticker);
+  // **비활성 탭은 탭을 눌렀을 때 받는다.** 서버 동시성이 사실상 1이라(실측: 병렬 4,430ms >
+  // 순차 3,008ms) 첫 화면 호출 수가 곧 대기 시간이다. `동종`·`일정`은 기본 탭(`지표·목표가`)이
+  // 아닌데도 종목을 고를 때마다 즉시 나갔고, 그중 `일정`은 **외부 DART를 친다**(콜드 실측 16.3초).
+  markLazyDetail(ticker);
   const holder = document.getElementById('signal-chart');
   // 이미 그린 차트를 textContent로 지우면 ECharts가 죽고 '불러오는 중'만 보여 체감이 더 느리다.
   // 캐시된 차트가 있으면 흐리게만 두고, 없을 때만 플레이스홀더.

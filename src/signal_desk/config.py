@@ -274,9 +274,17 @@ def bot_run_interval_minutes() -> int:
 
 
 def quote_refresh_interval_minutes() -> int:
-    """장중 토스 현재가 오버레이 갱신 간격(분). 기본 10분.
-    봇/LLM보다 자주 돌려 시세만 신선하게 유지(비용·부하 거의 없음)."""
-    return int(os.environ.get("QUOTE_REFRESH_INTERVAL_MINUTES", "10"))
+    """**빠른 틱** 간격(분). 기본 5분 — 시세 오버레이 + 가격 반응 매매(손절·트레일링·예약).
+
+    2026-08-08에 10 → 5로 내렸다. 이 틱에는 **LLM이 없다**(`_quote_loop_iteration` 참고):
+    시세는 브로커 호출이라 무료이고, 매도·예약은 그 시세로 판정만 한다. 반면 매수 선별은
+    `advisor`(Opus)를 부르므로 느린 틱(`bot_run_interval_minutes`, 30분)에 남겨 뒀다 —
+    봇 주기를 통째로 줄이면 **같은 판단에 돈만 더 낸다**(매수 후보는 일봉 종가 기반이라
+    5분마다 다시 계산해도 거의 그대로다).
+
+    즉 이 값을 줄이는 것은 추가 비용이 없고, 손절·트레일링이 가격에 더 빨리 반응한다.
+    """
+    return int(os.environ.get("QUOTE_REFRESH_INTERVAL_MINUTES", "5"))
 
 
 def kb_dart_lite_enabled() -> bool:
