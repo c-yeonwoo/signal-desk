@@ -156,12 +156,47 @@ def _open_markets() -> list[str]:
 
 
 def _quote_loop_iteration() -> None:
-    """시세 틱 + (KR 장중) DART 공시 lite poll. 봇/Sonnet 없음."""
+    """빠른 틱 — 시세 갱신 + **가격에 반응하는 매매만**. LLM 0원.
+
+    **왜 매매가 여기 붙나**: 손절·트레일링·목표가·예약 체결은 가격에 반응하므로 자주 볼수록
+    실익이 있고 비용은 0이다(브로커 시세는 어차피 받는다). 반면 **매수 선별은 `advisor`(Opus)를
+    부르고 그 입력인 점수는 일봉 종가 기반**이라, 자주 돌리면 같은 판단에 돈만 더 낸다.
+    그래서 봇 주기를 통째로 줄이지 않고 **가격 반응분만** 이 틱으로 내렸다.
+
+    별도 루프로 두지 않고 시세 갱신 **바로 뒤**에 두는 이유: 두 루프가 독립이면 매도 점검이
+    **낡은 시세로** 돌 수 있다. 순서를 코드로 보장한다.
+    """
     open_m = _open_markets()
     _refresh_live_quotes(open_m)
     if "kr" in open_m:
         _maybe_poll_disclosures()
         _maybe_extend_candidate_ttl()
+    _fast_trade_pass(open_m)
+
+
+def _fast_trade_pass(open_markets: list[str]) -> None:
+    """보유 점검(손절·트레일링·목표가·시그널 매도) + 예약 체결. **매수는 하지 않는다.**
+
+    느린 틱(`_bot_loop_iteration`)이 같은 `run_once` 를 매수까지 포함해 다시 돈다 —
+    반환 모양이 같아야 집계가 갈라지지 않으므로 `sells_only` 플래그로만 나눈다.
+    """
+    enabled = [uid for uid in db.user_bots_enabled() if uid in bot.REFERENCE_BOTS]
+    if not enabled or not open_markets:
+        return
+    for uid in enabled:
+        for mkt in open_markets:
+            try:  # 예약 주문은 목표가 도달로 체결된다 — 가격 반응의 대표 사례다.
+                res = bot.execute_reservations(uid, market=mkt)
+                _push_reservations(mkt, res)
+            except Exception as e:
+                log.warning("빠른틱 예약 실행 실패(uid=%s, %s): %s", uid, mkt, type(e).__name__)
+            try:
+                r = bot.run_once(uid, market=mkt, sells_only=True)
+                if r.get("ok") and r.get("sells"):
+                    _push_trades(mkt, r)
+                    log.info("빠른틱 매도 %d건(uid=%s, %s)", len(r["sells"]), uid, mkt)
+            except Exception as e:
+                log.warning("빠른틱 매도 점검 실패(uid=%s, %s): %s", uid, mkt, type(e).__name__)
 
 
 _DIGEST_PREV_KEY = "morning_digest_buy_count"
@@ -494,9 +529,59 @@ async def _quote_loop():
     while True:
         try:
             await asyncio.to_thread(_quote_loop_iteration)
+            # 임대 갱신은 **빠른 틱**에서 한다 — 느린 틱(30분)에만 두면 갱신 간격이 임대에
+            # 가까워져 살아 있는데도 소유권을 뺏길 수 있다.
+            await asyncio.to_thread(_renew_loop_ownership)
         except Exception as e:
             log.error("시세 갱신 루프 오류: %s", e)
         await asyncio.sleep(interval)
+
+
+_LOOP_OWNER_KEY = "loop_owner"
+# 소유권 임대 기간. 이보다 오래 갱신이 없으면 죽은 프로세스로 보고 다른 워커가 가져간다.
+# 느린 틱(30분)보다 넉넉해야 한다 — 한 틱이 길어졌다고 소유권을 뺏기면 두 벌이 돈다.
+_LOOP_LEASE_SEC = 90 * 60
+
+
+def _claim_loop_ownership() -> bool:
+    """이 프로세스가 백그라운드 루프를 돌려도 되나. **프로세스당 하나**를 강제한다.
+
+    왜 필요한가: 매매 루프가 서버 프로세스 안에서 돈다. 워커를 늘리면 루프도 그만큼 돌아
+    **같은 종목을 여러 번 산다.** 배포 중 구·신 컨테이너가 겹치는 순간도 마찬가지다.
+
+    DB(kv)에 임대를 둔다 — 파일 락이나 프로세스 메모리로는 컨테이너를 넘지 못한다.
+    임대가 만료됐으면(죽은 프로세스) 가져오고, 살아 있으면 양보한다. **읽을 수 없으면 양보한다**
+    — 게이트를 못 읽을 때는 막는 쪽이 안전하다(fail-open은 게이트가 없는 것과 같다).
+    """
+    import os
+    import time
+
+    me = f"{os.getpid()}@{os.environ.get('RAILWAY_REPLICA_ID') or os.uname().nodename}"
+    now = int(time.time())
+    try:
+        cur = db.kv_get(_LOOP_OWNER_KEY)
+    except Exception:                                  # noqa: BLE001 — 못 읽으면 막는 쪽
+        log.warning("루프 소유권을 읽을 수 없습니다 — 이 워커는 루프를 돌리지 않습니다")
+        return False
+    if isinstance(cur, dict) and cur.get("owner") and cur.get("owner") != me:
+        if now - int(cur.get("at") or 0) < _LOOP_LEASE_SEC:
+            return False                               # 살아 있는 주인이 있다
+    try:
+        db.kv_set(_LOOP_OWNER_KEY, {"owner": me, "at": now})
+    except Exception:                                  # noqa: BLE001
+        return False
+    return True
+
+
+def _renew_loop_ownership() -> None:
+    """임대 갱신 — 루프가 살아 있는 동안 주기적으로 찍는다. 갱신이 끊기면 다른 워커가 가져간다."""
+    import os
+    import time
+    try:
+        me = f"{os.getpid()}@{os.environ.get('RAILWAY_REPLICA_ID') or os.uname().nodename}"
+        db.kv_set(_LOOP_OWNER_KEY, {"owner": me, "at": int(time.time())})
+    except Exception:                                  # noqa: BLE001 — 갱신 실패는 다음 틱에 재시도
+        pass
 
 
 async def _bot_loop():
@@ -535,6 +620,15 @@ async def _lifespan(app: FastAPI):
         bot.ensure_reference_bots()  # 공용 레퍼런스 봇(성향별) 부트스트랩 — 루프가 자동 운용
     except Exception as e:
         log.warning("레퍼런스 봇 부트스트랩 실패: %s", type(e).__name__)
+    # **루프는 프로세스당 하나여야 한다.** 이 앱은 백그라운드 매매 루프를 서버 프로세스 안에서
+    # 돌리는데(Dockerfile 주석), 워커를 2개로 늘리면 **루프도 2벌 돌아 같은 종목을 두 번 산다.**
+    # 지금은 `uvicorn.run(...)` 에 workers 지정이 없어 1개지만, 성능 때문에 워커를 늘리려는
+    # 순간(첫 화면 21개 호출이 동시성 1에 줄을 선다 — 병렬 4.4초 > 순차 3.0초) 그게 곧
+    # 매매 버그가 된다. 그래서 **락을 먼저 둔다** — 성능 작업의 전제다.
+    if not _claim_loop_ownership():
+        log.warning("백그라운드 루프를 다른 프로세스가 이미 잡고 있습니다 — 이 워커는 API만 담당합니다")
+        yield
+        return
     quote_task = asyncio.create_task(_quote_loop())
     bot_task = asyncio.create_task(_bot_loop())
     yield

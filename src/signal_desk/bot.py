@@ -399,9 +399,23 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
     return cash
 
 
-def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
+def run_once(uid: int, dry_run: bool = False, market: str = "kr",
+             sells_only: bool = False) -> dict:
     """유저 한 사이클 실행(시장별 페이퍼 계좌) — 공용 시그널로 매매. market: 'kr'|'us'.
-    dry_run=True면 주문/DB기록 없이 '무엇을 왜 매매할지' 계획만 계산(미리보기)."""
+    dry_run=True면 주문/DB기록 없이 '무엇을 왜 매매할지' 계획만 계산(미리보기).
+
+    `sells_only=True` 면 **보유 점검(손절·트레일링·목표가·시그널 매도)만** 하고 매수 단계를
+    통째로 건너뛴다. 빠른 틱(5분)이 쓰는 모드다.
+
+    **왜 나누나** — 두 단계의 성질이 다르다:
+
+    - 매도·손절·트레일링은 **가격에 반응**한다. 자주 볼수록 실익이 있고 비용은 0이다
+      (브로커 시세는 어차피 받는다).
+    - 매수 선별은 `advisor`(Opus)를 부르고, 그 입력인 점수는 **일봉 종가 기반**이라 5분마다
+      다시 계산해도 후보가 거의 그대로다. 자주 부르면 **같은 판단에 돈만 더 낸다.**
+
+    즉 "봇을 더 자주 돌린다"를 통째로 하면 유료 부분이 배수로 늘어난다. 나누면 실익만 가져간다.
+    """
     if not dry_run and config.bot_kill_switch():
         return {"ok": False, "reason": "긴급정지(BOT_KILL_SWITCH) 활성 — 주문을 내지 않습니다."}
     unit = "$" if market == "us" else "원"
@@ -490,7 +504,11 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
     bal2 = paper.balance(uid, market) if not dry_run else bal
     held_after = {h["ticker"] for h in bal2["holdings"]}
     available_slots = max(0, cfg["max_positions"] - len(held_after))
-    slots = 0 if block_new_buys else min(available_slots, cfg["max_new_buys_per_run"])
+    # `sells_only` 면 매수 자리를 0으로 둔다. **분기를 새로 만들지 않고 slots=0으로 막는다** —
+    # 아래 매수 블록에는 진입 기록·로그·반환 필드가 얽혀 있어서 통째로 건너뛰면 반환 모양이
+    # 갈라지고, 빠른 틱과 느린 틱이 **다른 형태의 결과**를 남기게 된다(집계가 어긋난다).
+    slots = 0 if (block_new_buys or sells_only) else min(available_slots,
+                                                        cfg["max_new_buys_per_run"])
 
     buys: list[dict] = []
     skipped_weak = 0
