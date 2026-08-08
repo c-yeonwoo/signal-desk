@@ -112,3 +112,36 @@ def test_annotate_runs_after_entry_quality_so_fire_date_exists():
     from signal_desk import api
     src = inspect.getsource(api._annotate_entry)
     assert src.index("entry_quality.annotate_rows") < src.index("pre_move.annotate")
+
+
+# ─────────────── 커버리지 배지: 개수가 아니라 비중 · 성공확률 아님 ───────────────
+
+def test_coverage_badge_shows_the_weighted_ratio_not_a_pseudo_count():
+    """**게이트가 보는 값과 화면이 보여주는 값이 같아야 한다.**
+
+    예전 배지는 `round(coverage * 8)` 로 **가중치를 개수처럼 환산**해 두 번 왜곡했다:
+      ① 실제 발동 개수와 다르다 — 모멘텀(0.30)이 빠지면 7개가 발동해도 `6/8` 로 보인다
+      ② 같은 `6/8` 인데 통과·차단이 갈렸다(실측 65 통과 · 2 차단)
+    팩터마다 비중이 다르기 때문이다(모멘텀·실적재무 0.30 vs 밸류·체질·공매도 0.15).
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    body = "\n".join(ln for ln in html.split("\n") if not ln.strip().startswith("//"))
+    assert "Math.round(c * 8)" not in body, "가중치를 개수로 환산해 보여준다"
+    assert "근거 ${pct}%" in body, "비중 비율을 퍼센트로 보여주지 않는다"
+    # 문턱은 서버가 준 값을 쓴다 — 화면에 상수로 박으면 관리자가 바꿔도 툴팁이 옛 값을 말한다.
+    assert "covMinRequired" in body and "coverage.min_required" in body
+
+
+def test_coverage_badge_never_reads_as_a_success_probability():
+    """**"신뢰도 87%" 로 읽히면 안 된다** — 그런 base rate 를 우리는 갖고 있지 않다.
+
+    실현 18건 · 리프트 −5.3%p · 신뢰구간 ±23%p 로 판정 불가다. 기준선 없는 비율을 성공률처럼
+    내보내는 것이 이 레포의 1번 금지 사항이다.
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    body = "\n".join(ln for ln in html.split("\n") if not ln.strip().startswith("//"))
+    assert "성공 확률이 아닙니다" in body, "성공률이 아니라는 문구가 없다"
+    for banned in ("신뢰도 ${pct}", "적중률 ${pct}", "승률 ${pct}"):
+        assert banned not in body, f"{banned} — 커버리지를 성공률처럼 이름 붙였다"
