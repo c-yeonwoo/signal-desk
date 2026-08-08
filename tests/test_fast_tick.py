@@ -84,11 +84,38 @@ def test_unreadable_lock_blocks_instead_of_fail_open(monkeypatch, tmp_path):
     assert api._claim_loop_ownership() is False
 
 
-def test_lease_is_renewed_by_the_fast_tick():
-    """갱신을 느린 틱(30분)에만 두면 임대에 가까워져 살아 있는데도 소유권을 뺏긴다."""
-    src = inspect.getsource(api._quote_loop)
-    assert "_renew_loop_ownership" in src
-    assert api._LOOP_LEASE_SEC > 30 * 60, "임대가 느린 틱보다 짧으면 두 벌이 돈다"
+def test_ownership_is_re_evaluated_every_tick_not_once_at_boot():
+    """**부팅 시 1회 판정하면 양보한 컨테이너가 영영 루프를 안 돈다.**
+
+    실측(2026-08-08): 재배포 직후 새 컨테이너가 옛 주인의 임대를 보고 양보한 뒤 `return` 해서,
+    임대가 만료돼도 다시 잡을 기회가 없었다 — `attempt_ts=null` 로 루프가 통째로 멈췄다.
+    """
+    q = inspect.getsource(api._quote_loop)
+    assert "_own_loop_tick" in q, "빠른 틱이 소유권을 재판정하지 않는다"
+    b = inspect.getsource(api._bot_loop)
+    assert "_loop_owner_is_me" in b, "느린 틱이 소유권을 확인하지 않는다"
+    # 부팅에서 양보하고 끝내면 안 된다.
+    life = inspect.getsource(api._lifespan)
+    assert "yield\n        return" not in life, "부팅에서 양보하고 루프를 아예 안 띄운다"
+
+
+def test_lease_matches_the_renewal_cadence_not_the_slow_tick():
+    """임대는 **갱신 주기**에 맞춘다 — 느린 틱에 맞추면 그 값이 곧 재배포 공백이 된다.
+
+    처음엔 90분으로 뒀는데 갱신은 빠른 틱(5분)에서 하므로, 90분은 "죽었는지"를 재는 눈금이
+    아니라 배포 후 루프가 멈춰 있는 시간이었다.
+    """
+    from signal_desk import config
+    fast = config.quote_refresh_interval_minutes() * 60
+    assert api._LOOP_LEASE_SEC >= fast * 2, "임대가 갱신 주기에 너무 가까우면 살아 있는데 뺏긴다"
+    assert api._LOOP_LEASE_SEC <= fast * 6, "임대가 너무 길면 재배포 후 그만큼 루프가 멈춘다"
+
+
+def test_slow_tick_checks_ownership_without_renewing():
+    """느린 틱(30분)이 갱신까지 하면 임대(15분)를 넘겨 **자기 소유권을 스스로 잃는다.**"""
+    src = inspect.getsource(api._loop_owner_is_me)
+    assert "kv_set" not in src, "확인만 해야 하는데 갱신한다"
+    assert "return False" in src, "못 읽을 때 막지 않는다"
 
 
 # ─────────────────────────── 첫 화면 호출 수 ───────────────────────────
