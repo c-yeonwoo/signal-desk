@@ -3717,20 +3717,12 @@ function _heroCov(item) {
   const fired = Object.keys(item.factor_scores || {}).length;
   const tip = `엔진이 볼 수 있었던 근거의 ${Math.round(c * 100)}%입니다(관점 ${fired}개 발동). `
     + `관점마다 비중이 달라 개수가 아니라 비중으로 셉니다. 성공 확률이 아닙니다.`;
+  // 히어로에서는 **낮으면 모두** 강조한다(목록의 `covTraps` 와 다르다). 목록은 200행이라
+  // 시선을 아껴야 하지만, 여기는 사용자가 **직접 고른 한 종목**이라 소음 문제가 없다.
+  // 그리고 예전에 있던 3줄짜리 경고 블록을 뺐으므로(중복 — 이 배지·툴팁이 같은 말을 한다)
+  // **이 배지가 유일한 전달자**다. 여기서 강조까지 빼면 경고가 사라진다.
   return ` <span class="cov-badge${item.low_coverage ? ' low' : ''}" title="${esc(tip)}">`
     + `근거 ${Math.round(c * 100)}%</span>`;
-}
-
-// **높은 점수 + 낮은 커버리지**는 확신이 아니라 무지의 신호다 — 그 자리에서 말한다.
-// 실측(프로덕션): 유일한 3.00 종목이 8관점 중 2개만 보고 낸 값이었고 화면 1위였다.
-function _heroCovWarn(item) {
-  if (!item || !item.low_coverage || item.data_coverage == null) return '';
-  const pct = Math.round(item.data_coverage * 100);
-  const fired = Object.keys(item.factor_scores || {}).length;
-  return `<div style="margin-top:6px;font-size:13px;color:var(--sig-watch);font-weight:600">`
-    + `이 점수는 볼 수 있는 근거의 <b>${pct}%</b>만 보고 냈습니다(관점 ${fired}개) — `
-    + `남은 관점끼리 다시 나눠 계산하므로 <b>부풀려져 있습니다.</b> 그래서 매수 대상에서 `
-    + `제외됩니다.</div>`;
 }
 
 function sigPillTitle(r){
@@ -4170,7 +4162,6 @@ function _paintSignalDetail(ticker, item){
           <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
           + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b>`
           + _heroCov(item) + `</span>
-          ${_heroCovWarn(item)}
           ${_pitHeroLine(item._pit)}
         </div>
       </div>`;
