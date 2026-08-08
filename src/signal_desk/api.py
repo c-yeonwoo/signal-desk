@@ -543,19 +543,23 @@ async def _quote_loop():
     await asyncio.sleep(5)
     while True:
         try:
-            await asyncio.to_thread(_quote_loop_iteration)
-            # 임대 갱신은 **빠른 틱**에서 한다 — 느린 틱(30분)에만 두면 갱신 간격이 임대에
-            # 가까워져 살아 있는데도 소유권을 뺏길 수 있다.
-            await asyncio.to_thread(_renew_loop_ownership)
+            # **매 틱 소유권을 재판정한다.** 소유 중이면 임대 갱신도 겸한다(같은 함수).
+            # 갱신이 빠른 틱에 있어야 임대(15분)가 갱신 간격(5분)보다 넉넉해진다.
+            if await asyncio.to_thread(_own_loop_tick):
+                await asyncio.to_thread(_quote_loop_iteration)
         except Exception as e:
             log.error("시세 갱신 루프 오류: %s", e)
         await asyncio.sleep(interval)
 
 
 _LOOP_OWNER_KEY = "loop_owner"
-# 소유권 임대 기간. 이보다 오래 갱신이 없으면 죽은 프로세스로 보고 다른 워커가 가져간다.
-# 느린 틱(30분)보다 넉넉해야 한다 — 한 틱이 길어졌다고 소유권을 뺏기면 두 벌이 돈다.
-_LOOP_LEASE_SEC = 90 * 60
+# 소유권 임대. 이보다 오래 **갱신이 없으면** 죽은 프로세스로 보고 다른 워커가 가져간다.
+#
+# **갱신 주기에 맞춰야 한다 — 느린 틱이 아니라.** 처음엔 90분으로 뒀는데, 갱신은 빠른 틱(5분)에서
+# 하므로 그 값은 "죽었는지"를 재는 눈금이 아니라 **재배포 뒤 공백**이 됐다. 실측: 배포 직후 새
+# 컨테이너가 옛 주인의 임대(90분 미만)를 보고 양보해 `attempt_ts=null` — **루프가 통째로 안 돌았다.**
+# 빠른 틱 3회분(15분)이면 살아 있는 주인은 절대 못 뺏기고, 죽은 주인은 15분 안에 교체된다.
+_LOOP_LEASE_SEC = 15 * 60
 
 
 def _claim_loop_ownership() -> bool:
@@ -568,10 +572,9 @@ def _claim_loop_ownership() -> bool:
     임대가 만료됐으면(죽은 프로세스) 가져오고, 살아 있으면 양보한다. **읽을 수 없으면 양보한다**
     — 게이트를 못 읽을 때는 막는 쪽이 안전하다(fail-open은 게이트가 없는 것과 같다).
     """
-    import os
     import time
 
-    me = f"{os.getpid()}@{os.environ.get('RAILWAY_REPLICA_ID') or os.uname().nodename}"
+    me = _loop_me()
     now = int(time.time())
     try:
         cur = db.kv_get(_LOOP_OWNER_KEY)
@@ -588,15 +591,38 @@ def _claim_loop_ownership() -> bool:
     return True
 
 
-def _renew_loop_ownership() -> None:
-    """임대 갱신 — 루프가 살아 있는 동안 주기적으로 찍는다. 갱신이 끊기면 다른 워커가 가져간다."""
+def _loop_me() -> str:
+    """이 프로세스의 소유자 문자열. 한 곳에서만 만든다 — 두 곳에서 조립하면 갈라진다."""
     import os
-    import time
+    return f"{os.getpid()}@{os.environ.get('RAILWAY_REPLICA_ID') or os.uname().nodename}"
+
+
+def _loop_owner_is_me() -> bool:
+    """지금 임대를 내가 들고 있나. **갱신하지 않는다**(느린 틱이 쓴다).
+
+    느린 틱(30분)이 갱신까지 하면 임대(15분)를 넘겨 자기 소유권을 스스로 잃고, 두 틱이
+    소유권을 주고받으며 깜빡인다. 갱신은 빠른 틱 한 곳에만 둔다.
+    """
     try:
-        me = f"{os.getpid()}@{os.environ.get('RAILWAY_REPLICA_ID') or os.uname().nodename}"
-        db.kv_set(_LOOP_OWNER_KEY, {"owner": me, "at": int(time.time())})
-    except Exception:                                  # noqa: BLE001 — 갱신 실패는 다음 틱에 재시도
-        pass
+        cur = db.kv_get(_LOOP_OWNER_KEY)
+    except Exception:                                  # noqa: BLE001 — 못 읽으면 막는 쪽
+        return False
+    return isinstance(cur, dict) and cur.get("owner") == _loop_me()
+
+
+def _own_loop_tick() -> bool:
+    """이번 틱에 이 프로세스가 루프 작업을 해도 되나. **매 틱 재판정한다.**
+
+    소유 중이면 임대를 갱신하고, 아니면 잡아 본다(옛 주인이 죽어 임대가 만료됐을 수 있다).
+    부팅 때 한 번만 판정하면 양보한 컨테이너가 **영영** 루프를 안 돈다 — 재배포 직후 실제로
+    그랬다(`attempt_ts=null`).
+    """
+    return _claim_loop_ownership()
+
+
+def _renew_loop_ownership() -> None:
+    """임대 갱신 — 하위호환 별칭. 판정은 `_own_loop_tick` 한 곳에서만 한다."""
+    _own_loop_tick()
 
 
 async def _bot_loop():
@@ -609,7 +635,10 @@ async def _bot_loop():
     await asyncio.sleep(8)  # 시세 루프가 먼저 한 틱 돌 여유
     while True:
         try:
-            await asyncio.to_thread(_bot_loop_iteration)
+            # 느린 틱은 **갱신하지 않고 확인만** 한다 — 30분 간격으로 갱신하면 임대(15분)를
+            # 넘겨 자기 소유권을 스스로 잃는다. 갱신은 빠른 틱이 맡는다.
+            if _loop_owner_is_me():
+                await asyncio.to_thread(_bot_loop_iteration)
         except Exception as e:
             log.error("자동매매봇 루프 오류: %s", e)
         await asyncio.sleep(interval)
@@ -640,10 +669,10 @@ async def _lifespan(app: FastAPI):
     # 지금은 `uvicorn.run(...)` 에 workers 지정이 없어 1개지만, 성능 때문에 워커를 늘리려는
     # 순간(첫 화면 21개 호출이 동시성 1에 줄을 선다 — 병렬 4.4초 > 순차 3.0초) 그게 곧
     # 매매 버그가 된다. 그래서 **락을 먼저 둔다** — 성능 작업의 전제다.
-    if not _claim_loop_ownership():
-        log.warning("백그라운드 루프를 다른 프로세스가 이미 잡고 있습니다 — 이 워커는 API만 담당합니다")
-        yield
-        return
+    # **부팅 시 1회 판정하면 안 된다.** 처음엔 여기서 양보하고 `return` 했는데, 그러면 그 컨테이너는
+    # **살아 있는 내내** 루프를 안 돈다 — 옛 주인이 죽어 임대가 만료돼도 다시 잡을 기회가 없다.
+    # 실측: 재배포 직후 `attempt_ts=null` 로 루프가 통째로 멈춰 있었다. 루프는 **항상 띄우고**
+    # 매 틱마다 소유권을 재판정한다(`_own_loop_tick`).
     quote_task = asyncio.create_task(_quote_loop())
     bot_task = asyncio.create_task(_bot_loop())
     yield
