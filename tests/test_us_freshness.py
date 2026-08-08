@@ -119,3 +119,71 @@ def test_quality_attached_count_counts_has_not_presence_of_the_key(monkeypatch):
         "C": {},                                            # 아예 없음
     })
     assert store.quality_attached_count() == 1
+
+
+# ─────────────────── 공백 복구: KR은 자동, US는 깊이를 계산해야 한다 ───────────────────
+
+def test_kr_incremental_fetch_starts_from_each_tickers_last_bar():
+    """KR은 **마지막 저장일부터** 받는다 — 공백이 며칠이든 몇 달이든 자동으로 채워진다."""
+    import inspect
+    src = inspect.getsource(store.fetch_prices)
+    assert "last_by_ticker.get(ticker)" in src, "종목별 마지막 저장일을 안 본다"
+    assert "start = datetime.date.fromisoformat" in src
+
+
+def test_us_fetch_depth_is_computed_from_the_actual_gap(monkeypatch):
+    """**US는 '최근 N봉'을 받는다** — 마지막 저장일을 안 본다(`toss.daily_ohlcv(count=...)`).
+
+    그래서 고정 60봉이면 공백이 60거래일을 넘는 순간 **구멍이 영구히 남는다.** KR과 달리
+    자동 복구가 안 되므로 필요한 깊이를 데이터에서 계산해 넘겨야 한다.
+    """
+    monkeypatch.setattr(store, "us_expected_last_bar", lambda as_of=None: "2026-08-06")
+    # 얕은 공백 — 기본값으로 충분
+    monkeypatch.setattr(store, "us_price_last_dates", lambda: {"A": "2026-08-04"})
+    assert store.us_price_gap_depth(["A"]) <= 10
+
+    # 깊은 공백(약 6개월) — 60봉으로는 못 채운다
+    monkeypatch.setattr(store, "us_price_last_dates", lambda: {"A": "2026-02-02"})
+    deep = store.us_price_gap_depth(["A"])
+    assert deep > 60, f"깊은 공백인데 {deep}봉만 요청한다 — 구멍이 남는다"
+    assert deep <= 200, "제공자 상한(토스 200봉)을 넘겨 요청한다"
+
+    # 봉이 아예 없으면 최대로 받는다
+    monkeypatch.setattr(store, "us_price_last_dates", lambda: {})
+    assert store.us_price_gap_depth(["A"]) == 200
+
+
+def test_interior_holes_are_detected_separately_from_the_tail(tmp_path, monkeypatch):
+    """**중간 구멍은 꼬리와 다른 고장이다.** 마지막 봉이 최신이어도 공백기 구멍은 남을 수 있고,
+    그러면 모멘텀(252거래일)·이동평균이 짧은 시리즈로 조용히 계산된다."""
+    import pandas as pd
+    monkeypatch.chdir(tmp_path)
+    days = ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06"]
+    rows = []
+    for t in ("A", "B", "C"):
+        for d in days:
+            if t == "A" and d == "2026-08-04":
+                continue                               # A만 하루 구멍
+            rows.append({"ticker": t, "date": d, "close": 1.0})
+    p = tmp_path / "data" / "cache"
+    p.mkdir(parents=True)
+    monkeypatch.setattr(store, "US_PRICES_FILE", p / "us_prices.parquet")
+    pd.DataFrame(rows).to_parquet(store.US_PRICES_FILE)
+
+    h = store.us_price_holes()
+    assert h["ready"] and h["holes_total"] == 1 and h["tickers_with_holes"] == 1
+    assert h["worst"][0]["ticker"] == "A" and h["worst"][0]["days"] == ["2026-08-04"]
+
+
+def test_market_wide_holiday_is_not_counted_as_a_hole(tmp_path, monkeypatch):
+    """전 종목이 쉰 날은 **거래일이 아니다** — 구멍으로 세면 영원히 못 메우는 경고가 뜬다."""
+    import pandas as pd
+    monkeypatch.chdir(tmp_path)
+    rows = [{"ticker": t, "date": d, "close": 1.0}
+            for t in ("A", "B", "C")
+            for d in ("2026-08-03", "2026-08-05")]     # 08-04 는 전 종목 없음(휴장)
+    p = tmp_path / "data" / "cache"
+    p.mkdir(parents=True)
+    monkeypatch.setattr(store, "US_PRICES_FILE", p / "us_prices.parquet")
+    pd.DataFrame(rows).to_parquet(store.US_PRICES_FILE)
+    assert store.us_price_holes()["holes_total"] == 0
