@@ -183,3 +183,39 @@ def test_high_coverage_is_never_visually_endorsed():
     assert ".cov-badge.high" not in body and "' high'" not in body
     # 설명은 낮으면 모두 붙는다 — 강조만 아끼는 것이지 정보를 줄이는 게 아니다.
     assert "매수 대상에서 제외됩니다" in body
+
+
+# ─────────────────────────── 차트 0폭 init 방어 ───────────────────────────
+
+def test_chart_recovers_from_a_zero_width_init():
+    """**폭 0에서 init 된 ECharts 는 스스로 안 고쳐진다.**
+
+    실측 재현(브라우저): `init client=0 → chart=0` · 컨테이너를 600px로 키워도 `chart=0` ·
+    `resize()` 를 부르니 `chart=600`. 창 크기가 안 바뀌면 `window.resize` 핸들러도 안 불리므로
+    **새로고침 전까지 눌린 채 남는다.**
+
+    방어는 셋이 모두 필요하다 — 하나만으로는 구멍이 남는다:
+      ① 그릴 때: 폭이 생길 때까지 프레임마다 확인(`_resizeWhenLaidOut`)
+      ② 그 뒤: 컨테이너 변화 관찰(`ResizeObserver` — 패널 접힘·열 드래그)
+      ③ 숨은 탭: 백그라운드는 rAF·RO 콜백을 **주지 않는다**(실측 `visibilityState='hidden'`
+         일 때 둘 다 0회) → 탭이 보일 때 한 번 맞춘다
+    """
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    body = "\n".join(ln for ln in html.split("\n") if not ln.strip().startswith("//"))
+    assert "_resizeWhenLaidOut" in body, "0폭일 때 기다렸다 맞추는 경로가 없다"
+    assert "clientWidth > 0" in body, "폭이 0인데 resize를 불러 0을 다시 굳힌다"
+    assert "new ResizeObserver" in body and "holder._ro" in body, "컨테이너 변화를 관찰하지 않는다"
+    assert "visibilitychange" in body, "숨은 탭에서 그린 차트를 되살릴 경로가 없다"
+    # 관찰자는 dispose 때 끊는다 — 안 끊으면 죽은 인스턴스에 resize를 부르고 두 개가 붙는다.
+    assert "_ro.disconnect()" in body
+
+
+def test_zero_width_resize_is_not_called_blindly():
+    """폭 0에서 `resize()` 를 부르면 **그 0을 다시 굳힌다** — 폭이 생겼을 때만 부른다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    fn = html.split("function _resizeWhenLaidOut(", 1)[1].split("\n}", 1)[0]
+    assert "want > 0" in fn, "폭 확인 없이 resize 한다"
+    assert "requestAnimationFrame" in fn, "폭이 생길 때까지 기다리지 않는다"
+    assert "tries" in fn, "무한 재귀 방지 상한이 없다"
