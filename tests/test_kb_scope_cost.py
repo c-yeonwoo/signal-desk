@@ -97,3 +97,60 @@ def test_adverse_event_extraction_keeps_the_quality_model():
     """
     src = inspect.getsource(kb._extract_candidate_event)
     assert "DIGEST_QUALITY_MODEL" in src, "안전 게이트를 값싼 모델로 내렸다"
+
+
+# ─────────────────── 하루 가드: "시도했나"가 아니라 "했나" ───────────────────
+
+def _kv(monkeypatch, initial=None):
+    store = dict(initial or {})
+    monkeypatch.setattr(api.db, "kv_get", lambda k: store.get(k))
+    monkeypatch.setattr(api.db, "kv_set", lambda k, v: store.__setitem__(k, v))
+    return store
+
+
+def test_turning_the_flag_on_takes_effect_the_same_day(monkeypatch):
+    """**플래그를 켜는 날 바로 돌아야 한다.**
+
+    예전엔 `kb_collect_date` 하나로 KB 수집과 US 재무 백필을 같이 막았고, 그 키를 **KB가 꺼져
+    있어도** 찍었다. 그래서 켜는 날은 이미 오늘 키가 있어 다음 날까지 무동작이었다 —
+    켠 사람에게는 고장으로 보인다. 가드는 "시도했나"가 아니라 **"실제로 했나"** 를 기록해야 한다.
+    """
+    ran = []
+    # 오늘 이미 US 백필이 돌아 `kb_collect_date` 가 찍힌 상태 = 플래그를 켜기 직전의 상황
+    kv = _kv(monkeypatch, {"kb_collect_date": api._kst_today()})
+    monkeypatch.setattr(api.config, "kb_auto_collect", lambda: True)
+    monkeypatch.setattr(api, "_kb_targets", lambda: [{"ticker": "005930", "name": "삼성전자"}])
+    monkeypatch.setattr(api.kb, "refresh", lambda t: ran.append("refresh") or {"updated": 1})
+    for fn in ("collect_fanding", "collect_outstanding", "collect_youtube", "collect_rss_macro"):
+        monkeypatch.setattr(api.kb, fn, lambda *a, **k: {"imported": 0})
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [])
+
+    api._daily_kb_collect()
+    assert ran == ["refresh"], "US 백필 키가 KB 수집까지 막았다 — 켠 날 아무 일도 안 일어난다"
+    assert kv[api._KB_LLM_COLLECT_KEY] == api._kst_today(), "실제로 돌았는데 가드를 안 찍었다"
+
+
+def test_off_day_does_not_consume_the_kb_slot(monkeypatch):
+    """꺼져 있던 날은 KB 슬롯을 **소진하지 않는다** — 안 했으니까."""
+    kv = _kv(monkeypatch)
+    monkeypatch.setattr(api.config, "kb_auto_collect", lambda: False)
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [])
+    api._daily_kb_collect()
+    assert api._KB_LLM_COLLECT_KEY not in kv, "안 돌았는데 오늘을 완료로 찍었다"
+    assert kv.get("kb_collect_date") == api._kst_today(), "US 백필 가드는 찍혀야 한다"
+
+
+def test_kb_collect_runs_once_per_day(monkeypatch):
+    """켜져 있어도 하루 한 번이다 — 30분 루프가 하루 종일 Sonnet을 부르면 안 된다."""
+    ran = []
+    _kv(monkeypatch)
+    monkeypatch.setattr(api.config, "kb_auto_collect", lambda: True)
+    monkeypatch.setattr(api, "_kb_targets", lambda: [{"ticker": "A", "name": "가"}])
+    monkeypatch.setattr(api.kb, "refresh", lambda t: ran.append(1) or {"updated": 1})
+    for fn in ("collect_fanding", "collect_outstanding", "collect_youtube", "collect_rss_macro"):
+        monkeypatch.setattr(api.kb, fn, lambda *a, **k: {"imported": 0})
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [])
+
+    api._daily_kb_collect()
+    api._daily_kb_collect()
+    assert len(ran) == 1, f"하루에 {len(ran)}번 돌았다"

@@ -66,17 +66,27 @@ def _kst_today() -> str:
     return _kst_now().date().isoformat()
 
 
+# KB LLM 수집의 하루 가드. **US 재무 백필(`kb_collect_date`)과 키를 나눈다** — 하나로 쓰면
+# KB가 꺼져 있던 날에도 키가 찍혀서, 플래그를 켜는 날 그 키가 KB까지 막는다(다음 날까지 무동작).
+_KB_LLM_COLLECT_KEY = "kb_llm_collect_date"
+
+
 def _daily_kb_collect():
     """하루 1회 유지보수 훅.
 
     KB LLM 자동수집(유튜브·RSS·미주은·종목 digest)은 기본 OFF(`config.kb_auto_collect`).
     트레이딩 예산과 학습 예산을 분리한다 — 자동 Sonnet은 수익률 실측이 없고, 학습(#cycle/hypo)은
     관리자 수동 수집·흐름 생성에 맡긴다. 무료 US 재무 백필만 항상 돈다.
-    KB_AUTO_COLLECT=1 이면 예전처럼 LLM 수집을 켠다."""
-    if db.kv_get("kb_collect_date") == _kst_today():
-        return
+    KB_AUTO_COLLECT=1 이면 예전처럼 LLM 수집을 켠다.
+
+    **하루 가드는 일별로 따로 둔다.** 예전엔 `kb_collect_date` 하나로 KB 수집과 US 재무 백필을
+    같이 막았고, 그 키를 **KB가 꺼져 있어도** 찍었다. 그래서 플래그를 켜는 날은 이미 오늘 키가
+    찍혀 있어 **다음 날까지 아무 일도 일어나지 않았다** — 켠 사람에게는 고장으로 보인다.
+    가드는 "시도했나"가 아니라 **"실제로 했나"** 를 기록해야 한다.
+    """
+    today = _kst_today()
     got = False
-    if config.kb_auto_collect():
+    if config.kb_auto_collect() and db.kv_get(_KB_LLM_COLLECT_KEY) != today:
         for fn in (kb.collect_fanding, kb.collect_outstanding, kb.collect_youtube, kb.collect_rss_macro):
             try:
                 out = fn()
@@ -98,18 +108,23 @@ def _daily_kb_collect():
         if got:
             _signals.cache_clear()
             _macro.cache_clear()
-    else:
+        # **실제로 돌았을 때만** 오늘을 소진한다. 위 가드가 이 키를 본다.
+        db.kv_set(_KB_LLM_COLLECT_KEY, today)
+    elif not config.kb_auto_collect():
         log.info("KB 자동수집 스킵(KB_AUTO_COLLECT off) — 학습 원료는 관리자 수동 수집")
-    try:  # US 재무 백필 — EDGAR(순이익·자기자본, 무료·무제한) 위주 + AV(섹터 등) 소량. 여러 날 걸쳐 전량 채움
-        us = [u["ticker"] for u in store.load_us_universe()]
-        if us:
-            store.fetch_us_fundamentals_edgar(us, max_calls=60)  # EDGAR companyfacts → PER/PBR
-            store.fetch_us_fundamentals(us, max_calls=20)        # AV → shares/sector 보조
-            _clear_us_signal_caches()
-    except Exception as e:
-        log.warning("US 재무 백필 실패: %s", type(e).__name__)
-    # 최근 이슈 흐름은 관리자 수동 refresh만(Sonnet 비용). 일일 자동 호출 없음.
-    db.kv_set("kb_collect_date", _kst_today())
+    # US 재무 백필은 **무료라 플래그와 무관**하게 돈다 — 그래서 가드도 따로 둔다.
+    # 예전엔 KB와 키를 공유해서, KB를 켜는 날 이미 찍힌 키가 KB까지 막았다.
+    if db.kv_get("kb_collect_date") != today:
+        try:  # EDGAR(순이익·자기자본, 무료·무제한) 위주 + AV(섹터 등) 소량. 여러 날 걸쳐 전량 채움
+            us = [u["ticker"] for u in store.load_us_universe()]
+            if us:
+                store.fetch_us_fundamentals_edgar(us, max_calls=60)  # EDGAR → PER/PBR
+                store.fetch_us_fundamentals(us, max_calls=20)        # AV → shares/sector 보조
+                _clear_us_signal_caches()
+        except Exception as e:
+            log.warning("US 재무 백필 실패: %s", type(e).__name__)
+        # 최근 이슈 흐름은 관리자 수동 refresh만(Sonnet 비용). 일일 자동 호출 없음.
+        db.kv_set("kb_collect_date", today)
 
 
 def _refresh_live_quotes(open_markets: list[str]) -> None:
