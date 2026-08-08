@@ -2381,7 +2381,14 @@ def _refresh_us_prices_stale(batch: int = 60, *,
     if not stale:
         return {"filled": 0, "stale": 0}
     targets = stale if batch <= 0 else stale[:batch]
-    filled = store.fetch_us_prices(targets, days=days)
+    # **필요한 깊이를 데이터에서 계산한다.** US 수집은 KR과 달리 "최근 N봉"을 받으므로
+    # (마지막 저장일을 안 본다) 고정 60봉이면 **공백이 60거래일을 넘는 순간 구멍이 영구히
+    # 남는다.** KR(`fetch_prices`)은 `start = 마지막 저장일`이라 이 문제가 없다.
+    need = store.us_price_gap_depth(targets)
+    depth = max(days, need)
+    if need > days:
+        log.info("US 시세 공백이 깊어 %d봉을 받는다(기본 %d) — 대상 %d종목", depth, days, len(targets))
+    filled = store.fetch_us_prices(targets, days=depth)
     remain = 0 if batch <= 0 else max(0, len(stale) - batch)
     return {"filled": filled, "stale": remain}
 

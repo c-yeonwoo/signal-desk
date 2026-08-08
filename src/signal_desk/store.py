@@ -877,6 +877,75 @@ def us_price_last_dates() -> dict[str, str]:
     return {str(t): str(d)[:10] for t, d in df.groupby("ticker")["date"].max().items()}
 
 
+def us_price_gap_depth(tickers: list[str] | None = None, *,
+                       as_of: datetime.datetime | None = None,
+                       cap: int = 200) -> int:
+    """뒤처진 종목 중 **가장 깊은 공백**을 채우는 데 필요한 봉 수.
+
+    **왜 필요한가**: US 일봉 수집은 KR과 달리 "최근 N봉"을 받는다 — 그 종목의 마지막 저장일을
+    보지 않는다(`fetch_us_prices` 는 `toss.daily_ohlcv(count=...)` 를 부른다). 일상 갱신이
+    `days=60` 고정이라 **공백이 60거래일을 넘으면 그 구멍은 영원히 안 메워진다.**
+    KR(`fetch_prices`)은 `start = 마지막 저장일` 이라 공백 길이와 무관하게 자동으로 채운다.
+
+    구멍이 남으면 조용히 틀어진다 — 모멘텀(252거래일)·이동평균·수익률이 짧은 시리즈로
+    계산되고 아무도 모른다. 그래서 **필요한 깊이를 데이터에서 계산**해 넘긴다.
+
+    `cap` 은 제공자 상한(토스 200봉)이다. 이보다 깊으면 한 번에 못 채우므로 호출자가
+    여러 번 돌려야 하고, 그 사실을 로그로 낸다.
+    """
+    expected = us_expected_last_bar(as_of)
+    last = us_price_last_dates()
+    universe = tickers if tickers is not None else [u["ticker"] for u in load_us_universe()]
+    deepest = 0
+    for t in universe:
+        d = str(last.get(t) or "")[:10]
+        if not d:
+            return cap                                 # 봉이 아예 없으면 최대로 받는다
+        deepest = max(deepest, len(us_missing_trading_days(d, expected)))
+    # 여유 5봉 — 경계에서 하루가 빠지는 것을 막는다(중복은 upsert가 흡수한다).
+    return max(1, min(deepest + 5, cap))
+
+
+def us_price_holes(tickers: list[str] | None = None, *, limit_tickers: int = 20) -> dict:
+    """시리즈 **중간에 뚫린** 구멍을 센다. 꼬리(마지막 봉)만 보는 것과 다른 고장이다.
+
+    `us_missing_trading_days` 는 "마지막 봉이 기대일보다 뒤처졌나"만 본다 — 그건 수집이 멈춘
+    것이고, 여기는 **수집이 재개된 뒤에도 남은 구멍**을 본다. 둘은 다른 병이고 둘 다 조용하다.
+
+    거래일 달력은 **저장된 봉에서 유도한다** — 중간 구멍 판정에는 이게 맞다. 시장 전체가 그 날
+    쉬었으면 아무 종목에도 없으므로 달력에서 빠지고, 한 종목만 없으면 그 종목의 구멍이다.
+    (꼬리 판정에는 쓸 수 없다 — 전 종목이 멈추면 달력도 같이 멈춰 정지를 스스로 가린다.)
+    """
+    if not US_PRICES_FILE.exists():
+        return {"ready": False, "reason": "미국 시세 파일이 없습니다"}
+    df = _read_parquet(US_PRICES_FILE)
+    if df.empty or "ticker" not in df.columns or "date" not in df.columns:
+        return {"ready": False, "reason": "미국 시세가 비었습니다"}
+    df = df[["ticker", "date"]].astype(str)
+    universe = set(tickers) if tickers else None
+    if universe:
+        df = df[df["ticker"].isin(universe)]
+    # 시장 거래일 = 여러 종목이 공통으로 가진 날(단일 종목 오류일 배제).
+    counts = df.groupby("date")["ticker"].nunique()
+    if counts.empty:
+        return {"ready": False, "reason": "날짜가 없습니다"}
+    market_days = sorted(counts[counts >= max(2, int(counts.max() * 0.5))].index)
+    holes: list[dict] = []
+    total = 0
+    for t, g in df.groupby("ticker"):
+        have = set(g["date"])
+        first, last = min(have), max(have)
+        miss = [d for d in market_days if first < d < last and d not in have]
+        if miss:
+            total += len(miss)
+            holes.append({"ticker": t, "n": len(miss), "from": first, "to": last,
+                          "days": miss[:5]})
+    holes.sort(key=lambda h: -h["n"])
+    return {"ready": True, "market_days": len(market_days),
+            "tickers_with_holes": len(holes), "holes_total": total,
+            "worst": holes[:limit_tickers]}
+
+
 def us_prices_stale_tickers(tickers: list[str] | None = None, *,
                             max_trading_days: int = US_STALE_TRADING_DAYS,
                             as_of: datetime.datetime | None = None) -> list[str]:
@@ -1560,6 +1629,16 @@ def _us_prices_freshness() -> dict:
                      f"{' 외' if len(gap) > 5 else ''}) — 기대 마지막 봉 {expected}")
     if behind:
         parts.append(f"{len(behind)}/{len(last)}종목 갱신 대상")
+    # **시리즈 중간 구멍은 꼬리와 다른 고장이다.** 수집이 재개돼 마지막 봉이 최신이어도
+    # 공백기의 구멍은 남을 수 있고(US는 "최근 N봉"만 받는다), 그러면 모멘텀·이동평균이
+    # 짧은 시리즈로 조용히 계산된다. 감지되지 않는 고장은 없는 고장이다.
+    try:
+        h = us_price_holes()
+        holes_n = h.get("holes_total", 0) if h.get("ready") else 0
+        if holes_n:
+            parts.append(f"중간 구멍 {holes_n}봉 · {h['tickers_with_holes']}종목")
+    except Exception:                                  # noqa: BLE001 — 진단 실패가 신선도를 막지 않는다
+        holes_n = 0
     # 배너용 짧은 문장. **경과일수로는 이 고장을 말할 수 없다** — 시장 전체 마지막 봉이
     # 최신이어도 개별 종목 428/503이 뒤처질 수 있고, 그때 `age_hours` 는 0이라 배너가
     # `미국 시세(0일)` 이라 적는다(실측). 무엇이 잘못됐는지를 숫자로 쓴다.
@@ -1570,9 +1649,11 @@ def _us_prices_freshness() -> dict:
     else:
         short = None
     entry.update(updated=newest, age_hours=age_h, rows=len(behind),
-                 stale=bool(behind), total=len(last),
+                 stale=bool(behind) or bool(holes_n), total=len(last),
                  missing_trading_days=gap, expected_last_bar=expected,
-                 note=" · ".join(parts) or None, stall_note=short)
+                 interior_holes=holes_n,
+                 note=" · ".join(parts) or None,
+                 stall_note=short or (f"중간 구멍 {holes_n}봉" if holes_n else None))
     return entry
 
 
