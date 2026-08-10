@@ -65,6 +65,12 @@ US_STALE_DAYS = 3          # (구) 달력일 문턱 — `us_prices_stale_tickers
 # 이 리포가 국내 PIT 스냅샷에 대해 적어 둔 규칙(`pit_gap_days` — 거래일 달력과 대조한다)을
 # 미국 시세에만 적용하지 않은 것이고, mtime → 마지막 봉으로 고친 것(2026-08-06)의 다음 겹이다.
 US_STALE_TRADING_DAYS = 1  # 기대 마지막 봉보다 이만큼 넘게 뒤처지면 갱신 대상
+# 토스 일봉 상한. 이보다 깊이 필요하면 KIS 해외로 가야 한다(토스는 더 요청해도 200만 준다).
+_TOSS_MAX_BARS = 200
+# 모멘텀(12-1개월 = 252거래일)이 발동하려면 이만큼은 있어야 한다. 여유를 둬서 목표 깊이를 잡는다 —
+# 실측(2026-08-08) US가 216봉이라 모멘텀 발동이 4/503이었다(가중 0.30이 조용히 빠짐).
+US_MIN_BARS_FOR_MOMENTUM = 252
+US_DEEP_TARGET_BARS = 320
 # 공휴일 여유 — 주말만 빼고 세므로 미국 공휴일이 있으면 기대일이 실제보다 하루 앞선다.
 # 달력을 외부에서 받지 않는 대신 이 여유로 오탐을 막는다(여유를 0으로 두면 공휴일마다
 # 503종목을 헛되게 재수집한다). 그래서 **거래일 1일 결손은 못 잡는다** — 밝혀 둔다.
@@ -403,7 +409,12 @@ def kr_engine_inputs() -> dict:
     한쪽에만 팩터가 빠지면 화면의 '매수 후보'와 봇이 실제로 사는 종목이 갈라지는데, 그 차이는
     어느 화면에도 안 나타난다(공매도가 봇에만 빠져 있었다). 새 팩터 입력은 여기에만 추가한다."""
     from signal_desk import kb
-    return {"sentiment": kb.sentiment_map(), "flows": load_flows(), "shorts": load_short()}
+    return {"sentiment": kb.sentiment_map(), "flows": load_flows(), "shorts": load_short(),
+            # 국내는 8팩터를 **원리적으로 모두 볼 수 있다** → 빈 튜플.
+            # 명시하는 이유: 미국은 수급·공매도가 애초에 없어 `("flow","short")` 를 넘기는데
+            # (`api.US_UNAVAILABLE_FACTORS`), 한쪽만 선언하면 두 시장이 커버리지를 **다른 규약으로**
+            # 세면서 그 차이가 어디에도 안 드러난다. 레드팀이 이 키의 존재를 검사한다.
+            "unavailable": ()}
 
 
 def _market_dates() -> list[str]:
@@ -992,18 +1003,27 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
     for t in tickers:
         bars: list[dict] | None = None
         for sym in (_symbol_candidates(t, syms.get("toss", {})) if use_toss else []):
-            bars = toss.daily_ohlcv(sym, count=min(days, 200))
+            bars = toss.daily_ohlcv(sym, count=min(days, _TOSS_MAX_BARS))
             if bars:
                 syms.setdefault("toss", {})[t] = sym
                 break
-        if not bars:  # 토스 미설정·실패 시 KIS 해외로 폴백
+        # **토스가 깊이를 못 채우면 KIS로 올라간다.** 토스는 200봉 상한이라 더 요청해도 200만 온다.
+        # 실측(2026-08-08): US 종목이 **216봉**인데 모멘텀은 252거래일이 필요해 발동이 **4/503**
+        # 였다 — 가중 0.30이 거의 전 종목에서 조용히 빠졌다(국내는 197/200). KIS 해외는 100일씩
+        # 페이지네이션해 400봉까지 주므로 깊을 때는 그쪽이 유일한 경로다.
+        # 토스를 아예 건너뛰지 않는 이유: 토스가 기본 경로이고(단일·표준443·안정) 일상 갱신은
+        # 200봉으로 충분하다. **모자랄 때만** 올라가고, 더 긴 쪽을 쓴다.
+        if not bars or (days > _TOSS_MAX_BARS and len(bars) <= _TOSS_MAX_BARS):
             for sym in _symbol_candidates(t, syms.get("kis", {})):
                 excd = exch.get(t) or us.detect_exchange(sym)
                 if not excd:
                     continue
-                bars = us.us_ohlcv(sym, days=days, excd=excd)
-                if bars:
+                deep_bars = us.us_ohlcv(sym, days=days, excd=excd)
+                if deep_bars:
                     exch[t], syms.setdefault("kis", {})[t] = excd, sym
+                    # 토스가 준 것보다 짧으면 버리지 않는다 — 더 긴 쪽이 이긴다.
+                    if not bars or len(deep_bars) > len(bars):
+                        bars = deep_bars
                     break
         if not bars:
             rec = skip.get(t) if isinstance(skip.get(t), dict) else {}
@@ -1272,7 +1292,10 @@ def us_marketcaps(prices: dict[str, list[float]] | None = None) -> dict[str, dic
         ni, eq = f.get("net_income"), f.get("equity")
         per = round(mktcap / ni, 2) if (mktcap and ni and ni > 0) else f.get("per")
         pbr = round(mktcap / eq, 2) if (mktcap and eq and eq > 0) else None
-        out[t] = {"mktcap": mktcap, "per": per, "pbr": pbr}
+        # 순이익·자기자본을 **함께 실어 보낸다** — 퀄리티(축약 F-Score)가 이 둘로 ROE를
+        # 파생해야 하는데, 예전엔 PER/PBR만 넘겨서 `attach_us_quality` 가 계산할 재료가 없었다.
+        out[t] = {"mktcap": mktcap, "per": per, "pbr": pbr,
+                  "net_income": ni, "equity": eq}
     return out
 
 
@@ -1739,6 +1762,59 @@ def data_freshness() -> list[dict]:
         e("us_price_skip", "미국 시세 유예 목록", US_PRICE_SKIP_FILE, 30,
           _json_rows(US_PRICE_SKIP_FILE)),
     ]
+
+
+def us_prices_shallow_tickers(tickers: list[str] | None = None, *,
+                              need: int = US_MIN_BARS_FOR_MOMENTUM) -> list[str]:
+    """봉이 `need` 개 미만인 US 티커 — **모멘텀이 발동할 수 없는 종목**이다.
+
+    "뒤처짐"(`us_prices_stale_tickers`, 꼬리가 오래됨)과 다른 결함이다: 마지막 봉이 오늘이어도
+    **깊이가 모자라면** 252거래일 모멘텀이 계산되지 않는다. 실측(2026-08-08) US 216봉 →
+    모멘텀 발동 4/503, 가중 0.30이 조용히 빠졌다. 둘은 다른 병이라 따로 센다.
+    """
+    if not US_PRICES_FILE.exists():
+        return list(tickers or [])
+    try:
+        df = _read_parquet(US_PRICES_FILE)
+    except Exception:                                  # noqa: BLE001 — 못 읽으면 전부 대상
+        return list(tickers or [])
+    if df.empty or "ticker" not in df.columns:
+        return list(tickers or [])
+    counts = df.groupby("ticker")["date"].count().to_dict()
+    universe = tickers if tickers is not None else [u["ticker"] for u in load_us_universe()]
+    return [t for t in universe if int(counts.get(t, 0)) < int(need)]
+
+
+def attach_us_quality(fund: dict) -> int:
+    """US 재무에 축약 F-Score를 붙인다(제자리 수정). 반환: 계산된 종목 수.
+
+    국내와 **같은 `quality.evaluate`** 를 쓴다 — 기준을 시장마다 다르게 두면 나중에 비교가 안 된다.
+    실측(2026-08-08): US 퀄리티 발동이 **0/503** 이었다. 원리적으로 없는 데이터가 아니라
+    **배선이 없었을 뿐**이다(EDGAR 순이익·자기자본 503종목이 이미 있다).
+
+    EDGAR는 `roe` 를 주지 않으므로 국내 DART와 **같은 식**으로 파생한다
+    (`roe = 순이익 / 자기자본 × 100`) — 이게 있어야 `has` 요건(4개 중 2개)을 채운다.
+    전년 재무가 없어 '개선' 항목 2개는 판정할 수 없고, 그건 `evaluate` 가 분모에서 뺀다
+    (예전엔 판정 불가를 실패로 세서 **건강한 미국 기업도 음수**를 받았다).
+    """
+    from signal_desk.signals import quality
+
+    n = 0
+    for t, m in fund.items():
+        if not isinstance(m, dict):
+            continue
+        ni, eq = m.get("net_income"), m.get("equity")
+        if m.get("roe") is None and ni is not None and eq:
+            try:
+                m["roe"] = round(float(ni) / float(eq) * 100, 2)
+            except (TypeError, ValueError, ZeroDivisionError):
+                pass
+        m["quality"] = quality.evaluate(m, {})      # 전년 재무 없음 → 개선 항목은 분모에서 빠진다
+        if m["quality"].get("has"):
+            n += 1
+    if not n and fund:
+        log.warning("US 퀄리티 has=True 0건 — EDGAR 순이익·자기자본이 비었는지 확인(%s종목)", len(fund))
+    return n
 
 
 def _pre_run_up_by_ticker(tickers: list[str]) -> dict[str, float]:

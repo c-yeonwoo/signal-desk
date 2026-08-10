@@ -2404,7 +2404,20 @@ def _backfill_us_prices_batch(batch: int = 60) -> dict:
     missing = [t for t in absent if not store.us_price_deferred(t, skip)]
     deferred = len(absent) - len(missing)
     if not missing:
-        return {"filled": 0, "missing": 0, "deferred": deferred}
+        # 봉이 **있지만 얕은** 종목은 다른 결함이다 — 마지막 봉이 오늘이어도 252거래일이 없으면
+        # 모멘텀(가중 0.30)이 발동하지 않는다. 실측 US 216봉 → 발동 4/503.
+        # 토스는 200봉 상한이라 깊이 요청이 KIS 경로를 타야 한다(`fetch_us_prices` 참고).
+        shallow = [t for t in store.us_prices_shallow_tickers(universe)
+                   if not store.us_price_deferred(t, skip)]
+        if shallow:
+            n = store.fetch_us_prices(shallow[:batch], days=store.US_DEEP_TARGET_BARS)
+            if n:
+                _clear_us_signal_caches()
+                log.info("US 시세 깊이 백필 %d종목(모멘텀 %d봉 요건) — 남은 %d",
+                         n, store.US_MIN_BARS_FOR_MOMENTUM, max(0, len(shallow) - batch))
+            return {"filled": n, "missing": 0, "deferred": deferred,
+                    "shallow": max(0, len(shallow) - batch)}
+        return {"filled": 0, "missing": 0, "deferred": deferred, "shallow": 0}
     filled = store.fetch_us_prices(missing[:batch], days=400)
     return {"filled": filled, "missing": max(0, len(missing) - batch), "deferred": deferred}
 
@@ -3629,6 +3642,14 @@ def valuechain_get():
         "reasons": pos.get("reasons") or []}}
 
 
+# **미국이 원리적으로 볼 수 없는 팩터.** 수급은 네이버, 공매도는 KRX라 애초에 없는 데이터다.
+# 이걸 "데이터 없는 종목"으로 세면 가중 0.35가 결측으로 잡혀 **전 종목이 커버리지 문턱(0.80)에
+# 걸린다** — 실측(2026-08-08): US 503종목 **전부** `low_coverage`, 커버리지 중위 0.36, 매수권 0건.
+# 분모에서 빼면 (1.25−0.35)=0.90 이 분모가 되어 국내와 같은 기준으로 비교된다.
+# 하네스가 같은 이유로 이미 쓰던 규약이다(`harness._PRICE_UNAVAILABLE`) — 라이브에만 없었다.
+US_UNAVAILABLE_FACTORS = ("flow", "short")
+
+
 @lru_cache(maxsize=1)
 def _us_signals():
     """미국 종목 시그널 — US 유니버스 중 시세 있는 종목. EDGAR 재무(PER/PBR)가 있으면 저평가 팩터도
@@ -3637,9 +3658,13 @@ def _us_signals():
     if not prices:
         return {}
     fundamentals = {t: mc for t, mc in store.us_marketcaps(prices).items() if mc.get("per") or mc.get("pbr")}
+    # 퀄리티(축약 F-Score)를 US 재무에도 붙인다 — 국내와 같은 함수·같은 기준.
+    # 안 붙이면 가중 0.15가 **원리적으로 없는 것도 아닌데** 조용히 빠진다(실측 0/503).
+    store.attach_us_quality(fundamentals)
     results = evaluate(store.load_us_universe(), prices,
                        fundamentals=fundamentals, sentiment=kb.sentiment_map(),
-                       earnings_dates=store.load_us_earnings_calendar())
+                       earnings_dates=store.load_us_earnings_calendar(),
+                       unavailable=US_UNAVAILABLE_FACTORS)
     execution_gate.apply_from_store(results, market="us", today=_kst_today())
     _sync_episode_state(results, market="us")
     return {s.ticker: s for s in results}

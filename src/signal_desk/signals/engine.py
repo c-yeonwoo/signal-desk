@@ -796,11 +796,18 @@ def evaluate(
     earnings_dates: dict[str, str] | None = None,
     today: datetime.date | None = None,
     shorts: dict[str, dict] | None = None,
+    unavailable: tuple[str, ...] = (),
 ) -> list[SignalResult]:
     """universe: [{ticker, name}], prices: ticker -> 종가 리스트(오래된→최신), fundamentals: ticker -> metrics.
     sentiment: ticker -> {score[-1,1], reasons} (KB 정성 팩터), flows: ticker -> {intensity,...} (수급 팩터, KR).
     earnings_dates: ticker -> 'YYYY-MM-DD' 실적발표 예정일(US) — 임박 시 신규 매수 게이트.
-    shorts: ticker -> {short_ratio,...} (공매도 팩터, KR)."""
+    shorts: ticker -> {short_ratio,...} (공매도 팩터, KR).
+
+    `unavailable`: **그 시장이 원리적으로 볼 수 없는** 팩터 이름. 커버리지 분모·분자에서 같이
+    빼므로 "데이터가 없는 종목"으로 세지 않는다. 미국은 수급(네이버)·공매도(KRX)가 애초에
+    없는 데이터라 여기에 들어간다 — 안 넣으면 가중 0.35가 결측으로 잡혀 **전 종목이 커버리지
+    문턱에 걸린다**(실측 2026-08-08: US 503종목 전부 `low_coverage`, 커버리지 중위 0.36,
+    매수권 0건). 하네스가 같은 이유로 이미 쓰던 인자다(`harness._PRICE_UNAVAILABLE`)."""
     config = config or SignalConfig()
     fundamentals = fundamentals or {}
     sentiment = sentiment or {}
@@ -893,7 +900,8 @@ def evaluate(
         cov = data_coverage({"technical": True, "fundamental": fund.has_data,
                             "valuation": has_valuation, "reversion": has_reversion,
                             "flow": has_flow, "quality": has_quality,
-                            "momentum": has_momentum, "short": has_short}, config)
+                            "momentum": has_momentum, "short": has_short}, config,
+                            unavailable=unavailable)
         _apply_trend_gate(combined, closes, series, i_last, config, market_ret_20d)
         edate = earnings_dates.get(ticker)
         earnings_soon = _apply_earnings_gate(combined, _days_until(edate, today), config)
