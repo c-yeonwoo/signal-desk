@@ -31,7 +31,11 @@ def test_backfill_picks_only_missing_and_respects_batch(monkeypatch):
 
 
 def test_backfill_noop_when_complete(monkeypatch):
-    universe = [{"ticker": "A", "name": "a"}]
+    """**캐시 상태에 의존하면 안 된다.** 예전엔 티커 `"A"` 를 썼는데 S&P500에 실제로 A(Agilent)가
+    있어서, 로컬 parquet(250봉)에서는 "얕지 않음", CI(파일 없음)에서는 "얕음"이 됐다 —
+    로컬만 통과하고 CI에서 깨졌다. 얕음 판정을 **명시적으로** 고정한다.
+    """
+    universe = [{"ticker": "ZZTEST", "name": "a"}]
     called = {"n": 0}
 
     def fake_fetch(tickers, days=400):
@@ -39,13 +43,36 @@ def test_backfill_noop_when_complete(monkeypatch):
         return len(tickers)
 
     monkeypatch.setattr(api.store, "load_us_universe", lambda: universe)
-    monkeypatch.setattr(api.store, "load_us_price_series", lambda: {"A": [1.0]})
+    monkeypatch.setattr(api.store, "load_us_price_series", lambda: {"ZZTEST": [1.0]})
     monkeypatch.setattr(api.store, "fetch_us_prices", fake_fetch)
+    monkeypatch.setattr(api.store, "us_prices_shallow_tickers", lambda *a, **k: [])
 
     out = api._backfill_us_prices_batch(batch=50)
     # `shallow` = 봉이 있지만 252거래일(모멘텀 요건) 미만인 종목 수 — 뒤처짐과 다른 결함이다.
     assert out == {"filled": 0, "missing": 0, "deferred": 0, "shallow": 0}
     assert called["n"] == 0  # 채울 게 없으면 네트워크 호출 안 함
+
+
+def test_backfill_deepens_shallow_tickers_when_nothing_is_missing(monkeypatch):
+    """누락이 없어도 **봉이 얕으면** 깊이 백필이 돌아야 한다 — 모멘텀(252거래일)이 안 돈다.
+
+    실측(2026-08-08): US 216봉 → 모멘텀 발동 4/503, 가중 0.30이 조용히 빠졌다.
+    """
+    asked = {}
+
+    def fake_fetch(tickers, days=400):
+        asked["tickers"], asked["days"] = list(tickers), days
+        return len(tickers)
+
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [{"ticker": "ZZTEST"}])
+    monkeypatch.setattr(api.store, "load_us_price_series", lambda: {"ZZTEST": [1.0]})
+    monkeypatch.setattr(api.store, "fetch_us_prices", fake_fetch)
+    monkeypatch.setattr(api.store, "us_prices_shallow_tickers", lambda *a, **k: ["ZZTEST"])
+    monkeypatch.setattr(api.store, "us_price_deferred", lambda t, skip=None: False)
+
+    out = api._backfill_us_prices_batch(batch=50)
+    assert out["filled"] == 1 and asked["tickers"] == ["ZZTEST"]
+    assert asked["days"] == store.US_DEEP_TARGET_BARS, "얕은 종목을 얕게 다시 받는다"
 
 
 def test_backfill_empty_universe(monkeypatch):
