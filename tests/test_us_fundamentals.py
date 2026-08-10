@@ -17,8 +17,12 @@ def test_us_marketcaps_computes_from_shares_and_price(monkeypatch):
                                  "NOPRICE": {"shares": 500, "per": 10.0, "sector": "X"}})
     prices = {"AAPL": [100.0, 150.0], "NVDA": [10.0, 20.0]}  # NOPRICE는 시세 없음
     mc = store.us_marketcaps(prices)
-    assert mc["AAPL"] == {"mktcap": 150_000_000, "per": 30.0, "pbr": None}  # 100만주×150, per는 AV 폴백
-    assert mc["NVDA"] == {"mktcap": 40_000_000, "per": None, "pbr": None}   # 200만주×20
+    # 퀄리티(F-Score)가 ROE를 파생하려면 순이익·자기자본이 함께 실려야 한다 — 예전엔 안 넘겨서
+    # US 퀄리티 발동이 0/503이었다.
+    assert mc["AAPL"] == {"mktcap": 150_000_000, "per": 30.0, "pbr": None,
+                          "net_income": None, "equity": None}  # 100만주×150, per는 AV 폴백
+    assert mc["NVDA"] == {"mktcap": 40_000_000, "per": None, "pbr": None,
+                          "net_income": None, "equity": None}   # 200만주×20
     assert mc["NOPRICE"]["mktcap"] is None                       # 시세 없으면 시총 None
 
 
