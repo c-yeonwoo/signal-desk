@@ -554,6 +554,52 @@ def kv_get(k: str, max_age: int | None = None):
     return json.loads(row[0])
 
 
+def lease_claim(k: str, owner: str, *, now: int, lease_sec: int) -> bool:
+    """임대를 **원자적으로** 잡는다. 잡았으면 True.
+
+    `kv_get` → 판단 → `kv_set` 으로 하면 **읽기와 쓰기 사이에 틈이 있다**(TOCTOU).
+    실측(2026-08-10, 8프로세스 동시 5회): 주인이 **4·1·4·1·3명** — 5회 중 3회에서 중복이었다.
+    워커를 늘리면 그대로 중복 매매가 된다.
+
+    `BEGIN IMMEDIATE` 는 **읽기 전에** 쓰기 락을 잡으므로 check-and-set 이 직렬화된다.
+    파이썬 sqlite3 는 기본적으로 DML 앞에 암묵 BEGIN 을 넣으므로 `isolation_level=None` 으로
+    끄고 직접 연다 — 안 그러면 명시 BEGIN 이 중첩 오류가 된다.
+    """
+    # **연결 자체가 실패해도 예외를 밖으로 내보내지 않는다** — 이 함수는 게이트라서
+    # 실패하면 "양보"여야 하고, 예외면 루프가 죽는다(프로덕션에서 `database is locked` 로
+    # 이 경로가 실제로 탔다).
+    try:
+        c = conn()
+        c.isolation_level = None
+    except Exception:                             # noqa: BLE001
+        return False
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
+        cur = None
+        if row and row[0]:
+            try:
+                cur = json.loads(row[0])
+            except (TypeError, ValueError):
+                cur = None
+        if isinstance(cur, dict) and cur.get("owner") and cur.get("owner") != owner:
+            if now - int(cur.get("at") or 0) < lease_sec:
+                c.execute("ROLLBACK")
+                return False                      # 살아 있는 주인이 있다
+        c.execute("INSERT OR REPLACE INTO kv(k,v,ts) VALUES(?,?,?)",
+                  (k, json.dumps({"owner": owner, "at": now}, ensure_ascii=False), now))
+        c.execute("COMMIT")
+        return True
+    except Exception:                             # noqa: BLE001 — 못 잡으면 **양보**한다
+        try:
+            c.execute("ROLLBACK")
+        except sqlite3.DatabaseError:
+            pass
+        return False
+    finally:
+        c.close()
+
+
 def kv_set(k: str, v) -> None:
     c = conn()
     c.execute("INSERT OR REPLACE INTO kv(k,v,ts) VALUES(?,?,?)",
