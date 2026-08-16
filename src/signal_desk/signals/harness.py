@@ -71,6 +71,12 @@ class HarnessConfig:
     shuffle_returns: bool = False # 누수 탐지용 — 점수와 수익률의 짝을 무작위로 어긋나게 한다
     min_periods: int = 30         # 이보다 표본이 적으면 어떤 결과도 판정하지 않는다
     signal_config: SignalConfig = field(default_factory=SignalConfig)
+    # 시총 하한 — **유니버스 하위 몇 %를 뺄 것인가**(0이면 끄기). 절대 금액이 아니라 분위인
+    # 이유 둘: 통화·물가가 달라도 같은 뜻이고("후보 집합이 비는 규칙보다 상대 순위를 우선"),
+    # 절대 문턱은 관측 분포 밖으로 잡히면 그대로 0으로 나누기가 된다.
+    # 이건 **재보기 위한 스위치**이지 라이브 정책이 아니다 — 판별력 판정 전에는 라이브에 넣지
+    # 않는다("측정되지 않은 것을 근거로 파라미터를 바꾸지 않는다").
+    min_mktcap_pct: float = 0.0
     # 호출자가 분위·최소점수를 **일부러** 다르게 주고 싶을 때만 True(스윕·감도분석).
     # 기본은 라이브를 따라간다 — "검사에 넣을 수 없는 파라미터는 검증된 적이 없다".
     override_selection: bool = False
@@ -485,7 +491,8 @@ def _dsr_sample(runs: list[dict]) -> list[float]:
 
 def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
                regimes: dict[int, str] | None, series_cache: dict, tie_rng: random.Random,
-               covers: dict[str, list[float | None]] | None = None) -> dict:
+               covers: dict[str, list[float | None]] | None = None,
+               caps: dict[str, list[float | None]] | None = None) -> dict:
     """한 위상(고정된 리밸런스 날짜 집합)에 대한 전략·벤치마크 시뮬레이션.
 
     `covers`는 (종목·날짜)별 데이터 커버리지다. **대조군에도 같은 것을 넘긴다** — 라벨을
@@ -498,8 +505,9 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
     per_period_ret: list[float] = []
     universe_by_date: dict[int, list[str]] = {}
     empty_periods = 0
-    cov_blocked = trend_blocked = crash_blocked = 0
+    cov_blocked = trend_blocked = crash_blocked = cap_blocked = 0
     min_cov = float(getattr(scfg, "min_data_coverage", 0.0) or 0.0)
+    min_cap_pct = float(getattr(cfg, "min_mktcap_pct", 0.0) or 0.0)
 
     for i in idxs:
         avail = [t for t, row in panel.closes.items()
@@ -513,6 +521,15 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
         shuffled = avail[:]
         tie_rng.shuffle(shuffled)
         ranked = sorted(shuffled, key=lambda t: scores[t][i], reverse=True)
+        # 시총 컷오프는 **그 날의 후보 집합**에서 잰다(횡단면 분위). 전 기간 고정 금액으로
+        # 잡으면 지수가 오른 구간에서 저절로 느슨해지고 내린 구간에서 저절로 조여진다 —
+        # 그건 시총 규칙이 아니라 시장 수준 규칙이다.
+        cap_cut = None
+        if min_cap_pct > 0 and caps:
+            vals = sorted(v for v in ((caps.get(t) or [None] * (i + 1))[i] for t in avail)
+                          if v is not None)
+            if vals:
+                cap_cut = vals[min(len(vals) - 1, int(len(vals) * min_cap_pct / 100.0))]
         picks: list[str] = []
         # **후보는 상위 k자리뿐이다.** 예전엔 `ranked` 전체를 돌며 `len(picks) >= k` 에서 끊어,
         # 게이트로 막힌 자리를 **k 밖 다음 순위로 채웠다**. 라이브 `apply_cross_sectional` 은
@@ -536,6 +553,13 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
             if min_cov > 0 and cv is not None and cv < min_cov:
                 cov_blocked += 1
                 continue
+            # 시총 하한. 커버리지와 같은 규약 — **모르면 막지 않는다**(전 종목 차단은
+            # 신중함이 아니라 0으로 나누기다). 그리고 막힌 자리는 공석으로 둔다.
+            if cap_cut is not None:
+                mc = (caps.get(t) or [None] * (i + 1))[i] if caps else None
+                if mc is not None and mc < cap_cut:
+                    cap_blocked += 1
+                    continue
             picks.append(t)
 
         if picks:
@@ -567,6 +591,7 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
             # 커버리지 게이트가 실제로 몇 번 후보를 걸렀나. 0이면 완화가 아무 것도 안 막은 것 —
             # "있는 것처럼 보이지만 효과 없는 게이트"를 여기서 드러낸다.
             "coverage_blocked": cov_blocked, "min_data_coverage": min_cov,
+            "mktcap_blocked": cap_blocked, "min_mktcap_pct": min_cap_pct,
             # 게이트가 실제로 몇 번 후보를 걸렀나(X3). 0이면 하네스는 게이트 없는 전략을 잰 것이다.
             "trend_blocked": trend_blocked,
             "crash_blocked": crash_blocked,
@@ -618,6 +643,7 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         coverage: dict[str, float] | None = None,
         fired: dict[str, float] | None = None,
         covers: dict[str, list[float | None]] | None = None,
+        caps: dict[str, list[float | None]] | None = None,
         n_trials: int | None = None,
         sr_variance: float | None = None) -> dict:
     """전략(횡단면 분위 top N%) + 무작위 대조군 + 동일가중 벤치마크를 같은 날짜축에서 비교.
@@ -664,7 +690,8 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
             if not idxs:
                 continue
         phase_idxs.append(idxs)
-        runs.append(_run_phase(panel, cfg, scores, idxs, regimes, series_cache, tie_rng, covers))
+        runs.append(_run_phase(panel, cfg, scores, idxs, regimes, series_cache, tie_rng,
+                              covers, caps))
     if not runs:
         reason = f"표본 부족 — 거래일 {len(panel)}일"
         if score_source == "pit":
@@ -675,7 +702,7 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     totals = [(r["equity"][-1] - 1) * 100 for r in runs]
     strat_total = sum(totals) / len(totals)
     spread = max(totals) - min(totals)
-    rnd = _null_distribution(panel, cfg, scores, phase_idxs, regimes, series_cache, covers)
+    rnd = _null_distribution(panel, cfg, scores, phase_idxs, regimes, series_cache, covers, caps)
     better = sum(1 for r in rnd["totals"] if r < strat_total)
     percentile = round(better / len(rnd["totals"]) * 100, 1) if rnd["totals"] else None
     excess = strat_total - rnd["median"]
@@ -721,6 +748,15 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
                         f"없어 걸리지 않았다 — 라이브와 다른 전략을 잰 결과다")
     elif min_cov > 0 and cov_blocked == 0:
         warnings.append(f"커버리지 게이트 {min_cov:.0%}가 후보를 한 번도 막지 않았다 — "
+                        f"있는 것처럼 보이지만 효과가 없는 완화다")
+    # 시총 게이트도 같은 규약으로 드러낸다 — **걸렸는지**가 아니라 **몇 번 막았는지**를 낸다.
+    min_cap_pct = float(getattr(cfg, "min_mktcap_pct", 0.0) or 0.0)
+    cap_blocked = sum(r.get("mktcap_blocked", 0) for r in runs)
+    if min_cap_pct > 0 and not caps:
+        warnings.append(f"시총 게이트 하위 {min_cap_pct:.0f}%가 설정돼 있는데 하네스에 시총 패널이 "
+                        f"없어 걸리지 않았다 — 게이트 없는 전략을 잰 결과다")
+    elif min_cap_pct > 0 and cap_blocked == 0:
+        warnings.append(f"시총 게이트 하위 {min_cap_pct:.0f}%가 후보를 한 번도 막지 않았다 — "
                         f"있는 것처럼 보이지만 효과가 없는 완화다")
     if score_source == "pit":
         warnings.append("PIT 점수 모드 — 스냅샷에 저장된 라이브 점수(fund/flow 포함)로 순위를 잰다. "
@@ -768,6 +804,8 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         # 안 걸린 것이고, 그건 라이브와 다른 전략을 잰 결과다.
         "data_coverage_gate": {"min_required": min_cov, "blocked": cov_blocked,
                                "panel_given": bool(covers)},
+        "mktcap_gate": {"min_pct": min_cap_pct, "blocked": cap_blocked,
+                        "panel_given": bool(caps)},
         # 게이트별 차단 횟수(X3) — 합계 하나면 무엇이 매수 0을 만들었는지 알 수 없다.
         # 실측 라이브에서 추세 게이트가 상위 6자리 중 5자리를 먹었다.
         "gate_blocks": {"trend": sum(r.get("trend_blocked", 0) for r in runs),
@@ -897,7 +935,8 @@ def _fill_both_ways(row: list[float | None]) -> list[float | None]:
 def _null_distribution(panel: Panel, cfg: HarnessConfig, scores: dict,
                        phase_idxs: list[list[int]], regimes: dict[int, str] | None,
                        series_cache: dict,
-                       covers: dict[str, list[float | None]] | None = None) -> dict:
+                       covers: dict[str, list[float | None]] | None = None,
+                       caps: dict[str, list[float | None]] | None = None) -> dict:
     """귀무분포 — 전략과 **똑같은 시뮬레이터**를 라벨 치환한 점수로 돌린다.
 
     대조군을 별도 코드 경로로 만들면 비용·게이트·보유 종목 수 같은 기계적 차이가 판별력으로
@@ -917,7 +956,7 @@ def _null_distribution(panel: Panel, cfg: HarnessConfig, scores: dict,
         per_phase = []
         for idxs in phase_idxs:
             r = _run_phase(panel, cfg, perm, idxs, regimes, series_cache,
-                           random.Random(cfg.seed), covers)
+                           random.Random(cfg.seed), covers, caps)
             per_phase.append((r["equity"][-1] - 1) * 100)
         totals.append(sum(per_phase) / len(per_phase))
     totals.sort()
