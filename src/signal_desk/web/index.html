@@ -3116,6 +3116,16 @@ function fmtCap(r, mkt){
   if (k != null) return fmtMktcap(k);
   return (mkt || r.market || _sigMarket) === 'us' ? fmtUsd(r.mktcap) : fmtMktcap(r.mktcap);
 }
+// 일평균 거래대금 — **주수만으로는 유동성을 못 읽는다**(저가주는 주수가 크고 고가주는 작다).
+// "이 종목을 실제로 살 수 있나"에 답하는 숫자다. 시총과 같은 축(원)으로 맞춘다.
+function fmtTurnover(r){
+  if (!r || r.vol_avg == null || r.price == null) return '–';
+  const native = r.vol_avg * r.price;
+  const isUS = (r.market || _sigMarket) === 'us';
+  if (!isUS) return fmtMktcap(native);
+  const fx = r.mktcap_krw != null && r.mktcap ? r.mktcap_krw / r.mktcap : null;
+  return fx ? fmtMktcap(native * fx) : fmtUsd(native);
+}
 function fmtUsd(v){
   if (v == null) return '–';
   return v >= 1e12 ? '$' + fmtNum(v / 1e12, 1) + 'T'
@@ -3892,8 +3902,13 @@ function renderTodayCard(){
       + `<div style="font-weight:700;font-size:13px;margin-bottom:2px">관심종목 대기</div>`
       + `<div id="buywait-body" class="stat-label">불러오는 중…</div></div>`;
   }
+  // 섹터 구성은 **경고가 아닐 때도** 한 줄 보여준다 — 무엇을 사라는 것인지의 절반이 섹터다.
+  // 서버 `note` 가 이미 유니버스 기준선·리프트·p를 담고 있으므로 문장을 여기서 다시 만들지
+  // 않는다(두 곳에서 조립하면 화면과 브리핑이 갈라진다). 경고가 아니면 흐리게 둔다.
   if (crowd.warn || crowd.data_quality) {
     detail += `<div style="margin-top:6px">${esc(crowd.note || '')}</div>`;
+  } else if (buyN > 0 && crowd.note) {
+    detail += `<div class="stat-label" style="margin-top:6px">${esc(crowd.note)}</div>`;
   }
   // 사유·면책은 **접어 둔다.** 이 카드는 매수 0인 날 자동으로 펼쳐지고(대부분의 날) 예전에는
   // 439px을 먹어 종목 표가 827px 아래에서 시작했다 — 목록을 보러 온 화면에서 목록이 접힌 셈이다.
@@ -4242,6 +4257,7 @@ function _paintSignalDetail(ticker, item){
       + (item.mktcap != null ? pair('시총', fmtCap(item)) : '')
       + (item.vol != null ? pair('거래량', fmtVol(item.vol)) : '')
       + (item.vol_avg != null ? ` <span class="q-k q-pair">(20일 평균 ${fmtVol(item.vol_avg)})</span>` : '')
+      + (item.vol_avg != null && item.price != null ? pair('거래대금', fmtTurnover(item)) : '')
       + (item.per != null ? pair('PER', fmtNum(item.per, 1)) : '')
       + (item.pbr != null ? pair('PBR', fmtNum(item.pbr, 2)) : '')
       + (item.valuation_percentile != null
@@ -5919,7 +5935,9 @@ function renderDataHealth(d){
     if (crowd) q('매수권 편중', !crowd.warn && !crowd.data_quality,
                  crowd.n_buy != null ? `${crowd.n_buy}종목` : '–',
                  crowd.warn || crowd.data_quality ? (crowd.note || '섹터 쏠림') : (crowd.note || null),
-                 '업종 집중 ≥40%(n≥3)만 crowded. 미분류 쏠림은 섹터맵 공백(편중 아님).');
+                 '유니버스 기준선 대비 리프트 ≥15%p · 초기하 p≤0.05 · n≥3일 때만 crowded. '
+                 + '절대 비율은 판정에 쓰지 않는다(유니버스가 원래 쏠려 있으면 정상도 경고가 된다). '
+                 + '미분류 쏠림은 섹터맵 공백(편중 아님).');
     if (rowsQuiet.length) {
       html += `<b style="display:block;margin-top:12px">🔎 조용한 0 점검 <span style="color:var(--dim);font-weight:600">· 비어 있으면 이유</span></b>`
         + `<table class="dtable" style="margin-top:6px"><thead><tr><th>항목</th><th class="num">현재</th><th>상태</th></tr></thead><tbody>${rowsQuiet.join('')}</tbody></table>`;
