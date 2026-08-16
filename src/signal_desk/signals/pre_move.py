@@ -157,3 +157,71 @@ def summary(rows: list[dict], *, buy_kinds=("BUY", "STRONG_BUY")) -> dict:
                  "이게 성과에 나쁜지는 실현 수익으로 채점해야 하며, 현재 표본으로는 판정할 수 "
                  "없다(실현 18건 · 리프트 −5.3%p · 신뢰구간 ±23%p)."),
     }
+
+
+# 사전 상승이 성과에 나쁜지는 **실현 수익으로 채점**해야 한다. 아래가 그 읽기 경로다.
+# 이게 없는 동안 `pre_run_up_pct` 는 PIT에 쌓이기만 하고 **아무도 읽지 않았다** — 이 리포가
+# 다섯 번 겪은 "수집 코드는 있는데 아무도 안 불렀다"가 관측 지표에서 재발한 것이다.
+_MIN_SIDE = 8          # 한쪽이 이보다 적으면 중위 분할 자체가 무의미하다
+
+
+def score_from_pit(history_rows: list[dict],
+                   closes_by_ticker: dict[str, tuple[list[str], list[float]]],
+                   *, horizon: int, buy_kinds=("BUY", "STRONG_BUY")) -> dict:
+    """PIT 스냅샷 × 실현 종가 → **사전 상승이 큰 매수가 실제로 나빴나**.
+
+    매수권을 그 날의 `pre_run_up_pct` **중위로 갈라** 두 집합의 실현수익을 비교한다.
+    날짜별 중위인 이유: 전 기간 한 문턱으로 자르면 상승장 날짜가 통째로 '높음'에 몰려
+    **국면 차이를 사전상승 효과로 착각**한다(pooled 상관이 IC를 속인 것과 같은 함정).
+
+    판정은 `accuracy.diff_verdict` 를 그대로 쓴다 — shadow 판정 규약은 한 구현을 공유한다.
+    표본이 모자라면 **판정하지 않고** 이유를 적는다.
+    """
+    from signal_desk.signals import accuracy
+
+    by_date: dict[str, list[tuple[float, float]]] = {}   # date -> [(사전상승, 실현수익)]
+    skipped_no_pre = skipped_no_price = 0
+    for r in history_rows:
+        if str(r.get("kind")) not in buy_kinds:
+            continue
+        pre = _num(r.get("pre_run_up_pct"))
+        if pre is None:
+            skipped_no_pre += 1
+            continue
+        series = closes_by_ticker.get(r.get("ticker"))
+        if not series:
+            skipped_no_price += 1
+            continue
+        rets = accuracy.forward_returns(series[0], series[1], str(r.get("date")), (horizon,))
+        if horizon not in rets:
+            skipped_no_price += 1
+            continue
+        by_date.setdefault(str(r.get("date")), []).append((pre, rets[horizon]))
+
+    high, low = [], []
+    for _date, pairs in by_date.items():
+        if len(pairs) < 2:                 # 하루 1건이면 그 날의 중위를 만들 수 없다
+            continue
+        vals = sorted(p for p, _ in pairs)
+        n = len(vals)
+        med = vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2
+        for pre, ret in pairs:
+            (high if pre > med else low).append(ret)
+
+    v = accuracy.diff_verdict(high, low, min_samples=_MIN_SIDE)
+    blocked = v.get("blocked_reason")
+    if not blocked and min(len(high), len(low)) < _MIN_SIDE:
+        blocked = f"한쪽 표본 부족({min(len(high), len(low))}/{_MIN_SIDE}) — 판정 불가"
+    return {
+        "window_days": PRE_WINDOW_DAYS, "horizon_days": horizon,
+        "n_high": len(high), "n_low": len(low), "n_dates": len(by_date),
+        "avg_high_pct": v.get("avg_pct"), "avg_low_pct": v.get("control_avg_pct"),
+        "delta_pct": v.get("delta_pct"), "delta_ci95_pp": v.get("delta_ci95_pp"),
+        # 키 이름은 `delta_significant` 다 — `significant` 로 읽으면 **항상 None**이라
+        # 조용히 "판정 불가"가 된다(검사가 이걸 잡았다).
+        "significant": bool(v.get("delta_significant")) and not blocked,
+        "blocked_reason": blocked,
+        "skipped": {"no_pre_run_up": skipped_no_pre, "no_price": skipped_no_price},
+        "note": ("같은 날 매수권을 사전 상승 중위로 갈라 실현수익을 비교한다. "
+                 "유의하지 않으면 **아직 모르는 것**이고, 게이트를 만들 근거가 아니다."),
+    }
