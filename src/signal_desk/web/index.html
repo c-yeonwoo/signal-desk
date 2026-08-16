@@ -903,7 +903,7 @@
               <label for="screen-maxpbr">PBR ≤<input id="screen-maxpbr" type="number" step="0.1" inputmode="decimal" aria-label="PBR 이하" oninput="renderSignalList()"></label>
               <label for="screen-minroe">ROE% ≥<input id="screen-minroe" type="number" step="1" inputmode="decimal" aria-label="ROE 퍼센트 이상" oninput="renderSignalList()"></label>
               <label for="screen-minyield">배당% ≥<input id="screen-minyield" type="number" step="0.5" inputmode="decimal" aria-label="배당수익률 이상" oninput="renderSignalList()"></label>
-              <label for="screen-mincap">시총(억) ≥<input id="screen-mincap" type="number" step="1000" inputmode="numeric" aria-label="시가총액 억 이상" oninput="renderSignalList()"></label>
+              <label for="screen-mincap">시총(억원) ≥<input id="screen-mincap" type="number" step="1000" inputmode="numeric" aria-label="시가총액 억원 이상" oninput="renderSignalList()"></label>
             </div>
             <div class="screen-row">
               <label for="screen-factor">팩터</label>
@@ -2477,7 +2477,7 @@ async function loadValuechain(){
     ]);
     _vcInfo = {};
     (kr.items || []).forEach(r => _vcInfo[r.ticker] = { kind: r.kind !== 'HOLD' ? r.kind : null, mktcap: r.mktcap, market: 'kr' });
-    (us.items || []).forEach(r => _vcInfo[r.ticker] = { kind: r.kind !== 'HOLD' ? r.kind : null, mktcap: r.mktcap, market: 'us' });
+    (us.items || []).forEach(r => _vcInfo[r.ticker] = { kind: r.kind !== 'HOLD' ? r.kind : null, mktcap: r.mktcap, mktcap_krw: r.mktcap_krw, market: 'us' });
   } catch (e) {}
   document.getElementById('vc-sectors').innerHTML = _vcData.map(s =>
     `<button data-k="${s.key}" onclick="selectVcSector('${s.key}')">${s.cycle_fit === 'favored' ? '★ ' : ''}${esc(s.name)}</button>`).join('');
@@ -2504,7 +2504,8 @@ function selectVcSector(key){
 // 노드가 많으면 가까운 곳부터 시총 상위 2개 + (시총 밖) 시그널 있는 1개 추가 → 최대 3개.
 function _vcPick(list){
   const enr = (list || []).map(c => ({ ...c, info: _vcInfo[c.ticker] || {} }));
-  const byCap = enr.sort((a, b) => (b.info.mktcap || 0) - (a.info.mktcap || 0));
+  // KR(원)·US(달러)가 한 리스트에 섞인다 — 원값으로 정렬하면 미국이 늘 뒤로 밀린다.
+  const byCap = enr.sort((a, b) => (capKrw(b.info, b.info.market) || 0) - (capKrw(a.info, a.info.market) || 0));
   if (byCap.length <= 3) return byCap;
   const picked = byCap.slice(0, 2);
   const ids = new Set(picked.map(c => c.ticker));
@@ -3098,6 +3099,29 @@ async function loadSignals(opts){
 
 // 시총(원)·거래량(주) 사람이 읽기 좋은 한국식 단위로 축약
 function fmtMktcap(v){ if (v == null) return '–'; const jo = v / 1e12; return jo >= 1 ? fmtNum(jo, jo >= 10 ? 0 : 1) + '조' : fmtNum(v / 1e8, 0) + '억'; }
+// **시총은 통화를 맞춰서 비교한다.** 예전엔 달러 값에 원화 서식을 그대로 씌워 USB $101.3B가
+// `1013억`, 삼성전자가 `1494조` — 미국 대형주가 1만배 작아 보였고 실제로 "잡주 같다"는
+// 인상을 만들었다. 서버가 `mktcap_krw`를 실어 보내면 그걸 쓰고, 환율이 낡아 없으면
+// **원 통화로 정직하게** 그린다(틀린 환산보다 낫다).
+// 정렬·필터가 쓰는 **비교 가능한** 시총(원). 미국인데 환율이 없으면 null — 통화가 다른 값을
+// 한 축에 섞어 정렬하면 미국 종목이 늘 뒤로 밀린다(밸류체인 노드 선택이 실제로 그랬다).
+function capKrw(r, mkt){
+  if (!r) return null;
+  if (r.mktcap_krw != null) return r.mktcap_krw;
+  return (mkt || r.market || _sigMarket) === 'us' ? null : r.mktcap;
+}
+function fmtCap(r, mkt){
+  if (!r) return '–';
+  const k = capKrw(r, mkt);
+  if (k != null) return fmtMktcap(k);
+  return (mkt || r.market || _sigMarket) === 'us' ? fmtUsd(r.mktcap) : fmtMktcap(r.mktcap);
+}
+function fmtUsd(v){
+  if (v == null) return '–';
+  return v >= 1e12 ? '$' + fmtNum(v / 1e12, 1) + 'T'
+    : v >= 1e9 ? '$' + fmtNum(v / 1e9, v / 1e9 >= 100 ? 0 : 1) + 'B'
+    : '$' + fmtNum(v / 1e6, 0) + 'M';
+}
 function fmtVol(v){ if (v == null) return '–'; return v >= 1e8 ? fmtNum(v / 1e8, 1) + '억주' : v >= 1e4 ? fmtNum(v / 1e4, 0) + '만주' : fmtNum(v, 0) + '주'; }
 
 // ===== 팩터 스크리너 — 사용자 조건 조합으로 유니버스 필터(프론트, /api/signals 데이터 그대로) =====
@@ -3134,7 +3158,10 @@ function screenPass(r, s){
   if (s.maxPbr != null && !(r.pbr != null && r.pbr > 0 && r.pbr <= s.maxPbr)) return false;
   if (s.minRoe != null && !(r.roe != null && r.roe >= s.minRoe)) return false;
   if (s.minYield != null && !(r.div_yield != null && r.div_yield >= s.minYield)) return false;
-  if (s.minCapEok != null && !(r.mktcap != null && r.mktcap >= s.minCapEok * 1e8)) return false;
+  // 시총 필터는 **억원** 기준이다. 달러 값을 그대로 비교하면 `1000억 이상`이 미국에서는
+  // `$100B 이상`이 되어 대부분을 걸러낸다. 환율이 없으면 비교 불가라 통과시킨다(필터가
+  // 조용히 전부 막는 것보다 낫다 — 막힌 이유를 화면이 말할 수 없기 때문이다).
+  if (s.minCapEok != null) { const k = capKrw(r); if (k != null && k < s.minCapEok * 1e8) return false; }
   if (s.factor && s.factorMin != null) { const fv = (r.factor_scores || {})[s.factor]; if (!(fv != null && fv >= s.factorMin)) return false; }
   if (s.sector && r.sector !== s.sector) return false;
   if (s.buyOnly && !_isBuy(r.kind)) return false;
@@ -3305,10 +3332,10 @@ function renderSignalList(){
   renderOppFilters();
   updateScreenUI(scr, rows.length);
   const nn = (x) => (x == null ? -Infinity : x);  // 값 없으면 뒤로
-  if (sort === 'mktcap') rows = [...rows].sort((a, b) => nn(b.mktcap) - nn(a.mktcap));
+  if (sort === 'mktcap') rows = [...rows].sort((a, b) => nn(capKrw(b)) - nn(capKrw(a)));
   else if (sort === 'volume') rows = [...rows].sort((a, b) => nn(b.vol_avg) - nn(a.vol_avg));
   // 'signal'은 API 기본 순서(점수 내림차순) 유지
-  const metric = (r) => sort === 'mktcap' ? fmtMktcap(r.mktcap)
+  const metric = (r) => sort === 'mktcap' ? fmtCap(r)
     : sort === 'volume' ? '평균 ' + fmtVol(r.vol_avg)
     : (r.score > 0 ? '+' : '') + fmtNum(r.score, 2);
   const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
@@ -4212,7 +4239,7 @@ function _paintSignalDetail(ticker, item){
     const pair = (k, v) => ` <span class="q-pair"><span class="q-k">${k}</span> ${v}</span>`;
     qEl.innerHTML = `<span class="q-price">${priceStr}</span>`
       + (chg != null ? ` <span style="color:${chgColor};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : '')
-      + (item.mktcap != null ? pair('시총', fmtMktcap(item.mktcap)) : '')
+      + (item.mktcap != null ? pair('시총', fmtCap(item)) : '')
       + (item.vol != null ? pair('거래량', fmtVol(item.vol)) : '')
       + (item.vol_avg != null ? ` <span class="q-k q-pair">(20일 평균 ${fmtVol(item.vol_avg)})</span>` : '')
       + (item.per != null ? pair('PER', fmtNum(item.per, 1)) : '')
@@ -8066,7 +8093,7 @@ function obBackFavs(){
 function obSuggestList(){
   const fromSig = Object.values(_signalItems || {})
     .filter(r => r && r.ticker && !String(r.ticker).includes('.'))
-    .sort((a, b) => (b.mktcap || 0) - (a.mktcap || 0))
+    .sort((a, b) => (capKrw(b) || 0) - (capKrw(a) || 0))
     .slice(0, 10)
     .map(r => [r.ticker, r.name || r.ticker]);
   return fromSig.length >= 5 ? fromSig : _OB_SEED;

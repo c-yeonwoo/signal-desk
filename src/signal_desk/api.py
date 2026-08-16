@@ -1328,6 +1328,9 @@ def _us_signal_detail(ticker: str) -> dict | None:
     d["change_pct"] = round((price / prev - 1) * 100, 2) if (price and prev) else None
     d["vol"] = q.get("vol"); d["vol_avg"] = q.get("vol_avg")
     d["mktcap"] = mc.get("mktcap"); d["per"] = mc.get("per"); d["pbr"] = mc.get("pbr")
+    # 리스트와 **같은 환산**을 상세에도 싣는다 — 한쪽만 원화면 같은 종목이 두 축으로 보인다.
+    fx = store.usdkrw()
+    d["mktcap_krw"] = d["mktcap"] * fx["rate"] if (fx and d["mktcap"] is not None) else None
     d["sector"] = sector
     d["intro"] = f"{sector} 섹터" if sector else None
     d["intro_desc"] = None
@@ -1591,8 +1594,16 @@ def signals_get(request: Request, market: str = "kospi"):
         report = desk_report.build(
             us_sigs, selection=sel, crowding=crowd, market="us")
         db.kv_set("crowding_last_us", {**crowd, "ts": int(time.time())})
+        # **시총을 국내와 같은 축으로 실어 보낸다.** 화면이 달러 값에 원화 서식(조/억)을
+        # 그대로 씌워 USB $101.3B가 `1013억`으로 보였다 — 삼성전자 `1494조` 옆에 놓이면
+        # 1만배 작아 보인다. 환산은 서버 한 곳에서만 한다(두 곳이면 표와 스크리너가 갈라진다).
+        fx = store.usdkrw()
+        if fx:
+            for it in items:
+                if it.get("mktcap") is not None:
+                    it["mktcap_krw"] = it["mktcap"] * fx["rate"]
         return {"ready": True, "items": items, "slim": True, "crowding": crowd,
-                "selection": sel, "desk_report": report}
+                "selection": sel, "desk_report": report, "fx": fx}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
