@@ -575,20 +575,12 @@ def _claim_loop_ownership() -> bool:
     import time
 
     me = _loop_me()
-    now = int(time.time())
-    try:
-        cur = db.kv_get(_LOOP_OWNER_KEY)
-    except Exception:                                  # noqa: BLE001 — 못 읽으면 막는 쪽
-        log.warning("루프 소유권을 읽을 수 없습니다 — 이 워커는 루프를 돌리지 않습니다")
-        return False
-    if isinstance(cur, dict) and cur.get("owner") and cur.get("owner") != me:
-        if now - int(cur.get("at") or 0) < _LOOP_LEASE_SEC:
-            return False                               # 살아 있는 주인이 있다
-    try:
-        db.kv_set(_LOOP_OWNER_KEY, {"owner": me, "at": now})
-    except Exception:                                  # noqa: BLE001
-        return False
-    return True
+    # **읽고-쓰기로는 안 된다.** `kv_get` → 판단 → `kv_set` 사이에 틈이 있어(TOCTOU) 워커들이
+    # 같이 뜨면 둘 다 "주인 없음"을 보고 둘 다 잡는다 — 실측(8프로세스 동시 5회): 주인이
+    # **4·1·4·1·3명**으로 5회 중 3회 중복이었다. 그대로 워커를 늘렸으면 중복 매매가 났다.
+    # `db.lease_claim` 이 `BEGIN IMMEDIATE` 로 읽기 전에 쓰기 락을 잡아 직렬화한다.
+    return db.lease_claim(_LOOP_OWNER_KEY, me,
+                          now=int(time.time()), lease_sec=_LOOP_LEASE_SEC)
 
 
 def _loop_me() -> str:

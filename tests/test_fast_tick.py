@@ -74,13 +74,17 @@ def test_expired_lease_is_taken_over(monkeypatch, tmp_path):
 
 
 def test_unreadable_lock_blocks_instead_of_fail_open(monkeypatch, tmp_path):
-    """**게이트를 못 읽으면 막는다.** fail-open 은 게이트가 없는 것과 같다(레포 규칙)."""
+    """**게이트를 못 읽으면 막는다.** fail-open 은 게이트가 없는 것과 같다(레포 규칙).
+
+    DB 자체가 죽는 것이 실제 실패 모드다 — 프로덕션에서 `database is locked` 로 이 경로가
+    실제로 탔고, 로그에 「루프 소유권을 읽을 수 없습니다」가 반복됐다.
+    """
     monkeypatch.chdir(tmp_path)
 
-    def boom(_k):
+    def boom(*a, **k):
         raise RuntimeError("db down")
 
-    monkeypatch.setattr(api.db, "kv_get", boom)
+    monkeypatch.setattr(api.db, "conn", boom)
     assert api._claim_loop_ownership() is False
 
 
@@ -171,3 +175,89 @@ def test_fast_trade_pass_is_a_noop_when_market_closed(monkeypatch):
     monkeypatch.setattr(api.bot, "run_once", lambda *a, **k: ran.append(1) or {"ok": True})
     api._fast_trade_pass([])
     assert ran == []
+
+
+# ─────────────── 루프 락: 실제 프로세스로 검증 (워커 증설의 전제) ───────────────
+
+def _claim_in_child(barrier, results, i, cwd):
+    """자식 프로세스에서 소유권을 잡아 본다 — 배포 시 워커들이 같이 뜨는 상황."""
+    import os
+    os.chdir(cwd)
+    from signal_desk import api as child_api
+    barrier.wait()
+    results[i] = 1 if child_api._claim_loop_ownership() else 0
+
+
+def test_only_one_process_wins_the_lock_under_a_real_race(tmp_path):
+    """**읽고-쓰기로는 안 된다.** 실측(2026-08-10, 8프로세스 동시 5회): 옛 구현은 주인이
+    **4·1·4·1·3명**으로 5회 중 3회 중복이었다 — 워커를 늘렸으면 그대로 중복 매매다.
+
+    스레드가 아니라 **프로세스**로 돌린다: GIL이 없어야 진짜 경합이 재현되고, 배포에서
+    겹치는 것도 프로세스다. `BEGIN IMMEDIATE` 가 check-and-set 을 직렬화한다.
+    """
+    import multiprocessing as mp
+    import os
+
+    ctx = mp.get_context("spawn")           # fork 상속 상태에 기대지 않는다
+    cwd = str(tmp_path)
+    cur = os.getcwd()
+    os.chdir(cwd)
+    try:
+        from signal_desk import db as d
+        d.conn().close()
+        for _ in range(3):
+            d.kv_set(api._LOOP_OWNER_KEY, None)
+            n = 6
+            barrier = ctx.Barrier(n)
+            results = ctx.Array("i", n)
+            ps = [ctx.Process(target=_claim_in_child, args=(barrier, results, i, cwd))
+                  for i in range(n)]
+            for p in ps:
+                p.start()
+            for p in ps:
+                p.join(timeout=60)
+            assert sum(results) == 1, f"{n}개 중 {sum(results)}개가 소유권을 잡았다 — 중복 매매"
+    finally:
+        os.chdir(cur)
+
+
+def test_live_owner_blocks_others_and_dead_owner_is_taken_over(tmp_path, monkeypatch):
+    """살아 있는 주인은 못 뺏고, 죽은 주인(임대 만료)은 인수한다 — 둘 다 아니면 쓸모없다."""
+    import time as _t
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db as d
+    d._schema_ready.clear()
+    d.conn().close()
+
+    d.kv_set(api._LOOP_OWNER_KEY, {"owner": "alive@host", "at": int(_t.time())})
+    assert not any(api._claim_loop_ownership() for _ in range(5)), "살아 있는 주인을 뺏었다"
+
+    d.kv_set(api._LOOP_OWNER_KEY,
+             {"owner": "dead@host", "at": int(_t.time()) - api._LOOP_LEASE_SEC - 60})
+    assert api._claim_loop_ownership(), "죽은 주인이 자리를 영구히 들고 있으면 아무도 매매하지 않는다"
+
+
+def test_owner_keeps_its_own_lease_on_renewal(tmp_path, monkeypatch):
+    """소유자가 자기 자신에게 막히면 한 틱 만에 자리를 잃는다."""
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db as d
+    d._schema_ready.clear()
+    d.conn().close()
+    d.kv_set(api._LOOP_OWNER_KEY, None)
+    assert all(api._own_loop_tick() for _ in range(5)), "자기 갱신이 막혔다"
+
+
+def test_claim_is_atomic_not_read_then_write():
+    """구현이 `kv_get` → 판단 → `kv_set` 으로 되돌아오면 경합이 다시 생긴다."""
+    import inspect
+    src = inspect.getsource(api._claim_loop_ownership)
+    # **주석을 세면 안 된다** — 이 함수의 설명 주석이 옛 구현(`kv_get`→`kv_set`)을 인용한다.
+    # 이 함정에 이번 세션에서만 세 번 빠졌다(CSS 변수·`llm` import·여기).
+    code = "\n".join(ln for ln in src.split("\n")
+                     if not ln.strip().startswith("#") and '"""' not in ln)
+    assert "lease_claim" in code, "원자적 획득을 쓰지 않는다"
+    assert "kv_set" not in code, "읽고-쓰기로 되돌아갔다 — TOCTOU 가 다시 생긴다"
+    from signal_desk import db as d
+    lease = inspect.getsource(d.lease_claim)
+    assert "BEGIN IMMEDIATE" in lease, "읽기 전에 쓰기 락을 잡지 않는다"
+    assert "isolation_level = None" in lease, "암묵 BEGIN 과 충돌한다"
