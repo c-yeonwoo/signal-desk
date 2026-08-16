@@ -215,6 +215,7 @@ def _fast_trade_pass(open_markets: list[str]) -> None:
 
 
 _DIGEST_PREV_KEY = "morning_digest_buy_count"
+_DIGEST_PREV_KEY_US = "morning_digest_buy_count_us"   # 시장별로 따로 — 한 키를 나눠 쓰면 증감이 섞인다
 
 
 def _morning_digest_text(date: datetime.date | None = None, *,
@@ -228,6 +229,18 @@ def _morning_digest_text(date: datetime.date | None = None, *,
     cfg, adapt = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
     sigs = list(_signals())
     prev_raw = db.kv_get(_DIGEST_PREV_KEY)
+    # 미국 블록. 시세가 없으면 **블록 자체를 생략**한다 — 빈 구역은 "오늘 매수 0"으로 읽혀
+    # 수집 정지를 정상으로 보이게 한다(0의 이유 규칙). 실패해도 국내 브리핑은 나가야 한다.
+    us_sigs = us_sel = prev_us = None
+    try:
+        us_sigs = list((_us_signals() or {}).values()) or None
+        if us_sigs:
+            us_sel = selection_summary(us_sigs, signalcfg.get_config())
+            prev_us_raw = db.kv_get(_DIGEST_PREV_KEY_US)
+            prev_us = int(prev_us_raw) if str(prev_us_raw or "").isdigit() else None
+    except Exception as e:
+        log.warning("브리핑 미국 블록 생략: %s", type(e).__name__)
+        us_sigs = us_sel = None
     text = digest.build_morning(
         stall=_safe_stall(),
         signals=sigs,
@@ -244,9 +257,14 @@ def _morning_digest_text(date: datetime.date | None = None, *,
         exposure_reasons=adapt.get("exposure_reasons"),
         event_queue=db.kb_event_queue_status(),
         crowding=crowding.assess(sigs),
+        us_signals=us_sigs,
+        us_selection=us_sel,
+        prev_us_buy_count=prev_us,
     )
     if remember:
         db.kv_set(_DIGEST_PREV_KEY, str(len(digest.buy_signals(sigs))))
+        if us_sigs:
+            db.kv_set(_DIGEST_PREV_KEY_US, str(len(digest.buy_signals(us_sigs))))
     return text
 
 
