@@ -11,6 +11,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -1801,23 +1802,59 @@ def _quality_freshness() -> dict:
             "stall_note": (f"{n}/{total}종목만 계산 — 매수 자격에 반영됨" if total else None)}
 
 
+_KR_CLOSE_HOUR = 16      # KST 장 마감(15:30) + 수집 여유. 이 시각 전에는 오늘 데이터를 기대하지 않는다.
+
+
+def _weekday_age_days(mtime: float) -> float:
+    """파일 mtime 이후 **지난 평일 수**. 주말은 안 센다.
+
+    "오늘 데이터가 있어야 하는가"의 기준은 마지막 **기대 거래일**이다 — 장 마감 전이면 오늘은
+    아직 기대하지 않는다. 시세 파일에서 달력을 뽑지 않는 이유는 호출부 주석 참고(fail-open).
+    """
+    kst = ZoneInfo("Asia/Seoul")
+    now = datetime.datetime.now(kst)
+    expected = now.date() if now.hour >= _KR_CLOSE_HOUR else now.date() - datetime.timedelta(days=1)
+    while expected.weekday() >= 5:                    # 토·일이면 직전 금요일로
+        expected -= datetime.timedelta(days=1)
+    seen = datetime.datetime.fromtimestamp(mtime, kst).date()
+    if seen >= expected:
+        return 0.0
+    n, d = 0, seen
+    while d < expected:
+        d += datetime.timedelta(days=1)
+        if d.weekday() < 5:
+            n += 1
+    return float(n)
+
+
 def data_freshness() -> list[dict]:
     """데이터 소스별 최종 갱신 시각·경과·행수·stale 여부(캐시 파일 mtime 기준). 관리자 신선도 대시보드용.
     stale_days 초과면 stale=True(소스별 갱신 주기에 맞춘 임계)."""
     now = datetime.datetime.now().timestamp()
 
-    def e(key, label, path, stale_days, rows=None):
+    def e(key, label, path, stale_days, rows=None, *, trading=False):
         if not path.exists():
             return {"key": key, "label": label, "updated": None, "age_hours": None,
                     "rows": rows, "stale": True}
         mt = path.stat().st_mtime
         age_h = (now - mt) / 3600
+        # **장이 안 서는 날은 안 세어야 한다.** 달력일로 재면 금요일 마감 뒤 월요일 아침에
+        # 국내 소스 전부가 "2일 경과 → 갱신 멈춤"이 된다(2026-08-17 프로덕션에서 실제로 배너가
+        # 떠 있었고 데이터는 마지막 거래일 기준 최신이었다). 매주 우는 늑대는 곧 안 읽힌다.
+        # 이 리포는 PIT 스냅샷에 대해 이미 같은 것을 배웠다("정지는 파일 신선도로 안 잡힌다 —
+        # 거래일 달력과 대조한다"). 여기가 세 번째 재발이다.
+        # `_market_dates()`(시세 파일)를 쓰지 않는 이유: 그 파일이 멈추면 달력도 같이 멈춰
+        # 경과가 영원히 0이 된다 — fail-open이라 게이트가 없는 것과 같다. 그래서 **평일 수**로
+        # 센다(파일과 무관). 공휴일은 여전히 세지만 주말 오탐은 사라진다.
+        age_d = _weekday_age_days(mt) if trading else age_h / 24
         return {"key": key, "label": label,
                 "updated": datetime.datetime.fromtimestamp(mt).strftime("%Y-%m-%d %H:%M"),
-                "age_hours": round(age_h, 1), "rows": rows, "stale": age_h > stale_days * 24}
+                "age_hours": round(age_h, 1),
+                "age_days": round(age_d, 1), "counts_trading_days": bool(trading),
+                "rows": rows, "stale": age_d > stale_days}
 
     return [
-        e("prices", "국내 시세", PRICES_FILE, 2),
+        e("prices", "국내 시세", PRICES_FILE, 2, trading=True),
         # **미국 시세는 파일 mtime으로 재지 않는다.** 갱신기가 파일은 쓰면서(mtime 갱신) 봉은 못
         # 늘리는 경우가 있어 mtime이 정지를 가린다 — 실측: mtime 2일 전인데 종목별 마지막 봉은
         # 중위 한 달 전이고 503종목 전부가 갱신기 기준 stale이었다. "정지는 파일 신선도로 안
@@ -1830,19 +1867,20 @@ def data_freshness() -> list[dict]:
         # 전부 비어 있어도 위 `fundamentals` 는 `0.4시간 전`이라 말한다(2026-08-07 실측).
         # 파생값이 TTL 게이트 뒤에 있으면 그 기간 내내 조용히 빈다는 사실을 화면에 드러낸다.
         _quality_freshness(),
-        e("flows", "종목 수급(네이버)", FLOWS_FILE, 2, _json_rows(FLOWS_FILE)),
-        e("short", "공매도 비중(KRX)", SHORT_FILE, 2, _json_rows(SHORT_FILE)),
-        # 컨센서스·시그널 PIT는 평일 마감후에만 쌓인다. stale_days=2면 금→일만 돼도 "오래됨"이
-        # 뜬다(고장 아님). 주말·공휴일 버퍼로 4일.
-        e("consensus", "컨센서스 축적(네이버)", CONSENSUS_HISTORY_FILE, 4),
-        e("market_flow", "시장 수급(토스)", MARKET_FLOW_FILE, 2),
+        e("flows", "종목 수급(네이버)", FLOWS_FILE, 2, _json_rows(FLOWS_FILE), trading=True),
+        e("short", "공매도 비중(KRX)", SHORT_FILE, 2, _json_rows(SHORT_FILE), trading=True),
+        # 컨센서스·시그널 PIT는 평일 마감후에만 쌓인다. 예전엔 주말 오탐을 막으려 문턱을 4일로
+        # 늘려 두었는데, 그건 **평일 3일 정지를 못 잡는** 대가를 치른다. 이제 평일 수로 세므로
+        # 주말은 애초에 안 세이고 문턱을 2일로 되돌린다 — 완화가 아니라 정확해진 것이다.
+        e("consensus", "컨센서스 축적(네이버)", CONSENSUS_HISTORY_FILE, 2, trading=True),
+        e("market_flow", "시장 수급(토스)", MARKET_FLOW_FILE, 2, trading=True),
         e("macro", "거시(FRED)", MACRO_FILE, 8, _json_rows(MACRO_FILE)),
         e("macro_kr", "거시(ECOS)", MACRO_KR_FILE, 8, _json_rows(MACRO_KR_FILE)),
         e("company", "기업개황(DART)", COMPANY_PROFILES_FILE, 365, _json_rows(COMPANY_PROFILES_FILE)),
-        e("warnings", "투자경고(토스)", WARNINGS_FILE, 2, _json_rows(WARNINGS_FILE)),
+        e("warnings", "투자경고(토스)", WARNINGS_FILE, 2, _json_rows(WARNINGS_FILE), trading=True),
         e("gurus", "거장 13F", GURUS_FILE, 40),
         e("us_fund", "미국 재무(EDGAR)", US_FUNDAMENTALS_FILE, 100, _json_rows(US_FUNDAMENTALS_FILE)),
-        e("signal_hist", "시그널 히스토리(PIT)", SIGNAL_HISTORY_FILE, 4),
+        e("signal_hist", "시그널 히스토리(PIT)", SIGNAL_HISTORY_FILE, 2, trading=True),
         # 2026-08-05 진단: 이 둘이 freshness 목록에 없어서 **자동 루프에 없다는 사실이 화면에
         # 안 떴다**. us_earnings 가 낡으면 실적 게이트가 조용히 안 걸린다.
         e("fund_hist", "연도별 재무(PIT 백테스트)", FUNDAMENTALS_HISTORY_FILE, 100,
