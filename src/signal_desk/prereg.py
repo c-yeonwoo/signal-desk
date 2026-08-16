@@ -29,6 +29,7 @@ interim이 확정되는 순간 n이 2→1로 줄어 final의 문턱이 저절로
 from __future__ import annotations
 
 import hashlib
+from statistics import NormalDist
 import json
 import tomllib
 from datetime import date as _date
@@ -71,6 +72,17 @@ def threshold_for(looks: list[dict], look_id: str) -> float:
     """
     n = len(canonical_looks(looks)) or 1
     return sidak_threshold_pct(n)
+
+
+def accuracy_z(n_looks: int) -> float:
+    """Šidák 보정된 양측 신뢰수준의 z. look이 많을수록 커진다(=문턱이 올라간다).
+
+    백분위 문턱과 **같은 α**에서 온다 — 판정 종류가 다르다고 다중검정 보정을 따로 두면
+    관대한 쪽을 골라 쓸 수 있게 된다. n=1 → 1.96, n=4 → 2.50.
+    """
+    n = max(1, int(n_looks))
+    alpha1 = 1 - (1 - ALPHA) ** (1 / n)
+    return NormalDist().inv_cdf(1 - alpha1 / 2)
 
 
 def config_hash(cfg: dict) -> str:
@@ -211,11 +223,65 @@ def load(path: Path | str | None = None) -> dict:
               "decision": dec,
           })
 
+    # **실측 정확도 look** — 하네스 백분위가 아니라 "매수 시그널의 h거래일 실현수익이
+    # 기준선을 얼마나 넘나"를 미리 못 박는다. 헤드라인 실측은 h20인데 실제 매매는 단기(3~5일)라
+    # 그 지평을 **나중에 고르면** 측정이 아니라 고르기가 된다(지평 3개 중 하나 = 우연 14%).
+    acc_looks: list[dict] = []
+    for lk in raw.get("accuracy_looks") or []:
+        lid = str(lk.get("id") or "").strip()
+        if not lid:
+            out["reason"] = "id 없는 accuracy_look이 있다"
+            return out
+        if lid in seen:
+            out["reason"] = f"id 중복: {lid}"
+            return out
+        seen.add(lid)
+        req = dict(lk.get("requirement") or {})
+        h = lk.get("horizon")
+        if not isinstance(h, int) or h <= 0:
+            out["reason"] = f"{lid}: horizon이 양의 정수여야 한다"
+            return out
+        for k in ("min_buy_sample", "min_dates"):
+            if not isinstance(req.get(k), int) or req[k] <= 0:
+                out["reason"] = f"{lid}: requirement.{k}가 양의 정수여야 한다"
+                return out
+        if not isinstance(req.get("min_lift_pp"), (int, float)) or req["min_lift_pp"] <= 0:
+            out["reason"] = f"{lid}: requirement.min_lift_pp가 양수여야 한다"
+            return out
+        # 실측 정확도는 **이미 매일 화면에 보이는 값**이라 사후등록 위험이 하네스보다 크다.
+        # 그래서 `from_date` 를 **필수**로 하고 등록일 이후만 허용한다.
+        fd = req.get("from_date")
+        if not fd:
+            out["reason"] = (f"{lid}: accuracy_look은 requirement.from_date가 필수다 — "
+                             f"실측은 이미 화면에 보이므로 아직 보지 않은 구간에만 걸 수 있다")
+            return out
+        try:
+            _date.fromisoformat(str(fd))
+        except ValueError:
+            out["reason"] = f"{lid}: requirement.from_date가 YYYY-MM-DD가 아니다: {fd!r}"
+            return out
+        if str(fd) <= str(lk.get("registered_at") or ""):
+            out["reason"] = (f"{lid}: from_date({fd})가 registered_at({lk.get('registered_at')}) "
+                             f"이하다 — 등록일 당일까지는 이미 본 구간이다")
+            return out
+        acc_looks.append({
+            "id": lid, "role": str(lk.get("role") or "final"),
+            "kind": "accuracy", "horizon": int(h),
+            "market": str(lk.get("market") or base.get("market") or "kr"),
+            "hypothesis": (lk.get("hypothesis") or "").strip(),
+            "registered_at": str(lk.get("registered_at") or ""),
+            "requirement": req, "decision": dict(lk.get("decision") or {}),
+        })
+
     out["ok"] = True
     out["base"] = base
     out["looks"] = looks
+    out["accuracy_looks"] = acc_looks
     out["n_canonical"] = len(canonical_looks(looks))
-    out["threshold_pct"] = sidak_threshold_pct(out["n_canonical"])
+    # **n은 파일 전체의 정본 look 총수**다. 종류가 달라도 "데이터를 한 번 더 본다"는 사실은
+    # 같으므로 정확도 look도 센다 — 파일을 쪼개거나 종류를 나눠 n을 낮추는 것이 곧 사후 완화다.
+    out["n_looks_total"] = out["n_canonical"] + len(acc_looks)
+    out["threshold_pct"] = sidak_threshold_pct(out["n_looks_total"])
     return out
 
 
@@ -328,3 +394,45 @@ def change_allowed(board: dict | None, *, automated: bool,
         return False, (f"미검증 상태에서 값을 바꾸려면 사유가 필요합니다 — {why}. "
                        f"`override_reason` 에 왜 지금 바꾸는지 적어 주세요(이력에 남습니다)."), True
     return True, "", True
+
+
+def judge_accuracy(look: dict, *, hits_by_date: dict, baseline_pct: float | None,
+                   baseline_sample: int, n_looks: int) -> dict:
+    """사전등록된 실측 정확도 look 판정. **요건 미달이면 수치를 비운다.**
+
+    비우는 이유: 요건 충족 전에 매일 리프트가 보이면 매일 보게 되고 그게 곧 다중검정이다
+    (하네스 보드가 백분위를 비우는 것과 같은 규약). 보드가 실수로 실어 보내도 화면이 못
+    그리도록, 여기서 아예 `None` 으로 만든다.
+    """
+    from signal_desk.signals import accuracy as acc
+
+    req = look.get("requirement") or {}
+    h = int(look.get("horizon") or 5)
+    n = sum(len(v) for v in (hits_by_date or {}).values())
+    n_dates = len(hits_by_date or {})
+    need_n, need_d = int(req.get("min_buy_sample") or 0), int(req.get("min_dates") or 0)
+    met = n >= need_n and n_dates >= need_d
+    progress = {"buy_sample": n, "min_buy_sample": need_n,
+                "dates": n_dates, "min_dates": need_d,
+                "remaining_buy_sample": max(0, need_n - n),
+                "remaining_dates": max(0, need_d - n_dates), "met": met}
+    if not met:
+        return {"id": look.get("id"), "horizon": h, "status": "pending",
+                "verdict": "판정 보류",
+                "verdict_why": f"실측 매수 {n}/{need_n}건 · 거래일 {n_dates}/{need_d}일",
+                "from_date": req.get("from_date"), "requirement": progress,
+                "lift_pp": None, "lift_lower_pp": None, "precision_pct": None,
+                "threshold_z": round(accuracy_z(n_looks), 3)}
+    r = acc.block_lift_verdict(
+        hits_by_date, baseline_pct=baseline_pct, baseline_sample=baseline_sample,
+        horizon=h, z=accuracy_z(n_looks), min_lift_pp=float(req.get("min_lift_pp") or 0.0))
+    dec = look.get("decision") or {}
+    return {"id": look.get("id"), "horizon": h, "status": "decided",
+            "verdict": "판별력 있음" if r["passes"] else "판별력 없음",
+            "verdict_why": (f"리프트 {r['lift_pp']}%p · 하한 {r['lift_lower_pp']}%p "
+                            f"(요구 {req.get('min_lift_pp')}%p · 블록 {r['n_blocks']}개)"
+                            if r.get("lift_pp") is not None else (r.get("blocked_reason") or "")),
+            "from_date": req.get("from_date"), "requirement": progress,
+            "decision": dec.get("if_pass") if r["passes"] else dec.get("if_fail"),
+            "threshold_z": r.get("z"), **{k: r.get(k) for k in
+                ("precision_pct", "lift_pp", "se_pp", "lift_lower_pp", "n", "n_blocks")}}

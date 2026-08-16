@@ -3547,6 +3547,43 @@ def advisor_shadow_get(request: Request):
     return advisor_shadow.summary(store.load_all_dated_closes())
 
 
+@app.get("/api/accuracy-verdict")
+def accuracy_verdict_get(request: Request):
+    """사전등록된 **실측 정확도** 판정(진척 포함). 관리자.
+
+    첫 화면 헤드라인이 아니다 — 판정 경로가 둘이면 갈릴 때 관대한 쪽이 읽힌다(DSR 0.979 vs
+    백분위 71.5에서 이미 겪었다). 첫 화면 판정은 `/api/verdict`(하네스 정본) 하나뿐이고,
+    이건 관리자 검증 탭에서 **진척만** 본다.
+    """
+    _admin_or_403(request)
+    from signal_desk import prereg
+    from signal_desk.signals import accuracy as acc
+    reg = prereg.load()
+    if not reg.get("ok"):
+        return {"ready": False, "reason": reg.get("reason"), "looks": []}
+    looks = reg.get("accuracy_looks") or []
+    if not looks:
+        return {"ready": True, "looks": [], "note": "등록된 실측 정확도 look이 없다"}
+    rows = store.load_signal_history()
+    recs = [] if rows.empty else rows.to_dict("records")
+    closes = store.load_all_dated_closes()
+    full = acc.realized_accuracy(recs, closes)
+    out = []
+    for lk in looks:
+        h = int(lk["horizon"])
+        base = ((full.get("by_horizon") or {}).get(str(h))
+                or (full.get("by_horizon") or {}).get(h) or {}).get("baseline") or {}
+        hits = acc.buy_hits_by_date(recs, closes, horizon=h,
+                                    from_date=(lk.get("requirement") or {}).get("from_date"))
+        out.append({**prereg.judge_accuracy(
+            lk, hits_by_date=hits, baseline_pct=base.get("up_pct"),
+            baseline_sample=int(base.get("sample") or 0),
+            n_looks=reg.get("n_looks_total") or 1),
+            "hypothesis": lk.get("hypothesis")})
+    return {"ready": True, "looks": out, "n_looks_total": reg.get("n_looks_total"),
+            "harness_threshold_pct": reg.get("threshold_pct")}
+
+
 @app.get("/api/pre-move")
 def pre_move_get(request: Request, horizon: int = 5):
     """**시그널 발동 전** 이미 오른 정도가 실현수익을 떨어뜨리나 — shadow 관측. 관리자.

@@ -17,10 +17,21 @@ def _fresh(tmp_path, monkeypatch):
     return db_module
 
 
-def _signup(db_module, email: str, days_ago: int) -> int:
+# **기준일을 못 박는다.** 예전엔 가입일을 `now − days_ago` 로 만들면서 `today` 는
+# `2026-07-25` 로 하드코딩했다 — 실제 시계가 흐르면서 둘의 간격이 줄어 **어느 날 저절로
+# 깨졌다**(2026-08-17에 실제로 깨졌고, UTC 15시 이후엔 KST 날짜가 하루 밀려 시각에 따라
+# 결과가 달라졌다). CI는 UTC라 통과하고 로컬은 실패하는 상태였다.
+# 시계에 의존하는 검사는 검사가 아니다 — 무엇을 재는지가 실행 시각마다 달라진다.
+TODAY = "2026-07-25"
+
+
+def _signup(db_module, email: str, days_ago: int, *, today: str = TODAY) -> int:
     uid = db_module.user_create(email, "hash")
-    created = int((datetime.datetime.now(datetime.timezone.utc)
-                   - datetime.timedelta(days=days_ago)).timestamp())
+    from zoneinfo import ZoneInfo
+    # KST 정오 기준 — `_d0` 가 KST로 변환하므로 시각이 날짜를 밀지 않게 한낮에 둔다.
+    base = datetime.datetime.combine(datetime.date.fromisoformat(today),
+                                     datetime.time(12, 0), ZoneInfo("Asia/Seoul"))
+    created = int((base - datetime.timedelta(days=days_ago)).timestamp())
     c = db_module.conn()
     c.execute("UPDATE users SET created=? WHERE id=?", (created, uid))
     c.commit()
@@ -41,7 +52,7 @@ def test_same_day_revisit_counts_once(tmp_path, monkeypatch):
     uid = _signup(db, "a@e.com", 30)
     db.signal_visit_mark(uid, "2026-07-20")
     db.signal_visit_mark(uid, "2026-07-20")
-    assert db.d7_metrics(today="2026-07-25")["visit_days_total"] == 1
+    assert db.d7_metrics(today=TODAY)["visit_days_total"] == 1
 
 
 def test_d0_visit_alone_is_not_a_return(tmp_path, monkeypatch):
@@ -49,7 +60,7 @@ def test_d0_visit_alone_is_not_a_return(tmp_path, monkeypatch):
     db = _fresh(tmp_path, monkeypatch)
     uid = _signup(db, "a@e.com", 30)
     db.signal_visit_mark(uid, _d0(db, uid).isoformat())
-    out = db.d7_metrics(today="2026-07-25")
+    out = db.d7_metrics(today=TODAY)
     assert out["denominator"] == 1 and out["numerator"] == 0 and out["d7_pct"] == 0.0
 
 
@@ -59,7 +70,7 @@ def test_visit_inside_and_outside_window(tmp_path, monkeypatch):
     outside = _signup(db, "out@e.com", 30)
     db.signal_visit_mark(inside, (_d0(db, inside) + datetime.timedelta(days=7)).isoformat())
     db.signal_visit_mark(outside, (_d0(db, outside) + datetime.timedelta(days=8)).isoformat())
-    out = db.d7_metrics(today="2026-07-25")
+    out = db.d7_metrics(today=TODAY)
     assert out["denominator"] == 2 and out["numerator"] == 1 and out["d7_pct"] == 50.0
 
 
@@ -68,7 +79,7 @@ def test_immature_cohort_excluded_from_denominator(tmp_path, monkeypatch):
     db = _fresh(tmp_path, monkeypatch)
     _signup(db, "old@e.com", 30)
     _signup(db, "new@e.com", 3)
-    out = db.d7_metrics()
+    out = db.d7_metrics(today=TODAY)
     assert out["denominator"] == 1 and out["pending_users"] == 1
 
 
@@ -76,7 +87,7 @@ def test_no_matured_cohort_returns_none_not_zero(tmp_path, monkeypatch):
     """표본 0에서 0%를 내보내면 '아무도 안 돌아왔다'로 읽힌다 — 판정 불가여야 한다."""
     db = _fresh(tmp_path, monkeypatch)
     _signup(db, "new@e.com", 2)
-    out = db.d7_metrics()
+    out = db.d7_metrics(today=TODAY)
     assert out["d7_pct"] is None and out["denominator"] == 0
 
 
@@ -85,7 +96,7 @@ def test_cohorts_grouped_by_signup_week(tmp_path, monkeypatch):
     a = _signup(db, "a@e.com", 30)
     _signup(db, "b@e.com", 60)
     db.signal_visit_mark(a, (_d0(db, a) + datetime.timedelta(days=2)).isoformat())
-    out = db.d7_metrics()
+    out = db.d7_metrics(today=TODAY)
     assert len(out["cohorts"]) == 2
     hit = [c for c in out["cohorts"] if c["returned"] == 1]
     assert len(hit) == 1 and hit[0]["d7_pct"] == 100.0
@@ -98,12 +109,12 @@ def test_signals_endpoint_records_visit_only_when_logged_in(tmp_path, monkeypatc
     client = TestClient(api_module.app)
 
     client.get("/api/signals")                     # 비로그인 — 기록 없음
-    assert db.d7_metrics()["visit_days_total"] == 0
+    assert db.d7_metrics(today=TODAY)["visit_days_total"] == 0
 
     client.post("/api/auth/signup", json={"email": "u@e.com", "pw": "abcdef12"})
     client.get("/api/signals")
     client.get("/api/signals")
-    assert db.d7_metrics()["visit_days_total"] == 1  # 같은 날 두 번 → 1건
+    assert db.d7_metrics(today=TODAY)["visit_days_total"] == 1  # 같은 날 두 번 → 1건
 
 
 def test_d7_endpoint_is_admin_only(tmp_path, monkeypatch):

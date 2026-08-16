@@ -740,3 +740,79 @@ def qualitative_promotion_metrics(
         "eligible_for_priority_or_threshold": eligible,
         "note": "정성 점수는 종합점수·매수 임계값·페이퍼 봇에 반영되지 않습니다(shadow 관측).",
     }
+
+
+# ---------- 사전등록된 실측 정확도 판정 (prereg accuracy_looks 전용) ----------
+#
+# 헤드라인 실측은 h20이고 거기엔 아직 매수 표본이 0이다. 실제 매매는 단기(봇 3일·하네스 5일)라
+# 그 지평의 판별력을 **미리 못 박고** 재는 경로가 필요하다. 지평을 나중에 고르면 그건 측정이
+# 아니라 고르기다(지평 3개 중 좋아 보이는 하나 = 우연 통과 확률 14%).
+#
+# 통계 주의 두 가지 — 둘 다 소박한 이항 SE를 **과소평가** 쪽으로 틀리게 한다:
+#   ① 같은 날 여러 종목을 사면 그 판단들은 독립이 아니다(시장 드리프트 공유).
+#   ② h거래일 수익을 매일 재면 창이 h−1일씩 겹친다.
+# 그래서 **날짜를 h일 블록으로 묶어** 블록 안에서 평균 내고, 블록 간 분산으로 SE를 낸다.
+# 블록끼리는 창이 안 겹치므로 독립에 가깝다(IC에서 Newey-West를 쓴 것과 같은 이유).
+
+
+def buy_hits_by_date(history_rows: list[dict],
+                     closes_by_ticker: dict[str, tuple[list[str], list[float]]],
+                     *, horizon: int, hit_ret: float = 0.005,
+                     from_date: str | None = None) -> dict[str, list[bool]]:
+    """{날짜: [매수 판단이 hit_ret 이상 올랐는가]} — 성숙한 것만.
+
+    `from_date`가 있으면 그 **이후** 날짜만 — 사전등록 OOS 구간을 여기서 자른다.
+    """
+    out: dict[str, list[bool]] = {}
+    for r in history_rows:
+        if not is_buy(str(r.get("kind") or "")):
+            continue
+        d = str(r.get("date"))
+        if from_date and d < str(from_date):
+            continue
+        series = closes_by_ticker.get(r.get("ticker"))
+        if not series:
+            continue
+        rets = _forward_returns(series[0], series[1], d, (horizon,))
+        if horizon in rets:
+            out.setdefault(d, []).append(rets[horizon] >= hit_ret)
+    return out
+
+
+def block_lift_verdict(hits_by_date: dict[str, list[bool]], *, baseline_pct: float | None,
+                       baseline_sample: int, horizon: int, z: float,
+                       min_lift_pp: float) -> dict:
+    """겹치지 않는 h일 블록으로 묶어 리프트 하한을 낸다. 하한 > min_lift_pp 여야 통과.
+
+    소박한 이항 SE를 쓰지 않는 이유는 위 주석 참고 — 같은 날 군집과 창 중첩 때문에 과소평가된다.
+    `z`는 Šidák 보정된 다중검정 문턱에서 온다(등록 look이 많을수록 커진다).
+    """
+    dates = sorted(hits_by_date)
+    n = sum(len(v) for v in hits_by_date.values())
+    blocks: list[float] = []
+    for i in range(0, len(dates), max(1, horizon)):
+        chunk = [h for d in dates[i:i + horizon] for h in hits_by_date[d]]
+        if chunk:
+            blocks.append(sum(chunk) / len(chunk) * 100.0)
+    if not blocks or baseline_pct is None:
+        return {"n": n, "n_blocks": len(blocks), "precision_pct": None, "lift_pp": None,
+                "se_pp": None, "lift_lower_pp": None, "passes": False,
+                "blocked_reason": "성숙 표본 없음" if not blocks else "기준선 없음"}
+    prec = sum(blocks) / len(blocks)
+    lift = prec - float(baseline_pct)
+    if len(blocks) < 2:
+        return {"n": n, "n_blocks": len(blocks), "precision_pct": round(prec, 2),
+                "lift_pp": round(lift, 2), "se_pp": None, "lift_lower_pp": None,
+                "passes": False, "blocked_reason": "독립 블록 1개 — 분산을 잴 수 없다"}
+    m = prec
+    var = sum((b - m) ** 2 for b in blocks) / (len(blocks) - 1)
+    se = (var / len(blocks)) ** 0.5
+    # 기준선 자체의 표본오차도 더한다 — 크지 않지만 빼면 관대한 쪽으로 틀린다.
+    if baseline_sample and baseline_sample > 1:
+        p0 = float(baseline_pct) / 100.0
+        se = (se ** 2 + (p0 * (1 - p0) / baseline_sample) * 10000.0) ** 0.5
+    lower = lift - z * se
+    return {"n": n, "n_blocks": len(blocks), "precision_pct": round(prec, 2),
+            "lift_pp": round(lift, 2), "se_pp": round(se, 2),
+            "lift_lower_pp": round(lower, 2), "z": round(z, 3),
+            "passes": bool(lower > float(min_lift_pp)), "blocked_reason": None}
