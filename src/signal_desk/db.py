@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import json
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -199,11 +200,42 @@ CREATE INDEX IF NOT EXISTS idx_harness_runs_prereg ON harness_runs(preregistered
 """
 
 
+# 스키마·마이그레이션을 **DB 파일당 한 번만** 돌린다.
+#
+# 예전엔 `conn()` 마다 `executescript(_SCHEMA)` + `_migrate()` 를 실행했다. `conn()` 은 이 파일에서만
+# **111곳**에서 불리고, `executescript` 는 암묵 커밋 + DDL이라 **연결할 때마다 쓰기 락**을 잡는다.
+# `_migrate` 도 매번 36개 구문을 돈다. 첫 화면이 21개 API를 동시에 쏘면 서로 락을 뺏어
+# **`sqlite3.OperationalError: database is locked`** 가 났다 — 프로덕션 실측으로 로그인
+# (`user_by_email` → `conn()`)이 통째로 실패했고, 전체 응답도 그만큼 느렸다.
+#
+# 키를 **해석된 경로**로 둔다 — 검사가 `monkeypatch.chdir(tmp_path)` 로 DB를 옮기므로
+# 프로세스 단위 불리언으로 두면 새 임시 DB에 스키마가 안 생긴다.
+_schema_ready: set[str] = set()
+_schema_lock = threading.Lock()
+# 락 경합 시 즉시 실패하지 말고 기다린다. sqlite 기본은 0이라 **한 순간이라도 겹치면 예외**다.
+_BUSY_TIMEOUT_SEC = 10.0
+
+
 def conn() -> sqlite3.Connection:
     DB.parent.mkdir(parents=True, exist_ok=True)
-    c = sqlite3.connect(DB)
-    c.executescript(_SCHEMA)
-    _migrate(c)
+    c = sqlite3.connect(DB, timeout=_BUSY_TIMEOUT_SEC)
+    # 연결마다 필요한 설정(파일이 아니라 연결에 붙는다).
+    c.execute(f"PRAGMA busy_timeout={int(_BUSY_TIMEOUT_SEC * 1000)}")
+    key = str(DB.resolve())
+    if key in _schema_ready:
+        return c
+    with _schema_lock:
+        if key not in _schema_ready:
+            # WAL — 쓰기 한 건이 읽기를 막지 않는다. 이 앱은 읽기가 대부분이고 백그라운드
+            # 루프가 계속 쓰므로, 기본 저널이면 그 둘이 서로를 막는다. 파일에 한 번 새겨진다.
+            try:
+                c.execute("PRAGMA journal_mode=WAL")
+                c.execute("PRAGMA synchronous=NORMAL")   # WAL에서 안전하고 훨씬 빠르다
+            except sqlite3.DatabaseError:                # noqa: BLE001 — 못 켜도 동작은 한다
+                pass
+            c.executescript(_SCHEMA)
+            _migrate(c)
+            _schema_ready.add(key)
     return c
 
 
