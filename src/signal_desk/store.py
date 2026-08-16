@@ -785,6 +785,39 @@ def fetch_macro_kr() -> list[dict]:
     return items
 
 
+USDKRW_MAX_AGE_DAYS = 30   # 규모 비교용이라 며칠 낡아도 무해하다. 한 달 넘으면 안 쓴다.
+
+
+def usdkrw() -> dict | None:
+    """원/달러 환율 — 미국 시총을 국내와 **같은 축**으로 그리기 위한 것. 없으면 None.
+
+    이게 없어서 화면이 달러 값에 원화 서식(조/억)을 그대로 씌우고 있었다: USB $101.3B가
+    `1013억`, 삼성전자가 `1494조` — 나란히 놓으면 미국 대형주가 **1만배 작아 보인다**.
+    실제로 "미국 쪽은 시총이 엄청 작은 잡주 같다"는 인상의 원인이었다(2026-08-16).
+
+    변환은 **여기 한 곳**에서만 한다 — 두 곳에서 조립하면 표와 스크리너가 갈라진다.
+    낡으면 None을 돌려 호출자가 원 통화로 그리게 한다(틀린 환산보다 정직한 달러가 낫다).
+    """
+    for m in load_macro():
+        if m.get("key") != "DEXKOUS":
+            continue
+        try:
+            rate = float(m.get("value"))
+        except (TypeError, ValueError):
+            return None
+        if not (rate > 0):
+            return None
+        asof = str(m.get("asof") or "")[:10]
+        try:
+            age = (datetime.date.today() - datetime.date.fromisoformat(asof)).days
+        except ValueError:
+            return None
+        if age > USDKRW_MAX_AGE_DAYS:
+            return None
+        return {"rate": rate, "asof": asof, "age_days": age}
+    return None
+
+
 def load_macro_kr() -> list[dict]:
     if not MACRO_KR_FILE.exists():
         return []
