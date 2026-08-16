@@ -2094,12 +2094,42 @@ def signal_config_dict(sc) -> dict:
     return out
 
 
+def mktcap_panel(panel) -> dict[str, list[float | None]]:
+    """(종목·날짜)별 **시점 시가총액** — 하네스 시총 게이트용.
+
+    커버리지 패널과 같은 규약이다: 게이트를 만들면 하네스에도 같은 것을 넘기고, 대조군에도
+    같은 것을 넘긴다. 시총은 티커에 붙은 사실이라 라벨 치환과 무관하고, 대조군만 게이트를
+    안 걸면 대조군이 더 많이 살 수 있어 그 차이가 판별력으로 둔갑한다.
+
+    값은 KRX 유니버스 스냅샷 앵커 × 가격비(`pit_fundamentals.mktcap_at`)다 — **오늘 시총을
+    과거에 쓰면 그건 룩어헤드**이고, 스냅샷이 없는 종목은 None으로 둔다(모르면 막지 않는다).
+    """
+    from signal_desk.signals import pit_fundamentals as pf
+
+    uni_hist = load_universe_history()
+    anchors = pf.mktcap_anchors(uni_hist) if uni_hist else {}
+    price_now = {t: [v for v in row if v is not None][-1]
+                 for t, row in panel.closes.items() if any(v is not None for v in row)}
+    shares = pf.shares_estimate(load_fundamentals(), price_now)
+    if not anchors and not shares:
+        return {}
+    anchor_days = sorted(uni_hist) if uni_hist else []
+    idx = {d: i for i, d in enumerate(panel.dates)}
+    price_on = {t: {d: row[idx[d]] for d in anchor_days
+                    if d in idx and row[idx[d]] is not None}
+                for t, row in panel.closes.items()}
+    return {t: [pf.mktcap_at(t, panel.dates[i], px, anchors=anchors,
+                             price_on=price_on, shares=shares) if px is not None else None
+                for i, px in enumerate(row)]
+            for t, row in panel.closes.items()}
+
+
 def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
                 cost: float = 0.25, trials: int = 40, exposure: bool = False,
                 signal_config=None, pit: bool = False, pit_fund: bool = False,
                 preregistered_id: str | None = None, lock: bool = False,
                 threshold_pct: float | None = None, n_registered: int | None = None,
-                from_date: str | None = None) -> dict:
+                from_date: str | None = None, min_mktcap_pct: float = 0.0) -> dict:
     """하네스를 돌리고 **이력에 남긴다**. 보드 정본은 사전등록된 확정 실행만 갱신한다.
 
     `signal_config`를 안 주면 `signalcfg.get_config()`(소스 기본값 + kv 오버라이드)를 검사한다.
@@ -2130,7 +2160,7 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
     cfg = hz.HarnessConfig(
         top_pct=float(top_pct), rebalance_days=int(hold), cost_pct=float(cost),
         random_trials=max(10, min(int(trials), 200)), use_exposure=bool(exposure),
-        signal_config=sc,
+        signal_config=sc, min_mktcap_pct=float(min_mktcap_pct or 0.0),
     )
     scores, source, pit_dates = None, "price", None
     cov6 = fired6 = covers = None
@@ -2168,7 +2198,10 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
     if len(sharpes) >= 4:                      # 시도 간 Sharpe 분산 — 4개 미만이면 이론값을 쓴다
         m = sum(sharpes) / len(sharpes)
         sr_var = sum((x - m) ** 2 for x in sharpes) / (len(sharpes) - 1)
-    kw = {"n_trials": n_trials, "sr_variance": sr_var}
+    # 시총 패널은 **자른 뒤의 panel**로 만든다 — 점수·커버리지와 같은 위치에서 잘라야
+    # 인덱스가 안 밀린다("한쪽만 자르면 다른 날짜의 점수로 채점한다").
+    caps = mktcap_panel(panel) if cfg.min_mktcap_pct > 0 else None
+    kw = {"n_trials": n_trials, "sr_variance": sr_var, "caps": caps}
     out = (hz.run(panel, cfg, regimes, scores=scores, score_source=source,
                   coverage=cov6, fired=fired6, covers=covers, **kw) if scores is not None
            else hz.run(panel, cfg, regimes, **kw))

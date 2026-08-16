@@ -1922,6 +1922,10 @@ def _harness_job_start(market: str, trials: int, exposure: bool, *,
                     top_pct=float(ov.get("rank_top_pct") or 3.0),
                     hold=int(ov.get("hold") or 5), cost=float(ov.get("cost_pct") or 0.25),
                     pit=bool(ov.get("pit")),
+                    # 시총 하한(유니버스 하위 %) — **재보기 위한 스위치**다. 검사에 넣을 수
+                    # 없는 파라미터는 검증된 적이 없다("증명 장치에 검증 대상을 넣을 수 있어야
+                    # 한다"). 라이브 정책 변경이 아니라 하네스 실험 파라미터로만 받는다.
+                    min_mktcap_pct=float(ov.get("min_mktcap_pct") or 0.0),
                     signal_config=store._signal_config_from(ov) if ov else None)
         except Exception as e:
             log.warning("harness 백그라운드 실패: %s", e)
