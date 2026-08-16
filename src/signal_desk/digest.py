@@ -99,6 +99,47 @@ def _selection_line(selection: dict | None, exposure: float | None,
     return line
 
 
+def _picks_lines(signals: list[Any], *, selection: dict | None, threshold: float,
+                 prev_buy_count: int | None) -> list[str]:
+    """매수 + 근접 블록. **국내·미국이 같은 함수를 쓴다.**
+
+    두 시장을 따로 조립하면 한쪽만 고쳐져 문구·기준이 갈라지고, 그 차이는 어느 화면에도
+    안 뜬다(봇과 화면이 서로 다른 입력으로 점수를 조립하던 병과 같다).
+    """
+    ranked = (selection or {}).get("mode") == "rank"
+    buys = buy_signals(signals)
+    bought = {s.ticker for s in buys}
+    # 분위 모드의 '근접'은 컷오프(매수권 막차 점수) 기준 — 절대 문턱은 더 이상 매수를 정하지 않는다
+    near_ref = (selection or {}).get("cutoff_score") if ranked else threshold
+    near = sorted(
+        [s for s in signals
+         if s.ticker not in bought and _buyable(s) and near_ref is not None
+         and 0 <= (near_ref - float(s.score)) <= NEAR_GAP],
+        key=lambda s: float(s.score), reverse=True,
+    ) if near_ref is not None else []
+
+    change = _change_note(len(buys), prev_buy_count)
+    out: list[str] = []
+    if buys:
+        out.append(f"매수 시그널 {len(buys)}{change}")
+        for s in buys[:_BUY_LIMIT]:
+            out.append(f"🟢 {s.name} {float(s.score):+.2f}")
+        if len(buys) > _BUY_LIMIT:
+            out.append(f"… 외 {len(buys) - _BUY_LIMIT}종목")
+    else:
+        # 분위·절대 모두 매수 0일이 정상 — 최소점수·게이트로 자리가 비는 날이 신뢰의 본체
+        out.append(f"매수 시그널 0{change} — 기준을 넘은 종목이 없습니다. 정밀도 우선이라 그렇고,"
+                   " 고장이 아닙니다. 오늘은 기다리는 날입니다.")
+
+    if near:
+        out.append("")
+        label = "컷오프" if ranked else "문턱"
+        out.append(f"매수 근접({label}까지 {NEAR_GAP:.1f} 이내) {len(near)}")
+        for s in near[:_NEAR_LIMIT]:
+            out.append(f"· {s.name} {float(s.score):+.2f} ({near_ref - float(s.score):.2f} 남음)")
+    return out
+
+
 _STALL_NAMES = 3        # 이름을 다 적으면 브리핑이 길어진다. 3개 + "외 N개".
 
 
@@ -170,6 +211,9 @@ def build_morning(
     event_queue: dict | None = None,
     crowding: dict | None = None,
     stall: dict | None = None,
+    us_signals: list[Any] | None = None,
+    us_selection: dict | None = None,
+    prev_us_buy_count: int | None = None,
 ) -> str:
     """아침 브리핑 본문. signals는 SignalResult 리스트(국내), threshold는 국면 반영 유효 문턱.
 
@@ -178,19 +222,14 @@ def build_morning(
     app_url이 있으면 마지막에 「앱에서 보기」 링크를 붙인다 — 링크가 없으면 브리핑을 읽고
     끝나서 D7(재방문)에 구조적으로 기여하지 못한다.
     prev_buy_count가 있으면 매수 종목 수의 전일 대비 증감을 함께 적는다(매일 같은 문장 방지).
+
+    us_signals를 주면 **미국 블록**을 같은 형식으로 덧붙인다(한 메시지 · 두 구역). 두 번 보내지
+    않는 이유: 정지 배너·실측·면책이 한 번만 나오면 되고, 알림이 둘로 나뉘면 하나만 읽힌다.
+    국면 라벨·익스포저는 코스피 기준이라 미국 블록에 쓰지 않는다 — 같은 값을 다른 시장에
+    붙이면 그게 곧 틀린 문장이다. `None`이면 블록 자체를 생략한다(수집 전 = 빈 구역이 아니다).
     """
     d = date or datetime.date.today()
     ranked = (selection or {}).get("mode") == "rank"
-    buys = buy_signals(signals)
-    bought = {s.ticker for s in buys}
-    # 분위 모드의 '근접'은 컷오프(매수권 막차 점수) 기준 — 절대 문턱은 더 이상 매수를 정하지 않는다
-    near_ref = (selection or {}).get("cutoff_score") if ranked else threshold
-    near = sorted(
-        [s for s in signals
-         if s.ticker not in bought and _buyable(s) and near_ref is not None
-         and 0 <= (near_ref - float(s.score)) <= NEAR_GAP],
-        key=lambda s: float(s.score), reverse=True,
-    ) if near_ref is not None else []
 
     lines = [f"☀️ {_date_line(d)} 아침 브리핑", ""]
     # 정지 탐지는 **맨 위**. 데이터가 멈춘 채로 아래 숫자를 읽으면 낡은 값을 오늘 값으로 믿는다.
@@ -206,24 +245,19 @@ def build_morning(
     lines.append(f"{zone} · {head}")
     lines.append("")
 
-    change = _change_note(len(buys), prev_buy_count)
-    if buys:
-        lines.append(f"매수 시그널 {len(buys)}{change}")
-        for s in buys[:_BUY_LIMIT]:
-            lines.append(f"🟢 {s.name} {float(s.score):+.2f}")
-        if len(buys) > _BUY_LIMIT:
-            lines.append(f"… 외 {len(buys) - _BUY_LIMIT}종목")
-    else:
-        # 분위·절대 모두 매수 0일이 정상 — 최소점수·게이트로 자리가 비는 날이 신뢰의 본체
-        lines.append(f"매수 시그널 0{change} — 기준을 넘은 종목이 없습니다. 정밀도 우선이라 그렇고,"
-                     " 고장이 아닙니다. 오늘은 기다리는 날입니다.")
+    lines += _picks_lines(signals, selection=selection, threshold=threshold,
+                          prev_buy_count=prev_buy_count)
 
-    if near:
+    # 미국 블록 — **같은 함수로 그린다.** 두 시장을 따로 조립하면 한쪽만 고쳐져 갈라진다
+    # (이 리포가 봇·화면 점수에서 이미 겪은 병이다). 국면·익스포저는 코스피 기준이라 안 쓴다.
+    if us_signals is not None:
         lines.append("")
-        label = "컷오프" if ranked else "문턱"
-        lines.append(f"매수 근접({label}까지 {NEAR_GAP:.1f} 이내) {len(near)}")
-        for s in near[:_NEAR_LIMIT]:
-            lines.append(f"· {s.name} {float(s.score):+.2f} ({near_ref - float(s.score):.2f} 남음)")
+        lines.append("── 🇺🇸 미국 (어젯밤 종가 기준)")
+        us_head = _selection_line(us_selection, None, None) if (us_selection or {}).get("mode") == "rank" else None
+        if us_head:
+            lines.append(us_head)
+        lines += _picks_lines(us_signals, selection=us_selection, threshold=threshold,
+                              prev_buy_count=prev_us_buy_count)
 
     eq = event_queue or {}
     if (eq.get("pending") or 0) > 0:
