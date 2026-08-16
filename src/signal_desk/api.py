@@ -3547,6 +3547,25 @@ def advisor_shadow_get(request: Request):
     return advisor_shadow.summary(store.load_all_dated_closes())
 
 
+@app.get("/api/pre-move")
+def pre_move_get(request: Request, horizon: int = 5):
+    """**시그널 발동 전** 이미 오른 정도가 실현수익을 떨어뜨리나 — shadow 관측. 관리자.
+
+    `pre_run_up_pct` 는 PIT 스냅샷에 쌓이고 있었는데 **읽는 곳이 없었다**(2026-08-16) —
+    이 리포가 다섯 번 겪은 "수집 코드는 있는데 아무도 안 불렀다"가 관측 지표에서 재발한 것이다.
+    쌓기만 하고 안 보는 관측은 영원히 안 본다.
+
+    기본 지평이 5거래일인 이유: 봇 채점(3일)·하네스 보유(5일)와 같은 단기 쪽이다. 헤드라인
+    실측은 20일이지만 그 지평엔 아직 매수 표본이 없다.
+    """
+    _admin_or_403(request)
+    from signal_desk.signals import pre_move
+    rows = store.load_signal_history()
+    return pre_move.score_from_pit(
+        [] if rows.empty else rows.to_dict("records"),
+        store.load_all_dated_closes(), horizon=int(horizon))
+
+
 @app.get("/api/audit/hypotheses")
 def audit_hypotheses_get(request: Request):
     """감사 가설 큐 — "이 숫자가 틀렸다면 왜일까" 목록. 관측용, 엔진 영향 없음. 관리자."""

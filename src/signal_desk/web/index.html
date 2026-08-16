@@ -7519,8 +7519,9 @@ async function loadShadows(){
   const el = document.getElementById('shadow-body');
   if (!el) return;
   const fetchJson = async (u) => { try { return await (await fetch(u)).json(); } catch (e) { return null; } };
-  const [adv, clim, kbc] = await Promise.all([fetchJson('/api/advisor-shadow'),
-    fetchJson('/api/climate-shadow'), fetchJson('/api/kb-coverage-shadow')]);
+  const [adv, clim, kbc, pre] = await Promise.all([fetchJson('/api/advisor-shadow'),
+    fetchJson('/api/climate-shadow'), fetchJson('/api/kb-coverage-shadow'),
+    fetchJson('/api/pre-move')]);
   const pct = (v) => v == null ? '–' : ((v > 0 ? '+' : '') + fmtNum(v, 2) + '%');
   const block = (title, desc, v, extra) => {
     if (!v) return `<div style="margin-bottom:12px"><b>${title}</b><div style="color:var(--dim-2);font-size:13px">불러오지 못했습니다.</div></div>`;
@@ -7540,8 +7541,23 @@ async function loadShadows(){
       ${reason ? `<div style="color:var(--sig-watch);font-size:13px;margin-top:3px">${esc(reason)}</div>` : ''}</div>`;
   };
   const cov = kbc && kbc.coverage;
+  // **사전 상승 shadow** — `pre_run_up_pct` 는 PIT에 쌓이고 있었는데 읽는 곳이 없었다.
+  // 쌓기만 하고 안 보는 관측은 영원히 안 본다("판정 알림까지 만들어야 끝난다").
+  const preView = pre ? {
+    ...pre,
+    matured: Math.min(pre.n_high || 0, pre.n_low || 0),
+    min_samples: 8,
+    verdict_ready: !!pre.significant,
+  } : null;
   el.className = '';
   el.innerHTML =
+    block('사전 상승(선반영)',
+          '시그널이 뜨기 전 이미 많이 오른 매수가 실제로 더 나빴는지. 같은 날 매수권을 사전 상승 중위로 갈라 비교합니다 — 날짜별로 가르는 이유는 상승장 날짜가 통째로 한쪽에 몰리는 것을 막기 위해서입니다.',
+          preView,
+          pre ? `<div style="color:var(--dim);font-size:13px">많이 오른 뒤 ${pct(pre.avg_high_pct)} · 덜 오른 뒤 ${pct(pre.avg_low_pct)}`
+            + ` · ${pre.n_dates}일 · 창 ${pre.window_days}거래일 → ${pre.horizon_days}거래일 보유`
+            + `${(pre.skipped && pre.skipped.no_pre_run_up) ? ` · 사전상승 없는 행 ${pre.skipped.no_pre_run_up}건 제외` : ''}</div>` : '')
+    +
     block('KB 근거 커버리지', '원문이 있는 매수 후보가 없는 후보보다 나았는지. 게이트 통과는 “스팸이 아니다”라는 뜻일 뿐이어서, KB의 값어치는 이렇게 채점해야 알 수 있습니다.',
           kbc, cov
             ? `<div style="color:var(--dim);font-size:13px">지금 커버리지 ${cov.with_docs}/${cov.universe}종목(${fmtNum(cov.with_docs_pct, 1)}%) · 다이제스트 ${cov.digests} · 원문 ${cov.docs_total}건`
