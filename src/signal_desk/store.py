@@ -41,6 +41,7 @@ US_PRICES_FILE = CACHE_DIR / "us_prices.parquet"    # 미국 종목 일봉(KIS �
 US_EXCHANGES_FILE = CACHE_DIR / "us_exchanges.json"  # ticker→KIS 거래소코드 캐시(탐지 비용 절약)
 US_SYMBOLS_FILE = CACHE_DIR / "us_symbols.json"     # {provider: {ticker: 실제로 통한 심볼 표기}}
 US_PRICE_SKIP_FILE = CACHE_DIR / "us_price_skip.json"  # {ticker: {fails, last}} — 자동 백필 유예
+US_DEEP_SKIP_FILE = CACHE_DIR / "us_deep_skip.json"  # {ticker: {fails, bars, last}} — 깊이 백필만 유예
 WARNINGS_FILE = CACHE_DIR / "warnings.json"  # 토스 투자경고·거래정지·과열·VI(매수 veto용)
 US_FUNDAMENTALS_FILE = CACHE_DIR / "us_fundamentals.json"  # 미국 발행주식수·PER(Alpha Vantage, 소량 백필)
 US_EARNINGS_FILE = CACHE_DIR / "us_earnings_calendar.json"  # 미국 실적발표 예정일(Alpha Vantage, 벌크 1콜/일)
@@ -872,6 +873,33 @@ def us_price_skips() -> dict:
     return _load_json_dict(US_PRICE_SKIP_FILE)
 
 
+def us_deep_deferred(ticker: str, deep: dict | None = None) -> bool:
+    """깊이 백필(KIS 경로)에서 유예 중인가 — **일일 갱신은 계속 돈다**.
+
+    `us_price_deferred` 와 나누는 이유: 깊이 실패는 수집 실패가 아니다. 토스 200봉으로 꼬리는
+    잘 따라가는데 252거래일이 없을 뿐이라, 같은 파일에 섞으면 유예가 일일 갱신까지 막는다.
+    """
+    rec = (deep if deep is not None else _load_json_dict(US_DEEP_SKIP_FILE)).get(ticker)
+    if not isinstance(rec, dict) or int(rec.get("fails") or 0) < US_SKIP_AFTER_FAILS:
+        return False
+    try:
+        last = datetime.date.fromisoformat(str(rec.get("last"))[:10])
+    except ValueError:
+        return False
+    return (datetime.date.today() - last).days < US_SKIP_DAYS
+
+
+def us_deep_skips() -> dict:
+    """{ticker: {fails, bars, last}} — 티커마다 파일을 다시 읽지 않도록 한 번에 준다."""
+    return _load_json_dict(US_DEEP_SKIP_FILE)
+
+
+def us_deep_deferred_tickers() -> list[str]:
+    """깊이 백필에서 유예 중인 티커 — 대개 개명·폐지된 심볼이라 유니버스 점검 단서다."""
+    deep = us_deep_skips()
+    return sorted(t for t in deep if us_deep_deferred(t, deep))
+
+
 def us_price_deferred_tickers() -> list[str]:
     """자동 백필에서 유예 중인 티커 목록 — 조용히 빠진 종목을 하루 한 번 드러내기 위한 것."""
     skip = us_price_skips()
@@ -997,11 +1025,15 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
     exch = _load_us_exchanges()
     syms = _load_json_dict(US_SYMBOLS_FILE)
     skip = _load_json_dict(US_PRICE_SKIP_FILE)
+    deep = _load_json_dict(US_DEEP_SKIP_FILE)
+    deep_failed: list[str] = []                        # 심볼 문제(조사 대상)
+    deep_young: list[str] = []                         # 이력이 원리적으로 짧음(정상)
     existing = _read_parquet(US_PRICES_FILE) if US_PRICES_FILE.exists() else pd.DataFrame()
     rows: list[dict] = []
     ok = 0
     for t in tickers:
         bars: list[dict] | None = None
+        deep_src = False                               # 깊이 소스(KIS)가 무언가를 주었는가
         for sym in (_symbol_candidates(t, syms.get("toss", {})) if use_toss else []):
             bars = toss.daily_ohlcv(sym, count=min(days, _TOSS_MAX_BARS))
             if bars:
@@ -1020,6 +1052,7 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
                     continue
                 deep_bars = us.us_ohlcv(sym, days=days, excd=excd)
                 if deep_bars:
+                    deep_src = True
                     exch[t], syms.setdefault("kis", {})[t] = excd, sym
                     # 토스가 준 것보다 짧으면 버리지 않는다 — 더 긴 쪽이 이긴다.
                     if not bars or len(deep_bars) > len(bars):
@@ -1033,6 +1066,27 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
                         t, "/".join(us.symbol_variants(t)), skip[t]["fails"])
             continue
         skip.pop(t, None)
+        # **깊이 실패는 조용하다** — 토스가 짧은 봉이라도 주면 `bars` 가 비지 않아 위 실패 기록을
+        # 비껴간다. 그래서 KIS가 못 주는 종목이 영원히 "얕음"으로 남아 30분마다 재요청됐다.
+        # 실측(2026-08-16): 8종목(FISV·BNY·MRSH·FDXF·HONA·Q·ECHO·FITB)이 KIS **HTTP 500**을
+        # 페이지마다 뱉으며 로그를 채웠다 — 한도가 아니라 **없는 심볼**(개명·폐지)이었고,
+        # `us_price_skip` 은 "전부 실패"만 세므로 한 번도 유예되지 않았다.
+        # 그래서 깊이 유예는 **따로** 센다. 같은 파일에 섞으면 유예가 일일 갱신까지 막아
+        # 200봉으로 잘 돌던 종목의 꼬리가 멈춘다(깊이 결함 ≠ 수집 결함).
+        if days > _TOSS_MAX_BARS:
+            if len(bars) < US_MIN_BARS_FOR_MOMENTUM:
+                # **왜 못 채웠는지를 나눈다.** 깊이 소스가 응답했는데도 짧으면 그 이력은
+                # 원리적으로 없다(신규 상장·분할) — 고장이 아니라 이 리포가 이미 세 갈래로
+                # 나누기로 한 「③ 그 실행이 원리적으로 못 봄」이다. 소스가 아예 못 주면
+                # 심볼 문제다(개명·폐지). 둘을 한 문장으로 보고하면 없는 고장을 조사하게 된다.
+                rec = deep.get(t) if isinstance(deep.get(t), dict) else {}
+                deep[t] = {"fails": int(rec.get("fails") or 0) + 1,
+                           "bars": len(bars),
+                           "reason": "short_history" if deep_src else "symbol_failed",
+                           "last": datetime.date.today().isoformat()}
+                (deep_young if deep_src else deep_failed).append(f"{t}({len(bars)}봉)")
+            else:
+                deep.pop(t, None)
         rows.extend({"ticker": t, **b} for b in bars)
         ok += 1
     if rows:
@@ -1047,6 +1101,14 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
     _write_json(US_EXCHANGES_FILE, exch)
     _write_json(US_SYMBOLS_FILE, syms)
     _write_json(US_PRICE_SKIP_FILE, skip)
+    _write_json(US_DEEP_SKIP_FILE, deep)
+    # **이름으로** 낸다. "8종목"만 적으면 어느 종목인지 몰라 조사가 안 된다.
+    if deep_failed:
+        log.warning("US 깊이 백필 심볼 실패 %d종목(모멘텀 %d봉 요건) — %s",
+                    len(deep_failed), US_MIN_BARS_FOR_MOMENTUM, " ".join(sorted(deep_failed)))
+    if deep_young:
+        log.info("US 이력 부족(신규 상장·분할) %d종목 — 모멘텀 %d봉까지 대기: %s",
+                 len(deep_young), US_MIN_BARS_FOR_MOMENTUM, " ".join(sorted(deep_young)))
     return ok
 
 

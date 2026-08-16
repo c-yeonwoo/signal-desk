@@ -2399,8 +2399,12 @@ def _backfill_us_prices_batch(batch: int = 60) -> dict:
         # 봉이 **있지만 얕은** 종목은 다른 결함이다 — 마지막 봉이 오늘이어도 252거래일이 없으면
         # 모멘텀(가중 0.30)이 발동하지 않는다. 실측 US 216봉 → 발동 4/503.
         # 토스는 200봉 상한이라 깊이 요청이 KIS 경로를 타야 한다(`fetch_us_prices` 참고).
+        # 깊이 유예를 따로 본다 — KIS가 못 주는 종목(개명·폐지 심볼)은 토스 200봉이 있어서
+        # `skip` 에 안 잡히고, 그대로 두면 30분마다 5페이지씩 HTTP 500을 받으며 로그를 채운다.
+        deep_skip = store.us_deep_skips()
         shallow = [t for t in store.us_prices_shallow_tickers(universe)
-                   if not store.us_price_deferred(t, skip)]
+                   if not store.us_price_deferred(t, skip)
+                   and not store.us_deep_deferred(t, deep_skip)]
         if shallow:
             n = store.fetch_us_prices(shallow[:batch], days=store.US_DEEP_TARGET_BARS)
             if n:
