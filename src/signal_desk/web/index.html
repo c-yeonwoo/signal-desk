@@ -7530,9 +7530,9 @@ async function loadShadows(){
   const el = document.getElementById('shadow-body');
   if (!el) return;
   const fetchJson = async (u) => { try { return await (await fetch(u)).json(); } catch (e) { return null; } };
-  const [adv, clim, kbc, pre] = await Promise.all([fetchJson('/api/advisor-shadow'),
+  const [adv, clim, kbc, pre, accv] = await Promise.all([fetchJson('/api/advisor-shadow'),
     fetchJson('/api/climate-shadow'), fetchJson('/api/kb-coverage-shadow'),
-    fetchJson('/api/pre-move')]);
+    fetchJson('/api/pre-move'), fetchJson('/api/accuracy-verdict')]);
   const pct = (v) => v == null ? '–' : ((v > 0 ? '+' : '') + fmtNum(v, 2) + '%');
   const block = (title, desc, v, extra) => {
     if (!v) return `<div style="margin-bottom:12px"><b>${title}</b><div style="color:var(--dim-2);font-size:13px">불러오지 못했습니다.</div></div>`;
@@ -7560,8 +7560,25 @@ async function loadShadows(){
     min_samples: 8,
     verdict_ready: !!pre.significant,
   } : null;
+  // **사전등록된 실측 정확도** — 요건 미달 동안은 진척만 쓴다. 리프트를 매일 보이면 매일
+  // 보게 되고 그게 곧 다중검정이다(보드가 백분위를 비우는 것과 같은 규약).
+  // 이건 **헤드라인이 아니다** — 첫 화면 판정은 하네스 정본 하나뿐이다.
+  const accRows = ((accv && accv.looks) || []).map(v => {
+    const pending = v.status !== 'decided';
+    const r = v.requirement || {};
+    const col = pending ? 'var(--dim)'
+      : (v.verdict === '판별력 있음' ? 'var(--sig-buy)' : 'var(--sig-sell)');
+    return `<div style="margin-bottom:10px">
+      <div class="row" style="align-items:baseline;gap:8px;margin:0"><b style="font-size:13px">실측 h${v.horizon} 매수 리프트</b>
+        <span style="color:${col};font-weight:700">${esc(v.verdict || '–')}</span></div>
+      <div style="color:var(--dim-2);font-size:12px;margin:2px 0 4px">사전등록 ${esc(v.id || '')} · OOS ${esc(v.from_date || '')} 이후 · 문턱 z ${v.threshold_z ?? '–'}</div>
+      <div style="font-size:13px">${pending
+        ? `<span style="color:var(--dim)">매수 ${r.buy_sample ?? 0}/${r.min_buy_sample ?? '–'}건 · 거래일 ${r.dates ?? 0}/${r.min_dates ?? '–'}일 — 요건 충족까지 수치를 내지 않습니다</span>`
+        : `리프트 <b>${fmtNum(v.lift_pp, 2)}%p</b> <span style="color:var(--dim)">· 하한 ${fmtNum(v.lift_lower_pp, 2)}%p · 블록 ${v.n_blocks} · 표본 ${v.n}</span>`}</div>
+      ${v.decision ? `<div style="color:var(--dim-2);font-size:12px;margin-top:2px">${esc(v.decision)}</div>` : ''}</div>`;
+  }).join('');
   el.className = '';
-  el.innerHTML =
+  el.innerHTML = accRows +
     block('사전 상승(선반영)',
           '시그널이 뜨기 전 이미 많이 오른 매수가 실제로 더 나빴는지. 같은 날 매수권을 사전 상승 중위로 갈라 비교합니다 — 날짜별로 가르는 이유는 상승장 날짜가 통째로 한쪽에 몰리는 것을 막기 위해서입니다.',
           preView,
