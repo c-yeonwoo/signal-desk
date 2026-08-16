@@ -97,7 +97,11 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "orient: 'LR'" in html and "roam: true" in html
     assert "흐름 생성" in html and "/api/hypothesis" in html
     assert "최근 이슈 흐름" in html
-    assert "clim-pill" in html and "climatePill" in html and "기후" in html
+    # 기후 뱃지는 #305(정보 밀도 축약)에서 **의도적으로** 목록에서 뺐다. 문자열이 남아 있는지
+    # 검사하면 호출부가 사라져도 통과한다 — 실제로 함수·CSS·이 검사만 남아 1년 가까이
+    # "있는 것처럼" 보였다. 이제 **닿을 수 있는 곳**을 검사한다: 기후는 관리자 shadow에서
+    # 채점되고 있고 그게 지금 이 기능의 실체다.
+    assert "/api/climate-shadow" in html, "기후 관측이 화면에서 안 불린다"
     # 시그널 열: td에 flex 금지(행 붕괴) — 안쪽 .sig-pills만 flex
     assert "sig-pills" in html
     assert ".sig-list .sig-cell { display:flex" not in html

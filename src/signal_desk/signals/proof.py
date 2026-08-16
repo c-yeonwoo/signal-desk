@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from signal_desk.signals import accuracy as accuracy_mod
+
 NORTH_STAR = "selection"  # A — docs/north-star-selection.md
 PROOF_VERSION = "v1"
 
@@ -119,9 +121,13 @@ def build(
             "blocked_reason": None if hz.get("ready") else reason,
         }
     # base rate 없는 비율은 내보내지 않는다 — 소비자가 좋은지 나쁜지 알 수 없다.
-    b_paper = paper_scorecard or {"resolved": 0, "pending": 0, "win_rate": None,
-                                  "baseline": {"up_pct": None}, "lift_pp": None, "ci_pp": None,
-                                  "informative": False}
+    b_paper = dict(paper_scorecard or {"resolved": 0, "pending": 0, "win_rate": None,
+                                       "baseline": {"up_pct": None}, "lift_pp": None,
+                                       "ci_pp": None, "informative": False})
+    # **문턱은 서버가 실어 보낸다.** 화면이 `3.0` 을 상수로 박고 있었는데, 나머지 세 호출부는
+    # `lift_min_pp` 를 서버에서 받고 있었다 — 관리자가 문턱을 바꾸면 이 칸만 옛 기준으로
+    # 색을 칠한다("화면에 상수로 박으면 관리자가 문턱을 바꿔도 화면이 안 따라간다").
+    b_paper.setdefault("lift_min_pp", accuracy_mod.MIN_LIFT_PP)
     c_note = (
         "Decision/KB veto는 점수 가산이 아니다. 이 층은 이벤트 청산·매수 차단 PR의 성적이다. "
         "A/B만으로 veto를 롤백하지 말 것."

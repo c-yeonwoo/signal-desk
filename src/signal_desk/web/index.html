@@ -162,14 +162,7 @@
   .sig-tags { display:flex; flex-wrap:wrap; gap:3px; margin-top:3px; }
   .opp-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-sm); font-size:var(--fs-2xs);
     background:transparent; color:var(--dim); border:1px solid var(--line); font-weight:600; vertical-align:middle; }
-  /* 기후 시그널 — 기존 sig-pill과 격리 (하늘·슬레이트·바이올렛) */
-  .clim-pill { display:inline-block; margin-left:5px; padding:2px 8px; border-radius:var(--r-sm);
     font-size:11px; font-weight:700; letter-spacing:.01em; border:1px solid transparent; vertical-align:middle; }
-  .clim-pill.STRONG_BUY { background:#e0f2fe; color:#0369a1; border-color:#7dd3fc; }
-  .clim-pill.BUY { background:var(--brand-50); color:var(--brand-600); border-color:var(--brand-100); }
-  .clim-pill.HOLD { background:#f1f5f9; color:#475569; border-color:#cbd5e1; }
-  .clim-pill.SELL { background:#faf5ff; color:#7e22ce; border-color:#d8b4fe; }
-  .clim-pill.STRONG_SELL { background:#f5f3ff; color:#5b21b6; border-color:#c4b5fd; }
   .ext-badge { display:inline-block; padding:1px 7px; border-radius:var(--r-sm); font-size:11px;
     background:#fff7ed; color:var(--sig-watch); border:1px solid #fed7aa; font-weight:700; vertical-align:middle; letter-spacing:.01em; }
   /* 외부 후보 조사 큐 — 관리자 */
@@ -242,7 +235,6 @@
      편차 24px). 쌓으면 각 배지가 **자기 중심으로** 정렬돼 등급이 한 줄에 선다.
      높이 비용은 0이다 — 행 높이는 종목 컬럼이 정하고(실측 80~104px) 배지 총합은 47px다. */
   .sig-list .sig-pills { display:flex; flex-direction:column; align-items:center; gap:3px; }
-  .sig-list .sig-pills .clim-pill { margin-left:0; }
   .sig-list .hold-tag { font-size:11px; font-weight:600; color:var(--dim-2); letter-spacing:.02em;
     border:1px solid var(--line); border-radius:var(--r-sm); padding:1px 5px; line-height:1.3; }
   .sig-list .dtable th .col-resizer {
@@ -3781,21 +3773,16 @@ const _isBuy = (k) => k === 'BUY' || k === 'STRONG_BUY';
 const _isSell = (k) => k === 'SELL' || k === 'STRONG_SELL';
 const kindLabel = (k) => _KIND_LABEL[k] || k;
 const kindHint = (k) => _KIND_HINT[k] || '';
-const _CLIM_TIP = '기후 · 기존 시그널과 별개 · 이슈 흐름 파급 실험 · 봇 미반영';
-function climatePill(c){
-  if (!c || !c.kind) return '';
-  const ko = c.kind_ko || c.kind;
-  const tip = _CLIM_TIP
-    + (c.score != null ? ` · 기후점수 ${c.score > 0 ? '+' : ''}${fmtNum(c.score, 2)}` : '')
-    + (c.q != null ? ` · 파급 ${c.q > 0 ? '+' : ''}${fmtNum(c.q, 2)}` : '')
-    + (c.reason ? ` · ${c.reason}` : '');
-  return `<span class="clim-pill ${esc(c.kind)}" title="${esc(tip)}">기후 ${esc(ko)}</span>`;
-}
-const _NEAR_BUY_SCORE = 1.2;  // 기본 매수 문턱 — 게이트에 막혀 관망이어도 '근접'
+// **문턱을 화면에 박지 않는다.** `_effBuyThreshold` 는 서버가 준 값(분위 모드면 매수권
+// 컷오프, 절대 모드면 국면 반영 유효 문턱)이다. 여기 1.2를 상수로 두면 관리자가 문턱을
+// 바꿔도 '근접' 판정만 옛 값에 남아 화면 두 곳이 다른 말을 한다 — 이 리포가 커버리지
+// 문턱에서 이미 겪은 병이다. 서버 값이 아직 없을 때만 기본값으로 떨어진다.
+const _NEAR_BUY_FALLBACK = 1.2;
+function nearBuyScore(){ return _effBuyThreshold || _NEAR_BUY_FALLBACK; }
 let _precisionBucket = null;  // null | 'buy' | 'near'
 
 function isNearBuy(r){
-  return r && r.kind === 'HOLD' && r.score != null && r.score >= _NEAR_BUY_SCORE;
+  return r && r.kind === 'HOLD' && r.score != null && r.score >= nearBuyScore();
 }
 function filterPrecisionBucket(bucket){
   _precisionBucket = (_precisionBucket === bucket) ? null : bucket;
@@ -3938,21 +3925,6 @@ function renderTodayCard(){
 }
 // 근접 후보가 있는 날만 '근접만' 퀵필터를 띄운다 — 늘 있는 버튼은 늘 무시된다.
 // '점수는 높은데 왜 관망?' — rank 모드에선 게이트·매수권 밖이 본래 이유(절대 문턱 미달 문구는 쓰지 않음).
-function whyHoldNote(item){
-  if (!item || item.kind !== 'HOLD') return '';
-  const tip = (t) => ` <span style="color:var(--sell);font-size:12px">ⓘ ${t}</span>`;
-  if (item.hold_tag && _HOLD_TAG_TIP[item.hold_tag])
-    return tip(_HOLD_TAG_TIP[item.hold_tag]
-      + (item.hold_tag === '실적' && item.earnings_date ? ' · ' + item.earnings_date : ''));
-  if (item.earnings_soon && (item.reasons || []).some(r => r.includes('실적') && r.includes('보류')))
-    return tip(`실적발표 임박 — 발표 전 신규 매수 보류${item.earnings_date ? ' · ' + item.earnings_date : ''}`);
-  if ((item.reasons || []).some(r => r.includes('추세') && r.includes('차단')))
-    return tip('하락추세로 매수 보류(종가<MA20<MA60) — 반등 확인 전 관망');
-  if ((item.reasons || []).some(r => r.includes('매수권') && r.includes('밖')))
-    return tip('점수는 있어도 오늘 매수권(상위 분위) 밖');
-  if (item.gate_blocked) return tip('매수 게이트로 보류 — 점수와 별개');
-  return '';
-}
 
 // 팩터 분해 — 종합점수를 구성한 팩터별 방향·강도([-1,1])를 발산형 막대로. Simply Wall St/Seeking
 // Alpha식 '한눈에 보이는 강약 프로필'. norm은 엔진이 combine()에 넣은 실제 값이라 해석이 정확하다.
@@ -7240,7 +7212,9 @@ async function loadProofOs(){
             const p = B.paper_scorecard || {};
             const base = (p.baseline || {}).up_pct;
             // base rate 없는 비율은 내보내지 않는다 — liftNote/liftColor 를 반드시 지난다.
-            const c = liftColor(p.lift_pp, 3.0);
+            // 문턱은 **서버가 준 값**을 쓴다 — 다른 세 호출부는 `lift_min_pp` 를 쓰는데
+            // 여기만 3.0이 박혀 있어, 관리자가 바꾸면 이 칸만 옛 기준으로 색을 칠했다.
+            const c = liftColor(p.lift_pp, p.lift_min_pp ?? (B.accuracy || {}).lift_min_pp);
             const wr = p.win_rate == null ? '–' : fmtNum(p.win_rate, 1) + '%';
             let html = `<div style="font-size:13px">승률 <b style="color:${c}">${wr}</b>`
               + `<span style="color:var(--dim)"> · 확정 ${p.resolved || 0}</span></div>`;
