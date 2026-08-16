@@ -245,23 +245,57 @@ def ledger_state(style: str = "balanced", market: str = "kr") -> dict:
             "label": strategy.STYLE_LABEL.get(style, style)}
 
 
+def _return_block(bal: dict, seed: float | None) -> dict:
+    """시드 대비 **총수익률**과 실현·평가 분해. 장부의 헤드라인은 이것이어야 한다.
+
+    total_eval = cash + stock_eval 이므로
+        총손익   = total_eval − seed
+        평가손익 = stock_eval − invested        (= bal["pnl"], 보유분만)
+        실현손익 = 총손익 − 평가손익 = cash + invested − seed
+
+    실현손익을 안 내면 손절이 장부에서 사라진다 — 이 리포가 백테스트에서 경계하는 생존편향과
+    같은 병이 장부에서 재발한 것이다("리셋할 수 있는 장부는 track record가 아니다").
+    """
+    seed = float(seed or 0.0)
+    if not seed:
+        return {"total_return_pct": None, "total_pnl": None, "realized_pnl": None,
+                "unrealized_pnl": bal.get("pnl")}
+    total = float(bal.get("total_eval") or 0.0)
+    unreal = float(bal.get("pnl") or 0.0)
+    total_pnl = total - seed
+    return {
+        "total_return_pct": round(total_pnl / seed * 100, 2),
+        "total_pnl": round(total_pnl, 2),
+        "realized_pnl": round(total_pnl - unreal, 2),
+        "unrealized_pnl": round(unreal, 2),
+    }
+
+
 def _state(uid: int, market: str = "kr") -> dict:
     """봇 계좌 종합 상태(시장별) — 설정/현금·평가금액/보유종목/최근거래."""
     cfg = _cfg(uid)
     bal = paper.balance(uid, market)
     reconcile_positions(uid, bal, market)
+    seed_cash = cfg["seed_cash_us"] if market == "us" else cfg["seed_cash"]
     return {
         "enabled": cfg["enabled"],
         "config": cfg,
         "market": market,
         "currency": "USD" if market == "us" else "KRW",
-        "seed_cash": cfg["seed_cash_us"] if market == "us" else cfg["seed_cash"],
+        "seed_cash": seed_cash,
         "cash": bal["cash"],
         "total_eval": bal["total_eval"],
         "stock_eval": bal.get("stock_eval"),
         "invested": bal.get("invested"),
-        "pnl": bal.get("pnl"),
-        "pnl_pct": bal.get("pnl_pct"),
+        # **장부는 실현손실까지 세야 한다.** `bal["pnl"]` 은 **지금 들고 있는 것**의 평가손익뿐이라,
+        # 손실을 확정하고 팔면 그 손실이 `pnl` 에서 통째로 사라지고 남은 승자가 비율을 올린다 —
+        # 리셋 버튼 없이도 장부가 저절로 좋아 보이는 **생존편향**이다. 실측(2026-08-16, 균형형):
+        # 시드 1,000만 → 총평가 965만(**−3.48%**) 인데 카드에는 **+5.75%** 가 떠 있었다.
+        # 그리고 같은 계좌가 `/api/reference-performance` 에서는 −3.48%로 나왔다 — 같은 것을
+        # 두 곳에서 조립하면 갈라지고, 그 차이는 어느 화면에도 안 뜬다.
+        "pnl": bal.get("pnl"),                 # 평가손익(보유분) — 보조 지표
+        "pnl_pct": bal.get("pnl_pct"),         # 평가손익률(분모=매입금액) — 보조 지표
+        **_return_block(bal, seed_cash),
         "positions": db.bot_positions_all(uid, market),
         "recent_trades": db.bot_trades_recent(uid, 20, market),
         "reservations": db.bot_reservations_pending(uid, market),
@@ -732,13 +766,54 @@ def performance(uid: int, market: str = "kr") -> dict:
             mdd = min(mdd, te / peak - 1)
     trades = db.bot_trades_recent(uid, 500, market)
     sells = [t for t in trades if t["side"] == "sell"]
+    bench = benchmark_return_pct(curve, market)
     return {
         "market": market, "currency": "USD" if market == "us" else "KRW",
         "seed": seed, "total_eval": total, "return_pct": ret_pct,
+        # **기준선 없는 수익률은 판정이 아니다.** 실측(2026-08-16) 공격형 +1.58%가 좋아 보였지만
+        # 같은 28일 동안 유니버스 평균은 그보다 훨씬 위였다 — 시장을 못 따라간 것이다.
+        # 이 리포의 1번 지표 규칙(기준선과 리프트를 항상 함께)을 장부에도 적용한다.
+        "benchmark_return_pct": bench,
+        "excess_return_pct": (round(ret_pct - bench, 2)
+                              if (ret_pct is not None and bench is not None) else None),
         "max_drawdown_pct": round(mdd * 100, 2), "days": len(curve),
         "n_trades": len(trades), "n_sells": len(sells),
         "curve": curve,
     }
+
+
+def benchmark_return_pct(curve: list[dict], market: str = "kr") -> float | None:
+    """봇과 **같은 기간·같은 모집단**의 동일가중 수익률. 못 만들면 None(추측하지 않는다).
+
+    모집단은 그 시장의 유니버스 전체다 — 봇이 고른 종목이 아니라 **고를 수 있었던 종목**이라야
+    "골라서 나아졌나"를 묻는 대조군이 된다. 기간은 자산곡선의 첫날~마지막날로 맞춘다(지평·기간이
+    하나라도 다르면 리프트는 거짓이다).
+    """
+    if len(curve) < 2:
+        return None
+    d0, d1 = curve[0]["date"], curve[-1]["date"]
+    if d0 >= d1:
+        return None
+    try:
+        uni = {u["ticker"] for u in (store.load_us_universe() if market == "us"
+                                     else store.load_universe())}
+        closes = store.load_all_dated_closes()
+    except Exception:                                  # noqa: BLE001 — 장부는 계속 보여야 한다
+        return None
+    rets = []
+    for t in uni:
+        pair = closes.get(t)
+        if not pair:
+            continue
+        dates, px = pair
+        idx = {d: i for i, d in enumerate(dates)}
+        # 그 날짜가 없으면 **이전 거래일**로 — 미래를 당겨쓰지 않는다.
+        i0 = idx.get(d0) or next((i for i in range(len(dates) - 1, -1, -1) if dates[i] <= d0), None)
+        i1 = idx.get(d1) or next((i for i in range(len(dates) - 1, -1, -1) if dates[i] <= d1), None)
+        if i0 is None or i1 is None or i1 <= i0 or not px[i0]:
+            continue
+        rets.append(px[i1] / px[i0] - 1)
+    return round(sum(rets) / len(rets) * 100, 2) if rets else None
 
 
 # 공용 레퍼런스 봇 — 성향별 시스템 계정(로그인 유저와 별개). track record를 공개로 쌓아 시그널 신뢰의

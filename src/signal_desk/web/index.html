@@ -4833,7 +4833,10 @@ async function loadBotState(){
       const p = d.pnl_pct;
       plEl.textContent = (p >= 0 ? '+' : '') + p.toFixed(2) + '%';
       plEl.className = 'stat-value ' + (p >= 0 ? 'pos' : 'neg');
-      plEl.title = `평가손익 ${fmtM(d.pnl)} · 매입 ${fmtM(d.invested)} · 유가증권평가 ${fmtM(d.stock_eval)}`;
+      // **실현손익을 같이 쓴다.** 손절한 손실은 이 카드에서 통째로 빠지므로, 안 보여주면
+      // 판 종목의 손실이 장부에서 사라진 것처럼 읽힌다(실측 실현 −431,200원).
+      plEl.title = `평가손익 ${fmtM(d.pnl)} · 매입 ${fmtM(d.invested)} · 유가증권평가 ${fmtM(d.stock_eval)}`
+        + (d.realized_pnl != null ? `\n실현손익(판 것) ${fmtM(d.realized_pnl)} · 계좌 전체 ${fmtM(d.total_pnl)} (${d.total_return_pct > 0 ? '+' : ''}${fmtNum(d.total_return_pct, 2)}%)` : '');
     } else {
       plEl.textContent = '-'; plEl.className = 'stat-value';
     }
@@ -4944,11 +4947,13 @@ async function loadReferencePerf(){
         <td class="num" style="color:${rc};font-weight:700">${r == null ? '–' : (r > 0 ? '+' : '') + fmtNum(r, 2) + '%'}</td>
         <td class="num">${fmtM(b.total_eval)}</td>
         <td class="num" style="color:${dc}">${fmtNum(dd, 1)}%</td>
+        <td class="num" style="color:${b.excess_return_pct == null || Math.abs(b.excess_return_pct) < 0.5 ? 'var(--dim)' : b.excess_return_pct > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'};font-weight:700"
+            title="같은 기간·같은 유니버스를 동일가중으로 들고 있었을 때와의 차이. 기준선 없는 수익률은 잘한 것인지 말해주지 않는다.">${b.excess_return_pct == null ? '–' : (b.excess_return_pct > 0 ? '+' : '') + fmtNum(b.excess_return_pct, 2) + '%p'}</td>
         <td class="num">${b.n_trades}</td><td class="num">${b.days}일</td></tr>`;
     }).join('');
     el.className = '';
     el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num" title="시드 대비 계좌 전체 수익률 — 이게 성적입니다">계좌 수익률</th>
-      <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
+      <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num" title="같은 기간·같은 유니버스 동일가중 대비. 기준선 없는 수익률은 잘한 것인지 말해주지 않는다.">시장 대비</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
       <tbody>${rows}</tbody></table>
       ${_styleVerdictNote(d)}
       <div style="color:var(--dim-2);font-size:var(--fs-2xs);margin-top:6px">같은 시그널, 다른 규칙 강도로 집행한 결과 — 시그널 실측과는 다른 지표입니다.
@@ -4983,7 +4988,13 @@ async function loadBotPerformance(){
     // **이름을 구분한다.** `총손익률`(보유 기준)과 `총수익률`(계좌 기준)은 사람이 구분할 수 없고
     // 실측에서 부호까지 반대였다(+2.43% vs −0.02%) — 어느 게 성적인지 알 수 없었다.
     // 보유 손익률은 지금 들고 있는 것의 상태이고, **계좌 수익률이 track record**다.
-    sumEl.innerHTML = `<b>계좌 수익률 ${rTxt}</b>`
+    // **기준선 없는 수익률은 판정이 아니다.** `+1.58%`가 잘한 것인지는 같은 기간 시장이
+    // 얼마였는지 없이는 말할 수 없다 — 실측 28일에서 시장 +1.89%라 셋 다 미달이었다.
+    const ex = d.excess_return_pct;
+    const exTxt = ex == null ? '' :
+      ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">시장 대비 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
+      + `<span style="color:var(--dim-2)"> (동일가중 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
+    sumEl.innerHTML = `<b>계좌 수익률 ${rTxt}</b>${exTxt}`
       + `<span style="color:var(--dim-2)"> · 시드 대비 · 이게 성적입니다</span>`
       + ` · 시드 ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최대낙폭 ${fmtNum(d.max_drawdown_pct, 1)}%`
       + ` · ${d.days}일 · 거래 ${d.n_trades}건`;
