@@ -3575,15 +3575,19 @@ def weekly_track_get(request: Request):
         prog = acc.ic_progress(ics, horizon=h, z=z,
                                min_independent=int(req.get("min_independent") or 2),
                                mie=float(req.get("mie") or 0.0))
-        # 팩터별 분해 — 종합이 안 움직여도 어느 팩터가 죽었는지는 보인다(엔지니어링 액션).
+        # 팩터별 분해 — **전 구간**을 본다(OOS로 안 자른다). 이건 등록된 가설이 아니라 순수
+        # 진단이고, 자르면 등록 다음 날부터 0에서 시작해 몇 달간 아무 정보가 없다. 종합 점수의
+        # 판정 경로(위 `prog`)만 OOS로 자르면 사후선택 위험은 그대로 막힌다 —
+        # "이력은 진단용, 보드는 판정용"이라는 규약 그대로다.
+        # 대신 **판정으로 읽히지 않게** `scope: all` 을 실어 보낸다.
         factors = {}
         for col in acc.FACTOR_COLS:
-            f_ics = acc.ic_series(recs, closes, horizon=h, col=col,
-                                  from_date=req.get("from_date"))
+            f_ics = acc.ic_series(recs, closes, horizon=h, col=col)
             fp = acc.ic_progress(f_ics, horizon=h, z=z,
                                  min_independent=int(req.get("min_independent") or 2),
                                  mie=float(req.get("mie") or 0.0))
-            factors[col] = {"dates": fp["dates"], "ic": fp["ic"], "t": fp["t"]}
+            factors[col] = {"dates": fp["dates"], "ic": fp["ic"], "t": fp["t"],
+                            "scope": "all"}
         ic_blocks.append({"id": lk["id"], "horizon": h, **prog, "factors": factors})
 
     harm = []
