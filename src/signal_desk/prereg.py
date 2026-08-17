@@ -273,14 +273,63 @@ def load(path: Path | str | None = None) -> dict:
             "requirement": req, "decision": dict(lk.get("decision") or {}),
         })
 
+    # **횡단면 IC look** — 포트폴리오 수익률 대신 IC로 잰다. 실측(2026-08-17)으로 같은
+    # 데이터에서 t 0.89 → 1.56(=3배 적은 표본으로 같은 결론)이었다. 200종목 중 6개만 보던
+    # 것을 전부 보는 것이라 공짜다.
+    ic_looks: list[dict] = []
+    for lk in raw.get("ic_looks") or []:
+        lid = str(lk.get("id") or "").strip()
+        if not lid:
+            out["reason"] = "id 없는 ic_look이 있다"
+            return out
+        if lid in seen:
+            out["reason"] = f"id 중복: {lid}"
+            return out
+        seen.add(lid)
+        req = dict(lk.get("requirement") or {})
+        h = lk.get("horizon")
+        if not isinstance(h, int) or h <= 0:
+            out["reason"] = f"{lid}: horizon이 양의 정수여야 한다"
+            return out
+        if not isinstance(req.get("min_independent"), int) or req["min_independent"] <= 1:
+            out["reason"] = f"{lid}: requirement.min_independent가 2 이상 정수여야 한다"
+            return out
+        # 최소 관심 우위 — **표본 크기를 정하는 값이지 판정 문턱이 아니다.** 문턱으로 쓰면
+        # "이보다 작으면 없는 것"이 되어 작지만 진짜인 우위를 기각한다.
+        if not isinstance(req.get("mie"), (int, float)) or req["mie"] <= 0:
+            out["reason"] = f"{lid}: requirement.mie가 양수여야 한다"
+            return out
+        fd = req.get("from_date")
+        if not fd:
+            out["reason"] = f"{lid}: ic_look은 requirement.from_date가 필수다"
+            return out
+        try:
+            _date.fromisoformat(str(fd))
+        except ValueError:
+            out["reason"] = f"{lid}: requirement.from_date가 YYYY-MM-DD가 아니다: {fd!r}"
+            return out
+        if str(fd) <= str(lk.get("registered_at") or ""):
+            out["reason"] = (f"{lid}: from_date({fd})가 registered_at 이하다 — "
+                             f"등록일 당일까지는 이미 본 구간이다")
+            return out
+        ic_looks.append({
+            "id": lid, "role": str(lk.get("role") or "final"),
+            "kind": "ic", "horizon": int(h),
+            "market": str(lk.get("market") or base.get("market") or "kr"),
+            "hypothesis": (lk.get("hypothesis") or "").strip(),
+            "registered_at": str(lk.get("registered_at") or ""),
+            "requirement": req, "decision": dict(lk.get("decision") or {}),
+        })
+
     out["ok"] = True
     out["base"] = base
     out["looks"] = looks
     out["accuracy_looks"] = acc_looks
+    out["ic_looks"] = ic_looks
     out["n_canonical"] = len(canonical_looks(looks))
     # **n은 파일 전체의 정본 look 총수**다. 종류가 달라도 "데이터를 한 번 더 본다"는 사실은
     # 같으므로 정확도 look도 센다 — 파일을 쪼개거나 종류를 나눠 n을 낮추는 것이 곧 사후 완화다.
-    out["n_looks_total"] = out["n_canonical"] + len(acc_looks)
+    out["n_looks_total"] = out["n_canonical"] + len(acc_looks) + len(ic_looks)
     out["threshold_pct"] = sidak_threshold_pct(out["n_looks_total"])
     return out
 

@@ -951,3 +951,57 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
         else:
             executed.append({"ticker": r["ticker"], "name": r["name"], "status": "would_fill", "qty": qty, "note": note})
     return {"ok": True, "dry_run": dry_run, "market": market, "executed": executed}
+
+
+# 손해 경보 문턱 — 초과수익 **상한**이 이 값 아래로 확정되면 경고한다. 0이 아니라 살짝
+# 아래인 이유: 정확히 0 근처는 늘 걸려 매주 우는 늑대가 된다(신선도 오탐에서 배운 것).
+HARM_ALERT_UPPER_PP = 0.0
+_HARM_MIN_BLOCKS = 4       # 블록이 이보다 적으면 분산을 못 재고 방향만 보인다
+
+
+def harm_alert(curve: list[dict], *, seed: float, benchmark_pct: float | None,
+               block_days: int = 5, z: float = 1.645) -> dict:
+    """**"좋다"보다 "나쁘다"가 훨씬 빨리 결론난다.** 초과수익 상한이 0 아래면 경고.
+
+    한쪽(z=1.645, 단측 95%)만 보는 이유: 실계좌로 따라 사는 사람에게 실무적으로 중요한 질문은
+    "이게 시장보다 나은가"가 아니라 **"이게 나를 깎아먹고 있나"** 다. 양측으로 재면 손해를
+    확인하는 데 필요한 표본이 늘어난다.
+
+    블록(기본 5거래일)으로 묶는 이유는 정확도 판정과 같다 — 일별 자산곡선은 자기상관이 강해
+    독립 관측이 아니다.
+    """
+    out = {"ready": False, "reason": None, "alert": False, "excess_pp": None,
+           "upper_pp": None, "blocks": 0, "days": len(curve or []),
+           "note": "시장 대비 초과수익의 단측 상한. 상한이 0 아래면 '시장보다 못하다'가 확정된 것."}
+    if not curve or len(curve) < block_days * _HARM_MIN_BLOCKS or not seed:
+        out["reason"] = (f"자산곡선 {len(curve or [])}일 — "
+                         f"블록 {_HARM_MIN_BLOCKS}개({block_days * _HARM_MIN_BLOCKS}일) 필요")
+        return out
+    if benchmark_pct is None:
+        out["reason"] = "벤치마크를 만들 수 없다 — 기준선 없는 수익률은 판정이 아니다"
+        return out
+    # 블록별 봇 수익률(겹치지 않게) → 시장 블록 평균을 빼 초과수익 분포를 만든다.
+    pts = [p["total_eval"] for p in curve]
+    rets = []
+    for i in range(0, len(pts) - block_days, block_days):
+        a, b = pts[i], pts[i + block_days]
+        if a:
+            rets.append((b / a - 1) * 100)
+    if len(rets) < _HARM_MIN_BLOCKS:
+        out["reason"] = f"독립 블록 {len(rets)}개 — {_HARM_MIN_BLOCKS}개 필요"
+        return out
+    n_blocks = len(rets)
+    bench_per_block = benchmark_pct / n_blocks          # 같은 창을 같은 수로 나눈다
+    ex = [r - bench_per_block for r in rets]
+    m = sum(ex) / n_blocks
+    var = sum((x - m) ** 2 for x in ex) / (n_blocks - 1)
+    se = (var / n_blocks) ** 0.5
+    upper = m + z * se
+    out.update(ready=True, blocks=n_blocks,
+               excess_pp=round(m * n_blocks, 2),          # 전체 창 기준으로 되돌려 표시
+               upper_pp=round(upper * n_blocks, 2),
+               alert=bool(upper < HARM_ALERT_UPPER_PP / max(1, n_blocks)))
+    if out["alert"]:
+        out["reason"] = (f"초과수익 상한 {out['upper_pp']}%p < 0 — "
+                         f"블록 {n_blocks}개에서 시장보다 못한 것이 확정됐다")
+    return out

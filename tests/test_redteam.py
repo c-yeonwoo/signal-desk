@@ -1419,14 +1419,14 @@ def test_preregistered_seen_hypotheses_require_an_oos_window():
     # family를 나눠도 n은 줄지 않는다 — 파일을 쪼개 문턱을 낮추는 것이 사후 완화다.
     # 그리고 **종류를 나눠도** 줄지 않는다: 실측 정확도 look(2026-08-17 등록)도 "데이터를 한 번
     # 더 본다"는 사실은 같으므로 n에 들어가고, 그만큼 하네스 문턱도 올라간다.
-    n_acc = len(reg.get("accuracy_looks") or [])
+    n_extra = len(reg.get("accuracy_looks") or []) + len(reg.get("ic_looks") or [])
     assert reg["n_canonical"] == 3
-    assert reg["n_looks_total"] == 3 + n_acc
+    assert reg["n_looks_total"] == 3 + n_extra
     assert reg["threshold_pct"] == prereg.sidak_threshold_pct(reg["n_looks_total"])
     assert reg["threshold_pct"] > prereg.sidak_threshold_pct(2)
-    if n_acc:
+    if n_extra:
         assert reg["threshold_pct"] > prereg.sidak_threshold_pct(3), (
-            "정확도 look을 더했는데 하네스 문턱이 안 올라갔다 — 종류를 나눠 n을 낮춘 것이다")
+            "다른 종류의 look을 더했는데 하네스 문턱이 안 올라갔다 — 종류를 나눠 n을 낮춘 것이다")
 
 
 def tmp_path_factory_dir():

@@ -7507,6 +7507,7 @@ async function loadShadows(){
   const [adv, clim, kbc, pre, accv] = await Promise.all([fetchJson('/api/advisor-shadow'),
     fetchJson('/api/climate-shadow'), fetchJson('/api/kb-coverage-shadow'),
     fetchJson('/api/pre-move'), fetchJson('/api/accuracy-verdict')]);
+  const wk = await fetchJson('/api/weekly-track');
   const pct = (v) => v == null ? '–' : ((v > 0 ? '+' : '') + fmtNum(v, 2) + '%');
   const block = (title, desc, v, extra) => {
     if (!v) return `<div style="margin-bottom:12px"><b>${title}</b><div style="color:var(--dim-2);font-size:13px">불러오지 못했습니다.</div></div>`;
@@ -7551,8 +7552,48 @@ async function loadShadows(){
         : `리프트 <b>${fmtNum(v.lift_pp, 2)}%p</b> <span style="color:var(--dim)">· 하한 ${fmtNum(v.lift_lower_pp, 2)}%p · 블록 ${v.n_blocks} · 표본 ${v.n}</span>`}</div>
       ${v.decision ? `<div style="color:var(--dim-2);font-size:12px;margin-top:2px">${esc(v.decision)}</div>` : ''}</div>`;
   }).join('');
+  // **주간 트랙** — 판정이 아니라 진척이다. 요건 미달 동안 판정 블록은 수치를 비우지만
+  // 여기서는 t 추이를 보여준다. 둘의 차이가 규약이다: 판정은 1회·엄격, 진척은 상시·구속력 없음.
+  // 진척을 근거로 파라미터를 바꾸면 그게 곧 다중검정이라 문구로 못 박는다.
+  const wkRows = !wk || !wk.ready ? '' : (() => {
+    const harm = (wk.harm || []).filter(h => h.ready);
+    const bad = harm.filter(h => h.alert);
+    let html = `<div style="margin-bottom:14px">
+      <div class="row" style="align-items:baseline;gap:8px;margin:0"><b style="font-size:13px">주간 트랙</b>
+        <span style="color:var(--dim);font-weight:600">진척 · 판정 아님</span></div>`;
+    // ① 손해 경보 — "좋다"보다 "나쁘다"가 훨씬 빨리 결론난다
+    if (harm.length) {
+      html += `<div style="font-size:13px;margin-top:4px">손해 경보 `
+        + (bad.length
+          ? `<b style="color:var(--sig-sell)">${bad.length}/${harm.length}봇 확정</b>`
+          : `<span style="color:var(--dim)">없음 (${harm.length}봇)</span>`)
+        + `<span style="color:var(--dim)"> · 초과수익 상한 </span>`
+        + harm.map(h => `${esc(h.label)} ${h.upper_pp > 0 ? '+' : ''}${fmtNum(h.upper_pp, 1)}%p`).join(' · ')
+        + `</div>`;
+    } else {
+      html += `<div style="font-size:13px;margin-top:4px;color:var(--dim)">손해 경보 — ${esc((wk.harm || [])[0]?.reason || '자산곡선 누적 중')}</div>`;
+    }
+    // ②③④ IC 누적 t · 조기기각 · 팩터별 분해
+    (wk.ic || []).forEach(v => {
+      const pace = v.projected_t_at_target;
+      html += `<div style="font-size:13px;margin-top:6px">IC 누적 <b>t ${v.t ?? '–'}</b>`
+        + `<span style="color:var(--dim)"> · 독립 ${v.independent}/${v.min_independent}`
+        + (v.remaining_trading_days ? ` · 남은 ${v.remaining_trading_days}거래일` : '')
+        + (pace != null ? ` · 이 추세면 요건시점 t ${pace}` : '') + `</span></div>`;
+      if (v.futile) {
+        html += `<div style="color:var(--sig-sell);font-size:13px;margin-top:2px">⚠ 조기 기각 — ${esc(v.futility_reason)}</div>`;
+      }
+      const fs = Object.entries(v.factors || {}).filter(([, f]) => f.t != null)
+        .sort((a, b) => Math.abs(b[1].t) - Math.abs(a[1].t)).slice(0, 4);
+      if (fs.length) {
+        html += `<div style="color:var(--dim);font-size:12px;margin-top:2px">팩터별 t · `
+          + fs.map(([k, f]) => `${esc(k)} ${f.t}`).join(' · ') + `</div>`;
+      }
+    });
+    return html + `<div style="color:var(--dim-2);font-size:12px;margin-top:3px">${esc(wk.note || '')}</div></div>`;
+  })();
   el.className = '';
-  el.innerHTML = accRows +
+  el.innerHTML = wkRows + accRows +
     block('사전 상승(선반영)',
           '시그널이 뜨기 전 이미 많이 오른 매수가 실제로 더 나빴는지. 같은 날 매수권을 사전 상승 중위로 갈라 비교합니다 — 날짜별로 가르는 이유는 상승장 날짜가 통째로 한쪽에 몰리는 것을 막기 위해서입니다.',
           preView,
