@@ -33,9 +33,16 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# SPA(web/index.html)를 설치 패키지에 포함 — 없으면 `pip install .` 후 / 가 500
+# 런타임에 읽는 **비 .py 파일**은 여기 선언된 것만 휠에 들어간다. Dockerfile이
+# `pip install .`(비편집)을 쓰므로 빠지면 프로덕션에서만 500이 난다 — 로컬은 소스 트리를
+# 그대로 보니 전부 통과한다.
+#
+# **`web/*` 는 하위 디렉토리를 안 잡는다**(2026-08-17). PWA 아이콘을 `web/icons/` 에 두고
+# 배포했더니 `/manifest.webmanifest`·`/sw.js` 는 200인데 `/icons/*.png` 만 500이었다 —
+# 라우트는 있고 파일이 없었다. 디렉토리를 추가하면 여기도 같이 추가한다
+# (`test_packaging.py` 가 src 밑 비 .py 파일을 전부 훑어 대조한다).
 [tool.setuptools.package-data]
-signal_desk = ["web/*", "assets/fonts/*.ttf"]
+signal_desk = ["web/*", "web/icons/*", "assets/fonts/*.ttf"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
