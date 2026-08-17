@@ -7586,7 +7586,8 @@ async function loadShadows(){
       const fs = Object.entries(v.factors || {}).filter(([, f]) => f.t != null)
         .sort((a, b) => Math.abs(b[1].t) - Math.abs(a[1].t)).slice(0, 4);
       if (fs.length) {
-        html += `<div style="color:var(--dim);font-size:12px;margin-top:2px">팩터별 t · `
+        // 전 구간 진단이라 판정 창(OOS)과 범위가 다르다 — 라벨로 못 박는다.
+        html += `<div style="color:var(--dim);font-size:12px;margin-top:2px">팩터별 t <span style="color:var(--dim-2)">(전 구간 진단)</span> · `
           + fs.map(([k, f]) => `${esc(k)} ${f.t}`).join(' · ') + `</div>`;
       }
     });

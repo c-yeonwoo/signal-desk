@@ -179,3 +179,25 @@ def test_it_is_reachable_and_labeled_non_binding():
     if i >= 0:
         assert "/api/weekly-track" not in html[i:i + 2500], \
             "첫 화면이 주간 진척을 읽는다 — 판정 경로가 둘이 된다"
+
+
+def test_factor_decomposition_is_not_cut_to_the_oos_window():
+    """**진단은 전 구간을 본다.** OOS로 자르면 등록 다음 날부터 0이라 몇 달간 쓸모가 없다.
+
+    판정 경로(종합 점수)만 자르면 사후선택 위험은 그대로 막힌다 — "이력은 진단용, 보드는
+    판정용". 대신 범위가 다르다는 사실을 `scope` 로 실어 보내고 화면도 라벨한다.
+    """
+    api = _API.read_text(encoding="utf-8")
+    i = api.index("팩터별 분해")
+    blk = api[i:i + 900]
+    assert "from_date" not in blk, "팩터 진단을 OOS로 자르면 첫날부터 몇 달간 0이다"
+    assert '"scope": "all"' in blk, "범위가 다르다는 사실을 안 실어 보내면 판정으로 읽힌다"
+    html = re.sub(r"^\s*//.*$", "", _HTML.read_text(encoding="utf-8"), flags=re.M)
+    assert "전 구간 진단" in html, "화면이 판정 창과 같은 범위인 것처럼 보인다"
+
+
+def test_the_verdict_path_is_still_cut_to_oos():
+    """**양성 대조군** — 진단을 열었다고 판정까지 열리면 사후선택이다."""
+    api = _API.read_text(encoding="utf-8")
+    i = api.index("ics = acc.ic_series(recs, closes, horizon=h, from_date=")
+    assert 'from_date=req.get("from_date")' in api[i:i + 200], "종합 점수 판정이 OOS로 안 잘린다"
