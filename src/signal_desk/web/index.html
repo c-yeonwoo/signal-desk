@@ -355,6 +355,13 @@
   .fav-star { cursor:pointer; color:var(--sig-neutral); font-size:15px; user-select:none; }
   .fav-star.on { color:#f59e0b; }
   .sig-list table.dtable tr.idx-row td { background:var(--accent-weak); border-bottom:2px solid var(--line-strong); }
+  /* 모바일 드릴다운 — 누른 행 바로 아래 칸. 표 셀의 기본 여백·정렬을 죽여야 카드가
+     카드로 보인다. 데스크톱에서는 이 행이 아예 안 생긴다(JS가 900px에서만 만든다). */
+  .sig-list table.dtable tr.drill-row > td { padding:0 0 10px; background:transparent; }
+  /* 카드 기본 패딩(24px)은 데스크톱 값이라 375px에서 48px(14%)을 먹는다 — 실측 차트 폭
+     295/345. 드릴 안에서만 줄인다(카드 자체를 건드리면 데스크톱까지 좁아진다). */
+  .sig-list table.dtable tr.drill-row .sig-chart-pane { margin:0; width:100%; max-width:100%;
+    padding:12px 12px 14px; }
 
   /* ===== 사이클 ===== */
   .phase-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
@@ -1894,6 +1901,7 @@ window.addEventListener('resize', () => {
     // 어제와 달라진 것도 폭에 따라 행 수가 달라진다 — 안 다시 그리면 세로로 열었다가
     // 가로로 돌릴 때 2행으로 접힌 채 남는다. 리스너를 새로 만들지 않고 여기 붙인다.
     try { loadDailyChange(); } catch (e) {}
+    try { _drillSync(); } catch (e) {}          // 경로 ② — 위 `_drillSync` 주석 참고
   }, 120);
 });
 
@@ -3328,6 +3336,12 @@ async function loadRelativeStrength(){  // 상대강도 리더보드(시장 대�
 function renderSignalList(){
   const el = document.getElementById('signal-body');
   if (!_signalRows) return;
+  // **표를 다시 그리기 전에 차트 카드를 먼저 빼낸다.** 모바일 드릴다운은 카드를 표의
+  // `<tr>` 안으로 옮겨 두는데, 그 상태로 `innerHTML` 을 덮으면 카드가 **DOM에서 통째로
+  // 사라진다**(실측 2026-08-17: `.sig-chart-pane` 도 `#signal-chart` 도 없어져 차트가
+  // 영영 안 돌아왔다 — 새로고침해야 복구됐다). 순서가 반대면 아래 `_drillSync` 가
+  // 되살릴 대상 자체를 잃는다.
+  try { _drillRestore(); } catch (e) {}
   el.style.padding = '0';  // 로딩 플레이스홀더용 상하 패딩 제거(리스트 위 빈공간 제거)
   const q = (document.getElementById('sig-search').value || '').trim().toLowerCase();
   const sort = document.getElementById('sig-sort').value;
@@ -3474,6 +3488,8 @@ function renderSignalList(){
   });
   const tbl = el.querySelector('table.sig-table');
   if (tbl) { applySigColWidths(tbl); bindSigColResize(tbl); }
+  // 경로 ③ — 목록을 다시 그리면 드릴 행도 같이 날아간다. 선택된 종목이 있으면 다시 끼운다.
+  try { _drillSync(); } catch (e) {}
 }
 
 // 시그널 표 열 너비 — 별 열 고정, 종목·섹터·시그널 % 합 100. 드래그로 조절·localStorage 유지.
@@ -3631,12 +3647,86 @@ async function fetchNarrativeV2(ticker, el){
   finally { delete _narrInflight[ticker]; }
 }
 
+// ===== 모바일 드릴다운 — 누른 행 **바로 아래**에 차트를 끼운다 =====
+//
+// 세로로 쌓이면(≤900px) 차트 카드가 종목 목록 **전체 뒤**에 온다. 200종목을 지나쳐야
+// 차트가 나오므로 모바일에서는 사실상 안 보인다.
+//
+// **차트 카드를 복제하지 않고 옮긴다.** 같은 문서 안의 이동이라 ECharts 캔버스·상태·핸들러가
+// 그대로 살아 있다. 복제하면 두 개가 갈라지고, 이 리포가 이미 겪은 "같은 것을 두 곳에서
+// 조립하지 않는다"를 화면에서 반복하는 것이다.
+//
+// 브레이크포인트는 **900**이다(`_SIG_NARROW_PX`=640이 아니다) — 세로로 쌓이는 지점이
+// `@media (max-width:900px)` 이므로 640을 쓰면 태블릿(640~900)에서 목록 뒤에 그대로 남는다.
+const _SIG_STACKED_PX = 900;          // CSS `@media (max-width:900px)` 와 같은 값(레드팀 대조)
+let _drillHome = null;                // 원래 자리 — 되돌릴 때 쓴다
+
+const _sigStackMQ = window.matchMedia(`(max-width:${_SIG_STACKED_PX}px)`);
+function _sigStacked(){ return _sigStackMQ.matches; }
+
+// **브레이크포인트 전환은 `resize` 가 아니라 `matchMedia` 로 잡는다.** 실측(2026-08-17):
+// 뷰포트를 375 → 1280으로 바꿨는데 `resize` 는 **0회**였고 미디어쿼리는 재평가됐다
+// (레이아웃은 이미 2열인데 차트 카드만 표 안에 낀 채 남았다). `resize` 에 기대면 그 경로를
+// 놓친다 — `matchMedia` 는 넘나드는 그 순간에만, 반드시 온다.
+_sigStackMQ.addEventListener('change', _drillSync);
+
+// **경로를 셋 둔다.** 이벤트 하나에 기대면 그 이벤트가 안 오는 환경에서 차트 카드가 표 안에
+// 낀 채로 남고 2열 레이아웃이 깨진다. 실측(2026-08-17): 브라우저 하네스에서 뷰포트를
+// 375→1280으로 바꿨을 때 `resize` **0회** · `matchMedia change` **0회**였다(미디어쿼리는
+// 재평가돼 레이아웃만 2열로 바뀌었다). 실기기 회전에서는 둘 다 오지만, **안 오는 환경이
+// 실제로 있다**는 것을 봤으므로 이벤트에 안 기대는 경로를 하나 더 둔다:
+//   ① matchMedia change  ② resize 디바운스  ③ 목록을 다시 그릴 때(renderSignalList)
+// 셋 다 같은 함수를 부른다 — 로직이 갈라지면 한쪽만 고쳐진다.
+function _drillSync(){
+  if (!_sigStacked()) { _drillRestore(); return; }
+  if (_selectedTicker && !document.querySelector('tr.drill-row')) _drillInsert(_selectedTicker);
+}
+
+function _drillRestore(){
+  const pane = document.querySelector('.sig-chart-pane');
+  if (!pane || !_drillHome) return;
+  // 원래 부모의 원래 위치로. `nextSibling` 을 기억해 두는 이유: 뒤에 다른 카드가 붙어도
+  // 순서가 안 밀린다.
+  _drillHome.parent.insertBefore(pane, _drillHome.next);
+  document.querySelectorAll('tr.drill-row').forEach(tr => tr.remove());
+  _drillHome = null;
+  _resizeWhenLaidOut(_signalChart, document.getElementById('signal-chart'));
+}
+
+function _drillInsert(ticker){
+  const pane = document.querySelector('.sig-chart-pane');
+  const row = document.querySelector(`#signal-body tr.clickable-row[data-ticker="${CSS.escape(ticker)}"]`);
+  if (!pane || !row) return;
+  if (!_drillHome) _drillHome = { parent: pane.parentNode, next: pane.nextSibling };
+  document.querySelectorAll('tr.drill-row').forEach(tr => tr.remove());
+  const tr = document.createElement('tr');
+  tr.className = 'drill-row';
+  const td = document.createElement('td');
+  // 숨긴 열(모바일에서 섹터 열은 `display:none`)까지 포함해 헤더 수를 그대로 쓴다 —
+  // colspan 은 숨김 여부와 무관하게 선언된 열 수여야 한다.
+  td.colSpan = row.cells.length;
+  td.appendChild(pane);
+  tr.appendChild(td);
+  row.parentNode.insertBefore(tr, row.nextSibling);
+  // **옮긴 뒤 반드시 리사이즈한다.** 0폭에서 init 된 차트를 되살릴 경로가 없다는 이력이
+  // 있어, 폭이 잡힌 다음 프레임에 맞춘다(`_resizeWhenLaidOut`).
+  _resizeWhenLaidOut(_signalChart, document.getElementById('signal-chart'));
+  // 누른 행이 화면에 남아 있어야 "이 종목의 차트"라는 게 읽힌다.
+  requestAnimationFrame(() => row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+}
+
 function selectSignalRow(ticker){
+  // 같은 행을 다시 누르면 접는다(모바일만) — 목록으로 빨리 돌아갈 경로가 필요하다.
+  if (_sigStacked() && _selectedTicker === ticker && document.querySelector('tr.drill-row')) {
+    _drillRestore();
+    return;
+  }
   _selectedTicker = ticker;
   document.querySelectorAll('#signal-body tr.clickable-row').forEach(tr => {
     tr.classList.toggle('selected-row', tr.dataset.ticker === ticker);
   });
   showSignalChart(ticker, _signalItems[ticker]);
+  if (_sigStacked()) _drillInsert(ticker); else _drillRestore();
 }
 
 // 배지 색을 **한 곳에서만** 정한다. 예전엔 `.sig-pill.*` CSS와 이 객체가 각각 정해서
