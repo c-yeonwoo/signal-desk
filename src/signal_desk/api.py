@@ -22,7 +22,8 @@ from zoneinfo import ZoneInfo
 from fastapi import Body, FastAPI, Request
 from fastapi import File as FastFile
 from fastapi import Form, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Response,
+                               StreamingResponse)
 from signal_desk.jsonutil import finite_or_none, json_safe
 
 from signal_desk import (
@@ -3545,6 +3546,64 @@ def advisor_shadow_get(request: Request):
     _admin_or_403(request)
     from signal_desk.signals import advisor_shadow
     return advisor_shadow.summary(store.load_all_dated_closes())
+
+
+# ---------- PWA (홈 화면 아이콘) ----------
+#
+# 앱은 이미 배포돼 있어 모바일 브라우저로 열린다. 여기서 더하는 것은 **껍데기**뿐이다 —
+# 홈 화면 아이콘·전체화면·주소창 색. `/api/*` 가 아니므로 인증 미들웨어를 안 탄다(설치
+# 시점엔 로그인 전일 수 있어 공개여야 한다).
+#
+# **캐시는 하지 않는다.** 이 앱의 숫자는 낡으면 위험하다("실패한 조회는 낡은 값을 남기지
+# 않는다" · "정지는 조용하다"). 서비스워커는 Android 설치 가능 조건을 만족시키기 위한
+# **네트워크 통과** 뿐이고 아무 것도 저장하지 않는다.
+
+_PWA_THEME = "#0B1220"          # index.html `<link rel=icon>` 배경과 같은 값
+_PWA_ICONS = ("icon-180.png", "icon-192.png", "icon-512.png", "icon-maskable-512.png")
+
+
+@app.get("/manifest.webmanifest")
+def pwa_manifest():
+    """홈 화면 설치 정보. 파일이 아니라 라우트인 이유: 이름·색이 코드 한 곳에만 있게."""
+    return JSONResponse({
+        "name": "Signal Desk", "short_name": "Signal",
+        "description": "감이 아니라 규칙·안전장치·성적으로 보는 매매 타이밍",
+        "start_url": "/#signal", "scope": "/",
+        "display": "standalone", "orientation": "portrait-primary",
+        "background_color": _PWA_THEME, "theme_color": _PWA_THEME,
+        "lang": "ko",
+        "icons": [
+            {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/icons/icon-maskable-512.png", "sizes": "512x512",
+             "type": "image/png", "purpose": "maskable"},
+        ],
+    }, media_type="application/manifest+json")
+
+
+@app.get("/icons/{name}")
+def pwa_icon(name: str):
+    """아이콘 파일. 목록에 있는 이름만 — 경로 조작으로 다른 파일을 읽히지 않게."""
+    if name not in _PWA_ICONS:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return FileResponse(WEB_DIR / "icons" / name, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/sw.js")
+def pwa_service_worker():
+    """**아무 것도 캐시하지 않는** 서비스워커.
+
+    Android Chrome이 설치를 제안하려면 fetch 핸들러가 있는 워커가 필요하다. 그 조건만
+    만족시키고 응답은 그대로 통과시킨다 — 캐시하면 낡은 시그널이 화면에 남고, 이 앱에서
+    그건 조용한 거짓말이다(오프라인에서 어제 매수 신호를 보여주는 것보다 안 열리는 게 낫다).
+    """
+    js = ("self.addEventListener('install', () => self.skipWaiting());\n"
+          "self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));\n"
+          "// 캐시 없음 — 통과만 시킨다. 낡은 숫자를 보여주지 않는 것이 이 앱의 규칙이다.\n"
+          "self.addEventListener('fetch', () => {});\n")
+    return Response(js, media_type="application/javascript",
+                    headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/weekly-track")
