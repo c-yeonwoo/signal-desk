@@ -816,3 +816,131 @@ def block_lift_verdict(hits_by_date: dict[str, list[bool]], *, baseline_pct: flo
             "lift_pp": round(lift, 2), "se_pp": round(se, 2),
             "lift_lower_pp": round(lower, 2), "z": round(z, 3),
             "passes": bool(lower > float(min_lift_pp)), "blocked_reason": None}
+
+
+# ---------- 횡단면 IC 기반 사전등록 판정 (prereg ic_looks 전용) ----------
+#
+# **왜 포트폴리오 수익률이 아니라 IC인가(2026-08-17 실측).** 같은 데이터로 두 통계량을 재봤다:
+#
+#     포트폴리오 기간수익   +0.253%/기간 (219기간)  t = 0.89   ← 200종목 중 6개만 씀
+#     횡단면 IC            +0.0200 (독립 210일)     t = 1.56   ← 200종목 전부 씀
+#
+# IC가 1.75배 효율적이다(= 같은 t에 3배 적은 표본). 정보의 대부분을 버리던 것을 되찾는 것이라
+# 공짜다. 그래도 **둘 다 유의하지 않다** — 확정에는 여전히 오래 걸린다는 사실은 안 바뀐다.
+#
+# 노이즈의 성질도 재 두었다: IC 날짜별 표준편차 0.186 인데 200종목 유한표본에서 오는 이론값은
+# 1/√199 = 0.071 뿐이다. 나머지 0.172 는 **국면에 따라 팩터가 먹기도 안 먹기도 하는 실제
+# 변동**이라 종목을 더 넣어도 안 줄어든다. "표본을 늘리면 된다"가 통하지 않는 이유다.
+
+
+def ic_series(history_rows: list[dict],
+              closes_by_ticker: dict[str, tuple[list[str], list[float]]],
+              *, horizon: int, col: str = "score",
+              from_date: str | None = None, min_breadth: int = 30) -> dict[str, float]:
+    """{날짜: 그 날 횡단면 스피어만 IC}. 폭이 `min_breadth` 미만인 날은 뺀다.
+
+    **날짜가 관측 단위다** — 같은 날 200종목은 하나의 관측이다(pooled 상관이 IC를 속인 함정).
+    """
+    by_date: dict[str, list[tuple[float, float]]] = {}
+    for r in history_rows:
+        d = str(r.get("date"))
+        if from_date and d < str(from_date):
+            continue
+        s = _finite_float(r.get(col))
+        series = closes_by_ticker.get(r.get("ticker"))
+        if s is None or not series:
+            continue
+        rets = _forward_returns(series[0], series[1], d, (horizon,))
+        if horizon in rets:
+            by_date.setdefault(d, []).append((s, rets[horizon]))
+    out: dict[str, float] = {}
+    for d, pairs in by_date.items():
+        if len(pairs) < min_breadth:
+            continue
+        ic = _spearman(pairs, min_n=min_breadth)
+        if ic is not None:
+            out[d] = ic
+    return out
+
+
+def ic_verdict(ics: dict[str, float], *, horizon: int, z: float,
+               min_independent: int, mie: float) -> dict:
+    """IC 시계열 → 판정. 귀무가설은 **IC = 0**이고, `mie` 는 표본 크기만 정한다.
+
+    `mie`(최소 관심 우위)를 판정 문턱으로 쓰지 않는 이유: 그러면 "0.08 미만은 없는 것"이 되어
+    작지만 진짜인 우위를 기각한다. `mie` 는 **얼마나 오래 볼지**를 정하는 값이고, 판정은
+    언제나 "0보다 큰가"다.
+
+    독립 관측은 `날짜 수 / horizon` 이다 — h거래일 수익을 매일 재면 창이 h−1일씩 겹친다
+    (중첩 창의 t는 부풀려진다는 규칙을 IC에도 그대로 적용).
+    """
+    n_dates = len(ics)
+    n_ind = n_dates / max(1, horizon)
+    prog = {"dates": n_dates, "independent": round(n_ind, 1),
+            "min_independent": min_independent,
+            "remaining_independent": max(0.0, round(min_independent - n_ind, 1)),
+            "remaining_trading_days": max(0, int(round((min_independent - n_ind) * horizon))),
+            "met": n_ind >= min_independent}
+    if n_dates < 2:
+        return {"status": "pending", "verdict": "판정 보류",
+                "verdict_why": f"IC 날짜 {n_dates}일 — 분산을 잴 수 없다",
+                "requirement": prog, "ic": None, "t": None, "ic_lower": None, "mie": mie}
+    vals = list(ics.values())
+    m = sum(vals) / len(vals)
+    var = sum((v - m) ** 2 for v in vals) / (len(vals) - 1)
+    se = (var / n_ind) ** 0.5 if n_ind > 0 else None
+    t = (m / se) if se else None
+    if not prog["met"]:
+        # **요건 미달이면 수치를 비운다.** 매주 IC가 보이면 매주 보게 되고 그게 곧 다중검정이다.
+        return {"status": "pending", "verdict": "판정 보류",
+                "verdict_why": (f"독립 관측 {n_ind:.1f}/{min_independent}개 "
+                                f"(거래일 {n_dates}일 · h{horizon} 중첩 보정)"),
+                "requirement": prog, "ic": None, "t": None, "ic_lower": None, "mie": mie}
+    lower = m - z * se
+    return {"status": "decided",
+            "verdict": "판별력 있음" if lower > 0 else "판별력 없음",
+            "verdict_why": (f"IC {m:+.4f} · 하한 {lower:+.4f} · t {t:.2f} "
+                            f"(문턱 z {z:.2f} · 독립 {n_ind:.1f}개)"),
+            "requirement": prog, "ic": round(m, 4), "t": round(t, 2),
+            "ic_lower": round(lower, 4), "se": round(se, 4), "mie": mie}
+
+
+def ic_progress(ics: dict[str, float], *, horizon: int, z: float,
+                min_independent: int, mie: float) -> dict:
+    """**주간 트랙** — 판정이 아니라 진척과 조기 기각 경계.
+
+    요건 미달 동안 `ic_verdict` 는 수치를 비우지만, 여기서는 t 추이를 보여준다. 둘의 차이가
+    규약이다: **판정은 1회·엄격**, **진척은 상시·구속력 없음**. 진척을 근거로 파라미터를
+    바꾸면 그게 곧 다중검정이므로 `binding=False` 를 명시해 실어 보낸다.
+    """
+    n_dates, vals = len(ics), list(ics.values())
+    n_ind = n_dates / max(1, horizon)
+    out = {"binding": False, "dates": n_dates, "independent": round(n_ind, 1),
+           "min_independent": min_independent, "mie": mie,
+           "t": None, "ic": None, "projected_t_at_target": None,
+           "futile": False, "futility_reason": None,
+           "note": "진척 관측이다 — 판정도 아니고 파라미터 변경 근거도 아니다"}
+    if len(vals) < 2 or n_ind <= 0:
+        return out
+    m = sum(vals) / len(vals)
+    var = sum((v - m) ** 2 for v in vals) / (len(vals) - 1)
+    sd = var ** 0.5
+    se = (var / n_ind) ** 0.5
+    out["ic"], out["t"] = round(m, 4), round(m / se, 2) if se else None
+    # 지금 추세가 그대로 이어지면 요건 시점의 t는 얼마인가 — t는 √N으로 자란다.
+    if se and min_independent > 0:
+        out["projected_t_at_target"] = round(m / (sd / min_independent ** 0.5), 2)
+        # **조기 기각**: 요건 시점까지 남은 관측이 전부 와도 문턱을 넘으려면 앞으로 평균
+        # IC가 얼마여야 하나. 그 값이 최소관심우위의 2배를 넘으면 기다릴 이유가 없다.
+        need_total = z * sd / min_independent ** 0.5 * min_independent      # Σ IC 필요합
+        have = m * n_ind
+        left = max(0.0, min_independent - n_ind)
+        if left > 0:
+            need_future = (need_total - have) / left
+            out["required_future_ic"] = round(need_future, 4)
+            if need_future > 2 * mie:
+                out["futile"] = True
+                out["futility_reason"] = (
+                    f"남은 {left:.0f}관측이 평균 IC {need_future:.3f}로 와야 문턱을 넘는다 — "
+                    f"최소관심우위({mie})의 2배 초과라 기다릴 근거가 없다")
+    return out

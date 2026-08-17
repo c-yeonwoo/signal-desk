@@ -44,7 +44,8 @@ def test_the_registered_file_parses_and_counts_the_new_look():
     assert reg["ok"], reg["reason"]
     ids = [a["id"] for a in reg["accuracy_looks"]]
     assert "buy-lift-h5-oos" in ids
-    assert reg["n_looks_total"] == reg["n_canonical"] + len(reg["accuracy_looks"])
+    assert reg["n_looks_total"] == (reg["n_canonical"] + len(reg["accuracy_looks"])
+                                    + len(reg.get("ic_looks") or []))
 
 
 def test_adding_it_raised_the_harness_threshold():
@@ -72,11 +73,17 @@ def test_lift_threshold_matches_the_engine_constant():
 def test_bad_registrations_are_refused(tmp_path):
     """**파싱 단계에서** 막는다 — 나중에 판정에서 거르면 그 사이에 숫자가 화면에 뜬다."""
     base = (Path(__file__).resolve().parents[1] / "docs" / "preregistered.toml").read_text("utf-8")
+    # 변이 문자열은 **파일에서 고유해야** 한다. `from_date`·`horizon` 은 accuracy_look과
+    # ic_look 둘 다 갖고 있으므로 앞 줄까지 묶어 고유하게 만든다.
     cases = {
-        "from_date 없음": ('from_date      = "2026-08-18"', "# 지움"),
-        "등록일 이하": ('from_date      = "2026-08-18"', 'from_date      = "2026-08-17"'),
-        "지평 0": ("horizon       = 5", "horizon       = 0"),
+        "from_date 없음": ('min_buy_sample = 60', "# 지움"),
+        "등록일 이하": ('from_date      = "2026-08-18"   # 등록 다음 날. 이 앞은 이미 본 구간이다\nmin_buy_sample',
+                    'from_date      = "2026-08-17"\nmin_buy_sample'),
+        "지평 0": ("horizon       = 5          # 봇 채점(3일)·하네스 보유(5일)와 같은 단기 쪽\nmarket        = \"kr\"\nhypothesis    = \"\"\"\n매수·강력매수",
+                 "horizon       = 0\nmarket        = \"kr\"\nhypothesis    = \"\"\"\n매수·강력매수"),
         "리프트 문턱 0": ("min_lift_pp    = 3.0", "min_lift_pp    = 0.0"),
+        "IC 요건 0": ("min_independent = 63", "min_independent = 0"),
+        "mie 0": ("mie             = 0.08", "mie             = 0.0"),
     }
     for why, (old, new) in cases.items():
         f = tmp_path / f"{abs(hash(why))}.toml"

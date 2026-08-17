@@ -3547,6 +3547,58 @@ def advisor_shadow_get(request: Request):
     return advisor_shadow.summary(store.load_all_dated_closes())
 
 
+@app.get("/api/weekly-track")
+def weekly_track_get(request: Request):
+    """**주간 트랙** — 판정이 아니라 진척·조기기각·손해 경보. 관리자.
+
+    판정(`/api/verdict`·`/api/accuracy-verdict`)과 역할이 다르다: 판정은 사전등록 요건을
+    채운 날 **1회·엄격**이고, 여기는 **상시·구속력 없음**이다. 여기 숫자를 근거로 파라미터를
+    바꾸면 그게 곧 다중검정이므로 `binding: false` 를 실어 보낸다.
+
+    "좋다"를 증명하는 것보다 **"나쁘다"를 기각하는 게 훨씬 빠르다** — 실계좌로 따라 사는
+    쪽에서는 그게 더 중요한 질문이라 손해 경보를 같이 낸다.
+    """
+    _admin_or_403(request)
+    from signal_desk import prereg
+    from signal_desk.signals import accuracy as acc
+    reg = prereg.load()
+    rows = store.load_signal_history()
+    recs = [] if rows.empty else rows.to_dict("records")
+    closes = store.load_all_dated_closes()
+
+    ic_blocks = []
+    for lk in (reg.get("ic_looks") or []):
+        req = lk.get("requirement") or {}
+        h = int(lk["horizon"])
+        ics = acc.ic_series(recs, closes, horizon=h, from_date=req.get("from_date"))
+        z = prereg.accuracy_z(reg.get("n_looks_total") or 1)
+        prog = acc.ic_progress(ics, horizon=h, z=z,
+                               min_independent=int(req.get("min_independent") or 2),
+                               mie=float(req.get("mie") or 0.0))
+        # 팩터별 분해 — 종합이 안 움직여도 어느 팩터가 죽었는지는 보인다(엔지니어링 액션).
+        factors = {}
+        for col in acc.FACTOR_COLS:
+            f_ics = acc.ic_series(recs, closes, horizon=h, col=col,
+                                  from_date=req.get("from_date"))
+            fp = acc.ic_progress(f_ics, horizon=h, z=z,
+                                 min_independent=int(req.get("min_independent") or 2),
+                                 mie=float(req.get("mie") or 0.0))
+            factors[col] = {"dates": fp["dates"], "ic": fp["ic"], "t": fp["t"]}
+        ic_blocks.append({"id": lk["id"], "horizon": h, **prog, "factors": factors})
+
+    harm = []
+    try:
+        for b in (bot.reference_performance("kr").get("bots") or []):
+            h = bot.harm_alert(b.get("curve") or [], seed=b.get("seed") or 0,
+                               benchmark_pct=b.get("benchmark_return_pct"))
+            harm.append({"label": b.get("label"), **h})
+    except Exception as e:                                  # noqa: BLE001
+        log.warning("손해 경보 실패: %s", type(e).__name__)
+    return {"ready": True, "binding": False, "ic": ic_blocks, "harm": harm,
+            "n_looks_total": reg.get("n_looks_total"),
+            "note": "진척 관측이다 — 판정도, 파라미터 변경 근거도 아니다"}
+
+
 @app.get("/api/accuracy-verdict")
 def accuracy_verdict_get(request: Request):
     """사전등록된 **실측 정확도** 판정(진척 포함). 관리자.
