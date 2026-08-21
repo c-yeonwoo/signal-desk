@@ -343,16 +343,37 @@ def _market_signals(market: str, mr: dict):
     return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}
 
 
+def recent_sold_tickers(uid: int, market: str, style: str) -> set[str]:
+    """쿨다운 중인 종목 — **방금 판 것을 다시 사지 않는다**(핑퐁 방지).
+
+    `strategy.ROTATION_PRESETS[*]["cooldown_days"]` 가 이미 3·5·7일로 정해져 있었는데
+    **로테이션 경로에만 걸려 있었다**(2026-08-22 실측). 일반 매수 경로에는 없어서:
+
+        08-21 13:31  sell LyondellBasell @66.06 TRAILING
+        08-21 13:31  buy  LyondellBasell @66.06 SIGNAL     ← 같은 분, 쿨다운 7일 무시
+
+    트레일링·손절은 제대로 작동한다 — 문제는 **팔자마자 점수가 그대로라 다시 사는 것**이다.
+    손실을 확정하고 왕복 비용까지 물면서 같은 자리로 돌아간다.
+
+    이 리포가 반복해서 겪은 "게이트가 한 경로에만 걸려 있다"의 재발이라, 계산을 **여기 한
+    곳**으로 모으고 후보를 고르는 모든 자리가 이 함수를 부르게 한다(레드팀이 대조한다).
+    """
+    days = strategy.rotation_params(style)["cooldown_days"]
+    if not days:
+        return set()
+    now_ts = int(datetime.datetime.now(_KST).timestamp())
+    horizon = days * 24 * 3600
+    return {t["ticker"] for t in db.bot_trades_recent(uid, 200, market)
+            if t["side"] == "sell" and (now_ts - t["ts"]) < horizon}
+
+
 def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_after,
                        cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
                        sells, buys, rotated_out, dry_run, rp):
     """약한 보유 → 더 강한 후보 교체. rp=성향별 로테이션 정책. 갱신된 cash 반환.
     sells/buys/held_after/rotated_out 갱신."""
     warned = store.load_warned_tickers() if market == "kr" else set()
-    now_ts = int(datetime.datetime.now(_KST).timestamp())
-    cooldown = rp["cooldown_days"] * 24 * 3600
-    recent_sold = {t["ticker"] for t in db.bot_trades_recent(uid, 50, market)
-                   if t["side"] == "sell" and (now_ts - t["ts"]) < cooldown}
+    recent_sold = recent_sold_tickers(uid, market, cfg["trading_style"])
     cand = sorted([s for s in signals if engine.is_buy(s.kind) and s.ticker not in held_after
                    and not s.event_risk and s.ticker not in warned
                    and s.score >= cfg["min_buy_score"] and s.ticker not in recent_sold],
@@ -568,8 +589,14 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             # 엔진을 안 거쳐 들어온 시그널(외부 조립·테스트)도 같은 기준으로 순위를 매긴다
             engine.apply_cross_sectional(
                 sorted(signals, key=lambda s: s.score, reverse=True), eng_cfg)
+        # **방금 판 종목은 쿨다운 동안 안 산다.** 이 줄이 없어서 트레일링·손절로 팔고 같은
+        # 분에 다시 사는 일이 실제로 벌어졌다(2026-08-21 LyondellBasell sell→buy @66.06,
+        # 안정형 쿨다운 7일). 계산은 `recent_sold_tickers` 한 곳에서만 한다 — 로테이션
+        # 경로와 갈라지면 한쪽만 고쳐진다.
+        cooled = recent_sold_tickers(uid, market, cfg["trading_style"])
         eligible = [s for s in signals if engine.is_buy(s.kind) and s.ticker not in held_after
-                    and not s.event_risk and s.ticker not in warned]
+                    and not s.event_risk and s.ticker not in warned
+                    and s.ticker not in cooled]
         if eng_cfg.selection_mode == "rank":
             # 분위 모드: 절대 점수 하한(min_buy_score) 대신 성향별로 매수권을 좁힌다.
             width = strategy.rank_top_pct(cfg["trading_style"], eng_cfg.rank_top_pct)
@@ -857,7 +884,11 @@ def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -
     context = mr["context"]
 
     warned = store.load_warned_tickers() if market == "kr" else set()  # 토스 경고 veto(국내)
+    # 호출처가 아직 없지만 **같은 선별 로직**이므로 게이트를 지금 붙인다 — 나중에 배선할 때
+    # 이 경로만 쿨다운이 없으면 그게 곧 세 번째 갈라짐이다.
+    cooled = recent_sold_tickers(uid, market, cfg["trading_style"])
     strong = [s for s in signals if engine.is_buy(s.kind) and s.score >= cfg["min_buy_score"]
+              and s.ticker not in cooled
               and s.ticker not in held and not s.event_risk and s.ticker not in warned]
     pool = sorted(strong, key=lambda s: s.score, reverse=True)[:max(slots * 3, 6)]
     pool_by = {s.ticker: s for s in pool}
