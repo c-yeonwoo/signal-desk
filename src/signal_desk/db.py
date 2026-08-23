@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS user_bot(uid INTEGER PRIMARY KEY, enabled INTEGER NOT
     seed_cash_us REAL NOT NULL DEFAULT 10000, updated INTEGER);
 CREATE TABLE IF NOT EXISTS bot_positions(uid INTEGER, ticker TEXT, market TEXT NOT NULL DEFAULT 'kr', name TEXT, qty INTEGER,
     avg_price REAL, peak_price REAL, entry_date TEXT, last_price REAL, last_pnl_pct REAL, updated INTEGER,
+    -- 분할매수 진행 회차. `entry_tranches` 상한을 **명시적으로** 세기 위한 것 — 목표비중
+    -- 도달로만 막으면 정수 주수 반올림 때문에 상한을 넘는다(실측 23건 중 15건 초과).
+    tranches_done INTEGER NOT NULL DEFAULT 1,
+    -- 마지막 매수 거래일(KST). 회차 간 최소 간격 판정용 — 시각이 아니라 **날짜**로 센다.
+    last_buy_date TEXT,
     PRIMARY KEY(uid, ticker));
 CREATE TABLE IF NOT EXISTS bot_trades(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT,
     market TEXT NOT NULL DEFAULT 'kr', name TEXT,
@@ -279,6 +284,12 @@ def _migrate(c: sqlite3.Connection) -> None:
         pcols = {r[1] for r in c.execute("PRAGMA table_info(bot_positions)").fetchall()}
     if "market" not in pcols:  # 해외(US) 페이퍼 봇 — 시장 구분 컬럼(기존 행은 kr)
         c.execute("ALTER TABLE bot_positions ADD COLUMN market TEXT NOT NULL DEFAULT 'kr'")
+    # 분할매수 회차·마지막 매수일 — 기존 행은 회차 1로 본다(정확히 몇 번 샀는지 소급 불가).
+    # 소급이 안 되는 값을 0으로 채우면 상한이 즉시 풀려 그게 더 나쁘다.
+    if "tranches_done" not in pcols:
+        c.execute("ALTER TABLE bot_positions ADD COLUMN tranches_done INTEGER NOT NULL DEFAULT 1")
+    if "last_buy_date" not in pcols:
+        c.execute("ALTER TABLE bot_positions ADD COLUMN last_buy_date TEXT")
     if "market" not in {r[1] for r in c.execute("PRAGMA table_info(bot_trades)").fetchall()}:
         c.execute("ALTER TABLE bot_trades ADD COLUMN market TEXT NOT NULL DEFAULT 'kr'")
     if "market" not in {r[1] for r in c.execute("PRAGMA table_info(bot_reservations)").fetchall()}:
@@ -668,34 +679,53 @@ def uids_with_ticker_favorites() -> list[int]:
 # ---------- bot_positions (유저별·시장별) ----------
 def bot_positions_all(uid: int, market: str = "kr") -> list[dict]:
     c = conn()
-    rows = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct "
+    rows = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct,"
+                     "tranches_done,last_buy_date "
                      "FROM bot_positions WHERE uid=? AND market=?", (uid, market)).fetchall()
     c.close()
     return [{"ticker": t, "name": n, "qty": q, "avg_price": ap, "peak_price": pk, "entry_date": ed,
-             "last_price": lp, "last_pnl_pct": lr}
-            for t, n, q, ap, pk, ed, lp, lr in rows]
+             "last_price": lp, "last_pnl_pct": lr,
+             "tranches_done": td if td is not None else 1, "last_buy_date": lbd}
+            for t, n, q, ap, pk, ed, lp, lr, td, lbd in rows]
 
 
 def bot_position_get(uid: int, ticker: str) -> dict | None:
     c = conn()
-    row = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct "
+    row = c.execute("SELECT ticker,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct,"
+                    "tranches_done,last_buy_date "
                      "FROM bot_positions WHERE uid=? AND ticker=?", (uid, ticker)).fetchone()
     c.close()
     if not row:
         return None
-    t, n, q, ap, pk, ed, lp, lr = row
+    t, n, q, ap, pk, ed, lp, lr, td, lbd = row
     return {"ticker": t, "name": n, "qty": q, "avg_price": ap, "peak_price": pk, "entry_date": ed,
-            "last_price": lp, "last_pnl_pct": lr}
+            "last_price": lp, "last_pnl_pct": lr,
+            "tranches_done": td if td is not None else 1, "last_buy_date": lbd}
 
 
 def bot_position_upsert(uid: int, ticker: str, name: str, qty: int, avg_price: float, peak_price: float,
                          entry_date: str, last_price: float | None = None,
-                         last_pnl_pct: float | None = None, market: str = "kr") -> None:
+                         last_pnl_pct: float | None = None, market: str = "kr",
+                         tranches_done: int | None = None, last_buy_date: str | None = None) -> None:
+    """포지션 upsert. **`INSERT OR REPLACE` 라서 안 넘긴 값은 사라진다** — 분할 회차·마지막
+    매수일을 `None` 으로 두면 기존 행의 값을 읽어 그대로 보존한다(안 그러면 스냅샷 갱신이
+    회차를 매번 1로 되돌려 상한이 아무 것도 안 막는다).
+    """
     c = conn()
+    if tranches_done is None or last_buy_date is None:
+        prev = c.execute("SELECT tranches_done,last_buy_date FROM bot_positions "
+                         "WHERE uid=? AND ticker=?", (uid, ticker)).fetchone()
+        if prev:
+            if tranches_done is None:
+                tranches_done = prev[0]
+            if last_buy_date is None:
+                last_buy_date = prev[1]
     c.execute("INSERT OR REPLACE INTO bot_positions"
-              "(uid,ticker,market,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct,updated) "
-              "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+              "(uid,ticker,market,name,qty,avg_price,peak_price,entry_date,last_price,last_pnl_pct,"
+              "tranches_done,last_buy_date,updated) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
               (uid, ticker, market, name, qty, avg_price, peak_price, entry_date, last_price, last_pnl_pct,
+               int(tranches_done) if tranches_done is not None else 1, last_buy_date,
                int(time.time())))
     c.commit()
     c.close()

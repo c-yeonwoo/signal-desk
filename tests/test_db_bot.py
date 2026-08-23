@@ -28,11 +28,23 @@ def test_bot_position_upsert_and_delete_scoped(tmp_path, monkeypatch):
     pos = db.bot_position_get(UID, "005930")
     assert pos == {"ticker": "005930", "name": "삼성전자", "qty": 10, "avg_price": 70000.0,
                    "peak_price": 72000.0, "entry_date": "2026-07-01",
-                   "last_price": None, "last_pnl_pct": None}
+                   "last_price": None, "last_pnl_pct": None,
+                   # 분할 회차·마지막 매수일. 안 넘기면 1회차로 시작한다(0이면 상한이 즉시 풀린다).
+                   "tranches_done": 1, "last_buy_date": None}
     # 다른 유저 격리
     assert db.bot_positions_all(99) == []
     db.bot_position_upsert(UID, "005930", "삼성전자", 15, 71000.0, 73000.0, "2026-07-01")
     assert db.bot_position_get(UID, "005930")["qty"] == 15
+
+    # **`INSERT OR REPLACE` 라서 안 넘긴 값은 사라진다.** 회차를 넣고 나서 스냅샷만 갱신해도
+    # 보존돼야 한다 — 안 그러면 시세 갱신이 회차를 매번 1로 되돌려 상한이 아무 것도 안 막는다.
+    db.bot_position_upsert(UID, "005930", "삼성전자", 15, 71000.0, 73000.0, "2026-07-01",
+                           tranches_done=3, last_buy_date="2026-07-05")
+    db.bot_position_upsert(UID, "005930", "삼성전자", 15, 71000.0, 74000.0, "2026-07-01",
+                           last_price=71500.0)
+    kept = db.bot_position_get(UID, "005930")
+    assert kept["tranches_done"] == 3 and kept["last_buy_date"] == "2026-07-05"
+    assert kept["peak_price"] == 74000.0, "스냅샷 갱신 자체는 반영돼야 한다"
 
     db.bot_position_delete(UID, "005930")
     assert db.bot_position_get(UID, "005930") is None
