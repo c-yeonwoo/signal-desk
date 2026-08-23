@@ -343,6 +343,36 @@ def _market_signals(market: str, mr: dict):
     return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}
 
 
+def tranche_gate(pos: dict | None, tranches: int, *, today: str) -> tuple[bool, str | None]:
+    """분할 추가매수를 허용할지. `(ok, 막힌 이유)`.
+
+    **두 가지를 막는다(2026-08-22 프로덕션 실측).**
+
+    ① **간격** — 추가 매수의 90%가 10분 안에 몰렸다(중위 2.9분 · 최소 18초). `entry_tranches`
+       주석은 "진입 타이밍 리스크 분산"이라고 약속했는데, 3분 간격으로 4번 사는 건 분산이
+       아니다 — 한 번에 사는 것과 사실상 같고 수수료만 배로 낸다. **하루 1회**로 제한한다.
+    ② **상한** — 목표비중 도달(95%)로만 막고 진행 회차를 세지 않았다. 정수 주수 반올림 때문에
+       한 회차가 의도한 금액보다 훨씬 적게 채워지고(고가주는 1주), 목표에 못 닿아 다음 루프에서
+       또 산다. 실측 **23개 에피소드 중 15개가 상한 초과**였고 공격형(2분할)에 ADD가 4번 붙은
+       것도 있었다.
+
+    날짜로 세는 이유: 시각으로 "24시간"을 세면 금요일 마감 뒤 토·일에 시계만 흘러 월요일에
+    두 번째 회차가 바로 열린다. 거래일 개념에 맞추려면 **날짜가 달라야** 한다.
+
+    포지션 기록이 없으면(수동 편입 등) 회차를 모르므로 **막지 않는다** — 모르는 것을 막으면
+    그게 곧 0으로 나누기다.
+    """
+    if not pos:
+        return True, None
+    done = int(pos.get("tranches_done") or 1)
+    if tranches and done >= int(tranches):
+        return False, f"분할 {done}/{tranches}회 완료"
+    last = pos.get("last_buy_date")
+    if last and str(last) >= str(today):
+        return False, f"오늘 이미 추가({last}) — 회차는 하루 1번"
+    return True, None
+
+
 def recent_sold_tickers(uid: int, market: str, style: str) -> set[str]:
     """쿨다운 중인 종목 — **방금 판 것을 다시 사지 않는다**(핑퐁 방지).
 
@@ -442,7 +472,11 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                 if paper.place_order(uid, best.ticker, "buy", bqty, price=blive, name=best.name, market=market) is not None:
                     db.bot_trade_log(uid, best.ticker, bname, "buy", bqty, blive, "ROTATE_IN", "PAPER",
                                      score=best.score, note=bnote, market=market)
-                    db.bot_position_upsert(uid, best.ticker, bname, bqty, blive, blive, _today(), market=market)
+                    # **신규 진입은 회차 1로 시작한다.** 안 넘기면 upsert가 기존 행 값을
+                    # 보존하는데, 같은 종목을 팔고 다시 산 경우 옛 회차가 이어져 상한이
+                    # 즉시 걸린다(로테이션 재편입이 그 경로다).
+                    db.bot_position_upsert(uid, best.ticker, bname, bqty, blive, blive, _today(),
+                                           market=market, tranches_done=1, last_buy_date=_today())
                     bplan["ok"] = True
                 else:
                     bplan["ok"] = False
@@ -679,7 +713,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                     db.bot_trade_log(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), "buy", qty, live, "SIGNAL",
                                       result["order_no"], score=s.score, note=note, market=market)
                     db.bot_position_upsert(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), qty, live, live,
-                                            _today(), market=market)
+                                            _today(), market=market,
+                                            tranches_done=1, last_buy_date=_today())
                     from signal_desk.signals import pick_reason as _pr
                     buy_ctx = {**(context or {}), "pick": _pr.from_signal(s),
                                "uid": uid, "qty": qty, "market": market}
@@ -719,6 +754,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                   sells, buys, rotated_out, dry_run, rp)
 
     # ① 분할매수 후속: 보유 중이고 여전히 BUY인데 목표비중 미달인 포지션에 다음 트랜치 추가.
+    # **막힌 이유를 모아 결과에 싣는다.** 안 그러면 "왜 추가가 안 됐나"가 어느 화면에도 안 뜬다
+    # (이 리포의 "0에는 반드시 이유를 붙인다" 규칙).
+    skipped_tranche: list[str] = []
     for h in bal2["holdings"]:
         t = h["ticker"]
         if t in rotated_out:
@@ -735,6 +773,10 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         if value >= target_alloc * 0.95:       # 이미 목표비중 도달 → 추가 없음
             continue
         if live > avg * (1 + _MAX_CHASE_PCT):   # 평단보다 크게 위면 추격 안 함(다음 눌림에)
+            continue
+        ok, why = tranche_gate(db.bot_position_get(uid, t), tranches, today=_today())
+        if not ok:
+            skipped_tranche.append(f"{h['name']}: {why}")
             continue
         add_amt = min(tranche_alloc, target_alloc - value, cash)
         qty = int(add_amt // live)
@@ -754,7 +796,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                   score=sig.score, note=note, market=market)
                 db.bot_position_upsert(uid, t, h["name"], new_qty, new_avg,
                                         max(pos["peak_price"] if pos else new_avg, live),
-                                        pos["entry_date"] if pos else _today(), market=market)
+                                        pos["entry_date"] if pos else _today(), market=market,
+                                        tranches_done=int((pos or {}).get("tranches_done") or 1) + 1,
+                                        last_buy_date=_today())
                 cash -= qty * live
                 plan["ok"] = True
             else:
@@ -770,6 +814,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     return {
         "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak,
         "skipped_gap_buys": 0, "advisor_used": advisor_used,
+        # 분할 추가가 막힌 이유(회차 완료·하루 1번). 안 실으면 "왜 추가가 안 됐나"가 어느
+        # 화면에도 안 뜬다 — 이 리포의 "0에는 반드시 이유를 붙인다" 규칙.
+        "skipped_tranche": skipped_tranche,
         "sells": sells, "buys": buys,
         "cash": final_bal["cash"], "total_eval": final_bal["total_eval"],
         "holdings": len(final_bal["holdings"]),
@@ -972,7 +1019,8 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
             result = paper.place_order(uid, r["ticker"], "buy", qty, price=price, name=r["name"], market=market)
             if result is not None:
                 db.bot_trade_log(uid, r["ticker"], r["name"], "buy", qty, price, "RESERVATION", result["order_no"], note=note, market=market)
-                db.bot_position_upsert(uid, r["ticker"], r["name"], qty, price, price, _today(), market=market)
+                db.bot_position_upsert(uid, r["ticker"], r["name"], qty, price, price, _today(),
+                                        market=market, tranches_done=1, last_buy_date=_today())
                 db.bot_reservation_resolve(r["id"], "filled")
                 cash -= qty * price
                 executed.append({"ticker": r["ticker"], "name": r["name"], "status": "filled", "qty": qty, "note": note})
