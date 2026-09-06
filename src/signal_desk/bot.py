@@ -20,6 +20,7 @@ from signal_desk.reference import cycle, us_ko
 from signal_desk.signals import (
     advisor, advisor_shadow, engine, execution_gate, macro, regime, risk, vol_sizing,
 )
+from signal_desk.signals import accuracy as accuracy_mod
 from signal_desk.signals import decision as decmod
 
 log = logging.getLogger("signal_desk.bot")
@@ -142,6 +143,9 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
 
 # 채점 지평(거래일). 이 값을 고정해야 base rate 를 같은 관례로 만들 수 있다.
 OUTCOME_HORIZON_DAYS = 3
+# 사전등록 look(정확도·IC)과 하네스 hold가 쓰는 지평. 여기서 하드코딩하지 않고
+# 비교용으로만 쓴다 — 정본은 docs/preregistered.toml 이다.
+_PREREG_HORIZON_DAYS = 5
 
 
 def _update_decision_outcomes(prices: dict[str, list[float]]) -> None:
@@ -911,7 +915,10 @@ def reference_performance(market: str = "kr") -> dict:
     bots = []
     for uid, style in REFERENCE_BOTS.items():
         bots.append({"style": style, "label": strategy.STYLE_LABEL.get(style, style),
-                     **performance(uid, market)})
+                     **performance(uid, market),
+                     # 실제 보유일 — 측정 지평과 얼마나 어긋나는지 장부에 같이 싣는다.
+                     # 안 실으면 "h20에서 +9.9%p"와 "1.3일 만에 나갔다"가 한 화면에 안 보인다.
+                     "holding": holding_period_stats(uid, market)})
     return {"market": market, "currency": "USD" if market == "us" else "KRW", "bots": bots}
 
 
@@ -1036,6 +1043,80 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
 # 아래인 이유: 정확히 0 근처는 늘 걸려 매주 우는 늑대가 된다(신선도 오탐에서 배운 것).
 HARM_ALERT_UPPER_PP = 0.0
 _HARM_MIN_BLOCKS = 4       # 블록이 이보다 적으면 분산을 못 재고 방향만 보인다
+
+
+def holding_period_stats(uid: int, market: str = "kr", limit: int = 2000) -> dict:
+    """**실제로 며칠 들고 있었나** — 체결 이력을 FIFO로 맞춰 보유일을 센다.
+
+    왜 세야 하나(2026-09-06 진단): 이 리포에는 지평이 **넷** 있는데 서로 다르다.
+
+        accuracy.PRIMARY_HORIZON   20거래일   (실측 헤드라인)
+        사전등록 look(정확도·IC)     5거래일   (하네스 hold와 맞춤)
+        bot.OUTCOME_HORIZON_DAYS    3거래일   (봇 판단 채점)
+        실제 보유                    ?         ← **아무도 세지 않았다**
+
+    "지평·진입/청산 관례·모집단·기간이 하나라도 다르면 리프트는 거짓이다"라고 적어 두고,
+    정작 **실제 보유일을 재는 코드가 없었다.** 측정된 우위(h20 +9.9%p · h5 +2.4%p)가 어느
+    지평의 것인지와 봇이 실제로 그 지평을 사는지는 다른 질문이다.
+
+    반환에 `mismatch` 를 실어 **차이를 드러낸다** — 숫자만 내면 아무도 비교하지 않는다.
+    """
+    from signal_desk import db
+
+    rows = sorted(db.bot_trades_recent(uid, limit, market), key=lambda t: t["ts"])
+    open_lots: dict[str, list[list[float]]] = {}       # ticker -> [[ts, qty], ...] FIFO
+    held_days: list[float] = []
+    weights: list[float] = []
+    for t in rows:
+        tick, qty, ts = t["ticker"], float(t["qty"] or 0), float(t["ts"] or 0)
+        if qty <= 0:
+            continue
+        if t["side"] == "buy":
+            open_lots.setdefault(tick, []).append([ts, qty])
+            continue
+        lots = open_lots.get(tick) or []
+        remaining = qty
+        while remaining > 0 and lots:
+            lot_ts, lot_qty = lots[0]
+            take = min(remaining, lot_qty)
+            held_days.append((ts - lot_ts) / 86400.0)
+            weights.append(take)
+            lot_qty -= take
+            remaining -= take
+            if lot_qty <= 0:
+                lots.pop(0)
+            else:
+                lots[0][1] = lot_qty
+    out = {
+        "closed_lots": len(held_days),
+        "median_days": None, "mean_days": None,
+        "measured_horizons": {
+            "실측 헤드라인": accuracy_mod.PRIMARY_HORIZON,
+            "사전등록 look": _PREREG_HORIZON_DAYS,
+            "봇 판단 채점": OUTCOME_HORIZON_DAYS,
+        },
+        "mismatch": None,
+        # 달력일이다. 거래일로 환산하려면 주말·휴장을 빼야 하는데, 그 환산 자체가 또 하나의
+        # 관례라 여기서 하지 않는다 — 원값을 내고 어느 단위인지 이름에 적는다.
+        "unit": "달력일",
+    }
+    if not held_days:
+        out["reason"] = "청산된 로트 없음 — 아직 한 바퀴도 안 돌았거나 체결 이력이 비었다"
+        return out
+    tot = sum(weights) or 1.0
+    out["mean_days"] = round(sum(d * w for d, w in zip(held_days, weights)) / tot, 2)
+    srt = sorted(held_days)
+    mid = len(srt) // 2
+    out["median_days"] = round(srt[mid] if len(srt) % 2 else (srt[mid - 1] + srt[mid]) / 2, 2)
+    # 거래일 근사(주 5일) — 비교에만 쓰고 위 원값은 달력일 그대로 둔다.
+    trading = out["median_days"] * 5.0 / 7.0
+    shortest = min(out["measured_horizons"].values())
+    if trading < shortest:
+        out["mismatch"] = (
+            f"실제 보유 중위 {out['median_days']}달력일(≈{trading:.1f}거래일)이 "
+            f"가장 짧은 측정 지평 {shortest}거래일보다 짧다 — "
+            f"측정된 우위를 살 만큼 들고 있지 않다")
+    return out
 
 
 def harm_alert(curve: list[dict], *, seed: float, benchmark_pct: float | None,
