@@ -144,21 +144,38 @@ def metrics_at(hist: dict, date_str: str, *, shares: dict[str, float],
     return out
 
 
-def components_at(ticker: str, metrics: dict | None, val_scores: dict[str, float], config
+def components_at(ticker: str, metrics: dict | None, val_scores: dict[str, float], config,
+                  *, growth_scores: dict[str, float] | None = None,
+                  growth_weight: float = 0.0
                   ) -> list[tuple[float, float, list[str]]]:
-    """PIT 재무에서 나오는 3컴포넌트 — 재무 · 저평가 · 퀄리티.
+    """PIT 재무에서 나오는 3컴포넌트 — 재무 · 저평가 · 퀄리티 (+ 실험 시 성장).
 
     라이브 `evaluate`와 **같은 함수**를 쓴다(`_fundamental_component` · `_valuation_component` ·
     `fscore.component`). 백테스트가 별도 공식을 쓰면 무엇을 검증한 건지 알 수 없다.
-    """
-    from signal_desk.signals import engine
 
-    fund_norm, fund_w, fund_reasons = engine._fundamental_component(metrics, config)
+    `growth_weight > 0` 이면 매출성장을 **독립 팩터**로 떼어 낸다(`signals/growth.py`):
+    `fundamental` 에서 성장 항목을 빼고(이중계상 방지) 그 자리에 분위 기반 컴포넌트를 넣는다.
+    기본 0.0이므로 **라이브·기존 판정은 한 자리도 바뀌지 않는다.**
+    """
+    from signal_desk.signals import engine, growth as growth_mod
+
+    use_growth = bool(growth_weight) and growth_scores is not None
+    fund_norm, fund_w, fund_reasons = engine._fundamental_component(
+        metrics, config, include_growth=not use_growth)
     val_norm, val_w, val_reasons, _, _ = engine._valuation_component(ticker, val_scores, config)
     ql_norm, ql_w, ql_reasons, _, _ = fscore.component(metrics, config.weight_quality)
-    return [(fund_norm, fund_w, fund_reasons),
-            (val_norm, val_w, val_reasons),
-            (ql_norm, ql_w, ql_reasons)]
+    comps = [(fund_norm, fund_w, fund_reasons),
+             (val_norm, val_w, val_reasons),
+             (ql_norm, ql_w, ql_reasons)]
+    if use_growth:
+        comps.append(growth_mod.component(ticker, growth_scores, growth_weight))
+    return comps
+
+
+def growth_scores_at(metrics: dict[str, dict]) -> dict[str, float]:
+    """그 날짜 횡단면 매출성장 분위. `valuation_scores_at` 과 같은 자리·같은 규약."""
+    from signal_desk.signals import growth as growth_mod
+    return growth_mod.percentile_scores(metrics)
 
 
 def valuation_scores_at(metrics: dict[str, dict], universe: list[dict] | None = None
