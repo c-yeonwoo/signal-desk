@@ -669,6 +669,8 @@ async def _lifespan(app: FastAPI):
         from signal_desk import strategy as _strategy
         if _strategy.record_unproven_change():
             log.info("미검증 변경 기록: 성향별 매수권 좁히기 제거(strategy.py)")
+        if _strategy.record_unproven_trailing_change():
+            log.info("미검증 변경 기록: 트레일링을 이익 구간에서만 발동(risk.py)")
     except Exception as e:
         log.warning("미검증 변경 기록 실패: %s", type(e).__name__)
     try:

@@ -205,12 +205,15 @@ def harness(
     exits: str = typer.Option("", "--exits",
                               help="보유 중 청산 규칙을 걸고 잰다: conservative|balanced|aggressive|none. "
                                    "비우면 무청산(기간 끝까지 보유) — 2026-09-06 이전의 유일한 동작"),
+    legacy_trailing: bool = typer.Option(False, "--legacy-trailing",
+                                         help="트레일링이 손실 구간에서도 발동하던 옛 동작으로 잰다(A/B용)"),
 ):
     """포트폴리오 백테스트 — 횡단면 분위 규칙 vs 무작위 대조군 vs 동일가중 벤치마크.
 
     절대 수익률은 생존편향(유니버스=오늘 기준 상위 200)으로 부풀려져 있으므로 판단 근거로 쓰지
     않는다. 판단은 **무작위 대조군 백분위**로 한다 — 대조군도 같은 편향을 받는다.
     """
+    import dataclasses
     import json as _json
     from pathlib import Path
 
@@ -331,6 +334,8 @@ def harness(
     if exits and exits != "none":
         from signal_desk import strategy as _strategy
         exit_rules = _strategy.risk_config(exits)
+        if legacy_trailing:
+            exit_rules = dataclasses.replace(exit_rules, trailing_protects_gains_only=False)
         console.print(f"[dim]청산 레이어: {_strategy.STYLE_LABEL.get(_strategy.normalize(exits), exits)} "
                       f"손절 {exit_rules.stop_loss_pct:+.0%} · 익절 {exit_rules.take_profit_pct:+.0%} · "
                       f"트레일링 {exit_rules.trailing_from_peak_pct:+.0%} "
