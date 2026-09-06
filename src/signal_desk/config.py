@@ -267,6 +267,16 @@ def allow_real_orders() -> bool:
     return (os.environ.get("ALLOW_REAL_ORDERS", "") or "").strip().lower() in ("1", "true", "on", "yes")
 
 
+def sigma_scaled_exits() -> bool:
+    """청산 폭을 종목 변동성(σ) 배수로 쓸지. 기본 켬(2026-09-06부터).
+
+    끄면 고정 퍼센트로 돌아간다 — 재배포 없이 되돌릴 수 있는 스위치를 남긴다.
+    배수는 `strategy.EXIT_SIGMA`(= 현재 퍼센트 ÷ 미국 일간 σ)이고, 미국 변동성에서는
+    폭이 예전과 같다. 바뀌는 것은 국내처럼 변동성이 다른 시장이다.
+    """
+    return os.environ.get("SIGMA_SCALED_EXITS", "1").strip().lower() not in ("0", "false", "no")
+
+
 def bot_run_interval_minutes() -> int:
     """봇·LLM·증분 백필 루프 간격(분). 기본 30분 — 매매/자문/about·moves.
     시세 오버레이는 quote_refresh_interval_minutes()가 따로 돈다."""
