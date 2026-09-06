@@ -136,6 +136,7 @@ def risk_config(style: str, regime: str | None = None) -> risk.RiskConfig:
 # 그래서 부팅 시 **한 번** 설정 이력에 남긴다. 관리자 화면의 미검증 배너가 이걸 읽는다.
 # 매 부팅 중복 기록하지 않도록 kv 가드를 둔다 — 배너가 같은 항목으로 도배되면 안 읽힌다.
 _UNPROVEN_KEY = "strategy_unproven:style-breadth-2026-08-07"
+_UNPROVEN_KEY_TRAILING = "strategy_unproven:trailing-protects-gains-2026-09-06"
 
 
 def record_unproven_change() -> bool:
@@ -158,4 +159,44 @@ def record_unproven_change() -> bool:
         "verdict_at_change": "판정 불가(실효 표본 미달) — 측정으로 정당화된 변경이 아니다",
     })
     db.kv_set(_UNPROVEN_KEY, {"recorded": True})
+    return True
+
+
+def record_unproven_trailing_change() -> bool:
+    """트레일링이 이익 구간에서만 발동하도록 바꾼 것을 설정 이력에 1회 기록.
+
+    **하네스로 확인되지 않았다.** 같은 점수·유니버스·비용에 청산만 바꿔 200시행으로 재보니
+    백분위가 성향마다 반대로 움직였다(안정 73.0→52.0 · 균형 63.5→80.0 · 공격 87.5→78.5).
+    세 arm 모두 여전히 `판정 불가`이고 위상편차 141~222pp가 차이를 덮는다. 그중 좋아 보이는
+    칸을 고르면 그게 곧 고르기다.
+
+    그래서 이 변경의 근거는 **성과가 아니라 정합성**이다: 파라미터가 셋인데 실제로 도달
+    가능한 규칙이 하나였다(진입 시 peak=진입가 + 트레일링 폭 < 손절 폭 → 5분틱 연속
+    관측에서 트레일링이 항상 먼저 닿는다). 실측이 그대로였다 — 레퍼런스 3봇 최근 20거래
+    매도 사유 100% TRAILING, STOP_LOSS·TAKE_PROFIT 0건.
+    """
+    from signal_desk import db, signalcfg
+    if db.kv_get(_UNPROVEN_KEY_TRAILING):
+        return False
+    signalcfg.append_history({
+        "ts": __import__("time").time(),
+        "source": "risk.py / strategy.py (소스 편집 · 관리자 UI 아님)",
+        "unproven": True,
+        "reason": ("트레일링을 손익분기 이상에서만 발동하게 했다. 이전에는 진입 시 "
+                   "peak=진입가이고 트레일링 폭이 손절 폭보다 좁아(안정 -4 vs -5 · "
+                   "균형 -5 vs -7 · 공격 -7 vs -10) 트레일링 발동가가 늘 손절가 위에 "
+                   "있었고, 5분틱 연속 관측에서 항상 먼저 닿았다 — 손절·익절이 도달 "
+                   "불가능한 죽은 파라미터였다."),
+        "before": {"trailing_protects_gains_only": False,
+                   "실효 손절폭": {"안정": -0.04, "균형": -0.05, "공격": -0.07}},
+        "after": {"trailing_protects_gains_only": True,
+                  "실효 손절폭": {"안정": -0.05, "균형": -0.07, "공격": -0.10}},
+        "evidence": ("실측: 레퍼런스 3봇 최근 20거래 매도 사유 100% TRAILING "
+                     "(STOP_LOSS 0 · TAKE_PROFIT 0) · 실현손익 왕복당 -1.5~-1.8%"),
+        "harness": ("확인 실패 — 백분위가 성향마다 반대로 움직였다 "
+                    "(안정 73.0→52.0 · 균형 63.5→80.0 · 공격 87.5→78.5, trials 200). "
+                    "세 arm 모두 판정 불가."),
+        "verdict_at_change": "판정 불가(실효 표본 미달) — 측정으로 정당화된 변경이 아니다",
+    })
+    db.kv_set(_UNPROVEN_KEY_TRAILING, {"recorded": True})
     return True
