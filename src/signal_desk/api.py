@@ -523,6 +523,12 @@ def _daily_maintenance(enabled: list[str]) -> None:
         store.clear_live_quotes()
         _signals.cache_clear()
         store.snapshot_signals(_signals(), date=_kst_today())  # 팩터 PIT 스냅샷(거래일=KST)
+        # 국면·익스포저도 그날 값으로 남긴다 — 사후에 오늘의 유니버스로 과거 국면을 다시
+        # 매기면 그건 PIT가 아니다. 이게 없으면 익스포저의 타이밍 능력을 영영 못 잰다.
+        _rg = _regime() or {}
+        store.snapshot_regime(_rg.get("regime"),
+                              (_rg.get("adaptive") or {}).get("exposure"),
+                              date=_kst_today())
     except Exception as e:
         log.warning("시그널 스냅샷 실패: %s", type(e).__name__)
     try:
@@ -3669,7 +3675,26 @@ def weekly_track_get(request: Request):
         ic_blocks.append({"id": lk["id"], "horizon": h, **prog, "factors": factors})
 
     harm = _harm_alerts("kr")
+    # 국면 익스포저의 타이밍 기여 — 하네스가 답하지 못하는 질문이다(대조군에도 같은
+    # 익스포저를 걸므로 켜고 끄면 함께 줄어든다). 진척 관측이지 판정이 아니다.
+    timing = {"ready": False, "reason": "국면 이력 없음"}
+    regime_rows: list[dict] = []
+    try:
+        hist = store.regime_history()
+        mret = store.market_return_by_date("kr")
+        dates = sorted(mret)
+        nxt = {d: mret[dates[i + 1]] for i, d in enumerate(dates[:-1])}
+        pairs = [(r, nxt.get(str(r.get("date")))) for r in hist]
+        pairs = [(r, f) for r, f in pairs if f is not None and r.get("exposure") is not None]
+        timing = regime.timing_skill([r["exposure"] for r, _ in pairs],
+                                     [f for _, f in pairs])
+        regime_rows = regime.exposure_by_regime([r.get("regime") for r, _ in pairs],
+                                                [f for _, f in pairs])
+    except Exception as e:                                  # noqa: BLE001
+        log.warning("국면 타이밍 계산 실패: %s", type(e).__name__)
+        timing = {"ready": False, "reason": f"계산 실패({type(e).__name__})"}
     return {"ready": True, "binding": False, "ic": ic_blocks, "harm": harm,
+            "regime_timing": timing, "regime_rows": regime_rows,
             "n_looks_total": reg.get("n_looks_total"),
             "note": "진척 관측이다 — 판정도, 파라미터 변경 근거도 아니다"}
 

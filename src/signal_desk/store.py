@@ -1969,6 +1969,48 @@ def _pre_run_up_by_ticker(tickers: list[str]) -> dict[str, float]:
     return out
 
 
+REGIME_HISTORY_KEY = "regime_history"        # kv — [{date, regime, exposure}] 오름차순
+
+
+def snapshot_regime(regime_label: str | None, exposure: float | None,
+                    date: str | None = None, keep: int = 750) -> bool:
+    """그날의 국면·익스포저를 PIT로 남긴다(일 1회, 같은 날은 덮어쓴다).
+
+    왜 필요한가(2026-09-06): 국면 익스포저에 **타이밍 능력이 있는지 아무도 잰 적이 없다.**
+    하네스는 대조군에도 같은 익스포저를 걸기 때문에 이 질문에 답하지 못한다(켜고 끄면
+    전략·대조군이 함께 줄어 백분위가 94.0 vs 94.5로 거의 안 변한다).
+
+    답하려면 "익스포저가 **미래 수익과 같은 방향으로** 움직였나"를 봐야 하고, 그러려면
+    그날 무엇이라 판정했는지가 남아 있어야 한다. 사후에 가격으로 재구성할 수도 있지만
+    그건 오늘의 유니버스로 과거 국면을 다시 매기는 것이라 PIT가 아니다.
+    """
+    from signal_desk import db
+    if not regime_label and exposure is None:
+        return False
+    date = date or datetime.date.today().isoformat()
+    rows = [r for r in (db.kv_get(REGIME_HISTORY_KEY) or []) if r.get("date") != date]
+    rows.append({"date": date, "regime": regime_label,
+                 "exposure": (round(float(exposure), 4) if exposure is not None else None)})
+    rows.sort(key=lambda r: r["date"])
+    db.kv_set(REGIME_HISTORY_KEY, rows[-keep:])
+    return True
+
+
+def regime_history() -> list[dict]:
+    from signal_desk import db
+    return list(db.kv_get(REGIME_HISTORY_KEY) or [])
+
+
+def market_return_by_date(market: str = "kr") -> dict[str, float]:
+    """거래일별 동일가중 시장 수익률. 국면 타이밍 채점의 대조 기준."""
+    df = _read_parquet(US_PRICES_FILE if market == "us" else PRICES_FILE)
+    if df.empty or not {"date", "ticker", "close"} <= set(df.columns):
+        return {}
+    piv = df.pivot_table(index="date", columns="ticker", values="close").sort_index()
+    ret = piv.pct_change(fill_method=None).mean(axis=1)
+    return {str(d): float(v) for d, v in ret.items() if v == v}
+
+
 def snapshot_signals(signals, date: str | None = None) -> int:
     """오늘의 종목별 시그널·팩터값을 point-in-time으로 기록(일 1회). 수급·퀄리티·정성은 과거 PIT
     데이터가 없어 사전 백테스트가 불가했는데, 오늘부터 쌓아 향후 팩터 백테스트를 가능하게 한다.
