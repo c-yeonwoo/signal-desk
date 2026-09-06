@@ -257,6 +257,9 @@ def _morning_digest_text(date: datetime.date | None = None, *,
         exposure=adapt.get("exposure"),
         exposure_reasons=adapt.get("exposure_reasons"),
         event_queue=db.kb_event_queue_status(),
+        # 손해 경보 — 관리자 화면에만 두면 아무도 안 본다. 실제로 3봇 모두 경보 상태로
+        # 2주가 지났다("shadow 관측은 '판정 알림'까지 만들어야 끝난다").
+        harm=_harm_alerts("kr"),
         crowding=crowding.assess(sigs),
         us_signals=us_sigs,
         us_selection=us_sel,
@@ -3470,6 +3473,20 @@ def climate_shadow_get(request: Request):
             "verdict": climate.shadow_verdict(store.load_all_dated_closes())}
 
 
+def _harm_alerts(market: str = "kr") -> list[dict]:
+    """레퍼런스 봇별 손해 경보. **weekly-track과 아침 브리핑이 같은 함수를 쓴다** —
+    두 곳에서 조립하면 화면과 알림이 갈라지고 그 차이는 어디에도 안 뜬다."""
+    out = []
+    try:
+        for b in (bot.reference_performance(market).get("bots") or []):
+            h = bot.harm_alert(b.get("curve") or [], seed=b.get("seed") or 0,
+                               benchmark_pct=b.get("benchmark_return_pct"))
+            out.append({"label": b.get("label"), **h})
+    except Exception as e:                                  # noqa: BLE001 — 브리핑은 계속 나가야 한다
+        log.warning("손해 경보 계산 실패: %s", type(e).__name__)
+    return out
+
+
 def _safe_stall() -> dict | None:
     """정지 탐지 재료. 실패해도 브리핑을 막지 않는다(브리핑이 안 오면 그게 더 큰 침묵이다)."""
     try:
@@ -3651,14 +3668,7 @@ def weekly_track_get(request: Request):
                             "scope": "all"}
         ic_blocks.append({"id": lk["id"], "horizon": h, **prog, "factors": factors})
 
-    harm = []
-    try:
-        for b in (bot.reference_performance("kr").get("bots") or []):
-            h = bot.harm_alert(b.get("curve") or [], seed=b.get("seed") or 0,
-                               benchmark_pct=b.get("benchmark_return_pct"))
-            harm.append({"label": b.get("label"), **h})
-    except Exception as e:                                  # noqa: BLE001
-        log.warning("손해 경보 실패: %s", type(e).__name__)
+    harm = _harm_alerts("kr")
     return {"ready": True, "binding": False, "ic": ic_blocks, "harm": harm,
             "n_looks_total": reg.get("n_looks_total"),
             "note": "진척 관측이다 — 판정도, 파라미터 변경 근거도 아니다"}
