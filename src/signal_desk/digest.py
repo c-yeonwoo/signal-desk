@@ -194,6 +194,29 @@ def stall_line(stall: dict | None) -> str | None:
     return "🔧 " + " / ".join(bits)
 
 
+def harm_line(harm: list[dict] | None) -> str | None:
+    """손해 경보 — **초과수익 상한이 0 아래로 확정된 봇**만 한 줄로.
+
+    2026-09-06 진단: `bot.harm_alert` 는 `/api/weekly-track`(관리자)에서만 계산됐다. 즉
+    "시장보다 못한 것이 통계적으로 확정됐다"는 판정이 **아무에게도 전달되지 않았다.**
+    실제로 3봇 모두 경보 상태(상한 −4.12 · −6.33 · −6.51%p)인 채로 2주가 지났다.
+    이 리포가 이미 적어 둔 규칙을 손해 경보에서 또 어긴 것이다 —
+    "shadow 관측은 '판정 알림'까지 만들어야 끝난다. 데이터만 쌓고 사람이 들여다봐야 아는
+    관측은 영원히 안 본다."
+
+    **정상일 때는 아무 말도 하지 않는다.** 매일 초록불을 쓰면 그것도 곧 안 읽힌다
+    (정지 배너와 같은 규약).
+    """
+    hits = [h for h in (harm or []) if h.get("alert") and h.get("upper_pp") is not None]
+    if not hits:
+        return None
+    parts = [f"{h.get('label') or '?'} {h['upper_pp']:+.1f}%p" for h in hits]
+    blocks = max(int(h.get("blocks") or 0) for h in hits)
+    return ("⚠ 손해 경보 — 시장 대비 초과수익 상한이 0 아래로 확정: "
+            + " · ".join(parts)
+            + f" (독립 블록 {blocks}개, 단측 95%)")
+
+
 def build_morning(
     *,
     signals: list[Any],
@@ -211,6 +234,7 @@ def build_morning(
     event_queue: dict | None = None,
     crowding: dict | None = None,
     stall: dict | None = None,
+    harm: list[dict] | None = None,
     us_signals: list[Any] | None = None,
     us_selection: dict | None = None,
     prev_us_buy_count: int | None = None,
@@ -236,6 +260,12 @@ def build_morning(
     sl = stall_line(stall)
     if sl:
         lines.append(sl)
+        lines.append("")
+    # 손해 경보는 정지 바로 다음. 아래 숫자를 읽기 전에 "이 장부가 시장보다 못하다는 것이
+    # 확정됐다"를 먼저 알아야 한다 — 관리자 화면에만 두면 아무도 안 본다.
+    hl = harm_line(harm)
+    if hl:
+        lines.append(hl)
         lines.append("")
     # 2026-08-06: `시장 ZONE` → `지금 시장`. 인사이트 탭의 `경기 사이클`과 **구분**하는 것이
     # 이 라벨의 목적이므로(다개월 사이클 vs 오늘의 코스피 상태) 그 대비는 유지한다.
