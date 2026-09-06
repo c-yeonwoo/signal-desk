@@ -2442,16 +2442,26 @@ def price_sanity(tickers: list[str] | None = None) -> dict:
 
 # ------------------------------------------------------- 사전등록 판정 보드 (PRD N3)
 
-def pit_dates_count() -> int:
+def pit_dates_count(from_date: str | None = None) -> int:
     """PIT 스냅샷이 있는 **거래일 수**. 요건 진척의 분자다(행 수가 아니라 날짜 수).
 
     행으로 세면 하루 200종목이 200관측으로 부풀어 요건이 즉시 충족된 것처럼 보인다 —
     같은 날 200종목은 하나의 관측이다.
+
+    `from_date` 를 주면 **그 날짜 이후만** 센다. OOS look(`requirement.from_date`)의 진척은
+    반드시 이걸 써야 한다 — 2026-09-06 진단: 보드가 `pit_dates` 를 **한 번 계산해 모든 look
+    에 같은 값으로** 넘기고 있었다. 그래서 `sigma-exits-oos`(창이 내일 열린다)의 진척이
+    **42/150일**로 떴다. 창이 열리기도 전에 42일이 쌓여 있는 셈이고, 그대로 두면 요건이
+    OOS 창 밖 데이터로 채워져 **아직 보지 않은 구간에서 판정한다**는 전제가 거짓이 된다.
+    OOS를 걸어 둔 이유 전체가 무효가 되는 경로다.
     """
     df = load_signal_history()
     if df.empty or "date" not in df.columns:
         return 0
-    return int(df["date"].astype(str).nunique())
+    dates = df["date"].astype(str)
+    if from_date:
+        dates = dates[dates >= str(from_date)]
+    return int(dates.nunique())
 
 
 def _signal_config_from(cfg: dict):
@@ -2499,7 +2509,10 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
         _exit_rules = None
     pit = look["score_source"] == "pit"
     pit_fund = look["score_source"] == "price6"
-    pre = pit_dates_count() if pit else None
+    # **OOS look은 자기 창 안의 날짜만 센다.** 창 밖 데이터로 요건을 채우면 "아직 보지 않은
+    # 구간에서 판정한다"는 전제가 거짓이 되고, OOS를 건 이유 전체가 무효가 된다.
+    _from_d = (look["requirement"] or {}).get("from_date")
+    pre = pit_dates_count(_from_d) if pit else None
 
     # 잠금 여부는 실행 결과의 실효 기간으로 정해진다 → 먼저 돌리고, 요건을 만족하면 그 실행을 잠근다.
     # 1패스로 끝내려고 run_harness에 lock을 두 번 넘기지 않고, 여기서 미리 계산할 수 있는 것만 계산한다.
@@ -2515,8 +2528,10 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
         exit_rules=_exit_rules)
     if not out.get("ready"):
         return out
+    # price6 경로의 `pit_dates` 는 **자르기 전** 재무 날짜 수다. OOS면 자른 뒤(`oos_dates`)를 쓴다.
+    _pit_num = pre if pit else (out.get("oos_dates") if _from_d else out.get("pit_dates"))
     prog = prereg.progress(look, effective_periods=out.get("effective_periods") or 0,
-                           pit_dates=(pre if pit else out.get("pit_dates")) or 0)
+                           pit_dates=_pit_num or 0)
     if prog["met"] and not already:
         # 요건 충족 첫 실행 — 같은 실행을 잠긴 것으로 다시 남기고 보드를 갱신한다.
         return run_harness(
@@ -2556,12 +2571,20 @@ def harness_board(market: str = "kr", *, path=None) -> dict:
         recent = next((r for r in db.harness_runs_recent(200)
                        if r["preregistered_id"] == lk["id"]), None)
         hold = int((lk["harness"] or {}).get("hold") or 5)
+        # **OOS look은 자기 창 안의 날짜만 센다.** 창이 열리기 전 데이터로 요건을 채우면
+        # "아직 보지 않은 구간에서 판정한다"는 전제가 거짓이 된다.
+        oos_from = (lk["requirement"] or {}).get("from_date")
+        lk_pit = pit_dates_count(oos_from) if oos_from else pit_dates
         if recent and recent.get("effective_periods") is not None:
             eff, eff_src = int(recent["effective_periods"]), "measured"
         else:
-            eff, eff_src = pit_dates // max(1, hold), "estimated"
-        prog = prereg.progress(lk, effective_periods=eff, pit_dates=pit_dates)
+            eff, eff_src = lk_pit // max(1, hold), "estimated"
+        prog = prereg.progress(lk, effective_periods=eff, pit_dates=lk_pit)
         prog["effective_periods_source"] = eff_src
+        # 창 밖 날짜를 세지 않았다는 사실을 **드러낸다** — 두 look의 분자가 다른 이유가
+        # 화면에 안 보이면 "왜 얘만 느리지"로 읽힌다.
+        prog["counts_from"] = oos_from or None
+        prog["pit_dates_all"] = pit_dates
         row = {
             "id": lk["id"], "role": lk["role"], "family": lk["family"],
             # 반사실 family — 라이브가 일부러 안 돌리는 설정을 재는 look. 보드 헤드라인이 될 수
