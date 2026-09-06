@@ -686,6 +686,46 @@ def selection_summary(results: list[SignalResult],
         # 게이트 투명화(X3) — `gate_blocked 17` 하나로는 무엇이 매수 0을 만들었는지 모른다.
         # 실측: 추세 17 · 급락 1이고 **상위 6자리 중 5자리가 추세**였다.
         "gates": _gate_summary(results, config),
+        # 용량(2026-09-06) — 게이트 **이전에** 이미 도달 불가능한 자리가 있는지.
+        "capacity": _capacity_summary(n, config),
+    }
+
+
+def _capacity_summary(n: int, config: SignalConfig) -> dict:
+    """성향이 원하는 보유 종목 수를 창(rank_slots)이 물리적으로 담을 수 있나.
+
+    2026-09-06 실측: 창은 6자리(200종목 × 3%)인데 안정형 `max_positions` 는 **12**다.
+    게이트가 걸리기 **전에** 이미 절반이 도달 불가능하고, 그날 게이트가 창 6자리 중 5자리를
+    먹어 남은 자리는 1~2였다. 그 1~2도 이미 보유 중이거나 쿨다운이라 매수는 0이었다.
+
+    안정형이 43거래일 중 **30일을 100% 현금**으로 보낸 이유가 여기다 — 익스포저가 아니었다
+    (같은 날 저널의 `room` 은 350만원 이상이었고 `slots` 는 2였다).
+
+    이 리포는 같은 병을 성향 수준에서 한 번 고쳤다(2026-08-07, 성향별 `rank_top_pct` 가
+    `max_positions` 를 죽이던 것). 엔진 수준 `rank_top_pct` 는 그대로 남아 같은 일을 한다.
+    **여기서 값을 고치지 않는다** — `rank_top_pct` 는 사전등록 대상이라 바꾸면 판정이 무효다.
+    대신 **도달 불가능하다는 사실을 드러낸다**(0의 이유 규칙).
+    """
+    from signal_desk import strategy
+    k = rank_slots(n, config.rank_top_pct)
+    styles = []
+    for style, p in strategy.PRESETS.items():
+        want = int(p["max_positions"])
+        styles.append({
+            "style": style,
+            "label": strategy.STYLE_LABEL.get(style, style),
+            "max_positions": want,
+            "reachable": min(want, k),
+            "short_by": max(0, want - k),
+        })
+    short = [r for r in styles if r["short_by"]]
+    return {
+        "window_slots": k,
+        "styles": styles,
+        "capped": bool(short),
+        "note": (" · ".join(f"{r['label']} {r['max_positions']}종목 목표 → 창 {k}자리"
+                            for r in short) + " — 게이트 이전에 도달 불가"
+                 if short else None),
     }
 
 
