@@ -430,6 +430,23 @@ def _rebalance_indices(panel: Panel, cfg: HarnessConfig, phase: int = 0) -> list
                       cfg.rebalance_days))
 
 
+def _realized_sigma(row: list[float | None], i: int, window: int = 20) -> float | None:
+    """진입 직전 window거래일 일간 수익률 표준편차. 표본이 모자라면 None(=고정 퍼센트 유지).
+
+    `vol_sizing.realized_vol` 과 같은 정의지만 패널(None 구멍 있음)을 직접 읽는다 —
+    리스트를 복사해 넘기면 시행 200회 × 기간마다 사본이 생긴다.
+    """
+    rets: list[float] = []
+    for k in range(max(1, i - window + 1), i + 1):
+        a, b = row[k - 1], row[k]
+        if a and b and a > 0:
+            rets.append(b / a - 1.0)
+    if len(rets) < max(5, window // 2):
+        return None
+    m = sum(rets) / len(rets)
+    return (sum((x - m) ** 2 for x in rets) / len(rets)) ** 0.5
+
+
 def _exit_walk(row: list[float | None], entry_i: int, end_i: int,
                rules: risk.RiskConfig) -> tuple[float, bool]:
     """진입일 종가로 사서 하루씩 걸으며 청산 판정. (수익률, 조기청산 여부).
@@ -480,7 +497,11 @@ def _period_return(panel: Panel, tickers: list[str], i: int, cfg: HarnessConfig,
             if last:
                 rets.append(last / entry - 1)
             continue
-        r, early = _exit_walk(row, i + 1, end, cfg.exit_rules)
+        rules = cfg.exit_rules
+        if rules.stop_loss_sigma or rules.trailing_sigma:
+            # σ 모드 — 진입 **직전까지**의 변동성만 쓴다(진입일 포함 이후를 보면 룩어헤드).
+            rules = dataclasses.replace(rules, sigma=_realized_sigma(row, i))
+        r, early = _exit_walk(row, i + 1, end, rules)
         rets.append(r)
         if early:
             exited.add(t)

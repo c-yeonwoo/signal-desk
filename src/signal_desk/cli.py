@@ -207,6 +207,8 @@ def harness(
                                    "비우면 무청산(기간 끝까지 보유) — 2026-09-06 이전의 유일한 동작"),
     legacy_trailing: bool = typer.Option(False, "--legacy-trailing",
                                          help="트레일링이 손실 구간에서도 발동하던 옛 동작으로 잰다(A/B용)"),
+    sigma_exits: bool = typer.Option(False, "--sigma-exits",
+                                     help="청산 폭을 σ 배수로 잰다(strategy.EXIT_SIGMA — 미국 σ 기준 환산)"),
 ):
     """포트폴리오 백테스트 — 횡단면 분위 규칙 vs 무작위 대조군 vs 동일가중 벤치마크.
 
@@ -333,7 +335,10 @@ def harness(
     exit_rules = None
     if exits and exits != "none":
         from signal_desk import strategy as _strategy
-        exit_rules = _strategy.risk_config(exits)
+        exit_rules = _strategy.risk_config(exits, sigma=(1.0 if sigma_exits else None))
+        if sigma_exits:
+            # sigma는 하네스가 종목·시점별로 채운다. 여기서는 배수만 켠다.
+            exit_rules = dataclasses.replace(exit_rules, sigma=None)
         if legacy_trailing:
             exit_rules = dataclasses.replace(exit_rules, trailing_protects_gains_only=False)
         console.print(f"[dim]청산 레이어: {_strategy.STYLE_LABEL.get(_strategy.normalize(exits), exits)} "
