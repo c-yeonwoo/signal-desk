@@ -2442,6 +2442,19 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
         return {"ready": False, "reason": why}
 
     hzc = look["harness"]
+    # **등록된 청산 레이어를 그대로 쓴다.** 읽지 않으면 같은 id의 판정이 무청산으로도
+    # 라이브 청산으로도 돌 수 있고, 그 차이가 실측 백분위 98.3% vs 60.0%다.
+    _exits = str(hzc.get("exits") or "none").strip().lower()
+    if _exits != "none":
+        from signal_desk import strategy as _strategy
+        _sigma_mode = _exits.endswith("+sigma")
+        _style = _exits.removesuffix("+sigma")
+        _exit_rules = _strategy.risk_config(_style, sigma=(1.0 if _sigma_mode else None))
+        if _sigma_mode:      # σ는 하네스가 종목·시점별로 채운다 — 배수만 켠다
+            import dataclasses as _dc
+            _exit_rules = _dc.replace(_exit_rules, sigma=None)
+    else:
+        _exit_rules = None
     pit = look["score_source"] == "pit"
     pit_fund = look["score_source"] == "price6"
     pre = pit_dates_count() if pit else None
@@ -2456,7 +2469,8 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
         signal_config=_signal_config_from(look["config"]), pit=pit, pit_fund=pit_fund,
         preregistered_id=look_id, lock=False,
         threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"],
-        from_date=(look["requirement"] or {}).get("from_date"))
+        from_date=(look["requirement"] or {}).get("from_date"),
+        exit_rules=_exit_rules)
     if not out.get("ready"):
         return out
     prog = prereg.progress(look, effective_periods=out.get("effective_periods") or 0,

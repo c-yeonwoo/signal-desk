@@ -35,6 +35,47 @@ class RiskConfig:
     #   손실 구간 → 손절(-5/-7/-10) · 이익 구간 → 트레일링(고점 되돌림) · 목표 도달 → 익절
     # 새 숫자를 만들지 않는다 — 이미 있는 세 값이 설계대로 동작하게만 한다.
     trailing_protects_gains_only: bool = True
+    # ── 변동성 스케일 ──────────────────────────────────────────────────────
+    # 위 세 값은 **고정 퍼센트**다. 그런데 같은 −4%가 시장마다 다른 뜻이다:
+    #
+    #     2026-01~07 일간 σ    미국 2.51%   국내 4.57%   (1.8배)
+    #     트레일링 −4%가 몇 σ   미국 1.6σ    국내 0.9σ
+    #     하루에 −4% 초과 하락   미국 3.78%   국내 12.42%  (종목-일 비율)
+    #
+    # 실측이 그 차이를 그대로 보여줬다(2026-07-08~09-04, 같은 엔진·같은 규칙):
+    #     미국  안정 −0.80%p · 균형 **+0.24%p** · 공격 **+3.04%p**  (초과수익)
+    #     국내  안정 −5.26%p · 균형 −10.19%p · 공격 −10.57%p
+    #
+    # 즉 규칙이 통하는지는 폭이 **몇 σ냐**에 달렸고, 퍼센트로 적어 두면 그 값이 시장에 따라
+    # 조용히 바뀐다. 이 리포가 정규화에서 이미 겪은 병이다 — "척도가 비율로 의미 있으면
+    # max로 나누고, 절대값이 무의미하면 평균 대비 고정 감도로 환산한다".
+    #
+    # `sigma`(그 종목의 일간 실현변동성)를 주면 폭을 σ 배수로 해석한다. 배수는 새로 고른
+    # 값이 아니라 **현재 퍼센트 ÷ 미국 일간 σ(2.51%)** 다 — 미국에서 하던 것을 그대로
+    # 두고 국내가 같은 위험을 지게 하는 환산이다.
+    sigma: float | None = None
+    stop_loss_sigma: float | None = None
+    take_profit_sigma: float | None = None
+    trailing_sigma: float | None = None
+
+    def effective(self) -> "RiskConfig":
+        """σ가 있으면 σ 배수로 환산한 폭을, 없으면 고정 퍼센트를 그대로 쓴다.
+
+        **모르면 바꾸지 않는다** — σ를 못 재는 종목(상장 직후·거래정지)에서 폭을 0으로
+        만들거나 무한대로 벌리면 그건 규칙이 아니라 0으로 나누기다.
+        """
+        if not self.sigma or self.sigma <= 0:
+            return self
+        def _w(mult: float | None, fixed: float) -> float:
+            return -abs(mult) * self.sigma if mult else fixed
+        def _wp(mult: float | None, fixed: float) -> float:
+            return abs(mult) * self.sigma if mult else fixed
+        return RiskConfig(
+            stop_loss_pct=_w(self.stop_loss_sigma, self.stop_loss_pct),
+            take_profit_pct=_wp(self.take_profit_sigma, self.take_profit_pct),
+            trailing_from_peak_pct=_w(self.trailing_sigma, self.trailing_from_peak_pct),
+            trailing_protects_gains_only=self.trailing_protects_gains_only,
+        )
 
 
 def peak_since_entry(closes: list[float], entry_idx: int) -> float:
@@ -50,7 +91,7 @@ def check_exit(
     brightdesk와 동일한 우선순위(손절 → 익절 → 트레일링)로 체크한다. 반환: 'STOP_LOSS' |
     'TAKE_PROFIT' | 'TRAILING' | None(청산 신호 없음).
     """
-    config = config or RiskConfig()
+    config = (config or RiskConfig()).effective()
     # round(): 부동소수점 오차로 정확히 -7.0%/+15.0% 경계값이 근소하게 어긋나
     # (예: 93/100-1 == -0.06999999999999995) 임계값을 못 넘는 걸 방지.
     pl = round(last_close / avg_price - 1, 6)

@@ -59,6 +59,26 @@ PRESETS = {
 # 추세 국면(여기선 익절을 넓게 두고 트레일링으로 수익 극대화). 그 외(횡보·약세·조정)는 중간 실현.
 TRENDING_REGIMES = ("강세", "과열")
 
+# ── 청산 폭의 σ 배수 ─────────────────────────────────────────────────────────
+# **새로 고른 값이 아니다.** 위 PRESETS 의 퍼센트를 `_US_SIGMA_ANCHOR` 로 나눈 것이다:
+# 미국에서 하던 것을 그대로 두고, 국내가 **같은 위험**(같은 σ 배수)을 지게 하는 환산이다.
+#
+# 왜 미국이 기준인가 — 같은 엔진·같은 규칙으로 2026-07-08~09-04에 미국 봇은 벤치마크를
+# 이기고(균형 +0.24%p · 공격 +3.04%p) 국내 봇만 크게 졌다(−5.26 · −10.19 · −10.57%p).
+# 두 시장의 차이는 변동성이었다(일간 σ 미국 2.51% vs 국내 4.57%). 즉 통하던 설정이 있고,
+# 그 설정의 **단위가 퍼센트라서** 국내에 옮겨졌을 때 뜻이 바뀌었다.
+_US_SIGMA_ANCHOR = 0.0251        # 2026-01~07 S&P500 503종목 일간 수익률 σ(이상치 절단)
+
+EXIT_SIGMA = {
+    style: {
+        "stop": round(abs(p["stop_loss_pct"]) / _US_SIGMA_ANCHOR, 2),
+        "take_profit": round(abs(p["take_profit_pct"]) / _US_SIGMA_ANCHOR, 2),
+        "harvest": round(abs(p["harvest_take_profit_pct"]) / _US_SIGMA_ANCHOR, 2),
+        "trailing": round(abs(p["trailing_from_peak_pct"]) / _US_SIGMA_ANCHOR, 2),
+    }
+    for style, p in PRESETS.items()
+}
+
 # 컨빅션 로테이션 — 약한 보유를 더 강한 후보로 교체. 기준·행동강령을 투자 성향별로 나눈다.
 #   min_gap: (후보 최고점수 − 보유 최저점수) 격차가 이 이상일 때만 교체
 #   min_hold_days: 최소 보유일(이전엔 교체 대상 제외 — 잦은 교체 방지)
@@ -115,15 +135,29 @@ def bot_params(style: str) -> dict:
     return {k: p[k] for k in ("max_positions", "position_pct", "min_buy_score", "max_new_buys_per_run")}
 
 
-def risk_config(style: str, regime: str | None = None) -> risk.RiskConfig:
+def risk_config(style: str, regime: str | None = None,
+                sigma: float | None = None) -> risk.RiskConfig:
     """성향별 손절/익절/트레일링 룰. 횡보·약세 국면(비추세)이면 '중간 실현'용 타이트 익절 적용
-    (라오어 응용) — 추세 국면(강세·과열)에선 넓은 익절 + 트레일링으로 수익을 끝까지."""
+    (라오어 응용) — 추세 국면(강세·과열)에선 넓은 익절 + 트레일링으로 수익을 끝까지.
+
+    `sigma`(그 종목의 일간 실현변동성)를 주면 폭을 **σ 배수**로 해석한다(`EXIT_SIGMA`).
+    안 주면 고정 퍼센트 — 기존 동작 그대로다. **모르면 바꾸지 않는다.**
+    """
     p = preset(style)
     tp = p["take_profit_pct"]
+    tp_key = "take_profit"
     if regime is not None and regime not in TRENDING_REGIMES:
         tp = p["harvest_take_profit_pct"]  # 횡보/약세 → 빨리 실현
-    return risk.RiskConfig(stop_loss_pct=p["stop_loss_pct"], take_profit_pct=tp,
-                           trailing_from_peak_pct=p["trailing_from_peak_pct"])
+        tp_key = "harvest"
+    sg = EXIT_SIGMA[normalize(style)]
+    return risk.RiskConfig(
+        stop_loss_pct=p["stop_loss_pct"], take_profit_pct=tp,
+        trailing_from_peak_pct=p["trailing_from_peak_pct"],
+        sigma=sigma,
+        stop_loss_sigma=sg["stop"] if sigma else None,
+        take_profit_sigma=sg[tp_key] if sigma else None,
+        trailing_sigma=sg["trailing"] if sigma else None,
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -50,7 +50,10 @@ ALPHA = 0.05
 # hypothesis에 "6팩터이고 수급·공매도는 빠졌다"를 반드시 적는다.
 CANONICAL_SOURCES = ("pit", "price6")
 
-_HARNESS_KEYS = ("hold", "cost_pct", "trials", "exposure")
+# `exits` 를 넣는 이유(2026-09-06): 하네스에 청산 레이어가 생겼는데 등록 대상이 아니면,
+# 같은 id의 판정이 **무청산으로도 라이브 청산으로도** 돌 수 있고 그 차이가 어디에도 안 남는다.
+# 실측으로 그 차이는 백분위 98.3% vs 60.0%였다 — 등록에서 빠진 파라미터는 검증된 적이 없다.
+_HARNESS_KEYS = ("hold", "cost_pct", "trials", "exposure", "exits")
 
 
 def sidak_threshold_pct(n: int) -> float:
