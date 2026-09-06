@@ -39,16 +39,47 @@ def _eligible(fundamentals: dict[str, dict]) -> dict[str, dict]:
             if m.get("per") is not None and m.get("pbr") is not None}
 
 
-def _valuation_scores(eligible: dict[str, dict], *, sector_neutral: bool) -> dict[str, float]:
+def sector_map(universe: list[dict] | None) -> dict[str, str]:
+    """ticker -> 섹터. **유니버스 행의 `sector` 를 우선 쓰고** 없으면 국내 큐레이션 맵으로 폴백.
+
+    2026-09-06 진단: `sectors.SECTOR_OF` 는 **국내 6자리 코드만** 담고 있어서
+    `sector_of("AAPL")` 이 늘 None이었다. 그래서 `_valuation_scores(sector_neutral=True)` 가
+    미국 503종목을 전부 `_none` 그룹으로 보내고 **섹터 중립화를 통째로 건너뛰었다** —
+    이 모듈 docstring이 경고한 바로 그 상황이다("반도체는 원래 고PER인데 유니버스 비교하면
+    항상 고평가로 찍힘").
+
+    실측 결과가 그대로였다: 미국 정보기술이 은행(PER 6.5)·항공(PER 10)과 한 줄로 비교돼
+    AAPL 87.4분위 · NVDA 87.7 · MSFT 73.8을 받았다. 섹터 내로 재면 각각 71.9 · 68.0 · **47.7**이다.
+
+    **특혜가 아니라 편향 제거다** — 같은 계산에서 GOOGL은 40.2 → 66.7, META는 57.4 → 75.0으로
+    오히려 나빠진다(커뮤니케이션 섹터 안에서는 싼 편이 아니다).
+
+    국내 `universe.json` 행에는 `sector` 키가 없으므로(실측 0/200) 폴백이 걸려 **국내 점수는
+    한 자리도 바뀌지 않는다.** 국내는 사전등록 대상이라 그게 중요하다.
+    """
+    out: dict[str, str] = {}
+    for u in universe or []:
+        t, sec = u.get("ticker"), u.get("sector")
+        if t and sec:
+            out[str(t)] = str(sec)
+    return out
+
+
+def _valuation_scores(eligible: dict[str, dict], *, sector_neutral: bool,
+                      sector_of: dict[str, str] | None = None) -> dict[str, float]:
     """ticker -> valuation_score(0=가장 저평가, 100=가장 고평가). sector_neutral이면 섹터 내
-    percentile(작은/미분류 섹터는 유니버스 fallback), 아니면 유니버스 percentile."""
+    percentile(작은/미분류 섹터는 유니버스 fallback), 아니면 유니버스 percentile.
+
+    `sector_of` 를 주면 그 매핑을 먼저 보고, 없는 종목만 국내 큐레이션 맵으로 폴백한다.
+    """
     uni_per = _percentile_rank({t: m["per"] for t, m in eligible.items()})
     uni_pbr = _percentile_rank({t: m["pbr"] for t, m in eligible.items()})
     per_pct, pbr_pct = dict(uni_per), dict(uni_pbr)   # 기본값=유니버스(=fallback)
     if sector_neutral:
         groups: dict[str, list[str]] = {}
         for t in eligible:
-            groups.setdefault(sectors.sector_of(t) or "_none", []).append(t)
+            sec = (sector_of or {}).get(t) or sectors.sector_of(t)
+            groups.setdefault(sec or "_none", []).append(t)
         for sec, ts in groups.items():
             if sec == "_none" or len(ts) < _MIN_SECTOR:
                 continue                                # 표본 부족 → 유니버스 유지
@@ -74,4 +105,6 @@ def scores(universe: list[dict], fundamentals: dict[str, dict]) -> dict[str, flo
     """종합 시그널(engine)이 쓰는 밸류 팩터 점수 — **섹터 중립화**(섹터 내 저평가 상대 위치).
     ticker -> valuation_score(0=섹터 내 가장 저평가, 100=섹터 내 가장 고평가)."""
     eligible = _eligible(fundamentals)
-    return _valuation_scores(eligible, sector_neutral=True) if eligible else {}
+    return (_valuation_scores(eligible, sector_neutral=True,
+                             sector_of=sector_map(universe))
+            if eligible else {})
