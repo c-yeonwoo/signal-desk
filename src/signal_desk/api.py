@@ -523,6 +523,18 @@ def _daily_maintenance(enabled: list[str]) -> None:
         store.clear_live_quotes()
         _signals.cache_clear()
         store.snapshot_signals(_signals(), date=_kst_today())  # 팩터 PIT 스냅샷(거래일=KST)
+    except Exception as e:
+        log.warning("시그널 스냅샷 실패: %s", type(e).__name__)
+    try:
+        # **미국도 찍는다(2026-09-07부터).** 없으면 미국은 실측·IC·PIT 하네스를 영영 못 잰다 —
+        # `us_fundamentals` 가 스냅샷 하나뿐인 것과 같은 이유로 "언제 알 수 있었나"가 없다.
+        # 시장 컬럼으로 분리해 쌓으므로 국내 IC 횡단면에 섞이지 않는다(`load_signal_history`).
+        store.snapshot_signals(_us_signals().values(), date=_kst_today(), market="us")
+    except Exception as e:
+        # **항목별로 격리한다** — 미국 수집 실패가 국내 스냅샷·국면 스냅샷을 날리면 안 된다
+        # (`kb.refresh` 에서 한 종목 실패가 나머지 전부를 건너뛰게 했던 것과 같은 병).
+        log.warning("미국 시그널 스냅샷 실패: %s", type(e).__name__)
+    try:
         # 국면·익스포저도 그날 값으로 남긴다 — 사후에 오늘의 유니버스로 과거 국면을 다시
         # 매기면 그건 PIT가 아니다. 이게 없으면 익스포저의 타이밍 능력을 영영 못 잰다.
         _rg = _regime() or {}
@@ -530,7 +542,7 @@ def _daily_maintenance(enabled: list[str]) -> None:
                               (_rg.get("adaptive") or {}).get("exposure"),
                               date=_kst_today())
     except Exception as e:
-        log.warning("시그널 스냅샷 실패: %s", type(e).__name__)
+        log.warning("국면 스냅샷 실패: %s", type(e).__name__)
     try:
         climate.snapshot_shadow(_signals())  # 기후 vs 기존 kind 관측(봇 미연동)
     except Exception as e:

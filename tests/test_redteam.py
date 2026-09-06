@@ -3773,3 +3773,25 @@ def test_daily_card_labels_context_separately_from_cause():
     fn = html.split("async function loadDailyChange(", 1)[1].split("\n}", 1)[0]
     assert "layer-badge ctx" in fn, "맥락 라벨이 없다"
     assert "dchg-ctx" in fn, "맥락이 원인과 같은 블록에 있다"
+
+
+def test_cross_sectional_ic_never_mixes_markets():
+    """국내·미국 스냅샷이 한 파일에 쌓이므로, 횡단면 IC가 두 시장을 한 줄로 세우면 안 된다.
+
+    2026-09-07에 미국 PIT 스냅샷을 시작했다. `accuracy.cross_sectional_ic` 는 **날짜로 묶어**
+    순위상관을 내므로, 로더가 시장을 안 가르면 그 날의 횡단면이 한·미 혼합이 된다 —
+    사전등록된 국내 IC look(`kr-score-ic-h5-oos`)이 조용히 다른 것을 재게 되는 경로다.
+    (`harness.build_panel` 이 같은 이유로 "시장은 반드시 하나로 좁혀야 한다"고 적어 뒀다.)
+    """
+    import inspect
+
+    from signal_desk import store
+
+    sig = inspect.signature(store.load_signal_history)
+    assert sig.parameters["market"].default == "kr", (
+        "기본 로더가 두 시장을 함께 돌려주면 20개 호출처가 전부 혼합 횡단면을 보게 된다")
+    src = inspect.getsource(store.load_signal_history)
+    assert "market is None" in src, "두 시장을 함께 보는 경로가 **명시적**이어야 한다"
+    # 스냅샷은 (날짜·시장) 단위로만 갱신한다 — 날짜만 보고 지우면 서로를 날린다.
+    snap = inspect.getsource(store.snapshot_signals)
+    assert '(old["date"] == date) & (old_mkt == market)' in snap

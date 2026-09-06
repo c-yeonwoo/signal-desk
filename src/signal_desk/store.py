@@ -1950,7 +1950,7 @@ def attach_us_quality(fund: dict) -> int:
     return n
 
 
-def _pre_run_up_by_ticker(tickers: list[str]) -> dict[str, float]:
+def _pre_run_up_by_ticker(tickers: list[str], market: str = "kr") -> dict[str, float]:
     """스냅샷용 사전 상승 — **그 날 종가 기준 직전 N거래일 수익률**.
 
     스냅샷은 하루 1회이므로, 어떤 종목이 매수권으로 **전환된 날**의 행에 담긴 이 값이 곧
@@ -1960,7 +1960,7 @@ def _pre_run_up_by_ticker(tickers: list[str]) -> dict[str, float]:
     **None 과 0 은 다르다** — 봉이 모자라면 빼고, 0으로 채우지 않는다(0은 "안 올랐다"로 읽힌다).
     """
     from signal_desk.signals.pre_move import trailing_return_pct
-    series = load_price_series()
+    series = load_us_price_series() if market == "us" else load_price_series()
     out: dict[str, float] = {}
     for t in tickers:
         v = trailing_return_pct(series.get(t) or [])
@@ -2011,7 +2011,7 @@ def market_return_by_date(market: str = "kr") -> dict[str, float]:
     return {str(d): float(v) for d, v in ret.items() if v == v}
 
 
-def snapshot_signals(signals, date: str | None = None) -> int:
+def snapshot_signals(signals, date: str | None = None, market: str = "kr") -> int:
     """오늘의 종목별 시그널·팩터값을 point-in-time으로 기록(일 1회). 수급·퀄리티·정성은 과거 PIT
     데이터가 없어 사전 백테스트가 불가했는데, 오늘부터 쌓아 향후 팩터 백테스트를 가능하게 한다.
     같은 날 재실행 시 그 날짜를 덮어쓴다. 반환: 기록한 종목 수.
@@ -2032,7 +2032,7 @@ def snapshot_signals(signals, date: str | None = None) -> int:
     # 사전 상승도 그날 값으로 남긴다 — 사후에 재구성하려면 그 시점 발동일·유니버스가 필요한데
     # 둘 다 복원이 어렵다(KB 커버리지와 같은 이유).
     try:
-        pre_up = _pre_run_up_by_ticker([s.ticker for s in signals])
+        pre_up = _pre_run_up_by_ticker([s.ticker for s in signals], market=market)
     except Exception:                                  # noqa: BLE001 — 관측 실패가 스냅샷을 막지 않는다
         pre_up = {}
     from signal_desk.signals import pick_reason as pr
@@ -2055,13 +2055,19 @@ def snapshot_signals(signals, date: str | None = None) -> int:
             # 발동일·유니버스를 알아야 하는데 둘 다 사후엔 복원이 어렵다(KB 커버리지와 같은 이유).
             # 이게 있어야 "사전 상승이 큰 매수 vs 작은 매수"를 실현 수익으로 채점할 수 있다.
             "pre_run_up_pct": pre_up.get(s.ticker),
+            "market": market,
             **meta,
         })
     df_new = pd.DataFrame(rows)
     if SIGNAL_HISTORY_FILE.exists():
         old = _read_parquet(SIGNAL_HISTORY_FILE)
         if not old.empty and "date" in old.columns:
-            old = old[old["date"] != date]  # 같은 날 재실행 → 갱신
+            if "market" not in old.columns:
+                old = old.assign(market="kr")   # 옛 행은 국내였다
+            old_mkt = old["market"].fillna("kr").astype(str)
+            # 같은 날 재실행 → 갱신. **그 시장만** 지운다 — 날짜만 보고 지우면
+            # 국내 스냅샷이 미국 스냅샷을 날리고 그 반대도 된다(둘은 같은 날 찍힌다).
+            old = old[~((old["date"] == date) & (old_mkt == market))]
             df_new = pd.concat([old, df_new], ignore_index=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     _write_parquet(df_new, SIGNAL_HISTORY_FILE)
@@ -2333,10 +2339,28 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
     return {**blob, "board_updated": False}
 
 
-def load_signal_history():
+def load_signal_history(market: str | None = "kr"):
+    """PIT 스냅샷. **기본은 국내만** 돌려준다.
+
+    2026-09-07에 미국 스냅샷을 같은 파일에 쌓기 시작했다. 그런데 이 파일을 읽는 곳이
+    20군데이고, 그중 `accuracy.cross_sectional_ic` 는 **날짜로 묶어 횡단면 순위상관**을
+    낸다 — 시장 컬럼 없이 미국 행을 넣으면 그 날의 횡단면이 한·미 혼합이 되어
+    **서로 다른 시장의 종목을 한 줄로 세우게 된다**(`harness.build_panel` 이 경고하는 그것).
+    사전등록된 국내 IC look이 조용히 다른 것을 재게 되는 경로다.
+
+    그래서 기본값을 `"kr"` 로 둔다 — 기존 호출처는 한 줄도 안 고쳐도 동작이 같다.
+    두 시장을 함께 보려면 **명시적으로** `market=None` 을 넘긴다.
+    `market` 컬럼이 없는 옛 행은 국내로 본다(그때는 국내만 찍었다).
+    """
     if not SIGNAL_HISTORY_FILE.exists():
         return pd.DataFrame()
-    return _read_parquet(SIGNAL_HISTORY_FILE)
+    df = _read_parquet(SIGNAL_HISTORY_FILE)
+    if df.empty or market is None:
+        return df
+    if "market" not in df.columns:
+        return df if market == "kr" else df.iloc[0:0]
+    col = df["market"].fillna("kr").astype(str)
+    return df[col == str(market)]
 
 
 # 연속 두 날짜 사이에 점수가 바뀐 종목 비율이 이 값 이하면 '동결'로 본다. 시세가 갱신되면
@@ -2442,7 +2466,7 @@ def price_sanity(tickers: list[str] | None = None) -> dict:
 
 # ------------------------------------------------------- 사전등록 판정 보드 (PRD N3)
 
-def pit_dates_count(from_date: str | None = None) -> int:
+def pit_dates_count(from_date: str | None = None, market: str = "kr") -> int:
     """PIT 스냅샷이 있는 **거래일 수**. 요건 진척의 분자다(행 수가 아니라 날짜 수).
 
     행으로 세면 하루 200종목이 200관측으로 부풀어 요건이 즉시 충족된 것처럼 보인다 —
@@ -2455,7 +2479,7 @@ def pit_dates_count(from_date: str | None = None) -> int:
     OOS 창 밖 데이터로 채워져 **아직 보지 않은 구간에서 판정한다**는 전제가 거짓이 된다.
     OOS를 걸어 둔 이유 전체가 무효가 되는 경로다.
     """
-    df = load_signal_history()
+    df = load_signal_history(market)
     if df.empty or "date" not in df.columns:
         return 0
     dates = df["date"].astype(str)
