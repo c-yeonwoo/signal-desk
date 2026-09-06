@@ -1420,13 +1420,22 @@ def test_preregistered_seen_hypotheses_require_an_oos_window():
     # 그리고 **종류를 나눠도** 줄지 않는다: 실측 정확도 look(2026-08-17 등록)도 "데이터를 한 번
     # 더 본다"는 사실은 같으므로 n에 들어가고, 그만큼 하네스 문턱도 올라간다.
     n_extra = len(reg.get("accuracy_looks") or []) + len(reg.get("ic_looks") or [])
-    assert reg["n_canonical"] == 3
-    assert reg["n_looks_total"] == 3 + n_extra
+    # 상수를 박지 않는다 — look을 더하면 이 검사가 깨지기만 하고 규약은 안 지켜진다.
+    # 지켜야 할 규약은 "n은 파일 전체의 look 수이고, 종류·family를 나눠도 줄지 않는다"이다.
+    n_canonical = len(reg["looks"])
+    assert reg["n_canonical"] == n_canonical
+    assert reg["n_looks_total"] == n_canonical + n_extra
     assert reg["threshold_pct"] == prereg.sidak_threshold_pct(reg["n_looks_total"])
     assert reg["threshold_pct"] > prereg.sidak_threshold_pct(2)
     if n_extra:
-        assert reg["threshold_pct"] > prereg.sidak_threshold_pct(3), (
+        assert reg["threshold_pct"] > prereg.sidak_threshold_pct(n_canonical), (
             "다른 종류의 look을 더했는데 하네스 문턱이 안 올라갔다 — 종류를 나눠 n을 낮춘 것이다")
+    # **결과를 본 가설은 전부** OOS 창이 있어야 한다(D4만이 아니다).
+    for lk in reg["looks"]:
+        fd = (lk["requirement"] or {}).get("from_date")
+        if fd:
+            assert fd >= lk["registered_at"], (
+                f"{lk['id']}: from_date {fd} < 등록일 {lk['registered_at']} — 사후등록이다")
 
 
 def tmp_path_factory_dir():

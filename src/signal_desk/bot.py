@@ -528,7 +528,18 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         _update_decision_outcomes(prices)  # 과거 결정 사후수익 확정(공용 학습, 국내 기준)
 
     cfg = _cfg(uid)
-    risk_cfg = strategy.risk_config(cfg["trading_style"], mr["context"].get("regime"))
+    # 청산 폭은 **종목별 변동성**으로 정한다(2026-09-06). 고정 퍼센트는 시장을 옮기면 뜻이
+    # 바뀐다 — 트레일링 −4%가 미국에서 1.6σ, 국내에서 0.9σ였고 실측 성적이 그 차이를 그대로
+    # 따라갔다(미국 균형 +0.24%p·공격 +3.04%p vs 국내 −10.19·−10.57%p).
+    # σ를 못 재는 종목은 고정 퍼센트를 그대로 쓴다("모르면 바꾸지 않는다").
+    _sigma_exits = config.sigma_scaled_exits()
+    _regime = mr["context"].get("regime")
+
+    def _risk_for(closes: list[float] | None) -> "risk.RiskConfig":
+        sg = (vol_sizing.realized_vol(closes or []) if _sigma_exits else None)
+        return strategy.risk_config(cfg["trading_style"], _regime, sigma=sg)
+
+    risk_cfg = _risk_for(None)          # σ 없는 기본 — 로그·폴백용
     sells: list[dict] = []
     for h in bal["holdings"]:
         ticker, qty, avg_price = h["ticker"], h["qty"], h["avg_price"]
@@ -536,6 +547,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         if not closes:
             continue  # 유니버스 밖 종목 — 봇 판단 대상 아님
         current_price = _live_price(ticker, closes[-1])
+        # **종목별** 청산 폭. 종가 시계열로만 잰다(장중 오버레이가 섞이면 폭이 매 틱 흔들린다).
+        pos_risk = _risk_for(closes)
         pos = db.bot_position_get(uid, ticker)
         peak = max(pos["peak_price"] if pos else avg_price, current_price)
         sig = signal_by_ticker.get(ticker)
@@ -553,7 +566,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         elif dec and dec.holding_action == "trim":
             reason, sell_qty = "EVENT_TRIM", max(1, qty // 2)
         if not reason:
-            reason = risk.check_exit(avg_price, current_price, peak, risk_cfg)
+            reason = risk.check_exit(avg_price, current_price, peak, pos_risk)
         if not reason and sig and engine.is_sell(sig.kind):
             reason = "SIGNAL"
 
@@ -563,7 +576,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                 note = (f"{decmod.decision_reason(dec)} · "
                         f"평단 {int(avg_price):,}→현재 {int(current_price):,}{unit}({pl_pct:+.1f}%), {sell_qty}주")
             else:
-                note = _sell_note(reason, sell_qty, avg_price, current_price, pl_pct, risk_cfg)
+                note = _sell_note(reason, sell_qty, avg_price, current_price, pl_pct,
+                                  pos_risk.effective())
             plan = {"ticker": ticker, "name": name_by_ticker.get(ticker, ticker), "qty": sell_qty,
                     "reason": reason, "note": note, "price": current_price}
             if not dry_run:

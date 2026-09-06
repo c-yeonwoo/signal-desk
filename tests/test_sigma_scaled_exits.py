@@ -108,11 +108,17 @@ def test_preregistration_declares_the_exit_layer():
         assert "exits" in lk["harness"], f"{lk['id']}: 청산 레이어 선언이 없다"
 
 
-def test_registered_looks_currently_measure_no_exit_holding():
-    """현재 등록 3+1개는 전부 무청산이다 — 그게 사실이고, 사실이 파일에 적혀 있어야 한다."""
+def test_pre_2026_09_looks_measure_no_exit_holding():
+    """2026-09-06 이전에 등록된 look은 전부 무청산이다.
+
+    그게 사실이고, 사실이 파일에 적혀 있어야 한다 — 그 판정들은 라이브 봇이 아니라
+    '5일 무청산 보유 랭킹'을 잰다. 이후 등록은 청산 레이어를 명시하면 된다.
+    """
     from signal_desk import prereg
-    for lk in prereg.load()["looks"]:
-        assert lk["harness"]["exits"] == "none"
+    old = [lk for lk in prereg.load()["looks"] if lk["registered_at"] < "2026-09-06"]
+    assert old, "옛 look이 하나도 없다 — 검사 전제가 바뀌었다"
+    for lk in old:
+        assert lk["harness"]["exits"] == "none", lk["id"]
 
 
 def test_run_preregistered_honours_the_declaration():
