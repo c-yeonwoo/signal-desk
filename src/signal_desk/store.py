@@ -2167,7 +2167,8 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
                 signal_config=None, pit: bool = False, pit_fund: bool = False,
                 preregistered_id: str | None = None, lock: bool = False,
                 threshold_pct: float | None = None, n_registered: int | None = None,
-                from_date: str | None = None, min_mktcap_pct: float = 0.0) -> dict:
+                from_date: str | None = None, min_mktcap_pct: float = 0.0,
+                exit_rules=None) -> dict:
     """하네스를 돌리고 **이력에 남긴다**. 보드 정본은 사전등록된 확정 실행만 갱신한다.
 
     `signal_config`를 안 주면 `signalcfg.get_config()`(소스 기본값 + kv 오버라이드)를 검사한다.
@@ -2199,6 +2200,10 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         top_pct=float(top_pct), rebalance_days=int(hold), cost_pct=float(cost),
         random_trials=max(10, min(int(trials), 200)), use_exposure=bool(exposure),
         signal_config=sc, min_mktcap_pct=float(min_mktcap_pct or 0.0),
+        # 청산 레이어 — 넘기지 않으면 무청산(기존 동작). 라이브 봇의 실제 청산 규칙을
+        # 검사에 넣으려면 호출자가 명시해야 한다("검사에 넣을 수 없는 파라미터는
+        # 검증된 적이 없다" — 그 반대편이 이것이다).
+        exit_rules=exit_rules,
     )
     scores, source, pit_dates = None, "price", None
     cov6 = fired6 = covers = None

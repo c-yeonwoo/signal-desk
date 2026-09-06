@@ -34,12 +34,13 @@ API에 없다(BACKLOG §0). 즉 생존편향을 제거할 방법이 없다. 그�
 
 from __future__ import annotations
 
+import dataclasses
 import math
 import random
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from signal_desk.signals import engine, multiplicity, regime as regime_mod
+from signal_desk.signals import engine, multiplicity, regime as regime_mod, risk
 from signal_desk.signals.engine import SignalConfig
 
 
@@ -80,6 +81,19 @@ class HarnessConfig:
     # 호출자가 분위·최소점수를 **일부러** 다르게 주고 싶을 때만 True(스윕·감도분석).
     # 기본은 라이브를 따라간다 — "검사에 넣을 수 없는 파라미터는 검증된 적이 없다".
     override_selection: bool = False
+    # ── 보유 기간 안의 청산 규칙 ────────────────────────────────────────────
+    # None이면 기간 끝까지 무조건 보유(2026-09-06 이전의 유일한 동작).
+    #
+    # **왜 넣나(2026-09-06 진단).** 라이브 봇의 실제 청산은 100%가 트레일링이었는데
+    # (레퍼런스 3봇 최근 20거래 전부 `TRAILING`), 하네스에는 `stop_loss`·`trailing`·
+    # `take_profit` 이라는 단어가 **한 번도 나오지 않았다.** 즉 판별력 판정은 5일 무청산
+    # 전략을 재고 있었고, 실제로 돈을 잃은 규칙은 검사에 들어간 적이 없다. 이 리포가
+    # 이미 적어 둔 병이다 — "검사에 넣을 수 없는 파라미터는 검증된 적이 없다",
+    # "검사에서 편의상 끄는 조건 하나하나가 버그가 살 수 있는 틈이다".
+    #
+    # 규칙 판정은 **라이브와 같은 함수**(`risk.check_exit`)로 한다. 여기서 따로 조립하면
+    # 그 차이가 판별력으로 둔갑한다("같은 점수를 두 곳에서 조립하지 않는다").
+    exit_rules: risk.RiskConfig | None = None
 
     def __post_init__(self) -> None:
         """엔진 설정을 미러하는 필드를 **실제로** 당겨온다.
@@ -416,19 +430,61 @@ def _rebalance_indices(panel: Panel, cfg: HarnessConfig, phase: int = 0) -> list
                       cfg.rebalance_days))
 
 
+def _exit_walk(row: list[float | None], entry_i: int, end_i: int,
+               rules: risk.RiskConfig) -> tuple[float, bool]:
+    """진입일 종가로 사서 하루씩 걸으며 청산 판정. (수익률, 조기청산 여부).
+
+    라이브와 같은 규약으로 맞춘다:
+    - 진입 시 `peak` 는 **진입가**다(`bot.run_once` 가 `bot_position_upsert(..., live, live, ...)`
+      로 평단=고점=진입가를 넣는다). 이 초기값이 트레일링을 사실상 진입가 기준 손절로 만든다 —
+      그 결과가 옳은지는 이 하네스가 판정한다.
+    - 판정은 종가로만 한다. 라이브는 5분틱 장중가로 `peak` 를 갱신하므로 **여기서 나오는
+      조기청산률은 실제보다 낮다**(과소 추정). 낮게 나온 값이 이미 나쁘면 실제는 더 나쁘다.
+    """
+    entry = row[entry_i]
+    if not entry:
+        return 0.0, False
+    peak = entry
+    for k in range(entry_i + 1, end_i + 1):
+        c = row[k]
+        if not c:
+            continue
+        peak = max(peak, c)
+        if risk.check_exit(entry, c, peak, rules):
+            return c / entry - 1.0, True
+    last = row[end_i]
+    return (last / entry - 1.0, False) if last else (0.0, False)
+
+
 def _period_return(panel: Panel, tickers: list[str], i: int, cfg: HarnessConfig,
-                   alias: dict[str, str] | None = None) -> float:
+                   alias: dict[str, str] | None = None) -> tuple[float, set[str]]:
     """i 다음 거래일 종가 진입 → rebalance_days 뒤 종가 청산. 동일가중 평균 수익률.
+
+    `cfg.exit_rules` 가 있으면 기간 안에서 손절·익절·트레일링을 판정하고, **조기청산된
+    종목 집합**을 함께 낸다. 조기청산분은 다음 기간에 보유로 세지 않으므로 회전율이 올라간다 —
+    그 비용 차이가 이 레이어의 본체다(로테이션 대조군에서 이미 겪었다: 회전율이 다른 두 경로를
+    비교하면 회전율 차이가 판별력으로 둔갑한다).
 
     alias는 누수 탐지용 — 종목의 점수는 그대로 두고 **수익률만 다른 종목 것으로 바꿔치기**한다.
     """
-    rets = []
+    end = min(i + 1 + cfg.rebalance_days, len(panel) - 1)
+    rets: list[float] = []
+    exited: set[str] = set()
     for t in tickers:
         row = panel.closes[alias[t] if alias else t]
-        entry, exit_ = row[i + 1], row[min(i + 1 + cfg.rebalance_days, len(panel) - 1)]
-        if entry and exit_:
-            rets.append(exit_ / entry - 1)
-    return sum(rets) / len(rets) if rets else 0.0
+        entry = row[i + 1]
+        if not entry:
+            continue
+        if cfg.exit_rules is None:
+            last = row[end]
+            if last:
+                rets.append(last / entry - 1)
+            continue
+        r, early = _exit_walk(row, i + 1, end, cfg.exit_rules)
+        rets.append(r)
+        if early:
+            exited.add(t)
+    return (sum(rets) / len(rets) if rets else 0.0), exited
 
 
 def _metrics(equity: list[float], periods_per_year: float) -> dict:
@@ -505,7 +561,11 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
     per_period_ret: list[float] = []
     universe_by_date: dict[int, list[str]] = {}
     empty_periods = 0
+    early_exits = n_positions = 0
     cov_blocked = trend_blocked = crash_blocked = cap_blocked = 0
+    # 벤치마크 전용 설정 — 청산 규칙만 뺀다. 루프 밖에서 한 번 만든다(시행 200회 × 기간마다
+    # 새로 만들면 그 자체가 비용이다).
+    bench_cfg = cfg if cfg.exit_rules is None else dataclasses.replace(cfg, exit_rules=None)
     min_cov = float(getattr(scfg, "min_data_coverage", 0.0) or 0.0)
     min_cap_pct = float(getattr(cfg, "min_mktcap_pct", 0.0) or 0.0)
 
@@ -564,7 +624,9 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
 
         if picks:
             alias = _shuffled_alias(avail, tie_rng) if cfg.shuffle_returns else None
-            gross = _period_return(panel, picks, i, cfg, alias)
+            gross, exited = _period_return(panel, picks, i, cfg, alias)
+            early_exits += len(exited)
+            n_positions += len(picks)
             if cfg.use_exposure and regimes is not None:
                 exp = regime_mod.target_exposure({"regime": regimes.get(i)}, None)["exposure"]
                 gross *= exp
@@ -573,10 +635,16 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
         else:
             net = 0.0                 # 현금. 안 산 기간에 거래비용을 물리면 안 된다.
             empty_periods += 1
-        held = set(picks)
+            exited = set()
+        # **조기청산분은 보유로 세지 않는다.** 다음 기간에 같은 종목이 다시 뽑히면 신규매수이고
+        # 회전비용을 문다 — 라이브의 재매수와 같다. 이걸 빼면 청산 규칙의 비용이 사라져
+        # "규칙이 공짜"라는 잘못된 결론이 나온다.
+        held = set(picks) - exited
         per_period_ret.append(net)
         equity.append(equity[-1] * (1 + net))
-        bench.append(bench[-1] * (1 + _period_return(panel, avail, i, cfg)))
+        # 벤치마크는 정의상 **동일가중 매수보유**다 — 청산 규칙을 걸면 대조군이 아니라
+        # 또 하나의 전략이 된다.
+        bench.append(bench[-1] * (1 + _period_return(panel, avail, i, bench_cfg)[0]))
         picks_log.append({"date": panel.dates[i], "n_universe": len(avail),
                           "k": k, "picks": len(picks)})
 
@@ -588,6 +656,11 @@ def _run_phase(panel: Panel, cfg: HarnessConfig, scores: dict, idxs: list[int],
             "bench_per_period_ret": [bench[k + 1] / bench[k] - 1 for k in range(len(bench) - 1)],
             "bench_metrics": _metrics(bench, ppy), "universe_by_date": universe_by_date,
             "empty_periods": empty_periods, "periods": len(idxs),
+            # 청산 규칙이 실제로 몇 번 발동했나. 규칙을 넣었는데 0이면 그 규칙은 검증된 적이
+            # 없는 것과 같다(커버리지·추세 게이트에서 이미 두 번 겪은 함정).
+            "early_exits": early_exits, "n_positions": n_positions,
+            "early_exit_pct": (round(early_exits / n_positions * 100, 1)
+                               if n_positions else None),
             # 커버리지 게이트가 실제로 몇 번 후보를 걸렀나. 0이면 완화가 아무 것도 안 막은 것 —
             # "있는 것처럼 보이지만 효과 없는 게이트"를 여기서 드러낸다.
             "coverage_blocked": cov_blocked, "min_data_coverage": min_cov,
@@ -823,6 +896,24 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
                 "event": "KB 악재 이벤트 시점별 이력 없음 — 그날 무엇이 악재였는지 복원 불가",
             },
             "live_gate_count": len(engine.GATE_LABELS),
+        },
+        # **청산 레이어를 선언한다.** `rules: null` 이면 이 결과는 "5일 무청산 보유"의 성적이지
+        # 라이브 봇의 성적이 아니다 — 라이브는 손절·익절·트레일링으로 기간 중간에 나간다.
+        # 선언이 없으면 읽는 사람은 같은 전략이라고 가정하고, 그게 2026-09-06까지 실제로
+        # 벌어진 일이다(실측 청산 100%가 트레일링인데 하네스는 그 단어조차 없었다).
+        "exit_layer": {
+            "rules": (dataclasses.asdict(cfg.exit_rules) if cfg.exit_rules else None),
+            "early_exits": sum(r.get("early_exits") or 0 for r in runs),
+            "n_positions": sum(r.get("n_positions") or 0 for r in runs),
+            "early_exit_pct": (round(sum(r.get("early_exits") or 0 for r in runs)
+                                     / sum(r.get("n_positions") or 0 for r in runs) * 100, 1)
+                               if sum(r.get("n_positions") or 0 for r in runs) else None),
+            # 종가로만 판정한다. 라이브는 5분틱 장중가로 peak를 갱신하므로 실제 조기청산률은
+            # 이 값보다 **높다** — 이 방향으로만 틀린다는 사실을 산출물에 적어 둔다.
+            "intraday": False,
+            "note": ("청산 규칙 없음 — 이 결과는 라이브 봇이 아니라 5일 무청산 보유의 성적이다"
+                     if cfg.exit_rules is None else
+                     "종가 기준 판정 — 라이브(5분틱 장중가)보다 조기청산이 적게 잡힌다"),
         },
         # `top_pct` 는 스윕 파라미터라 미러하지 않는다 — 엔진과 어긋나면 조용히 두지 않고 드러낸다.
         "selection_mirror": _selection_mirror(cfg),
