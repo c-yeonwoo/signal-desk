@@ -202,6 +202,9 @@ def harness(
                                      help="이 날짜부터는 **홀드아웃** — 스윕이 보지 않는다(L1)"),
     spa_trials: int = typer.Option(1000, "--spa-trials",
                                    help="SPA 부트스트랩 시행 수(L2 — --sweep일 때만)"),
+    exits: str = typer.Option("", "--exits",
+                              help="보유 중 청산 규칙을 걸고 잰다: conservative|balanced|aggressive|none. "
+                                   "비우면 무청산(기간 끝까지 보유) — 2026-09-06 이전의 유일한 동작"),
 ):
     """포트폴리오 백테스트 — 횡단면 분위 규칙 vs 무작위 대조군 vs 동일가중 벤치마크.
 
@@ -322,10 +325,21 @@ def harness(
     console.print(f"[dim]시도 횟수(L4): 이력 고유 {_tc.get('distinct_configs')}조합 + 이번 "
                   f"{len(combos)}조합 = {_n_trials} · 조정 가능 파라미터 "
                   f"{_tc.get('tunable_params')}개[/dim]")
+    # 청산 레이어 — 라이브 봇이 실제로 쓰는 규칙을 **성향 프리셋 그대로** 가져온다.
+    # 여기서 숫자를 다시 적으면 프리셋을 바꿔도 검사는 옛 값을 재게 된다.
+    exit_rules = None
+    if exits and exits != "none":
+        from signal_desk import strategy as _strategy
+        exit_rules = _strategy.risk_config(exits)
+        console.print(f"[dim]청산 레이어: {_strategy.STYLE_LABEL.get(_strategy.normalize(exits), exits)} "
+                      f"손절 {exit_rules.stop_loss_pct:+.0%} · 익절 {exit_rules.take_profit_pct:+.0%} · "
+                      f"트레일링 {exit_rules.trailing_from_peak_pct:+.0%} "
+                      f"(종가 기준 — 라이브 5분틱보다 조기청산이 적게 잡힌다)[/dim]")
+
     for tp, h in combos:
         cfg = hz.HarnessConfig(top_pct=tp, rebalance_days=h, cost_pct=cost,
                                random_trials=trials, use_exposure=exposure,
-                               shuffle_returns=shuffle,
+                               shuffle_returns=shuffle, exit_rules=exit_rules,
                                signal_config=store._signal_config_from(overrides)
                                if overrides else signalcfg.get_config())
         regimes = hz.regimes_at(panel, hz._rebalance_indices(panel, cfg)) if exposure else None
