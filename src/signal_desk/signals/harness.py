@@ -219,6 +219,7 @@ def scores_with_pit_fundamentals(
     shares: dict[str, float], universe: list[dict] | None = None,
     universe_at: "Callable[[str], set[str] | None] | None" = None,
     mktcap_anchors: dict | None = None, price_on: dict | None = None,
+    growth_weight: float = 0.0,
 ) -> tuple[dict[str, list[float | None]], dict[str, float], dict[str, float], dict,
            dict[str, list[float | None]]]:
     """가격 3팩터 + **시점별 재무** 3팩터 = 6팩터 점수 시계열.
@@ -300,6 +301,9 @@ def scores_with_pit_fundamentals(
             if not metrics:
                 continue
         val_scores = pf.valuation_scores_at(metrics, universe)
+        # 성장 분위도 **그 날 후보 집합 안에서** 잰다 — 전 기간 고정 분위를 쓰면 그 자체가
+        # 룩어헤드다(오늘의 성장률 순위를 과거에 알고 있었던 셈).
+        growth_scores = pf.growth_scores_at(metrics) if growth_weight else None
         if first_date is None:
             first_date = date_str
         dates_with_fund += 1
@@ -310,7 +314,9 @@ def scores_with_pit_fundamentals(
             if j < 0 or j >= len(vals):
                 continue
             comps = engine._price_only_components(vals, series, j, config)
-            comps = comps + pf.components_at(ticker, metrics.get(ticker), val_scores, config)
+            comps = comps + pf.components_at(ticker, metrics.get(ticker), val_scores, config,
+                                             growth_scores=growth_scores,
+                                             growth_weight=growth_weight)
             for name, (_, w, _) in zip(names, comps):
                 if w:
                     fired[name] += 1

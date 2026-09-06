@@ -16,8 +16,13 @@ class FundamentalResult:
     reasons: list[str] = field(default_factory=list)
 
 
-def score(metrics: dict) -> FundamentalResult:
-    """metrics: per, pbr, roe, revenue_growth(%), debt_ratio(%), dividend_yield(%) — 모두 optional."""
+def score(metrics: dict, *, include_growth: bool = True) -> FundamentalResult:
+    """metrics: per, pbr, roe, revenue_growth(%), debt_ratio(%), dividend_yield(%) — 모두 optional.
+
+    `include_growth=False` 면 매출성장 항목을 뺀다 — 성장을 **독립 팩터**로 분리해 재는
+    실험에서 이중계상을 막기 위한 스위치다(`signals/growth.py`). 기본은 True이므로
+    라이브·기존 판정의 점수는 한 자리도 바뀌지 않는다.
+    """
     per = metrics.get("per")
     pbr = metrics.get("pbr")
     roe = metrics.get("roe")
@@ -61,7 +66,7 @@ def score(metrics: dict) -> FundamentalResult:
             total -= 0.3
             reasons.append(f"[기본] PBR {pbr:.2f} — 고평가 우려")
 
-    if revenue_growth is not None:
+    if revenue_growth is not None and include_growth:
         if revenue_growth > 15:
             total += 0.7
             reasons.append(f"[기본] 매출성장 {revenue_growth:.1f}% — 고성장")

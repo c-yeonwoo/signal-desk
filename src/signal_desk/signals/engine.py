@@ -1003,11 +1003,13 @@ def _price_only_components(
 
 
 def _fundamental_component(
-    metrics: dict | None, config: SignalConfig
+    metrics: dict | None, config: SignalConfig, *, include_growth: bool = True
 ) -> tuple[float, float, list[str]]:
     """재무 metrics(ROE/부채/성장) → 컴포넌트. 데이터 없으면 가중치 0(제외). backtest의
-    point-in-time 재무 반영에 쓰인다 — evaluate()의 인라인 계산과 동일 규칙(fnd.score)."""
-    fund = fnd.score(metrics or {})
+    point-in-time 재무 반영에 쓰인다 — evaluate()의 인라인 계산과 동일 규칙(fnd.score).
+
+    `include_growth=False` 는 성장을 독립 팩터로 분리해 재는 실험 전용이다(기본 True)."""
+    fund = fnd.score(metrics or {}, include_growth=include_growth)
     if not fund.has_data:
         return 0.0, 0.0, fund.reasons
     return fund.score / 2.0, config.weight_fundamental, fund.reasons
