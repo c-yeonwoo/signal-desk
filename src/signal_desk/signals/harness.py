@@ -1099,6 +1099,103 @@ def _null_distribution(panel: Panel, cfg: HarnessConfig, scores: dict,
             "p95": round(totals[min(n - 1, int(n * 0.95))], 1) if n else 0.0}
 
 
+def compare_picks(panel: Panel, scores_a: dict, scores_b: dict, cfg: HarnessConfig,
+                  *, warmup: int | None = None) -> dict:
+    """두 점수 집합의 **매수권 교체를 픽 단위로** 분해한다.
+
+    ## 왜 필요한가 (2026-09-07)
+
+    분모 A/B에서 백분위가 81.9% → 68.2%(−13.7pp)로 갈렸다. 시드 5개의 흔들림이 1.8~2.4pp라
+    "노이즈가 아니다"라고 썼는데 **그 추론이 틀렸다.** 시드는 **대조군 추출만** 무작위화한다 —
+    전략 경로는 arm이 정해지면 결정론적이다. 그래서 백분위 격차는 픽 몇 개가 만들어도
+    시드 간에 완벽하게 재현된다.
+
+    실제로 분해해 보니 684 픽-슬롯 중 **교체는 24건(9%)** 이었고, 그 24건의 수익 차이는
+    +1.32%p ± 2.30%p (**t 0.57**) 였다. 백분위 13.7pp는 유의하지 않은 24픽의 산물이다.
+
+    **규칙: 하네스 백분위로 두 arm을 비교했으면 픽 단위로 분해해서 몇 개가 그 차이를 만들었고
+    그 차이가 유의한지 확인한다.** 시드 안정성은 그 질문에 답하지 못한다.
+
+    반환: `{periods, n_common, n_swapped, only_a{...}, only_b{...}, common{...}, diff_pp, t}`
+    각 블록은 `{n, mean_pct, median_pct, sd_pct, t}`. 표본이 모자라면 값은 None이다.
+    """
+    warm = cfg.warmup if warmup is None else warmup
+    h = cfg.rebalance_days
+    n = len(panel)
+
+    def _picks(scores: dict, i: int) -> set[str] | None:
+        rows = [(scores[t][i], t) for t in scores
+                if i < len(scores.get(t) or []) and scores[t][i] is not None]
+        if len(rows) < _COMPARE_MIN_BREADTH:
+            return None
+        rows.sort(key=lambda r: (-r[0], r[1]))     # 동점은 티커로 결정론적으로 가른다
+        k = engine.rank_slots(len(rows), cfg.top_pct)
+        return {t for v, t in rows[:k] if v >= cfg.min_score}
+
+    def _fwd(t: str, i: int) -> float | None:
+        row = panel.closes.get(t) or []
+        if i + 1 + h >= len(row):
+            return None
+        a, b = row[i + 1], row[i + 1 + h]
+        return (b / a - 1.0) if (a and b and a > 0) else None
+
+    only_a: list[float] = []
+    only_b: list[float] = []
+    common: list[float] = []
+    periods = swapped = 0
+    for i in range(warm, n - h - 1, h):           # 비중첩 — 중첩 창은 같은 픽을 여러 번 센다
+        pa, pb = _picks(scores_a, i), _picks(scores_b, i)
+        if pa is None or pb is None:
+            continue
+        periods += 1
+        swapped += len(pa ^ pb)
+        for bucket, tickers in ((only_a, pa - pb), (only_b, pb - pa), (common, pa & pb)):
+            for t in tickers:
+                r = _fwd(t, i)
+                if r is not None:
+                    bucket.append(r)
+    return {
+        "periods": periods, "n_swapped": swapped,
+        "only_a": _stats(only_a), "only_b": _stats(only_b), "common": _stats(common),
+        **_diff(only_a, only_b),
+        "note": ("백분위 격차가 이 교체에서 나온다. `n_swapped` 가 작고 `t` 가 작으면 "
+                 "그 격차는 근거가 아니다 — 시드 안정성은 이 질문에 답하지 못한다."),
+    }
+
+
+_COMPARE_MIN_BREADTH = 30
+
+
+def _stats(xs: list[float]) -> dict:
+    n = len(xs)
+    if n == 0:
+        return {"n": 0, "mean_pct": None, "median_pct": None, "sd_pct": None, "t": None}
+    mean = sum(xs) / n
+    if n == 1:
+        return {"n": 1, "mean_pct": round(mean * 100, 2), "median_pct": round(mean * 100, 2),
+                "sd_pct": None, "t": None}
+    var = sum((x - mean) ** 2 for x in xs) / (n - 1)
+    sd = var ** 0.5
+    srt = sorted(xs)
+    med = srt[n // 2] if n % 2 else (srt[n // 2 - 1] + srt[n // 2]) / 2
+    return {"n": n, "mean_pct": round(mean * 100, 2), "median_pct": round(med * 100, 2),
+            "sd_pct": round(sd * 100, 2),
+            "t": (round(mean / (sd / math.sqrt(n)), 2) if sd else None)}
+
+
+def _diff(a: list[float], b: list[float]) -> dict:
+    """교체 손익과 그 t — **Welch**. 두 표본의 분산이 다르다(실측 7.00 vs 8.82%)."""
+    if len(a) < 2 or len(b) < 2:
+        return {"diff_pp": None, "diff_se_pp": None, "t": None}
+    ma, mb = sum(a) / len(a), sum(b) / len(b)
+    va = sum((x - ma) ** 2 for x in a) / (len(a) - 1)
+    vb = sum((x - mb) ** 2 for x in b) / (len(b) - 1)
+    se = (va / len(a) + vb / len(b)) ** 0.5
+    return {"diff_pp": round((ma - mb) * 100, 2),
+            "diff_se_pp": round(se * 100, 2),
+            "t": (round((ma - mb) / se, 2) if se else None)}
+
+
 def regimes_at(panel: Panel, idxs: list[int]) -> dict[int, str]:
     """리밸런스 시점별 국면 라벨 — 그 시점까지의 종가만 사용(룩어헤드 차단)."""
     out = {}
