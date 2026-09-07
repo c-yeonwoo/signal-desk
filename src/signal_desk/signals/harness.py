@@ -37,6 +37,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import random
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -100,6 +101,27 @@ class HarnessConfig:
     # 바꾸는 것이 편향의 정직한 해법이지만 모든 점수가 변하므로 판별력 판정 전에는 하지 않고
     # **하네스에 넣어 재는 것이 먼저**"라고 적어 둔 그것이다 — 그 노브가 여태 없었다.
     full_denominator: bool = False
+    # ── 장중 표본 주기 ──────────────────────────────────────────────────────
+    # 1(기본)이면 **종가만** 본다 = 2026-09-07 이전의 유일한 동작.
+    #
+    # 라이브 매도 판정은 **5분틱**(`config.quote_refresh_interval_minutes`, 하루 약 78표본)이고
+    # 매수는 30분틱(약 13표본)이다. 경로 의존 규칙(트레일링·손절)은 표본이 많을수록 더 자주
+    # 걸리므로, 하루 1표본으로 재면 조기청산을 **과소 추정**한다. 실측(균형형 σ 청산 · 브리지):
+    #
+    #     표본/일   조기청산율   평균 보유   평균 수익   중위
+    #        1        79.7%     10.4일     +1.58%   +0.91%   ← 하네스
+    #       13        87.9%      7.9일     +1.47%   +1.09%   ← 30분틱(매수)
+    #       78        89.5%      7.4일     +1.41%   +1.15%   ← 5분틱(매도)
+    #
+    # 즉 하네스는 조기청산을 **9.8%p 적게** 잡고 보유기간을 **3일 길게** 잡는다.
+    # 30분↔5분 차이는 1.6%p뿐이라 **매수/매도 주기를 맞추는 것은 실익이 없다** —
+    # 격차의 본체는 1표본 vs 다표본이다.
+    #
+    # **이것은 모델이다(데이터가 아니다).** 장중 이력이 없으므로 전일종가→종가를 잇는
+    # 브라운 브리지로 복원한다. σ는 실측으로 분해했다(야간 갭 2.32% · 장중 3.52%).
+    # 시가를 쓴 충실한 복원과 비교하면 조기청산율 88.1% vs 89.5% — 1.4%p 차이다.
+    intraday_samples: int = 1
+    intraday_sigma: float = 0.0352      # 실측 장중 확산 σ(1일). 2025-06~2026-08 · 46,406 종목-일
 
     def __post_init__(self) -> None:
         """엔진 설정을 미러하는 필드를 **실제로** 당겨온다.
@@ -467,8 +489,44 @@ def _realized_sigma(row: list[float | None], i: int, window: int = 20) -> float 
     return (sum((x - m) ** 2 for x in rets) / len(rets)) ** 0.5
 
 
+def _mix(a: int, b: int) -> int:
+    """(티커 시드 · 날짜) → 안정한 시드."""
+    return (a * 2654435761 + b * 40503) & 0xFFFFFFFF
+
+
+def _ticker_seed(ticker: str) -> int:
+    """프로세스 간 안정한 티커 해시 — `hash()` 는 실행마다 소금이 달라 재현이 깨진다."""
+    return zlib.crc32(ticker.encode("utf-8"))
+
+
+def _intraday_path(prev_close: float, close: float, k: int, sigma: float,
+                   seed: int) -> list[float]:
+    """전일종가 → 종가를 잇는 브라운 브리지 표본 k개(마지막이 종가).
+
+    **대조군과 같은 경로를 써야 한다.** 시드를 (티커·날짜)로만 정하므로, 점수 라벨을
+    치환해도 같은 티커·같은 날의 경로는 동일하다 — 기계적 조건이 갈라지지 않는다.
+    """
+    if k <= 1 or prev_close <= 0 or close <= 0:
+        return [close]
+    rng = random.Random(seed)
+    step = (1.0 / k) ** 0.5
+    w, acc = [], 0.0
+    for _ in range(k):
+        acc += rng.gauss(0.0, step)
+        w.append(acc)
+    end = w[-1]
+    lo, lc = math.log(prev_close), math.log(close)
+    out = []
+    for j in range(k):
+        t = (j + 1) / k
+        out.append(math.exp(lo + (lc - lo) * t + sigma * (w[j] - t * end)))
+    out[-1] = close                      # 마지막은 정확히 종가
+    return out
+
+
 def _exit_walk(row: list[float | None], entry_i: int, end_i: int,
-               rules: risk.RiskConfig) -> tuple[float, bool]:
+               rules: risk.RiskConfig, *, samples: int = 1, sigma: float = 0.0,
+               seed_base: int = 0) -> tuple[float, bool]:
     """진입일 종가로 사서 하루씩 걸으며 청산 판정. (수익률, 조기청산 여부).
 
     라이브와 같은 규약으로 맞춘다:
@@ -486,9 +544,13 @@ def _exit_walk(row: list[float | None], entry_i: int, end_i: int,
         c = row[k]
         if not c:
             continue
-        peak = max(peak, c)
-        if risk.check_exit(entry, c, peak, rules):
-            return c / entry - 1.0, True
+        prev = row[k - 1]
+        path = (_intraday_path(prev, c, samples, sigma, _mix(seed_base, k))
+                if samples > 1 and prev else [c])
+        for px in path:
+            peak = max(peak, px)
+            if risk.check_exit(entry, px, peak, rules):
+                return px / entry - 1.0, True
     last = row[end_i]
     return (last / entry - 1.0, False) if last else (0.0, False)
 
@@ -521,7 +583,9 @@ def _period_return(panel: Panel, tickers: list[str], i: int, cfg: HarnessConfig,
         if rules.stop_loss_sigma or rules.trailing_sigma:
             # σ 모드 — 진입 **직전까지**의 변동성만 쓴다(진입일 포함 이후를 보면 룩어헤드).
             rules = dataclasses.replace(rules, sigma=_realized_sigma(row, i))
-        r, early = _exit_walk(row, i + 1, end, rules)
+        r, early = _exit_walk(row, i + 1, end, rules,
+                              samples=cfg.intraday_samples, sigma=cfg.intraday_sigma,
+                              seed_base=_ticker_seed(alias[t] if alias else t))
         rets.append(r)
         if early:
             exited.add(t)
@@ -951,10 +1015,15 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
                                if sum(r.get("n_positions") or 0 for r in runs) else None),
             # 종가로만 판정한다. 라이브는 5분틱 장중가로 peak를 갱신하므로 실제 조기청산률은
             # 이 값보다 **높다** — 이 방향으로만 틀린다는 사실을 산출물에 적어 둔다.
-            "intraday": False,
+            "intraday_samples": cfg.intraday_samples,
+            "intraday_sigma": (cfg.intraday_sigma if cfg.intraday_samples > 1 else None),
             "note": ("청산 규칙 없음 — 이 결과는 라이브 봇이 아니라 5일 무청산 보유의 성적이다"
                      if cfg.exit_rules is None else
-                     "종가 기준 판정 — 라이브(5분틱 장중가)보다 조기청산이 적게 잡힌다"),
+                     "종가 기준 판정(하루 1표본) — 라이브 매도는 5분틱(약 78표본)이라 "
+                     "조기청산을 약 9.8%p 적게, 보유기간을 약 3일 길게 잡는다"
+                     if cfg.intraday_samples <= 1 else
+                     f"장중 {cfg.intraday_samples}표본/일 — **브라운 브리지 모델**이다"
+                     f"(장중 이력 없음, σ={cfg.intraday_sigma:.4f} 실측)"),
         },
         # `top_pct` 는 스윕 파라미터라 미러하지 않는다 — 엔진과 어긋나면 조용히 두지 않고 드러낸다.
         "selection_mirror": _selection_mirror(cfg),

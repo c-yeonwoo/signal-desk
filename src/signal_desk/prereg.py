@@ -56,7 +56,10 @@ CANONICAL_SOURCES = ("pit", "price6")
 # `full_denominator` 를 넣는 이유는 `exits` 와 같다(2026-09-07): 같은 id의 판정이 분모를
 # 달리해서 돌 수 있으면 등록이 전략을 못 박지 못한다. 실측으로 분모는 커버리지 낮은 종목의
 # |점수|를 0.750 → 0.250 까지 바꾼다 — 등록에서 빠진 파라미터는 검증된 적이 없다.
-_HARNESS_KEYS = ("hold", "cost_pct", "trials", "exposure", "exits", "full_denominator")
+# `intraday_samples` 도 같은 이유다(2026-09-07): 하루 1표본과 78표본은 경로 의존 규칙에서
+# 조기청산율이 79.7% vs 89.5%로 갈린다 — 등록이 그 값을 못 박지 않으면 같은 id가 두 전략을 잰다.
+_HARNESS_KEYS = ("hold", "cost_pct", "trials", "exposure", "exits", "full_denominator",
+                 "intraday_samples")
 
 
 def sidak_threshold_pct(n: int) -> float:
