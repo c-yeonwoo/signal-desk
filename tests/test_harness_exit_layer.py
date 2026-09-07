@@ -89,7 +89,8 @@ def test_run_declares_the_exit_layer():
     assert "exit_layer" in out
     assert out["exit_layer"]["rules"] is None
     assert "무청산" in out["exit_layer"]["note"]
-    assert out["exit_layer"]["intraday"] is False
+    assert out["exit_layer"]["intraday_samples"] == 1, "기본은 종가 1표본이다"
+    assert out["exit_layer"]["intraday_sigma"] is None, "1표본이면 σ를 쓰지 않는다"
 
 
 def test_run_counts_how_often_the_rules_actually_fired():

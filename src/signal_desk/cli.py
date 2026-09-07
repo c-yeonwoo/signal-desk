@@ -211,6 +211,9 @@ def harness(
                                      help="청산 폭을 σ 배수로 잰다(strategy.EXIT_SIGMA — 미국 σ 기준 환산)"),
     full_denominator: bool = typer.Option(False, "--full-denominator",
                                           help="결측을 중립 0으로 반영(재정규화 편향 제거) — 분모를 countable로"),
+    intraday_samples: int = typer.Option(1, "--intraday-samples",
+                                         help="장중 표본/일. 1=종가만(기본) · 13=30분틱 · 78=5분틱. "
+                                              "브라운 브리지 **모델**이다(장중 이력 없음)"),
 ):
     """포트폴리오 백테스트 — 횡단면 분위 규칙 vs 무작위 대조군 vs 동일가중 벤치마크.
 
@@ -352,6 +355,7 @@ def harness(
         cfg = hz.HarnessConfig(top_pct=tp, rebalance_days=h, cost_pct=cost,
                                random_trials=trials, use_exposure=exposure,
                                shuffle_returns=shuffle, exit_rules=exit_rules,
+                               intraday_samples=max(1, int(intraday_samples)),
                                signal_config=store._signal_config_from(overrides)
                                if overrides else signalcfg.get_config())
         regimes = hz.regimes_at(panel, hz._rebalance_indices(panel, cfg)) if exposure else None

@@ -73,6 +73,10 @@ exits    = "none"
 # |점수| 평균이 **1.000** 으로 커버리지 0.83(0.826)보다 컸다(비단조). `true` 면 결측을
 # 중립 0으로 반영해 그 편향이 사라진다. **이 세 look 이 재는 것은 편향이 있는 쪽이다.**
 full_denominator = false
+# 2026-09-07 추가(값은 그대로). 라이브 매도는 5분틱(하루 약 78표본)인데 하네스는 종가 1표본이다.
+# 경로 의존 규칙(트레일링·손절)은 표본이 많을수록 더 자주 걸린다 — 실측 조기청산율 79.7%(1표본)
+# vs 89.5%(78표본), 평균 보유 10.4일 vs 7.4일. **이 세 look 은 종가 1표본을 잰다.**
+intraday_samples = 1
 
 [[looks]]
 id            = "pit-8factor-rank3-hold5-interim"
@@ -171,6 +175,7 @@ exposure = false
 top_pct  = 3.0
 exits    = "none"   # D4도 무청산이다 — 게이트만 끄고 나머지는 family 1과 같아야 한다
 full_denominator = false
+intraday_samples = 1
 
 [[families.looks]]
 id            = "d4-no-trend-gate-oos"
@@ -384,6 +389,7 @@ exposure = false
 top_pct  = 3.0
 exits    = "balanced+sigma"   # ← family 1·2와 여기만 다르다
 full_denominator = false
+intraday_samples = 1
 
 [[families.looks]]
 id            = "sigma-exits-oos"

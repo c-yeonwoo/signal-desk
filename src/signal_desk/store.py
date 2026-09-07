@@ -2216,7 +2216,8 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
                 preregistered_id: str | None = None, lock: bool = False,
                 threshold_pct: float | None = None, n_registered: int | None = None,
                 from_date: str | None = None, min_mktcap_pct: float = 0.0,
-                exit_rules=None, full_denominator: bool = False) -> dict:
+                exit_rules=None, full_denominator: bool = False,
+                intraday_samples: int = 1) -> dict:
     """하네스를 돌리고 **이력에 남긴다**. 보드 정본은 사전등록된 확정 실행만 갱신한다.
 
     `signal_config`를 안 주면 `signalcfg.get_config()`(소스 기본값 + kv 오버라이드)를 검사한다.
@@ -2251,7 +2252,7 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         # 청산 레이어 — 넘기지 않으면 무청산(기존 동작). 라이브 봇의 실제 청산 규칙을
         # 검사에 넣으려면 호출자가 명시해야 한다("검사에 넣을 수 없는 파라미터는
         # 검증된 적이 없다" — 그 반대편이 이것이다).
-        exit_rules=exit_rules,
+        exit_rules=exit_rules, intraday_samples=max(1, int(intraday_samples or 1)),
     )
     scores, source, pit_dates = None, "price", None
     cov6 = fired6 = covers = None
@@ -2552,7 +2553,8 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
         preregistered_id=look_id, lock=False,
         threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"],
         from_date=(look["requirement"] or {}).get("from_date"),
-        exit_rules=_exit_rules, full_denominator=_full_den)
+        exit_rules=_exit_rules, full_denominator=_full_den,
+        intraday_samples=int(hzc.get("intraday_samples") or 1))
     if not out.get("ready"):
         return out
     # price6 경로의 `pit_dates` 는 **자르기 전** 재무 날짜 수다. OOS면 자른 뒤(`oos_dates`)를 쓴다.
