@@ -209,6 +209,8 @@ def harness(
                                          help="트레일링이 손실 구간에서도 발동하던 옛 동작으로 잰다(A/B용)"),
     sigma_exits: bool = typer.Option(False, "--sigma-exits",
                                      help="청산 폭을 σ 배수로 잰다(strategy.EXIT_SIGMA — 미국 σ 기준 환산)"),
+    full_denominator: bool = typer.Option(False, "--full-denominator",
+                                          help="결측을 중립 0으로 반영(재정규화 편향 제거) — 분모를 countable로"),
 ):
     """포트폴리오 백테스트 — 횡단면 분위 규칙 vs 무작위 대조군 vs 동일가중 벤치마크.
 
@@ -289,7 +291,7 @@ def harness(
         # 다른 편향을 가졌고 그 차이가 어느 출력에도 안 나타났다.
         pit_scores, cov6, fired6, meta6, covers, uni_note, panel = store.pit_fund_scores(
             panel, store._signal_config_from(overrides) if overrides else signalcfg.get_config(),
-            uni)
+            uni, full_denominator=full_denominator)
         if pit_scores is None:
             console.print(f"[red]{meta6.get('error')}[/red]")
             raise typer.Exit(1)

@@ -68,6 +68,11 @@ top_pct  = 3.0
 # 그 간극은 이 등록으로 좁혀지지 않는다. 좁히려면 청산 레이어를 **새 family로** 등록해야
 # 하고, 그러면 Šidák n 이 올라 이 세 look 의 문턱도 함께 올라간다.
 exits    = "none"
+# 2026-09-07 추가(값은 그대로). `combine` 의 분모는 **발동한 가중치의 합**이라 팩터가 빠진
+# 종목이 남은 팩터로 재정규화돼 극단 점수를 받는다 — 실측 PIT6에서 커버리지 0.67 종목의
+# |점수| 평균이 **1.000** 으로 커버리지 0.83(0.826)보다 컸다(비단조). `true` 면 결측을
+# 중립 0으로 반영해 그 편향이 사라진다. **이 세 look 이 재는 것은 편향이 있는 쪽이다.**
+full_denominator = false
 
 [[looks]]
 id            = "pit-8factor-rank3-hold5-interim"
@@ -165,6 +170,7 @@ trials   = 200
 exposure = false
 top_pct  = 3.0
 exits    = "none"   # D4도 무청산이다 — 게이트만 끄고 나머지는 family 1과 같아야 한다
+full_denominator = false
 
 [[families.looks]]
 id            = "d4-no-trend-gate-oos"
@@ -377,6 +383,7 @@ trials   = 200
 exposure = false
 top_pct  = 3.0
 exits    = "balanced+sigma"   # ← family 1·2와 여기만 다르다
+full_denominator = false
 
 [[families.looks]]
 id            = "sigma-exits-oos"

@@ -94,6 +94,12 @@ class HarnessConfig:
     # 규칙 판정은 **라이브와 같은 함수**(`risk.check_exit`)로 한다. 여기서 따로 조립하면
     # 그 차이가 판별력으로 둔갑한다("같은 점수를 두 곳에서 조립하지 않는다").
     exit_rules: risk.RiskConfig | None = None
+    # ── 재정규화 편향: 분모를 무엇으로 나눌까 ──────────────────────────────
+    # False(기본)면 **발동한 가중치의 합**으로 나눈다 = 라이브·기존 판정과 동일.
+    # True면 **결측 = 중립 0**(`engine.countable_weight`). CLAUDE.md가 "분모를 전체 가중합으로
+    # 바꾸는 것이 편향의 정직한 해법이지만 모든 점수가 변하므로 판별력 판정 전에는 하지 않고
+    # **하네스에 넣어 재는 것이 먼저**"라고 적어 둔 그것이다 — 그 노브가 여태 없었다.
+    full_denominator: bool = False
 
     def __post_init__(self) -> None:
         """엔진 설정을 미러하는 필드를 **실제로** 당겨온다.
@@ -166,7 +172,7 @@ _PRICE_UNAVAILABLE = ("fundamental", "valuation", "flow", "quality", "short")
 _PIT_UNAVAILABLE = ("flow", "short")
 
 
-def _score_series(panel: Panel, config: SignalConfig
+def _score_series(panel: Panel, config: SignalConfig, *, full_denominator: bool = False
                   ) -> tuple[dict[str, list[float | None]], dict[str, float],
                              dict[str, float], dict[str, list[float | None]]]:
     """종목별 전 구간 가격기반 점수 + 팩터 계산가능률 + 발동률 + (종목·날짜)별 데이터 커버리지.
@@ -200,7 +206,11 @@ def _score_series(panel: Panel, config: SignalConfig
                 if _computable(name, i, config):
                     can[name] += 1
             total += 1
-            out[offset + i] = engine.combine(comps, config)["score"]
+            den = (engine.countable_weight(
+                config, unavailable=_PRICE_UNAVAILABLE,
+                fired_conditional=("reversion",) if comps[1][1] else ())
+                if full_denominator else None)
+            out[offset + i] = engine.combine(comps, config, denominator=den)["score"]
             # 커버리지 게이트를 라이브와 대칭으로 걸려면 (종목·날짜)별 커버리지가 필요하다.
             # 가격 경로가 원리적으로 볼 수 없는 팩터는 분모에서 뺀다 — 안 빼면 전 종목이
             # 미달로 매수 0이 되고 게이트가 검증 불가가 된다.
@@ -219,7 +229,7 @@ def scores_with_pit_fundamentals(
     shares: dict[str, float], universe: list[dict] | None = None,
     universe_at: "Callable[[str], set[str] | None] | None" = None,
     mktcap_anchors: dict | None = None, price_on: dict | None = None,
-    growth_weight: float = 0.0,
+    growth_weight: float = 0.0, full_denominator: bool = False,
 ) -> tuple[dict[str, list[float | None]], dict[str, float], dict[str, float], dict,
            dict[str, list[float | None]]]:
     """가격 3팩터 + **시점별 재무** 3팩터 = 6팩터 점수 시계열.
@@ -332,7 +342,11 @@ def scores_with_pit_fundamentals(
                 if (m.get("quality") or {}).get("has"):
                     can["quality"] += 1
             total += 1
-            scores[ticker][i] = engine.combine(comps, config)["score"]
+            den = (engine.countable_weight(
+                config, unavailable=_PIT_UNAVAILABLE,
+                fired_conditional=("reversion",) if comps[1][1] else ())
+                if full_denominator else None)
+            scores[ticker][i] = engine.combine(comps, config, denominator=den)["score"]
             # 라이브와 **같은** 커버리지 게이트를 걸려면 (종목·날짜)별 커버리지가 필요하다.
             # 수급·공매도는 이 경로가 원리적으로 못 보므로 분모에서 뺀다.
             cov[ticker][i] = engine.data_coverage(
