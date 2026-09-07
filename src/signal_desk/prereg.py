@@ -53,7 +53,10 @@ CANONICAL_SOURCES = ("pit", "price6")
 # `exits` 를 넣는 이유(2026-09-06): 하네스에 청산 레이어가 생겼는데 등록 대상이 아니면,
 # 같은 id의 판정이 **무청산으로도 라이브 청산으로도** 돌 수 있고 그 차이가 어디에도 안 남는다.
 # 실측으로 그 차이는 백분위 98.3% vs 60.0%였다 — 등록에서 빠진 파라미터는 검증된 적이 없다.
-_HARNESS_KEYS = ("hold", "cost_pct", "trials", "exposure", "exits")
+# `full_denominator` 를 넣는 이유는 `exits` 와 같다(2026-09-07): 같은 id의 판정이 분모를
+# 달리해서 돌 수 있으면 등록이 전략을 못 박지 못한다. 실측으로 분모는 커버리지 낮은 종목의
+# |점수|를 0.750 → 0.250 까지 바꾼다 — 등록에서 빠진 파라미터는 검증된 적이 없다.
+_HARNESS_KEYS = ("hold", "cost_pct", "trials", "exposure", "exits", "full_denominator")
 
 
 def sidak_threshold_pct(n: int) -> float:

@@ -2114,7 +2114,7 @@ def _slice_after(from_date: str, scores, panel, covers):
     return new_scores, new_panel, new_covers, lo
 
 
-def pit_fund_scores(panel, sc, uni: list[dict]):
+def pit_fund_scores(panel, sc, uni: list[dict], *, full_denominator: bool = False):
     """PIT 재무 6팩터 점수 한 벌 — **하네스를 부르는 모든 경로가 이 함수를 쓴다.**
 
     반환 `(scores, coverage_pct, fired_pct, meta, covers, universe_note, panel)`.
@@ -2161,7 +2161,7 @@ def pit_fund_scores(panel, sc, uni: list[dict]):
         for t, row in panel.closes.items()}
     scores, cov6, fired6, meta6, covers = hz.scores_with_pit_fundamentals(
         panel, sc, hist, shares=shares, universe=uni, universe_at=uni_at,
-        mktcap_anchors=anchors, price_on=price_on)
+        mktcap_anchors=anchors, price_on=price_on, full_denominator=full_denominator)
     note = (f"universe=pit(스냅샷 {len(uni_hist)}개, 종목 {len(pit_tickers)})"
             if uni_hist else "universe=today(생존편향 잔존)")
     return scores, cov6, fired6, meta6, covers, note, panel
@@ -2216,7 +2216,7 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
                 preregistered_id: str | None = None, lock: bool = False,
                 threshold_pct: float | None = None, n_registered: int | None = None,
                 from_date: str | None = None, min_mktcap_pct: float = 0.0,
-                exit_rules=None) -> dict:
+                exit_rules=None, full_denominator: bool = False) -> dict:
     """하네스를 돌리고 **이력에 남긴다**. 보드 정본은 사전등록된 확정 실행만 갱신한다.
 
     `signal_config`를 안 주면 `signalcfg.get_config()`(소스 기본값 + kv 오버라이드)를 검사한다.
@@ -2264,7 +2264,8 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
         source, pit_dates = "pit", meta.get("pit_dates")
     elif pit_fund:
         # 점수 조립은 `pit_fund_scores` 한 곳에서만 한다 — CLI가 오늘 유니버스로 돌던 갈라짐을 막는다.
-        scores, cov6, fired6, meta6, covers, universe_note, panel = pit_fund_scores(panel, sc, uni)
+        scores, cov6, fired6, meta6, covers, universe_note, panel = pit_fund_scores(
+            panel, sc, uni, full_denominator=full_denominator)
         if scores is None:
             return {"ready": False, "reason": meta6.get("error") or "PIT 재무 점수 조립 실패"}
         source, pit_dates = "price6", meta6.get("fund_dates")
@@ -2531,6 +2532,8 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
             _exit_rules = _dc.replace(_exit_rules, sigma=None)
     else:
         _exit_rules = None
+    # 등록된 분모를 그대로 쓴다 — 안 읽으면 같은 id가 두 전략을 잰다(`exits` 와 같은 이유).
+    _full_den = bool(hzc.get("full_denominator") or False)
     pit = look["score_source"] == "pit"
     pit_fund = look["score_source"] == "price6"
     # **OOS look은 자기 창 안의 날짜만 센다.** 창 밖 데이터로 요건을 채우면 "아직 보지 않은
@@ -2549,7 +2552,7 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
         preregistered_id=look_id, lock=False,
         threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"],
         from_date=(look["requirement"] or {}).get("from_date"),
-        exit_rules=_exit_rules)
+        exit_rules=_exit_rules, full_denominator=_full_den)
     if not out.get("ready"):
         return out
     # price6 경로의 `pit_dates` 는 **자르기 전** 재무 날짜 수다. OOS면 자른 뒤(`oos_dates`)를 쓴다.

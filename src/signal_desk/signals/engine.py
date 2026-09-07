@@ -539,6 +539,31 @@ def total_weight(config: SignalConfig | None = None) -> float:
     return sum(float(getattr(config, f, 0.0) or 0.0) for f in SCORE_WEIGHT_FIELDS)
 
 
+def countable_weight(config: SignalConfig | None = None, *,
+                     unavailable: tuple[str, ...] = (),
+                     fired_conditional: tuple[str, ...] = ()) -> float:
+    """**결측 = 중립 0** 으로 볼 때의 분모 — "그 종목이 가질 수 있었던" 가중치의 합.
+
+    `combine` 의 기본 분모는 **발동한 가중치의 합**이라, 팩터가 빠진 종목이 남은 팩터로
+    재정규화돼 극단 점수를 받는다(실측: 미국에서 `weight_sum_ratio` 0.21인 4종목의 `|점수|`
+    평균이 1.547, 0.62인 371종목이 0.884. 1·2위가 **모멘텀 하나로** 3.00·2.78이었다).
+
+    분모를 전체 가중합으로 바꾸면 그 편향이 사라진다. 다만 **전체**를 그대로 쓰면 안 된다:
+
+    - `unavailable` — 그 실행이 **원리적으로 못 보는** 팩터(하네스의 수급·공매도는 시계열
+      이력 자체가 없다). 분모에 넣으면 전 종목이 똑같이 축소돼 편향 제거가 아니라 스케일 축소다.
+    - `CONDITIONAL_FACTORS` — 조건이 발동해야 가중치를 갖는다(낙폭과대는 급락 때만, 발동률 2.4%).
+      안 걸린 것을 결측으로 세면 평상시 97.6%의 종목이 부당하게 깎인다.
+
+    `data_coverage` 의 `countable` 과 **같은 규약**이다 — 두 곳이 갈라지면 커버리지 게이트가
+    분모와 다른 것을 세게 된다.
+    """
+    config = config or SignalConfig()
+    skip = (set(CONDITIONAL_FACTORS) - set(fired_conditional)) | set(unavailable)
+    return sum(float(getattr(config, f, 0.0) or 0.0) for f in SCORE_WEIGHT_FIELDS
+               if f.removeprefix("weight_") not in skip)
+
+
 def data_coverage(has: dict[str, bool], config: SignalConfig | None = None, *,
                   unavailable: tuple[str, ...] = ()) -> dict:
     """`{factor: 데이터있음}` → 데이터 커버리지. **조건 미발동은 누락으로 세지 않는다.**
@@ -790,7 +815,8 @@ def _coverage_summary(results: list[SignalResult], config: SignalConfig) -> dict
     }
 
 
-def combine(components: list[tuple[float, float, list[str]]], config: SignalConfig | None = None) -> dict:
+def combine(components: list[tuple[float, float, list[str]]], config: SignalConfig | None = None,
+            *, denominator: float | None = None) -> dict:
     """(정규화 점수[-1,1], 가중치, 근거) 컴포넌트 리스트를 가중평균해 결합.
 
     가중치 0인 컴포넌트는 가중평균에는 기여하지 않지만(사실상 제외와 동일), 근거 문구는
@@ -812,7 +838,10 @@ def combine(components: list[tuple[float, float, list[str]]], config: SignalConf
     config = config or SignalConfig()
 
     weight_sum = sum(w for _, w, _ in components)
-    weighted = sum(norm * w for norm, w, _ in components) / weight_sum if weight_sum else 0.0
+    # `denominator` 를 주면 **결측 = 중립 0** 으로 본다(`countable_weight`). 안 주면 기존 그대로
+    # 발동 가중 합으로 나눈다 — 라이브·사전등록된 판정의 점수는 한 자리도 바뀌지 않는다.
+    den = float(denominator) if denominator else weight_sum
+    weighted = sum(norm * w for norm, w, _ in components) / den if den else 0.0
     score = weighted * 3
     kind = classify(score, config)
 
@@ -822,6 +851,8 @@ def combine(components: list[tuple[float, float, list[str]]], config: SignalConf
     total = total_weight(config)
     return {"score": round(score, 2), "kind": kind, "confidence": confidence, "reasons": reasons,
             "weight_sum": round(weight_sum, 4), "weight_total": round(total, 4),
+            # 실제로 나눈 값 — `weight_sum` 과 다르면 결측=중립 분모를 쓴 것이다.
+            "denominator": round(den, 4),
             # 점수가 **실제로 나눈** 가중합의 비율. 1.0이면 전 팩터가 발동했다.
             "weight_sum_ratio": (round(weight_sum / total, 4) if total else None)}
 
