@@ -52,6 +52,11 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 - 동결: 온보딩/D7/숏폼 성장 — [BACKLOG.md](BACKLOG.md)
 
 다음에 붙일 기능의 상세 우선순위·범위·의존관계는 [BACKLOG.md](BACKLOG.md) 참고.
+
+**세션을 이어받는다면 [docs/HANDOFF-2026-09-07.md](docs/HANDOFF-2026-09-07.md)를 먼저 읽는다** —
+2026-09-06~07에 실행 레이어(청산·익스포저)를 진단·수정하고 그 레이어를 처음으로 검증 가능하게
+만들었다. 미결 결정(한·미 pooled IC 등록)·자동으로 열리는 것(리비전 팩터 2026-10-02)·이 세션에서
+**틀렸다가 고친 추론 5개**가 거기 있다. 측정 재현은 [scripts/measure/](scripts/measure/README.md).
 ## 핵심 개념 (부동산 → 주식 번역, 요약)
 
 | Signal APT | Signal Desk |
