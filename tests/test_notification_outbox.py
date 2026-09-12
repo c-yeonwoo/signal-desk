@@ -26,6 +26,16 @@ def test_outbox_expires_before_delivery(tmp_path, monkeypatch):
     assert notify.drain(now=100)["expired"] == 1
 
 
+def test_outbox_health_reports_pending_delivery_without_message_text(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    notify.enqueue("do not expose", dedupe_key="health:pending", now=100)
+    health = db.notification_outbox_health(now=100)
+
+    assert health["pending"] == health["due"] == 1
+    assert health["oldest_pending_ts"] == 100
+    assert "do not expose" not in str(health)
+
+
 def test_intraday_quote_and_execution_event_are_idempotent(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert db.intraday_quotes_record("kr", {"005930": 70000}, ts=10) == 1

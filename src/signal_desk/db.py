@@ -704,6 +704,23 @@ def notification_outbox_expire(item_id: int) -> None:
     c.commit(); c.close()
 
 
+def notification_outbox_health(*, now: int | None = None) -> dict:
+    """메시지 본문 없이 전달 파이프라인의 적체·재시도 상태만 노출한다."""
+    at = int(time.time()) if now is None else int(now)
+    c = conn()
+    rows = c.execute("SELECT status,COUNT(*) FROM notification_outbox GROUP BY status").fetchall()
+    pending, due, oldest, max_attempts = c.execute(
+        "SELECT COUNT(*), "
+        "SUM(CASE WHEN next_attempt<=? THEN 1 ELSE 0 END), "
+        "MIN(created), MAX(attempts) FROM notification_outbox WHERE status='pending'", (at,)
+    ).fetchone()
+    c.close()
+    counts = {status: count for status, count in rows}
+    return {"pending": pending or 0, "due": due or 0, "sent": counts.get("sent", 0),
+            "expired": counts.get("expired", 0), "oldest_pending_ts": oldest,
+            "max_pending_attempts": max_attempts or 0}
+
+
 # ---------- kv (범용 JSON 캐시) ----------
 def kv_get(k: str, max_age: int | None = None):
     """캐시 값(JSON 역직렬화). 없거나 max_age(초) 초과 시 None."""

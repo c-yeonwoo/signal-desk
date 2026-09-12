@@ -321,6 +321,9 @@ def _morning_digest() -> bool:
 def _bot_loop_iteration() -> None:
     """봇·LLM·백필 루프 1회분(시세 갱신은 _quote_loop가 담당).
     동기 블로킹이라 asyncio.to_thread로 돌린다."""
+    # 장이 닫힌 시간에도 장애가 회복되면 보류된 알림을 다시 보낸다. 빠른 틱만 drain하면
+    # 금요일 장 마감 뒤의 중요 체결/브리핑은 월요일까지 묶인다.
+    notify.drain()
     _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(공용)
     try:
         _morning_digest()  # 아침 정기 요약(텔레그램 채널) — 앱 안 열어도 오는 맥락
@@ -2943,6 +2946,12 @@ def meta_entry_diagnostics_get(market: str = "kr"):
                                            "profit_take_pct": cfg.profit_take_pct,
                                            "stop_loss_pct": cfg.stop_loss_pct},
             **meta_entry.diagnostics(estimates)}
+
+
+@app.get("/api/notification-health")
+def notification_health_get():
+    """Telegram 전달 큐 상태. 메시지 본문·수신자는 노출하지 않아 운영 경보에 안전하다."""
+    return {"configured": notify.available(), **db.notification_outbox_health()}
 
 
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
