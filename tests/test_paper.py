@@ -18,7 +18,7 @@ def test_paper_buy_sell_cash_and_positions(tmp_path, monkeypatch):
     _seed(monkeypatch, tmp_path)
     assert paper.balance(UID)["cash"] == 1_000_000.0
 
-    assert paper.place_order(UID, "005930", "buy", 10, price=70000.0)["order_no"] == "PAPER"
+    assert paper.place_order(UID, "005930", "buy", 10, price=70000.0)["order_no"].startswith("PAPER-")
     b = paper.balance(UID)
     assert b["cash"] == 300_000.0                      # 100만 − 70만
     assert b["holdings"][0] == {"ticker": "005930", "name": "삼성전자", "qty": 10,

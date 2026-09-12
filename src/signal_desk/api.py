@@ -158,6 +158,24 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
         return
     if quotes:
         store.set_live_quotes(quotes)
+        # 현재 실행에 쓴 장중가를 반드시 남긴다. 이 스냅샷이 없으면 5분 청산과 일봉 백테스트가
+        # 서로 다른 세계를 보고, 나중에 어느 쪽이 수익률 차이를 만들었는지 검증할 수 없다.
+        try:
+            kr_tickers = {u["ticker"] for u in store.load_universe()} if "kr" in open_markets else set()
+            us_tickers = {u["ticker"] for u in store.load_us_universe()} if "us" in open_markets else set()
+            now = int(time.time())
+            if kr_tickers:
+                db.intraday_quotes_record("kr", {t: p for t, p in quotes.items() if t in kr_tickers}, ts=now)
+            if us_tickers:
+                db.intraday_quotes_record("us", {t: p for t, p in quotes.items() if t in us_tickers}, ts=now)
+            # 각 틱마다 대량 DELETE를 하면 거래 시간에 쓰기 경합이 생긴다. KST 날짜당 한 번만 정리한다.
+            prune_key = "intraday_quote_prune_date"
+            if db.kv_get(prune_key) != _kst_today():
+                db.intraday_quotes_prune(older_than_ts=now - config.intraday_quote_retention_days() * 86400)
+                db.kv_set(prune_key, _kst_today())
+        except Exception as e:
+            # 원장 실패가 실시간 리스크 청산 자체를 막지는 않는다. 대신 로그로 관측 가능하게 남긴다.
+            log.warning("장중 가격 원장 저장 실패: %s", type(e).__name__)
         store.note_live_attempt("ok", open_markets)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
     else:  # 토큰 실패 등으로 빈 응답 — 낡은 오버레이를 남기지 않고 종가로 복귀
@@ -188,6 +206,7 @@ def _quote_loop_iteration() -> None:
         _maybe_poll_disclosures()
         _maybe_extend_candidate_ttl()
     _fast_trade_pass(open_m)
+    notify.drain()
 
 
 def _fast_trade_pass(open_markets: list[str]) -> None:
@@ -276,18 +295,25 @@ def _morning_digest() -> bool:
     """아침 브리핑을 텔레그램 채널로 하루 1회(평일, KST 지정 시각 이후 첫 틱) 푸시.
     유저별이 아니라 시장 요약이라 채널 공용. 매수 0일에도 보낼 내용이 있다."""
     hour = config.morning_digest_hour()
-    if hour is None or not notify.available() or not store.is_ready():
+    if hour is None or not store.is_ready():
         return False
     now = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
     if now.weekday() >= 5 or now.hour < hour:
         return False
     if db.kv_get("morning_digest_date") == _kst_today():
         return False
-    # 전송 전에 날짜를 찍는다 — 전송 실패로 하루를 빠뜨리는 편이 중복 발송·재시도 폭주보다 낫다
-    db.kv_set("morning_digest_date", _kst_today())
     text = _morning_digest_text(now.date(), remember=True)
-    ok = notify.push(text) if text else False
-    log.info("아침 브리핑 %s", "발송" if ok else "발송 실패(텔레그램)")
+    if not text:
+        return False
+    date = _kst_today()
+    # 날짜를 먼저 기록해도 실제 메시지는 outbox에 남는다. 즉 기존처럼 일시 장애로 하루 브리핑이
+    # 사라지지 않으며 dedupe key가 재시작 중복도 막는다.
+    db.kv_set("morning_digest_date", date)
+    notify.enqueue(text, dedupe_key=f"morning-digest:{date}", priority="normal",
+                   expires_at=int(time.time()) + 24 * 3600)
+    result = notify.drain()
+    ok = result["sent"] > 0
+    log.info("아침 브리핑 %s", "발송" if ok else "아웃박스 대기")
     return ok
 
 
@@ -918,38 +944,50 @@ def _scan_alerts(uid: int) -> None:
             msg = f"시그널 {_KIND_KO.get(old, old)} → {_KIND_KO.get(cur, cur)} (점수 {sig.score:+.2f})"
             db.alert_add(uid, t, name, msg)
             db.alert_state_set(uid, t, cur)
-            notify.push(f"📊 {name}({t}) {msg}")  # 텔레그램 능동 푸시(미설정 시 no-op, alert_state로 중복 방지)
+            notify.enqueue(f"📊 {name}({t}) {msg}",
+                           dedupe_key=f"signal:{uid}:{t}:{old}:{cur}:{_kst_today()}", priority="high",
+                           expires_at=int(time.time()) + 24 * 3600)
+    notify.drain()
 
 
 def _push_trades(market: str, result: dict) -> None:
     """봇 체결(매수·매도)을 텔레그램으로 푸시. note(청산 사유 등)를 사람이 읽기 쉽게 표기."""
-    if not notify.available():
-        return
     lines = []
+    event_ids = []
     for b in result.get("buys", []):
         lines.append(f"🟢 매수 {b.get('name', b.get('ticker'))} {b.get('qty')}주")
+        event_ids.append(str(b.get("order_no") or f"buy:{b.get('ticker')}:{b.get('price')}:{b.get('qty')}"))
     for s in result.get("sells", []):
         detail = s.get("note") or s.get("reason") or ""
         lines.append(f"🔴 매도 {s.get('name', s.get('ticker'))} {s.get('qty')}주"
                      + (f" · {detail}" if detail else ""))
+        event_ids.append(str(s.get("order_no") or f"sell:{s.get('ticker')}:{s.get('price')}:{s.get('qty')}"))
     if lines:
-        notify.push(f"🤖 봇 체결 ({market.upper()})\n" + "\n".join(lines[:10]))
+        key = "trade:" + market + ":" + hashlib.sha256("|".join(event_ids).encode()).hexdigest()[:20]
+        notify.enqueue(f"🤖 봇 체결 ({market.upper()})\n" + "\n".join(lines[:10]),
+                       dedupe_key=key, priority="critical")
+        notify.drain()
 
 
 def _push_reservations(market: str, result: dict | None) -> None:
     """예약 주문 체결을 텔레그램으로 푸시. `run_once` 와 **별개 경로**라 따로 알린다 —
     한쪽만 붙이면 예약으로 산 종목은 조용히 들어온다."""
-    if not notify.available() or not result or not result.get("ok"):
+    if not result or not result.get("ok"):
         return
     lines = []
+    event_ids = []
     for e in result.get("executed", []):
-        if e.get("skipped") or e.get("status") == "skipped":
+        if e.get("status") != "filled":
             continue
         qty = e.get("qty")
         lines.append(f"🟢 예약 매수 {e.get('name', e.get('ticker'))}"
                      + (f" {qty}주" if qty else ""))
+        event_ids.append(str(e.get("order_no") or f"{e.get('ticker')}:{e.get('target_price')}:{qty}"))
     if lines:
-        notify.push(f"🤖 예약 체결 ({market.upper()})\n" + "\n".join(lines[:10]))
+        key = "reservation:" + market + ":" + hashlib.sha256("|".join(event_ids).encode()).hexdigest()[:20]
+        notify.enqueue(f"🤖 예약 체결 ({market.upper()})\n" + "\n".join(lines[:10]),
+                       dedupe_key=key, priority="critical")
+        notify.drain()
 
 
 @app.get("/api/alerts")

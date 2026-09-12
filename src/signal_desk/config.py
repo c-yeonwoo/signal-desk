@@ -297,6 +297,11 @@ def quote_refresh_interval_minutes() -> int:
     return int(os.environ.get("QUOTE_REFRESH_INTERVAL_MINUTES", "5"))
 
 
+def intraday_quote_retention_days() -> int:
+    """실행 재현용 장중 가격 원장의 보존 기간. 기본 180일은 여러 OOS 기간을 겹쳐 검증할 수 있다."""
+    return max(7, int(os.environ.get("INTRADAY_QUOTE_RETENTION_DAYS", "180")))
+
+
 def kb_dart_lite_enabled() -> bool:
     """장중 DART 공시 lite poll on/off. 기본 on. Sonnet/뉴스 없이 공시→kb_events만."""
     raw = (os.environ.get("KB_DART_LITE_ENABLED") or "1").strip().lower()

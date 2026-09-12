@@ -18,7 +18,7 @@ from signal_desk import config, db, kb, llm, signalcfg, store, strategy
 from signal_desk.broker import paper
 from signal_desk.reference import cycle, us_ko
 from signal_desk.signals import (
-    advisor, advisor_shadow, engine, execution_gate, macro, regime, risk, vol_sizing,
+    advisor, advisor_shadow, engine, execution_gate, execution_twin, macro, regime, risk, vol_sizing,
 )
 from signal_desk.signals import accuracy as accuracy_mod
 from signal_desk.signals import decision as decmod
@@ -550,7 +550,11 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         # **종목별** 청산 폭. 종가 시계열로만 잰다(장중 오버레이가 섞이면 폭이 매 틱 흔들린다).
         pos_risk = _risk_for(closes)
         pos = db.bot_position_get(uid, ticker)
-        peak = max(pos["peak_price"] if pos else avg_price, current_price)
+        # 라이브와 사후 재생이 동일한 peak 갱신·청산 우선순위를 쓴다. 여기만 따로 구현하면
+        # 장중 5분 청산의 수익률을 일봉 검증에서 복원할 수 없게 된다.
+        step = execution_twin.evaluate_quote(avg_price, current_price,
+                                              pos["peak_price"] if pos else avg_price, pos_risk)
+        peak = step.peak
         sig = signal_by_ticker.get(ticker)
 
         # Decision 정책 청산(최우선) — confirmed+eligible 이벤트만(P2).
@@ -566,7 +570,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         elif dec and dec.holding_action == "trim":
             reason, sell_qty = "EVENT_TRIM", max(1, qty // 2)
         if not reason:
-            reason = risk.check_exit(avg_price, current_price, peak, pos_risk)
+            reason = step.reason
         if not reason and sig and engine.is_sell(sig.kind):
             reason = "SIGNAL"
 
@@ -585,6 +589,13 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                 if result is not None:
                     db.bot_trade_log(uid, ticker, plan["name"], "sell", sell_qty, current_price, reason,
                                       result["order_no"], score=sig.score if sig else None, note=note, market=market)
+                    plan["order_no"] = result["order_no"]
+                    db.execution_event_add(
+                        f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=ticker,
+                        event_type="filled_sell", price=current_price,
+                        payload={"qty": sell_qty, "reason": reason, "peak": peak,
+                                 "entry_price": avg_price, "risk": pos_risk.effective().__dict__},
+                    )
                     if reason in ("EVENT", "EVENT_TRIM") and dec:
                         db.bot_decision_log(
                             ticker, plan["name"], reason, sig.score if sig else None,
@@ -730,6 +741,13 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                 if result is not None:
                     db.bot_trade_log(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), "buy", qty, live, "SIGNAL",
                                       result["order_no"], score=s.score, note=note, market=market)
+                    plan["order_no"] = result["order_no"]
+                    db.execution_event_add(
+                        f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=s.ticker,
+                        event_type="filled_buy", price=live,
+                        payload={"qty": qty, "reason": "SIGNAL", "score": s.score,
+                                 "rank": s.rank, "confidence": s.confidence, "style": cfg["trading_style"]},
+                    )
                     db.bot_position_upsert(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), qty, live, live,
                                             _today(), market=market,
                                             tranches_done=1, last_buy_date=_today())
@@ -1040,11 +1058,18 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
             result = paper.place_order(uid, r["ticker"], "buy", qty, price=price, name=r["name"], market=market)
             if result is not None:
                 db.bot_trade_log(uid, r["ticker"], r["name"], "buy", qty, price, "RESERVATION", result["order_no"], note=note, market=market)
+                db.execution_event_add(
+                    f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=r["ticker"],
+                    event_type="filled_buy", price=price,
+                    payload={"qty": qty, "reason": "RESERVATION", "reservation_id": r["id"],
+                             "target_price": r["target_price"]},
+                )
                 db.bot_position_upsert(uid, r["ticker"], r["name"], qty, price, price, _today(),
                                         market=market, tranches_done=1, last_buy_date=_today())
                 db.bot_reservation_resolve(r["id"], "filled")
                 cash -= qty * price
-                executed.append({"ticker": r["ticker"], "name": r["name"], "status": "filled", "qty": qty, "note": note})
+                executed.append({"ticker": r["ticker"], "name": r["name"], "status": "filled", "qty": qty,
+                                 "note": note, "order_no": result["order_no"]})
             else:
                 db.bot_reservation_resolve(r["id"], "order_failed")
                 executed.append({"ticker": r["ticker"], "name": r["name"], "status": "order_failed"})

@@ -69,6 +69,21 @@ CREATE TABLE IF NOT EXISTS alert_state(uid INTEGER, ticker TEXT, last_kind TEXT,
     PRIMARY KEY(uid, ticker));
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT,
     name TEXT, message TEXT, ts INTEGER, read INTEGER NOT NULL DEFAULT 0);
+-- 장중 가격은 종가 파일과 분리한다. 같은 데이터로 실제 청산과 사후 재생(replay)을 돌린다.
+CREATE TABLE IF NOT EXISTS intraday_quotes(market TEXT NOT NULL, ticker TEXT NOT NULL, ts INTEGER NOT NULL,
+    price REAL NOT NULL, PRIMARY KEY(market, ticker, ts));
+CREATE INDEX IF NOT EXISTS idx_intraday_quotes_lookup ON intraday_quotes(market, ticker, ts);
+-- 체결/판정 이벤트는 변경하지 않는 감사 원장이다. event_key가 재시작·재시도 중복을 막는다.
+CREATE TABLE IF NOT EXISTS execution_events(id INTEGER PRIMARY KEY AUTOINCREMENT, event_key TEXT NOT NULL UNIQUE,
+    uid INTEGER, market TEXT NOT NULL, ticker TEXT NOT NULL, event_type TEXT NOT NULL, price REAL,
+    payload TEXT NOT NULL DEFAULT '{}', ts INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_execution_events_lookup ON execution_events(market, ticker, ts);
+-- 외부 전송은 DB에 먼저 적재하고 성공 뒤에만 sent로 바꾼다.
+CREATE TABLE IF NOT EXISTS notification_outbox(id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedupe_key TEXT NOT NULL UNIQUE, text TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal',
+    status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL,
+    expires_at INTEGER, created INTEGER NOT NULL, sent_at INTEGER, last_error TEXT);
+CREATE INDEX IF NOT EXISTS idx_notification_outbox_due ON notification_outbox(status, next_attempt);
 CREATE TABLE IF NOT EXISTS shortform(id TEXT PRIMARY KEY, ticker TEXT, name TEXT, kind TEXT, score REAL,
     title TEXT, script TEXT, caption TEXT, hashtags TEXT, card_svg TEXT, scenes TEXT,
     status TEXT NOT NULL DEFAULT 'draft', note TEXT, created INTEGER, reviewed INTEGER);
@@ -550,6 +565,132 @@ def alerts_mark_read(uid: int) -> None:
     c.execute("UPDATE alerts SET read=1 WHERE uid=? AND read=0", (uid,))
     c.commit()
     c.close()
+
+
+# ---------- execution ledger / notification outbox ----------
+def intraday_quotes_record(market: str, quotes: dict[str, float], *, ts: int | None = None) -> int:
+    """장중 시세 배치를 원자적으로 저장한다. 같은 market/ticker/second는 멱등이다."""
+    now = int(time.time()) if ts is None else int(ts)
+    rows: list[tuple[str, str, int, float]] = []
+    for ticker, price in (quotes or {}).items():
+        try:
+            px = float(price)
+        except (TypeError, ValueError):
+            continue
+        if ticker and px > 0:
+            rows.append((market, str(ticker), now, px))
+    if not rows:
+        return 0
+    c = conn()
+    try:
+        before = c.total_changes
+        c.executemany("INSERT OR IGNORE INTO intraday_quotes(market,ticker,ts,price) VALUES(?,?,?,?)", rows)
+        c.commit()
+        return c.total_changes - before
+    finally:
+        c.close()
+
+
+def intraday_quotes_list(market: str, ticker: str, *, after_ts: int | None = None,
+                         before_ts: int | None = None) -> list[dict]:
+    """실제 청산 경로를 재생할 때 쓰는 시간순 장중 가격."""
+    clauses, args = ["market=?", "ticker=?"], [market, ticker]
+    if after_ts is not None:
+        clauses.append("ts>=?"); args.append(int(after_ts))
+    if before_ts is not None:
+        clauses.append("ts<=?"); args.append(int(before_ts))
+    c = conn()
+    rows = c.execute("SELECT ts,price FROM intraday_quotes WHERE " + " AND ".join(clauses)
+                     + " ORDER BY ts", args).fetchall()
+    c.close()
+    return [{"ts": ts, "price": price} for ts, price in rows]
+
+
+def intraday_quotes_prune(*, older_than_ts: int) -> int:
+    """보존 기간을 지난 장중 틱만 지운다. 일봉 원본·체결 원장은 건드리지 않는다."""
+    c = conn()
+    try:
+        cur = c.execute("DELETE FROM intraday_quotes WHERE ts<?", (int(older_than_ts),))
+        c.commit()
+        return cur.rowcount
+    finally:
+        c.close()
+
+
+def execution_event_add(event_key: str, *, uid: int | None, market: str, ticker: str,
+                        event_type: str, price: float | None = None, payload: dict | None = None,
+                        ts: int | None = None) -> bool:
+    """감사 이벤트를 한 번만 적재한다. False면 이미 같은 이벤트를 기록한 것이다."""
+    c = conn()
+    try:
+        cur = c.execute(
+            "INSERT OR IGNORE INTO execution_events(event_key,uid,market,ticker,event_type,price,payload,ts) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (event_key, uid, market, ticker, event_type, price,
+             json.dumps(payload or {}, ensure_ascii=False, sort_keys=True), int(time.time()) if ts is None else int(ts)),
+        )
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def execution_events_list(market: str, ticker: str, *, limit: int = 200) -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT event_key,uid,event_type,price,payload,ts FROM execution_events "
+                     "WHERE market=? AND ticker=? ORDER BY id DESC LIMIT ?", (market, ticker, limit)).fetchall()
+    c.close()
+    return [{"event_key": key, "uid": uid, "event_type": typ, "price": price,
+             "payload": json.loads(payload), "ts": ts}
+            for key, uid, typ, price, payload, ts in rows]
+
+
+def notification_enqueue(dedupe_key: str, text: str, *, priority: str = "normal",
+                         expires_at: int | None = None, now: int | None = None) -> bool:
+    """전송 전 DB에 기록. 동일 이벤트는 pending/sent 어느 상태여도 한 번만 허용한다."""
+    at = int(time.time()) if now is None else int(now)
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO notification_outbox("
+                        "dedupe_key,text,priority,status,attempts,next_attempt,expires_at,created) "
+                        "VALUES(?,?,?,'pending',0,?,?,?)",
+                        (dedupe_key, text, priority, at, expires_at, at))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def notification_outbox_due(*, now: int | None = None, limit: int = 20) -> list[dict]:
+    at = int(time.time()) if now is None else int(now)
+    c = conn()
+    rows = c.execute("SELECT id,dedupe_key,text,priority,attempts,expires_at FROM notification_outbox "
+                     "WHERE status='pending' AND next_attempt<=? ORDER BY "
+                     "CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, id LIMIT ?", (at, limit)).fetchall()
+    c.close()
+    return [{"id": i, "dedupe_key": key, "text": text, "priority": priority,
+             "attempts": attempts, "expires_at": expires_at}
+            for i, key, text, priority, attempts, expires_at in rows]
+
+
+def notification_outbox_sent(item_id: int, *, now: int | None = None) -> None:
+    c = conn()
+    c.execute("UPDATE notification_outbox SET status='sent',sent_at=?,last_error=NULL WHERE id=? AND status='pending'",
+              (int(time.time()) if now is None else int(now), item_id))
+    c.commit(); c.close()
+
+
+def notification_outbox_failed(item_id: int, *, next_attempt: int, error: str) -> None:
+    c = conn()
+    c.execute("UPDATE notification_outbox SET attempts=attempts+1,next_attempt=?,last_error=? "
+              "WHERE id=? AND status='pending'", (int(next_attempt), error[:300], item_id))
+    c.commit(); c.close()
+
+
+def notification_outbox_expire(item_id: int) -> None:
+    c = conn()
+    c.execute("UPDATE notification_outbox SET status='expired' WHERE id=? AND status='pending'", (item_id,))
+    c.commit(); c.close()
 
 
 # ---------- kv (범용 JSON 캐시) ----------

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 
 from signal_desk import db, store
 
@@ -102,4 +103,6 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
         if pos["qty"] <= 0:
             del acct["positions"][ticker]
     _save(uid, acct, market)
-    return {"order_no": "PAPER", "order_time": "", "fill_price": round(px, 2)}
+    # 원장·알림의 멱등 키는 주문번호에 기대므로 상수 "PAPER"를 쓰면 서로 다른 체결이 하나로
+    # 합쳐진다. 모의 체결도 실제 브로커처럼 호출마다 고유 ID를 가져야 사후 재현이 가능하다.
+    return {"order_no": f"PAPER-{uuid.uuid4().hex[:16]}", "order_time": "", "fill_price": round(px, 2)}
