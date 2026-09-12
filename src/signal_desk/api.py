@@ -34,7 +34,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
-    meta_entry,
+    meta_entry, portfolio_risk,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, revision, sector_rel, target, why_now,
@@ -2952,6 +2952,27 @@ def meta_entry_diagnostics_get(market: str = "kr"):
 def notification_health_get():
     """Telegram 전달 큐 상태. 메시지 본문·수신자는 노출하지 않아 운영 경보에 안전하다."""
     return {"configured": notify.available(), **db.notification_outbox_health()}
+
+
+@app.get("/api/portfolio-risk")
+def portfolio_risk_get(style: str = "balanced", market: str = "kr"):
+    """레퍼런스 장부의 섹터·상관 집중도 shadow. 주문 제한 규칙이 아니다."""
+    mkt = _mkt(market)
+    state = bot.ledger_state(style, mkt)
+    if state.get("error"):
+        return state
+    if mkt == "us":
+        universe, prices, dates = store.load_us_universe(), store.load_us_price_series(), store.load_us_dates_by_ticker()
+    else:
+        universe, prices, dates = store.load_universe(), store.load_price_series(), store.load_dates_by_ticker()
+    from signal_desk.reference import sectors
+    explicit = {str(u["ticker"]): str(u["sector"]) for u in universe if u.get("ticker") and u.get("sector")}
+    sector_by = {p["ticker"]: explicit.get(p["ticker"]) or sectors.sector_of(p["ticker"])
+                 for p in state.get("positions", [])}
+    holdings = [{**p, "price": (prices.get(p["ticker"]) or [p.get("last_price") or p.get("avg_price")])[-1]}
+                for p in state.get("positions", [])]
+    return {"style": state.get("style"), "market": mkt,
+            **portfolio_risk.diagnostics(holdings, dates_by=dates, closes_by=prices, sector_by=sector_by)}
 
 
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
