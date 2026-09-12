@@ -746,7 +746,10 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                         f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=s.ticker,
                         event_type="filled_buy", price=live,
                         payload={"qty": qty, "reason": "SIGNAL", "score": s.score,
-                                 "rank": s.rank, "confidence": s.confidence, "style": cfg["trading_style"]},
+                                 "rank": s.rank, "confidence": s.confidence, "style": cfg["trading_style"],
+                                 # 해당 진입에 실제 적용한 폭을 동결한다. 나중에 config가 바뀌어도
+                                 # 과거 실행을 새 규칙으로 재생하는 룩어헤드가 생기지 않는다.
+                                 "risk": _risk_for(closes).effective().__dict__},
                     )
                     db.bot_position_upsert(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), qty, live, live,
                                             _today(), market=market,

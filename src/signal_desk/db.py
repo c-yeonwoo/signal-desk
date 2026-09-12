@@ -645,6 +645,17 @@ def execution_events_list(market: str, ticker: str, *, limit: int = 200) -> list
             for key, uid, typ, price, payload, ts in rows]
 
 
+def execution_events_for_uid(uid: int, market: str, *, limit: int = 500) -> list[dict]:
+    """레퍼런스 계좌별 체결 원장. id 오름차순이라 진입→청산 짝을 안전하게 복원할 수 있다."""
+    c = conn()
+    rows = c.execute("SELECT event_key,ticker,event_type,price,payload,ts FROM execution_events "
+                     "WHERE uid=? AND market=? ORDER BY id LIMIT ?", (uid, market, limit)).fetchall()
+    c.close()
+    return [{"event_key": key, "uid": uid, "ticker": ticker, "event_type": typ, "price": price,
+             "payload": json.loads(payload), "ts": ts}
+            for key, ticker, typ, price, payload, ts in rows]
+
+
 def notification_enqueue(dedupe_key: str, text: str, *, priority: str = "normal",
                          expires_at: int | None = None, now: int | None = None) -> bool:
     """전송 전 DB에 기록. 동일 이벤트는 pending/sent 어느 상태여도 한 번만 허용한다."""

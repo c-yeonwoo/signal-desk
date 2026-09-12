@@ -33,7 +33,7 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_gate,
+    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, revision, sector_rel, target, why_now,
@@ -2902,6 +2902,25 @@ def ledger_state_get(style: str = "balanced", market: str = "kr"):
 def bot_decisions_get():
     """트레이딩의 의사결정 저널 — 최근 결정 + 사후수익(같은 종목·같은 날은 1건)."""
     return {"decisions": db.bot_decisions_recent(40)}
+
+
+@app.get("/api/execution-audit")
+def execution_audit_get(style: str = "balanced", market: str = "kr"):
+    """장중 원장으로 레퍼런스 봇의 실제 리스크 청산을 재생한 감사 결과.
+
+    설정·틱이 새로 쌓이기 시작한 체결만 엄격 비교한다. 이전 데이터가 없다는 것을 성공으로
+    바꾸지 않고 auditable 수로 따로 드러낸다.
+    """
+    mkt = _mkt(market)
+    uid = next((uid for uid, name in bot.REFERENCE_BOTS.items() if name == style), None)
+    if uid is None:
+        return {"error": "unknown style"}
+    events = db.execution_events_for_uid(uid, mkt)
+    rows = execution_audit.audit_events(
+        events,
+        lambda ticker, after, before: db.intraday_quotes_list(mkt, ticker, after_ts=after, before_ts=before),
+    )
+    return {"style": style, "market": mkt, **execution_audit.summary(rows)}
 
 
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
