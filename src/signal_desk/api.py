@@ -394,6 +394,11 @@ def _bot_loop_iteration() -> None:
             _scan_alerts(uid)
         except Exception as e:
             log.warning("알림 스캔 실패(uid=%s): %s", uid, type(e).__name__)
+    for mkt in ("kr", "us"):
+        try:
+            _maybe_notify_meta_entry_shadow(mkt)
+        except Exception as e:
+            log.warning("메타 진입 shadow 판정 실패(%s): %s", mkt, type(e).__name__)
     now = _kst_now()
     if now.weekday() < 5 and now.time() >= datetime.time(15, 40) \
             and db.kv_get("bot_daily_snap") != _kst_today():
@@ -2927,12 +2932,10 @@ def execution_audit_get(style: str = "balanced", market: str = "kr"):
     return {"style": style, "market": mkt, **execution_audit.summary(rows)}
 
 
-@app.get("/api/meta-entry/diagnostics")
-def meta_entry_diagnostics_get(market: str = "kr"):
+def _meta_entry_shadow(market: str) -> dict:
     """시간 누수 없는 메타-진입 shadow의 현재 표본·OOF 진척도.
 
-    이 라우트는 현 시그널이나 봇 후보를 바꾸지 않는다. 충분한 OOS 증거가 생겼는지 확인하는
-    관측면이며, 실제 필터 승격은 사전등록 변경으로만 가능하다.
+    현 시그널이나 봇 후보를 바꾸지 않는다. 실제 필터 승격은 사전등록 변경으로만 가능하다.
     """
     mkt = _mkt(market)
     history = store.load_signal_history(mkt)
@@ -2945,7 +2948,33 @@ def meta_entry_diagnostics_get(market: str = "kr"):
     return {"market": mkt, "barrier": {"horizon_days": cfg.horizon_days,
                                            "profit_take_pct": cfg.profit_take_pct,
                                            "stop_loss_pct": cfg.stop_loss_pct},
-            **meta_entry.diagnostics(estimates)}
+            **meta_entry.diagnostics(estimates), "promotion": meta_entry.promotion_assessment(
+                estimates, horizon_days=cfg.horizon_days)}
+
+
+def _maybe_notify_meta_entry_shadow(market: str) -> None:
+    """shadow 판정 상태가 바뀔 때만 알린다. 관측을 쌓고도 아무도 안 보는 문제를 막는다."""
+    result = _meta_entry_shadow(market)
+    promotion = result.get("promotion") or {}
+    status = promotion.get("status")
+    key = f"meta_entry_shadow_status:{_mkt(market)}"
+    previous = db.kv_get(key)
+    if status == previous:
+        return
+    db.kv_set(key, status)
+    if status not in {"positive", "negative"}:
+        return
+    icon = "✅" if status == "positive" else "⚠️"
+    text = (f"{icon} 메타 진입 shadow {_mkt(market).upper()} {status} · "
+            f"비중첩 OOS {promotion.get('effective_blocks')}블록 · "
+            f"lift 하한 {promotion.get('lower_lift_pp'):+.2f}%p")
+    notify.enqueue(text, dedupe_key=f"meta-entry:{_mkt(market)}:{status}:{_kst_today()}", priority="high")
+    notify.drain()
+
+
+@app.get("/api/meta-entry/diagnostics")
+def meta_entry_diagnostics_get(market: str = "kr"):
+    return _meta_entry_shadow(market)
 
 
 @app.get("/api/notification-health")

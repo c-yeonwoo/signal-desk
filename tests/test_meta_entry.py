@@ -31,3 +31,33 @@ def test_oof_abstains_until_a_purged_history_exists():
     assert any(r["status"] == "shadow" for r in estimates)
     # 모든 예측 행은 해당 테스트 시작 전 완결된 행만 train에 갖는다(첫 블록에는 0개).
     assert estimates[0]["train_n"] == 0
+
+
+def test_promotion_uses_non_overlapping_blocks_and_requires_lower_lift():
+    rows = []
+    for day in range(0, 160, 20):
+        # 선택군은 매번 승리, 비선택군은 매번 패배. 같은 날짜 안에서만 비교한다.
+        rows.extend([
+            {"entry_index": day, "label": 1, "probability": 0.8, "lcb": 0.6},
+            {"entry_index": day, "label": 0, "probability": 0.4, "lcb": 0.3},
+        ])
+    assessment = me.promotion_assessment(rows, horizon_days=20, min_blocks=8)
+
+    assert assessment["effective_blocks"] == 8
+    assert assessment["status"] == "positive"
+    assert assessment["lower_lift_pp"] > 0
+
+
+def test_positive_shadow_status_is_notified_once_per_transition(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import api
+    sent = []
+    monkeypatch.setattr(api, "_meta_entry_shadow", lambda market: {
+        "promotion": {"status": "positive", "effective_blocks": 8, "lower_lift_pp": 2.5}})
+    monkeypatch.setattr(api.notify, "enqueue", lambda text, **kwargs: sent.append((text, kwargs)) or True)
+    monkeypatch.setattr(api.notify, "drain", lambda: {})
+
+    api._maybe_notify_meta_entry_shadow("kr")
+    api._maybe_notify_meta_entry_shadow("kr")
+    assert len(sent) == 1
+    assert "OOS 8블록" in sent[0][0]

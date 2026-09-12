@@ -185,3 +185,50 @@ def diagnostics(rows: list[dict], *, lcb_threshold: float = 0.5) -> dict:
         "selected_win_rate_pct": round(sum(r["label"] for r in selected) / len(selected) * 100, 1) if selected else None,
         "note": "shadow only — 사전등록 OOS 표본과 하한 기준 충족 전에는 매수·알림을 변경하지 않음",
     }
+
+
+def promotion_assessment(rows: list[dict], *, horizon_days: int = 20,
+                         lcb_threshold: float = 0.5, min_blocks: int = 8) -> dict:
+    """비중첩 OOS 블록에서 meta 선택의 lift 하한을 평가한다.
+
+    같은 20거래일 수익 창을 매일 세면 관측 수가 부풀려진다. 날짜별로 선택/비선택의 평균
+    라벨 차이를 만들고, 이전 블록의 label horizon이 끝난 뒤의 블록만 남긴다. 따라서 단순
+    ``표본 N``이 아니라 lift의 보수적 신뢰하한이 양수인지로만 positive를 판정한다.
+    """
+    by_index: dict[int, list[dict]] = {}
+    for row in rows:
+        if row.get("probability") is not None:
+            by_index.setdefault(int(row["entry_index"]), []).append(row)
+    blocks, next_index = [], None
+    for index in sorted(by_index):
+        if next_index is not None and index < next_index:
+            continue
+        day = by_index[index]
+        selected = [r["label"] for r in day if r["lcb"] >= lcb_threshold]
+        rejected = [r["label"] for r in day if r["lcb"] < lcb_threshold]
+        if selected and rejected:
+            blocks.append(sum(selected) / len(selected) - sum(rejected) / len(rejected))
+            next_index = index + max(1, horizon_days)
+    n = len(blocks)
+    if not n:
+        return {"status": "awaiting_comparator", "effective_blocks": 0, "lift_pp": None,
+                "lower_lift_pp": None, "upper_lift_pp": None,
+                "note": "같은 OOS 날짜에 선택·비선택 후보가 함께 생기면 비교를 시작"}
+    mean = sum(blocks) / n
+    # 일별 차이를 독립 표본으로 두며, n<2는 분산을 주장하지 않는다.
+    se = math.sqrt(sum((x - mean) ** 2 for x in blocks) / (n - 1) / n) if n >= 2 else None
+    lower = mean - 1.96 * se if se is not None else None
+    upper = mean + 1.96 * se if se is not None else None
+    if n < min_blocks or lower is None:
+        status = "awaiting_oos"
+    elif lower > 0:
+        status = "positive"
+    elif upper < 0:
+        status = "negative"
+    else:
+        status = "inconclusive"
+    return {"status": status, "effective_blocks": n, "lift_pp": round(mean * 100, 2),
+            "lower_lift_pp": round(lower * 100, 2) if lower is not None else None,
+            "upper_lift_pp": round(upper * 100, 2) if upper is not None else None,
+            "note": ("사전등록·실행 하네스 검증 전에는 positive여도 라이브 차단 금지"
+                     if status == "positive" else "비중첩 OOS lift 하한을 계속 관측")}
