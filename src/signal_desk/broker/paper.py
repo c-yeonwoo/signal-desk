@@ -12,6 +12,7 @@ import logging
 import uuid
 
 from signal_desk import db, store
+from signal_desk.broker import execution
 
 log = logging.getLogger("signal_desk.broker.paper")
 
@@ -79,30 +80,32 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
         raise ValueError("side must be 'buy' or 'sell'")
     if qty <= 0:
         return None
-    px = float(price) if price else current_price(ticker)
-    if not px or px <= 0:
+    reference_price = float(price) if price else current_price(ticker)
+    if not reference_price or reference_price <= 0:
         return None
+    fill = execution.calculate(reference_price, qty, side, market)
     acct = _load(uid, market)
     pos = acct["positions"].get(ticker)
     if side == "buy":
-        if px * qty > acct["cash"]:
+        if -fill.cash_change > acct["cash"]:
             return None
-        acct["cash"] -= px * qty
+        acct["cash"] += fill.cash_change
         if pos:
             total = pos["qty"] + qty
-            pos["avg_price"] = (pos["avg_price"] * pos["qty"] + px * qty) / total
+            # 매수 비용까지 원가로 넣어야 실현/미실현 손익이 같은 비용 관례를 쓴다.
+            pos["avg_price"] = (pos["avg_price"] * pos["qty"] + (-fill.cash_change)) / total
             pos["qty"] = total
         else:
             acct["positions"][ticker] = {"name": name or _name_map(market).get(ticker, ticker),
-                                         "qty": qty, "avg_price": px}
+                                         "qty": qty, "avg_price": -fill.cash_change / qty}
     else:  # sell
         if not pos or pos["qty"] < qty:
             return None
-        acct["cash"] += px * qty
+        acct["cash"] += fill.cash_change
         pos["qty"] -= qty
         if pos["qty"] <= 0:
             del acct["positions"][ticker]
     _save(uid, acct, market)
     # 원장·알림의 멱등 키는 주문번호에 기대므로 상수 "PAPER"를 쓰면 서로 다른 체결이 하나로
     # 합쳐진다. 모의 체결도 실제 브로커처럼 호출마다 고유 ID를 가져야 사후 재현이 가능하다.
-    return {"order_no": f"PAPER-{uuid.uuid4().hex[:16]}", "order_time": "", "fill_price": round(px, 2)}
+    return {"order_no": f"PAPER-{uuid.uuid4().hex[:16]}", "order_time": "", **fill.as_dict()}

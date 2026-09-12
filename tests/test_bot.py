@@ -105,7 +105,7 @@ def test_sells_on_stop_loss(tmp_path, monkeypatch):
     s = out["sells"][0]
     assert (s["ticker"], s["qty"], s["reason"], s["ok"]) == ("005930", 10, "STOP_LOSS", True)
     assert db.bot_position_get(UID, "005930") is None            # 청산 → 포지션 삭제
-    assert paper.balance(UID)["cash"] == 900.0                    # 10주 × 90 회수
+    assert paper.balance(UID)["cash"] == 897.62                   # 슬리피지·수수료·거래세 후 회수
 
 
 def test_sells_on_signal_flip(tmp_path, monkeypatch):
@@ -153,7 +153,7 @@ def test_buys_top_scored_respecting_slots_and_lot(tmp_path, monkeypatch):
     out = bot.run_once(UID)
     assert [b["ticker"] for b in out["buys"]] == ["BBB", "AAA", "CCC"]   # 점수 내림차순
     p = db.bot_position_get(UID, "BBB")
-    assert (p["ticker"], p["qty"], p["avg_price"]) == ("BBB", 2, 100.0)
+    assert (p["ticker"], p["qty"], round(p["avg_price"], 4)) == ("BBB", 2, 100.065)
 
 
 def test_pyramid_adds_to_under_target_holding(tmp_path, monkeypatch):

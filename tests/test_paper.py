@@ -20,13 +20,13 @@ def test_paper_buy_sell_cash_and_positions(tmp_path, monkeypatch):
 
     assert paper.place_order(UID, "005930", "buy", 10, price=70000.0)["order_no"].startswith("PAPER-")
     b = paper.balance(UID)
-    assert b["cash"] == 300_000.0                      # 100만 − 70만
+    assert b["cash"] == 299_544.95                     # 불리한 슬리피지 + 매수 수수료 반영
     assert b["holdings"][0] == {"ticker": "005930", "name": "삼성전자", "qty": 10,
-                                "avg_price": 70000.0, "price": 70000.0, "pnl_pct": 0.0}
+                                "avg_price": 70045.51, "price": 70000.0, "pnl_pct": -0.06}
 
     paper.place_order(UID, "005930", "sell", 4, price=75000.0)
     b = paper.balance(UID)
-    assert b["cash"] == 600_000.0                      # 30만 + 4×75000
+    assert b["cash"] == 598_750.27                     # 매도 슬리피지·수수료·거래세 차감
     assert b["holdings"][0]["qty"] == 6
 
 
@@ -49,4 +49,4 @@ def test_paper_pnl_from_price_cache(tmp_path, monkeypatch):
     paper.place_order(UID, "005930", "buy", 5, price=70000.0)
     monkeypatch.setattr(store, "load_price_series", lambda: {"005930": [77000.0]})  # +10%
     h = paper.balance(UID)["holdings"][0]
-    assert h["price"] == 77000.0 and h["pnl_pct"] == 10.0
+    assert h["price"] == 77000.0 and h["pnl_pct"] == 9.93

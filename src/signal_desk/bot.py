@@ -452,14 +452,15 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                  f"평단 {int(wh['avg_price']):,}→현재 {int(wlive):,}{unit}({pl_pct:+.1f}%) {wqty}주 청산")
         splan = {"ticker": wt, "name": wh["name"], "qty": wqty, "reason": "ROTATE_OUT", "note": snote, "price": wlive}
         if not dry_run:
-            if paper.place_order(uid, wt, "sell", wqty, price=wlive, market=market) is None:
+            sell_result = paper.place_order(uid, wt, "sell", wqty, price=wlive, market=market)
+            if sell_result is None:
                 weak.pop(0)
                 continue
-            db.bot_trade_log(uid, wt, wh["name"], "sell", wqty, wlive, "ROTATE_OUT", "PAPER",
+            db.bot_trade_log(uid, wt, wh["name"], "sell", wqty, sell_result["fill_price"], "ROTATE_OUT", sell_result["order_no"],
                              score=weak_score, note=snote, market=market)
+            splan.update(order_no=sell_result["order_no"], fill_price=sell_result["fill_price"], fees=sell_result["total_fees"], ok=True)
             db.bot_position_delete(uid, wt)
-            splan["ok"] = True
-        cash += wqty * wlive
+        cash += sell_result["cash_change"] if not dry_run else wqty * wlive
         sells.append(splan)
         rotated_out.add(wt)
         held_after.discard(wt)
@@ -473,18 +474,23 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
             bplan = {"ticker": best.ticker, "name": bname, "qty": bqty, "price": blive,
                      "reason": "ROTATE_IN", "note": bnote, "score": best.score, "ai": False}
             if not dry_run:
-                if paper.place_order(uid, best.ticker, "buy", bqty, price=blive, name=best.name, market=market) is not None:
-                    db.bot_trade_log(uid, best.ticker, bname, "buy", bqty, blive, "ROTATE_IN", "PAPER",
+                buy_result = paper.place_order(uid, best.ticker, "buy", bqty, price=blive, name=best.name, market=market)
+                if buy_result is not None:
+                    basis_per_share = -buy_result["cash_change"] / bqty
+                    db.bot_trade_log(uid, best.ticker, bname, "buy", bqty, buy_result["fill_price"], "ROTATE_IN", buy_result["order_no"],
                                      score=best.score, note=bnote, market=market)
                     # **신규 진입은 회차 1로 시작한다.** 안 넘기면 upsert가 기존 행 값을
                     # 보존하는데, 같은 종목을 팔고 다시 산 경우 옛 회차가 이어져 상한이
                     # 즉시 걸린다(로테이션 재편입이 그 경로다).
-                    db.bot_position_upsert(uid, best.ticker, bname, bqty, blive, blive, _today(),
+                    db.bot_position_upsert(uid, best.ticker, bname, bqty, basis_per_share, blive, _today(),
                                            market=market, tranches_done=1, last_buy_date=_today())
-                    bplan["ok"] = True
+                    bplan.update(order_no=buy_result["order_no"], fill_price=buy_result["fill_price"], fees=buy_result["total_fees"], ok=True)
                 else:
                     bplan["ok"] = False
-            cash -= bqty * blive
+            if dry_run:
+                cash -= bqty * blive
+            elif buy_result is not None:
+                cash += buy_result["cash_change"]
             buys.append(bplan)
             held_after.add(best.ticker)
         weak.pop(0)
@@ -587,14 +593,18 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             if not dry_run:
                 result = paper.place_order(uid, ticker, "sell", sell_qty, price=current_price, market=market)
                 if result is not None:
-                    db.bot_trade_log(uid, ticker, plan["name"], "sell", sell_qty, current_price, reason,
+                    filled = result["fill_price"]
+                    db.bot_trade_log(uid, ticker, plan["name"], "sell", sell_qty, filled, reason,
                                       result["order_no"], score=sig.score if sig else None, note=note, market=market)
                     plan["order_no"] = result["order_no"]
+                    plan["fill_price"], plan["fees"] = filled, result["total_fees"]
                     db.execution_event_add(
                         f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=ticker,
-                        event_type="filled_sell", price=current_price,
+                        event_type="filled_sell", price=filled,
                         payload={"qty": sell_qty, "reason": reason, "peak": peak,
-                                 "entry_price": avg_price, "risk": pos_risk.effective().__dict__},
+                                 "entry_price": avg_price, "reference_price": current_price,
+                                 "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
+                                 "risk": pos_risk.effective().__dict__},
                     )
                     if reason in ("EVENT", "EVENT_TRIM") and dec:
                         db.bot_decision_log(
@@ -739,19 +749,24 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             if not dry_run:
                 result = paper.place_order(uid, s.ticker, "buy", qty, price=live, name=s.name, market=market)
                 if result is not None:
-                    db.bot_trade_log(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), "buy", qty, live, "SIGNAL",
+                    filled = result["fill_price"]
+                    basis_per_share = -result["cash_change"] / qty
+                    db.bot_trade_log(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), "buy", qty, filled, "SIGNAL",
                                       result["order_no"], score=s.score, note=note, market=market)
                     plan["order_no"] = result["order_no"]
+                    plan["fill_price"], plan["fees"] = filled, result["total_fees"]
                     db.execution_event_add(
                         f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=s.ticker,
-                        event_type="filled_buy", price=live,
+                        event_type="filled_buy", price=filled,
                         payload={"qty": qty, "reason": "SIGNAL", "score": s.score,
                                  "rank": s.rank, "confidence": s.confidence, "style": cfg["trading_style"],
+                                 "reference_price": live, "fees": result["total_fees"],
+                                 "slippage_cost": result["slippage_cost"],
                                  # 해당 진입에 실제 적용한 폭을 동결한다. 나중에 config가 바뀌어도
                                  # 과거 실행을 새 규칙으로 재생하는 룩어헤드가 생기지 않는다.
                                  "risk": _risk_for(closes).effective().__dict__},
                     )
-                    db.bot_position_upsert(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), qty, live, live,
+                    db.bot_position_upsert(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), qty, basis_per_share, live,
                                             _today(), market=market,
                                             tranches_done=1, last_buy_date=_today())
                     from signal_desk.signals import pick_reason as _pr
@@ -829,9 +844,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             result = paper.place_order(uid, t, "buy", qty, price=live, name=h["name"], market=market)
             if result is not None:
                 new_qty = h["qty"] + qty
-                new_avg = round((h["qty"] * avg + qty * live) / new_qty, 2)
+                new_avg = round((h["qty"] * avg - result["cash_change"]) / new_qty, 2)
                 pos = db.bot_position_get(uid, t)
-                db.bot_trade_log(uid, t, h["name"], "buy", qty, live, "ADD", result["order_no"],
+                db.bot_trade_log(uid, t, h["name"], "buy", qty, result["fill_price"], "ADD", result["order_no"],
                                   score=sig.score, note=note, market=market)
                 db.bot_position_upsert(uid, t, h["name"], new_qty, new_avg,
                                         max(pos["peak_price"] if pos else new_avg, live),
@@ -1060,14 +1075,17 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
         if not dry_run:
             result = paper.place_order(uid, r["ticker"], "buy", qty, price=price, name=r["name"], market=market)
             if result is not None:
-                db.bot_trade_log(uid, r["ticker"], r["name"], "buy", qty, price, "RESERVATION", result["order_no"], note=note, market=market)
+                filled = result["fill_price"]
+                basis_per_share = -result["cash_change"] / qty
+                db.bot_trade_log(uid, r["ticker"], r["name"], "buy", qty, filled, "RESERVATION", result["order_no"], note=note, market=market)
                 db.execution_event_add(
                     f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=r["ticker"],
-                    event_type="filled_buy", price=price,
+                    event_type="filled_buy", price=filled,
                     payload={"qty": qty, "reason": "RESERVATION", "reservation_id": r["id"],
-                             "target_price": r["target_price"]},
+                             "target_price": r["target_price"], "reference_price": price,
+                             "fees": result["total_fees"], "slippage_cost": result["slippage_cost"]},
                 )
-                db.bot_position_upsert(uid, r["ticker"], r["name"], qty, price, price, _today(),
+                db.bot_position_upsert(uid, r["ticker"], r["name"], qty, basis_per_share, price, _today(),
                                         market=market, tranches_done=1, last_buy_date=_today())
                 db.bot_reservation_resolve(r["id"], "filled")
                 cash -= qty * price

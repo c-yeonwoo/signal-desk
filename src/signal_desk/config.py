@@ -247,6 +247,21 @@ def paper_seed_cash() -> float:
         return 10_000_000.0
 
 
+def paper_execution_bps(market: str, name: str, default: float) -> float:
+    """페이퍼 체결 가정(bps). 계좌별 약정이 달라 환경변수로만 교체한다."""
+    prefix = "US" if market == "us" else "KR"
+    return _env_float(f"PAPER_{prefix}_{name}_BPS", default)
+
+
+def paper_us_finra_taf_per_share() -> float:
+    """미국 매도 FINRA TAF/주. 2026 기본값, 브로커 청구 규칙에 따라 교체 가능."""
+    return _env_float("PAPER_US_FINRA_TAF_PER_SHARE", 0.000195)
+
+
+def paper_us_finra_taf_cap() -> float:
+    return _env_float("PAPER_US_FINRA_TAF_CAP", 9.79)
+
+
 def bot_kill_switch() -> bool:
     """긴급 정지 — BOT_KILL_SWITCH가 켜져 있으면 자동매매봇이 어떤 주문도 내지 않는다(하드 스톱)."""
     return (os.environ.get("BOT_KILL_SWITCH", "") or "").strip().lower() in ("1", "true", "on", "yes")
