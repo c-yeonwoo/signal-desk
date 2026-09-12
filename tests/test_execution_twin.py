@@ -57,3 +57,14 @@ def test_execution_audit_preserves_remaining_lot_after_partial_sell():
     assert [r["quantity"] for r in rows] == [4, 6]
     assert rows[0]["match"] is None  # 이벤트 부분청산은 risk replay 비교 대상이 아니다.
     assert rows[1]["match"] is True
+
+
+def test_execution_audit_reports_unmatched_exit_as_coverage_gap():
+    rows = execution_audit.audit_events(
+        [{"ticker": "A", "price": 90, "ts": 20, "event_type": "filled_sell",
+          "payload": {"qty": 1, "reason": "STOP_LOSS"}}],
+        lambda *_args: [],
+    )
+
+    assert rows[0]["auditable"] is False
+    assert execution_audit.summary(rows)["unmatched_exits"] == 1

@@ -95,6 +95,16 @@ def audit_events(events: list[dict], quotes_for_ticker) -> list[dict]:
                 lot["remaining_qty"] -= used
                 if lot["remaining_qty"] == 0:
                     entries[ticker].pop(0)
+            # 원장이 진입 뒤에 켜졌거나 외부 수정으로 sell 수량이 더 클 수 있다. 억지로 가장
+            # 가까운 buy와 짝지으면 그럴듯한 거짓 '불일치'가 생기므로, 감사 불가로 노출한다.
+            if remaining > 0:
+                out.append({"ticker": ticker, "quantity": remaining, "auditable": False, "match": None,
+                            "reason": "대응하는 진입 체결 원장이 없음", "actual_reason":
+                            (event.get("payload") or {}).get("reason"), "actual_exit_ts": event.get("ts")})
+        elif event.get("event_type") == "filled_sell":
+            out.append({"ticker": ticker, "quantity": _quantity(event), "auditable": False, "match": None,
+                        "reason": "대응하는 진입 체결 원장이 없음", "actual_reason":
+                        (event.get("payload") or {}).get("reason"), "actual_exit_ts": event.get("ts")})
     # 열린 포지션도 계속 감사한다. 아직 exit가 없다는 건 오류가 아니라 관측 중이다.
     for ticker, pending in entries.items():
         for lot in pending:
@@ -107,6 +117,8 @@ def summary(rows: list[dict]) -> dict:
     auditable = [r for r in rows if r.get("auditable")]
     compared = [r for r in auditable if r.get("match") is not None]
     matches = sum(1 for r in compared if r["match"])
-    return {"positions": len(rows), "auditable": len(auditable), "risk_compared": len(compared),
+    unmatched = sum(1 for r in rows if r.get("reason") == "대응하는 진입 체결 원장이 없음")
+    return {"positions": len(rows), "auditable": len(auditable), "unmatched_exits": unmatched,
+            "risk_compared": len(compared),
             "matched": matches, "match_pct": round(matches / len(compared) * 100, 1) if compared else None,
             "items": rows}
