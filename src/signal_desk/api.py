@@ -2975,6 +2975,12 @@ def portfolio_risk_get(style: str = "balanced", market: str = "kr"):
             **portfolio_risk.diagnostics(holdings, dates_by=dates, closes_by=prices, sector_by=sector_by)}
 
 
+@app.get("/api/execution-performance")
+def execution_performance_get(style: str = "balanced", market: str = "kr"):
+    """레퍼런스 장부의 비용 후 성과와 비용 기록 커버리지."""
+    return bot.execution_performance(style, _mkt(market))
+
+
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
 def _kb_lite_targets(max_tickers: int | None = None) -> list[dict]:
     """장중 DART lite 대상 — 매수권 + 보유 + 관심 + **순위 상위**(KR만). LLM 비용 0.

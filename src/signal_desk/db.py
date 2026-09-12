@@ -47,7 +47,8 @@ CREATE TABLE IF NOT EXISTS bot_positions(uid INTEGER, ticker TEXT, market TEXT N
     PRIMARY KEY(uid, ticker));
 CREATE TABLE IF NOT EXISTS bot_trades(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT,
     market TEXT NOT NULL DEFAULT 'kr', name TEXT,
-    side TEXT, qty INTEGER, price REAL, reason TEXT, order_no TEXT, ts INTEGER, score REAL, note TEXT);
+    side TEXT, qty INTEGER, price REAL, reason TEXT, order_no TEXT, ts INTEGER, score REAL, note TEXT,
+    reference_price REAL, fees REAL, slippage_cost REAL, cash_change REAL);
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -305,8 +306,13 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE bot_positions ADD COLUMN tranches_done INTEGER NOT NULL DEFAULT 1")
     if "last_buy_date" not in pcols:
         c.execute("ALTER TABLE bot_positions ADD COLUMN last_buy_date TEXT")
-    if "market" not in {r[1] for r in c.execute("PRAGMA table_info(bot_trades)").fetchall()}:
+    tcols = {r[1] for r in c.execute("PRAGMA table_info(bot_trades)").fetchall()}
+    if "market" not in tcols:
         c.execute("ALTER TABLE bot_trades ADD COLUMN market TEXT NOT NULL DEFAULT 'kr'")
+    for col, ddl in (("reference_price", "REAL"), ("fees", "REAL"),
+                     ("slippage_cost", "REAL"), ("cash_change", "REAL")):
+        if col not in tcols:
+            c.execute(f"ALTER TABLE bot_trades ADD COLUMN {col} {ddl}")
     if "market" not in {r[1] for r in c.execute("PRAGMA table_info(bot_reservations)").fetchall()}:
         c.execute("ALTER TABLE bot_reservations ADD COLUMN market TEXT NOT NULL DEFAULT 'kr'")
     if "seed_cash_us" not in {r[1] for r in c.execute("PRAGMA table_info(user_bot)").fetchall()}:
@@ -930,24 +936,42 @@ def bot_reset(uid: int) -> None:
 # ---------- bot_trades (유저별·시장별) ----------
 def bot_trade_log(uid: int, ticker: str, name: str, side: str, qty: int, price: float, reason: str,
                    order_no: str | None, score: float | None = None, note: str | None = None,
-                   market: str = "kr") -> None:
+                   market: str = "kr", reference_price: float | None = None, fees: float | None = None,
+                   slippage_cost: float | None = None, cash_change: float | None = None) -> None:
     """score=매매 시점 시그널 종합점수, note=타이밍·수량 산정 근거(사람이 읽는 한 줄)."""
     c = conn()
-    c.execute("INSERT INTO bot_trades(uid,ticker,market,name,side,qty,price,reason,order_no,ts,score,note) "
-              "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-              (uid, ticker, market, name, side, qty, price, reason, order_no, int(time.time()), score, note))
+    c.execute("INSERT INTO bot_trades(uid,ticker,market,name,side,qty,price,reason,order_no,ts,score,note,"
+              "reference_price,fees,slippage_cost,cash_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+              (uid, ticker, market, name, side, qty, price, reason, order_no, int(time.time()), score, note,
+               reference_price, fees, slippage_cost, cash_change))
     c.commit()
     c.close()
 
 
 def bot_trades_recent(uid: int, limit: int = 20, market: str = "kr") -> list[dict]:
     c = conn()
-    rows = c.execute("SELECT ticker,name,side,qty,price,reason,order_no,ts,score,note FROM bot_trades "
+    rows = c.execute("SELECT ticker,name,side,qty,price,reason,order_no,ts,score,note,reference_price,fees,"
+                     "slippage_cost,cash_change FROM bot_trades "
                       "WHERE uid=? AND market=? ORDER BY id DESC LIMIT ?", (uid, market, limit)).fetchall()
     c.close()
     return [{"ticker": t, "name": n, "side": s, "qty": q, "price": p, "reason": r, "order_no": o,
-             "ts": ts, "score": sc, "note": nt}
-            for t, n, s, q, p, r, o, ts, sc, nt in rows]
+             "ts": ts, "score": sc, "note": nt, "reference_price": rp, "fees": fees,
+             "slippage_cost": slip, "cash_change": cash}
+            for t, n, s, q, p, r, o, ts, sc, nt, rp, fees, slip, cash in rows]
+
+
+def bot_execution_costs(uid: int, market: str = "kr") -> dict:
+    """기록된 비용의 합계와 커버리지. 비용 기록 전 거래를 0원으로 간주하지 않는다."""
+    c = conn()
+    total, recorded, fees, slip = c.execute(
+        "SELECT COUNT(*), SUM(CASE WHEN fees IS NOT NULL THEN 1 ELSE 0 END), "
+        "SUM(COALESCE(fees,0)), SUM(COALESCE(slippage_cost,0)) FROM bot_trades WHERE uid=? AND market=?",
+        (uid, market)).fetchone()
+    c.close()
+    return {"trades": total or 0, "cost_recorded_trades": recorded or 0,
+            "coverage_pct": round((recorded or 0) / total * 100, 1) if total else None,
+            "fees": round(fees or 0, 2), "slippage_cost": round(slip or 0, 2),
+            "total_execution_cost": round((fees or 0) + (slip or 0), 2)}
 
 
 # ---------- KB (뉴스·영상 가공 지식베이스) ----------
