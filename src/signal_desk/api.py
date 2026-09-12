@@ -34,6 +34,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
+    meta_entry,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, revision, sector_rel, target, why_now,
@@ -2921,6 +2922,27 @@ def execution_audit_get(style: str = "balanced", market: str = "kr"):
         lambda ticker, after, before: db.intraday_quotes_list(mkt, ticker, after_ts=after, before_ts=before),
     )
     return {"style": style, "market": mkt, **execution_audit.summary(rows)}
+
+
+@app.get("/api/meta-entry/diagnostics")
+def meta_entry_diagnostics_get(market: str = "kr"):
+    """시간 누수 없는 메타-진입 shadow의 현재 표본·OOF 진척도.
+
+    이 라우트는 현 시그널이나 봇 후보를 바꾸지 않는다. 충분한 OOS 증거가 생겼는지 확인하는
+    관측면이며, 실제 필터 승격은 사전등록 변경으로만 가능하다.
+    """
+    mkt = _mkt(market)
+    history = store.load_signal_history(mkt)
+    if history.empty:
+        return {"market": mkt, "labels": 0, "oof_predicted": 0, "oof_abstained": 0,
+                "note": "PIT 스냅샷이 쌓이면 shadow 메타-진입 검증을 시작"}
+    cfg = meta_entry.TripleBarrierConfig()
+    labels = meta_entry.build_labeled_rows(history.to_dict("records"), store.load_all_dated_closes(), cfg)
+    estimates = meta_entry.oof_estimates(labels)
+    return {"market": mkt, "barrier": {"horizon_days": cfg.horizon_days,
+                                           "profit_take_pct": cfg.profit_take_pct,
+                                           "stop_loss_pct": cfg.stop_loss_pct},
+            **meta_entry.diagnostics(estimates)}
 
 
 # ---------- KB (뉴스·영상 → 정성 다이제스트) ----------
