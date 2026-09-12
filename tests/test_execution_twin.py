@@ -38,3 +38,22 @@ def test_execution_audit_replays_the_recorded_risk_rule():
     assert row["auditable"] is True
     assert row["expected_reason"] == "STOP_LOSS"
     assert row["match"] is True
+
+
+def test_execution_audit_preserves_remaining_lot_after_partial_sell():
+    risk_payload = {"risk": {"stop_loss_pct": -0.07, "take_profit_pct": 0.15,
+                             "trailing_from_peak_pct": -0.05, "trailing_protects_gains_only": True}}
+    events = [
+        {"ticker": "A", "price": 100, "ts": 10, "event_type": "filled_buy",
+         "payload": {**risk_payload, "qty": 10}},
+        {"ticker": "A", "price": 110, "ts": 20, "event_type": "filled_sell",
+         "payload": {**risk_payload, "qty": 4, "reason": "EVENT_TRIM", "entry_price": 100}},
+        {"ticker": "A", "price": 93, "ts": 30, "event_type": "filled_sell",
+         "payload": {**risk_payload, "qty": 6, "reason": "STOP_LOSS", "entry_price": 100}},
+    ]
+    rows = execution_audit.audit_events(
+        events, lambda _ticker, _after, _before: [{"ts": 15, "price": 101}, {"ts": 30, "price": 93}])
+
+    assert [r["quantity"] for r in rows] == [4, 6]
+    assert rows[0]["match"] is None  # 이벤트 부분청산은 risk replay 비교 대상이 아니다.
+    assert rows[1]["match"] is True
