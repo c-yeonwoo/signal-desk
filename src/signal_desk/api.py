@@ -34,7 +34,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
-    meta_entry, portfolio_construction, portfolio_intelligence, portfolio_risk,
+    meta_entry, portfolio_construction, portfolio_intelligence, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, revision, sector_rel, target, why_now,
@@ -1130,6 +1130,8 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
     # 목표배분은 실보유 분석의 shadow 결과일 뿐, 기존 리밸런싱·주문 경로를 바꾸지 않는다.
     out["allocation"] = portfolio_construction.propose(
         rows, dates_by=dates, closes_by=prices, profile=profile)
+    out["trade_plan"] = portfolio_trade_plan.plan(
+        out["allocation"], rows, cash=profile["cash"], market=market)
     return out
 
 
