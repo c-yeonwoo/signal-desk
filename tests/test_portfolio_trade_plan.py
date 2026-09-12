@@ -30,3 +30,13 @@ def test_partial_buy_is_reported_when_cash_is_insufficient():
     out = ptp.plan(allocation, [{"ticker": "A", "qty": 1, "price": 100, "value": 100}], cash=150, market="us")
     assert out["instructions"][0]["qty"] == 1
     assert out["unfunded_buys"] == [{"ticker": "A", "remaining_qty": 9}]
+
+
+def test_expansion_is_blocked_without_current_buy_signal():
+    allocation = {"ready": True, "items": [{"ticker": "A", "name": "A", "action": "확대 검토",
+                                                 "delta_value": 500, "target_weight_pct": 50}]}
+    out = ptp.plan(allocation, [{"ticker": "A", "qty": 1, "price": 100, "value": 100,
+                                 "entry_allowed": False, "entry_block_reason": "현재 BUY 시그널 없음"}],
+                   cash=1_000, market="us")
+    assert out["instructions"] == []
+    assert out["blocked_buys"] == [{"ticker": "A", "name": "A", "reason": "현재 BUY 시그널 없음"}]

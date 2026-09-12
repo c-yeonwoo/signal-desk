@@ -21,7 +21,7 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
     by_ticker = {str(row["ticker"]): row for row in rows}
     if any(abs(float(row.get("qty") or 0) - round(float(row.get("qty") or 0))) > 1e-9 for row in rows):
         return {"ready": False, "reason": "분할주 보유가 있어 정수수량 체결 모델로는 정확한 행동계획을 만들 수 없습니다."}
-    sells, buys = [], []
+    sells, buys, blocked_buys = [], [], []
     for item in allocation.get("items") or []:
         row = by_ticker.get(str(item["ticker"]))
         if not row or not row.get("price"):
@@ -36,6 +36,12 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
                               "target_weight_pct": item["target_weight_pct"], "fill": fill,
                               "reason": "목표비중 대비 과다"})
         elif item.get("action") == "확대 검토":
+            # 리스크 균형은 "얼마를 보유할지"만 말한다. 진입 타이밍은 기존에 OOS 검증 중인
+            # 시그널에 맡겨야 하므로, BUY 확인 없는 확대를 주문안으로 바꾸지 않는다.
+            if row.get("entry_allowed") is False:
+                blocked_buys.append({"ticker": item["ticker"], "name": item.get("name"),
+                                     "reason": row.get("entry_block_reason") or "진입 확인 없음"})
+                continue
             qty = _whole_qty(delta, price)
             if qty:
                 buys.append({"ticker": item["ticker"], "name": item.get("name"), "side": "buy", "qty": qty,
@@ -62,7 +68,7 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
                 for item in buys if item.get("unfunded_qty")]
     return {
         "ready": True, "mode": "shadow", "execution_order": "sell_then_buy",
-        "instructions": instructions, "unfunded_buys": unfunded,
+        "instructions": instructions, "unfunded_buys": unfunded, "blocked_buys": blocked_buys,
         "estimated": {"cash_after": round(available, 2), "fees": round(fees, 2), "slippage": round(slippage, 2)},
         "note": "최근 종가와 기본 수수료·슬리피지 가정으로 만든 정수수량 계획입니다. 실제 호가, 계좌별 세금, 부분체결은 반영 전이므로 주문으로 전송되지 않습니다.",
     }

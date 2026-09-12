@@ -41,7 +41,7 @@ from signal_desk.signals import (
 )
 from signal_desk.signals.engine import (
     GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
-    combine, compute_indicator_series, evaluate, factor_contribution, selection_summary,
+    combine, compute_indicator_series, evaluate, factor_contribution, is_buy, selection_summary,
     walk_forward,
 )
 
@@ -1099,6 +1099,7 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
     else:
         universe, prices, dates, currency = (store.load_universe(), store.load_price_series(),
                                                store.load_dates_by_ticker(), "KRW")
+    signal_by_ticker = (_us_signals() if market == "us" else {s.ticker: s for s in _signals()})
     names = {str(u["ticker"]): u.get("name") or str(u["ticker"]) for u in universe if u.get("ticker")}
     explicit_sectors = {str(u["ticker"]): u.get("sector") for u in universe if u.get("ticker")}
     rows, as_of_dates = [], []
@@ -1114,9 +1115,16 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
         else:
             price, value = None, None
         sector = explicit_sectors.get(ticker) or sectors.sector_of(ticker)
+        signal = signal_by_ticker.get(ticker)
+        event_risk = bool(getattr(signal, "event_risk", False)) if signal else False
         rows.append({"ticker": ticker, "name": names.get(ticker, ticker), "qty": float(holding.get("qty") or 0),
                      "avg_price": float(holding.get("avg_price") or 0), "price": price, "value": value,
-                     "sector": sector, "history_ready": len(closes) >= 61 and len(history_dates) >= 61})
+                     "sector": sector, "history_ready": len(closes) >= 61 and len(history_dates) >= 61,
+                     "signal_kind": getattr(signal, "kind", None), "signal_score": getattr(signal, "score", None),
+                     # 신규/추가 매수는 검증된 현재 BUY와 이벤트 위험 없음이 동시에 필요하다.
+                     "entry_allowed": bool(signal and is_buy(signal.kind) and not event_risk),
+                     "entry_block_reason": "현재 BUY 시그널 없음" if not signal or not is_buy(signal.kind)
+                                           else ("이벤트 위험 감지" if event_risk else None)})
     priced = [r for r in rows if r["value"] is not None and r["value"] > 0]
     risk = portfolio_risk.diagnostics(
         priced, dates_by=dates, closes_by=prices,
