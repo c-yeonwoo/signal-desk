@@ -594,6 +594,7 @@
     border-radius:var(--r-sm); padding:1px 7px; vertical-align:middle; line-height:1.5; }
   .layer-badge.sig { background:var(--accent-weak); color:var(--accent); border:1px solid var(--ring); }
   .layer-badge.ctx { background:var(--bg); color:var(--dim); border:1px solid var(--line-strong); }
+  .layer-badge.warn { background:rgba(180,83,9,.08); color:#92400e; border:1px solid rgba(180,83,9,.28); }
   footer { flex:0 0 auto; margin-top:auto; margin-bottom:0; border-top:1px solid var(--line);
     padding:12px clamp(16px,3.5vw,44px) calc(12px + var(--safe-bottom)); display:flex;
     gap:18px; flex-wrap:wrap; align-items:center; font-size:13px; color:var(--dim); background:var(--panel); }
@@ -1162,6 +1163,29 @@
         </div>
         <div id="hd_selected" class="stat-label" style="margin:0 0 10px"></div>
         <div id="holdings-body" class="placeholder" style="padding:12px 0">위 검색창에서 종목을 찾아 보유종목을 추가하세요.</div>
+      </div>
+
+      <div class="card" id="portfolio-intelligence-card" style="margin-bottom:16px">
+        <div class="row" style="align-items:baseline;gap:8px;flex-wrap:wrap">
+          <b style="font-size:15px">정밀 포트폴리오 진단</b>
+          <span style="color:var(--dim);font-weight:600;font-size:13px">· 전체 비중·집중도·상관위험을 입력 제약과 비교</span>
+        </div>
+        <p class="page-desc" style="margin:6px 0 10px">현재 시장의 보유·현금만 분석합니다. 수익 예측이나 자동 주문은 하지 않으며, 데이터가 부족하면 판정을 보류합니다.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">현금
+            <input id="pi-cash" type="number" min="0" class="ctrl" style="max-width:135px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">종목 최대비중 %
+            <input id="pi-single" type="number" min="0" max="100" class="ctrl" style="max-width:110px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">섹터 최대비중 %
+            <input id="pi-sector" type="number" min="0" max="100" class="ctrl" style="max-width:110px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">고상관 묶음 %
+            <input id="pi-cluster" type="number" min="0" max="100" class="ctrl" style="max-width:110px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">최소 현금 %
+            <input id="pi-mincash" type="number" min="0" max="100" class="ctrl" style="max-width:100px"></label>
+          <button class="btn primary" onclick="runPortfolioIntelligence()">저장 후 진단</button>
+        </div>
+        <div id="pi-profile-note" class="stat-label" style="margin:8px 0 0"></div>
+        <div id="pi-result" style="margin-top:12px"></div>
       </div>
 
             <!-- 목표금액 플랜 — 보유 입력 **바로 다음**이다. 배당(연료)·히트맵·리밸런싱은 이 목표를
@@ -5306,11 +5330,61 @@ function setPfMarket(m){
 }
 async function refreshPortfolio(){
   await loadRealHoldings();          // 보유종목(선택 시장) + (owner)전체 자동 import
+  loadPortfolioProfile();            // 현금·위험 한도는 시장별 입력이므로 전환 때 함께 복원
   loadHeatmap(_pfMarket);            // 섹터 히트맵(선택 시장)
   loadHoldingsDividends(_pfMarket);  // 보유 배당(선택 시장)
   const rr = document.getElementById('rebal-result'); if (rr) rr.innerHTML = '';   // 리밸런싱은 버튼으로
   // 시장·보유가 바뀌면 이전 경로는 그대로 두면 **거짓**이다 — 비운다(목표 입력은 유지).
   const gr = document.getElementById('gp-result'); if (gr) gr.innerHTML = '';
+}
+
+function _piNumber(id){ return Number(document.getElementById(id).value || 0); }
+function _piMoney(v, currency){ return currency === 'USD' ? '$' + fmtNum(v, 2) : fmtNum(v, 0) + '원'; }
+async function loadPortfolioProfile(){
+  const box = document.getElementById('pi-result');
+  try {
+    const d = await (await fetch('/api/portfolio/profile?market=' + _pfMarket)).json();
+    document.getElementById('pi-cash').value = d.cash ?? 0;
+    document.getElementById('pi-single').value = d.max_single_position_pct ?? 15;
+    document.getElementById('pi-sector').value = d.max_sector_pct ?? 35;
+    document.getElementById('pi-cluster').value = d.max_cluster_pct ?? 45;
+    document.getElementById('pi-mincash').value = d.min_cash_pct ?? 5;
+    document.getElementById('pi-profile-note').textContent = d.configured
+      ? '저장된 내 제약을 사용합니다.' : '기본 안전 한도입니다. 내 목표·제약에 맞게 수정한 뒤 저장하세요.';
+  } catch (e) {
+    if (box) box.innerHTML = '<div class="placeholder">위험 한도 설정을 불러오지 못했습니다.</div>';
+  }
+}
+function _piPriority(priority){ return ({ blocker: '데이터 필수', high: '우선 검토', medium: '검토', normal: '모니터링' })[priority] || priority; }
+async function runPortfolioIntelligence(){
+  const btn = event.target; const before = btn.textContent; btn.disabled = true; btn.textContent = '진단 중…';
+  const box = document.getElementById('pi-result');
+  const data = {
+    market: _pfMarket, cash: _piNumber('pi-cash'), max_single_position_pct: _piNumber('pi-single'),
+    max_sector_pct: _piNumber('pi-sector'), max_cluster_pct: _piNumber('pi-cluster'), min_cash_pct: _piNumber('pi-mincash'),
+  };
+  try {
+    const saved = await fetch('/api/portfolio/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    if (!saved.ok) { const e = await saved.json(); throw new Error(e.error || '제약 저장 실패'); }
+    const d = await (await fetch('/api/portfolio/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ market: _pfMarket }) })).json();
+    const q = d.data_quality || {}; const sum = d.summary || {}; const currency = d.currency || (_pfMarket === 'us' ? 'USD' : 'KRW');
+    const quality = ({ complete: '완전', partial: '부분', insufficient: '불충분' })[q.status] || q.status;
+    const guidance = (d.guidance || []).map(g => `<div style="padding:9px 0;border-bottom:1px solid var(--line)">
+      <span class="layer-badge ${g.priority === 'blocker' || g.priority === 'high' ? 'warn' : 'ctx'}">${esc(_piPriority(g.priority))}</span>
+      <b style="margin-left:6px">${esc(g.action)}</b><div style="font-size:13px;color:var(--dim);line-height:1.5;margin-top:4px">${esc(g.reason)}</div></div>`).join('');
+    const holdings = (d.holdings || []).map(h => `<tr><td><b>${esc(h.name || h.ticker)}</b><div class="sig-metric">${esc(h.ticker)}</div></td>
+      <td class="num">${fmtNum(h.weight_pct, 1)}%</td><td class="num">${_piMoney(h.value, currency)}</td><td>${esc(h.sector || '미분류')}</td></tr>`).join('');
+    const clusters = ((d.risk || {}).clusters || []).filter(c => (c.tickers || []).length > 1).slice(0, 3)
+      .map(c => `${esc(c.tickers.join(' · '))} ${fmtNum(c.weight_pct, 1)}%`).join('<br>');
+    box.innerHTML = `<div style="padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">
+      <b>데이터 신뢰도 ${esc(quality)}</b> · 가격 ${fmtNum(q.price_coverage_pct || 0, 1)}% · 과거시세 ${fmtNum(q.history_coverage_pct || 0, 1)}% · 섹터 ${fmtNum(q.sector_coverage_pct || 0, 1)}%<br>
+      총자산 <b>${_piMoney(sum.total_value || 0, currency)}</b> · 투자 ${_piMoney(sum.invested_value || 0, currency)} · 현금 ${_piMoney(sum.cash || 0, currency)} (${fmtNum(sum.cash_pct || 0, 1)}%)</div>
+      <b style="font-size:13px;display:block;margin-top:14px">오늘의 행동지침</b>${guidance || '<div class="placeholder">판단할 보유종목이 없습니다.</div>'}
+      ${clusters ? `<div style="font-size:12px;color:var(--dim);line-height:1.6;margin-top:12px"><b style="color:var(--txt)">고상관 묶음</b><br>${clusters}</div>` : ''}
+      ${holdings ? `<table class="dtable" style="margin-top:12px"><thead><tr><th>보유종목</th><th class="num">전체비중</th><th class="num">평가액</th><th>섹터</th></tr></thead><tbody>${holdings}</tbody></table>` : ''}
+      <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:10px">${esc(d.disclaimer || '')}</div>`;
+  } catch (e) { box.innerHTML = `<div class="placeholder">${esc(e.message || '진단에 실패했습니다.')}</div>`; }
+  finally { btn.disabled = false; btn.textContent = before; }
 }
 
 // 토스 실계좌 보유내역 — 본인(owner)만. 403이면 카드 숨김(다른 계정은 존재조차 안 보임).

@@ -66,6 +66,19 @@ CREATE TABLE IF NOT EXISTS bot_reservations(id INTEGER PRIMARY KEY AUTOINCREMENT
     market TEXT NOT NULL DEFAULT 'kr');
 CREATE TABLE IF NOT EXISTS holdings(uid INTEGER, ticker TEXT, qty REAL, avg_price REAL, ts INTEGER,
     PRIMARY KEY(uid, ticker));
+-- 실보유 분석의 입력은 보유종목만으로 충분하지 않다. 현금·허용 위험·집중도 한도를 시장별로
+-- 분리해 저장한다. 통화가 다른 KR/US 자산을 억지로 합산하지 않는 것이 기본값이다.
+CREATE TABLE IF NOT EXISTS portfolio_profiles(uid INTEGER, market TEXT NOT NULL, cash REAL NOT NULL DEFAULT 0,
+    monthly_contribution REAL NOT NULL DEFAULT 0, horizon_months INTEGER NOT NULL DEFAULT 36,
+    max_drawdown_pct REAL, max_single_position_pct REAL, max_sector_pct REAL,
+    max_cluster_pct REAL, min_cash_pct REAL, updated INTEGER NOT NULL,
+    PRIMARY KEY(uid, market));
+-- 분석 당시의 입력·데이터 품질·결론을 append-only로 남긴다. 나중에 권고 효과를 판단할 때
+-- "오늘 상태"로 과거 판단을 덮어쓰지 않기 위한 최소 감사 원장이다.
+CREATE TABLE IF NOT EXISTS portfolio_snapshots(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER NOT NULL,
+    market TEXT NOT NULL, as_of TEXT NOT NULL, source TEXT NOT NULL, total_value REAL,
+    data_quality TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_lookup ON portfolio_snapshots(uid, market, created DESC);
 CREATE TABLE IF NOT EXISTS alert_state(uid INTEGER, ticker TEXT, last_kind TEXT, updated INTEGER,
     PRIMARY KEY(uid, ticker));
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT,
@@ -1764,6 +1777,63 @@ def holdings_remove(uid: int, ticker: str) -> None:
     c.execute("DELETE FROM holdings WHERE uid=? AND ticker=?", (uid, ticker))
     c.commit()
     c.close()
+
+
+# ---------- portfolio intelligence (실보유 분석 입력·감사 원장) ----------
+_PORTFOLIO_PROFILE_DEFAULTS = {
+    "cash": 0.0,
+    "monthly_contribution": 0.0,
+    "horizon_months": 36,
+    # 자동 매매 규칙이 아니라 입력 전에도 진단을 시작할 수 있게 하는 보수적 UI 기준값이다.
+    "max_drawdown_pct": 20.0,
+    "max_single_position_pct": 15.0,
+    "max_sector_pct": 35.0,
+    "max_cluster_pct": 45.0,
+    "min_cash_pct": 5.0,
+}
+
+
+def portfolio_profile_get(uid: int, market: str) -> dict:
+    c = conn()
+    row = c.execute("SELECT cash,monthly_contribution,horizon_months,max_drawdown_pct,"
+                    "max_single_position_pct,max_sector_pct,max_cluster_pct,min_cash_pct,updated "
+                    "FROM portfolio_profiles WHERE uid=? AND market=?", (uid, market)).fetchone()
+    c.close()
+    if row is None:
+        return {"market": market, **_PORTFOLIO_PROFILE_DEFAULTS, "configured": False, "updated": None}
+    keys = ("cash", "monthly_contribution", "horizon_months", "max_drawdown_pct",
+            "max_single_position_pct", "max_sector_pct", "max_cluster_pct", "min_cash_pct", "updated")
+    return {"market": market, **dict(zip(keys, row)), "configured": True}
+
+
+def portfolio_profile_set(uid: int, market: str, values: dict) -> dict:
+    """프로필 전체를 명시적으로 교체한다. 누락값은 직전값(없으면 기본값)을 유지한다."""
+    before = portfolio_profile_get(uid, market)
+    allowed = tuple(_PORTFOLIO_PROFILE_DEFAULTS)
+    merged = {k: values.get(k, before[k]) for k in allowed}
+    c = conn()
+    now = int(time.time())
+    c.execute("INSERT OR REPLACE INTO portfolio_profiles("
+              "uid,market,cash,monthly_contribution,horizon_months,max_drawdown_pct,"
+              "max_single_position_pct,max_sector_pct,max_cluster_pct,min_cash_pct,updated) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+              (uid, market, *(merged[k] for k in allowed), now))
+    c.commit()
+    c.close()
+    return portfolio_profile_get(uid, market)
+
+
+def portfolio_snapshot_add(uid: int, market: str, *, as_of: str, source: str,
+                           total_value: float | None, data_quality: str, payload: dict) -> int:
+    c = conn()
+    cur = c.execute("INSERT INTO portfolio_snapshots("
+                    "uid,market,as_of,source,total_value,data_quality,payload,created) VALUES(?,?,?,?,?,?,?,?)",
+                    (uid, market, as_of, source, total_value, data_quality,
+                     json.dumps(payload, ensure_ascii=False, separators=(",", ":")), int(time.time())))
+    c.commit()
+    sid = int(cur.lastrowid)
+    c.close()
+    return sid
 
 
 # ---------- shortform (숏폼 콘텐츠 초안 + 검수 큐 — 관리자 전용) ----------

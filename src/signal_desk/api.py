@@ -34,7 +34,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
-    meta_entry, portfolio_risk,
+    meta_entry, portfolio_intelligence, portfolio_risk,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, revision, sector_rel, target, why_now,
@@ -1047,6 +1047,98 @@ def holdings_set(request: Request, data: dict = Body(...)):
 def holdings_del(request: Request, ticker: str):
     db.holdings_remove(_uid(request), ticker)
     return {"ok": True}
+
+
+def _portfolio_profile_payload(data: dict) -> dict | None:
+    """사용자 제약은 데이터 오류가 행동지침으로 번지지 않도록 경계값을 먼저 검증한다."""
+    numeric = ("cash", "monthly_contribution", "max_drawdown_pct", "max_single_position_pct",
+               "max_sector_pct", "max_cluster_pct", "min_cash_pct")
+    out = {}
+    try:
+        for key in numeric:
+            if key in data:
+                value = float(data[key])
+                if not 0 <= value <= 100_000_000_000:
+                    return None
+                # 비율 상한은 100%다. 현금·월 적립금만 금액이다.
+                if key.endswith("_pct") and value > 100:
+                    return None
+                out[key] = value
+        if "horizon_months" in data:
+            months = int(data["horizon_months"])
+            if not 1 <= months <= 600:
+                return None
+            out["horizon_months"] = months
+    except (TypeError, ValueError):
+        return None
+    return out
+
+
+@app.get("/api/portfolio/profile")
+def portfolio_profile_get(request: Request, market: str = "kr"):
+    """시장별 현금·목표·위험 한도. KR/US는 통화가 달라 의도적으로 분리한다."""
+    return db.portfolio_profile_get(_uid(request), _mkt(market))
+
+
+@app.post("/api/portfolio/profile")
+def portfolio_profile_set(request: Request, data: dict = Body(default={})):
+    market = _mkt(data.get("market"))
+    values = _portfolio_profile_payload(data)
+    if values is None:
+        return JSONResponse({"ok": False, "error": "금액은 0 이상, 비율은 0~100, 기간은 1~600개월로 입력하세요."},
+                            status_code=400)
+    return {"ok": True, "profile": db.portfolio_profile_set(_uid(request), market, values)}
+
+
+def _portfolio_analysis(uid: int, market: str) -> dict:
+    """실보유를 현재 시세·섹터·상관 자료와 결합한다. 가격 없는 보유는 삭제하지 않고 결손으로 남긴다."""
+    holdings = _holdings_by_market(db.holdings_list(uid), market)
+    if market == "us":
+        universe, prices, dates, currency = (store.load_us_universe(), store.load_us_price_series(),
+                                               store.load_us_dates_by_ticker(), "USD")
+    else:
+        universe, prices, dates, currency = (store.load_universe(), store.load_price_series(),
+                                               store.load_dates_by_ticker(), "KRW")
+    names = {str(u["ticker"]): u.get("name") or str(u["ticker"]) for u in universe if u.get("ticker")}
+    explicit_sectors = {str(u["ticker"]): u.get("sector") for u in universe if u.get("ticker")}
+    rows, as_of_dates = [], []
+    for holding in holdings:
+        ticker = str(holding["ticker"])
+        closes = prices.get(ticker) or []
+        history_dates = dates.get(ticker) or []
+        if closes and float(closes[-1] or 0) > 0:
+            price = float(closes[-1])
+            value = price * float(holding.get("qty") or 0)
+            if history_dates:
+                as_of_dates.append(str(history_dates[-1])[:10])
+        else:
+            price, value = None, None
+        sector = explicit_sectors.get(ticker) or sectors.sector_of(ticker)
+        rows.append({"ticker": ticker, "name": names.get(ticker, ticker), "qty": float(holding.get("qty") or 0),
+                     "avg_price": float(holding.get("avg_price") or 0), "price": price, "value": value,
+                     "sector": sector, "history_ready": len(closes) >= 61 and len(history_dates) >= 61})
+    priced = [r for r in rows if r["value"] is not None and r["value"] > 0]
+    risk = portfolio_risk.diagnostics(
+        priced, dates_by=dates, closes_by=prices,
+        sector_by={r["ticker"]: r["sector"] for r in priced},
+    )
+    profile = db.portfolio_profile_get(uid, market)
+    return portfolio_intelligence.analyze(
+        rows=rows, cash=profile["cash"], profile=profile, risk=risk, market=market, currency=currency,
+        as_of=max(as_of_dates) if as_of_dates else _kst_today(),
+    )
+
+
+@app.post("/api/portfolio/analyze")
+def portfolio_analyze_post(request: Request, data: dict = Body(default={})):
+    """사용자 입력/현재 시세 기준의 분석 스냅샷. 결과는 제안·감사용이며 주문 경로와 분리된다."""
+    uid, market = _uid(request), _mkt(data.get("market"))
+    out = _portfolio_analysis(uid, market)
+    snapshot_id = db.portfolio_snapshot_add(
+        uid, market, as_of=out["as_of"], source="user_requested", total_value=out["summary"]["total_value"],
+        data_quality=out["data_quality"]["status"], payload=out,
+    )
+    return {**out, "snapshot_id": snapshot_id}
 
 
 @app.get("/api/holdings/dividends")
