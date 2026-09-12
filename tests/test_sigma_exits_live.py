@@ -14,8 +14,8 @@ def test_bot_computes_sigma_per_holding():
     src = open(bot.__file__, encoding="utf-8").read()
     assert "def _risk_for(" in src, "종목별 청산 폭을 만드는 곳이 없다"
     assert "pos_risk = _risk_for(closes)" in src, "보유 루프에서 종목별 폭을 안 쓴다"
-    assert "risk.check_exit(avg_price, current_price, peak, pos_risk)" in src, \
-        "청산 판정이 여전히 공용 고정폭을 쓴다"
+    assert "execution_twin.evaluate_quote(avg_price, current_price" in src and "pos_risk)" in src, \
+        "청산 판정이 실행 트윈에 종목별 폭을 넘기지 않는다"
 
 
 def test_sell_note_reports_the_effective_width():

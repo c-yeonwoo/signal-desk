@@ -103,7 +103,8 @@ def test_new_entries_start_at_tranche_one():
     logs = [m.start() for m in re.finditer(r'"buy", qty, \w+, "(SIGNAL|ROTATE_IN|RESERVATION)"', src)]
     assert len(logs) >= 2, f"신규 매수 로그 자리를 {len(logs)}곳만 찾았다 — 패턴이 바뀌었다"
     for i in logs:
-        blk = src[i:i + 700]
+        # 체결 감사 원장이 매수 로그와 포지션 기록 사이에 추가돼도 신규 진입 회차 불변식은 같다.
+        blk = src[i:i + 1_600]
         assert "tranches_done=1" in blk, (
             f"신규 진입이 회차를 1로 시작하지 않는다:\n    {src[i:i+240]}")
 

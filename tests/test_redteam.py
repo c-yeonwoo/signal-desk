@@ -1693,6 +1693,14 @@ _ROUTES_WITHOUT_UI = {
     "/api/kb/events/review": (
         "KB 이벤트 검수 — 큐가 0건이라 화면 경로가 안 만들어졌다. 큐 길이·만료 임박은 배지로"
         " 이미 뜨므로, 배지가 0이 아니게 되는 날 붙인다"),
+    # 운영·감사 API — 사용자 화면의 버튼이 아니라 배포/운영 점검과 외부 관측이 소비한다.
+    # outbox·실행 트윈 도입 뒤에도 UI가 이 내부 원장을 직접 읽게 하면 개인 포트폴리오와
+    # 레퍼런스 봇 장부가 섞인다. 전용 운영 화면을 만들기 전까지 API 경계로 남긴다.
+    "/api/execution-audit": "레퍼런스 체결 재생 감사 — 운영 관측용 API",
+    "/api/execution-performance": "레퍼런스 비용 후 성과 — 운영 관측용 API",
+    "/api/meta-entry/diagnostics": "메타 진입 OOS 승격 진단 — shadow 운영 관측용 API",
+    "/api/notification-health": "알림 outbox 상태 — 운영 경보용 API",
+    "/api/portfolio-risk": "레퍼런스 장부 집중도 shadow — OOS 관측용 API",
 
 }
 
@@ -1726,10 +1734,10 @@ def test_every_api_route_has_a_caller_or_a_stated_reason():
     connected = [p for p in _ROUTES_WITHOUT_UI if p in callers]
     assert not connected, (
         f"화면·CLI가 이미 부르는데 면제 목록에 남아 있다: {connected} — 목록에서 뺄 것")
-    # 목록이 자라기만 하는 것을 막는다. 지금 7개이고, 늘리려면 이 숫자를 같이 올려야 한다.
+    # 목록이 자라기만 하는 것을 막는다. 사용자 미노출 7개 + 운영 관측 5개이고, 늘리려면 숫자를 같이 올린다.
     # 2026-08-06: 10 → 7. `/api/pick-reason`·`/api/buylist` 는 화면에 붙였고
     # `/api/valuation` 은 시그널 payload(per·pbr·opp_tags) + 스크리너로 대체돼 삭제했다.
-    assert len(_ROUTES_WITHOUT_UI) <= 7, (
+    assert len(_ROUTES_WITHOUT_UI) <= 12, (
         f"닿지 않는 라우트가 {len(_ROUTES_WITHOUT_UI)}개로 늘었다 — 붙이거나 지울 것")
 
 
@@ -3282,7 +3290,7 @@ def test_badge_colors_have_one_source():
 # 라우트에 대해 만든 고아 검사(X5)를 **알림 함수**로 확장한다.
 
 def test_every_push_helper_has_a_caller():
-    """`notify.push` 를 감싸는 함수는 부르는 곳이 있어야 한다.
+    """알림 outbox에 넣는 함수는 부르는 곳이 있어야 한다.
 
     라우트가 그랬듯(`product_reviewer`) 알림도 "존재하지만 닿을 수 없는" 상태가 된다.
     차이는 라우트는 눌러 보면 알고, 알림은 **안 오는 것이 정상인지 고장인지 구분이 안 된다**는
@@ -3291,20 +3299,20 @@ def test_every_push_helper_has_a_caller():
     import re
     from pathlib import Path
     src = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
-    # `notify.push(` 를 부르는 def 를 모은다.
+    # 직접 전송 대신 DB outbox를 쓰므로 `notify.enqueue(` 를 부르는 def를 모은다.
     helpers = []
     for m in re.finditer(r"^def (_\w+)\(", src, re.M):
         name = m.group(1)
         body = src[m.end():]
         nxt = re.search(r"^(?:@|def |async def )", body, re.M)
         body = body[:nxt.start()] if nxt else body
-        if "notify.push(" in body:
+        if "notify.enqueue(" in body:
             helpers.append(name)
-    assert helpers, "notify.push 를 감싸는 함수를 못 찾았다 — 검사가 낡았다"
+    assert helpers, "notify.enqueue 를 감싸는 함수를 못 찾았다 — 검사가 낡았다"
     for h in helpers:
         calls = len(re.findall(r"(?<!def )\b" + h + r"\(", src))
         assert calls >= 1, (
-            f"{h}() 는 notify.push 를 감싸는데 **부르는 곳이 없다** — "
+            f"{h}() 는 notify.enqueue 를 감싸는데 **부르는 곳이 없다** — "
             f"체결이 없어서 안 오는 것과 배선이 없어서 안 오는 것을 사람이 구분할 수 없다")
 
 
@@ -3333,15 +3341,15 @@ def test_fill_push_is_silent_when_nothing_filled():
     os.environ["TELEGRAM_BOT_TOKEN"] = "t"
     os.environ["TELEGRAM_CHAT_ID"] = "1"
     from signal_desk import api
-    with mock.patch.object(api.notify, "push", return_value=True) as pushed:
+    with mock.patch.object(api.notify, "enqueue", return_value=True) as queued:
         api._push_trades("kr", {"ok": True, "buys": [], "sells": []})
         api._push_reservations("kr", {"ok": True, "executed": []})
         api._push_reservations("kr", {"ok": False, "reason": "x"})
         api._push_reservations("kr", None)
-        assert pushed.call_count == 0, "체결이 없는데 알림을 보냈다"
+        assert queued.call_count == 0, "체결이 없는데 알림을 큐에 넣었다"
         api._push_trades("kr", {"ok": True, "buys": [{"name": "A", "qty": 1}], "sells": []})
-        assert pushed.call_count == 1
-        assert "매수 A" in pushed.call_args[0][0]
+        assert queued.call_count == 1
+        assert "매수 A" in queued.call_args[0][0]
     os.environ.pop("TELEGRAM_BOT_TOKEN"); os.environ.pop("TELEGRAM_CHAT_ID")
 
 
