@@ -880,6 +880,14 @@ def uids_with_ticker_favorites() -> list[int]:
     return [r[0] for r in rows]
 
 
+def uids_with_holdings() -> list[int]:
+    """실보유 분석 스냅샷 대상. 페이퍼 봇 계정과 섞지 않는다."""
+    c = conn()
+    rows = c.execute("SELECT DISTINCT uid FROM holdings").fetchall()
+    c.close()
+    return [int(r[0]) for r in rows]
+
+
 # ---------- bot_positions (유저별·시장별) ----------
 def bot_positions_all(uid: int, market: str = "kr") -> list[dict]:
     c = conn()
@@ -1850,6 +1858,19 @@ def portfolio_snapshot_add(uid: int, market: str, *, as_of: str, source: str,
     sid = int(cur.lastrowid)
     c.close()
     return sid
+
+
+def portfolio_snapshot_add_once(uid: int, market: str, *, as_of: str, source: str,
+                                total_value: float | None, data_quality: str, payload: dict) -> int:
+    """자동 일별 스냅샷은 같은 시장·거래일에 재시작돼도 한 건만 남긴다."""
+    c = conn()
+    row = c.execute("SELECT id FROM portfolio_snapshots WHERE uid=? AND market=? AND as_of=? AND source=?",
+                    (uid, market, as_of, source)).fetchone()
+    c.close()
+    if row:
+        return int(row[0])
+    return portfolio_snapshot_add(uid, market, as_of=as_of, source=source,
+                                  total_value=total_value, data_quality=data_quality, payload=payload)
 
 
 def portfolio_recommendation_add(uid: int, market: str, *, snapshot_id: int, as_of: str,

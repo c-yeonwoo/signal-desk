@@ -50,3 +50,9 @@ def test_profile_and_snapshot_are_market_scoped(tmp_path, monkeypatch):
     sid = db.portfolio_snapshot_add(7, "kr", as_of="2026-09-12", source="test", total_value=1_000_000,
                                     data_quality="complete", payload={"safe": True})
     assert sid > 0
+    daily_a = db.portfolio_snapshot_add_once(7, "kr", as_of="2026-09-12", source="daily_close",
+                                              total_value=1_000_000, data_quality="complete", payload={"safe": True})
+    daily_b = db.portfolio_snapshot_add_once(7, "kr", as_of="2026-09-12", source="daily_close",
+                                              total_value=1_100_000, data_quality="complete", payload={"changed": True})
+    assert daily_a == daily_b
+    assert db.uids_with_holdings() == []

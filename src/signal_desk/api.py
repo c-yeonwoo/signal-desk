@@ -605,6 +605,10 @@ def _daily_maintenance(enabled: list[str]) -> None:
             log.warning("사전등록 보드 없음: %s", board.get("reason"))
     except Exception as e:
         log.warning("마감후 harness 스케줄 실패: %s", type(e).__name__)
+    try:
+        _snapshot_personal_portfolios_daily()
+    except Exception as e:
+        log.warning("실보유 일별 스냅샷 실패: %s", type(e).__name__)
     for uid in enabled:
         bot.snapshot_positions(uid, "kr")
         bot.snapshot_positions(uid, "us")
@@ -1175,6 +1179,18 @@ def _portfolio_recommendations(uid: int, market: str) -> dict:
     return {"ready": bool(items), "market": market, "items": items,
             "coverage": {"items": len(items), "completed_outcomes": complete, "pending_outcomes": max(0, pending)},
             "note": "제안 시점 가격을 기준으로 한 반사실적 shadow 결과입니다. 사용자의 실제 체결·세금 결과가 아닙니다."}
+
+
+def _snapshot_personal_portfolios_daily() -> None:
+    """마감 데이터가 갱신된 뒤, 실제 보유의 일별 상태를 시장별 한 번만 보존한다."""
+    for uid in db.uids_with_holdings():
+        for market in ("kr", "us"):
+            if not _holdings_by_market(db.holdings_list(uid), market):
+                continue
+            out = _portfolio_analysis(uid, market)
+            db.portfolio_snapshot_add_once(
+                uid, market, as_of=out["as_of"], source="daily_close",
+                total_value=out["summary"]["total_value"], data_quality=out["data_quality"]["status"], payload=out)
 
 
 @app.post("/api/portfolio/analyze")
