@@ -5415,6 +5415,16 @@ async function runPortfolioIntelligence(){
     const tradePlan = trade.ready ? `<b style="font-size:13px;display:block;margin-top:14px">비용 반영 행동계획 <span style="color:var(--dim);font-weight:600">· 주문 전송 없음</span></b>
       ${tradeRows ? `<table class="dtable" style="margin-top:6px"><thead><tr><th>종목</th><th>방향</th><th class="num">수량</th><th class="num">추정 체결액</th></tr></thead><tbody>${tradeRows}</tbody></table>` : '<div style="font-size:12px;color:var(--dim);margin-top:6px">정수수량 기준으로 조정할 주문이 없습니다.</div>'}
       <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">추정 비용 ${_piMoney((trade.estimated || {}).fees || 0, currency)} · 슬리피지 ${_piMoney((trade.estimated || {}).slippage || 0, currency)} · 조정 후 현금 ${_piMoney((trade.estimated || {}).cash_after || 0, currency)}${(trade.unfunded_buys || []).length ? ' · 일부 매수 자금 부족' : ''}${(trade.blocked_buys || []).length ? ' · BUY 미확인 확대 차단' : ''}<br>${esc(trade.note || '')}</div>` : '';
+    const candidates = d.entry_candidates || {};
+    const candidateRows = (candidates.candidates || []).map(x => `<tr><td><b>${esc(x.name)}</b><div class="sig-metric">${esc(x.ticker)} · ${esc(x.sector)}</div></td>
+      <td><span class="sig-pill ${esc(x.signal_kind)}">${esc(x.signal_kind)}</span><div class="sig-metric">점수 ${fmtNum(x.score, 2)}</div></td>
+      <td class="num">${fmtNum(x.proposed_weight_pct, 1)}%</td><td class="num">${_piMoney(x.proposed_value, currency)}</td>
+      <td class="num">${x.max_correlation == null ? '보유 없음' : fmtNum(x.max_correlation, 2)}</td></tr>`).join('');
+    const candidatePlan = candidates.ready ? `<b style="font-size:13px;display:block;margin-top:14px">신규 편입 후보 <span style="color:var(--dim);font-weight:600">· shadow</span></b>
+      <div style="font-size:12px;color:var(--dim);margin:5px 0">신규 편입 가능 현금 ${fmtNum(candidates.available_cash_pct, 1)}% · 상관 기준 ${fmtNum(candidates.correlation_limit, 2)} 미만</div>
+      <table class="dtable"><thead><tr><th>후보</th><th>시그널</th><th class="num">제안비중</th><th class="num">제안금액</th><th class="num">최대상관</th></tr></thead><tbody>${candidateRows}</tbody></table>
+      <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">${esc(candidates.note || '')}</div>`
+      : `<div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:12px">신규 편입 보류: ${esc(candidates.reason || '제약을 통과한 후보가 없습니다.')}</div>`;
     box.innerHTML = `<div style="padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">
       <b>데이터 신뢰도 ${esc(quality)}</b> · 가격 ${fmtNum(q.price_coverage_pct || 0, 1)}% · 과거시세 ${fmtNum(q.history_coverage_pct || 0, 1)}% · 섹터 ${fmtNum(q.sector_coverage_pct || 0, 1)}%<br>
       총자산 <b>${_piMoney(sum.total_value || 0, currency)}</b> · 투자 ${_piMoney(sum.invested_value || 0, currency)} · 현금 ${_piMoney(sum.cash || 0, currency)} (${fmtNum(sum.cash_pct || 0, 1)}%)</div>
@@ -5422,6 +5432,7 @@ async function runPortfolioIntelligence(){
       ${clusters ? `<div style="font-size:12px;color:var(--dim);line-height:1.6;margin-top:12px"><b style="color:var(--txt)">고상관 묶음</b><br>${clusters}</div>` : ''}
       ${allocation}
       ${tradePlan}
+      ${candidatePlan}
       ${holdings ? `<table class="dtable" style="margin-top:12px"><thead><tr><th>보유종목</th><th class="num">전체비중</th><th class="num">평가액</th><th>섹터</th></tr></thead><tbody>${holdings}</tbody></table>` : ''}
       <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:10px">${esc(d.disclaimer || '')}</div>`;
   } catch (e) { box.innerHTML = `<div class="placeholder">${esc(e.message || '진단에 실패했습니다.')}</div>`; }

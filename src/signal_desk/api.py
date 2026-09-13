@@ -34,6 +34,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
+    portfolio_candidates,
     meta_entry, portfolio_construction, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
@@ -1146,6 +1147,12 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
         rows, dates_by=dates, closes_by=prices, profile=profile)
     out["trade_plan"] = portfolio_trade_plan.plan(
         out["allocation"], rows, cash=profile["cash"], market=market)
+    candidate_universe = [{"ticker": str(asset["ticker"]), "name": names.get(str(asset["ticker"]), str(asset["ticker"])),
+                           "sector": explicit_sectors.get(str(asset["ticker"])) or sectors.sector_of(str(asset["ticker"]))}
+                          for asset in universe if asset.get("ticker")]
+    out["entry_candidates"] = portfolio_candidates.evaluate(
+        holdings=rows, universe=candidate_universe, signal_by_ticker=signal_by_ticker,
+        prices=prices, dates_by=dates, profile=profile)
     return out
 
 
