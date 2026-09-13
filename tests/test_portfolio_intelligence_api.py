@@ -33,6 +33,9 @@ def test_profile_and_analysis_are_user_market_scoped(tmp_path, monkeypatch):
     assert out["snapshot_id"] > 0 and out["currency"] == "KRW"
     assert out["summary"]["total_value"] == 2100.0  # 평가 1,600 + 현금 500
     assert out["holdings"][0]["weight_pct"] == 76.2
+    assert out["recommendation_id"]
+    history = client.get("/api/portfolio/recommendations?market=kr").json()
+    assert history["ready"] is True and history["coverage"]["items"] == 1
 
 
 def test_profile_rejects_invalid_percentages(tmp_path, monkeypatch):

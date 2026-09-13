@@ -1187,6 +1187,10 @@
         <div id="pi-profile-note" class="stat-label" style="margin:8px 0 0"></div>
         <div id="pi-result" style="margin-top:12px"></div>
       </div>
+      <div class="card" style="margin-bottom:16px">
+        <b style="font-size:14px">권고 검증 원장 <span style="color:var(--dim);font-weight:600;font-size:13px">· 제안 후 1/5/20거래일 shadow 결과</span></b>
+        <div id="pi-outcomes" class="placeholder" style="padding:12px 0">불러오는 중…</div>
+      </div>
 
             <!-- 목표금액 플랜 — 보유 입력 **바로 다음**이다. 배당(연료)·히트맵·리밸런싱은 이 목표를
            향하는 수단이고, 목표가 없으면 각각 무엇을 위한 숫자인지 알 수 없다.
@@ -5331,6 +5335,7 @@ function setPfMarket(m){
 async function refreshPortfolio(){
   await loadRealHoldings();          // 보유종목(선택 시장) + (owner)전체 자동 import
   loadPortfolioProfile();            // 현금·위험 한도는 시장별 입력이므로 전환 때 함께 복원
+  loadPortfolioRecommendations();    // 분석 시점의 행동계획은 결과를 누적해 OOS로 검증한다
   loadHeatmap(_pfMarket);            // 섹터 히트맵(선택 시장)
   loadHoldingsDividends(_pfMarket);  // 보유 배당(선택 시장)
   const rr = document.getElementById('rebal-result'); if (rr) rr.innerHTML = '';   // 리밸런싱은 버튼으로
@@ -5356,6 +5361,24 @@ async function loadPortfolioProfile(){
   }
 }
 function _piPriority(priority){ return ({ blocker: '데이터 필수', high: '우선 검토', medium: '검토', normal: '모니터링' })[priority] || priority; }
+async function loadPortfolioRecommendations(){
+  const box = document.getElementById('pi-outcomes'); if (!box) return;
+  try {
+    const d = await (await fetch('/api/portfolio/recommendations?market=' + _pfMarket)).json();
+    if (!d.ready) { box.textContent = '아직 기록된 행동계획이 없습니다. 정밀 진단을 실행하면 이후 결과를 추적합니다.'; return; }
+    const cell = (item, horizon) => {
+      const o = (item.outcomes || []).find(x => x.horizon_days === horizon);
+      if (!o) return '<span style="color:var(--dim)">대기</span>';
+      const v = o.directional_return_pct; const color = v > 0 ? 'var(--sig-buy)' : v < 0 ? 'var(--sig-sell)' : 'var(--dim)';
+      return `<span style="color:${color};font-weight:700">${v > 0 ? '+' : ''}${fmtNum(v, 2)}%</span>`;
+    };
+    const rows = (d.items || []).slice(0, 12).map(x => `<tr><td><b>${esc(x.name || x.ticker)}</b><div class="sig-metric">${esc(x.ticker)}</div></td>
+      <td>${x.side === 'buy' ? '매수 제안' : '매도 제안'}</td><td class="num">${cell(x, 1)}</td><td class="num">${cell(x, 5)}</td><td class="num">${cell(x, 20)}</td></tr>`).join('');
+    box.className = '';
+    box.innerHTML = `<div style="font-size:12px;color:var(--dim);margin:8px 0">완료 ${d.coverage.completed_outcomes} · 대기 ${d.coverage.pending_outcomes} · 실제 체결 성과가 아닌 제안 시점 기준 반사실적 결과입니다.</div>
+      <table class="dtable"><thead><tr><th>종목</th><th>제안</th><th class="num">1일</th><th class="num">5일</th><th class="num">20일</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch (e) { box.textContent = '권고 검증 원장을 불러오지 못했습니다.'; }
+}
 async function runPortfolioIntelligence(){
   const btn = event.target; const before = btn.textContent; btn.disabled = true; btn.textContent = '진단 중…';
   const box = document.getElementById('pi-result');

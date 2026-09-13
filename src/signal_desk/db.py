@@ -11,6 +11,7 @@ import json
 import sqlite3
 import threading
 import time
+import uuid
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -79,6 +80,21 @@ CREATE TABLE IF NOT EXISTS portfolio_snapshots(id INTEGER PRIMARY KEY AUTOINCREM
     market TEXT NOT NULL, as_of TEXT NOT NULL, source TEXT NOT NULL, total_value REAL,
     data_quality TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_lookup ON portfolio_snapshots(uid, market, created DESC);
+-- 행동계획과 결과는 스냅샷 본문에만 묻지 않는다. 개별 제안·지평별 결과를 분리해야
+-- "권고가 실제로 비용 후 유효했는가"를 나중에 집계할 수 있다.
+CREATE TABLE IF NOT EXISTS portfolio_recommendations(id TEXT PRIMARY KEY, uid INTEGER NOT NULL, market TEXT NOT NULL,
+    snapshot_id INTEGER NOT NULL, as_of TEXT NOT NULL, action_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+    created INTEGER NOT NULL, UNIQUE(uid, market, as_of, action_hash));
+CREATE INDEX IF NOT EXISTS idx_portfolio_recommendations_lookup ON portfolio_recommendations(uid, market, created DESC);
+CREATE TABLE IF NOT EXISTS portfolio_recommendation_items(id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recommendation_id TEXT NOT NULL, ticker TEXT NOT NULL, name TEXT, side TEXT NOT NULL, qty INTEGER NOT NULL,
+    reference_price REAL NOT NULL, reference_date TEXT NOT NULL, entry_cash REAL, target_weight_pct REAL,
+    FOREIGN KEY(recommendation_id) REFERENCES portfolio_recommendations(id));
+CREATE INDEX IF NOT EXISTS idx_portfolio_recommendation_items_rec ON portfolio_recommendation_items(recommendation_id);
+CREATE TABLE IF NOT EXISTS portfolio_recommendation_outcomes(item_id INTEGER NOT NULL, horizon_days INTEGER NOT NULL,
+    evaluated_price REAL NOT NULL, evaluated_date TEXT NOT NULL, raw_return_pct REAL NOT NULL,
+    directional_return_pct REAL NOT NULL, cost_adjusted_return_pct REAL, evaluated INTEGER NOT NULL,
+    PRIMARY KEY(item_id, horizon_days), FOREIGN KEY(item_id) REFERENCES portfolio_recommendation_items(id));
 CREATE TABLE IF NOT EXISTS alert_state(uid INTEGER, ticker TEXT, last_kind TEXT, updated INTEGER,
     PRIMARY KEY(uid, ticker));
 CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER, ticker TEXT,
@@ -1834,6 +1850,71 @@ def portfolio_snapshot_add(uid: int, market: str, *, as_of: str, source: str,
     sid = int(cur.lastrowid)
     c.close()
     return sid
+
+
+def portfolio_recommendation_add(uid: int, market: str, *, snapshot_id: int, as_of: str,
+                                 action_hash: str, items: list[dict]) -> str | None:
+    """동일한 날 같은 행동계획은 한 번만 기록한다. 재조회가 성과 표본을 부풀리면 안 된다."""
+    if not items:
+        return None
+    c = conn()
+    rid = uuid.uuid4().hex
+    try:
+        c.execute("INSERT INTO portfolio_recommendations("
+                  "id,uid,market,snapshot_id,as_of,action_hash,created) VALUES(?,?,?,?,?,?,?)",
+                  (rid, uid, market, snapshot_id, as_of, action_hash, int(time.time())))
+        c.executemany("INSERT INTO portfolio_recommendation_items("
+                      "recommendation_id,ticker,name,side,qty,reference_price,reference_date,entry_cash,target_weight_pct) "
+                      "VALUES(?,?,?,?,?,?,?,?,?)",
+                      [(rid, str(item["ticker"]), item.get("name"), item["side"], int(item["qty"]),
+                        float(item["fill"]["reference_price"]), str(item["reference_date"]),
+                        -float(item["fill"]["cash_change"]) if item["side"] == "buy" else None,
+                        item.get("target_weight_pct")) for item in items])
+        c.commit()
+        return rid
+    except sqlite3.IntegrityError:
+        row = c.execute("SELECT id FROM portfolio_recommendations WHERE uid=? AND market=? AND as_of=? AND action_hash=?",
+                        (uid, market, as_of, action_hash)).fetchone()
+        c.rollback()
+        return str(row[0]) if row else None
+    finally:
+        c.close()
+
+
+def portfolio_recommendation_items(uid: int, market: str, limit: int = 100) -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT i.id,i.recommendation_id,i.ticker,i.name,i.side,i.qty,i.reference_price,i.reference_date,"
+                     "i.entry_cash,i.target_weight_pct,r.as_of,r.created FROM portfolio_recommendation_items i "
+                     "JOIN portfolio_recommendations r ON r.id=i.recommendation_id "
+                     "WHERE r.uid=? AND r.market=? ORDER BY r.created DESC,i.id ASC LIMIT ?",
+                     (uid, market, limit)).fetchall()
+    c.close()
+    keys = ("item_id", "recommendation_id", "ticker", "name", "side", "qty", "reference_price", "reference_date",
+            "entry_cash", "target_weight_pct", "as_of", "created")
+    return [dict(zip(keys, row)) for row in rows]
+
+
+def portfolio_recommendation_outcomes(item_id: int) -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT horizon_days,evaluated_price,evaluated_date,raw_return_pct,directional_return_pct,"
+                     "cost_adjusted_return_pct,evaluated FROM portfolio_recommendation_outcomes WHERE item_id=? "
+                     "ORDER BY horizon_days", (item_id,)).fetchall()
+    c.close()
+    keys = ("horizon_days", "evaluated_price", "evaluated_date", "raw_return_pct", "directional_return_pct",
+            "cost_adjusted_return_pct", "evaluated")
+    return [dict(zip(keys, row)) for row in rows]
+
+
+def portfolio_recommendation_outcome_upsert(item_id: int, outcome: dict) -> None:
+    c = conn()
+    c.execute("INSERT OR REPLACE INTO portfolio_recommendation_outcomes("
+              "item_id,horizon_days,evaluated_price,evaluated_date,raw_return_pct,directional_return_pct,"
+              "cost_adjusted_return_pct,evaluated) VALUES(?,?,?,?,?,?,?,?)",
+              (item_id, outcome["horizon_days"], outcome["evaluated_price"], outcome["evaluated_date"],
+               outcome["raw_return_pct"], outcome["directional_return_pct"], outcome.get("cost_adjusted_return_pct"),
+               int(time.time())))
+    c.commit()
+    c.close()
 
 
 # ---------- shortform (숏폼 콘텐츠 초안 + 검수 큐 — 관리자 전용) ----------

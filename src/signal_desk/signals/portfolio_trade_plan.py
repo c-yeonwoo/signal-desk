@@ -34,6 +34,7 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
                 fill = execution.calculate(price, qty, "sell", market).as_dict()
                 sells.append({"ticker": item["ticker"], "name": item.get("name"), "side": "sell", "qty": qty,
                               "target_weight_pct": item["target_weight_pct"], "fill": fill,
+                              "reference_date": row.get("price_as_of"),
                               "reason": "목표비중 대비 과다"})
         elif item.get("action") == "확대 검토":
             # 리스크 균형은 "얼마를 보유할지"만 말한다. 진입 타이밍은 기존에 OOS 검증 중인
@@ -46,6 +47,7 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
             if qty:
                 buys.append({"ticker": item["ticker"], "name": item.get("name"), "side": "buy", "qty": qty,
                              "target_weight_pct": item["target_weight_pct"], "price": price,
+                             "reference_date": row.get("price_as_of"),
                              "reason": "목표비중 대비 부족"})
     # 매도부터 가정한다. 매수는 현금(입력 현금+매도 순유입) 한도 안에서 큰 부족분부터 채운다.
     available = max(0.0, float(cash or 0.0)) + sum(float(item["fill"]["cash_change"]) for item in sells)

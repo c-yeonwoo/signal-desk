@@ -34,7 +34,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
-    meta_entry, portfolio_construction, portfolio_intelligence, portfolio_risk, portfolio_trade_plan,
+    meta_entry, portfolio_construction, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, revision, sector_rel, target, why_now,
@@ -1107,11 +1107,12 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
         ticker = str(holding["ticker"])
         closes = prices.get(ticker) or []
         history_dates = dates.get(ticker) or []
+        price_as_of = str(history_dates[-1])[:10] if history_dates else None
         if closes and float(closes[-1] or 0) > 0:
             price = float(closes[-1])
             value = price * float(holding.get("qty") or 0)
-            if history_dates:
-                as_of_dates.append(str(history_dates[-1])[:10])
+            if price_as_of:
+                as_of_dates.append(price_as_of)
         else:
             price, value = None, None
         sector = explicit_sectors.get(ticker) or sectors.sector_of(ticker)
@@ -1120,6 +1121,7 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
         rows.append({"ticker": ticker, "name": names.get(ticker, ticker), "qty": float(holding.get("qty") or 0),
                      "avg_price": float(holding.get("avg_price") or 0), "price": price, "value": value,
                      "sector": sector, "history_ready": len(closes) >= 61 and len(history_dates) >= 61,
+                     "price_as_of": price_as_of,
                      "signal_kind": getattr(signal, "kind", None), "signal_score": getattr(signal, "score", None),
                      # 신규/추가 매수는 검증된 현재 BUY와 이벤트 위험 없음이 동시에 필요하다.
                      "entry_allowed": bool(signal and is_buy(signal.kind) and not event_risk),
@@ -1143,6 +1145,38 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
     return out
 
 
+def _record_portfolio_recommendation(uid: int, market: str, out: dict, snapshot_id: int) -> str | None:
+    """같은 시점·같은 행동계획의 중복 클릭이 성과 표본을 부풀리지 않도록 키를 고정한다."""
+    instructions = (out.get("trade_plan") or {}).get("instructions") or []
+    if not instructions or any(not item.get("reference_date") for item in instructions):
+        return None
+    material = [{"ticker": item["ticker"], "side": item["side"], "qty": item["qty"],
+                 "reference_date": item["reference_date"], "fill": item["fill"]} for item in instructions]
+    action_hash = hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return db.portfolio_recommendation_add(uid, market, snapshot_id=snapshot_id, as_of=out["as_of"],
+                                            action_hash=action_hash, items=instructions)
+
+
+def _portfolio_recommendations(uid: int, market: str) -> dict:
+    """저장된 계획을 1·5·20 거래일의 동일한 가격 경로로 재평가한다. 실제 체결 성과로 오인하지 않는다."""
+    items = db.portfolio_recommendation_items(uid, market)
+    if market == "us":
+        prices, dates = store.load_us_price_series(), store.load_us_dates_by_ticker()
+    else:
+        prices, dates = store.load_price_series(), store.load_dates_by_ticker()
+    complete, pending = 0, 0
+    for item in items:
+        for outcome in portfolio_outcomes.evaluate(item, dates=dates.get(item["ticker"]) or [],
+                                                   closes=prices.get(item["ticker"]) or [], market=market):
+            db.portfolio_recommendation_outcome_upsert(item["item_id"], outcome)
+        item["outcomes"] = db.portfolio_recommendation_outcomes(item["item_id"])
+        complete += len(item["outcomes"])
+        pending += len(portfolio_outcomes.HORIZONS) - len(item["outcomes"])
+    return {"ready": bool(items), "market": market, "items": items,
+            "coverage": {"items": len(items), "completed_outcomes": complete, "pending_outcomes": max(0, pending)},
+            "note": "제안 시점 가격을 기준으로 한 반사실적 shadow 결과입니다. 사용자의 실제 체결·세금 결과가 아닙니다."}
+
+
 @app.post("/api/portfolio/analyze")
 def portfolio_analyze_post(request: Request, data: dict = Body(default={})):
     """사용자 입력/현재 시세 기준의 분석 스냅샷. 결과는 제안·감사용이며 주문 경로와 분리된다."""
@@ -1152,7 +1186,13 @@ def portfolio_analyze_post(request: Request, data: dict = Body(default={})):
         uid, market, as_of=out["as_of"], source="user_requested", total_value=out["summary"]["total_value"],
         data_quality=out["data_quality"]["status"], payload=out,
     )
-    return {**out, "snapshot_id": snapshot_id}
+    return {**out, "snapshot_id": snapshot_id,
+            "recommendation_id": _record_portfolio_recommendation(uid, market, out, snapshot_id)}
+
+
+@app.get("/api/portfolio/recommendations")
+def portfolio_recommendations_get(request: Request, market: str = "kr"):
+    return _portfolio_recommendations(_uid(request), _mkt(market))
 
 
 @app.get("/api/holdings/dividends")
