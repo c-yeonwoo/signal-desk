@@ -1192,6 +1192,35 @@
             <button class="btn" onclick="previewLiveOrder()">여력만 확인</button>
           </div>
         </details>
+        <details style="margin-top:12px" id="live-copy-card">
+          <summary><b>레퍼런스 봇 추종 정책</b> · 설정/사전점검 전용</summary>
+          <p class="page-desc">안정형·균형형·공격형 중 하나의 <b>레퍼런스 페이퍼 봇</b>을 고르고, 해당 봇 주문 금액의 n%만 계산합니다. 저장·조회·사전점검은 주문 전송이나 자동 추종을 켜지 않습니다.</p>
+          <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">추종 봇 성향
+              <select id="live-copy-style" class="ctrl" onchange="loadLiveCopyEvents()"><option value="conservative">안정형</option><option value="balanced">균형형</option><option value="aggressive">공격형</option></select></label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">봇 주문 추종 %
+              <input id="live-copy-follow" type="number" min="0.01" max="100" step="0.01" class="ctrl" style="max-width:115px"></label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">주문당 최대 %
+              <input id="live-copy-order" type="number" min="0.01" max="100" step="0.01" class="ctrl" style="max-width:115px"></label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">일일 매수 최대 %
+              <input id="live-copy-daily" type="number" min="0.01" max="100" step="0.01" class="ctrl" style="max-width:115px"></label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">종목 최대 %
+              <input id="live-copy-position" type="number" min="0.01" max="100" step="0.01" class="ctrl" style="max-width:115px"></label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">최소 현금 %
+              <input id="live-copy-cash" type="number" min="0" max="99.99" step="0.01" class="ctrl" style="max-width:115px"></label>
+            <button class="btn" onclick="loadLiveCopyPolicy()">저장값 불러오기</button>
+            <button class="btn" onclick="saveLiveCopyPolicy(this)">추종 한도 저장</button>
+          </div>
+          <div id="live-copy-policy-note" class="stat-label" style="margin-top:8px">저장된 정책이 없습니다. 기본값은 선택 성향의 보수적 시작값이며 주문 권한이 아닙니다.</div>
+          <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim);min-width:220px;flex:1">최근 참조 봇 체결
+              <select id="live-copy-event" class="ctrl"><option value="">정책 저장 후 불러오기</option></select></label>
+            <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">내 지정가(원)
+              <input id="live-copy-price" type="number" min="1" step="1" placeholder="지정가" class="ctrl" style="max-width:140px"></label>
+            <button class="btn" onclick="previewLiveCopy(this)">추종 수량·한도 점검</button>
+          </div>
+          <div id="live-copy-result" role="status" style="margin-top:10px;white-space:pre-wrap;overflow-wrap:anywhere">참조 체결은 15분 이내 이벤트만 사전점검합니다. 과거 체결은 성과 참고용이며 복사 주문 후보가 아닙니다.</div>
+        </details>
         <div id="live-result" role="status" style="margin-top:10px;white-space:pre-wrap;overflow-wrap:anywhere">자동 주문은 비활성입니다. 투자판단·시점·체결 검증 후 별도 전환 절차가 필요합니다.</div>
       </details>
       <div class="card" id="portfolio-intelligence-card" style="margin-bottom:16px">
@@ -5401,6 +5430,7 @@ async function _liveRequest(url, data){
 async function loadLiveReadiness(){
   const d = await _liveRequest('/api/live/status'); if (!d) return;
   document.getElementById('live-result').textContent = `환경: ${d.environment || '미설정'} · 인증정보: ${d.configured ? '설정됨' : '미설정'}\n실주문 잠김 · 정책 OOS 승인, 주문 원장, 시점·위험 검증이 필요합니다.`;
+  loadLiveCopyPolicy();
 }
 async function loadLiveAccount(){
   const d = await _liveRequest('/api/live/account', {}); if (!d) return;
@@ -5415,6 +5445,69 @@ async function previewLiveOrder(){
     qty:Number(document.getElementById('live-qty').value), limit_price:Number(document.getElementById('live-price').value)});
   if (!d) return;
   document.getElementById('live-result').textContent = `${d.broker_checks_passed ? '계좌 여력 조회 통과' : '사전조회 보류'}\n${d.reason}\n실주문 전송 없음 · 투자판단 승인 아님`;
+}
+function _liveCopyPayload(){
+  return {source_style:document.getElementById('live-copy-style').value,
+    follow_pct:Number(document.getElementById('live-copy-follow').value),
+    max_order_pct:Number(document.getElementById('live-copy-order').value),
+    max_daily_buy_pct:Number(document.getElementById('live-copy-daily').value),
+    max_position_pct:Number(document.getElementById('live-copy-position').value),
+    min_cash_pct:Number(document.getElementById('live-copy-cash').value)};
+}
+async function _liveCopyFetch(url, options){
+  const r = await fetch(url, options); const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || d.error || '요청 실패');
+  return d;
+}
+function _applyLiveCopyPolicy(d){
+  document.getElementById('live-copy-style').value = d.source_style;
+  document.getElementById('live-copy-follow').value = d.follow_pct;
+  document.getElementById('live-copy-order').value = d.max_order_pct;
+  document.getElementById('live-copy-daily').value = d.max_daily_buy_pct;
+  document.getElementById('live-copy-position').value = d.max_position_pct;
+  document.getElementById('live-copy-cash').value = d.min_cash_pct;
+  document.getElementById('live-copy-policy-note').textContent = d.configured
+    ? `저장됨 · ${d.source_style === 'conservative' ? '안정형' : d.source_style === 'aggressive' ? '공격형' : '균형형'} 레퍼런스 봇 주문 금액의 ${fmtNum(d.follow_pct,2)}%를 계산합니다. 주문 전송은 잠김.`
+    : '기본값을 불러왔습니다. 저장 전에는 추종 사전점검을 할 수 없습니다.';
+}
+async function loadLiveCopyPolicy(){
+  try { const d = await _liveCopyFetch('/api/live/copy-policy'); _applyLiveCopyPolicy(d); if (d.configured) loadLiveCopyEvents(); }
+  catch(e) { document.getElementById('live-copy-policy-note').textContent = e.message; }
+}
+async function saveLiveCopyPolicy(btn){
+  const before = btn.textContent; btn.disabled = true; btn.textContent = '저장 중…';
+  try { const d = await _liveCopyFetch('/api/live/copy-policy', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(_liveCopyPayload())}); _applyLiveCopyPolicy(d); await loadLiveCopyEvents(); }
+  catch(e) { document.getElementById('live-copy-result').textContent = e.message; }
+  finally { btn.disabled = false; btn.textContent = before; }
+}
+async function loadLiveCopyEvents(){
+  const box = document.getElementById('live-copy-result'), select = document.getElementById('live-copy-event');
+  const style = document.getElementById('live-copy-style').value;
+  select.innerHTML = '<option value="">최근 참조 체결 불러오는 중…</option>';
+  try {
+    const d = await _liveCopyFetch('/api/live/copy-events?style=' + encodeURIComponent(style));
+    if (style !== document.getElementById('live-copy-style').value) return;
+    select.innerHTML = (d.events || []).map(e => `<option value="${e.id}">${esc(new Date(e.ts * 1000).toLocaleString('ko-KR'))} · ${esc(e.side === 'buy' ? '매수' : '매도')} ${esc(e.name || e.ticker)} ${fmtNum(e.qty,0)}주 · 기준 ${fmtNum(e.price,0)}원</option>`).join('') || '<option value="">최근 참조 체결 없음</option>';
+    if (!(d.events || []).length) box.textContent = '선택한 레퍼런스 봇의 국내 최근 체결이 없습니다. 주문을 만들어내지 않습니다.';
+  } catch(e) { select.innerHTML = '<option value="">참조 체결 조회 실패</option>'; box.textContent = e.message; }
+}
+async function previewLiveCopy(btn){
+  const box = document.getElementById('live-copy-result'), eventId = Number(document.getElementById('live-copy-event').value);
+  const price = Number(document.getElementById('live-copy-price').value);
+  if (!Number.isInteger(eventId) || !Number.isInteger(price) || price <= 0) { box.textContent = '최근 참조 체결과 양의 정수 지정가를 입력하세요.'; return; }
+  const before = btn.textContent; btn.disabled = true; btn.textContent = '사전점검 중…'; box.textContent = '참조 체결·계좌 여력·저장 한도를 점검 중… 주문은 전송되지 않습니다.';
+  try {
+    const d = await _liveCopyFetch('/api/live/copy-preview', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({source_style:document.getElementById('live-copy-style').value,source_event_id:eventId,limit_price:price})});
+    if (!d.copy) { box.textContent = d.reason; return; }
+    const p = d.preflight || {}, limits = (p.copy_policy || {}).checks || [];
+    const lines = [`참조 ${d.source.side === 'buy' ? '매수' : '매도'} ${d.source.name || d.source.ticker} ${fmtNum(d.source.qty,0)}주 → 내 계산 ${fmtNum(d.copy.qty,0)}주`,
+      `봇 주문금액 ${fmtNum(d.copy.source_notional,0)}원 × ${fmtNum(d.copy.follow_pct,2)}% = 목표 ${fmtNum(d.copy.requested_notional,0)}원`, d.reason];
+    const limitLabel = {order_notional:'주문 금액 한도', position_notional:'종목 비중 한도', minimum_cash:'최소 현금 한도', daily_buy_budget:'일일 매수 한도'};
+    for (const c of limits) lines.push(`${limitLabel[c.key] || c.key}: ${c.passed ? '통과' : '보류'}${c.reason ? ' · ' + c.reason : ''}`);
+    lines.push('실주문 전송 없음 · 자동 추종 없음 · 일일 예약 원장과 실행 게이트 구현 전에는 항상 보류');
+    box.textContent = lines.join('\n');
+  } catch(e) { box.textContent = e.message; }
+  finally { btn.disabled = false; btn.textContent = before; }
 }
 async function loadPortfolioProfile(){
   const box = document.getElementById('pi-result');

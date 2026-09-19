@@ -95,6 +95,11 @@ CREATE TABLE IF NOT EXISTS portfolio_forward_prices(
 CREATE TABLE IF NOT EXISTS portfolio_comparison_heads(
     uid INTEGER NOT NULL, market TEXT NOT NULL, artifact_id TEXT NOT NULL, comparison_id TEXT NOT NULL,
     PRIMARY KEY(uid,market,artifact_id));
+-- 미래 실계좌 복사 경로의 사용자 한도. 이 행은 주문 권한/intent/예약이 아니다.
+CREATE TABLE IF NOT EXISTS live_copy_policies(
+    uid INTEGER PRIMARY KEY, source_style TEXT NOT NULL, follow_pct REAL NOT NULL,
+    max_order_pct REAL NOT NULL, max_daily_buy_pct REAL NOT NULL,
+    max_position_pct REAL NOT NULL, min_cash_pct REAL NOT NULL, updated INTEGER NOT NULL);
 -- 행동계획과 결과는 스냅샷 본문에만 묻지 않는다. 개별 제안·지평별 결과를 분리해야
 -- "권고가 실제로 비용 후 유효했는가"를 나중에 집계할 수 있다.
 CREATE TABLE IF NOT EXISTS portfolio_recommendations(id TEXT PRIMARY KEY, uid INTEGER NOT NULL, market TEXT NOT NULL,
@@ -887,6 +892,42 @@ def user_bots_enabled() -> list[int]:
     return [r[0] for r in rows]
 
 
+# ---------- live copy policy (configuration only; never authorizes broker writes) ----------
+def live_copy_policy_get(uid: int) -> dict:
+    from signal_desk.broker import live_policy
+    c = conn()
+    try:
+        row = c.execute("SELECT source_style,follow_pct,max_order_pct,max_daily_buy_pct,max_position_pct,min_cash_pct,updated "
+                        "FROM live_copy_policies WHERE uid=?", (uid,)).fetchone()
+    finally:
+        c.close()
+    if row is None:
+        return {**live_policy.defaults(), "updated": None}
+    keys = ("source_style", "follow_pct", "max_order_pct", "max_daily_buy_pct", "max_position_pct", "min_cash_pct", "updated")
+    return {**live_policy.defaults(row[0]), **dict(zip(keys, row)), "configured": True,
+            "mode": "copy_preview_only", "order_transmission_enabled": False}
+
+
+def live_copy_policy_set(uid: int, values: dict) -> dict:
+    """Persist validated limits only. No setting is an execution opt-in."""
+    from signal_desk.broker import live_policy
+    policy = live_policy.validate(values, existing=live_copy_policy_get(uid))
+    now = int(time.time())
+    c = conn()
+    try:
+        c.execute("INSERT INTO live_copy_policies(uid,source_style,follow_pct,max_order_pct,max_daily_buy_pct,max_position_pct,min_cash_pct,updated) "
+                  "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(uid) DO UPDATE SET source_style=excluded.source_style,"
+                  "follow_pct=excluded.follow_pct,max_order_pct=excluded.max_order_pct,"
+                  "max_daily_buy_pct=excluded.max_daily_buy_pct,max_position_pct=excluded.max_position_pct,"
+                  "min_cash_pct=excluded.min_cash_pct,updated=excluded.updated",
+                  (uid, *(policy[k] for k in ("source_style", "follow_pct", "max_order_pct", "max_daily_buy_pct",
+                                               "max_position_pct", "min_cash_pct")), now))
+        c.commit()
+    finally:
+        c.close()
+    return {**policy, "updated": now}
+
+
 def uids_with_ticker_favorites() -> list[int]:
     """관심종목을 하나라도 가진 유저 — 시그널 변동 알림 스캔 대상.
 
@@ -1005,14 +1046,30 @@ def bot_trade_log(uid: int, ticker: str, name: str, side: str, qty: int, price: 
 
 def bot_trades_recent(uid: int, limit: int = 20, market: str = "kr") -> list[dict]:
     c = conn()
-    rows = c.execute("SELECT ticker,name,side,qty,price,reason,order_no,ts,score,note,reference_price,fees,"
+    rows = c.execute("SELECT id,ticker,name,side,qty,price,reason,order_no,ts,score,note,reference_price,fees,"
                      "slippage_cost,cash_change FROM bot_trades "
                       "WHERE uid=? AND market=? ORDER BY id DESC LIMIT ?", (uid, market, limit)).fetchall()
     c.close()
-    return [{"ticker": t, "name": n, "side": s, "qty": q, "price": p, "reason": r, "order_no": o,
+    return [{"id": i, "ticker": t, "name": n, "side": s, "qty": q, "price": p, "reason": r, "order_no": o,
              "ts": ts, "score": sc, "note": nt, "reference_price": rp, "fees": fees,
              "slippage_cost": slip, "cash_change": cash}
-            for t, n, s, q, p, r, o, ts, sc, nt, rp, fees, slip, cash in rows]
+            for i, t, n, s, q, p, r, o, ts, sc, nt, rp, fees, slip, cash in rows]
+
+
+def bot_trade_get(uid: int, trade_id: int, market: str = "kr") -> dict | None:
+    """A source event is addressed by its immutable ledger row, not client-supplied quantity."""
+    c = conn()
+    try:
+        row = c.execute("SELECT id,ticker,name,side,qty,price,reason,order_no,ts,score,note,reference_price,fees,"
+                        "slippage_cost,cash_change FROM bot_trades WHERE uid=? AND market=? AND id=?",
+                        (uid, market, trade_id)).fetchone()
+    finally:
+        c.close()
+    if row is None:
+        return None
+    keys = ("id", "ticker", "name", "side", "qty", "price", "reason", "order_no", "ts", "score", "note",
+            "reference_price", "fees", "slippage_cost", "cash_change")
+    return dict(zip(keys, row))
 
 
 def bot_execution_costs(uid: int, market: str = "kr") -> dict:

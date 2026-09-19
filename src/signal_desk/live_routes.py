@@ -4,11 +4,12 @@ from fastapi import APIRouter, Body, HTTPException, Request
 from contextlib import contextmanager
 import threading
 
-from signal_desk import auth, config
+from signal_desk import auth, bot, config, db, strategy
 from signal_desk.broker import live
 
 router = APIRouter(prefix="/api/live", tags=["live-readiness"])
 _READ_LOCK = threading.Lock()
+_COPY_EVENT_MAX_AGE_SEC = 15 * 60
 
 
 @contextmanager
@@ -47,6 +48,48 @@ def status(request: Request):
     return live.status()
 
 
+@router.get("/copy-policy")
+def copy_policy_get(request: Request):
+    _owner(request)
+    user = auth.current_user(request.cookies.get(auth.COOKIE))
+    return db.live_copy_policy_get(user["id"])
+
+
+@router.put("/copy-policy")
+def copy_policy_put(request: Request, data: dict = Body(...)):
+    _owner(request)
+    user = auth.current_user(request.cookies.get(auth.COOKIE))
+    try:
+        return db.live_copy_policy_set(user["id"], data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+def _copy_source(style: str, event_id: object) -> dict:
+    if isinstance(event_id, bool) or not isinstance(event_id, int) or event_id <= 0:
+        raise HTTPException(400, "참조 봇 거래 번호가 필요합니다.")
+    if style not in strategy.STYLES:
+        raise HTTPException(400, "안정형·균형형·공격형 중 하나를 선택하세요.")
+    bot.ensure_reference_bots()
+    uid = next(uid for uid, name in bot.REFERENCE_BOTS.items() if name == style)
+    source = db.bot_trade_get(uid, event_id, "kr")
+    if source is None:
+        raise HTTPException(404, "선택한 참조 봇 거래를 찾을 수 없습니다.")
+    return source
+
+
+@router.get("/copy-events")
+def copy_events(request: Request, style: str = "balanced"):
+    _owner(request)
+    style = str(style or "balanced")
+    if style not in strategy.STYLES:
+        raise HTTPException(400, "안정형·균형형·공격형 중 하나를 선택하세요.")
+    bot.ensure_reference_bots()
+    uid = next(uid for uid, name in bot.REFERENCE_BOTS.items() if name == style)
+    return {"style": style, "events": db.bot_trades_recent(uid, 20, "kr"),
+            "mode": "copy_preview_only", "order_transmission_enabled": False}
+
+
 @router.post("/account")
 def account(request: Request):
     creds = _credentials(request)
@@ -65,5 +108,34 @@ def preflight(request: Request, data: dict = Body(...)):
             return live.preflight(data, creds)
     except ValueError:
         raise HTTPException(400, "입력 또는 증권사 응답이 유효하지 않습니다.") from None
+    except (KeyError, TypeError, OverflowError):
+        raise HTTPException(502, "증권사 응답 검증 실패") from None
+
+
+@router.post("/copy-preview")
+def copy_preview(request: Request, data: dict = Body(...)):
+    creds = _credentials(request)
+    user = auth.current_user(request.cookies.get(auth.COOKIE))
+    policy = db.live_copy_policy_get(user["id"])
+    if not policy["configured"]:
+        raise HTTPException(409, "먼저 실계좌 추종 한도를 저장하세요.")
+    source_style = data.get("source_style")
+    if source_style != policy["source_style"]:
+        raise HTTPException(409, "저장된 추종 성향과 선택한 참조 봇이 다릅니다.")
+    source = _copy_source(source_style, data.get("source_event_id"))
+    try:
+        limit_price = data.get("limit_price")
+        if isinstance(limit_price, bool) or not isinstance(limit_price, int) or not 0 < limit_price <= 100_000_000:
+            raise ValueError("양의 정수 지정가가 필요합니다.")
+        # A historical paper fill is evidence, not a fresh executable signal. Stop before broker reads.
+        import time
+        if not isinstance(source.get("ts"), int) or time.time() - source["ts"] > _COPY_EVENT_MAX_AGE_SEC:
+            return {"ready": False, "mode": "copy_preview_only", "order_transmission_enabled": False,
+                    "source": source, "policy": policy,
+                    "reason": "참조 봇 거래가 15분을 넘었습니다. 과거 체결은 복사 주문 후보가 아닙니다."}
+        with _read_slot():
+            return live.copy_preview(source, limit_price=limit_price, policy=policy, creds=creds)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
     except (KeyError, TypeError, OverflowError):
         raise HTTPException(502, "증권사 응답 검증 실패") from None
