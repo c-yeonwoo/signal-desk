@@ -25,6 +25,7 @@ from fastapi import Form, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Response,
                                StreamingResponse)
 from signal_desk.jsonutil import finite_or_none, json_safe
+from signal_desk.live_routes import router as live_router
 
 from signal_desk import (
     auth, bot, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
@@ -35,7 +36,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
     portfolio_candidates,
-    meta_entry, portfolio_construction, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
+    meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, revision, sector_rel, target, why_now,
@@ -764,6 +765,7 @@ class SafeJSONResponse(JSONResponse):
 
 
 app = FastAPI(title="signal-desk", lifespan=_lifespan, default_response_class=SafeJSONResponse)
+app.include_router(live_router)
 
 @app.exception_handler(llm.BudgetExceeded)
 def _budget_exceeded_handler(request: Request, exc: llm.BudgetExceeded):
@@ -1044,7 +1046,10 @@ def holdings_set(request: Request, data: dict = Body(...)):
     ticker = str(data.get("ticker", "")).strip()
     if not ticker:
         return JSONResponse({"ok": False, "error": "종목코드 필요"}, status_code=400)
-    db.holdings_set(_uid(request), ticker, float(data.get("qty", 0)), float(data.get("avg_price", 0)))
+    qty, avg = finite_or_none(data.get("qty")), finite_or_none(data.get("avg_price"))
+    if qty is None or avg is None or qty <= 0 or avg < 0:
+        return JSONResponse({"ok": False, "error": "유한한 양의 수량과 0 이상 평단가가 필요합니다."}, status_code=400)
+    db.holdings_set(_uid(request), ticker, qty, avg)
     return {"ok": True}
 
 
@@ -1074,7 +1079,7 @@ def _portfolio_profile_payload(data: dict) -> dict | None:
             if not 1 <= months <= 600:
                 return None
             out["horizon_months"] = months
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return out
 
@@ -1113,8 +1118,8 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
         closes = prices.get(ticker) or []
         history_dates = dates.get(ticker) or []
         price_as_of = str(history_dates[-1])[:10] if history_dates else None
-        if closes and float(closes[-1] or 0) > 0:
-            price = float(closes[-1])
+        price = finite_or_none(closes[-1]) if closes else None
+        if price is not None and price > 0:
             value = price * float(holding.get("qty") or 0)
             if price_as_of:
                 as_of_dates.append(price_as_of)
@@ -1143,16 +1148,12 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
         as_of=max(as_of_dates) if as_of_dates else _kst_today(),
     )
     # 목표배분은 실보유 분석의 shadow 결과일 뿐, 기존 리밸런싱·주문 경로를 바꾸지 않는다.
-    out["allocation"] = portfolio_construction.propose(
-        rows, dates_by=dates, closes_by=prices, profile=profile)
-    out["trade_plan"] = portfolio_trade_plan.plan(
-        out["allocation"], rows, cash=profile["cash"], market=market)
     candidate_universe = [{"ticker": str(asset["ticker"]), "name": names.get(str(asset["ticker"]), str(asset["ticker"])),
                            "sector": explicit_sectors.get(str(asset["ticker"])) or sectors.sector_of(str(asset["ticker"]))}
                           for asset in universe if asset.get("ticker")]
-    out["entry_candidates"] = portfolio_candidates.evaluate(
-        holdings=rows, universe=candidate_universe, signal_by_ticker=signal_by_ticker,
-        prices=prices, dates_by=dates, profile=profile)
+    out.update(portfolio_decision.decide(
+        rows=rows, universe=candidate_universe, signal_by_ticker=signal_by_ticker,
+        prices=prices, dates_by=dates, profile=profile, market=market))
     return out
 
 
@@ -3112,7 +3113,9 @@ def _meta_entry_shadow(market: str) -> dict:
         return {"market": mkt, "labels": 0, "oof_predicted": 0, "oof_abstained": 0,
                 "note": "PIT 스냅샷이 쌓이면 shadow 메타-진입 검증을 시작"}
     cfg = meta_entry.TripleBarrierConfig()
-    labels = meta_entry.build_labeled_rows(history.to_dict("records"), store.load_all_dated_closes(), cfg)
+    tickers = set(history["ticker"].astype(str))
+    series = {t: s for t, s in store.load_all_dated_closes().items() if t in tickers}
+    labels = meta_entry.build_labeled_rows(history.to_dict("records"), series, cfg)
     estimates = meta_entry.oof_estimates(labels)
     return {"market": mkt, "barrier": {"horizon_days": cfg.horizon_days,
                                            "profit_take_pct": cfg.profit_take_pct,

@@ -1,6 +1,7 @@
 """포트폴리오 분석은 주문 경로와 분리된, 사용자별 스냅샷 API여야 한다."""
 
 import importlib
+from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -23,7 +24,7 @@ def test_profile_and_analysis_are_user_market_scoped(tmp_path, monkeypatch):
     })
     assert saved.status_code == 200 and saved.json()["profile"]["cash"] == 500
     client.post("/api/holdings", json={"ticker": "005930", "qty": 10, "avg_price": 90})
-    dates = [f"2026-01-{i:02d}" for i in range(1, 62)]
+    dates = [(date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(61)]
     api.store.load_universe = lambda: [{"ticker": "005930", "name": "삼성전자", "sector": "전자"}]
     api.store.load_price_series = lambda: {"005930": [100 + i for i in range(61)]}
     api.store.load_dates_by_ticker = lambda: {"005930": dates}

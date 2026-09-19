@@ -88,21 +88,27 @@ def telegram_chat_ids() -> list[str]:
 
 
 def kis_credentials() -> dict | None:
-    """KIS 자동매매봇 인증정보. 하나라도 없으면 None(그레이스풀 폴백).
-
-    KIS_ENV는 반드시 'demo'(모의투자)여야 주문이 안전 — 'prod'면 실계좌 주문 API를 호출한다."""
+    """KIS 인증정보. demo/real만 유효하며 real은 조회 전용 경로에서만 쓴다."""
     app_key = os.environ.get("KIS_APP_KEY")
     app_secret = os.environ.get("KIS_APP_SECRET")
     account_no = os.environ.get("KIS_ACCOUNT_NO")
     if not (app_key and app_secret and account_no):
         return None
+    env = os.environ.get("KIS_ENV", "demo").strip().lower()
+    if env not in {"demo", "real"}:
+        raise ValueError("KIS_ENV must be demo or real")
     return {
         "app_key": app_key,
         "app_secret": app_secret,
         "account_no": account_no,
         "product_cd": os.environ.get("KIS_ACCOUNT_PRODUCT_CD", "01"),
-        "env": os.environ.get("KIS_ENV", "demo"),
+        "env": env,
     }
+
+
+def kis_account_owner() -> str:
+    """단일 연결 계좌의 서비스 로그인 이메일. 관리자라도 소유자 일치가 필수다."""
+    return os.environ.get("KIS_ACCOUNT_OWNER", "").strip().lower()
 
 
 def dart_key() -> str | None:

@@ -19,8 +19,7 @@ def test_get_token_no_creds(monkeypatch):
 
 def test_get_token_uses_cache_without_network_call(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    kis._TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    kis._TOKEN_FILE.write_text(json.dumps({"token": "cached-tok", "expires_at": time.time() + 3600}))
+    kis._save_token("cached-tok", time.time() + 3600, _creds())
 
     def _boom(*a, **k):
         raise AssertionError("네트워크 호출이 발생하면 안 됨(캐시된 토큰을 써야 함)")
@@ -31,9 +30,8 @@ def test_get_token_uses_cache_without_network_call(tmp_path, monkeypatch):
 
 def test_get_token_ignores_expired_cache(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    kis._TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    kis._TOKEN_FILE.write_text(json.dumps({"token": "old-tok", "expires_at": time.time() - 10}))
-    assert kis._load_cached_token() is None
+    kis._save_token("old-tok", time.time() - 10, _creds())
+    assert kis._load_cached_token(_creds()) is None
 
 
 def test_balance_parses_response(monkeypatch):
@@ -55,7 +53,7 @@ def test_balance_parses_response(monkeypatch):
     assert out["stock_eval"] == 750_000.0
     assert out["pnl_pct"] == round(50000 / 700000 * 100, 2)  # 7.14%
     assert out["holdings"] == [{"ticker": "005930", "name": "삼성전자", "qty": 10, "avg_price": 70000.0,
-                                "price": 75000.0, "pnl_pct": 7.14}]
+                                "price": 75000.0, "pnl_pct": 7.14, "sellable_qty": None}]
 
 
 def test_balance_returns_none_on_error(monkeypatch):

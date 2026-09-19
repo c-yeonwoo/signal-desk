@@ -10,7 +10,7 @@ def test_plan_sells_before_buying_and_includes_execution_costs():
     ]}
     rows = [
         {"ticker": "SELL", "qty": 10, "price": 100, "value": 1000},
-        {"ticker": "BUY", "qty": 1, "price": 100, "value": 100},
+        {"ticker": "BUY", "qty": 1, "price": 100, "value": 100, "entry_allowed": True},
     ]
     out = ptp.plan(allocation, rows, cash=0, market="kr")
     assert out["ready"] is True and out["execution_order"] == "sell_then_buy"
@@ -27,7 +27,7 @@ def test_fractional_share_position_blocks_integer_execution_plan():
 def test_partial_buy_is_reported_when_cash_is_insufficient():
     allocation = {"ready": True, "items": [{"ticker": "A", "name": "A", "action": "확대 검토",
                                                  "delta_value": 1_000, "target_weight_pct": 50}]}
-    out = ptp.plan(allocation, [{"ticker": "A", "qty": 1, "price": 100, "value": 100}], cash=150, market="us")
+    out = ptp.plan(allocation, [{"ticker": "A", "qty": 1, "price": 100, "value": 100, "entry_allowed": True}], cash=150, market="us")
     assert out["instructions"][0]["qty"] == 1
     assert out["unfunded_buys"] == [{"ticker": "A", "remaining_qty": 9}]
 

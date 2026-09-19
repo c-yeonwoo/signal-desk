@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
 
 from signal_desk import config
 
@@ -26,7 +27,17 @@ class Fill:
         return asdict(self)
 
 
-def calculate(reference_price: float, qty: int, side: str, market: str) -> Fill:
+def cost_assumptions(market: str) -> dict:
+    return {"version": 1, "market": market,
+            "slippage_bps": config.paper_execution_bps(market, "SLIPPAGE", 5.0),
+            "commission_bps": config.paper_execution_bps(market, "COMMISSION", 0.0 if market == "us" else 1.5),
+            "sell_tax_bps": config.paper_execution_bps(market, "SELL_TAX", 0.0 if market == "us" else 20.0),
+            "sec_sell_bps": config.paper_execution_bps("us", "SEC_SELL", 0.206) if market == "us" else 0.0,
+            "finra_per_share": config.paper_us_finra_taf_per_share() if market == "us" else 0.0,
+            "finra_cap": config.paper_us_finra_taf_cap() if market == "us" else 0.0}
+
+
+def calculate(reference_price: float, qty: int, side: str, market: str, *, assumptions: dict | None = None) -> Fill:
     """기준 현재가에 불리한 슬리피지와 시장별 비용을 적용한 체결.
 
     국내 기본 매도세 20bp는 2026 KOSPI(거래세 5bp+농특세 15bp)와 KOSDAQ(거래세 20bp)의
@@ -34,22 +45,29 @@ def calculate(reference_price: float, qty: int, side: str, market: str) -> Fill:
     매도 주당 $0.000195·주문당 상한 $9.79의 2026 값이다. 브로커 수수료와 spread/impact는
     계좌·종목별로 달라 환경변수 가정이며, 진짜 호가 데이터가 생길 때 대체할 예정이다.
     """
-    if side not in {"buy", "sell"} or qty <= 0 or reference_price <= 0:
+    if side not in {"buy", "sell"} or qty <= 0 or reference_price <= 0 or not math.isfinite(reference_price):
         raise ValueError("positive price/qty and buy/sell side required")
-    slip_bps = config.paper_execution_bps(market, "SLIPPAGE", 5.0)
-    commission_bps = config.paper_execution_bps(market, "COMMISSION", 0.0 if market == "us" else 1.5)
+    assumptions = dict(cost_assumptions(market) if assumptions is None else assumptions)
+    if assumptions.get("version") != 1 or assumptions.get("market") != market:
+        raise ValueError("incompatible execution assumptions")
+    for key in ("slippage_bps", "commission_bps", "sell_tax_bps", "sec_sell_bps", "finra_per_share", "finra_cap"):
+        if key not in assumptions or not math.isfinite(float(assumptions[key])) or float(assumptions[key]) < 0:
+            raise ValueError("invalid execution assumptions")
+    slip_bps, commission_bps = assumptions["slippage_bps"], assumptions["commission_bps"]
+    if slip_bps >= 10_000:
+        raise ValueError("slippage must be less than 100%")
     fill_price = reference_price * (1 + slip_bps / 10_000 if side == "buy" else 1 - slip_bps / 10_000)
     gross = fill_price * qty
     commission = gross * commission_bps / 10_000
-    sell_tax = gross * config.paper_execution_bps(market, "SELL_TAX", 0.0 if market == "us" else 20.0) / 10_000 if side == "sell" else 0.0
+    sell_tax = gross * assumptions["sell_tax_bps"] / 10_000 if side == "sell" else 0.0
     regulatory = 0.0
     if side == "sell" and market == "us":
-        regulatory += gross * config.paper_execution_bps("us", "SEC_SELL", 0.206) / 10_000
-        regulatory += min(config.paper_us_finra_taf_cap(), qty * config.paper_us_finra_taf_per_share())
+        regulatory += gross * assumptions["sec_sell_bps"] / 10_000
+        regulatory += min(assumptions["finra_cap"], qty * assumptions["finra_per_share"])
     fees = commission + sell_tax + regulatory
     cash_change = -(gross + fees) if side == "buy" else gross - fees
     return Fill(reference_price=round(reference_price, 8), fill_price=round(fill_price, 8), qty=qty, side=side,
                 gross_notional=round(gross, 8), commission=round(commission, 8), sell_tax=round(sell_tax, 8),
                 regulatory_fee=round(regulatory, 8), total_fees=round(fees, 8), cash_change=round(cash_change, 8),
                 slippage_cost=round(abs(fill_price - reference_price) * qty, 8),
-                assumptions={"slippage_bps": slip_bps, "commission_bps": commission_bps})
+                assumptions=assumptions)
