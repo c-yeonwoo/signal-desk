@@ -1,7 +1,9 @@
 """포트폴리오 분석은 주문 경로와 분리된, 사용자별 스냅샷 API여야 한다."""
 
 import importlib
-from datetime import date, timedelta
+from datetime import datetime, timezone
+
+import exchange_calendars as xcals
 
 from fastapi.testclient import TestClient
 
@@ -24,10 +26,12 @@ def test_profile_and_analysis_are_user_market_scoped(tmp_path, monkeypatch):
     })
     assert saved.status_code == 200 and saved.json()["profile"]["cash"] == 500
     client.post("/api/holdings", json={"ticker": "005930", "qty": 10, "avg_price": 90})
-    dates = [(date(2026, 1, 1) + timedelta(days=i)).isoformat() for i in range(61)]
-    api.store.load_universe = lambda: [{"ticker": "005930", "name": "삼성전자", "sector": "전자"}]
-    api.store.load_price_series = lambda: {"005930": [100 + i for i in range(61)]}
-    api.store.load_dates_by_ticker = lambda: {"005930": dates}
+    dates = [d.date().isoformat() for d in xcals.get_calendar('XKRX').sessions_in_range('2026-01-01', '2026-09-18')][-61:]
+    monkeypatch.setattr(api.portfolio_audit, 'utc_now', lambda: datetime(2026, 9, 19, tzinfo=timezone.utc))
+    monkeypatch.setattr(api.store, 'load_universe', lambda: [{"ticker": "005930", "name": "삼성전자", "sector": "전자"}])
+    monkeypatch.setattr(api.store, 'load_price_series', lambda: {"005930": [100 + i for i in range(61)]})
+    monkeypatch.setattr(api.store, 'load_dates_by_ticker', lambda: {"005930": dates})
+    monkeypatch.setattr(api.store, 'load_portfolio_close_bundle', lambda market: ({"005930": [100 + i for i in range(61)]}, {"005930": dates}))
     result = client.post("/api/portfolio/analyze", json={"market": "kr"})
     assert result.status_code == 200
     out = result.json()
@@ -37,6 +41,17 @@ def test_profile_and_analysis_are_user_market_scoped(tmp_path, monkeypatch):
     assert out["recommendation_id"]
     history = client.get("/api/portfolio/recommendations?market=kr").json()
     assert history["ready"] is True and history["coverage"]["items"] == 1
+    artifact_id = out['audit']['id']
+    assert out['audit']['timing']['aligned']
+    assert client.post(f'/api/portfolio/decisions/{artifact_id}/replay?market=kr').json()['matched']
+    assert client.get(f'/api/portfolio/decisions/{artifact_id}?market=us').status_code == 404
+    assert client.post(f'/api/portfolio/decisions/{artifact_id}/compare?market=kr').json()['ready'] is False
+    assert client.get(f'/api/portfolio/decisions/{artifact_id}/comparison?market=kr').json()['result']
+    assert len(client.get('/api/portfolio/decisions?market=kr').json()['items']) == 1
+    client.post('/api/auth/signup', json={'email': 'other@x.com', 'pw': 'abcdef'})
+    assert client.get(f'/api/portfolio/decisions/{artifact_id}?market=kr').status_code == 404
+    assert client.post(f'/api/portfolio/decisions/{artifact_id}/compare?market=kr').status_code == 404
+    assert client.post(f'/api/portfolio/decisions/{artifact_id}/replay?market=kr').status_code == 404
 
 
 def test_profile_rejects_invalid_percentages(tmp_path, monkeypatch):

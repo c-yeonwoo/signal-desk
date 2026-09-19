@@ -1532,6 +1532,21 @@ def load_price_series() -> dict[str, list[float]]:
     return _overlay_closes(series)
 
 
+def load_portfolio_close_bundle(market: str) -> tuple[dict[str, list[float]], dict[str, list[str]]]:
+    """One cache generation of historical bars, without the live provisional quote overlay.
+
+    Publication/finality metadata is not available in this legacy cache. Consumers still
+    need a session check and must not describe these arrays as certified executable quotes.
+    """
+    if market == "kr":
+        prices, dates = _kr_prices_raw()
+    elif market == "us":
+        prices, _, dates = _us_prices_raw()
+    else:
+        raise ValueError("unsupported market")
+    return ({t: list(ps) for t, ps in prices.items()}, {t: list(ds) for t, ds in dates.items()})
+
+
 def load_dates_by_ticker() -> dict[str, list[str]]:
     """ticker -> 날짜 리스트(오래된→최신) — load_price_series()와 동일 정렬. point-in-time 백테스트용."""
     _, dates = _kr_prices_raw()

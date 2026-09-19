@@ -12,6 +12,7 @@ import sqlite3
 import threading
 import time
 import uuid
+import zlib
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -80,6 +81,20 @@ CREATE TABLE IF NOT EXISTS portfolio_snapshots(id INTEGER PRIMARY KEY AUTOINCREM
     market TEXT NOT NULL, as_of TEXT NOT NULL, source TEXT NOT NULL, total_value REAL,
     data_quality TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_lookup ON portfolio_snapshots(uid, market, created DESC);
+CREATE TABLE IF NOT EXISTS portfolio_decision_artifacts(
+    uid INTEGER NOT NULL, market TEXT NOT NULL, id TEXT NOT NULL, payload BLOB NOT NULL,
+    created INTEGER NOT NULL, PRIMARY KEY(uid, market, id));
+CREATE INDEX IF NOT EXISTS idx_portfolio_artifact_recent ON portfolio_decision_artifacts(uid, market, created DESC);
+CREATE TABLE IF NOT EXISTS portfolio_comparisons(
+    uid INTEGER NOT NULL, market TEXT NOT NULL, artifact_id TEXT NOT NULL, id TEXT NOT NULL,
+    payload BLOB NOT NULL, created INTEGER NOT NULL, PRIMARY KEY(uid, market, artifact_id, id));
+CREATE TABLE IF NOT EXISTS portfolio_forward_prices(
+    uid INTEGER NOT NULL, market TEXT NOT NULL, artifact_id TEXT NOT NULL,
+    ticker TEXT NOT NULL, session_date TEXT NOT NULL, price REAL NOT NULL,
+    PRIMARY KEY(uid,market,artifact_id,ticker,session_date));
+CREATE TABLE IF NOT EXISTS portfolio_comparison_heads(
+    uid INTEGER NOT NULL, market TEXT NOT NULL, artifact_id TEXT NOT NULL, comparison_id TEXT NOT NULL,
+    PRIMARY KEY(uid,market,artifact_id));
 -- 행동계획과 결과는 스냅샷 본문에만 묻지 않는다. 개별 제안·지평별 결과를 분리해야
 -- "권고가 실제로 비용 후 유효했는가"를 나중에 집계할 수 있다.
 CREATE TABLE IF NOT EXISTS portfolio_recommendations(id TEXT PRIMARY KEY, uid INTEGER NOT NULL, market TEXT NOT NULL,
@@ -1867,13 +1882,120 @@ def portfolio_snapshot_add_once(uid: int, market: str, *, as_of: str, source: st
                                 total_value: float | None, data_quality: str, payload: dict) -> int:
     """자동 일별 스냅샷은 같은 시장·거래일에 재시작돼도 한 건만 남긴다."""
     c = conn()
-    row = c.execute("SELECT id FROM portfolio_snapshots WHERE uid=? AND market=? AND as_of=? AND source=?",
-                    (uid, market, as_of, source)).fetchone()
-    c.close()
-    if row:
-        return int(row[0])
-    return portfolio_snapshot_add(uid, market, as_of=as_of, source=source,
-                                  total_value=total_value, data_quality=data_quality, payload=payload)
+    try:
+        # Serialize check+insert across processes; preserve pre-existing duplicate history.
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT id FROM portfolio_snapshots WHERE uid=? AND market=? AND as_of=? AND source=? ORDER BY id LIMIT 1",
+                        (uid, market, as_of, source)).fetchone()
+        if row:
+            sid = int(row[0])
+        else:
+            cur = c.execute("INSERT INTO portfolio_snapshots(uid,market,as_of,source,total_value,data_quality,payload,created) "
+                            "VALUES(?,?,?,?,?,?,?,?)", (uid, market, as_of, source, total_value, data_quality,
+                            json.dumps(payload, ensure_ascii=False, allow_nan=False), int(time.time())))
+            sid = int(cur.lastrowid)
+        c.commit()
+        return sid
+    finally:
+        c.close()
+
+
+def portfolio_artifact_add(uid: int, market: str, body: dict) -> dict:
+    from signal_desk.signals import portfolio_audit as audit
+    raw = audit.canonical(body)
+    artifact_id = audit.digest(body)
+    c = conn()
+    try:
+        c.execute("INSERT OR IGNORE INTO portfolio_decision_artifacts(uid,market,id,payload,created) VALUES(?,?,?,?,?)",
+                  (uid, market, artifact_id, zlib.compress(raw), int(time.time())))
+        c.commit()
+        stored, created = c.execute("SELECT payload,created FROM portfolio_decision_artifacts WHERE uid=? AND market=? AND id=?",
+                                    (uid, market, artifact_id)).fetchone()
+        if audit.digest(json.loads(zlib.decompress(stored))) != artifact_id:
+            raise ValueError("decision artifact integrity failure")
+        return audit.summary(artifact_id, body, created)
+    finally:
+        c.close()
+
+
+def portfolio_artifact_get(uid: int, market: str, artifact_id: str) -> dict | None:
+    from signal_desk.signals import portfolio_audit as audit
+    c = conn()
+    try:
+        row = c.execute("SELECT payload,created FROM portfolio_decision_artifacts WHERE uid=? AND market=? AND id=?",
+                        (uid, market, artifact_id)).fetchone()
+        if not row:
+            return None
+        body = json.loads(zlib.decompress(row[0]))
+        if audit.digest(body) != artifact_id:
+            raise ValueError("decision artifact integrity failure")
+        return {"body": body, "summary": audit.summary(artifact_id, body, row[1])}
+    finally:
+        c.close()
+
+
+def portfolio_artifact_list(uid: int, market: str, limit: int = 10) -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT id FROM portfolio_decision_artifacts WHERE uid=? AND market=? ORDER BY created DESC,rowid DESC LIMIT ?",
+                         (uid, market, max(1, min(limit, 20)))).fetchall()
+    finally:
+        c.close()
+    return [portfolio_artifact_get(uid, market, row[0])["summary"] for row in rows]
+
+
+def portfolio_comparison_add(uid: int, market: str, artifact_id: str, result: dict) -> dict:
+    """Atomically freeze first forward prices and stop when revised inputs disagree.
+
+    A re-observation is an audit event, not permission to rewrite previous NAV paths.
+    """
+    from signal_desk.signals import portfolio_audit as audit
+    result = json.loads(audit.canonical(result))
+    c = conn()
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        if result.get("ready"):
+            panel = result.get("observed_panel", {})
+            known = c.execute("SELECT ticker,session_date,price FROM portfolio_forward_prices "
+                              "WHERE uid=? AND market=? AND artifact_id=?", (uid, market, artifact_id)).fetchall()
+            changed = [{"ticker": t, "date": d} for t, d, price in known
+                       if d in panel.get(t, {}) and panel[t][d] != price]
+            if changed:
+                result.update(ready=False, path=[], reason="최초 관측 이후 가격이 변경되었습니다. 과거 평가는 보존하며 수정 검토 전 재평가를 보류합니다.",
+                              price_revisions=changed)
+                for key in ("metrics", "delta_vs_hold_pp", "fills"):
+                    result.pop(key, None)
+            else:
+                c.executemany("INSERT OR IGNORE INTO portfolio_forward_prices "
+                              "(uid,market,artifact_id,ticker,session_date,price) VALUES(?,?,?,?,?,?)",
+                              [(uid, market, artifact_id, t, d, p) for t, series in panel.items() for d, p in series.items()])
+        result_id = audit.digest(result)
+        c.execute("INSERT OR IGNORE INTO portfolio_comparisons(uid,market,artifact_id,id,payload,created) VALUES(?,?,?,?,?,?)",
+                  (uid, market, artifact_id, result_id, zlib.compress(audit.canonical(result)), int(time.time())))
+        c.execute("INSERT INTO portfolio_comparison_heads(uid,market,artifact_id,comparison_id) VALUES(?,?,?,?) "
+                  "ON CONFLICT(uid,market,artifact_id) DO UPDATE SET comparison_id=excluded.comparison_id",
+                  (uid, market, artifact_id, result_id))
+        c.commit()
+        return {"id": result_id, "result": result}
+    finally:
+        c.close()
+
+
+def portfolio_comparison_latest(uid: int, market: str, artifact_id: str) -> dict | None:
+    from signal_desk.signals import portfolio_audit as audit
+    c = conn()
+    try:
+        row = c.execute("SELECT c.id,c.payload FROM portfolio_comparisons c JOIN portfolio_comparison_heads h "
+                        "ON c.uid=h.uid AND c.market=h.market AND c.artifact_id=h.artifact_id AND c.id=h.comparison_id "
+                        "WHERE h.uid=? AND h.market=? AND h.artifact_id=?", (uid, market, artifact_id)).fetchone()
+        if not row:
+            return None
+        result = json.loads(zlib.decompress(row[1]))
+        if audit.digest(result) != row[0]:
+            raise ValueError("comparison integrity failure")
+        return {"id": row[0], "result": result}
+    finally:
+        c.close()
 
 
 def portfolio_recommendation_add(uid: int, market: str, *, snapshot_id: int, as_of: str,

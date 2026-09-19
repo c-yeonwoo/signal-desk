@@ -792,6 +792,16 @@
     color:var(--dim-2); font-size:var(--fs-xs); }
   #signal-trust .trust-legend { margin-top:6px; font-size:var(--fs-2xs); color:var(--dim-2); line-height:1.5; }
   #signal-trust .trust-legend[hidden] { display:none; }
+  .pi-evidence-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0}
+  .pi-evidence-step{border:1px solid var(--line);border-radius:var(--r-md);padding:12px;min-width:0}
+  .pi-evidence-step b{display:block;font-size:13px;margin:4px 0}
+  .pi-evidence-step p,.pi-audit-meta{font-size:12px;color:var(--dim);line-height:1.6;margin:4px 0;overflow-wrap:anywhere}
+  .pi-audit-record{border-top:1px solid var(--line);padding:12px 0}
+  .pi-audit-record summary{cursor:pointer;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+  .pi-audit-actions{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+  .pi-audit-scroll{overflow-x:auto;max-width:100%}
+  .pi-audit-feedback{margin-top:10px;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
+  @media(max-width:600px){.pi-evidence-grid{grid-template-columns:1fr}.pi-evidence-step{padding:10px 12px}}
 </style>
 </head>
 <body>
@@ -1201,13 +1211,26 @@
             <input id="pi-cluster" type="number" min="0" max="100" class="ctrl" style="max-width:110px"></label>
           <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">최소 현금 %
             <input id="pi-mincash" type="number" min="0" max="100" class="ctrl" style="max-width:100px"></label>
-          <button class="btn primary" onclick="runPortfolioIntelligence()">저장 후 진단</button>
+          <button class="btn primary" onclick="runPortfolioIntelligence(this)">저장 후 진단</button>
         </div>
         <div id="pi-profile-note" class="stat-label" style="margin:8px 0 0"></div>
         <div id="pi-result" style="margin-top:12px"></div>
       </div>
+      <section class="card" aria-labelledby="pi-audit-title" style="margin-bottom:16px">
+        <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <b id="pi-audit-title" style="font-size:15px">판단 검증실</b>
+          <span class="layer-badge ctx">실주문 잠김</span>
+        </div>
+        <p class="page-desc" style="margin:6px 0">분석이 만들어졌다는 사실과, 실전에 사용할 수 있다는 판단은 다릅니다. 기록 → 비교 → 실행의 조건을 각각 확인합니다.</p>
+        <div class="pi-evidence-grid">
+          <div class="pi-evidence-step"><span class="stat-label">01 · 기록</span><b>같은 입력, 같은 판단</b><p>가격·후보·위험 한도·비용을 동결합니다. 기록마다 재현 여부를 확인할 수 있습니다.</p></div>
+          <div class="pi-evidence-step"><span class="stat-label">02 · 비교</span><b>보유 유지보다 나았는가</b><p>다음 미개장 거래일 종가부터 동일 초기자산으로 비교합니다. 단일 결과는 통계적 우위가 아닙니다.</p></div>
+          <div class="pi-evidence-step"><span class="stat-label">03 · 실행 잠김</span><b>계좌 조회 ≠ 주문 승인</b><p>원본 공개시각·실측 성과·주문 원장·시세·위험 한도 검증이 남아 있습니다.</p></div>
+        </div>
+        <div id="pi-decisions" aria-live="polite" class="pi-audit-meta">진단 후 저장된 기록을 확인할 수 있습니다.</div>
+      </section>
       <div class="card" style="margin-bottom:16px">
-        <b style="font-size:14px">권고 검증 원장 <span style="color:var(--dim);font-weight:600;font-size:13px">· 제안 후 1/5/20거래일 shadow 결과</span></b>
+        <b style="font-size:14px">개별 권고 참고 결과 <span style="color:var(--dim);font-weight:600;font-size:13px">· 포트폴리오 성과와 별개</span></b>
         <div id="pi-outcomes" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       </div>
 
@@ -5354,7 +5377,8 @@ function setPfMarket(m){
 async function refreshPortfolio(){
   await loadRealHoldings();          // 보유종목(선택 시장) + (owner)전체 자동 import
   loadPortfolioProfile();            // 현금·위험 한도는 시장별 입력이므로 전환 때 함께 복원
-  loadPortfolioRecommendations();    // 분석 시점의 행동계획은 결과를 누적해 OOS로 검증한다
+  loadPortfolioRecommendations();    // 개별 권고 참고 결과 — OOS 입증과 구분
+  loadPortfolioDecisions();          // 동결 판단·동일 초기자산 비교 원장
   loadHeatmap(_pfMarket);            // 섹터 히트맵(선택 시장)
   loadHoldingsDividends(_pfMarket);  // 보유 배당(선택 시장)
   const rr = document.getElementById('rebal-result'); if (rr) rr.innerHTML = '';   // 리밸런싱은 버튼으로
@@ -5408,6 +5432,60 @@ async function loadPortfolioProfile(){
   }
 }
 function _piPriority(priority){ return ({ blocker: '데이터 필수', high: '우선 검토', medium: '검토', normal: '모니터링' })[priority] || priority; }
+let _piDecisionLoad = 0;
+async function _piJson(url, options){
+  const r = await fetch(url, options); const d = await r.json();
+  if (!r.ok) throw new Error(d.detail || d.error || '요청 실패');
+  return d;
+}
+function _piAuditSummary(a){
+  const t = a.timing || {}; const sessions = t.evaluation_sessions || [];
+  return `<div class="pi-audit-meta">가격 기준 ${esc(t.expected_price_session || '미확인')} · 캘린더 ${esc(t.calendar || '미확인')}<br>
+    ${esc(t.reason || '시점 확인 필요')}<br>가상 진입 ${esc((sessions[0] || {}).date || '미확정')} 종가 · 정책 ${esc(a.policy_version || '')}<br>
+    원본 공개시각·확정봉: 미검증 · 실주문: 잠김</div>`;
+}
+async function loadPortfolioDecisions(){
+  const box = document.getElementById('pi-decisions'); if (!box) return;
+  const market = _pfMarket, requestId = ++_piDecisionLoad;
+  box.textContent = '현재 시장의 판단 기록을 불러오는 중…';
+  try {
+    const d = await _piJson('/api/portfolio/decisions?market=' + market);
+    if (market !== _pfMarket || requestId !== _piDecisionLoad) return;
+    box.innerHTML = (d.items || []).map(a => `<details class="pi-audit-record">
+      <summary><b>${esc(new Date(a.recorded_at * 1000).toLocaleString('ko-KR'))}</b> · ${a.timing?.aligned ? '거래일 정합성 확인' : '시점 확인 보류'} · <code>${esc(a.id.slice(0, 10))}</code></summary>
+      ${_piAuditSummary(a)}
+      <div class="pi-audit-actions">
+        <button class="btn" data-audit-id="${esc(a.id)}" data-audit-market="${market}" onclick="runPortfolioAudit(this,'replay')">판단 재현 검사</button>
+        <button class="btn" data-audit-id="${esc(a.id)}" data-audit-market="${market}" onclick="runPortfolioAudit(this,'compare')">보유 유지와 비교</button>
+        <button class="btn" data-audit-id="${esc(a.id)}" data-audit-market="${market}" onclick="runPortfolioAudit(this,'comparison')">저장된 비교 보기</button>
+        <a class="btn" href="/api/portfolio/decisions/${encodeURIComponent(a.id)}?market=${market}" target="_blank" rel="noopener">동결 입력 보기</a>
+      </div><div class="pi-audit-feedback" role="status"></div></details>`).join('') || '기록이 없습니다. 위에서 저장 후 진단을 실행하세요.';
+  } catch(e) { if (market === _pfMarket && requestId === _piDecisionLoad) box.textContent = e.message; }
+}
+async function runPortfolioAudit(button, action){
+  const record = button.closest('.pi-audit-record'), box = record.querySelector('.pi-audit-feedback');
+  const buttons = record.querySelectorAll('button'); buttons.forEach(b => b.disabled = true);
+  const market = button.dataset.auditMarket, id = button.dataset.auditId;
+  box.textContent = action === 'replay' ? '저장된 입력·비용으로 재계산 중…' : action === 'comparison' ? '저장된 비교를 불러오는 중…' : '동일 초기자산으로 비교 중…';
+  try {
+    const response = await _piJson(`/api/portfolio/decisions/${encodeURIComponent(id)}/${action}?market=${market}`, {method:action === 'comparison' ? 'GET' : 'POST'});
+    const d = action === 'comparison' ? response.result : response;
+    if (market !== _pfMarket || !box.isConnected) return;
+    if (!d) { box.textContent = '아직 저장된 비교가 없습니다. 보유 유지와 비교를 눌러 평가하세요.'; return; }
+    if (action === 'replay') { box.textContent = (d.matched === true ? '재현 일치 · ' : '확인 필요 · ') + d.reason; return; }
+    if (!d.ready) { box.textContent = d.reason; return; }
+    const currency = market === 'us' ? 'USD' : 'KRW';
+    const rows = [['policy','동결 계획'],['hold','기존 보유 유지'],['cash','전량 현금화']].map(([key,label]) => {
+      const m = d.metrics[key];
+      return `<tr><td>${label}</td><td class="num">${_piMoney(m.nav,currency)}</td><td class="num">${fmtNum(m.return_pct,2)}%</td><td class="num">${fmtNum(m.max_drawdown_pct,2)}%</td></tr>`;
+    }).join('');
+    box.innerHTML = `<b>보유 유지 대비 ${fmtNum(d.delta_vs_hold_pp,2)}%p</b> · ${d.completed_sessions}/${d.target_sessions} 거래일 관측
+      <div class="pi-audit-meta">동일 초기자산 ${_piMoney(d.initial_value,currency)} · 진입 ${esc(d.entry_date)} → 평가 ${esc(d.as_of)}</div>
+      <div class="pi-audit-scroll"><table class="dtable"><thead><tr><th>비교 정책</th><th class="num">평가자산</th><th class="num">수익률</th><th class="num">최대낙폭</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <div class="pi-audit-meta">${esc(d.note)}<br>기존 보유 유지는 매매 없음, 현금화는 매도비용 차감. 겹치는 기록을 독립 표본으로 합산하지 않습니다.</div>`;
+  } catch(e) { if (market === _pfMarket && box.isConnected) box.textContent = e.message; }
+  finally { buttons.forEach(b => b.disabled = false); }
+}
 async function loadPortfolioRecommendations(){
   const box = document.getElementById('pi-outcomes'); if (!box) return;
   try {
@@ -5428,17 +5506,19 @@ async function loadPortfolioRecommendations(){
       <table class="dtable"><thead><tr><th>종목</th><th>제안</th><th class="num">1일</th><th class="num">5일</th><th class="num">20일</th></tr></thead><tbody>${rows}</tbody></table>`;
   } catch (e) { box.textContent = '권고 검증 원장을 불러오지 못했습니다.'; }
 }
-async function runPortfolioIntelligence(){
-  const btn = event.target; const before = btn.textContent; btn.disabled = true; btn.textContent = '진단 중…';
+async function runPortfolioIntelligence(btn){
+  const before = btn.textContent; btn.disabled = true; btn.textContent = '진단 중…';
+  const market = _pfMarket;
   const box = document.getElementById('pi-result');
   const data = {
-    market: _pfMarket, cash: _piNumber('pi-cash'), max_single_position_pct: _piNumber('pi-single'),
+    market, cash: _piNumber('pi-cash'), max_single_position_pct: _piNumber('pi-single'),
     max_sector_pct: _piNumber('pi-sector'), max_cluster_pct: _piNumber('pi-cluster'), min_cash_pct: _piNumber('pi-mincash'),
   };
   try {
     const saved = await fetch('/api/portfolio/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     if (!saved.ok) { const e = await saved.json(); throw new Error(e.error || '제약 저장 실패'); }
-    const d = await (await fetch('/api/portfolio/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ market: _pfMarket }) })).json();
+    const d = await _piJson('/api/portfolio/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ market }) });
+    if (market !== _pfMarket) return;
     const q = d.data_quality || {}; const sum = d.summary || {}; const currency = d.currency || (_pfMarket === 'us' ? 'USD' : 'KRW');
     const quality = ({ complete: '완전', partial: '부분', insufficient: '불충분' })[q.status] || q.status;
     const guidance = (d.guidance || []).map(g => `<div style="padding:9px 0;border-bottom:1px solid var(--line)">
@@ -5463,7 +5543,7 @@ async function runPortfolioIntelligence(){
       <td class="num">${_piMoney((x.fill || {}).gross_notional || 0, currency)}</td></tr>`).join('');
     const tradePlan = trade.ready ? `<b style="font-size:13px;display:block;margin-top:14px">비용 반영 행동계획 <span style="color:var(--dim);font-weight:600">· 주문 전송 없음</span></b>
       ${tradeRows ? `<table class="dtable" style="margin-top:6px"><thead><tr><th>종목</th><th>방향</th><th class="num">수량</th><th class="num">추정 체결액</th></tr></thead><tbody>${tradeRows}</tbody></table>` : '<div style="font-size:12px;color:var(--dim);margin-top:6px">정수수량 기준으로 조정할 주문이 없습니다.</div>'}
-      <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">추정 비용 ${_piMoney((trade.estimated || {}).fees || 0, currency)} · 슬리피지 ${_piMoney((trade.estimated || {}).slippage || 0, currency)} · 조정 후 현금 ${_piMoney((trade.estimated || {}).cash_after || 0, currency)}${(trade.unfunded_buys || []).length ? ' · 일부 매수 자금 부족' : ''}${(trade.blocked_buys || []).length ? ' · BUY 미확인 확대 차단' : ''}<br>${esc(trade.note || '')}</div>` : '';
+      <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">추정 비용 ${_piMoney((trade.estimated || {}).fees || 0, currency)} · 슬리피지 ${_piMoney((trade.estimated || {}).slippage || 0, currency)} · 조정 후 현금 ${_piMoney((trade.estimated || {}).cash_after || 0, currency)}${(trade.unfunded_buys || []).length ? ' · 일부 매수 자금 부족' : ''}${(trade.blocked_buys || []).length ? ' · BUY 미확인 확대 차단' : ''}<br>${esc(trade.note || '')}</div>` : `<div class="pi-audit-meta">행동계획 보류: ${esc(trade.reason || '확인 필요')}</div>`;
     const candidates = d.entry_candidates || {};
     const candidateRows = (candidates.candidates || []).map(x => `<tr><td><b>${esc(x.name)}</b><div class="sig-metric">${esc(x.ticker)} · ${esc(x.sector)}</div></td>
       <td><span class="sig-pill ${esc(x.signal_kind)}">${esc(x.signal_kind)}</span><div class="sig-metric">점수 ${fmtNum(x.score, 2)}</div></td>
@@ -5475,16 +5555,18 @@ async function runPortfolioIntelligence(){
       <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">${esc(candidates.note || '')}</div>`
       : `<div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:12px">신규 편입 보류: ${esc(candidates.reason || '제약을 통과한 후보가 없습니다.')}</div>`;
     box.innerHTML = `<div style="padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">
-      <b>데이터 신뢰도 ${esc(quality)}</b> · 가격 ${fmtNum(q.price_coverage_pct || 0, 1)}% · 과거시세 ${fmtNum(q.history_coverage_pct || 0, 1)}% · 섹터 ${fmtNum(q.sector_coverage_pct || 0, 1)}%<br>
+      <b>데이터 충족도 ${esc(quality)}</b> · 가격 ${fmtNum(q.price_coverage_pct || 0, 1)}% · 과거시세 ${fmtNum(q.history_coverage_pct || 0, 1)}% · 섹터 ${fmtNum(q.sector_coverage_pct || 0, 1)}%<br>
       총자산 <b>${_piMoney(sum.total_value || 0, currency)}</b> · 투자 ${_piMoney(sum.invested_value || 0, currency)} · 현금 ${_piMoney(sum.cash || 0, currency)} (${fmtNum(sum.cash_pct || 0, 1)}%)</div>
-      <b style="font-size:13px;display:block;margin-top:14px">오늘의 행동지침</b>${guidance || '<div class="placeholder">판단할 보유종목이 없습니다.</div>'}
+      ${d.audit ? _piAuditSummary(d.audit) : ''}
+      <b style="font-size:13px;display:block;margin-top:14px">기준 가격에 따른 검토 지침</b>${guidance || '<div class="placeholder">판단할 보유종목이 없습니다.</div>'}
       ${clusters ? `<div style="font-size:12px;color:var(--dim);line-height:1.6;margin-top:12px"><b style="color:var(--txt)">고상관 묶음</b><br>${clusters}</div>` : ''}
       ${allocation}
       ${tradePlan}
       ${candidatePlan}
       ${holdings ? `<table class="dtable" style="margin-top:12px"><thead><tr><th>보유종목</th><th class="num">전체비중</th><th class="num">평가액</th><th>섹터</th></tr></thead><tbody>${holdings}</tbody></table>` : ''}
       <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:10px">${esc(d.disclaimer || '')}</div>`;
-  } catch (e) { box.innerHTML = `<div class="placeholder">${esc(e.message || '진단에 실패했습니다.')}</div>`; }
+    loadPortfolioDecisions(); loadPortfolioRecommendations();
+  } catch (e) { if (market === _pfMarket) box.innerHTML = `<div class="placeholder">${esc(e.message || '진단에 실패했습니다.')}</div>`; }
   finally { btn.disabled = false; btn.textContent = before; }
 }
 

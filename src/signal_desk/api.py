@@ -13,13 +13,14 @@ import json
 import logging
 import threading
 import time
+import zlib
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from fastapi import Body, FastAPI, Request
+from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi import File as FastFile
 from fastapi import Form, UploadFile
 from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Response,
@@ -35,7 +36,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
-    portfolio_candidates,
+    portfolio_candidates, portfolio_audit, portfolio_counterfactual,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
@@ -1104,11 +1105,10 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
     """실보유를 현재 시세·섹터·상관 자료와 결합한다. 가격 없는 보유는 삭제하지 않고 결손으로 남긴다."""
     holdings = _holdings_by_market(db.holdings_list(uid), market)
     if market == "us":
-        universe, prices, dates, currency = (store.load_us_universe(), store.load_us_price_series(),
-                                               store.load_us_dates_by_ticker(), "USD")
+        universe, currency = store.load_us_universe(), "USD"
     else:
-        universe, prices, dates, currency = (store.load_universe(), store.load_price_series(),
-                                               store.load_dates_by_ticker(), "KRW")
+        universe, currency = store.load_universe(), "KRW"
+    prices, dates = store.load_portfolio_close_bundle(market)
     signal_by_ticker = (_us_signals() if market == "us" else {s.ticker: s for s in _signals()})
     names = {str(u["ticker"]): u.get("name") or str(u["ticker"]) for u in universe if u.get("ticker")}
     explicit_sectors = {str(u["ticker"]): u.get("sector") for u in universe if u.get("ticker")}
@@ -1151,9 +1151,16 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
     candidate_universe = [{"ticker": str(asset["ticker"]), "name": names.get(str(asset["ticker"]), str(asset["ticker"])),
                            "sector": explicit_sectors.get(str(asset["ticker"])) or sectors.sector_of(str(asset["ticker"]))}
                           for asset in universe if asset.get("ticker")]
-    out.update(portfolio_decision.decide(
+    decision, artifact = portfolio_audit.capture(
         rows=rows, universe=candidate_universe, signal_by_ticker=signal_by_ticker,
-        prices=prices, dates_by=dates, profile=profile, market=market))
+        prices=prices, dates_by=dates, profile=profile, market=market)
+    out.update(decision)
+    out["audit"] = db.portfolio_artifact_add(uid, market, artifact)
+    if not artifact["timing"]["aligned"]:
+        # Keep reference analytics, but do not issue or score stale/unclosed-price plans.
+        out["trade_plan"] = {"ready": False, "mode": "shadow", "instructions": [],
+                             "reason": artifact["timing"]["reason"]}
+        out["entry_candidates"] = {"ready": False, "mode": "shadow", "reason": artifact["timing"]["reason"]}
     return out
 
 
@@ -1196,6 +1203,8 @@ def _snapshot_personal_portfolios_daily() -> None:
             if not _holdings_by_market(db.holdings_list(uid), market):
                 continue
             out = _portfolio_analysis(uid, market)
+            if not out["audit"]["timing"]["aligned"]:
+                continue
             db.portfolio_snapshot_add_once(
                 uid, market, as_of=out["as_of"], source="daily_close",
                 total_value=out["summary"]["total_value"], data_quality=out["data_quality"]["status"], payload=out)
@@ -1217,6 +1226,56 @@ def portfolio_analyze_post(request: Request, data: dict = Body(default={})):
 @app.get("/api/portfolio/recommendations")
 def portfolio_recommendations_get(request: Request, market: str = "kr"):
     return _portfolio_recommendations(_uid(request), _mkt(market))
+
+
+@app.get("/api/portfolio/decisions")
+def portfolio_decisions_get(request: Request, market: str = "kr"):
+    try:
+        return {"items": db.portfolio_artifact_list(_uid(request), _mkt(market))}
+    except (ValueError, zlib.error):
+        raise HTTPException(409, "판단 기록 무결성 확인 실패") from None
+
+
+def _decision_artifact(request: Request, market: str, artifact_id: str) -> dict:
+    try:
+        artifact = db.portfolio_artifact_get(_uid(request), market, artifact_id)
+    except (ValueError, zlib.error):
+        raise HTTPException(409, "판단 기록 무결성 확인 실패") from None
+    if artifact is None:
+        raise HTTPException(404, "판단 기록 없음")
+    return artifact
+
+
+@app.get("/api/portfolio/decisions/{artifact_id}")
+def portfolio_decision_get(artifact_id: str, request: Request, market: str = "kr"):
+    return _decision_artifact(request, _mkt(market), artifact_id)
+
+
+@app.post("/api/portfolio/decisions/{artifact_id}/replay")
+def portfolio_decision_replay(artifact_id: str, request: Request, market: str = "kr"):
+    artifact = _decision_artifact(request, _mkt(market), artifact_id)
+    return portfolio_audit.replay(artifact["body"])
+
+
+@app.post("/api/portfolio/decisions/{artifact_id}/compare")
+def portfolio_decision_compare(artifact_id: str, request: Request, market: str = "kr"):
+    market, uid = _mkt(market), _uid(request)
+    artifact = _decision_artifact(request, market, artifact_id)
+    prices, dates = store.load_portfolio_close_bundle(market)
+    result = portfolio_counterfactual.evaluate(artifact["body"], prices=prices, dates_by=dates)
+    # Every observation carries its own forward prices and costs; no overwriting old NAV paths.
+    stored = db.portfolio_comparison_add(uid, market, artifact_id, result)
+    return {"id": stored["id"], "artifact_id": artifact_id, **stored["result"]}
+
+
+@app.get("/api/portfolio/decisions/{artifact_id}/comparison")
+def portfolio_decision_comparison(artifact_id: str, request: Request, market: str = "kr"):
+    market = _mkt(market)
+    _decision_artifact(request, market, artifact_id)
+    try:
+        return db.portfolio_comparison_latest(_uid(request), market, artifact_id) or {"result": None}
+    except (ValueError, zlib.error):
+        raise HTTPException(409, "평가 기록 무결성 확인 실패") from None
 
 
 @app.get("/api/holdings/dividends")
