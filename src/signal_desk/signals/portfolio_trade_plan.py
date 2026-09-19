@@ -15,7 +15,8 @@ def _whole_qty(value: float, price: float) -> int:
     return max(0, math.floor(abs(value) / price)) if price > 0 else 0
 
 
-def plan(allocation: dict, rows: list[dict], *, cash: float, market: str, profile: dict | None = None) -> dict:
+def plan(allocation: dict, rows: list[dict], *, cash: float, market: str, profile: dict | None = None,
+         assumptions: dict | None = None) -> dict:
     if not allocation.get("ready"):
         return {"ready": False, "reason": allocation.get("reason") or "목표배분이 준비되지 않았습니다."}
     by_ticker = {str(row["ticker"]): row for row in rows}
@@ -38,7 +39,7 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str, profil
         if item.get("action") == "축소 검토":
             qty = min(held, math.ceil(abs(delta) / price) if profile else _whole_qty(delta, price))
             if qty:
-                fill = execution.calculate(price, qty, "sell", market).as_dict()
+                fill = execution.calculate(price, qty, "sell", market, assumptions=assumptions).as_dict()
                 sells.append({"ticker": item["ticker"], "name": item.get("name"), "side": "sell", "qty": qty,
                               "target_weight_pct": item["target_weight_pct"], "fill": fill,
                               "reference_date": row.get("price_as_of"),
@@ -60,14 +61,14 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str, profil
     available = max(0.0, float(cash or 0.0)) + sum(float(item["fill"]["cash_change"]) for item in sells)
     executed_buys = []
     for item in sorted(buys, key=lambda x: x["qty"] * x["price"], reverse=True):
-        one_cost = -execution.calculate(item["price"], 1, "buy", market).cash_change
+        one_cost = -execution.calculate(item["price"], 1, "buy", market, assumptions=assumptions).cash_change
         qty = min(item["qty"], math.floor(max(0.0, available - reserve) / one_cost)) if one_cost > 0 else 0
         if qty <= 0:
             item["unfunded_qty"] = item["qty"]
             continue
         if qty < item["qty"]:
             item["unfunded_qty"] = item["qty"] - qty
-        fill = execution.calculate(item["price"], qty, "buy", market).as_dict()
+        fill = execution.calculate(item["price"], qty, "buy", market, assumptions=assumptions).as_dict()
         available += float(fill["cash_change"])
         executed_buys.append({k: v for k, v in item.items() if k != "price"} | {"qty": qty, "fill": fill})
     instructions = sells + executed_buys

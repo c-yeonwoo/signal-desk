@@ -23,7 +23,8 @@ def _blocked(reason: str) -> dict:
 
 
 def decide(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict,
-           prices: dict, dates_by: dict, profile: dict, market: str) -> dict:
+           prices: dict, dates_by: dict, profile: dict, market: str,
+           assumptions: dict | None = None) -> dict:
     if any(r.get("value") is None or not math.isfinite(float(r["value"])) or float(r["value"]) < 0 for r in rows):
         return _blocked("전체 보유의 평가액을 확정할 수 없어 통합 계획을 보류합니다.")
     candidates = portfolio_candidates.evaluate(
@@ -51,7 +52,8 @@ def decide(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict,
     if len(end_dates) > 1:
         return _blocked("종목별 최종 가격 기준일이 달라 통합 계획을 보류합니다.")
     allocation = portfolio_construction.propose(combined, dates_by=dates_by, closes_by=prices, profile=profile)
-    trade = portfolio_trade_plan.plan(allocation, combined, cash=profile["cash"], market=market, profile=profile)
+    trade = portfolio_trade_plan.plan(allocation, combined, cash=profile["cash"], market=market,
+                                      profile=profile, assumptions=assumptions)
     # 후보 비중은 독립적인 두 번째 지출 계획이 아니라 통합 계획의 실제 정수 수량을 표시한다.
     buys = {i["ticker"]: i for i in trade.get("instructions", []) if i["side"] == "buy"}
     total_after = (trade.get("post_trade") or {}).get("total_value", 0)
