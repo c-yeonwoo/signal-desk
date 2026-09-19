@@ -10,6 +10,8 @@ from collections import defaultdict
 
 import numpy as np
 
+from signal_desk.signals import portfolio_risk
+
 
 MIN_OBSERVATIONS = 60
 SHRINKAGE = 0.35  # 표본 공분산을 대각행렬 쪽으로 축소해 작은 포트폴리오의 불안정을 줄인다.
@@ -23,7 +25,7 @@ def _returns(dates: list[str], closes: list[float]) -> dict[str, float]:
             prev, cur = float(closes[i - 1]), float(closes[i])
         except (TypeError, ValueError):
             continue
-        if prev > 0 and cur > 0:
+        if np.isfinite(prev) and np.isfinite(cur) and prev > 0 and cur > 0:
             out[str(dates[i])[:10]] = cur / prev - 1.0
     return out
 
@@ -45,29 +47,31 @@ def _shrunk_covariance(returns: np.ndarray) -> np.ndarray:
 
 
 def _risk_parity(covariance: np.ndarray) -> np.ndarray:
-    """long-only equal-risk-contribution 해. 수렴 실패 시에도 inverse-vol 선행값으로 안전 폴백한다."""
+    """양의 정부호 공분산의 convex risk-budget 목적함수를 좌표하강으로 푼다.
+
+    0.5*x'Σx - sum(log(x))/n. 정규화 전 각 좌표의 양의 근을 정확히 구하며,
+    수렴하지 않은 결과를 ERC라고 표시하지 않는다.
+    """
     n = covariance.shape[0]
-    vol = np.sqrt(np.maximum(np.diag(covariance), 1e-16))
-    weights = 1 / vol
-    weights /= weights.sum()
-    for _ in range(2_000):
-        marginal = covariance @ weights
-        contribution = weights * marginal
-        total = float(contribution.sum())
-        if total <= 0 or np.any(contribution <= 0):
-            break
-        target = total / n
-        updated = weights * np.clip(target / contribution, 0.2, 5.0)
-        updated /= updated.sum()
-        if np.max(np.abs(updated - weights)) < 1e-10:
-            weights = updated
-            break
-        weights = updated
-    return weights
+    if not np.isfinite(covariance).all() or np.linalg.eigvalsh(covariance).min() <= 0:
+        raise ValueError("positive definite finite covariance required")
+    x = 1 / np.sqrt(np.diag(covariance))
+    b = 1.0 / n
+    for _ in range(10_000):
+        for i in range(n):
+            a = covariance[i, i]
+            c = float(covariance[i] @ x - a * x[i])
+            root = np.sqrt(c * c + 4 * a * b)
+            x[i] = 2 * b / (c + root) if c >= 0 else (root - c) / (2 * a)
+        rc = x * (covariance @ x)
+        if np.max(np.abs(rc / rc.sum() - b)) < 1e-8:
+            return x / x.sum()
+    raise ValueError("risk budget solver did not converge")
 
 
 def _apply_caps(preference: np.ndarray, sectors: list[str], *, equity_budget: float,
-                max_single: float, max_sector: float) -> tuple[np.ndarray, float]:
+                max_single: float, max_sector: float,
+                clusters: list[list[int]] | None = None, max_cluster: float = 100.0) -> tuple[np.ndarray, float]:
     """선호 가중치에 종목·섹터 cap을 적용해 물을 채우듯 재배분한다.
 
     남는 비중은 억지로 매수하지 않고 구조적 현금으로 반환한다. 이것이 cap이 서로 충돌하는
@@ -95,6 +99,11 @@ def _apply_caps(preference: np.ndarray, sectors: list[str], *, equity_budget: fl
             sector_left = max(0.0, max_sector - sector_used[sector])
             if requested_sector > sector_left and requested_sector > 0:
                 increment[idxs] *= sector_left / requested_sector
+        for idxs in clusters or []:
+            left = max(0.0, max_cluster - float(target[idxs].sum()))
+            requested_cluster = float(increment[idxs].sum())
+            if requested_cluster > left:
+                increment[idxs] *= left / requested_cluster
         increment = np.minimum(increment, capacities)
         if float(increment.sum()) <= 1e-10:
             break
@@ -123,11 +132,21 @@ def propose(rows: list[dict], *, dates_by: dict[str, list[str]], closes_by: dict
         return {"ready": False, "mode": "shadow", "reason": f"공통 거래일 {MIN_OBSERVATIONS}일이 부족해 상관 기반 목표배분을 보류합니다.",
                 "observations": int(len(returns))}
     covariance = _shrunk_covariance(returns)
-    preference = _risk_parity(covariance)
+    if not np.isfinite(returns).all() or np.any(np.var(returns, axis=0) <= 1e-16):
+        return {"ready": False, "mode": "shadow", "reason": "가격 이력이 비정상 또는 무변동이어서 위험을 추정할 수 없습니다."}
+    try:
+        preference = _risk_parity(covariance)
+    except (ValueError, np.linalg.LinAlgError):
+        return {"ready": False, "mode": "shadow", "reason": "위험배분 해의 수렴/수치 검증에 실패했습니다."}
     budget = max(0.0, 100.0 - float(profile["min_cash_pct"]))
+    risk = portfolio_risk.diagnostics(
+        [{"ticker": t, "qty": 1.0, "price": 1.0} for t in tickers], dates_by=dates_by, closes_by=closes_by,
+        sector_by={str(r["ticker"]): str(r["sector"]) for r in eligible})
+    clusters = [[tickers.index(t) for t in c["tickers"]] for c in risk["clusters"] if len(c["tickers"]) > 1]
     target, structural_cash = _apply_caps(
         preference, [str(row["sector"]) for row in eligible], equity_budget=budget,
         max_single=float(profile["max_single_position_pct"]), max_sector=float(profile["max_sector_pct"]),
+        clusters=clusters, max_cluster=float(profile.get("max_cluster_pct", 100)),
     )
     total = sum(float(row["value"]) for row in eligible) + max(0.0, float(profile.get("cash") or 0))
     current = np.asarray([float(row["value"]) / total * 100 if total > 0 else 0.0 for row in eligible])
@@ -144,7 +163,7 @@ def propose(rows: list[dict], *, dates_by: dict[str, list[str]], closes_by: dict
         else:
             action = "유지"
         items.append({"ticker": row["ticker"], "name": row.get("name") or row["ticker"], "sector": row["sector"],
-                      "current_weight_pct": round(float(current[i]), 1), "target_weight_pct": round(float(target[i]), 1),
+                      "current_weight_pct": round(float(current[i]), 4), "target_weight_pct": float(target[i]),
                       "delta_weight_pct": round(delta, 1), "delta_value": round(delta / 100 * total, 2),
                       "risk_contribution_pct": round(float(rc[i]) / rc_total * 100, 1) if rc_total > 0 else None,
                       "action": action})
@@ -154,5 +173,7 @@ def propose(rows: list[dict], *, dates_by: dict[str, list[str]], closes_by: dict
         "observations": int(len(returns)), "shrinkage": SHRINKAGE, "trade_band_pct": TRADE_BAND_PCT,
         "equity_budget_pct": round(budget, 1), "structural_cash_pct": round(structural_cash, 1),
         "items": items,
+        "constraints": {"clusters": [c["tickers"] for c in risk["clusters"] if len(c["tickers"]) > 1]},
+        "solver": "coordinate_descent_risk_budget_then_caps",
         "note": "예상수익률을 사용하지 않는 위험기여 균형안입니다. 제약 충돌로 남는 비중은 현금으로 남기며 주문을 내지 않습니다.",
     }

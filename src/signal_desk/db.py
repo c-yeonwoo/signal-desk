@@ -319,6 +319,9 @@ def _drop_personal_paper_accounts(c: sqlite3.Connection) -> None:
 def _migrate(c: sqlite3.Connection) -> None:
     """가벼운 ADD COLUMN 마이그레이션 — CREATE TABLE IF NOT EXISTS는 기존 테이블에 새 컬럼을
     안 붙여줘서, 이미 만들어진 DB에도 신규 컬럼을 채워준다."""
+    icols = {r[1] for r in c.execute("PRAGMA table_info(portfolio_recommendation_items)").fetchall()}
+    if "cost_assumptions" not in icols:
+        c.execute("ALTER TABLE portfolio_recommendation_items ADD COLUMN cost_assumptions TEXT")
     # 레거시 단일계좌 봇 스키마(uid 없음) → 유저별로 재작성. 기존 봇 데이터는 폐기(paper/demo라 무방).
     pcols = {r[1] for r in c.execute("PRAGMA table_info(bot_positions)").fetchall()}
     if pcols and "uid" not in pcols:
@@ -1885,12 +1888,12 @@ def portfolio_recommendation_add(uid: int, market: str, *, snapshot_id: int, as_
                   "id,uid,market,snapshot_id,as_of,action_hash,created) VALUES(?,?,?,?,?,?,?)",
                   (rid, uid, market, snapshot_id, as_of, action_hash, int(time.time())))
         c.executemany("INSERT INTO portfolio_recommendation_items("
-                      "recommendation_id,ticker,name,side,qty,reference_price,reference_date,entry_cash,target_weight_pct) "
-                      "VALUES(?,?,?,?,?,?,?,?,?)",
+                      "recommendation_id,ticker,name,side,qty,reference_price,reference_date,entry_cash,target_weight_pct,cost_assumptions) "
+                      "VALUES(?,?,?,?,?,?,?,?,?,?)",
                       [(rid, str(item["ticker"]), item.get("name"), item["side"], int(item["qty"]),
                         float(item["fill"]["reference_price"]), str(item["reference_date"]),
                         -float(item["fill"]["cash_change"]) if item["side"] == "buy" else None,
-                        item.get("target_weight_pct")) for item in items])
+                        item.get("target_weight_pct"), json.dumps(item["fill"].get("assumptions"))) for item in items])
         c.commit()
         return rid
     except sqlite3.IntegrityError:
@@ -1905,14 +1908,20 @@ def portfolio_recommendation_add(uid: int, market: str, *, snapshot_id: int, as_
 def portfolio_recommendation_items(uid: int, market: str, limit: int = 100) -> list[dict]:
     c = conn()
     rows = c.execute("SELECT i.id,i.recommendation_id,i.ticker,i.name,i.side,i.qty,i.reference_price,i.reference_date,"
-                     "i.entry_cash,i.target_weight_pct,r.as_of,r.created FROM portfolio_recommendation_items i "
+                     "i.entry_cash,i.target_weight_pct,r.as_of,r.created,i.cost_assumptions FROM portfolio_recommendation_items i "
                      "JOIN portfolio_recommendations r ON r.id=i.recommendation_id "
                      "WHERE r.uid=? AND r.market=? ORDER BY r.created DESC,i.id ASC LIMIT ?",
                      (uid, market, limit)).fetchall()
     c.close()
     keys = ("item_id", "recommendation_id", "ticker", "name", "side", "qty", "reference_price", "reference_date",
-            "entry_cash", "target_weight_pct", "as_of", "created")
-    return [dict(zip(keys, row)) for row in rows]
+            "entry_cash", "target_weight_pct", "as_of", "created", "cost_assumptions")
+    items = [dict(zip(keys, row)) for row in rows]
+    for item in items:
+        try:
+            item["cost_assumptions"] = json.loads(item["cost_assumptions"] or "null")
+        except (ValueError, TypeError):
+            item["cost_assumptions"] = None
+    return items
 
 
 def portfolio_recommendation_outcomes(item_id: int) -> list[dict]:

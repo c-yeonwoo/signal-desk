@@ -1,8 +1,7 @@
 """KIS Developers API — 모의투자 자동매매(BACKLOG #7). 인증/잔고조회/주문(현금).
 
-⚠️ `config.kis_credentials()["env"]`는 반드시 'demo'(모의투자)로 둘 것 — 'prod'면 실계좌 주문
-API(TTTC...)를 호출하게 된다. base URL도 완전히 다른 도메인이라 실수로 섞어 쓸 위험은 낮지만,
-env 값 자체를 실수로 바꾸는 건 사람이 저지를 수 있는 실수라 명시적으로 확인할 것.
+환경은 demo/real만 허용한다. real은 조회 전용이며 이 빌드에서는 주문 전송을 차단한다.
+환경변수나 기존 페이퍼 봇 활성화로 실주문을 열 수 없다.
 
 실키로 검증됨(2026-07-02): 인증 성공, 계좌번호+상품코드("01") 조합으로 잔고조회 정상 응답 확인.
 
@@ -14,13 +13,19 @@ HTTP 403). 그래서 토큰은 반드시 파일 캐시로 재사용해야 한다
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import logging
+import math
+import os
+import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from signal_desk import config
 
@@ -36,13 +41,32 @@ _TR_ID = {
 }
 _TIMEOUT = 8  # KIS 미도달 시 오래 매달리지 않도록(대시보드 응답성). 실주문 경로는 재시도로 보완.
 _TOKEN_FILE = Path("data/cache/kis_token.json")
+_TOKEN_LOCK = threading.Lock()
 
 
-def _load_cached_token() -> str | None:
-    if not _TOKEN_FILE.exists():
+def _validate_credentials(creds: dict) -> None:
+    if creds.get("env") not in _BASE:
+        raise ValueError("KIS_ENV must be demo or real")
+    if any(not creds.get(key) for key in ("app_key", "app_secret", "account_no", "product_cd")):
+        raise ValueError("incomplete KIS credentials")
+
+
+def _token_path(creds: dict) -> Path:
+    _validate_credentials(creds)
+    identity = json.dumps([creds[k] for k in ("env", "app_key", "app_secret", "account_no", "product_cd")])
+    fingerprint = hashlib.sha256(identity.encode()).hexdigest()
+    return _TOKEN_FILE.with_name(f"kis_token_{fingerprint}.json")
+
+
+def _load_cached_token(creds: dict | None = None) -> str | None:
+    creds = creds or config.kis_credentials()
+    if not creds:
+        return None
+    path = _token_path(creds)
+    if not path.exists():
         return None
     try:
-        data = json.loads(_TOKEN_FILE.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
         if data.get("expires_at", 0) > time.time() + 60:  # 60초 여유
             return data["token"]
     except Exception:
@@ -50,17 +74,28 @@ def _load_cached_token() -> str | None:
     return None
 
 
-def _save_token(token: str, expires_at: float) -> None:
-    _TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    _TOKEN_FILE.write_text(json.dumps({"token": token, "expires_at": expires_at}), encoding="utf-8")
+def _save_token(token: str, expires_at: float, creds: dict) -> None:
+    path = _token_path(creds)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # 키/계좌별 토큰 격리, 소유자만 읽는 원자적 파일 교체. 기존 무구분 토큰은 재사용하지 않는다.
+    with tempfile.NamedTemporaryFile(mode="w", dir=path.parent, prefix=".kis-token-", delete=False) as f:
+        json.dump({"token": token, "expires_at": expires_at}, f)
+        tmp = f.name
+    os.replace(tmp, path)
 
 
 def get_token(creds: dict | None = None) -> str | None:
+    with _TOKEN_LOCK:
+        return _get_token(creds)
+
+
+def _get_token(creds: dict | None = None) -> str | None:
     """캐시된 토큰을 우선 재사용, 없거나 만료 임박이면 새로 발급."""
     creds = creds or config.kis_credentials()
     if not creds:
         return None
-    cached = _load_cached_token()
+    _validate_credentials(creds)
+    cached = _load_cached_token(creds)
     if cached:
         return cached
 
@@ -73,24 +108,27 @@ def get_token(creds: dict | None = None) -> str | None:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             data = json.loads(resp.read().decode())
     except Exception as e:
-        log.error("KIS 토큰 발급 실패: %s", e)
+        log.error("KIS 토큰 발급 실패: %s", type(e).__name__)
         return None
 
     token = data.get("access_token")
     if not token:
-        log.error("KIS 토큰 응답에 access_token 없음: %s", data)
+        log.error("KIS 토큰 응답에 access_token 없음")
         return None
     try:
         expires_at = datetime.datetime.strptime(
             data["access_token_token_expired"], "%Y-%m-%d %H:%M:%S"
-        ).timestamp()
+        ).replace(tzinfo=ZoneInfo("Asia/Seoul")).timestamp()
     except Exception:
         expires_at = time.time() + 23 * 3600  # 파싱 실패 시 보수적 기본값(23시간)
-    _save_token(token, expires_at)
+    _save_token(token, expires_at, creds)
     return token
 
 
-def _request(path: str, tr_id: str, creds: dict, params: dict, method: str = "GET") -> dict | None:
+def _request(path: str, tr_id: str, creds: dict, params: dict, method: str = "GET", *, tr_cont: str = "") -> dict | None:
+    _validate_credentials(creds)
+    if creds["env"] == "real" and method != "GET":
+        raise PermissionError("실계좌는 조회 전용입니다. 실주문 전송 경로는 잠겨 있습니다.")
     token = get_token(creds)
     if not token:
         return None
@@ -98,6 +136,7 @@ def _request(path: str, tr_id: str, creds: dict, params: dict, method: str = "GE
     headers = {
         "authorization": f"Bearer {token}", "appkey": creds["app_key"], "appsecret": creds["app_secret"],
         "tr_id": tr_id, "custtype": "P", "Content-Type": "application/json; charset=utf-8",
+        "tr_cont": tr_cont,
     }
     try:
         if method == "GET":
@@ -108,13 +147,36 @@ def _request(path: str, tr_id: str, creds: dict, params: dict, method: str = "GE
                 f"{base}{path}", data=json.dumps(params).encode(), headers=headers, method="POST"
             )
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            return json.loads(resp.read().decode())
+            body = json.loads(resp.read().decode())
+            body["_tr_cont"] = resp.headers.get("tr_cont", "")
+            return body
     except urllib.error.HTTPError as e:
-        log.error("KIS API HTTP 오류(%s): %s", path, e)
+        log.error("KIS API HTTP 오류(%s): %s", path, e.code)
         return None
     except Exception as e:
-        log.error("KIS API 요청 실패(%s): %s", path, e)
+        log.error("KIS API 요청 실패(%s): %s", path, type(e).__name__)
         return None
+
+
+def _read_all(path: str, tr_id: str, creds: dict, params: dict) -> dict | None:
+    """누락된 뒷 페이지를 빈 보유/미체결로 오인하지 않도록 전체 조회 또는 실패."""
+    rows, seen, continuation = [], set(), ""
+    params = dict(params)
+    for _ in range(20):
+        body = (_request(path, tr_id, creds, params, tr_cont=continuation) if continuation
+                else _request(path, tr_id, creds, params))
+        if not body or body.get("rt_cd") != "0" or not isinstance(body.get("output1"), list):
+            return None
+        rows.extend(body["output1"])
+        if body.get("_tr_cont") not in ("M", "F"):
+            return {**body, "output1": rows, "complete": True}
+        cursor = (body.get("ctx_area_fk100"), body.get("ctx_area_nk100"))
+        if not all(isinstance(v, str) for v in cursor) or not any(v.strip() for v in cursor) or cursor in seen:
+            return None
+        seen.add(cursor)
+        params.update(CTX_AREA_FK100=cursor[0], CTX_AREA_NK100=cursor[1])
+        continuation = "N"
+    return None
 
 
 def balance(creds: dict | None = None, retries: int = 3) -> dict | None:
@@ -131,7 +193,7 @@ def balance(creds: dict | None = None, retries: int = 3) -> dict | None:
     }
     body = None
     for attempt in range(max(1, retries)):  # KIS 간헐 500 대비 재시도(표시용은 1회)
-        body = _request("/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, creds, params)
+        body = _read_all("/uapi/domestic-stock/v1/trading/inquire-balance", tr_id, creds, params)
         if body and body.get("rt_cd") == "0":
             break
         if attempt < retries - 1:
@@ -146,10 +208,19 @@ def balance(creds: dict | None = None, retries: int = 3) -> dict | None:
             "qty": int(h["hldg_qty"]), "avg_price": float(h["pchs_avg_pric"]),
             "price": float(h.get("prpr") or 0),               # 현재가
             "pnl_pct": float(h.get("evlu_pfls_rt") or 0),     # 평가손익률(%)
+            "sellable_qty": int(h["ord_psbl_qty"]) if h.get("ord_psbl_qty") not in (None, "") else None,
         }
         for h in body.get("output1", []) if int(h.get("hldg_qty", 0)) > 0
     ]
-    summary = (body.get("output2") or [{}])[0]
+    summaries = body.get("output2")
+    if not isinstance(summaries, list) or not summaries or not isinstance(summaries[0], dict):
+        return None
+    summary = summaries[0]
+    required = ("dnca_tot_amt", "evlu_amt_smtl_amt")
+    if any(summary.get(k) in (None, "") for k in required) or not any(
+        summary.get(k) not in (None, "") for k in ("nass_amt", "tot_evlu_amt")
+    ):
+        return None
 
     def _f(key: str) -> float:
         return float(summary.get(key, 0) or 0)
@@ -164,6 +235,8 @@ def balance(creds: dict | None = None, retries: int = 3) -> dict | None:
     invested = _f("pchs_amt_smtl_amt")   # 매입금액합계
     pnl = _f("evlu_pfls_smtl_amt")       # 평가손익합계
     free_cash = round(net_asset - stock_eval) if net_asset else _f("dnca_tot_amt")
+    if not all(math.isfinite(v) for v in (net_asset, stock_eval, invested, pnl, free_cash)):
+        return None
     return {
         "cash": max(0.0, free_cash),                 # 가용현금(순자산−유가증권평가)
         "deposit_raw": _f("dnca_tot_amt"),           # KIS 예수금총금액(참고)
@@ -173,6 +246,7 @@ def balance(creds: dict | None = None, retries: int = 3) -> dict | None:
         "pnl": pnl,                                  # 평가손익합계
         "pnl_pct": round(pnl / invested * 100, 2) if invested else None,  # 실제 총손익률
         "holdings": holdings,
+        "complete": True, "cash_is_buying_power": False,
     }
 
 
@@ -258,6 +332,13 @@ def place_order(
     if not creds:
         return None
 
+    _validate_credentials(creds)
+    if creds["env"] == "real":
+        raise PermissionError("실계좌는 조회 전용입니다. 실주문 전송 경로는 잠겨 있습니다.")
+    if isinstance(qty, bool) or not isinstance(qty, int) or qty <= 0:
+        raise ValueError("qty must be a positive integer")
+    if price is not None and (not math.isfinite(price) or price <= 0 or price != int(price)):
+        raise ValueError("price must be a positive integer KRW price")
     tr_id = _TR_ID[(creds["env"], side)]
     params = {
         "CANO": creds["account_no"], "ACNT_PRDT_CD": creds["product_cd"],
@@ -272,3 +353,62 @@ def place_order(
 
     out = body.get("output", {})
     return {"order_no": out.get("ODNO"), "order_time": out.get("ORD_TMD")}
+
+
+def buying_power(ticker: str, price: int, creds: dict) -> dict | None:
+    """미수 없는 매수가능 금액/수량 조회. 예수금 역산값을 주문 여력으로 사용하지 않는다.
+
+    공식 inquire_psbl_order 규약: 01로 조회해야 종목 증거금률이 반영된 nrcvb 수량을 얻는다.
+    이는 조회 조건일 뿐 실제 시장가 주문을 생성하지 않는다.
+    """
+    _validate_credentials(creds)
+    if len(ticker) != 6 or not ticker.isascii() or not ticker.isdigit() or price <= 0:
+        raise ValueError("domestic ticker and positive limit price required")
+    body = _request("/uapi/domestic-stock/v1/trading/inquire-psbl-order",
+                    "TTTC8908R" if creds["env"] == "real" else "VTTC8908R", creds,
+                    {"CANO": creds["account_no"], "ACNT_PRDT_CD": creds["product_cd"],
+                     "PDNO": ticker, "ORD_UNPR": str(price), "ORD_DVSN": "01",
+                     "CMA_EVLU_AMT_ICLD_YN": "N", "OVRS_ICLD_YN": "N"})
+    if not body or body.get("rt_cd") != "0":
+        return None
+    try:
+        out = body["output"]
+        amount, qty = float(out["nrcvb_buy_amt"]), int(out["nrcvb_buy_qty"])
+        if not math.isfinite(amount) or amount < 0 or qty < 0:
+            return None
+        return {"cash_without_margin": amount, "qty_without_margin": qty}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def daily_orders(day: str, creds: dict) -> dict | None:
+    """KRX 당일 주문·체결의 전체 페이지 조회. 조회 실패/불완전은 빈 주문으로 바꾸지 않는다."""
+    _validate_credentials(creds)
+    parsed = datetime.date.fromisoformat(day)
+    today = datetime.datetime.now(ZoneInfo("Asia/Seoul")).date()
+    if parsed != today:
+        raise ValueError("only today's KRX order reconciliation is supported")
+    compact = parsed.strftime("%Y%m%d")
+    body = _read_all("/uapi/domestic-stock/v1/trading/inquire-daily-ccld",
+                     "TTTC0081R" if creds["env"] == "real" else "VTTC0081R", creds,
+                     {"CANO": creds["account_no"], "ACNT_PRDT_CD": creds["product_cd"],
+                      "INQR_STRT_DT": compact, "INQR_END_DT": compact, "SLL_BUY_DVSN_CD": "00",
+                      "CCLD_DVSN": "00", "INQR_DVSN": "00", "INQR_DVSN_3": "01", "PDNO": "",
+                      "ORD_GNO_BRNO": "", "ODNO": "", "INQR_DVSN_1": "",
+                      "CTX_AREA_FK100": "", "CTX_AREA_NK100": "", "EXCG_ID_DVSN_CD": "KRX"})
+    if body is None:
+        return None
+    orders = []
+    try:
+        for row in body["output1"]:
+            qty, filled = int(row["ord_qty"]), int(row["tot_ccld_qty"])
+            remaining = int(row["rmn_qty"])
+            if min(qty, filled, remaining) < 0 or filled + remaining > qty or not row.get("odno"):
+                return None
+            state = ("filled" if qty > 0 and filled == qty else "cancelled" if row.get("cncl_yn") == "Y"
+                     else "partial" if filled > 0 and remaining > 0 else "open" if remaining > 0 else "unknown")
+            orders.append({"order_no": row["odno"], "ticker": row["pdno"], "qty": qty,
+                           "filled_qty": filled, "remaining_qty": remaining, "status": state})
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    return {"date": day, "complete": True, "orders": orders}

@@ -15,10 +15,17 @@ def _whole_qty(value: float, price: float) -> int:
     return max(0, math.floor(abs(value) / price)) if price > 0 else 0
 
 
-def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dict:
+def plan(allocation: dict, rows: list[dict], *, cash: float, market: str, profile: dict | None = None) -> dict:
     if not allocation.get("ready"):
         return {"ready": False, "reason": allocation.get("reason") or "목표배분이 준비되지 않았습니다."}
     by_ticker = {str(row["ticker"]): row for row in rows}
+    if not math.isfinite(float(cash)) or cash < 0 or any(
+        not math.isfinite(float(row.get(key) or 0)) or float(row.get(key) or 0) < 0
+        for row in rows for key in ("qty", "price", "value")
+    ):
+        return {"ready": False, "reason": "평가액·수량·가격·현금이 유효하지 않습니다."}
+    total_before = cash + sum(float(row.get("value") or 0) for row in rows)
+    reserve = total_before * float((profile or {}).get("min_cash_pct", 0)) / 100
     if any(abs(float(row.get("qty") or 0) - round(float(row.get("qty") or 0))) > 1e-9 for row in rows):
         return {"ready": False, "reason": "분할주 보유가 있어 정수수량 체결 모델로는 정확한 행동계획을 만들 수 없습니다."}
     sells, buys, blocked_buys = [], [], []
@@ -29,7 +36,7 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
         price, held = float(row["price"]), int(round(float(row.get("qty") or 0)))
         delta = float(item.get("delta_value") or 0)
         if item.get("action") == "축소 검토":
-            qty = min(held, _whole_qty(delta, price))
+            qty = min(held, math.ceil(abs(delta) / price) if profile else _whole_qty(delta, price))
             if qty:
                 fill = execution.calculate(price, qty, "sell", market).as_dict()
                 sells.append({"ticker": item["ticker"], "name": item.get("name"), "side": "sell", "qty": qty,
@@ -39,7 +46,7 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
         elif item.get("action") == "확대 검토":
             # 리스크 균형은 "얼마를 보유할지"만 말한다. 진입 타이밍은 기존에 OOS 검증 중인
             # 시그널에 맡겨야 하므로, BUY 확인 없는 확대를 주문안으로 바꾸지 않는다.
-            if row.get("entry_allowed") is False:
+            if row.get("entry_allowed") is not True:
                 blocked_buys.append({"ticker": item["ticker"], "name": item.get("name"),
                                      "reason": row.get("entry_block_reason") or "진입 확인 없음"})
                 continue
@@ -54,7 +61,7 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
     executed_buys = []
     for item in sorted(buys, key=lambda x: x["qty"] * x["price"], reverse=True):
         one_cost = -execution.calculate(item["price"], 1, "buy", market).cash_change
-        qty = min(item["qty"], math.floor(available / one_cost)) if one_cost > 0 else 0
+        qty = min(item["qty"], math.floor(max(0.0, available - reserve) / one_cost)) if one_cost > 0 else 0
         if qty <= 0:
             item["unfunded_qty"] = item["qty"]
             continue
@@ -64,6 +71,30 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
         available += float(fill["cash_change"])
         executed_buys.append({k: v for k, v in item.items() if k != "price"} | {"qty": qty, "fill": fill})
     instructions = sells + executed_buys
+    quantities = {t: float(r.get("qty") or 0) for t, r in by_ticker.items()}
+    for item in instructions:
+        quantities[item["ticker"]] += item["qty"] * (1 if item["side"] == "buy" else -1)
+    values = {t: quantities[t] * float(r.get("price") or 0) for t, r in by_ticker.items()}
+    total_after = available + sum(values.values())
+    violations = []
+    if profile and total_after > 0:
+        if available / total_after * 100 + 1e-8 < float(profile["min_cash_pct"]):
+            violations.append("최소 현금 한도")
+        sector_values = {}
+        for t, value in values.items():
+            if value / total_after * 100 > float(profile["max_single_position_pct"]) + 1e-8:
+                violations.append(f"종목 한도: {t}")
+            sector = by_ticker[t].get("sector")
+            sector_values[sector] = sector_values.get(sector, 0) + value
+        for sector, value in sector_values.items():
+            if value / total_after * 100 > float(profile["max_sector_pct"]) + 1e-8:
+                violations.append(f"섹터 한도: {sector}")
+        for cluster in (allocation.get("constraints") or {}).get("clusters", []):
+            if sum(values.get(t, 0) for t in cluster) / total_after * 100 > float(profile.get("max_cluster_pct", 100)) + 1e-8:
+                violations.append("고상관 묶음 한도: " + ", ".join(cluster))
+    if violations:
+        return {"ready": False, "mode": "shadow", "instructions": [], "violations": violations,
+                "reason": "비용·정수수량 반영 후 제약 미충족 — 계획 실행 보류", "blocked_buys": blocked_buys}
     fees = sum(float(item["fill"]["total_fees"]) for item in instructions)
     slippage = sum(float(item["fill"]["slippage_cost"]) for item in instructions)
     unfunded = [{"ticker": item["ticker"], "remaining_qty": item["unfunded_qty"]}
@@ -72,5 +103,7 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str) -> dic
         "ready": True, "mode": "shadow", "execution_order": "sell_then_buy",
         "instructions": instructions, "unfunded_buys": unfunded, "blocked_buys": blocked_buys,
         "estimated": {"cash_after": round(available, 2), "fees": round(fees, 2), "slippage": round(slippage, 2)},
+        "post_trade": {"total_value": total_after, "cash": available, "position_values": values},
+        "constraints_checked": profile is not None,
         "note": "최근 종가와 기본 수수료·슬리피지 가정으로 만든 정수수량 계획입니다. 실제 호가, 계좌별 세금, 부분체결은 반영 전이므로 주문으로 전송되지 않습니다.",
     }

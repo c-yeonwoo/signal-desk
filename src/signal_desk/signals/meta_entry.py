@@ -36,6 +36,12 @@ def triple_barrier(entry_price: float, future_prices: Iterable[float],
     prices = list(future_prices)
     if entry_price <= 0 or len(prices) <= cfg.horizon_days:
         return None
+    try:
+        prices = [float(p) for p in prices[:cfg.horizon_days + 1]]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(entry_price) or any(not math.isfinite(p) or p <= 0 for p in prices):
+        return None
     target = entry_price * (1 + cfg.profit_take_pct)
     stop = entry_price * (1 + cfg.stop_loss_pct)
     for offset, raw in enumerate(prices[1:cfg.horizon_days + 1], start=1):
@@ -85,6 +91,9 @@ def build_labeled_rows(history_records: list[dict], closes_by_ticker: dict[str, 
                        cfg: TripleBarrierConfig) -> list[dict]:
     """PIT 매수 후보를 시간 장벽 라벨 행으로 바꾼다. 미성숙 미래 구간은 빼며 0으로 채우지 않는다."""
     buckets = _score_buckets(history_records)
+    # 배열 위치는 종목마다 다르다. 같은 시장의 공통 날짜 축만 분할/embargo에 사용한다.
+    calendar = sorted({str(day)[:10] for dates, _ in closes_by_ticker.values() for day in dates})
+    session_index = {day: i for i, day in enumerate(calendar)}
     out: list[dict] = []
     for r in history_records:
         if not is_buy(str(r.get("kind") or "")):
@@ -94,17 +103,24 @@ def build_labeled_rows(history_records: list[dict], closes_by_ticker: dict[str, 
         if not ticker or not day or not series:
             continue
         dates, closes = series
+        normalized = [str(d)[:10] for d in dates]
+        if len(dates) != len(closes) or normalized != sorted(set(normalized)):
+            continue
         try:
             index = [str(d)[:10] for d in dates].index(day)
+            index += 1  # 신호를 본 다음 거래일 종가부터 진입(기존 accuracy 규약).
             entry = float(closes[index])
         except (ValueError, TypeError, IndexError):
             continue
         label = triple_barrier(entry, closes[index:], cfg)
         if label is None:
             continue
+        entry_day = str(dates[index])[:10]
+        end_day = str(dates[index + label.exit_offset])[:10]
         out.append({
-            "ticker": ticker, "date": day, "entry_index": index,
-            "label_end_index": index + label.exit_offset, "label": label.label,
+            "ticker": ticker, "date": day, "entry_date": entry_day, "label_end_date": end_day,
+            "entry_index": session_index[entry_day],
+            "label_end_index": session_index[end_day], "label": label.label,
             "exit_reason": label.exit_reason, "return_pct": label.return_pct,
             "kind": str(r.get("kind")), "pre_run_bucket": _bucket_pre_run(r.get("pre_run_up_pct")),
             "score_bucket": buckets.get((day, ticker), "unknown"),
@@ -118,18 +134,21 @@ def purged_folds(rows: list[dict], *, folds: int = 4, embargo_days: int = 1) -> 
     train 라벨의 종료가 test 시작 전 embargo까지 끝난 행만 남긴다. 그래서 테스트 기간의 수익을
     일부라도 본 포지션이 학습 행에 들어오는 중첩/누수를 막는다.
     """
-    n = len(rows)
+    sessions = sorted({r["entry_index"] for r in rows})
+    n = len(sessions)
     if n < 2 or folds < 2:
         return []
     blocks = min(folds, n)
     result = []
     for f in range(blocks):
         lo, hi = f * n // blocks, (f + 1) * n // blocks
-        test = list(range(lo, hi))
+        test_days = set(sessions[lo:hi])
+        test = [i for i, row in enumerate(rows) if row["entry_index"] in test_days]
         if not test:
             continue
-        cutoff = rows[test[0]]["entry_index"] - max(0, embargo_days)
-        train = [i for i in range(lo) if rows[i]["label_end_index"] < cutoff]
+        cutoff = min(test_days) - max(0, embargo_days)
+        train = [i for i, row in enumerate(rows)
+                 if row["entry_index"] < cutoff and row["label_end_index"] < cutoff]
         result.append((train, test))
     return result
 

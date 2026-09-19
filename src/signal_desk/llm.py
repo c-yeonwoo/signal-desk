@@ -175,7 +175,8 @@ def complete(system: str, user: str, *, max_tokens: int = 1024, model: str = DEF
 
 
 def messages_with_tools(system: str, messages: list, tools: list, *,
-                        max_tokens: int = 1024, model: str = NARRATIVE_MODEL) -> dict | None:
+                        max_tokens: int = 1024, model: str = NARRATIVE_MODEL,
+                        purpose: str | None = None) -> dict | None:
     """tool use 지원 1회 호출. messages는 Anthropic 형식(assistant tool_use / user tool_result 포함).
     반환: {"content": [...], "stop_reason": str} 또는 None(키 없음·실패). 툴 루프는 호출측(chat.py)이 돈다."""
     try:

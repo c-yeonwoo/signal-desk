@@ -1165,6 +1165,25 @@
         <div id="holdings-body" class="placeholder" style="padding:12px 0">위 검색창에서 종목을 찾아 보유종목을 추가하세요.</div>
       </div>
 
+      <details class="card" id="live-readiness-card" style="margin-bottom:16px">
+        <summary><b>KIS 실전 연결 준비</b> · 조회 전용 / 실주문 잠김</summary>
+        <p class="page-desc">국내 현물 계좌 소유자만 조회할 수 있습니다. 기존 페이퍼 장부와 분리되며, 아래 버튼은 주문을 전송하지 않습니다. 키·계좌번호는 서버 환경변수에만 설정하세요.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button class="btn" onclick="loadLiveReadiness()">연결 상태</button>
+          <button class="btn" onclick="loadLiveAccount()">잔고·당일 주문 조회</button>
+        </div>
+        <details style="margin-top:12px">
+          <summary>주문 여력 사전조회 (주문 아님)</summary>
+          <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+            <input id="live-ticker" aria-label="국내 종목코드" placeholder="6자리 종목코드" class="ctrl" maxlength="6" style="max-width:150px">
+            <select id="live-side" aria-label="매매 방향" class="ctrl"><option value="buy">매수</option><option value="sell">매도</option></select>
+            <input id="live-qty" aria-label="수량" type="number" min="1" step="1" placeholder="수량" class="ctrl" style="max-width:100px">
+            <input id="live-price" aria-label="지정가 원" type="number" min="1" step="1" placeholder="지정가(원)" class="ctrl" style="max-width:140px">
+            <button class="btn" onclick="previewLiveOrder()">여력만 확인</button>
+          </div>
+        </details>
+        <div id="live-result" role="status" style="margin-top:10px;white-space:pre-wrap;overflow-wrap:anywhere">자동 주문은 비활성입니다. 투자판단·시점·체결 검증 후 별도 전환 절차가 필요합니다.</div>
+      </details>
       <div class="card" id="portfolio-intelligence-card" style="margin-bottom:16px">
         <div class="row" style="align-items:baseline;gap:8px;flex-wrap:wrap">
           <b style="font-size:15px">정밀 포트폴리오 진단</b>
@@ -5345,6 +5364,34 @@ async function refreshPortfolio(){
 
 function _piNumber(id){ return Number(document.getElementById(id).value || 0); }
 function _piMoney(v, currency){ return currency === 'USD' ? '$' + fmtNum(v, 2) : fmtNum(v, 0) + '원'; }
+async function _liveRequest(url, data){
+  const box = document.getElementById('live-result');
+  box.textContent = '조회 중… 실주문은 전송되지 않습니다.';
+  try {
+    const r = await fetch(url, data === undefined ? {} : {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || d.error || '조회 실패');
+    return d;
+  } catch(e) { box.textContent = e.message; return null; }
+}
+async function loadLiveReadiness(){
+  const d = await _liveRequest('/api/live/status'); if (!d) return;
+  document.getElementById('live-result').textContent = `환경: ${d.environment || '미설정'} · 인증정보: ${d.configured ? '설정됨' : '미설정'}\n실주문 잠김 · 정책 OOS 승인, 주문 원장, 시점·위험 검증이 필요합니다.`;
+}
+async function loadLiveAccount(){
+  const d = await _liveRequest('/api/live/account', {}); if (!d) return;
+  const box = document.getElementById('live-result');
+  if (!d.ready) { box.textContent = d.reason || '완전한 조회 실패'; return; }
+  box.textContent = `조회 전용 (${d.environment}) · 평가액 ${fmtNum(d.balance.total_eval, 0)}원\n예수금 참고 ${fmtNum(d.balance.cash, 0)}원 (주문가능금액과 다름)\n` +
+    d.balance.holdings.map(h => `${h.name || h.ticker} (${h.ticker}) ${h.qty}주`).join('\n') +
+    '\n당일 주문: ' + d.order_status.orders.map(o => `${o.ticker} ${o.status} · 체결 ${o.filled_qty}/${o.qty}`).join(', ');
+}
+async function previewLiveOrder(){
+  const d = await _liveRequest('/api/live/preflight', {ticker:document.getElementById('live-ticker').value.trim(), side:document.getElementById('live-side').value,
+    qty:Number(document.getElementById('live-qty').value), limit_price:Number(document.getElementById('live-price').value)});
+  if (!d) return;
+  document.getElementById('live-result').textContent = `${d.broker_checks_passed ? '계좌 여력 조회 통과' : '사전조회 보류'}\n${d.reason}\n실주문 전송 없음 · 투자판단 승인 아님`;
+}
 async function loadPortfolioProfile(){
   const box = document.getElementById('pi-result');
   try {
@@ -5369,13 +5416,15 @@ async function loadPortfolioRecommendations(){
     const cell = (item, horizon) => {
       const o = (item.outcomes || []).find(x => x.horizon_days === horizon);
       if (!o) return '<span style="color:var(--dim)">대기</span>';
-      const v = o.directional_return_pct; const color = v > 0 ? 'var(--sig-buy)' : v < 0 ? 'var(--sig-sell)' : 'var(--dim)';
+      const v = item.side === 'buy' ? o.cost_adjusted_return_pct : o.directional_return_pct;
+      if (v == null) return '<span style="color:var(--dim)">비용 정보 부족</span>';
+      const color = v > 0 ? 'var(--sig-buy)' : v < 0 ? 'var(--sig-sell)' : 'var(--dim)';
       return `<span style="color:${color};font-weight:700">${v > 0 ? '+' : ''}${fmtNum(v, 2)}%</span>`;
     };
     const rows = (d.items || []).slice(0, 12).map(x => `<tr><td><b>${esc(x.name || x.ticker)}</b><div class="sig-metric">${esc(x.ticker)}</div></td>
       <td>${x.side === 'buy' ? '매수 제안' : '매도 제안'}</td><td class="num">${cell(x, 1)}</td><td class="num">${cell(x, 5)}</td><td class="num">${cell(x, 20)}</td></tr>`).join('');
     box.className = '';
-    box.innerHTML = `<div style="font-size:12px;color:var(--dim);margin:8px 0">완료 ${d.coverage.completed_outcomes} · 대기 ${d.coverage.pending_outcomes} · 실제 체결 성과가 아닌 제안 시점 기준 반사실적 결과입니다.</div>
+    box.innerHTML = `<div style="font-size:12px;color:var(--dim);margin:8px 0">완료 ${d.coverage.completed_outcomes} · 대기 ${d.coverage.pending_outcomes} · 매수: 비용 후 수익 / 매도: 가격하락 회피(비용 미반영). 실제 체결·포트폴리오 전체 성과가 아닙니다.</div>
       <table class="dtable"><thead><tr><th>종목</th><th>제안</th><th class="num">1일</th><th class="num">5일</th><th class="num">20일</th></tr></thead><tbody>${rows}</tbody></table>`;
   } catch (e) { box.textContent = '권고 검증 원장을 불러오지 못했습니다.'; }
 }
@@ -5419,7 +5468,7 @@ async function runPortfolioIntelligence(){
     const candidateRows = (candidates.candidates || []).map(x => `<tr><td><b>${esc(x.name)}</b><div class="sig-metric">${esc(x.ticker)} · ${esc(x.sector)}</div></td>
       <td><span class="sig-pill ${esc(x.signal_kind)}">${esc(x.signal_kind)}</span><div class="sig-metric">점수 ${fmtNum(x.score, 2)}</div></td>
       <td class="num">${fmtNum(x.proposed_weight_pct, 1)}%</td><td class="num">${_piMoney(x.proposed_value, currency)}</td>
-      <td class="num">${x.max_correlation == null ? '보유 없음' : fmtNum(x.max_correlation, 2)}</td></tr>`).join('');
+      <td class="num">${x.max_correlation == null ? '비교 대상 없음/미확인' : fmtNum(x.max_correlation, 2)}</td></tr>`).join('');
     const candidatePlan = candidates.ready ? `<b style="font-size:13px;display:block;margin-top:14px">신규 편입 후보 <span style="color:var(--dim);font-weight:600">· shadow</span></b>
       <div style="font-size:12px;color:var(--dim);margin:5px 0">신규 편입 가능 현금 ${fmtNum(candidates.available_cash_pct, 1)}% · 상관 기준 ${fmtNum(candidates.correlation_limit, 2)} 미만</div>
       <table class="dtable"><thead><tr><th>후보</th><th>시그널</th><th class="num">제안비중</th><th class="num">제안금액</th><th class="num">최대상관</th></tr></thead><tbody>${candidateRows}</tbody></table>

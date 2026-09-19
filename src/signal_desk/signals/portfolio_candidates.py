@@ -24,9 +24,9 @@ def _returns(dates: list[str], closes: list[float]) -> dict[str, float]:
             prev, cur = float(closes[i - 1]), float(closes[i])
         except (TypeError, ValueError):
             continue
-        if prev > 0 and cur > 0:
+        if math.isfinite(prev) and math.isfinite(cur) and prev > 0 and cur > 0:
             out[str(dates[i])[:10]] = cur / prev - 1.0
-    return out
+    return dict(sorted(out.items())[-LOOKBACK_DAYS:])
 
 
 def _volatility(returns: dict[str, float]) -> float | None:
@@ -35,7 +35,7 @@ def _volatility(returns: dict[str, float]) -> float | None:
         return None
     mean = sum(values) / len(values)
     variance = sum((value - mean) ** 2 for value in values) / (len(values) - 1)
-    return math.sqrt(max(variance, 0.0))
+    return math.sqrt(variance) if math.isfinite(variance) and variance > 1e-16 else None
 
 
 def _allocate(candidates: list[dict], *, cash_budget_pct: float, sector_used: dict[str, float],
@@ -69,13 +69,16 @@ def _allocate(candidates: list[dict], *, cash_budget_pct: float, sector_used: di
             break
         remaining -= added
     for candidate, weight in zip(candidates, target):
-        candidate["proposed_weight_pct"] = round(weight, 1)
+        candidate["proposed_weight_pct"] = math.floor(weight * 10000) / 10000
     return [candidate for candidate in candidates if candidate["proposed_weight_pct"] > 0]
 
 
 def evaluate(*, holdings: list[dict], universe: list[dict], signal_by_ticker: dict,
              prices: dict[str, list[float]], dates_by: dict[str, list[str]], profile: dict) -> dict:
     """신규 후보를 자격→상관 독립성→제약 배분 순으로 평가한다."""
+    if any(row.get("value") is None or not row.get("sector") or not row.get("history_ready")
+           for row in holdings):
+        return {"ready": False, "mode": "shadow", "reason": "보유종목의 평가액·섹터·가격 이력 결손으로 신규 편입을 보류합니다."}
     cash = max(0.0, float(profile.get("cash") or 0.0))
     invested = sum(float(row.get("value") or 0.0) for row in holdings if row.get("value") is not None)
     total = invested + cash
@@ -115,7 +118,7 @@ def evaluate(*, holdings: list[dict], universe: list[dict], signal_by_ticker: di
         correlations = {held: portfolio_risk.correlation(ret, held_ret, min_observations=LOOKBACK_DAYS)
                         for held, held_ret in holding_returns.items()}
         known = {ticker_: value for ticker_, value in correlations.items() if value is not None}
-        if holding_returns and not known:
+        if len(known) != len(holding_returns):
             rejected.append({"ticker": ticker, "name": asset.get("name") or ticker, "reason": "보유종목과 공통 가격 이력 부족"})
             continue
         high = [ticker_ for ticker_, value in known.items() if value >= CORRELATION_LIMIT]
@@ -124,6 +127,8 @@ def evaluate(*, holdings: list[dict], universe: list[dict], signal_by_ticker: di
                              "reason": f"보유 {', '.join(high[:3])}와 고상관"})
             continue
         score = float(getattr(signal, "score", 0.0))
+        if not math.isfinite(score) or not math.isfinite(float(closes[-1])) or float(closes[-1]) <= 0:
+            continue
         qualified.append({"ticker": ticker, "name": asset.get("name") or ticker, "sector": str(sector),
                           "score": round(score, 3), "signal_kind": signal.kind, "price": float(closes[-1]),
                           "max_correlation": round(max(known.values()), 4) if known else None,
@@ -136,7 +141,7 @@ def evaluate(*, holdings: list[dict], universe: list[dict], signal_by_ticker: di
         for selected in independent:
             selected_ret = _returns(dates_by.get(selected["ticker"]) or [], prices.get(selected["ticker"]) or [])
             corr = portfolio_risk.correlation(candidate_ret, selected_ret, min_observations=LOOKBACK_DAYS)
-            if corr is not None and corr >= CORRELATION_LIMIT:
+            if corr is None or corr >= CORRELATION_LIMIT:
                 overlap.append(selected["ticker"])
         if overlap:
             rejected.append({"ticker": candidate["ticker"], "name": candidate["name"],
