@@ -37,6 +37,9 @@ _MIN_IC_SAMPLES = 20  # 행 단위 표본 최소치 — 정밀도·diff_verdict�
 _MIN_IC_DATES = 20
 # 하루 횡단면에 이보다 적은 종목이 있으면 그 날의 IC는 노이즈다 → 그 날짜를 버린다.
 _MIN_IC_BREADTH = 10
+# h일 미래수익은 인접 날짜끼리 h−1일이 겹친다. 날짜 수만 채우고 독립 표본이 한두 개면
+# 유의확률이 과신되므로, 판정값 `ic`를 내기 위한 비중첩 관측 수도 별도로 요구한다.
+_MIN_IC_INDEPENDENT_DATES = 5
 # 정밀도는 기준선(base rate) 대비 리프트로만 판정한다. 하락장에서는 아무 종목이나 '매도'라고
 # 찍어도 정밀도가 60%를 넘기 때문에, 절대값 55%는 잘한 것도 못한 것도 아니다.
 # 이 값은 "우연·시장 드리프트로 설명되지 않는다"고 부를 최소 리프트(%p)다.
@@ -230,7 +233,8 @@ def _newey_west_se(xs: list[float], lag: int) -> dict:
 
 def cross_sectional_ic(pairs_by_date: dict[str, list[tuple[float, float]]], *,
                        horizon: int, min_dates: int = _MIN_IC_DATES,
-                       min_breadth: int = _MIN_IC_BREADTH) -> dict:
+                       min_breadth: int = _MIN_IC_BREADTH,
+                       min_independent_dates: int = _MIN_IC_INDEPENDENT_DATES) -> dict:
     """날짜별 횡단면 Spearman IC → 시계열의 평균·SE·t·p.
 
     반환 `ic`는 **날짜 수 요건을 채웠을 때만** 값이고, 아니면 None이며 `blocked_reason`이 이유를 말한다.
@@ -258,6 +262,7 @@ def cross_sectional_ic(pairs_by_date: dict[str, list[tuple[float, float]]], *,
         "breadth_median": (breadths[n // 2] if n else None),
         "horizon": horizon,
         "min_dates": min_dates,
+        "min_independent_dates": min_independent_dates,
         "ic_mean": (round(sum(vals) / n, 4) if n else None),
         "ic_std": None, "ic_ir": None, "se": None, "se_naive": None, "ci95": None,
         "t": None, "p": None, "significant": False, "zero_variance": False,
@@ -302,6 +307,11 @@ def cross_sectional_ic(pairs_by_date: dict[str, list[tuple[float, float]]], *,
         out["blocked_reason"] = (
             f"IC 날짜 {n}/{min_dates}일 — 판정 불가"
             f"(h{horizon} 중첩이라 독립 관측 ≈ {out['independent_dates']}개)")
+        return out
+    if out["independent_dates"] < min_independent_dates:
+        out["blocked_reason"] = (
+            f"독립 관측 {out['independent_dates']}/{min_independent_dates}개 — "
+            f"h{horizon} 중첩 창 판정 보류")
         return out
     out["ic"] = round(mean, 4)
     out["significant"] = bool(out["p"] is not None and out["p"] < 0.05)
@@ -578,6 +588,7 @@ def realized_accuracy(
         "factor_ic_horizon": ic_h,
         "ic_min_samples": _MIN_IC_SAMPLES,
         "ic_min_dates": _MIN_IC_DATES,
+        "ic_min_independent_dates": _MIN_IC_INDEPENDENT_DATES,
         "coverage": _coverage_block(
             rows_total, dates_seen, tickers_seen, matured_primary,
             closes_by_ticker, base_by_h, horizons, primary, headline_h),

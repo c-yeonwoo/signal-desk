@@ -51,6 +51,54 @@ def test_revision_deltas_and_annotate():
     assert "리비전하향" in rows[1]["opp_tags"]
 
 
+def test_revision_keeps_the_full_date_panel_for_ic():
+    """새 스냅샷이 들어와도 성숙한 어제 리비전을 지우지 않는다."""
+    df = pd.DataFrame([
+        {"ticker": t, "date": d, "fwd1_eps": eps, "price_target_mean": pt}
+        for t, vals in {
+            "A": [("2026-07-01", 100.0, 100.0), ("2026-07-02", 102.0, 103.0),
+                  ("2026-07-03", 105.0, 107.0)],
+            "B": [("2026-07-01", 100.0, 100.0), ("2026-07-02", 98.0, 97.0),
+                  ("2026-07-03", 95.0, 93.0)],
+        }.items()
+        for d, eps, pt in vals
+    ])
+    panel = revision.delta_history_from_history(df)
+    assert len(panel) == 4
+    assert {r["date"] for r in panel} == {"2026-07-02", "2026-07-03"}
+    latest = revision.deltas_from_history(df)
+    assert latest["A"]["date"] == "2026-07-03" and latest["A"]["signal"] == 1
+    assert latest["B"]["signal"] == -1
+
+
+def test_revision_ic_is_date_cross_sectional_not_latest_snapshot_only():
+    cal = [d.date().isoformat() for d in pd.bdate_range("2026-01-02", periods=50)]
+    snap_dates = cal[:30]
+    rows, closes_by, dates_by = [], {}, {}
+    for i in range(12):
+        ticker = f"T{i:02d}"
+        revision_rate = (i - 5.5) * 0.01
+        return_rate = (i - 5.5) * 0.001
+        for j, day in enumerate(snap_dates):
+            rows.append({"ticker": ticker, "date": day,
+                         "fwd1_eps": 100.0 * (1.0 + revision_rate) ** j,
+                         "price_target_mean": 100.0 * (1.0 + revision_rate) ** j})
+        dates_by[ticker] = cal
+        closes_by[ticker] = [100.0 * (1.0 + return_rate) ** j for j in range(len(cal))]
+    df = pd.DataFrame(rows)
+    panel = revision.delta_history_from_history(df)
+    out = revision.measure_ic(panel, closes_by, dates_by, horizon=5)
+    assert out["n_dates"] == 29 and out["n_pairs"] == 29 * 12
+    assert out["independent_dates"] == 5
+    assert out["ic"] is not None and out["ic"] > 0.9
+    assert out["ready_for_score"] is True
+
+    # 예전 구조: 종목별 최신 하나만 주면 날짜는 1개라 판정할 수 없다.
+    latest_only = revision.deltas_from_history(df)
+    blocked = revision.measure_ic(latest_only, closes_by, dates_by, horizon=5)
+    assert blocked["n_dates"] == 1 and blocked["ic"] is None
+
+
 def test_revision_ic_rank_basic():
     # 강한 양의 상관
     ic = revision.ic_rank(

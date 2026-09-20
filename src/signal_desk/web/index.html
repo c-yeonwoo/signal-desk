@@ -1605,8 +1605,9 @@
     </div>
 
     <details class="card" id="brain-card" style="margin-top:16px" ontoggle="if(this.open) loadBrain()">
-      <summary style="cursor:pointer;font-weight:700;font-size:15px">엔진 건강 <span id="brain-score" style="font-family:var(--mono,monospace);font-size:13px;color:var(--dim);font-weight:600"></span></summary>
-      <p class="page-desc" style="margin:8px 0 6px"><span id="brain-summary" style="color:var(--dim)"></span></p>
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">엔진 상태 <span id="brain-score" style="font-family:var(--mono,monospace);font-size:13px;color:var(--dim);font-weight:600"></span></summary>
+      <p class="page-desc" style="margin:8px 0 2px"><span id="brain-summary" style="color:var(--dim)"></span></p>
+      <div id="brain-alpha" style="font-size:13px;margin:0 0 8px;color:var(--dim)"></div>
       <div id="brain-graph" style="width:100%;height:360px"></div>
       <div id="brain-legend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--dim);margin:4px 0 2px"></div>
       <div id="brain-findings" style="margin-top:8px"></div>
@@ -2974,9 +2975,9 @@ function verdictRow(hz){
   }
   const req = hz.requirement || {};
   const thr = hz.threshold_pct;
-  const nreg = hz.n_registered;
+  const nreg = hz.n_looks_total ?? hz.n_registered;
   const meta = `<span style="color:var(--dim-2)">문턱 ${fmtNum(thr, 2)}%`
-    + (nreg > 1 ? ` · 사전등록 ${nreg}개 Šidák 보정` : '') + `</span>`;
+    + (nreg > 1 ? ` · 가설군 ${nreg}개 Šidák 보정` : '') + `</span>`;
   if (hz.status === 'locked') {
     const p = hz.percentile;
     const ok = p != null && thr != null && p >= thr;
@@ -3148,7 +3149,7 @@ async function loadScorecard(){
       + `<div><b>실측</b> 그날 실제로 낸 시그널을 나중에 수익률로 채점한 것 · <b>시뮬</b> 과거 가격으로 돌려본 것(실제로 산 게 아님) · <b>트레이딩</b> 봇의 가상 체결 · <b>누적중</b> 판단하기엔 자료가 아직 적음</div>`
       + `<div style="margin-top:4px"><b>매매 30회 / 기록 150일</b> 판정에 필요한 최소 자료량입니다. 자료가 적을 때 나온 좋은 성적은 우연일 수 있어서, 다 찰 때까지 성적을 숨깁니다`
       + (hz && hz.threshold_pct ? ` — 다 차면 <b>무작위보다 ${fmtNum(hz.threshold_pct, 2)}% 위</b>여야 통과입니다` : '')
-      + (hz && hz.n_registered > 1 ? ` (같은 자료로 가설 ${hz.n_registered}개를 보므로 그중 하나가 우연히 좋을 확률만큼 기준을 올렸습니다 · 원어: Šidák 보정)` : '') + `</div>`
+      + (hz && (hz.n_looks_total ?? hz.n_registered) > 1 ? ` (같은 자료로 가설 ${(hz.n_looks_total ?? hz.n_registered)}개를 보므로 그중 하나가 우연히 좋을 확률만큼 기준을 올렸습니다 · 원어: Šidák 보정)` : '') + `</div>`
       + `<div style="margin-top:4px"><b>정밀도</b> 매수라고 한 것 중 실제로 오른 비율. 옆의 <b>기준선</b>은 아무것도 안 보고 찍었을 때의 비율이고, 둘의 차이(<b>리프트</b>)만이 실력입니다 — 상승장에서는 찍어도 정밀도가 높습니다</div>`
       + `<div style="margin-top:4px">쉬운 말로 바꿔 쓴 원어: <b>판별력</b>(잘 고르는 능력) · <b>실효 기간</b>(매매 회차) · <b>PIT</b>(그날 알 수 있었던 정보만으로 남긴 기록) · <b>공석</b>(자리 비움) · <b>게이트</b>(안전장치)</div>`
       + `</div>`;
@@ -4139,7 +4140,7 @@ function renderTodayCard(){
     if (buyN !== 0) return '';
     const bits = [];
     const over = sel.over_threshold ?? (rep.selection && rep.selection.over_threshold);
-    if (_dhCache && _dhCache.stall_line) bits.push('수집 정지 감지 — 데이터 상태를 먼저 확인하세요');
+    if (_dhCache && _dhCache.stall_line) bits.push('운영 점검 필요 — 데이터 상태를 먼저 확인하세요');
     // 게이트 투명화(X3): `게이트 차단 N종목` 합계로는 무엇이 매수 0을 만들었는지 모른다.
     // 창 안 자리를 실제로 앗아간 게이트를 순서대로 쓴다(실측: 추세 5자리 · 데이터부족 3자리).
     const g = sel.gates || (rep.selection && rep.selection.gates) || {};
@@ -6493,7 +6494,7 @@ function renderDataHealth(d){
     // 문구를 프런트에서 다시 조립하면 알림과 화면이 갈라지고 그 차이는 어디에도 안 나타난다.
     if (d.stall_line) {
       html += `<div style="border:1px solid var(--sell);border-radius:8px;padding:9px 11px;margin:0 0 12px;font-size:13px">`
-        + `<b style="color:var(--sell)">수집 정지 감지</b>`
+        + `<b style="color:var(--sell)">운영 점검 필요</b>`
         + `<div style="margin-top:4px;color:var(--dim)">${esc(String(d.stall_line).replace(/^🔧\s*/, ''))}</div>`
         + `<div style="margin-top:4px;color:var(--dim-2);font-size:12px">아침 브리핑 첫 줄에도 같은 내용이 갑니다.</div></div>`;
     }
@@ -6600,10 +6601,12 @@ function renderDataHealth(d){
         + (cr.eta_date && !cr.ready ? ` 예상 ${cr.eta_date}.` : ''));
     }
     const ric = d.revision_ic;
-    if (ric) q('리비전 IC', !!ric.ready_for_score || (!ric.blocked_reason && ric.ic != null),
-               ric.ic != null ? `IC ${ric.ic} (n=${ric.n ?? 0})` : (ric.ready ? '측정중' : '대기'),
+    if (ric) q('리비전 IC', !!ric.ready_for_score,
+               ric.ic != null
+                 ? `IC ${ric.ic} · ${ric.n_dates ?? ric.n ?? 0}일 · 독립≈${ric.independent_dates ?? 0}`
+                 : (ric.ic_mean != null ? `관측 ${ric.ic_mean} · 판정 보류` : (ric.ready ? '측정중' : '대기')),
                ric.blocked_reason || (ric.ready_for_score ? '점수 투입 후보' : (ric.note || null)),
-               '컨센 Δ vs 선행수익 스피어만. IC≥0.02·표본≥20일 때만 점수 반영 후보.');
+               '날짜별 컨센 Δ vs 선행수익 횡단면 IC. IC≥0.02·유의·독립관측≈5개 이상일 때만 반영 후보.');
     const crowd = d.crowding;
     if (crowd) q('매수권 편중', !crowd.warn && !crowd.data_quality,
                  crowd.n_buy != null ? `${crowd.n_buy}종목` : '–',
@@ -7546,7 +7549,19 @@ async function loadBrain(){
   const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#333';
   document.getElementById('brain-summary').textContent = d.summary || '';
   const scEl = document.getElementById('brain-score');
-  scEl.innerHTML = `헬스 <b style="color:${d.level === 'ok' ? 'var(--sig-buy)' : 'var(--sell)'}">${d.score}/100</b>`;
+  scEl.innerHTML = `운영 <b style="color:${d.level === 'ok' ? 'var(--sig-buy)' : 'var(--sell)'}">${d.score}/100</b>`;
+  const pred = d.predictive || {};
+  const alphaEl = document.getElementById('brain-alpha');
+  if (alphaEl) {
+    const col = pred.level === 'ok' ? 'var(--sig-buy)' : (pred.level === 'warn' ? 'var(--sell)' : 'var(--dim)');
+    const label = pred.status === 'validated' ? '판별력 확인'
+      : (pred.status === 'adverse' ? '판별력 역방향' : (pred.status === 'unproven' ? '판별력 미입증' : '판별력 누적중'));
+    const ic = pred.score_ic == null ? (pred.ic_mean == null ? '' : ` · 관측 IC ${fmtNum(pred.ic_mean, 3)}`)
+                                     : ` · score IC ${fmtNum(pred.score_ic, 3)}`;
+    alphaEl.innerHTML = `<b style="color:${col}">${label}</b>${ic}`
+      + ` · 날짜 ${pred.n_dates ?? 0} · 독립≈${pred.independent_dates ?? 0}`
+      + `${pred.blocked_reason ? ` <span style="color:var(--dim-2)"> — ${esc(pred.blocked_reason)}</span>` : ''}`;
+  }
 
   const nodes = (d.nodes || []).map(n => ({
     name: n.id, disp: n.label, group: n.group, status: n.status, metric: n.metric,
@@ -7721,8 +7736,9 @@ async function loadExperiments(){
       pre.innerHTML = `<div style="color:var(--sell);font-size:13px">${esc(b.reason || '사전등록 없음')}</div>`;
     } else {
       pre.innerHTML = `<div style="font-size:12px;color:var(--dim);margin-bottom:6px">`
-        + `문턱 <b>${fmtNum(b.threshold_pct, 2)}%</b> · 등록 ${b.n_registered} look`
-        + `${b.n_registered > 1 ? ' (Šidák 보정 — 등록 수로 고정, lock돼도 안 느슨해짐)' : ''}</div>`
+        + `문턱 <b>${fmtNum(b.threshold_pct, 2)}%</b> · 보정 가설군 ${b.n_looks_total ?? b.n_registered} look`
+        + `${b.n_harness_looks != null ? ` (하네스 ${b.n_harness_looks})` : ''}`
+        + `${(b.n_looks_total ?? b.n_registered) > 1 ? ' (Šidák 보정 — 등록 수로 고정, lock돼도 안 느슨해짐)' : ''}</div>`
         + (b.looks || []).map(lk => {
             const rq = lk.requirement || {};
             const pctEff = Math.min(100, Math.round(100 * rq.effective_periods / Math.max(1, rq.min_effective_periods)));
@@ -7886,7 +7902,7 @@ async function loadProofOs(){
           <div style="font-size:12px;margin-top:6px">harness
             <b>${hz.verdict || (hz.blocked_reason || '미실행')}</b>
             <span style="color:var(--dim)">${hz.percentile == null ? '' : ' · p' + fmtNum(hz.percentile, 1)}</span>
-            ${hz.threshold_pct != null ? `<span style="color:var(--dim)"> · 문턱 ${fmtNum(hz.threshold_pct, 2)}%${hz.n_registered > 1 ? ` (사전등록 ${hz.n_registered} look Šidák)` : ''}</span>` : ''}
+            ${hz.threshold_pct != null ? `<span style="color:var(--dim)"> · 문턱 ${fmtNum(hz.threshold_pct, 2)}%${(hz.n_looks_total ?? hz.n_registered) > 1 ? ` (가설군 ${hz.n_looks_total ?? hz.n_registered} look Šidák · 하네스 ${hz.n_harness_looks ?? hz.n_registered})` : ''}</span>` : ''}
             ${hz.saved_at && hz.status === 'locked' ? `<span style="color:var(--dim-2)"> · ${esc(String(hz.saved_at).slice(0, 10))}</span>` : ''}
           </div>
           ${hz.verdict_why ? `<div style="font-size:12px;color:var(--dim);margin-top:2px">${esc(hz.verdict_why)}</div>` : ''}
