@@ -3378,15 +3378,58 @@ def test_todo_list_hides_intentional_states_but_not_unknown_ones():
     """할 일은 **고장만**. 다만 모르는 종류는 띄운다 — 조용히 숨기면 새 고장을 놓친다."""
     from pathlib import Path
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    blk = html.split("function renderAdminTodo(", 1)[1].split("\nfunction ", 1)[0]
+    blk = html.split("function _adminOpsIncidents(", 1)[1].split("\nfunction ", 1)[0]
     assert "blocked_kind" in blk, "화면이 분류를 읽지 않는다"
-    assert "_NOT_A_TODO" in blk
+    assert "notTodo" in blk
     # 제외 목록에 의도된 상태 셋이 들어 있어야 한다.
-    lst = blk.split("_NOT_A_TODO = new Set(", 1)[1].split(")", 1)[0]
+    lst = blk.split("notTodo = new Set(", 1)[1].split(")", 1)[0]
     for k in ("frozen", "unconfigured", "empty"):
         assert k in lst, f"{k} 가 제외 목록에 없다"
     # **화이트리스트 방식이 아니어야 한다** — `kind === 'fault'` 로 걸면 새 분류가 조용히 숨는다.
     assert "=== 'fault'" not in blk, "고장만 통과시키면 모르는 종류가 숨는다(fail-loud 위반)"
+
+
+def test_admin_health_does_not_claim_green_before_it_is_known():
+    """점검 요청이 느리거나 실패해도 '급한 일 없음'을 띄우지 않는다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    todo = html.split("function renderAdminTodo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "_dhState === 'loading'" in todo and "운영 상태 점검 중" in todo
+    assert "_dhState === 'error'" in todo and "운영 상태 미확인" in todo
+    load = html.split("async function loadDataHealth(", 1)[1].split("\nfunction ", 1)[0]
+    assert "_dhPromise" in load and "AbortController" in load
+
+
+def test_admin_badges_and_todo_share_the_same_incidents():
+    """배지 4개와 할 일 2개처럼 같은 상태를 다르게 세지 않는다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    badge = html.split("function _setAdminOpsBadge(", 1)[1].split("\nfunction ", 1)[0]
+    todo = html.split("function renderAdminTodo(", 1)[1].split("\nfunction ", 1)[0]
+    assert "_adminOpsIncidents(d).length" in badge
+    assert "_adminOpsIncidents(_dhCache)" in todo
+    assert "_badgeActive('admin-verify-badge')" in todo
+    incidents = html.split("function _adminOpsIncidents(", 1)[1].split("\nfunction ", 1)[0]
+    assert "f.key === 'kb'" in incidents and "d.kb_refresh" in incidents, \
+        "KB refresh 오류를 freshness와 상태 오류로 이중 계산한다"
+
+
+def test_admin_explicit_tab_renders_before_health_prefetch_finishes():
+    """직접 연 엔진·성적 탭이 느린 상태 API 뒤에 막히지 않는다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    enter = html.split("async function enterAdmin(", 1)[1].split("\nfunction ", 1)[0]
+    assert enter.index("switchAdminSeg(") < enter.index("healthPromise")
+    assert "if (!explicit && !_adminEntered)" in enter
+
+
+def test_derived_freshness_is_rendered_as_computed_not_missing():
+    """원천에서 파생된 회사 체질 199건을 updated=None이라고 '미수집'으로 표시하지 않는다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    render = html.split("function renderDataHealth(", 1)[1].split("\nfunction ", 1)[0]
+    assert "f.kind === 'derived'" in render
+    assert "계산완료" in render and "원천 재무 기준" in render
 
 
 def test_frozen_states_still_appear_in_diagnostics():

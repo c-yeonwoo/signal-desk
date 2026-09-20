@@ -307,6 +307,9 @@ def cross_sectional_ic(pairs_by_date: dict[str, list[tuple[float, float]]], *,
     out["significant"] = bool(out["p"] is not None and out["p"] < 0.05)
     if not out["significant"]:
         out["blocked_reason"] = "IC가 0과 구분 불가 — 가중치 근거로 쓸 수 없음"
+        # `ic_mean`은 관측치로 남기되, 판정 값인 `ic`는 비운다. 소비자가
+        # significant를 다시 확인하지 않아도 무의의한 숫자가 가중치 제안·경고로 흐르지 않는다.
+        out["ic"] = None
     return out
 
 
@@ -777,6 +780,35 @@ def buy_hits_by_date(history_rows: list[dict],
         if horizon in rets:
             out.setdefault(d, []).append(rets[horizon] >= hit_ret)
     return out
+
+
+def baseline_for_window(history_rows: list[dict],
+                        closes_by_ticker: dict[str, tuple[list[str], list[float]]],
+                        *, horizon: int, from_date: str | None = None) -> dict:
+    """OOS 창의 HOLD 포함 전 표본 기준선.
+
+    사전등록 매수 판정의 분자와 분모가 같은 `from_date`·horizon을 쓰게 한다.
+    기준선을 전체 이력에서 구하면 OOS 장세 차이가 리프트로 오인된다.
+    """
+    rets: list[float] = []
+    for row in history_rows:
+        day = str(row.get("date") or "")
+        if from_date and day < str(from_date):
+            continue
+        series = closes_by_ticker.get(row.get("ticker"))
+        if not series:
+            continue
+        fwd = _forward_returns(series[0], series[1], day, (int(horizon),))
+        if int(horizon) in fwd:
+            rets.append(fwd[int(horizon)])
+    return {
+        "sample": len(rets),
+        "up_pct": _precision(rets, up=True),
+        "down_pct": _precision(rets, up=False),
+        "avg_ret_pct": (round(sum(rets) / len(rets) * 100, 2) if rets else None),
+        "from_date": from_date,
+        "horizon": int(horizon),
+    }
 
 
 def block_lift_verdict(hits_by_date: dict[str, list[bool]], *, baseline_pct: float | None,
