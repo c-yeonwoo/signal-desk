@@ -3448,6 +3448,15 @@ def test_engine_ui_separates_operations_from_predictive_power():
     assert "n_looks_total ??" in html and "가설군" in html
 
 
+def test_live_copy_ui_exposes_reference_bot_safety_effect():
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert 'id="live-copy-safety"' in html
+    render = html.split("function _renderLiveCopySafety(", 1)[1].split("\nasync function ", 1)[0]
+    assert "score_fallback" in render and "신규 매수 보류" in render
+    assert "매도·손절은 계속 동작" in render and "실주문 전송은 잠김" in render
+
+
 def test_revision_health_uses_the_full_pit_delta_history():
     import inspect
     from signal_desk import api as api_mod

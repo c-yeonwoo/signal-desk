@@ -6,6 +6,7 @@ import threading
 
 from signal_desk import auth, bot, config, db, strategy
 from signal_desk.broker import live
+from signal_desk.signals import advisor_shadow
 
 router = APIRouter(prefix="/api/live", tags=["live-readiness"])
 _READ_LOCK = threading.Lock()
@@ -86,7 +87,18 @@ def copy_events(request: Request, style: str = "balanced"):
         raise HTTPException(400, "안정형·균형형·공격형 중 하나를 선택하세요.")
     bot.ensure_reference_bots()
     uid = next(uid for uid, name in bot.REFERENCE_BOTS.items() if name == style)
+    try:
+        source_safety = advisor_shadow.decision_status(
+            style=style, summary=advisor_shadow.cached_summary())
+    except Exception:
+        # 상태를 읽을 수 없는데 '정상'이라고 보이는 것이 가장 위험하다. 봇 본체와 같은 fail-closed.
+        source_safety = {
+            "style": style, "selector_active": False, "buy_path_active": False,
+            "effect": "gate_error", "fallback": "abstain", "source": "gate_error",
+            "reason": "advisor 안전 게이트 상태를 확인하지 못해 신규 매수를 보류합니다.",
+        }
     return {"style": style, "events": db.bot_trades_recent(uid, 20, "kr"),
+            "source_safety": source_safety,
             "mode": "copy_preview_only", "order_transmission_enabled": False}
 
 

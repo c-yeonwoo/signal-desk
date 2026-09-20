@@ -95,6 +95,20 @@ def test_advisor_unavailable_falls_back_to_score_order(tmp_path, monkeypatch):
     assert s["advisor_used_runs"] == 0 and s["abstained_runs"] == 0
 
 
+def test_advisor_gate_error_fails_closed_and_buys_nothing(tmp_path, monkeypatch):
+    """안전 상태를 읽지 못할 때 LLM을 계속 쓰는 fail-open을 금지한다."""
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0]},
+           [_sig("AAA", "가", "BUY", 2.4)], min_buy_score=0.0)
+    _seed(10_000_000.0)
+    monkeypatch.setattr(bot.advisor_shadow, "cached_summary", lambda: {})
+    monkeypatch.setattr(bot.advisor_shadow, "gate",
+                        lambda **kw: (_ for _ in ()).throw(RuntimeError("broken gate")))
+    out = bot.run_once(UID)
+    assert out["ok"] and out["buys"] == []
+    assert db.bot_positions_all(UID) == []
+
+
 def test_sells_on_stop_loss(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _setup(monkeypatch, [{"ticker": "005930", "name": "삼성전자"}], {"005930": [100.0, 100.0, 90.0]},

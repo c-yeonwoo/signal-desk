@@ -714,8 +714,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                     style=cfg.get("trading_style"),
                     summary=advisor_shadow.cached_summary())
             except Exception as e:
-                log.warning("advisor gate 계산 실패(%s) — 선별 유지", type(e).__name__)
-                g = {"active": True, "fallback": "abstain"}
+                log.warning("advisor gate 계산 실패(%s) — 신규매수 보류", type(e).__name__)
+                g = {"active": False, "fallback": "abstain", "source": "gate_error",
+                     "reason": "advisor 안전 게이트 계산 실패"}
             advice = advisor.advise(
                 [{"ticker": s.ticker, "name": s.name, "score": s.score,
                   "confidence": s.confidence, "reasons": s.reasons} for s in pool],
@@ -1029,7 +1030,8 @@ def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -
                 style=cfg.get("trading_style"),
                 summary=advisor_shadow.cached_summary())
         except Exception:
-            g = {"active": True, "fallback": "abstain"}
+            g = {"active": False, "fallback": "abstain", "source": "gate_error",
+                 "reason": "advisor 안전 게이트 계산 실패"}
         advice = advisor.advise(
             [{"ticker": s.ticker, "name": s.name, "score": s.score,
               "confidence": s.confidence, "reasons": s.reasons} for s in pool],
