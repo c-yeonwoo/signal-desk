@@ -74,6 +74,9 @@ def _kst_today() -> str:
 # KB LLM 수집의 하루 가드. **US 재무 백필(`kb_collect_date`)과 키를 나눈다** — 하나로 쓰면
 # KB가 꺼져 있던 날에도 키가 찍혀서, 플래그를 켜는 날 그 키가 KB까지 막는다(다음 날까지 무동작).
 _KB_LLM_COLLECT_KEY = "kb_llm_collect_date"
+# 외부 채널 수집과 종목 다이제스트는 실패 범위가 다르다. 하나의 날짜 키를 공유하면
+# 종목 경로가 실패해도 외부 채널 성공이 하루를 소진해 배포 후 복구를 다음 날까지 못 본다.
+_KB_TICKER_COLLECT_KEY = "kb_ticker_collect_date"
 
 
 def _daily_kb_collect():
@@ -91,13 +94,17 @@ def _daily_kb_collect():
     """
     today = _kst_today()
     got = False
-    if config.kb_auto_collect() and db.kv_get(_KB_LLM_COLLECT_KEY) != today:
+    auto_collect = config.kb_auto_collect()
+    if auto_collect and db.kv_get(_KB_LLM_COLLECT_KEY) != today:
         for fn in (kb.collect_fanding, kb.collect_outstanding, kb.collect_youtube, kb.collect_rss_macro):
             try:
                 out = fn()
                 got = got or bool(out.get("imported") or out.get("macro"))
             except Exception as e:
                 log.warning("KB 자동수집 실패(%s): %s", getattr(fn, "__name__", "?"), type(e).__name__)
+        # 외부 채널은 일부 실패해도 같은 날 반복하면 비용·중복 호출이 커진다. 하루 한 번만 시도.
+        db.kv_set(_KB_LLM_COLLECT_KEY, today)
+    if auto_collect and db.kv_get(_KB_TICKER_COLLECT_KEY) != today:
         try:  # 확정 국면 주도섹터 + BUY/보유/관심 — 종목 뉴스 다이제스트
             targets = _kb_targets()
             if targets:
@@ -108,14 +115,23 @@ def _daily_kb_collect():
                                 len(out["failed"]), out.get("targets") or 0)
             else:
                 log.warning("KB 종목 수집 대상 0 — 확정 국면 주도섹터·보유·관심종목이 비었다")
+            # 새 URL이 없어 updated=0이어도 정상 실행이다. 예외 없이 끝난 것이 완료 기준.
+            db.kv_set(_KB_TICKER_COLLECT_KEY, today)
         except Exception as e:
             log.warning("KB 종목 자동수집 실패: %s", type(e).__name__)
-        if got:
-            _signals.cache_clear()
-            _macro.cache_clear()
-        # **실제로 돌았을 때만** 오늘을 소진한다. 위 가드가 이 키를 본다.
-        db.kv_set(_KB_LLM_COLLECT_KEY, today)
-    elif not config.kb_auto_collect():
+            # 다음 느린 틱에서 종목 경로만 재시도한다. 실패 사실도 관리자 진단에 남긴다.
+            try:
+                db.kv_set("kb_refresh_last", {
+                    "updated": 0, "targets": 0,
+                    "failed": [{"ticker": None, "name": "수집 루프", "error": type(e).__name__}],
+                    "ts": int(time.time()),
+                })
+            except Exception:
+                pass
+    if got:
+        _signals.cache_clear()
+        _macro.cache_clear()
+    if not auto_collect:
         log.info("KB 자동수집 스킵(KB_AUTO_COLLECT off) — 학습 원료는 관리자 수동 수집")
     # US 재무 백필은 **무료라 플래그와 무관**하게 돈다 — 그래서 가드도 따로 둔다.
     # 예전엔 KB와 키를 공유해서, KB를 켜는 날 이미 찍힌 키가 KB까지 막았다.
