@@ -94,6 +94,10 @@ def test_owner_routes_only_preview_and_resolve_server_side_source(tmp_path, monk
               "ts": int(time.time()), "reason": "SIGNAL"}
     monkeypatch.setattr(live_routes.db, "bot_trade_get", lambda *a: source)
     monkeypatch.setattr(live_routes.db, "bot_trades_recent", lambda *a: [source])
+    monkeypatch.setattr(live_routes.advisor_shadow, "cached_summary", lambda: {})
+    monkeypatch.setattr(live_routes.advisor_shadow, "decision_status", lambda **kw: {
+        "style": kw["style"], "selector_active": False, "buy_path_active": False,
+        "effect": "buy_paused", "fallback": "abstain", "reason": "유의 패배"})
     seen = {}
     monkeypatch.setattr(live_routes.live, "copy_preview", lambda source, **kw: seen.update(source=source, **kw) or {
         "ready": False, "order_transmission_enabled": False, "reason": "locked"})
@@ -102,7 +106,10 @@ def test_owner_routes_only_preview_and_resolve_server_side_source(tmp_path, monk
     payload = {"source_style": "balanced", "follow_pct": 50, "max_order_pct": 10,
                "max_daily_buy_pct": 20, "max_position_pct": 15, "min_cash_pct": 25}
     assert client.put("/api/live/copy-policy", json=payload).json()["configured"] is True
-    assert client.get("/api/live/copy-events?style=balanced").json()["events"][0]["id"] == 9
+    events = client.get("/api/live/copy-events?style=balanced").json()
+    assert events["events"][0]["id"] == 9
+    assert events["source_safety"]["effect"] == "buy_paused"
+    assert events["source_safety"]["buy_path_active"] is False
     r = client.post("/api/live/copy-preview", json={"source_style": "balanced", "source_event_id": 9,
                                                        "limit_price": 100})
     assert r.status_code == 200 and r.json()["order_transmission_enabled"] is False

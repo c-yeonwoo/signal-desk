@@ -3938,7 +3938,8 @@ def advisor_harness_get(request: Request):
     from signal_desk.signals import advisor_shadow
     s = advisor_shadow.cached_summary()
     return {"harness": advisor_shadow.harness_config(),
-            "gate": advisor_shadow.gate(summary=s),
+            "gate": advisor_shadow.decision_status(summary=s),
+            "gate_by_style": advisor_shadow.decision_status_by_style(s),
             "paired_verdict_ready": s.get("paired_verdict_ready"),
             "paired_delta_pct": s.get("paired_delta_pct"),
             "paired_n": s.get("paired_n")}

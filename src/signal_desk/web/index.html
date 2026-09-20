@@ -766,6 +766,10 @@
   .copy-heading p, .copy-section p { margin:0; color:var(--dim); font-size:var(--fs-sm); }
   .copy-state { display:inline-flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid var(--line-strong); border-radius:var(--r-sm); font-size:var(--fs-xs); white-space:nowrap; background:var(--panel); }
   .copy-state::before { content:''; width:6px; height:6px; background:var(--dim); border-radius:50%; }
+  .copy-safety { margin:-8px 0 20px; padding:12px 14px; border:1px solid var(--line); border-left:3px solid var(--dim); border-radius:var(--r-sm); background:var(--panel); font-size:var(--fs-sm); }
+  .copy-safety.ok { border-left-color:var(--sig-buy); }
+  .copy-safety.warn { border-left-color:var(--sig-sell); }
+  .copy-safety small { display:block; color:var(--dim); margin-top:3px; line-height:1.5; }
   .copy-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:24px; align-items:start; }
   .copy-editor { background:var(--panel); border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden; min-width:0; }
   .copy-section { padding:24px; border-bottom:1px solid var(--line); }
@@ -1216,6 +1220,7 @@
             <p>따라갈 봇을 고르고 주문 금액의 비율과 계좌 한도를 설정하세요.</p></div>
           <span class="copy-state">현재 단계 · 설정 및 사전점검</span>
         </div>
+        <div id="live-copy-safety" class="copy-safety" role="status"><b>참조 봇 안전 상태 확인 중…</b><small>실주문 전송은 항상 잠겨 있습니다.</small></div>
         <div class="copy-layout">
           <div class="copy-editor" id="live-copy-card">
             <div class="copy-section">
@@ -5617,6 +5622,32 @@ function selectLiveCopyStyle(style){
   liveCopyDraftChanged();
   loadLiveCopyEvents();
 }
+function _renderLiveCopySafety(s){
+  const el = document.getElementById('live-copy-safety');
+  if (!el) return;
+  if (!s) {
+    el.className = 'copy-safety warn';
+    el.innerHTML = '<b>참조 봇 안전 상태를 확인하지 못했습니다.</b><small>상태가 확인될 때까지 신규 매수 참조를 사용하지 마세요. 실주문 전송은 잠겨 있습니다.</small>';
+    return;
+  }
+  const style = _liveCopyStyleLabels[s.style] || s.style || '선택한';
+  let title, detail, cls;
+  if (s.effect === 'llm_selection') {
+    title = `${style} 참조 봇 · LLM 선별 허용`;
+    detail = '안전 게이트가 자문 선별을 허용합니다. 실제 자문 실패 시에는 결정론적 점수순으로 폴백합니다.';
+    cls = 'ok';
+  } else if (s.effect === 'score_fallback') {
+    title = `${style} 참조 봇 · LLM 선별 OFF, 점수순 매수 유지`;
+    detail = s.reason || '검증 결과에 따라 LLM 선별만 끄고 엔진 점수순 후보를 사용합니다.';
+    cls = 'warn';
+  } else {
+    title = `${style} 참조 봇 · 신규 매수 보류`;
+    detail = s.reason || '안전 게이트가 매수 경로를 닫았습니다.';
+    cls = 'warn';
+  }
+  el.className = `copy-safety ${cls}`;
+  el.innerHTML = `<b>${esc(title)}</b><small>${esc(detail)} · 매도·손절은 계속 동작 · 실주문 전송은 잠김</small>`;
+}
 async function _liveCopyFetch(url, options){
   const r = await fetch(url, options); const d = await r.json();
   if (!r.ok) throw new Error(d.detail || d.error || '요청 실패');
@@ -5675,10 +5706,12 @@ async function loadLiveCopyEvents(){
   try {
     const d = await _liveCopyFetch('/api/live/copy-events?style=' + encodeURIComponent(style));
     if (requestId !== _liveCopyEventRequest) return;
+    _renderLiveCopySafety(d.source_safety);
     select.innerHTML = (d.events || []).map(e => `<option value="${e.id}">${esc(new Date(e.ts * 1000).toLocaleString('ko-KR'))} · ${esc(e.side === 'buy' ? '매수' : '매도')} ${esc(e.name || e.ticker)} ${fmtNum(e.qty,0)}주 · 기준 ${fmtNum(e.price,0)}원</option>`).join('') || '<option value="">최근 참조 체결 없음</option>';
     if (!(d.events || []).length) box.textContent = '선택한 레퍼런스 봇의 국내 최근 체결이 없습니다. 주문을 만들어내지 않습니다.';
   } catch(e) {
     if (requestId !== _liveCopyEventRequest) return;
+    _renderLiveCopySafety(null);
     select.innerHTML = '<option value="">참조 체결 조회 실패</option>'; box.textContent = e.message;
   }
 }
@@ -8347,6 +8380,11 @@ async function loadShadows(){
           ? `<div style="color:var(--sig-sell);font-size:13px;margin-top:4px;font-weight:600">⛔ LLM 선별 OFF · ${esc(g.reason || '')} · fallback ${esc(g.fallback || 'abstain')}</div>`
           : `<div style="color:var(--dim);font-size:12px;margin-top:4px">게이트 ON · kill ${killOn ? '자동' : '끔'} · challenger ${chalOn ? 'veto' : '끔'}`
             + `${h.manual_override ? ` · 수동 ${esc(h.manual_override)}` : ''}</div>`;
+        const effectLabel = {llm_selection: 'LLM 허용', score_fallback: '점수순 유지', buy_paused: '신규매수 보류', gate_error: '게이트 오류'};
+        const styleGateLine = Object.entries(adv.gate_by_style || {}).map(([k, x]) => {
+          const bad = x.effect === 'buy_paused' || x.effect === 'gate_error';
+          return `<span style="color:${bad ? 'var(--sig-sell)' : 'var(--dim)'}">${styleLabel[k] || k} ${effectLabel[x.effect] || x.effect}</span>`;
+        }).join(' · ');
         const harnessBtns = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">
           <button type="button" class="btn" style="padding:2px 8px;font-size:12px"
             onclick="setAdvisorHarness({challenger_enabled:${chalOn ? 'false' : 'true'}})">Challenger ${chalOn ? '끄기' : '켜기'}</button>
@@ -8366,7 +8404,9 @@ async function loadShadows(){
             + ` · 기권 ${adv.abstained_runs ?? 0} · 갈린 회차 ${adv.divergent_runs ?? 0}`
             + ` · 교체 쌍 ${adv.paired_n ?? 0}</div>`
             + (styles ? `<div style="color:var(--dim);font-size:12px;margin-top:2px">성향별 · ${styles}</div>` : '')
-            + unpaired + gateLine + harnessBtns);
+            + unpaired + gateLine
+            + (styleGateLine ? `<div style="font-size:12px;margin-top:3px">실행효과 · ${styleGateLine}</div>` : '')
+            + harnessBtns);
       })()
     + block('기후(climate)', '기후 판정이 매수라고 본 종목 vs 기존 시그널만 매수라고 본 종목의 실현수익률 차이.', clim);
   const b = document.getElementById('admin-verify-badge');

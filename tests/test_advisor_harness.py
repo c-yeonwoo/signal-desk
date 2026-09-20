@@ -43,6 +43,21 @@ def test_gate_style_specific_kill():
     assert advisor_shadow.gate(style="aggressive", summary=summary)["active"] is True
 
 
+def test_decision_status_explains_whether_buys_continue():
+    losing = {"paired_verdict_ready": True, "paired_delta_pct": -2.0,
+              "paired_n": 25, "by_style": {}}
+    paused = advisor_shadow.decision_status(style="balanced", summary=losing)
+    assert paused["selector_active"] is False
+    assert paused["effect"] == "buy_paused" and paused["buy_path_active"] is False
+
+    advisor_shadow.set_harness_config({"kill_fallback": "score"})
+    fallback = advisor_shadow.decision_status(style="balanced", summary=losing)
+    assert fallback["effect"] == "score_fallback" and fallback["buy_path_active"] is True
+
+    matrix = advisor_shadow.decision_status_by_style(losing)
+    assert set(matrix) == {"conservative", "balanced", "aggressive"}
+
+
 def test_gate_manual_override():
     advisor_shadow.set_harness_config({"manual_override": "force_off"})
     assert advisor_shadow.gate(summary={"paired_verdict_ready": False})["active"] is False

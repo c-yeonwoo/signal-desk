@@ -145,6 +145,44 @@ def gate(*, style: str | None = None, summary: dict | None = None) -> dict[str, 
             "paired_n": s.get("paired_n")}
 
 
+def decision_status(*, style: str | None = None, summary: dict | None = None) -> dict[str, Any]:
+    """사람이 읽는 실행 효과까지 포함한 advisor 안전 상태.
+
+    `active=False` 자체만 보여주면 abstain(신규매수 중지)과 score(점수순 계속)를
+    구분할 수 없다. 관리자·실계좌 추종 화면과 봇이 같은 gate 결과를 읽게 한다.
+    """
+    cfg = harness_config()
+    g = gate(style=style, summary=summary)
+    selector_active = bool(g.get("active"))
+    fallback = g.get("fallback") or cfg["kill_fallback"]
+    if selector_active:
+        effect, buy_path_active = "llm_selection", True
+    elif fallback == "score":
+        effect, buy_path_active = "score_fallback", True
+    else:
+        effect, buy_path_active = "buy_paused", False
+    return {
+        "style": style,
+        "active": selector_active,  # 기존 /api/advisor-harness 계약
+        "selector_active": selector_active,
+        "buy_path_active": buy_path_active,
+        "effect": effect,
+        "fallback": fallback,
+        "reason": g.get("reason"),
+        "source": g.get("source"),
+        "manual_override": cfg.get("manual_override"),
+        "kill_enabled": cfg.get("kill_enabled"),
+        "challenger_enabled": cfg.get("challenger_enabled"),
+        "paired_verdict_ready": g.get("paired_verdict_ready"),
+        "paired_delta_pct": g.get("paired_delta_pct"),
+        "paired_n": g.get("paired_n"),
+    }
+
+
+def decision_status_by_style(summary: dict | None = None) -> dict[str, dict[str, Any]]:
+    return {style: decision_status(style=style, summary=summary) for style in _STYLES}
+
+
 def _kst_today() -> str:
     return datetime.datetime.now(ZoneInfo("Asia/Seoul")).date().isoformat()
 
@@ -347,7 +385,8 @@ def summary(
     blob = _load()
     if not blob:
         return {"ready": False, "days": [], "message": "advisor shadow 기록 없음(봇 회차마다 누적)",
-                "harness": harness_config(), "gate": gate(summary={})}
+                "harness": harness_config(), "gate": gate(summary={}),
+                "gate_by_style": decision_status_by_style({})}
 
     llm_only_rets: list[float] = []
     base_only_rets: list[float] = []
@@ -440,6 +479,12 @@ def summary(
             **_diff_stats(b["paired_diffs"], min_samples=min_samples),
         }
 
+    gate_summary = {
+        "paired_verdict_ready": paired["paired_verdict_ready"],
+        "paired_delta_pct": paired["paired_delta_pct"],
+        "paired_n": paired["paired_n"],
+        "by_style": style_out,
+    }
     return {
         "ready": matured > 0 or paired["paired_n"] > 0,
         "horizon": horizon,
@@ -473,10 +518,6 @@ def summary(
         "disclaimer": ("advisor shadow · paired 유의 패배 시 LLM 선별 kill "
                        "· challenger는 veto만 · 수량·문턱·리스크 규칙은 미변경"),
         "harness": harness_config(),
-        "gate": gate(summary={
-            "paired_verdict_ready": paired["paired_verdict_ready"],
-            "paired_delta_pct": paired["paired_delta_pct"],
-            "paired_n": paired["paired_n"],
-            "by_style": style_out,
-        }),
+        "gate": gate(summary=gate_summary),
+        "gate_by_style": decision_status_by_style(gate_summary),
     }
