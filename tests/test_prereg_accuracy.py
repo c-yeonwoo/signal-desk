@@ -141,6 +141,24 @@ def test_oos_window_actually_cuts_the_rows():
     assert "2026-08-10" in everything and "2026-08-10" not in oos
 
 
+def test_oos_baseline_uses_the_same_window_as_buy_hits():
+    """기준선에 등록일 전 장세가 섞이면 OOS 리프트가 다른 시장과의 비교가 된다."""
+    rows = [
+        {"date": "2026-08-10", "ticker": "OLD", "kind": "HOLD"},
+        {"date": "2026-08-20", "ticker": "NEW", "kind": "HOLD"},
+    ]
+    dates = [f"2026-08-{d:02d}" for d in range(10, 31)]
+    closes = {
+        "OLD": (dates, [100.0 + 10 * i for i in range(len(dates))]),
+        "NEW": (dates, [100.0 for _ in dates]),
+    }
+    full = acc.baseline_for_window(rows, closes, horizon=5)
+    oos = acc.baseline_for_window(rows, closes, horizon=5, from_date="2026-08-18")
+    assert full["sample"] == 2 and full["up_pct"] == 50.0
+    assert oos["sample"] == 1 and oos["up_pct"] == 0.0
+    assert oos["from_date"] == "2026-08-18"
+
+
 # ---------- 통계 규약 ----------
 
 def test_clustered_days_do_not_inflate_confidence():

@@ -3380,7 +3380,7 @@ def _kb_targets(limit_candidates: int = 16) -> list[dict]:
     # ① 매수권 + 뽑을 자리 상위 k — 사기 전에 근거가 있어야 한다.
     #    kind=="BUY" 문자열 비교는 STRONG_BUY(우선매수)를 빠뜨렸다 → is_buy로 판정한다.
     if store.is_ready():
-        from signal_desk.signals import signalcfg
+        from signal_desk import signalcfg
         from signal_desk.signals.engine import is_buy, rank_slots
         sigs = sorted(_signals(), key=lambda s: s.score, reverse=True)
         buy_n = 0
@@ -4106,14 +4106,16 @@ def accuracy_verdict_get(request: Request):
     rows = store.load_signal_history()
     recs = [] if rows.empty else rows.to_dict("records")
     closes = store.load_all_dated_closes()
-    full = acc.realized_accuracy(recs, closes)
     out = []
     for lk in looks:
         h = int(lk["horizon"])
-        base = ((full.get("by_horizon") or {}).get(str(h))
-                or (full.get("by_horizon") or {}).get(h) or {}).get("baseline") or {}
+        from_date = (lk.get("requirement") or {}).get("from_date")
+        # 매수 표본과 기준선은 반드시 같은 OOS 기간에서 재다. 매수는
+        # from_date 이후인데 기준선은 전체 기간이면 두 집단의 장세가 달라진다.
+        base = acc.baseline_for_window(
+            recs, closes, horizon=h, from_date=from_date)
         hits = acc.buy_hits_by_date(recs, closes, horizon=h,
-                                    from_date=(lk.get("requirement") or {}).get("from_date"))
+                                    from_date=from_date)
         out.append({**prereg.judge_accuracy(
             lk, hits_by_date=hits, baseline_pct=base.get("up_pct"),
             baseline_sample=int(base.get("sample") or 0),

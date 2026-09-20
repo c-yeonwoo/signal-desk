@@ -6398,31 +6398,77 @@ async function refreshData(){
 }
 
 // 데이터 상태는 버튼을 눌러야 보이면 아무도 안 본다 — 관리자 진입 시 한 번 받아 배지로 알린다.
-let _dhCache = null, _dhAt = 0;
+let _dhCache = null, _dhAt = 0, _dhPromise = null, _dhState = 'idle', _dhError = '';
 async function loadDataHealth({ render = true, force = false } = {}){
   const box = document.getElementById('data-health');
   const fresh = !force && _dhCache && (Date.now() - _dhAt) < 5 * 60 * 1000;
   if (fresh) { if (render) renderDataHealth(_dhCache); return _dhCache; }
-  if (render && box) box.innerHTML = '점검 중…';
+  if (_dhPromise) {
+    if (render && box && !_dhCache) box.innerHTML = '점검 중…';
+    try {
+      const pending = await _dhPromise;
+      if (render && pending) renderDataHealth(pending);
+      return pending;
+    } catch (e) {
+      if (render && box) box.innerHTML = `점검 요청 실패${_dhError ? ` · ${esc(_dhError)}` : ''}`;
+      return null;
+    }
+  }
+  _dhState = 'loading'; _dhError = '';
+  if (render && box && !_dhCache) box.innerHTML = '점검 중…';
+  renderAdminTodo();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  _dhPromise = (async () => {
+    const res = await fetch('/api/data-health', { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  })();
   try {
-    const d = await (await fetch('/api/data-health')).json();
+    const d = await _dhPromise;
     _dhCache = d; _dhAt = Date.now();
+    _dhState = 'ready';
     _setAdminOpsBadge(d);
     if (render) renderDataHealth(d);
     return d;
   } catch (e) {
-    if (render && box) box.innerHTML = '점검 요청 실패';
+    _dhState = 'error';
+    _dhError = e && e.name === 'AbortError' ? '15초 시간 초과' : (e && e.message ? e.message : '알 수 없는 오류');
+    if (render && box) box.innerHTML = `점검 요청 실패 · ${esc(_dhError)} <button class="btn" onclick="loadDataHealth({render:true,force:true})">다시 점검</button>`;
+    renderAdminTodo();
     return null;
+  } finally {
+    clearTimeout(timer);
+    _dhPromise = null;
   }
 }
 
-// 배지 = '지금 사람이 봐야 하는 것'의 개수. 오래된 소스 + 이유가 붙은 빈 데이터.
+function _adminOpsIncidents(d){
+  if (!d) return [];
+  const items = [];
+  // KB refresh 실패는 아래의 구조화된 fault 하나로 세고, 같은 원인으로
+  // stale된 KB 행을 두 번째 incident로 세지 않는다.
+  const stale = (d.freshness || []).filter(f => f.stale
+    && !(f.key === 'kb' && d.kb_refresh && d.kb_refresh.blocked_reason));
+  if (stale.length) items.push({ id: 'stale', seg: 'ops', text: `오래된 데이터 ${stale.length}건 — 점검` });
+  if (d.signal_drift && d.signal_drift.frozen) items.push({ id: 'drift', seg: 'ops', text: '점수 동결 의심 — 점검' });
+  if (d.crowding && d.crowding.warn) items.push({ id: 'crowding', seg: 'ops', text: `편중 경고 · ${d.crowding.note || '매수권 섹터 쏠림'}` });
+  else if (d.crowding && d.crowding.data_quality) items.push({ id: 'sector-map', seg: 'ops', text: `섹터맵 공백 · ${d.crowding.note || '미분류'}` });
+  const notTodo = new Set(['frozen', 'unconfigured', 'empty']);
+  ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => {
+    const st = d[k];
+    if (!st || !st.blocked_reason || notTodo.has(st.blocked_kind)) return;
+    items.push({ id: k, seg: 'ops', text: st.blocked_reason });
+  });
+  const seen = new Set();
+  return items.filter(it => { const key = `${it.id}:${it.text}`; if (seen.has(key)) return false; seen.add(key); return true; });
+}
+
+// 배지와 '오늘 할 일'은 같은 incident 목록을 쓴다.
 function _setAdminOpsBadge(d){
   const b = document.getElementById('admin-ops-badge');
   if (!b || !d) return;
-  let n = (d.freshness || []).filter(f => f.stale).length;
-  if (d.signal_drift && d.signal_drift.frozen) n++;
-  ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => { if (d[k] && d[k].blocked_reason) n++; });
+  const n = _adminOpsIncidents(d).length;
   // 이벤트 후보는 뉴스 탭 배지로 — 점검 배지와 이중 카운트하지 않는다
   b.style.display = n ? '' : 'none';
   b.textContent = n || '';
@@ -6479,10 +6525,11 @@ function renderDataHealth(d){
     if (d.freshness && d.freshness.length) {
       const fmtAge = h => h == null ? '–' : (h >= 24 ? (h / 24).toFixed(1) + '일' : h.toFixed(1) + '시간') + ' 전';
       const fr = d.freshness.map(f => {
-        const c = f.updated == null ? 'var(--sell)' : (f.stale ? '#D97706' : 'var(--sig-buy)');
-        const st = f.updated == null ? '미수집' : (f.stale ? '오래됨' : '최신');
+        const derived = f.kind === 'derived' && (f.rows || 0) > 0;
+        const c = derived ? 'var(--sig-buy)' : (f.updated == null ? 'var(--sell)' : (f.stale ? '#D97706' : 'var(--sig-buy)'));
+        const st = derived ? '계산완료' : (f.updated == null ? '미수집' : (f.stale ? '오래됨' : '최신'));
         return `<tr><td>${esc(f.label)}${f.note ? `<div style="color:var(--sig-watch);font-size:12px">${esc(f.note)}</div>` : ''}</td>
-          <td style="color:${c}">${f.updated ? esc(f.updated) : '없음'}</td>
+          <td style="color:${c}">${derived ? '원천 재무 기준' : (f.updated ? esc(f.updated) : '없음')}</td>
           <td class="num">${fmtAge(f.age_hours)}</td><td class="num">${f.rows ?? '–'}</td>
           <td style="color:${c};font-weight:600">${st}</td></tr>`;
       }).join('');
@@ -7058,41 +7105,33 @@ function _badgeN(id){
   if (!b || b.style.display === 'none') return 0;
   return parseInt(b.textContent, 10) || 0;
 }
+function _badgeActive(id){
+  const b = document.getElementById(id);
+  return !!(b && b.style.display !== 'none' && String(b.textContent || '').trim());
+}
 function renderAdminTodo(){
   const el = document.getElementById('admin-todo-body');
   if (!el) return;
-  const items = [];
+  if (!_dhCache && _dhState === 'loading') {
+    el.innerHTML = '<span style="color:var(--dim)">운영 상태 점검 중…</span>';
+    return;
+  }
+  if (!_dhCache && _dhState === 'error') {
+    el.innerHTML = `<span style="color:var(--sell)">운영 상태 미확인 · ${esc(_dhError)}</span> `
+      + '<button type="button" class="btn" onclick="loadDataHealth({render:true,force:true})">다시 점검</button>';
+    return;
+  }
+  const items = _adminOpsIncidents(_dhCache);
   const d = _dhCache;
   if (d) {
-    const stale = (d.freshness || []).filter(f => f.stale).length;
-    if (stale) items.push({ seg: 'ops', text: `오래된 데이터 ${stale}건 — 점검` });
-    if (d.signal_drift && d.signal_drift.frozen) items.push({ seg: 'ops', text: '점수 동결 의심 — 점검' });
     if (d.event_queue && (d.event_queue.pending || 0) > 0) {
       const n = d.event_queue.pending;
       items.push({ seg: 'kb', text: `이벤트 후보 잔여 ${n}건 — 자동 판정 대기`, view: 'events', cand: true });
     }
-    if (d.crowding && d.crowding.warn) {
-      items.push({ seg: 'ops', text: `편중 경고 · ${d.crowding.note || '매수권 섹터 쏠림'}` });
-    } else if (d.crowding && d.crowding.data_quality) {
-      items.push({ seg: 'ops', text: `섹터맵 공백 · ${d.crowding.note || '미분류'}` });
-    }
-    // **할 일은 고장만이다.** `자동수집 OFF`(의도된 동결)·`해시 폴백`(의도된 미설정)이
-    // 매일 버튼으로 떠 있었고, 두 번째 문구에는 "고장이 아니다"라고 적혀 있었다 —
-    // 동결을 고장으로 보고하면 고장 조사를 유도한다. 서버가 `blocked_kind` 로 분류한다.
-    //
-    // **모르는 종류는 띄운다**(fail-loud). 조용히 숨기는 쪽으로 기울면 새로 생긴 고장이
-    // 목록에 안 나타난다 — 할 일 목록에서 위험한 방향은 '안 보이는 것'이다.
-    const _NOT_A_TODO = new Set(['frozen', 'unconfigured', 'empty']);
-    ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => {
-      const st = d[k];
-      if (!st || !st.blocked_reason) return;
-      if (_NOT_A_TODO.has(st.blocked_kind)) return;      // 진단 카드에는 그대로 남는다
-      items.push({ seg: 'ops', text: st.blocked_reason });
-    });
   }
   const eng = _badgeN('admin-engine-badge');
   if (eng) items.push({ seg: 'engine', text: `엔진 제안 ${eng}건 — 승인/반려` });
-  const ver = _badgeN('admin-verify-badge');
+  const ver = _badgeActive('admin-verify-badge');
   if (ver) items.push({ seg: 'verify', text: '성적 판정 가능 — 확인' });
   if (!items.length) {
     el.innerHTML = '<span style="color:var(--sig-buy)">지금 급한 일 없음</span>'
@@ -7113,22 +7152,39 @@ function adminTodoGo(seg, openCand){
     setKbView('events');
   }
 }
+async function _adminPrefetchJson(url){
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    return null;  // 본문 패널은 각자 실패 상태를 그린다. 배지 prefetch는 랜딩을 막지 않는다.
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function enterAdmin(hashSeg){
   // 해시가 구체 탭이면 그대로. 아니면 배지 있는 첫 탭으로.
   const explicit = hashSeg && _ADMIN_PANELS[hashSeg] && hashSeg !== 'ops';
-  await loadDataHealth({ render: false });
-  // 제안·판정 배지용 가벼운 prefetch(본문은 해당 탭에서)
-  try {
-    const bp = await (await fetch('/api/brain/proposals?status=draft')).json();
-    _setEngineBadge((bp.items || []).length);
-  } catch (e) {}
-  try {
-    const adv = await (await fetch('/api/advisor-shadow')).json();
+  // 패널을 먼저 보이고 배지 상태는 뒤에서 받는다. 느린 진단 하나가
+  // 명시적으로 연 엔진·성적 탭을 빈 화면으로 만들지 않는다.
+  switchAdminSeg(explicit ? hashSeg : 'ops', { pin: !!explicit });
+  const healthPromise = loadDataHealth({ render: !explicit });
+  // 제안·판정 배지와 상태를 병렬로 받는다.
+  const [health, bp, adv] = await Promise.all([
+    healthPromise,
+    _adminPrefetchJson('/api/brain/proposals?status=draft'),
+    _adminPrefetchJson('/api/advisor-shadow'),
+  ]);
+  if (bp) _setEngineBadge((bp.items || []).length);
+  if (adv) {
     const ready = !!(adv && (adv.paired_verdict_ready ?? adv.verdict_ready));
     const b = document.getElementById('admin-verify-badge');
     if (b) { b.style.display = ready ? '' : 'none'; b.textContent = ready ? '판정' : ''; }
-  } catch (e) {}
-  const eq = (_dhCache && _dhCache.event_queue) || {};
+  }
+  const eq = (health && health.event_queue) || {};
   const kbBadge = document.getElementById('admin-kb-badge');
   if (kbBadge) {
     const n = eq.expiring_soon || eq.pending || 0;
@@ -7141,11 +7197,12 @@ async function enterAdmin(hashSeg){
     if (_badgeN('admin-ops-badge')) pick = 'ops';
     else if ((eq.expiring_soon || eq.pending) > 0) pick = 'kb';
     else if (_badgeN('admin-engine-badge')) pick = 'engine';
-    else if (_badgeN('admin-verify-badge')) pick = 'verify';
+    else if (_badgeActive('admin-verify-badge')) pick = 'verify';
   } else {
     pick = _adminSeg || 'ops';
   }
-  switchAdminSeg(pick, { pin: true });
+  // 사용자가 로딩 중 다른 탭을 누르면 자동 랜딩으로 덮지 않는다.
+  if (!explicit && !_adminEntered) switchAdminSeg(pick, { pin: true });
 }
 
 // ===== 조사 후보 큐(관리자) — 수동 종목 · KB 우선 · 점수 가산 없음 =====

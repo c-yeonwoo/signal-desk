@@ -32,6 +32,9 @@ _IC_MIN_DATES = 20  # IC 관측 **날짜** 최소치(accuracy._MIN_IC_DATES와 �
 # 타이밍/게이트 역할 팩터 — 5.5년 실측상 횡단면 IC≈0(랭킹 알파 아님). 진입 타이밍·추세게이트로
 # 기능하므로 낮은/음수 IC를 경고하지 않는다(오탐 방지). 랭킹 알파는 모멘텀 등이 담당.
 _TIMING_FACTORS = {"technical", "reversion"}
+# 스냅샷 원값이 낮을수록 좋은 팩터. valuation=0이 저평가,
+# short=0이 공매도 압력 없음이므로 음수 IC가 엔진 기여 방향과 일치한다.
+_INVERSE_FACTORS = {"valuation", "short"}
 
 
 def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) -> dict:
@@ -90,13 +93,16 @@ def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) 
             metric += f" · IC{ic:+.2f}"  # 타이밍/게이트 역할 — 낮은/음수 IC 정상(경고 안 함)
             if ic < 0:
                 findings.append({"level": "info", "text": f"{label} 팩터 IC {ic:+.2f} — 타이밍/게이트 역할이라 횡단면 IC 낮음이 정상"})
-        elif ic < 0:
+        elif (ic * (-1 if key in _INVERSE_FACTORS else 1)) < 0:
             st = "warn"; metric += f" · IC{ic:+.2f}"
             findings.append({"level": "warn",
-                             "text": (f"{label} 팩터 IC 음수({ic:+.2f}, {nd}거래일 · "
+                             "text": (f"{label} 팩터 IC가 엔진 기대 방향과 반대"
+                                      f"({ic:+.2f}, {nd}거래일 · "
                                       f"p={stat.get('p')}) — 가중 재검토 후보")})
         else:
             metric += f" · IC{ic:+.2f}"
+            if key in _INVERSE_FACTORS and ic < 0:
+                metric += " · 정상 방향"
         if ss != "stale":
             active_factors += 1
         nodes.append({"id": f"fac:{key}", "label": label, "group": "factor", "status": st, "metric": metric})

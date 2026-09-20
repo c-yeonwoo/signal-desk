@@ -29,6 +29,17 @@ def test_kb_llm_targets_are_bounded_by_the_rank_window():
     assert "near_limit" not in src, "창과 무관한 상수로 상위 N을 자른다"
 
 
+def test_kb_targets_imports_the_real_signal_config_module(monkeypatch):
+    """ready 경로가 없는 `signals.signalcfg`를 import해 운영 상태 계산을 깨뜨리지 않는다."""
+    monkeypatch.setattr(api.store, "is_ready", lambda: True)
+    monkeypatch.setattr(api.store, "load_universe", lambda: [])
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [])
+    monkeypatch.setattr(api, "_signals", lambda: [])
+    monkeypatch.setattr(api.db, "bot_position_tickers_all", lambda: [])
+    monkeypatch.setattr(api.db, "fav_tickers_all", lambda: [])
+    assert api._kb_targets() == []
+
+
 def test_kb_llm_targets_exclude_the_unbounded_sets():
     """외부후보·주도섹터는 "언젠가 볼 수도 있는" 집합이라 상한이 없다 — LLM 경로에서 뺀다.
 

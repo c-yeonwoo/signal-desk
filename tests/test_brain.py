@@ -51,13 +51,30 @@ def _ic(k, ic, *, n_dates=25, p=0.001, blocked=None):
 
 def test_negative_ic_factor_warned():
     acc = {"ready": True, "coverage": {"matured_primary": 40, "dates": 25},
-           **_ic("short", -0.05)}
+           **_ic("fundamental", -0.05)}
     snap = brain.build(_FRESH_OK, acc, _WEIGHTS, is_ready=True)
-    short_fac = next(n for n in snap["nodes"] if n["id"] == "fac:short")
-    assert short_fac["status"] == "warn"
-    assert any("IC 음수" in f["text"] for f in snap["findings"])
+    fund_fac = next(n for n in snap["nodes"] if n["id"] == "fac:fundamental")
+    assert fund_fac["status"] == "warn"
+    assert any("엔진 기대 방향과 반대" in f["text"] for f in snap["findings"])
     # 경고 문구에 **날짜 수**가 들어가야 한다 — 행 수를 쓰면 하루치 200종목이 표본 200으로 읽힌다.
     assert any("25거래일" in f["text"] for f in snap["findings"]), snap["findings"]
+
+
+def test_inverse_factor_negative_ic_is_the_expected_direction():
+    """valuation·short 원값은 낮을수록 좋다 — 음수 IC를 역방향 경고로 오인하지 않는다."""
+    acc = {"ready": True, "coverage": {"matured_primary": 40, "dates": 25},
+           **_ic("valuation", -0.05)}
+    snap = brain.build(_FRESH_OK, acc, _WEIGHTS, is_ready=True)
+    val = next(n for n in snap["nodes"] if n["id"] == "fac:valuation")
+    assert val["status"] != "warn"
+    assert "정상 방향" in val["metric"]
+
+    wrong = {"ready": True, "coverage": {"matured_primary": 40, "dates": 25},
+             **_ic("valuation", 0.05)}
+    wrong_snap = brain.build(_FRESH_OK, wrong, _WEIGHTS, is_ready=True)
+    wrong_val = next(n for n in wrong_snap["nodes"] if n["id"] == "fac:valuation")
+    assert wrong_val["status"] == "warn"
+    assert any("엔진 기대 방향과 반대" in f["text"] for f in wrong_snap["findings"])
 
 
 def test_timing_factor_low_ic_not_warned():
