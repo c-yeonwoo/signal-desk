@@ -5372,7 +5372,10 @@ function switchTradingSeg(seg){
   document.getElementById('trading-live').style.display = seg === 'live' ? '' : 'none';
   document.getElementById('trading-dividend').style.display = seg === 'dividend' ? '' : 'none';
   if (seg === 'bot') loadBotState();
-  if (seg === 'live' && !_liveCopyLoaded) loadLiveCopyPolicy();
+  if (seg === 'live') {
+    loadLiveCopySafety();
+    if (!_liveCopyLoaded) loadLiveCopyPolicy();
+  }
   if (seg === 'rebal') { gpRestore(); refreshPortfolio(); }   // 국내/해외 판 — 선택 시장 기준 전체 갱신
   if (seg === 'dividend') loadDividends();
   history.replaceState(null, '', '#trading/' + seg);   // 새로고침 시 서브탭 유지
@@ -5573,7 +5576,7 @@ async function previewLiveOrder(){
   document.getElementById('live-result').textContent = `${d.broker_checks_passed ? '계좌 여력 조회 통과' : '사전조회 보류'}\n${d.reason}\n실주문 전송 없음 · 투자판단 승인 아님`;
 }
 let _liveCopyLoaded = false, _liveCopySaved = null, _liveCopyRevision = 0, _liveCopyLoadId = 0;
-let _liveCopySaving = false, _liveCopyPreviewing = false, _liveCopyEventRequest = 0;
+let _liveCopySaving = false, _liveCopyPreviewing = false, _liveCopyEventRequest = 0, _liveCopySafetyRequest = 0;
 const _liveCopyStyleLabels = {conservative:'안정형', balanced:'균형형', aggressive:'공격형'};
 function _liveCopyPayload(){
   return {source_style:document.getElementById('live-copy-style').value,
@@ -5620,6 +5623,7 @@ function liveCopyDraftChanged(){
 function selectLiveCopyStyle(style){
   document.getElementById('live-copy-style').value = style;
   liveCopyDraftChanged();
+  loadLiveCopySafety();
   loadLiveCopyEvents();
 }
 function _renderLiveCopySafety(s){
@@ -5647,6 +5651,16 @@ function _renderLiveCopySafety(s){
   }
   el.className = `copy-safety ${cls}`;
   el.innerHTML = `<b>${esc(title)}</b><small>${esc(detail)} · 매도·손절은 계속 동작 · 실주문 전송은 잠김</small>`;
+}
+async function loadLiveCopySafety(){
+  const style = document.getElementById('live-copy-style').value;
+  const requestId = ++_liveCopySafetyRequest;
+  try {
+    const d = await _liveCopyFetch('/api/live/source-safety?style=' + encodeURIComponent(style));
+    if (requestId === _liveCopySafetyRequest) _renderLiveCopySafety(d.source_safety);
+  } catch(e) {
+    if (requestId === _liveCopySafetyRequest) _renderLiveCopySafety(null);
+  }
 }
 async function _liveCopyFetch(url, options){
   const r = await fetch(url, options); const d = await r.json();
