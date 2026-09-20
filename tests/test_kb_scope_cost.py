@@ -139,6 +139,7 @@ def test_turning_the_flag_on_takes_effect_the_same_day(monkeypatch):
     api._daily_kb_collect()
     assert ran == ["refresh"], "US 백필 키가 KB 수집까지 막았다 — 켠 날 아무 일도 안 일어난다"
     assert kv[api._KB_LLM_COLLECT_KEY] == api._kst_today(), "실제로 돌았는데 가드를 안 찍었다"
+    assert kv[api._KB_TICKER_COLLECT_KEY] == api._kst_today()
 
 
 def test_off_day_does_not_consume_the_kb_slot(monkeypatch):
@@ -148,6 +149,7 @@ def test_off_day_does_not_consume_the_kb_slot(monkeypatch):
     monkeypatch.setattr(api.store, "load_us_universe", lambda: [])
     api._daily_kb_collect()
     assert api._KB_LLM_COLLECT_KEY not in kv, "안 돌았는데 오늘을 완료로 찍었다"
+    assert api._KB_TICKER_COLLECT_KEY not in kv
     assert kv.get("kb_collect_date") == api._kst_today(), "US 백필 가드는 찍혀야 한다"
 
 
@@ -165,3 +167,32 @@ def test_kb_collect_runs_once_per_day(monkeypatch):
     api._daily_kb_collect()
     api._daily_kb_collect()
     assert len(ran) == 1, f"하루에 {len(ran)}번 돌았다"
+
+
+def test_ticker_failure_retries_without_repeating_costly_channel_collection(monkeypatch):
+    """종목 경로만 실패하면 다음 틱에 그것만 재시도한다."""
+    calls, refresh_calls = [], []
+    kv = _kv(monkeypatch, {"kb_collect_date": api._kst_today()})
+    monkeypatch.setattr(api.config, "kb_auto_collect", lambda: True)
+    monkeypatch.setattr(api, "_kb_targets", lambda: [{"ticker": "A", "name": "가"}])
+
+    def refresh(_targets):
+        refresh_calls.append(1)
+        if len(refresh_calls) == 1:
+            raise ImportError("broken import")
+        return {"updated": 1, "failed": [], "targets": 1}
+
+    monkeypatch.setattr(api.kb, "refresh", refresh)
+    for name in ("collect_fanding", "collect_outstanding", "collect_youtube", "collect_rss_macro"):
+        monkeypatch.setattr(api.kb, name, lambda *a, _name=name, **k: calls.append(_name) or {})
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [])
+
+    api._daily_kb_collect()
+    assert kv[api._KB_LLM_COLLECT_KEY] == api._kst_today()
+    assert api._KB_TICKER_COLLECT_KEY not in kv
+    assert (kv["kb_refresh_last"]["failed"])[0]["error"] == "ImportError"
+
+    api._daily_kb_collect()
+    assert len(calls) == 4, "외부 채널 수집까지 재실행하면 LLM 비용이 중복된다"
+    assert len(refresh_calls) == 2
+    assert kv[api._KB_TICKER_COLLECT_KEY] == api._kst_today()
