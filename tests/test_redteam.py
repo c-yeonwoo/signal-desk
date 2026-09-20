@@ -3448,6 +3448,15 @@ def test_engine_ui_separates_operations_from_predictive_power():
     assert "n_looks_total ??" in html and "가설군" in html
 
 
+def test_accuracy_ui_explains_independent_window_block():
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    render = html.split("async function loadAccuracy(", 1)[1].split("\nasync function ", 1)[0]
+    assert "ic_min_independent_dates" in render
+    assert "독립 관측 ${independent}/${independentNeed}개" in render
+    assert "비중첩 독립 관측 ${needIndependent}개" in render
+
+
 def test_live_copy_ui_exposes_reference_bot_safety_effect():
     from pathlib import Path
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")

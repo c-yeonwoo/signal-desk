@@ -8774,6 +8774,7 @@ async function loadAccuracy(){
     // 요건 미달·무유의는 **막대를 그리지 않고** 이유를 쓴다(base rate 없는 비율과 같은 규칙).
     const icStats = d.factor_ic_stats || {};
     const needD = d.ic_min_dates || 20;
+    const needIndependent = d.ic_min_independent_dates || 5;
     const icEntries = Object.entries(icStats)
       .filter(([, s]) => s && (s.n_dates || 0) > 0)
       .sort((a, b) => (b[1].ic != null) - (a[1].ic != null)
@@ -8789,7 +8790,11 @@ async function loadAccuracy(){
           ? ` · ${s.blocked_by === 'ripen' ? '익는 중' : '기록 중'}`
             + ` ${s.recorded_dates}/${needD}일 → <b>${esc(s.eta_date || '')}</b>경`
           : '';
-        const why = s.n_dates < needD ? `${s.n_dates}/${needD}일 성숙` : '0과 구분 불가';
+        const independent = s.independent_dates ?? 0;
+        const independentNeed = s.min_independent_dates || needIndependent;
+        const why = s.n_dates < needD ? `${s.n_dates}/${needD}일 성숙`
+          : independent < independentNeed ? `독립 관측 ${independent}/${independentNeed}개`
+          : '0과 구분 불가';
         return `<div style="display:flex;align-items:center;gap:8px;margin:3px 0;font-size:13px">
           ${label}<span style="flex:1;color:var(--dim-2)"`
           + ` title="${esc(s.blocked_reason || '')}">판정 보류 · ${why}${eta}</span>
@@ -8808,7 +8813,7 @@ async function loadAccuracy(){
         <span style="width:104px;text-align:right;color:var(--dim-2);font-size:12px">±${fmtNum(s.ci95, 3)} · ${s.n_dates}일 · p${fmtNum(s.p, 3)}</span></div>`;
     }).join('') : `<div style="color:var(--dim-2);font-size:13px">횡단면 IC 관측 0일 — 성숙 스냅샷 대기.</div>`;
     const icNote = `<div style="color:var(--dim-2);font-size:12px;margin-top:4px">날짜별 횡단면
-      순위상관의 평균 · Newey-West 보정 · 요건 ${needD}거래일. 같은 날 200종목은 하나의 관측이다.
+      순위상관의 평균 · Newey-West 보정 · 요건 ${needD}거래일 + 비중첩 독립 관측 ${needIndependent}개. 같은 날 200종목은 하나의 관측이다.
       <br>예상일은 <b>측정 가능해지는 날</b>이고 반영일이 아니다 — 판정 전에는 가중치를 만지지 않는다.
       휴장일 미반영 추정.</div>`;
     el.className = '';
