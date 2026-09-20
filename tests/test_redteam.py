@@ -1617,6 +1617,12 @@ def test_real_board_withholds_percentile_until_requirements_are_met():
 
     b = store.harness_board("kr")
     assert b["ready"], b
+    from signal_desk import prereg
+    reg = prereg.load()
+    assert b["n_harness_looks"] == reg["n_canonical"]
+    assert b["n_looks_total"] == reg["n_looks_total"]
+    assert b["threshold_pct"] == reg["threshold_pct"], \
+        "문턱을 계산한 가설군 수와 화면에 보여줄 수가 같아야 한다"
     for row in b["looks"]:
         req = row["requirement"] or {}
         if row["status"] != "locked":
@@ -3430,6 +3436,24 @@ def test_derived_freshness_is_rendered_as_computed_not_missing():
     render = html.split("function renderDataHealth(", 1)[1].split("\nfunction ", 1)[0]
     assert "f.kind === 'derived'" in render
     assert "계산완료" in render and "원천 재무 기준" in render
+
+
+def test_engine_ui_separates_operations_from_predictive_power():
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    assert 'id="brain-alpha"' in html
+    load = html.split("async function loadBrain(", 1)[1].split("\nfunction ", 1)[0]
+    assert "d.predictive" in load
+    assert "운영" in load and "판별력 역방향" in load
+    assert "n_looks_total ??" in html and "가설군" in html
+
+
+def test_revision_health_uses_the_full_pit_delta_history():
+    import inspect
+    from signal_desk import api as api_mod
+    src = inspect.getsource(api_mod._revision_ic_status)
+    assert "load_delta_history" in src
+    assert "load_deltas" not in src
 
 
 def test_frozen_states_still_appear_in_diagnostics():

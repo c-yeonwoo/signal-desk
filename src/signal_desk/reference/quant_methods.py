@@ -95,7 +95,7 @@ METHODS = [
      "idea": "컨센서스 상/하향 방향", "formula": "Δ선행EPS·Δ목표주가 (시계열)",
      "addresses": "새 알파축(강한 팩터)", "evidence": "revision momentum(문헌 강함)",
      "risk": "시계열 축적 필요(수주)·소스 취약", "validate": "트래커 IC(revision)",
-     "note": "annotate+opp태그+IC 측정. 점수 combine은 ready_for_score(IC≥0.02·n≥20) 이후"},
+     "note": "annotate+opp태그+날짜별 횡단면 IC. combine은 IC≥0.02·유의·독립관측≈5 이후"},
     {"key": "earnings_surprise_pead", "name": "어닝 서프라이즈·PEAD", "category": "factor", "status": "candidate",
      "idea": "실적 서프라이즈 후 표류", "formula": "(실제−컨센)/표준편차 → 방향 드리프트",
      "addresses": "이벤트 알파 포착(기회 확대)", "evidence": "Post-Earnings Announcement Drift",

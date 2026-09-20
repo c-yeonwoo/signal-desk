@@ -80,9 +80,13 @@ def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) 
         # 예전에는 pooled IC 스칼라가 늘 값으로 있어서 `N=행수`와 함께 "가중 재검토 후보"를 띄웠다.
         ic = factor_ic.get(key)
         nd = int(stat.get("n_dates") or 0)
+        enabled = isinstance(w, (int, float)) and w > 0
         st = "ok"
         metric = f"w={w:.2f}" if isinstance(w, (int, float)) else "—"
-        if ss == "stale":
+        if not enabled:
+            st = "candidate"
+            metric += " · 비활성"
+        elif ss == "stale":
             st = "stale"
         elif ic is None:
             why = stat.get("blocked_reason")
@@ -103,7 +107,7 @@ def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) 
             metric += f" · IC{ic:+.2f}"
             if key in _INVERSE_FACTORS and ic < 0:
                 metric += " · 정상 방향"
-        if ss != "stale":
+        if enabled and ss != "stale":
             active_factors += 1
         nodes.append({"id": f"fac:{key}", "label": label, "group": "factor", "status": st, "metric": metric})
         for s in srcs:
@@ -156,10 +160,38 @@ def build(freshness: list[dict], accuracy: dict, weights: dict, is_ready: bool) 
     factor_frac = active_factors / len(_FACTORS)
     src_frac = src_fresh / src_total if src_total else 0
     score = round(100 * (0.5 * src_frac + 0.3 * factor_frac + 0.2 * (1 if tracker_ready else 0.5 if is_ready else 0)))
-    stale_n = sum(1 for f in findings if f["level"] == "warn")
-    level = "warn" if (score < 70 or stale_n) else "ok"
+    source_stale_n = sum(1 for k, _ in _SOURCES if fresh.get(k) and fresh[k]["stale"])
+    operational_level = "warn" if (score < 70 or source_stale_n) else "ok"
 
-    summary = (f"엔진 헬스 {score}/100 · 팩터 {active_factors}/{len(_FACTORS)} 가동 · "
+    # 운영 정상성과 투자 판별력은 다른 축이다. 시세·소스가 신선하다고
+    # 종합점수의 미래수익 예측력이 입증되는 것은 아니다.
+    score_stat = ic_stats.get("score") or {}
+    pred_ic = score_stat.get("ic")
+    pred_days = int(score_stat.get("n_dates") or 0)
+    pred_independent = int(score_stat.get("independent_dates") or 0)
+    pred_independent_need = int(score_stat.get("min_independent_dates") or
+                                (accuracy or {}).get("ic_min_independent_dates") or 5)
+    pred_ready = pred_ic is not None and pred_independent >= pred_independent_need
+    if not pred_ready:
+        predictive_status = "pending" if pred_days < ic_min_dates else "unproven"
+        predictive_level = "idle"
+    elif pred_ic > 0:
+        predictive_status, predictive_level = "validated", "ok"
+    else:
+        predictive_status, predictive_level = "adverse", "warn"
+    predictive = {
+        "status": predictive_status, "level": predictive_level,
+        "score_ic": pred_ic if pred_ready else None, "ic_mean": score_stat.get("ic_mean"),
+        "n_dates": pred_days, "independent_dates": pred_independent,
+        "min_independent_dates": pred_independent_need,
+        "p": score_stat.get("p"), "blocked_reason": score_stat.get("blocked_reason"),
+    }
+
+    summary = (f"운영 건강 {score}/100 · 활성 팩터 {active_factors}/{len(_FACTORS)} · "
                f"소스 {src_fresh}/{src_total} 신선 · 트래커 {'성숙' if tracker_ready else '누적중'}")
-    return {"score": score, "level": level, "nodes": nodes, "edges": edges,
+    return {"score": score, "score_kind": "operational", "level": operational_level,
+            "operational": {"score": score, "level": operational_level,
+                            "active_factors": active_factors, "factor_total": len(_FACTORS),
+                            "fresh_sources": src_fresh, "source_total": src_total},
+            "predictive": predictive, "nodes": nodes, "edges": edges,
             "findings": findings[:12], "summary": summary}

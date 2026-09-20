@@ -118,6 +118,43 @@ def test_tracker_ready_activates_brain():
     assert next(n for n in snap["nodes"] if n["id"] == "diagnose")["status"] == "ok"
 
 
+def test_zero_weight_factor_is_not_counted_as_active():
+    weights = {**_WEIGHTS, "weight_technical": 0.0}
+    snap = brain.build(_FRESH_OK, {"ready": False}, weights, is_ready=True)
+    tech = next(n for n in snap["nodes"] if n["id"] == "fac:technical")
+    assert tech["status"] == "candidate" and "비활성" in tech["metric"]
+    assert snap["operational"]["active_factors"] == 7
+
+
+def test_operational_health_and_predictive_power_are_separate():
+    acc = {"ready": True, "coverage": {"matured_primary": 100, "dates": 31},
+           "factor_ic": {"score": -0.07},
+           "factor_ic_stats": {"score": {"ic": -0.07, "ic_mean": -0.07,
+                                                 "n_dates": 100, "independent_dates": 5,
+                                                 "p": 0.001, "significant": True}}}
+    snap = brain.build(_FRESH_OK, acc, _WEIGHTS, is_ready=True)
+    assert snap["operational"]["level"] == "ok"
+    assert snap["predictive"]["status"] == "adverse"
+    assert snap["predictive"]["score_ic"] == -0.07
+    assert snap["level"] == snap["operational"]["level"]
+    assert "운영 건강" in snap["summary"]
+
+
+def test_predictive_power_is_unproven_when_independent_windows_are_too_few():
+    acc = {"ready": True, "coverage": {"matured_primary": 100, "dates": 31},
+           "factor_ic": {"score": -0.07},
+           "factor_ic_stats": {"score": {
+               "ic": -0.07, "ic_mean": -0.07, "n_dates": 31,
+               "independent_dates": 1, "min_independent_dates": 5,
+               "p": 0.001, "significant": True,
+               "blocked_reason": "독립 관측 1/5개 — h20 중첩 창 판정 보류"}}}
+    snap = brain.build(_FRESH_OK, acc, _WEIGHTS, is_ready=True)
+    assert snap["predictive"]["status"] == "unproven"
+    assert snap["predictive"]["score_ic"] is None
+    assert snap["predictive"]["ic_mean"] == -0.07
+    assert snap["operational"]["level"] == "ok"
+
+
 def test_consensus_idle_when_empty():
     fresh = _FRESH_OK + [{"key": "consensus", "label": "컨센", "stale": False, "rows": 0, "age_hours": 1}]
     snap = brain.build(fresh, {"ready": False}, _WEIGHTS, is_ready=True)

@@ -190,9 +190,20 @@ def test_ic_is_gated_by_dates_not_rows():
     assert "1/20일" in s["blocked_reason"]
 
     # 날짜만 채우면(종목 수는 오히려 적어도) 값이 나온다.
-    rows, closes = _panel(n_dates=20, n_tickers=12, slope=1.0)
+    rows, closes = _panel(n_dates=25, n_tickers=12, slope=1.0)
     out = accuracy.realized_accuracy(rows, closes, horizons=(5,), primary=5)
     assert out["factor_ic"]["momentum"] is not None
+
+
+def test_ic_requires_non_overlapping_observations_too():
+    """긴 h20 창 31일은 달력상 많아 보여도 독립 관측은 하나라 판정값을 내지 않는다."""
+    rows, closes = _panel(n_dates=31, n_tickers=25, slope=1.0, bars=80)
+    out = accuracy.realized_accuracy(rows, closes, horizons=(20,), primary=20)
+    s = out["factor_ic_stats"]["momentum"]
+    assert s["n_dates"] == 31 and s["independent_dates"] == 1
+    assert s["ic_mean"] is not None and s["ic"] is None
+    assert out["factor_ic"]["momentum"] is None
+    assert "독립 관측 1/5개" in s["blocked_reason"]
 
 
 def test_thin_cross_sections_are_dropped_not_counted():

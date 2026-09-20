@@ -16,50 +16,64 @@ _EPS_EPS = 1e-9
 _PT_EPS = 1e-6
 
 
-def deltas_from_history(df) -> dict[str, dict]:
-    """consensus_history DataFrame → {ticker: {date, d_eps_pct, d_pt_pct, signal}}."""
+def _delta_between(ticker: str, a: dict, b: dict) -> dict | None:
+    """연속한 두 PIT 스냅샷의 리비전. 날짜 당시에 알 수 있던 값만 쓴다."""
+    def num(v):
+        try:
+            x = float(v)
+            return x if math.isfinite(x) else None
+        except (TypeError, ValueError):
+            return None
+
+    d_eps = d_pt = None
+    ea, eb = num(a.get("fwd1_eps")), num(b.get("fwd1_eps"))
+    if ea is not None and eb is not None and abs(ea) > _EPS_EPS:
+        d_eps = (eb - ea) / abs(ea) * 100.0
+    pa, pb = num(a.get("price_target_mean")), num(b.get("price_target_mean"))
+    if pa is not None and pb is not None and pa > _PT_EPS:
+        d_pt = (pb - pa) / pa * 100.0
+    vals = [max(-50.0, min(50.0, x)) for x in (d_eps, d_pt) if x is not None]
+    if not vals:
+        return None
+    strength = sum(vals) / len(vals)
+    sig = 1 if strength > 1.0 else (-1 if strength < -1.0 else 0)
+    return {
+        "ticker": str(ticker), "date": str(b.get("date"))[:10],
+        "d_eps_pct": round(d_eps, 2) if d_eps is not None else None,
+        "d_pt_pct": round(d_pt, 2) if d_pt is not None else None,
+        "revision_score": round(strength, 4), "signal": sig,
+    }
+
+
+def delta_history_from_history(df) -> list[dict]:
+    """consensus_history → 모든 날짜×종목 PIT 리비전 패널.
+
+    종목별 최신 두 행만 남기면 매일 새 스냅샷이 들어올 때 어제의 성숙 가능한
+    관측이 사라진다. IC는 역사 전체를 날짜별 횡단면으로 보존해 재다.
+    """
     if df is None or getattr(df, "empty", True):
-        return {}
+        return []
     need = {"ticker", "date"}
     if not need <= set(df.columns):
-        return {}
-    out: dict[str, dict] = {}
+        return []
+    out: list[dict] = []
     sub = df.sort_values(["ticker", "date"])
     for t, g in sub.groupby("ticker", sort=False):
         rows = g.to_dict("records")
-        if len(rows) < 2:
-            continue
-        a, b = rows[-2], rows[-1]
-        d_eps = d_pt = None
-        ea, eb = a.get("fwd1_eps"), b.get("fwd1_eps")
-        if ea is not None and eb is not None:
-            try:
-                ea, eb = float(ea), float(eb)
-                if abs(ea) > _EPS_EPS:
-                    d_eps = (eb - ea) / abs(ea) * 100.0
-            except (TypeError, ValueError):
-                pass
-        pa, pb = a.get("price_target_mean"), b.get("price_target_mean")
-        if pa is not None and pb is not None:
-            try:
-                pa, pb = float(pa), float(pb)
-                if pa > _PT_EPS:
-                    d_pt = (pb - pa) / pa * 100.0
-            except (TypeError, ValueError):
-                pass
-        if d_eps is None and d_pt is None:
-            continue
-        sig = 0
-        if (d_eps is not None and d_eps > 1.0) or (d_pt is not None and d_pt > 1.0):
-            sig = 1
-        elif (d_eps is not None and d_eps < -1.0) or (d_pt is not None and d_pt < -1.0):
-            sig = -1
-        out[str(t)] = {
-            "date": str(b.get("date"))[:10],
-            "d_eps_pct": round(d_eps, 2) if d_eps is not None else None,
-            "d_pt_pct": round(d_pt, 2) if d_pt is not None else None,
-            "signal": sig,
-        }
+        for a, b in zip(rows, rows[1:]):
+            if str(a.get("date"))[:10] == str(b.get("date"))[:10]:
+                continue
+            d = _delta_between(str(t), a, b)
+            if d:
+                out.append(d)
+    return out
+
+
+def deltas_from_history(df) -> dict[str, dict]:
+    """현재 주석·opp 태그용 최신 리비전. IC는 `delta_history_from_history`를 쓴다."""
+    out: dict[str, dict] = {}
+    for d in delta_history_from_history(df):
+        out[d["ticker"]] = {k: v for k, v in d.items() if k != "ticker"}
     return out
 
 
@@ -90,38 +104,50 @@ def _ranks(vals: list[float]) -> list[float]:
 
 
 def measure_ic(
-    deltas: dict[str, dict],
+    deltas: list[dict] | dict[str, dict],
     closes_by: dict[str, list[float]],
     dates_by: dict[str, list[str]],
     *,
     horizon: int = 20,
 ) -> dict[str, Any]:
-    """스냅샷 날짜 이후 horizon 거래일 수익률 vs 리비전 신호 IC."""
-    sigs, fwds = [], []
-    for t, d in deltas.items():
-        if not d.get("signal"):
+    """날짜별 횡단면 리비전 IC. 동일 종목은 하나의 날짜 관측으로 묶는다."""
+    from signal_desk.signals import accuracy
+
+    if isinstance(deltas, dict):
+        records = [{"ticker": t, **d} for t, d in deltas.items()]
+    else:
+        records = list(deltas or [])
+    pairs_by_date: dict[str, list[tuple[float, float]]] = {}
+    for d in records:
+        t = str(d.get("ticker") or "")
+        strength = d.get("revision_score")
+        if strength is None:
+            strength = d.get("signal")
+        try:
+            strength = float(strength)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(strength):
             continue
         dates = dates_by.get(t) or []
         closes = closes_by.get(t) or []
         if len(dates) != len(closes) or not dates:
             continue
         day = str(d["date"])[:10]
-        try:
-            i0 = next(i for i, x in enumerate(dates) if str(x)[:10] >= day)
-        except StopIteration:
-            continue
-        i1 = i0 + horizon
-        if i1 >= len(closes) or closes[i0] <= 0:
-            continue
-        fwds.append(closes[i1] / closes[i0] - 1.0)
-        sigs.append(float(d["signal"]))
-    ic = ic_rank(sigs, fwds)
+        fwd = accuracy.forward_returns(dates, closes, day, (int(horizon),))
+        if int(horizon) in fwd:
+            pairs_by_date.setdefault(day, []).append((strength, fwd[int(horizon)]))
+    stat = accuracy.cross_sectional_ic(
+        pairs_by_date, horizon=int(horizon), min_dates=20, min_breadth=8)
+    independent = int(stat.get("independent_dates") or 0)
+    ready_for_score = bool(stat.get("significant") and stat.get("ic") is not None
+                           and stat["ic"] >= 0.02 and independent >= 5)
     return {
-        "n": len(sigs),
-        "ic": ic,
-        "horizon": horizon,
-        "ready_for_score": bool(ic is not None and ic >= 0.02 and len(sigs) >= 20),
-        "note": "IC≥0.02·표본≥20일 때만 점수 투입 후보(현재는 annotate만)",
+        **stat,
+        "n": int(stat.get("n_dates") or 0),
+        "ready_for_score": ready_for_score,
+        "note": ("IC≥0.02·유의·독립관측≈5개 이상일 때만 점수 투입 후보"
+                 "(현재는 annotate만)"),
     }
 
 
@@ -145,3 +171,8 @@ def annotate_rows(rows: list[dict], deltas: dict[str, dict]) -> list[dict]:
 def load_deltas():
     from signal_desk import store
     return deltas_from_history(store.load_consensus_history())
+
+
+def load_delta_history():
+    from signal_desk import store
+    return delta_history_from_history(store.load_consensus_history())

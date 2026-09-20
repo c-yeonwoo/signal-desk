@@ -2638,7 +2638,8 @@ def harness_board(market: str = "kr", *, path=None) -> dict:
             "oos_from": (lk["requirement"] or {}).get("from_date"),
             "hypothesis": lk["hypothesis"], "score_source": lk["score_source"],
             "status": status, "threshold_pct": reg["threshold_pct"],
-            "n_registered": reg["n_canonical"], "config_hash": cur_hash,
+            "n_registered": reg["n_canonical"], "n_harness_looks": reg["n_canonical"],
+            "n_looks_total": reg["n_looks_total"], "config_hash": cur_hash,
             "requirement": prog, "decision": lk["decision"],
             "last_run_at": recent["ran_at"] if recent else None,
         }
@@ -2668,6 +2669,7 @@ def harness_board(market: str = "kr", *, path=None) -> dict:
     return {
         "ready": True, "market": market,
         "threshold_pct": reg["threshold_pct"], "n_registered": reg["n_canonical"],
+        "n_harness_looks": reg["n_canonical"], "n_looks_total": reg["n_looks_total"],
         "status": head["status"] if head else "unregistered",
         "verdict": head["verdict"] if head else "판정 불가",
         "verdict_why": head["verdict_why"] if head else "이 시장에 등록된 look이 없다",

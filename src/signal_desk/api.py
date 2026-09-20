@@ -2296,6 +2296,7 @@ def api_verdict(market: str = "kr"):
         "percentile": b.get("percentile"),          # 요건 미충족이면 None(보드가 비운다)
         "requirement": b.get("requirement"),
         "threshold_pct": b.get("threshold_pct"), "n_registered": b.get("n_registered"),
+        "n_harness_looks": b.get("n_harness_looks"), "n_looks_total": b.get("n_looks_total"),
         "counterfactual_looks": b.get("counterfactual_looks") or [],
     }
 
@@ -3063,7 +3064,7 @@ def _revision_ic_status() -> dict:
         return {"ready": False, "blocked_reason": ready.get("blocked_reason"),
                 "eta_date": ready.get("eta_date")}
     try:
-        deltas = revision.load_deltas()
+        deltas = revision.load_delta_history()
         ic = revision.measure_ic(
             deltas, store.load_price_series(), store.load_dates_by_ticker(),
             horizon=int(ready.get("horizon") or 20),

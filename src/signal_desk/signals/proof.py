@@ -55,8 +55,10 @@ def _accuracy_slim(acc: dict) -> dict:
         # IC를 숫자만 내보내면 크기가 판별력처럼 읽힌다 — n·CI·p·차단이유를 같이 싣는다.
         "factor_ic_stats": {k: {kk: (ic_stats.get(k) or {}).get(kk) for kk in (
             "ic", "ic_mean", "n_dates", "independent_dates", "breadth_median",
-            "ci95", "t", "p", "significant", "blocked_reason")} for k in factors},
+            "min_independent_dates", "ci95", "t", "p", "significant",
+            "blocked_reason")} for k in factors},
         "ic_min_dates": acc.get("ic_min_dates"),
+        "ic_min_independent_dates": acc.get("ic_min_independent_dates"),
         "coverage": {
             "rows": cov.get("rows"),
             "matured_primary": cov.get("matured_primary"),
@@ -100,6 +102,8 @@ def build(
             "percentile": harness_board.get("percentile"),
             "threshold_pct": harness_board.get("threshold_pct"),
             "n_registered": harness_board.get("n_registered"),
+            "n_harness_looks": harness_board.get("n_harness_looks"),
+            "n_looks_total": harness_board.get("n_looks_total"),
             "requirement": harness_board.get("requirement"),
             "looks": harness_board.get("looks"),
             "saved_at": hz.get("saved_at"),
