@@ -119,6 +119,24 @@ def test_owner_routes_only_preview_and_resolve_server_side_source(tmp_path, monk
                                                           "limit_price": 100}).status_code == 409
 
 
+def test_source_safety_is_visible_without_exposing_owner_account(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "source-safety.db")
+    from signal_desk import api, live_routes
+    monkeypatch.setenv("KIS_ACCOUNT_OWNER", "owner@example.com")
+    monkeypatch.setattr(api.auth, "current_user", lambda *a: {"id": 8, "email": "viewer@example.com"})
+    monkeypatch.setattr(live_routes.advisor_shadow, "cached_summary", lambda: {})
+    monkeypatch.setattr(live_routes.advisor_shadow, "decision_status", lambda **kw: {
+        "style": kw["style"], "active": False, "selector_active": False,
+        "buy_path_active": False, "effect": "buy_paused", "fallback": "abstain",
+        "reason": "유의 패배"})
+    client = TestClient(api.app)
+    assert client.get("/api/live/copy-policy").status_code == 403
+    out = client.get("/api/live/source-safety?style=balanced")
+    assert out.status_code == 200
+    assert out.json()["source_safety"]["effect"] == "buy_paused"
+    assert out.json()["order_transmission_enabled"] is False
+
+
 def test_stale_reference_event_is_blocked_before_broker_read(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB", tmp_path / "stale.db")
     from signal_desk import api, live_routes
