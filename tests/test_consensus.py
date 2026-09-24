@@ -67,6 +67,11 @@ def test_fetch_consensus_append_and_dedup(tmp_path, monkeypatch):
     assert len(observations) == 6  # 재수집도 당시 응답으로 보존한다.
     assert observations["content_hash"].notna().all()
     assert not observations["available_at_verified"].any()
+    provenance = store.consensus_provenance_status()
+    assert provenance["observed_days"] == 2
+    assert provenance["observed_rows"] == 4  # 같은 날의 재수집은 최신 관측으로 재생
+    assert provenance["source_time_verified_rows"] == 0
+    assert provenance["blocked_reason"]
 
 
 def test_fetch_consensus_partial_retry_preserves_other_tickers(tmp_path, monkeypatch):
@@ -113,6 +118,8 @@ def test_consensus_readiness_gives_a_date_not_just_a_count(tmp_path, monkeypatch
                   for d in dates[:3]]).to_parquet(store.CONSENSUS_HISTORY_FILE, index=False)
     r = store.consensus_readiness(horizon=5, need=2)
     assert r["days"] == 3 and r["testable_dates"] == 2 and r["ready"] is True
+    provenance = store.consensus_provenance_status()
+    assert provenance["observed_days"] == 0 and provenance["blocked_reason"]
     # 표본이 모자라면 판정 날짜(추정)를 낸다
     r = store.consensus_readiness(horizon=5, need=40)
     assert r["ready"] is False and r["eta_date"] and r["eta_trading_days"] == 37 + 5
