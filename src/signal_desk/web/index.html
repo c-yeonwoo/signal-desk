@@ -1731,6 +1731,15 @@
       <p class="page-desc" style="margin:0 0 4px">엔진을 바꾸지 않습니다. 확인된 것만 <code>tests/test_redteam.py</code>로 옮깁니다.</p>
       <div id="audit-body" class="placeholder" style="padding:16px 0">펼치면 불러옵니다…</div>
     </details>
+    <details class="card" id="execution-cost-study" style="margin-top:16px" ontoggle="if(this.open) loadExecutionCostStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">체결비용 분해 <span style="color:var(--dim);font-weight:600;font-size:13px">· 레퍼런스 봇 · 연구 전용</span></summary>
+      <p class="page-desc" style="margin:8px 0">기록된 매수·매도 기준가와 가상 체결가·수수료의 차이를 선입선출로 짝지은 매매 수량에서 비교합니다. 2배 비용은 민감도 검사이며 호가·시장충격의 실측값이 아닙니다.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
+        <label>성향 <select id="execution-cost-style" onchange="loadExecutionCostStudy()"><option value="balanced">균형형</option><option value="conservative">안정형</option><option value="aggressive">공격형</option></select></label>
+        <label>시장 <select id="execution-cost-market" onchange="loadExecutionCostStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>
+      </div>
+      <div id="execution-cost-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
+    </details>
     </div><!-- /#admin-verify -->
 
     <div id="admin-kb" style="display:none">
@@ -8517,6 +8526,29 @@ function renderAudit(d){
     + (d.available ? '' : ' · <span style="color:var(--warn)">ANTHROPIC_API_KEY 미설정 — 생성 비활성</span>') + '</div>';
   el.innerHTML = head + (items.length ? items.map(auditItem).join('')
     : '<div style="padding:14px 0;color:var(--dim-2);font-size:13px">아직 없습니다. “가설 생성”을 누르면 현재 계측 스냅샷을 감사합니다.</div>');
+}
+async function loadExecutionCostStudy(){
+  const el = document.getElementById('execution-cost-body');
+  if (!el) return;
+  el.textContent = '기록된 체결 원장을 분석 중…';
+  const style = document.getElementById('execution-cost-style').value;
+  const market = document.getElementById('execution-cost-market').value;
+  try {
+    const response = await fetch('/api/admin/research/execution-cost?style=' + encodeURIComponent(style)
+      + '&market=' + encodeURIComponent(market));
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json();
+    if (!d.closed_fragments) {
+      el.textContent = '완료된 체결쌍이 없습니다. 기준가·수수료 누락 또는 열린 포지션을 확인하세요.';
+      return;
+    }
+    const pct = x => x == null ? '—' : fmtNum(x, 2) + '%';
+    const gaps = Object.entries(d.coverage_gaps || {}).map(([key, value]) => esc(key) + ' ' + Number(value)).join(' · ');
+    el.innerHTML = '<div style="font-size:13px;line-height:1.8">'
+      + `기준가 수익률 <b>${pct(d.gross_reference_return_pct)}</b> → 기록 비용 후 <b>${pct(d.net_booked_return_pct)}</b> → 비용 2배 가정 <b>${pct(d.two_x_cost_return_pct)}</b><br>`
+      + `닫힌 수량 조각 ${Number(d.closed_fragments)}건 · 보유 중인 묶음 ${Number(d.open_lots)}건 · 관측 불가 ${esc(gaps || '없음')}`
+      + '</div><p class="page-desc" style="margin:8px 0 0">가상 체결 비용 분석이며 실계좌 예상 수익률이 아닙니다. 다른 주문 시점·정책의 성과를 비교하지 않습니다.</p>';
+  } catch(e) { el.textContent = '체결비용 분석을 표시할 수 없습니다 · ' + e.message; }
 }
 async function loadAudit(){
   try { renderAudit(await (await fetch('/api/audit/hypotheses')).json()); }
