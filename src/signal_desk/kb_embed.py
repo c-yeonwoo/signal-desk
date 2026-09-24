@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import logging
 import math
@@ -66,6 +67,31 @@ def model_id() -> str:
 def semantic_capable() -> bool:
     """동의어·패러프레이즈에 의미 있는 dense인가(해시 폴백은 False)."""
     return backend() in ("openai", "local")
+
+
+def backend_probe() -> dict:
+    """Report the configured backend without importing torch on a health request.
+
+    A package being installed is not proof that its model can be loaded, so
+    the local path remains unverified until a real embedding loads the model.
+    """
+    if os.environ.get("OPENAI_API_KEY"):
+        return {"backend": "openai", "model": MODEL_OPENAI, "semantic": True,
+                "blocked_reason": None, "blocked_kind": None}
+    if _local_model.cache_info().currsize:
+        return {"backend": "local", "model": MODEL_LOCAL, "semantic": True,
+                "blocked_reason": None, "blocked_kind": None}
+    try:
+        local_installed = importlib.util.find_spec("sentence_transformers") is not None
+    except (ImportError, ValueError):
+        local_installed = False
+    if local_installed:
+        return {"backend": "local-unverified", "model": MODEL_LOCAL, "semantic": False,
+                "blocked_reason": "로컬 의미 모델 설치 감지 · 실제 모델 로드/임베딩 성공 전 미검증",
+                "blocked_kind": "unverified"}
+    return {"backend": "hashing", "model": MODEL_HASH, "semantic": False,
+            "blocked_reason": "해시 폴백 — OPENAI_API_KEY 또는 pip install -e \".[embed]\" 필요",
+            "blocked_kind": "unconfigured"}
 
 
 def _tokenize(text: str) -> list[str]:

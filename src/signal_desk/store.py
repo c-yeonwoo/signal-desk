@@ -2609,7 +2609,7 @@ def signal_history_for(ticker: str) -> dict[str, dict]:
     return out
 
 
-def price_sanity(tickers: list[str] | None = None) -> dict:
+def price_sanity(tickers: list[str] | None = None, *, allow_network: bool = True) -> dict:
     """캐시 종가와 토스 실시간가의 비율로 시세 데이터가 '실제 스케일'인지 진단한다.
     ratio(캐시/실시간)≈1이면 실데이터, 종목별로 크게(>15%) 벗어나면 스케일·합성 의심.
     토스 미연동이면 비교 불가(캐시값만 반환). track record 신뢰의 전제 점검용."""
@@ -2625,7 +2625,19 @@ def price_sanity(tickers: list[str] | None = None) -> dict:
     if not toss.available():
         return {"ok": False, "toss": False, "reason": "토스 미연동 — 실시간가와 비교 불가(캐시값만 표시)",
                 "rows": [{"ticker": t, "cached": cached.get(t), "live": None, "ratio": None} for t in tickers]}
-    live = toss.prices(tickers)
+    # Admin health must not wait behind the provider's 20s HTTP timeout when
+    # its own UI gives up after 15s. Use only a recent quote already collected
+    # by the live loop and make an unavailable comparison explicit.
+    if allow_network:
+        live = toss.prices(tickers)
+    else:
+        recent = _LIVE_TS is not None and time.time() - _LIVE_TS <= 300
+        live = {t: _LIVE_QUOTES[t] for t in tickers if t in _LIVE_QUOTES} if recent else {}
+        if not live:
+            return {"ok": False, "toss": True,
+                    "reason": "최근 5분 실시간가 없음 — 시세 스케일 비교 보류",
+                    "rows": [{"ticker": t, "cached": cached.get(t), "live": None, "ratio": None}
+                             for t in tickers]}
     rows = []
     for t in tickers:
         c, l = cached.get(t), live.get(t)

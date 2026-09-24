@@ -3057,7 +3057,7 @@ def data_health_get():
         "storage": storage,
         # 자동 갱신이 거부된 소스 — 이름과 이유. 비어 있으면 전부 정상이다.
         "auto_refresh_blocked": auto_refresh,
-        **store.price_sanity(), "freshness": fresh, "signal_drift": store.signal_drift(),
+        **store.price_sanity(allow_network=False), "freshness": fresh, "signal_drift": store.signal_drift(),
             # veto·검색이 조용히 비어 있는 경우를 이유와 함께 드러낸다(0은 정상일 수도, 고장일 수도).
             "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),
             # 종목 KB 수집이 멈췄는지 — 실패 종목 이름까지. 조용히 빠진 종목도 조용한 0이다.
@@ -3144,16 +3144,10 @@ def _kb_retrieval_status() -> dict:
     """KB 검색 품질의 전제 — dense 임베딩이 진짜 의미 벡터인지. 해시 폴백은 저장은 되지만
     동의어·패러프레이즈를 못 잡아 사실상 BM25 단독이다. 화면상 구분이 안 되면 몇 주를 속는다."""
     from signal_desk import kb_embed
-    mid = kb_embed.model_id()
-    return {"backend": kb_embed.backend(), "model": mid,
-            "semantic": kb_embed.semantic_capable(),
-            "embedded": len(db.kb_embeddings_for_model(mid)),
-            "pending": len(db.kb_entries_missing_embed(mid, limit=10000)),
-            "blocked_reason": None if kb_embed.semantic_capable()
-            else "해시 폴백 — OPENAI_API_KEY 또는 pip install -e \".[embed]\" 필요",
-            # 키를 안 넣은 것은 **의도된 미설정**이다 — 고장이 아니므로 할 일에 띄우지 않는다.
-            # 다만 진단 카드에는 그대로 남는다(벡터가 저장돼 있다는 게 의미 벡터라는 뜻은 아니다).
-            "blocked_kind": None if kb_embed.semantic_capable() else "unconfigured"}
+    probe = kb_embed.backend_probe()
+    mid = probe["model"]
+    return {**probe, "embedded": len(db.kb_embeddings_for_model(mid)),
+            "pending": len(db.kb_entries_missing_embed(mid, limit=10000))}
 
 
 @app.get("/api/live-status")

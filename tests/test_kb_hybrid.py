@@ -3,6 +3,27 @@
 from signal_desk import db, kb, kb_embed, kb_search
 
 
+def test_kb_health_probe_never_imports_local_model(monkeypatch):
+    from types import SimpleNamespace
+    from signal_desk import api
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr(kb_embed, "_local_model", SimpleNamespace(
+        cache_info=lambda: SimpleNamespace(currsize=0)))
+    monkeypatch.setattr(kb_embed.importlib.util, "find_spec", lambda name: object())
+    monkeypatch.setattr(kb_embed, "backend", lambda: (_ for _ in ()).throw(AssertionError("heavy import")))
+    monkeypatch.setattr(db, "kb_embeddings_for_model", lambda model: [])
+    monkeypatch.setattr(db, "kb_entries_missing_embed", lambda model, limit: [])
+
+    status = api._kb_retrieval_status()
+    assert status["backend"] == "local-unverified"
+    assert status["semantic"] is False and status["blocked_kind"] == "unverified"
+    assert status["model"] == kb_embed.MODEL_LOCAL
+
+    monkeypatch.setattr(kb_embed.importlib.util, "find_spec", lambda name: None)
+    assert api._kb_retrieval_status()["backend"] == "hashing"
+
+
 def _seed(monkeypatch, tmp_path):
     monkeypatch.setattr(db, "DB", tmp_path / "app.db")
     db.kb_document_add("005930", "삼성전자 HBM 수요 급증", "고대역폭 메모리 HBM 수요가 AI 서버 확대로 급증하고 있다는 분석.",
