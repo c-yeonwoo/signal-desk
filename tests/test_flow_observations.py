@@ -46,3 +46,15 @@ def test_corrupt_flow_archive_fails_closed_without_replacing_live_aggregate(tmp_
         store.fetch_flows([{"ticker": "005930"}])
     assert store.FLOW_OBSERVATIONS_FILE.read_bytes() == b"not parquet"
     assert store.FLOWS_FILE.read_bytes() == before
+
+
+def test_flow_archive_schema_mismatch_is_not_silently_rewritten(tmp_path, monkeypatch):
+    import pandas as pd
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(naver, "investor_flow_series", lambda ticker, days=20: [
+        {"date": "2026-09-23", "foreign_net": 10, "inst_net": 5, "volume": 100}])
+    store.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([{"ticker": "005930", "date": "2026-09-23"}]).to_parquet(store.FLOW_OBSERVATIONS_FILE)
+    with pytest.raises(ValueError, match="schema missing"):
+        store.fetch_flows([{"ticker": "005930"}])
+    assert not store.FLOWS_FILE.exists()

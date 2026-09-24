@@ -317,6 +317,8 @@ def _append_flow_observations(rows: list[dict]) -> None:
                 # Audit archives must never be silently deleted on corruption.
                 old = _pd_read_parquet(FLOW_OBSERVATIONS_FILE)
                 if not old.empty:
+                    if not {"ticker", "date", "content_hash", "observed_at"} <= set(old.columns):
+                        raise ValueError("flow observation archive schema missing")
                     new = pd.concat([old, new], ignore_index=True)
             new = (new.sort_values("observed_at", kind="stable")
                       .drop_duplicates(["ticker", "date", "content_hash"], keep="first"))
