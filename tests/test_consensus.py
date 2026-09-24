@@ -63,6 +63,34 @@ def test_fetch_consensus_append_and_dedup(tmp_path, monkeypatch):
     latest = store.load_consensus_latest()
     assert set(latest) == {"005930", "000660"}
     assert latest["005930"]["price_target_mean"] == 100.0
+    observations = store.load_consensus_observations()
+    assert len(observations) == 6  # 재수집도 당시 응답으로 보존한다.
+    assert observations["content_hash"].notna().all()
+    assert not observations["available_at_verified"].any()
+
+
+def test_fetch_consensus_partial_retry_preserves_other_tickers(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import store
+    importlib.reload(store)
+    from signal_desk.ingest import naver as nv
+
+    def response(code):
+        return {"price_target_mean": 100.0 if code == "005930" else 200.0,
+                "forwards": [{"year": "202612", "eps": 10.0}]}
+
+    uni = [{"ticker": "005930"}, {"ticker": "000660"}]
+    monkeypatch.setattr(nv, "consensus", response)
+    assert store.fetch_consensus(uni, date="2026-07-11") == 2
+    first = store.load_consensus_history()
+    first_seen = first.set_index("ticker").loc["005930", "first_observed_at"]
+    monkeypatch.setattr(nv, "consensus", lambda code: response(code) if code == "005930" else None)
+    assert store.fetch_consensus(uni, date="2026-07-11") == 1
+    hist = store.load_consensus_history().set_index("ticker")
+    assert len(hist) == 2
+    assert hist.loc["000660", "price_target_mean"] == 200.0
+    assert hist.loc["005930", "first_observed_at"] == first_seen
+    assert len(store.load_consensus_observations()) == 3
 
 
 def test_consensus_readiness_gives_a_date_not_just_a_count(tmp_path, monkeypatch):
