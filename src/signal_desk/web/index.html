@@ -5899,11 +5899,12 @@ async function runPortfolioIntelligence(btn){
     const candidateRows = (candidates.candidates || []).map(x => `<tr><td><b>${esc(x.name)}</b><div class="sig-metric">${esc(x.ticker)} · ${esc(x.sector)}</div></td>
       <td><span class="sig-pill ${esc(x.signal_kind)}">${esc(x.signal_kind)}</span><div class="sig-metric">점수 ${fmtNum(x.score, 2)}</div></td>
       <td class="num">${fmtNum(x.proposed_weight_pct, 1)}%</td><td class="num">${_piMoney(x.proposed_value, currency)}</td>
-      <td class="num">${x.max_correlation == null ? '비교 대상 없음/미확인' : fmtNum(x.max_correlation, 2)}</td></tr>`).join('');
+      <td class="num">${x.max_correlation == null ? '비교 대상 없음/미확인' : fmtNum(x.max_correlation, 2)}</td>
+      <td class="num" title="${esc(x.marginal_risk?.reason || '')}">${x.marginal_risk?.ready ? (x.marginal_risk.delta_volatility_pp >= 0 ? '+' : '') + fmtNum(x.marginal_risk.delta_volatility_pp, 2) + '%p' : '비교 보류'}</td></tr>`).join('');
     const candidatePlan = candidates.ready ? `<b style="font-size:13px;display:block;margin-top:14px">신규 편입 후보 <span style="color:var(--dim);font-weight:600">· shadow</span></b>
       <div style="font-size:12px;color:var(--dim);margin:5px 0">신규 편입 가능 현금 ${fmtNum(candidates.available_cash_pct, 1)}% · 상관 기준 ${fmtNum(candidates.correlation_limit, 2)} 미만</div>
-      <table class="dtable"><thead><tr><th>후보</th><th>시그널</th><th class="num">제안비중</th><th class="num">제안금액</th><th class="num">최대상관</th></tr></thead><tbody>${candidateRows}</tbody></table>
-      <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">${esc(candidates.note || '')}</div>`
+      <div style="overflow-x:auto"><table class="dtable"><thead><tr><th>후보</th><th>시그널</th><th class="num">제안비중</th><th class="num">제안금액</th><th class="num">최대상관</th><th class="num">단독 위험 변화</th></tr></thead><tbody>${candidateRows}</tbody></table></div>
+      <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">${esc(candidates.note || '')}<br>단독 위험 변화는 후보 1종을 현금으로 추가한 경우의 공통 60거래일 연율 변동성 차이입니다. 예상 수익이나 전체 매매계획의 성과가 아닙니다.</div>`
       : `<div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:12px">신규 편입 보류: ${esc(candidates.reason || '제약을 통과한 후보가 없습니다.')}</div>`;
     box.innerHTML = `<div style="padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">
       <b>데이터 충족도 ${esc(quality)}</b> · 가격 ${fmtNum(q.price_coverage_pct || 0, 1)}% · 과거시세 ${fmtNum(q.history_coverage_pct || 0, 1)}% · 섹터 ${fmtNum(q.sector_coverage_pct || 0, 1)}%<br>

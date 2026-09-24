@@ -11,7 +11,7 @@ import json
 import math
 import datetime
 
-from signal_desk.signals import portfolio_candidates, portfolio_construction, portfolio_trade_plan
+from signal_desk.signals import portfolio_candidates, portfolio_construction, portfolio_marginal, portfolio_trade_plan
 
 POLICY_VERSION = "joint-risk-shadow-v1"
 
@@ -63,6 +63,10 @@ def decide(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict,
         item.update({"proposed_qty": qty, "proposed_value": qty * item["price"],
                      "proposed_weight_pct": qty * item["price"] / total_after * 100 if total_after else 0,
                      "plan_status": "included" if qty else "not_funded_or_blocked"})
+        if qty:
+            item["marginal_risk"] = portfolio_marginal.assess(
+                holdings=rows, candidate=item, cash=profile["cash"],
+                dates_by=dates_by, closes_by=prices)
     candidates["ready"] = any(i.get("proposed_qty", 0) for i in candidates.get("candidates", []))
     candidates["note"] = "통합 행동계획에 포함된 금액입니다. 기존 보유 매매와 별도로 추가 집행하지 마세요."
     material = {"policy_version": POLICY_VERSION, "market": market, "profile": profile,

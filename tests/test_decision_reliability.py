@@ -102,6 +102,9 @@ def test_joint_plan_has_one_cash_budget_and_candidate_instructions():
     buy = next(i for i in plan["instructions"] if i["ticker"] == "N")
     assert candidate["proposed_qty"] == buy["qty"]
     assert candidate["proposed_value"] == buy["qty"] * candidate["price"]
+    assert candidate["marginal_risk"]["live_eligible"] is False
+    assert candidate["marginal_risk"]["ready"] is True
+    assert candidate["marginal_risk"]["observations"] == 60
 
 
 def test_tools_success_records_usage_and_returns_response(monkeypatch):
