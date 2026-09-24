@@ -35,7 +35,7 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_gate,
+    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate,
     portfolio_candidates, portfolio_audit, portfolio_counterfactual,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
@@ -3200,6 +3200,18 @@ def execution_audit_get(style: str = "balanced", market: str = "kr"):
         lambda ticker, after, before: db.intraday_quotes_list(mkt, ticker, after_ts=after, before_ts=before),
     )
     return {"style": style, "market": mkt, **execution_audit.summary(rows)}
+
+
+@app.get("/api/admin/research/execution-cost")
+def execution_cost_research_get(request: Request, style: str = "balanced", market: str = "kr"):
+    """관리자 전용 관측 체결비용 분해. 결과는 주문·시그널에 연결하지 않는다."""
+    _admin_or_403(request)
+    mkt = _mkt(market)
+    uid = next((uid for uid, name in bot.REFERENCE_BOTS.items() if name == style), None)
+    if uid is None:
+        raise HTTPException(status_code=422, detail="unknown style")
+    return {"style": style, "market": mkt,
+            **execution_cost_shadow.analyze(db.execution_events_for_uid(uid, mkt))}
 
 
 def _meta_entry_shadow(market: str) -> dict:

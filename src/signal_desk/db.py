@@ -704,14 +704,18 @@ def execution_events_list(market: str, ticker: str, *, limit: int = 200) -> list
 
 
 def execution_events_for_uid(uid: int, market: str, *, limit: int = 500) -> list[dict]:
-    """레퍼런스 계좌별 체결 원장. id 오름차순이라 진입→청산 짝을 안전하게 복원할 수 있다."""
+    """최근 체결 원장을 진입→청산 순서로 반환한다.
+
+    보존 상한에 도달하면 맨 앞 lot은 원장이 잘릴 수 있다. 소비자는 그 청산을
+    unmatched로 드러내야 하며 과거에 없는 진입가를 임의로 채우면 안 된다.
+    """
     c = conn()
     rows = c.execute("SELECT event_key,ticker,event_type,price,payload,ts FROM execution_events "
-                     "WHERE uid=? AND market=? ORDER BY id LIMIT ?", (uid, market, limit)).fetchall()
+                     "WHERE uid=? AND market=? ORDER BY id DESC LIMIT ?", (uid, market, limit)).fetchall()
     c.close()
     return [{"event_key": key, "uid": uid, "ticker": ticker, "event_type": typ, "price": price,
              "payload": json.loads(payload), "ts": ts}
-            for key, ticker, typ, price, payload, ts in rows]
+            for key, ticker, typ, price, payload, ts in reversed(rows)]
 
 
 def notification_enqueue(dedupe_key: str, text: str, *, priority: str = "normal",
