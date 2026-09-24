@@ -6,12 +6,16 @@ ingest 모듈은 데이터만 반환하고, 캐시 형식·경로 결정은 전�
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import logging
 import os
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import fcntl
 
 import pandas as pd
 
@@ -49,6 +53,8 @@ US_EARNINGS_FILE = CACHE_DIR / "us_earnings_calendar.json"  # 미국 실적발�
 FLOWS_FILE = CACHE_DIR / "flows.json"  # 투자자별 수급(외국인·기관 순매수, KR) — 시그널 수급 팩터
 SHORT_FILE = CACHE_DIR / "short.json"  # 종목별 공매도 거래비중(KRX, KR) — 시그널 공매도 팩터
 CONSENSUS_HISTORY_FILE = CACHE_DIR / "consensus_history.parquet"  # 애널 컨센서스 일별 PIT 스냅샷(목표주가·투자의견·선행EPS, KR) — 리비전/목표가v2용, 축적만(미반영)
+CONSENSUS_OBSERVATIONS_FILE = CACHE_DIR / "consensus_observations.parquet"  # 성공 응답마다 append-only 관측 이력
+CONSENSUS_LOCK_FILE = CACHE_DIR / ".consensus.lock"
 MARKET_FLOW_FILE = CACHE_DIR / "market_flow.json"  # 시장 전체(KOSPI) 외국인·기관 순매수 누적(토스) — 국면 신호
 SHORTFORM_BG_FILE = CACHE_DIR / "shortform_bg.img"  # 숏폼 카드 배경 업로드 원본(1장) — data URI 대신 짧은 URL로 서빙
 COMPANY_PROFILES_FILE = CACHE_DIR / "company_profiles.json"  # DART 기업개황(설립연도·대표·영문명) — 숏폼 기업 소개
@@ -356,16 +362,29 @@ def _consensus_row(ticker: str, date: str, c: dict) -> dict:
     return row
 
 
+@contextmanager
+def _consensus_write_lock():
+    """Keep concurrent collectors from losing each other's read/modify/write append."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with CONSENSUS_LOCK_FILE.open("a+b") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def fetch_consensus(universe: list[dict] | None = None, date: str | None = None) -> int:
     """오늘의 애널 컨센서스(목표주가·투자의견·선행EPS)를 종목별로 수집해 PIT 시계열에 append.
-    소스: 네이버(ingest.naver.consensus). 같은 날 재실행은 그 날짜를 덮어쓴다. 반환: 기록 행수.
+    소스: 네이버(ingest.naver.consensus). 같은 날 재실행은 성공한 종목만 갱신한다.
+    성공 응답마다 관측시각·내용 해시를 별도 append-only 파일에 남긴다. 반환: 수집 성공 행수.
 
     ⚠️ 이 데이터는 '수집만' 한다 — 시그널·목표가 계산엔 아직 반영하지 않는다. 리비전(Δ)은 시계열이
     충분히 쌓인 뒤 계산해야 의미가 있고, 목표가 v2도 검증 후 반영한다(현재 동작 무영향)."""
     from signal_desk.ingest import naver
     universe = universe if universe is not None else load_universe()
-    date = date or datetime.date.today().isoformat()
-    rows, fails = [], 0
+    date = date or _kst_now().date().isoformat()
+    rows, observations, fails = [], [], 0
     for item in universe:
         ticker = item["ticker"]
         c = naver.consensus(ticker)
@@ -376,17 +395,37 @@ def fetch_consensus(universe: list[dict] | None = None, date: str | None = None)
                 return 0
             continue
         fails = 0
-        rows.append(_consensus_row(ticker, date, c))
+        row = _consensus_row(ticker, date, c)
+        observed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        fingerprint = hashlib.sha256(json.dumps(row, sort_keys=True, ensure_ascii=False,
+                                                allow_nan=False).encode("utf-8")).hexdigest()
+        rows.append({**row, "first_observed_at": observed_at, "content_hash": fingerprint,
+                     "available_at_verified": False})
+        observations.append({**row, "observed_at": observed_at, "ingested_at": observed_at,
+                             "content_hash": fingerprint, "source_published_at": None,
+                             "available_at_verified": False})
     if not rows:
         return 0
-    df_new = pd.DataFrame(rows)
-    if CONSENSUS_HISTORY_FILE.exists():
-        old = _read_parquet(CONSENSUS_HISTORY_FILE)
-        if not old.empty and "date" in old.columns:
-            old = old[old["date"] != date]  # 같은 날 재실행 → 갱신
-            df_new = pd.concat([old, df_new], ignore_index=True)
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    _write_parquet(df_new, CONSENSUS_HISTORY_FILE)
+    with _consensus_write_lock():
+        new_observations = pd.DataFrame(observations)
+        if CONSENSUS_OBSERVATIONS_FILE.exists():
+            # Audit data must fail closed on corruption; _read_parquet would delete the file.
+            old_observations = _pd_read_parquet(CONSENSUS_OBSERVATIONS_FILE)
+            if not old_observations.empty:
+                new_observations = pd.concat([old_observations, new_observations], ignore_index=True)
+        first_seen = new_observations.groupby(["date", "ticker", "content_hash"])["observed_at"].min()
+        for row in rows:
+            row["first_observed_at"] = first_seen[(row["date"], row["ticker"], row["content_hash"])]
+        _write_parquet(new_observations, CONSENSUS_OBSERVATIONS_FILE)
+
+        df_new = pd.DataFrame(rows)
+        if CONSENSUS_HISTORY_FILE.exists():
+            old = _pd_read_parquet(CONSENSUS_HISTORY_FILE)
+            if not old.empty and {"date", "ticker"} <= set(old.columns):
+                replaced = {(r["date"], r["ticker"]) for r in rows}
+                old = old[~pd.MultiIndex.from_frame(old[["date", "ticker"]]).isin(replaced)]
+                df_new = pd.concat([old, df_new], ignore_index=True)
+        _write_parquet(df_new, CONSENSUS_HISTORY_FILE)
     return len(rows)
 
 
@@ -394,6 +433,12 @@ def load_consensus_history():
     if not CONSENSUS_HISTORY_FILE.exists():
         return pd.DataFrame()
     return _read_parquet(CONSENSUS_HISTORY_FILE)
+
+
+def load_consensus_observations():
+    if not CONSENSUS_OBSERVATIONS_FILE.exists():
+        return pd.DataFrame()
+    return _read_parquet(CONSENSUS_OBSERVATIONS_FILE)
 
 
 def load_consensus_latest() -> dict[str, dict]:

@@ -51,6 +51,21 @@ def test_revision_deltas_and_annotate():
     assert "리비전하향" in rows[1]["opp_tags"]
 
 
+def test_revision_compares_same_fiscal_year_across_rollover():
+    before = {"date": "2026-12-30", "fwd1_year": "202612", "fwd1_eps": 100.0,
+              "fwd2_year": "202712", "fwd2_eps": 200.0}
+    after = {"date": "2027-01-04", "fwd1_year": "202712", "fwd1_eps": 200.0,
+             "fwd2_year": "202812", "fwd2_eps": 250.0}
+    delta = revision._delta_between("A", before, after)
+    assert delta["d_eps_pct"] == 0.0
+    assert delta["eps_fiscal_year"] == "202712"
+    assert delta["signal"] == 0
+    assert delta["feature_version"] == revision.FEATURE_VERSION
+    assert revision._delta_between("A", {**before, "fwd2_year": 202712.0}, after)["d_eps_pct"] == 0.0
+    assert revision._delta_between("A", {"fwd1_year": "202612", "fwd1_eps": 100},
+                                   {"date": "2027-01-04", "fwd1_year": "202712", "fwd1_eps": 200}) is None
+
+
 def test_revision_keeps_the_full_date_panel_for_ic():
     """새 스냅샷이 들어와도 성숙한 어제 리비전을 지우지 않는다."""
     df = pd.DataFrame([

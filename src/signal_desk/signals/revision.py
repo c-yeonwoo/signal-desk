@@ -14,6 +14,16 @@ import pandas as pd
 # 방향 신호: 목표가 또는 선행EPS가 유의미하게 상향이면 +1
 _EPS_EPS = 1e-9
 _PT_EPS = 1e-6
+FEATURE_VERSION = "same-fiscal-year-v2"
+
+
+def _fiscal_period(value) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    period = str(value).strip()
+    if period.endswith(".0") and period[:-2].isdigit():
+        period = period[:-2]
+    return period if len(period) in (4, 6) and period.isascii() and period.isdigit() else None
 
 
 def _delta_between(ticker: str, a: dict, b: dict) -> dict | None:
@@ -26,9 +36,19 @@ def _delta_between(ticker: str, a: dict, b: dict) -> dict | None:
             return None
 
     d_eps = d_pt = None
-    ea, eb = num(a.get("fwd1_eps")), num(b.get("fwd1_eps"))
-    if ea is not None and eb is not None and abs(ea) > _EPS_EPS:
-        d_eps = (eb - ea) / abs(ea) * 100.0
+    eps_year = None
+    previous = {_fiscal_period(a.get(f"fwd{i}_year")): num(a.get(f"fwd{i}_eps"))
+                for i in (1, 2) if _fiscal_period(a.get(f"fwd{i}_year"))}
+    for i in (1, 2):
+        year = _fiscal_period(b.get(f"fwd{i}_year"))
+        if not year:
+            continue
+        ea, eb = previous.get(year), num(b.get(f"fwd{i}_eps"))
+        # A zero/negative base makes percentage revisions unstable or misleading.
+        if ea is not None and eb is not None and ea > _EPS_EPS:
+            eps_year = year
+            d_eps = (eb - ea) / ea * 100.0
+            break
     pa, pb = num(a.get("price_target_mean")), num(b.get("price_target_mean"))
     if pa is not None and pb is not None and pa > _PT_EPS:
         d_pt = (pb - pa) / pa * 100.0
@@ -39,6 +59,7 @@ def _delta_between(ticker: str, a: dict, b: dict) -> dict | None:
     sig = 1 if strength > 1.0 else (-1 if strength < -1.0 else 0)
     return {
         "ticker": str(ticker), "date": str(b.get("date"))[:10],
+        "feature_version": FEATURE_VERSION, "eps_fiscal_year": eps_year,
         "d_eps_pct": round(d_eps, 2) if d_eps is not None else None,
         "d_pt_pct": round(d_pt, 2) if d_pt is not None else None,
         "revision_score": round(strength, 4), "signal": sig,
@@ -144,6 +165,7 @@ def measure_ic(
                            and stat["ic"] >= 0.02 and independent >= 5)
     return {
         **stat,
+        "feature_version": FEATURE_VERSION,
         "n": int(stat.get("n_dates") or 0),
         "ready_for_score": ready_for_score,
         "note": ("IC≥0.02·유의·독립관측≈5개 이상일 때만 점수 투입 후보"
