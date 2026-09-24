@@ -51,6 +51,8 @@ WARNINGS_FILE = CACHE_DIR / "warnings.json"  # 토스 투자경고·거래정지
 US_FUNDAMENTALS_FILE = CACHE_DIR / "us_fundamentals.json"  # 미국 발행주식수·PER(Alpha Vantage, 소량 백필)
 US_EARNINGS_FILE = CACHE_DIR / "us_earnings_calendar.json"  # 미국 실적발표 예정일(Alpha Vantage, 벌크 1콜/일)
 FLOWS_FILE = CACHE_DIR / "flows.json"  # 투자자별 수급(외국인·기관 순매수, KR) — 시그널 수급 팩터
+FLOW_OBSERVATIONS_FILE = CACHE_DIR / "flow_observations.parquet"  # 일별 원시 수급과 최초 관측시각(연구용)
+FLOW_LOCK_FILE = CACHE_DIR / ".flow_observations.lock"
 SHORT_FILE = CACHE_DIR / "short.json"  # 종목별 공매도 거래비중(KRX, KR) — 시그널 공매도 팩터
 CONSENSUS_HISTORY_FILE = CACHE_DIR / "consensus_history.parquet"  # 애널 컨센서스 일별 PIT 스냅샷(목표주가·투자의견·선행EPS, KR) — 리비전/목표가v2용, 축적만(미반영)
 CONSENSUS_OBSERVATIONS_FILE = CACHE_DIR / "consensus_observations.parquet"  # 성공 응답마다 append-only 관측 이력
@@ -91,6 +93,10 @@ _US_CLOSE_READY_HOUR_KST = 8
 def _kst_now() -> datetime.datetime:
     """KST 현재 시각. 서버 TZ(UTC)로 재면 미국 봉 기대일이 하루 어긋난다."""
     return datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=9)))
+
+
+def _utc_now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
 
 
 def us_expected_last_bar(as_of: datetime.datetime | None = None) -> str:
@@ -247,13 +253,26 @@ def fetch_flows(universe: list[dict] | None = None, days: int = 20, time_budget:
     start = time.monotonic()
     consec = 0  # 연속 실패
     got = 0     # 이번 실행 신규 성공 수
+    observed: list[dict] = []
     for item in ordered:
         if time.monotonic() - start > time_budget:
             log.info("수급 수집 시간예산(%.0fs) 도달 — 부분 저장(%d종목), 다음 갱신에서 계속.", time_budget, len(out))
             break
         ticker = item["ticker"]
-        fl = naver.investor_flow(ticker, days)
-        if not fl:
+        series = naver.investor_flow_series(ticker, days)
+        valid = {}
+        for row in series or []:
+            try:
+                date = datetime.date.fromisoformat(str(row["date"]))
+                foreign, inst, volume = (float(row[k]) for k in ("foreign_net", "inst_net", "volume"))
+            except (KeyError, TypeError, ValueError, OverflowError):
+                continue
+            if (date > _kst_now().date() or volume < 0
+                    or not all(pd.notna(x) and abs(x) != float("inf") for x in (foreign, inst, volume))):
+                continue
+            valid[date.isoformat()] = {"ticker": ticker, "date": date.isoformat(),
+                                       "foreign_net": foreign, "inst_net": inst, "volume": volume}
+        if not valid:
             consec += 1
             # 소스가 통째로 막힘(IP 차단 등): 신규 성공 0인데 연속 실패 누적 → 조기 중단(다른 팩터 영향 없음).
             if got == 0 and consec >= 8:
@@ -267,14 +286,63 @@ def fetch_flows(universe: list[dict] | None = None, days: int = 20, time_budget:
             continue
         consec = 0
         got += 1
-        net = fl["foreign_net"] + fl["inst_net"]
-        tot = fl["total_buy"]
+        rows = list(valid.values())
+        observed_at = _utc_now().isoformat()
+        for row in rows:
+            fingerprint = hashlib.sha256(json.dumps(row, sort_keys=True, allow_nan=False).encode("utf-8")).hexdigest()
+            observed.append({**row, "observed_at": observed_at, "ingested_at": observed_at,
+                             "source_published_at": None, "available_at_verified": False,
+                             "source": "naver_trend", "content_hash": fingerprint})
+        net = sum(row["foreign_net"] + row["inst_net"] for row in rows)
+        tot = sum(row["volume"] for row in rows)
         intensity = max(-1.0, min(1.0, net / tot)) if tot else 0.0
-        out[ticker] = {"foreign_net": fl["foreign_net"], "inst_net": fl["inst_net"],
+        out[ticker] = {"foreign_net": sum(row["foreign_net"] for row in rows),
+                       "inst_net": sum(row["inst_net"] for row in rows),
                        "intensity": round(intensity, 4)}
+    if observed:
+        _append_flow_observations(observed)
     if out:
         _write_json(FLOWS_FILE, out)
     return out
+
+
+def _append_flow_observations(rows: list[dict]) -> None:
+    """Keep first observation of each content version; later revisions remain separate."""
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with FLOW_LOCK_FILE.open("a+b") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            new = pd.DataFrame(rows)
+            if FLOW_OBSERVATIONS_FILE.exists():
+                # Audit archives must never be silently deleted on corruption.
+                old = _pd_read_parquet(FLOW_OBSERVATIONS_FILE)
+                if not old.empty:
+                    if not {"ticker", "date", "content_hash", "observed_at"} <= set(old.columns):
+                        raise ValueError("flow observation archive schema missing")
+                    new = pd.concat([old, new], ignore_index=True)
+            new = (new.sort_values("observed_at", kind="stable")
+                      .drop_duplicates(["ticker", "date", "content_hash"], keep="first"))
+            _write_parquet(new, FLOW_OBSERVATIONS_FILE)
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def load_flow_observations_as_of(as_of: datetime.datetime) -> pd.DataFrame:
+    """Only daily flow revisions actually observed before an aware decision instant."""
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise ValueError("timezone-aware as_of required")
+    if not FLOW_OBSERVATIONS_FILE.exists():
+        return pd.DataFrame()
+    rows = _pd_read_parquet(FLOW_OBSERVATIONS_FILE)
+    needed = {"ticker", "date", "observed_at", "content_hash"}
+    if not needed <= set(rows.columns):
+        raise ValueError("flow observation archive schema missing")
+    times = pd.to_datetime(rows["observed_at"], utc=True, errors="coerce")
+    observed = rows.loc[times.notna() & (times <= pd.Timestamp(as_of))
+                        & (rows["date"] <= as_of.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat())].copy()
+    return (observed.sort_values("observed_at", kind="stable")
+                    .drop_duplicates(["ticker", "date"], keep="last")
+                    .reset_index(drop=True))
 
 
 def load_flows() -> dict[str, dict]:
