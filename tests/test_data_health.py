@@ -42,6 +42,23 @@ def test_graceful_without_toss(tmp_path, monkeypatch):
     assert out["ok"] is False and out["toss"] is False and out["rows"][0]["cached"] == 79000.0
 
 
+def test_admin_price_sanity_never_calls_toss_network(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _seed_prices(tmp_path, {"005930": 79000.0})
+    from signal_desk.ingest import toss
+    monkeypatch.setattr(toss, "available", lambda: True)
+    monkeypatch.setattr(toss, "prices", lambda syms: (_ for _ in ()).throw(AssertionError("network")))
+    store.clear_live_quotes()
+    out = store.price_sanity(["005930"], allow_network=False)
+    assert out["ok"] is False and "비교 보류" in out["reason"]
+    store.set_live_quotes({"005930": 79020.0})
+    try:
+        out = store.price_sanity(["005930"], allow_network=False)
+        assert out["ok"] is True and out["rows"][0]["ratio"] == 1.0
+    finally:
+        store.clear_live_quotes()
+
+
 def test_data_freshness_reports_sources(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)

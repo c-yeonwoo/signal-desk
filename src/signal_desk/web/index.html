@@ -6642,11 +6642,11 @@ function renderDataHealth(d){
               + (kr.stale_names && kr.stale_names.length ? ` · 밀린 종목: ${esc(kr.stale_names.join(', '))}` : ''));
     const kbr = d.kb_retrieval;
     if (kbr) q('KB 검색 벡터', !kbr.blocked_reason,
-               `${esc(kbr.backend || '–')}${kbr.semantic ? '' : ' (해시)'}`, kbr.blocked_reason,
+               `${esc(kbr.backend || '–')}${kbr.backend === 'hashing' ? ' (해시)' : (kbr.semantic ? '' : ' (미검증)')}`, kbr.blocked_reason,
                'KB 하이브리드 검색용 임베딩(시그널 점수와 무관). '
                + `우선순위: OpenAI → 로컬(e5) → 해시. 지금 ${esc(kbr.model || kbr.backend || '–')} · `
                + `임베드 ${kbr.embedded ?? 0}건`
-               + (kbr.semantic ? '' : ' · 해시면 동의어를 못 잡아 BM25 단독에 가깝다.'));
+               + (kbr.backend === 'hashing' ? ' · 해시면 동의어를 못 잡아 BM25 단독에 가깝다.' : ''));
     const eq = d.event_queue;
     if (eq) q('이벤트 후보 잔여', (eq.pending ?? 0) === 0, `${eq.pending ?? 0}건`,
               (eq.pending ?? 0) ? '자동 판정 대기(곧 비움)' : null,
