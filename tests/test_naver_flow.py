@@ -47,3 +47,21 @@ def test_investor_flow_aggregates_series(monkeypatch):
     ])
     agg = naver.investor_flow("005930", days=20)
     assert agg == {"foreign_net": 7, "inst_net": 7, "total_buy": 180}
+
+
+def test_missing_flow_field_is_not_silently_treated_as_zero(monkeypatch):
+    naver._FLOW_CACHE.clear()
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self):
+            import json
+            return json.dumps([
+                {"bizdate": "20260923", "foreignerPureBuyQuant": "-",
+                 "organPureBuyQuant": "+5", "accumulatedTradingVolume": "100"},
+                {"bizdate": "20260922", "foreignerPureBuyQuant": "0",
+                 "organPureBuyQuant": "+5", "accumulatedTradingVolume": "100"},
+            ]).encode()
+    monkeypatch.setattr(naver.urllib.request, "urlopen", lambda *args, **kwargs: _Resp())
+    rows = naver.investor_flow_series("005930", days=10)
+    assert rows == [{"date": "2026-09-22", "foreign_net": 0.0, "inst_net": 5.0, "volume": 100.0}]

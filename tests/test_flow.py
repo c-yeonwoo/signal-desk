@@ -38,7 +38,7 @@ def test_fetch_flows_circuit_breaker(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)
     calls = []
-    monkeypatch.setattr(naver, "investor_flow", lambda t, days=20: calls.append(t) or None)
+    monkeypatch.setattr(naver, "investor_flow_series", lambda t, days=20: calls.append(t) or None)
     uni = [{"ticker": f"{i:06d}", "name": f"n{i}"} for i in range(200)]
     out = store.fetch_flows(uni)
     assert out == {} and len(calls) == 8  # 8연속 실패 시 중단(200 전부 두드리지 않음)
@@ -51,8 +51,9 @@ def test_fetch_flows_from_naver(monkeypatch, tmp_path):
     from signal_desk.ingest import naver
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)
-    monkeypatch.setattr(naver, "investor_flow",
-                        lambda t, days=20: {"foreign_net": 3e6, "inst_net": 1e6, "total_buy": 20e6})
+    monkeypatch.setattr(naver, "investor_flow_series",
+                        lambda t, days=20: [{"date": "2026-07-14", "foreign_net": 3e6,
+                                             "inst_net": 1e6, "volume": 20e6}])
     out = store.fetch_flows([{"ticker": "005930", "name": "삼성전자"}])
     assert out["005930"]["intensity"] == 0.2  # (3+1)/20
     assert store.FLOWS_FILE.exists()
@@ -65,8 +66,9 @@ def test_fetch_flows_accumulates_existing(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)
     store._write_json(store.FLOWS_FILE, {"000660": {"foreign_net": 1, "inst_net": 2, "intensity": 0.1}})
-    monkeypatch.setattr(naver, "investor_flow",
-                        lambda t, days=20: {"foreign_net": 3e6, "inst_net": 1e6, "total_buy": 20e6})
+    monkeypatch.setattr(naver, "investor_flow_series",
+                        lambda t, days=20: [{"date": "2026-07-14", "foreign_net": 3e6,
+                                             "inst_net": 1e6, "volume": 20e6}])
     out = store.fetch_flows([{"ticker": "005930", "name": "삼성전자"}])
     assert "000660" in out and "005930" in out  # 기존 커버리지 유지 + 신규 병합
 
@@ -78,8 +80,9 @@ def test_fetch_flows_time_budget_stops_early(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)
     calls = []
-    monkeypatch.setattr(naver, "investor_flow",
-                        lambda t, days=20: calls.append(t) or {"foreign_net": 1, "inst_net": 1, "total_buy": 10})
+    monkeypatch.setattr(naver, "investor_flow_series",
+                        lambda t, days=20: calls.append(t) or [{"date": "2026-07-14",
+                            "foreign_net": 1, "inst_net": 1, "volume": 10}])
     uni = [{"ticker": f"{i:06d}", "name": f"n{i}"} for i in range(200)]
     store.fetch_flows(uni, time_budget=-1.0)
     assert calls == []  # 예산 소진 → 첫 반복에서 중단, 200종목을 두드리지 않음

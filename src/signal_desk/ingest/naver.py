@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import urllib.error
 import urllib.request
 
@@ -82,14 +83,24 @@ def investor_flow_series(code: str, days: int = 120) -> list[dict] | None:
         return None
     out: list[dict] = []
     for row in rows[: max(1, days)]:
+        if not isinstance(row, dict):
+            continue
         dt = _trend_date(row)
         if not dt:
             continue
+        foreign = _fnum(row.get("foreignerPureBuyQuant"))
+        inst = _fnum(row.get("organPureBuyQuant"))
+        volume = _fnum(row.get("accumulatedTradingVolume"))
+        # A missing field is not a genuine zero: excluding it prevents a fake
+        # neutral flow reading from entering both the live factor and PIT ledger.
+        if (foreign is None or inst is None or volume is None or volume < 0
+                or not all(math.isfinite(value) for value in (foreign, inst, volume))):
+            continue
         out.append({
             "date": dt,
-            "foreign_net": _num(row.get("foreignerPureBuyQuant")),
-            "inst_net": _num(row.get("organPureBuyQuant")),
-            "volume": _num(row.get("accumulatedTradingVolume")),
+            "foreign_net": foreign,
+            "inst_net": inst,
+            "volume": volume,
         })
     if not out:
         _FLOW_CACHE[key] = (now, None)
