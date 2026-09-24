@@ -3068,6 +3068,7 @@ def data_health_get():
             "event_queue": db.kb_event_queue_status(),
             # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.
             "consensus_readiness": store.consensus_readiness(),
+            "consensus_provenance": store.consensus_provenance_status(),
             "revision_ic": _revision_ic_status(),
             # 콜드 경로에서 전체 시그널 재계산을 피한다 — lru 캐시 히트 시만 편중 평가.
             "crowding": _crowding_status()}
@@ -3085,8 +3086,14 @@ def _revision_ic_status() -> dict:
             deltas, store.load_price_series(), store.load_dates_by_ticker(),
             horizon=int(ready.get("horizon") or 20),
         )
-        db.kv_set("revision_ic_last", {**ic, "ts": int(time.time())})
-        return {"ready": True, **ic}
+        # This IC uses legacy date-only snapshots. Even a statistically strong
+        # result cannot be promoted before source availability and an as-observed
+        # OOS comparison are independently verified.
+        result = {**ic, "ready": True, "statistical_candidate": bool(ic.get("ready_for_score")),
+                  "ready_for_score": False, "legacy_exploratory": True,
+                  "blocked_reason": "기존 날짜만 있는 컨센서스 IC — 관측시각·원천 공개시각·OOS 검증 전 승격 불가"}
+        db.kv_set("revision_ic_last", {**result, "ts": int(time.time())})
+        return result
     except Exception as e:
         return {"ready": False, "blocked_reason": type(e).__name__}
 

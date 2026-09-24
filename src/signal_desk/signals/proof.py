@@ -188,14 +188,22 @@ def collect() -> dict:
 
     parts: dict[str, Any] = {}
 
+    closes = store.load_all_dated_closes()
+    signal_rows = None
+
+    def _signal_rows():
+        nonlocal signal_rows
+        if signal_rows is None:
+            signal_history = store.load_signal_history()
+            signal_rows = [] if signal_history.empty else signal_history.to_dict("records")
+        return signal_rows
+
     def _accuracy():
-        df = store.load_signal_history()
-        if df.empty:
+        rows = _signal_rows()
+        if not rows:
             return {"ready": False, "reason": "PIT 시그널 이력 없음"}
         return {"ready": True, **acc_mod.realized_accuracy(
-            df.to_dict("records"), store.load_all_dated_closes())}
-
-    closes = store.load_all_dated_closes()
+            rows, closes)}
 
     parts["accuracy"] = _safe("accuracy", _accuracy)
     parts["advisor"] = _safe(
@@ -211,10 +219,7 @@ def collect() -> dict:
     parts["drift"] = _safe("drift", store.signal_drift)
 
     def _qual():
-        df = store.load_signal_history()
-        closes = store.load_all_dated_closes()
-        metrics = acc_mod.qualitative_promotion_metrics(
-            [] if df.empty else df.to_dict("records"), closes)
+        metrics = acc_mod.qualitative_promotion_metrics(_signal_rows(), closes)
         return signalcfg.qualitative_promotion_status(metrics)
 
     parts["qual"] = _safe("qualitative_promotion", _qual)

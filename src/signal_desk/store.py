@@ -535,6 +535,24 @@ def load_consensus_as_of(as_of: datetime.datetime) -> pd.DataFrame:
     return usable.drop(columns="_observed_utc").sort_values(["date", "ticker"]).reset_index(drop=True)
 
 
+def consensus_provenance_status() -> dict:
+    """Legacy date-only snapshots and genuinely time-stamped observations stay distinct."""
+    try:
+        rows = load_consensus_as_of(_utc_now())
+    except Exception as exc:
+        return {"observed_days": 0, "observed_rows": 0, "source_time_verified_rows": 0,
+                "blocked_reason": f"관측 원장 조회 실패: {type(exc).__name__}"}
+    if rows.empty:
+        return {"observed_days": 0, "observed_rows": 0, "source_time_verified_rows": 0,
+                "blocked_reason": "관측시각 이력 없음 — 기존 날짜만 있는 스냅샷으로 시점 재생 불가"}
+    verified = rows["available_at_verified"].fillna(False).astype(bool)
+    return {"observed_days": int(rows["date"].nunique()), "observed_rows": len(rows),
+            "source_time_verified_rows": int(verified.sum()),
+            "last_observed_at": str(rows["observed_at"].max()),
+            "blocked_reason": ("원천 공개시각 미인증 — 실전 시점/전략 승격 보류"
+                               if not verified.all() else "원천 공개시각 인증 완료 — 성숙 표본·미관측 구간 검증 전 승격 보류")}
+
+
 def load_consensus_latest() -> dict[str, dict]:
     """종목별 가장 최근 컨센서스 스냅샷 {ticker: row}. (목표가 v2 등에서 '현재 수준'이 필요할 때용)"""
     df = load_consensus_history()

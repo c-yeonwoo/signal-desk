@@ -6656,21 +6656,26 @@ function renderDataHealth(d){
     if (cr) {
       // testable = Δ 계산 가능 + horizon(20)거래일 성숙. 스냅샷 일수와 다르다.
       const snap = cr.days != null ? ` · 스냅샷 ${cr.days}일` : '';
-      q('컨센서스 축적', !!cr.ready,
-        `측정 ${cr.testable_dates ?? 0}/${cr.need ?? '–'}${snap}`,
-        cr.ready ? '측정 가능 — 리비전 팩터 IC부터 잰다'
+      q('컨센서스 과거 탐색', !!cr.ready,
+        `날짜 기준 측정 ${cr.testable_dates ?? 0}/${cr.need ?? '–'}${snap}`,
+        cr.ready ? '기존 날짜만 있는 스냅샷 — 시점 재생·점수 승격 불가'
                  : (cr.blocked_reason || (cr.eta_date ? `측정 가능 예상 ${cr.eta_date}` : null)),
-        '측정 가능 = 목표가 Δ + 20거래일 종가까지 있는 날짜 수. 쌓인 스냅샷만으로는 0이다. '
-        + '측정 가능 ≠ 점수 반영.'
+        '과거 탐색 가능 = 목표가 Δ + 20거래일 종가까지 있는 날짜 수. 과거 원천 공개시각은 확인되지 않았다. '
+        + '탐색 가능 ≠ 시점 검증 또는 점수 반영.'
         + (cr.eta_date && !cr.ready ? ` 예상 ${cr.eta_date}.` : ''));
     }
+    const cp = d.consensus_provenance;
+    if (cp) q('컨센서스 시점 검증', !cp.blocked_reason,
+              `관측 ${cp.observed_days ?? 0}일 · 발표시각 인증 ${cp.source_time_verified_rows ?? 0}건`,
+              cp.blocked_reason,
+              '새로 수집한 실제 관측시각과 원천 발표시각의 증거를 구분합니다. 기존 날짜만 있는 스냅샷은 여기 포함하지 않습니다.');
     const ric = d.revision_ic;
     if (ric) q('리비전 IC', !!ric.ready_for_score,
                ric.ic != null
                  ? `IC ${ric.ic} · ${ric.n_dates ?? ric.n ?? 0}일 · 독립≈${ric.independent_dates ?? 0}`
                  : (ric.ic_mean != null ? `관측 ${ric.ic_mean} · 판정 보류` : (ric.ready ? '측정중' : '대기')),
                ric.blocked_reason || (ric.ready_for_score ? '점수 투입 후보' : (ric.note || null)),
-               '날짜별 컨센 Δ vs 선행수익 횡단면 IC. IC≥0.02·유의·독립관측≈5개 이상일 때만 반영 후보.');
+               '기존 날짜만 있는 컨센서스의 탐색 IC. 통계 요건뿐 아니라 관측·원천 공개시각과 미관측 구간 검증을 거쳐야 반영 후보입니다.');
     const crowd = d.crowding;
     if (crowd) q('매수권 편중', !crowd.warn && !crowd.data_quality,
                  crowd.n_buy != null ? `${crowd.n_buy}종목` : '–',
@@ -7935,13 +7940,20 @@ async function runHarnessFromProof(){
     if (btn) { btn.disabled = false; btn.textContent = '하네스 실행'; }
   }
 }
+let _proofLoadId = 0;
 async function loadProofOs(){
   const el = document.getElementById('proof-os-body');
   if (!el) return;
+  const requestId = ++_proofLoadId;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
   el.className = 'placeholder';
   el.textContent = '불러오는 중…';
   try {
-    const d = await (await fetch('/api/proof')).json();
+    const response = await fetch('/api/proof', {signal: controller.signal});
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const d = await response.json();
+    if (requestId !== _proofLoadId) return;
     if (d.detail) { el.textContent = d.detail; return; }
     const A = d.A || {}, B = d.B || {}, C = d.C || {};
     const acc = A.accuracy || {};
@@ -8038,8 +8050,13 @@ async function loadProofOs(){
       </div>
       <div style="font-size:11px;color:var(--dim-2);margin-top:8px">combine 미포함: 정성·거시·사이클·hypo</div>`;
   } catch (e) {
+    if (requestId !== _proofLoadId) return;
     el.className = '';
-    el.textContent = '불러오지 못했습니다.';
+    el.textContent = e.name === 'AbortError'
+      ? '판별력 진단이 30초 안에 응답하지 않았습니다. 서버 작업량을 확인하고 다시 시도하세요.'
+      : '판별력 진단을 불러오지 못했습니다.';
+  } finally {
+    clearTimeout(timeout);
   }
 }
 function _pitHeroLine(pit){

@@ -3477,6 +3477,34 @@ def test_revision_health_uses_the_full_pit_delta_history():
     assert "load_deltas" not in src
 
 
+def test_legacy_revision_ic_cannot_promote_to_score(monkeypatch):
+    from signal_desk import api as api_mod
+    monkeypatch.setattr(api_mod.store, "consensus_readiness", lambda: {"ready": True, "horizon": 20})
+    monkeypatch.setattr(api_mod.revision, "load_delta_history", lambda: object())
+    monkeypatch.setattr(api_mod.revision, "measure_ic", lambda *args, **kwargs:
+                        {"ic": 0.1, "ready_for_score": True})
+    monkeypatch.setattr(api_mod.store, "load_price_series", lambda: object())
+    monkeypatch.setattr(api_mod.store, "load_dates_by_ticker", lambda: object())
+    saved = []
+    monkeypatch.setattr(api_mod.db, "kv_set", lambda key, value: saved.append((key, value)))
+    result = api_mod._revision_ic_status()
+    assert result["statistical_candidate"] is True
+    assert result["ready_for_score"] is False
+    assert result["legacy_exploratory"] is True
+    assert "공개시각" in result["blocked_reason"]
+    assert saved[0][1]["ready_for_score"] is False
+
+
+def test_proof_diagnostic_has_bounded_loading_state():
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    proof = html.split("async function loadProofOs(){", 1)[1].split("\nfunction _pitHeroLine", 1)[0]
+    assert "controller.abort(), 30000" in proof
+    assert "clearTimeout(timeout)" in proof
+    assert "requestId !== _proofLoadId" in proof
+    assert "30초 안에 응답하지 않았습니다" in proof
+
+
 def test_frozen_states_still_appear_in_diagnostics():
     """할 일에서 뺐다고 **정보를 지운 것은 아니다** — 진단 카드에는 그대로 남아야 한다."""
     from pathlib import Path
