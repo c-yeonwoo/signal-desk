@@ -40,7 +40,7 @@ from signal_desk.signals import (
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
-    pre_move, regime_zone, relative, revision, sector_rel, target, why_now,
+    pre_move, regime_zone, relative, revision, revision_price, sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
     GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
@@ -3089,6 +3089,30 @@ def _revision_ic_status() -> dict:
         return {"ready": True, **ic}
     except Exception as e:
         return {"ready": False, "blocked_reason": type(e).__name__}
+
+
+@app.get("/api/admin/research/revision-price")
+def revision_price_research_get(request: Request, as_of: str | None = None):
+    """Read-only, as-observed shadow ranking; never feeds live order selection."""
+    _admin_or_403(request)
+    try:
+        decision_at = (datetime.datetime.fromisoformat(as_of) if as_of else
+                       datetime.datetime.now(datetime.timezone.utc))
+        if decision_at.tzinfo is None or decision_at.utcoffset() is None:
+            raise ValueError("timezone required")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="UTC 오프셋이 있는 as_of 시각이 필요합니다.") from None
+    try:
+        observations = store.load_consensus_as_of(decision_at)
+    except Exception as e:
+        log.warning("컨센서스 관측 이력 조회 실패: %s", type(e).__name__)
+        raise HTTPException(status_code=503, detail="컨센서스 관측 이력을 확인할 수 없습니다.") from None
+    dates_by = store.load_dates_by_ticker()
+    result = revision_price.build(
+        observations=observations, as_of=decision_at,
+        dates_by=dates_by, closes_by=store.load_price_series(),
+        sector_by={ticker: sectors.sector_of(ticker) for ticker in dates_by})
+    return {**result, "candidates": result["candidates"][:20]}
 
 
 def _crowding_status() -> dict:

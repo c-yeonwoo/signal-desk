@@ -438,7 +438,33 @@ def load_consensus_history():
 def load_consensus_observations():
     if not CONSENSUS_OBSERVATIONS_FILE.exists():
         return pd.DataFrame()
-    return _read_parquet(CONSENSUS_OBSERVATIONS_FILE)
+    # Never discard an audit archive on read failure.
+    return _pd_read_parquet(CONSENSUS_OBSERVATIONS_FILE)
+
+
+def load_consensus_as_of(as_of: datetime.datetime) -> pd.DataFrame:
+    """Reconstruct the daily consensus panel as actually observed by a past instant.
+
+    Legacy daily rows have no observed timestamp and are intentionally excluded.
+    The date-only source_date is not a verified publication timestamp.
+    """
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise ValueError("timezone-aware as_of required")
+    observed = load_consensus_observations()
+    if observed.empty:
+        return observed
+    required = {"date", "ticker", "observed_at", "content_hash", "available_at_verified"}
+    if not required <= set(observed.columns):
+        raise ValueError("consensus observation provenance incomplete")
+    cutoff = pd.Timestamp(as_of)
+    times = pd.to_datetime(observed["observed_at"], utc=True, errors="coerce")
+    latest_day = as_of.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat()
+    usable = observed.loc[times.notna() & (times <= cutoff) & (observed["date"] <= latest_day)].copy()
+    if usable.empty:
+        return usable
+    usable["_observed_utc"] = times.loc[usable.index]
+    usable = usable.sort_values("_observed_utc", kind="stable").drop_duplicates(["date", "ticker"], keep="last")
+    return usable.drop(columns="_observed_utc").sort_values(["date", "ticker"]).reset_index(drop=True)
 
 
 def load_consensus_latest() -> dict[str, dict]:
