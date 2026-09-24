@@ -1567,6 +1567,13 @@
       <p class="page-desc" style="margin:10px 0 0;font-size:12px;color:var(--dim)">픽 스냅샷·실현수익은 시그널 탭에서 종목을 열면 히어로에 한 줄로 붙습니다.</p>
     </div>
 
+    <details class="card" id="revision-price-study" style="margin-top:16px" ontoggle="if(this.open) loadRevisionPriceStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">EPS 상향·가격 반응 연구 <span style="color:var(--dim);font-weight:600;font-size:13px">· 과거 관측 · 주문 미연결</span></summary>
+      <p class="page-desc" style="margin:8px 0">동일 회계연도 EPS 상향과 동종업종 대비 5거래일 가격 반응을 함께 봅니다. 순위는 탐색용이며 예상 수익률이나 매매 승인이 아닙니다.</p>
+      <div id="revision-price-body" class="placeholder" style="padding:8px 0">불러오는 중…</div>
+      <button type="button" class="btn" onclick="loadRevisionPriceStudy()" style="margin-top:10px">다시 조회</button>
+    </details>
+
     <!-- 실험 — 가설을 제품 안에서 시험한다. 2026-08-05 이전에는 이 단계가 제품에 없어서
          H1·H2를 engine.py 소스를 편집하고 터미널에서 돌렸다(결과는 gitignore 밑, 재현 스크립트 없음). -->
     <div class="card" id="experiment-card" style="margin-top:16px">
@@ -7526,6 +7533,27 @@ async function delShortform(id){
 }
 
 // ===== 시그널 엔진 설정(관리자) =====
+async function loadRevisionPriceStudy(){
+  const el = document.getElementById('revision-price-body');
+  if (!el) return;
+  el.textContent = '과거 관측 이력과 가격을 확인 중…';
+  try {
+    const response = await fetch('/api/admin/research/revision-price');
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json();
+    if (!d.research_ready) {
+      el.textContent = '연구 표본 부족 · ' + (d.reason || '원천 데이터를 확인할 수 없습니다.');
+      return;
+    }
+    const rows = (d.candidates || []).slice(0, 10).map((r, i) =>
+      `<tr><td>${i + 1}</td><td>${esc(r.ticker)}</td><td>${esc(r.sector)}</td>`
+      + `<td>${fmtNum(r.eps_revision_pct, 2)}%</td><td>${fmtNum(r.sector_relative_return_pct, 2)}%</td>`
+      + `<td>${fmtNum(r.research_gap, 3)}</td></tr>`).join('');
+    el.innerHTML = `<div style="font-size:12px;color:var(--dim);margin-bottom:8px">완료 거래일 ${esc(d.price_session)} · 비교 가능 ${Number(d.eligible_count) || 0}종목 · 원천 발표시각 미검증 · 실주문 차단</div>`
+      + '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>#</th><th>종목</th><th>업종</th><th>EPS 상향</th><th>업종 대비 가격</th><th>연구 괴리</th></tr></thead><tbody>'
+      + rows + '</tbody></table></div>';
+  } catch(e) { el.textContent = '연구 순위를 표시할 수 없습니다 · ' + e.message; }
+}
 const _ENGINE_FIELDS = { w_technical: 'weight_technical', w_fundamental: 'weight_fundamental',
   w_valuation: 'weight_valuation', w_reversion: 'weight_reversion',
   w_flow: 'weight_flow', w_quality: 'weight_quality', w_momentum: 'weight_momentum',
