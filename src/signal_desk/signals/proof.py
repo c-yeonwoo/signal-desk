@@ -233,7 +233,11 @@ def collect(progress: Callable[[str], None] | None = None) -> dict:
     parts["drift"] = _stage("drift", store.signal_drift)
 
     def _qual():
+        if progress:
+            progress("qualitative_pairs")
         metrics = acc_mod.qualitative_promotion_metrics(_signal_rows(), closes)
+        if progress:
+            progress("qualitative_status")
         return signalcfg.qualitative_promotion_status(metrics)
 
     parts["qual"] = _stage("qualitative_promotion", _qual)
