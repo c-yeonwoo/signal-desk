@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import math
+from bisect import bisect_right
 
 from .engine import ACTIONABLE_KINDS, BUY, SELL, STRONG_BUY, STRONG_SELL, is_buy
 
@@ -66,10 +67,10 @@ PROMOTION_WINDOW_MIN = 20
 
 def _entry_index(dates: list[str], signal_date: str) -> int | None:
     """시그널일 '다음' 거래일 인덱스(진입가 근사, backtest와 동일 규약). 없으면 None."""
-    for k, d in enumerate(dates):
-        if d > signal_date:
-            return k
-    return None
+    # Histories are sorted ISO dates. A linear scan for every PIT row turns a
+    # production proof read into rows × years-of-bars work.
+    k = bisect_right(dates, signal_date)
+    return k if k < len(dates) else None
 
 
 def _forward_returns(dates: list[str], closes: list[float], signal_date: str,

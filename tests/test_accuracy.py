@@ -40,8 +40,14 @@ def _panel(n_dates=25, n_tickers=25, *, slope=1.0, factor="momentum", horizon=5,
 
 def test_entry_is_next_trading_day():
     dates = ["2026-01-01", "2026-01-02", "2026-01-03"]
+    assert accuracy._entry_index(dates, "2025-12-31") == 0
     assert accuracy._entry_index(dates, "2026-01-01") == 1   # 시그널 다음 거래일
+    assert accuracy._entry_index(dates, "2026-01-01T10:00") == 1
     assert accuracy._entry_index(dates, "2026-01-03") is None  # 이후 봉 없음
+    assert accuracy._entry_index([], "2026-01-01") is None
+    # The legacy loop also skipped every matching date if a source duplicated a bar.
+    assert accuracy._entry_index(["2026-01-01", "2026-01-01", "2026-01-02"],
+                                 "2026-01-01") == 2
 
 
 def test_forward_returns_only_matured_horizons():
