@@ -40,6 +40,10 @@ def _get_json(path: str, params: dict) -> dict | None:
     except Exception as e:
         log.error("DART 요청 실패(%s): %s", path, e)
         return None
+    # DART documents 013 as "no data". A disclosure poll with no filings is
+    # an ordinary empty result, not an upstream outage or a missing API key.
+    if path == "list.json" and body.get("status") == "013":
+        return None
     if body.get("status") != "000":
         log.warning("DART 응답 오류(%s): %s %s", path, body.get("status"), body.get("message"))
         return None

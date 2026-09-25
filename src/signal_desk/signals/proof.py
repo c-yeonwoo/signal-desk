@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Callable
 
 from signal_desk.signals import accuracy as accuracy_mod
@@ -179,7 +180,7 @@ def build(
     }
 
 
-def collect() -> dict:
+def collect(progress: Callable[[str], None] | None = None) -> dict:
     """스토어·API 의존을 모아 build(). 실패 조각은 ok=False로 남긴다."""
     from signal_desk import db, store
     from signal_desk.signals import accuracy as acc_mod
@@ -187,8 +188,21 @@ def collect() -> dict:
     from signal_desk import signalcfg
 
     parts: dict[str, Any] = {}
+    durations_ms: dict[str, int] = {}
 
+    def _stage(name: str, fn: Callable[[], Any]) -> dict:
+        if progress:
+            progress(name)
+        started = time.perf_counter()
+        result = _safe(name, fn)
+        durations_ms[name] = round((time.perf_counter() - started) * 1000)
+        return result
+
+    if progress:
+        progress("prices")
+    prices_started = time.perf_counter()
     closes = store.load_all_dated_closes()
+    durations_ms["prices"] = round((time.perf_counter() - prices_started) * 1000)
     signal_rows = None
 
     def _signal_rows():
@@ -205,25 +219,27 @@ def collect() -> dict:
         return {"ready": True, **acc_mod.realized_accuracy(
             rows, closes)}
 
-    parts["accuracy"] = _safe("accuracy", _accuracy)
-    parts["advisor"] = _safe(
+    parts["accuracy"] = _stage("accuracy", _accuracy)
+    parts["advisor"] = _stage(
         "advisor_shadow", lambda: advisor_shadow.summary(closes))
     # climate API는 summary+verdict를 붙이지만 A열 판정은 verdict 필드가 정본.
-    parts["climate"] = _safe("climate_shadow", lambda: climate.shadow_verdict(closes))
-    parts["kb_cov"] = _safe(
+    parts["climate"] = _stage("climate_shadow", lambda: climate.shadow_verdict(closes))
+    parts["kb_cov"] = _stage(
         "kb_coverage",
         lambda: {**kb_coverage.shadow(closes), "coverage": kb_coverage.coverage_now()})
-    parts["harness"] = _safe("harness_last", store.load_harness_last)
-    parts["harness_board"] = _safe("harness_board", lambda: store.harness_board("kr"))
-    parts["paper"] = _safe("paper", store.decision_scorecard_with_baseline)
-    parts["drift"] = _safe("drift", store.signal_drift)
+    parts["harness"] = _stage("harness_last", store.load_harness_last)
+    parts["harness_board"] = _stage("harness_board", lambda: store.harness_board("kr"))
+    parts["paper"] = _stage("paper", store.decision_scorecard_with_baseline)
+    parts["drift"] = _stage("drift", store.signal_drift)
 
     def _qual():
         metrics = acc_mod.qualitative_promotion_metrics(_signal_rows(), closes)
         return signalcfg.qualitative_promotion_status(metrics)
 
-    parts["qual"] = _safe("qualitative_promotion", _qual)
+    parts["qual"] = _stage("qualitative_promotion", _qual)
 
+    if progress:
+        progress("assemble")
     payload = build(
         accuracy=parts["accuracy"]["data"] if parts["accuracy"]["ok"] else {
             "ready": False, "reason": parts["accuracy"].get("error")},
@@ -239,4 +255,5 @@ def collect() -> dict:
     payload["fetch_errors"] = {
         k: v.get("error") for k, v in parts.items() if not v.get("ok")
     }
+    payload["stage_durations_ms"] = durations_ms
     return payload

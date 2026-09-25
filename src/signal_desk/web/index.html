@@ -1559,7 +1559,7 @@
         <div style="font-weight:700;font-size:15px">시그널 판별력 <span style="color:var(--dim);font-weight:600;font-size:13px">· IC · shadow · harness</span></div>
         <div class="row" style="gap:6px;margin:0">
           <button class="btn" onclick="runHarnessFromProof()" id="proof-harness-btn">하네스 실행</button>
-          <button class="btn" onclick="loadProofOs()" id="proof-refresh-btn">새로고침</button>
+          <button class="btn" onclick="loadProofOs(true)" id="proof-refresh-btn">새로고침</button>
         </div>
       </div>
       <p class="page-desc" style="margin:8px 0 10px">엔진을 바꿀 때는 <b>시그널 판별력(A)</b>이 기본입니다. 페이퍼(B)·악재 차단(C)은 참고입니다.</p>
@@ -7928,12 +7928,12 @@ async function runHarnessFromProof(){
       const job = d.harness_job || {};
       if (!job.running) {
         if (job.error) alert('하네스 실패: ' + job.error);
-        await loadProofOs();
+        await loadProofOs(true);
         return;
       }
     }
     alert('아직 실행 중입니다. 잠시 후 새로고침하세요.');
-    await loadProofOs();
+    await loadProofOs(true);
   } catch (e) {
     alert('하네스 요청 실패');
   } finally {
@@ -7941,20 +7941,40 @@ async function runHarnessFromProof(){
   }
 }
 let _proofLoadId = 0;
-async function loadProofOs(){
+async function loadProofOs(force=false){
   const el = document.getElementById('proof-os-body');
   if (!el) return;
   const requestId = ++_proofLoadId;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
+  const fetchProof = async url => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(url, {signal: controller.signal});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
   el.className = 'placeholder';
   el.textContent = '불러오는 중…';
   try {
-    const response = await fetch('/api/proof', {signal: controller.signal});
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const d = await response.json();
+    let d = await fetchProof(force ? '/api/proof?refresh=1' : '/api/proof');
+    for (let attempt = 0; (d.loading || (force && d.proof_job?.running)) && attempt < 12; attempt++) {
+      if (requestId !== _proofLoadId) return;
+      el.textContent = `판별력 진단 계산 중 · ${d.proof_job?.stage || '대기'} · ${attempt + 1}/12`;
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      if (requestId !== _proofLoadId) return;
+      d = await fetchProof('/api/proof');
+    }
     if (requestId !== _proofLoadId) return;
     if (d.detail) { el.textContent = d.detail; return; }
+    if (!d.A) {
+      el.textContent = d.proof_job?.error
+        ? `판별력 진단 실패 · ${d.proof_job.error} · 다시 시도하세요.`
+        : `판별력 진단이 계속 계산 중입니다 · ${d.proof_job?.stage || '대기'} · 잠시 후 새로고침하세요.`;
+      return;
+    }
     const A = d.A || {}, B = d.B || {}, C = d.C || {};
     const acc = A.accuracy || {};
     const hz = A.harness || {};
@@ -7972,6 +7992,7 @@ async function loadProofOs(){
       : (job.error ? `<div style="color:var(--sell);font-size:12px;margin-top:4px">하네스 오류: ${esc(job.error)}</div>` : '');
     el.className = '';
     el.innerHTML = `
+      ${d.proof_job?.stale ? `<div style="color:var(--sig-watch);font-size:12px;margin-bottom:6px">이전 진단 결과 · ${d.proof_job.error ? '재계산 실패 (' + esc(d.proof_job.error) + ')' : (d.proof_job.running ? '재계산 중 (' + esc(d.proof_job.stage || '대기') + ')' : '새로고침 필요')}</div>` : ''}
       <div style="font-size:12px;color:var(--dim);margin-bottom:8px">${esc(d.promotion_rule || '')}</div>
       <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px">
         <div style="padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2,transparent)">
@@ -8048,15 +8069,14 @@ async function loadProofOs(){
           <div style="font-size:12px;color:var(--dim);line-height:1.45">${esc(C.note || '')}</div>
         </div>
       </div>
-      <div style="font-size:11px;color:var(--dim-2);margin-top:8px">combine 미포함: 정성·거시·사이클·hypo</div>`;
+      <div style="font-size:11px;color:var(--dim-2);margin-top:8px">combine 미포함: 정성·거시·사이클·hypo</div>
+      <div style="font-size:11px;color:var(--dim-2);margin-top:3px">진단 단계 소요: ${Object.entries(d.stage_durations_ms || {}).sort((a,b) => b[1]-a[1]).slice(0,3).map(([k,v]) => `${esc(k)} ${fmtNum(v/1000,1)}초`).join(' · ') || '–'}</div>`;
   } catch (e) {
     if (requestId !== _proofLoadId) return;
     el.className = '';
     el.textContent = e.name === 'AbortError'
-      ? '판별력 진단이 30초 안에 응답하지 않았습니다. 서버 작업량을 확인하고 다시 시도하세요.'
+      ? '판별력 진단 상태 요청이 12초 안에 응답하지 않았습니다. 잠시 후 다시 시도하세요.'
       : '판별력 진단을 불러오지 못했습니다.';
-  } finally {
-    clearTimeout(timeout);
   }
 }
 function _pitHeroLine(pit){

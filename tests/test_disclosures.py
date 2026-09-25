@@ -1,5 +1,8 @@
 """DART 주요공시 → 악재/호재 KB — 공시 파싱·필터·악재 감지(뉴스 오탐 없이)·refresh 병합."""
 
+import io
+import logging
+
 from signal_desk import kb
 from signal_desk.ingest import dart
 
@@ -12,6 +15,15 @@ def test_dart_disclosures_parse(monkeypatch):
     assert len(out) == 1 and out[0]["report_nm"] == "유상증자 결정"
     monkeypatch.setattr(dart, "_get_json", lambda p, params: None)
     assert dart.disclosures("x", "a", "b") == []
+
+
+def test_dart_013_is_an_empty_disclosure_poll_not_a_warning(monkeypatch, caplog):
+    monkeypatch.setattr(dart.config, "dart_key", lambda: "test-key")
+    monkeypatch.setattr(dart.urllib.request, "urlopen", lambda *args, **kwargs:
+                        io.BytesIO(b'{"status":"013","message":"no data"}'))
+    with caplog.at_level(logging.WARNING, logger="signal_desk.ingest.dart"):
+        assert dart.disclosures("00126380", "20260924", "20260925") == []
+    assert not any("DART 응답 오류" in record.message for record in caplog.records)
 
 
 def test_disclosure_items_filters_notable(monkeypatch):
