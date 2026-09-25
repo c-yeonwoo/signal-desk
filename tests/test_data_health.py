@@ -1,6 +1,7 @@
 """시세 데이터 신뢰도 진단 — 캐시 종가 vs 토스 실시간가 비율로 스케일/합성 판정."""
 
 import pandas as pd
+import pytest
 
 from signal_desk import store
 
@@ -103,6 +104,7 @@ def test_kb_refresh_stall_is_visible_per_target(tmp_path, monkeypatch):
     assert st2["blocked_reason"] and "대상" in st2["blocked_reason"]
 
 
+@pytest.mark.filterwarnings("error:The behavior of DataFrame concatenation with empty or all-NA entries is deprecated:FutureWarning")
 def test_snapshot_signals_accumulates_pit(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)

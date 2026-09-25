@@ -3498,11 +3498,12 @@ def test_legacy_revision_ic_cannot_promote_to_score(monkeypatch):
 def test_proof_diagnostic_has_bounded_loading_state():
     from pathlib import Path
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    proof = html.split("async function loadProofOs(){", 1)[1].split("\nfunction _pitHeroLine", 1)[0]
-    assert "controller.abort(), 30000" in proof
+    proof = html.split("async function loadProofOs(force=false){", 1)[1].split("\nfunction _pitHeroLine", 1)[0]
+    assert "controller.abort(), 12000" in proof
     assert "clearTimeout(timeout)" in proof
     assert "requestId !== _proofLoadId" in proof
-    assert "30초 안에 응답하지 않았습니다" in proof
+    assert "d.proof_job?.stage" in proof
+    assert "12초 안에 응답하지 않았습니다" in proof
 
 
 def test_frozen_states_still_appear_in_diagnostics():

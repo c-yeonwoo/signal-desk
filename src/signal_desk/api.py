@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
+from typing import Callable
 from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, HTTPException, Request
@@ -2193,10 +2194,77 @@ def proof_get(request: Request):
     """시그널 판별력 보드 — A(IC·shadow·harness) 1열 + B(페이퍼)·C(Decision) 참고.
     관리자. 문서는 docs/north-star-selection.md."""
     _admin_or_403(request)
-    from signal_desk.signals import proof as proof_mod
-    out = proof_mod.collect()
+    out = _proof_job.snapshot(force=request.query_params.get("refresh") == "1")
     out["harness_job"] = _harness_job_status()
     return out
+
+
+def _collect_proof(progress: Callable[[str], None]) -> dict:
+    from signal_desk.signals import proof as proof_mod
+    return proof_mod.collect(progress=progress)
+
+
+class _ProofJob:
+    """Single-flight, bounded-read admin diagnostic; never run full proof in HTTP."""
+
+    def __init__(self, collector: Callable[[Callable[[str], None]], dict], max_age: int = 300):
+        self.collector = collector
+        self.max_age = max_age
+        self.lock = threading.Lock()
+        self.state = {"running": False, "started_at": None, "finished_at": None,
+                      "result_at": None, "stage": None, "error": None, "result": None}
+
+    def _run(self):
+        def progress(stage: str):
+            with self.lock:
+                self.state["stage"] = stage
+
+        try:
+            result = self.collector(progress)
+        except Exception as exc:  # a failed collector must not hide the last valid snapshot
+            with self.lock:
+                self.state["error"] = type(exc).__name__
+        else:
+            with self.lock:
+                self.state["result"] = result
+                self.state["result_at"] = time.time()
+                self.state["error"] = None
+        finally:
+            with self.lock:
+                self.state["running"] = False
+                self.state["finished_at"] = time.time()
+
+    def snapshot(self, *, force: bool = False) -> dict:
+        now = time.time()
+        thread = None
+        with self.lock:
+            state = self.state
+            result_age = now - (state["result_at"] or 0)
+            retry_age = now - (state["finished_at"] or 0)
+            due = force or state["result"] is None or result_age >= self.max_age
+            retry_allowed = force or not state["error"] or retry_age >= 60
+            if due and retry_allowed and not state["running"]:
+                state.update(running=True, started_at=now, stage="queued", error=None)
+                thread = threading.Thread(target=self._run, name="proof-diagnostic", daemon=True)
+            job = {"running": state["running"], "started_at": state["started_at"],
+                   "finished_at": state["finished_at"], "stage": state["stage"],
+                   "error": state["error"],
+                   "stale": bool(state["result"] and (state["running"] or state["error"]
+                                                      or result_age >= self.max_age))}
+            out = dict(state["result"]) if state["result"] is not None else {"loading": state["running"]}
+            out["proof_job"] = job
+        if thread is not None:
+            try:
+                thread.start()
+            except RuntimeError:
+                with self.lock:
+                    self.state.update(running=False, finished_at=time.time(), error="ThreadStartError")
+                out["loading"] = False
+                out["proof_job"].update(running=False, error="ThreadStartError")
+        return out
+
+
+_proof_job = _ProofJob(_collect_proof)
 
 
 # 하네스는 수십 초 — HTTP 타임아웃을 피하려고 백그라운드 실행 후 harness_last를 읽는다.

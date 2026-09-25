@@ -2240,7 +2240,13 @@ def snapshot_signals(signals, date: str | None = None, market: str = "kr") -> in
             # 같은 날 재실행 → 갱신. **그 시장만** 지운다 — 날짜만 보고 지우면
             # 국내 스냅샷이 미국 스냅샷을 날리고 그 반대도 된다(둘은 같은 날 찍힌다).
             old = old[~((old["date"] == date) & (old_mkt == market))]
-            df_new = pd.concat([old, df_new], ignore_index=True)
+            if not old.empty:
+                # Drop only per-frame all-NA columns before concat, then restore
+                # the full PIT schema. This opts into pandas' future dtype rule
+                # without discarding columns that have not yet been observed.
+                columns = old.columns.union(df_new.columns, sort=False)
+                frames = [frame.dropna(axis=1, how="all") for frame in (old, df_new)]
+                df_new = pd.concat(frames, ignore_index=True).reindex(columns=columns)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     _write_parquet(df_new, SIGNAL_HISTORY_FILE)
     return len(rows)
