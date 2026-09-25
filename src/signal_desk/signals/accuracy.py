@@ -100,7 +100,8 @@ def _ranks(vals: list[float]) -> list[float]:
     out = [0.0] * n
     i = 0
     while i < n:
-        j = i
+        # Always advance even if a caller accidentally supplies NaN (NaN != NaN).
+        j = i + 1
         while j < n and vals[order[j]] == vals[order[i]]:
             j += 1
         avg = (i + j - 1) / 2.0
@@ -112,11 +113,16 @@ def _ranks(vals: list[float]) -> list[float]:
 
 def _spearman(pairs: list[tuple[float, float]], *, min_n: int) -> float | None:
     """(factor_value, fwd_ret) 쌍의 순위상관. 의존성 없이 직접 계산."""
-    n = len(pairs)
+    finite_pairs = []
+    for x, y in pairs:
+        fx, fy = _finite_float(x), _finite_float(y)
+        if fx is not None and fy is not None:
+            finite_pairs.append((fx, fy))
+    n = len(finite_pairs)
     if n < min_n:
         return None
-    rx = _ranks([p[0] for p in pairs])
-    ry = _ranks([p[1] for p in pairs])
+    rx = _ranks([p[0] for p in finite_pairs])
+    ry = _ranks([p[1] for p in finite_pairs])
     mx, my = sum(rx) / n, sum(ry) / n
     cov = sum((rx[i] - mx) * (ry[i] - my) for i in range(n))
     vx = sum((rx[i] - mx) ** 2 for i in range(n))
@@ -678,10 +684,10 @@ def _qualitative_pairs(
     primary: int = PRIMARY_HORIZON,
 ) -> list[tuple[str, float, float]]:
     """PIT 정성값 × primary horizon 실현수익 쌍. (date, qualitative, fwd_ret).
-    정성 None·미성숙은 제외. 미래 가격으로 정성을 재계산하지 않음."""
+    정성·수익률 비정상값과 미성숙은 제외. 미래 가격으로 정성을 재계산하지 않음."""
     out: list[tuple[str, float, float]] = []
     for r in history_rows:
-        q = r.get("qualitative")
+        q = _finite_float(r.get("qualitative"))
         if q is None:
             continue
         ticker = r.get("ticker")
@@ -691,9 +697,10 @@ def _qualitative_pairs(
             continue
         dates, closes = series
         rets = _forward_returns(dates, closes, sig_date, (primary,))
-        if primary not in rets:
+        ret = _finite_float(rets.get(primary))
+        if ret is None:
             continue
-        out.append((sig_date, float(q), rets[primary]))
+        out.append((sig_date, q, ret))
     return out
 
 

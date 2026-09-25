@@ -66,6 +66,29 @@ def test_promotion_skips_none_qualitative():
     assert m["sample_count"] == 1
 
 
+def test_promotion_skips_nonfinite_qualitative_and_returns():
+    d, c = _closes(n=40, step=1.0)
+    bad_c = list(c)
+    bad_c[6] = float("nan")
+    rows = [
+        {"date": d[0], "ticker": "A", "qualitative": float("nan")},
+        {"date": d[0], "ticker": "B", "qualitative": float("inf")},
+        {"date": d[0], "ticker": "C", "qualitative": "invalid"},
+        {"date": d[0], "ticker": "D", "qualitative": 0.2},
+        {"date": d[0], "ticker": "E", "qualitative": 0.3},
+    ]
+    closes = {ticker: (d, c) for ticker in "ABCD"}
+    closes["E"] = (d, bad_c)
+    m = accuracy.qualitative_promotion_metrics(rows, closes, primary=5)
+    assert m["sample_count"] == 1
+
+
+def test_spearman_drops_nan_instead_of_hanging():
+    pairs = [(float("nan"), 1.0)] * 1000 + [(float(i), float(i)) for i in range(20)]
+    assert accuracy._spearman_ic(pairs) == pytest.approx(1.0)
+    assert len(accuracy._ranks([float("nan"), 1.0])) == 2
+
+
 def test_walk_forward_fails_if_one_window_nonpositive():
     # 전반부 양의 관계, 후반부 음의 관계 → 일부 구간 IC≤0
     closes, rows = {}, []
