@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import urllib.error
 import urllib.parse
@@ -54,13 +55,18 @@ def _access_token(*, force: bool = False) -> str | None:
         with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        detail = ""
+        code = "unknown"
         try:
-            detail = e.read().decode("utf-8", "replace")[:300]
+            parsed = json.loads(e.read().decode("utf-8", "replace"))
+            raw = parsed.get("error") if isinstance(parsed, dict) else None
+            if isinstance(raw, dict):
+                raw = raw.get("code")
+            if isinstance(raw, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", raw):
+                code = raw
         except Exception:
             pass
         log.warning("토스 토큰 발급 실패: HTTP %s %s — TOSS_CLIENT_ID/SECRET 재발급·Railway env 확인",
-                    e.code, detail)
+                    e.code, code)
         return None
     except Exception as e:
         log.warning("토스 토큰 발급 실패: %s", type(e).__name__)
@@ -77,6 +83,15 @@ def _http_detail(err: urllib.error.HTTPError, limit: int = 240) -> str:
         return err.read().decode("utf-8", "replace")[:limit]
     except Exception:
         return ""
+
+
+def _logged_detail(url: str, err: urllib.error.HTTPError) -> str:
+    """계좌·주문 오류 본문에는 개인정보가 섞일 수 있어 절대 기록하지 않는다."""
+    path = url.split("?", 1)[0].removeprefix(_BASE)
+    if path.startswith(("/api/v1/accounts", "/api/v1/holdings", "/api/v1/orders",
+                        "/api/v1/buying-power", "/api/v1/sellable-quantity")):
+        return "[redacted]"
+    return _http_detail(err)
 
 
 def _authorized_get(url: str, *, headers: dict[str, str]) -> dict | list | None:
@@ -103,13 +118,13 @@ def _authorized_get(url: str, *, headers: dict[str, str]) -> dict | list | None:
                 return _once(tok)
             except urllib.error.HTTPError as e2:
                 log.warning("토스 요청 실패(%s): HTTP %s %s", url.split("?")[0].replace(_BASE, ""),
-                            e2.code, _http_detail(e2))
+                            e2.code, _logged_detail(url, e2))
                 return None
         if e.code != 401:
             log.warning("토스 요청 실패(%s): HTTP %s %s", url.split("?")[0].replace(_BASE, ""),
-                        e.code, _http_detail(e))
+                        e.code, _logged_detail(url, e))
             return None
-        detail = _http_detail(e)
+        detail = _logged_detail(url, e)
         _clear_token()
         tok2 = _access_token(force=True)
         if not tok2:
@@ -120,7 +135,7 @@ def _authorized_get(url: str, *, headers: dict[str, str]) -> dict | list | None:
             return _once(tok2)
         except urllib.error.HTTPError as e2:
             log.warning("토스 401 재시도도 실패(%s): HTTP %s %s — TOSS_CLIENT_ID/SECRET 재발급 검토",
-                        url.split("?")[0].replace(_BASE, ""), e2.code, _http_detail(e2))
+                        url.split("?")[0].replace(_BASE, ""), e2.code, _logged_detail(url, e2))
             return None
         except Exception as e2:
             log.warning("토스 401 재시도 실패(%s): %s", url.split("?")[0].replace(_BASE, ""), type(e2).__name__)
