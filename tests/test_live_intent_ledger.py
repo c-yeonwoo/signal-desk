@@ -53,7 +53,7 @@ def test_unknown_keeps_reservation_and_forbids_resubmit(tmp_path, monkeypatch):
     ledger.transition(first['id'], 'SUBMITTING', evidence='internal_claim')
     ledger.transition(first['id'], 'UNKNOWN', evidence='transport_timeout')
     assert ledger.get(first['id'])['status'] == 'UNKNOWN'
-    with pytest.raises(ValueError, match='reservations'):
+    with pytest.raises(ValueError, match='unresolved order'):
         _buy(ledger, event=2)
     with pytest.raises(ValueError, match='invalid intent transition'):
         ledger.transition(first['id'], 'SUBMITTING', evidence='unsafe_retry')

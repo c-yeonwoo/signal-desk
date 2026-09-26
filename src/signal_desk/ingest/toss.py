@@ -208,6 +208,21 @@ def sellable_quantity(account: str, symbol: str) -> dict | None:
     return result if isinstance(result, dict) else None
 
 
+def price_quote(symbol: str) -> dict | None:
+    """타임스탬프를 포함한 단일 종목 시세. 주문 사전검증은 시각 없는 가격을 거부한다."""
+    body = _get("/api/v1/prices", {"symbols": symbol})
+    rows = body.get("result") if isinstance(body, dict) else None
+    if not isinstance(rows, list):
+        return None
+    return next((r for r in rows if isinstance(r, dict) and r.get("symbol") == symbol), None)
+
+
+def kr_market_calendar() -> dict | None:
+    body = _get("/api/v1/market-calendar/KR")
+    result = body.get("result") if isinstance(body, dict) else None
+    return result if isinstance(result, dict) else None
+
+
 def _rows(body) -> list[dict]:
     """응답 리스트 추출 — 토스는 {result:[...]} 형태. 방어적으로 몇 가지 키도 대응."""
     if isinstance(body, list):

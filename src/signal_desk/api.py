@@ -29,6 +29,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Respons
                                StreamingResponse)
 from signal_desk.jsonutil import finite_or_none, json_safe
 from signal_desk.live_routes import router as live_router
+from signal_desk.toss_manual_routes import router as toss_manual_router
 from signal_desk.broker import toss_readonly
 
 from signal_desk import (
@@ -790,6 +791,7 @@ class SafeJSONResponse(JSONResponse):
 
 app = FastAPI(title="signal-desk", lifespan=_lifespan, default_response_class=SafeJSONResponse)
 app.include_router(live_router)
+app.include_router(toss_manual_router)
 
 @app.exception_handler(llm.BudgetExceeded)
 def _budget_exceeded_handler(request: Request, exc: llm.BudgetExceeded):
