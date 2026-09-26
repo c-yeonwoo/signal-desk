@@ -31,7 +31,7 @@ from signal_desk.jsonutil import finite_or_none, json_safe
 from signal_desk.live_routes import router as live_router
 
 from signal_desk import (
-    auth, bot, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
+    account_performance, auth, bot, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
     llm, notify, shortform, signalcfg, store, strategy,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
@@ -630,6 +630,10 @@ def _daily_maintenance(enabled: list[str]) -> None:
         _snapshot_personal_portfolios_daily()
     except Exception as e:
         log.warning("실보유 일별 스냅샷 실패: %s", type(e).__name__)
+    try:
+        _snapshot_toss_account_daily()
+    except Exception as e:
+        log.warning("토스 실보유 성과 관측 실패: %s", type(e).__name__)
     for uid in enabled:
         bot.snapshot_positions(uid, "kr")
         bot.snapshot_positions(uid, "us")
@@ -1226,6 +1230,19 @@ def _snapshot_personal_portfolios_daily() -> None:
             db.portfolio_snapshot_add_once(
                 uid, market, as_of=out["as_of"], source="daily_close",
                 total_value=out["summary"]["total_value"], data_quality=out["data_quality"]["status"], payload=out)
+
+
+def _snapshot_toss_account_daily() -> None:
+    """소유자의 실보유 값을 하루 한 번 관측한다. 주문·분석용 수동 보유내역은 건드리지 않는다."""
+    owner = config.toss_account_owner()
+    user = db.user_by_email(owner) if owner else None
+    if not user:
+        return
+    from signal_desk.ingest import toss
+    res = toss.holdings(config.toss_account())
+    if res is None:
+        raise ValueError("toss holdings unavailable")
+    account_performance.capture_toss(user["id"], res)
 
 
 @app.post("/api/portfolio/analyze")
@@ -4774,7 +4791,22 @@ def my_holdings_get(request: Request):
         rows = _toss_import_rows(res)
     except ValueError:
         return {"ready": False, "reason": "토스 보유내역 형식 검증 실패 — 수동 보유내역을 유지합니다."}
-    return {"ready": True, **res, "import_fingerprint": _toss_import_fingerprint(rows)}
+    try:
+        account_performance.capture_toss(_uid(request), res)
+        performance_recorded = True
+    except Exception as exc:
+        log.warning("토스 실보유 성과 관측 보류: %s", type(exc).__name__)
+        performance_recorded = False
+    return {**res, "ready": True, "import_fingerprint": _toss_import_fingerprint(rows),
+            "performance_recorded": performance_recorded}
+
+
+@app.get("/api/my-performance")
+def my_performance_get(request: Request, market: str = "kr"):
+    """소유자 전용 보유주식 관측 그래프. 계좌 전체 수익률을 제공하지 않는다."""
+    if not _is_toss_owner(request):
+        raise HTTPException(403, "본인 계좌 소유자만 조회할 수 있습니다.")
+    return account_performance.history(_uid(request), _mkt(market))
 
 
 def _toss_import_rows(res: dict) -> list[dict]:

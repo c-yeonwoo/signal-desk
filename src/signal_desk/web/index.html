@@ -1339,6 +1339,14 @@
         <button id="real-holdings-import" class="btn" style="display:none;margin-top:10px" onclick="importRealHoldings()">실계좌 보유내역을 분석용으로 복사</button>
         <div id="real-holdings-import-status" style="font-size:12px;color:var(--dim);margin-top:5px"></div>
       </div>
+      <section id="account-performance-card" class="card" style="margin-bottom:16px;display:none" aria-label="실계좌 보유주식 관측 대시보드">
+        <div class="row" style="align-items:baseline;gap:12px"><b style="font-size:14px">내 보유주식 관측</b><span id="account-performance-stamp" style="color:var(--dim);font-size:12px;margin-left:auto"></span></div>
+        <p class="page-desc" style="margin:6px 0 12px">토스 실계좌 보유주식만의 평가액·당일손익입니다. 현금·입출금·매도 후 실현손익을 포함한 계좌 전체 수익률이 아닙니다. 기록은 조회일부터 쌓입니다.</p>
+        <div id="account-performance-summary" class="row" style="gap:18px;flex-wrap:wrap;font-size:13px"></div>
+        <div id="account-value-chart" style="height:210px;margin-top:14px" role="img" aria-label="관측일별 보유주식 평가액"></div>
+        <div id="account-daily-chart" style="height:170px;margin-top:14px" role="img" aria-label="관측일별 보유주식 당일 손익률"></div>
+        <div id="account-performance-note" style="color:var(--dim);font-size:12px;line-height:1.5;margin-top:8px"></div>
+      </section>
       <div class="card" id="manual-holdings-card" style="margin-bottom:16px">
         <b style="font-size:14px">분석용 보유종목 <span id="manual-mkt-label" style="color:var(--dim);font-weight:600;font-size:13px">· 국내</span></b>
         <p class="page-desc" style="margin:6px 0 12px">실계좌 조회값과 별도로 저장됩니다. 종목을 직접 추가하거나 위에서 명시적으로 복사할 수 있으며, <b>현재 선택한 시장</b> 종목만 목록에 보입니다.</p>
@@ -5961,10 +5969,12 @@ async function loadRealHoldings(){
   const card = document.getElementById('real-holdings-card');
   const manual = document.getElementById('manual-holdings-card');
   const importBtn = document.getElementById('real-holdings-import');
+  const performanceCard = document.getElementById('account-performance-card');
   const showManual = (on) => { if (manual) manual.style.display = on ? '' : 'none'; };
   if (!card) return;
   _realHoldingsImportFingerprint = null;
   if (importBtn) importBtn.style.display = 'none';
+  if (performanceCard) performanceCard.style.display = 'none';
   const m = _pfMarket, cur = m === 'us' ? '$' : '';
   let d;
   try {
@@ -5980,6 +5990,7 @@ async function loadRealHoldings(){
     showManual(true); await loadHoldings(); return;
   }
   const all = d.items || [];
+  if (performanceCard) { performanceCard.style.display = ''; loadAccountPerformance(m); }
   if (!all.length) {   // 실계좌 비어있음 → 수동 폴백
     document.getElementById('real-holdings-sum').textContent = '';
     document.getElementById('real-holdings-body').innerHTML = '<div class="placeholder" style="padding:10px 0">토스 실계좌에 보유 종목이 없어요.</div>';
@@ -6012,6 +6023,41 @@ async function loadRealHoldings(){
     `<div id="real-donut" style="height:210px"></div>
      <table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th><th class="num">손익</th></tr></thead><tbody>${items.map(row).join('')}</tbody></table>`;
   _drawRealDonut('real-donut', items);
+}
+
+async function loadAccountPerformance(market){
+  const card = document.getElementById('account-performance-card');
+  const summary = document.getElementById('account-performance-summary');
+  const note = document.getElementById('account-performance-note');
+  if (!card || !summary || !note) return;
+  try {
+    const r = await fetch('/api/my-performance?market=' + encodeURIComponent(market));
+    if (!r.ok) throw new Error('성과 관측을 불러오지 못했습니다.');
+    const d = await r.json();
+    if (market !== _pfMarket) return;
+    const points = d.points || [], last = points[points.length - 1];
+    if (!last) { summary.textContent = '아직 관측 기록이 없습니다.'; note.textContent = d.note || ''; return; }
+    const usd = market === 'us', money = v => usd ? '$' + fmtNum(Number(v), 2) : fmtNum(Number(v), 0) + '원';
+    const rate = last.daily_return_pct;
+    const rateText = rate == null ? '미확인' : (rate > 0 ? '+' : '') + fmtNum(rate, 2) + '%';
+    const pnlText = last.daily_pnl == null ? '미확인' : (Number(last.daily_pnl) > 0 ? '+' : '') + money(last.daily_pnl);
+    summary.innerHTML = `<span>보유주식 평가 <b>${money(last.holdings_value)}</b></span><span>당일손익 <b>${pnlText}</b></span><span>당일손익 참고율 <b>${rateText}</b></span>`;
+    document.getElementById('account-performance-stamp').textContent = '마지막 조회 ' + new Date(last.observed_at * 1000).toLocaleString('ko-KR');
+    note.textContent = `${d.note || ''} 일간 변동률은 현재 보유주식의 손익금액 ÷ (평가액−당일손익) 참고값이며, 같은 관측일의 마지막 값만 표시합니다. ${points.length}일 관측.`;
+    if (!window.echarts) return;
+    const valueEl = document.getElementById('account-value-chart');
+    const dailyEl = document.getElementById('account-daily-chart');
+    const valueChart = echarts.getInstanceByDom(valueEl) || echarts.init(valueEl);
+    const dailyChart = echarts.getInstanceByDom(dailyEl) || echarts.init(dailyEl);
+    const labels = points.map(p => p.date);
+    valueChart.setOption({animation:false,grid:{left:65,right:12,top:22,bottom:29},tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}<br>보유주식 평가 ${money(p[0].data)}`},
+      xAxis:{type:'category',data:labels,axisLabel:{fontSize:10}},yAxis:{type:'value',scale:true,axisLabel:{fontSize:10}},
+      series:[{type:'line',name:'보유주식 평가액',data:points.map(p=>Number(p.holdings_value)),showSymbol:points.length<10,smooth:false,lineStyle:{color:'#247e78',width:2},areaStyle:{color:'#247e78',opacity:.08}}]},true);
+    dailyChart.setOption({animation:false,grid:{left:48,right:12,top:22,bottom:29},tooltip:{trigger:'axis',formatter:p=>`${p[0].axisValue}<br>보유주식 당일 변동률 ${p[0].data == null ? '미확인' : fmtNum(p[0].data,2)+'%'}`},
+      xAxis:{type:'category',data:labels,axisLabel:{fontSize:10}},yAxis:{type:'value',axisLabel:{fontSize:10,formatter:v=>v+'%'}},
+      series:[{type:'bar',name:'당일 변동률',data:points.map(p=>p.daily_return_pct),itemStyle:{color:p=>p.value<0?'#b85c5c':'#247e78'}}]},true);
+    valueChart.resize(); dailyChart.resize();
+  } catch(e) { summary.textContent = e.message || '관측 기록을 불러오지 못했습니다.'; }
 }
 
 async function importRealHoldings(){
