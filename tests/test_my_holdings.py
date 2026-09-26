@@ -1,6 +1,7 @@
 """토스 실계좌 보유내역 — owner 격리(다른 계정 절대 조회 불가) + 파싱 + 챗봇 도구 게이트."""
 
 import importlib
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -40,6 +41,7 @@ def test_owner_passes_gate(tmp_path, monkeypatch):
     r = client.get("/api/my-holdings")
     assert r.status_code == 200 and r.json()["ready"] is True
     assert r.json()["items"][0]["symbol"] == "005930"
+    assert len(r.json()["import_fingerprint"]) == 64
 
 
 def test_toss_holdings_parses(monkeypatch):
@@ -73,11 +75,35 @@ def test_import_populates_holdings_store(tmp_path, monkeypatch):
     monkeypatch.setattr(toss, "holdings", lambda account="1": {"items": [
         {"symbol": "005930", "quantity": "100", "averagePurchasePrice": "65000"},
         {"symbol": "AAPL", "quantity": "10", "averagePurchasePrice": "155.3"}]})
-    r = client.post("/api/my-holdings/import")
+    preview = client.get("/api/my-holdings").json()
+    assert client.get("/api/holdings").json()["holdings"] == []  # 조회만으로 덮어쓰지 않는다
+    r = client.post("/api/my-holdings/import", json={"fingerprint": preview["import_fingerprint"]})
     assert r.status_code == 200 and r.json()["imported"] == 2
     hs = client.get("/api/holdings").json()["holdings"]
     tks = {h["ticker"] for h in hs}
     assert tks == {"005930", "AAPL"}                    # 실계좌 → 수동 스토어(히트맵·리밸런싱이 읽음)
+
+
+def test_import_rejects_changed_or_invalid_broker_data_without_erasing_manual(tmp_path, monkeypatch):
+    monkeypatch.setenv("TOSS_ACCOUNT_OWNER", "owner@x.com")
+    client, _ = _fresh_client(tmp_path, monkeypatch)
+    client.post("/api/auth/signup", json={"email": "owner@x.com", "pw": "abcdef"})
+    client.post("/api/holdings", json={"ticker": "005930", "qty": 3, "avg_price": 100})
+    from signal_desk.ingest import toss
+    payload = {"items": [{"symbol": "005930", "quantity": "2", "averagePurchasePrice": "200"}]}
+    monkeypatch.setattr(toss, "holdings", lambda account="1": payload)
+    fingerprint = client.get("/api/my-holdings").json()["import_fingerprint"]
+    payload["items"][0]["quantity"] = "4"
+    assert client.post("/api/my-holdings/import", json={"fingerprint": fingerprint}).status_code == 409
+    payload["items"][0]["quantity"] = "nan"
+    assert client.post("/api/my-holdings/import", json={"fingerprint": fingerprint}).status_code == 502
+    assert client.get("/api/holdings").json()["holdings"][0]["qty"] == 3
+
+
+def test_viewing_real_holdings_does_not_implicitly_import():
+    html = (Path(__file__).resolve().parents[1] / "src/signal_desk/web/index.html").read_text()
+    view = html.split("async function loadRealHoldings(){", 1)[1].split("async function importRealHoldings(){", 1)[0]
+    assert "/api/my-holdings/import" not in view
 
 
 def test_holdings_by_market_split(tmp_path, monkeypatch):

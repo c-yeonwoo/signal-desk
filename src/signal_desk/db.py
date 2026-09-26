@@ -1882,6 +1882,26 @@ def holdings_remove(uid: int, ticker: str) -> None:
     c.close()
 
 
+def holdings_replace(uid: int, rows: list[dict]) -> int:
+    """실계좌 보유내역의 명시적 분석용 복사. 검증된 전체 목록을 한 트랜잭션으로 교체."""
+    now = int(time.time())
+    c = conn()
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        c.execute("DELETE FROM holdings WHERE uid=?", (uid,))
+        c.executemany(
+            "INSERT INTO holdings(uid,ticker,qty,avg_price,ts) VALUES(?,?,?,?,?)",
+            [(uid, row["ticker"], row["qty"], row["avg_price"], now) for row in rows],
+        )
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    finally:
+        c.close()
+    return len(rows)
+
+
 # ---------- portfolio intelligence (실보유 분석 입력·감사 원장) ----------
 _PORTFOLIO_PROFILE_DEFAULTS = {
     "cash": 0.0,
