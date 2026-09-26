@@ -178,6 +178,14 @@ def open_orders(account: str) -> dict | None:
     return result if isinstance(result, dict) else None
 
 
+def order_detail(account: str, order_id: str) -> dict | None:
+    """이미 알려진 증권사 주문 ID의 상태만 조회한다. 주문 제출/재시도는 하지 않는다."""
+    url = _BASE + "/api/v1/orders/" + urllib.parse.quote(order_id, safe="")
+    body = _authorized_get(url, headers={"X-Tossinvest-Account": account})
+    result = body.get("result") if isinstance(body, dict) else None
+    return result if isinstance(result, dict) else None
+
+
 def sellable_quantity(account: str, symbol: str) -> dict | None:
     url = _BASE + "/api/v1/sellable-quantity?" + urllib.parse.urlencode({"symbol": symbol})
     body = _authorized_get(url, headers={"X-Tossinvest-Account": account})
