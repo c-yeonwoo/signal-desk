@@ -3,7 +3,7 @@
 OAuth2 client credentials(TOSS_CLIENT_ID/SECRET, .env) → Bearer 토큰(~1일). 시장데이터는 계정 헤더 불필요.
 symbol은 우리 티커와 동일(KRX 6자리 '005930', US 'AAPL') — 매핑 불필요. 자격증명 없으면 조용히 폴백.
 표준 HTTPS(443)라 Railway 등 클라우드에서 안정적(KIS :29443 차단 이슈 없음).
-※ 주문/잔고(실계좌) 엔드포인트는 의도적으로 미구현 — 봇은 유저별 paper 격리 유지, 여긴 데이터만.
+실계좌 자산·주문 상태는 GET만 제공한다. 주문 생성·정정·취소 및 자동 전송은 구현하지 않는다.
 """
 
 from __future__ import annotations
@@ -153,6 +153,36 @@ def holdings(account: str = "1") -> dict | None:
         headers={"X-Tossinvest-Account": str(account)},
     )
     return body.get("result") if isinstance(body, dict) else None
+
+
+def accounts() -> list[dict] | None:
+    """연동 계좌 목록. 호출 측은 계좌번호를 사용자 화면/로그에 노출하지 않는다."""
+    body = _authorized_get(_BASE + "/api/v1/accounts", headers={})
+    result = body.get("result") if isinstance(body, dict) else None
+    return result if isinstance(result, list) else None
+
+
+def buying_power(account: str, currency: str) -> dict | None:
+    if currency not in ("KRW", "USD"):
+        raise ValueError("unsupported currency")
+    url = _BASE + "/api/v1/buying-power?" + urllib.parse.urlencode({"currency": currency})
+    body = _authorized_get(url, headers={"X-Tossinvest-Account": account})
+    result = body.get("result") if isinstance(body, dict) else None
+    return result if isinstance(result, dict) else None
+
+
+def open_orders(account: str) -> dict | None:
+    url = _BASE + "/api/v1/orders?" + urllib.parse.urlencode({"status": "OPEN"})
+    body = _authorized_get(url, headers={"X-Tossinvest-Account": account})
+    result = body.get("result") if isinstance(body, dict) else None
+    return result if isinstance(result, dict) else None
+
+
+def sellable_quantity(account: str, symbol: str) -> dict | None:
+    url = _BASE + "/api/v1/sellable-quantity?" + urllib.parse.urlencode({"symbol": symbol})
+    body = _authorized_get(url, headers={"X-Tossinvest-Account": account})
+    result = body.get("result") if isinstance(body, dict) else None
+    return result if isinstance(result, dict) else None
 
 
 def _rows(body) -> list[dict]:
