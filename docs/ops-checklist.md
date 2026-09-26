@@ -13,6 +13,8 @@ ROI #6 — 엔진 입력이 비면 측정·신뢰 UI가 무의미하다. **사�
 
 - [ ] DART 키가 채팅/로그에 평문 노출된 적 있으면 **재발급**(무료) 후 prod `.env` 교체
 - [ ] 텔레그램 봇 `token` / `chat_id` prod `.env` 확인(알림 전송 테스트 1건)
+- [ ] `TELEGRAM_TRADE_STYLE` 확인: 기본 `balanced` 한 봇만 페이퍼 체결 알림. `conservative`/`aggressive`로 교체, `off`로 체결만 음소거, `all`은 세 봇 모두(명시적 선택). 아침 브리핑·관심종목 알림에는 영향 없음.
+- [ ] 체결 알림의 가격·금액·사유와 `실제 계좌 주문 아님` 문구 확인. 이 알림은 공용 `TELEGRAM_CHAT_ID` 전체로 전송하므로 개인 실계좌 잔고·주문정보를 넣지 않는다.
 - [ ] `ANTHROPIC_API_KEY` · `ADMIN_EMAILS` · `APP_ENV=prod` 확인
 
 ## 하지 말 것

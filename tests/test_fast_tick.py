@@ -158,8 +158,8 @@ def test_fast_trade_pass_actually_runs(monkeypatch):
         calls["run"].append((uid, market, sells_only))
         return {"ok": True, "sells": [{"ticker": "005930", "name": "삼성전자", "qty": 1}], "buys": []}
     monkeypatch.setattr(api.bot, "run_once", fake_run)
-    monkeypatch.setattr(api, "_push_reservations", lambda m, r: None)
-    monkeypatch.setattr(api, "_push_trades", lambda m, r: None)
+    monkeypatch.setattr(api, "_push_reservations", lambda m, r, uid: None)
+    monkeypatch.setattr(api, "_push_trades", lambda m, r, uid: None)
 
     api._fast_trade_pass(["kr"])
 
