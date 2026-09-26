@@ -882,7 +882,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                         tranches_done=int((pos or {}).get("tranches_done") or 1) + 1,
                                         last_buy_date=_today())
                 cash -= qty * live
-                plan["ok"] = True
+                plan.update(ok=True, order_no=result["order_no"], fill_price=result["fill_price"],
+                            fees=result["total_fees"])
             else:
                 plan["ok"] = False
         else:
@@ -1121,7 +1122,8 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                 db.bot_reservation_resolve(r["id"], "filled")
                 cash -= qty * price
                 executed.append({"ticker": r["ticker"], "name": r["name"], "status": "filled", "qty": qty,
-                                 "note": note, "order_no": result["order_no"]})
+                                 "note": note, "order_no": result["order_no"],
+                                 "fill_price": filled, "target_price": r["target_price"]})
             else:
                 db.bot_reservation_resolve(r["id"], "order_failed")
                 executed.append({"ticker": r["ticker"], "name": r["name"], "status": "order_failed"})

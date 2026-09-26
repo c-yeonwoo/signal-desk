@@ -33,7 +33,7 @@ from signal_desk.toss_manual_routes import router as toss_manual_router
 from signal_desk.broker import toss_readonly
 
 from signal_desk import (
-    account_performance, auth, bot, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
+    account_performance, auth, bot, bot_alerts, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
     llm, notify, shortform, signalcfg, store, strategy,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
@@ -246,13 +246,13 @@ def _fast_trade_pass(open_markets: list[str]) -> None:
         for mkt in open_markets:
             try:  # 예약 주문은 목표가 도달로 체결된다 — 가격 반응의 대표 사례다.
                 res = bot.execute_reservations(uid, market=mkt)
-                _push_reservations(mkt, res)
+                _push_reservations(mkt, res, uid)
             except Exception as e:
                 log.warning("빠른틱 예약 실행 실패(uid=%s, %s): %s", uid, mkt, type(e).__name__)
             try:
                 r = bot.run_once(uid, market=mkt, sells_only=True)
                 if r.get("ok") and r.get("sells"):
-                    _push_trades(mkt, r)
+                    _push_trades(mkt, r, uid)
                     log.info("빠른틱 매도 %d건(uid=%s, %s)", len(r["sells"]), uid, mkt)
             except Exception as e:
                 log.warning("빠른틱 매도 점검 실패(uid=%s, %s): %s", uid, mkt, type(e).__name__)
@@ -399,7 +399,7 @@ def _bot_loop_iteration() -> None:
             try:  # 예약 주문 먼저(목표가+추격폭 이내만) — run_once와 별개 경로
                 # **반환값을 버리지 않는다.** 예약 체결도 체결이다 — 알림 대상이다.
                 res = bot.execute_reservations(uid, market=mkt)
-                _push_reservations(mkt, res)
+                _push_reservations(mkt, res, uid)
             except Exception as e:
                 log.warning("예약 실행 실패(uid=%s, %s): %s", uid, mkt, type(e).__name__)
             result = bot.run_once(uid, market=mkt)
@@ -410,7 +410,7 @@ def _bot_loop_iteration() -> None:
                 # 그대로 버려서 23일 · 175건 체결 동안 텔레그램 알림이 한 번도 안 나갔다
                 # (아침 브리핑은 나갔으므로 설정 문제가 아니었다). 이 레포가 반복해서 밟은
                 # "수집 코드가 있다고 갱신되는 건 아니다 — 아무도 안 부른 것"의 알림 판본이다.
-                _push_trades(mkt, result)
+                _push_trades(mkt, result, uid)
     # 관심종목 시그널 변동 알림은 봇과 무관한 기능이다 — 대상은 '관심종목이 있는 유저'다.
     for uid in db.uids_with_ticker_favorites():
         try:
@@ -992,44 +992,33 @@ def _scan_alerts(uid: int) -> None:
     notify.drain()
 
 
-def _push_trades(market: str, result: dict) -> None:
-    """봇 체결(매수·매도)을 텔레그램으로 푸시. note(청산 사유 등)를 사람이 읽기 쉽게 표기."""
-    lines = []
-    event_ids = []
-    for b in result.get("buys", []):
-        lines.append(f"🟢 매수 {b.get('name', b.get('ticker'))} {b.get('qty')}주")
-        event_ids.append(str(b.get("order_no") or f"buy:{b.get('ticker')}:{b.get('price')}:{b.get('qty')}"))
-    for s in result.get("sells", []):
-        detail = s.get("note") or s.get("reason") or ""
-        lines.append(f"🔴 매도 {s.get('name', s.get('ticker'))} {s.get('qty')}주"
-                     + (f" · {detail}" if detail else ""))
-        event_ids.append(str(s.get("order_no") or f"sell:{s.get('ticker')}:{s.get('price')}:{s.get('qty')}"))
-    if lines:
-        key = "trade:" + market + ":" + hashlib.sha256("|".join(event_ids).encode()).hexdigest()[:20]
-        notify.enqueue(f"🤖 봇 체결 ({market.upper()})\n" + "\n".join(lines[:10]),
-                       dedupe_key=key, priority="critical")
-        notify.drain()
+def _push_trades(market: str, result: dict, uid: int | None = None) -> None:
+    """선택한 한 페이퍼 봇의 실제 성공 체결만 보낸다. 계획·주문 실패는 제외."""
+    if result.get("ok") is not True or (uid is not None and not bot_alerts.selected(uid, bot.REFERENCE_BOTS)):
+        return
+    rows = bot_alerts.trade_rows(result)
+    if not rows:
+        return
+    style = bot.REFERENCE_BOTS.get(uid) if uid is not None else config.telegram_trade_style()
+    notify.enqueue(bot_alerts.render(style, market, rows, total_eval=result.get("total_eval"), cash=result.get("cash")),
+                   dedupe_key=bot_alerts.dedupe_key(uid or 0, market, rows), priority="critical",
+                   expires_at=int(time.time()) + 12 * 3600)
+    notify.drain()
 
 
-def _push_reservations(market: str, result: dict | None) -> None:
+def _push_reservations(market: str, result: dict | None, uid: int | None = None) -> None:
     """예약 주문 체결을 텔레그램으로 푸시. `run_once` 와 **별개 경로**라 따로 알린다 —
     한쪽만 붙이면 예약으로 산 종목은 조용히 들어온다."""
-    if not result or not result.get("ok"):
+    if uid is not None and not bot_alerts.selected(uid, bot.REFERENCE_BOTS):
         return
-    lines = []
-    event_ids = []
-    for e in result.get("executed", []):
-        if e.get("status") != "filled":
-            continue
-        qty = e.get("qty")
-        lines.append(f"🟢 예약 매수 {e.get('name', e.get('ticker'))}"
-                     + (f" {qty}주" if qty else ""))
-        event_ids.append(str(e.get("order_no") or f"{e.get('ticker')}:{e.get('target_price')}:{qty}"))
-    if lines:
-        key = "reservation:" + market + ":" + hashlib.sha256("|".join(event_ids).encode()).hexdigest()[:20]
-        notify.enqueue(f"🤖 예약 체결 ({market.upper()})\n" + "\n".join(lines[:10]),
-                       dedupe_key=key, priority="critical")
-        notify.drain()
+    rows = bot_alerts.reservation_rows(result)
+    if not rows:
+        return
+    style = bot.REFERENCE_BOTS.get(uid) if uid is not None else config.telegram_trade_style()
+    notify.enqueue(bot_alerts.render(style, market, rows),
+                   dedupe_key=bot_alerts.dedupe_key(uid or 0, market, rows), priority="critical",
+                   expires_at=int(time.time()) + 12 * 3600)
+    notify.drain()
 
 
 @app.get("/api/alerts")

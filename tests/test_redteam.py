@@ -3353,7 +3353,8 @@ def test_fill_push_is_silent_when_nothing_filled():
         api._push_reservations("kr", {"ok": False, "reason": "x"})
         api._push_reservations("kr", None)
         assert queued.call_count == 0, "체결이 없는데 알림을 큐에 넣었다"
-        api._push_trades("kr", {"ok": True, "buys": [{"name": "A", "qty": 1}], "sells": []})
+        api._push_trades("kr", {"ok": True, "buys": [{"name": "A", "ticker": "005930", "qty": 1,
+                                                       "ok": True, "order_no": "paper-1", "fill_price": 100}], "sells": []})
         assert queued.call_count == 1
         assert "매수 A" in queued.call_args[0][0]
     os.environ.pop("TELEGRAM_BOT_TOKEN"); os.environ.pop("TELEGRAM_CHAT_ID")

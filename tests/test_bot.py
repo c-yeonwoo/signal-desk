@@ -178,6 +178,7 @@ def test_pyramid_adds_to_under_target_holding(tmp_path, monkeypatch):
     out = bot.run_once(UID)
     adds = [b for b in out["buys"] if b["reason"] == "ADD"]
     assert len(adds) == 1 and adds[0]["ticker"] == "AAA"
+    assert adds[0]["ok"] is True and adds[0]["order_no"] and adds[0]["fill_price"] > 0
 
 
 def test_records_advisor_shadow_only_on_real_runs(tmp_path, monkeypatch):

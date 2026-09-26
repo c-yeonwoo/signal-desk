@@ -87,6 +87,12 @@ def telegram_chat_ids() -> list[str]:
     return [c.strip() for c in raw.split(",") if c.strip()]
 
 
+def telegram_trade_style() -> str:
+    """공용 텔레그램 채널의 페이퍼 체결 알림 대상. 기본은 균형형 한 봇이다."""
+    style = (os.environ.get("TELEGRAM_TRADE_STYLE") or "balanced").strip().lower()
+    return style if style in ("conservative", "balanced", "aggressive", "all", "off") else "balanced"
+
+
 def kis_credentials() -> dict | None:
     """KIS 인증정보. demo/real만 유효하며 real은 조회 전용 경로에서만 쓴다."""
     app_key = os.environ.get("KIS_APP_KEY")
@@ -371,8 +377,7 @@ def morning_digest_hour() -> int | None:
 
 def public_base_url() -> str | None:
     """앱 공개 URL(예: https://signal-desk-production-xxxx.up.railway.app). 미설정이면 None.
-    아침 브리핑에 「앱에서 보기」 링크를 넣는 데만 쓴다 — 브리핑을 읽고 끝나면 D7(재방문)에
-    기여하지 못하므로 돌아올 경로가 필요하다. 끝 슬래시는 제거."""
+    아침 브리핑과 페이퍼 체결 알림에 「앱에서 보기」 링크를 넣는다. 끝 슬래시는 제거."""
     raw = (os.environ.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
     return raw or None
 
