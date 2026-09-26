@@ -110,6 +110,22 @@ CREATE TABLE IF NOT EXISTS live_copy_policies(
     uid INTEGER PRIMARY KEY, source_style TEXT NOT NULL, follow_pct REAL NOT NULL,
     max_order_pct REAL NOT NULL, max_daily_buy_pct REAL NOT NULL,
     max_position_pct REAL NOT NULL, min_cash_pct REAL NOT NULL, updated INTEGER NOT NULL);
+-- 실주문 준비 전용 원장. 전송 API가 없으며 UNKNOWN 예약은 자동 해제/재전송하지 않는다.
+CREATE TABLE IF NOT EXISTS live_order_intents(
+    id TEXT PRIMARY KEY, uid INTEGER NOT NULL, broker TEXT NOT NULL, account_seq TEXT NOT NULL,
+    source_style TEXT NOT NULL, source_event_id INTEGER NOT NULL, market TEXT NOT NULL,
+    symbol TEXT NOT NULL, side TEXT NOT NULL, quantity TEXT NOT NULL, limit_price TEXT NOT NULL,
+    reserve_cash TEXT NOT NULL, reserve_quantity TEXT NOT NULL, filled_quantity TEXT NOT NULL DEFAULT '0',
+    budget_date TEXT NOT NULL, status TEXT NOT NULL, client_order_id TEXT NOT NULL UNIQUE,
+    broker_order_id TEXT, created INTEGER NOT NULL, updated INTEGER NOT NULL,
+    UNIQUE(uid,broker,account_seq,source_style,source_event_id));
+CREATE INDEX IF NOT EXISTS idx_live_order_intents_active
+    ON live_order_intents(uid,broker,account_seq,status,budget_date);
+CREATE TABLE IF NOT EXISTS live_order_intent_events(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, intent_id TEXT NOT NULL, event_key TEXT NOT NULL UNIQUE,
+    from_status TEXT, to_status TEXT NOT NULL, filled_quantity TEXT NOT NULL,
+    broker_order_id TEXT, evidence TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_live_order_intent_events_intent ON live_order_intent_events(intent_id,id);
 -- 행동계획과 결과는 스냅샷 본문에만 묻지 않는다. 개별 제안·지평별 결과를 분리해야
 -- "권고가 실제로 비용 후 유효했는가"를 나중에 집계할 수 있다.
 CREATE TABLE IF NOT EXISTS portfolio_recommendations(id TEXT PRIMARY KEY, uid INTEGER NOT NULL, market TEXT NOT NULL,

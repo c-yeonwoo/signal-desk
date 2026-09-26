@@ -1,6 +1,9 @@
 """토스 직접 계좌 조회: 계좌 일치, 소유자 분리, 파싱 실패 시 보수적 응답."""
 
 import importlib
+import io
+import time
+import urllib.error
 
 from fastapi.testclient import TestClient
 
@@ -64,3 +67,16 @@ def test_owner_gate_prevents_any_broker_read(tmp_path, monkeypatch):
     client.post('/api/auth/signup', json={"email": "guest@x.com", "pw": "abcdef"})
     assert client.get('/api/my-broker-account').status_code == 403
     assert client.get('/api/my-broker-sellable?symbol=AAPL').status_code == 403
+
+
+def test_account_http_error_redacts_private_response(monkeypatch, caplog):
+    from signal_desk.ingest import toss
+    toss._token['value'], toss._token['exp'] = 'test-token', time.time() + 1000
+    def denied(req, timeout=None):
+        raise urllib.error.HTTPError(req.full_url, 400, 'Bad Request', hdrs=None,
+                                     fp=io.BytesIO(b'{"accountNo":"private-account-123"}'))
+    monkeypatch.setattr(toss.urllib.request, 'urlopen', denied)
+    with caplog.at_level('WARNING'):
+        assert toss.accounts() is None
+    assert 'private-account-123' not in caplog.text
+    assert '[redacted]' in caplog.text
