@@ -81,6 +81,16 @@ CREATE TABLE IF NOT EXISTS portfolio_snapshots(id INTEGER PRIMARY KEY AUTOINCREM
     market TEXT NOT NULL, as_of TEXT NOT NULL, source TEXT NOT NULL, total_value REAL,
     data_quality TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_lookup ON portfolio_snapshots(uid, market, created DESC);
+-- 증권사 실보유의 관측 원장. 평가액/당일손익만 저장하며 현금·입출금이 없어 계좌 전체 수익률은 아니다.
+-- 같은 날 값이 변하면 append-only 새 행, 동일 값의 재조회는 digest로 중복 제거한다.
+CREATE TABLE IF NOT EXISTS account_observations(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTEGER NOT NULL, broker TEXT NOT NULL,
+    market TEXT NOT NULL, observed_date TEXT NOT NULL, observed_at INTEGER NOT NULL,
+    currency TEXT NOT NULL, holdings_value TEXT NOT NULL, daily_pnl TEXT,
+    daily_return_pct REAL, holdings_count INTEGER NOT NULL, quality TEXT NOT NULL,
+    digest TEXT NOT NULL, UNIQUE(uid,broker,market,observed_date,digest));
+CREATE INDEX IF NOT EXISTS idx_account_observations_recent
+    ON account_observations(uid,broker,market,observed_date DESC,id DESC);
 CREATE TABLE IF NOT EXISTS portfolio_decision_artifacts(
     uid INTEGER NOT NULL, market TEXT NOT NULL, id TEXT NOT NULL, payload BLOB NOT NULL,
     created INTEGER NOT NULL, PRIMARY KEY(uid, market, id));
@@ -1900,6 +1910,40 @@ def holdings_replace(uid: int, rows: list[dict]) -> int:
     finally:
         c.close()
     return len(rows)
+
+
+def account_observations_add(rows: list[dict]) -> None:
+    """한 번의 증권사 응답에서 나온 시장별 관측을 모두 저장하거나 모두 취소한다."""
+    if not rows:
+        return
+    c = conn()
+    try:
+        c.executemany("INSERT OR IGNORE INTO account_observations("
+                      "uid,broker,market,observed_date,observed_at,currency,holdings_value,daily_pnl,"
+                      "daily_return_pct,holdings_count,quality,digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                      [(r["uid"], r["broker"], r["market"], r["observed_date"], r["observed_at"],
+                        r["currency"], r["holdings_value"], r["daily_pnl"], r["daily_return_pct"],
+                        r["holdings_count"], r["quality"], r["digest"]) for r in rows])
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    finally:
+        c.close()
+
+
+def account_observations_daily(uid: int, *, broker: str, market: str, limit: int = 90) -> list[dict]:
+    """관측일별 최신 행. 과거 행을 현재 보유로 재계산하지 않는다."""
+    c = conn()
+    rows = c.execute("SELECT observed_date,observed_at,currency,holdings_value,daily_pnl,"
+                     "daily_return_pct,holdings_count,quality FROM account_observations a "
+                     "WHERE uid=? AND broker=? AND market=? AND id=(SELECT MAX(id) FROM account_observations b "
+                     "WHERE b.uid=a.uid AND b.broker=a.broker AND b.market=a.market "
+                     "AND b.observed_date=a.observed_date) ORDER BY observed_date DESC LIMIT ?",
+                     (uid, broker, market, limit)).fetchall()
+    c.close()
+    return [dict(zip(("date", "observed_at", "currency", "holdings_value", "daily_pnl",
+                      "daily_return_pct", "holdings_count", "quality"), row)) for row in reversed(rows)]
 
 
 # ---------- portfolio intelligence (실보유 분석 입력·감사 원장) ----------
