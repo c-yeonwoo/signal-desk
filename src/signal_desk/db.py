@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS live_copy_policies(
     uid INTEGER PRIMARY KEY, source_style TEXT NOT NULL, follow_pct REAL NOT NULL,
     max_order_pct REAL NOT NULL, max_daily_buy_pct REAL NOT NULL,
     max_position_pct REAL NOT NULL, min_cash_pct REAL NOT NULL, updated INTEGER NOT NULL);
--- 실주문 준비 전용 원장. 전송 API가 없으며 UNKNOWN 예약은 자동 해제/재전송하지 않는다.
+-- 실주문 원장. 수동 승인 파일럿은 SUBMITTING 선점 후 단발 전송하며 UNKNOWN은 자동 재전송하지 않는다.
 CREATE TABLE IF NOT EXISTS live_order_intents(
     id TEXT PRIMARY KEY, uid INTEGER NOT NULL, broker TEXT NOT NULL, account_seq TEXT NOT NULL,
     source_style TEXT NOT NULL, source_event_id INTEGER NOT NULL, market TEXT NOT NULL,
@@ -126,6 +126,11 @@ CREATE TABLE IF NOT EXISTS live_order_intent_events(
     from_status TEXT, to_status TEXT NOT NULL, filled_quantity TEXT NOT NULL,
     broker_order_id TEXT, evidence TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_live_order_intent_events_intent ON live_order_intent_events(intent_id,id);
+-- 1회 사용자 승인에 필요한 사전점검 바인딩. 만료 후 새 주문으로 재사용하지 않는다.
+CREATE TABLE IF NOT EXISTS live_order_approvals(
+    intent_id TEXT PRIMARY KEY, uid INTEGER NOT NULL, policy_hash TEXT NOT NULL,
+    quote_at INTEGER NOT NULL, quote_price TEXT NOT NULL, expires_at INTEGER NOT NULL,
+    created INTEGER NOT NULL);
 -- 행동계획과 결과는 스냅샷 본문에만 묻지 않는다. 개별 제안·지평별 결과를 분리해야
 -- "권고가 실제로 비용 후 유효했는가"를 나중에 집계할 수 있다.
 CREATE TABLE IF NOT EXISTS portfolio_recommendations(id TEXT PRIMARY KEY, uid INTEGER NOT NULL, market TEXT NOT NULL,
