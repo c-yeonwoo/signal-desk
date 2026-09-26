@@ -11,6 +11,7 @@ import datetime
 import hashlib
 import json
 import logging
+import math
 import threading
 import time
 import zlib
@@ -4769,11 +4770,43 @@ def my_holdings_get(request: Request):
     res = toss.holdings(config.toss_account())
     if res is None:
         return {"ready": False, "reason": "토스 자산 API 조회 실패 — 자격증명·계좌 연동을 확인하세요."}
-    return {"ready": True, **res}
+    try:
+        rows = _toss_import_rows(res)
+    except ValueError:
+        return {"ready": False, "reason": "토스 보유내역 형식 검증 실패 — 수동 보유내역을 유지합니다."}
+    return {"ready": True, **res, "import_fingerprint": _toss_import_fingerprint(rows)}
+
+
+def _toss_import_rows(res: dict) -> list[dict]:
+    """계좌 응답 전체를 검증한다. 불완전한 목록으로 수동 입력을 지우지 않는다."""
+    items = res.get("items")
+    if not isinstance(items, list):
+        raise ValueError("missing items")
+    rows = []
+    seen = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("invalid item")
+        ticker = str(item.get("symbol") or "").strip()
+        try:
+            qty = float(item.get("quantity"))
+            avg = float(item.get("averagePurchasePrice"))
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("invalid holding") from None
+        if not ticker or ticker in seen or not math.isfinite(qty) or not math.isfinite(avg) or qty < 0 or avg < 0:
+            raise ValueError("invalid holding")
+        seen.add(ticker)
+        rows.append({"ticker": ticker, "qty": qty, "avg_price": avg})
+    return rows
+
+
+def _toss_import_fingerprint(rows: list[dict]) -> str:
+    canonical = json.dumps(sorted(rows, key=lambda r: r["ticker"]), sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 @app.post("/api/my-holdings/import")
-def my_holdings_import(request: Request):
+def my_holdings_import(request: Request, data: dict = Body(default={})):
     """토스 실계좌 보유내역을 '내 보유종목'(수동 스토어)으로 가져와, 기존 섹터 히트맵·리밸런싱·시나리오
     기능이 실계좌 기준으로 돌게 한다. owner 본인만. 기존 수동 입력은 대체된다."""
     if not _is_toss_owner(request):
@@ -4782,20 +4815,13 @@ def my_holdings_import(request: Request):
     res = toss.holdings(config.toss_account())
     if not res:
         return {"ok": False, "reason": "토스 조회 실패 — 자격증명·연동을 확인하세요."}
-    uid = _uid(request)
-    for h in db.holdings_list(uid):        # 실계좌로 대체(중복·잔여 제거)
-        db.holdings_remove(uid, h["ticker"])
-    n = 0
-    for it in (res.get("items") or []):
-        sym = (it.get("symbol") or "").strip()
-        if not sym:
-            continue
-        try:
-            db.holdings_set(uid, sym, float(it.get("quantity") or 0), float(it.get("averagePurchasePrice") or 0))
-            n += 1
-        except (TypeError, ValueError):
-            continue
-    return {"ok": True, "imported": n}
+    try:
+        rows = _toss_import_rows(res)
+    except ValueError:
+        return JSONResponse({"ok": False, "reason": "토스 보유내역 형식이 올바르지 않아 교체하지 않았습니다."}, status_code=502)
+    if data.get("fingerprint") != _toss_import_fingerprint(rows):
+        return JSONResponse({"ok": False, "reason": "조회 후 보유내역이 바뀌었습니다. 다시 확인하세요."}, status_code=409)
+    return {"ok": True, "imported": db.holdings_replace(_uid(request), rows)}
 
 
 @app.get("/api/guru-screens")

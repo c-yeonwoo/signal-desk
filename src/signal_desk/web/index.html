@@ -770,6 +770,10 @@
   .copy-safety.ok { border-left-color:var(--sig-buy); }
   .copy-safety.warn { border-left-color:var(--sig-sell); }
   .copy-safety small { display:block; color:var(--dim); margin-top:3px; line-height:1.5; }
+  .copy-connections { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:-8px 0 20px; }
+  .copy-connection { border:1px solid var(--line); border-radius:var(--r-sm); padding:12px 14px; background:var(--panel); }
+  .copy-connection b { display:block; font-size:var(--fs-sm); }
+  .copy-connection span { display:block; color:var(--dim); font-size:var(--fs-xs); line-height:1.5; margin-top:3px; }
   .copy-layout { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:24px; align-items:start; }
   .copy-editor { background:var(--panel); border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden; min-width:0; }
   .copy-section { padding:24px; border-bottom:1px solid var(--line); }
@@ -817,6 +821,7 @@
   .copy-workspace button:disabled { opacity:.5; cursor:not-allowed; }
   @media (max-width:900px) {
     .copy-layout { grid-template-columns:1fr; gap:16px; }
+    .copy-connections { grid-template-columns:1fr; }
     .copy-summary { position:static; }
     .copy-event-fields { grid-template-columns:minmax(0,1fr) 140px; }
     .copy-event-fields .copy-field:first-child { grid-column:1 / -1; }
@@ -1220,6 +1225,10 @@
             <p>따라갈 봇을 고르고 주문 금액의 비율과 계좌 한도를 설정하세요.</p></div>
           <span class="copy-state">현재 단계 · 설정 및 사전점검</span>
         </div>
+        <div class="copy-connections" aria-label="증권사 연결 상태">
+          <div class="copy-connection"><b>토스증권 · 실제 보유 조회</b><span id="live-toss-connection">조회 상태 확인 중…</span></div>
+          <div class="copy-connection"><b>KIS · 주문 사전점검</b><span id="live-kis-connection">환경 확인 중…</span></div>
+        </div>
         <div id="live-copy-safety" class="copy-safety" role="status"><b>참조 봇 안전 상태 확인 중…</b><small>실주문 전송은 항상 잠겨 있습니다.</small></div>
         <div class="copy-layout">
           <div class="copy-editor" id="live-copy-card">
@@ -1322,15 +1331,17 @@
 
       <div id="real-holdings-card" class="card" style="margin-bottom:16px;display:none">
         <div class="row" style="align-items:baseline">
-          <b style="font-size:14px">내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:13px">· 토스 실계좌 자동 연동</span></b>
+          <b style="font-size:14px">내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:13px">· 토스 실계좌 조회 전용</span></b>
           <span id="real-holdings-sum" style="margin-left:auto;font-size:13px"></span>
         </div>
-        <div id="real-holdings-note" style="display:none;font-size:12px;color:var(--dim);margin:4px 0 0">토스 연동 시 수동 입력을 덮어씁니다(선택 시장 기준).</div>
+        <div id="real-holdings-note" style="display:none;font-size:12px;color:var(--dim);margin:4px 0 8px">이 표는 현재 실계좌 조회값입니다. 아래 정밀 진단은 별도 분석용 입력을 사용하며, 직접 복사하면 국내·해외 분석용 입력 전체를 교체합니다.</div>
         <div id="real-holdings-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
+        <button id="real-holdings-import" class="btn" style="display:none;margin-top:10px" onclick="importRealHoldings()">실계좌 보유내역을 분석용으로 복사</button>
+        <div id="real-holdings-import-status" style="font-size:12px;color:var(--dim);margin-top:5px"></div>
       </div>
       <div class="card" id="manual-holdings-card" style="margin-bottom:16px">
-        <b style="font-size:14px">내 보유종목 <span id="manual-mkt-label" style="color:var(--dim);font-weight:600;font-size:13px">· 국내</span></b>
-        <p class="page-desc" style="margin:6px 0 12px">종목을 검색해 보유내역을 추가하면 아래 배당·히트맵·리밸런싱·시나리오가 켜집니다. <b>현재 선택한 시장</b> 종목만 목록에 보입니다.</p>
+        <b style="font-size:14px">분석용 보유종목 <span id="manual-mkt-label" style="color:var(--dim);font-weight:600;font-size:13px">· 국내</span></b>
+        <p class="page-desc" style="margin:6px 0 12px">실계좌 조회값과 별도로 저장됩니다. 종목을 직접 추가하거나 위에서 명시적으로 복사할 수 있으며, <b>현재 선택한 시장</b> 종목만 목록에 보입니다.</p>
         <div class="row" style="margin-bottom:6px">
           <div style="position:relative;flex:1 1 200px;min-width:170px">
             <input id="hd_search" type="text" placeholder="종목명·코드 검색 (국내·해외)" class="ctrl" style="width:100%"
@@ -5389,6 +5400,7 @@ function switchTradingSeg(seg){
   document.getElementById('trading-dividend').style.display = seg === 'dividend' ? '' : 'none';
   if (seg === 'bot') loadBotState();
   if (seg === 'live') {
+    loadLiveConnectionSummary();
     loadLiveCopySafety();
     if (!_liveCopyLoaded) loadLiveCopyPolicy();
   }
@@ -5550,7 +5562,7 @@ function setPfMarket(m){
   refreshPortfolio();
 }
 async function refreshPortfolio(){
-  await loadRealHoldings();          // 보유종목(선택 시장) + (owner)전체 자동 import
+  await loadRealHoldings();          // 실계좌는 조회만 — 분석용 입력 교체는 명시적 선택
   loadPortfolioProfile();            // 현금·위험 한도는 시장별 입력이므로 전환 때 함께 복원
   loadPortfolioRecommendations();    // 개별 권고 참고 결과 — OOS 입증과 구분
   loadPortfolioDecisions();          // 동결 판단·동일 초기자산 비교 원장
@@ -5576,6 +5588,27 @@ async function _liveRequest(url, data){
 async function loadLiveReadiness(){
   const d = await _liveRequest('/api/live/status'); if (!d) return;
   document.getElementById('live-result').textContent = `환경: ${d.environment || '미설정'} · 인증정보: ${d.configured ? '설정됨' : '미설정'}\n실주문 잠김 · 정책 OOS 승인, 주문 원장, 시점·위험 검증이 필요합니다.`;
+}
+async function loadLiveConnectionSummary(){
+  const toss = document.getElementById('live-toss-connection');
+  const kis = document.getElementById('live-kis-connection');
+  toss.textContent = '조회 상태 확인 중…'; kis.textContent = '환경 확인 중…';
+  const [tossResult, kisResult] = await Promise.allSettled([
+    fetch('/api/my-holdings').then(async r => ({ok:r.ok, status:r.status, data:await r.json()})),
+    fetch('/api/live/status').then(async r => ({ok:r.ok, status:r.status, data:await r.json()})),
+  ]);
+  if (tossResult.status === 'fulfilled') {
+    const {ok, status, data} = tossResult.value;
+    toss.textContent = ok && data.ready ? '실제 보유내역 조회 연결됨 · 읽기 전용 · 주문 미연결'
+      : status === 403 ? '이 로그인 계정에는 조회 권한 없음'
+      : (data.reason || '조회 실패 · 연결 상태 재확인 필요');
+  } else toss.textContent = '조회 실패 · 연결 상태 재확인 필요';
+  if (kisResult.status === 'fulfilled') {
+    const {ok, status, data} = kisResult.value;
+    const env = data.environment === 'real' ? '실전환경' : data.environment === 'demo' ? '모의환경' : '환경 미확인';
+    kis.textContent = ok ? `${env} · ${data.configured ? '인증정보 설정됨' : '인증정보 미설정'} · 주문 잠김`
+      : status === 403 ? '이 로그인 계정에는 조회 권한 없음' : '환경 확인 실패';
+  } else kis.textContent = '환경 확인 실패';
 }
 async function loadLiveAccount(){
   const d = await _liveRequest('/api/live/account', {}); if (!d) return;
@@ -5923,11 +5956,15 @@ async function runPortfolioIntelligence(btn){
 }
 
 // 토스 실계좌 보유내역 — 본인(owner)만. 403이면 카드 숨김(다른 계정은 존재조차 안 보임).
+let _realHoldingsImportFingerprint = null;
 async function loadRealHoldings(){
   const card = document.getElementById('real-holdings-card');
   const manual = document.getElementById('manual-holdings-card');
+  const importBtn = document.getElementById('real-holdings-import');
   const showManual = (on) => { if (manual) manual.style.display = on ? '' : 'none'; };
   if (!card) return;
+  _realHoldingsImportFingerprint = null;
+  if (importBtn) importBtn.style.display = 'none';
   const m = _pfMarket, cur = m === 'us' ? '$' : '';
   let d;
   try {
@@ -5948,8 +5985,10 @@ async function loadRealHoldings(){
     document.getElementById('real-holdings-body').innerHTML = '<div class="placeholder" style="padding:10px 0">토스 실계좌에 보유 종목이 없어요.</div>';
     showManual(true); await loadHoldings(); return;
   }
-  try { await fetch('/api/my-holdings/import', { method: 'POST' }); } catch (e) {}   // 양 시장 전체를 분석 스토어에 반영
-  showManual(false);
+  _realHoldingsImportFingerprint = d.import_fingerprint || null;
+  if (importBtn && _realHoldingsImportFingerprint) importBtn.style.display = '';
+  showManual(true);
+  await loadHoldings();
   const note = document.getElementById('real-holdings-note');
   if (note) note.style.display = '';
   const items = all.filter(it => m === 'us' ? it.marketCountry === 'US' : it.marketCountry !== 'US');
@@ -5973,6 +6012,23 @@ async function loadRealHoldings(){
     `<div id="real-donut" style="height:210px"></div>
      <table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평단</th><th class="num">현재가</th><th class="num">손익</th></tr></thead><tbody>${items.map(row).join('')}</tbody></table>`;
   _drawRealDonut('real-donut', items);
+}
+
+async function importRealHoldings(){
+  const fingerprint = _realHoldingsImportFingerprint;
+  if (!fingerprint) return;
+  if (!confirm('국내·해외 분석용 수동 보유내역 전체를 현재 토스 실계좌 보유내역으로 교체합니다. 계속할까요?')) return;
+  const btn = document.getElementById('real-holdings-import');
+  const status = document.getElementById('real-holdings-import-status');
+  btn.disabled = true; status.textContent = '분석용 보유내역에 복사 중…';
+  try {
+    const r = await fetch('/api/my-holdings/import', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({fingerprint})});
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.reason || '복사 실패');
+    status.textContent = `${d.imported}종목을 분석용 입력에 복사했습니다. 아래 '저장 후 진단'을 실행하면 새 입력으로 분석합니다. 실계좌 주문은 실행되지 않습니다.`;
+    await loadHoldings();
+  } catch(e) { status.textContent = e.message || '복사 실패 — 기존 분석용 입력을 유지했습니다.'; }
+  finally { btn.disabled = false; }
 }
 function _drawRealDonut(id, items){
   const el = document.getElementById(id);
