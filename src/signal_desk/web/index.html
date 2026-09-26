@@ -1301,6 +1301,16 @@
           <div id="live-copy-result" class="copy-output" role="status">설정을 저장한 뒤 참조 체결을 선택하세요.</div>
         </section>
         <details class="copy-connection">
+          <summary>토스 실계좌 직접 조회 <span class="copy-note">· 현금 매수가능액 / 진행 중 주문 / 매도가능수량 · 읽기 전용</span></summary>
+          <div class="row"><button class="btn" onclick="loadTossAccount()">계좌·주문 상태 확인</button></div>
+          <div id="toss-account-result" class="copy-output" role="status">조회 버튼을 누르면 설정된 계좌와 실제 연결 계좌를 대조합니다. 주문은 전송되지 않습니다.</div>
+          <div class="row" style="margin-top:10px">
+            <input id="toss-sellable-symbol" class="ctrl" aria-label="매도가능수량 조회 종목코드" placeholder="종목코드 (예: 005930 또는 AAPL)" maxlength="20" style="max-width:240px">
+            <button class="btn" onclick="loadTossSellable()">매도가능수량 조회</button>
+          </div>
+          <div id="toss-sellable-result" class="copy-note" role="status"></div>
+        </details>
+        <details class="copy-connection">
           <summary>KIS 계좌 연결 및 직접 여력 조회 <span class="copy-note">· 국내 현물 / 계좌 소유자 전용</span></summary>
           <div class="row"><button class="btn" onclick="loadLiveReadiness()">연결 상태 확인</button><button class="btn" onclick="loadLiveAccount()">잔고·당일 주문 조회</button></div>
           <div id="live-result" class="copy-output" role="status">조회 버튼을 누르면 계좌 정보를 확인합니다. 주문은 전송되지 않습니다.</div>
@@ -5617,6 +5627,28 @@ async function loadLiveConnectionSummary(){
     kis.textContent = ok ? `${env} · ${data.configured ? '인증정보 설정됨' : '인증정보 미설정'} · 주문 잠김`
       : status === 403 ? '이 로그인 계정에는 조회 권한 없음' : '환경 확인 실패';
   } else kis.textContent = '환경 확인 실패';
+}
+async function loadTossAccount(){
+  const box = document.getElementById('toss-account-result');
+  box.textContent = '계좌 목록과 조회 여력을 확인 중…';
+  try {
+    const r = await fetch('/api/my-broker-account');
+    const d = await r.json();
+    if (!r.ok || !d.ready) { box.textContent = d.reason || d.detail || '조회 실패'; return; }
+    const orders = (d.open_orders || []).map(o => `${o.symbol} ${o.side === 'BUY' ? '매수' : '매도'} ${o.status} · 체결 ${o.filled_quantity}/${o.quantity}`).join('\n');
+    box.textContent = `설정 계좌 일치 · 읽기 전용 · 주문 전송 잠김\n현금 매수가능액: ${fmtNum(Number(d.buying_power.KRW), 0)}원 / $${fmtNum(Number(d.buying_power.USD), 2)}\n진행 중 주문 ${d.open_order_count}건${orders ? '\n' + orders : ''}\n${d.note || ''}`;
+  } catch { box.textContent = '증권사 계좌를 조회하지 못했습니다.'; }
+}
+async function loadTossSellable(){
+  const box = document.getElementById('toss-sellable-result');
+  const symbol = document.getElementById('toss-sellable-symbol').value.trim().toUpperCase();
+  if (!/^[A-Z0-9.\-]{1,20}$/.test(symbol)) { box.textContent = '종목코드를 확인하세요.'; return; }
+  box.textContent = '매도가능수량 조회 중…';
+  try {
+    const r = await fetch('/api/my-broker-sellable?symbol=' + encodeURIComponent(symbol));
+    const d = await r.json();
+    box.textContent = !r.ok || !d.ready ? (d.reason || d.detail || '조회 실패') : `${symbol} 매도가능 ${d.sellable_quantity}주 · 조회값이며 주문은 전송되지 않습니다.`;
+  } catch { box.textContent = '증권사 수량을 조회하지 못했습니다.'; }
 }
 async function loadLiveAccount(){
   const d = await _liveRequest('/api/live/account', {}); if (!d) return;

@@ -29,6 +29,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Respons
                                StreamingResponse)
 from signal_desk.jsonutil import finite_or_none, json_safe
 from signal_desk.live_routes import router as live_router
+from signal_desk.broker import toss_readonly
 
 from signal_desk import (
     account_performance, auth, bot, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
@@ -4807,6 +4808,24 @@ def my_performance_get(request: Request, market: str = "kr"):
     if not _is_toss_owner(request):
         raise HTTPException(403, "본인 계좌 소유자만 조회할 수 있습니다.")
     return account_performance.history(_uid(request), _mkt(market))
+
+
+@app.get("/api/my-broker-account")
+def my_broker_account_get(request: Request):
+    """토스 실계좌 직접 여력·진행 중 주문. 계좌번호/토큰/주문 전송은 제공하지 않는다."""
+    if not _is_toss_owner(request):
+        raise HTTPException(403, "본인 계좌 소유자만 조회할 수 있습니다.")
+    return toss_readonly.snapshot()
+
+
+@app.get("/api/my-broker-sellable")
+def my_broker_sellable_get(request: Request, symbol: str):
+    if not _is_toss_owner(request):
+        raise HTTPException(403, "본인 계좌 소유자만 조회할 수 있습니다.")
+    try:
+        return toss_readonly.sellable(symbol)
+    except ValueError:
+        raise HTTPException(400, "종목코드 또는 증권사 응답이 유효하지 않습니다.") from None
 
 
 def _toss_import_rows(res: dict) -> list[dict]:
