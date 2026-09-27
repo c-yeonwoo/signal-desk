@@ -45,7 +45,7 @@ from signal_desk.signals import (
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
-    pre_move, regime_zone, relative, relation_graph, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
+    pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
@@ -476,6 +476,18 @@ def _bot_loop_iteration() -> None:
             db.kv_set("revision_price_forward_last", {**revision_marks, "at": now.isoformat()})
     except Exception as e:
         log.warning("R13 리비전 전진 가격 동결 실패: %s", type(e).__name__)
+    try:
+        relation_capture = relation_event_study.capture(now)
+        if relation_capture.get("saved") or relation_capture.get("halted"):
+            db.kv_set("relation_event_capture_last", {**relation_capture, "at": now.isoformat()})
+    except Exception as e:
+        log.warning("R15 관계 사건 입력 동결 실패: %s", type(e).__name__)
+    try:
+        relation_marks = relation_event_forward.collect(now)
+        if relation_marks.get("marked") or relation_marks.get("halted") or relation_marks.get("gaps"):
+            db.kv_set("relation_event_forward_last", {**relation_marks, "at": now.isoformat()})
+    except Exception as e:
+        log.warning("R15 관계 사건 전진 가격 동결 실패: %s", type(e).__name__)
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40):
         try:
             telegram_inbound.enqueue_daily_summaries(_kst_today(), "kr")
@@ -956,6 +968,7 @@ _ADMIN_PATHS = {
     "/api/proof", "/api/pick-reason", "/api/harness/run",
     "/api/harness/preregistered", "/api/harness/runs",
     "/api/admin/research/relations", "/api/admin/research/relations/review",
+    "/api/admin/research/relation-events", "/api/admin/research/relation-events/review",
 }
 
 
@@ -3731,6 +3744,84 @@ def relation_research_review(request: Request, data: dict = Body(...)):
     except (ValueError, TypeError) as exc:
         raise HTTPException(400, str(exc)) from None
     return {"review_id": review_id, "status": verdict, "mode": "research_only", "live_eligible": False}
+
+
+@app.get("/api/admin/research/relation-events")
+def relation_event_research_get(request: Request):
+    _admin_or_403(request)
+    events = db.relation_events_list(100)
+    snapshots = {r["event_id"]: r for r in db.relation_event_snapshots()}
+    completed = market_clock.latest_completed_session("kr", datetime.datetime.now(datetime.timezone.utc))
+    for event in events:
+        event["halt"] = db.relation_event_halt(event["id"])
+        event["cohort"] = snapshots.get(event["id"])
+        if (event.get("review") or {}).get("verdict") == "approved":
+            event["forward"] = relation_event_forward.evaluate(
+                event["cohort"], db.relation_event_marks(event["id"]),
+                completed_session=completed, halt=event["halt"])
+    population = db.relation_events_approved()
+    for event in population:
+        event["forward"] = relation_event_forward.evaluate(
+            snapshots.get(event["id"]), db.relation_event_marks(event["id"]),
+            completed_session=completed, halt=db.relation_event_halt(event["id"]))
+    return {"version": relation_event_study.VERSION, "cohort_version": relation_event_study.COHORT_VERSION,
+            "mode": "research_only", "live_eligible": False, "source_available_at_verified": False,
+            "events": events, "capture_status": db.kv_get("relation_event_capture_last") or {},
+            "forward_status": db.kv_get("relation_event_forward_last") or {},
+            "verdict": relation_event_verdict.assess(population, completed_session=completed),
+            "note": "SEC 사건은 수동 원문 대조 뒤 국내 첫 완료 세션에서 관계·섹터 대조군을 동결합니다. 원천 공개시각·실체결은 미검증입니다."}
+
+
+@app.post("/api/admin/research/relation-events")
+def relation_event_research_add(request: Request, data: dict = Body(...)):
+    _relation_mutation_guard(request)
+    try:
+        proof = relation_event_study.candidate(data)
+        at = int(time.time())
+        if not relation_event_study.source_fresh_at(proof, at):
+            raise ValueError("SEC 공시일은 현재 뉴욕 날짜 기준 최근 7일 이내여야 함")
+        eid = db.relation_event_add(proof, observed_at=at, submitted_by=_uid(request))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"id": eid, "status": "candidate", "live_eligible": False}
+
+
+@app.post("/api/admin/research/relation-events/review")
+def relation_event_research_review(request: Request, data: dict = Body(...)):
+    _relation_mutation_guard(request)
+    try:
+        event_id = int(data.get("event_id"))
+        event = db.relation_event_get(event_id)
+        if not event or db.relation_event_halt(event_id):
+            raise ValueError("사건이 없거나 연구 중단됨")
+        verdict = str(data.get("verdict") or "")
+        note = str(data.get("note") or "").strip()
+        if len(note) < 12 or len(note) > 500:
+            raise ValueError("검토 근거는 12~500자 필요")
+        if (event.get("review") or {}).get("verdict") == verdict:
+            raise ValueError("같은 검토 결과 중복")
+        at = int(time.time())
+        due = None
+        if verdict == "approved":
+            if not relation_event_study.source_fresh_at(event, at):
+                raise ValueError("SEC 공시일 대비 검토 지연: 7일 이내만 승인 가능")
+            if data.get("source_checked") is not True:
+                raise ValueError("SEC 공시 원문·발행주체·사건 방향 수동 대조 확인 필요")
+            edge_cutoff = int(event["observed_at"]) - 1
+            edges = relation_graph.active_edges(
+                db.relation_edges_as_of(event["us_ticker"], edge_cutoff), observed_at=edge_cutoff)
+            if not edges:
+                raise ValueError("사건 최초 관측 전에 승인된 미국 고객→국내 공급사 관계 없음")
+            due = relation_event_study.capture_session_for_review(at)
+            if not due or due < relation_event_study.START_DATE:
+                raise ValueError("국내 최초 관측 거래 세션 없음")
+        review_id = db.relation_event_review(event_id, verdict=verdict,
+                                              reviewed_at=at, reviewer_uid=_uid(request),
+                                              note=note, capture_session=due)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"review_id": review_id, "status": verdict, "capture_session": due,
+            "mode": "research_only", "live_eligible": False}
 
 
 def _crowding_status() -> dict:

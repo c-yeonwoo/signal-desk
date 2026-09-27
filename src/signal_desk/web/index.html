@@ -1705,6 +1705,21 @@
       <div id="relation-study-body" class="placeholder" style="padding:8px 0">근거 원장을 불러오는 중…</div>
     </details>
 
+    <details class="card" id="relation-event-study" style="margin-top:16px" ontoggle="if(this.open) loadRelationEvents()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">미국 사건→국내 연결 연구 <span style="color:var(--dim);font-weight:600;font-size:13px">· SEC 사건 첫 관측 · 업종 대조군 · 주문 미연결</span></summary>
+      <p class="page-desc" style="margin:8px 0">SEC EDGAR 원문에서 가이던스·중요 계약 변화를 확인해 등록합니다(공시일 기준 최대 7일). 사전에 승인된 고객→공급사 관계가 있어야 하며, 승인 뒤 첫 국내 완료 세션의 원시 종가와 같은 업종 비관계 대조군을 동결합니다. 다음 거래일~20번째 거래일의 비용 후 상대성과를 연구할 뿐, 늦은 입력은 과거 가격으로 재구성하지 않고 주문에도 연결하지 않습니다.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
+        <label>미국 종목 <input id="relation-event-us" maxlength="10" placeholder="NVDA" style="width:90px"></label>
+        <label>사건 종류 <select id="relation-event-type"><option value="guidance_raise">가이던스 상향</option><option value="guidance_cut">가이던스 하향</option><option value="material_order_gain">중요 계약 확보</option><option value="material_order_loss">중요 계약 상실</option></select></label>
+        <label>SEC 공시일 <input id="relation-event-filed" type="date"></label>
+      </div>
+      <label style="display:block;font-size:12px;margin:6px 0">SEC EDGAR 원문 URL <input id="relation-event-url" type="url" placeholder="https://www.sec.gov/Archives/edgar/data/..." style="width:100%"></label>
+      <label style="display:block;font-size:12px;margin:6px 0">사건 방향을 확인할 원문 인용 <textarea id="relation-event-quote" rows="3" maxlength="1200" style="width:100%"></textarea></label>
+      <div class="row" style="gap:8px"><button type="button" class="btn" onclick="submitRelationEvent()">SEC 사건 후보 등록</button><button type="button" class="btn" onclick="loadRelationEvents()">새로고침</button></div>
+      <div id="relation-event-message" style="font-size:12px;color:var(--dim);margin:8px 0" role="status"></div>
+      <div id="relation-event-body" class="placeholder" style="padding:8px 0">사건 원장을 불러오는 중…</div>
+    </details>
+
     <!-- 실험 — 가설을 제품 안에서 시험한다. 2026-08-05 이전에는 이 단계가 제품에 없어서
          H1·H2를 engine.py 소스를 편집하고 터미널에서 돌렸다(결과는 gitignore 밑, 재현 스크립트 없음). -->
     <div class="card" id="experiment-card" style="margin-top:16px">
@@ -8060,6 +8075,56 @@ async function reviewRelationEdge(id, verdict){
     const d = await r.json(); if (!r.ok) throw new Error(d.detail || '검토 실패');
     message.textContent = `#${id} 근거 검토를 기록했습니다. 연구 전용이며 매매 판단은 바뀌지 않습니다.`;
     loadRelationStudy();
+  } catch(e) { message.textContent = e.message || '검토 실패'; }
+}
+async function loadRelationEvents(){
+  const el = document.getElementById('relation-event-body');
+  if (!el) return;
+  el.textContent = 'SEC 사건·국내 대조군 동결 원장 확인 중…';
+  try {
+    const r = await fetch('/api/admin/research/relation-events');
+    if (!r.ok) throw new Error('조회 실패 (' + r.status + ')');
+    const d = await r.json();
+    const rows = (d.events || []).slice(0,30);
+    const gate = d.verdict || {};
+    const gateText = `고정 look 판정: ${esc(gate.status || '대기')} · 성숙 클러스터 ${Number(gate.matured_clusters || 0)} · 유효 ${Number(gate.effective_clusters || 0)} · 다음 look ${Number(gate.next_look || 0) || '없음'}${gate.directional_delta_mean_pp == null ? '' : ' · 방향 보정 상대성과 '+Number(gate.directional_delta_mean_pp).toFixed(2)+'%p'} · 실전 자동 승격 없음`;
+    if (!rows.length) { el.textContent = 'SEC 사건 등록 없음 · 승인된 관계와 새 사건이 생길 때만 전진 연구를 시작합니다. '+gateText; return; }
+    const names = {guidance_raise:'가이던스 상향',guidance_cut:'가이던스 하향',material_order_gain:'중요 계약 확보',material_order_loss:'중요 계약 상실'};
+    el.innerHTML = `<p class="page-desc" style="margin:0 0 8px">${gateText}<br>첫 관측 이후 가상 종가 매수·매도 비교이며, 하향 사건의 부호 반전은 공매도 수익이 아닙니다. SEC 공개시각·기업행동·호가·실체결 미검증.</p>`
+      + rows.map(e => { const review = e.review || {}, cohort = e.cohort || {}, forward = e.forward || {};
+        const state = e.halt ? '연구 중단 · '+e.halt : cohort.ready ? '입력 동결 · '+cohort.session : review.verdict === 'approved' ? '첫 국내 완료 세션 대기 · '+review.capture_session : review.verdict === 'rejected' ? '거절' : '검토 대기';
+        const outcome = forward.ready ? `20거래일 비용 후 연결 ${Number(forward.outcomes.linked.net_return_pct).toFixed(2)}% / 업종 대조 ${Number(forward.outcomes.sector_control.net_return_pct).toFixed(2)}% · 사건방향 상대차 ${Number(forward.directional_delta_net_pp).toFixed(2)}%p` : review.verdict === 'approved' ? `전진 채점 ${esc(forward.status || '대기')} · ${esc(forward.reason || '')}` : '';
+        const controls = (cohort.groups || []).map(g => `${esc(g.target)} / ${esc(g.sector)} / 대조군 ${esc((g.controls || []).join(', '))}`).join('<br>');
+        const actions = !review.verdict && !e.halt ? `<button type="button" class="btn" onclick="reviewRelationEvent(${Number(e.id)},'approved')">원문 대조 후 승인</button> <button type="button" class="btn" onclick="reviewRelationEvent(${Number(e.id)},'rejected')">거절</button>` : '';
+        return `<div style="border-top:1px solid var(--line);padding:9px 0;font-size:12px;line-height:1.6"><b>#${Number(e.id)} · ${esc(e.us_ticker)} · ${esc(names[e.event_type] || e.event_type)}</b> · ${esc(state)}<br>첫 관측 ${new Date(Number(e.observed_at)*1000).toLocaleString('ko-KR')} · <a href="${esc(e.source_url)}" target="_blank" rel="noopener noreferrer">SEC 원문</a><br><span style="color:var(--dim)">${esc(e.evidence_quote)}</span>${controls ? '<br>'+controls : ''}${outcome ? '<br>'+outcome : ''}<br>${actions}${review.note ? '<span style="color:var(--dim)">검토: '+esc(review.note)+'</span>' : ''}</div>`;
+      }).join('');
+  } catch(e) { el.textContent = '사건 원장 조회 실패 · ' + e.message; }
+}
+async function submitRelationEvent(){
+  const val = id => document.getElementById(id).value.trim();
+  const message = document.getElementById('relation-event-message');
+  const payload = {us_ticker:val('relation-event-us'),event_type:val('relation-event-type'),
+    source_url:val('relation-event-url'),evidence_quote:val('relation-event-quote'),
+    source_filed_date:val('relation-event-filed')};
+  message.textContent = 'SEC 사건 후보 등록 중…';
+  try {
+    const r = await fetch('/api/admin/research/relation-events', {method:'POST',headers:{'Content-Type':'application/json','X-Signal-Desk-Relation':'review'},body:JSON.stringify(payload)});
+    const d = await r.json(); if (!r.ok) throw new Error(d.detail || '등록 실패');
+    message.textContent = `#${d.id} SEC 사건 후보를 저장했습니다. 원문·발행주체·방향을 수동 대조해 승인하세요.`;
+    loadRelationEvents();
+  } catch(e) { message.textContent = e.message || '등록 실패'; }
+}
+async function reviewRelationEvent(id, verdict){
+  const note = prompt(verdict === 'approved' ? 'SEC 원문·발행주체·사건 방향을 확인한 근거를 적어주세요.' : '거절 근거를 적어주세요.');
+  if (note == null) return;
+  const checked = verdict !== 'approved' || confirm('SEC 원문·발행주체·사건 방향을 직접 확인했습니까? 승인 뒤 첫 국내 완료 세션을 놓치면 과거 가격으로 복원하지 않습니다.');
+  if (!checked) return;
+  const message = document.getElementById('relation-event-message');
+  try {
+    const r = await fetch('/api/admin/research/relation-events/review', {method:'POST',headers:{'Content-Type':'application/json','X-Signal-Desk-Relation':'review'},body:JSON.stringify({event_id:id,verdict,note,source_checked:checked})});
+    const d = await r.json(); if (!r.ok) throw new Error(d.detail || '검토 실패');
+    message.textContent = `#${id} 사건 검토 기록 · 첫 국내 가격 동결 예정 ${d.capture_session || '없음'} · 주문 미연결`;
+    loadRelationEvents();
   } catch(e) { message.textContent = e.message || '검토 실패'; }
 }
 async function loadRevisionPriceStudy(){
