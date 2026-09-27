@@ -1861,6 +1861,13 @@
       <div id="rotation-verdict-body" style="font-size:13px;line-height:1.7;padding:8px 0;color:var(--dim)">사전등록 판정 대기…</div>
       <div id="rotation-shadow-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
     </details>
+    <details class="card" id="price-baseline-study" style="margin-top:16px" ontoggle="if(this.open) loadPriceBaselineStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">가격 전략 대조군 <span style="color:var(--dim);font-weight:600;font-size:13px">· 3팩터와 섹터 보정 12-1 모멘텀 · 연구 전용</span></summary>
+      <p class="page-desc" style="margin:8px 0">동일 PIT 가격 유니버스에서 20거래일 비중첩 가상 매수·매도를 비교합니다. 작은 섹터는 시장 기준으로 축소합니다. 비용·정수주를 반영하되 호가·배당·실제 체결은 포함하지 않으며 주문에 연결되지 않습니다.</p>
+      <label>시장 <select id="price-baseline-market" onchange="loadPriceBaselineStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>
+      <div id="price-baseline-verdict" style="font-size:13px;line-height:1.7;padding:8px 0;color:var(--dim)">전진 검증 판정 대기…</div>
+      <div id="price-baseline-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
+    </details>
     <details class="card" id="reference-allocation-study" style="margin-top:16px" ontoggle="if(this.open) loadReferenceAllocationStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">세 성향 배분 비교 <span style="color:var(--dim);font-weight:600;font-size:13px">· 같은 시그널 · 미체결 반영 · 연구 전용</span></summary>
       <p class="page-desc" style="margin:8px 0">동일한 매수 신호를 안정·균형·공격형의 기존 종목 비중(6%·8%·14%)과 현금·집중도 한도에 적용합니다. 예약 수량은 현재 잔고 기반 추정이며 실체결이나 실주문 지침이 아닙니다.</p>
@@ -9028,6 +9035,49 @@ async function loadExecutionCostStudy(){
       + `닫힌 수량 조각 ${Number(d.closed_fragments)}건 · 보유 중인 묶음 ${Number(d.open_lots)}건 · 관측 불가 ${esc(gaps || '없음')}`
       + '</div><p class="page-desc" style="margin:8px 0 0">가상 체결 비용 분석이며 실계좌 예상 수익률이 아닙니다. 다른 주문 시점·정책의 성과를 비교하지 않습니다.</p>';
   } catch(e) { el.textContent = '체결비용 분석을 표시할 수 없습니다 · ' + e.message; }
+}
+async function loadPriceBaselineStudy(){
+  const el = document.getElementById('price-baseline-body');
+  if (!el) return;
+  el.textContent = '동결된 가격 대조군을 불러오는 중…';
+  const market = document.getElementById('price-baseline-market').value;
+  loadPriceBaselineVerdict(market);
+  try {
+    const response = await fetch('/api/admin/research/price-baseline?market=' + encodeURIComponent(market));
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    const rows = data.episodes || [];
+    if (!rows.length) {
+      el.textContent = '아직 동결된 전진 비교가 없습니다 · ' + (data.capture_status?.reason || '마감 PIT·가격 정합성 검사를 기다립니다.');
+      return;
+    }
+    const cell = r => {
+      const f = r.forward || {};
+      if (!f.ready) return esc(f.status === 'pending' ? '전진 가격 대기' : '보류 · ' + (f.reason || '미판정'));
+      const delta = Number(f.delta_net_pp);
+      const a = f.outcomes?.price_3factor || {};
+      const b = f.outcomes?.sector_momentum || {};
+      return `${delta >= 0 ? '+' : ''}${fmtNum(delta, 2)}%p<br><span style="color:var(--dim)">3팩터 ${fmtNum(a.net_return_pct, 2)}% · 모멘텀 ${fmtNum(b.net_return_pct, 2)}% · 체결 슬롯 ${Number(a.filled_slots)}/${Number(b.filled_slots)}</span>`;
+    };
+    el.innerHTML = '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>판단 세션</th><th>동일 입력</th><th>3팩터 선택</th><th>상대 모멘텀 선택</th><th>20일 비용 후 차이</th></tr></thead><tbody>'
+      + rows.map(r => `<tr><td>${esc(r.session)}</td><td>${Number(r.eligible)}/${Number(r.pit_rows)} · ${fmtNum(Number(r.coverage)*100, 1)}%</td><td>${esc((r.policies?.price_3factor || []).join(', ') || '없음')}</td><td>${esc((r.policies?.sector_momentum || []).join(', ') || '없음')}</td><td>${cell(r)}</td></tr>`).join('')
+      + '</tbody></table></div><p class="page-desc" style="margin:8px 0 0">각 행은 독립 가상 에피소드입니다. 수익률을 이어 붙인 트랙레코드가 아니며 우위가 관측돼도 자동 승격하지 않습니다.</p>';
+  } catch(e) { el.textContent = '가격 대조군을 표시할 수 없습니다 · ' + e.message; }
+}
+async function loadPriceBaselineVerdict(market){
+  const el = document.getElementById('price-baseline-verdict');
+  if (!el) return;
+  el.textContent = '비중첩 전진 판정 확인 중…';
+  try {
+    const response = await fetch('/api/admin/research/price-baseline/verdict?market=' + encodeURIComponent(market));
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json();
+    const names = {awaiting_oos:'전진 표본 대기', blocked_data_quality:'가격 무결성 부족',
+      inconclusive:'차이 미판정', positive_research_signal:'모멘텀 우위 연구 신호',
+      negative_research_signal:'모멘텀 열위 연구 신호'};
+    const mean = d.net_delta_mean_pp == null ? '' : ` · 평균 ${Number(d.net_delta_mean_pp) >= 0 ? '+' : ''}${fmtNum(d.net_delta_mean_pp, 2)}%p · 보정 구간 ${fmtNum(d.net_delta_lower_pp, 2)}~${fmtNum(d.net_delta_upper_pp, 2)}%p`;
+    el.innerHTML = `<b>${esc(names[d.status] || d.status)}</b> · 성숙 비중첩 ${Number(d.matured_blocks || 0)}건 · 유효 ${Number(d.effective_blocks || 0)}건${mean}<br><span style="color:var(--dim)">통계 신호가 나와도 섹터·베타·현금·실체결 민감도를 검증하기 전 주문 정책은 변경되지 않습니다.</span>`;
+  } catch(e) { el.textContent = '전진 판정 조회 실패 · ' + e.message; }
 }
 async function loadRotationShadowStudy(){
   const el = document.getElementById('rotation-shadow-body');
