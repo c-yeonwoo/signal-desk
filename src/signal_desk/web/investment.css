@@ -1,0 +1,31 @@
+.invest-hero {padding:24px 28px;background:linear-gradient(110deg,#eef1ff,#f4f8fa);border:1px solid var(--line);border-radius:18px;margin-bottom:18px}
+.invest-hero h2,.invest-review h2,.invest-portfolio h2 {font-size:clamp(20px,2.6vw,28px);line-height:1.4;letter-spacing:-.7px;margin:8px 0 12px}
+.invest-hero p {max-width:680px;margin:0;color:var(--dim);line-height:1.7}
+.invest-kicker {font-size:12px;letter-spacing:.03em;font-weight:750;color:var(--accent)}
+.invest-review {padding:26px;border:1px solid var(--line);border-radius:18px;background:var(--surface,#fff);margin-bottom:18px}
+.invest-muted {font-size:13px;color:var(--dim);line-height:1.7;margin:12px 0}
+.invest-breakdown {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}
+.invest-breakdown>div {padding:16px;background:var(--bg,#f5f6f9);border:1px solid var(--line);border-radius:12px;min-width:0}
+.invest-breakdown span {display:block;color:var(--dim);font-size:12px;margin-bottom:9px}
+.invest-breakdown strong {font-size:clamp(17px,2vw,24px);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.invest-breakdown strong.neg {color:var(--sig-sell)}.invest-breakdown strong.pos {color:var(--sig-buy)}
+.invest-recovery {display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 18px;background:#fff6e7;border-radius:12px;color:#714b12}
+.invest-recovery strong {font-size:23px}.invest-recovery span {font-size:12px;flex-basis:100%;line-height:1.6}
+.invest-review h3 {font-size:16px;margin:24px 0 12px}
+.invest-plan {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;list-style:none;counter-reset:step;padding:0;margin:0}
+.invest-plan li {counter-increment:step;padding:18px 0;border-top:2px solid var(--line);font-size:14px}
+.invest-plan li:before {content:'0' counter(step);display:block;color:var(--accent);font-weight:800;font-size:12px;margin-bottom:10px}
+.invest-plan p,.invest-detail p,.invest-guidance p {font-size:13px;color:var(--dim);line-height:1.8;margin:8px 0 0}
+.invest-detail {border-top:1px solid var(--line);margin-top:14px;padding-top:14px;min-width:0}
+.invest-detail summary {font-size:14px;font-weight:700;cursor:pointer;padding:6px 0;line-height:1.5}
+.invest-detail>div {overflow-x:auto;padding:8px 0}.invest-detail summary:focus-visible {outline:2px solid var(--accent);outline-offset:4px}
+.invest-guidance {padding:18px 20px;border-left:3px solid var(--accent);background:var(--bg,#f5f6f9);border-radius:0 12px 12px 0;margin:14px 0}
+.invest-guidance h3 {font-size:17px;margin:7px 0}.invest-next b {color:var(--txt)}
+#reference-perf {overflow-x:auto}#bot-rules {line-height:1.8}
+#portfolio-bot.is-loading > :not(#bot-review) {display:none}
+@media(max-width:640px) {
+  .invest-hero,.invest-review {padding:18px}.invest-breakdown {grid-template-columns:1fr;gap:8px;margin:14px 0}
+  .invest-breakdown>div {display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px}
+  .invest-breakdown span {margin:0}.invest-breakdown strong {font-size:20px}.invest-plan {grid-template-columns:1fr;gap:0}
+  .invest-plan li {padding:14px 0}.invest-guidance {padding:14px}.invest-review h2 {font-size:22px}
+}
