@@ -25,6 +25,7 @@ from signal_desk.signals import (
 from signal_desk.signals import accuracy as accuracy_mod
 from signal_desk.signals import decision as decmod
 from signal_desk.signals import performance_evidence
+from signal_desk.signals import policy_contract
 
 log = logging.getLogger("signal_desk.bot")
 
@@ -111,6 +112,17 @@ def _buy_risk_policy(cfg: dict, exposure: float) -> dict:
             "exposure": exposure}
 
 
+def _applied_policy_ids(market: str, cfg: dict, market_read: dict) -> tuple[str, str]:
+    signal_cfg = market_read.get("eff_cfg") if market == "kr" else engine.SignalConfig()
+    signal_id = policy_contract.signal_policy_id(market, signal_cfg or engine.SignalConfig())
+    exposure = float((market_read.get("context") or {}).get("exposure", 1.0))
+    execution_id = policy_contract.execution_policy_id(
+        market, cfg["trading_style"], exposure=exposure, signal_id=signal_id,
+        risk_limits={"max_positions": cfg["max_positions"], "position_pct": cfg["position_pct"],
+                     "max_new_buys_per_run": cfg["max_new_buys_per_run"]})
+    return signal_id, execution_id
+
+
 def is_us_market_hours(now: datetime.datetime | None = None) -> bool:
     """NYSE 정규장 구간. 서머타임·휴장·조기마감을 거래소 일정으로 판정한다."""
     now = now or datetime.datetime.now(_KST)
@@ -138,7 +150,9 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
     LLM이 이를 근거로 재차 감점하지 않도록 advisor 프롬프트가 명시한다(이중 반영 방지)."""
     reg = regime.classify(prices)
     macro_ind = store.load_macro()
-    mread = macro.read(macro_ind)
+    # 화면의 _macro()와 동일한 한국 ECOS 입력을 넣는다. 빠지면 같은 종가에도
+    # 화면과 페이퍼의 유효 매수 문턱·정책 ID가 달라진다.
+    mread = macro.read(macro_ind, extra=store.load_macro_kr())
     cyc = cycle.position(macro_ind)
     eff_cfg, adapt = signalcfg.effective_config(reg, mread, flow_result=store.load_market_flow())
     macro_dg = kb.macro_digest()
@@ -397,6 +411,9 @@ def _market_signals(market: str, mr: dict):
     # 한쪽에만 팩터가 빠져 화면의 '매수 후보'와 실제 매수가 갈라진다.
     sigs = engine.evaluate(universe, prices, fundamentals, config=mr["eff_cfg"],
                            **store.kr_engine_inputs())
+    signal_id = policy_contract.signal_policy_id("kr", mr["eff_cfg"] or engine.SignalConfig())
+    for sig in sigs:
+        sig.signal_policy_id = signal_id
     execution_gate.apply_from_store(sigs, market="kospi", today=_today())
     return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}
 
@@ -457,7 +474,8 @@ def recent_sold_tickers(uid: int, market: str, style: str) -> set[str]:
 
 def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_after,
                        cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
-                       sells, buys, rotated_out, dry_run, rp, exposure):
+                       sells, buys, rotated_out, dry_run, rp, exposure,
+                       signal_policy_id=None, execution_policy_id=None):
     """약한 보유 → 더 강한 후보 교체. rp=성향별 로테이션 정책. 갱신된 cash 반환.
     sells/buys/held_after/rotated_out 갱신."""
     warned = store.load_warned_tickers() if market == "kr" else set()
@@ -528,7 +546,9 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
             sell_result = paper.place_order(uid, wt, "sell", wqty, price=wlive, name=wh["name"],
                                             market=market, reason="ROTATE_OUT", note=snote,
                                             score=weak_score, event_payload={"replaced_by": best.ticker},
-                                            alert_style=REFERENCE_BOTS.get(uid))
+                                            alert_style=REFERENCE_BOTS.get(uid),
+                                            policy_id=execution_policy_id,
+                                            signal_policy_id=signal_policy_id)
             if sell_result is None:
                 weak.pop(0)
                 continue
@@ -557,7 +577,9 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                                                market=market, reason="ROTATE_IN", note=bnote,
                                                score=best.score, event_payload={"replaced": wt},
                                                risk_policy=_buy_risk_policy(cfg, exposure),
-                                               alert_style=REFERENCE_BOTS.get(uid))
+                                               alert_style=REFERENCE_BOTS.get(uid),
+                                               policy_id=execution_policy_id,
+                                               signal_policy_id=signal_policy_id)
                 if buy_result is not None:
                     basis_per_share = -buy_result["cash_change"] / bqty
                     db.bot_trade_log(uid, best.ticker, bname, "buy", bqty, buy_result["fill_price"], "ROTATE_IN", buy_result["order_no"],
@@ -618,6 +640,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         _update_decision_outcomes(prices)  # 과거 결정 사후수익 확정(공용 학습, 국내 기준)
 
     cfg = _cfg(uid)
+    signal_policy_id, execution_policy_id = _applied_policy_ids(market, cfg, mr)
     # 청산 폭은 **종목별 변동성**으로 정한다(2026-09-06). 고정 퍼센트는 시장을 옮기면 뜻이
     # 바뀐다 — 트레일링 −4%가 미국에서 1.6σ, 국내에서 0.9σ였고 실측 성적이 그 차이를 그대로
     # 따라갔다(미국 균형 +0.24%p·공격 +3.04%p vs 국내 −10.19·−10.57%p).
@@ -680,7 +703,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                     market=market, reason=reason, note=note, score=sig.score if sig else None,
                     event_payload={"peak": peak, "entry_price": avg_price,
                                    "risk": pos_risk.effective().__dict__},
-                    alert_style=REFERENCE_BOTS.get(uid))
+                    alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
+                    signal_policy_id=signal_policy_id)
                 if result is not None:
                     filled = result["fill_price"]
                     db.bot_trade_log(uid, ticker, plan["name"], "sell", sell_qty, filled, reason,
@@ -703,7 +727,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                             note,
                             {"event_id": dec.event_id, "policy_version": dec.policy_version,
                              "holding_action": dec.holding_action, "severity": dec.severity,
-                             "uid": uid, "qty": sell_qty},
+                             "uid": uid, "qty": sell_qty,
+                             "signal_policy_id": signal_policy_id,
+                             "execution_policy_id": execution_policy_id},
                             current_price,
                         )
                     remaining = qty - sell_qty
@@ -835,7 +861,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                      if eng_cfg.selection_mode == "rank" and s.rank_pct is not None
                      else f"≥{cfg['min_buy_score']:.1f}")
             vol_note = f" · vol×{vscale:.2f}" if abs(vscale - 1.0) > 0.02 else ""
-            quant = (f"점수 {s.score:+.2f}({basis}·신뢰도 {s.confidence:.2f}) · "
+            quant = (f"점수 {s.score:+.2f}({basis}·점수 강도 {s.confidence:.2f}, 성공확률 아님) · "
                      f"익스포저 {exposure * 100:.0f}%{vol_note} · "
                      f"분할 1/{tranches}트랜치(약 {int(alloc):,}{unit}) ÷ {int(live):,}{unit} = {qty}주")
             llm_reason = rationale_by.get(s.ticker)
@@ -850,7 +876,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                    "style": cfg["trading_style"],
                                    "risk": _risk_for(closes).effective().__dict__},
                     risk_policy=_buy_risk_policy(cfg, exposure),
-                    alert_style=REFERENCE_BOTS.get(uid))
+                    alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
+                    signal_policy_id=signal_policy_id)
                 if result is not None:
                     filled = result["fill_price"]
                     basis_per_share = -result["cash_change"] / qty
@@ -875,7 +902,10 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                             tranches_done=1, last_buy_date=_today())
                     from signal_desk.signals import pick_reason as _pr
                     buy_ctx = {**(context or {}), "pick": _pr.from_signal(s),
-                               "uid": uid, "qty": qty, "market": market}
+                               "uid": uid, "qty": qty, "market": market,
+                               "signal_policy_id": signal_policy_id,
+                               "execution_policy_id": execution_policy_id,
+                               "score_semantics": policy_contract.SCORE_SEMANTICS}
                     db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, buy_ctx, live)
                     cash -= qty * live
                     room -= qty * live
@@ -897,7 +927,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             f"매수 체결 0 · BUY시그널 {n_buy}건 · {basis} · 익스포저 {exposure * 100:.0f}%"
             f"(여유 {int(room):,}) · 슬롯 {slots}",
             {**(context or {}), "advisor_used": advisor_used, "skipped_weak": skipped_weak,
-             "buy_signals": n_buy, "slots": slots, "exposure": exposure, "room": round(room)},
+             "buy_signals": n_buy, "slots": slots, "exposure": exposure, "room": round(room),
+             "signal_policy_id": signal_policy_id,
+             "execution_policy_id": execution_policy_id},
             0.0,
         )
 
@@ -909,7 +941,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     if not (block_new_buys or sells_only) and want_rotation:
         cash = _conviction_rotate(uid, market, signals, signal_by_ticker, bal2["holdings"], held_after,
                                   cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
-                                  sells, buys, rotated_out, dry_run, rp, exposure)
+                                  sells, buys, rotated_out, dry_run, rp, exposure,
+                                  signal_policy_id, execution_policy_id)
 
     # ① 분할매수 후속: 보유 중이고 여전히 BUY인데 목표비중 미달인 포지션에 다음 트랜치 추가.
     # **막힌 이유를 모아 결과에 싣는다.** 안 그러면 "왜 추가가 안 됐나"가 어느 화면에도 안 뜬다
@@ -954,7 +987,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             result = paper.place_order(uid, t, "buy", qty, price=live, name=h["name"],
                                        market=market, reason="ADD", note=note, score=sig.score,
                                        risk_policy=_buy_risk_policy(cfg, exposure),
-                                       alert_style=REFERENCE_BOTS.get(uid))
+                                       alert_style=REFERENCE_BOTS.get(uid),
+                                       policy_id=execution_policy_id,
+                                       signal_policy_id=signal_policy_id)
             if result is not None:
                 new_qty = h["qty"] + qty
                 new_avg = round((h["qty"] * avg - result["cash_change"]) / new_qty, 2)
@@ -982,6 +1017,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                              final_bal["cash"], final_bal.get("invested") or 0.0)
     return {
         "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak,
+        "signal_policy_id": signal_policy_id, "execution_policy_id": execution_policy_id,
+        "score_semantics": policy_contract.SCORE_SEMANTICS,
         "skipped_gap_buys": 0, "advisor_used": advisor_used,
         # 분할 추가가 막힌 이유(회차 완료·하루 1번). 안 실으면 "왜 추가가 안 됐나"가 어느
         # 화면에도 안 뜬다 — 이 리포의 "0에는 반드시 이유를 붙인다" 규칙.
@@ -1182,6 +1219,7 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
     signal_by_ticker = {s.ticker: s for s in signals}
     exposure = float(mr["context"].get("exposure", 1.0))
     cfg = _cfg(uid)
+    signal_policy_id, execution_policy_id = _applied_policy_ids(market, cfg, mr)
     executed = []
     for r in pending:
         def reject(status: str, note: str) -> None:
@@ -1223,7 +1261,8 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                 reason="RESERVATION", note=note,
                 event_payload={"reservation_id": r["id"], "target_price": r["target_price"]},
                 risk_policy=_buy_risk_policy(cfg, exposure),
-                alert_style=REFERENCE_BOTS.get(uid))
+                alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
+                signal_policy_id=signal_policy_id)
             if result is not None:
                 filled = result["fill_price"]
                 basis_per_share = -result["cash_change"] / qty
@@ -1248,7 +1287,9 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                 executed.append({"ticker": r["ticker"], "name": r["name"], "status": "order_failed"})
         else:
             executed.append({"ticker": r["ticker"], "name": r["name"], "status": "would_fill", "qty": qty, "note": note})
-    return {"ok": True, "dry_run": dry_run, "market": market, "executed": executed}
+    return {"ok": True, "dry_run": dry_run, "market": market, "executed": executed,
+            "signal_policy_id": signal_policy_id, "execution_policy_id": execution_policy_id,
+            "score_semantics": policy_contract.SCORE_SEMANTICS}
 
 
 # 손해 경보 문턱 — 초과수익 **상한**이 이 값 아래로 확정되면 경고한다. 0이 아니라 살짝

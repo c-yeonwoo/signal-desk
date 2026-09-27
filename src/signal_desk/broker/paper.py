@@ -79,7 +79,8 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
                 name: str = "", market: str = "kr", *, reason: str | None = None,
                 note: str | None = None, score: float | None = None,
                 event_payload: dict | None = None, risk_policy: dict | None = None,
-                alert_style: str | None = None) -> dict | None:
+                alert_style: str | None = None, policy_id: str | None = None,
+                signal_policy_id: str | None = None) -> dict | None:
     """유저 계좌 가상 체결. 봇 주문이면 잔고·체결·감사 이벤트를 한 트랜잭션으로 기록."""
     if side not in ("buy", "sell"):
         raise ValueError("side must be 'buy' or 'sell'")
@@ -150,6 +151,10 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
         payload = {"qty": qty, "reason": reason, "reference_price": reference_price,
                    "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
                    **(event_payload or {})}
+        if policy_id:
+            payload["execution_policy_id"] = policy_id
+        if signal_policy_id:
+            payload["signal_policy_id"] = signal_policy_id
         if score is not None:
             payload["score"] = score
         c.execute("INSERT INTO execution_events(event_key,uid,market,ticker,event_type,price,payload,ts) "

@@ -167,6 +167,7 @@ class SignalResult:
     data_coverage: float | None = None
     missing_factors: list[str] = field(default_factory=list)  # 데이터 없어 빠진 팩터(이름)
     low_coverage: bool = False      # 데이터 커버리지 미달로 매수권 제외
+    signal_policy_id: str | None = None  # 실제 계산 설정의 지문; 확률/성과 검증 표식은 아니다.
     # ── 게이트 투명화 (X3) ──
     # `gate_blocked` 불리언 하나로는 무엇이 막았는지 알 수 없었다. 화면이 근거 문구를
     # 문자열 파싱(`[추세]` 접두어)해서 뒤집어 맞추고 있었고, 그 매핑이 어디에도 검사되지 않았다.

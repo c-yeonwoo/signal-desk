@@ -75,7 +75,8 @@ def clock_context(market: str, now: datetime | None = None) -> dict:
 
 
 def capture(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict, prices: dict,
-            dates_by: dict, profile: dict, market: str) -> tuple[dict, dict]:
+            dates_by: dict, profile: dict, market: str,
+            signal_policy_id: str | None = None) -> tuple[dict, dict]:
     """Freeze every input used by the joint decision, including rejected candidates.
 
     Only fields consumed by the policy are stored for signals; this replays the portfolio
@@ -84,6 +85,7 @@ def capture(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict, p
     tickers = {str(r["ticker"]) for r in rows + universe}
     policy_profile = {k: v for k, v in profile.items() if k not in ("updated", "configured")}
     inputs = json_safe({"rows": rows, "universe": universe, "profile": policy_profile, "market": market,
+                       "signal_policy_id": signal_policy_id,
                        "prices": {t: prices.get(t, []) for t in sorted(tickers)},
                        "dates_by": {t: dates_by.get(t, []) for t in sorted(tickers)},
                        "signals": {t: {k: getattr(s, k, None) for k in ("kind", "score", "event_risk")}
@@ -145,6 +147,8 @@ def replay(body: dict) -> dict:
 def summary(artifact_id: str, body: dict, created: int) -> dict:
     timing = body["timing"]
     return {"id": artifact_id, "recorded_at": created, "policy_version": body["result"]["decision"]["policy_version"],
+            "policy_id": body["result"]["decision"].get("policy_id"),
+            "signal_policy_id": body["result"]["decision"].get("signal_policy_id"),
             "engine_version": body["engine_version"], "timing": timing, "limitations": body["limitations"],
             "integrity_verified": True, "live_eligible": False,
             "plan_ready": bool(body["result"]["trade_plan"].get("ready"))}
