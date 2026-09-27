@@ -87,6 +87,12 @@ CREATE TABLE IF NOT EXISTS price_quality_snapshots(
 -- R13 first-observed revision × price input archive. No order permission.
 CREATE TABLE IF NOT EXISTS revision_price_snapshots(
     session TEXT PRIMARY KEY, payload TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS revision_price_marks(
+    episode_session TEXT NOT NULL, price_session TEXT NOT NULL, ticker TEXT NOT NULL,
+    price REAL NOT NULL, observed INTEGER NOT NULL,
+    PRIMARY KEY(episode_session,price_session,ticker));
+CREATE TABLE IF NOT EXISTS revision_price_halts(
+    episode_session TEXT PRIMARY KEY, details TEXT NOT NULL, detected INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -1630,6 +1636,55 @@ def revision_price_recent(limit: int = 30) -> list[dict]:
         rows = c.execute("SELECT session,payload FROM revision_price_snapshots "
                          "ORDER BY session DESC LIMIT ?", (max(1, min(int(limit), 100)),)).fetchall()
         return [{**json.loads(payload), "session": day} for day, payload in rows]
+    finally:
+        c.close()
+
+
+def revision_price_all(from_session: str) -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT session,payload FROM revision_price_snapshots WHERE session>=? "
+                         "ORDER BY session", (from_session,)).fetchall()
+        return [{**json.loads(payload), "session": day} for day, payload in rows]
+    finally:
+        c.close()
+
+
+def revision_price_mark_once(episode: str, day: str, prices: dict[str, float], observed: int) -> int:
+    c = conn()
+    try:
+        before = c.total_changes
+        c.executemany("INSERT OR IGNORE INTO revision_price_marks VALUES(?,?,?,?,?)",
+                      [(episode, day, ticker, float(value), observed) for ticker, value in prices.items()])
+        c.commit()
+        return c.total_changes - before
+    finally:
+        c.close()
+
+
+def revision_price_marks(episode: str) -> dict[str, dict[str, float]]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT price_session,ticker,price FROM revision_price_marks "
+                         "WHERE episode_session=? ORDER BY price_session,ticker", (episode,)).fetchall()
+        out: dict[str, dict[str, float]] = {}
+        for day, ticker, value in rows:
+            out.setdefault(day, {})[ticker] = value
+        return out
+    finally:
+        c.close()
+
+
+def revision_price_halt(episode: str, details: str | None = None) -> str | None:
+    c = conn()
+    try:
+        if details is not None:
+            c.execute("INSERT OR IGNORE INTO revision_price_halts VALUES(?,?,?)",
+                      (episode, details, int(time.time())))
+            c.commit()
+        row = c.execute("SELECT details FROM revision_price_halts WHERE episode_session=?",
+                        (episode,)).fetchone()
+        return row[0] if row else None
     finally:
         c.close()
 
