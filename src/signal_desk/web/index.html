@@ -9041,16 +9041,28 @@ async function loadRotationShadowStudy(){
     const data = await response.json();
     const rows = data.snapshots || [];
     if (!rows.length) {
-      el.textContent = '동결된 비교가 없습니다. 마감 세션·PIT 시그널·종가 정합성 검사를 통과한 뒤 기록됩니다.';
+      const status = data.capture_status || {};
+      el.textContent = '동결된 비교가 없습니다 · ' + (status.reason || '마감 세션·PIT 시그널·종가 정합성 검사를 기다립니다.');
       return;
     }
     const label = d => {
       const pairs = d.pairs || [];
       return pairs.length ? pairs.map(p => esc(p.out) + ' → ' + esc(p.in)).join(', ') : '유지 · ' + esc(d.reason || '적격 교체 없음');
     };
-    el.innerHTML = '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>세션</th><th>기존 회전 프록시</th><th>저회전 후보</th></tr></thead><tbody>'
-      + rows.map(r => `<tr><td>${esc(r.session)}</td><td>${label((r.decisions || {}).champion_rotation_proxy || {})}</td><td>${label((r.decisions || {}).s0_rank_buffer || {})}</td></tr>`).join('')
-      + '</tbody></table></div><p class="page-desc" style="margin:8px 0 0">주간 첫 관측 거래일·최소 5거래일 보유·순위 완충을 적용했습니다. 매입 손익은 저회전 교체 제외 조건이 아닙니다. 미체결·비용 후 성과는 다음 전진 평가에서 확인해야 합니다.</p>';
+    const score = r => {
+      const f = r.forward || {};
+      if (!f.ready) return esc(f.status === 'no_action' ? '양쪽 유지 · 비교 제외' : '보류 · ' + (f.reason || '전진 가격 대기'));
+      const h5 = f.delta_net_pp?.h5;
+      const h20 = f.delta_net_pp?.h20;
+      const h = (v, name) => name + ' ' + (v == null ? '대기' : (v >= 0 ? '+' : '') + fmtNum(v, 2) + '%p');
+      const championMdd = f.metrics?.champion_rotation_proxy?.h20?.max_drawdown_pct;
+      const challengerMdd = f.metrics?.s0_rank_buffer?.h20?.max_drawdown_pct;
+      const mdd = championMdd == null || challengerMdd == null ? '' : `<br>20일 최대낙폭 기존 ${fmtNum(championMdd, 2)}% → 저회전 ${fmtNum(challengerMdd, 2)}%`;
+      return h(h5, '5일') + ' · ' + h(h20, '20일') + mdd + `<br><span style="color:var(--dim)">관측 ${Number(f.completed_sessions)}/20거래일 · 비용 ${fmtNum((f.metrics?.s0_rank_buffer?.cost_drag_pct || 0), 2)}%p · 거래금액/초기자산 ${fmtNum((f.metrics?.s0_rank_buffer?.traded_notional_pct || 0), 1)}%</span>`;
+    };
+    el.innerHTML = '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>세션</th><th>기존 회전 프록시</th><th>저회전 후보</th><th>저회전−기존 비용 후</th></tr></thead><tbody>'
+      + rows.map(r => `<tr><td>${esc(r.session)}</td><td>${label((r.decisions || {}).champion_rotation_proxy || {})}</td><td>${label((r.decisions || {}).s0_rank_buffer || {})}</td><td>${score(r)}</td></tr>`).join('')
+      + '</tbody></table></div><p class="page-desc" style="margin:8px 0 0">다음 거래일 종가 가상 체결, 5·20거래일 동일 가격 패널의 비용 후 차이입니다. 겹치는 에피소드를 합산한 수익률이나 실제 체결 성과가 아니며, 가격 수정·누락 시 보류합니다. 정책 자동 승격·주문 반영은 없습니다.</p>';
   } catch(e) { el.textContent = '저회전 비교를 표시할 수 없습니다 · ' + e.message; }
 }
 async function loadReferenceAllocationStudy(){

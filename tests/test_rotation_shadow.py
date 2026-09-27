@@ -105,3 +105,51 @@ def test_rotation_shadow_api_is_admin_only_and_inputs_are_opt_in(tmp_path, monke
     assert "signals" not in response.json()["snapshots"][0]
     detailed = admin.get("/api/admin/research/rotation-shadow?include_inputs=true")
     assert detailed.json()["snapshots"][0]["signals"][0]["ticker"] == "SECRET"
+
+
+def _episode():
+    s = {**_snapshot(loss=True), "version": rs.VERSION, "market": "kr",
+         "session": "2026-09-23", "cost_assumptions": rs.execution.cost_assumptions("kr")}
+    s["decisions"] = rs.decide(s, "balanced", review_due=True)
+    for decision in s["decisions"].values():
+        decision["fixed_orders"] = rs._fixed_orders(s, decision["pairs"])
+    return s
+
+
+def test_forward_paired_costs_hold_and_price_gap_block():
+    s = _episode()
+    assert s["decisions"]["champion_rotation_proxy"]["fixed_orders"] == []
+    assert s["decisions"]["s0_rank_buffer"]["fixed_orders"]
+    sessions = [f"2026-10-{i:02d}" for i in range(1, 21)]
+    marks = {day: {"HELD": 80.0, "NEW": 100 + i} for i, day in enumerate(sessions)}
+    result = rs.evaluate(s, marks, sessions, completed_session=sessions[19])
+    assert result["complete"] and result["delta_net_pp"]["h20"] > 0
+    assert result["metrics"]["s0_rank_buffer"]["cost_drag_pct"] > 0
+    assert result["metrics"]["champion_rotation_proxy"]["orders"] == 0
+    assert result["metrics"]["s0_rank_buffer"]["traded_notional_pct"] > 0
+    assert result["metrics"]["s0_rank_buffer"]["h20"]["max_drawdown_pct"] <= 0
+    assert rs.evaluate(s, marks, sessions, completed_session=sessions[19],
+                       revision_halt="HELD:2026-09-23")["ready"] is False
+    del marks[sessions[2]]
+    assert "누락" in rs.evaluate(s, marks, sessions, completed_session=sessions[19])["reason"]
+    marks[sessions[2]] = {"HELD": 80.0, "NEW": 102.0}
+    marks[sessions[0]]["NEW"] = 2000.0
+    assert "가격 갭" in rs.evaluate(s, marks, sessions, completed_session=sessions[19])["reason"]
+
+
+def test_forward_marks_are_first_observed_and_revision_halts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    s = _episode()
+    db.rotation_shadow_add_once(900002, "kr", s["session"], s)
+    prices = {"HELD": [80.0, 80.0, 80.0], "NEW": [100.0, 101.0, 102.0]}
+    dates = {ticker: ["2026-09-23", "2026-09-28", "2026-09-29"] for ticker in prices}
+    monkeypatch.setattr(rs.store, "load_portfolio_close_bundle", lambda market: (prices, dates))
+    first = rs.collect_forward("kr", dt.datetime(2026, 9, 28, 9, 30, tzinfo=dt.timezone.utc))
+    assert first["marked"] == 2
+    assert rs.collect_forward("kr", dt.datetime(2026, 9, 28, 9, 30, tzinfo=dt.timezone.utc))["marked"] == 0
+    assert db.rotation_shadow_marks(900002, "kr", s["session"])["2026-09-28"]["NEW"] == 101
+    prices["HELD"][0] = 79.0  # 최초 판단 종가가 사후 수정됨
+    second = rs.collect_forward("kr", dt.datetime(2026, 9, 29, 9, 30, tzinfo=dt.timezone.utc))
+    assert second["revision_halts"] == 1
+    assert db.rotation_shadow_revision_halt(900002, "kr", s["session"]) == "HELD:2026-09-23"
+    assert "2026-09-29" not in db.rotation_shadow_marks(900002, "kr", s["session"])

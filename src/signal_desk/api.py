@@ -437,9 +437,17 @@ def _bot_loop_iteration() -> None:
         _daily_maintenance(enabled)
     for mkt in ("kr", "us"):
         try:
-            rotation_shadow.capture(mkt, now)
+            status = rotation_shadow.capture(mkt, now)
+            if status.get("saved") or status.get("reason") != "이미 동결됨":
+                db.kv_set(f"rotation_shadow_last:{mkt}", {**status, "at": now.isoformat()})
         except Exception as e:
             log.warning("R11 회전 shadow 동결 실패(%s): %s", mkt, type(e).__name__)
+        try:
+            forward = rotation_shadow.collect_forward(mkt, now)
+            if forward.get("marked") or forward.get("revision_halts") or forward.get("price_gaps"):
+                db.kv_set(f"rotation_shadow_forward_last:{mkt}", {**forward, "at": now.isoformat()})
+        except Exception as e:
+            log.warning("R11 회전 shadow 전진 가격 동결 실패(%s): %s", mkt, type(e).__name__)
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40):
         try:
             telegram_inbound.enqueue_daily_summaries(_kst_today(), "kr")
@@ -3461,12 +3469,23 @@ def rotation_shadow_get(request: Request, market: str = "kr", style: str = "bala
         raise HTTPException(status_code=422, detail="market/style 값이 올바르지 않습니다.")
     uid = next(u for u, s in bot.REFERENCE_BOTS.items() if s == style)
     rows = db.rotation_shadow_recent(uid, market, limit)
+    completed = rotation_shadow.score_completed_session(market, datetime.datetime.now(datetime.timezone.utc))
+    for row in rows:
+        marks = db.rotation_shadow_marks(uid, market, row["session"])
+        sessions = market_clock.next_sessions(market, row["session"], 20)
+        row["forward"] = rotation_shadow.evaluate(
+            row, marks, sessions, completed_session=completed or row["session"],
+            revision_halt=db.rotation_shadow_revision_halt(uid, market, row["session"]))
+        if not include_inputs:
+            row["forward"].pop("paths", None)
     if not include_inputs:
         rows = [{k: v for k, v in row.items() if k not in ("signals", "holdings")}
                 for row in rows]
     return {"version": rotation_shadow.VERSION, "market": market, "style": style,
             "mode": "shadow", "live_eligible": False, "snapshots": rows,
-            "note": "동일 종가 기준 회전 판단만 비교합니다. 비용 후 성과/위험 승격 증거가 아니며 주문에 영향 없음."}
+            "capture_status": db.kv_get(f"rotation_shadow_last:{market}") or {},
+            "forward_status": db.kv_get(f"rotation_shadow_forward_last:{market}") or {},
+            "note": "동일 종가 회전 판단과 단일 전진 에피소드를 비교합니다. 겹치는 에피소드의 합산 전략 성과/승격 증거가 아니며 주문에 영향 없음."}
 
 
 @app.get("/api/admin/research/revision-price")
