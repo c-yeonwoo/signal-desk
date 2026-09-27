@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import copy
 from types import SimpleNamespace
 import zlib
@@ -7,7 +7,7 @@ import zlib
 import exchange_calendars as xcals
 import pytest
 
-from signal_desk import db
+from signal_desk import api, db
 from signal_desk.signals import portfolio_audit as audit, portfolio_counterfactual as cf
 
 
@@ -132,6 +132,9 @@ def test_paired_nav_uses_next_session_and_frozen_costs(captured, monkeypatch):
     assert result['fills']['policy'][0]['reference_price'] == 200
     assert result['metrics']['policy']['nav'] < result['metrics']['hold']['nav']
     assert result['delta_vs_hold_pp'] == pytest.approx(result['metrics']['policy']['return_pct'] - result['metrics']['hold']['return_pct'])
+    assert result['attribution']['net_vs_hold_pp'] == pytest.approx(result['delta_vs_hold_pp'])
+    assert result['attribution']['gross_vs_hold_pp'] - result['attribution']['incremental_cost_drag_pp'] == pytest.approx(result['delta_vs_hold_pp'])
+    assert result['delta_vs_cash_pp'] == pytest.approx(result['metrics']['policy']['return_pct'] - result['metrics']['cash']['return_pct'])
     assert result['oos_verified'] is False and result['live_eligible'] is False
     monkeypatch.setenv('PAPER_KR_SELL_TAX_BPS', '900')
     assert cf.evaluate(body, **forward, now=now) == result
@@ -224,10 +227,38 @@ def test_first_forward_prices_cannot_be_silently_revised(tmp_path, monkeypatch):
     # No mutation of the caller, and another attempt is still blocked against the original.
     assert changed['ready']
     assert not db.portfolio_comparison_add(1, 'kr', 'artifact', changed)['result']['ready']
+    assert not db.portfolio_comparison_add(1, 'kr', 'artifact', first)['result']['ready']
     c = db.conn()
     assert c.execute('SELECT price FROM portfolio_forward_prices').fetchone()[0] == 100
-    assert c.execute('SELECT COUNT(*) FROM portfolio_comparisons').fetchone()[0] == 2
+    assert c.execute('SELECT COUNT(*) FROM portfolio_comparisons').fetchone()[0] == 3
     c.close()
+
+
+def test_daily_shadow_scoring_is_idempotent_and_detects_revised_price(tmp_path, monkeypatch, captured):
+    monkeypatch.setattr(db, 'DB', tmp_path / 'daily-shadow.db')
+    inputs, body = captured
+    artifact = db.portfolio_artifact_add(1, 'kr', body)
+    forward = forward_inputs(inputs, body, count=2)
+    monkeypatch.setattr(api.store, 'load_portfolio_close_bundle', lambda market: (forward['prices'], forward['dates_by']))
+    close = datetime.fromisoformat(body['timing']['evaluation_sessions'][0]['close'])
+    assert api._score_portfolio_shadows_daily(now=close + timedelta(minutes=30))['waiting'] == 1
+    assert db.portfolio_comparison_latest(1, 'kr', artifact['id']) is None
+    scoring_time = close + timedelta(hours=2)
+    assert api._score_portfolio_shadows_daily(now=scoring_time)['ready'] == 1
+    first = db.portfolio_comparison_latest(1, 'kr', artifact['id'])
+    assert first['result']['completed_sessions'] == 1
+    api._score_portfolio_shadows_daily(now=scoring_time)
+    c = db.conn()
+    assert c.execute('SELECT COUNT(*) FROM portfolio_comparisons').fetchone()[0] == 1
+    c.close()
+    forward['prices']['005930'][len(inputs['prices']['005930'])] += 1
+    assert api._score_portfolio_shadows_daily(now=scoring_time)['blocked'] == 1
+    latest = db.portfolio_comparison_latest(1, 'kr', artifact['id'])
+    assert latest['result']['price_revisions']
+    assert 'attribution' not in latest['result'] and 'metrics' not in latest['result']
+    assert latest['id'] != first['id']
+    pending = db.portfolio_comparison_add(1, 'kr', artifact['id'], {'ready': False, 'reason': 'wait'})
+    assert pending['result']['price_revisions'] == latest['result']['price_revisions']
 
 
 @pytest.mark.parametrize('market', ['kr', 'us'])

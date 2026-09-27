@@ -102,6 +102,10 @@ CREATE TABLE IF NOT EXISTS portfolio_forward_prices(
     uid INTEGER NOT NULL, market TEXT NOT NULL, artifact_id TEXT NOT NULL,
     ticker TEXT NOT NULL, session_date TEXT NOT NULL, price REAL NOT NULL,
     PRIMARY KEY(uid,market,artifact_id,ticker,session_date));
+CREATE TABLE IF NOT EXISTS portfolio_price_revision_halts(
+    uid INTEGER NOT NULL, market TEXT NOT NULL, artifact_id TEXT NOT NULL,
+    details TEXT NOT NULL, detected INTEGER NOT NULL,
+    PRIMARY KEY(uid,market,artifact_id));
 CREATE TABLE IF NOT EXISTS portfolio_comparison_heads(
     uid INTEGER NOT NULL, market TEXT NOT NULL, artifact_id TEXT NOT NULL, comparison_id TEXT NOT NULL,
     PRIMARY KEY(uid,market,artifact_id));
@@ -2184,14 +2188,30 @@ def portfolio_artifact_get(uid: int, market: str, artifact_id: str) -> dict | No
         c.close()
 
 
-def portfolio_artifact_list(uid: int, market: str, limit: int = 10) -> list[dict]:
+def portfolio_artifact_ids(uid: int, market: str, limit: int = 10) -> list[str]:
     c = conn()
     try:
         rows = c.execute("SELECT id FROM portfolio_decision_artifacts WHERE uid=? AND market=? ORDER BY created DESC,rowid DESC LIMIT ?",
-                         (uid, market, max(1, min(limit, 20)))).fetchall()
+                         (uid, market, max(1, min(limit, 200)))).fetchall()
     finally:
         c.close()
-    return [portfolio_artifact_get(uid, market, row[0])["summary"] for row in rows]
+    return [row[0] for row in rows]
+
+
+def portfolio_artifact_list(uid: int, market: str, limit: int = 10) -> list[dict]:
+    return [portfolio_artifact_get(uid, market, artifact_id)["summary"]
+            for artifact_id in portfolio_artifact_ids(uid, market, limit)]
+
+
+def portfolio_artifact_owners(market: str) -> list[int]:
+    """지금 보유가 없어도 과거 행동계획은 채점 대상이다."""
+    c = conn()
+    try:
+        rows = c.execute("SELECT DISTINCT uid FROM portfolio_decision_artifacts WHERE market=? ORDER BY uid",
+                         (market,)).fetchall()
+        return [int(row[0]) for row in rows]
+    finally:
+        c.close()
 
 
 def portfolio_comparison_add(uid: int, market: str, artifact_id: str, result: dict) -> dict:
@@ -2211,14 +2231,24 @@ def portfolio_comparison_add(uid: int, market: str, artifact_id: str, result: di
             changed = [{"ticker": t, "date": d} for t, d, price in known
                        if d in panel.get(t, {}) and panel[t][d] != price]
             if changed:
-                result.update(ready=False, path=[], reason="최초 관측 이후 가격이 변경되었습니다. 과거 평가는 보존하며 수정 검토 전 재평가를 보류합니다.",
-                              price_revisions=changed)
-                for key in ("metrics", "delta_vs_hold_pp", "fills"):
-                    result.pop(key, None)
-            else:
+                c.execute("INSERT OR IGNORE INTO portfolio_price_revision_halts"
+                          "(uid,market,artifact_id,details,detected) VALUES(?,?,?,?,?)",
+                          (uid, market, artifact_id, json.dumps(changed), int(time.time())))
+            if not changed and not c.execute("SELECT 1 FROM portfolio_price_revision_halts "
+                                             "WHERE uid=? AND market=? AND artifact_id=?",
+                                             (uid, market, artifact_id)).fetchone():
                 c.executemany("INSERT OR IGNORE INTO portfolio_forward_prices "
                               "(uid,market,artifact_id,ticker,session_date,price) VALUES(?,?,?,?,?,?)",
                               [(uid, market, artifact_id, t, d, p) for t, series in panel.items() for d, p in series.items()])
+        halt = c.execute("SELECT details FROM portfolio_price_revision_halts "
+                         "WHERE uid=? AND market=? AND artifact_id=?",
+                         (uid, market, artifact_id)).fetchone()
+        if halt:
+            result.update(ready=False, path=[], reason="최초 관측 이후 가격이 변경되었습니다. 과거 평가는 보존하며 수정 검토 전 재평가를 보류합니다.",
+                          price_revisions=json.loads(halt[0]))
+            for key in ("metrics", "delta_vs_hold_pp", "delta_vs_cash_pp", "attribution", "fills",
+                        "initial_value", "entry_date", "as_of", "completed_sessions", "target_sessions", "complete"):
+                result.pop(key, None)
         result_id = audit.digest(result)
         c.execute("INSERT OR IGNORE INTO portfolio_comparisons(uid,market,artifact_id,id,payload,created) VALUES(?,?,?,?,?,?)",
                   (uid, market, artifact_id, result_id, zlib.compress(audit.canonical(result)), int(time.time())))
@@ -2273,6 +2303,16 @@ def portfolio_recommendation_add(uid: int, market: str, *, snapshot_id: int, as_
                         (uid, market, as_of, action_hash)).fetchone()
         c.rollback()
         return str(row[0]) if row else None
+    finally:
+        c.close()
+
+
+def portfolio_recommendation_owners(market: str) -> list[int]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT DISTINCT uid FROM portfolio_recommendations WHERE market=? ORDER BY uid",
+                         (market,)).fetchall()
+        return [int(row[0]) for row in rows]
     finally:
         c.close()
 

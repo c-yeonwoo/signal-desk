@@ -656,6 +656,10 @@ def _daily_maintenance(enabled: list[str]) -> None:
     except Exception as e:
         log.warning("실보유 일별 스냅샷 실패: %s", type(e).__name__)
     try:
+        _score_portfolio_shadows_daily()
+    except Exception as e:
+        log.warning("포트폴리오 shadow 일별 채점 실패: %s", type(e).__name__)
+    try:
         _snapshot_toss_account_daily()
     except Exception as e:
         log.warning("토스 실보유 성과 관측 실패: %s", type(e).__name__)
@@ -1249,6 +1253,51 @@ def _snapshot_personal_portfolios_daily() -> None:
             db.portfolio_snapshot_add_once(
                 uid, market, as_of=out["as_of"], source="daily_close",
                 total_value=out["summary"]["total_value"], data_quality=out["data_quality"]["status"], payload=out)
+
+
+def _score_portfolio_shadows_daily(now: datetime.datetime | None = None) -> dict:
+    """마감 후 동결된 포트폴리오 계획을 거래일별 자동 채점한다. 실체결 성과가 아니다.
+
+    적어도 1시간 지난 완료 세션만 본다. 최초 forward 가격은 DB에서 동결하고,
+    이후 수정이 있으면 기존 성적을 덮지 않고 감사 보류 결과를 새로 기록한다.
+    """
+    at = now or datetime.datetime.now(datetime.timezone.utc)
+    if at.tzinfo is None or at.utcoffset() is None:
+        raise ValueError("timezone-aware scoring time required")
+    score_at = at - datetime.timedelta(hours=1)
+    stats = {"ready": 0, "blocked": 0, "waiting": 0, "incompatible": 0,
+             "errors": 0, "limit_reached_owners": 0}
+    for market in ("kr", "us"):
+        owners = db.portfolio_artifact_owners(market)
+        if not owners:
+            continue
+        prices, dates = store.load_portfolio_close_bundle(market)
+        for uid in owners:
+            artifact_ids = db.portfolio_artifact_ids(uid, market, limit=200)
+            if len(artifact_ids) == 200:
+                stats["limit_reached_owners"] += 1
+            for artifact_id in artifact_ids:
+                try:
+                    artifact = db.portfolio_artifact_get(uid, market, artifact_id)
+                    summary = artifact["summary"] if artifact else None
+                    if not summary or not summary["timing"].get("aligned") or not summary.get("plan_ready"):
+                        continue
+                    if not portfolio_audit.replay(artifact["body"]).get("matched"):
+                        stats["incompatible"] += 1
+                        continue
+                    result = portfolio_counterfactual.evaluate(
+                        artifact["body"], prices=prices, dates_by=dates, now=score_at)
+                    if result.get("reason") == "판단 이후 첫 평가 거래일 종가를 기다립니다.":
+                        stats["waiting"] += 1
+                        continue
+                    stored = db.portfolio_comparison_add(uid, market, artifact_id, result)
+                    stats["ready" if stored["result"].get("ready") else "blocked"] += 1
+                except (ValueError, KeyError, TypeError, zlib.error) as e:
+                    stats["errors"] += 1
+                    log.warning("포트폴리오 shadow 자동 채점 실패(%s): %s",
+                                artifact_id[:12], type(e).__name__)
+    db.kv_set("portfolio_shadow_daily_last", {**stats, "at": at.isoformat()})
+    return stats
 
 
 def _snapshot_toss_account_daily() -> None:
@@ -3197,6 +3246,7 @@ def data_health_get():
             "consensus_readiness": store.consensus_readiness(),
             "consensus_provenance": store.consensus_provenance_status(),
             "revision_ic": _revision_ic_status(),
+            "portfolio_shadow_daily": db.kv_get("portfolio_shadow_daily_last") or {},
             # 콜드 경로에서 전체 시그널 재계산을 피한다 — lru 캐시 히트 시만 편중 평가.
             "crowding": _crowding_status()}
 
