@@ -13,7 +13,7 @@ import pandas as pd
 from signal_desk.broker import execution
 from signal_desk.signals import portfolio_audit as audit
 
-VERSION = "paired-close-episode-v1"
+VERSION = "paired-close-episode-v2"
 
 
 def evaluate(body: dict, *, prices: dict, dates_by: dict, now=None) -> dict:
@@ -99,13 +99,25 @@ def evaluate(body: dict, *, prices: dict, dates_by: dict, now=None) -> dict:
                 worst[k] = min(worst[k], (nav / peaks[k] - 1) * 100)
                 point[k] = nav
             path.append(point)
-        metrics = {k: {"nav": path[-1][k], "return_pct": (path[-1][k] / initial - 1) * 100,
-                       "max_drawdown_pct": worst[k], "fees": sum(f["total_fees"] for f in fills[k]),
-                       "slippage": sum(f["slippage_cost"] for f in fills[k])} for k in cash}
+        metrics = {}
+        for k in cash:
+            fees = sum(f["total_fees"] for f in fills[k])
+            slippage = sum(f["slippage_cost"] for f in fills[k])
+            net = (path[-1][k] / initial - 1) * 100
+            drag = (fees + slippage) / initial * 100
+            metrics[k] = {"nav": path[-1][k], "return_pct": net,
+                          "gross_return_pct": net + drag, "cost_drag_pct": drag,
+                          "max_drawdown_pct": worst[k], "fees": fees, "slippage": slippage}
+        gross_vs_hold = metrics["policy"]["gross_return_pct"] - metrics["hold"]["gross_return_pct"]
+        incremental_cost = metrics["policy"]["cost_drag_pct"] - metrics["hold"]["cost_drag_pct"]
         return {**base, "ready": True, "complete": len(sessions) == len(timing["evaluation_sessions"]),
                 "initial_value": initial, "entry_date": sessions[0]["date"], "as_of": path[-1]["date"],
                 "completed_sessions": len(sessions), "target_sessions": len(timing["evaluation_sessions"]),
                 "metrics": metrics, "delta_vs_hold_pp": metrics["policy"]["return_pct"] - metrics["hold"]["return_pct"],
+                "delta_vs_cash_pp": metrics["policy"]["return_pct"] - metrics["cash"]["return_pct"],
+                "attribution": {"gross_vs_hold_pp": gross_vs_hold,
+                                "incremental_cost_drag_pp": incremental_cost,
+                                "net_vs_hold_pp": gross_vs_hold - incremental_cost},
                 "path": path, "fills": fills, "observed_panel": panel}
     except (TypeError, ValueError, KeyError, OverflowError):
         return blocked("동결 계획을 다음 거래일 가격에 적용할 수 없습니다. 자금/수량/가격을 확인하세요.")
