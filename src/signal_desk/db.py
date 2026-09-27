@@ -2172,6 +2172,23 @@ def portfolio_snapshot_add_once(uid: int, market: str, *, as_of: str, source: st
         c.close()
 
 
+def portfolio_snapshot_latest(uid: int, market: str) -> dict | None:
+    """Read a user's last frozen diagnosis; never recompute an action on a page view."""
+    c = conn()
+    try:
+        row = c.execute(
+            "SELECT id,as_of,source,data_quality,payload,created FROM portfolio_snapshots "
+            "WHERE uid=? AND market=? ORDER BY created DESC,id DESC LIMIT 1", (uid, market)
+        ).fetchone()
+    finally:
+        c.close()
+    if row is None:
+        return None
+    payload = json.loads(row[4])
+    return {"id": row[0], "as_of": row[1], "source": row[2],
+            "data_quality": row[3], "created": row[5], "payload": payload}
+
+
 def portfolio_artifact_add(uid: int, market: str, body: dict) -> dict:
     from signal_desk.signals import portfolio_audit as audit
     raw = audit.canonical(body)
