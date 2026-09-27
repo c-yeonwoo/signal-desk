@@ -2194,6 +2194,13 @@ def snapshot_signals(signals, date: str | None = None, market: str = "kr") -> in
     if not signals:
         return 0
     date = date or datetime.date.today().isoformat()
+    from signal_desk import market_clock
+    session_valid = market_clock.is_session(market, date)
+    observed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    try:
+        bar_dates = _us_prices_raw()[2] if market == "us" else _kr_prices_raw()[1]
+    except (OSError, ValueError, KeyError):
+        bar_dates = {}
     # KB 원문 커버리지도 그날 값으로 함께 남긴다 — 나중에 `fetched`로 재구성하면 prune이 지운
     # 문서만큼 과소집계돼(오래된 날짜일수록 심함) '정보 있음/없음' 비교가 편향된다.
     try:
@@ -2213,6 +2220,11 @@ def snapshot_signals(signals, date: str | None = None, market: str = "kr") -> in
         meta = pr.history_meta(s)
         rows.append({
             "date": date, "ticker": s.ticker, "score": round(s.score, 3), "kind": s.kind,
+            "observed_at": observed_at,
+            "exchange_session": date if session_valid else None,
+            "session_valid": session_valid,
+            "bar_asof": (bar_dates.get(s.ticker) or [None])[-1],
+            "source_available_at_verified": False,
             "technical": round(s.technical_score, 3), "fundamental": round(s.fundamental_score, 3),
             "valuation": s.valuation_percentile, "reversion": round(s.reversion_score, 3),
             "qualitative": s.qualitative_score, "flow": s.flow_intensity,
@@ -2559,10 +2571,26 @@ def signal_drift(pairs: int = 3) -> dict:
     if df.empty or not {"date", "ticker", "score"} <= set(df.columns):
         return {"available": False, "frozen": None, "pairs": [],
                 "note": "PIT 스냅샷 없음 — 장 마감 후 스냅샷이 쌓이면 판정 가능"}
-    dates = sorted(df["date"].astype(str).unique())[-(pairs + 1):]
+    quality = {
+        "invalid_session_rows": int((df["session_valid"] == False).sum()) if "session_valid" in df else None,
+        "missing_session_label_rows": int(df["exchange_session"].isna().sum())
+        if "exchange_session" in df else None,
+        "missing_bar_asof_rows": int(df["bar_asof"].isna().sum()) if "bar_asof" in df else None,
+        "stale_bar_rows": int(((df["bar_asof"].fillna("").astype(str) != "")
+                               & (df["bar_asof"].fillna("").astype(str)
+                                  < df["date"].astype(str))).sum()) if "bar_asof" in df else None,
+        "source_time_unverified_rows": int((~df["source_available_at_verified"].fillna(False).astype(bool)).sum())
+        if "source_available_at_verified" in df else None,
+    }
+    from signal_desk import market_clock
+    all_dates = sorted(df["date"].astype(str).unique())
+    invalid_dates = [d for d in all_dates if not market_clock.is_session("kr", d)]
+    # 과거의 휴장일 행은 지우지 않는다. 진단에서 분리해 표시하되 새 거래 세션으로 세지 않는다.
+    dates = [d for d in all_dates if market_clock.is_session("kr", d)][-(pairs + 1):]
     if len(dates) < 2:
-        return {"available": False, "frozen": None, "pairs": [],
-                "note": f"스냅샷 {len(dates)}일치 — 2일 이상 필요"}
+        return {"available": False, "frozen": None, "pairs": [], "invalid_session_dates": invalid_dates,
+                "quality": quality,
+                "note": f"거래 세션 스냅샷 {len(dates)}일치 — 2일 이상 필요"}
     piv = (df[df["date"].astype(str).isin(dates)]
            .assign(date=lambda d: d["date"].astype(str))
            .pivot_table(index="ticker", columns="date", values="score"))
@@ -2578,6 +2606,7 @@ def signal_drift(pairs: int = 3) -> dict:
     latest = out[-1]["changed_pct"] if out else None
     frozen = latest is not None and latest <= _DRIFT_FROZEN_PCT
     return {"available": bool(out), "frozen": frozen, "pairs": out,
+            "invalid_session_dates": invalid_dates, "quality": quality,
             "note": ("점수가 사실상 그대로다 — 시세 갱신 중단 의심(토스/KIS 인증·수집 실패 확인)"
                      if frozen else "점수가 날마다 갱신되고 있음")}
 

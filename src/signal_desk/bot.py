@@ -16,7 +16,7 @@ import math
 import time
 from zoneinfo import ZoneInfo
 
-from signal_desk import config, db, kb, llm, signalcfg, store, strategy
+from signal_desk import config, db, kb, llm, market_clock, signalcfg, store, strategy
 from signal_desk.broker import execution, paper
 from signal_desk.reference import cycle, us_ko
 from signal_desk.signals import (
@@ -28,17 +28,13 @@ from signal_desk.signals import decision as decmod
 log = logging.getLogger("signal_desk.bot")
 
 _KST = ZoneInfo("Asia/Seoul")
-_MARKET_OPEN = datetime.time(9, 0)
-_MARKET_CLOSE = datetime.time(15, 20)  # 동시호가 등 마감 직전 여유 두고 컷오프
 _OUTCOME_AGE_SEC = 3 * 24 * 3600  # 의사결정 후 3일 지나면 사후수익 확정(학습 재료)
 
 
 def is_market_hours(now: datetime.datetime | None = None) -> bool:
-    """평일 09:00~15:20(KST)만 True — 참고용(paper는 종가 기준이라 장 시간 무관하게 돈다)."""
+    """KRX 정규장 연속매매 구간. 주말뿐 아니라 거래소 휴장일도 제외한다."""
     now = now or datetime.datetime.now(_KST)
-    if now.weekday() >= 5:  # 토(5)/일(6)
-        return False
-    return _MARKET_OPEN <= now.time() <= _MARKET_CLOSE
+    return market_clock.is_open("kr", now)
 
 
 def _today() -> str:
@@ -108,20 +104,10 @@ def _authorized_buy_qty(uid: int, market: str, ticker: str, price: float,
     return (qty, None) if qty > 0 else (0, "비용 포함 매수 가능 금액 부족")
 
 
-# 미국 정규장(대략) — 서머타임 EDT 기준 22:30~05:00 KST, EST면 23:30~06:00. 넉넉히 22:30~06:00로 근사.
-_US_OPEN = datetime.time(22, 30)
-_US_CLOSE = datetime.time(6, 0)
-
 def is_us_market_hours(now: datetime.datetime | None = None) -> bool:
-    """미국 정규장 시간(KST 근사 22:30~06:00, 미 평일)인지. 자정을 넘기므로 두 구간으로 판정.
-    실주문 야간 루프 게이트용(현재 US 실주문 미연결 — 미리보기만)."""
+    """NYSE 정규장 구간. 서머타임·휴장·조기마감을 거래소 일정으로 판정한다."""
     now = now or datetime.datetime.now(_KST)
-    t, wd = now.time(), now.weekday()
-    if t >= _US_OPEN:      # KST 밤(당일 저녁) = 미국장 시작 → 미 평일이면 KST 월~금
-        return wd < 5
-    if t <= _US_CLOSE:     # KST 새벽 = 전날 미국장 연장 → KST 화~토 새벽
-        return 1 <= wd <= 5
-    return False
+    return market_clock.is_open("us", now)
 
 
 def us_signals() -> list:

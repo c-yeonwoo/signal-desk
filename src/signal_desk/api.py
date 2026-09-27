@@ -34,7 +34,7 @@ from signal_desk.broker import toss_readonly
 
 from signal_desk import (
     account_performance, auth, bot, bot_alerts, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
-    llm, notify, shortform, signalcfg, store, strategy,
+    llm, market_clock, notify, shortform, signalcfg, store, strategy,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
@@ -322,7 +322,7 @@ def _morning_digest() -> bool:
     if hour is None or not store.is_ready():
         return False
     now = datetime.datetime.now(ZoneInfo("Asia/Seoul"))
-    if now.weekday() >= 5 or now.hour < hour:
+    if not market_clock.is_session("kr", now.date()) or now.hour < hour:
         return False
     if db.kv_get("morning_digest_date") == _kst_today():
         return False
@@ -379,7 +379,7 @@ def _bot_loop_iteration() -> None:
         log.warning("퀄리티 자동 백필 실패(무시): %s", type(e).__name__)
     about_n = moves_n = 0
     # about/moves는 UX 문구(트레이딩 점수 아님). 주말 Haiku drip을 끊고 평일만 증분.
-    if _kst_now().weekday() < 5:
+    if market_clock.is_session("kr", _kst_now().date()):
         try:  # 사업 개요(무엇을 하는 회사) LLM 증분 백필 — 캐시 없는 종목만, 다 차면 no-op
             about_n = _backfill_about_batch(15)
             if about_n:
@@ -423,9 +423,41 @@ def _bot_loop_iteration() -> None:
         except Exception as e:
             log.warning("메타 진입 shadow 판정 실패(%s): %s", mkt, type(e).__name__)
     now = _kst_now()
-    if now.weekday() < 5 and now.time() >= datetime.time(15, 40) \
+    try:
+        _maybe_snapshot_us_signals(now)
+    except Exception as e:
+        log.warning("미국 시그널 스냅샷 실패: %s", type(e).__name__)
+    if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40) \
             and db.kv_get("bot_daily_snap") != _kst_today():
         _daily_maintenance(enabled)
+
+
+def _maybe_snapshot_us_signals(now: datetime.datetime) -> int:
+    """미국 종가가 확인된 세션만 미국 날짜로 기록. 국내 마감 시각 이후 1회 실행한다.
+
+    과거처럼 KST 날짜를 미국 거래일로 붙이지 않는다. 당시 종가 행이 없는 종목은
+    스냅샷에서 제외한다. 증권사 원천 공개시각·봉 최종 확정은 별도로 미검증으로 남긴다.
+    """
+    if now.astimezone(ZoneInfo("Asia/Seoul")).time() < datetime.time(15, 40):
+        return 0
+    # 미국장 종료와 국내 정규장은 겹치지 않지만, 캘린더가 바뀌면 fail-closed 한다.
+    if market_clock.is_open("kr", now) or market_clock.is_open("us", now):
+        return 0
+    session = market_clock.latest_completed_session("us", now)
+    if not session or db.kv_get("us_signal_snapshot_session") == session:
+        return 0
+    fresh = {t for t, day in store.us_price_last_dates().items() if day == session}
+    if not fresh:
+        return 0
+    store.clear_live_quotes()  # 마감 종가 시그널에 잠정 현재가가 섞이지 않도록 한다.
+    _clear_us_signal_caches()
+    signals = [s for s in _us_signals().values() if s.ticker in fresh]
+    if not signals:
+        return 0
+    n = store.snapshot_signals(signals, date=session, market="us")
+    if n:
+        db.kv_set("us_signal_snapshot_session", session)
+    return n
 
 
 def _ensure_quality_attached() -> int:
@@ -583,15 +615,6 @@ def _daily_maintenance(enabled: list[str]) -> None:
         store.snapshot_signals(_signals(), date=_kst_today())  # 팩터 PIT 스냅샷(거래일=KST)
     except Exception as e:
         log.warning("시그널 스냅샷 실패: %s", type(e).__name__)
-    try:
-        # **미국도 찍는다(2026-09-07부터).** 없으면 미국은 실측·IC·PIT 하네스를 영영 못 잰다 —
-        # `us_fundamentals` 가 스냅샷 하나뿐인 것과 같은 이유로 "언제 알 수 있었나"가 없다.
-        # 시장 컬럼으로 분리해 쌓으므로 국내 IC 횡단면에 섞이지 않는다(`load_signal_history`).
-        store.snapshot_signals(_us_signals().values(), date=_kst_today(), market="us")
-    except Exception as e:
-        # **항목별로 격리한다** — 미국 수집 실패가 국내 스냅샷·국면 스냅샷을 날리면 안 된다
-        # (`kb.refresh` 에서 한 종목 실패가 나머지 전부를 건너뛰게 했던 것과 같은 병).
-        log.warning("미국 시그널 스냅샷 실패: %s", type(e).__name__)
     try:
         # 국면·익스포저도 그날 값으로 남긴다 — 사후에 오늘의 유니버스로 과거 국면을 다시
         # 매기면 그건 PIT가 아니다. 이게 없으면 익스포저의 타이밍 능력을 영영 못 잰다.
