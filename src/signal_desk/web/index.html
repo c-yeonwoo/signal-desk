@@ -1686,6 +1686,25 @@
       <button type="button" class="btn" onclick="loadRevisionPriceStudy()" style="margin-top:10px">다시 조회</button>
     </details>
 
+    <details class="card" id="relation-study" style="margin-top:16px" ontoggle="if(this.open) loadRelationStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">미국→국내 기업 관계 근거 <span style="color:var(--dim);font-weight:600;font-size:13px">· 공식 공시 수동 대조 · 연구 전용</span></summary>
+      <p class="page-desc" style="margin:8px 0">밸류체인에서 같은 산업에 있다는 사실은 실제 고객·공급 관계가 아닙니다. 공식 공시의 관계와 매출노출 수치를 인용해 후보로 등록하고 원문을 따로 대조해야 합니다. 검토된 관계도 미국 사건의 국내 수익효과나 매수 근거로 자동 사용되지 않습니다.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
+        <label>미국 고객 <input id="relation-us" maxlength="10" placeholder="NVDA" style="width:90px"></label>
+        <label>국내 공급사 <input id="relation-kr" maxlength="6" placeholder="000660" style="width:90px"></label>
+        <label>국내 매출노출 % <input id="relation-exposure" type="number" min="0.01" max="100" step="0.01" style="width:92px"></label>
+        <label>관계 시작일 <input id="relation-from" type="date"></label>
+        <label>재검토 만료일 <input id="relation-until" type="date" required></label>
+        <label>문서 발행일 <input id="relation-published" type="date"></label>
+        <label>대체할 근거 ID <input id="relation-supersedes" type="number" min="1" step="1" placeholder="선택" style="width:92px"></label>
+      </div>
+      <label style="display:block;font-size:12px;margin:6px 0">SEC·DART·KRX 공식 문서 URL <input id="relation-url" type="url" placeholder="https://www.sec.gov/..." style="width:100%"></label>
+      <label style="display:block;font-size:12px;margin:6px 0">관계·매출 비율을 확인할 원문 인용 <textarea id="relation-quote" rows="3" maxlength="1200" style="width:100%"></textarea></label>
+      <div class="row" style="gap:8px"><button type="button" class="btn" onclick="submitRelationCandidate()">근거 후보 등록</button><button type="button" class="btn" onclick="loadRelationStudy()">새로고침</button></div>
+      <div id="relation-study-message" style="font-size:12px;color:var(--dim);margin:8px 0" role="status"></div>
+      <div id="relation-study-body" class="placeholder" style="padding:8px 0">근거 원장을 불러오는 중…</div>
+    </details>
+
     <!-- 실험 — 가설을 제품 안에서 시험한다. 2026-08-05 이전에는 이 단계가 제품에 없어서
          H1·H2를 engine.py 소스를 편집하고 터미널에서 돌렸다(결과는 gitignore 밑, 재현 스크립트 없음). -->
     <div class="card" id="experiment-card" style="margin-top:16px">
@@ -7997,6 +8016,52 @@ async function delShortform(id){
 }
 
 // ===== 시그널 엔진 설정(관리자) =====
+async function loadRelationStudy(){
+  const el = document.getElementById('relation-study-body');
+  if (!el) return;
+  el.textContent = '공식 문서 근거 원장 확인 중…';
+  try {
+    const response = await fetch('/api/admin/research/relations');
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json();
+    const rows = (d.edges || []).slice(0, 30);
+    if (!rows.length) { el.textContent = '등록된 관계 근거가 없습니다. 밸류체인 지도만으로 관계를 만들지 않습니다.'; return; }
+    el.innerHTML = `<p class="page-desc" style="margin:0 0 8px">최근 조회 ${(d.edges || []).length}건 중 승인 ${Number(d.approved || 0)}건 · 화면 ${rows.length}건 · 원천 공개시각·사건 수익효과 미검증 · 실주문 차단</p>`
+      + rows.map(r => { const status = r.review?.verdict || '검토 대기';
+        const controls = status === '검토 대기' ? `<button type="button" class="btn" onclick="reviewRelationEdge(${Number(r.id)},'approved')">원문 대조 후 승인</button> <button type="button" class="btn" onclick="reviewRelationEdge(${Number(r.id)},'rejected')">거절</button>` : '';
+        return `<div style="border-top:1px solid var(--line);padding:9px 0;font-size:12px;line-height:1.6"><b>#${Number(r.id)} · ${esc(r.us_customer)} → ${esc(r.kr_supplier)}</b> · 국내 매출노출 ${fmtNum(r.revenue_exposure_pct,2)}% · ${esc(status)}${r.supersedes_id ? ' · 이전 #'+Number(r.supersedes_id)+' 대체' : ''}<br>관측 ${new Date(Number(r.observed_at)*1000).toLocaleString('ko-KR')} · 유효 ${esc(r.valid_from)}~${esc(r.valid_until || '미정')} · <a href="${esc(r.source_url)}" target="_blank" rel="noopener noreferrer">공식 원문</a><br><span style="color:var(--dim)">${esc(r.evidence_quote)}</span><br>${controls}${r.review?.note ? '<span style="color:var(--dim)">검토: '+esc(r.review.note)+'</span>' : ''}</div>`;
+      }).join('');
+  } catch(e) { el.textContent = '관계 근거를 표시할 수 없습니다 · ' + e.message; }
+}
+async function submitRelationCandidate(){
+  const val = id => document.getElementById(id).value.trim();
+  const message = document.getElementById('relation-study-message');
+  const payload = {us_customer:val('relation-us'), kr_supplier:val('relation-kr'),
+    revenue_exposure_pct:val('relation-exposure'), valid_from:val('relation-from'),
+    valid_until:val('relation-until'), source_published_date:val('relation-published'),
+    source_url:val('relation-url'), evidence_quote:val('relation-quote')};
+  if (val('relation-supersedes')) payload.supersedes_id = Number(val('relation-supersedes'));
+  message.textContent = '근거 후보 등록 중…';
+  try {
+    const r = await fetch('/api/admin/research/relations', {method:'POST', headers:{'Content-Type':'application/json','X-Signal-Desk-Relation':'review'}, body:JSON.stringify(payload)});
+    const d = await r.json(); if (!r.ok) throw new Error(d.detail || '등록 실패');
+    message.textContent = `#${d.id} 후보를 저장했습니다. 공식 원문과 인용·매출 비율을 다시 대조해 승인하세요.`;
+    loadRelationStudy();
+  } catch(e) { message.textContent = e.message || '등록 실패'; }
+}
+async function reviewRelationEdge(id, verdict){
+  const note = prompt(verdict === 'approved' ? '공식 원문·인용·매출노출 비율을 확인한 근거를 적어주세요.' : '거절 근거를 적어주세요.');
+  if (note == null) return;
+  const checked = verdict !== 'approved' || confirm('공식 원문에서 기업 관계와 매출노출 수치를 직접 대조했습니까? 승인해도 매수에는 사용되지 않습니다.');
+  if (!checked) return;
+  const message = document.getElementById('relation-study-message');
+  try {
+    const r = await fetch('/api/admin/research/relations/review', {method:'POST', headers:{'Content-Type':'application/json','X-Signal-Desk-Relation':'review'}, body:JSON.stringify({edge_id:id,verdict,note,source_checked:checked})});
+    const d = await r.json(); if (!r.ok) throw new Error(d.detail || '검토 실패');
+    message.textContent = `#${id} 근거 검토를 기록했습니다. 연구 전용이며 매매 판단은 바뀌지 않습니다.`;
+    loadRelationStudy();
+  } catch(e) { message.textContent = e.message || '검토 실패'; }
+}
 async function loadRevisionPriceStudy(){
   const el = document.getElementById('revision-price-body');
   if (!el) return;
