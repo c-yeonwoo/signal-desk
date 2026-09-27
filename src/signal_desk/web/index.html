@@ -1858,6 +1858,7 @@
         <label>성향 <select id="rotation-shadow-style" onchange="loadRotationShadowStudy()"><option value="balanced">균형형</option><option value="conservative">안정형</option><option value="aggressive">공격형</option></select></label>
         <label>시장 <select id="rotation-shadow-market" onchange="loadRotationShadowStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>
       </div>
+      <div id="rotation-verdict-body" style="font-size:13px;line-height:1.7;padding:8px 0;color:var(--dim)">사전등록 판정 대기…</div>
       <div id="rotation-shadow-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
     </details>
     <details class="card" id="reference-allocation-study" style="margin-top:16px" ontoggle="if(this.open) loadReferenceAllocationStudy()">
@@ -9034,6 +9035,7 @@ async function loadRotationShadowStudy(){
   el.textContent = '마감 판단 기록을 불러오는 중…';
   const style = document.getElementById('rotation-shadow-style').value;
   const market = document.getElementById('rotation-shadow-market').value;
+  loadRotationVerdict(market, style);
   try {
     const response = await fetch('/api/admin/research/rotation-shadow?style=' + encodeURIComponent(style)
       + '&market=' + encodeURIComponent(market) + '&limit=20');
@@ -9064,6 +9066,23 @@ async function loadRotationShadowStudy(){
       + rows.map(r => `<tr><td>${esc(r.session)}</td><td>${label((r.decisions || {}).champion_rotation_proxy || {})}</td><td>${label((r.decisions || {}).s0_rank_buffer || {})}</td><td>${score(r)}</td></tr>`).join('')
       + '</tbody></table></div><p class="page-desc" style="margin:8px 0 0">다음 거래일 종가 가상 체결, 5·20거래일 동일 가격 패널의 비용 후 차이입니다. 겹치는 에피소드를 합산한 수익률이나 실제 체결 성과가 아니며, 가격 수정·누락 시 보류합니다. 정책 자동 승격·주문 반영은 없습니다.</p>';
   } catch(e) { el.textContent = '저회전 비교를 표시할 수 없습니다 · ' + e.message; }
+}
+async function loadRotationVerdict(market, style){
+  const el = document.getElementById('rotation-verdict-body');
+  if (!el) return;
+  el.textContent = '비중첩 OOS 판정 확인 중…';
+  try {
+    const response = await fetch('/api/admin/research/rotation-shadow/verdict?market=' + encodeURIComponent(market)
+      + '&style=' + encodeURIComponent(style));
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json();
+    const statuses = {awaiting_oos:'표본 축적 중', blocked_data_quality:'자료 품질 보류', negative:'순성과 열위',
+      inconclusive:'우위 불확실', risk_or_cost_failed:'비용·낙폭 조건 미달', manual_review_candidate:'수동 검토 후보'};
+    const status = statuses[d.status] || d.status || '판정 전';
+    const blocks = Number(d.matured_blocks || 0);
+    const lower = d.net_delta_lower_pp == null ? '' : ` · 비용 후 차이 평균 ${fmtNum(d.net_delta_mean_pp, 2)}%p / 보정 하한 ${fmtNum(d.net_delta_lower_pp, 2)}%p`;
+    el.textContent = `R11 사전등록 판정 · ${status} · 비중첩 완료 ${blocks}블록 / 현재 look ${Number(d.look || d.next_look || 12)} · 유효 ${Number(d.effective_blocks || 0)} · 커버리지 ${d.coverage == null ? '대기' : fmtNum(d.coverage * 100, 1) + '%'}${lower}. ${d.reason || '실주문 자동 반영 없음'}`;
+  } catch(e) { el.textContent = '사전등록 판정을 표시할 수 없습니다 · ' + e.message; }
 }
 async function loadReferenceAllocationStudy(){
   const el = document.getElementById('reference-allocation-body');

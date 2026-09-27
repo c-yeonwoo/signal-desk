@@ -41,7 +41,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate,
-    portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow,
+    portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
@@ -3486,6 +3486,30 @@ def rotation_shadow_get(request: Request, market: str = "kr", style: str = "bala
             "capture_status": db.kv_get(f"rotation_shadow_last:{market}") or {},
             "forward_status": db.kv_get(f"rotation_shadow_forward_last:{market}") or {},
             "note": "동일 종가 회전 판단과 단일 전진 에피소드를 비교합니다. 겹치는 에피소드의 합산 전략 성과/승격 증거가 아니며 주문에 영향 없음."}
+
+
+@app.get("/api/admin/research/rotation-shadow/verdict")
+def rotation_shadow_verdict_get(request: Request, market: str = "kr", style: str = "balanced"):
+    """R11 사전등록 look만 평가. 통과해도 수동 검토 후보이며 정책·주문 미변경."""
+    _admin_or_403(request)
+    if market not in ("kr", "us") or style not in bot.REFERENCE_BOTS.values():
+        raise HTTPException(status_code=422, detail="market/style 값이 올바르지 않습니다.")
+    uid = next(u for u, s in bot.REFERENCE_BOTS.items() if s == style)
+    rows = db.rotation_shadow_gate_rows(uid, market, rotation_verdict.START_SESSION)
+    completed = rotation_shadow.score_completed_session(market, datetime.datetime.now(datetime.timezone.utc))
+    _, selected = rotation_verdict.select_nonoverlap(rows, market=market)
+    for row, end in selected:
+        if not completed or end > completed:
+            continue
+        frozen = db.rotation_shadow_get(uid, market, row["session"])
+        if not frozen:
+            continue
+        marks = db.rotation_shadow_marks(uid, market, row["session"])
+        row["forward"] = rotation_shadow.evaluate(
+            frozen, marks, market_clock.next_sessions(market, row["session"], 20),
+            completed_session=completed,
+            revision_halt=db.rotation_shadow_revision_halt(uid, market, row["session"]))
+    return rotation_verdict.assess(rows, market=market, completed_session=completed)
 
 
 @app.get("/api/admin/research/revision-price")
