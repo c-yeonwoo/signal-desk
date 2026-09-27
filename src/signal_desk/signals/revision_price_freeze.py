@@ -17,7 +17,7 @@ from signal_desk.broker import execution
 from signal_desk.reference import sectors
 from signal_desk.signals import engine, revision_price
 
-VERSION = "r13-s2-first-observed-v1"
+VERSION = "r13-s2-first-observed-v2"
 START_SESSION = "2026-09-28"
 MIN_PROVEN_CANDIDATES = 10
 TOP_PCT = 10.0  # research cohort, not live buy-list; fixed before forward outcomes
@@ -96,20 +96,39 @@ def freeze_inputs(result: dict, observations: pd.DataFrame,
         return {"ready": False, "reason": "동일 FY·관측시각·내용 해시·세션 종가가 증명된 후보 부족",
                 "research_candidates": len(result["candidates"]), "proven_candidates": len(proven),
                 "excluded_tickers": excluded}
+    # Re-rank *after* removing unproven rows: a missing hash must not move another
+    # name's percentile even though that missing row can never enter the basket.
+    eps_pct = revision_price._percentiles({r["ticker"]: r["eps_revision_pct"] for r in proven})
+    reaction_pct = revision_price._percentiles({r["ticker"]: r["sector_relative_return_pct"] for r in proven})
+    for row in proven:
+        ticker = row["ticker"]
+        row["eps_rank"] = round(eps_pct[ticker], 4)
+        row["price_reaction_rank"] = round(reaction_pct[ticker], 4)
+        row["research_gap"] = round(eps_pct[ticker] - reaction_pct[ticker], 4)
     # Same proven universe, one changed axis: unreacted-price gap vs EPS revision alone.
     k = engine.rank_slots(len(proven), TOP_PCT)
     gap = sorted(proven, key=lambda r: (-r["research_gap"], r["ticker"]))[:k]
     eps = sorted(proven, key=lambda r: (-r["eps_revision_pct"], r["ticker"]))[:k]
     chosen = {r["ticker"] for r in gap + eps}
+    policies = {"revision_unreacted_price": [r["ticker"] for r in gap],
+                "eps_revision_only": [r["ticker"] for r in eps]}
+    assumptions = execution.cost_assumptions("kr")
+    by_name = {r["ticker"]: r for r in proven}
+    fixed = {}
+    for name, tickers in policies.items():
+        fixed[name] = {}
+        for ticker in tickers:
+            unit = -execution.calculate(by_name[ticker]["price"], 1, "buy", "kr",
+                                        assumptions=assumptions).cash_change
+            fixed[name][ticker] = int((NOTIONAL / k) // unit) if unit > 0 else 0
     return {"ready": True, "version": VERSION, "mode": "shadow", "live_eligible": False,
             "session": session, "observed_at": now.isoformat(),
             "research_version": result["version"], "revision_version": result["revision_version"],
             "source_available_at_verified": False,
-            "notional": NOTIONAL, "cost_assumptions": execution.cost_assumptions("kr"),
+            "notional": NOTIONAL, "cost_assumptions": assumptions,
             "research_candidates": len(result["candidates"]), "proven_candidates": len(proven),
             "excluded_tickers": excluded, "top_k": k,
-            "policies": {"revision_unreacted_price": [r["ticker"] for r in gap],
-                         "eps_revision_only": [r["ticker"] for r in eps]},
+            "policies": policies, "fixed_quantities": fixed,
             "selected": {r["ticker"]: r for r in proven if r["ticker"] in chosen},
             "note": "최초 관측 이후 접근 가능한 가격만 향후 평가. 원천 발표시각·실체결 미검증, 주문 미연결."}
 

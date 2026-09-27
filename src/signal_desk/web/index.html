@@ -1680,7 +1680,8 @@
 
     <details class="card" id="revision-price-study" style="margin-top:16px" ontoggle="if(this.open) loadRevisionPriceStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">EPS 상향·가격 반응 연구 <span style="color:var(--dim);font-weight:600;font-size:13px">· 첫 관측 입력 동결 · 주문 미연결</span></summary>
-      <p class="page-desc" style="margin:8px 0">같은 회계연도 EPS 상향과 동종업종 대비 가격 반응을 비교합니다. 후보·관측시각·종가를 마감 뒤 처음 확인했을 때 고정하며, 과거 날짜를 현재 가격으로 다시 만들지 않습니다. 아직 전진 수익은 채점하지 않습니다.</p>
+      <p class="page-desc" style="margin:8px 0">같은 회계연도 EPS 상향과 동종업종 대비 가격 반응을 비교합니다. 후보·관측시각·종가를 마감 뒤 처음 확인했을 때 고정하고 다음 거래일 종가부터 전진 가격을 채점합니다. 원천 발표시각과 실제 체결은 미확인입니다.</p>
+      <div id="revision-price-verdict" style="font-size:13px;line-height:1.7;padding:8px 0;color:var(--dim)">전진 검증 판정 대기…</div>
       <div id="revision-price-body" class="placeholder" style="padding:8px 0">불러오는 중…</div>
       <button type="button" class="btn" onclick="loadRevisionPriceStudy()" style="margin-top:10px">다시 조회</button>
     </details>
@@ -7998,6 +7999,7 @@ async function loadRevisionPriceStudy(){
   const el = document.getElementById('revision-price-body');
   if (!el) return;
   el.textContent = '최초 관측으로 동결된 연구 입력을 확인 중…';
+  loadRevisionPriceVerdict();
   try {
     const response = await fetch('/api/admin/research/revision-price');
     if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
@@ -8010,10 +8012,27 @@ async function loadRevisionPriceStudy(){
       `<tr><td>${i + 1}</td><td>${esc(r.ticker)}</td><td>${esc(r.sector)}</td>`
       + `<td>${fmtNum(r.eps_revision_pct, 2)}%</td><td>${fmtNum(r.sector_relative_return_pct, 2)}%</td>`
       + `<td>${fmtNum(r.research_gap, 3)}</td></tr>`).join('');
-    el.innerHTML = `<div style="font-size:12px;color:var(--dim);margin-bottom:8px">완료 거래일 ${esc(d.price_session)} · 동결 ${esc(d.observed_at || '—')} · 증명된 후보 ${Number(d.eligible_count) || 0}종목 · 가격 괴리 후보 ${esc((d.policies?.revision_unreacted_price || []).join(', '))} · EPS만 후보 ${esc((d.policies?.eps_revision_only || []).join(', '))} · 원천 발표시각 미검증 · 실주문 차단</div>`
+    const f = d.forward || {};
+    const forward = f.ready ? `20거래일 비용 후 괴리 후보−EPS 단독 ${Number(f.delta_net_pp) >= 0 ? '+' : ''}${fmtNum(f.delta_net_pp, 2)}%p` : `전진 비교 ${esc(f.status === 'pending' ? '대기' : '보류 · ' + (f.reason || '가격 미관측'))}`;
+    el.innerHTML = `<div style="font-size:12px;color:var(--dim);margin-bottom:8px">완료 거래일 ${esc(d.price_session)} · 동결 ${esc(d.observed_at || '—')} · 증명된 후보 ${Number(d.eligible_count) || 0}종목 · 가격 괴리 후보 ${esc((d.policies?.revision_unreacted_price || []).join(', '))} · EPS만 후보 ${esc((d.policies?.eps_revision_only || []).join(', '))} · 원천 발표시각 미검증 · 실주문 차단<br>${forward}</div>`
       + '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>#</th><th>종목</th><th>업종</th><th>EPS 상향</th><th>업종 대비 가격</th><th>연구 괴리</th></tr></thead><tbody>'
       + rows + '</tbody></table></div>';
   } catch(e) { el.textContent = '연구 순위를 표시할 수 없습니다 · ' + e.message; }
+}
+async function loadRevisionPriceVerdict(){
+  const el = document.getElementById('revision-price-verdict');
+  if (!el) return;
+  el.textContent = '비중첩 전진 판정 확인 중…';
+  try {
+    const response = await fetch('/api/admin/research/revision-price/verdict');
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json();
+    const labels = {awaiting_oos:'전진 표본 대기', blocked_data_quality:'가격 무결성 부족',
+      inconclusive:'차이 미판정', positive_research_signal:'가격 미반영 연구 신호',
+      negative_research_signal:'가격 미반영 후보 열위 신호'};
+    const mean = d.net_delta_mean_pp == null ? '' : ` · 비용 후 평균 ${Number(d.net_delta_mean_pp) >= 0 ? '+' : ''}${fmtNum(d.net_delta_mean_pp, 2)}%p · 보정 구간 ${fmtNum(d.net_delta_lower_pp, 2)}~${fmtNum(d.net_delta_upper_pp, 2)}%p`;
+    el.innerHTML = `<b>${esc(labels[d.status] || d.status)}</b> · 성숙 비중첩 ${Number(d.matured_blocks || 0)}건 · 유효 ${Number(d.effective_blocks || 0)}건${mean}<br><span style="color:var(--dim)">첫 관측 이후 연구입니다. 원천 발표시각·시장 위험·실체결 검증 전 주문 정책은 바뀌지 않습니다.</span>`;
+  } catch(e) { el.textContent = '리비전 전진 판정 조회 실패 · ' + e.message; }
 }
 const _ENGINE_FIELDS = { w_technical: 'weight_technical', w_fundamental: 'weight_fundamental',
   w_valuation: 'weight_valuation', w_reversion: 'weight_reversion',

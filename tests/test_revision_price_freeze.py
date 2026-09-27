@@ -32,7 +32,7 @@ def _inputs():
         rows.extend([previous, current])
         candidates.append({"ticker": ticker, "revision_date": SESSION,
                            "eps_fiscal_year": "202712", "eps_revision_pct": float(i),
-                           "sector": "test", "sector_relative_return_pct": 0.0,
+                           "sector": "test", "sector_relative_return_pct": float(i),
                            "research_gap": round((13-i)/12, 4)})
         prices[ticker] = [100.0]
         dates[ticker] = [SESSION]
@@ -53,6 +53,7 @@ def test_proof_freezes_same_fy_observed_versions_and_raw_prices():
     assert payload["source_available_at_verified"] is False
     assert payload["notional"] == frozen.NOTIONAL
     assert payload["cost_assumptions"]["market"] == "kr"
+    assert payload["fixed_quantities"]["revision_unreacted_price"]["T01"] > 0
 
 
 def test_unproven_or_backfilled_prior_version_cannot_enter_cohort():
@@ -60,6 +61,8 @@ def test_unproven_or_backfilled_prior_version_cannot_enter_cohort():
     obs.loc[(obs.ticker == "T01") & (obs.date == SESSION), "content_hash"] = None
     bad = frozen.freeze_inputs(result, obs, prices, dates, NOW)
     assert bad["ready"] and bad["proven_candidates"] == 11 and "T01" in bad["excluded_tickers"]
+    assert bad["policies"]["revision_unreacted_price"] == ["T02"]
+    assert bad["selected"]["T02"]["research_gap"] == 0.0
     obs.loc[(obs.ticker == "T02") & (obs.date == "2026-09-25"), "observed_at"] = "2026-09-28T09:00:00+00:00"
     bad = frozen.freeze_inputs(result, obs, prices, dates, NOW)
     assert bad["ready"] and bad["proven_candidates"] == 10 and "T02" in bad["excluded_tickers"]

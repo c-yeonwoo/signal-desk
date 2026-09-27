@@ -45,7 +45,8 @@ from signal_desk.signals import (
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
-    pre_move, regime_zone, relative, revision, revision_price_freeze, sector_rel, target, why_now,
+    pre_move, regime_zone, relative, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
+    sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
     GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
@@ -469,6 +470,12 @@ def _bot_loop_iteration() -> None:
             db.kv_set("revision_price_freeze_last", {**revision_status, "at": now.isoformat()})
     except Exception as e:
         log.warning("R13 리비전 연구 입력 동결 실패: %s", type(e).__name__)
+    try:
+        revision_marks = revision_price_forward.collect(now)
+        if revision_marks.get("marked") or revision_marks.get("revision_halts") or revision_marks.get("price_gaps"):
+            db.kv_set("revision_price_forward_last", {**revision_marks, "at": now.isoformat()})
+    except Exception as e:
+        log.warning("R13 리비전 전진 가격 동결 실패: %s", type(e).__name__)
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40):
         try:
             telegram_inbound.enqueue_daily_summaries(_kst_today(), "kr")
@@ -3644,8 +3651,31 @@ def revision_price_research_get(request: Request, as_of: str | None = None):
                 "candidates": [], "reason": "해당 시각의 최초 관측 동결본 없음 — 현재 가격으로 과거 후보 재구성 금지",
                 "capture_status": db.kv_get("revision_price_freeze_last") or {}}
     candidates = sorted(frozen["selected"].values(), key=lambda r: (-r["research_gap"], r["ticker"]))
-    return {**frozen, "research_ready": True, "price_session": frozen["session"],
-            "eligible_count": frozen["proven_candidates"], "candidates": candidates[:20]}
+    response = {**frozen, "research_ready": True, "price_session": frozen["session"],
+                "eligible_count": frozen["proven_candidates"], "candidates": candidates[:20]}
+    if not as_of:
+        completed = rotation_shadow.score_completed_session("kr", datetime.datetime.now(datetime.timezone.utc))
+        response["forward"] = revision_price_forward.evaluate(
+            frozen, db.revision_price_marks(frozen["session"]),
+            completed_session=completed or frozen["session"],
+            revision_halt=db.revision_price_halt(frozen["session"]))
+        response["forward_status"] = db.kv_get("revision_price_forward_last") or {}
+    return response
+
+
+@app.get("/api/admin/research/revision-price/verdict")
+def revision_price_verdict_get(request: Request):
+    _admin_or_403(request)
+    completed = rotation_shadow.score_completed_session("kr", datetime.datetime.now(datetime.timezone.utc))
+    rows = db.revision_price_all(revision_price_freeze.START_SESSION)
+    for row in rows:
+        sessions = market_clock.next_sessions("kr", row["session"], revision_price_forward.HORIZON)
+        if not completed or len(sessions) != revision_price_forward.HORIZON or sessions[-1] > completed:
+            continue
+        row["forward"] = revision_price_forward.evaluate(
+            row, db.revision_price_marks(row["session"]), completed_session=completed,
+            revision_halt=db.revision_price_halt(row["session"]))
+    return revision_price_verdict.assess(rows, completed_session=completed)
 
 
 def _crowding_status() -> dict:
