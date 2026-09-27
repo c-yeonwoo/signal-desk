@@ -110,6 +110,26 @@ CREATE TABLE IF NOT EXISTS relation_edge_reviews(
     reviewed_at INTEGER NOT NULL, reviewer_uid INTEGER NOT NULL, note TEXT NOT NULL,
     FOREIGN KEY(edge_id) REFERENCES relation_edges(id));
 CREATE INDEX IF NOT EXISTS idx_relation_reviews_edge ON relation_edge_reviews(edge_id,reviewed_at,id);
+-- R15 first-observed US filing events and immutable KR study inputs.
+CREATE TABLE IF NOT EXISTS relation_events(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, source_url TEXT NOT NULL UNIQUE,
+    filing_key TEXT NOT NULL UNIQUE,
+    payload TEXT NOT NULL, evidence_hash TEXT NOT NULL,
+    observed_at INTEGER NOT NULL, submitted_by INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS relation_event_reviews(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL,
+    verdict TEXT NOT NULL CHECK(verdict IN ('approved','rejected')),
+    reviewed_at INTEGER NOT NULL, reviewer_uid INTEGER NOT NULL, note TEXT NOT NULL,
+    capture_session TEXT, FOREIGN KEY(event_id) REFERENCES relation_events(id));
+CREATE INDEX IF NOT EXISTS idx_relation_event_reviews ON relation_event_reviews(event_id,reviewed_at,id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_relation_event_single_review ON relation_event_reviews(event_id);
+CREATE TABLE IF NOT EXISTS relation_event_snapshots(
+    event_id INTEGER PRIMARY KEY, payload TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS relation_event_marks(
+    event_id INTEGER NOT NULL, price_session TEXT NOT NULL, payload TEXT NOT NULL,
+    observed INTEGER NOT NULL, PRIMARY KEY(event_id,price_session));
+CREATE TABLE IF NOT EXISTS relation_event_halts(
+    event_id INTEGER PRIMARY KEY, reason TEXT NOT NULL, detected INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -1792,6 +1812,156 @@ def relation_edges_as_of(us_customer: str, observed_at: int) -> list[dict]:
         return [{**json.loads(payload), "id": eid, "observed_at": observed,
                  "review": ({"verdict": verdict, "reviewed_at": reviewed} if verdict else None)}
                 for eid, payload, observed, verdict, reviewed in rows]
+    finally:
+        c.close()
+
+
+def relation_event_add(proof: dict, *, observed_at: int, submitted_by: int) -> int:
+    c = conn()
+    try:
+        try:
+            cur = c.execute("INSERT INTO relation_events(source_url,filing_key,payload,evidence_hash,observed_at,submitted_by) "
+                            "VALUES(?,?,?,?,?,?)", (proof["source_url"], proof["source_filing_key"],
+                            json.dumps(proof, ensure_ascii=False, sort_keys=True), proof["evidence_hash"],
+                            observed_at, submitted_by))
+        except sqlite3.IntegrityError:
+            raise ValueError("같은 SEC 공시 사건이 이미 등록됨") from None
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
+
+
+def relation_event_get(event_id: int) -> dict | None:
+    c = conn()
+    try:
+        row = c.execute("SELECT id,payload,observed_at,submitted_by FROM relation_events WHERE id=?",
+                        (event_id,)).fetchone()
+        if not row:
+            return None
+        review = c.execute("SELECT verdict,reviewed_at,reviewer_uid,note,capture_session "
+                           "FROM relation_event_reviews WHERE event_id=? "
+                           "ORDER BY reviewed_at DESC,id DESC LIMIT 1", (event_id,)).fetchone()
+        return {**json.loads(row[1]), "id": row[0], "observed_at": row[2], "submitted_by": row[3],
+                "review": (dict(zip(("verdict", "reviewed_at", "reviewer_uid", "note", "capture_session"),
+                                    review)) if review else None)}
+    finally:
+        c.close()
+
+
+def relation_event_review(event_id: int, *, verdict: str, reviewed_at: int,
+                          reviewer_uid: int, note: str, capture_session: str | None) -> int:
+    if verdict not in ("approved", "rejected"):
+        raise ValueError("invalid event review verdict")
+    c = conn()
+    try:
+        if not c.execute("SELECT 1 FROM relation_events WHERE id=?", (event_id,)).fetchone():
+            raise ValueError("사건 후보 없음")
+        if c.execute("SELECT 1 FROM relation_event_reviews WHERE event_id=?", (event_id,)).fetchone():
+            raise ValueError("사건 검토는 최초 1회만 가능")
+        try:
+            cur = c.execute("INSERT INTO relation_event_reviews(event_id,verdict,reviewed_at,reviewer_uid,note,"
+                            "capture_session) VALUES(?,?,?,?,?,?)",
+                            (event_id, verdict, reviewed_at, reviewer_uid, note, capture_session))
+        except sqlite3.IntegrityError:
+            raise ValueError("사건 검토는 최초 1회만 가능") from None
+        if verdict == "rejected":
+            c.execute("INSERT OR IGNORE INTO relation_event_halts VALUES(?,?,?)",
+                      (event_id, "공식 공시 사건 검토 취소", reviewed_at))
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
+
+
+def relation_events_list(limit: int = 100) -> list[dict]:
+    c = conn()
+    try:
+        ids = [r[0] for r in c.execute("SELECT id FROM relation_events ORDER BY id DESC LIMIT ?",
+                                      (min(max(int(limit), 1), 500),)).fetchall()]
+    finally:
+        c.close()
+    return [row for eid in ids if (row := relation_event_get(eid))]
+
+
+def relation_events_approved() -> list[dict]:
+    c = conn()
+    try:
+        ids = [r[0] for r in c.execute(
+            "SELECT event_id FROM relation_event_reviews WHERE verdict='approved' "
+            "ORDER BY capture_session,event_id").fetchall()]
+    finally:
+        c.close()
+    return [row for eid in ids if (row := relation_event_get(eid))]
+
+
+def relation_events_pending_capture() -> list[dict]:
+    c = conn()
+    try:
+        ids = [r[0] for r in c.execute(
+            "SELECT e.id FROM relation_events e JOIN relation_event_reviews r ON r.id=("
+            "SELECT id FROM relation_event_reviews WHERE event_id=e.id "
+            "ORDER BY reviewed_at DESC,id DESC LIMIT 1) "
+            "LEFT JOIN relation_event_snapshots s ON s.event_id=e.id "
+            "LEFT JOIN relation_event_halts h ON h.event_id=e.id "
+            "WHERE r.verdict='approved' AND s.event_id IS NULL AND h.event_id IS NULL "
+            "ORDER BY r.reviewed_at,e.id").fetchall()]
+    finally:
+        c.close()
+    return [row for eid in ids if (row := relation_event_get(eid))]
+
+
+def relation_event_snapshot_add_once(event_id: int, payload: dict, observed_at: int) -> bool:
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO relation_event_snapshots VALUES(?,?,?)",
+                        (event_id, json.dumps(payload, ensure_ascii=False, sort_keys=True), observed_at))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def relation_event_snapshots() -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT event_id,payload FROM relation_event_snapshots ORDER BY event_id").fetchall()
+        return [{**json.loads(payload), "event_id": eid} for eid, payload in rows]
+    finally:
+        c.close()
+
+
+def relation_event_mark_once(event_id: int, day: str, prices: dict[str, float], observed: int) -> bool:
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO relation_event_marks VALUES(?,?,?,?)",
+                        (event_id, day, json.dumps(prices, sort_keys=True), observed))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def relation_event_marks(event_id: int) -> dict[str, dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT price_session,payload,observed FROM relation_event_marks "
+                         "WHERE event_id=? ORDER BY price_session", (event_id,)).fetchall()
+        return {day: {"prices": json.loads(payload), "observed_at": observed}
+                for day, payload, observed in rows}
+    finally:
+        c.close()
+
+
+def relation_event_halt(event_id: int, reason: str | None = None) -> str | None:
+    c = conn()
+    try:
+        if reason is not None:
+            c.execute("INSERT OR IGNORE INTO relation_event_halts VALUES(?,?,?)",
+                      (event_id, reason, int(time.time())))
+            c.commit()
+        row = c.execute("SELECT reason FROM relation_event_halts WHERE event_id=?", (event_id,)).fetchone()
+        return row[0] if row else None
     finally:
         c.close()
 
