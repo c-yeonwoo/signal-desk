@@ -6,6 +6,7 @@
 """
 
 import importlib
+import pandas as pd
 
 from signal_desk.signals.engine import SignalResult
 
@@ -61,3 +62,23 @@ def test_partial_drift_below_threshold_is_frozen(tmp_path, monkeypatch):
     store.snapshot_signals([_sig(f"T{i}", 1.5 if i == 0 else 1.0) for i in range(20)],
                            date="2026-07-24")
     assert store.signal_drift()["frozen"] is True
+
+
+def test_holiday_snapshot_is_preserved_but_not_counted_as_new_session(tmp_path, monkeypatch):
+    store = _store(tmp_path, monkeypatch)
+    sigs = [_sig(f"T{i}", 1.0 + i * 0.01) for i in range(20)]
+    store.snapshot_signals(sigs, date="2026-09-23")
+    store.snapshot_signals(sigs, date="2026-09-24")  # 과거 잘못 기록된 추석 휴장 행
+    out = store.signal_drift()
+    assert out["available"] is False and out["frozen"] is None
+    assert out["invalid_session_dates"] == ["2026-09-24"]
+    history = store.load_signal_history()
+    invalid = history[history["date"] == "2026-09-24"].iloc[0]
+    assert not invalid["session_valid"]
+    assert pd.isna(invalid["exchange_session"])
+    assert invalid["observed_at"]
+    store.snapshot_signals([_sig(f"T{i}", 1.2 + i * 0.01) for i in range(20)], date="2026-09-28")
+    out = store.signal_drift()
+    assert out["pairs"][-1]["from"] == "2026-09-23"
+    assert out["pairs"][-1]["to"] == "2026-09-28"
+    assert out["frozen"] is False
