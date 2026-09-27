@@ -105,6 +105,12 @@ def _authorized_buy_qty(uid: int, market: str, ticker: str, price: float,
     return (qty, None) if qty > 0 else (0, "비용 포함 매수 가능 금액 부족")
 
 
+def _buy_risk_policy(cfg: dict, exposure: float) -> dict:
+    """후보 선정과 최종 계좌 쓰기가 같은 위험 한도 숫자를 사용한다."""
+    return {"max_positions": cfg["max_positions"], "position_pct": cfg["position_pct"],
+            "exposure": exposure}
+
+
 def is_us_market_hours(now: datetime.datetime | None = None) -> bool:
     """NYSE 정규장 구간. 서머타임·휴장·조기마감을 거래소 일정으로 판정한다."""
     now = now or datetime.datetime.now(_KST)
@@ -519,7 +525,10 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                  f"평단 {int(wh['avg_price']):,}→현재 {int(wlive):,}{unit}({pl_pct:+.1f}%) {wqty}주 청산")
         splan = {"ticker": wt, "name": wh["name"], "qty": wqty, "reason": "ROTATE_OUT", "note": snote, "price": wlive}
         if not dry_run:
-            sell_result = paper.place_order(uid, wt, "sell", wqty, price=wlive, market=market)
+            sell_result = paper.place_order(uid, wt, "sell", wqty, price=wlive, name=wh["name"],
+                                            market=market, reason="ROTATE_OUT", note=snote,
+                                            score=weak_score, event_payload={"replaced_by": best.ticker},
+                                            alert_style=REFERENCE_BOTS.get(uid))
             if sell_result is None:
                 weak.pop(0)
                 continue
@@ -544,7 +553,11 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
             bplan = {"ticker": best.ticker, "name": bname, "qty": bqty, "price": blive,
                      "reason": "ROTATE_IN", "note": bnote, "score": best.score, "ai": False}
             if not dry_run:
-                buy_result = paper.place_order(uid, best.ticker, "buy", bqty, price=blive, name=best.name, market=market)
+                buy_result = paper.place_order(uid, best.ticker, "buy", bqty, price=blive, name=bname,
+                                               market=market, reason="ROTATE_IN", note=bnote,
+                                               score=best.score, event_payload={"replaced": wt},
+                                               risk_policy=_buy_risk_policy(cfg, exposure),
+                                               alert_style=REFERENCE_BOTS.get(uid))
                 if buy_result is not None:
                     basis_per_share = -buy_result["cash_change"] / bqty
                     db.bot_trade_log(uid, best.ticker, bname, "buy", bqty, buy_result["fill_price"], "ROTATE_IN", buy_result["order_no"],
@@ -662,7 +675,12 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             plan = {"ticker": ticker, "name": name_by_ticker.get(ticker, ticker), "qty": sell_qty,
                     "reason": reason, "note": note, "price": current_price}
             if not dry_run:
-                result = paper.place_order(uid, ticker, "sell", sell_qty, price=current_price, market=market)
+                result = paper.place_order(
+                    uid, ticker, "sell", sell_qty, price=current_price, name=plan["name"],
+                    market=market, reason=reason, note=note, score=sig.score if sig else None,
+                    event_payload={"peak": peak, "entry_price": avg_price,
+                                   "risk": pos_risk.effective().__dict__},
+                    alert_style=REFERENCE_BOTS.get(uid))
                 if result is not None:
                     filled = result["fill_price"]
                     db.bot_trade_log(uid, ticker, plan["name"], "sell", sell_qty, filled, reason,
@@ -825,7 +843,14 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             plan = {"ticker": s.ticker, "name": name_by_ticker.get(s.ticker, s.name), "qty": qty, "price": live,
                     "reason": "SIGNAL", "note": note, "score": s.score, "ai": bool(llm_reason)}
             if not dry_run:
-                result = paper.place_order(uid, s.ticker, "buy", qty, price=live, name=s.name, market=market)
+                result = paper.place_order(
+                    uid, s.ticker, "buy", qty, price=live, name=s.name, market=market,
+                    reason="SIGNAL", note=note, score=s.score,
+                    event_payload={"rank": s.rank, "confidence": s.confidence,
+                                   "style": cfg["trading_style"],
+                                   "risk": _risk_for(closes).effective().__dict__},
+                    risk_policy=_buy_risk_policy(cfg, exposure),
+                    alert_style=REFERENCE_BOTS.get(uid))
                 if result is not None:
                     filled = result["fill_price"]
                     basis_per_share = -result["cash_change"] / qty
@@ -926,7 +951,10 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         plan = {"ticker": t, "name": h["name"], "qty": qty, "price": live,
                 "reason": "ADD", "note": note, "score": sig.score, "ai": False}
         if not dry_run:
-            result = paper.place_order(uid, t, "buy", qty, price=live, name=h["name"], market=market)
+            result = paper.place_order(uid, t, "buy", qty, price=live, name=h["name"],
+                                       market=market, reason="ADD", note=note, score=sig.score,
+                                       risk_policy=_buy_risk_policy(cfg, exposure),
+                                       alert_style=REFERENCE_BOTS.get(uid))
             if result is not None:
                 new_qty = h["qty"] + qty
                 new_avg = round((h["qty"] * avg - result["cash_change"]) / new_qty, 2)
@@ -1190,7 +1218,12 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
             continue
         note = f"예약 실행 — {r['reason']} · 현재가 {int(price):,}{unit} × {qty}주"
         if not dry_run:
-            result = paper.place_order(uid, r["ticker"], "buy", qty, price=price, name=r["name"], market=market)
+            result = paper.place_order(
+                uid, r["ticker"], "buy", qty, price=price, name=r["name"], market=market,
+                reason="RESERVATION", note=note,
+                event_payload={"reservation_id": r["id"], "target_price": r["target_price"]},
+                risk_policy=_buy_risk_policy(cfg, exposure),
+                alert_style=REFERENCE_BOTS.get(uid))
             if result is not None:
                 filled = result["fill_price"]
                 basis_per_share = -result["cash_change"] / qty

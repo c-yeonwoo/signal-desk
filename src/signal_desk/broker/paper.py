@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import time
 import uuid
 
 from signal_desk import db, store
@@ -74,8 +76,11 @@ def balance(uid: int, market: str = "kr") -> dict:
 
 
 def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None = None,
-                name: str = "", market: str = "kr") -> dict | None:
-    """유저 계좌(시장별) 가상 체결. 실패(현금·수량 부족, 가격 없음) 시 None. 성공 시 order 유사 dict."""
+                name: str = "", market: str = "kr", *, reason: str | None = None,
+                note: str | None = None, score: float | None = None,
+                event_payload: dict | None = None, risk_policy: dict | None = None,
+                alert_style: str | None = None) -> dict | None:
+    """유저 계좌 가상 체결. 봇 주문이면 잔고·체결·감사 이벤트를 한 트랜잭션으로 기록."""
     if side not in ("buy", "sell"):
         raise ValueError("side must be 'buy' or 'sell'")
     if qty <= 0:
@@ -84,28 +89,84 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
     if not reference_price or reference_price <= 0:
         return None
     fill = execution.calculate(reference_price, qty, side, market)
-    acct = _load(uid, market)
-    pos = acct["positions"].get(ticker)
-    if side == "buy":
-        if -fill.cash_change > acct["cash"]:
-            return None
-        acct["cash"] += fill.cash_change
-        if pos:
-            total = pos["qty"] + qty
-            # 매수 비용까지 원가로 넣어야 실현/미실현 손익이 같은 비용 관례를 쓴다.
-            pos["avg_price"] = (pos["avg_price"] * pos["qty"] + (-fill.cash_change)) / total
-            pos["qty"] = total
+    seed = _seed(uid, market)
+    position_name = name or (_name_map(market).get(ticker, ticker) if side == "buy" else ticker)
+    series = (store.load_us_price_series() if market == "us" else store.load_price_series()) if risk_policy else {}
+    marks = {t: float(px[-1]) for t, px in series.items() if px}
+
+    def update(old):
+        acct = json.loads(old) if isinstance(old, str) else (old or {"cash": seed, "positions": {}})
+        acct.setdefault("cash", seed)
+        acct.setdefault("positions", {})
+        pos = acct["positions"].get(ticker)
+        if side == "buy":
+            if -fill.cash_change > acct["cash"]:
+                return None, None
+            if risk_policy:
+                if not pos and len(acct["positions"]) >= int(risk_policy["max_positions"]):
+                    return None, None
+                buy_mark = max(reference_price, marks.get(ticker, reference_price))
+                stock_eval = sum(float(p["qty"]) *
+                                 (buy_mark if t == ticker else marks.get(t, float(p["avg_price"])))
+                                 for t, p in acct["positions"].items())
+                current_value = float(pos["qty"]) * buy_mark if pos else 0.0
+                post_stock = stock_eval + qty * buy_mark
+                post_total = acct["cash"] + fill.cash_change + post_stock
+                exposure = float(risk_policy["exposure"])
+                position_pct = float(risk_policy["position_pct"])
+                if not all(math.isfinite(v) and v >= 0 for v in (post_total, exposure, position_pct)):
+                    return None, None
+                if post_stock > post_total * exposure + 1e-8:
+                    return None, None
+                if current_value + qty * buy_mark > post_total * position_pct + 1e-8:
+                    return None, None
+            acct["cash"] += fill.cash_change
+            if pos:
+                total = pos["qty"] + qty
+                pos["avg_price"] = (pos["avg_price"] * pos["qty"] - fill.cash_change) / total
+                pos["qty"] = total
+            else:
+                acct["positions"][ticker] = {"name": position_name, "qty": qty,
+                                             "avg_price": -fill.cash_change / qty}
         else:
-            acct["positions"][ticker] = {"name": name or _name_map(market).get(ticker, ticker),
-                                         "qty": qty, "avg_price": -fill.cash_change / qty}
-    else:  # sell
-        if not pos or pos["qty"] < qty:
-            return None
-        acct["cash"] += fill.cash_change
-        pos["qty"] -= qty
-        if pos["qty"] <= 0:
-            del acct["positions"][ticker]
-    _save(uid, acct, market)
-    # 원장·알림의 멱등 키는 주문번호에 기대므로 상수 "PAPER"를 쓰면 서로 다른 체결이 하나로
-    # 합쳐진다. 모의 체결도 실제 브로커처럼 호출마다 고유 ID를 가져야 사후 재현이 가능하다.
-    return {"order_no": f"PAPER-{uuid.uuid4().hex[:16]}", "order_time": "", **fill.as_dict()}
+            if not pos or pos["qty"] < qty:
+                return None, None
+            acct["cash"] += fill.cash_change
+            pos["qty"] -= qty
+            if pos["qty"] <= 0:
+                del acct["positions"][ticker]
+        result = {"order_no": f"PAPER-{uuid.uuid4().hex[:16]}", "order_time": "", **fill.as_dict()}
+        return json.dumps(acct, ensure_ascii=False), result
+
+    def write_audit(c, result):
+        if reason is None:
+            return  # 직접 paper 사용은 봇 전략 체결로 분류하지 않는다.
+        at = int(time.time())
+        c.execute("INSERT INTO bot_trades(uid,ticker,market,name,side,qty,price,reason,order_no,ts,score,note,"
+                  "reference_price,fees,slippage_cost,cash_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (uid, ticker, market, position_name, side, qty, result["fill_price"], reason,
+                   result["order_no"], at, score, note, reference_price, result["total_fees"],
+                   result["slippage_cost"], result["cash_change"]))
+        payload = {"qty": qty, "reason": reason, "reference_price": reference_price,
+                   "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
+                   **(event_payload or {})}
+        if score is not None:
+            payload["score"] = score
+        c.execute("INSERT INTO execution_events(event_key,uid,market,ticker,event_type,price,payload,ts) "
+                  "VALUES(?,?,?,?,?,?,?,?)",
+                  (f"trade:{market}:{uid}:{result['order_no']}", uid, market, ticker,
+                   f"filled_{side}", result["fill_price"], json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                   at))
+        if alert_style:
+            from signal_desk import bot_alerts
+            if bot_alerts.selected(uid, {uid: alert_style}):
+                row = {"side": side.upper(), "name": position_name, "ticker": ticker,
+                       "qty": qty, "price": result["fill_price"], "reason": reason,
+                       "score": score, "order_no": result["order_no"]}
+                c.execute("INSERT OR IGNORE INTO notification_outbox("
+                          "dedupe_key,text,priority,status,attempts,next_attempt,expires_at,created) "
+                          "VALUES(?,?,'critical','pending',0,?,?,?)",
+                          (bot_alerts.dedupe_key(uid, market, [row]),
+                           bot_alerts.render(alert_style, market, [row]), at, at + 12 * 3600, at))
+
+    return db.kv_transform(_key(uid, market), update, on_commit=write_audit)

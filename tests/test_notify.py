@@ -39,3 +39,17 @@ def test_push_graceful_on_error(monkeypatch):
         raise OSError("network")
     monkeypatch.setattr(notify.urllib.request, "urlopen", boom)
     assert notify.push("x") is False  # 예외 삼키고 False
+
+
+def test_push_reports_partial_failure_not_success(monkeypatch):
+    monkeypatch.setattr(config, "telegram_token", lambda: "TOK")
+    monkeypatch.setattr(config, "telegram_chat_ids", lambda: ["111", "222"])
+    seen = []
+
+    def send(token, chat, text):
+        seen.append(chat)
+        return chat == "111"
+
+    monkeypatch.setattr(notify, "_send_one", send)
+    assert notify.push("x") is False
+    assert seen == ["111", "222"]
