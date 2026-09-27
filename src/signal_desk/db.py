@@ -93,6 +93,23 @@ CREATE TABLE IF NOT EXISTS revision_price_marks(
     PRIMARY KEY(episode_session,price_session,ticker));
 CREATE TABLE IF NOT EXISTS revision_price_halts(
     episode_session TEXT PRIMARY KEY, details TEXT NOT NULL, detected INTEGER NOT NULL);
+-- R15 curated relationship evidence: immutable candidate versions and review history.
+-- Sector/value-chain membership is never inserted here automatically.
+CREATE TABLE IF NOT EXISTS relation_edges(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, us_customer TEXT NOT NULL, kr_supplier TEXT NOT NULL,
+    payload TEXT NOT NULL, evidence_hash TEXT NOT NULL, observed_at INTEGER NOT NULL,
+    submitted_by INTEGER NOT NULL, supersedes_id INTEGER);
+CREATE INDEX IF NOT EXISTS idx_relation_edges_pair ON relation_edges(us_customer,kr_supplier,observed_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_relation_edges_root
+    ON relation_edges(us_customer,kr_supplier) WHERE supersedes_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_relation_edges_supersedes
+    ON relation_edges(supersedes_id) WHERE supersedes_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS relation_edge_reviews(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, edge_id INTEGER NOT NULL,
+    verdict TEXT NOT NULL CHECK(verdict IN ('approved','rejected')),
+    reviewed_at INTEGER NOT NULL, reviewer_uid INTEGER NOT NULL, note TEXT NOT NULL,
+    FOREIGN KEY(edge_id) REFERENCES relation_edges(id));
+CREATE INDEX IF NOT EXISTS idx_relation_reviews_edge ON relation_edge_reviews(edge_id,reviewed_at,id);
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -1685,6 +1702,96 @@ def revision_price_halt(episode: str, details: str | None = None) -> str | None:
         row = c.execute("SELECT details FROM revision_price_halts WHERE episode_session=?",
                         (episode,)).fetchone()
         return row[0] if row else None
+    finally:
+        c.close()
+
+
+def relation_edge_add(proof: dict, *, observed_at: int, submitted_by: int,
+                      supersedes_id: int | None = None) -> int:
+    c = conn()
+    try:
+        latest = c.execute("SELECT id FROM relation_edges WHERE us_customer=? AND kr_supplier=? "
+                           "ORDER BY id DESC LIMIT 1",
+                           (proof["us_customer"], proof["kr_supplier"])).fetchone()
+        if (latest[0] if latest else None) != supersedes_id:
+            raise ValueError("같은 기업 쌍의 최신 근거 ID를 대체 버전으로 지정 필요")
+        try:
+            cur = c.execute("INSERT INTO relation_edges(us_customer,kr_supplier,payload,evidence_hash,"
+                            "observed_at,submitted_by,supersedes_id) VALUES(?,?,?,?,?,?,?)",
+                            (proof["us_customer"], proof["kr_supplier"],
+                             json.dumps(proof, ensure_ascii=False, sort_keys=True), proof["evidence_hash"],
+                             observed_at, submitted_by, supersedes_id))
+        except sqlite3.IntegrityError:
+            raise ValueError("동시에 등록된 관계 버전이 있습니다. 최신 ID를 다시 확인하세요") from None
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
+
+
+def relation_edge_get(edge_id: int) -> dict | None:
+    c = conn()
+    try:
+        row = c.execute("SELECT id,payload,observed_at,submitted_by,supersedes_id FROM relation_edges "
+                        "WHERE id=?", (edge_id,)).fetchone()
+        if not row:
+            return None
+        return {**json.loads(row[1]), "id": row[0], "observed_at": row[2],
+                "submitted_by": row[3], "supersedes_id": row[4]}
+    finally:
+        c.close()
+
+
+def relation_edge_review(edge_id: int, *, verdict: str, reviewed_at: int,
+                         reviewer_uid: int, note: str) -> int:
+    if verdict not in ("approved", "rejected"):
+        raise ValueError("invalid review verdict")
+    c = conn()
+    try:
+        if not c.execute("SELECT 1 FROM relation_edges WHERE id=?", (edge_id,)).fetchone():
+            raise ValueError("관계 후보 없음")
+        cur = c.execute("INSERT INTO relation_edge_reviews(edge_id,verdict,reviewed_at,reviewer_uid,note) "
+                        "VALUES(?,?,?,?,?)", (edge_id, verdict, reviewed_at, reviewer_uid, note))
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
+
+
+def relation_edges_list(limit: int = 100, *, observed_before: int | None = None) -> list[dict]:
+    c = conn()
+    try:
+        query = ("SELECT e.id,e.payload,e.observed_at,e.submitted_by,e.supersedes_id,"
+                 "r.verdict,r.reviewed_at,r.reviewer_uid,r.note FROM relation_edges e "
+                 "LEFT JOIN relation_edge_reviews r ON r.id=("
+                 "SELECT id FROM relation_edge_reviews WHERE edge_id=e.id "
+                 "AND (? IS NULL OR reviewed_at<=?) ORDER BY reviewed_at DESC,id DESC LIMIT 1) "
+                 "WHERE (? IS NULL OR e.observed_at<=?) ORDER BY e.id DESC LIMIT ?")
+        rows = c.execute(query, (observed_before, observed_before, observed_before,
+                                 observed_before, min(max(int(limit), 1), 500))).fetchall()
+        return [{**json.loads(payload), "id": eid, "observed_at": observed,
+                 "submitted_by": submitted, "supersedes_id": supersedes,
+                 "review": ({"verdict": verdict, "reviewed_at": reviewed,
+                             "reviewer_uid": reviewer, "note": note} if verdict else None)}
+                for eid, payload, observed, submitted, supersedes, verdict, reviewed, reviewer, note in rows]
+    finally:
+        c.close()
+
+
+def relation_edges_as_of(us_customer: str, observed_at: int) -> list[dict]:
+    """Complete PIT relation input for one US customer; no recent-N truncation."""
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT e.id,e.payload,e.observed_at,r.verdict,r.reviewed_at FROM relation_edges e "
+            "LEFT JOIN relation_edge_reviews r ON r.id=("
+            "SELECT id FROM relation_edge_reviews WHERE edge_id=e.id AND reviewed_at<=? "
+            "ORDER BY reviewed_at DESC,id DESC LIMIT 1) "
+            "WHERE e.us_customer=? AND e.observed_at<=? ORDER BY e.id",
+            (observed_at, us_customer, observed_at)).fetchall()
+        return [{**json.loads(payload), "id": eid, "observed_at": observed,
+                 "review": ({"verdict": verdict, "reviewed_at": reviewed} if verdict else None)}
+                for eid, payload, observed, verdict, reviewed in rows]
     finally:
         c.close()
 

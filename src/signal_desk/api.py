@@ -45,7 +45,7 @@ from signal_desk.signals import (
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
-    pre_move, regime_zone, relative, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
+    pre_move, regime_zone, relative, relation_graph, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
@@ -955,6 +955,7 @@ _ADMIN_PATHS = {
     "/api/climate-shadow", "/api/kb-coverage-shadow",
     "/api/proof", "/api/pick-reason", "/api/harness/run",
     "/api/harness/preregistered", "/api/harness/runs",
+    "/api/admin/research/relations", "/api/admin/research/relations/review",
 }
 
 
@@ -3676,6 +3677,60 @@ def revision_price_verdict_get(request: Request):
             row, db.revision_price_marks(row["session"]), completed_session=completed,
             revision_halt=db.revision_price_halt(row["session"]))
     return revision_price_verdict.assess(rows, completed_session=completed)
+
+
+def _relation_mutation_guard(request: Request) -> None:
+    _admin_or_403(request)
+    if request.headers.get("x-signal-desk-relation") != "review":
+        raise HTTPException(403, "관리자 관계 검토 화면에서 다시 시작하세요.")
+    origin = request.headers.get("origin")
+    if origin:
+        parsed = urlparse(origin)
+        if parsed.netloc != request.headers.get("host") or (config.is_prod() and parsed.scheme != "https"):
+            raise HTTPException(403, "요청 출처가 현재 앱과 일치하지 않습니다.")
+
+
+@app.get("/api/admin/research/relations")
+def relation_research_get(request: Request):
+    _admin_or_403(request)
+    rows = db.relation_edges_list(100)
+    return {"version": relation_graph.VERSION, "mode": "research_only", "live_eligible": False,
+            "source_available_at_verified": False, "edges": rows,
+            "approved": sum((r.get("review") or {}).get("verdict") == "approved" for r in rows),
+            "note": "공식 문서 URL·인용문은 관리자 검토 근거입니다. 원문 자동 대조·원천 공개시각·수익효과는 미검증입니다."}
+
+
+@app.post("/api/admin/research/relations")
+def relation_research_add(request: Request, data: dict = Body(...)):
+    _relation_mutation_guard(request)
+    try:
+        proof = relation_graph.candidate(data)
+        supersedes = data.get("supersedes_id")
+        supersedes_id = int(supersedes) if supersedes is not None else None
+        eid = db.relation_edge_add(proof, observed_at=int(time.time()),
+                                   submitted_by=_uid(request), supersedes_id=supersedes_id)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"id": eid, "status": "candidate", "live_eligible": False}
+
+
+@app.post("/api/admin/research/relations/review")
+def relation_research_review(request: Request, data: dict = Body(...)):
+    _relation_mutation_guard(request)
+    try:
+        edge_id = int(data.get("edge_id"))
+        verdict = str(data.get("verdict") or "")
+        note = str(data.get("note") or "").strip()
+        if len(note) < 12 or len(note) > 500:
+            raise ValueError("검토 근거는 12~500자 필요")
+        if verdict == "approved" and data.get("source_checked") is not True:
+            raise ValueError("공식 원문·인용·매출노출 수치 수동 대조 확인 필요")
+        review_id = db.relation_edge_review(edge_id, verdict=verdict,
+                                             reviewed_at=int(time.time()),
+                                             reviewer_uid=_uid(request), note=note)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"review_id": review_id, "status": verdict, "mode": "research_only", "live_eligible": False}
 
 
 def _crowding_status() -> dict:
