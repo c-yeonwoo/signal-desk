@@ -18,6 +18,8 @@
 <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <link rel="stylesheet" href="./home.css" />
 <script src="./home.js"></script>
+<link rel="stylesheet" href="./investment.css" />
+<script src="./investment.js"></script>
 <style>
   :root {
     /* ── Signal Desk — Neutral Desk + Signal Teal (2026-08-06 개편) ──
@@ -891,7 +893,7 @@
   <h1><span class="wm-a">Signal</span> <span class="wm-b">Desk</span></h1>
   <div class="tabs">
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
-    <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="트레이딩 · 내 포트폴리오">페이퍼</button>
+    <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="봇 모의투자 · 내 포트폴리오 · 실계좌">투자 관리</button>
     <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">인사이트</button>
     <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
   </div>
@@ -913,7 +915,7 @@
 </dialog>
 
 <nav class="subnav" id="subnav-trading" style="display:none">
-  <button class="subtab on" data-seg="bot" onclick="switchTradingSeg('bot')">트레이딩</button>
+  <button class="subtab on" data-seg="bot" onclick="switchTradingSeg('bot')">봇 모의투자</button>
   <button class="subtab" data-seg="rebal" onclick="switchTradingSeg('rebal')">내 포트폴리오</button>
   <button class="subtab" data-seg="live" onclick="switchTradingSeg('live')">실계좌 추종</button>
   <button class="subtab" data-seg="dividend" onclick="switchTradingSeg('dividend')">배당 플래너</button>
@@ -983,8 +985,8 @@
         </div>
         <div class="home-results">
           <span class="home-kicker">성과의 기준을 분리해서 보기</span>
-          <div class="home-result-row"><div><b>페이퍼 계좌</b><small id="home-paper-sub">선택 성향 · 시드 대비</small></div><strong id="home-paper-return">—</strong></div>
-          <div id="home-paper-chart" class="home-chart" aria-label="페이퍼 계좌 순자산 추이"></div>
+          <div class="home-result-row"><div><b>봇 모의투자</b><small id="home-paper-sub">선택 성향 · 초기자금 대비</small></div><strong id="home-paper-return">—</strong></div>
+          <div id="home-paper-chart" class="home-chart" aria-label="모의투자 계좌 금액 추이"></div>
           <p id="home-chart-caption" class="home-small">기록된 순자산 경로 확인 중…</p>
           <div class="home-result-row home-minor"><div><b>실계좌 보유주식</b><small>당일 변동 참고값 · 계좌 전체 수익률 아님</small></div><strong id="home-real-return">—</strong></div>
           <div class="home-result-row home-minor"><div><b>시그널 실측</b><small>매수 판정의 사후 채점 · 계좌 수익률 아님</small></div><button type="button" class="linkish" onclick="document.getElementById('signal-trust').open=true;document.getElementById('signal-trust').scrollIntoView({behavior:'smooth'})">아래 판정 보기 ↓</button></div>
@@ -1183,33 +1185,29 @@
 
   <div id="view-trading" class="view-app" style="display:none">
     <div id="trading-bot">
-    <!-- 설명은 접어 둔다. 매일 오는 사람에게 같은 3줄을 매일 읽히는 건 설명이 아니라 벽이다 -->
-    <div class="pcard" style="margin-bottom:14px;padding:12px 16px">
-      <div style="font-size:var(--fs-sm);line-height:1.6;color:var(--dim)">
-        서비스가 직접 운영하는 <b style="color:var(--txt)">가상 계좌 3개</b> — 같은 시그널을 매일 자동 집행하고
-        <b style="color:var(--txt)">리셋하지 않습니다</b>.
-        <button type="button" class="linkish" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">자세히</button>
-        <span class="more-block" hidden>성적이 나쁘면 초기화해 버리는 트레이딩은 증거가 될 수 없어서입니다.
-        실제 증권사 주문과 무관하고, 내 실보유 포트폴리오와도 합쳐지지 않습니다.</span>
-      </div>
-    </div>
+    <section class="invest-hero" aria-labelledby="bot-guide-title">
+      <div class="invest-kicker">투자 관리 / 봇 모의투자</div>
+      <h2 id="bot-guide-title">얼마나 벌었는지, 왜 잃었는지.</h2>
+      <p>가상자금으로 운용하는 세 가지 봇의 실제 기록입니다. 성향을 고르면 손익과 다음 점검 계획을 설명해 드려요. 내 실계좌와는 별개이며, 손실 기록도 그대로 남깁니다.</p>
+    </section>
     <div class="row" style="margin-bottom:12px;align-items:center;gap:10px">
       <div class="seg-toggle" id="bot-market-seg" style="margin-bottom:0">
         <button class="on" data-bmkt="kospi" onclick="switchBotMarket('kospi')">국내</button>
         <button data-bmkt="us" onclick="switchBotMarket('us')">해외</button>
       </div>
       <div class="seg-toggle" id="style-toggle" style="margin-bottom:0;margin-left:auto">
-        <button data-style="conservative" onclick="setLedgerStyle('conservative')">안정</button>
-        <button class="on" data-style="balanced" onclick="setLedgerStyle('balanced')">균형</button>
-        <button data-style="aggressive" onclick="setLedgerStyle('aggressive')">공격</button>
+        <button data-style="conservative" onclick="setLedgerStyle('conservative')">안정형</button>
+        <button class="on" data-style="balanced" onclick="setLedgerStyle('balanced')">균형형</button>
+        <button data-style="aggressive" onclick="setLedgerStyle('aggressive')">공격형</button>
       </div>
     </div>
 
     <div id="bot-kospi">
     <div id="portfolio-bot">
+      <section id="bot-review" class="invest-review" aria-live="polite" aria-label="손익 해설과 재점검 계획">선택한 봇의 손익을 확인하는 중…</section>
       <div class="card">
         <div class="row" style="align-items:baseline">
-          <b style="font-size:var(--fs-md)">성향별 성과</b>
+          <b style="font-size:var(--fs-md)">다른 성향과 비교하기</b>
         </div>
         <!-- 아래 패딩 0 — 카드 자체 패딩(22px)과 겹쳐서 disclaimer 밑이 허옇게 비었다 -->
         <div id="reference-perf" class="placeholder" style="padding:12px 0 0">불러오는 중…</div>
@@ -1238,7 +1236,7 @@
       </div>
       <div class="card">
         <div class="row" style="align-items:baseline">
-          <b style="font-size:14px">자산곡선 <span style="color:var(--dim);font-weight:600;font-size:13px">· track record</span></b>
+          <b style="font-size:14px">날짜별 계좌 금액 <span style="color:var(--dim);font-weight:600;font-size:13px">· 하루 한 번 기록</span></b>
           <span id="bot-perf-summary" class="stat-label" style="margin:0 0 0 auto"></span>
         </div>
         <div id="bot-equity-chart" style="height:260px;margin-top:8px"></div>
@@ -1264,7 +1262,7 @@
           <div class="copy-editor" id="live-copy-card">
             <div class="copy-section">
               <h3><span class="copy-step">01</span>어떤 봇을 따라갈까요?</h3>
-              <p>국내 레퍼런스 페이퍼 봇의 매매 패턴을 선택합니다.</p>
+              <p>국내 모의투자 봇의 매매 패턴을 선택합니다.</p>
               <input id="live-copy-style" type="hidden" value="balanced">
               <fieldset class="copy-styles" aria-label="추종 봇 성향">
                 <label class="copy-style"><input type="radio" name="copy-style" value="conservative" onchange="selectLiveCopyStyle(this.value)">
@@ -1373,7 +1371,7 @@
     <div id="trading-rebal" style="display:none">
       <div class="pcard" style="margin-bottom:10px;padding:8px 12px">
         <div style="font-size:12px;line-height:1.5;color:var(--dim)">
-          <span class="layer-badge ctx">맥락</span> 실보유 렌즈 · 페이퍼 봇과 <b style="color:var(--txt)">합쳐지지 않음</b> · 리밸/시나리오는 제안만
+          내가 보유한 주식의 분석입니다. <b style="color:var(--txt)">봇 모의투자와 별개</b>이며 비중 조정은 제안만 합니다.
         </div>
       </div>
       <!-- 국내/해외 판 전환 토글 — 아래 전체(보유·배당·히트맵·리밸런싱·시나리오)가 선택 시장 기준 -->
@@ -1421,27 +1419,28 @@
       <div class="copy-output" style="margin-bottom:16px">봇 매매를 내 비율로 따라가려면 <button class="linkish" onclick="switchTradingSeg('live')">실계좌 추종 설정 →</button></div>
       <div class="card" id="portfolio-intelligence-card" style="margin-bottom:16px">
         <div class="row" style="align-items:baseline;gap:8px;flex-wrap:wrap">
-          <b style="font-size:15px">정밀 포트폴리오 진단</b>
-          <span style="color:var(--dim);font-weight:600;font-size:13px">· 전체 비중·집중도·상관위험을 입력 제약과 비교</span>
+          <b style="font-size:21px">내 투자, 이렇게 보면 쉬워요</b>
+          <span style="color:var(--dim);font-weight:600;font-size:13px">· 어디에 몰려 있고, 무엇부터 확인할까요?</span>
         </div>
-        <p class="page-desc" style="margin:6px 0 10px">현재 시장의 보유·현금만 분석합니다. 수익 예측이나 자동 주문은 하지 않으며, 데이터가 부족하면 판정을 보류합니다.</p>
+        <p class="page-desc" style="margin:6px 0 10px">아래는 내가 지키고 싶은 투자 한도예요. 예를 들어 한 종목 15%는 주식과 현금을 합친 100만원 중 15만원까지만 담겠다는 뜻이에요. 선택한 시장의 보유·현금만 분석하며 자동 주문하지 않아요.</p>
         <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
           <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">현금
             <input id="pi-cash" type="number" min="0" class="ctrl" style="max-width:135px"></label>
-          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">종목 최대비중 %
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">한 종목에 최대 %
             <input id="pi-single" type="number" min="0" max="100" class="ctrl" style="max-width:110px"></label>
-          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">섹터 최대비중 %
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">같은 업종에 최대 %
             <input id="pi-sector" type="number" min="0" max="100" class="ctrl" style="max-width:110px"></label>
-          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">고상관 묶음 %
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">함께 움직이는 종목에 최대 %
             <input id="pi-cluster" type="number" min="0" max="100" class="ctrl" style="max-width:110px"></label>
-          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">최소 현금 %
+          <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">현금으로 남길 최소 %
             <input id="pi-mincash" type="number" min="0" max="100" class="ctrl" style="max-width:100px"></label>
-          <button class="btn primary" onclick="runPortfolioIntelligence(this)">저장 후 진단</button>
+          <button class="btn primary" onclick="runPortfolioIntelligence(this)">내 투자 쉽게 분석하기</button>
         </div>
         <div id="pi-profile-note" class="stat-label" style="margin:8px 0 0"></div>
         <div id="pi-result" style="margin-top:12px"></div>
       </div>
-      <section class="card" aria-labelledby="pi-audit-title" style="margin-bottom:16px">
+      <details class="card invest-detail" style="margin-bottom:16px">
+        <summary>분석이 믿을 만한지 확인하기 · 검증 기록</summary>
         <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
           <b id="pi-audit-title" style="font-size:15px">판단 검증실</b>
           <span class="layer-badge ctx">실주문 잠김</span>
@@ -1453,7 +1452,7 @@
           <div class="pi-evidence-step"><span class="stat-label">03 · 실행 잠김</span><b>계좌 조회 ≠ 주문 승인</b><p>원본 공개시각·실측 성과·주문 원장·시세·위험 한도 검증이 남아 있습니다.</p></div>
         </div>
         <div id="pi-decisions" aria-live="polite" class="pi-audit-meta">진단 후 저장된 기록을 확인할 수 있습니다.</div>
-      </section>
+      </details>
       <div class="card" style="margin-bottom:16px">
         <b style="font-size:14px">개별 권고 참고 결과 <span style="color:var(--dim);font-weight:600;font-size:13px">· 포트폴리오 성과와 별개</span></b>
         <div id="pi-outcomes" class="placeholder" style="padding:12px 0">불러오는 중…</div>
@@ -1494,19 +1493,19 @@
       </div>
 
       <div class="card" style="margin-bottom:16px">
-        <b style="font-size:14px">섹터 히트맵 <span style="color:var(--dim);font-weight:600;font-size:13px">· 크기=평가액 · 색=손익률</span></b>
+        <b style="font-size:14px">업종별 투자 현황 <span style="color:var(--dim);font-weight:600;font-size:13px">· 클수록 많이 투자 · 색은 손익률</span></b>
         <div id="heatmap-body" style="height:320px;margin-top:8px"></div>
       </div>
 
       <div class="card" style="margin-bottom:16px">
         <div class="row" style="align-items:center;gap:10px">
-          <span class="stat-label" style="margin:0;line-height:1">리밸런싱 성향</span>
+          <span class="stat-label" style="margin:0;line-height:1">비중 조정 성향</span>
           <div class="seg-toggle" id="rebal-style-seg">
             <button data-rstyle="conservative" onclick="setRebalStyle('conservative')">안정형</button>
             <button class="on" data-rstyle="balanced" onclick="setRebalStyle('balanced')">균형형</button>
             <button data-rstyle="aggressive" onclick="setRebalStyle('aggressive')">공격형</button>
           </div>
-          <button class="btn primary" style="margin-left:auto" onclick="runRebalance()">리밸런싱 제안 받기</button>
+          <button class="btn primary" style="margin-left:auto" onclick="runRebalance()">비중 조정 제안 받기</button>
         </div>
         <div style="font-size:12px;color:var(--dim);margin-top:8px"><span class="layer-badge ctx">맥락</span> 제안만 합니다 · 자동 주문 없음 · 실행은 본인 몫</div>
       </div>
@@ -5300,18 +5299,29 @@ function _resizeWhenLaidOut(chart, holder, tries = 60) {
 
 // ===== 포트폴리오 — 자동매매봇 =====
 let _botChart = null;
-const _REASON_LABEL = { STOP_LOSS: '손절', TAKE_PROFIT: '익절', TRAILING: '트레일링', SIGNAL: '시그널', RESERVATION: '예약', ADD: '분할추가', ROTATE_OUT: '로테이션매도', ROTATE_IN: '로테이션매수', EVENT: '악재청산', EVENT_TRIM: '악재부분청산' };
+const _REASON_LABEL = { STOP_LOSS: '손실 제한 매도', TAKE_PROFIT: '목표 수익 매도', TRAILING: '고점 대비 하락으로 매도', SIGNAL: '신호에 따른 매매', RESERVATION: '예약 매매', ADD: '나눠서 추가 매수', ROTATE_OUT: '종목 교체로 매도', ROTATE_IN: '종목 교체로 매수', EVENT: '악재로 전량 매도', EVENT_TRIM: '악재로 일부 매도' };
+let _botLoadSeq = 0;
 
 async function loadBotState(){
+  const seq = ++_botLoadSeq, market = _botMarket, style = _ledgerStyle;
+  const workspace = document.getElementById('portfolio-bot');
+  const review = document.getElementById('bot-review');
+  workspace.classList.add('is-loading');
+  workspace.setAttribute('aria-busy', 'true');
+  review.textContent = '선택한 봇의 손익을 확인하는 중…';
   try {
-    const res = await getJSON(`/api/ledger/state?style=${_ledgerStyle}&market=${_botMarket}`);
+    const res = await getJSON(`/api/ledger/state?style=${style}&market=${market}`);
+    if (seq !== _botLoadSeq) return;
     if (!res.ok) {
       // 0의 이유 — 반쯤 그려진 화면 대신 무엇이 막혔는지 쓴다.
       const st = document.getElementById('bot-acct-status');
       if (st) st.innerHTML = `<span style="color:var(--sig-watch);font-weight:700">${esc(res.reason)}</span>`;
+      review.innerHTML = `손익을 불러오지 못했습니다. ${esc(res.reason || '')} <button class="btn" onclick="loadBotState()">다시 확인</button>`;
       return;
     }
     const d = res.data;
+    if (d.error) throw new Error(d.error);
+    review.innerHTML = InvestmentGuide.renderReview(d);
     const usd = d.currency === 'USD';
     const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));  // 통화 인지 포맷
     document.getElementById('bot-cash').textContent = fmtM(d.cash);
@@ -5334,7 +5344,7 @@ async function loadBotState(){
       const col = Math.abs(r) < 0.5 ? 'var(--dim-2)' : (r > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)');
       totLbl.innerHTML = `총평가금액 <span style="font-weight:700;color:${col}">`
         + `${r > 0 ? '+' : ''}${fmtNum(r, 2)}%</span>`
-        + `<span style="font-weight:600;color:var(--dim-2)"> · 시드 대비</span>`
+        + `<span style="font-weight:600;color:var(--dim-2)"> · 초기자금 대비</span>`
         + (cashOnly ? `<span style="font-weight:700;color:var(--sig-watch)"> · 전량 현금</span>` : '');
     }
 
@@ -5354,20 +5364,20 @@ async function loadBotState(){
 
     const killTxt = d.kill_switch ? ` · <b style="color:var(--sig-sell)">🛑 긴급정지(주문 차단)</b>` : '';
     document.getElementById('bot-acct-status').innerHTML =
-      `<b style="color:var(--txt)">${esc(d.label || '')}</b> 트레이딩 · ${usd ? '해외(USD)' : '국내'} · 시드 ${fmtM(d.seed_cash)}(고정)`
+      `<b style="color:var(--txt)">${esc(d.label || '')}</b> 모의투자 · ${usd ? '해외(USD)' : '국내'} · 초기자금 ${fmtM(d.seed_cash)}(고정)`
       + ` · <b style="color:${d.llm_enabled ? 'var(--sig-buy)' : 'var(--dim)'}">AI 판단 ${d.llm_enabled ? 'ON' : 'OFF'}</b>`
-      + ` · <span style="color:var(--dim-2)" title="초기화 버튼을 일부러 만들지 않았습니다. 성적이 나쁠 때 리셋할 수 있는 장부는 항상 좋아 보이므로 증거가 될 수 없습니다 — 백테스트에서 경계하는 생존편향과 같은 병입니다.">리셋 불가 · 시드 고정 <b>(왜?)</b></span>` + killTxt;
+      + ` · <span style="color:var(--dim-2)" title="좋은 성적만 남지 않도록 초기자금과 손실 기록을 초기화하지 않습니다.">손실 포함 모든 기록 유지</span>` + killTxt;
     const cfg = d.config || {};
     // 운용 규칙은 10개가 넘는다. 한 문단으로 늘어놓으면 아무도 안 읽는 회색 벽이 된다 — 접어 둔다.
     const rp = d.risk_policy || {};
     const exitText = rp.exit_mode === 'sigma'
-      ? ' · 청산선 종목별 변동성(σ), 자료 없으면 기본값'
+      ? ' · 매도 기준은 종목별 가격 흔들림에 따라 조정'
       : (rp.stop_loss_pct != null && rp.take_profit_pct != null
           ? ` · 기본 손절 ${Math.round(rp.stop_loss_pct * 100)}% / 익절 +${Math.round(rp.take_profit_pct * 100)}%`
           : ' · 청산선 확인 필요');
     document.getElementById('bot-rules').innerHTML =
       `<span style="color:var(--dim)">매수권·안전장치 통과 · 최대 <b>${cfg.max_positions}종목</b>`
-      + ` · 종목당 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b>${exitText}</span>`
+      + ` · 종목당 기본 매수 비중 <b>${Math.round((cfg.position_pct || 0) * 100)}%</b>${exitText}</span>`
       + `<button type="button" class="linkish" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">전체 규칙</button>`
       + `<span class="more-block" hidden>`
       + `매일 자동으로 공용 시그널을 이 트레이딩에 적용(후보 → 자문/폴백 선별·기권 가능) · `
@@ -5426,7 +5436,9 @@ async function loadBotState(){
       </tr></thead><tbody>${rows}</tbody></table>`;
     }
 
+    workspace.classList.remove('is-loading');
     const chartHolder = document.getElementById('bot-allocation-chart');
+    if (window.echarts) {
     if (!_botChart) _botChart = echarts.init(chartHolder);
     const pieData = d.positions.map(p => {
       const px = (p.last_price != null && p.last_price > 0) ? p.last_price : p.avg_price;
@@ -5443,18 +5455,39 @@ async function loadBotState(){
         itemStyle: { borderColor: '#fff', borderWidth: 2 } }],
     }, true);
     _botChart.resize();
+    } else { chartHolder.textContent = '차트 도구를 불러오지 못했습니다. 위의 금액과 보유종목 표를 확인해 주세요.'; }
+    document.getElementById('reference-perf').textContent = '성과 비교를 불러오는 중…';
+    document.getElementById('bot-perf-summary').textContent = '';
+    if (_botEquityChart) _botEquityChart.clear();
+    await Promise.all([loadReferencePerf(seq, market, style), loadBotCosts(seq, market, style)]);
   } catch (e) {
-    console.error(e);
+    if (seq !== _botLoadSeq) return;
+    workspace.classList.add('is-loading');
+    review.innerHTML = '손익을 불러오지 못했습니다. <button class="btn" onclick="loadBotState()">다시 확인</button>';
+  } finally {
+    if (seq === _botLoadSeq) workspace.setAttribute('aria-busy', 'false');
   }
-  loadBotPerformance();
-  loadReferencePerf();
 }
 
-async function loadReferencePerf(){
+async function loadBotCosts(seq, market, style){
+  let d = null;
+  try {
+    const res = await getJSON(`/api/execution-performance?market=${market}&style=${style}`);
+    if (res.ok) d = res.data;
+  } catch (_) { /* Optional evidence: keep the available ledger visible. */ }
+  if (seq !== _botLoadSeq) return;
+  const el = document.getElementById('bot-cost-review');
+  if (el) el.innerHTML = InvestmentGuide.renderCosts(d);
+}
+
+async function loadReferencePerf(seq = _botLoadSeq, market = _botMarket, style = _ledgerStyle){
   const el = document.getElementById('reference-perf');
   if (!el) return;
   try {
-    const d = await (await fetch('/api/reference-performance?market=' + _botMarket)).json();
+    const res = await getJSON('/api/reference-performance?market=' + market);
+    if (seq !== _botLoadSeq) return;
+    if (!res.ok) throw new Error(res.reason);
+    const d = res.data;
     const usd = d.currency === 'USD';
     const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));
     const rows = (d.bots || []).map(b => {
@@ -5473,34 +5506,32 @@ async function loadReferencePerf(){
     }).join('');
     el.className = '';
     el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num" title="시드 대비 계좌 전체 수익률 — 이게 성적입니다">계좌 수익률</th>
-      <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num" title="기록된 동일 세션의 과거 유니버스 동일가중·비용 전 기준선 대비">PIT 동일가중 대비</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
+      <th class="num">현재 금액</th><th class="num" title="이전 최고 계좌 금액에서 가장 많이 내려간 비율">가장 크게 하락</th><th class="num" title="당시 분석 대상 종목에 똑같이 투자한 가상 기준과 같은 기록 기간을 비교합니다. 기준선은 거래비용 제외입니다.">비교 기준보다</th><th class="num">거래</th><th class="num">기록 일수</th></tr></thead>
       <tbody>${rows}</tbody></table>
       ${_styleVerdictNote(d)}
       <div style="color:var(--dim-2);font-size:var(--fs-2xs);margin-top:6px">같은 시그널, 다른 규칙 강도로 집행한 결과 — 시그널 실측과는 다른 지표입니다.
       성향은 <b>후보를 좁히지 않고 종목당 비중으로</b> 갈립니다(안정 6% · 균형 8% · 공격 14%).</div>`;
-  } catch (e) { el.className = 'placeholder'; el.textContent = '불러오지 못했습니다.'; }
+    loadBotPerformance(d, style);
+  } catch (e) { if (seq !== _botLoadSeq) return; el.className = 'placeholder'; el.textContent = '성과 비교를 불러오지 못했습니다. 봇을 다시 선택해 주세요.'; document.getElementById('bot-perf-summary').textContent = '날짜별 기록 조회 실패'; }
 }
 
-// 세 성향의 우열을 **말할 수 있는 표본인가**. 23일 실측에서 −0.63 ~ −4.53% 였는데
-// 그건 이 리포 기준(실효 30기간)으로 **구분 불가**다. 그런데 표가 세 숫자를 나란히 놓아
-// "안정형이 낫다"로 읽히게 했다 — 기준선 없는 비율을 노출하지 않는다는 규칙과 같은 문제다.
-const _STYLE_MIN_DAYS = 120;   // 대략 6개월 — 실효 30기간(5일 보유)에 해당
+// Elapsed days alone cannot establish statistical superiority.
 function _styleVerdictNote(d) {
   const days = Math.max(0, ...(d.bots || []).map(b => b.days || 0));
-  if (days >= _STYLE_MIN_DAYS) return '';
   return `<div style="margin-top:8px;font-size:var(--fs-xs);color:var(--sig-watch);font-weight:600">`
-    + `성향 간 우열은 <b>아직 판정 불가</b>입니다 — 누적 ${days}일 / 최소 ${_STYLE_MIN_DAYS}일. `
-    + `이 표는 <b>무엇을 했는지</b>의 기록이고, 어느 성향이 더 나은지의 근거가 아닙니다.</div>`;
+    + `이 표만으로 성향의 우열은 판정 불가입니다. 누적 ${days}일의 관측 기록이며, 기간이 길어도 우수성을 보장하는 근거가 아닙니다. `
+    + `같은 기간의 시장·비용·위험을 함께 비교해야 합니다. ‘–’는 비교 자료 부족이며 0%가 아닙니다.</div>`;
 }
 
 let _botEquityChart = null;
-async function loadBotPerformance(){
+function loadBotPerformance(all, style){
   const sumEl = document.getElementById('bot-perf-summary');
   const holder = document.getElementById('bot-equity-chart');
   if (!holder) return;
   try {
-    const all = await (await fetch('/api/reference-performance?market=' + _botMarket)).json();
-    const d = { ...(all.bots || []).find(b => b.style === _ledgerStyle), currency: all.currency };
+    const selected = (all.bots || []).find(b => b.style === style);
+    if (!selected) { sumEl.textContent = '선택한 봇의 날짜별 기록이 없습니다.'; return; }
+    const d = { ...selected, currency: all.currency };
     const usd = d.currency === 'USD';
     const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));
     const r = d.return_pct;
@@ -5511,27 +5542,27 @@ async function loadBotPerformance(){
     // 전체 계좌 수익률(시드 이후)과 상대 비교(기록된 첫날~마지막날)는 기간이 다르다.
     const ex = d.excess_return_pct;
     const exTxt = ex == null ? '' :
-      ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">PIT 동일가중 대비 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
+      ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">비교 기준보다 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
       + `<span style="color:var(--dim-2)"> (기록된 동일 기간 · 기준선 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
     sumEl.innerHTML = `<b>계좌 수익률 ${rTxt}</b>${exTxt}`
       + (ex == null ? `<span style="color:var(--dim-2)"> · 상대 비교 보류: ${esc(d.benchmark_basis || '기준선 없음')}</span>` : '')
-      + `<span style="color:var(--dim-2)"> · 시드 대비 · 이게 성적입니다</span>`
-      + ` · 시드 ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최대낙폭 ${fmtNum(d.max_drawdown_pct, 1)}%`
+      + `<span style="color:var(--dim-2)"> · 초기자금 대비</span>`
+      + ` · ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최고점 대비 최대 하락 ${fmtNum(d.max_drawdown_pct, 1)}%`
       + ` · ${d.days}일 · 거래 ${d.n_trades}건`;
-    if (!_botEquityChart) _botEquityChart = echarts.init(holder);
     const curve = d.curve || [];
+    if (_botEquityChart) { _botEquityChart.dispose(); _botEquityChart = null; }
     if (!curve.length) {
-      _botEquityChart.clear();
-      holder.innerHTML = '<div class="placeholder" style="padding:24px 0">아직 자산 기록이 없습니다 — 평일 마감 후 매일 1점씩 쌓입니다.</div>';
+      holder.innerHTML = '<div class="placeholder" style="padding:24px 0">아직 자산 기록이 없습니다 — 거래일 마감 후 하루 1점씩 쌓입니다.</div>';
       return;
     }
+    if (!window.echarts) { holder.textContent = '차트 도구를 불러오지 못했습니다.'; return; }
     holder.innerHTML = '';  _botEquityChart = echarts.init(holder);
     _botEquityChart.setOption({
       animation: false, grid: { left: 60, right: 16, top: 16, bottom: 28 },
       tooltip: { trigger: 'axis', formatter: p => `${p[0].axisValue}<br/>${fmtM(p[0].data)}` },
       xAxis: { type: 'category', data: curve.map(p => p.date), axisLabel: { fontSize: 10 } },
       yAxis: { type: 'value', scale: true, axisLabel: { fontSize: 10, formatter: v => usd ? '$' + fmtNum(v, 0) : fmtNum(v / 10000, 0) + '만' } },
-      series: [{ type: 'line', data: curve.map(p => Math.round(p.total_eval)), smooth: true,
+      series: [{ type: 'line', data: curve.map(p => Math.round(p.total_eval)), smooth: false,
         showSymbol: false, lineStyle: { color: '#1a2233', width: 2 }, areaStyle: { opacity: 0.08, color: '#1a2233' } }],
     }, true);
     _botEquityChart.resize();
@@ -5751,8 +5782,11 @@ function _drawGoalFan(d) {
 
 // ===== 내 포트폴리오: 국내/해외 판 토글 — 하위 전체(보유·배당·히트맵·리밸런싱·시나리오)가 선택 시장 기준 =====
 let _pfMarket = 'kr';
+let _piAnalysisSeq = 0;
 function setPfMarket(m){
   _pfMarket = m;
+  ++_piAnalysisSeq;
+  document.getElementById('pi-result').textContent = '선택한 시장의 보유·현금을 확인한 뒤 분석해 주세요.';
   // 통화가 다르면 이전 경로는 그대로 두면 **거짓**이다 — 비우고 그 시장 목표를 복원한다.
   const gr = document.getElementById('gp-result'); if (gr) gr.innerHTML = '';
   gpRestore();
@@ -6197,6 +6231,7 @@ async function loadPortfolioRecommendations(){
 async function runPortfolioIntelligence(btn){
   const before = btn.textContent; btn.disabled = true; btn.textContent = '진단 중…';
   const market = _pfMarket;
+  const seq = ++_piAnalysisSeq;
   const box = document.getElementById('pi-result');
   const data = {
     market, cash: _piNumber('pi-cash'), max_single_position_pct: _piNumber('pi-single'),
@@ -6205,8 +6240,9 @@ async function runPortfolioIntelligence(btn){
   try {
     const saved = await fetch('/api/portfolio/profile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
     if (!saved.ok) { const e = await saved.json(); throw new Error(e.error || '제약 저장 실패'); }
+    if (seq !== _piAnalysisSeq) return;
     const d = await _piJson('/api/portfolio/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ market }) });
-    if (market !== _pfMarket) return;
+    if (seq !== _piAnalysisSeq || market !== _pfMarket) return;
     const q = d.data_quality || {}; const sum = d.summary || {}; const currency = d.currency || (_pfMarket === 'us' ? 'USD' : 'KRW');
     const quality = ({ complete: '완전', partial: '부분', insufficient: '불충분' })[q.status] || q.status;
     const guidance = (d.guidance || []).map(g => `<div style="padding:9px 0;border-bottom:1px solid var(--line)">
@@ -6220,8 +6256,8 @@ async function runPortfolioIntelligence(btn){
     const allocRows = (alloc.items || []).map(x => `<tr><td><b>${esc(x.name)}</b><div class="sig-metric">${esc(x.ticker)}</div></td>
       <td class="num">${fmtNum(x.current_weight_pct, 1)}%</td><td class="num">${fmtNum(x.target_weight_pct, 1)}%</td>
       <td class="num">${x.delta_weight_pct > 0 ? '+' : ''}${fmtNum(x.delta_weight_pct, 1)}%p</td><td>${esc(x.action)}</td></tr>`).join('');
-    const allocation = alloc.ready ? `<b style="font-size:13px;display:block;margin-top:14px">제약형 목표배분 <span style="color:var(--dim);font-weight:600">· shadow</span></b>
-      <div style="font-size:12px;color:var(--dim);margin:5px 0">공통 과거시세 ${alloc.observations}일 · 주식 예산 ${fmtNum(alloc.equity_budget_pct, 1)}% · 구조적 현금 ${fmtNum(alloc.structural_cash_pct, 1)}%</div>
+    const allocation = alloc.ready ? `<b style="font-size:13px;display:block;margin-top:14px">내 한도에 맞춘 비중 조정 예시 <span style="color:var(--dim);font-weight:600">· 실행 전 검토용</span></b>
+      <div style="font-size:12px;color:var(--dim);margin:5px 0">함께 비교한 과거 가격 ${alloc.observations}일 · 주식에 배정 ${fmtNum(alloc.equity_budget_pct, 1)}% · 한도 때문에 남겨두는 현금 ${fmtNum(alloc.structural_cash_pct, 1)}%</div>
       <table class="dtable"><thead><tr><th>종목</th><th class="num">현재</th><th class="num">목표</th><th class="num">차이</th><th>제안</th></tr></thead><tbody>${allocRows}</tbody></table>
       <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">${esc(alloc.note || '')}</div>`
       : `<div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:12px">목표배분 보류: ${esc(alloc.reason || '데이터 확인 필요')}</div>`;
@@ -6229,7 +6265,7 @@ async function runPortfolioIntelligence(btn){
     const tradeRows = (trade.instructions || []).map(x => `<tr><td><b>${esc(x.name || x.ticker)}</b><div class="sig-metric">${esc(x.ticker)}</div></td>
       <td>${x.side === 'sell' ? '매도 검토' : '매수 검토'}</td><td class="num">${fmtNum(x.qty, 0)}주</td>
       <td class="num">${_piMoney((x.fill || {}).gross_notional || 0, currency)}</td></tr>`).join('');
-    const tradePlan = trade.ready ? `<b style="font-size:13px;display:block;margin-top:14px">비용 반영 행동계획 <span style="color:var(--dim);font-weight:600">· 주문 전송 없음</span></b>
+    const tradePlan = trade.ready ? `<b style="font-size:13px;display:block;margin-top:14px">비중을 바꾸려면 몇 주인가요? <span style="color:var(--dim);font-weight:600">· 계산 예시, 주문 전송 없음</span></b>
       ${tradeRows ? `<table class="dtable" style="margin-top:6px"><thead><tr><th>종목</th><th>방향</th><th class="num">수량</th><th class="num">추정 체결액</th></tr></thead><tbody>${tradeRows}</tbody></table>` : '<div style="font-size:12px;color:var(--dim);margin-top:6px">정수수량 기준으로 조정할 주문이 없습니다.</div>'}
       <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">추정 비용 ${_piMoney((trade.estimated || {}).fees || 0, currency)} · 슬리피지 ${_piMoney((trade.estimated || {}).slippage || 0, currency)} · 조정 후 현금 ${_piMoney((trade.estimated || {}).cash_after || 0, currency)}${(trade.unfunded_buys || []).length ? ' · 일부 매수 자금 부족' : ''}${(trade.blocked_buys || []).length ? ' · BUY 미확인 확대 차단' : ''}<br>${esc(trade.note || '')}</div>` : `<div class="pi-audit-meta">행동계획 보류: ${esc(trade.reason || '확인 필요')}</div>`;
     const candidates = d.entry_candidates || {};
@@ -6238,24 +6274,25 @@ async function runPortfolioIntelligence(btn){
       <td class="num">${fmtNum(x.proposed_weight_pct, 1)}%</td><td class="num">${_piMoney(x.proposed_value, currency)}</td>
       <td class="num">${x.max_correlation == null ? '비교 대상 없음/미확인' : fmtNum(x.max_correlation, 2)}</td>
       <td class="num" title="${esc(x.marginal_risk?.reason || '')}">${x.marginal_risk?.ready ? (x.marginal_risk.delta_volatility_pp >= 0 ? '+' : '') + fmtNum(x.marginal_risk.delta_volatility_pp, 2) + '%p' : '비교 보류'}</td></tr>`).join('');
-    const candidatePlan = candidates.ready ? `<b style="font-size:13px;display:block;margin-top:14px">신규 편입 후보 <span style="color:var(--dim);font-weight:600">· shadow</span></b>
+    const candidatePlan = candidates.ready ? `<b style="font-size:13px;display:block;margin-top:14px">내 한도 안에서 살펴볼 새 종목 <span style="color:var(--dim);font-weight:600">· 실행 전 검토용</span></b>
       <div style="font-size:12px;color:var(--dim);margin:5px 0">신규 편입 가능 현금 ${fmtNum(candidates.available_cash_pct, 1)}% · 상관 기준 ${fmtNum(candidates.correlation_limit, 2)} 미만</div>
       <div style="overflow-x:auto"><table class="dtable"><thead><tr><th>후보</th><th>시그널</th><th class="num">제안비중</th><th class="num">제안금액</th><th class="num">최대상관</th><th class="num">단독 위험 변화</th></tr></thead><tbody>${candidateRows}</tbody></table></div>
       <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:7px">${esc(candidates.note || '')}<br>단독 위험 변화는 후보 1종을 현금으로 추가한 경우의 공통 60거래일 연율 변동성 차이입니다. 예상 수익이나 전체 매매계획의 성과가 아닙니다.</div>`
       : `<div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:12px">신규 편입 보류: ${esc(candidates.reason || '제약을 통과한 후보가 없습니다.')}</div>`;
-    box.innerHTML = `<div style="padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">
+    const technical = `<div style="padding:10px 12px;background:var(--accent-weak);border-radius:var(--r-md);font-size:13px;line-height:1.6">
       <b>데이터 충족도 ${esc(quality)}</b> · 가격 ${fmtNum(q.price_coverage_pct || 0, 1)}% · 과거시세 ${fmtNum(q.history_coverage_pct || 0, 1)}% · 섹터 ${fmtNum(q.sector_coverage_pct || 0, 1)}%<br>
       총자산 <b>${_piMoney(sum.total_value || 0, currency)}</b> · 투자 ${_piMoney(sum.invested_value || 0, currency)} · 현금 ${_piMoney(sum.cash || 0, currency)} (${fmtNum(sum.cash_pct || 0, 1)}%)</div>
       ${d.audit ? _piAuditSummary(d.audit) : ''}
       <b style="font-size:13px;display:block;margin-top:14px">기준 가격에 따른 검토 지침</b>${guidance || '<div class="placeholder">판단할 보유종목이 없습니다.</div>'}
       ${clusters ? `<div style="font-size:12px;color:var(--dim);line-height:1.6;margin-top:12px"><b style="color:var(--txt)">고상관 묶음</b><br>${clusters}</div>` : ''}
-      ${allocation}
-      ${tradePlan}
-      ${candidatePlan}
-      ${holdings ? `<table class="dtable" style="margin-top:12px"><thead><tr><th>보유종목</th><th class="num">전체비중</th><th class="num">평가액</th><th>섹터</th></tr></thead><tbody>${holdings}</tbody></table>` : ''}
       <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:10px">${esc(d.disclaimer || '')}</div>`;
+    box.innerHTML = InvestmentGuide.renderPortfolio(d)
+      + InvestmentGuide.detail('내 종목별 금액과 비중 보기', holdings ? `<table class="dtable"><thead><tr><th>종목</th><th class="num">전체 자산 중</th><th class="num">현재 금액</th><th>업종</th></tr></thead><tbody>${holdings}</tbody></table>` : '확인된 보유종목이 없습니다.')
+      + InvestmentGuide.detail('비중을 어떻게 조정할 수 있나요?', allocation + tradePlan)
+      + InvestmentGuide.detail('새로 담을 만한 후보가 있나요?', candidatePlan)
+      + InvestmentGuide.detail('분석 근거·데이터 상세 보기', technical);
     loadPortfolioDecisions(); loadPortfolioRecommendations();
-  } catch (e) { if (market === _pfMarket) box.innerHTML = `<div class="placeholder">${esc(e.message || '진단에 실패했습니다.')}</div>`; }
+  } catch (e) { if (seq === _piAnalysisSeq && market === _pfMarket) box.innerHTML = `<div class="placeholder">${esc(e.message || '진단에 실패했습니다.')}</div>`; }
   finally { btn.disabled = false; btn.textContent = before; }
 }
 
@@ -9877,7 +9914,7 @@ async function obFinish(dest){
     }
   } finally {
     if (btnSig) { btnSig.disabled = false; btnSig.textContent = '시그널로 시작'; }
-    if (btnPaper) { btnPaper.disabled = false; btnPaper.textContent = '페이퍼 보기'; }
+    if (btnPaper) { btnPaper.disabled = false; btnPaper.textContent = '모의투자 보기'; }
     void idleLabel;
   }
 }

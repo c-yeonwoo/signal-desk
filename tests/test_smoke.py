@@ -74,8 +74,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 문구가 아니라 **계약**을 본다: 리셋이 불가하다는 사실 + **왜** 그런지.
     # 2026-08-07: 사용자가 "초기화는 어떻게 하나"라고 물었다 — 불가하다고만 적고 이유를
     # 말하지 않으면 버튼을 찾게 된다. 초기화를 만드는 것이 곧 track record를 없애는 일이다.
-    assert "리셋 불가" in html and "시드 고정" in html
-    assert "생존편향" in html, "리셋을 막는 이유를 화면이 말하지 않는다"
+    assert "손실 포함 모든 기록 유지" in html
+    assert "좋은 성적만 남지 않도록 초기자금과 손실 기록을 초기화하지 않습니다" in html
     assert 'id="bot-us"' not in html
     assert "openHelp()" in html
     assert html.count('onclick="openHelp()"') == 1  # footer only — 시그널 헤더에 고아 버튼 금지
@@ -170,7 +170,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     for alias in ("--sell:", "--warn:", "--down:", "--fg:", "--panel-2:", "--mono:"):
         assert alias in root, f"{alias} 미정의"
     assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
-    assert ">페이퍼<" in html  # 탭명 (구 '내 자산')
+    assert ">투자 관리<" in html  # 실제 계좌·개인 분석까지 포함하는 상위 메뉴
+    assert ">봇 모의투자<" in html
     # 상태(precision·편중·데스크)는 「오늘」카드 하나. 매수대기·조사후보 퀵칩은 제거.
     # `.sig-head`(국내/해외 전용 줄)는 툴바로 합쳐 없앴다 — 상시 블록을 3개로 줄이기 위해서다.
     # 마크업 이름이 아니라 **규약**을 본다: 오늘 카드가 있고 세그가 툴바 안에 있다.

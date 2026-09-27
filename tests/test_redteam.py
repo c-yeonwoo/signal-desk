@@ -1703,7 +1703,6 @@ _ROUTES_WITHOUT_UI = {
     # outbox·실행 트윈 도입 뒤에도 UI가 이 내부 원장을 직접 읽게 하면 개인 포트폴리오와
     # 레퍼런스 봇 장부가 섞인다. 전용 운영 화면을 만들기 전까지 API 경계로 남긴다.
     "/api/execution-audit": "레퍼런스 체결 재생 감사 — 운영 관측용 API",
-    "/api/execution-performance": "레퍼런스 비용 후 성과 — 운영 관측용 API",
     "/api/meta-entry/diagnostics": "메타 진입 OOS 승격 진단 — shadow 운영 관측용 API",
     "/api/notification-health": "알림 outbox 상태 — 운영 경보용 API",
     "/api/portfolio-risk": "레퍼런스 장부 집중도 shadow — OOS 관측용 API",
@@ -3543,7 +3542,7 @@ def test_goal_plan_frames_the_cards_below_it():
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     pane = html.split('id="trading-rebal"', 1)[1].split('id="trading-dividend"', 1)[0]
     i_goal = pane.index("목표금액 플랜")
-    for later in ("내 보유 배당", "섹터 히트맵", "리밸런싱 성향"):
+    for later in ("내 보유 배당", "업종별 투자 현황", "비중 조정 성향"):
         assert i_goal < pane.index(later), f"목표가 `{later}` 보다 뒤에 있다"
 
 
@@ -3820,7 +3819,9 @@ def test_style_comparison_says_it_cannot_be_judged_yet():
     assert "_styleVerdictNote" in html
     fn = html.split("function _styleVerdictNote(", 1)[1].split("\n}", 1)[0]
     assert "판정 불가" in fn
-    assert "_STYLE_MIN_DAYS" in html and "근거가 아닙니다" in fn
+    assert "근거가 아닙니다" in fn
+    assert "_STYLE_MIN_DAYS" not in html  # Calendar length alone must never remove uncertainty.
+    assert "if (days" not in fn
 
 
 def test_cash_and_total_explain_themselves():

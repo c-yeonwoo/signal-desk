@@ -5733,3 +5733,15 @@ def home_script():
 def home_styles():
     return FileResponse(WEB_DIR / "home.css", media_type="text/css",
                         headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/investment.js")
+def investment_script():
+    return FileResponse(WEB_DIR / "investment.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/investment.css")
+def investment_styles():
+    return FileResponse(WEB_DIR / "investment.css", media_type="text/css",
+                        headers={"Cache-Control": "no-cache"})

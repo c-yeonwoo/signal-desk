@@ -25,7 +25,7 @@ window.InvestmentHome = (() => {
       && points.every((p,i)=>p.date === benchmark[i].date && Number.isFinite(Number(benchmark[i].total_eval)));
     const botSeries = points.map(p=>Number(p.total_eval) / base * 100);
     const benchSeries = aligned ? benchmark.map(p=>Number(p.total_eval) * 100) : null;
-    const series = [{type:'line',name:'페이퍼',data:botSeries,showSymbol:false,smooth:false,
+    const series = [{type:'line',name:'봇 모의투자',data:botSeries,showSymbol:false,smooth:false,
       lineStyle:{color:'#243CDB',width:2},areaStyle:{color:'#243CDB',opacity:.07}}];
     if (benchSeries) series.push({type:'line',name:'PIT 동일가중',data:benchSeries,showSymbol:false,smooth:false,
       lineStyle:{color:'#949aa6',width:1.5,type:'dashed'}});
@@ -111,11 +111,11 @@ window.InvestmentHome = (() => {
         ? '주문 전송 허용 표기(별도 사전검증 필요)' : '실주문 미가동';
       put('home-copy',policy
         ? `KIS 추종 ${transmission} · ${label[style]} ${policy.follow_pct}% 설정${policy.configured ? '' : '(미저장)'}`
-        : `추종 설정 조회 불가 · 페이퍼 ${label[style]} 보기`);
+        : `추종 설정 조회 불가 · 모의투자 ${label[style]} 보기`);
       const paper = await read(`/api/reference-performance?market=${mkt}`);
       if (seq !== requestId) return;
       const bot = paper && (paper.bots || []).find(b=>b.style===style);
-      put('home-paper-sub',`${label[style]} · ${currency} · 시드 대비 · 모의 장부`);
+      put('home-paper-sub',`${label[style]} · ${currency} · 초기자금 대비 · 모의 장부`);
       put('home-paper-return',bot ? percent(bot.return_pct) : '자료 없음');
       const comparable = plot(bot && bot.curve, bot && bot.benchmark_curve);
       put('home-chart-caption',bot && (bot.curve || []).length >= 2
