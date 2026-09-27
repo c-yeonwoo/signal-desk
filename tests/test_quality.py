@@ -1,6 +1,7 @@
 """퀄리티 팩터(축약 F-Score) — 수익성·개선·건전성·성장 5점 + 엔진 반영."""
 
 from signal_desk.signals import engine, quality
+from signal_desk import store
 
 
 def test_full_five_points():
@@ -33,6 +34,20 @@ def test_evaluate_includes_quality():
     prices = {"005930": [100.0] * 60}
     fund = {"005930": {"quality": {"points": 4, "max": 5, "checks": ["순이익 흑자", "ROE 양(+)"], "has": True}}}
     r = engine.evaluate(uni, prices, fundamentals=fund)[0]
-    assert r.has_quality and r.quality_points == 4 and any("[퀄리티]" in x for x in r.reasons)
+    assert r.has_quality and r.quality_points == 4 and r.quality_evaluable == 5
+    assert any("[퀄리티]" in x for x in r.reasons)
     r2 = engine.evaluate(uni, prices)[0]
-    assert r2.has_quality is False and r2.quality_points is None
+    assert r2.has_quality is False and r2.quality_points is None and r2.quality_evaluable is None
+
+
+def test_quality_denominator_is_frozen_in_pit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    universe = [{"ticker": "T", "name": "Test"}]
+    fund = {"T": {"quality": {"points": 1, "max": 2, "evaluable": 2,
+                              "checks": ["순이익 흑자"], "has": True}}}
+    signal = engine.evaluate(universe, {"T": [100.0] * 60}, fundamentals=fund)[0]
+    assert signal.quality_evaluable == 2
+    assert store.snapshot_signals([signal], date="2026-09-28") == 1
+    row = store.load_signal_history("kr").iloc[0]
+    assert row["quality"] == 1 and row["quality_evaluable"] == 2
