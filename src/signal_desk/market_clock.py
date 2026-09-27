@@ -64,3 +64,21 @@ def latest_completed_session(market: str, now: dt.datetime) -> str | None:
         return None
     completed = cal.schedule[cal.schedule["close"] < now]
     return completed.index[-1].date().isoformat() if not completed.empty else None
+
+
+def consecutive_sessions(market: str, first: str, second: str) -> bool:
+    """두 날짜가 연속 거래 세션인지. 누락된 평가일을 성과 0일로 이어 붙이지 않는다."""
+    if not is_session(market, first) or not is_session(market, second) or first >= second:
+        return False
+    sessions = _calendar(market).sessions_in_range(first, second)
+    return len(sessions) == 2
+
+
+def previous_session(market: str, day: str) -> str | None:
+    """해당 세션 이전의 마지막 거래일(당일 종가 이후 공개된 구성종목은 매수 시작에 쓰지 않음)."""
+    if not is_session(market, day):
+        return None
+    try:
+        return _calendar(market).previous_session(day).date().isoformat()
+    except (KeyError, ValueError, IndexError):
+        return None

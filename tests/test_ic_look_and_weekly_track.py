@@ -142,15 +142,17 @@ def test_futility_does_not_fire_on_a_real_edge():
 # ---------- 손해 경보 ----------
 
 def test_harm_alert_fires_on_confirmed_underperformance():
-    """"좋다"보다 "나쁘다"가 빨리 결론난다 — 실계좌로 따라 사는 쪽의 실무 질문이다."""
-    curve = [{"total_eval": 10_000_000 * (1 - 0.004 * i)} for i in range(30)]
-    h = bot.harm_alert(curve, seed=10_000_000, benchmark_pct=7.0)
+    """동일 날짜의 기준선이 꾸준히 앞설 때만 손해 경고 후보를 낸다."""
+    curve = [{"date": str(i), "total_eval": 10_000_000 * (1 - 0.004 * i)} for i in range(50)]
+    benchmark = [{"date": str(i), "total_eval": 1 + 0.002 * i} for i in range(50)]
+    h = bot.harm_alert(curve, seed=10_000_000, benchmark_curve=benchmark)
     assert h["ready"] and h["alert"] and h["upper_pp"] < 0
 
 
 def test_harm_alert_stays_quiet_when_it_is_ahead():
-    curve = [{"total_eval": 10_000_000 * (1 + 0.006 * i)} for i in range(30)]
-    h = bot.harm_alert(curve, seed=10_000_000, benchmark_pct=3.0)
+    curve = [{"date": str(i), "total_eval": 10_000_000 * (1 + 0.006 * i)} for i in range(50)]
+    benchmark = [{"date": str(i), "total_eval": 1 + 0.002 * i} for i in range(50)]
+    h = bot.harm_alert(curve, seed=10_000_000, benchmark_curve=benchmark)
     assert h["ready"] and not h["alert"]
 
 
@@ -163,8 +165,16 @@ def test_harm_alert_needs_a_baseline_and_says_so():
 
 def test_harm_alert_needs_enough_blocks():
     """일별 자산곡선은 자기상관이 강해 독립 관측이 아니다 — 블록이 모자라면 판정하지 않는다."""
-    h = bot.harm_alert([{"total_eval": 1e7} for _ in range(6)], seed=1e7, benchmark_pct=1.0)
-    assert not h["ready"] and "블록" in h["reason"]
+    curve = [{"date": str(i), "total_eval": 1e7} for i in range(6)]
+    benchmark = [{"date": str(i), "total_eval": 1.0} for i in range(6)]
+    h = bot.harm_alert(curve, seed=1e7, benchmark_curve=benchmark)
+    assert not h["ready"] and "거래일" in h["reason"]
+
+
+def test_aggregate_benchmark_cannot_produce_statistical_alert():
+    curve = [{"date": str(i), "total_eval": 10_000_000 * (1 - 0.004 * i)} for i in range(50)]
+    h = bot.harm_alert(curve, seed=10_000_000, benchmark_pct=7.0)
+    assert not h["ready"] and not h["alert"] and "날짜별" in h["reason"]
 
 
 # ---------- 닿을 수 있는가 ----------

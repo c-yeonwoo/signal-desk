@@ -24,6 +24,7 @@ from signal_desk.signals import (
 )
 from signal_desk.signals import accuracy as accuracy_mod
 from signal_desk.signals import decision as decmod
+from signal_desk.signals import performance_evidence
 
 log = logging.getLogger("signal_desk.bot")
 
@@ -963,7 +964,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     }
 
 
-def performance(uid: int, market: str = "kr") -> dict:
+def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = None,
+                universe_history: dict | None = None) -> dict:
     """봇 track record — 자산곡선 + 총수익률·기간·최대낙폭·거래수. seed 대비 성과(실현+미실현)."""
     curve = db.bot_equity_curve(uid, market)
     cfg = _cfg(uid)
@@ -973,23 +975,30 @@ def performance(uid: int, market: str = "kr") -> dict:
     ret_pct = round((total / seed - 1) * 100, 2) if seed else None
     # 최대낙폭(자산곡선 기준)
     mdd, peak = 0.0, None
-    for p in curve:
-        te = p["total_eval"]
+    for te in ([seed] if seed > 0 else []) + [p["total_eval"] for p in curve]:
         peak = te if peak is None else max(peak, te)
         if peak:
             mdd = min(mdd, te / peak - 1)
     trades = db.bot_trades_recent(uid, 500, market)
     sells = [t for t in trades if t["side"] == "sell"]
-    bench = benchmark_return_pct(curve, market)
+    bench_curve = performance_evidence.pit_equal_weight_curve(
+        curve, market, dated_closes=dated_closes, universe_history=universe_history)
+    bench = round((bench_curve[-1]["total_eval"] - 1) * 100, 2) if bench_curve else None
+    comparable = (round((curve[-1]["total_eval"] / curve[0]["total_eval"] - 1) * 100, 2)
+                  if len(curve) >= 2 and curve[0]["total_eval"] > 0 else None)
     return {
         "market": market, "currency": "USD" if market == "us" else "KRW",
         "seed": seed, "total_eval": total, "return_pct": ret_pct,
-        # **기준선 없는 수익률은 판정이 아니다.** 실측(2026-08-16) 공격형 +1.58%가 좋아 보였지만
-        # 같은 28일 동안 유니버스 평균은 그보다 훨씬 위였다 — 시장을 못 따라간 것이다.
-        # 이 리포의 1번 지표 규칙(기준선과 리프트를 항상 함께)을 장부에도 적용한다.
+        # 총 수익은 시드 이후 전체, 초과수익은 곡선 첫날~마지막날의 같은 세션 비교다.
+        # 과거 PIT 유니버스·모든 구성종목 가격이 없으면 추측하지 않는다.
         "benchmark_return_pct": bench,
-        "excess_return_pct": (round(ret_pct - bench, 2)
-                              if (ret_pct is not None and bench is not None) else None),
+        "benchmark_curve": bench_curve,
+        "benchmark_basis": ("과거 구성종목 동일가중 근사·비용 전·원천 공개시각 미검증"
+                            if bench_curve else "비교 불가 — 과거 구성종목/가격/세션 누락"),
+        "comparison_return_pct": comparable,
+        "comparison_window": ([curve[0]["date"], curve[-1]["date"]] if len(curve) >= 2 else None),
+        "excess_return_pct": (round(comparable - bench, 2)
+                              if (comparable is not None and bench is not None) else None),
         "max_drawdown_pct": round(mdd * 100, 2), "days": len(curve),
         "n_trades": len(trades), "n_sells": len(sells),
         "curve": curve,
@@ -997,11 +1006,10 @@ def performance(uid: int, market: str = "kr") -> dict:
 
 
 def benchmark_return_pct(curve: list[dict], market: str = "kr") -> float | None:
-    """봇과 **같은 기간·같은 모집단**의 동일가중 수익률. 못 만들면 None(추측하지 않는다).
+    """현재 구성종목의 과거 동일가중 *참고치*. PIT 비교/손해 판정에는 사용하지 않는다.
 
-    모집단은 그 시장의 유니버스 전체다 — 봇이 고른 종목이 아니라 **고를 수 있었던 종목**이라야
-    "골라서 나아졌나"를 묻는 대조군이 된다. 기간은 자산곡선의 첫날~마지막날로 맞춘다(지평·기간이
-    하나라도 다르면 리프트는 거짓이다).
+    현재 유니버스로 과거를 소급하므로 당시 편출·상장폐지 종목이 빠지는 생존편향이 있다.
+    호환/연구 참고용으로만 남긴다. 실제 비교는 performance_evidence의 PIT 경로를 사용한다.
     """
     if len(curve) < 2:
         return None
@@ -1048,10 +1056,16 @@ def ensure_reference_bots() -> None:
 def reference_performance(market: str = "kr") -> dict:
     """3개 레퍼런스 봇(안정·균형·공격)의 공개 track record — 자산곡선·수익률·MDD."""
     ensure_reference_bots()
+    try:
+        dated_closes = store.load_all_dated_closes() if market == "kr" else None
+        universe_history = store.load_universe_history() if market == "kr" else None
+    except Exception:  # noqa: BLE001 — 기준선 오류가 계좌 원장을 가리면 안 된다
+        dated_closes, universe_history = {}, {}
     bots = []
     for uid, style in REFERENCE_BOTS.items():
         bots.append({"style": style, "label": strategy.STYLE_LABEL.get(style, style),
-                     **performance(uid, market),
+                     **performance(uid, market, dated_closes=dated_closes,
+                                   universe_history=universe_history),
                      # 실제 보유일 — 측정 지평과 얼마나 어긋나는지 장부에 같이 싣는다.
                      # 안 실으면 "h20에서 +9.9%p"와 "1.3일 만에 나갔다"가 한 화면에 안 보인다.
                      "holding": holding_period_stats(uid, market)})
@@ -1206,10 +1220,6 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
 
 # 손해 경보 문턱 — 초과수익 **상한**이 이 값 아래로 확정되면 경고한다. 0이 아니라 살짝
 # 아래인 이유: 정확히 0 근처는 늘 걸려 매주 우는 늑대가 된다(신선도 오탐에서 배운 것).
-HARM_ALERT_UPPER_PP = 0.0
-_HARM_MIN_BLOCKS = 4       # 블록이 이보다 적으면 분산을 못 재고 방향만 보인다
-
-
 def holding_period_stats(uid: int, market: str = "kr", limit: int = 2000) -> dict:
     """**실제로 며칠 들고 있었나** — 체결 이력을 FIFO로 맞춰 보유일을 센다.
 
@@ -1284,49 +1294,12 @@ def holding_period_stats(uid: int, market: str = "kr", limit: int = 2000) -> dic
     return out
 
 
-def harm_alert(curve: list[dict], *, seed: float, benchmark_pct: float | None,
-               block_days: int = 5, z: float = 1.645) -> dict:
-    """**"좋다"보다 "나쁘다"가 훨씬 빨리 결론난다.** 초과수익 상한이 0 아래면 경고.
-
-    한쪽(z=1.645, 단측 95%)만 보는 이유: 실계좌로 따라 사는 사람에게 실무적으로 중요한 질문은
-    "이게 시장보다 나은가"가 아니라 **"이게 나를 깎아먹고 있나"** 다. 양측으로 재면 손해를
-    확인하는 데 필요한 표본이 늘어난다.
-
-    블록(기본 5거래일)으로 묶는 이유는 정확도 판정과 같다 — 일별 자산곡선은 자기상관이 강해
-    독립 관측이 아니다.
-    """
-    out = {"ready": False, "reason": None, "alert": False, "excess_pp": None,
-           "upper_pp": None, "blocks": 0, "days": len(curve or []),
-           "note": "시장 대비 초과수익의 단측 상한. 상한이 0 아래면 '시장보다 못하다'가 확정된 것."}
-    if not curve or len(curve) < block_days * _HARM_MIN_BLOCKS or not seed:
-        out["reason"] = (f"자산곡선 {len(curve or [])}일 — "
-                         f"블록 {_HARM_MIN_BLOCKS}개({block_days * _HARM_MIN_BLOCKS}일) 필요")
-        return out
-    if benchmark_pct is None:
-        out["reason"] = "벤치마크를 만들 수 없다 — 기준선 없는 수익률은 판정이 아니다"
-        return out
-    # 블록별 봇 수익률(겹치지 않게) → 시장 블록 평균을 빼 초과수익 분포를 만든다.
-    pts = [p["total_eval"] for p in curve]
-    rets = []
-    for i in range(0, len(pts) - block_days, block_days):
-        a, b = pts[i], pts[i + block_days]
-        if a:
-            rets.append((b / a - 1) * 100)
-    if len(rets) < _HARM_MIN_BLOCKS:
-        out["reason"] = f"독립 블록 {len(rets)}개 — {_HARM_MIN_BLOCKS}개 필요"
-        return out
-    n_blocks = len(rets)
-    bench_per_block = benchmark_pct / n_blocks          # 같은 창을 같은 수로 나눈다
-    ex = [r - bench_per_block for r in rets]
-    m = sum(ex) / n_blocks
-    var = sum((x - m) ** 2 for x in ex) / (n_blocks - 1)
-    se = (var / n_blocks) ** 0.5
-    upper = m + z * se
-    out.update(ready=True, blocks=n_blocks,
-               excess_pp=round(m * n_blocks, 2),          # 전체 창 기준으로 되돌려 표시
-               upper_pp=round(upper * n_blocks, 2),
-               alert=bool(upper < HARM_ALERT_UPPER_PP / max(1, n_blocks)))
-    if out["alert"]:
-        out["reason"] = (f"초과수익 상한 {out['upper_pp']}%p < 0 — "
-                         f"블록 {n_blocks}개에서 시장보다 못한 것이 확정됐다")
+def harm_alert(curve: list[dict], *, seed: float, benchmark_pct: float | None = None,
+               benchmark_curve: list[dict] | None = None, block_days: int = 5) -> dict:
+    """총기간 기준선 수익률만으로는 경고를 만들지 않는다. 날짜가 짝인 경로만 사용."""
+    out = performance_evidence.paired_harm(curve, benchmark_curve, block_days=block_days)
+    if not seed:
+        out.update(ready=False, alert=False, reason="계좌 시드 미확인")
+    elif benchmark_curve is None:
+        out["reason"] = "날짜별 PIT 벤치마크 없음 — 총기간 참고 수익률로는 판정 불가"
     return out
