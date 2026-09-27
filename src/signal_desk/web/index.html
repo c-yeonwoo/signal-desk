@@ -6298,14 +6298,16 @@ async function loadAccountPerformance(market){
     const d = await r.json();
     if (market !== _pfMarket) return;
     const points = d.points || [], last = points[points.length - 1];
-    if (!last) { summary.textContent = '아직 관측 기록이 없습니다.'; note.textContent = d.note || ''; return; }
+    const navGate = d.nav_gate || {};
+    const navNote = navGate.eligible ? '' : '전체 계좌 NAV·TWR 검증 보류: 현금잔고, 외부 입출금, 전체 체결, 배당·기업행사 원장이 필요합니다. ';
+    if (!last) { summary.textContent = '아직 관측 기록이 없습니다.'; note.textContent = navNote + (d.note || ''); return; }
     const usd = market === 'us', money = v => usd ? '$' + fmtNum(Number(v), 2) : fmtNum(Number(v), 0) + '원';
     const rate = last.daily_return_pct;
     const rateText = rate == null ? '미확인' : (rate > 0 ? '+' : '') + fmtNum(rate, 2) + '%';
     const pnlText = last.daily_pnl == null ? '미확인' : (Number(last.daily_pnl) > 0 ? '+' : '') + money(last.daily_pnl);
     summary.innerHTML = `<span>보유주식 평가 <b>${money(last.holdings_value)}</b></span><span>당일손익 <b>${pnlText}</b></span><span>당일손익 참고율 <b>${rateText}</b></span>`;
     document.getElementById('account-performance-stamp').textContent = '마지막 조회 ' + new Date(last.observed_at * 1000).toLocaleString('ko-KR');
-    note.textContent = `${d.note || ''} 일간 변동률은 현재 보유주식의 손익금액 ÷ (평가액−당일손익) 참고값이며, 같은 관측일의 마지막 값만 표시합니다. ${points.length}일 관측.`;
+    note.textContent = `${navNote}${d.note || ''} 일간 변동률은 현재 보유주식의 손익금액 ÷ (평가액−당일손익) 참고값이며, 같은 관측일의 마지막 값만 표시합니다. ${points.length}일 관측.`;
     if (!window.echarts) return;
     const valueEl = document.getElementById('account-value-chart');
     const dailyEl = document.getElementById('account-daily-chart');

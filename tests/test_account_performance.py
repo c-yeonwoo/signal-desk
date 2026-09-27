@@ -39,7 +39,12 @@ def test_observations_keep_markets_and_latest_daily_only(tmp_path, monkeypatch):
     assert perf.history(7, "kr")["points"][-1]["holdings_value"] == "1100"
     assert perf.history(7, "us")["points"][-1]["quality"] == "holdings_empty"
     assert perf.history(7, "us")["points"][-1]["holdings_value"] == "0"
-    assert perf.history(7, "kr")["account_return_available"] is False
+    history = perf.history(7, "kr")
+    assert history["account_return_available"] is False
+    assert history["nav_gate"]["eligible"] is False
+    assert history["nav_gate"]["status"] == "source_incomplete"
+    assert "cash_balance" in history["nav_gate"]["missing_inputs"]
+    assert "holdings_market_value" in history["nav_gate"]["verified_inputs"]
 
 
 def test_invalid_broker_response_writes_nothing(tmp_path, monkeypatch):
@@ -66,5 +71,6 @@ def test_owner_only_api_and_get_captures_without_import(tmp_path, monkeypatch):
     assert client.get("/api/my-holdings").json()["performance_recorded"] is True
     data = client.get("/api/my-performance?market=kr").json()
     assert data["scope"] == "holdings_only" and len(data["points"]) == 1
+    assert data["nav_gate"]["eligible"] is False
     assert data["points"][0]["holdings_value"] == "100"
     assert client.get("/api/holdings").json()["holdings"] == []

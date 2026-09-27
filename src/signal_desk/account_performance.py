@@ -76,8 +76,18 @@ def history(uid: int, market: str) -> dict:
     if market not in ("kr", "us"):
         raise ValueError("invalid market")
     points = db.account_observations_daily(uid, broker="toss", market=market)
+    # This is a source-capability gate, not a data-count gate. More holdings
+    # snapshots cannot establish cash flows or turn buying power into cash NAV.
+    nav_gate = {
+        "status": "source_incomplete",
+        "eligible": False,
+        "verified_inputs": ["holdings_market_value"],
+        "missing_inputs": ["cash_balance", "external_cash_flows",
+                           "complete_executions", "income_and_corporate_actions"],
+        "next_step": "현금잔고·입출금·전체 체결 및 배당 원장을 독립 대사한 뒤 KR 단일통화 TWR을 계산",
+    }
     return {
         "market": market, "broker": "toss", "scope": "holdings_only",
-        "account_return_available": False, "points": points,
+        "account_return_available": False, "nav_gate": nav_gate, "points": points,
         "note": "증권사 보유주식 조회값의 관측일별 변화입니다. 현금·입출금·매도 후 실현손익이 없어 계좌 전체 수익률이나 전략 성과가 아닙니다.",
     }
