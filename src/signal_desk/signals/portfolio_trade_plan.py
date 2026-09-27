@@ -34,6 +34,12 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str, profil
         row = by_ticker.get(str(item["ticker"]))
         if not row or not row.get("price"):
             continue
+        # An unfilled order already consumes shares/cash or may change the target.
+        # Do not issue a second instruction for the same ticker until reconciled.
+        if row.get("pending_order"):
+            blocked_buys.append({"ticker": item["ticker"], "name": item.get("name"),
+                                 "reason": "미체결 주문 확인 전 동일 종목 추가 행동 보류"})
+            continue
         price, held = float(row["price"]), int(round(float(row.get("qty") or 0)))
         delta = float(item.get("delta_value") or 0)
         if item.get("action") == "축소 검토":
@@ -77,21 +83,28 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str, profil
         quantities[item["ticker"]] += item["qty"] * (1 if item["side"] == "buy" else -1)
     values = {t: quantities[t] * float(r.get("price") or 0) for t, r in by_ticker.items()}
     total_after = available + sum(values.values())
+    # The pending buy can execute up to its limit, above the last close. Check
+    # concentration against that worse mark without falsifying close-based NAV.
+    risk_values = {t: (quantities[t] - float(r.get("pending_buy_qty") or 0)) * float(r.get("price") or 0)
+                   + float(r.get("pending_risk_value") or 0) for t, r in by_ticker.items()}
+    risk_total = available + sum(risk_values.values())
     violations = []
-    if profile and total_after > 0:
-        if available / total_after * 100 + 1e-8 < float(profile["min_cash_pct"]):
+    if profile and risk_total > 0:
+        if sum(value > 0 for value in risk_values.values()) > int(profile.get("max_positions", len(values))):
+            violations.append("최대 보유종목 수")
+        if available / risk_total * 100 + 1e-8 < float(profile["min_cash_pct"]):
             violations.append("최소 현금 한도")
         sector_values = {}
-        for t, value in values.items():
-            if value / total_after * 100 > float(profile["max_single_position_pct"]) + 1e-8:
+        for t, value in risk_values.items():
+            if value / risk_total * 100 > float(profile["max_single_position_pct"]) + 1e-8:
                 violations.append(f"종목 한도: {t}")
             sector = by_ticker[t].get("sector")
             sector_values[sector] = sector_values.get(sector, 0) + value
         for sector, value in sector_values.items():
-            if value / total_after * 100 > float(profile["max_sector_pct"]) + 1e-8:
+            if value / risk_total * 100 > float(profile["max_sector_pct"]) + 1e-8:
                 violations.append(f"섹터 한도: {sector}")
         for cluster in (allocation.get("constraints") or {}).get("clusters", []):
-            if sum(values.get(t, 0) for t in cluster) / total_after * 100 > float(profile.get("max_cluster_pct", 100)) + 1e-8:
+            if sum(risk_values.get(t, 0) for t in cluster) / risk_total * 100 > float(profile.get("max_cluster_pct", 100)) + 1e-8:
                 violations.append("고상관 묶음 한도: " + ", ".join(cluster))
     if violations:
         return {"ready": False, "mode": "shadow", "instructions": [], "violations": violations,
@@ -104,7 +117,8 @@ def plan(allocation: dict, rows: list[dict], *, cash: float, market: str, profil
         "ready": True, "mode": "shadow", "execution_order": "sell_then_buy",
         "instructions": instructions, "unfunded_buys": unfunded, "blocked_buys": blocked_buys,
         "estimated": {"cash_after": round(available, 2), "fees": round(fees, 2), "slippage": round(slippage, 2)},
-        "post_trade": {"total_value": total_after, "cash": available, "position_values": values},
+        "post_trade": {"total_value": total_after, "cash": available, "position_values": values,
+                       "risk_total_at_pending_limit": risk_total, "risk_position_values": risk_values},
         "constraints_checked": profile is not None,
         "note": "최근 종가와 기본 수수료·슬리피지 가정으로 만든 정수수량 계획입니다. 실제 호가, 계좌별 세금, 부분체결은 반영 전이므로 주문으로 전송되지 않습니다.",
     }

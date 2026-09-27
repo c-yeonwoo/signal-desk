@@ -79,6 +79,21 @@ def test_replay_preserves_upstream_signal_policy_identity(captured):
     assert audit.replay(body)['matched'] is True
 
 
+def test_pending_commitment_is_frozen_and_excluded_from_new_instruction(captured):
+    inputs, _ = captured
+    inputs['profile']['cash'] = 5000
+    order = {'ticker': '005930', 'side': 'buy', 'qty': 2, 'limit_price': 200}
+    result, body = audit.capture(**inputs, pending_orders=[order])
+    assert result['trade_plan']['pending_commitments'][0]['qty'] == 2
+    assert result['trade_plan']['estimated']['cash_after'] <= 4600
+    assert all(i['ticker'] != '005930' for i in result['trade_plan']['instructions'])
+    assert not body['timing']['aligned'] and not body['timing']['pending_reconciled']
+    assert not cf.evaluate(body, prices={}, dates_by={})['ready']
+    order['qty'] = 999
+    assert body['inputs']['pending_orders'][0]['qty'] == 2
+    assert audit.replay(body)['matched'] is True
+
+
 def test_profile_save_timestamp_does_not_manufacture_new_evidence(captured):
     inputs, original = captured
     inputs['profile'].update(updated=100, configured=True)

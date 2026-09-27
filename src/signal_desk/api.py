@@ -30,7 +30,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Respons
 from signal_desk.jsonutil import finite_or_none, json_safe
 from signal_desk.live_routes import router as live_router
 from signal_desk.toss_manual_routes import router as toss_manual_router
-from signal_desk.broker import toss_readonly
+from signal_desk.broker import paper, toss_readonly
 
 from signal_desk import (
     account_performance, auth, bot, bot_alerts, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
@@ -40,7 +40,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate,
-    portfolio_candidates, portfolio_audit, portfolio_counterfactual,
+    portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
@@ -3390,6 +3390,26 @@ def execution_cost_research_get(request: Request, style: str = "balanced", marke
         raise HTTPException(status_code=422, detail="unknown style")
     return {"style": style, "market": mkt,
             **execution_cost_shadow.analyze(db.execution_events_for_uid(uid, mkt))}
+
+
+@app.get("/api/admin/research/reference-allocation")
+def reference_allocation_research_get(request: Request, market: str = "kr"):
+    """Same alpha, three risk profiles, pending-aware *shadow* targets; no orders."""
+    _admin_or_403(request)
+    mkt = _mkt(market)
+    universe = store.load_us_universe() if mkt == "us" else store.load_universe()
+    candidate_universe = [{"ticker": str(a["ticker"]), "name": a.get("name") or str(a["ticker"]),
+                           "sector": a.get("sector") or sectors.sector_of(str(a["ticker"]))}
+                          for a in universe if a.get("ticker")]
+    prices, dates_by = store.load_portfolio_close_bundle(mkt)
+    signals = _us_signals() if mkt == "us" else {s.ticker: s for s in _signals()}
+    balances = {style: paper.balance(uid, mkt) for uid, style in bot.REFERENCE_BOTS.items()}
+    reservations = {style: db.bot_reservations_pending(uid, mkt)
+                    for uid, style in bot.REFERENCE_BOTS.items()}
+    return portfolio_reference_shadow.compare(
+        market=mkt, universe=candidate_universe, prices=prices, dates_by=dates_by,
+        signal_by_ticker=signals, signal_policy_id=_signal_policy_id(mkt, signals.values()),
+        balances=balances, reservations=reservations)
 
 
 def _meta_entry_shadow(market: str) -> dict:
