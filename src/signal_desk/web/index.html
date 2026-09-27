@@ -8461,6 +8461,13 @@ async function loadLlmUsage(){
       <td class="num">${usd(q.cost_usd)}</td>
       <td class="num" style="color:var(--dim)">${(q.input_tokens || 0).toLocaleString()} / ${(q.output_tokens || 0).toLocaleString()}</td>
     </tr>`; }).join('') || '<tr><td colspan="4" style="color:var(--dim-2)">아직 기록 없음</td></tr>';
+    const cacheRows = ((d.advisor_cache || {}).by_stage || []).map(q => `<tr>
+      <td>${esc(q.stage === 'primary' ? '1차 선별' : '반론 검토')}</td>
+      <td class="num">${Number(q.requests).toLocaleString()}</td>
+      <td class="num">${Number(q.hits).toLocaleString()} (${Number(q.hit_rate_pct).toFixed(1)}%)</td>
+      <td class="num">${Number(q.provider_calls).toLocaleString()}</td>
+      <td class="num">${Number(q.failed_or_uncached).toLocaleString()}</td>
+    </tr>`).join('') || '<tr><td colspan="5" style="color:var(--dim-2)">봇 자문 캐시 기록 없음</td></tr>';
     // 예산 상태를 **맨 위**에 — 상한이 안 보이면 왜 LLM이 조용한지 알 수 없다(0의 이유 규칙).
     const bg = d.budget || {};
     const rl = d.chat_rate_limit || {};
@@ -8487,6 +8494,8 @@ async function loadLlmUsage(){
       <div style="font-size:13px;font-weight:700;margin:14px 0 4px">기능별 <span style="color:var(--dim);font-weight:600">· 무엇을 줄일지 정하려면 여기를 본다</span></div>
       <table class="mini"><thead><tr><th>기능</th><th class="num">호출</th><th class="num">비용</th><th class="num">in / out</th></tr></thead>
       <tbody>${purposes}</tbody></table></div>
+      <div style="font-size:13px;font-weight:700;margin:14px 0 4px">봇 자문 동일 입력 재사용 <span style="color:var(--dim);font-weight:600">· 계좌·시장·정책별 최대 15분</span></div>
+      <div class="tscroll"><table class="mini"><thead><tr><th>단계</th><th class="num">요청</th><th class="num">재사용</th><th class="num">모델 호출</th><th class="num">실패·미저장</th></tr></thead><tbody>${cacheRows}</tbody></table></div>
       <p class="page-desc" style="margin:8px 0 0;font-size:12px;color:var(--dim-2)">${esc(d.note || '')}</p>`;
   } catch (e) { el.className = ''; el.textContent = '불러오지 못했습니다.'; }
 }

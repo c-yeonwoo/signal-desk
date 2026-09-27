@@ -2619,6 +2619,7 @@ def llm_usage_get(request: Request, days: int = 30):
     _admin_or_403(request)
     return {"ready": True, "budget": llm.budget_state(),
             "chat_rate_limit": dict(_CHAT_RL),
+            "advisor_cache": db.advisor_prompt_summary(days=max(1, min(int(days or 30), 365))),
             **db.llm_usage_summary(days=max(1, min(int(days or 30), 365)))}
 
 

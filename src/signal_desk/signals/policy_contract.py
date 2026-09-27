@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 SIGNAL_POLICY_VERSION = "signal-policy-v1"
-EXECUTION_POLICY_VERSION = "paper-execution-v1"
+EXECUTION_POLICY_VERSION = "paper-execution-v2-advisor-cache"
 SCORE_SEMANTICS = "uncalibrated_score_strength"
 
 
@@ -31,7 +31,8 @@ def _execution_source_id() -> str:
     base = Path(__file__).resolve().parent.parent
     files = (Path(__file__), base / "strategy.py", base / "bot.py",
              base / "signals" / "risk.py", base / "broker" / "paper.py",
-             base / "broker" / "execution.py")
+             base / "broker" / "execution.py", base / "llm.py", base / "signals" / "advisor.py",
+             base / "signals" / "advisor_cache.py", base / "signals" / "advisor_shadow.py")
     return hashlib.sha256(b"".join(p.read_bytes() for p in files)).hexdigest()[:24]
 
 

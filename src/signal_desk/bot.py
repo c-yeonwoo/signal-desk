@@ -815,6 +815,12 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                 context, {t: db.kb_digest_get(t) for t in pool_by},
                 advisor.build_lessons(), slots,
                 style=cfg.get("trading_style"), gate=g,
+                cache_scope={"uid": uid, "market": market, "style": cfg["trading_style"],
+                             "trade_date": _today(), "signal_policy_id": signal_policy_id,
+                             "execution_policy_id": execution_policy_id,
+                             "cash": bal2["cash"],
+                             "holdings": sorted((h["ticker"], h["qty"]) for h in bal2["holdings"]),
+                             "candidate_prices": {s.ticker: (prices.get(s.ticker) or [None])[-1] for s in pool}},
             )
         picks = advice.picks if advice else None
         if picks:
@@ -1169,12 +1175,19 @@ def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -
         except Exception:
             g = {"active": False, "fallback": "abstain", "source": "gate_error",
                  "reason": "advisor 안전 게이트 계산 실패"}
+        signal_policy_id, execution_policy_id = _applied_policy_ids(market, cfg, mr)
         advice = advisor.advise(
             [{"ticker": s.ticker, "name": s.name, "score": s.score,
               "confidence": s.confidence, "reasons": s.reasons} for s in pool],
             context, {t: db.kb_digest_get(t) for t in pool_by},
             advisor.build_lessons(), slots,
             style=cfg.get("trading_style"), gate=g,
+            cache_scope={"uid": uid, "market": market, "style": cfg["trading_style"],
+                         "trade_date": _today(), "signal_policy_id": signal_policy_id,
+                         "execution_policy_id": execution_policy_id,
+                         "cash": bal["cash"],
+                         "holdings": sorted((h["ticker"], h["qty"]) for h in bal["holdings"]),
+                         "candidate_prices": {s.ticker: (prices.get(s.ticker) or [None])[-1] for s in pool}},
         )
         picks = advice.picks
     else:
