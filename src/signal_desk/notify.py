@@ -11,6 +11,8 @@ import logging
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from signal_desk import config, db
 
@@ -61,6 +63,21 @@ def enqueue(text: str, *, dedupe_key: str, priority: str = "normal",
     return db.notification_enqueue(dedupe_key, text[:4000], priority=priority, expires_at=expires_at, now=now)
 
 
+def enqueue_user(uid: int, text: str, *, dedupe_key: str, market: str,
+                 alert_type: str, priority: str = "normal",
+                 expires_at: int | None = None, now: int | None = None) -> bool:
+    """개인 알림은 현재 계정-채팅 연결과 수신 설정이 있어야만 적재한다."""
+    link = db.telegram_link_get(uid)
+    if not link or market not in link["markets"] or alert_type not in link["alert_types"]:
+        return False
+    content = (text or "").strip()
+    if not content:
+        return False
+    return db.notification_enqueue(f"user:{uid}:{dedupe_key}", content[:3900],
+                                   priority=priority, expires_at=expires_at, now=now,
+                                   recipient_uid=uid, recipient_chat_id=link["chat_id"])
+
+
 def _retry_delay_seconds(attempts: int) -> int:
     """짧은 장애는 빨리 회복하고 장기 장애에서는 API를 두드리지 않는 capped exponential backoff."""
     return min(3600, 30 * (2 ** min(max(attempts, 0), 7)))
@@ -74,7 +91,7 @@ def drain(*, now: int | None = None, limit: int = 20) -> dict[str, int]:
     """
     at = int(time.time()) if now is None else int(now)
     stats = {"sent": 0, "failed": 0, "expired": 0, "pending": 0}
-    if not available():
+    if not config.telegram_token():
         for item in db.notification_outbox_due(now=at, limit=limit):
             if item.get("expires_at") is not None and item["expires_at"] <= at:
                 db.notification_outbox_expire(item["id"])
@@ -92,10 +109,29 @@ def drain(*, now: int | None = None, limit: int = 20) -> dict[str, int]:
             db.notification_outbox_expire(item["id"])
             stats["expired"] += 1
             continue
-        recipients = db.notification_delivery_pending(item["id"], chats)
+        if item["recipient_uid"] is not None:
+            link = db.telegram_link_get(item["recipient_uid"])
+            # 재연결/연결 해제 후에는 이전 개인 메시지를 새 채팅에도 보내지 않는다.
+            if not link or link["chat_id"] != item["recipient_chat_id"]:
+                db.notification_outbox_expire(item["id"])
+                stats["expired"] += 1
+                continue
+            target_chats = [link["chat_id"]]
+        else:
+            target_chats = chats
+        if not target_chats:
+            db.notification_outbox_failed(item["id"], next_attempt=at + 3600,
+                                          error="telegram recipient not configured")
+            stats["pending"] += 1
+            continue
+        recipients = db.notification_delivery_pending(item["id"], target_chats)
         failed = False
+        delivery_text = item["text"]
+        if item["recipient_uid"] is not None:
+            delivery_at = datetime.fromtimestamp(at, ZoneInfo("Asia/Seoul"))
+            delivery_text += f"\n전달 {delivery_at:%Y-%m-%d %H:%M} KST"
         for chat in recipients:
-            delivered = _send_one(token, chat, item["text"])
+            delivered = _send_one(token, chat, delivery_text)
             db.notification_delivery_mark(item["id"], chat, sent=delivered, now=at,
                                           error="telegram delivery failed" if not delivered else "")
             failed |= not delivered

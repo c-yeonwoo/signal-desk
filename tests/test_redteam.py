@@ -2940,6 +2940,8 @@ def test_jargon_scan_is_derived_from_the_screen_not_a_hand_list():
         "SEC", "EDGAR", "RSS", "TTS", "Typecast",
         # 코드·파일 경로가 카피에 인용된 것(관리자 면). 경로는 번역 대상이 아니다.
         "docs", "tests", "py", "toml", "preregistered", "append", "only", "rank",
+        # 텔레그램 봇이 실제로 파싱하는 명령어 — 번역하면 연결 명령이 작동하지 않는다.
+        "link",
     }
     unknown = {w for w in latin if w not in allow and len(w) > 1}
     assert not unknown, (

@@ -167,8 +167,15 @@ CREATE INDEX IF NOT EXISTS idx_execution_events_lookup ON execution_events(marke
 CREATE TABLE IF NOT EXISTS notification_outbox(id INTEGER PRIMARY KEY AUTOINCREMENT,
     dedupe_key TEXT NOT NULL UNIQUE, text TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal',
     status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL,
-    expires_at INTEGER, created INTEGER NOT NULL, sent_at INTEGER, last_error TEXT);
+    expires_at INTEGER, created INTEGER NOT NULL, sent_at INTEGER, last_error TEXT,
+    recipient_uid INTEGER, recipient_chat_id TEXT);
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_due ON notification_outbox(status, next_attempt);
+CREATE TABLE IF NOT EXISTS telegram_links(uid INTEGER PRIMARY KEY, chat_id TEXT NOT NULL UNIQUE,
+    style TEXT NOT NULL DEFAULT 'balanced', markets TEXT NOT NULL DEFAULT '["kr","us"]',
+    alert_types TEXT NOT NULL DEFAULT '["paper_fill","watchlist","live_order","daily_summary"]',
+    linked_at INTEGER NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS telegram_link_codes(uid INTEGER PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE,
+    claim_chat_id TEXT, claim_chat_label TEXT, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL);
 -- 아웃박스는 사건 1건, 전달은 수신자별. 일부 채팅만 성공해도 나머지를 잃지 않는다.
 CREATE TABLE IF NOT EXISTS notification_deliveries(
     outbox_id INTEGER NOT NULL, chat_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
@@ -397,6 +404,17 @@ def _drop_personal_paper_accounts(c: sqlite3.Connection) -> None:
 def _migrate(c: sqlite3.Connection) -> None:
     """가벼운 ADD COLUMN 마이그레이션 — CREATE TABLE IF NOT EXISTS는 기존 테이블에 새 컬럼을
     안 붙여줘서, 이미 만들어진 DB에도 신규 컬럼을 채워준다."""
+    ncols = {r[1] for r in c.execute("PRAGMA table_info(notification_outbox)")}
+    if "recipient_uid" not in ncols:
+        c.execute("ALTER TABLE notification_outbox ADD COLUMN recipient_uid INTEGER")
+    if "recipient_chat_id" not in ncols:
+        c.execute("ALTER TABLE notification_outbox ADD COLUMN recipient_chat_id TEXT")
+    lcols = {r[1] for r in c.execute("PRAGMA table_info(telegram_link_codes)")}
+    if "claim_chat_label" not in lcols:
+        c.execute("ALTER TABLE telegram_link_codes ADD COLUMN claim_chat_label TEXT")
+    # 구 버전의 개인 관심종목 알림은 공용 채팅으로 발송되면 안 된다.
+    c.execute("UPDATE notification_outbox SET status='expired' WHERE dedupe_key LIKE 'signal:%' "
+              "AND recipient_uid IS NULL AND status IN ('pending','sending')")
     icols = {r[1] for r in c.execute("PRAGMA table_info(portfolio_recommendation_items)").fetchall()}
     if "cost_assumptions" not in icols:
         c.execute("ALTER TABLE portfolio_recommendation_items ADD COLUMN cost_assumptions TEXT")
@@ -777,15 +795,18 @@ def execution_events_for_uid(uid: int, market: str, *, limit: int = 500) -> list
 
 
 def notification_enqueue(dedupe_key: str, text: str, *, priority: str = "normal",
-                         expires_at: int | None = None, now: int | None = None) -> bool:
+                         expires_at: int | None = None, now: int | None = None,
+                         recipient_uid: int | None = None,
+                         recipient_chat_id: str | None = None) -> bool:
     """전송 전 DB에 기록. 동일 이벤트는 pending/sent 어느 상태여도 한 번만 허용한다."""
     at = int(time.time()) if now is None else int(now)
     c = conn()
     try:
         cur = c.execute("INSERT OR IGNORE INTO notification_outbox("
-                        "dedupe_key,text,priority,status,attempts,next_attempt,expires_at,created) "
-                        "VALUES(?,?,?,'pending',0,?,?,?)",
-                        (dedupe_key, text, priority, at, expires_at, at))
+                        "dedupe_key,text,priority,status,attempts,next_attempt,expires_at,created,"
+                        "recipient_uid,recipient_chat_id) VALUES(?,?,?,'pending',0,?,?,?,?,?)",
+                        (dedupe_key, text, priority, at, expires_at, at,
+                         recipient_uid, recipient_chat_id))
         c.commit()
         return cur.rowcount == 1
     finally:
@@ -795,13 +816,12 @@ def notification_enqueue(dedupe_key: str, text: str, *, priority: str = "normal"
 def notification_outbox_due(*, now: int | None = None, limit: int = 20) -> list[dict]:
     at = int(time.time()) if now is None else int(now)
     c = conn()
-    rows = c.execute("SELECT id,dedupe_key,text,priority,attempts,expires_at FROM notification_outbox "
+    rows = c.execute("SELECT id,dedupe_key,text,priority,attempts,expires_at,recipient_uid,recipient_chat_id FROM notification_outbox "
                      "WHERE status='pending' AND next_attempt<=? ORDER BY "
                      "CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, id LIMIT ?", (at, limit)).fetchall()
     c.close()
-    return [{"id": i, "dedupe_key": key, "text": text, "priority": priority,
-             "attempts": attempts, "expires_at": expires_at}
-            for i, key, text, priority, attempts, expires_at in rows]
+    return [dict(zip(("id", "dedupe_key", "text", "priority", "attempts", "expires_at",
+                      "recipient_uid", "recipient_chat_id"), row)) for row in rows]
 
 
 def notification_outbox_claim(*, now: int, lease_seconds: int = 300) -> dict | None:
@@ -810,7 +830,7 @@ def notification_outbox_claim(*, now: int, lease_seconds: int = 300) -> dict | N
     c.isolation_level = None
     try:
         c.execute("BEGIN IMMEDIATE")
-        row = c.execute("SELECT id,dedupe_key,text,priority,attempts,expires_at "
+        row = c.execute("SELECT id,dedupe_key,text,priority,attempts,expires_at,recipient_uid,recipient_chat_id "
                         "FROM notification_outbox WHERE status IN ('pending','sending') "
                         "AND next_attempt<=? ORDER BY "
                         "CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, id LIMIT 1",
@@ -821,7 +841,8 @@ def notification_outbox_claim(*, now: int, lease_seconds: int = 300) -> dict | N
         c.execute("UPDATE notification_outbox SET status='sending',next_attempt=? WHERE id=?",
                   (int(now) + lease_seconds, row[0]))
         c.execute("COMMIT")
-        return dict(zip(("id", "dedupe_key", "text", "priority", "attempts", "expires_at"), row))
+        return dict(zip(("id", "dedupe_key", "text", "priority", "attempts", "expires_at",
+                         "recipient_uid", "recipient_chat_id"), row))
     except Exception:
         c.execute("ROLLBACK")
         raise
@@ -900,6 +921,127 @@ def notification_outbox_health(*, now: int | None = None) -> dict:
     return {"pending": pending or 0, "due": due or 0, "sent": counts.get("sent", 0),
             "expired": counts.get("expired", 0), "oldest_pending_ts": oldest,
             "max_pending_attempts": max_attempts or 0}
+
+
+def telegram_link_code_issue(uid: int, code_hash: str, *, now: int, ttl: int = 600) -> None:
+    c = conn()
+    try:
+        c.execute("INSERT OR REPLACE INTO telegram_link_codes(uid,code_hash,claim_chat_id,claim_chat_label,expires_at,created_at) "
+                  "VALUES(?,?,NULL,NULL,?,?)", (uid, code_hash, now + ttl, now))
+        c.commit()
+    finally:
+        c.close()
+
+
+def telegram_link_code_status(uid: int, *, now: int) -> dict | None:
+    c = conn()
+    row = c.execute("SELECT claim_chat_id,claim_chat_label,expires_at FROM telegram_link_codes WHERE uid=?", (uid,)).fetchone()
+    c.close()
+    return ({"claimed": bool(row[0]), "chat_label": row[1], "chat_id": row[0],
+             "expires_at": row[2]} if row and row[2] > now else None)
+
+
+def telegram_link_code_claim(code_hash: str, chat_id: str, *, now: int,
+                             chat_label: str = "") -> bool:
+    c = conn()
+    try:
+        cur = c.execute("UPDATE telegram_link_codes SET claim_chat_id=?,claim_chat_label=? WHERE code_hash=? "
+                        "AND expires_at>? AND (claim_chat_id IS NULL OR claim_chat_id=?)",
+                        (chat_id, chat_label[:80], code_hash, now, chat_id))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def telegram_link_confirm(uid: int, *, now: int) -> bool:
+    """앱의 로그인 세션에서만 확정한다. 채팅은 다른 계정에 묶인 채 탈취될 수 없다."""
+    c = conn()
+    c.isolation_level = None
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT claim_chat_id FROM telegram_link_codes WHERE uid=? AND expires_at>?",
+                        (uid, now)).fetchone()
+        if not row or not row[0]:
+            c.execute("ROLLBACK")
+            return False
+        chat = row[0]
+        other = c.execute("SELECT uid FROM telegram_links WHERE chat_id=? AND uid<>?", (chat, uid)).fetchone()
+        if other:
+            c.execute("ROLLBACK")
+            return False
+        # 재연결도 이전 채팅으로 보낼 pending 개인 알림을 먼저 폐기한다.
+        c.execute("UPDATE notification_outbox SET status='expired' WHERE recipient_uid=? "
+                  "AND status IN ('pending','sending')", (uid,))
+        c.execute("INSERT INTO telegram_links(uid,chat_id,linked_at,updated_at) VALUES(?,?,?,?) "
+                  "ON CONFLICT(uid) DO UPDATE SET chat_id=excluded.chat_id,updated_at=excluded.updated_at",
+                  (uid, chat, now, now))
+        c.execute("DELETE FROM telegram_link_codes WHERE uid=?", (uid,))
+        c.execute("COMMIT")
+        return True
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
+    finally:
+        c.close()
+
+
+def telegram_link_get(uid: int) -> dict | None:
+    c = conn()
+    row = c.execute("SELECT chat_id,style,markets,alert_types,linked_at FROM telegram_links WHERE uid=?",
+                    (uid,)).fetchone()
+    c.close()
+    return ({"chat_id": row[0], "style": row[1], "markets": json.loads(row[2]),
+             "alert_types": json.loads(row[3]), "linked_at": row[4]} if row else None)
+
+
+def telegram_link_by_chat(chat_id: str) -> dict | None:
+    c = conn()
+    row = c.execute("SELECT uid FROM telegram_links WHERE chat_id=?", (chat_id,)).fetchone()
+    c.close()
+    link = telegram_link_get(row[0]) if row else None
+    return {"uid": row[0], **link} if link else None
+
+
+def telegram_link_settings(uid: int, *, style: str, markets: list[str],
+                           alert_types: list[str], now: int) -> bool:
+    c = conn()
+    cur = c.execute("UPDATE telegram_links SET style=?,markets=?,alert_types=?,updated_at=? WHERE uid=?",
+                    (style, json.dumps(markets), json.dumps(alert_types), now, uid))
+    c.execute("UPDATE notification_outbox SET status='expired' WHERE recipient_uid=? "
+              "AND status IN ('pending','sending')", (uid,))
+    c.commit(); c.close()
+    return cur.rowcount == 1
+
+
+def telegram_link_unlink(uid: int) -> None:
+    c = conn()
+    try:
+        c.execute("DELETE FROM telegram_links WHERE uid=?", (uid,))
+        c.execute("DELETE FROM telegram_link_codes WHERE uid=?", (uid,))
+        c.execute("UPDATE notification_outbox SET status='expired' WHERE recipient_uid=? "
+                  "AND status IN ('pending','sending')", (uid,))
+        c.commit()
+    finally:
+        c.close()
+
+
+def telegram_link_recipients(style: str, market: str, alert_type: str) -> list[tuple[int, str]]:
+    c = conn()
+    rows = c.execute("SELECT uid,chat_id,markets,alert_types FROM telegram_links WHERE style=?",
+                     (style,)).fetchall()
+    c.close()
+    return [(uid, chat) for uid, chat, markets, kinds in rows
+            if market in json.loads(markets) and alert_type in json.loads(kinds)]
+
+
+def telegram_links_all() -> list[dict]:
+    c = conn()
+    rows = c.execute("SELECT uid,chat_id,style,markets,alert_types FROM telegram_links").fetchall()
+    c.close()
+    return [{"uid": uid, "chat_id": chat, "style": style,
+             "markets": json.loads(markets), "alert_types": json.loads(kinds)}
+            for uid, chat, style, markets, kinds in rows]
 
 
 # ---------- kv (범용 JSON 캐시) ----------
