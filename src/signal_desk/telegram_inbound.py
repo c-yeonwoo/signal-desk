@@ -6,15 +6,18 @@ that could steal updates from a separately operated bot integration.
 
 from __future__ import annotations
 
+import datetime
 import hashlib
 import json
 import logging
+import math
 import re
 import secrets
 import time
 import urllib.error
 import urllib.request
 from functools import lru_cache
+from zoneinfo import ZoneInfo
 
 from signal_desk import bot, config, db, notify
 
@@ -32,9 +35,10 @@ def _frozen_guidance(uid: int, market: str) -> tuple[dict | None, list[dict]]:
 
 def daily_summary(uid: int, market: str, date: str) -> str | None:
     """Only a same-session frozen close snapshot can create a personal digest."""
-    row, guidance = _frozen_guidance(uid, market)
-    if not row or row["source"] != "daily_close" or row["as_of"] != date:
+    row = db.portfolio_snapshot_for_session(uid, market, as_of=date, source="daily_close")
+    if not row:
         return None
+    guidance = row.get("payload", {}).get("guidance") or []
     lines = [f"📌 내 포트폴리오 마감 요약 · {date} · {market.upper()}",
              f"저장된 진단 품질: {row['data_quality']} · 시세 기준일 {row['as_of']}"]
     owner = config.toss_account_owner()
@@ -67,11 +71,79 @@ def enqueue_daily_summaries(date: str, market: str = "kr", *, now: int | None = 
     for link in db.telegram_links_all():
         if market not in link["markets"] or "daily_summary" not in link["alert_types"]:
             continue
-        text = daily_summary(link["uid"], market, date)
+        try:
+            text = daily_summary(link["uid"], market, date)
+        except (ValueError, KeyError, TypeError) as exc:
+            log.warning("개인 마감 요약 보류(uid=%s): %s", link["uid"], type(exc).__name__)
+            continue
         if text and notify.enqueue_user(link["uid"], text, dedupe_key=f"daily-summary:{market}:{date}",
                                         market=market, alert_type="daily_summary", now=at,
                                         expires_at=at + 12 * 3600):
             count += 1
+    return count
+
+
+def weekly_shadow_summary(uid: int, market: str, *, today: datetime.date) -> str | None:
+    """One completed paired episode; never sum overlapping plans into a fake weekly return."""
+    candidates = []
+    for artifact_id in db.portfolio_artifact_ids(uid, market, limit=20):
+        comparison = db.portfolio_comparison_latest(uid, market, artifact_id)
+        result = comparison["result"] if comparison else {}
+        if not (result.get("ready") and result.get("complete") and result.get("mode") == "shadow"):
+            continue
+        try:
+            as_of = datetime.date.fromisoformat(result["as_of"])
+            age = (today - as_of).days
+            attribution = result["attribution"]
+            gross = float(attribution["gross_vs_hold_pp"])
+            incremental_cost = float(attribution["incremental_cost_drag_pp"])
+            net = float(attribution["net_vs_hold_pp"])
+            completed = int(result["completed_sessions"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        if not 0 <= age <= 7 or completed <= 0 or not all(math.isfinite(v) for v in (gross, incremental_cost, net)):
+            continue
+        candidates.append((as_of, artifact_id, result, gross, incremental_cost, net))
+    if not candidates:
+        return None
+    # artifact_ids is newest-created first; max keeps that ordering on an as_of tie.
+    as_of, artifact_id, result, gross, cost, net = max(candidates, key=lambda row: row[0])
+    cost_text = (f"유지 대조군이 피한 추가 가정 비용: {cost:+.2f}%p" if cost > 0 else
+                 f"제안−유지 추가 가정 비용: {cost:+.2f}%p")
+    gross_text = (f"유지 시 놓칠 수 있었던 비용 전 차이: {gross:+.2f}%p" if gross > 0 else
+                  f"유지 시 피했을 수 있는 비용 전 손실 차이: {gross:+.2f}%p")
+    return (f"📅 주간 가상 대조 1건 · {market.upper()} · 평가 {as_of}\n"
+            f"동결 계획 {artifact_id[:8]} · 다음 {result['completed_sessions']}거래일\n"
+            f"{cost_text}\n{gross_text}\n"
+            f"비용 후 제안−유지: {net:+.2f}%p\n"
+            "실제 주문·실계좌 수익이 아닙니다. 겹치는 계획을 합산하지 않은 한 건의 가상 비교입니다.")
+
+
+def enqueue_weekly_summaries(*, now: datetime.datetime) -> int:
+    if now.tzinfo is None:
+        return 0
+    now = now.astimezone(ZoneInfo("Asia/Seoul"))
+    if now.weekday() != 6 or now.hour < 18:
+        return 0
+    week = now.isocalendar()
+    key = f"{week.year}-W{week.week:02d}"
+    at = int(now.timestamp())
+    count = 0
+    for link in db.telegram_links_all():
+        if "weekly_summary" not in link["alert_types"]:
+            continue
+        for market in link["markets"]:
+            try:
+                text = weekly_shadow_summary(link["uid"], market, today=now.date())
+            except (ValueError, KeyError, TypeError) as exc:
+                log.warning("주간 가상 대조 보류(uid=%s,market=%s): %s",
+                            link["uid"], market, type(exc).__name__)
+                continue
+            if text and notify.enqueue_user(link["uid"], text,
+                                            dedupe_key=f"weekly-shadow:{market}:{key}",
+                                            market=market, alert_type="weekly_summary", now=at,
+                                            expires_at=at + 36 * 3600):
+                count += 1
     return count
 
 

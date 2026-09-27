@@ -428,6 +428,10 @@ def _bot_loop_iteration() -> None:
         _maybe_snapshot_us_signals(now)
     except Exception as e:
         log.warning("미국 시그널 스냅샷 실패: %s", type(e).__name__)
+    try:
+        _maybe_us_personal_close(now)
+    except Exception as e:
+        log.warning("미국 개인 마감 스냅샷/요약 실패: %s", type(e).__name__)
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40) \
             and db.kv_get("bot_daily_snap") != _kst_today():
         _daily_maintenance(enabled)
@@ -436,6 +440,11 @@ def _bot_loop_iteration() -> None:
             telegram_inbound.enqueue_daily_summaries(_kst_today(), "kr")
         except Exception as e:
             log.warning("개인 Telegram 마감 요약 실패: %s", type(e).__name__)
+    if now.weekday() == 6 and now.hour >= 18:
+        try:
+            telegram_inbound.enqueue_weekly_summaries(now=now)
+        except Exception as e:
+            log.warning("개인 Telegram 주간 가상 대조 실패: %s", type(e).__name__)
 
 
 def _maybe_snapshot_us_signals(now: datetime.datetime) -> int:
@@ -1161,7 +1170,7 @@ def telegram_settings_put(request: Request, payload: dict = Body(...)):
     style = payload.get("style")
     markets = payload.get("markets")
     alerts = payload.get("alert_types")
-    allowed_alerts = {"paper_fill", "watchlist", "live_order", "daily_summary"}
+    allowed_alerts = {"paper_fill", "watchlist", "live_order", "daily_summary", "weekly_summary"}
     if (not isinstance(style, str) or style not in bot_alerts.STYLE_LABELS or
             not isinstance(markets, list) or not all(isinstance(m, str) and m in ("kr", "us") for m in markets) or
             len(markets) != len(set(markets)) or not isinstance(alerts, list) or
@@ -1358,17 +1367,46 @@ def _portfolio_recommendations(uid: int, market: str) -> dict:
 
 
 def _snapshot_personal_portfolios_daily() -> None:
-    """마감 데이터가 갱신된 뒤, 실제 보유의 일별 상태를 시장별 한 번만 보존한다."""
+    """국내 마감 유지보수에서 국내 세션만 보존한다. 미국은 독립 완료세션에서 처리."""
+    _snapshot_personal_portfolios_market("kr")
+
+
+def _maybe_us_personal_close(now: datetime.datetime) -> bool:
+    """US 완료세션과 저장된 US 시그널 세션이 같을 때만 개인 진단·요약을 만든다."""
+    if now.utcoffset() is None or now.astimezone(ZoneInfo("Asia/Seoul")).time() < datetime.time(15, 40):
+        return False
+    if market_clock.is_open("us", now):
+        return False
+    session = market_clock.latest_completed_session("us", now)
+    if not session or db.kv_get("us_signal_snapshot_session") != session:
+        return False
+    _snapshot_personal_portfolios_market("us", expected_session=session)
+    telegram_inbound.enqueue_daily_summaries(session, "us")
+    return True
+
+
+def _snapshot_personal_portfolios_market(market: str, *, expected_session: str | None = None) -> int:
+    """동결 시세·판정 세션이 일치한 경우에만 시장별 진단을 하루 한 번 저장한다."""
+    saved = 0
     for uid in db.uids_with_holdings():
-        for market in ("kr", "us"):
-            if not _holdings_by_market(db.holdings_list(uid), market):
+        if not _holdings_by_market(db.holdings_list(uid), market):
+            continue
+        try:
+            if expected_session and db.portfolio_snapshot_exists(
+                uid, market, as_of=expected_session, source="daily_close"
+            ):
                 continue
             out = _portfolio_analysis(uid, market)
-            if not out["audit"]["timing"]["aligned"]:
+            if (not out["audit"]["timing"]["aligned"] or
+                    (expected_session and out["as_of"] != expected_session)):
                 continue
             db.portfolio_snapshot_add_once(
                 uid, market, as_of=out["as_of"], source="daily_close",
                 total_value=out["summary"]["total_value"], data_quality=out["data_quality"]["status"], payload=out)
+            saved += 1
+        except Exception as e:
+            log.warning("개인 마감 진단 실패(uid=%s,market=%s): %s", uid, market, type(e).__name__)
+    return saved
 
 
 def _score_portfolio_shadows_daily(now: datetime.datetime | None = None) -> dict:

@@ -1590,6 +1590,7 @@
           <label><input type="checkbox" id="tg-watchlist"> 내 관심종목 시그널 변경</label>
           <label><input type="checkbox" id="tg-live-order"> 실주문 상태·불명 경고</label>
           <label><input type="checkbox" id="tg-daily-summary"> 마감 후 내 요약</label>
+          <label><input type="checkbox" id="tg-weekly-summary"> 주간 유지·제안 가상 비교(자료가 있을 때만)</label>
         </div>
         <p class="page-desc" style="margin:10px 0">매수 체결 알림은 늦게 도착하면 폐기합니다. 텔레그램 명령은 읽기 전용이며 주문·한도 변경은 할 수 없습니다.</p>
         <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -7492,6 +7493,7 @@ async function loadTelegramSettings(){
       document.getElementById('tg-watchlist').checked = d.alert_types.includes('watchlist');
       document.getElementById('tg-live-order').checked = d.alert_types.includes('live_order');
       document.getElementById('tg-daily-summary').checked = d.alert_types.includes('daily_summary');
+      document.getElementById('tg-weekly-summary').checked = d.alert_types.includes('weekly_summary');
       _tgCode = null;
       document.getElementById('tg-code').textContent = '';
     }
@@ -7529,7 +7531,8 @@ async function saveTelegramSettings(){
     alert_types: [document.getElementById('tg-paper-fill').checked && 'paper_fill',
       document.getElementById('tg-watchlist').checked && 'watchlist',
       document.getElementById('tg-live-order').checked && 'live_order',
-      document.getElementById('tg-daily-summary').checked && 'daily_summary'].filter(Boolean)
+      document.getElementById('tg-daily-summary').checked && 'daily_summary',
+      document.getElementById('tg-weekly-summary').checked && 'weekly_summary'].filter(Boolean)
   };
   const feedback = document.getElementById('tg-feedback');
   try {

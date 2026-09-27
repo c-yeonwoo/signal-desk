@@ -2331,6 +2331,28 @@ def portfolio_snapshot_latest(uid: int, market: str) -> dict | None:
             "data_quality": row[3], "created": row[5], "payload": payload}
 
 
+def portfolio_snapshot_exists(uid: int, market: str, *, as_of: str, source: str) -> bool:
+    c = conn()
+    try:
+        return c.execute("SELECT 1 FROM portfolio_snapshots WHERE uid=? AND market=? AND as_of=? "
+                         "AND source=? LIMIT 1", (uid, market, as_of, source)).fetchone() is not None
+    finally:
+        c.close()
+
+
+def portfolio_snapshot_for_session(uid: int, market: str, *, as_of: str,
+                                   source: str) -> dict | None:
+    c = conn()
+    try:
+        row = c.execute("SELECT id,as_of,source,data_quality,payload,created FROM portfolio_snapshots "
+                        "WHERE uid=? AND market=? AND as_of=? AND source=? ORDER BY id DESC LIMIT 1",
+                        (uid, market, as_of, source)).fetchone()
+    finally:
+        c.close()
+    return ({"id": row[0], "as_of": row[1], "source": row[2], "data_quality": row[3],
+             "payload": json.loads(row[4]), "created": row[5]} if row else None)
+
+
 def portfolio_artifact_add(uid: int, market: str, body: dict) -> dict:
     from signal_desk.signals import portfolio_audit as audit
     raw = audit.canonical(body)
