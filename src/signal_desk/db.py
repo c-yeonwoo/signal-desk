@@ -69,6 +69,17 @@ CREATE TABLE IF NOT EXISTS rotation_shadow_revision_halts(
     uid INTEGER NOT NULL, market TEXT NOT NULL, episode_session TEXT NOT NULL,
     details TEXT NOT NULL, detected INTEGER NOT NULL,
     PRIMARY KEY(uid,market,episode_session));
+-- R12: price-only baseline vs sector-shrunk momentum, prospective research only.
+CREATE TABLE IF NOT EXISTS price_baseline_snapshots(
+    market TEXT NOT NULL, session TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL,
+    PRIMARY KEY(market,session));
+CREATE TABLE IF NOT EXISTS price_baseline_marks(
+    market TEXT NOT NULL, episode_session TEXT NOT NULL, price_session TEXT NOT NULL,
+    ticker TEXT NOT NULL, price REAL NOT NULL, observed INTEGER NOT NULL,
+    PRIMARY KEY(market,episode_session,price_session,ticker));
+CREATE TABLE IF NOT EXISTS price_baseline_halts(
+    market TEXT NOT NULL, episode_session TEXT NOT NULL, details TEXT NOT NULL, detected INTEGER NOT NULL,
+    PRIMARY KEY(market,episode_session));
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -1486,6 +1497,80 @@ def rotation_shadow_revision_halt(uid: int, market: str, episode_session: str,
         row = c.execute(
             "SELECT details FROM rotation_shadow_revision_halts WHERE uid=? AND market=? AND episode_session=?",
             (uid, market, episode_session)).fetchone()
+        return row[0] if row else None
+    finally:
+        c.close()
+
+
+def price_baseline_add_once(market: str, session: str, payload: dict) -> bool:
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO price_baseline_snapshots VALUES(?,?,?,?)",
+                        (market, session, json.dumps(payload, ensure_ascii=False, sort_keys=True), int(time.time())))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def price_baseline_recent(market: str, limit: int = 30) -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT session,payload FROM price_baseline_snapshots WHERE market=? "
+                         "ORDER BY session DESC LIMIT ?", (market, max(1, min(int(limit), 100)))).fetchall()
+        return [{**json.loads(payload), "session": day} for day, payload in rows]
+    finally:
+        c.close()
+
+
+def price_baseline_all(market: str, from_session: str) -> list[dict]:
+    """Never cut off earlier looks when assessing a prospective promotion signal."""
+    c = conn()
+    try:
+        rows = c.execute("SELECT session,payload FROM price_baseline_snapshots WHERE market=? "
+                         "AND session>=? ORDER BY session", (market, from_session)).fetchall()
+        return [{**json.loads(payload), "session": day} for day, payload in rows]
+    finally:
+        c.close()
+
+
+def price_baseline_mark_once(market: str, episode: str, day: str,
+                             prices: dict[str, float], observed: int) -> int:
+    c = conn()
+    try:
+        before = c.total_changes
+        c.executemany("INSERT OR IGNORE INTO price_baseline_marks VALUES(?,?,?,?,?,?)",
+                      [(market, episode, day, ticker, float(price), observed)
+                       for ticker, price in prices.items()])
+        c.commit()
+        return c.total_changes - before
+    finally:
+        c.close()
+
+
+def price_baseline_marks(market: str, episode: str) -> dict[str, dict[str, float]]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT price_session,ticker,price FROM price_baseline_marks "
+                         "WHERE market=? AND episode_session=? ORDER BY price_session,ticker",
+                         (market, episode)).fetchall()
+        out: dict[str, dict[str, float]] = {}
+        for day, ticker, price in rows:
+            out.setdefault(day, {})[ticker] = price
+        return out
+    finally:
+        c.close()
+
+
+def price_baseline_halt(market: str, episode: str, details: str | None = None) -> str | None:
+    c = conn()
+    try:
+        if details is not None:
+            c.execute("INSERT OR IGNORE INTO price_baseline_halts VALUES(?,?,?,?)",
+                      (market, episode, details, int(time.time())))
+            c.commit()
+        row = c.execute("SELECT details FROM price_baseline_halts WHERE market=? AND episode_session=?",
+                        (market, episode)).fetchone()
         return row[0] if row else None
     finally:
         c.close()
