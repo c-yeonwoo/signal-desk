@@ -45,7 +45,7 @@ from signal_desk.signals import (
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
-    pre_move, regime_zone, relative, revision, revision_price, sector_rel, target, why_now,
+    pre_move, regime_zone, relative, revision, revision_price_freeze, sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
     GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
@@ -463,6 +463,12 @@ def _bot_loop_iteration() -> None:
                 db.kv_set(f"price_quality_last:{mkt}", {**quality_status, "at": now.isoformat()})
         except Exception as e:
             log.warning("R12 quality 증분 동결 실패(%s): %s", mkt, type(e).__name__)
+    try:
+        revision_status = revision_price_freeze.capture(now)
+        if revision_status.get("saved") or revision_status.get("reason") != "이미 동결됨":
+            db.kv_set("revision_price_freeze_last", {**revision_status, "at": now.isoformat()})
+    except Exception as e:
+        log.warning("R13 리비전 연구 입력 동결 실패: %s", type(e).__name__)
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40):
         try:
             telegram_inbound.enqueue_daily_summaries(_kst_today(), "kr")
@@ -3615,7 +3621,7 @@ def rotation_shadow_verdict_get(request: Request, market: str = "kr", style: str
 
 @app.get("/api/admin/research/revision-price")
 def revision_price_research_get(request: Request, as_of: str | None = None):
-    """Read-only, as-observed shadow ranking; never feeds live order selection."""
+    """Only first-observed frozen inputs. Historical raw-price reconstruction is disabled."""
     _admin_or_403(request)
     try:
         decision_at = (datetime.datetime.fromisoformat(as_of) if as_of else
@@ -3624,17 +3630,22 @@ def revision_price_research_get(request: Request, as_of: str | None = None):
             raise ValueError("timezone required")
     except ValueError:
         raise HTTPException(status_code=422, detail="UTC 오프셋이 있는 as_of 시각이 필요합니다.") from None
-    try:
-        observations = store.load_consensus_as_of(decision_at)
-    except Exception as e:
-        log.warning("컨센서스 관측 이력 조회 실패: %s", type(e).__name__)
-        raise HTTPException(status_code=503, detail="컨센서스 관측 이력을 확인할 수 없습니다.") from None
-    dates_by = store.load_dates_by_ticker()
-    result = revision_price.build(
-        observations=observations, as_of=decision_at,
-        dates_by=dates_by, closes_by=store.load_price_series(),
-        sector_by={ticker: sectors.sector_of(ticker) for ticker in dates_by})
-    return {**result, "candidates": result["candidates"][:20]}
+    if as_of:
+        session = market_clock.latest_completed_session("kr", decision_at)
+        frozen = db.revision_price_get(session) if session else None
+        if frozen and datetime.datetime.fromisoformat(frozen["observed_at"]) > decision_at:
+            frozen = None
+    else:
+        rows = db.revision_price_recent(1)
+        frozen = rows[0] if rows else None
+    if not frozen:
+        return {"version": revision_price_freeze.VERSION, "research_ready": False,
+                "live_eligible": False, "source_available_at_verified": False,
+                "candidates": [], "reason": "해당 시각의 최초 관측 동결본 없음 — 현재 가격으로 과거 후보 재구성 금지",
+                "capture_status": db.kv_get("revision_price_freeze_last") or {}}
+    candidates = sorted(frozen["selected"].values(), key=lambda r: (-r["research_gap"], r["ticker"]))
+    return {**frozen, "research_ready": True, "price_session": frozen["session"],
+            "eligible_count": frozen["proven_candidates"], "candidates": candidates[:20]}
 
 
 def _crowding_status() -> dict:
