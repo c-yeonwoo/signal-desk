@@ -84,6 +84,9 @@ CREATE TABLE IF NOT EXISTS price_baseline_halts(
 CREATE TABLE IF NOT EXISTS price_quality_snapshots(
     market TEXT NOT NULL, session TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL,
     PRIMARY KEY(market,session));
+-- R13 first-observed revision × price input archive. No order permission.
+CREATE TABLE IF NOT EXISTS revision_price_snapshots(
+    session TEXT PRIMARY KEY, payload TEXT NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -1597,6 +1600,36 @@ def price_quality_get(market: str, session: str) -> dict | None:
         row = c.execute("SELECT payload FROM price_quality_snapshots WHERE market=? AND session=?",
                         (market, session)).fetchone()
         return json.loads(row[0]) if row else None
+    finally:
+        c.close()
+
+
+def revision_price_add_once(session: str, payload: dict) -> bool:
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO revision_price_snapshots VALUES(?,?,?)",
+                        (session, json.dumps(payload, ensure_ascii=False, sort_keys=True), int(time.time())))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def revision_price_get(session: str) -> dict | None:
+    c = conn()
+    try:
+        row = c.execute("SELECT payload FROM revision_price_snapshots WHERE session=?", (session,)).fetchone()
+        return json.loads(row[0]) if row else None
+    finally:
+        c.close()
+
+
+def revision_price_recent(limit: int = 30) -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT session,payload FROM revision_price_snapshots "
+                         "ORDER BY session DESC LIMIT ?", (max(1, min(int(limit), 100)),)).fetchall()
+        return [{**json.loads(payload), "session": day} for day, payload in rows]
     finally:
         c.close()
 
