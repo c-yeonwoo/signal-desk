@@ -181,6 +181,37 @@ def test_pyramid_adds_to_under_target_holding(tmp_path, monkeypatch):
     assert adds[0]["ok"] is True and adds[0]["order_no"] and adds[0]["fill_price"] > 0
 
 
+def test_sells_only_cannot_add_to_existing_position(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0]},
+           [_sig("AAA", "가", "BUY", 2.0)], min_buy_score=0.0)
+    _seed(10_000.0, {"AAA": {"name": "가", "qty": 2, "avg_price": 100.0}})
+    out = bot.run_once(UID, sells_only=True)
+    assert out["buys"] == []
+    assert paper.balance(UID)["holdings"][0]["qty"] == 2
+
+
+def test_daily_loss_cannot_add_to_existing_position(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0]},
+           [_sig("AAA", "가", "BUY", 2.0)], min_buy_score=0.0)
+    _seed(10_000.0, {"AAA": {"name": "가", "qty": 2, "avg_price": 100.0}})
+    db.kv_set(f"bot_day_equity:{UID}:kr:{bot._today()}", 12_000.0)
+    out = bot.run_once(UID)
+    assert out["buys"] == []
+    assert paper.balance(UID)["holdings"][0]["qty"] == 2
+
+
+def test_exposure_cap_cannot_add_to_existing_position(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0]},
+           [_sig("AAA", "가", "BUY", 2.0)], min_buy_score=0.0, exposure=0.01)
+    _seed(10_000.0, {"AAA": {"name": "가", "qty": 2, "avg_price": 100.0}})
+    out = bot.run_once(UID)
+    assert out["buys"] == []
+    assert paper.balance(UID)["holdings"][0]["qty"] == 2
+
+
 def test_records_advisor_shadow_only_on_real_runs(tmp_path, monkeypatch):
     """LLM 선별 vs 점수순 폴백 관측 — dry_run은 표본에 넣지 않는다."""
     from signal_desk.signals import advisor_shadow
@@ -312,6 +343,20 @@ def test_conviction_rotation_swaps_weak_for_strong(tmp_path, monkeypatch):
     assert any(b["reason"] == "ROTATE_IN" and b["ticker"] == "STRONG" for b in out["buys"])
     tickers = {p["ticker"] for p in db.bot_positions_all(UID, "kr")}
     assert "WEAK" not in tickers and "STRONG" in tickers  # 교체 완료
+
+
+def test_sells_only_cannot_rotate_position(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "WEAK", "name": "약"}, {"ticker": "STRONG", "name": "강"}],
+           {"WEAK": [100.0, 100.0], "STRONG": [50.0, 50.0]},
+           [_sig("WEAK", "약", "HOLD", 0.2), _sig("STRONG", "강", "BUY", 2.0)],
+           max_positions=1, min_buy_score=1.0)
+    _seed(0.0, {"WEAK": {"name": "약", "qty": 100, "avg_price": 100.0}})
+    db.bot_position_upsert(UID, "WEAK", "약", 100, 100.0, 100.0, "2020-01-01")
+    out = bot.run_once(UID, sells_only=True)
+    assert not any(s["reason"] == "ROTATE_OUT" for s in out["sells"])
+    assert out["buys"] == []
+    assert paper.balance(UID)["holdings"][0]["ticker"] == "WEAK"
 
 
 def test_rotation_skips_within_min_hold(tmp_path, monkeypatch):
