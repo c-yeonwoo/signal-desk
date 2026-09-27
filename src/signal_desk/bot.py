@@ -375,6 +375,11 @@ def _state(uid: int, market: str = "kr") -> dict:
         "style_label": strategy.STYLE_LABEL.get(cfg["trading_style"], cfg["trading_style"]),
         "styles": [{"key": k, "label": strategy.STYLE_LABEL[k], "desc": strategy.STYLE_DESC[k]} for k in strategy.STYLES],
         "rotation": strategy.rotation_params(cfg["trading_style"]),
+        "risk_policy": {"exit_mode": "sigma" if config.sigma_scaled_exits() else "fixed",
+                        "stop_loss_pct": strategy.preset(cfg["trading_style"])["stop_loss_pct"],
+                        "take_profit_pct": strategy.preset(cfg["trading_style"])["take_profit_pct"],
+                        "trailing_from_peak_pct": strategy.preset(cfg["trading_style"])["trailing_from_peak_pct"],
+                        "nontrend_take_profit_pct": strategy.preset(cfg["trading_style"])["harvest_take_profit_pct"]},
         "kill_switch": config.bot_kill_switch(),
         "daily_loss_limit_pct": config.bot_daily_loss_limit_pct(),
     }

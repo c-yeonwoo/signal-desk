@@ -1331,6 +1331,23 @@ def portfolio_recommendations_get(request: Request, market: str = "kr"):
     return _portfolio_recommendations(_uid(request), _mkt(market))
 
 
+@app.get("/api/portfolio/latest")
+def portfolio_latest_get(request: Request, market: str = "kr"):
+    """Home readout: frozen user diagnosis only, not a fresh recommendation or order."""
+    row = db.portfolio_snapshot_latest(_uid(request), _mkt(market))
+    if row is None:
+        return {"ready": False, "market": _mkt(market), "reason": "저장된 포트폴리오 진단이 없습니다."}
+    body = row["payload"]
+    price_dates = sorted({str(holding["price_as_of"])[:10] for holding in body.get("holdings") or []
+                          if holding.get("price_as_of")})
+    return {"ready": True, "market": _mkt(market), "as_of": row["as_of"],
+            "created": row["created"], "source": row["source"],
+            "data_quality": row["data_quality"],
+            "price_asof_range": {"first": price_dates[0], "last": price_dates[-1]} if price_dates else None,
+            "summary": body.get("summary") or {}, "guidance": body.get("guidance") or [],
+            "note": "저장 당시 입력·가격으로 계산한 검토 항목입니다. 최신 시세나 주문 지시가 아닙니다."}
+
+
 @app.get("/api/portfolio/decisions")
 def portfolio_decisions_get(request: Request, market: str = "kr"):
     try:
@@ -5197,3 +5214,15 @@ def engine_config_reset():
 @app.get("/", response_class=HTMLResponse)
 def index():
     return (WEB_DIR / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/home.js")
+def home_script():
+    return FileResponse(WEB_DIR / "home.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/home.css")
+def home_styles():
+    return FileResponse(WEB_DIR / "home.css", media_type="text/css",
+                        headers={"Cache-Control": "no-cache"})
