@@ -1414,6 +1414,34 @@ def rotation_shadow_recent(uid: int, market: str, limit: int = 30) -> list[dict]
         c.close()
 
 
+def rotation_shadow_gate_rows(uid: int, market: str, from_session: str) -> list[dict]:
+    """판정 전 기간을 오래된 순서로 *전부* 반환. 최근 N건 절단은 look을 바꿀 수 있다."""
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT session,payload FROM rotation_shadow_snapshots "
+            "WHERE uid=? AND market=? AND session>=? ORDER BY session",
+            (uid, market, from_session))
+        out = []
+        for session, payload in rows:
+            data = json.loads(payload)
+            out.append({"session": session, "version": data.get("version"),
+                        "decisions": data.get("decisions") or {}})
+        return out
+    finally:
+        c.close()
+
+
+def rotation_shadow_get(uid: int, market: str, session: str) -> dict | None:
+    c = conn()
+    try:
+        row = c.execute("SELECT payload FROM rotation_shadow_snapshots "
+                        "WHERE uid=? AND market=? AND session=?", (uid, market, session)).fetchone()
+        return json.loads(row[0]) if row else None
+    finally:
+        c.close()
+
+
 def rotation_shadow_marks_add_once(uid: int, market: str, episode_session: str,
                                    price_session: str, prices: dict[str, float], *, observed: int) -> int:
     """완료 세션의 최초 관측 가격만 동결. 재수집은 기존 가격을 바꾸지 않는다."""
