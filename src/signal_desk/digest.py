@@ -210,11 +210,11 @@ def harm_line(harm: list[dict] | None) -> str | None:
     hits = [h for h in (harm or []) if h.get("alert") and h.get("upper_pp") is not None]
     if not hits:
         return None
-    parts = [f"{h.get('label') or '?'} {h['upper_pp']:+.1f}%p" for h in hits]
+    parts = [f"{h.get('label') or '?'} {h['upper_pp']:+.1f}%" for h in hits]
     blocks = max(int(h.get("blocks") or 0) for h in hits)
-    return ("⚠ 손해 경보 — 시장 대비 초과수익 상한이 0 아래로 확정: "
+    return ("⚠ 손해 경보 후보 — PIT 동일가중 대비 상대 NAV 추정 상한 < 0: "
             + " · ".join(parts)
-            + f" (독립 블록 {blocks}개, 단측 95%)")
+            + f" (이동블록 {blocks}개, 단측 95% 추정)")
 
 
 def build_morning(

@@ -22,7 +22,7 @@ def test_alert_renders_one_line_with_the_bound():
     line = digest.harm_line([_harm("안정형", -4.12), _harm("균형형", -6.33)])
     assert line is not None
     assert "손해 경보" in line
-    assert "-4.1%p" in line and "-6.3%p" in line
+    assert "-4.1%" in line and "-6.3%" in line
     assert "안정형" in line and "균형형" in line
     assert "블록 8개" in line, "표본 크기 없이 경고만 내면 읽는 사람이 세기를 모른다"
     assert line.count("\n") == 0, "한 줄이어야 한다 — 길면 아래 내용을 밀어낸다"

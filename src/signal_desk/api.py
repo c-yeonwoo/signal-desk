@@ -4028,7 +4028,7 @@ def _harm_alerts(market: str = "kr") -> list[dict]:
     try:
         for b in (bot.reference_performance(market).get("bots") or []):
             h = bot.harm_alert(b.get("curve") or [], seed=b.get("seed") or 0,
-                               benchmark_pct=b.get("benchmark_return_pct"))
+                               benchmark_curve=b.get("benchmark_curve"))
             out.append({"label": b.get("label"), **h})
     except Exception as e:                                  # noqa: BLE001 — 브리핑은 계속 나가야 한다
         log.warning("손해 경보 계산 실패: %s", type(e).__name__)

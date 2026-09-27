@@ -43,3 +43,19 @@ def test_performance_summary(tmp_path, monkeypatch):
     assert perf["seed"] == 1_000_000 and perf["days"] == 3
     assert perf["max_drawdown_pct"] == -5.0                   # 110만 → 104.5만 = -5%
     assert perf["return_pct"] is not None and perf["currency"] == "KRW"
+
+
+def test_since_seed_return_is_not_subtracted_from_shorter_benchmark_window(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path)
+    db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 1_000_000.0, "positions": {}}))
+    db.bot_equity_record(UID, "kr", "2026-09-22", 900_000, 900_000, 0)
+    db.bot_equity_record(UID, "kr", "2026-09-23", 990_000, 990_000, 0)
+    monkeypatch.setattr(bot.performance_evidence, "pit_equal_weight_curve", lambda *a, **k: [
+        {"date": "2026-09-22", "total_eval": 1.0},
+        {"date": "2026-09-23", "total_eval": 1.05}])
+    out = bot.performance(UID)
+    assert out["return_pct"] == 0.0              # 현재 계좌 / 시드
+    assert out["comparison_return_pct"] == 10.0   # 기록된 첫날 / 마지막날
+    assert out["benchmark_return_pct"] == 5.0
+    assert out["excess_return_pct"] == 5.0         # 10−5, 0−5가 아님
+    assert out["max_drawdown_pct"] == -10.0        # 시드 기준 첫 기록의 하락도 포함

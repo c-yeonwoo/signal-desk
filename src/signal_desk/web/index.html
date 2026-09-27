@@ -5301,12 +5301,12 @@ async function loadReferencePerf(){
         <td class="num">${fmtM(b.total_eval)}</td>
         <td class="num" style="color:${dc}">${fmtNum(dd, 1)}%</td>
         <td class="num" style="color:${b.excess_return_pct == null || Math.abs(b.excess_return_pct) < 0.5 ? 'var(--dim)' : b.excess_return_pct > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'};font-weight:700"
-            title="같은 기간·같은 유니버스를 동일가중으로 들고 있었을 때와의 차이. 기준선 없는 수익률은 잘한 것인지 말해주지 않는다.">${b.excess_return_pct == null ? '–' : (b.excess_return_pct > 0 ? '+' : '') + fmtNum(b.excess_return_pct, 2) + '%p'}</td>
+            title="기록된 동일 세션의 PIT 유니버스 동일가중 대비. 구성종목·가격이 완전하지 않으면 비교를 보류합니다.">${b.excess_return_pct == null ? '–' : (b.excess_return_pct > 0 ? '+' : '') + fmtNum(b.excess_return_pct, 2) + '%p'}</td>
         <td class="num">${b.n_trades}</td><td class="num">${b.days}일</td></tr>`;
     }).join('');
     el.className = '';
     el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num" title="시드 대비 계좌 전체 수익률 — 이게 성적입니다">계좌 수익률</th>
-      <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num" title="같은 기간·같은 유니버스 동일가중 대비. 기준선 없는 수익률은 잘한 것인지 말해주지 않는다.">시장 대비</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
+      <th class="num">평가액</th><th class="num">최대낙폭</th><th class="num" title="기록된 동일 세션의 과거 유니버스 동일가중·비용 전 기준선 대비">PIT 동일가중 대비</th><th class="num">거래</th><th class="num">기간</th></tr></thead>
       <tbody>${rows}</tbody></table>
       ${_styleVerdictNote(d)}
       <div style="color:var(--dim-2);font-size:var(--fs-2xs);margin-top:6px">같은 시그널, 다른 규칙 강도로 집행한 결과 — 시그널 실측과는 다른 지표입니다.
@@ -5341,13 +5341,13 @@ async function loadBotPerformance(){
     // **이름을 구분한다.** `총손익률`(보유 기준)과 `총수익률`(계좌 기준)은 사람이 구분할 수 없고
     // 실측에서 부호까지 반대였다(+2.43% vs −0.02%) — 어느 게 성적인지 알 수 없었다.
     // 보유 손익률은 지금 들고 있는 것의 상태이고, **계좌 수익률이 track record**다.
-    // **기준선 없는 수익률은 판정이 아니다.** `+1.58%`가 잘한 것인지는 같은 기간 시장이
-    // 얼마였는지 없이는 말할 수 없다 — 실측 28일에서 시장 +1.89%라 셋 다 미달이었다.
+    // 전체 계좌 수익률(시드 이후)과 상대 비교(기록된 첫날~마지막날)는 기간이 다르다.
     const ex = d.excess_return_pct;
     const exTxt = ex == null ? '' :
-      ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">시장 대비 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
-      + `<span style="color:var(--dim-2)"> (동일가중 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
+      ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">PIT 동일가중 대비 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
+      + `<span style="color:var(--dim-2)"> (기록된 동일 기간 · 기준선 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
     sumEl.innerHTML = `<b>계좌 수익률 ${rTxt}</b>${exTxt}`
+      + (ex == null ? `<span style="color:var(--dim-2)"> · 상대 비교 보류: ${esc(d.benchmark_basis || '기준선 없음')}</span>` : '')
       + `<span style="color:var(--dim-2)"> · 시드 대비 · 이게 성적입니다</span>`
       + ` · 시드 ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최대낙폭 ${fmtNum(d.max_drawdown_pct, 1)}%`
       + ` · ${d.days}일 · 거래 ${d.n_trades}건`;
@@ -8634,10 +8634,10 @@ async function loadShadows(){
     if (harm.length) {
       html += `<div style="font-size:13px;margin-top:4px">손해 경보 `
         + (bad.length
-          ? `<b style="color:var(--sig-sell)">${bad.length}/${harm.length}봇 확정</b>`
+          ? `<b style="color:var(--sig-sell)">${bad.length}/${harm.length}봇 경고 후보</b>`
           : `<span style="color:var(--dim)">없음 (${harm.length}봇)</span>`)
-        + `<span style="color:var(--dim)"> · 초과수익 상한 </span>`
-        + harm.map(h => `${esc(h.label)} ${h.upper_pp > 0 ? '+' : ''}${fmtNum(h.upper_pp, 1)}%p`).join(' · ')
+        + `<span style="color:var(--dim)"> · 상대 NAV 추정 상한 </span>`
+        + harm.map(h => `${esc(h.label)} ${h.upper_pp > 0 ? '+' : ''}${fmtNum(h.upper_pp, 1)}%`).join(' · ')
         + `</div>`;
     } else {
       html += `<div style="font-size:13px;margin-top:4px;color:var(--dim)">손해 경보 — ${esc((wk.harm || [])[0]?.reason || '자산곡선 누적 중')}</div>`;
