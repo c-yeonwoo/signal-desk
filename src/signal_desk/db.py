@@ -265,6 +265,24 @@ CREATE TABLE IF NOT EXISTS llm_usage(
     cost_usd REAL NOT NULL DEFAULT 0,
     ok INTEGER NOT NULL DEFAULT 1);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_ts ON llm_usage(ts);
+-- Exact-input advisor response cache. Keys are hashes; prompts/KB originals are not persisted.
+CREATE TABLE IF NOT EXISTS advisor_prompt_cache(
+    input_hash TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    created INTEGER NOT NULL,
+    expires INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_advisor_prompt_cache_expires ON advisor_prompt_cache(expires);
+CREATE TABLE IF NOT EXISTS advisor_prompt_events(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    uid INTEGER NOT NULL,
+    market TEXT NOT NULL,
+    style TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    input_hash TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    latency_ms INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_advisor_prompt_events_ts ON advisor_prompt_events(ts);
 -- 하네스 판정 이력 — **append-only**. UPDATE·DELETE 경로를 만들지 않는다.
 -- 왜: harness_last.json 1슬롯을 덮어쓰는 구조라 "판정이 마지막으로 돌린 결과"였다. 설정 변경에는
 -- 이력이 있는데(signal_config_history) 가장 중요한 산출물인 판정에는 없었다. 무엇을 언제 어떤
@@ -2647,6 +2665,55 @@ def bot_equity_curve(uid: int, market: str = "kr", limit: int = 365) -> list[dic
 
 
 # ---------- llm_usage (이 앱 LLM 호출 추정 비용 — 공유 키와 분리 집계) ----------
+def advisor_prompt_get(input_hash: str, *, now: int) -> dict | None:
+    c = conn()
+    row = c.execute("SELECT payload FROM advisor_prompt_cache WHERE input_hash=? AND expires>?",
+                    (input_hash, now)).fetchone()
+    c.close()
+    return json.loads(row[0]) if row else None
+
+
+def advisor_prompt_put(input_hash: str, payload: dict, *, now: int, expires: int) -> None:
+    c = conn()
+    c.execute("DELETE FROM advisor_prompt_cache WHERE expires<=?", (now,))
+    c.execute("INSERT OR REPLACE INTO advisor_prompt_cache(input_hash,payload,created,expires) VALUES(?,?,?,?)",
+              (input_hash, json.dumps(payload, ensure_ascii=False, separators=(",", ":")), now, expires))
+    c.commit()
+    c.close()
+
+
+def advisor_prompt_event_add(*, uid: int, market: str, style: str, stage: str,
+                             input_hash: str, outcome: str, latency_ms: int) -> None:
+    c = conn()
+    c.execute("INSERT INTO advisor_prompt_events(ts,uid,market,style,stage,input_hash,outcome,latency_ms) "
+              "VALUES(?,?,?,?,?,?,?,?)",
+              (int(time.time()), uid, market, style, stage, input_hash, outcome, latency_ms))
+    c.commit()
+    c.close()
+
+
+def advisor_prompt_summary(days: int = 30) -> dict:
+    since = int(time.time()) - max(1, int(days)) * 86400
+    c = conn()
+    rows = c.execute("SELECT stage,outcome,COUNT(*),SUM(latency_ms) FROM advisor_prompt_events "
+                     "WHERE ts>=? GROUP BY stage,outcome", (since,)).fetchall()
+    c.close()
+    buckets: dict[str, dict] = {}
+    for stage, outcome, count, latency in rows:
+        bucket = buckets.setdefault(stage, {"requests": 0, "hits": 0, "provider_calls": 0,
+                                            "failed_or_uncached": 0, "latency_ms": 0})
+        bucket["requests"] += count
+        bucket["hits"] += count if outcome == "hit" else 0
+        bucket["provider_calls"] += count if outcome != "hit" else 0
+        bucket["failed_or_uncached"] += count if outcome not in ("hit", "miss_saved") else 0
+        bucket["latency_ms"] += latency or 0
+    return {"days": days, "by_stage": [{"stage": stage, **bucket,
+                                        "hit_rate_pct": round(100 * bucket["hits"] / bucket["requests"], 1),
+                                        "mean_latency_ms": round(bucket["latency_ms"] / bucket["requests"])}
+                                       for stage, bucket in sorted(buckets.items())],
+            "note": "동일 입력 캐시 적중률·실제 호출 수. 응답 검증 실패와 캐시 저장 실패는 재사용하지 않습니다."}
+
+
 def llm_usage_add(*, model: str, kind: str, input_tokens: int, output_tokens: int,
                   cost_usd: float, ok: bool = True) -> None:
     c = conn()

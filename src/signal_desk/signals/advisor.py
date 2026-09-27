@@ -19,6 +19,7 @@ import logging
 from dataclasses import dataclass, field
 
 from signal_desk import db, llm
+from signal_desk.signals import advisor_cache
 
 log = logging.getLogger("signal_desk.advisor")
 
@@ -70,7 +71,7 @@ def select_buys(candidates: list[dict], context: dict, digests: dict[str, dict],
 def advise(candidates: list[dict], context: dict, digests: dict[str, dict],
            lessons: list[dict], max_new: int,
            *, style: str | None = None, gate: dict | None = None,
-           challenge: bool | None = None) -> BuyAdvice:
+           challenge: bool | None = None, cache_scope: dict | None = None) -> BuyAdvice:
     """선별 + kill switch + challenger. bot은 이 결과의 picks만 보면 된다."""
     from signal_desk.signals import advisor_shadow
 
@@ -85,7 +86,12 @@ def advise(candidates: list[dict], context: dict, digests: dict[str, dict],
             return BuyAdvice(None, reason=g.get("reason") or "killed_shadow", killed=True)
         return BuyAdvice([], reason=g.get("reason") or "killed_shadow", killed=True)
 
-    primary = _primary_select(candidates, context, digests, lessons, max_new)
+    if cache_scope is not None:
+        # The displayed prompt truncates KB summaries. Freeze the *full* evidence
+        # as well, so a newly arrived adverse document cannot hit an older key.
+        cache_scope = {**cache_scope, "evidence": {"candidates": candidates, "context": context,
+                                                   "digests": digests, "lessons": lessons}}
+    primary = _primary_select(candidates, context, digests, lessons, max_new, cache_scope=cache_scope)
     if primary.picks is None:
         return primary
     if not primary.picks:
@@ -95,7 +101,7 @@ def advise(candidates: list[dict], context: dict, digests: dict[str, dict],
     if not do_challenge:
         return primary
 
-    survivors, vetoed = _challenge_veto(primary.picks, candidates, context, digests)
+    survivors, vetoed = _challenge_veto(primary.picks, candidates, context, digests, cache_scope=cache_scope)
     if vetoed:
         log.info("advisor challenger veto %s → 생존 %s", vetoed,
                  [p["ticker"] for p in survivors])
@@ -109,7 +115,7 @@ def advise(candidates: list[dict], context: dict, digests: dict[str, dict],
 
 
 def _primary_select(candidates: list[dict], context: dict, digests: dict[str, dict],
-                    lessons: list[dict], max_new: int) -> BuyAdvice:
+                    lessons: list[dict], max_new: int, *, cache_scope: dict | None = None) -> BuyAdvice:
     if not llm.available():
         return BuyAdvice(None, reason="no_key")
 
@@ -148,22 +154,35 @@ def _primary_select(candidates: list[dict], context: dict, digests: dict[str, di
         'JSON으로만: {"picks": [{"ticker": "코드", "rationale": "한국어 한 줄 근거"}]}')
 
     try:
-        out = llm.complete_json(system, user, max_tokens=700, purpose="advisor")
+        out = advisor_cache.call(
+            stage="primary", scope=cache_scope, system=system, user=user,
+            model=llm.DEFAULT_MODEL, max_tokens=700,
+            invoke=lambda: llm.complete_json(system, user, max_tokens=700,
+                                             model=llm.DEFAULT_MODEL, purpose="advisor"),
+            valid=lambda response: (
+                isinstance(response, dict) and isinstance(response.get("picks"), list)
+                and len(response["picks"]) <= max_new
+                and all(isinstance(p, dict) and isinstance(p.get("ticker"), str)
+                        and p["ticker"] in valid for p in response["picks"])
+                and len({p["ticker"] for p in response["picks"]}) == len(response["picks"])),
+        )
     except Exception as e:
         log.info("LLM 자문 호출 실패(%s) — 결정론적 폴백", type(e).__name__)
         return BuyAdvice(None, reason="api_fail")
     if out is None:
         log.info("LLM 자문 응답 없음 — 결정론적 폴백")
         return BuyAdvice(None, reason="api_fail")
-    if not isinstance(out.get("picks"), list):
+    if not isinstance(out, dict) or not isinstance(out.get("picks"), list):
         log.info("LLM 자문 파싱 실패 — 결정론적 폴백")
         return BuyAdvice(None, reason="parse_fail")
     raw = out["picks"]
     picks = []
     seen = set()
     for p in raw:
+        if not isinstance(p, dict):
+            continue
         t = p.get("ticker")
-        if t in valid and t not in seen:
+        if isinstance(t, str) and t in valid and t not in seen:
             picks.append({"ticker": t, "rationale": str(p.get("rationale", ""))[:200]})
             seen.add(t)
         if len(picks) >= max_new:
@@ -177,7 +196,8 @@ def _primary_select(candidates: list[dict], context: dict, digests: dict[str, di
 
 
 def _challenge_veto(picks: list[dict], candidates: list[dict],
-                    context: dict, digests: dict[str, dict]) -> tuple[list[dict], list[str]]:
+                    context: dict, digests: dict[str, dict], *,
+                    cache_scope: dict | None = None) -> tuple[list[dict], list[str]]:
     """2차 호출 — veto만. 새 종목 추가 금지. 실패 시 1차 픽 유지(차단으로 매수를 늘리지 않음)."""
     if not picks or not llm.available():
         return picks, []
@@ -201,18 +221,30 @@ def _challenge_veto(picks: list[dict], candidates: list[dict],
         f"사이클={context.get('cycle_phase')}\n\n"
         f"[1차 선별 — 이 안에서만 veto]\n" + "\n".join(lines) + "\n\n"
         "사지 말아야 할 종목만 veto에 넣고, 나머지는 넣지 마라.")
+    pick_set = {p["ticker"] for p in picks}
     try:
-        out = llm.complete_json(system, user, max_tokens=400, purpose="advisor")
+        out = advisor_cache.call(
+            stage="challenger", scope=cache_scope, system=system, user=user,
+            model=llm.DEFAULT_MODEL, max_tokens=400,
+            invoke=lambda: llm.complete_json(system, user, max_tokens=400,
+                                             model=llm.DEFAULT_MODEL, purpose="advisor"),
+            valid=lambda response: (
+                isinstance(response, dict) and isinstance(response.get("veto"), list)
+                and all(isinstance(v, dict) and isinstance(v.get("ticker"), str)
+                        and v["ticker"] in pick_set for v in response["veto"])
+                and len({v["ticker"] for v in response["veto"]}) == len(response["veto"])),
+        )
     except Exception as e:
         log.info("challenger 호출 실패(%s) — 1차 픽 유지", type(e).__name__)
         return picks, []
     if not out or not isinstance(out.get("veto"), list):
         return picks, []
-    pick_set = {p["ticker"] for p in picks}
     vetoed = []
     for v in out["veto"]:
+        if not isinstance(v, dict):
+            continue
         t = v.get("ticker")
-        if t in pick_set and t not in vetoed:
+        if isinstance(t, str) and t in pick_set and t not in vetoed:
             vetoed.append(t)
     if not vetoed:
         return picks, []
