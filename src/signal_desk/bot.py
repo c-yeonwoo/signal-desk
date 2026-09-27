@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import datetime
 import logging
+import math
+import time
 from zoneinfo import ZoneInfo
 
 from signal_desk import config, db, kb, llm, signalcfg, store, strategy
-from signal_desk.broker import paper
+from signal_desk.broker import execution, paper
 from signal_desk.reference import cycle, us_ko
 from signal_desk.signals import (
     advisor, advisor_shadow, engine, execution_gate, execution_twin, macro, regime, risk, vol_sizing,
@@ -66,6 +68,44 @@ def _daily_loss_breached(uid: int, bal: dict, dry_run: bool, market: str = "kr")
         log.warning("일일 손실 한도 초과 — 신규 매수 중단(시작 %.0f → 현재 %.0f, 한도 -%.0f%%)",
                     float(start), total, limit * 100)
     return breached
+
+
+def _authorized_buy_qty(uid: int, market: str, ticker: str, price: float,
+                        requested: int, cfg: dict, exposure: float, *,
+                        balance: dict, dry_run: bool = False,
+                        blocked: bool = False) -> tuple[int, str | None]:
+    """모든 페이퍼 매수 경로가 공유하는 최종 위험 증가 검사.
+
+    요청 수량은 상한이다. 현금·노출·종목 목표비중에 비용까지 넣어 가능한 정수주로 자른다.
+    과거의 예약/후보 선정은 현재 주문 허가를 대신하지 않는다.
+    """
+    if blocked:
+        return 0, "매수 중단 모드"
+    if not dry_run and config.bot_kill_switch():
+        return 0, "긴급정지"
+    if _daily_loss_breached(uid, balance, dry_run, market):
+        return 0, "일일 손실 한도"
+    if market == "kr" and ticker in store.load_warned_tickers():
+        return 0, "투자경고 종목"
+    if requested < 1 or price <= 0 or not math.isfinite(price):
+        return 0, "수량 또는 가격 오류"
+    holdings = {h["ticker"]: h for h in balance["holdings"]}
+    if ticker not in holdings:
+        if len(holdings) >= cfg["max_positions"]:
+            return 0, "최대 보유종목 수"
+        if ticker in recent_sold_tickers(uid, market, cfg["trading_style"]):
+            return 0, "재매수 대기 기간"
+    total = float(balance["total_eval"])
+    cash = float(balance["cash"])
+    invested = total - cash
+    current_value = float(holdings[ticker]["qty"]) * price if ticker in holdings else 0.0
+    room = min(cash, total * max(0.0, min(1.0, exposure)) - invested,
+               total * cfg["position_pct"] - current_value)
+    if room <= 0:
+        return 0, "현금·노출·종목 한도"
+    cost_per_share = -execution.calculate(price, 1, "buy", market).cash_change
+    qty = min(requested, int((room + 1e-8) // cost_per_share))
+    return (qty, None) if qty > 0 else (0, "비용 포함 매수 가능 금액 부족")
 
 
 # 미국 정규장(대략) — 서머타임 EDT 기준 22:30~05:00 KST, EST면 23:30~06:00. 넉넉히 22:30~06:00로 근사.
@@ -424,7 +464,7 @@ def recent_sold_tickers(uid: int, market: str, style: str) -> set[str]:
 
 def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_after,
                        cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
-                       sells, buys, rotated_out, dry_run, rp):
+                       sells, buys, rotated_out, dry_run, rp, exposure):
     """약한 보유 → 더 강한 후보 교체. rp=성향별 로테이션 정책. 갱신된 cash 반환.
     sells/buys/held_after/rotated_out 갱신."""
     warned = store.load_warned_tickers() if market == "kr" else set()
@@ -469,6 +509,25 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
         wt, wqty = wh["ticker"], wh["qty"]
         pl_pct = (wlive / wh["avg_price"] - 1) * 100 if wh["avg_price"] else 0
         bname = name_by_ticker.get(best.ticker, best.name)
+        blive = _live_price(best.ticker, (prices.get(best.ticker) or [0])[-1])
+        if not blive:
+            weak.pop(0)
+            continue
+        # 팔고 나서야 한도 미달을 알게 되면 교체가 아니라 불필요한 청산이 된다.
+        # 같은 페이퍼 비용 모델로 매도 후의 계좌를 먼저 예상해 매수 가능 여부를 검사한다.
+        before = paper.balance(uid, market)
+        sale = execution.calculate(wlive, wqty, "sell", market)
+        projected_cash = before["cash"] + sale.cash_change
+        projected_holdings = [h for h in before["holdings"] if h["ticker"] != wt]
+        projected = {"cash": projected_cash, "holdings": projected_holdings,
+                     "total_eval": projected_cash + sum(h["qty"] * h["price"] for h in projected_holdings)}
+        desired = int(min(tranche_alloc, projected_cash) // blive)
+        planned_qty, _ = _authorized_buy_qty(
+            uid, market, best.ticker, blive, desired, cfg, exposure,
+            balance=projected, dry_run=True)
+        if planned_qty < 1:
+            weak.pop(0)
+            continue
         snote = (f"컨빅션 로테이션 — 보유 점수 {weak_score:+.2f} 약화, {bname}({best.score:+.2f})로 교체 · "
                  f"평단 {int(wh['avg_price']):,}→현재 {int(wlive):,}{unit}({pl_pct:+.1f}%) {wqty}주 청산")
         splan = {"ticker": wt, "name": wh["name"], "qty": wqty, "reason": "ROTATE_OUT", "note": snote, "price": wlive}
@@ -487,10 +546,12 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
         rotated_out.add(wt)
         held_after.discard(wt)
 
-        blive = _live_price(best.ticker, (prices.get(best.ticker) or [0])[-1])
-        alloc = min(tranche_alloc, cash)
-        bqty = int(alloc // blive) if blive else 0
+        after = paper.balance(uid, market) if not dry_run else projected
+        bqty, _ = _authorized_buy_qty(
+            uid, market, best.ticker, blive, planned_qty, cfg, exposure,
+            balance=after, dry_run=dry_run)
         if bqty >= 1:
+            alloc = bqty * blive
             bnote = (f"컨빅션 로테이션 진입 — 점수 {best.score:+.2f}(교체된 보유 대비 +{best.score - weak_score:.2f}) · "
                      f"1/{tranches}트랜치(약 {int(alloc):,}{unit}) ÷ {int(blive):,}{unit} = {bqty}주")
             bplan = {"ticker": best.ticker, "name": bname, "qty": bqty, "price": blive,
@@ -675,7 +736,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     # 국면 = '얼마나 살까'. 총 투자금 상한을 국면 익스포저로 정한다(문턱 상향 대신 — 자격을 0으로
     # 만들면 그 국면에서 무엇이 통하는지 배울 수 없다). 하한이 있어 완전 정지는 없다.
     eng_cfg = mr["eff_cfg"] or signalcfg.get_config()
-    exposure = float((context or {}).get("exposure") or 1.0)
+    exposure = float((context or {}).get("exposure", 1.0))
     invest_cap = bal2["total_eval"] * exposure
     invested = max(0.0, bal2["total_eval"] - cash)
     room = max(0.0, invest_cap - invested)
@@ -758,7 +819,11 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             live = _live_price(s.ticker, closes[-1])
             vscale = vol_sizing.scale(vol_sizing.realized_vol(closes), ref_vol)
             alloc = min(tranche_alloc * vscale, cash, room)  # ① 분할∩익스포저 · 고변동↓
-            qty = int(alloc // live)
+            requested = int(alloc // live)
+            check_bal = paper.balance(uid, market) if not dry_run else {**bal2, "cash": cash}
+            qty, _ = _authorized_buy_qty(
+                uid, market, s.ticker, live, requested, cfg, exposure,
+                balance=check_bal, dry_run=dry_run, blocked=block_new_buys or sells_only)
             if qty < 1:
                 continue  # 배분금액보다 1주가 비싸면 스킵(정수주 제약)
             basis = (f"시장 상위 {s.rank_pct:.1f}%"
@@ -829,16 +894,16 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     rotated_out: set[str] = set()
     rp = strategy.rotation_params(cfg["trading_style"])
     want_rotation = available_slots == 0 or (rp["when_slots_free"] and cash < tranche_alloc)
-    if not block_new_buys and want_rotation:
+    if not (block_new_buys or sells_only) and want_rotation:
         cash = _conviction_rotate(uid, market, signals, signal_by_ticker, bal2["holdings"], held_after,
                                   cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
-                                  sells, buys, rotated_out, dry_run, rp)
+                                  sells, buys, rotated_out, dry_run, rp, exposure)
 
     # ① 분할매수 후속: 보유 중이고 여전히 BUY인데 목표비중 미달인 포지션에 다음 트랜치 추가.
     # **막힌 이유를 모아 결과에 싣는다.** 안 그러면 "왜 추가가 안 됐나"가 어느 화면에도 안 뜬다
     # (이 리포의 "0에는 반드시 이유를 붙인다" 규칙).
     skipped_tranche: list[str] = []
-    for h in bal2["holdings"]:
+    for h in ([] if (block_new_buys or sells_only) else bal2["holdings"]):
         t = h["ticker"]
         if t in rotated_out:
             continue  # 방금 로테이션으로 청산 → 재매수 금지
@@ -860,8 +925,14 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             skipped_tranche.append(f"{h['name']}: {why}")
             continue
         add_amt = min(tranche_alloc, target_alloc - value, cash)
-        qty = int(add_amt // live)
+        requested = int(add_amt // live)
+        check_bal = paper.balance(uid, market) if not dry_run else {**bal2, "cash": cash}
+        qty, why = _authorized_buy_qty(
+            uid, market, t, live, requested, cfg, exposure,
+            balance=check_bal, dry_run=dry_run, blocked=block_new_buys or sells_only)
         if qty < 1:
+            if why:
+                skipped_tranche.append(f"{h['name']}: {why}")
             continue
         note = (f"분할 추가매수(목표 {int(target_alloc):,}{unit} 대비 {int(value):,}{unit}) · "
                 f"평단 {int(avg):,}·현재 {int(live):,} · {qty}주")
@@ -1069,37 +1140,53 @@ def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -
 
 
 def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
-    """유저: pending 예약을 실행(시장별). 현재가가 목표가+추격허용폭 이내면 매수, 초과면 스킵."""
+    """예약은 과거 승인권이 아니다. 실행 직전에 시그널·계좌·위험 한도를 재검사한다."""
     unit = "$" if market == "us" else "원"
     pending = db.bot_reservations_pending(uid, market)
     if not pending:
         return {"ok": True, "market": market, "executed": [], "note": "대기 중인 예약 없음"}
 
-    prices = store.load_us_price_series() if market == "us" else store.load_price_series()
-    bal = paper.balance(uid, market)
+    if not dry_run and config.bot_kill_switch():
+        return {"ok": False, "market": market, "executed": [], "reason": "긴급정지"}
+    kr_prices = store.load_price_series()
+    mr = _market_read(kr_prices) if kr_prices else {"eff_cfg": None, "context": {}}
+    _, prices, signals, _ = _market_signals(market, mr)
+    signal_by_ticker = {s.ticker: s for s in signals}
+    exposure = float(mr["context"].get("exposure", 1.0))
     cfg = _cfg(uid)
-    cash = bal["cash"]
-    target_alloc = bal["total_eval"] * cfg["position_pct"]
     executed = []
     for r in pending:
+        def reject(status: str, note: str) -> None:
+            executed.append({"ticker": r["ticker"], "name": r["name"],
+                             "status": status, "note": note})
+            if not dry_run:
+                db.bot_reservation_resolve(r["id"], status)
+
+        if r["side"] != "buy" or time.time() - int(r["created"]) > 7 * 86400:
+            reject("expired", "예약 종류 또는 유효기간(7일) 초과")
+            continue
+        sig = signal_by_ticker.get(r["ticker"])
+        if not sig or not engine.is_buy(sig.kind) or sig.event_risk:
+            reject("skipped_signal", "현재 매수 판정이 없거나 사건 위험")
+            continue
         closes = prices.get(r["ticker"])
         if not closes:
-            if not dry_run:
-                db.bot_reservation_resolve(r["id"], "no_data")
+            reject("no_data", "현재 가격 없음")
             continue
-        price = closes[-1]
+        price = _live_price(r["ticker"], closes[-1])
         ceiling = r["target_price"] * (1 + r["max_chase_pct"])
         if price > ceiling:
-            executed.append({"ticker": r["ticker"], "name": r["name"], "status": "skipped_price",
-                             "note": f"현재가 {int(price):,}{unit} > 상한 {int(ceiling):,}{unit} — 추격 안 함"})
-            if not dry_run:
-                db.bot_reservation_resolve(r["id"], "skipped_price")
+            reject("skipped_price", f"현재가 {int(price):,}{unit} > 상한 {int(ceiling):,}{unit} — 추격 안 함")
             continue
-        qty = int(min(target_alloc, cash) // price)
+        bal = paper.balance(uid, market)
+        if any(h["ticker"] == r["ticker"] for h in bal["holdings"]):
+            reject("skipped_held", "이미 보유 중인 종목의 신규 예약")
+            continue
+        requested = int(min(bal["total_eval"] * cfg["position_pct"], bal["cash"]) // price)
+        qty, why = _authorized_buy_qty(uid, market, r["ticker"], price, requested,
+                                        cfg, exposure, balance=bal, dry_run=dry_run)
         if qty < 1:
-            executed.append({"ticker": r["ticker"], "name": r["name"], "status": "skipped_cash", "note": "잔고 부족"})
-            if not dry_run:
-                db.bot_reservation_resolve(r["id"], "skipped_cash")
+            reject("skipped_policy", why or "현재 계좌 한도 초과")
             continue
         note = f"예약 실행 — {r['reason']} · 현재가 {int(price):,}{unit} × {qty}주"
         if not dry_run:
@@ -1120,7 +1207,6 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                 db.bot_position_upsert(uid, r["ticker"], r["name"], qty, basis_per_share, price, _today(),
                                         market=market, tranches_done=1, last_buy_date=_today())
                 db.bot_reservation_resolve(r["id"], "filled")
-                cash -= qty * price
                 executed.append({"ticker": r["ticker"], "name": r["name"], "status": "filled", "qty": qty,
                                  "note": note, "order_no": result["order_no"],
                                  "fill_price": filled, "target_price": r["target_price"]})

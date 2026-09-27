@@ -3,6 +3,7 @@
 import json
 
 from signal_desk import bot, db, store
+from signal_desk.signals.engine import SignalResult
 
 UID = 6
 
@@ -12,6 +13,12 @@ def _setup(monkeypatch, tmp_path, prices):
     monkeypatch.setattr(store, "load_price_series", lambda: prices)
     monkeypatch.setattr(store, "load_us_price_series", lambda: {})
     monkeypatch.setattr(store, "load_universe", lambda: [{"ticker": "AAA", "name": "가"}])
+    monkeypatch.setattr(bot, "_market_read", lambda _: {"eff_cfg": None, "context": {"exposure": 1.0}})
+    monkeypatch.setattr(bot, "_market_signals", lambda market, mr: (
+        [], store.load_us_price_series() if market == "us" else store.load_price_series(),
+        [SignalResult(ticker=t, name=t, score=2.0, kind="BUY", confidence=0.5,
+                      technical_score=0.0, fundamental_score=0.0, has_fundamental=False, reasons=[])
+         for t in (store.load_us_price_series() if market == "us" else store.load_price_series())], {}))
     db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 100_000.0, "positions": {}}))
 
 
@@ -22,6 +29,34 @@ def test_execute_reservation_fills_within_chase(tmp_path, monkeypatch):
     assert out["executed"][0]["status"] == "filled"          # 101 ≤ 102 → 체결
     assert db.bot_reservations_pending(UID) == []
     assert db.bot_position_get(UID, "AAA")["qty"] >= 1        # paper에 반영
+
+
+def test_kill_switch_blocks_pending_reservation(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path, {"AAA": [100.0, 101.0]})
+    db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
+    monkeypatch.setattr(bot.config, "bot_kill_switch", lambda: True)
+    out = bot.execute_reservations(UID)
+    assert out["ok"] is False and out["executed"] == []
+    assert db.bot_position_get(UID, "AAA") is None
+    assert len(db.bot_reservations_pending(UID)) == 1
+
+
+def test_reservation_rechecks_current_signal(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path, {"AAA": [100.0, 101.0]})
+    db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
+    monkeypatch.setattr(bot, "_market_signals", lambda market, mr: ([], {"AAA": [100.0, 101.0]}, [], {}))
+    out = bot.execute_reservations(UID)
+    assert out["executed"][0]["status"] == "skipped_signal"
+    assert db.bot_position_get(UID, "AAA") is None
+
+
+def test_reservation_rechecks_exposure_cap(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path, {"AAA": [100.0, 101.0]})
+    db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
+    monkeypatch.setattr(bot, "_market_read", lambda _: {"eff_cfg": None, "context": {"exposure": 0.0}})
+    out = bot.execute_reservations(UID)
+    assert out["executed"][0]["status"] == "skipped_policy"
+    assert db.bot_position_get(UID, "AAA") is None
 
 
 def test_execute_reservation_skips_when_price_ran_up(tmp_path, monkeypatch):
