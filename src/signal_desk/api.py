@@ -41,7 +41,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate,
-    portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow,
+    portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
@@ -435,6 +435,11 @@ def _bot_loop_iteration() -> None:
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40) \
             and db.kv_get("bot_daily_snap") != _kst_today():
         _daily_maintenance(enabled)
+    for mkt in ("kr", "us"):
+        try:
+            rotation_shadow.capture(mkt, now)
+        except Exception as e:
+            log.warning("R11 회전 shadow 동결 실패(%s): %s", mkt, type(e).__name__)
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40):
         try:
             telegram_inbound.enqueue_daily_summaries(_kst_today(), "kr")
@@ -3445,6 +3450,23 @@ def _revision_ic_status() -> dict:
         return result
     except Exception as e:
         return {"ready": False, "blocked_reason": type(e).__name__}
+
+
+@app.get("/api/admin/research/rotation-shadow")
+def rotation_shadow_get(request: Request, market: str = "kr", style: str = "balanced", limit: int = 30,
+                        include_inputs: bool = False):
+    """사전 동결된 동일 시점 회전 정책 비교. 주문·자동 승격 연결 없음."""
+    _admin_or_403(request)
+    if market not in ("kr", "us") or style not in bot.REFERENCE_BOTS.values():
+        raise HTTPException(status_code=422, detail="market/style 값이 올바르지 않습니다.")
+    uid = next(u for u, s in bot.REFERENCE_BOTS.items() if s == style)
+    rows = db.rotation_shadow_recent(uid, market, limit)
+    if not include_inputs:
+        rows = [{k: v for k, v in row.items() if k not in ("signals", "holdings")}
+                for row in rows]
+    return {"version": rotation_shadow.VERSION, "market": market, "style": style,
+            "mode": "shadow", "live_eligible": False, "snapshots": rows,
+            "note": "동일 종가 기준 회전 판단만 비교합니다. 비용 후 성과/위험 승격 증거가 아니며 주문에 영향 없음."}
 
 
 @app.get("/api/admin/research/revision-price")

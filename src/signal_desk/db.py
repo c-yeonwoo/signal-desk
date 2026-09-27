@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS bot_trades(id INTEGER PRIMARY KEY AUTOINCREMENT, uid 
     market TEXT NOT NULL DEFAULT 'kr', name TEXT,
     side TEXT, qty INTEGER, price REAL, reason TEXT, order_no TEXT, ts INTEGER, score REAL, note TEXT,
     reference_price REAL, fees REAL, slippage_cost REAL, cash_change REAL);
+-- R11: 동일 보유/시그널에서 두 회전 정책을 동결 비교. 주문·승격 권한 없음.
+CREATE TABLE IF NOT EXISTS rotation_shadow_snapshots(
+    uid INTEGER NOT NULL, market TEXT NOT NULL, session TEXT NOT NULL,
+    payload TEXT NOT NULL, created INTEGER NOT NULL,
+    PRIMARY KEY(uid,market,session));
+CREATE INDEX IF NOT EXISTS idx_rotation_shadow_recent
+    ON rotation_shadow_snapshots(market,session DESC);
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -1357,6 +1364,43 @@ def bot_trades_recent(uid: int, limit: int = 20, market: str = "kr") -> list[dic
              "ts": ts, "score": sc, "note": nt, "reference_price": rp, "fees": fees,
              "slippage_cost": slip, "cash_change": cash}
             for i, t, n, s, q, p, r, o, ts, sc, nt, rp, fees, slip, cash in rows]
+
+
+def rotation_shadow_add_once(uid: int, market: str, session: str, payload: dict) -> bool:
+    """PIT 입력/두 정책 결정을 최초 1회만 보존한다. 재배포·재실행으로 과거 결정을 덮지 않는다."""
+    c = conn()
+    try:
+        cur = c.execute(
+            "INSERT OR IGNORE INTO rotation_shadow_snapshots(uid,market,session,payload,created) "
+            "VALUES(?,?,?,?,?)",
+            (uid, market, session, json.dumps(payload, ensure_ascii=False, sort_keys=True), int(time.time())))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def rotation_shadow_exists(uid: int, market: str, session: str) -> bool:
+    c = conn()
+    try:
+        return c.execute(
+            "SELECT 1 FROM rotation_shadow_snapshots WHERE uid=? AND market=? AND session=?",
+            (uid, market, session)).fetchone() is not None
+    finally:
+        c.close()
+
+
+def rotation_shadow_recent(uid: int, market: str, limit: int = 30) -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT session,payload,created FROM rotation_shadow_snapshots "
+            "WHERE uid=? AND market=? ORDER BY session DESC LIMIT ?",
+            (uid, market, max(1, min(int(limit), 500)))).fetchall()
+        return [{**json.loads(payload), "session": session, "created": created}
+                for session, payload, created in rows]
+    finally:
+        c.close()
 
 
 def bot_trade_get(uid: int, trade_id: int, market: str = "kr") -> dict | None:
