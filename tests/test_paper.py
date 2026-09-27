@@ -83,13 +83,16 @@ def test_concurrent_sells_cannot_sell_the_same_shares_twice(tmp_path, monkeypatc
 def test_bot_fill_writes_balance_trade_and_event_together(tmp_path, monkeypatch):
     _seed(monkeypatch, tmp_path, price=100.0)
     result = paper.place_order(UID, "005930", "buy", 1, price=100.0, name="삼성전자",
-                               reason="SIGNAL", note="테스트", score=2.0)
+                               reason="SIGNAL", note="테스트", score=2.0,
+                               policy_id="execution-123", signal_policy_id="signal-456")
     assert result is not None
     trades = db.bot_trades_recent(UID)
     events = db.execution_events_for_uid(UID, "kr")
     assert len(trades) == len(events) == 1
     assert trades[0]["order_no"] == result["order_no"]
     assert events[0]["payload"]["score"] == 2.0
+    assert events[0]["payload"]["execution_policy_id"] == "execution-123"
+    assert events[0]["payload"]["signal_policy_id"] == "signal-456"
     # 기존 호출자의 후속 로그 보충은 같은 체결을 두 건으로 세지 않는다.
     db.bot_trade_log(UID, "005930", "삼성전자", "buy", 1, result["fill_price"],
                      "SIGNAL", result["order_no"], note="보충")

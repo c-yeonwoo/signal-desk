@@ -10,23 +10,43 @@ import hashlib
 import json
 import math
 import datetime
+from functools import lru_cache
+from pathlib import Path
 
 from signal_desk.signals import portfolio_candidates, portfolio_construction, portfolio_marginal, portfolio_trade_plan
 
 POLICY_VERSION = "joint-risk-shadow-v1"
 
 
-def _blocked(reason: str) -> dict:
+@lru_cache(maxsize=1)
+def _source_id() -> str:
+    base = Path(__file__).resolve().parent
+    files = (base / name for name in ("portfolio_decision.py", "portfolio_candidates.py",
+             "portfolio_construction.py", "portfolio_risk.py", "portfolio_trade_plan.py"))
+    return hashlib.sha256(b"".join(p.read_bytes() for p in files)).hexdigest()[:24]
+
+
+def _blocked(reason: str, *, policy_id: str | None = None,
+             signal_policy_id: str | None = None) -> dict:
     return {key: {"ready": False, "mode": "shadow", "reason": reason, "instructions": []}
             for key in ("allocation", "trade_plan", "entry_candidates")} | {
-                "decision": {"policy_version": POLICY_VERSION, "mode": "shadow", "live_eligible": False, "reason": reason}}
+                "decision": {"policy_version": POLICY_VERSION, "policy_id": policy_id,
+                             "signal_policy_id": signal_policy_id,
+                             "mode": "shadow", "live_eligible": False, "reason": reason}}
 
 
 def decide(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict,
            prices: dict, dates_by: dict, profile: dict, market: str,
-           assumptions: dict | None = None) -> dict:
+           assumptions: dict | None = None, signal_policy_id: str | None = None) -> dict:
+    policy_material = {"version": POLICY_VERSION, "source": _source_id(), "market": market,
+                       "profile": {k: v for k, v in profile.items()
+                                   if k not in ("updated", "configured", "cash")},
+                       "assumptions": assumptions, "signal_policy_id": signal_policy_id}
+    policy_id = hashlib.sha256(json.dumps(policy_material, sort_keys=True,
+                                          allow_nan=False).encode()).hexdigest()[:24]
     if any(r.get("value") is None or not math.isfinite(float(r["value"])) or float(r["value"]) < 0 for r in rows):
-        return _blocked("전체 보유의 평가액을 확정할 수 없어 통합 계획을 보류합니다.")
+        return _blocked("전체 보유의 평가액을 확정할 수 없어 통합 계획을 보류합니다.",
+                        policy_id=policy_id, signal_policy_id=signal_policy_id)
     candidates = portfolio_candidates.evaluate(
         holdings=rows, universe=universe, signal_by_ticker=signal_by_ticker,
         prices=prices, dates_by=dates_by, profile=profile)
@@ -47,10 +67,12 @@ def decide(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict,
         except (TypeError, ValueError):
             valid = False
         if not valid:
-            return _blocked("가격·날짜 정합성 검사 실패: " + str(ticker))
+            return _blocked("가격·날짜 정합성 검사 실패: " + str(ticker),
+                            policy_id=policy_id, signal_policy_id=signal_policy_id)
         end_dates.add(days[-1])
     if len(end_dates) > 1:
-        return _blocked("종목별 최종 가격 기준일이 달라 통합 계획을 보류합니다.")
+        return _blocked("종목별 최종 가격 기준일이 달라 통합 계획을 보류합니다.",
+                        policy_id=policy_id, signal_policy_id=signal_policy_id)
     allocation = portfolio_construction.propose(combined, dates_by=dates_by, closes_by=prices, profile=profile)
     trade = portfolio_trade_plan.plan(allocation, combined, cash=profile["cash"], market=market,
                                       profile=profile, assumptions=assumptions)
@@ -69,9 +91,12 @@ def decide(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict,
                 dates_by=dates_by, closes_by=prices)
     candidates["ready"] = any(i.get("proposed_qty", 0) for i in candidates.get("candidates", []))
     candidates["note"] = "통합 행동계획에 포함된 금액입니다. 기존 보유 매매와 별도로 추가 집행하지 마세요."
-    material = {"policy_version": POLICY_VERSION, "market": market, "profile": profile,
+    material = {"policy_version": POLICY_VERSION, "policy_id": policy_id,
+                "market": market, "profile": profile,
                 "rows": combined, "allocation": allocation, "trade_plan": trade}
     digest = hashlib.sha256(json.dumps(material, sort_keys=True, allow_nan=False).encode()).hexdigest()
     return {"allocation": allocation, "trade_plan": trade, "entry_candidates": candidates,
-            "decision": {"id": digest, "policy_version": POLICY_VERSION, "mode": "shadow",
+            "decision": {"id": digest, "policy_version": POLICY_VERSION,
+                         "policy_id": policy_id, "signal_policy_id": signal_policy_id,
+                         "mode": "shadow",
                          "live_eligible": False, "reason": "실전 정책 승격 및 시점·체결 검증 전"}}

@@ -43,7 +43,7 @@ from signal_desk.signals import (
     portfolio_candidates, portfolio_audit, portfolio_counterfactual,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
-    horizon, hypothesis, macro, narrative, opportunity, priced_in, rebalance, regime,
+    horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, revision, revision_price, sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
@@ -1193,7 +1193,8 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
                           for asset in universe if asset.get("ticker")]
     decision, artifact = portfolio_audit.capture(
         rows=rows, universe=candidate_universe, signal_by_ticker=signal_by_ticker,
-        prices=prices, dates_by=dates, profile=profile, market=market)
+        prices=prices, dates_by=dates, profile=profile, market=market,
+        signal_policy_id=_signal_policy_id(market, signal_by_ticker.values()))
     out.update(decision)
     out["audit"] = db.portfolio_artifact_add(uid, market, artifact)
     if not artifact["timing"]["aligned"]:
@@ -1492,9 +1493,24 @@ def _signals():
     cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())  # 약세·비우호·외인기관 순매도면 매수 기준 상향
     results = evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
                        config=cfg, **store.kr_engine_inputs())  # 입력 한 벌은 봇과 공유
+    policy_id = policy_contract.signal_policy_id("kr", cfg)
+    for result in results:
+        result.signal_policy_id = policy_id
     execution_gate.apply_from_store(results, market="kospi", today=_kst_today())
     _sync_episode_state(results, market="kospi")
     return results
+
+
+def _signal_policy_id(market: str, signals=None) -> str:
+    # 캐시된 신호가 있으면 재계산한 현재 설정이 아니라 그 신호를 실제 만든 정책을 표시한다.
+    for signal in signals or ():
+        existing = getattr(signal, "signal_policy_id", None)
+        if existing:
+            return existing
+    if market == "us":
+        return policy_contract.signal_policy_id("us", SignalConfig())
+    cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())
+    return policy_contract.signal_policy_id("kr", cfg)
 
 
 @lru_cache(maxsize=1)
@@ -1618,6 +1634,9 @@ def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct
         "score": round(score, 4) if score is not None else 0.0,
         "kind": r.kind,
         "confidence": conf if conf is not None else 0.0,
+        "score_strength": conf if conf is not None else 0.0,
+        "score_semantics": policy_contract.SCORE_SEMANTICS,
+        "signal_policy_id": getattr(r, "signal_policy_id", None),
         "factor_scores": factors,
         "event_risk": buy_blocked,
         "decision_buy_blocked": buy_blocked,
@@ -1974,7 +1993,9 @@ def signals_get(request: Request, market: str = "kospi"):
                 if it.get("mktcap") is not None:
                     it["mktcap_krw"] = it["mktcap"] * fx["rate"]
         return {"ready": True, "items": items, "slim": True, "crowding": crowd,
-                "selection": sel, "desk_report": report, "fx": fx}
+                "selection": sel, "desk_report": report, "fx": fx,
+                "signal_policy_id": _signal_policy_id("us", us_sigs),
+                "score_semantics": policy_contract.SCORE_SEMANTICS}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
     items = []
@@ -2009,7 +2030,9 @@ def signals_get(request: Request, market: str = "kospi"):
     db.kv_set("crowding_last", {**crowd, "ts": int(time.time())})
     db.kv_set("desk_report_last", report)
     return {"ready": True, "items": items, "slim": True, "crowding": crowd,
-            "selection": sel, "desk_report": report}
+            "selection": sel, "desk_report": report,
+            "signal_policy_id": _signal_policy_id("kr", sigs),
+            "score_semantics": policy_contract.SCORE_SEMANTICS}
 
 
 @app.get("/api/signals/{ticker}/detail")
@@ -4450,6 +4473,9 @@ def _us_signals():
                        fundamentals=fundamentals, sentiment=kb.sentiment_map(),
                        earnings_dates=store.load_us_earnings_calendar(),
                        unavailable=US_UNAVAILABLE_FACTORS)
+    policy_id = policy_contract.signal_policy_id("us", SignalConfig())
+    for result in results:
+        result.signal_policy_id = policy_id
     execution_gate.apply_from_store(results, market="us", today=_kst_today())
     _sync_episode_state(results, market="us")
     return {s.ticker: s for s in results}

@@ -69,6 +69,16 @@ def test_replay_freezes_costs_and_mutable_inputs(captured, monkeypatch):
     assert audit.replay(body)['matched'] is None
 
 
+def test_replay_preserves_upstream_signal_policy_identity(captured):
+    inputs, _ = captured
+    result, body = audit.capture(**inputs, signal_policy_id='frozen-signal-policy')
+    different, _ = audit.capture(**inputs, signal_policy_id='new-signal-policy')
+    assert body['inputs']['signal_policy_id'] == 'frozen-signal-policy'
+    assert result['decision']['signal_policy_id'] == 'frozen-signal-policy'
+    assert result['decision']['id'] != different['decision']['id']
+    assert audit.replay(body)['matched'] is True
+
+
 def test_profile_save_timestamp_does_not_manufacture_new_evidence(captured):
     inputs, original = captured
     inputs['profile'].update(updated=100, configured=True)
