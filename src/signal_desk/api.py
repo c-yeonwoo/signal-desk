@@ -1023,9 +1023,11 @@ def _push_trades(market: str, result: dict, uid: int | None = None) -> None:
     if not rows:
         return
     style = bot.REFERENCE_BOTS.get(uid) if uid is not None else config.telegram_trade_style()
-    notify.enqueue(bot_alerts.render(style, market, rows, total_eval=result.get("total_eval"), cash=result.get("cash")),
-                   dedupe_key=bot_alerts.dedupe_key(uid or 0, market, rows), priority="critical",
-                   expires_at=int(time.time()) + 12 * 3600)
+    for row in rows:
+        notify.enqueue(bot_alerts.render(style, market, [row], total_eval=result.get("total_eval"),
+                                         cash=result.get("cash")),
+                       dedupe_key=bot_alerts.dedupe_key(uid or 0, market, [row]), priority="critical",
+                       expires_at=int(time.time()) + 12 * 3600)
     notify.drain()
 
 
@@ -1038,9 +1040,10 @@ def _push_reservations(market: str, result: dict | None, uid: int | None = None)
     if not rows:
         return
     style = bot.REFERENCE_BOTS.get(uid) if uid is not None else config.telegram_trade_style()
-    notify.enqueue(bot_alerts.render(style, market, rows),
-                   dedupe_key=bot_alerts.dedupe_key(uid or 0, market, rows), priority="critical",
-                   expires_at=int(time.time()) + 12 * 3600)
+    for row in rows:
+        notify.enqueue(bot_alerts.render(style, market, [row]),
+                       dedupe_key=bot_alerts.dedupe_key(uid or 0, market, [row]), priority="critical",
+                       expires_at=int(time.time()) + 12 * 3600)
     notify.drain()
 
 

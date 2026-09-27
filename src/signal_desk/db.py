@@ -165,6 +165,11 @@ CREATE TABLE IF NOT EXISTS notification_outbox(id INTEGER PRIMARY KEY AUTOINCREM
     status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0, next_attempt INTEGER NOT NULL,
     expires_at INTEGER, created INTEGER NOT NULL, sent_at INTEGER, last_error TEXT);
 CREATE INDEX IF NOT EXISTS idx_notification_outbox_due ON notification_outbox(status, next_attempt);
+-- 아웃박스는 사건 1건, 전달은 수신자별. 일부 채팅만 성공해도 나머지를 잃지 않는다.
+CREATE TABLE IF NOT EXISTS notification_deliveries(
+    outbox_id INTEGER NOT NULL, chat_id TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+    attempts INTEGER NOT NULL DEFAULT 0, sent_at INTEGER, last_error TEXT,
+    PRIMARY KEY(outbox_id,chat_id));
 CREATE TABLE IF NOT EXISTS shortform(id TEXT PRIMARY KEY, ticker TEXT, name TEXT, kind TEXT, score REAL,
     title TEXT, script TEXT, caption TEXT, hashtags TEXT, card_svg TEXT, scenes TEXT,
     status TEXT NOT NULL DEFAULT 'draft', note TEXT, created INTEGER, reviewed INTEGER);
@@ -777,23 +782,84 @@ def notification_outbox_due(*, now: int | None = None, limit: int = 20) -> list[
             for i, key, text, priority, attempts, expires_at in rows]
 
 
+def notification_outbox_claim(*, now: int, lease_seconds: int = 300) -> dict | None:
+    """한 메시지를 원자적으로 선점. 전송 중 죽으면 lease 뒤 재시도된다."""
+    c = conn()
+    c.isolation_level = None
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT id,dedupe_key,text,priority,attempts,expires_at "
+                        "FROM notification_outbox WHERE status IN ('pending','sending') "
+                        "AND next_attempt<=? ORDER BY "
+                        "CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 ELSE 2 END, id LIMIT 1",
+                        (int(now),)).fetchone()
+        if row is None:
+            c.execute("ROLLBACK")
+            return None
+        c.execute("UPDATE notification_outbox SET status='sending',next_attempt=? WHERE id=?",
+                  (int(now) + lease_seconds, row[0]))
+        c.execute("COMMIT")
+        return dict(zip(("id", "dedupe_key", "text", "priority", "attempts", "expires_at"), row))
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
+    finally:
+        c.close()
+
+
+def notification_delivery_pending(item_id: int, chat_ids: list[str]) -> list[str]:
+    """첫 전송 때 수신자를 동결; 이후 해제된 수신자는 취소하고 신규 수신자는 소급하지 않는다."""
+    chats = list(dict.fromkeys(str(c) for c in chat_ids))
+    c = conn()
+    try:
+        existing = c.execute("SELECT chat_id,status FROM notification_deliveries WHERE outbox_id=?",
+                             (item_id,)).fetchall()
+        if not existing:
+            c.executemany("INSERT OR IGNORE INTO notification_deliveries(outbox_id,chat_id) VALUES(?,?)",
+                          [(item_id, chat) for chat in chats])
+        else:
+            for chat, status in existing:
+                if chat not in chats and status == "pending":
+                    c.execute("UPDATE notification_deliveries SET status='cancelled' "
+                              "WHERE outbox_id=? AND chat_id=?", (item_id, chat))
+        c.commit()
+        rows = c.execute("SELECT chat_id FROM notification_deliveries "
+                         "WHERE outbox_id=? AND status='pending'", (item_id,)).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        c.close()
+
+
+def notification_delivery_mark(item_id: int, chat_id: str, *, sent: bool,
+                               now: int, error: str = "") -> None:
+    c = conn()
+    try:
+        c.execute("UPDATE notification_deliveries SET status=?,attempts=attempts+1,sent_at=?,last_error=? "
+                  "WHERE outbox_id=? AND chat_id=? AND status='pending'",
+                  ("sent" if sent else "pending", now if sent else None,
+                   None if sent else error[:300], item_id, str(chat_id)))
+        c.commit()
+    finally:
+        c.close()
+
+
 def notification_outbox_sent(item_id: int, *, now: int | None = None) -> None:
     c = conn()
-    c.execute("UPDATE notification_outbox SET status='sent',sent_at=?,last_error=NULL WHERE id=? AND status='pending'",
+    c.execute("UPDATE notification_outbox SET status='sent',sent_at=?,last_error=NULL WHERE id=? AND status IN ('pending','sending')",
               (int(time.time()) if now is None else int(now), item_id))
     c.commit(); c.close()
 
 
 def notification_outbox_failed(item_id: int, *, next_attempt: int, error: str) -> None:
     c = conn()
-    c.execute("UPDATE notification_outbox SET attempts=attempts+1,next_attempt=?,last_error=? "
-              "WHERE id=? AND status='pending'", (int(next_attempt), error[:300], item_id))
+    c.execute("UPDATE notification_outbox SET status='pending',attempts=attempts+1,next_attempt=?,last_error=? "
+              "WHERE id=? AND status IN ('pending','sending')", (int(next_attempt), error[:300], item_id))
     c.commit(); c.close()
 
 
 def notification_outbox_expire(item_id: int) -> None:
     c = conn()
-    c.execute("UPDATE notification_outbox SET status='expired' WHERE id=? AND status='pending'", (item_id,))
+    c.execute("UPDATE notification_outbox SET status='expired' WHERE id=? AND status IN ('pending','sending')", (item_id,))
     c.commit(); c.close()
 
 
@@ -805,7 +871,7 @@ def notification_outbox_health(*, now: int | None = None) -> dict:
     pending, due, oldest, max_attempts = c.execute(
         "SELECT COUNT(*), "
         "SUM(CASE WHEN next_attempt<=? THEN 1 ELSE 0 END), "
-        "MIN(created), MAX(attempts) FROM notification_outbox WHERE status='pending'", (at,)
+        "MIN(created), MAX(attempts) FROM notification_outbox WHERE status IN ('pending','sending')", (at,)
     ).fetchone()
     c.close()
     counts = {status: count for status, count in rows}
@@ -879,6 +945,35 @@ def kv_set(k: str, v) -> None:
               (k, json.dumps(v, ensure_ascii=False), int(time.time())))
     c.commit()
     c.close()
+
+
+def kv_transform(k: str, transform, *, on_commit=None):
+    """KV 한 행의 읽기→검사→쓰기를 프로세스 간 단일 쓰기 트랜잭션으로 직렬화.
+
+    transform(old_value) -> (new_value, result). new_value가 None이면 변경 없이 result 반환.
+    네트워크·다른 DB 조회를 콜백 안에서 하지 않는다.
+    """
+    c = conn()
+    c.isolation_level = None
+    try:
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT v FROM kv WHERE k=?", (k,)).fetchone()
+        old = json.loads(row[0]) if row else None
+        new, result = transform(old)
+        if new is None:
+            c.execute("ROLLBACK")
+            return result
+        c.execute("INSERT OR REPLACE INTO kv(k,v,ts) VALUES(?,?,?)",
+                  (k, json.dumps(new, ensure_ascii=False), int(time.time())))
+        if on_commit is not None:
+            on_commit(c, result)
+        c.execute("COMMIT")
+        return result
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
+    finally:
+        c.close()
 
 
 # ---------- user_bot (유저별 봇 설정 — enabled/성향/시드) ----------
@@ -1071,10 +1166,19 @@ def bot_trade_log(uid: int, ticker: str, name: str, side: str, qty: int, price: 
                    slippage_cost: float | None = None, cash_change: float | None = None) -> None:
     """score=매매 시점 시그널 종합점수, note=타이밍·수량 산정 근거(사람이 읽는 한 줄)."""
     c = conn()
-    c.execute("INSERT INTO bot_trades(uid,ticker,market,name,side,qty,price,reason,order_no,ts,score,note,"
-              "reference_price,fees,slippage_cost,cash_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-              (uid, ticker, market, name, side, qty, price, reason, order_no, int(time.time()), score, note,
-               reference_price, fees, slippage_cost, cash_change))
+    existing = (c.execute("SELECT id FROM bot_trades WHERE uid=? AND market=? AND order_no=? "
+                          "AND ticker=? AND side=? AND qty=? AND reason=?",
+                          (uid, market, order_no, ticker, side, qty, reason)).fetchone()
+                if order_no and order_no.startswith("PAPER-") else None)
+    if existing:
+        # paper writer가 같은 트랜잭션에서 만든 체결 행을 보충한다. 두 행으로 세지 않는다.
+        c.execute("UPDATE bot_trades SET name=?,score=?,note=? WHERE id=?",
+                  (name, score, note, existing[0]))
+    else:
+        c.execute("INSERT INTO bot_trades(uid,ticker,market,name,side,qty,price,reason,order_no,ts,score,note,"
+                  "reference_price,fees,slippage_cost,cash_change) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                  (uid, ticker, market, name, side, qty, price, reason, order_no, int(time.time()), score, note,
+                   reference_price, fees, slippage_cost, cash_change))
     c.commit()
     c.close()
 

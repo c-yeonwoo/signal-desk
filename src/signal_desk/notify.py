@@ -24,26 +24,28 @@ def available() -> bool:
 
 
 def push(text: str) -> bool:
-    """텔레그램으로 메시지 전송(설정된 모든 채팅). 성공 1건 이상이면 True. 미설정/실패 시 False(그레이스풀)."""
+    """직접 전송은 모든 채팅 성공일 때만 True. 재시도 보장은 enqueue/drain을 사용."""
     tok = config.telegram_token()
     chats = config.telegram_chat_ids()
     text = (text or "").strip()
     if not tok or not chats or not text:
         return False
-    ok = False
-    for chat in chats:
-        body = json.dumps({"chat_id": chat, "text": text[:4000],
-                           "disable_web_page_preview": True}).encode("utf-8")
-        req = urllib.request.Request(f"https://api.telegram.org/bot{tok}/sendMessage",
-                                     data=body, headers={"Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=_TIMEOUT):
-                ok = True
-        except urllib.error.HTTPError as e:
-            log.warning("텔레그램 전송 실패: HTTP %s", e.code)
-        except Exception as e:
-            log.warning("텔레그램 전송 실패: %s", type(e).__name__)
-    return ok
+    return all([_send_one(tok, chat, text) for chat in chats])
+
+
+def _send_one(token: str, chat: str, text: str) -> bool:
+    body = json.dumps({"chat_id": chat, "text": text[:4000],
+                       "disable_web_page_preview": True}).encode("utf-8")
+    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage",
+                                 data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=_TIMEOUT):
+            return True
+    except urllib.error.HTTPError as e:
+        log.warning("텔레그램 전송 실패: HTTP %s", e.code)
+    except Exception as e:
+        log.warning("텔레그램 전송 실패: %s", type(e).__name__)
+    return False
 
 
 def enqueue(text: str, *, dedupe_key: str, priority: str = "normal",
@@ -72,21 +74,37 @@ def drain(*, now: int | None = None, limit: int = 20) -> dict[str, int]:
     """
     at = int(time.time()) if now is None else int(now)
     stats = {"sent": 0, "failed": 0, "expired": 0, "pending": 0}
-    for item in db.notification_outbox_due(now=at, limit=limit):
+    if not available():
+        for item in db.notification_outbox_due(now=at, limit=limit):
+            if item.get("expires_at") is not None and item["expires_at"] <= at:
+                db.notification_outbox_expire(item["id"])
+                stats["expired"] += 1
+            else:
+                stats["pending"] += 1
+        return stats
+    token, chats = config.telegram_token(), config.telegram_chat_ids()
+    for _ in range(limit):
+        item = db.notification_outbox_claim(now=at)
+        if item is None:
+            break
         expires_at = item.get("expires_at")
         if expires_at is not None and expires_at <= at:
             db.notification_outbox_expire(item["id"])
             stats["expired"] += 1
             continue
-        if not available():
-            stats["pending"] += 1
-            break
-        if push(item["text"]):
+        recipients = db.notification_delivery_pending(item["id"], chats)
+        failed = False
+        for chat in recipients:
+            delivered = _send_one(token, chat, item["text"])
+            db.notification_delivery_mark(item["id"], chat, sent=delivered, now=at,
+                                          error="telegram delivery failed" if not delivered else "")
+            failed |= not delivered
+        if not failed:
             db.notification_outbox_sent(item["id"], now=at)
             stats["sent"] += 1
         else:
             delay = _retry_delay_seconds(item["attempts"])
             db.notification_outbox_failed(item["id"], next_attempt=at + delay,
-                                          error="telegram delivery failed")
+                                          error="telegram delivery failed for some recipients")
             stats["failed"] += 1
     return stats
