@@ -82,3 +82,19 @@ def previous_session(market: str, day: str) -> str | None:
         return _calendar(market).previous_session(day).date().isoformat()
     except (KeyError, ValueError, IndexError):
         return None
+
+
+def next_sessions(market: str, day: str, count: int) -> list[str]:
+    """판단일 *이후*의 정규 거래일. 범위를 벗어나면 임의의 평일로 대체하지 않는다."""
+    if count < 1 or count > 60 or not is_session(market, day):
+        return []
+    try:
+        cal = _calendar(market)
+        out = []
+        current = day
+        for _ in range(count):
+            current = cal.next_session(current).date().isoformat()
+            out.append(current)
+        return out
+    except (KeyError, ValueError, IndexError):
+        return []

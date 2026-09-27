@@ -58,6 +58,17 @@ CREATE TABLE IF NOT EXISTS rotation_shadow_snapshots(
     PRIMARY KEY(uid,market,session));
 CREATE INDEX IF NOT EXISTS idx_rotation_shadow_recent
     ON rotation_shadow_snapshots(market,session DESC);
+CREATE TABLE IF NOT EXISTS rotation_shadow_marks(
+    uid INTEGER NOT NULL, market TEXT NOT NULL, episode_session TEXT NOT NULL,
+    price_session TEXT NOT NULL, ticker TEXT NOT NULL, price REAL NOT NULL,
+    observed INTEGER NOT NULL,
+    PRIMARY KEY(uid,market,episode_session,price_session,ticker));
+CREATE INDEX IF NOT EXISTS idx_rotation_shadow_marks_episode
+    ON rotation_shadow_marks(uid,market,episode_session,price_session);
+CREATE TABLE IF NOT EXISTS rotation_shadow_revision_halts(
+    uid INTEGER NOT NULL, market TEXT NOT NULL, episode_session TEXT NOT NULL,
+    details TEXT NOT NULL, detected INTEGER NOT NULL,
+    PRIMARY KEY(uid,market,episode_session));
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -1399,6 +1410,55 @@ def rotation_shadow_recent(uid: int, market: str, limit: int = 30) -> list[dict]
             (uid, market, max(1, min(int(limit), 500)))).fetchall()
         return [{**json.loads(payload), "session": session, "created": created}
                 for session, payload, created in rows]
+    finally:
+        c.close()
+
+
+def rotation_shadow_marks_add_once(uid: int, market: str, episode_session: str,
+                                   price_session: str, prices: dict[str, float], *, observed: int) -> int:
+    """완료 세션의 최초 관측 가격만 동결. 재수집은 기존 가격을 바꾸지 않는다."""
+    c = conn()
+    try:
+        before = c.total_changes
+        c.executemany(
+            "INSERT OR IGNORE INTO rotation_shadow_marks"
+            "(uid,market,episode_session,price_session,ticker,price,observed) VALUES(?,?,?,?,?,?,?)",
+            [(uid, market, episode_session, price_session, ticker, float(price), observed)
+             for ticker, price in prices.items()])
+        c.commit()
+        return c.total_changes - before
+    finally:
+        c.close()
+
+
+def rotation_shadow_marks(uid: int, market: str, episode_session: str) -> dict[str, dict[str, float]]:
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT price_session,ticker,price FROM rotation_shadow_marks "
+            "WHERE uid=? AND market=? AND episode_session=? ORDER BY price_session,ticker",
+            (uid, market, episode_session)).fetchall()
+        out: dict[str, dict[str, float]] = {}
+        for day, ticker, price in rows:
+            out.setdefault(day, {})[ticker] = price
+        return out
+    finally:
+        c.close()
+
+
+def rotation_shadow_revision_halt(uid: int, market: str, episode_session: str,
+                                  details: str | None = None) -> str | None:
+    """첫 가격 수정 발견을 영구 보류한다. details=None이면 기존 보류 조회만."""
+    c = conn()
+    try:
+        if details is not None:
+            c.execute("INSERT OR IGNORE INTO rotation_shadow_revision_halts VALUES(?,?,?,?,?)",
+                      (uid, market, episode_session, details, int(time.time())))
+            c.commit()
+        row = c.execute(
+            "SELECT details FROM rotation_shadow_revision_halts WHERE uid=? AND market=? AND episode_session=?",
+            (uid, market, episode_session)).fetchone()
+        return row[0] if row else None
     finally:
         c.close()
 
