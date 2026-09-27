@@ -202,7 +202,7 @@ def evaluate(snapshot: dict, marks: dict[str, dict[str, float]], *,
     market = snapshot["market"]
     assumptions = snapshot["cost_assumptions"]
     for policy, tickers in snapshot["policies"].items():
-        cash, holdings, cost = capital, {}, 0.0
+        cash, holdings, cost, entry_notional = capital, {}, 0.0, 0.0
         slot = capital / max(1, snapshot["top_k"])
         for ticker in tickers:
             frozen_unit = -execution.calculate(snapshot["selected"][ticker]["price"], 1, "buy", market,
@@ -216,12 +216,14 @@ def evaluate(snapshot: dict, marks: dict[str, dict[str, float]], *,
                 return blocked("다음 거래일 가격 갭으로 동결 수량 매수 불가")
             holdings[ticker] = qty
             cost += fill.total_fees + fill.slippage_cost
+            entry_notional += fill.gross_notional
         for ticker, qty in holdings.items():
             fill = execution.calculate(marks[exit_day][ticker], qty, "sell", market, assumptions=assumptions)
             cash += fill.cash_change
             cost += fill.total_fees + fill.slippage_cost
         outcome[policy] = {"net_return_pct": round((cash / capital - 1) * 100, 6),
                            "cost_drag_pct": round(cost / capital * 100, 6),
+                           "entry_notional_pct": round(entry_notional / capital * 100, 6),
                            "filled_slots": len(holdings), "selected_slots": len(tickers)}
     return {**base, "ready": True, "status": "complete", "entry_session": entry,
             "exit_session": exit_day, "outcomes": outcome,

@@ -145,6 +145,7 @@ class SignalResult:
     has_flow: bool = False
     quality_points: int | None = None  # 축약 F-Score(0~5, 재무 건전성·개선)
     has_quality: bool = False
+    quality_evaluable: int | None = None  # KR/US 분모가 다르므로 PIT 원점수와 함께 보존
     momentum_ret: float | None = None  # 12-1개월 수익률(중기 모멘텀)
     has_momentum: bool = False
     short_ratio: float | None = None  # 최근 공매도 거래비중(KR)
@@ -981,6 +982,7 @@ def evaluate(
         entry = sentiment.get(ticker) or {}
         dec = _decision_from_entry(entry)
         _apply_event_veto(combined, dec)
+        ql_meta = (fundamentals.get(ticker) or {}).get("quality") or {}
         result = SignalResult(
             ticker=ticker, name=name, score=combined["score"], kind=combined["kind"],
             confidence=combined["confidence"], technical_score=round(tech_score, 2),
@@ -990,6 +992,8 @@ def evaluate(
             qualitative_score=qual_score, has_qualitative=has_qualitative,
             flow_intensity=round(flow_intensity, 3) if has_flow else None, has_flow=has_flow,
             quality_points=ql_points, has_quality=has_quality,
+            quality_evaluable=(int(ql_meta.get("evaluable") or ql_meta.get("max") or 0)
+                               if has_quality else None),
             momentum_ret=mom_ret, has_momentum=has_momentum,
             short_ratio=round(sh_ratio, 4) if sh_ratio is not None else None, has_short=has_short,
             event_risk=dec.buy_blocked, event_note=dec.summary,

@@ -2228,7 +2228,8 @@ def snapshot_signals(signals, date: str | None = None, market: str = "kr") -> in
             "technical": round(s.technical_score, 3), "fundamental": round(s.fundamental_score, 3),
             "valuation": s.valuation_percentile, "reversion": round(s.reversion_score, 3),
             "qualitative": s.qualitative_score, "flow": s.flow_intensity,
-            "quality": s.quality_points, "momentum": s.momentum_ret,
+            "quality": s.quality_points, "quality_evaluable": getattr(s, "quality_evaluable", None),
+            "momentum": s.momentum_ret,
             "short": s.short_ratio, "kb_docs": kb_docs.get(s.ticker, 0),
             # 재정규화 편향(X2)을 **사후에 채점**할 수 있게 그날 값으로 남긴다. 나중에 재구성하면
             # 그 시점 데이터 상태를 알 수 없다(KB 커버리지와 같은 이유).

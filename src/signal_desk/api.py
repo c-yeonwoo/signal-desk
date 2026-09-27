@@ -41,7 +41,7 @@ from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_scree
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate,
-    portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict,
+    portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
     horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
@@ -457,6 +457,12 @@ def _bot_loop_iteration() -> None:
                 db.kv_set(f"price_baseline_forward_last:{mkt}", {**forward, "at": now.isoformat()})
         except Exception as e:
             log.warning("R12 가격 대조군 shadow 실패(%s): %s", mkt, type(e).__name__)
+        try:
+            quality_status = price_quality_shadow.capture(mkt, now)
+            if quality_status.get("saved"):
+                db.kv_set(f"price_quality_last:{mkt}", {**quality_status, "at": now.isoformat()})
+        except Exception as e:
+            log.warning("R12 quality 증분 동결 실패(%s): %s", mkt, type(e).__name__)
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40):
         try:
             telegram_inbound.enqueue_daily_summaries(_kst_today(), "kr")
@@ -3508,6 +3514,51 @@ def price_baseline_verdict_get(request: Request, market: str = "kr"):
             row, db.price_baseline_marks(market, row["session"]), completed_session=completed,
             revision_halt=db.price_baseline_halt(market, row["session"]))
     return price_baseline_verdict.assess(rows, market=market, completed_session=completed)
+
+
+@app.get("/api/admin/research/price-quality")
+def price_quality_get(request: Request, market: str = "kr", limit: int = 20,
+                      include_inputs: bool = False):
+    """R12b quality veto vs same price baseline and same-exposure cash control."""
+    _admin_or_403(request)
+    if market not in ("kr", "us") or not 1 <= limit <= 100:
+        raise HTTPException(status_code=422, detail="market/limit 값이 올바르지 않습니다.")
+    completed = rotation_shadow.score_completed_session(market, datetime.datetime.now(datetime.timezone.utc))
+    rows = []
+    for base in db.price_baseline_recent(market, limit):
+        frozen = db.price_quality_get(market, base["session"])
+        forward = price_quality_shadow.evaluate(
+            frozen, base, db.price_baseline_marks(market, base["session"]),
+            completed_session=completed or base["session"],
+            revision_halt=db.price_baseline_halt(market, base["session"]))
+        row = {"session": base["session"], "base_version": base.get("version"),
+               "base_picks": base.get("policies", {}).get("price_3factor", []),
+               "quality": frozen, "forward": forward}
+        if frozen and not include_inputs:
+            row["quality"] = {k: v for k, v in frozen.items() if k != "quality"}
+        rows.append(row)
+    return {"version": price_quality_shadow.VERSION, "market": market, "mode": "shadow",
+            "live_eligible": False, "episodes": rows,
+            "capture_status": db.kv_get(f"price_quality_last:{market}") or {},
+            "note": "quality 제외의 증분을 원래 가격 바구니 및 같은 현금비중의 가격순위 바구니와 비교. 실주문 미연결."}
+
+
+@app.get("/api/admin/research/price-quality/verdict")
+def price_quality_verdict_get(request: Request, market: str = "kr"):
+    _admin_or_403(request)
+    if market not in ("kr", "us"):
+        raise HTTPException(status_code=422, detail="market 값이 올바르지 않습니다.")
+    completed = rotation_shadow.score_completed_session(market, datetime.datetime.now(datetime.timezone.utc))
+    rows = db.price_baseline_all(market, price_quality_shadow.START_SESSION)
+    for base in rows:
+        sessions = market_clock.next_sessions(market, base["session"], price_baseline_shadow.HORIZON)
+        if not completed or len(sessions) != price_baseline_shadow.HORIZON or sessions[-1] > completed:
+            continue
+        base["quality_forward"] = price_quality_shadow.evaluate(
+            db.price_quality_get(market, base["session"]), base,
+            db.price_baseline_marks(market, base["session"]), completed_session=completed,
+            revision_halt=db.price_baseline_halt(market, base["session"]))
+    return price_quality_verdict.assess(rows, market=market, completed_session=completed)
 
 
 @app.get("/api/admin/research/rotation-shadow")

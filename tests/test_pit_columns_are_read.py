@@ -28,6 +28,7 @@ _CONSUMERS = (
     _SRC / "signals" / "harness.py",
     _SRC / "signals" / "pick_reason.py",
     _SRC / "signals" / "kb_coverage.py",
+    _SRC / "signals" / "price_quality_shadow.py",  # R12b PIT quality 분모를 전진 비교에서 소비
     _SRC / "store.py",            # scores_from_pit·PIT 슬라이스 등
     _SRC / "api.py",              # 라우트가 행을 그대로 내보내는 경우
 )

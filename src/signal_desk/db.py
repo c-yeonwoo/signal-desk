@@ -80,6 +80,10 @@ CREATE TABLE IF NOT EXISTS price_baseline_marks(
 CREATE TABLE IF NOT EXISTS price_baseline_halts(
     market TEXT NOT NULL, episode_session TEXT NOT NULL, details TEXT NOT NULL, detected INTEGER NOT NULL,
     PRIMARY KEY(market,episode_session));
+-- R12b: separate quality increment, keyed to the frozen R12a price episode.
+CREATE TABLE IF NOT EXISTS price_quality_snapshots(
+    market TEXT NOT NULL, session TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL,
+    PRIMARY KEY(market,session));
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -1572,6 +1576,27 @@ def price_baseline_halt(market: str, episode: str, details: str | None = None) -
         row = c.execute("SELECT details FROM price_baseline_halts WHERE market=? AND episode_session=?",
                         (market, episode)).fetchone()
         return row[0] if row else None
+    finally:
+        c.close()
+
+
+def price_quality_add_once(market: str, session: str, payload: dict) -> bool:
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO price_quality_snapshots VALUES(?,?,?,?)",
+                        (market, session, json.dumps(payload, ensure_ascii=False, sort_keys=True), int(time.time())))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def price_quality_get(market: str, session: str) -> dict | None:
+    c = conn()
+    try:
+        row = c.execute("SELECT payload FROM price_quality_snapshots WHERE market=? AND session=?",
+                        (market, session)).fetchone()
+        return json.loads(row[0]) if row else None
     finally:
         c.close()
 
