@@ -1561,6 +1561,44 @@
   <div id="view-mypage" class="view-doc" style="display:none">
     <h2 class="page-head">마이페이지</h2>
     <p class="page-desc" id="mp_email"></p>
+    <div class="card" style="max-width:700px;margin:16px 0;padding:20px">
+      <div class="row" style="align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <b style="font-size:17px">텔레그램 개인 알림</b>
+          <p class="page-desc" style="margin:5px 0 0">내 계정에 연결한 개인 채팅으로만 관심종목 변화를 받습니다. 봇 체결은 선택한 성향 한 가지만 받습니다.</p>
+        </div>
+        <span id="tg-badge" class="chip">확인 중</span>
+      </div>
+      <div id="tg-status" style="font-size:13px;margin:14px 0;color:var(--dim)">연결 상태를 불러오는 중…</div>
+      <div id="tg-link-panel" style="display:none;border-top:1px solid var(--line);padding-top:14px">
+        <p class="page-desc" style="margin:0 0 10px">① 연결 코드 발급 → ② 텔레그램 봇의 <b>개인 채팅</b>에 <code>/link 코드</code> 전송 → ③ 이 앱에서 채팅을 확인하고 연결 확정</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button class="btn primary" onclick="issueTelegramCode()">10분 코드 발급</button>
+          <button class="btn" onclick="loadTelegramSettings()">연결 상태 확인</button>
+        </div>
+        <div id="tg-code" style="margin-top:10px;font-weight:700;letter-spacing:1px;overflow-wrap:anywhere"></div>
+        <div id="tg-claim" style="margin-top:10px"></div>
+      </div>
+      <div id="tg-settings-panel" style="display:none;border-top:1px solid var(--line);padding-top:14px">
+        <div class="row" style="gap:10px;flex-wrap:wrap;align-items:center">
+          <label>봇 성향 <select id="tg-style"><option value="conservative">안정형</option><option value="balanced">균형형</option><option value="aggressive">공격형</option></select></label>
+          <label><input type="checkbox" id="tg-market-kr"> 국내</label>
+          <label><input type="checkbox" id="tg-market-us"> 미국</label>
+        </div>
+        <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:12px">
+          <label><input type="checkbox" id="tg-paper-fill"> 선택한 봇의 확인 체결</label>
+          <label><input type="checkbox" id="tg-watchlist"> 내 관심종목 시그널 변경</label>
+          <label><input type="checkbox" id="tg-live-order"> 실주문 상태·불명 경고</label>
+          <label><input type="checkbox" id="tg-daily-summary"> 마감 후 내 요약</label>
+        </div>
+        <p class="page-desc" style="margin:10px 0">매수 체결 알림은 늦게 도착하면 폐기합니다. 텔레그램 명령은 읽기 전용이며 주문·한도 변경은 할 수 없습니다.</p>
+        <div class="row" style="gap:8px;flex-wrap:wrap">
+          <button class="btn primary" onclick="saveTelegramSettings()">알림 설정 저장</button>
+          <button class="btn" onclick="unlinkTelegram()">연결 해제</button>
+        </div>
+      </div>
+      <div id="tg-feedback" role="status" style="font-size:13px;margin-top:10px"></div>
+    </div>
     <p class="page-desc">관리 기능(엔진 설정·백테스트 분석·KB 문서)은 상단 <b>관리자</b> 메뉴에 있습니다(관리자 계정 전용).</p>
   </div>
 
@@ -7430,6 +7468,87 @@ function applyProfileHeader(){
 
 function fillMyPage(){
   document.getElementById('mp_email').textContent = _userEmail || '';
+  loadTelegramSettings();
+}
+
+let _tgCode = null;
+async function loadTelegramSettings(){
+  const status = document.getElementById('tg-status');
+  try {
+    const response = await fetch('/api/telegram/settings');
+    if (!response.ok) throw new Error('연결 상태를 읽지 못했습니다.');
+    const d = await response.json();
+    document.getElementById('tg-badge').textContent = d.linked ? '연결됨' : '연결 전';
+    document.getElementById('tg-link-panel').style.display = d.linked || !d.configured ? 'none' : '';
+    document.getElementById('tg-settings-panel').style.display = d.linked ? '' : 'none';
+    const botLink = d.bot_username ? `<a href="https://t.me/${encodeURIComponent(d.bot_username)}" target="_blank" rel="noopener">@${esc(d.bot_username)} 열기</a>` : '텔레그램 봇 채팅';
+    status.innerHTML = !d.configured ? '서버에 텔레그램 봇이 아직 설정되지 않았습니다.' :
+      d.inbound_status === 'webhook_or_conflict' ? '봇이 다른 webhook 또는 polling 프로세스에서 사용 중입니다. 관리자에게 문의하세요.' :
+      d.linked ? `${botLink} · 개인 알림이 연결되어 있습니다.` : `${botLink} · 개인 채팅 연결 후 알림을 받을 수 있습니다.`;
+    if (d.linked) {
+      document.getElementById('tg-style').value = d.style;
+      for (const m of ['kr','us']) document.getElementById('tg-market-'+m).checked = d.markets.includes(m);
+      document.getElementById('tg-paper-fill').checked = d.alert_types.includes('paper_fill');
+      document.getElementById('tg-watchlist').checked = d.alert_types.includes('watchlist');
+      document.getElementById('tg-live-order').checked = d.alert_types.includes('live_order');
+      document.getElementById('tg-daily-summary').checked = d.alert_types.includes('daily_summary');
+      _tgCode = null;
+      document.getElementById('tg-code').textContent = '';
+    }
+    const claim = document.getElementById('tg-claim');
+    claim.innerHTML = d.pending_claim ?
+      `<p class="page-desc">텔레그램의 <b>${esc(d.chat_label || '이름 미확인')}</b> 채팅에서 코드를 제출했습니다. 봇 답장과 채팅 ID <b>${esc(d.pending_chat_id)}</b>가 같은지 확인하세요.</p><button class="btn primary" onclick="confirmTelegramLink()">이 채팅으로 연결 확정</button>` : '';
+  } catch(e) { status.textContent = e.message; }
+}
+async function issueTelegramCode(){
+  const feedback = document.getElementById('tg-feedback');
+  try {
+    const r = await fetch('/api/telegram/link-code', {method:'POST',headers:{'X-Signal-Desk-Telegram':'settings'}});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '코드 발급에 실패했습니다.');
+    _tgCode = d.code;
+    document.getElementById('tg-code').textContent = '/link ' + d.code;
+    document.getElementById('tg-claim').textContent = '';
+    feedback.textContent = '이 명령을 텔레그램 봇의 개인 채팅에 전송하고 ‘연결 상태 확인’을 누르세요. 코드는 10분 동안 유효합니다.';
+  } catch(e) { feedback.textContent = e.message; }
+}
+async function confirmTelegramLink(){
+  const feedback = document.getElementById('tg-feedback');
+  try {
+    const r = await fetch('/api/telegram/confirm', {method:'POST',headers:{'X-Signal-Desk-Telegram':'settings'}});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '연결 확정에 실패했습니다.');
+    feedback.textContent = '개인 채팅 연결이 완료되었습니다.';
+    await loadTelegramSettings();
+  } catch(e) { feedback.textContent = e.message; }
+}
+async function saveTelegramSettings(){
+  const payload = {
+    style: document.getElementById('tg-style').value,
+    markets: ['kr','us'].filter(m => document.getElementById('tg-market-'+m).checked),
+    alert_types: [document.getElementById('tg-paper-fill').checked && 'paper_fill',
+      document.getElementById('tg-watchlist').checked && 'watchlist',
+      document.getElementById('tg-live-order').checked && 'live_order',
+      document.getElementById('tg-daily-summary').checked && 'daily_summary'].filter(Boolean)
+  };
+  const feedback = document.getElementById('tg-feedback');
+  try {
+    const r = await fetch('/api/telegram/settings', {method:'PUT',headers:{'Content-Type':'application/json','X-Signal-Desk-Telegram':'settings'},body:JSON.stringify(payload)});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '저장에 실패했습니다.');
+    feedback.textContent = '설정이 저장되었습니다. 변경 전 대기 중이던 개인 알림은 폐기했습니다.';
+    await loadTelegramSettings();
+  } catch(e) { feedback.textContent = e.message; }
+}
+async function unlinkTelegram(){
+  if (!confirm('텔레그램 개인 채팅 연결을 해제할까요? 대기 중인 개인 알림도 취소됩니다.')) return;
+  const feedback = document.getElementById('tg-feedback');
+  try {
+    const r = await fetch('/api/telegram/link', {method:'DELETE',headers:{'X-Signal-Desk-Telegram':'settings'}});
+    if (!r.ok) throw new Error('연결 해제에 실패했습니다.');
+    feedback.textContent = '연결을 해제했습니다.';
+    await loadTelegramSettings();
+  } catch(e) { feedback.textContent = e.message; }
 }
 
 // ===== 관리자 — 오늘 할 일 먼저, 탭은 짧게(점검/엔진/성적/뉴스/발행) =====

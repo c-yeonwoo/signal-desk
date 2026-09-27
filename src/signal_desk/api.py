@@ -20,6 +20,7 @@ from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 from fastapi import Body, FastAPI, HTTPException, Request
@@ -34,7 +35,7 @@ from signal_desk.broker import paper, toss_readonly
 
 from signal_desk import (
     account_performance, auth, bot, bot_alerts, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
-    llm, market_clock, notify, shortform, signalcfg, store, strategy,
+    llm, market_clock, notify, shortform, signalcfg, store, strategy, telegram_inbound,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
@@ -430,6 +431,11 @@ def _bot_loop_iteration() -> None:
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40) \
             and db.kv_get("bot_daily_snap") != _kst_today():
         _daily_maintenance(enabled)
+    if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40):
+        try:
+            telegram_inbound.enqueue_daily_summaries(_kst_today(), "kr")
+        except Exception as e:
+            log.warning("개인 Telegram 마감 요약 실패: %s", type(e).__name__)
 
 
 def _maybe_snapshot_us_signals(now: datetime.datetime) -> int:
@@ -769,6 +775,21 @@ async def _bot_loop():
         await asyncio.sleep(interval)
 
 
+async def _telegram_loop():
+    """개인 채팅 명령/빠른 재시도. 별도 DB lease로 복제본 중 한 프로세스만 poll한다."""
+    await asyncio.sleep(12)
+    while True:
+        try:
+            if config.telegram_token() and db.lease_claim(
+                "telegram_inbound_owner", _loop_me(), now=int(time.time()), lease_sec=30
+            ):
+                await asyncio.to_thread(telegram_inbound.poll_once)
+                await asyncio.to_thread(notify.drain)
+        except Exception as exc:  # noqa: BLE001 — inbound 장애가 거래 루프에 전파되지 않게
+            log.warning("Telegram inbound loop failed: %s", type(exc).__name__)
+        await asyncio.sleep(10)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     try:
@@ -802,9 +823,11 @@ async def _lifespan(app: FastAPI):
     # 매 틱마다 소유권을 재판정한다(`_own_loop_tick`).
     quote_task = asyncio.create_task(_quote_loop())
     bot_task = asyncio.create_task(_bot_loop())
+    telegram_task = asyncio.create_task(_telegram_loop())
     yield
     quote_task.cancel()
     bot_task.cancel()
+    telegram_task.cancel()
 
 
 class SafeJSONResponse(JSONResponse):
@@ -998,7 +1021,9 @@ def _scan_alerts(uid: int) -> None:
         return
     sigmap = {s.ticker: s for s in _signals()} if store.is_ready() else {}
     sigmap.update(_us_signals())
-    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    kr_universe = store.load_universe()
+    kr_tickers = {u["ticker"] for u in kr_universe}
+    names = {u["ticker"]: u["name"] for u in kr_universe}
     names.update({u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in store.load_us_universe()})
     prev = db.alert_state_all(uid)
     for t in favs:
@@ -1013,41 +1038,55 @@ def _scan_alerts(uid: int) -> None:
             msg = f"시그널 {_KIND_KO.get(old, old)} → {_KIND_KO.get(cur, cur)} (점수 {sig.score:+.2f})"
             db.alert_add(uid, t, name, msg)
             db.alert_state_set(uid, t, cur)
-            notify.enqueue(f"📊 {name}({t}) {msg}",
-                           dedupe_key=f"signal:{uid}:{t}:{old}:{cur}:{_kst_today()}", priority="high",
-                           expires_at=int(time.time()) + 24 * 3600)
+            market = "kr" if t in kr_tickers else "us"
+            notify.enqueue_user(uid, f"📊 {name}({t}) {msg}", market=market,
+                                alert_type="watchlist",
+                                dedupe_key=f"signal:{t}:{old}:{cur}:{_kst_today()}", priority="high",
+                                expires_at=int(time.time()) + 2 * 3600)
     notify.drain()
 
 
 def _push_trades(market: str, result: dict, uid: int | None = None) -> None:
     """선택한 한 페이퍼 봇의 실제 성공 체결만 보낸다. 계획·주문 실패는 제외."""
-    if result.get("ok") is not True or (uid is not None and not bot_alerts.selected(uid, bot.REFERENCE_BOTS)):
+    if result.get("ok") is not True or (uid is not None and uid not in bot.REFERENCE_BOTS):
         return
     rows = bot_alerts.trade_rows(result)
     if not rows:
         return
     style = bot.REFERENCE_BOTS.get(uid) if uid is not None else config.telegram_trade_style()
     for row in rows:
-        notify.enqueue(bot_alerts.render(style, market, [row], total_eval=result.get("total_eval"),
-                                         cash=result.get("cash")),
-                       dedupe_key=bot_alerts.dedupe_key(uid or 0, market, [row]), priority="critical",
-                       expires_at=int(time.time()) + 12 * 3600)
+        message = bot_alerts.render(style, market, [row], total_eval=result.get("total_eval"),
+                                    cash=result.get("cash"))
+        key = bot_alerts.dedupe_key(uid or 0, market, [row])
+        expiry = int(time.time()) + (15 * 60 if row["side"] == "BUY" else 2 * 3600)
+        if uid is None or bot_alerts.selected(uid, bot.REFERENCE_BOTS):
+            notify.enqueue(message, dedupe_key=key, priority="critical", expires_at=expiry)
+        if style in bot_alerts.STYLE_LABELS:
+            for subscriber_uid, _ in db.telegram_link_recipients(style, market, "paper_fill"):
+                notify.enqueue_user(subscriber_uid, message, dedupe_key=key, market=market,
+                                    alert_type="paper_fill", priority="critical", expires_at=expiry)
     notify.drain()
 
 
 def _push_reservations(market: str, result: dict | None, uid: int | None = None) -> None:
     """예약 주문 체결을 텔레그램으로 푸시. `run_once` 와 **별개 경로**라 따로 알린다 —
     한쪽만 붙이면 예약으로 산 종목은 조용히 들어온다."""
-    if uid is not None and not bot_alerts.selected(uid, bot.REFERENCE_BOTS):
+    if uid is not None and uid not in bot.REFERENCE_BOTS:
         return
     rows = bot_alerts.reservation_rows(result)
     if not rows:
         return
     style = bot.REFERENCE_BOTS.get(uid) if uid is not None else config.telegram_trade_style()
     for row in rows:
-        notify.enqueue(bot_alerts.render(style, market, [row]),
-                       dedupe_key=bot_alerts.dedupe_key(uid or 0, market, [row]), priority="critical",
-                       expires_at=int(time.time()) + 12 * 3600)
+        message = bot_alerts.render(style, market, [row])
+        key = bot_alerts.dedupe_key(uid or 0, market, [row])
+        expiry = int(time.time()) + 15 * 60
+        if uid is None or bot_alerts.selected(uid, bot.REFERENCE_BOTS):
+            notify.enqueue(message, dedupe_key=key, priority="critical", expires_at=expiry)
+        if style in bot_alerts.STYLE_LABELS:
+            for subscriber_uid, _ in db.telegram_link_recipients(style, market, "paper_fill"):
+                notify.enqueue_user(subscriber_uid, message, dedupe_key=key, market=market,
+                                    alert_type="paper_fill", priority="critical", expires_at=expiry)
     notify.drain()
 
 
@@ -1062,6 +1101,83 @@ def alerts_get(request: Request):
 @app.post("/api/alerts/read")
 def alerts_read(request: Request):
     db.alerts_mark_read(_uid(request))
+    return {"ok": True}
+
+
+# ---------- 개인 Telegram 연결 (주문·한도 변경은 제공하지 않음) ----------
+def _telegram_mutation_guard(request: Request) -> None:
+    if request.headers.get("x-signal-desk-telegram") != "settings":
+        raise HTTPException(403, "앱에서 Telegram 설정을 다시 시작하세요.")
+    origin = request.headers.get("origin")
+    if origin:
+        parsed = urlparse(origin)
+        if parsed.netloc != request.headers.get("host") or (config.is_prod() and parsed.scheme != "https"):
+            raise HTTPException(403, "요청 출처가 현재 앱과 일치하지 않습니다.")
+
+
+@app.get("/api/telegram/settings")
+def telegram_settings_get(request: Request):
+    uid = _uid(request)
+    link = db.telegram_link_get(uid)
+    pending = db.telegram_link_code_status(uid, now=int(time.time()))
+    return {"configured": bool(config.telegram_token()),
+            "inbound_status": telegram_inbound.inbound_status(),
+            "bot_username": telegram_inbound.bot_username(),
+            "linked": bool(link),
+            "chat_label": pending["chat_label"] if pending and pending["claimed"] else None,
+            "pending_chat_id": pending["chat_id"] if pending and pending["claimed"] else None,
+            "pending_claim": bool(pending and pending["claimed"]),
+            "pending_expires_at": pending["expires_at"] if pending else None,
+            "style": link["style"] if link else "balanced",
+            "markets": link["markets"] if link else ["kr", "us"],
+            "alert_types": link["alert_types"] if link else ["paper_fill", "watchlist", "live_order", "daily_summary"]}
+
+
+@app.post("/api/telegram/link-code")
+def telegram_link_code_post(request: Request):
+    _telegram_mutation_guard(request)
+    if not config.telegram_token():
+        raise HTTPException(503, "Telegram 봇이 설정되지 않았습니다.")
+    return telegram_inbound.issue_code(_uid(request))
+
+
+@app.post("/api/telegram/confirm")
+def telegram_confirm_post(request: Request):
+    _telegram_mutation_guard(request)
+    uid = _uid(request)
+    if not db.telegram_link_confirm(uid, now=int(time.time())):
+        raise HTTPException(409, "코드가 만료되었거나 다른 계정에 연결된 채팅입니다.")
+    link = db.telegram_link_get(uid)
+    notify.enqueue_user(uid, "Signal Desk 개인 Telegram 연결이 완료되었습니다. /help 로 읽기 전용 명령을 확인하세요.",
+                        dedupe_key=f"telegram-welcome:{link['linked_at']}:{link['chat_id']}",
+                        market="kr", alert_type="paper_fill", expires_at=int(time.time()) + 600)
+    notify.drain()
+    return {"ok": True}
+
+
+@app.put("/api/telegram/settings")
+def telegram_settings_put(request: Request, payload: dict = Body(...)):
+    _telegram_mutation_guard(request)
+    style = payload.get("style")
+    markets = payload.get("markets")
+    alerts = payload.get("alert_types")
+    allowed_alerts = {"paper_fill", "watchlist", "live_order", "daily_summary"}
+    if (not isinstance(style, str) or style not in bot_alerts.STYLE_LABELS or
+            not isinstance(markets, list) or not all(isinstance(m, str) and m in ("kr", "us") for m in markets) or
+            len(markets) != len(set(markets)) or not isinstance(alerts, list) or
+            not all(isinstance(a, str) and a in allowed_alerts for a in alerts) or
+            len(alerts) != len(set(alerts))):
+        raise HTTPException(400, "성향·시장·알림 종류를 확인하세요.")
+    if not db.telegram_link_settings(_uid(request), style=style, markets=markets,
+                                     alert_types=alerts, now=int(time.time())):
+        raise HTTPException(409, "먼저 개인 채팅을 연결하세요.")
+    return {"ok": True}
+
+
+@app.delete("/api/telegram/link")
+def telegram_link_delete(request: Request):
+    _telegram_mutation_guard(request)
+    db.telegram_link_unlink(_uid(request))
     return {"ok": True}
 
 
