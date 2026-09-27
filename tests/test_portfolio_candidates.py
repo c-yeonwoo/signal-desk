@@ -57,3 +57,16 @@ def test_event_risk_candidate_is_never_selected():
     )
     assert out["ready"] is False
     assert out["rejected"] == [{"ticker": "A", "name": "A", "reason": "이벤트 위험 감지"}]
+
+
+def test_new_candidate_does_not_exceed_profile_position_slots():
+    dates, prices = _series()
+    profile = {**_profile(), "max_positions": 1}
+    out = pc.evaluate(
+        holdings=[{"ticker": "HELD", "value": 100, "sector": "tech", "history_ready": True}],
+        universe=[{"ticker": "A", "name": "A", "sector": "health"}],
+        signal_by_ticker={"A": SimpleNamespace(kind="BUY", score=2, event_risk=False)},
+        prices={"HELD": prices, "A": prices}, dates_by={"HELD": dates, "A": dates},
+        profile=profile,
+    )
+    assert not out["ready"] and "최대 보유종목" in out["reason"]

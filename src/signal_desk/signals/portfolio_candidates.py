@@ -90,6 +90,10 @@ def evaluate(*, holdings: list[dict], universe: list[dict], signal_by_ticker: di
         return {"ready": False, "mode": "shadow", "reason": "최소 현금 한도를 제외하면 신규 편입에 쓸 현금 여유가 없습니다.",
                 "cash_pct": round(cash_pct, 1), "available_cash_pct": 0.0}
     held_tickers = {str(row["ticker"]) for row in holdings}
+    slots = max(0, int(profile.get("max_positions", len(held_tickers) + MAX_CANDIDATES)) - len(held_tickers))
+    if slots == 0:
+        return {"ready": False, "mode": "shadow", "reason": "최대 보유종목 수에 도달해 신규 편입을 보류합니다.",
+                "available_cash_pct": round(budget, 1), "candidates": [], "rejected": []}
     holding_returns = {str(row["ticker"]): _returns(dates_by.get(str(row["ticker"])) or [],
                                                        prices.get(str(row["ticker"])) or [])
                        for row in holdings if row.get("history_ready")}
@@ -148,7 +152,7 @@ def evaluate(*, holdings: list[dict], universe: list[dict], signal_by_ticker: di
                              "reason": f"후보 {', '.join(overlap[:3])}와 고상관"})
         else:
             independent.append(candidate)
-    selected = _allocate(independent[:MAX_CANDIDATES], cash_budget_pct=budget, sector_used=sector_used,
+    selected = _allocate(independent[:min(MAX_CANDIDATES, slots)], cash_budget_pct=budget, sector_used=sector_used,
                          max_single_pct=float(profile["max_single_position_pct"]),
                          max_sector_pct=float(profile["max_sector_pct"]))
     for candidate in selected:

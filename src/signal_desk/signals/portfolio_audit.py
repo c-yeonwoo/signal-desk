@@ -42,7 +42,8 @@ def digest(value: dict) -> str:
 def engine_version() -> str:
     base = Path(__file__).parent
     modules = [base / name for name in ("portfolio_decision.py", "portfolio_candidates.py",
-               "portfolio_construction.py", "portfolio_risk.py", "portfolio_trade_plan.py", "portfolio_audit.py")]
+               "portfolio_construction.py", "portfolio_risk.py", "portfolio_trade_plan.py",
+               "portfolio_pending.py", "portfolio_audit.py")]
     modules.append(base.parent / "broker" / "execution.py")
     return hashlib.sha256(b"".join(p.read_bytes() for p in modules) + np.__version__.encode()).hexdigest()
 
@@ -76,7 +77,8 @@ def clock_context(market: str, now: datetime | None = None) -> dict:
 
 def capture(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict, prices: dict,
             dates_by: dict, profile: dict, market: str,
-            signal_policy_id: str | None = None) -> tuple[dict, dict]:
+            signal_policy_id: str | None = None,
+            pending_orders: list[dict] | None = None) -> tuple[dict, dict]:
     """Freeze every input used by the joint decision, including rejected candidates.
 
     Only fields consumed by the policy are stored for signals; this replays the portfolio
@@ -86,6 +88,7 @@ def capture(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict, p
     policy_profile = {k: v for k, v in profile.items() if k not in ("updated", "configured")}
     inputs = json_safe({"rows": rows, "universe": universe, "profile": policy_profile, "market": market,
                        "signal_policy_id": signal_policy_id,
+                       "pending_orders": pending_orders or [],
                        "prices": {t: prices.get(t, []) for t in sorted(tickers)},
                        "dates_by": {t: dates_by.get(t, []) for t in sorted(tickers)},
                        "signals": {t: {k: getattr(s, k, None) for k in ("kind", "score", "event_risk")}
@@ -115,9 +118,11 @@ def capture(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict, p
             valid = False
         if not valid:
             invalid.append(ticker)
-    timing["aligned"] = bool(timing["ready"] and selected and not invalid)
+    timing["aligned"] = bool(timing["ready"] and selected and not invalid and not inputs["pending_orders"])
     timing["invalid_tickers"] = invalid
-    timing["reason"] = ("최종 완료 거래일·가격 이력 정합성 확인" if timing["aligned"] else
+    timing["pending_reconciled"] = not bool(inputs["pending_orders"])
+    timing["reason"] = ("미체결 주문의 실제 체결 여부 미확인 — 성과 측정 및 실행 보류" if inputs["pending_orders"] else
+                        "최종 완료 거래일·가격 이력 정합성 확인" if timing["aligned"] else
                         "거래일/최종 가격 시점 미확인 — 성과 측정 및 실행 보류")
     body = {"schema_version": SCHEMA_VERSION, "engine_version": engine_version(), "inputs": inputs,
             "result": result, "timing": timing,
