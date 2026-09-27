@@ -1851,6 +1851,15 @@
       </div>
       <div id="execution-cost-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
     </details>
+    <details class="card" id="rotation-shadow-study" style="margin-top:16px" ontoggle="if(this.open) loadRotationShadowStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">저회전 정책 비교 <span style="color:var(--dim);font-weight:600;font-size:13px">· 동일 보유·시그널 · 주문 미연결</span></summary>
+      <p class="page-desc" style="margin:8px 0">챔피언의 종가 회전 프록시와 상위 3% 신규·상위 10% 계속 보유 정책을 같은 입력에서 비교합니다. 현재는 판단 기록만이며 수익·낙폭 우위가 입증된 것이 아닙니다.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
+        <label>성향 <select id="rotation-shadow-style" onchange="loadRotationShadowStudy()"><option value="balanced">균형형</option><option value="conservative">안정형</option><option value="aggressive">공격형</option></select></label>
+        <label>시장 <select id="rotation-shadow-market" onchange="loadRotationShadowStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>
+      </div>
+      <div id="rotation-shadow-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
+    </details>
     <details class="card" id="reference-allocation-study" style="margin-top:16px" ontoggle="if(this.open) loadReferenceAllocationStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">세 성향 배분 비교 <span style="color:var(--dim);font-weight:600;font-size:13px">· 같은 시그널 · 미체결 반영 · 연구 전용</span></summary>
       <p class="page-desc" style="margin:8px 0">동일한 매수 신호를 안정·균형·공격형의 기존 종목 비중(6%·8%·14%)과 현금·집중도 한도에 적용합니다. 예약 수량은 현재 잔고 기반 추정이며 실체결이나 실주문 지침이 아닙니다.</p>
@@ -9018,6 +9027,31 @@ async function loadExecutionCostStudy(){
       + `닫힌 수량 조각 ${Number(d.closed_fragments)}건 · 보유 중인 묶음 ${Number(d.open_lots)}건 · 관측 불가 ${esc(gaps || '없음')}`
       + '</div><p class="page-desc" style="margin:8px 0 0">가상 체결 비용 분석이며 실계좌 예상 수익률이 아닙니다. 다른 주문 시점·정책의 성과를 비교하지 않습니다.</p>';
   } catch(e) { el.textContent = '체결비용 분석을 표시할 수 없습니다 · ' + e.message; }
+}
+async function loadRotationShadowStudy(){
+  const el = document.getElementById('rotation-shadow-body');
+  if (!el) return;
+  el.textContent = '마감 판단 기록을 불러오는 중…';
+  const style = document.getElementById('rotation-shadow-style').value;
+  const market = document.getElementById('rotation-shadow-market').value;
+  try {
+    const response = await fetch('/api/admin/research/rotation-shadow?style=' + encodeURIComponent(style)
+      + '&market=' + encodeURIComponent(market) + '&limit=20');
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    const rows = data.snapshots || [];
+    if (!rows.length) {
+      el.textContent = '동결된 비교가 없습니다. 마감 세션·PIT 시그널·종가 정합성 검사를 통과한 뒤 기록됩니다.';
+      return;
+    }
+    const label = d => {
+      const pairs = d.pairs || [];
+      return pairs.length ? pairs.map(p => esc(p.out) + ' → ' + esc(p.in)).join(', ') : '유지 · ' + esc(d.reason || '적격 교체 없음');
+    };
+    el.innerHTML = '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>세션</th><th>기존 회전 프록시</th><th>저회전 후보</th></tr></thead><tbody>'
+      + rows.map(r => `<tr><td>${esc(r.session)}</td><td>${label((r.decisions || {}).champion_rotation_proxy || {})}</td><td>${label((r.decisions || {}).s0_rank_buffer || {})}</td></tr>`).join('')
+      + '</tbody></table></div><p class="page-desc" style="margin:8px 0 0">주간 첫 관측 거래일·최소 5거래일 보유·순위 완충을 적용했습니다. 매입 손익은 저회전 교체 제외 조건이 아닙니다. 미체결·비용 후 성과는 다음 전진 평가에서 확인해야 합니다.</p>';
+  } catch(e) { el.textContent = '저회전 비교를 표시할 수 없습니다 · ' + e.message; }
 }
 async function loadReferenceAllocationStudy(){
   const el = document.getElementById('reference-allocation-body');
