@@ -13,6 +13,7 @@ import string
 import pandas as pd
 
 from signal_desk import db, market_clock, store
+from signal_desk.broker import execution
 from signal_desk.reference import sectors
 from signal_desk.signals import engine, revision_price
 
@@ -20,6 +21,7 @@ VERSION = "r13-s2-first-observed-v1"
 START_SESSION = "2026-09-28"
 MIN_PROVEN_CANDIDATES = 10
 TOP_PCT = 10.0  # research cohort, not live buy-list; fixed before forward outcomes
+NOTIONAL = 100_000_000.0  # illustrative KRW capital, unrelated to any live account
 
 
 def _finite(value) -> float | None:
@@ -103,6 +105,7 @@ def freeze_inputs(result: dict, observations: pd.DataFrame,
             "session": session, "observed_at": now.isoformat(),
             "research_version": result["version"], "revision_version": result["revision_version"],
             "source_available_at_verified": False,
+            "notional": NOTIONAL, "cost_assumptions": execution.cost_assumptions("kr"),
             "research_candidates": len(result["candidates"]), "proven_candidates": len(proven),
             "excluded_tickers": excluded, "top_k": k,
             "policies": {"revision_unreacted_price": [r["ticker"] for r in gap],

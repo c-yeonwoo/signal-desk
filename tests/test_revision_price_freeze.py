@@ -51,6 +51,8 @@ def test_proof_freezes_same_fy_observed_versions_and_raw_prices():
     assert payload["selected"]["T01"]["revision_content_hash"] == _hash("new1")
     assert payload["selected"]["T12"]["prior_eps"] == 100
     assert payload["source_available_at_verified"] is False
+    assert payload["notional"] == frozen.NOTIONAL
+    assert payload["cost_assumptions"]["market"] == "kr"
 
 
 def test_unproven_or_backfilled_prior_version_cannot_enter_cohort():
