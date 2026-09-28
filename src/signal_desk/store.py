@@ -736,6 +736,12 @@ def shortform_bg_path():
     return SHORTFORM_BG_FILE if SHORTFORM_BG_FILE.exists() else None
 
 
+def latest_annual_report_year(today: datetime.date | None = None) -> int:
+    """국내 사업보고서 수집 대상 연도(통상 다음 해 3월 말 접수 기한)."""
+    today = today or datetime.date.today()
+    return today.year - (1 if (today.month, today.day) >= (4, 1) else 2)
+
+
 def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None = None) -> dict:
     """DART 재무데이터(ROE/부채비율/매출성장) + KRX 시가총액을 결합해 PER/PBR까지 채운다.
 
@@ -744,19 +750,21 @@ def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None
     PER은 의미가 없어 계산하지 않는다(업계 관례).
     """
     universe = universe if universe is not None else load_universe()
-    bsns_year = bsns_year or str(datetime.date.today().year - 1)  # 최신 사업보고서는 보통 전년도분
+    # 전년도 사업보고서는 다음 해 3월 말까지 아직 접수 중이다. 미공개 연도를 무작정
+    # 조회하면 정상적인 전전년도 캐시까지 빈 응답으로 덮어쓸 수 있다.
+    bsns_year = bsns_year or str(latest_annual_report_year())
 
     codes = dart.corp_codes()
     if not codes:
         log.warning("DART_API_KEY 미설정 — 기본적분석 생략(기술점수만 사용)")
-        _write_json(FUNDAMENTALS_FILE, {})
-        return {}
+        return load_fundamentals()
 
     mktcaps = krx_open_api.market_caps()
     if not mktcaps:
         log.warning("KRX 시가총액 조회 실패(키 없음/서비스 미승인) — PER/PBR 생략, ROE 등만 사용")
 
-    out: dict[str, dict] = {}
+    out: dict[str, dict] = dict(load_fundamentals())
+    refreshed = 0
     for item in universe:
         ticker = item["ticker"]
         corp_code = codes.get(ticker)
@@ -765,6 +773,7 @@ def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None
         metrics = dart.fundamentals(ticker, corp_code, bsns_year)
         if not metrics:
             continue
+        refreshed += 1
 
         mktcap = mktcaps.get(ticker)
         net_income = metrics.get("net_income")
@@ -775,7 +784,18 @@ def fetch_fundamentals(universe: list[dict] | None = None, bsns_year: str | None
                 metrics["per"] = round(mktcap / net_income, 2)
             if equity and equity > 0:
                 metrics["pbr"] = round(mktcap / equity, 2)
+        # 동일 사업연도를 다시 읽는 경우에만 배당 등 별도 수집 필드를 보존한다.
+        # 새 사업연도라면 과거 배당을 새 재무의 배당처럼 노출하지 않는다.
+        previous = out.get(ticker) or {}
+        if previous.get("fiscal_year") == int(bsns_year):
+            for key in ("dps", "div_months"):
+                if key in previous and key not in metrics:
+                    metrics[key] = previous[key]
+        metrics["fiscal_year"] = int(bsns_year)
         out[ticker] = metrics
+    if not refreshed:
+        log.warning("DART 새 사업보고서 없음 — 기존 재무 유지(%s년)", bsns_year)
+        return out
     # 퀄리티(축약 F-Score)는 재무의 **파생값**이다 — 여기서 같이 채운다.
     # 2026-08-05 진단: `compute_quality()`의 호출처가 관리자 수동 refresh 하나뿐이었고(분기 1회 조건),
     # `sigdesk fetch`(CLI)는 이 함수만 불렀다. 이 함수가 dict를 새로 써서 저장하므로 **CLI로 갱신할
@@ -799,16 +819,16 @@ def _attach_quality(fund: dict) -> int:
         log.warning("퀄리티 미계산 — fundamentals_history 없음(가중 %s 미발동). "
                     "`fetch_fundamentals_history` 를 먼저 돌려야 한다", "weight_quality")
         return 0
-    prev_year = str(datetime.date.today().year - 2)
     n = 0
     for t, m in fund.items():
         if not isinstance(m, dict):
             continue
+        prev_year = str(int(m.get("fiscal_year") or latest_annual_report_year()) - 1)
         m["quality"] = quality.evaluate(m, (hist.get(t) or {}).get(prev_year) or {})
         if m["quality"].get("has"):
             n += 1
     if not n:
-        log.warning("퀄리티 계산했으나 has=True 0건 — 전년(%s) 재무가 비었는지 확인", prev_year)
+        log.warning("퀄리티 계산했으나 has=True 0건 — 전년 재무가 비었는지 확인")
     return n
 
 
@@ -847,14 +867,13 @@ def fetch_fundamentals_history(universe: list[dict] | None = None,
     """
     universe = universe if universe is not None else load_universe()
     if years is None:
-        this_year = datetime.date.today().year
-        years = [str(this_year - n) for n in (1, 2, 3)]  # 최근 3개 사업연도
+        latest = latest_annual_report_year()
+        years = [str(latest - n) for n in (0, 1, 2)]  # 이미 접수된 최근 3개 사업연도
 
     codes = dart.corp_codes()
     if not codes:
         log.warning("DART_API_KEY 미설정 — point-in-time 재무 수집 생략")
-        _write_json(FUNDAMENTALS_HISTORY_FILE, {})
-        return {}
+        return load_fundamentals_history()
 
     # 기존 캐시에 **병합**한다. 통째로 덮어쓰면 일부 종목만 갱신할 때 나머지가 지워진다 —
     # 2026-08-05에 PIT 유니버스 106종목만 넘겼다가 기존 199종목을 잃었다(캐시라 복구했지만,
@@ -871,16 +890,16 @@ def fetch_fundamentals_history(universe: list[dict] | None = None,
             if metrics:
                 by_year[y] = metrics
         if by_year:
-            out[ticker] = by_year
+            out[ticker] = {**out.get(ticker, {}), **by_year}
     _write_json(FUNDAMENTALS_HISTORY_FILE, out)
     return out
 
 
 def fetch_kr_dividends(universe: list[dict] | None = None, bsns_year: str | None = None) -> int:
     """KR 주당 현금배당금(DART alotMatter) → fundamentals.json에 dps 병합. 무배당은 dps=None.
-    연 결산배당이라 분기 1회 갱신(DART 재수집 시)이면 충분. 시도 종목 수 반환."""
+    연 결산배당이라 분기 1회 갱신(DART 재수집 시)이면 충분. 유효 응답 종목 수 반환."""
     universe = universe if universe is not None else load_universe()
-    bsns_year = bsns_year or str(datetime.date.today().year - 1)
+    bsns_year = bsns_year or str(latest_annual_report_year())
     codes = dart.corp_codes()
     if not codes:
         return 0
@@ -891,9 +910,13 @@ def fetch_kr_dividends(universe: list[dict] | None = None, bsns_year: str | None
         cc = codes.get(t)
         if not cc:
             continue
-        fund.setdefault(t, {})["dps"] = dart.dividend(cc, bsns_year)  # None=무배당
+        observed, dps = dart.dividend_observation(cc, bsns_year)
+        if not observed:  # 일시 네트워크/API 장애는 이전 DPS를 지우지 않는다.
+            continue
+        fund.setdefault(t, {})["dps"] = dps  # 유효 응답의 None=무배당
         n += 1
-    _write_json(FUNDAMENTALS_FILE, fund)
+    if n:
+        _write_json(FUNDAMENTALS_FILE, fund)
     return n
 
 
@@ -951,17 +974,23 @@ def compute_quality() -> int:
 
 
 def fetch_macro() -> list[dict]:
-    """FRED 거시 지표(CPI/금리/나스닥/VIX)를 수집해 캐시. 키 없으면 빈 리스트."""
+    """FRED 거시 지표를 갱신한다. 일시 실패로 기존 관측을 지우지 않는다."""
     items = fred.macro_indicators()
-    _write_json(MACRO_FILE, items)
+    if items:
+        prior = {str(x.get("key")): x for x in load_macro() if isinstance(x, dict) and x.get("key")}
+        prior.update({str(x["key"]): x for x in items if x.get("key")})
+        _write_json(MACRO_FILE, list(prior.values()))
     return items
 
 
 def fetch_macro_kr() -> list[dict]:
-    """한국은행 ECOS 거시(기준금리·국고채10년·CPI)를 수집해 캐시. 키 없으면 빈 리스트."""
+    """한국은행 ECOS 거시를 갱신한다. 일시 실패로 기존 관측을 지우지 않는다."""
     from signal_desk.ingest import ecos
     items = ecos.macro_indicators()
-    _write_json(MACRO_KR_FILE, items)
+    if items:
+        prior = {str(x.get("key")): x for x in load_macro_kr() if isinstance(x, dict) and x.get("key")}
+        prior.update({str(x["key"]): x for x in items if x.get("key")})
+        _write_json(MACRO_KR_FILE, list(prior.values()))
     return items
 
 
@@ -1498,17 +1527,20 @@ def fetch_us_earnings_calendar(ttl_days: int = 1) -> int:
 
 
 def fetch_us_fundamentals(tickers: list[str], max_calls: int = 20) -> int:
-    """아직 캐시에 없는 US 종목의 발행주식수·PER를 Alpha Vantage로 소량씩 백필(하루 25콜 한도).
-    한 번에 max_calls개만 채우고 나머지는 다음 실행에서 이어감. 채운 개수 반환."""
+    """발행주식수·섹터가 부족한 US 종목을 Alpha Vantage로 소량 백필한다.
+
+    EDGAR 재시도 메타데이터만 있는 종목도 대상이며, 성공 시 EDGAR 수치를 보존한다.
+    """
     from signal_desk.ingest import alphavantage
     cache = load_us_fundamentals()
-    todo = [t for t in tickers if t not in cache][:max_calls]
+    todo = [t for t in tickers if not (cache.get(t) or {}).get("shares")][:max_calls]
     got = 0
     for t in todo:
         ov = alphavantage.overview(t)
         if ov is None:  # 키 없음·한도 초과 → 중단(다음에 이어서)
             break
-        cache[t] = {"shares": ov["shares"], "per": ov["per"], "sector": ov["sector"],
+        cache[t] = {**cache.get(t, {}),
+                    "shares": ov["shares"], "per": ov["per"], "sector": ov["sector"],
                     "industry": ov.get("industry"), "description": ov.get("description")}  # 사업 개요 요약용
         got += 1
     if got:
@@ -1593,26 +1625,42 @@ def warnings_status() -> dict:
 
 
 def fetch_us_fundamentals_edgar(tickers: list[str], max_calls: int = 40) -> int:
-    """EDGAR XBRL companyfacts로 US 순이익·자기자본을 백필 → us_fundamentals 병합(PER/PBR 계산용).
-    이미 net_income/equity 있는 종목은 스킵해 점진 백필. 한 번에 최대 max_calls 종목만(스로틀). 시도 수 반환."""
+    """EDGAR XBRL을 점진 확인한다. 기존 수치도 90일마다 재관측한다.
+
+    실패한 종목은 7일 뒤 재시도하고 기존 값은 보존한다. 관측시각은 보고서
+    발표시각이 아니므로 PIT 검증에 사용하지 않는다.
+    """
     from signal_desk.ingest import edgar
     cache = load_us_fundamentals()
     done = 0
+    today = datetime.date.today()
     for t in tickers:
         if done >= max_calls:
             break
         cur = cache.get(t) or {}
-        if "dps" in cur:  # 이 버전으로 이미 수집됨(dps 키 존재 = 배당 포함 백필 완료)
+        try:
+            observed = datetime.date.fromisoformat(str(cur.get("edgar_observed_at") or ""))
+        except ValueError:
+            observed = None
+        if observed and 0 <= (today - observed).days < 90:
+            continue
+        try:
+            attempted = datetime.date.fromisoformat(str(cur.get("edgar_attempted_at") or ""))
+        except ValueError:
+            attempted = None
+        if attempted and 0 <= (today - attempted).days < 7:
             continue
         f = edgar.fundamentals(t)
         done += 1  # 호출 시도 카운트(스로틀)
+        cache.setdefault(t, {"shares": None, "per": None, "sector": None})
+        cache[t]["edgar_attempted_at"] = today.isoformat()
         if not f:
             continue
-        cache.setdefault(t, {"shares": None, "per": None, "sector": None})
         cache[t]["net_income"] = f.get("net_income")
         cache[t]["equity"] = f.get("equity")
         cache[t]["dps"] = f.get("dps")  # 주당 연배당(배당 플래너·수익률용)
         cache[t]["div_months"] = f.get("div_months") or []  # 추정 배당 지급월(캘린더용)
+        cache[t]["edgar_observed_at"] = today.isoformat()
     if done:
         _write_json(US_FUNDAMENTALS_FILE, cache)
     return done
@@ -2112,6 +2160,90 @@ def data_freshness() -> list[dict]:
                 "age_days": round(age_d, 1), "counts_trading_days": bool(trading),
                 "rows": rows, "stale": age_d > stale_days}
 
+    def fundamental_entry() -> dict:
+        try:
+            fund = load_fundamentals()
+        except (ValueError, OSError):
+            fund = {}
+        out = e("fundamentals", "재무(DART)", FUNDAMENTALS_FILE, 100, len(fund))
+        if FUNDAMENTALS_FILE.exists() and not fund:
+            out["stale"] = True
+            out["note"] = "재무 캐시를 읽을 수 없거나 비어 있습니다"
+            return out
+        years = [int(f["fiscal_year"]) for f in fund.values()
+                 if isinstance(f, dict) and str(f.get("fiscal_year") or "").isdigit()]
+        if years:
+            target = latest_annual_report_year()
+            covered = sum(y == target for y in years)
+            out["source_period"] = str(max(years))
+            out["note"] = f"사업연도 {max(years)} · 최신 대상 {covered}/{len(fund)}종목"
+            if covered < len(fund) * 0.8:
+                out["stale"] = True
+        elif fund:
+            out["stale"] = True
+            out["note"] = "원천 사업연도 미기록 · 갱신시각은 재무 발표시각이 아닙니다"
+        return out
+
+    def macro_entry(key: str, label: str, path: Path) -> dict:
+        try:
+            items = load_macro() if key == "macro" else load_macro_kr()
+        except (ValueError, OSError):
+            items = []
+        # 파일은 수집 작업의 생존 여부만 넉넉히 검사한다. 일간/월간 원천 관측일은
+        # 아래에서 각각 검사하므로 혼합 파일 전체를 '거래일 데이터'로 취급하지 않는다.
+        out = e(key, label, path, 8, len(items))
+        if path.exists() and not items:
+            out["stale"] = True
+            out["note"] = "거시 캐시를 읽을 수 없거나 비어 있습니다"
+            return out
+        if not isinstance(items, list):
+            out["stale"] = True
+            out["note"] = "거시 캐시 형식 오류"
+            return out
+        observed = [f"{x['label']} {x['asof']}" for x in items
+                    if isinstance(x, dict) and x.get("label") and x.get("asof")]
+        lagging = []
+        daily_keys = {"DGS10", "NASDAQCOM", "VIXCLS", "DEXKOUS", "KR_TB10"}
+        expected = {"CPIAUCSL", "FEDFUNDS", "DGS10", "NASDAQCOM", "VIXCLS", "DEXKOUS"} \
+            if key == "macro" else {"KR_BASE", "KR_TB10", "KR_CPI"}
+        missing = expected - {str(x.get("key")) for x in items if isinstance(x, dict)}
+        out["source_coverage"] = f"{len(expected) - len(missing)}/{len(expected)}"
+        for x in items:
+            if not isinstance(x, dict):
+                continue
+            asof = str(x.get("asof") or "")
+            try:
+                source_date = datetime.date.fromisoformat(asof)
+            except ValueError:
+                try:
+                    source_date = datetime.datetime.strptime(asof, "%Y%m").date()
+                except ValueError:
+                    lagging.append(str(x.get("label") or x.get("key") or "미상"))
+                    continue
+            if source_date > datetime.date.today():
+                expired = True
+            elif x.get("key") in daily_keys:
+                # 일간 시계열은 주말/휴일/제공자 지연 여유를 두되, 파일 재기록으로 숨기지 않는다.
+                age = sum((source_date + datetime.timedelta(days=i)).weekday() < 5
+                          for i in range(1, max(0, (datetime.date.today() - source_date).days) + 1))
+                expired = age > 3
+            else:
+                expired = (datetime.date.today() - source_date).days > 45
+            if expired:
+                lagging.append(str(x.get("label") or x.get("key") or "미상"))
+        if lagging or missing:
+            out["stale"] = True
+        parts = []
+        if observed:
+            parts.append("원천 관측일: " + " · ".join(observed[:6]))
+        if lagging:
+            parts.append("원천 지연: " + ", ".join(lagging))
+        if missing:
+            parts.append("원천 누락: " + ", ".join(sorted(missing)))
+        if parts:
+            out["note"] = " / ".join(parts)
+        return out
+
     return [
         e("prices", "국내 시세", PRICES_FILE, 2, trading=True),
         # **미국 시세는 파일 mtime으로 재지 않는다.** 갱신기가 파일은 쓰면서(mtime 갱신) 봉은 못
@@ -2120,7 +2252,7 @@ def data_freshness() -> list[dict]:
         # 잡힌다"는 규칙(PIT 스냅샷에서 배운 것)이 여기서 재발했다. 임계도 갱신기와 하나로 모은다
         # (`US_STALE_TRADING_DAYS`) — 두 곳에 두면 화면이 말하는 신선도와 실제 갱신 주기가 갈라진다.
         _us_prices_freshness(),
-        e("fundamentals", "재무(DART)", FUNDAMENTALS_FILE, 100, _json_rows(FUNDAMENTALS_FILE)),
+        fundamental_entry(),
         # **퀄리티는 날짜가 아니라 있는지로 잰다.** 재무의 파생값이라 원본 파일 mtime은 아무
         # 정보가 없다 — `update_valuation` 이 매일 같은 파일을 다시 쓰므로 퀄리티가 200종목
         # 전부 비어 있어도 위 `fundamentals` 는 `0.4시간 전`이라 말한다(2026-08-07 실측).
@@ -2133,8 +2265,8 @@ def data_freshness() -> list[dict]:
         # 주말은 애초에 안 세이고 문턱을 2일로 되돌린다 — 완화가 아니라 정확해진 것이다.
         e("consensus", "컨센서스 축적(네이버)", CONSENSUS_HISTORY_FILE, 2, trading=True),
         e("market_flow", "시장 수급(토스)", MARKET_FLOW_FILE, 2, trading=True),
-        e("macro", "거시(FRED)", MACRO_FILE, 8, _json_rows(MACRO_FILE)),
-        e("macro_kr", "거시(ECOS)", MACRO_KR_FILE, 8, _json_rows(MACRO_KR_FILE)),
+        macro_entry("macro", "거시(FRED)", MACRO_FILE),
+        macro_entry("macro_kr", "거시(ECOS)", MACRO_KR_FILE),
         e("company", "기업개황(DART)", COMPANY_PROFILES_FILE, 365, _json_rows(COMPANY_PROFILES_FILE)),
         e("warnings", "투자경고(토스)", WARNINGS_FILE, 2, _json_rows(WARNINGS_FILE), trading=True),
         e("gurus", "거장 13F", GURUS_FILE, 40),
@@ -2144,7 +2276,7 @@ def data_freshness() -> list[dict]:
         # 안 떴다**. us_earnings 가 낡으면 실적 게이트가 조용히 안 걸린다.
         e("fund_hist", "연도별 재무(PIT 백테스트)", FUNDAMENTALS_HISTORY_FILE, 100,
           _json_rows(FUNDAMENTALS_HISTORY_FILE)),
-        e("us_earnings", "미국 실적일정(게이트)", US_EARNINGS_FILE, 8),
+        e("us_earnings", "미국 실적일정(게이트)", US_EARNINGS_FILE, 2, trading=True),
         # 월 1회 갱신 → 40일. 등록하지 않으면 낡아도 화면에 안 뜬다(N1 규칙).
         e("universe_hist", "PIT 유니버스(월 스냅샷)", UNIVERSE_HISTORY_FILE, 40,
           _json_rows(UNIVERSE_HISTORY_FILE)),

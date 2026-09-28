@@ -154,6 +154,44 @@ def _daily_kb_collect():
         db.kv_set("kb_collect_date", today)
 
 
+def _refresh_timed_source(key: str, label: str, fn: Callable[[], object], *, interval: int) -> bool:
+    """저빈도 원천 확인. 실패를 기록하고 기존 성공 자료는 그대로 둔다."""
+    now = int(time.time())
+    last = db.kv_get(f"source_attempt:{key}")
+    if isinstance(last, (int, float)) and now - last < interval:
+        return False
+    db.kv_set(f"source_attempt:{key}", now)
+    try:
+        rows = fn()
+        if rows is None or rows == 0 or rows == []:
+            raise ValueError("원천 응답 없음")
+        _auto_refresh_note(key, label, None)
+        return rows != -1  # 실적일정 TTL hit: 성공이지만 새 입력은 없다.
+    except Exception as exc:
+        _auto_refresh_note(key, label, type(exc).__name__)
+        log.warning("정기 원천 확인 실패 %s: %s", label, type(exc).__name__)
+        return False
+
+
+def _maybe_refresh_decision_sources() -> None:
+    """매수 판단 전에 거시·실적일정을 확인한다. 호출 제한과 원천 실패를 분리한다."""
+    macro_interval = config.macro_refresh_interval_minutes() * 60
+    changed = False
+    if config.fred_key():
+        changed |= _refresh_timed_source("macro", "거시(FRED)", store.fetch_macro,
+                                         interval=macro_interval)
+    if config.ecos_key():
+        changed |= _refresh_timed_source("macro_kr", "거시(ECOS)", store.fetch_macro_kr,
+                                         interval=macro_interval)
+    if changed:
+        _signals.cache_clear(); _regime.cache_clear(); _macro.cache_clear()
+        _clear_us_signal_caches()
+    if config.alphavantage_key():
+        if _refresh_timed_source("us_earnings", "미국 실적일정",
+                                 store.fetch_us_earnings_calendar, interval=3600):
+            _clear_us_signal_caches()
+
+
 def _refresh_live_quotes(open_markets: list[str]) -> None:
     """열린 시장 종목의 토스 현재가를 배치 조회해 store에 실시간가 오버레이 설정 → 시그널·현재가
     캐시 무효화. 봇 run_once는 store.load_price_series()를 읽으므로 자동으로 실시간가 기준이 된다.
@@ -349,6 +387,7 @@ def _bot_loop_iteration() -> None:
     # 장이 닫힌 시간에도 장애가 회복되면 보류된 알림을 다시 보낸다. 빠른 틱만 drain하면
     # 금요일 장 마감 뒤의 중요 체결/브리핑은 월요일까지 묶인다.
     notify.drain()
+    _maybe_refresh_decision_sources()
     _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(공용)
     try:
         _morning_digest()  # 아침 정기 요약(텔레그램 채널) — 앱 안 열어도 오는 맥락
@@ -655,6 +694,40 @@ def _daily_maintenance(enabled: list[str]) -> None:
             log.info("시세 전량 백필 완료(목표 %d일)", store.PRICE_HISTORY_DAYS)
     except Exception as e:
         log.warning("마감후 시세 갱신 실패: %s", type(e).__name__)
+    try:
+        if config.dart_key() and _dart_stale():
+            universe = store.load_universe()
+            target_year = store.latest_annual_report_year()
+            prev_year = str(target_year - 1)
+            history = store.load_fundamentals_history()
+            if sum(prev_year in history.get(u["ticker"], {}) for u in universe) < len(universe) * 0.8:
+                store.fetch_fundamentals_history(universe, years=[prev_year])
+            fundamentals = store.fetch_fundamentals(universe)
+            covered = sum((fundamentals.get(u["ticker"]) or {}).get("fiscal_year") == target_year
+                          for u in universe)
+            needed = max(1, math.ceil(len(universe) * 0.8))
+            if covered >= needed:
+                # 사업연도가 넘어가면 기존 DPS를 새 연도 값처럼 남기지 않는다.
+                # 재무가 충분히 모인 뒤 배당 별도 공시를 같은 자동 경로에서 보충한다.
+                try:
+                    dividends_n = store.fetch_kr_dividends(universe, bsns_year=str(target_year))
+                except Exception as exc:
+                    _auto_refresh_note("dividends", "배당(DART)", type(exc).__name__)
+                    log.warning("마감후 배당 갱신 실패: %s", type(exc).__name__)
+                else:
+                    _auto_refresh_note("dividends", "배당(DART)",
+                                       None if dividends_n else "유효 응답 0종목")
+                db.kv_set("dart_fetch_date", _kst_today())
+                _auto_refresh_note("fundamentals", "재무(DART)", None)
+            else:
+                _auto_refresh_note("fundamentals", "재무(DART)",
+                                   f"새 사업보고서 확인 {covered}/{needed}종목")
+            _signals.cache_clear(); _clear_us_signal_caches()
+        if store.load_fundamentals() and store.update_valuation():
+            _signals.cache_clear()
+    except Exception as e:
+        _auto_refresh_note("fundamentals", "재무(DART)", type(e).__name__)
+        log.warning("마감후 재무 갱신 실패: %s", type(e).__name__)
     try:   # 재무의 파생값(퀄리티)이 비어 있으면 채운다 — DART TTL 80일 뒤에 갇혀 있던 것.
         # 여기 두는 이유: `_refresh_kr` 은 **관리자 버튼에서만** 불리므로 그쪽에만 두면 안 돈다.
         _ensure_quality_attached()
@@ -712,15 +785,10 @@ def _daily_maintenance(enabled: list[str]) -> None:
         store.fetch_consensus(store.load_universe())
     except Exception as e:
         log.warning("마감후 컨센서스 수집 실패: %s", type(e).__name__)
-    # 자동 루프에 없어서 **수동 버튼 전용**이던 소스들(2026-08-05 진단). 아무도 안 눌러
-    # macro는 32일, gurus는 32일, fundamentals_history는 32일 낡아 있었고 us_earnings가 낡으면
-    # 실적 게이트가 조용히 안 걸린다. 매일 부르지 않고 **`data_freshness`가 stale이라 할 때만**
-    # 부른다 — 임계는 그 함수 한 곳에 있고, 여기서 따로 정하면 두 곳이 갈라진다.
+    # 거시·실적 일정은 매수 판단 직전의 별도 정기 확인 경로가 맡는다. 그 외 저빈도 자료만
+    # 이곳에서 오래됨 여부를 보고 갱신한다.
     for key, label, fn in (
-        ("macro", "거시(FRED)", lambda: store.fetch_macro()),
-        ("macro_kr", "거시(ECOS)", lambda: store.fetch_macro_kr()),
         ("gurus", "거장 13F", lambda: store.fetch_gurus()),
-        ("us_earnings", "미국 실적일정", lambda: store.fetch_us_earnings_calendar()),
         ("fund_hist", "연도별 재무(PIT)", lambda: store.fetch_fundamentals_history(store.load_universe())),
         ("universe_hist", "PIT 유니버스(월 스냅샷)", lambda: store.fetch_universe_history()),
     ):
@@ -3093,7 +3161,19 @@ _DART_TTL_DAYS = 80  # DART 연간 재무는 분기에나 바뀜 → 이 주기�
 
 def _dart_stale(ttl_days: int = _DART_TTL_DAYS) -> bool:
     """DART 재무를 다시 받아야 하나 — 캐시 없거나 마지막 수집이 ttl_days 이상 지났으면 True."""
-    if not store.load_fundamentals():
+    fundamentals = store.load_fundamentals()
+    if not fundamentals:
+        return True
+    universe = store.load_universe()
+    current = [fundamentals.get(u["ticker"]) or {} for u in universe]
+    known_years = [int(f["fiscal_year"]) for f in current
+                   if isinstance(f, dict) and str(f.get("fiscal_year") or "").isdigit()]
+    if not known_years:
+        return True  # 레거시 캐시는 파일을 오늘 재기록해도 사업연도를 증명하지 못한다.
+    target_year = store.latest_annual_report_year()
+    covered = sum(f.get("fiscal_year") == target_year for f in current
+                  if isinstance(f, dict))
+    if known_years and covered < len(current) * 0.8:
         return True
     last = db.kv_get("dart_fetch_date")
     if not last:
@@ -3137,7 +3217,9 @@ def _refresh_kr(data: dict) -> dict:
             store.fetch_company_profiles(universe)             # DART 기업개황(설립·대표) → 숏폼 기업 소개(증분)
         except Exception as e:
             log.warning("기업개황 수집 실패(무시): %s", type(e).__name__)
-        db.kv_set("dart_fetch_date", _kst_today())
+        if sum(f.get("fiscal_year") == store.latest_annual_report_year()
+               for f in fundamentals.values() if isinstance(f, dict)) >= max(1, math.ceil(len(universe) * 0.8)):
+            db.kv_set("dart_fetch_date", _kst_today())
     else:
         store.update_valuation()                               # 캐시 재무 + 오늘 시총 → PER/PBR·시총만 갱신(KRX 1콜)
         fundamentals = store.load_fundamentals()
@@ -5342,7 +5424,7 @@ def _chat_signal_summary(ticker: str) -> dict | None:
     dg_age_h = round((time.time() - dg_ts) / 3600, 1) if dg_ts else None
     return {"종목": sig.name, "코드": ticker, "섹터": sectors.sector_of(ticker),
             "시그널": _CHAT_KIND_KO.get(sig.kind, sig.kind), "종합점수": round(sig.score, 2),
-            "신뢰도": sig.confidence, "팩터강약(-1~1)": sig.factor_scores,
+            "신호강도(적중확률 아님)": sig.confidence, "팩터강약(-1~1)": sig.factor_scores,
             "근거": sig.reasons[:6], "PER": f.get("per"), "PBR": f.get("pbr"), "ROE": f.get("roe"),
             "현재가": q.get("price"), "등락%": q.get("change_pct"),
             "목표가상승여력%": round(max(ups), 1) if ups else None,

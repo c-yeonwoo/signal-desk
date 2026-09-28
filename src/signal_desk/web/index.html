@@ -8963,7 +8963,7 @@ async function loadLlmUsage(){
       <div style="font-size:13px;font-weight:700;margin:14px 0 4px">기능별 <span style="color:var(--dim);font-weight:600">· 무엇을 줄일지 정하려면 여기를 본다</span></div>
       <table class="mini"><thead><tr><th>기능</th><th class="num">호출</th><th class="num">비용</th><th class="num">in / out</th></tr></thead>
       <tbody>${purposes}</tbody></table></div>
-      <div style="font-size:13px;font-weight:700;margin:14px 0 4px">봇 자문 동일 입력 재사용 <span style="color:var(--dim);font-weight:600">· 계좌·시장·정책별 최대 15분</span></div>
+      <div style="font-size:13px;font-weight:700;margin:14px 0 4px">봇 자문 동일 입력 재사용 <span style="color:var(--dim);font-weight:600">· 계좌·시장·정책별 최대 2시간</span></div>
       <div class="tscroll"><table class="mini"><thead><tr><th>단계</th><th class="num">요청</th><th class="num">재사용</th><th class="num">모델 호출</th><th class="num">실패·미저장</th></tr></thead><tbody>${cacheRows}</tbody></table></div>
       <p class="page-desc" style="margin:8px 0 0;font-size:12px;color:var(--dim-2)">${esc(d.note || '')}</p>`;
   } catch (e) { el.className = ''; el.textContent = '불러오지 못했습니다.'; }

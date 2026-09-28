@@ -895,7 +895,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             advice = advisor.advise(
                 [{"ticker": s.ticker, "name": s.name, "score": s.score,
                   "confidence": s.confidence, "reasons": s.reasons} for s in pool],
-                context, {t: db.kb_digest_get(t) for t in pool_by},
+                context, {t: kb.advisor_digest(t) for t in pool_by},
                 advisor.build_lessons(), slots,
                 style=cfg.get("trading_style"), gate=g,
                 cache_scope={"uid": uid, "market": market, "style": cfg["trading_style"],
@@ -1284,7 +1284,7 @@ def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -
         advice = advisor.advise(
             [{"ticker": s.ticker, "name": s.name, "score": s.score,
               "confidence": s.confidence, "reasons": s.reasons} for s in pool],
-            context, {t: db.kb_digest_get(t) for t in pool_by},
+            context, {t: kb.advisor_digest(t) for t in pool_by},
             advisor.build_lessons(), slots,
             style=cfg.get("trading_style"), gate=g,
             cache_scope={"uid": uid, "market": market, "style": cfg["trading_style"],

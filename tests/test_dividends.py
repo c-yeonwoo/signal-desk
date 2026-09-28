@@ -54,6 +54,19 @@ def test_dart_dividend_common_stock(monkeypatch):
     assert dart.dividend("x", "2024") is None              # 키 없음/무배당
 
 
+def test_dart_dividend_observation_distinguishes_failure_and_no_dividend(tmp_path, monkeypatch):
+    from signal_desk.ingest import dart
+    monkeypatch.chdir(tmp_path)
+    store._write_json(store.FUNDAMENTALS_FILE, {"005930": {"dps": 1400}})
+    monkeypatch.setattr(dart, "corp_codes", lambda: {"005930": "corp"})
+    monkeypatch.setattr(dart, "_get_json", lambda path, params: None)
+    assert store.fetch_kr_dividends([{"ticker": "005930"}], bsns_year="2025") == 0
+    assert store.load_fundamentals()["005930"]["dps"] == 1400
+    monkeypatch.setattr(dart, "_get_json", lambda path, params: {"status": "000", "list": []})
+    assert store.fetch_kr_dividends([{"ticker": "005930"}], bsns_year="2025") == 1
+    assert store.load_fundamentals()["005930"]["dps"] is None
+
+
 def test_dart_company_profile(monkeypatch):
     from signal_desk.ingest import dart
     monkeypatch.setattr(dart, "_get_json", lambda path, params: {

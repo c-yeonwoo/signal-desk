@@ -147,19 +147,24 @@ def fundamentals(stock_code: str, corp_code: str, bsns_year: str) -> dict | None
 def dividend(corp_code: str, bsns_year: str) -> float | None:
     """주당 현금배당금(보통주, 원) — DART alotMatter.json(배당에 관한 사항). 없으면 None.
     KR은 대부분 연 결산배당(익년 ~4월 지급)이라 연 1회 값. 우선주/무배당은 제외·0."""
+    return dividend_observation(corp_code, bsns_year)[1]
+
+
+def dividend_observation(corp_code: str, bsns_year: str) -> tuple[bool, float | None]:
+    """(유효 응답 여부, DPS). 조회 실패와 유효 응답의 무배당을 구분한다."""
     body = _get_json("alotMatter.json", {
         "corp_code": corp_code, "bsns_year": bsns_year, "reprt_code": "11011",
     })
     if not body:
-        return None
+        return False, None
     for row in body.get("list", []):
         se = str(row.get("se") or "")
         knd = str(row.get("stock_knd") or "")
         if "주당" in se and "현금배당금" in se and knd in ("보통주", "", "-"):
             v = _to_float(row.get("thstrm"))
             if v and v > 0:
-                return v
-    return None
+                return True, v
+    return True, None
 
 
 def disclosures(corp_code: str, bgn_de: str, end_de: str) -> list[dict]:
