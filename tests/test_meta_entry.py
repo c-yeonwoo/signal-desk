@@ -35,6 +35,23 @@ def test_strict_meta_labels_require_pit_session_and_score_net_of_costs():
                                  strict_pit=True, market="kr", cost_assumptions=assumptions) == []
 
 
+def test_meta_maturity_explains_zero_labels_without_backdating_legacy_history():
+    cfg = me.TripleBarrierConfig()
+    valid = {"date": "2026-09-28", "ticker": "005930", "kind": "BUY",
+             "market": "kr", "session_valid": True, "exchange_session": "2026-09-28",
+             "bar_asof": "2026-09-28", "observed_at": "2026-09-28T07:00:00+00:00"}
+    legacy = {"date": "2026-07-09", "ticker": "000660", "kind": "BUY"}
+    pending = me.maturity_diagnostics([legacy, valid], cfg, market="kr",
+                                      as_of_session="2026-09-29", labels=0)
+    assert pending == {"status": "awaiting_horizon", "pit_buy_rows": 1,
+                       "first_pit_buy_session": "2026-09-28",
+                       "earliest_possible_label_session": "2026-10-29"}
+    assert me.maturity_diagnostics([legacy], cfg, market="kr", as_of_session="2026-09-29",
+                                   labels=0)["status"] == "no_pit_buy_candidates"
+    assert me.maturity_diagnostics([valid], cfg, market="kr", as_of_session="2026-10-29",
+                                   labels=0)["status"] == "check_price_alignment"
+
+
 def test_purged_folds_exclude_labels_overlapping_test_start():
     rows = [
         {"entry_index": 0, "label_end_index": 5, "label": 1},

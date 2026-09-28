@@ -4043,11 +4043,17 @@ def _meta_entry_shadow(market: str) -> dict:
     assumptions = execution.cost_assumptions(mkt)
     tickers = set(history["ticker"].astype(str))
     series = {t: s for t, s in store.load_market_dated_closes(mkt).items() if t in tickers}
-    labels = meta_entry.build_labeled_rows(history.to_dict("records"), series, cfg, market=mkt,
+    records = history.to_dict("records")
+    labels = meta_entry.build_labeled_rows(records, series, cfg, market=mkt,
                                            strict_pit=True, cost_assumptions=assumptions)
     estimates = meta_entry.oof_estimates(labels)
+    maturity = meta_entry.maturity_diagnostics(
+        records, cfg, market=mkt,
+        as_of_session=market_clock.latest_completed_session(mkt, datetime.datetime.now(datetime.timezone.utc)),
+        labels=len(labels))
     return {"market": mkt, "mode": "costed_price_research", "live_eligible": False,
             "snapshot_rows": len(history),
+            "maturity": maturity,
             "barrier": {"horizon_days": cfg.horizon_days,
                                            "profit_take_pct": cfg.profit_take_pct,
                                            "stop_loss_pct": cfg.stop_loss_pct},

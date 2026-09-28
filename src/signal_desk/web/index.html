@@ -9373,7 +9373,12 @@ async function loadMetaEntryStudy(){
     const response = await fetch('/api/meta-entry/diagnostics?market=' + encodeURIComponent(market));
     if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
     const d = await response.json();
-    el.textContent = `PIT 기록 ${Number(d.snapshot_rows || 0)}건 · 비용 후 라벨 ${Number(d.labels || 0)}건 · 시간순 학습·검증 ${Number(d.oof_predicted || 0)}건 · 자료 부족 기권 ${Number(d.oof_abstained || 0)}건 · 같은 진입일 비교 ${Number(d.paired_entry_sessions || 0)}일${d.paired_net_delta_pp == null ? '' : ` · 순수익 차이 ${fmtNum(d.paired_net_delta_pp, 2)}%p`}. 과거 전진 가격 최초 버전 미보존으로 주문 승격 차단 중입니다.`;
+    const m = d.maturity || {};
+    const pit = `시점 검증 통과 매수 ${Number(m.pit_buy_rows || 0)}건`;
+    const wait = m.status === 'awaiting_horizon' ? ` · 첫 20거래일 라벨은 빠르면 ${m.earliest_possible_label_session} 이후` :
+      m.status === 'check_price_alignment' ? ' · 예상 완료일이 지났으나 가격·거래일 정렬을 확인해야 합니다' :
+      m.status === 'no_pit_buy_candidates' ? ' · 유효한 매수 후보가 없어 시그널 시각·가격 날짜 확인이 필요합니다' : '';
+    el.textContent = `시그널 이력 ${Number(d.snapshot_rows || 0)}건 · ${pit} · 비용 후 라벨 ${Number(d.labels || 0)}건${wait} · 시간순 학습·검증 ${Number(d.oof_predicted || 0)}건 · 자료 부족 기권 ${Number(d.oof_abstained || 0)}건 · 같은 진입일 비교 ${Number(d.paired_entry_sessions || 0)}일${d.paired_net_delta_pp == null ? '' : ` · 순수익 차이 ${fmtNum(d.paired_net_delta_pp, 2)}%p`}. 과거 전진 가격 최초 버전 미보존으로 주문 승격 차단 중입니다.`;
   } catch(e) { el.textContent = '진입 선별 연구를 표시할 수 없습니다 · ' + e.message; }
 }
 async function loadRotationShadowStudy(){
