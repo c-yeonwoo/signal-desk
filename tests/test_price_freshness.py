@@ -65,7 +65,7 @@ def _quiet_maintenance(monkeypatch):
     monkeypatch.setattr(api, "_signals", type("_", (), {"cache_clear": staticmethod(lambda: None),
                                                         "__call__": staticmethod(lambda: [])})())
     monkeypatch.setattr(api, "_regime", type("_", (), {"cache_clear": staticmethod(lambda: None)}))
-    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda batch=0: {"filled": 0, "stale": 0})
+    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda **kwargs: {"filled": 0, "stale": 0})
     monkeypatch.setattr(api, "_clear_us_signal_caches", lambda: None)
     for name in ("fetch_flows", "fetch_market_flow", "fetch_short", "fetch_consensus",
                  "snapshot_signals", "load_universe", "us_price_deferred_tickers"):
@@ -85,13 +85,27 @@ def test_daily_maintenance_refreshes_prices_without_bot_users(monkeypatch, _quie
 
 def test_daily_maintenance_refreshes_stale_us_prices(monkeypatch, _quiet_maintenance):
     """US는 누락 백필만으론 안 된다 — 마감후 루프가 stale 종목을 다시 당겨야 한다."""
-    seen: list[int] = []
+    seen: list[dict] = []
     monkeypatch.setattr(api.store, "prices_need_deep_backfill", lambda: False)
     monkeypatch.setattr(api.store, "fetch_prices", lambda u, full=False: None)
+    monkeypatch.setattr(api.store, "us_expected_last_bar", lambda at: "2026-09-28")
+    monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, at: "2026-09-28")
     monkeypatch.setattr(api, "_refresh_us_prices_stale",
-                        lambda batch=0: (seen.append(batch), {"filled": 3, "stale": 0})[1])
+                        lambda **kwargs: (seen.append(kwargs), {"filled": 3, "stale": 0})[1])
     api._daily_maintenance([])
-    assert seen == [0]                                 # batch=0 → stale 전량
+    assert seen == [{"batch": 0, "max_trading_days": 0}]  # 완료 세션의 1일 결손도 재시도
+
+
+def test_daily_us_refresh_keeps_holiday_slack_when_calendar_disagrees(monkeypatch, _quiet_maintenance):
+    seen = []
+    monkeypatch.setattr(api.store, "prices_need_deep_backfill", lambda: False)
+    monkeypatch.setattr(api.store, "fetch_prices", lambda u, full=False: None)
+    monkeypatch.setattr(api.store, "us_expected_last_bar", lambda at: "2026-09-28")
+    monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, at: "2026-09-25")
+    monkeypatch.setattr(api, "_refresh_us_prices_stale",
+                        lambda **kwargs: (seen.append(kwargs), {"filled": 0, "stale": 0})[1])
+    api._daily_maintenance([])
+    assert seen == [{"batch": 0, "max_trading_days": 1}]
 
 
 def test_daily_maintenance_backfills_when_history_is_short(monkeypatch, _quiet_maintenance):

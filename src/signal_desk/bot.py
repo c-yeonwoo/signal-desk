@@ -211,15 +211,34 @@ def _market_read_for(market: str) -> dict:
     session = market_clock.latest_completed_session("us", datetime.datetime.now(datetime.timezone.utc))
     tickers = {str(u.get("ticker") or "") for u in universe} - {""}
     aligned = {}
+    excluded = {"session_bar_missing": 0, "short_history": 0,
+                "session_gap": 0, "invalid_price_or_dates": 0}
+    expected = []
     if session:
+        start = (datetime.date.fromisoformat(session) - datetime.timedelta(days=140)).isoformat()
+        expected = [d.date().isoformat() for d in
+                    market_clock._calendar("us").sessions_in_range(start, session)][-61:]
         for ticker in tickers:
             ds, ps = dates.get(ticker) or [], prices.get(ticker) or []
-            if len(ds) != len(ps) or not ds or ds != sorted(set(ds)) or session not in ds:
+            if len(ds) != len(ps) or ds != sorted(set(ds)):
+                excluded["invalid_price_or_dates"] += 1
+                continue
+            if session not in ds:
+                excluded["session_bar_missing"] += 1
                 continue
             end = ds.index(session) + 1
-            closes = ps[max(0, end - 61):end]
-            if len(closes) == 61 and all(math.isfinite(p) and p > 0 for p in closes):
-                aligned[ticker] = closes
+            if end < 61 or len(expected) != 61:
+                excluded["short_history"] += 1
+                continue
+            if ds[end - 61:end] != expected:
+                excluded["session_gap"] += 1
+                continue
+            closes = ps[end - 61:end]
+            if not all(isinstance(p, (int, float)) and math.isfinite(p) and p > 0
+                       for p in closes):
+                excluded["invalid_price_or_dates"] += 1
+                continue
+            aligned[ticker] = closes
     coverage = len(aligned) / len(tickers) if tickers else 0.0
     ready = len(aligned) >= 50 and coverage >= 0.95
     reg = regime.classify(aligned) if ready else {"ready": False, "regime": None}
@@ -234,6 +253,7 @@ def _market_read_for(market: str) -> dict:
                         "regime_ready": ready, "price_session": session,
                         "regime_n": len(aligned), "regime_universe_n": len(tickers),
                         "regime_coverage": round(coverage, 3),
+                        "regime_excluded": excluded,
                         "macro_bias": mread.get("bias"),
                         "macro_detail": " / ".join((mread.get("reasons") or [])[:5]),
                         "cycle_phase": cycle.position(macro_ind).get("phase_name"),
