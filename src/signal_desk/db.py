@@ -383,6 +383,14 @@ CREATE TABLE IF NOT EXISTS kb_event_evidence(
     trust_score REAL,
     created INTEGER NOT NULL,
     FOREIGN KEY(event_id) REFERENCES kb_events(id));
+CREATE TABLE IF NOT EXISTS kb_event_review_log(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL,
+    reviewer TEXT NOT NULL, action TEXT NOT NULL, note TEXT,
+    previous_status TEXT NOT NULL, previous_action TEXT NOT NULL,
+    next_status TEXT NOT NULL, next_action TEXT NOT NULL, reviewed_at INTEGER NOT NULL,
+    FOREIGN KEY(event_id) REFERENCES kb_events(id));
+CREATE INDEX IF NOT EXISTS idx_kb_event_review_log_recent
+    ON kb_event_review_log(reviewed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_kb_events_ticker ON kb_events(ticker, status);
 CREATE INDEX IF NOT EXISTS idx_kb_events_expires ON kb_events(expires_at);
 CREATE TABLE IF NOT EXISTS llm_usage(
@@ -2713,7 +2721,11 @@ def kb_event_exists(event_key: str) -> bool:
 
 
 def kb_event_upsert(event: dict, evidence: dict | None = None) -> int:
-    """event_key 기준 upsert. evidence가 있으면 primary evidence 1건 보장(중복 url 스킵)."""
+    """event_key 첫 관측 본문·검토 상태를 동결한다. 재수집은 근거 URL만 보강한다.
+
+    정정 공시는 새 접수번호/사건 키로 별도 기록해야 한다. 같은 키 재수집으로 사람이
+    기각·해결한 사건을 confirmed로 되살리거나 최초 관측시각을 덮지 않는다.
+    """
     now = int(time.time())
     key = event["event_key"]
     c = conn()
@@ -2741,13 +2753,6 @@ def kb_event_upsert(event: dict, evidence: dict | None = None) -> int:
     )
     if row:
         eid = row[0]
-        c.execute(
-            "UPDATE kb_events SET scope_type=?,ticker=?,sector=?,event_type=?,direction=?,"
-            "severity=?,confidence=?,trust_tier=?,status=?,decision_eligible=?,decision_action=?,"
-            "detected_at=?,effective_at=?,expires_at=?,resolved_at=?,summary=?,rationale=?,"
-            "extractor_model=?,policy_version=?,updated=? WHERE id=?",
-            (*fields, now, eid),
-        )
     else:
         cur = c.execute(
             "INSERT INTO kb_events(event_key,scope_type,ticker,sector,event_type,direction,severity,"
@@ -2847,7 +2852,8 @@ def kb_event_get(event_id: int) -> dict | None:
 
 
 def kb_event_review(event_id: int, *, status: str, decision_eligible: bool,
-                    decision_action: str, rationale_suffix: str | None = None) -> dict | None:
+                    decision_action: str, rationale_suffix: str | None = None,
+                    reviewer: str = "unknown", action: str = "review", note: str = "") -> dict | None:
     """후보 이벤트 사람 검토 — status/eligible/action만 갱신. 없으면 None."""
     ev = kb_event_get(event_id)
     if not ev:
@@ -2864,9 +2870,29 @@ def kb_event_review(event_id: int, *, status: str, decision_eligible: bool,
         "rationale=?, updated=? WHERE id=?",
         (status, 1 if decision_eligible else 0, decision_action, rationale, now, int(event_id)),
     )
+    c.execute("INSERT INTO kb_event_review_log"
+              "(event_id,reviewer,action,note,previous_status,previous_action,next_status,next_action,reviewed_at) "
+              "VALUES(?,?,?,?,?,?,?,?,?)",
+              (int(event_id), reviewer, action, note[:500], ev["status"],
+               ev.get("decision_action") or "none", status, decision_action, now))
     c.commit()
     c.close()
     return kb_event_get(event_id)
+
+
+def kb_event_review_summary(days: int = 30) -> dict:
+    c = conn()
+    try:
+        rows = c.execute("SELECT reviewer,action,COUNT(*) FROM kb_event_review_log "
+                         "WHERE reviewed_at>=? GROUP BY reviewer,action",
+                         (int(time.time()) - max(1, min(days, 365)) * 86400,)).fetchall()
+        by = {f"{reviewer}:{action}": count for reviewer, action, count in rows}
+        return {"days": days, "auto_confirmed": by.get("auto:confirm", 0),
+                "auto_rejected": by.get("auto:reject", 0),
+                "manual_revoked": by.get("admin:revoke", 0),
+                "note": "철회율은 검토된 표본만 반영하므로 전체 오탐률이 아닙니다."}
+    finally:
+        c.close()
 
 
 def kb_event_evidence(event_id: int) -> list[dict]:

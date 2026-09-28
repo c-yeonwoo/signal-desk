@@ -78,6 +78,35 @@ def test_auto_confirm_clear_negative(tmp_path, monkeypatch):
     ev = db.kb_event_get(eid)
     assert ev["status"] == "confirmed" and ev["decision_eligible"] is True
     assert "자동 Decision 반영" in (ev.get("rationale") or "")
+    assert ev["decision_action"] == "buy_block"  # 뉴스 LLM 단독으로 전량 청산 금지
+
+
+def test_recrawl_cannot_resurrect_rejected_or_rewrite_first_observed(tmp_path, monkeypatch):
+    eid = _seed_candidate(tmp_path, monkeypatch)
+    first = db.kb_event_get(eid)
+    assert kb.review_candidate_event(eid, "reject")["ok"]
+    db.kb_event_upsert({
+        "event_key": first["event_key"], "ticker": "005930", "event_type": "litigation",
+        "direction": "negative", "severity": "critical", "status": "confirmed",
+        "decision_eligible": True, "decision_action": "exit",
+        "detected_at": first["detected_at"] + 300, "expires_at": first["detected_at"] + 86400,
+    })
+    after = db.kb_event_get(eid)
+    assert after["status"] == "rejected" and after["decision_eligible"] is False
+    assert after["detected_at"] == first["detected_at"]
+
+
+def test_admin_can_revoke_auto_news_block_with_audited_reason(tmp_path, monkeypatch):
+    eid = _seed_candidate(tmp_path, monkeypatch, severity="critical", confidence=0.95)
+    assert kb.auto_review_candidate(eid)["action"] == "confirm"
+    assert db.kb_event_get(eid)["decision_action"] == "buy_block"
+    assert kb.review_candidate_event(eid, "revoke", by="auto", note="근거 원문이 다른 회사 기사로 확인됨")["ok"] is False
+    assert kb.review_candidate_event(eid, "revoke", by="admin", note="짧음")["ok"] is False
+    result = kb.review_candidate_event(eid, "revoke", by="admin",
+                                       note="원문을 다시 대조하니 다른 회사 기사로 확인됨")
+    assert result["ok"] and db.kb_events_active("005930", decision_only=True) == []
+    summary = db.kb_event_review_summary()
+    assert summary["auto_confirmed"] == 1 and summary["manual_revoked"] == 1
 
 
 def test_auto_reject_ambiguous_low_confidence(tmp_path, monkeypatch):

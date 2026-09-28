@@ -46,3 +46,10 @@ def test_reindex_on_corpus_change(tmp_path, monkeypatch):
     # 시그니처 변경 → 자동 재색인되어 새 문서도 검색됨
     hits = kb_search.retrieve("네이버 클라우드", k=5)
     assert any(h["ticker"] == "035420" for h in hits)
+
+
+def test_bm25_baseline_never_calls_paid_dense(tmp_path, monkeypatch):
+    _seed(monkeypatch, tmp_path)
+    monkeypatch.setattr(kb_search, "_dense_scores", lambda query: (_ for _ in ()).throw(
+        AssertionError("BM25 대조군에서 임베딩 호출 금지")))
+    assert kb_search.retrieve("HBM 메모리", k=2, alpha=0.0)
