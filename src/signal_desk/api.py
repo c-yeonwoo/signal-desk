@@ -31,7 +31,7 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Respons
 from signal_desk.jsonutil import finite_or_none, json_safe
 from signal_desk.live_routes import router as live_router
 from signal_desk.toss_manual_routes import router as toss_manual_router
-from signal_desk.broker import paper, toss_readonly
+from signal_desk.broker import execution, paper, toss_readonly
 
 from signal_desk import (
     account_performance, auth, bot, bot_alerts, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
@@ -4009,18 +4009,28 @@ def _meta_entry_shadow(market: str) -> dict:
     mkt = _mkt(market)
     history = store.load_signal_history(mkt)
     if history.empty:
-        return {"market": mkt, "labels": 0, "oof_predicted": 0, "oof_abstained": 0,
+        return {"market": mkt, "mode": "costed_price_research", "live_eligible": False,
+                "labels": 0, "oof_predicted": 0, "oof_abstained": 0,
+                "promotion": {"status": "blocked_first_observed_prices", "eligible": False},
                 "note": "PIT 스냅샷이 쌓이면 shadow 메타-진입 검증을 시작"}
     cfg = meta_entry.TripleBarrierConfig()
+    assumptions = execution.cost_assumptions(mkt)
     tickers = set(history["ticker"].astype(str))
     series = {t: s for t, s in store.load_market_dated_closes(mkt).items() if t in tickers}
-    labels = meta_entry.build_labeled_rows(history.to_dict("records"), series, cfg)
+    labels = meta_entry.build_labeled_rows(history.to_dict("records"), series, cfg, market=mkt,
+                                           strict_pit=True, cost_assumptions=assumptions)
     estimates = meta_entry.oof_estimates(labels)
-    return {"market": mkt, "barrier": {"horizon_days": cfg.horizon_days,
+    return {"market": mkt, "mode": "costed_price_research", "live_eligible": False,
+            "snapshot_rows": len(history),
+            "barrier": {"horizon_days": cfg.horizon_days,
                                            "profit_take_pct": cfg.profit_take_pct,
                                            "stop_loss_pct": cfg.stop_loss_pct},
-            **meta_entry.diagnostics(estimates), "promotion": meta_entry.promotion_assessment(
-                estimates, horizon_days=cfg.horizon_days)}
+            "cost_assumptions": assumptions,
+            **meta_entry.diagnostics(estimates), **meta_entry.net_diagnostics(estimates),
+            "research_assessment": meta_entry.promotion_assessment(
+                estimates, horizon_days=cfg.horizon_days),
+            "promotion": {"status": "blocked_first_observed_prices", "eligible": False,
+                          "reason": "전진 가격·당시 비용 원장 동결 전에는 자동 매수 차단 승격 불가"}}
 
 
 def _maybe_notify_meta_entry_shadow(market: str) -> None:

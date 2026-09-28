@@ -1,4 +1,5 @@
 from signal_desk.signals import meta_entry as me
+from signal_desk.broker import execution
 
 
 def test_triple_barrier_uses_first_hit_not_terminal_return():
@@ -7,6 +8,31 @@ def test_triple_barrier_uses_first_hit_not_terminal_return():
     label = me.triple_barrier(100, [100, 111, 90, 95], cfg)
     assert label is not None
     assert (label.label, label.exit_offset, label.exit_reason) == (1, 1, "take_profit")
+
+
+def test_strict_meta_labels_require_pit_session_and_score_net_of_costs():
+    cfg = me.TripleBarrierConfig(horizon_days=2)
+    days = ["2026-09-23", "2026-09-28", "2026-09-29", "2026-09-30"]
+    record = {"date": days[0], "ticker": "005930", "kind": "BUY", "score": 1.0,
+              "session_valid": True, "exchange_session": days[0], "bar_asof": days[0],
+              "observed_at": "2026-09-23T07:00:00+00:00"}
+    prices = {"005930": (days, [100.0, 100.0, 100.0, 100.1])}
+    assumptions = execution.cost_assumptions("kr")
+    rows = me.build_labeled_rows([record], prices, cfg, strict_pit=True,
+                                 market="kr", cost_assumptions=assumptions)
+    assert len(rows) == 1
+    assert rows[0]["return_pct"] > 0 and rows[0]["net_return_pct"] < 0
+    assert rows[0]["label"] == 0
+    assert rows[0]["net_return_2x_cost_pct"] < rows[0]["net_return_pct"]
+    assert me.build_labeled_rows([{**record, "bar_asof": "2026-09-22"}], prices, cfg,
+                                 strict_pit=True, market="kr", cost_assumptions=assumptions) == []
+    assert me.build_labeled_rows([{**record, "observed_at": "2026-09-29T07:00:00+00:00"}], prices, cfg,
+                                 strict_pit=True, market="kr", cost_assumptions=assumptions) == []
+    assert me.build_labeled_rows([{**record, "market": "us"}], prices, cfg,
+                                 strict_pit=True, market="kr", cost_assumptions=assumptions) == []
+    assert me.build_labeled_rows([record], {"005930": (days[:2] + days[3:],
+                                                  [100.0, 100.0, 100.1])}, cfg,
+                                 strict_pit=True, market="kr", cost_assumptions=assumptions) == []
 
 
 def test_purged_folds_exclude_labels_overlapping_test_start():

@@ -8,9 +8,12 @@
 from __future__ import annotations
 
 import math
+import datetime as dt
 from dataclasses import dataclass
 from typing import Iterable
 
+from signal_desk import market_clock
+from signal_desk.broker import execution
 from signal_desk.signals.engine import is_buy
 
 
@@ -87,15 +90,45 @@ def _score_buckets(records: list[dict]) -> dict[tuple[str, str], str]:
     return out
 
 
+def _strict_signal_available(row: dict, market: str) -> bool:
+    """Only score a completed-session PIT signal known before the next entry close."""
+    day = str(row.get("date") or "")[:10]
+    if (row.get("market") not in (None, market) or row.get("session_valid") is not True
+            or row.get("exchange_session") != day or str(row.get("bar_asof")) != day):
+        return False
+    try:
+        observed_at = dt.datetime.fromisoformat(str(row["observed_at"]).replace("Z", "+00:00"))
+        if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+            return False
+        signal_close = market_clock._calendar(market).schedule.loc[day]["close"].to_pydatetime()
+        entry_day = market_clock.next_sessions(market, day, 1)[0]
+        entry_close = market_clock._calendar(market).schedule.loc[entry_day]["close"].to_pydatetime()
+        return signal_close <= observed_at.astimezone(dt.timezone.utc) < entry_close
+    except (KeyError, ValueError, IndexError, TypeError):
+        return False
+
+
 def build_labeled_rows(history_records: list[dict], closes_by_ticker: dict[str, tuple[list[str], list[float]]],
-                       cfg: TripleBarrierConfig) -> list[dict]:
+                       cfg: TripleBarrierConfig, *, market: str = "kr", strict_pit: bool = False,
+                       cost_assumptions: dict | None = None) -> list[dict]:
     """PIT 매수 후보를 시간 장벽 라벨 행으로 바꾼다. 미성숙 미래 구간은 빼며 0으로 채우지 않는다."""
-    buckets = _score_buckets(history_records)
+    if market not in ("kr", "us"):
+        raise ValueError("unsupported market")
+    if strict_pit and cost_assumptions is None:
+        raise ValueError("strict PIT labels require frozen cost assumptions")
+    records = ([r for r in history_records if _strict_signal_available(r, market)]
+               if strict_pit else history_records)
+    buckets = _score_buckets(records)
     # 배열 위치는 종목마다 다르다. 같은 시장의 공통 날짜 축만 분할/embargo에 사용한다.
-    calendar = sorted({str(day)[:10] for dates, _ in closes_by_ticker.values() for day in dates})
+    observed_days = sorted({str(day)[:10] for dates, _ in closes_by_ticker.values() for day in dates})
+    if strict_pit and observed_days:
+        calendar = [day.date().isoformat() for day in market_clock._calendar(market).sessions_in_range(
+            observed_days[0], observed_days[-1])]
+    else:
+        calendar = observed_days
     session_index = {day: i for i, day in enumerate(calendar)}
     out: list[dict] = []
-    for r in history_records:
+    for r in records:
         if not is_buy(str(r.get("kind") or "")):
             continue
         ticker, day = str(r.get("ticker") or ""), str(r.get("date") or "")[:10]
@@ -106,26 +139,71 @@ def build_labeled_rows(history_records: list[dict], closes_by_ticker: dict[str, 
         normalized = [str(d)[:10] for d in dates]
         if len(dates) != len(closes) or normalized != sorted(set(normalized)):
             continue
+        if strict_pit and day not in session_index:
+            continue
         try:
             index = [str(d)[:10] for d in dates].index(day)
             index += 1  # 신호를 본 다음 거래일 종가부터 진입(기존 accuracy 규약).
             entry = float(closes[index])
         except (ValueError, TypeError, IndexError):
             continue
+        if strict_pit:
+            expected = market_clock.next_sessions(market, day, cfg.horizon_days + 1)
+            if len(expected) != cfg.horizon_days + 1 or normalized[index:index + len(expected)] != expected:
+                continue
         label = triple_barrier(entry, closes[index:], cfg)
         if label is None:
             continue
         entry_day = str(dates[index])[:10]
         end_day = str(dates[index + label.exit_offset])[:10]
+        net = stress_net = None
+        if strict_pit:
+            exit_price = float(closes[index + label.exit_offset])
+            net = _net_return_pct(entry, exit_price, market, cost_assumptions)
+            doubled = {k: (v * 2 if k in {"slippage_bps", "commission_bps", "sell_tax_bps",
+                                                 "sec_sell_bps", "finra_per_share", "finra_cap"} else v)
+                       for k, v in cost_assumptions.items()}
+            stress_net = _net_return_pct(entry, exit_price, market, doubled)
         out.append({
             "ticker": ticker, "date": day, "entry_date": entry_day, "label_end_date": end_day,
             "entry_index": session_index[entry_day],
-            "label_end_index": session_index[end_day], "label": label.label,
+            "label_end_index": session_index[end_day], "label": int(net > 0) if strict_pit else label.label,
             "exit_reason": label.exit_reason, "return_pct": label.return_pct,
+            "net_return_pct": net, "net_return_2x_cost_pct": stress_net,
             "kind": str(r.get("kind")), "pre_run_bucket": _bucket_pre_run(r.get("pre_run_up_pct")),
             "score_bucket": buckets.get((day, ticker), "unknown"),
         })
     return sorted(out, key=lambda r: (r["entry_index"], r["ticker"]))
+
+
+def _net_return_pct(entry: float, exit_price: float, market: str, assumptions: dict) -> float:
+    buy = execution.calculate(entry, 1, "buy", market, assumptions=assumptions)
+    sell = execution.calculate(exit_price, 1, "sell", market, assumptions=assumptions)
+    paid = -buy.cash_change
+    return round((sell.cash_change / paid - 1) * 100, 6)
+
+
+def net_diagnostics(rows: list[dict], *, lcb_threshold: float = 0.5) -> dict:
+    """비용 후 선별 효과의 기술통계. 중첩 사건·가격 수정으로 승격 판정에 쓰지 않는다."""
+    predicted = [r for r in rows if r.get("probability") is not None and
+                 isinstance(r.get("net_return_pct"), (int, float))]
+    selected = [r for r in predicted if r["lcb"] >= lcb_threshold]
+    by_day: dict[str, list[dict]] = {}
+    for row in predicted:
+        by_day.setdefault(row["entry_date"], []).append(row)
+    paired = []
+    for day in by_day.values():
+        kept = [r["net_return_pct"] for r in day if r["lcb"] >= lcb_threshold]
+        skipped = [r["net_return_pct"] for r in day if r["lcb"] < lcb_threshold]
+        if kept and skipped:
+            paired.append(sum(kept) / len(kept) - sum(skipped) / len(skipped))
+    return {"selected": len(selected), "paired_entry_sessions": len(paired),
+            "paired_net_delta_pp": round(sum(paired) / len(paired), 4) if paired else None,
+            "selected_net_mean_pct": round(sum(r["net_return_pct"] for r in selected) / len(selected), 4)
+            if selected else None,
+            "selected_net_2x_cost_mean_pct": round(
+                sum(r["net_return_2x_cost_pct"] for r in selected) / len(selected), 4)
+            if selected else None}
 
 
 def purged_folds(rows: list[dict], *, folds: int = 4, embargo_days: int = 1) -> list[tuple[list[int], list[int]]]:
