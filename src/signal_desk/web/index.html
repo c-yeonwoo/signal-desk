@@ -8359,7 +8359,10 @@ async function loadLensForwardStudy(){
     const rows = Object.entries(data.summary || {}).map(([key, row]) =>
       `<div style="border-top:1px solid var(--line);padding:8px 0;font-size:12px;line-height:1.6"><b>${esc(row.label)}</b> · 평균 비용 후 ${pct(row.mean_net_return)} · 기본 대비 ${pct(row.mean_excess_vs_base)} · 투자 비중 ${pct(row.mean_coverage)} · 최대 하락 ${pct(row.max_episode_drawdown)}</div>`).join('');
     const waiting = Object.entries(data.exclusions || {}).map(([reason, amount]) => `${esc(reason)} ${Number(amount)}건`).join(' · ');
-    el.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>겹치지 않는 비교 ${count}회 / 최소 ${Number(data.minimum_episodes)}회</b> · 편도 가정 비용 ${pct(data.cost_per_side)}<br>${count ? '자료가 쌓이는 중입니다. 차이가 보여도 아직 우위를 입증한 것은 아닙니다.' : '아직 비교 가능한 거래 구간이 없습니다. 과거 시그널을 사후에 끼워 넣지 않습니다.'}</div>${rows}<div style="font-size:12px;color:var(--dim);margin-top:8px">제외: ${waiting || '없음'}<br>${esc(data.note || '')}</div>`;
+    const gate = data.promotion || {};
+    const gateText = gate.status === 'awaiting_prospective_evidence'
+      ? `실전 적용 보류 · 독립 비교 ${Number(gate.next_required_episodes)}회 추가 필요` : '실전 적용 보류 · 가격·체결·표본 품질 검증과 승인 필요';
+    el.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>겹치지 않는 비교 ${count}회 / 최소 ${Number(data.minimum_episodes)}회</b> · 편도 가정 비용 ${pct(data.cost_per_side)}<br>${count ? '자료가 쌓이는 중입니다. 차이가 보여도 아직 우위를 입증한 것은 아닙니다.' : '아직 비교 가능한 거래 구간이 없습니다. 과거 시그널을 사후에 끼워 넣지 않습니다.'}</div><div style="font-size:13px;margin:8px 0;color:var(--sell)"><b>${gateText}</b><br><span style="font-size:12px">${esc(gate.reason || '')}</span></div>${rows}<div style="font-size:12px;color:var(--dim);margin-top:8px">제외: ${waiting || '없음'}<br>${esc(data.note || '')}</div>`;
   } catch(e) { el.textContent = '전진 성과 비교를 불러올 수 없습니다 · ' + e.message; }
 }
 function _macroReleaseInput(id){ return (document.getElementById(id)?.value || '').trim(); }

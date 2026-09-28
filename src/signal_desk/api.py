@@ -44,7 +44,7 @@ from signal_desk.signals import (
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
-    horizon, hypothesis, industry_cycle, lens_forward, lenses, macro, macro_release, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
+    horizon, hypothesis, industry_cycle, lens_forward, lens_governance, lenses, macro, macro_release, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     sector_rel, target, why_now,
 )
@@ -3951,7 +3951,9 @@ def lens_forward_get(request: Request, market: str = "kr"):
         raise HTTPException(400, "지원하지 않는 시장입니다")
     cohorts = db.lens_forward_cohorts(market)
     loader = store.load_price_history if market == "kr" else store.load_us_price_history
-    return lens_forward.evaluate(cohorts, market, loader, price_marker=db.lens_forward_mark)
+    report = lens_forward.evaluate(cohorts, market, loader, price_marker=db.lens_forward_mark)
+    report["promotion"] = lens_governance.assess(report)
+    return report
 
 
 @app.post("/api/admin/research/macro-releases/forecast")

@@ -151,6 +151,7 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
                 "turnover": 2 * len(selected) / SLOTS,
             }
         episodes.append({"week": cohort["iso_week"], "snapshot_id": cohort["snapshot_id"],
+                         "signal_policy_id": snapshot.get("signal_policy_id"),
                          "observed_at": cohort["observed_at"], "entry": entry, "exit": exit_day,
                          "candidate_count": len(picked), "combos": comparison})
         previous_exit = exit_day
@@ -171,7 +172,7 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
             "max_episode_drawdown": _drawdown(returns) if n else None,
         }
     return {"version": VERSION, "market": market, "mode": "research_only",
-            "live_eligible": False, "independent_episodes": len(episodes),
+            "live_eligible": False, "cohorts_seen": len(cohorts), "independent_episodes": len(episodes),
             "minimum_episodes": MIN_INDEPENDENT_COHORTS,
             "cost_per_side": SIDE_COST, "slots": SLOTS, "hold_sessions": HOLD_SESSIONS,
             "exclusions": exclusions, "summary": summary, "episodes": episodes,
