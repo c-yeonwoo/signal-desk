@@ -1113,8 +1113,13 @@
                   <option value="off">기본 보기</option><option value="include">함께 보기</option>
                 </select>
               </label>
+              <label for="sig-lens-industry_cycle">반도체 업황 · 연구용
+                <select id="sig-lens-industry_cycle" onchange="setSignalLensMode('industry_cycle',this.value)">
+                  <option value="off">기본 보기</option><option value="include">함께 보기</option>
+                </select>
+              </label>
             </div>
-            <div class="sig-lens-muted">경제 발표는 사전 예상치·실제값이 있을 때만 참고 표시하며 종목을 거르지 않습니다. 산업 사이클·내 포트폴리오는 근거·시점 검증 후 추가합니다.</div>
+            <div class="sig-lens-muted">경제 발표·반도체 업황은 근거가 있을 때만 참고 표시하며 종목을 거르지 않습니다. 내 포트폴리오는 근거·시점 검증 후 추가합니다.</div>
             <div id="sig-lens-compare" class="sig-lens-compare" role="status">관점 스냅샷 확인 중…</div>
             <div id="sig-lens-detail" class="sig-lens-detail"></div>
           </div>
@@ -1773,6 +1778,26 @@
       <div class="row" style="gap:8px"><button type="button" class="btn" onclick="submitMacroReleaseActual()">실제값 기록</button><button type="button" class="btn" onclick="loadMacroReleaseStudy()">기록 새로고침</button></div>
       <div id="macro-release-message" role="status" style="font-size:12px;color:var(--dim);margin:8px 0"></div>
       <div id="macro-release-body" class="placeholder" style="padding:8px 0">발표 기록을 확인하는 중…</div>
+    </details>
+
+    <details class="card" id="industry-evidence-study" style="margin-top:16px" ontoggle="if(this.open) loadIndustryEvidenceStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">반도체 업황 근거 <span style="color:var(--dim);font-weight:600;font-size:13px">· 분야별 공식 공시 · 연구 전용</span></summary>
+      <p class="page-desc" style="margin:8px 0">메모리·파운드리·장비를 따로 봅니다. 회사 공시 원문과 공개시각을 기록한 뒤 검토해야 하며, 서로 다른 회사 2곳과 근거 유형 3개 이상이 없으면 ‘자료 없음’으로 남습니다. 업황과 종목 수익은 별개이고 주문에 반영하지 않습니다.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
+        <label>분야 <select id="industry-segment"><option value="memory">메모리</option><option value="foundry">파운드리</option><option value="equipment">장비</option></select></label>
+        <label>근거 유형 <select id="industry-dimension"><option value="demand">수요</option><option value="inventory">재고</option><option value="pricing">가격</option><option value="capex">설비투자</option><option value="guidance">가이던스</option></select></label>
+        <label>방향 <select id="industry-direction"><option value="improving">개선</option><option value="deteriorating">악화</option><option value="neutral">중립</option></select></label>
+        <label>공시 회사 티커 <input id="industry-issuer" maxlength="24" placeholder="MU" style="width:85px"></label>
+        <label>근거 기준일 <input id="industry-period" type="date"></label>
+        <label>공시 공개시각(내 시간대) <input id="industry-published" type="datetime-local"></label>
+      </div>
+      <label style="display:block;font-size:12px;margin:6px 0">SEC·DART 공식 공시 URL <input id="industry-source-url" type="url" placeholder="https://www.sec.gov/..." style="width:100%"></label>
+      <label style="display:block;font-size:12px;margin:6px 0">방향을 확인할 공시 원문 인용 <textarea id="industry-quote" rows="3" maxlength="500" style="width:100%"></textarea></label>
+      <div class="row" style="gap:8px"><button type="button" class="btn" onclick="submitIndustryEvidence()">근거 후보 등록</button><button type="button" class="btn" onclick="loadIndustryEvidenceStudy()">원장 새로고침</button></div>
+      <label style="display:block;font-size:12px;margin:12px 0 5px">검토 근거(12자 이상) <input id="industry-review-note" maxlength="500" placeholder="원문의 회사·기간·방향을 확인한 이유" style="width:100%"></label>
+      <label class="cb" style="display:block;margin:5px 0"><input id="industry-source-checked" type="checkbox"> 공시 원문의 회사·기간·방향을 직접 대조했습니다</label>
+      <div id="industry-evidence-message" role="status" style="font-size:12px;color:var(--dim);margin:8px 0"></div>
+      <div id="industry-evidence-body" class="placeholder" style="padding:8px 0">공시 근거를 확인하는 중…</div>
     </details>
 
     <details class="card" id="relation-study" style="margin-top:16px" ontoggle="if(this.open) loadRelationStudy()">
@@ -3576,9 +3601,9 @@ async function loadMacro(){
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
 let _signalRows = null, _indexReady = false, _selectedTicker = null, _sigMarket = 'kospi', _sigLoadSeq = 0;
 // 조회 전용 비교 상태. 서버의 기본 판정이나 주문 설정으로 절대 전송하지 않는다.
-let _lensModes = { kospi: { event: 'off', entry: 'off', macro_release: 'off' }, us: { event: 'off', entry: 'off', macro_release: 'off' } };
+let _lensModes = { kospi: { event: 'off', entry: 'off', macro_release: 'off', industry_cycle: 'off' }, us: { event: 'off', entry: 'off', macro_release: 'off', industry_cycle: 'off' } };
 let _lensSnapshot = null;
-const _LENS_NAMES = { quant: '가격·실적', event: '확인된 소식', entry: '지금 진입', macro_release: '경제 발표' };
+const _LENS_NAMES = { quant: '가격·실적', event: '확인된 소식', entry: '지금 진입', macro_release: '경제 발표', industry_cycle: '반도체 업황' };
 const _LENS_VERDICTS = { pass: '충족', hold: '보류', exclude: '제외', unavailable: '자료 없음' };
 function lensPass(row, modes){
   const strict = ['event', 'entry'].filter(k => modes[k] === 'require');
@@ -3589,14 +3614,14 @@ function lensPass(row, modes){
     && row.lens_results[k].verdict === 'pass');
 }
 function setSignalLensMode(key, mode){
-  if (!['event', 'entry', 'macro_release'].includes(key) || !['off', 'include', 'require'].includes(mode)) return;
-  if (key === 'macro_release' && mode === 'require') return; // 시장 공통 사건을 종목 AND 필터로 오용하지 않는다.
+  if (!['event', 'entry', 'macro_release', 'industry_cycle'].includes(key) || !['off', 'include', 'require'].includes(mode)) return;
+  if (['macro_release', 'industry_cycle'].includes(key) && mode === 'require') return; // 성과 미검증 연구 관점은 엄격 필터로 오용하지 않는다.
   if (!_lensSnapshot || !_lensSnapshot.id || _lensSnapshot.mode !== 'read_only') return;
   _lensModes[_sigMarket][key] = mode;
   renderSignalList();
 }
 function resetSignalLensModes(){
-  _lensModes[_sigMarket] = { event: 'off', entry: 'off', macro_release: 'off' };
+  _lensModes[_sigMarket] = { event: 'off', entry: 'off', macro_release: 'off', industry_cycle: 'off' };
   renderSignalList();
 }
 function renderSelectedLensDetail(ticker){
@@ -3608,7 +3633,8 @@ function renderSelectedLensDetail(ticker){
     return;
   }
   el.innerHTML = `<div style="font-weight:700">${esc(row.name)} · 관점별 근거</div>`
-    + ['quant', 'event', 'entry', ...(_lensModes[_sigMarket].macro_release === 'include' ? ['macro_release'] : [])].map(k => {
+    + ['quant', 'event', 'entry', ...(_lensModes[_sigMarket].macro_release === 'include' ? ['macro_release'] : []),
+       ...(_lensModes[_sigMarket].industry_cycle === 'include' ? ['industry_cycle'] : [])].map(k => {
       const result = row.lens_results[k] || {};
       const verdict = _LENS_VERDICTS[result.verdict] || '자료 없음';
       const timing = result.as_of ? ` · 기준 ${esc(result.as_of)}` : ' · 기준일 없음';
@@ -3619,11 +3645,11 @@ function renderSelectedLensDetail(ticker){
 function renderSignalLensPanel(baseCount, filteredCount){
   const ready = !!(_lensSnapshot && _lensSnapshot.id && _lensSnapshot.mode === 'read_only');
   const modes = _lensModes[_sigMarket];
-  ['event', 'entry', 'macro_release'].forEach(k => {
+  ['event', 'entry', 'macro_release', 'industry_cycle'].forEach(k => {
     const select = document.getElementById('sig-lens-' + k);
     if (select) { select.disabled = !ready; select.value = ready ? modes[k] : 'off'; }
   });
-  const active = ready && ['event', 'entry', 'macro_release'].some(k => modes[k] !== 'off');
+  const active = ready && ['event', 'entry', 'macro_release', 'industry_cycle'].some(k => modes[k] !== 'off');
   const summary = document.getElementById('sig-lens-summary');
   if (summary) summary.textContent = active ? `${baseCount}건 → ${filteredCount}건` : '기본 시그널 그대로';
   const compare = document.getElementById('sig-lens-compare');
@@ -3635,7 +3661,8 @@ function renderSignalLensPanel(baseCount, filteredCount){
       const saved = _lensSnapshot.recorded ? '' : ' · 근거 기록 실패';
       const macro = modes.macro_release === 'include'
         ? ` · 경제 발표: ${_LENS_VERDICTS[((_signalRows || [])[0]?.lens_results?.macro_release || {}).verdict] || '자료 없음'} (시장 공통·성과 미검증)` : '';
-      compare.textContent = `기본 ${baseCount}건 → 비교 ${filteredCount}건${note}${macro}. 순위·비중·주문 변경 없음. 스냅샷 ${_lensSnapshot.id}${saved}`;
+      const industry = modes.industry_cycle === 'include' ? ' · 반도체 업황: 종목별 세부 근거에서 확인(성과 미검증)' : '';
+      compare.textContent = `기본 ${baseCount}건 → 비교 ${filteredCount}건${note}${macro}${industry}. 순위·비중·주문 변경 없음. 스냅샷 ${_lensSnapshot.id}${saved}`;
     }
   }
   renderSelectedLensDetail(_selectedTicker);
@@ -8351,6 +8378,49 @@ async function submitMacroReleaseActual(){
     await _macroReleasePost('/api/admin/research/macro-releases/actual', payload);
     message.textContent = '실제값을 별도 기록했습니다. 시장 반응·수익 효과는 아직 검증되지 않았습니다.';
     await loadMacroReleaseStudy();
+  } catch(e) { message.textContent = e.message; }
+}
+async function loadIndustryEvidenceStudy(){
+  const el = document.getElementById('industry-evidence-body');
+  if (!el) return;
+  try {
+    const response = await fetch('/api/admin/research/industry-evidence');
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    const names = {memory:'메모리',foundry:'파운드리',equipment:'장비'};
+    const dimensions = {demand:'수요',inventory:'재고',pricing:'가격',capex:'설비투자',guidance:'가이던스'};
+    const directions = {improving:'개선',deteriorating:'악화',neutral:'중립'};
+    const statuses = Object.entries(data.segments || {}).map(([k,v]) =>
+      `${names[k] || k}: ${v.verdict === 'unavailable' ? '자료 없음' : v.verdict === 'pass' ? '개선 관측' : '판단 보류'}`).join(' · ');
+    const rows = data.items || [];
+    el.innerHTML = `<div style="font-size:13px;margin-bottom:8px">${esc(statuses || '분야별 자료 없음')} · 수익 효과 미검증 · 주문 미연결</div>`
+      + (rows.length ? rows.map(r => {
+        const status = r.review_verdict === 'approved' ? '원문 검토됨' : r.review_verdict === 'rejected' ? '거절' : '검토 대기';
+        const controls = r.review_verdict ? '' : `<button type="button" class="btn" onclick="reviewIndustryEvidence(${Number(r.id)},'approved')">원문 대조 후 승인</button> <button type="button" class="btn" onclick="reviewIndustryEvidence(${Number(r.id)},'rejected')">거절</button>`;
+        return `<div style="border-top:1px solid var(--line);padding:8px 0;font-size:12px;line-height:1.6"><b>#${Number(r.id)} · ${esc(names[r.segment] || r.segment)} · ${esc(dimensions[r.dimension] || r.dimension)} ${esc(directions[r.direction] || r.direction)}</b> · ${esc(status)}<br>${esc(r.issuer)} · 기준 ${esc(r.period)} · 공개 ${esc(r.source_published_at)} · <a href="${esc(r.source_url)}" target="_blank" rel="noopener noreferrer">공식 원문</a><br><span style="color:var(--dim)">${esc(r.evidence_quote)}</span><br>${controls}</div>`;
+      }).join('') : '등록된 분야별 공시 근거가 없습니다. 업종 전체 매출만으로 세부 분야를 판정하지 않습니다.');
+  } catch(e) { el.textContent = '산업 근거 원장을 표시할 수 없습니다 · ' + e.message; }
+}
+async function submitIndustryEvidence(){
+  const message = document.getElementById('industry-evidence-message');
+  try {
+    const payload = {segment:_macroReleaseInput('industry-segment'), dimension:_macroReleaseInput('industry-dimension'),
+      direction:_macroReleaseInput('industry-direction'), issuer:_macroReleaseInput('industry-issuer'),
+      period:_macroReleaseInput('industry-period'), source_published_at:_macroReleaseIso('industry-published'),
+      source_url:_macroReleaseInput('industry-source-url'), evidence_quote:_macroReleaseInput('industry-quote')};
+    await _macroReleasePost('/api/admin/research/industry-evidence', payload);
+    message.textContent = '후보를 기록했습니다. 원문 검토 전에는 업황 판단에 사용하지 않습니다.';
+    await loadIndustryEvidenceStudy();
+  } catch(e) { message.textContent = e.message; }
+}
+async function reviewIndustryEvidence(id, verdict){
+  const message = document.getElementById('industry-evidence-message');
+  try {
+    const payload = {evidence_id:id, verdict, note:_macroReleaseInput('industry-review-note'),
+      source_checked:!!document.getElementById('industry-source-checked')?.checked};
+    await _macroReleasePost('/api/admin/research/industry-evidence/review', payload);
+    message.textContent = `#${id} 검토를 기록했습니다. 업황 관점은 연구용이고 매매 판단에 반영되지 않습니다.`;
+    await loadIndustryEvidenceStudy();
   } catch(e) { message.textContent = e.message; }
 }
 async function loadRelationStudy(){

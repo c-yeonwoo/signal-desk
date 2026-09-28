@@ -53,6 +53,18 @@ CREATE TABLE IF NOT EXISTS macro_release_actuals(
     FOREIGN KEY(release_id) REFERENCES macro_release_forecasts(id));
 CREATE INDEX IF NOT EXISTS idx_macro_release_actuals
     ON macro_release_actuals(release_id,id DESC);
+CREATE TABLE IF NOT EXISTS industry_evidence(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, evidence_key TEXT UNIQUE NOT NULL,
+    segment TEXT NOT NULL, dimension TEXT NOT NULL, direction TEXT NOT NULL,
+    issuer TEXT NOT NULL, period TEXT NOT NULL, source_url TEXT NOT NULL,
+    source_published_at TEXT NOT NULL, observed_at TEXT NOT NULL,
+    evidence_quote TEXT NOT NULL, version TEXT NOT NULL, actor_uid INTEGER);
+CREATE TABLE IF NOT EXISTS industry_evidence_reviews(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, evidence_id INTEGER NOT NULL,
+    verdict TEXT NOT NULL, note TEXT NOT NULL, reviewed_at TEXT NOT NULL,
+    reviewer_uid INTEGER, FOREIGN KEY(evidence_id) REFERENCES industry_evidence(id));
+CREATE INDEX IF NOT EXISTS idx_industry_evidence_segment
+    ON industry_evidence(segment,observed_at DESC);
 CREATE TABLE IF NOT EXISTS profile(uid INTEGER PRIMARY KEY, data TEXT);
 CREATE TABLE IF NOT EXISTS favorites(uid INTEGER, kind TEXT, key TEXT, label TEXT, ts INTEGER,
     PRIMARY KEY(uid, kind, key));
@@ -1246,6 +1258,52 @@ def macro_release_recent(limit: int = 20) -> list[dict]:
     finally:
         c.close()
     return [item for (rid,) in rows if (item := macro_release_get(rid))]
+
+
+def industry_evidence_add(record: dict, *, actor_uid: int | None = None) -> int | None:
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO industry_evidence"
+                        "(evidence_key,segment,dimension,direction,issuer,period,source_url,"
+                        "source_published_at,observed_at,evidence_quote,version,actor_uid) "
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (record["evidence_key"], record["segment"], record["dimension"],
+                         record["direction"], record["issuer"], record["period"],
+                         record["source_url"], record["source_published_at"],
+                         record["observed_at"], record["evidence_quote"], record["version"], actor_uid))
+        c.commit()
+        return int(cur.lastrowid) if cur.rowcount == 1 else None
+    finally:
+        c.close()
+
+
+def industry_evidence_review(evidence_id: int, *, verdict: str, note: str,
+                             reviewed_at: str, reviewer_uid: int | None = None) -> int:
+    c = conn()
+    try:
+        if not c.execute("SELECT 1 FROM industry_evidence WHERE id=?", (evidence_id,)).fetchone():
+            raise ValueError("근거 ID를 찾을 수 없습니다")
+        cur = c.execute("INSERT INTO industry_evidence_reviews"
+                        "(evidence_id,verdict,note,reviewed_at,reviewer_uid) VALUES(?,?,?,?,?)",
+                        (evidence_id, verdict, note, reviewed_at, reviewer_uid))
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
+
+
+def industry_evidence_list(limit: int = 100) -> list[dict]:
+    c = conn()
+    try:
+        c.row_factory = sqlite3.Row
+        rows = c.execute("SELECT e.*,r.verdict AS review_verdict,r.note AS review_note,"
+                         "r.reviewed_at FROM industry_evidence e "
+                         "LEFT JOIN industry_evidence_reviews r ON r.id=("
+                         "SELECT MAX(id) FROM industry_evidence_reviews WHERE evidence_id=e.id) "
+                         "ORDER BY e.id DESC LIMIT ?", (max(1, min(limit, 500)),)).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        c.close()
 
 
 def kv_get(k: str, max_age: int | None = None):

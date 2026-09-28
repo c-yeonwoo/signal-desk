@@ -44,7 +44,7 @@ from signal_desk.signals import (
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
-    horizon, hypothesis, lenses, macro, macro_release, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
+    horizon, hypothesis, industry_cycle, lenses, macro, macro_release, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     sector_rel, target, why_now,
 )
@@ -2378,9 +2378,15 @@ def _attach_lens_snapshot(items: list[dict], *, market: str, signal_policy_id: s
         log.warning("렌즈 경제 발표 조회 실패: %s", type(exc).__name__)
         releases = []
     try:
+        industry_evidence = db.industry_evidence_list(500)
+    except Exception as exc:
+        log.warning("렌즈 산업 근거 조회 실패: %s", type(exc).__name__)
+        industry_evidence = []
+    try:
         snapshot = lenses.build_snapshot(items, market="us" if market == "us" else "kr",
                                          signal_policy_id=signal_policy_id,
-                                         dates_by=dates_by, events=events, macro_releases=releases)
+                                         dates_by=dates_by, events=events, macro_releases=releases,
+                                         industry_evidence=industry_evidence)
     except Exception as exc:
         log.warning("조회용 렌즈 계산 실패(기본 시그널 유지): %s", type(exc).__name__)
         for row in items:
@@ -3960,6 +3966,51 @@ def macro_release_actual_post(request: Request, data: dict = Body(...)):
         raise HTTPException(400, str(exc)) from None
     return {"id": actual_id, "release_id": actual["release_id"],
             "status": "operator_attested", "mode": "research_only", "live_eligible": False}
+
+
+@app.get("/api/admin/research/industry-evidence")
+def industry_evidence_get(request: Request):
+    _admin_or_403(request)
+    rows = db.industry_evidence_list(100)
+    as_of = datetime.datetime.now(datetime.timezone.utc)
+    return {"version": industry_cycle.VERSION, "mode": "research_only", "live_eligible": False,
+            "items": rows,
+            "segments": {segment: industry_cycle.assess(segment, rows, as_of=as_of)
+                         for segment in industry_cycle.SEGMENTS},
+            "note": "SEC·DART 원문을 운영자가 대조한 연구 근거입니다. 산업 개선과 주가 수익은 별개입니다."}
+
+
+@app.post("/api/admin/research/industry-evidence")
+def industry_evidence_post(request: Request, data: dict = Body(...)):
+    _relation_mutation_guard(request)
+    try:
+        record = industry_cycle.candidate(data, observed_at=datetime.datetime.now(datetime.timezone.utc))
+        evidence_id = db.industry_evidence_add(record, actor_uid=_uid(request))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    if evidence_id is None:
+        raise HTTPException(409, "동일 원문 근거가 이미 등록되어 있습니다")
+    return {"id": evidence_id, "status": "candidate", "mode": "research_only", "live_eligible": False}
+
+
+@app.post("/api/admin/research/industry-evidence/review")
+def industry_evidence_review_post(request: Request, data: dict = Body(...)):
+    _relation_mutation_guard(request)
+    try:
+        evidence_id = int(data.get("evidence_id"))
+        verdict = str(data.get("verdict") or "")
+        note = str(data.get("note") or "").strip()
+        if verdict not in ("approved", "rejected") or not 12 <= len(note) <= 500:
+            raise ValueError("승인/거절과 12~500자 검토 근거가 필요합니다")
+        if verdict == "approved" and data.get("source_checked") is not True:
+            raise ValueError("공식 원문의 기간·방향·회사 원문 대조 확인이 필요합니다")
+        review_id = db.industry_evidence_review(
+            evidence_id, verdict=verdict, note=note,
+            reviewed_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            reviewer_uid=_uid(request))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"id": review_id, "status": verdict, "mode": "research_only", "live_eligible": False}
 
 
 @app.post("/api/admin/research/relations")

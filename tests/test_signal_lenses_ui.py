@@ -14,7 +14,8 @@ def test_lens_controls_and_script_syntax():
     assert 'id="sig-lens-event"' in html and 'id="sig-lens-entry"' in html
     assert "기본 판단·봇·실주문에는 적용되지 않습니다" in html
     assert 'id="sig-lens-macro_release"' in html
-    assert "경제 발표는 사전 예상치·실제값이 있을 때만" in html
+    assert 'id="sig-lens-industry_cycle"' in html
+    assert "경제 발표·반도체 업황은 근거가 있을 때만" in html
     # 앱은 한 파일에 외부·내부 스크립트가 섞여 있다. 인라인 스크립트만 파싱한다.
     scripts = []
     for part in html.split("<script"):
