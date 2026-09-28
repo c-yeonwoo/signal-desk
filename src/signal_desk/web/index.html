@@ -1108,8 +1108,13 @@
                   <option value="off">기본 보기</option><option value="include">함께 보기</option><option value="require">충족 종목만</option>
                 </select>
               </label>
+              <label for="sig-lens-macro_release">경제 발표 · 연구용
+                <select id="sig-lens-macro_release" onchange="setSignalLensMode('macro_release',this.value)">
+                  <option value="off">기본 보기</option><option value="include">함께 보기</option>
+                </select>
+              </label>
             </div>
-            <div class="sig-lens-muted">경제 발표 · 산업 사이클 · 내 포트폴리오는 근거·시점 검증 후 추가합니다.</div>
+            <div class="sig-lens-muted">경제 발표는 사전 예상치·실제값이 있을 때만 참고 표시하며 종목을 거르지 않습니다. 산업 사이클·내 포트폴리오는 근거·시점 검증 후 추가합니다.</div>
             <div id="sig-lens-compare" class="sig-lens-compare" role="status">관점 스냅샷 확인 중…</div>
             <div id="sig-lens-detail" class="sig-lens-detail"></div>
           </div>
@@ -1745,6 +1750,29 @@
       <div id="revision-price-verdict" style="font-size:13px;line-height:1.7;padding:8px 0;color:var(--dim)">전진 검증 판정 대기…</div>
       <div id="revision-price-body" class="placeholder" style="padding:8px 0">불러오는 중…</div>
       <button type="button" class="btn" onclick="loadRevisionPriceStudy()" style="margin-top:10px">다시 조회</button>
+    </details>
+
+    <details class="card" id="macro-release-study" style="margin-top:16px" ontoggle="if(this.open) loadMacroReleaseStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">경제 발표 기록 <span style="color:var(--dim);font-weight:600;font-size:13px">· 발표 전 예상치 고정 · 연구 전용</span></summary>
+      <p class="page-desc" style="margin:8px 0">예상치는 발표 전에만 저장할 수 있습니다. 발표 뒤 공식 원문의 실제값을 별도로 대조·기록합니다. 두 값이 있어도 시장 반응과 수익 효과는 아직 검증되지 않았고 주문에는 반영되지 않습니다.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
+        <label>발표 종류 <select id="macro-release-metric"><option value="us_cpi_mom_sa_pct">미 CPI 전월비(계절조정)</option><option value="us_fomc_target_mid_pct">FOMC 목표금리 중간값</option></select></label>
+        <label>대상 기간 <input id="macro-release-period" placeholder="CPI: 2026-09 / FOMC: 2026-10-28" style="width:180px"></label>
+        <label>발표 예정시각(내 시간대) <input id="macro-release-scheduled" type="datetime-local"></label>
+        <label>발표 전 예상치(%) <input id="macro-release-expected" type="number" step="0.001" style="width:95px"></label>
+      </div>
+      <label style="display:block;font-size:12px;margin:6px 0">예상치 근거 URL <input id="macro-release-forecast-url" type="url" placeholder="https://..." style="width:100%"></label>
+      <button type="button" class="btn" onclick="submitMacroReleaseForecast()">예상치 발표 전 동결</button>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin:14px 0 8px">
+        <label>기록된 발표 <select id="macro-release-id"><option value="">예상치 기록을 먼저 선택</option></select></label>
+        <label>공식 실제값(%) <input id="macro-release-actual" type="number" step="0.001" style="width:95px"></label>
+        <label>공식 공개시각(내 시간대) <input id="macro-release-published" type="datetime-local"></label>
+      </div>
+      <label style="display:block;font-size:12px;margin:6px 0">미국 노동통계국·연준 공식 원문 URL <input id="macro-release-actual-url" type="url" placeholder="https://www.bls.gov/..." style="width:100%"></label>
+      <label class="cb" style="display:block;margin:6px 0"><input id="macro-release-checked" type="checkbox"> 원문의 기간·지표·실제값을 직접 대조했습니다(자동 검증 아님)</label>
+      <div class="row" style="gap:8px"><button type="button" class="btn" onclick="submitMacroReleaseActual()">실제값 기록</button><button type="button" class="btn" onclick="loadMacroReleaseStudy()">기록 새로고침</button></div>
+      <div id="macro-release-message" role="status" style="font-size:12px;color:var(--dim);margin:8px 0"></div>
+      <div id="macro-release-body" class="placeholder" style="padding:8px 0">발표 기록을 확인하는 중…</div>
     </details>
 
     <details class="card" id="relation-study" style="margin-top:16px" ontoggle="if(this.open) loadRelationStudy()">
@@ -3548,9 +3576,9 @@ async function loadMacro(){
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
 let _signalRows = null, _indexReady = false, _selectedTicker = null, _sigMarket = 'kospi', _sigLoadSeq = 0;
 // 조회 전용 비교 상태. 서버의 기본 판정이나 주문 설정으로 절대 전송하지 않는다.
-let _lensModes = { kospi: { event: 'off', entry: 'off' }, us: { event: 'off', entry: 'off' } };
+let _lensModes = { kospi: { event: 'off', entry: 'off', macro_release: 'off' }, us: { event: 'off', entry: 'off', macro_release: 'off' } };
 let _lensSnapshot = null;
-const _LENS_NAMES = { quant: '가격·실적', event: '확인된 소식', entry: '지금 진입' };
+const _LENS_NAMES = { quant: '가격·실적', event: '확인된 소식', entry: '지금 진입', macro_release: '경제 발표' };
 const _LENS_VERDICTS = { pass: '충족', hold: '보류', exclude: '제외', unavailable: '자료 없음' };
 function lensPass(row, modes){
   const strict = ['event', 'entry'].filter(k => modes[k] === 'require');
@@ -3561,13 +3589,14 @@ function lensPass(row, modes){
     && row.lens_results[k].verdict === 'pass');
 }
 function setSignalLensMode(key, mode){
-  if (!['event', 'entry'].includes(key) || !['off', 'include', 'require'].includes(mode)) return;
+  if (!['event', 'entry', 'macro_release'].includes(key) || !['off', 'include', 'require'].includes(mode)) return;
+  if (key === 'macro_release' && mode === 'require') return; // 시장 공통 사건을 종목 AND 필터로 오용하지 않는다.
   if (!_lensSnapshot || !_lensSnapshot.id || _lensSnapshot.mode !== 'read_only') return;
   _lensModes[_sigMarket][key] = mode;
   renderSignalList();
 }
 function resetSignalLensModes(){
-  _lensModes[_sigMarket] = { event: 'off', entry: 'off' };
+  _lensModes[_sigMarket] = { event: 'off', entry: 'off', macro_release: 'off' };
   renderSignalList();
 }
 function renderSelectedLensDetail(ticker){
@@ -3579,7 +3608,7 @@ function renderSelectedLensDetail(ticker){
     return;
   }
   el.innerHTML = `<div style="font-weight:700">${esc(row.name)} · 관점별 근거</div>`
-    + ['quant', 'event', 'entry'].map(k => {
+    + ['quant', 'event', 'entry', ...(_lensModes[_sigMarket].macro_release === 'include' ? ['macro_release'] : [])].map(k => {
       const result = row.lens_results[k] || {};
       const verdict = _LENS_VERDICTS[result.verdict] || '자료 없음';
       const timing = result.as_of ? ` · 기준 ${esc(result.as_of)}` : ' · 기준일 없음';
@@ -3590,11 +3619,11 @@ function renderSelectedLensDetail(ticker){
 function renderSignalLensPanel(baseCount, filteredCount){
   const ready = !!(_lensSnapshot && _lensSnapshot.id && _lensSnapshot.mode === 'read_only');
   const modes = _lensModes[_sigMarket];
-  ['event', 'entry'].forEach(k => {
+  ['event', 'entry', 'macro_release'].forEach(k => {
     const select = document.getElementById('sig-lens-' + k);
     if (select) { select.disabled = !ready; select.value = ready ? modes[k] : 'off'; }
   });
-  const active = ready && ['event', 'entry'].some(k => modes[k] !== 'off');
+  const active = ready && ['event', 'entry', 'macro_release'].some(k => modes[k] !== 'off');
   const summary = document.getElementById('sig-lens-summary');
   if (summary) summary.textContent = active ? `${baseCount}건 → ${filteredCount}건` : '기본 시그널 그대로';
   const compare = document.getElementById('sig-lens-compare');
@@ -3604,7 +3633,9 @@ function renderSignalLensPanel(baseCount, filteredCount){
       const strict = ['event', 'entry'].filter(k => modes[k] === 'require').map(k => _LENS_NAMES[k]);
       const note = strict.length ? ` · 충족 조건: ${strict.join(' + ')}` : ' · 목록 제외 조건 없음';
       const saved = _lensSnapshot.recorded ? '' : ' · 근거 기록 실패';
-      compare.textContent = `기본 ${baseCount}건 → 비교 ${filteredCount}건${note}. 순위·비중·주문 변경 없음. 스냅샷 ${_lensSnapshot.id}${saved}`;
+      const macro = modes.macro_release === 'include'
+        ? ` · 경제 발표: ${_LENS_VERDICTS[((_signalRows || [])[0]?.lens_results?.macro_release || {}).verdict] || '자료 없음'} (시장 공통·성과 미검증)` : '';
+      compare.textContent = `기본 ${baseCount}건 → 비교 ${filteredCount}건${note}${macro}. 순위·비중·주문 변경 없음. 스냅샷 ${_lensSnapshot.id}${saved}`;
     }
   }
   renderSelectedLensDetail(_selectedTicker);
@@ -8262,6 +8293,66 @@ async function delShortform(id){
 }
 
 // ===== 시그널 엔진 설정(관리자) =====
+function _macroReleaseInput(id){ return (document.getElementById(id)?.value || '').trim(); }
+function _macroReleaseIso(id){
+  const value = _macroReleaseInput(id);
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) throw new Error('발표 시각을 입력하세요.');
+  return date.toISOString();
+}
+async function _macroReleasePost(path, payload){
+  const response = await fetch(path, { method:'POST',
+    headers:{'Content-Type':'application/json','X-Signal-Desk-Relation':'review'}, body:JSON.stringify(payload) });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || '저장 실패 (' + response.status + ')');
+  return data;
+}
+async function loadMacroReleaseStudy(){
+  const body = document.getElementById('macro-release-body');
+  const selector = document.getElementById('macro-release-id');
+  if (!body || !selector) return;
+  try {
+    const response = await fetch('/api/admin/research/macro-releases');
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    const rows = data.items || [];
+    const prior = selector.value;
+    selector.innerHTML = '<option value="">예상치 기록을 선택</option>' + rows.map(r =>
+      `<option value="${esc(r.id)}">${esc(r.metric === 'us_cpi_mom_sa_pct' ? '미 CPI' : 'FOMC')} · ${esc(r.period)} · 예상 ${Number(r.expected_value)}%</option>`).join('');
+    if (rows.some(r => r.id === prior)) selector.value = prior;
+    body.innerHTML = rows.length ? rows.map(r => {
+      const it = r.interpretation || {};
+      const status = r.actual_value == null ? '실제값 대기' : `실제 ${Number(r.actual_value)}% · 예상 대비 ${it.surprise_pp == null ? '미확인' : Number(it.surprise_pp).toFixed(3) + '%p'}`;
+      const actualSource = r.actual_source_url ? ` · <a href="${esc(r.actual_source_url)}" target="_blank" rel="noopener noreferrer">공식 원문</a>` : '';
+      return `<div style="border-top:1px solid var(--line);padding:8px 0;font-size:12px;line-height:1.6"><b>${esc(r.metric === 'us_cpi_mom_sa_pct' ? '미 CPI 전월비' : 'FOMC 목표금리 중간값')} · ${esc(r.period)}</b> · ${status}<br>예정 ${esc(r.scheduled_at)} · 예상치 기록 ${esc(r.forecast_observed_at)} · <a href="${esc(r.forecast_source_url)}" target="_blank" rel="noopener noreferrer">예상치 근거</a>${actualSource}<br><span style="color:var(--dim)">${esc(it.reason || '')} · 실주문 미반영</span></div>`;
+    }).join('') : '발표 전에 동결한 예상치가 없습니다. 현재 지표값으로 지난 발표를 재구성하지 않습니다.';
+  } catch(e) { body.textContent = '경제 발표 원장을 표시할 수 없습니다 · ' + e.message; }
+}
+async function submitMacroReleaseForecast(){
+  const message = document.getElementById('macro-release-message');
+  try {
+    const payload = {metric:_macroReleaseInput('macro-release-metric'), period:_macroReleaseInput('macro-release-period'),
+      scheduled_at:_macroReleaseIso('macro-release-scheduled'), expected_value:Number(_macroReleaseInput('macro-release-expected')),
+      forecast_source_url:_macroReleaseInput('macro-release-forecast-url')};
+    if (!_macroReleaseInput('macro-release-expected')) throw new Error('발표 전 예상치를 입력하세요.');
+    await _macroReleasePost('/api/admin/research/macro-releases/forecast', payload);
+    message.textContent = '발표 전 예상치를 동결했습니다. 이후 수정할 수 없으며 매매에는 반영되지 않습니다.';
+    await loadMacroReleaseStudy();
+  } catch(e) { message.textContent = e.message; }
+}
+async function submitMacroReleaseActual(){
+  const message = document.getElementById('macro-release-message');
+  try {
+    const payload = {release_id:_macroReleaseInput('macro-release-id'), actual_value:Number(_macroReleaseInput('macro-release-actual')),
+      source_published_at:_macroReleaseIso('macro-release-published'),
+      actual_source_url:_macroReleaseInput('macro-release-actual-url'),
+      source_checked:!!document.getElementById('macro-release-checked')?.checked};
+    if (!payload.release_id || !_macroReleaseInput('macro-release-actual')) throw new Error('발표와 공식 실제값을 선택하세요.');
+    await _macroReleasePost('/api/admin/research/macro-releases/actual', payload);
+    message.textContent = '실제값을 별도 기록했습니다. 시장 반응·수익 효과는 아직 검증되지 않았습니다.';
+    await loadMacroReleaseStudy();
+  } catch(e) { message.textContent = e.message; }
+}
 async function loadRelationStudy(){
   const el = document.getElementById('relation-study-body');
   if (!el) return;

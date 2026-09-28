@@ -14,13 +14,16 @@ from dataclasses import asdict, dataclass
 from typing import Any
 from zoneinfo import ZoneInfo
 
-VERSION = "read-only-lenses-v1"
+from signal_desk.signals import macro_release
+
+VERSION = "read-only-lenses-v2"
 HORIZON = "수일~수주 참고"
 LENS_CATALOG = (
     {"key": "quant", "label": "가격·실적", "available": True, "affects": ["candidate"]},
     {"key": "event", "label": "확인된 소식", "available": True, "affects": ["candidate"]},
     {"key": "entry", "label": "지금 진입", "available": True, "affects": ["timing"]},
-    {"key": "macro_release", "label": "경제 발표", "available": False, "reason": "발표 당시 예상치·실제치 원장 구축 전"},
+    {"key": "macro_release", "label": "경제 발표", "available": True, "affects": ["size", "timing"],
+     "reason": "발표 전 예상치·공식 실제값이 둘 다 있을 때만 연구용으로 표시"},
     {"key": "industry_cycle", "label": "산업 사이클", "available": False, "reason": "업종별 공식 근거·시차 검증 전"},
     {"key": "portfolio", "label": "내 포트폴리오", "available": False, "reason": "개인 보유·한도와 연결 전"},
 )
@@ -163,9 +166,34 @@ def _entry(row: dict, market: str, as_of: str | None) -> dict:
                  reason="진입 품질 등급을 해석할 수 없음", source_quality="unknown_grade")
 
 
+def _macro_release(row: dict, market: str, releases: list[dict], observed_at: int) -> dict:
+    decision_time = datetime.datetime.fromtimestamp(observed_at, datetime.timezone.utc)
+    candidates = [r for r in releases if r.get("actual_value") is not None
+                  and r.get("actual_observed_at")]
+    candidates.sort(key=lambda r: r["actual_observed_at"], reverse=True)
+    release = candidates[0] if candidates else None
+    result = macro_release.evaluate(release, as_of=decision_time)
+    if not release:
+        return _base("macro_release", row, market, None, verdict="unavailable",
+                     reason=result["reason"], source_quality="no_frozen_release", affects=["size", "timing"])
+    observed = macro_release._utc(release["actual_observed_at"])
+    expires = observed + datetime.timedelta(hours=72)
+    if observed > decision_time or decision_time > expires:
+        return _base("macro_release", row, market, _date(release["actual_observed_at"]),
+                     verdict="unavailable", reason="발표 관측 전이거나 72시간 관찰창이 지남",
+                     evidence_ids=["macro_release:" + release["id"]], valid_until=expires.date().isoformat(),
+                     source_quality="outside_observation_window", affects=["size", "timing"])
+    return _base("macro_release", row, market, _date(release["actual_observed_at"]),
+                 verdict=result["verdict"], reason=result["reason"],
+                 evidence_ids=["macro_release:" + release["id"]], valid_until=expires.date().isoformat(),
+                 source_quality=str(release.get("source_quality") or "unverified"),
+                 affects=["size", "timing"])
+
+
 def build_snapshot(rows: list[dict], *, market: str, signal_policy_id: str | None,
                    dates_by: dict[str, list[str]] | None = None,
                    events: list[dict] | None = None,
+                   macro_releases: list[dict] | None = None,
                    observed_at: int | None = None) -> dict:
     """한 목록의 동일 입력에서 렌즈를 산출한다. rows는 복사본이어야 한다."""
     if market not in ("kr", "us"):
@@ -188,6 +216,7 @@ def build_snapshot(rows: list[dict], *, market: str, signal_policy_id: str | Non
             "quant": _quant(row, market, as_of),
             "event": _event(row, market, related),
             "entry": _entry(row, market, as_of),
+            "macro_release": _macro_release(row, market, macro_releases or [], observed_at),
         }
         row["lens_results"] = results
         result_rows.append({"ticker": ticker, "name": row.get("name"), "kind": row.get("kind"),
