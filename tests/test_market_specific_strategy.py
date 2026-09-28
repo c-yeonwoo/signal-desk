@@ -172,6 +172,21 @@ def test_us_regime_snapshot_uses_us_session_and_is_idempotent(tmp_path, monkeypa
     assert store.regime_history("us")[0]["date"] == "2026-09-23"
 
 
+def test_kr_regime_snapshot_records_bot_exposure_and_readiness(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(api.bot, "_market_read_for", lambda market: {"context": {
+        "regime": "약세", "exposure": 0.32, "regime_ready": True}})
+    assert api._snapshot_kr_regime("2026-09-28")
+    assert store.regime_history("kr") == [{"date": "2026-09-28", "regime": "약세",
+                                          "ready": True, "exposure": 0.32}]
+    assert store.regime_history("us") == []
+
+    monkeypatch.setattr(api.bot, "_market_read_for", lambda market: {"context": {
+        "regime": None, "exposure": 0.7, "regime_ready": False}})
+    assert api._snapshot_kr_regime("2026-09-29")
+    assert store.regime_history("kr")[-1]["ready"] is False
+
+
 def test_market_regime_research_api_is_admin_only(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 

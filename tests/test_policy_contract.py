@@ -37,7 +37,7 @@ def test_api_prefers_policy_frozen_on_cached_signal():
 
 def test_bot_market_read_includes_same_kr_macro_input_as_api(monkeypatch):
     seen = {}
-    monkeypatch.setattr(bot.regime, "classify", lambda prices: {"regime": "중립"})
+    monkeypatch.setattr(bot.regime, "classify", lambda prices: {"ready": True, "regime": "중립"})
     monkeypatch.setattr(bot.store, "load_macro", lambda: {"fed": 1})
     monkeypatch.setattr(bot.store, "load_macro_kr", lambda: {"ecos": 2})
     monkeypatch.setattr(bot.store, "load_market_flow", lambda: {})
@@ -46,8 +46,9 @@ def test_bot_market_read_includes_same_kr_macro_input_as_api(monkeypatch):
     monkeypatch.setattr(bot.signalcfg, "effective_config", lambda *args, **kwargs: (SignalConfig(), {}))
     monkeypatch.setattr(bot.signalcfg, "get_dict", lambda: {})
     monkeypatch.setattr(bot.kb, "macro_digest", lambda: None)
-    bot._market_read({"005930": [100.0]})
+    result = bot._market_read({"005930": [100.0]})
     assert seen["extra"] == {"ecos": 2}
+    assert result["context"]["regime_ready"] is True
 
 
 def test_shadow_decision_distinguishes_policy_from_input_decision_id():
