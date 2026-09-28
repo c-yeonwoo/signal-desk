@@ -14,9 +14,9 @@ from dataclasses import asdict, dataclass
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from signal_desk.signals import macro_release
+from signal_desk.signals import industry_cycle, macro_release
 
-VERSION = "read-only-lenses-v2"
+VERSION = "read-only-lenses-v3"
 HORIZON = "수일~수주 참고"
 LENS_CATALOG = (
     {"key": "quant", "label": "가격·실적", "available": True, "affects": ["candidate"]},
@@ -24,7 +24,8 @@ LENS_CATALOG = (
     {"key": "entry", "label": "지금 진입", "available": True, "affects": ["timing"]},
     {"key": "macro_release", "label": "경제 발표", "available": True, "affects": ["size", "timing"],
      "reason": "발표 전 예상치·공식 실제값이 둘 다 있을 때만 연구용으로 표시"},
-    {"key": "industry_cycle", "label": "산업 사이클", "available": False, "reason": "업종별 공식 근거·시차 검증 전"},
+    {"key": "industry_cycle", "label": "반도체 업황", "available": True, "affects": ["candidate"],
+     "reason": "세부 분야별 공식 공시·독립 회사 근거가 부족하면 자료 없음"},
     {"key": "portfolio", "label": "내 포트폴리오", "available": False, "reason": "개인 보유·한도와 연결 전"},
 )
 
@@ -72,11 +73,11 @@ def _date(value: Any) -> str | None:
 def _base(key: str, row: dict, market: str, as_of: str | None, *,
           verdict: str, reason: str, evidence_ids: list[str] | None = None,
           valid_until: str | None = None, source_quality: str = "unverified",
-          affects: list[str] | None = None) -> dict:
+          affects: list[str] | None = None, coverage: float | None = None) -> dict:
     return asdict(LensResult(
         lens=key, version=VERSION, ticker=str(row.get("ticker") or ""), market=market,
         horizon=HORIZON, as_of=as_of, valid_until=valid_until, verdict=verdict,
-        coverage=_finite(row.get("data_coverage")) if key == "quant" else None,
+        coverage=_finite(row.get("data_coverage")) if key == "quant" else coverage,
         evidence_ids=evidence_ids or [], source_quality=source_quality,
         affects=affects or [], research_only=True, reason=reason,
     ))
@@ -190,10 +191,29 @@ def _macro_release(row: dict, market: str, releases: list[dict], observed_at: in
                  affects=["size", "timing"])
 
 
+def _industry_cycle(row: dict, market: str, evidence: list[dict], observed_at: int) -> dict:
+    segment = industry_cycle.EXPOSURE.get(str(row.get("ticker") or "").upper())
+    relevant = [r for r in evidence if r.get("segment") == segment and r.get("review_verdict") == "approved"]
+    assessed = industry_cycle.assess(segment, relevant,
+                                     as_of=datetime.datetime.fromtimestamp(observed_at, datetime.timezone.utc))
+    used = set(assessed["evidence_ids"])
+    dates = [industry_cycle._utc(r["source_published_at"]) for r in relevant
+             if f"industry_evidence:{r.get('id')}" in used]
+    as_of = max(dates).date().isoformat() if dates else None
+    # 충분한 근거로 pass/hold인 경우 가장 먼저 만료되는 문서 기준을 표시한다.
+    valid_until = (min(dates) + datetime.timedelta(days=industry_cycle.MAX_AGE_DAYS)).date().isoformat() \
+        if dates and assessed["verdict"] != "unavailable" else None
+    return _base("industry_cycle", row, market, as_of, verdict=assessed["verdict"],
+                 reason=assessed["reason"], evidence_ids=assessed["evidence_ids"],
+                 valid_until=valid_until, source_quality=assessed["source_quality"],
+                 affects=["candidate"], coverage=assessed["coverage"])
+
+
 def build_snapshot(rows: list[dict], *, market: str, signal_policy_id: str | None,
                    dates_by: dict[str, list[str]] | None = None,
                    events: list[dict] | None = None,
                    macro_releases: list[dict] | None = None,
+                   industry_evidence: list[dict] | None = None,
                    observed_at: int | None = None) -> dict:
     """한 목록의 동일 입력에서 렌즈를 산출한다. rows는 복사본이어야 한다."""
     if market not in ("kr", "us"):
@@ -217,6 +237,7 @@ def build_snapshot(rows: list[dict], *, market: str, signal_policy_id: str | Non
             "event": _event(row, market, related),
             "entry": _entry(row, market, as_of),
             "macro_release": _macro_release(row, market, macro_releases or [], observed_at),
+            "industry_cycle": _industry_cycle(row, market, industry_evidence or [], observed_at),
         }
         row["lens_results"] = results
         result_rows.append({"ticker": ticker, "name": row.get("name"), "kind": row.get("kind"),
