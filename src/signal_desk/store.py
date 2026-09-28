@@ -348,6 +348,25 @@ def load_flow_observations_as_of(as_of: datetime.datetime) -> pd.DataFrame:
                     .reset_index(drop=True))
 
 
+def load_flow_first_observations(session: str, *, after: datetime.datetime,
+                                 as_of: datetime.datetime) -> pd.DataFrame:
+    """특정 KR 완료 세션의 종가 이후 최초로 본 수급 버전만 반환한다."""
+    if any(t.tzinfo is None or t.utcoffset() is None for t in (after, as_of)) or after > as_of:
+        raise ValueError("aware ordered observation window required")
+    if not FLOW_OBSERVATIONS_FILE.exists():
+        return pd.DataFrame()
+    rows = _pd_read_parquet(FLOW_OBSERVATIONS_FILE)
+    needed = {"ticker", "date", "observed_at", "content_hash", "foreign_net", "inst_net", "volume"}
+    if not needed <= set(rows.columns):
+        raise ValueError("flow observation archive schema missing")
+    times = pd.to_datetime(rows["observed_at"], utc=True, errors="coerce")
+    observed = rows.loc[(rows["date"].astype(str) == session) & times.notna()
+                        & (times >= pd.Timestamp(after)) & (times <= pd.Timestamp(as_of))].copy()
+    return (observed.sort_values("observed_at", kind="stable")
+                    .drop_duplicates(["ticker", "date"], keep="first")
+                    .reset_index(drop=True))
+
+
 def load_flows() -> dict[str, dict]:
     if not FLOWS_FILE.exists():
         return {}

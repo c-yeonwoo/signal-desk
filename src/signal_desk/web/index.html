@@ -1891,6 +1891,17 @@
       <label>시장 <select id="market-regime-market" onchange="loadMarketRegimeStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>
       <div id="market-regime-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
     </details>
+    <details class="card" id="flow-shock-study" style="margin-top:16px" ontoggle="if(this.open) loadFlowShockStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">수급 충격 전진 연구 <span style="color:var(--dim);font-weight:600;font-size:13px">· 국내 · 주문 미연결</span></summary>
+      <p class="page-desc" style="margin:8px 0">마감 후 처음 관측한 외국인·기관 매도와 급락을 같은 업종·비슷한 낙폭의 종목과 비교합니다. 악재 플래그가 없어도 악재가 없다는 뜻은 아닙니다.</p>
+      <div id="flow-shock-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
+    </details>
+    <details class="card" id="meta-entry-study" style="margin-top:16px" ontoggle="if(this.open) loadMetaEntryStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">진입 선별 연구 <span style="color:var(--dim);font-weight:600;font-size:13px">· 비용 후 성과 · 주문 미연결</span></summary>
+      <p class="page-desc" style="margin:8px 0">시그널 다음 거래일 종가 진입을 가정하고 왕복 비용 후 승패를 관측합니다. 과거 종가의 최초 버전이 없으므로 매수 차단 정책으로 승격할 수 없습니다.</p>
+      <label>시장 <select id="meta-entry-market" onchange="loadMetaEntryStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>
+      <div id="meta-entry-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
+    </details>
     <details class="card" id="rotation-shadow-study" style="margin-top:16px" ontoggle="if(this.open) loadRotationShadowStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">저회전 정책 비교 <span style="color:var(--dim);font-weight:600;font-size:13px">· 동일 보유·시그널 · 주문 미연결</span></summary>
       <p class="page-desc" style="margin:8px 0">챔피언의 종가 회전 프록시와 상위 3% 신규·상위 10% 계속 보유 정책을 같은 입력에서 비교합니다. 현재는 판단 기록만이며 수익·낙폭 우위가 입증된 것이 아닙니다.</p>
@@ -9338,6 +9349,32 @@ async function loadMarketRegimeStudy(){
       ? ` · 미정렬: 최신 종가 없음 ${Number(gaps.session_bar_missing || 0)}, 61봉 부족 ${Number(gaps.short_history || 0)}, 거래일 중간 결손 ${Number(gaps.session_gap || 0)}, 가격/날짜 오류 ${Number(gaps.invalid_price_or_dates || 0)}` : '';
     el.textContent = `관측 ${Number(d.observed_sessions || 0)}일 · 다음 세션 정렬 ${Number(d.paired_sessions || 0)}일 · 자료 부족 ${Number(d.excluded?.unready || 0)}일 · 가격/세션 누락 ${Number(d.excluded?.session_or_price_missing || 0)}일${effect}. ${t.ready ? '통계적으로 보이더라도 현재 가격 캐시의 생존편향·비용·낙폭을 아직 검증하지 않았습니다.' : t.reason || '전진 표본을 기다립니다.'} ${inputText}${gapText}. 실주문 규칙은 여기서 바뀌지 않습니다.`;
   } catch(e) { el.textContent = '시장별 국면 연구를 표시할 수 없습니다 · ' + e.message; }
+}
+async function loadFlowShockStudy(){
+  const el = document.getElementById('flow-shock-body');
+  if (!el) return;
+  el.textContent = '수급 충격 전진 기록을 불러오는 중…';
+  try {
+    const response = await fetch('/api/admin/research/flow-shock');
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json(), c = d.counts || {}, a = d.cohorts?.veto_observed || {}, b = d.cohorts?.no_veto_recorded || {};
+    const group = (label, x) => `${label} ${Number(x.n || 0)}건${x.mean_delta_pp == null ? '' : ` · 대조 대비 평균 ${fmtNum(x.mean_delta_pp, 2)}%p`}`;
+    const q = d.capture_status || {};
+    const coverage = q.pit_rows == null ? '' : ` · 최근 세션 수급 ${Number(q.flow_rows || 0)}/${Number(q.pit_rows || 0)}종목, 가격·시그널 정렬 ${Number(q.eligible || 0)}종목`;
+    el.textContent = `동결 ${Number(d.observed || 0)}건 · 비용 후 완료 ${Number(c.matured || 0)}건 · 대조 없음 ${Number(c.unmatched || 0)}건 · 보류 ${Number(c.pending || 0)}건 · 품질 중단 ${Number(c.halted || 0) + Number(c.blocked || 0)}건${coverage}. ${group('악재 플래그 있음', a)} / ${group('악재 플래그 미기록', b)}. ${q.reason || ''} 결과는 탐색값이며 실주문 규칙은 바뀌지 않습니다.`;
+  } catch(e) { el.textContent = '수급 충격 연구를 표시할 수 없습니다 · ' + e.message; }
+}
+async function loadMetaEntryStudy(){
+  const el = document.getElementById('meta-entry-body');
+  if (!el) return;
+  el.textContent = '진입 선별 기록을 불러오는 중…';
+  const market = document.getElementById('meta-entry-market').value;
+  try {
+    const response = await fetch('/api/meta-entry/diagnostics?market=' + encodeURIComponent(market));
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json();
+    el.textContent = `PIT 기록 ${Number(d.snapshot_rows || 0)}건 · 비용 후 라벨 ${Number(d.labels || 0)}건 · 시간순 학습·검증 ${Number(d.oof_predicted || 0)}건 · 자료 부족 기권 ${Number(d.oof_abstained || 0)}건 · 같은 진입일 비교 ${Number(d.paired_entry_sessions || 0)}일${d.paired_net_delta_pp == null ? '' : ` · 순수익 차이 ${fmtNum(d.paired_net_delta_pp, 2)}%p`}. 과거 전진 가격 최초 버전 미보존으로 주문 승격 차단 중입니다.`;
+  } catch(e) { el.textContent = '진입 선별 연구를 표시할 수 없습니다 · ' + e.message; }
 }
 async function loadRotationShadowStudy(){
   const el = document.getElementById('rotation-shadow-body');
