@@ -155,6 +155,16 @@
   .seg-toggle button { border:none; background:var(--panel); color:var(--dim); padding:8px 16px;
     font-size:13px; font-weight:600; cursor:pointer; }
   .seg-toggle button.on { background:var(--accent); color:#fff; }
+  .admin-intro { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .admin-intro p { margin:5px 0 0; max-width:680px; }
+  .admin-nav { display:flex; align-items:flex-start; gap:8px 14px; flex-wrap:wrap; margin-bottom:14px; }
+  .admin-nav .seg-toggle { margin-bottom:0; max-width:100%; overflow-x:auto; }
+  .admin-nav .seg-toggle button { white-space:nowrap; padding:8px 12px; }
+  .admin-expert-nav { border:1px solid var(--line); border-radius:var(--r-md); padding:7px 10px; background:var(--panel); }
+  .admin-expert-nav summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--dim); }
+  .admin-expert-nav .seg-toggle { margin-top:10px; }
+  .admin-todo-group + .admin-todo-group { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
+  .admin-todo-title { font-weight:700; color:var(--fg); margin-bottom:5px; }
   /* ===== 시그널만 뷰포트 채움(다른 탭 셸은 건드리지 않음) ===== */
   #view-signal.view-app { flex:1 1 auto; min-height:calc(100dvh - 168px); display:flex; flex-direction:column; gap:12px; }
   #view-signal .sig-workspace { flex:1 1 auto; min-height:480px; height:auto; }
@@ -1599,37 +1609,49 @@
       </div>
       <div id="tg-feedback" role="status" style="font-size:13px;margin-top:10px"></div>
     </div>
-    <p class="page-desc">관리 기능(엔진 설정·백테스트 분석·KB 문서)은 상단 <b>관리자</b> 메뉴에 있습니다(관리자 계정 전용).</p>
+    <p class="page-desc">관리자 메뉴는 서비스 점검과 연구 기록용입니다. 실제 계좌의 추종 비중·한도는 <b>투자 관리 → 실계좌</b>에서 설정합니다.</p>
   </div>
 
   <div id="view-admin" class="view-doc" style="display:none">
-    <!-- 관리자 첫 화면 = 오늘 할 일. 탭·전문어보다 '지금 누를 것'이 먼저다. -->
+    <!-- 일상 운영과 전문가 연구를 분리한다. 관리자 권한이 곧 투자 전문가를 뜻하지 않는다. -->
     <div id="admin-todo" class="card" style="margin:0 0 12px;padding:12px 14px">
-      <div style="font-weight:700;font-size:14px;margin-bottom:6px">오늘 할 일</div>
+      <div class="admin-intro">
+        <div><div style="font-weight:700;font-size:15px">오늘 할 일 · 운영 요약</div>
+          <p class="page-desc">평소엔 문제 여부만 확인하면 됩니다. 연구 수치나 엔진 가중치는 직접 바꾸지 않아도 됩니다.</p></div>
+        <button type="button" class="btn" onclick="openAdminTradingSettings()">내 실계좌 한도·비중 설정</button>
+      </div>
       <div id="admin-todo-body" style="font-size:13px;color:var(--dim)">점검 중…</div>
     </div>
-    <div class="seg-toggle" id="admin-seg" style="margin-bottom:14px">
-      <button class="on" data-aseg="ops" onclick="switchAdminSeg('ops')">점검 <span id="admin-ops-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
-      <button data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 <span id="admin-engine-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
-      <button data-aseg="verify" onclick="switchAdminSeg('verify')">성적 <span id="admin-verify-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--accent);color:#fff;font-size:11px;font-weight:700"></span></button>
-      <button data-aseg="kb" onclick="switchAdminSeg('kb')">뉴스 <span id="admin-kb-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
-      <button data-aseg="content" onclick="switchAdminSeg('content')">발행</button>
+    <div class="admin-nav" id="admin-nav">
+      <div class="seg-toggle" id="admin-seg">
+        <button class="on" data-aseg="ops" onclick="switchAdminSeg('ops')">운영 상태 <span id="admin-ops-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
+        <button data-aseg="kb" onclick="switchAdminSeg('kb')">뉴스 관리 <span id="admin-kb-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
+        <button data-aseg="content" onclick="switchAdminSeg('content')">콘텐츠 발행</button>
+      </div>
+      <details class="admin-expert-nav" id="admin-expert-nav">
+        <summary>고급 연구·엔진 설정 · 평소엔 열지 않아도 됩니다</summary>
+        <div class="seg-toggle">
+          <button data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 설정 <span id="admin-engine-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
+          <button data-aseg="verify" onclick="switchAdminSeg('verify')">연구 성적 <span id="admin-verify-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--accent);color:#fff;font-size:11px;font-weight:700"></span></button>
+        </div>
+      </details>
     </div>
 
     <div id="admin-ops" style="display:none">
     <div class="card" style="margin-top:0">
       <div class="row" style="align-items:baseline">
-        <b style="font-size:15px">데이터 상태</b>
+        <b style="font-size:15px">자동 점검 결과</b>
         <button class="btn" onclick="loadDataHealth({force:true})" style="margin-left:auto">다시 점검</button>
       </div>
-      <p class="page-desc" style="margin:6px 0 0">비어 있으면 <b>이유</b>를 같이 봅니다. 엔진 숫자는 여기서 바꾸지 않습니다.
-        <button type="button" class="linkish" onclick="this.nextElementSibling.hidden=!this.nextElementSibling.hidden">자세히</button>
-        <span class="more-block" hidden>신선도·투자경고·KB 검색·컨센서스 축적. 0이 정상일 수도 고장일 수도 있어 이유를 붙입니다.</span></p>
-      <div id="data-health" style="margin-top:10px;font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px">불러오는 중…</div>
+      <p class="page-desc" style="margin:6px 0 0">점검은 자동으로 실행됩니다. 문제가 있으면 위 ‘오늘 할 일’에 먼저 표시합니다.</p>
+      <details id="admin-health-details" style="margin-top:10px">
+        <summary id="admin-health-headline" style="cursor:pointer;font-size:13px;font-weight:600">상세 데이터 진단 보기 · 확인 중…</summary>
+        <div id="data-health" style="margin-top:10px;font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r-md);padding:9px 12px">불러오는 중…</div>
+      </details>
     </div>
 
     <details class="card" id="ops-collect-details" style="margin-top:16px">
-      <summary style="cursor:pointer;font-weight:700;font-size:15px">수동 수집 <span style="color:var(--dim);font-weight:600;font-size:13px">· 평소엔 자동 · 배포 직후 1회</span></summary>
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">고급 수동 데이터 작업 <span style="color:var(--dim);font-weight:600;font-size:13px">· 평소엔 자동 · 문제 확인 후에만</span></summary>
       <p class="page-desc" style="margin:10px 0 0">시세·재무·거시·유니버스를 한 번에 받습니다. 평소 자동 루프가 돌므로 거의 누르지 않습니다.</p>
       <div class="row" style="margin-top:10px;gap:6px;flex-wrap:wrap">
         <span id="refresh-result" class="stat-label" style="margin:0 auto 0 0"></span>
@@ -1755,7 +1777,7 @@
           <button class="btn" onclick="refreshBrainProposals()" id="bp-refresh-btn">새로고침</button>
         </div>
       </div>
-      <p class="page-desc" style="margin:8px 0 10px">비중·문턱을 <b>살짝</b> 바꾸는 초안입니다. 승인/반려만 하면 됩니다.</p>
+      <p class="page-desc" style="margin:8px 0 10px">비중·문턱을 바꾸자는 <b>미적용 초안</b>입니다. 승인할 의무는 없습니다. 승인하면 엔진 정책에 반영되므로 독립 성과와 위험을 이해하기 전에는 그대로 두세요.</p>
       <div id="engine-unproven"></div>
       <div id="brain-proposals-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       <div id="brain-proposals-history" style="margin-top:12px;font-size:13px;color:var(--dim)"></div>
@@ -1771,7 +1793,7 @@
     </details>
 
     <details class="card" id="engine-manual-details" style="margin-top:16px">
-      <summary style="cursor:pointer;font-weight:700;font-size:15px">수동 가중치·임계값 <span style="color:var(--dim);font-weight:600;font-size:13px">· 필요할 때만</span></summary>
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">엔진 수치 직접 변경 <span style="color:var(--dim);font-weight:600;font-size:13px">· 즉시 반영 · 검증 없이 변경하지 마세요</span></summary>
       <p class="page-desc" style="margin:10px 0 12px"><b>기본값을 권장합니다.</b> 평소엔 위 제안 승인으로 충분합니다. 값을 바꾸고 <b>적용</b>하면 즉시 반영되고, <b>기본값</b>으로 복원됩니다. 가중치는 상대 비율로 정규화 · KB 정성은 veto/shadow(점수 미가산).</p>
       <details style="margin-bottom:14px">
         <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">계산 파이프라인 6단계 보기</summary>
@@ -6953,6 +6975,8 @@ async function loadDataHealth({ render = true, force = false } = {}){
   } catch (e) {
     _dhState = 'error';
     _dhError = e && e.name === 'AbortError' ? '15초 시간 초과' : (e && e.message ? e.message : '알 수 없는 오류');
+    const headline = document.getElementById('admin-health-headline');
+    if (headline) headline.textContent = '상세 데이터 진단 보기 · 상태 조회 실패';
     if (render && box) box.innerHTML = `점검 요청 실패 · ${esc(_dhError)} <button class="btn" onclick="loadDataHealth({render:true,force:true})">다시 점검</button>`;
     renderAdminTodo();
     return null;
@@ -6965,9 +6989,18 @@ async function loadDataHealth({ render = true, force = false } = {}){
 function _adminOpsIncidents(d){
   if (!d) return [];
   const items = [];
+  if (d.storage && d.storage.ephemeral_suspected)
+    items.push({ id: 'storage', seg: 'ops', text: '저장 자료가 배포 후 사라질 수 있음' });
+  if (d.stall_line)
+    items.push({ id: 'stall', seg: 'ops', text: String(d.stall_line).replace(/^🔧\s*/, '') });
+  const autoBlocked = Object.keys(d.auto_refresh_blocked || {});
+  if (autoBlocked.length)
+    items.push({ id: 'auto-refresh', seg: 'ops', text: `자동 자료 갱신이 거부된 소스 ${autoBlocked.length}건` });
+  if (d.scaled_suspect)
+    items.push({ id: 'price-scale', seg: 'ops', text: '종가와 실시간 가격의 크기가 크게 다름' });
   // KB refresh 실패는 아래의 구조화된 fault 하나로 세고, 같은 원인으로
   // stale된 KB 행을 두 번째 incident로 세지 않는다.
-  const stale = (d.freshness || []).filter(f => f.stale
+  const stale = (d.freshness || []).filter(f => f.stale && !autoBlocked.includes(f.key)
     && !(f.key === 'kb' && d.kb_refresh && d.kb_refresh.blocked_reason));
   if (stale.length) items.push({ id: 'stale', seg: 'ops', text: `오래된 데이터 ${stale.length}건 — 점검` });
   if (d.signal_drift && d.signal_drift.frozen) items.push({ id: 'drift', seg: 'ops', text: '점수 동결 의심 — 점검' });
@@ -6988,6 +7021,8 @@ function _setAdminOpsBadge(d){
   const b = document.getElementById('admin-ops-badge');
   if (!b || !d) return;
   const n = _adminOpsIncidents(d).length;
+  const headline = document.getElementById('admin-health-headline');
+  if (headline) headline.textContent = n ? `상세 데이터 진단 보기 · 확인할 관측 ${n}건` : '상세 데이터 진단 보기 · 특이사항 없음';
   // 이벤트 후보는 뉴스 탭 배지로 — 점검 배지와 이중 카운트하지 않는다
   b.style.display = n ? '' : 'none';
   b.textContent = n || '';
@@ -7675,11 +7710,17 @@ const _ADMIN_PANELS = { ops: 'admin-ops', engine: 'admin-engine', verify: 'admin
 const _ADMIN_SEG_ALIAS = { shortform: 'content', watch: 'kb' };
 let _adminSeg = 'ops';
 let _adminEntered = false;   // 스마트 랜딩은 세션당 1회
+function openAdminTradingSettings(){
+  _tradingSeg = 'live';
+  switchTab('trading');
+}
 function switchAdminSeg(seg, { pin = true } = {}){
   seg = _ADMIN_SEG_ALIAS[seg] || (_ADMIN_PANELS[seg] ? seg : 'ops');
   _adminSeg = seg;
   if (pin) _adminEntered = true;
-  document.querySelectorAll('#admin-seg button').forEach(b => b.classList.toggle('on', b.dataset.aseg === seg));
+  const expert = document.getElementById('admin-expert-nav');
+  if (expert && (seg === 'engine' || seg === 'verify')) expert.open = true;
+  document.querySelectorAll('#admin-nav button[data-aseg]').forEach(b => b.classList.toggle('on', b.dataset.aseg === seg));
   Object.entries(_ADMIN_PANELS).forEach(([s, id]) => {
     const el = document.getElementById(id);
     if (el) el.style.display = s === seg ? '' : 'none';
@@ -7718,47 +7759,67 @@ function _badgeActive(id){
   const b = document.getElementById(id);
   return !!(b && b.style.display !== 'none' && String(b.textContent || '').trim());
 }
+const _ADMIN_ISSUE_GUIDE = {
+  storage: ['기록 보존을 확인해야 합니다', '배포 후 장부가 사라질 수 있습니다. 저장소 설정을 확인하기 전에는 누적 성과를 신뢰하지 마세요.'],
+  stall: ['자동 운영이 멈췄을 수 있습니다', '상세 진단에서 멈춘 작업과 시각을 확인하세요. 새 시그널이 정상 생성됐다고 가정하지 마세요.'],
+  'auto-refresh': ['자동 자료 갱신이 막혔습니다', '막힌 원천과 이유를 확인하세요. 앱의 다시 점검 버튼만으로 원인이 해결되지는 않습니다.'],
+  'price-scale': ['주가 데이터가 맞지 않을 수 있습니다', '원시 종가와 현재가 차이를 확인하기 전에는 해당 시그널을 매매 근거로 삼지 마세요.'],
+  stale: ['자료 갱신이 늦습니다', '어떤 자료가 오래됐는지 확인하세요. 그 자료를 쓰는 판단은 갱신 전까지 주의가 필요합니다.'],
+  drift: ['시그널 계산이 멈췄을 수 있습니다', '가격 갱신 상태를 확인하기 전에는 같은 시그널이 반복돼도 새 판단으로 보지 마세요.'],
+  warnings_veto: ['매수 안전자료를 확인해야 합니다', '투자경고·거래정지 자료가 비면 매수 안전장치가 충분한지 판단할 수 없습니다.'],
+  kb_retrieval: ['뉴스 검색 자료를 확인해야 합니다', '뉴스 근거 검색이 제대로 작동하는지 상세 진단에서 원인을 보세요.'],
+  kb_refresh: ['뉴스 자동 수집을 확인해야 합니다', '최신 뉴스가 반영됐는지 확인하기 전에는 뉴스 기반 설명을 신뢰하지 마세요.'],
+};
 function renderAdminTodo(){
   const el = document.getElementById('admin-todo-body');
   if (!el) return;
-  if (!_dhCache && _dhState === 'loading') {
+  if (_dhState === 'loading') {
     el.innerHTML = '<span style="color:var(--dim)">운영 상태 점검 중…</span>';
     return;
   }
-  if (!_dhCache && _dhState === 'error') {
+  if (_dhState === 'error') {
     el.innerHTML = `<span style="color:var(--sell)">운영 상태 미확인 · ${esc(_dhError)}</span> `
       + '<button type="button" class="btn" onclick="loadDataHealth({render:true,force:true})">다시 점검</button>';
     return;
   }
-  const items = _adminOpsIncidents(_dhCache);
-  const d = _dhCache;
-  if (d) {
-    if (d.event_queue && (d.event_queue.pending || 0) > 0) {
-      const n = d.event_queue.pending;
-      items.push({ seg: 'kb', text: `이벤트 후보 잔여 ${n}건 — 자동 판정 대기`, view: 'events', cand: true });
-    }
-  }
-  const eng = _badgeN('admin-engine-badge');
-  if (eng) items.push({ seg: 'engine', text: `엔진 제안 ${eng}건 — 승인/반려` });
-  const ver = _badgeActive('admin-verify-badge');
-  if (ver) items.push({ seg: 'verify', text: '성적 판정 가능 — 확인' });
-  if (!items.length) {
-    el.innerHTML = '<span style="color:var(--sig-buy)">지금 급한 일 없음</span>'
-      + ' <span style="color:var(--dim-2)">· 평소엔 점검 탭만 보면 됩니다</span>';
+  if (!_dhCache) {
+    el.textContent = '운영 상태를 확인하기 전입니다.';
     return;
   }
-  // 중복 문구 정리
+  const items = _adminOpsIncidents(_dhCache);
+  const d = _dhCache;
+  // 자동 큐와 연구 판정은 사용자가 지금 눌러야 할 일이 아니다.
+  const observation = items.filter(it => it.id === 'crowding' || it.id === 'sector-map')
+    .map(it => it.id === 'crowding' ? '매수 후보가 한 업종에 치우침 · 주문 규칙은 자동 변경되지 않음'
+      : '일부 종목의 업종 분류가 비어 있음 · 연구/분석 품질 참고');
+  const actionable = items.filter(it => it.id !== 'crowding' && it.id !== 'sector-map');
+  if (d.event_queue && (d.event_queue.pending || 0) > 0)
+    observation.push(`뉴스 이벤트 ${d.event_queue.pending}건은 자동 판정 대기 중`);
+  const eng = _badgeN('admin-engine-badge');
+  if (eng) observation.push(`엔진 변경 제안 ${eng}건은 미적용 · 승인 의무 없음`);
+  const ver = _badgeActive('admin-verify-badge');
+  if (ver) observation.push('새 연구 성적이 있음 · 실주문에 자동 반영되지 않음');
   const seen = new Set();
-  const uniq = items.filter(it => { if (seen.has(it.text)) return false; seen.add(it.text); return true; });
-  el.innerHTML = uniq.slice(0, 5).map(it =>
-    `<button type="button" class="btn" style="margin:0 6px 6px 0;padding:4px 10px;font-size:13px"
-      onclick="adminTodoGo('${it.seg}'${it.cand ? ',true' : ''})">${esc(it.text)}</button>`).join('');
+  const uniq = actionable.filter(it => { if (seen.has(it.text)) return false; seen.add(it.text); return true; });
+  const actionHtml = uniq.length
+    ? uniq.slice(0, 5).map(it => {
+        const guide = _ADMIN_ISSUE_GUIDE[it.id] || ['운영 자료를 확인해야 합니다', '상세 진단에서 오류 원인을 확인하세요.'];
+        return `<div style="padding:8px 0;border-top:1px solid var(--line)"><b style="color:var(--sell)">${esc(guide[0])}</b>`
+          + `<div style="color:var(--dim);margin:3px 0">${esc(guide[1])}</div>`
+          + `<div style="color:var(--dim-2);font-size:12px;margin-bottom:5px">${esc(it.text)}</div>`
+          + `<button type="button" class="btn" onclick="adminTodoGo('${it.seg}')">상세 원인 보기</button></div>`;
+      }).join('') + (uniq.length > 5 ? `<div style="margin-top:6px;color:var(--sell)">그 밖에 ${uniq.length - 5}건 · 상세 데이터 진단에서 확인</div>` : '')
+    : '<span style="color:var(--sig-buy)">지금 직접 조치할 일 없음</span>';
+  const info = [...new Set(observation)];
+  el.innerHTML = `<div class="admin-todo-group"><div class="admin-todo-title">직접 확인할 문제</div>${actionHtml}</div>`
+    + (info.length ? `<div class="admin-todo-group"><div class="admin-todo-title">참고만 하면 되는 상태</div>`
+      + info.slice(0, 5).map(line => `<div style="margin:3px 0">· ${esc(line)}</div>`).join('') + '</div>' : '');
 }
-function adminTodoGo(seg, openCand){
+function adminTodoGo(seg){
   switchAdminSeg(seg);
-  if (seg === 'kb' && openCand) {
-    _kbEventView = 'candidate';
-    setKbView('events');
+  if (seg === 'ops') {
+    const details = document.getElementById('admin-health-details');
+    if (details) details.open = true;
   }
 }
 async function _adminPrefetchJson(url){
@@ -7800,16 +7861,8 @@ async function enterAdmin(hashSeg){
     kbBadge.style.display = n ? '' : 'none';
     kbBadge.textContent = n || '';
   }
-  let pick = 'ops';
-  if (explicit) pick = hashSeg;
-  else if (!_adminEntered) {
-    if (_badgeN('admin-ops-badge')) pick = 'ops';
-    else if ((eq.expiring_soon || eq.pending) > 0) pick = 'kb';
-    else if (_badgeN('admin-engine-badge')) pick = 'engine';
-    else if (_badgeActive('admin-verify-badge')) pick = 'verify';
-  } else {
-    pick = _adminSeg || 'ops';
-  }
+  // 배지 때문에 연구/엔진 탭으로 자동 이동하지 않는다. 직접 연 딥링크만 유지한다.
+  const pick = explicit ? hashSeg : 'ops';
   // 사용자가 로딩 중 다른 탭을 누르면 자동 랜딩으로 덮지 않는다.
   if (!explicit && !_adminEntered) switchAdminSeg(pick, { pin: true });
 }

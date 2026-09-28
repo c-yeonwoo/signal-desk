@@ -3430,6 +3430,28 @@ def test_admin_explicit_tab_renders_before_health_prefetch_finishes():
     assert "if (!explicit && !_adminEntered)" in enter
 
 
+def test_admin_operator_view_does_not_turn_research_into_a_required_action():
+    """자동 큐·연구 판정은 숙제가 아니고, 직접 조치할 문제와 구분된다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    todo = html.split("function renderAdminTodo(", 1)[1].split("\nfunction ", 1)[0]
+    enter = html.split("async function enterAdmin(", 1)[1].split("\nfunction ", 1)[0]
+    switch = html.split("function switchAdminSeg(", 1)[1].split("\nfunction ", 1)[0]
+    assert 'id="admin-expert-nav"' in html and 'id="admin-health-details"' in html
+    assert 'id="admin-nav"' in html and "#admin-nav button[data-aseg]" in switch
+    assert "expert.open = true" in switch  # 직접 연 딥링크는 감춰진 탭으로 남지 않는다.
+    assert "const pick = explicit ? hashSeg : 'ops'" in enter
+    assert "직접 확인할 문제" in todo and "참고만 하면 되는 상태" in todo
+    assert "observation.push(`뉴스 이벤트" in todo
+    assert "observation.push(`엔진 변경 제안" in todo
+    assert "observation.push('새 연구 성적" in todo
+    assert "openAdminTradingSettings()" in html
+    assert "승인할 의무는 없습니다" in html
+    incidents = html.split("function _adminOpsIncidents(", 1)[1].split("\nfunction ", 1)[0]
+    for critical in ("ephemeral_suspected", "stall_line", "auto_refresh_blocked", "scaled_suspect"):
+        assert critical in incidents, f"상세 진단을 접으면 {critical} 위험이 숨는다"
+
+
 def test_derived_freshness_is_rendered_as_computed_not_missing():
     """원천에서 파생된 회사 체질 199건을 updated=None이라고 '미수집'으로 표시하지 않는다."""
     from pathlib import Path
