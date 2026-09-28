@@ -110,7 +110,7 @@ def report():
     table.add_column("코드")
     table.add_column("시그널")
     table.add_column("점수", justify="right")
-    table.add_column("신뢰도", justify="right")
+    table.add_column("신호 강도", justify="right")
     table.add_column("근거")
     for r in results:
         table.add_row(

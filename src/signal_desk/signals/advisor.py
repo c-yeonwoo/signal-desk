@@ -125,7 +125,7 @@ def _primary_select(candidates: list[dict], context: dict, digests: dict[str, di
         dg = digests.get(c["ticker"]) or {}
         senti = f", 정성심리 {dg['sentiment']:+.2f}({dg.get('summary', '')[:50]})" if dg else ""
         cand_lines.append(
-            f'- {c["ticker"]} {c["name"]}: 종합점수 {c["score"]:+.2f}, 신뢰도 {c["confidence"]:.2f}, '
+            f'- {c["ticker"]} {c["name"]}: 종합점수 {c["score"]:+.2f}, 신호 강도(적중 확률 아님) {c["confidence"]:.2f}, '
             f'근거 [{", ".join(c.get("reasons", [])[:3])}]{senti}')
     lesson_lines = [f'- {l["name"]} {l["action"]} @국면 {l.get("regime")}/거시 {l.get("macro")} → 사후 {l["outcome_pct"]:+.1f}%'
                     for l in lessons[:15]] or ["- (아직 학습할 과거 성패 기록 없음)"]

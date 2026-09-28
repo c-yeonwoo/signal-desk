@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import logging
+import math
 import re
 import time
 
@@ -41,6 +42,7 @@ _EVENT_SERIOUS = [
 ]
 _EVENT_TERMS = _EVENT_CRITICAL + _EVENT_SERIOUS
 EVENT_TTL_DAYS = 5  # 이 기간 지난 악재는 veto에서 해제(신선도)
+ADVISOR_DIGEST_MAX_AGE_HOURS = 72
 
 # 시맨틱 veto용 프로토타입 — 키워드 동의어·완곡 표현. 점수 팩터가 아니라 악재 후보만.
 # (라벨, 강도, 표현들). 임베딩 백엔드가 hashing이면 공유 토큰이 있을 때만 의미 있게 매칭.
@@ -1373,6 +1375,25 @@ def macro_digest() -> dict | None:
     return {"summary": dg["summary"], "points": dg.get("points") or [],
             "count": dg.get("n_sources"), "newest_ts": dg.get("newest_ts"),
             "updated": dg.get("updated"), "fresh": fresh}
+
+
+def advisor_digest(ticker: str, *, now: float | None = None) -> dict | None:
+    """자문 입력에는 실제 원문 관측시각이 확인되는 최근 요약만 보낸다.
+
+    digest.updated는 요약 재계산 시각이라 오래된 뉴스의 신선도 근거가 될 수 없다.
+    신규 공시 악재 veto는 별도 사건 원장을 읽으므로 여기서 제거하지 않는다.
+    """
+    dg = db.kb_digest_get(ticker)
+    if not dg or not dg.get("summary"):
+        return None
+    try:
+        newest = float(dg.get("newest_ts"))
+        age = (time.time() if now is None else now) - newest
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(newest) or not math.isfinite(age) or newest <= 0 or age < 0 or age > ADVISOR_DIGEST_MAX_AGE_HOURS * 3600:
+        return None
+    return dg
 
 
 def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days: int) -> bool:

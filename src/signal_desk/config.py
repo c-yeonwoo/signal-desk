@@ -310,6 +310,15 @@ def bot_run_interval_minutes() -> int:
     return int(os.environ.get("BOT_RUN_INTERVAL_MINUTES", "30"))
 
 
+def macro_refresh_interval_minutes() -> int:
+    """FRED/ECOS 확인 간격. 발표가 반영될 때까지 일주일씩 기다리지 않는다."""
+    try:
+        n = int(os.environ.get("MACRO_REFRESH_INTERVAL_MINUTES", "60"))
+    except ValueError:
+        n = 60
+    return max(30, min(n, 1440))
+
+
 def quote_refresh_interval_minutes() -> int:
     """**빠른 틱** 간격(분). 기본 5분 — 시세 오버레이 + 가격 반응 매매(손절·트레일링·예약).
 

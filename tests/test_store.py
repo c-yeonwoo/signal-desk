@@ -47,7 +47,8 @@ def test_fetch_fundamentals_without_mktcap_still_returns_dart_metrics(tmp_path, 
     monkeypatch.setattr(krx_open_api, "market_caps", lambda: {})
 
     out = store.fetch_fundamentals(universe)
-    assert out["005930"] == {"roe": 10.0}
+    assert out["005930"]["roe"] == 10.0
+    assert out["005930"]["fiscal_year"] == store.latest_annual_report_year()
 
 
 def _write_prices(tmp_path, rows, cols):

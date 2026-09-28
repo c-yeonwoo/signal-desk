@@ -46,7 +46,7 @@ TOOLS = [
     {
         "name": "find_signal",
         "description": "특정 종목의 현재 시그널을 조회한다. 종목명(예: '삼성전자') 또는 6자리 코드로 찾는다. "
-                       "반환: 시그널 종류·종합점수·신뢰도·팩터 강약·근거·PER/PBR/ROE·섹터·목표가 상승여력·뉴스심리.",
+                       "반환: 시그널 종류·종합점수·신호 강도(적중 확률 아님)·팩터 강약·근거·PER/PBR/ROE·섹터·목표가 상승여력·뉴스심리.",
         "input_schema": {"type": "object", "properties": {
             "query": {"type": "string", "description": "종목명 또는 종목코드"}},
             "required": ["query"]},

@@ -19,7 +19,7 @@ from signal_desk import db
 log = logging.getLogger("signal_desk.advisor_cache")
 
 VERSION = "advisor-exact-input-v1"
-TTL_SECONDS = 15 * 60
+TTL_SECONDS = 2 * 60 * 60  # 동일한 계좌·정책·가격·근거에는 30분마다 다시 과금하지 않는다.
 
 
 @lru_cache(maxsize=1)

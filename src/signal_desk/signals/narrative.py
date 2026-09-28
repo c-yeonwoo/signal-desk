@@ -56,7 +56,7 @@ def explain(result) -> str:
 
     return (
         f"{body} 종합 점수 {result.score:+.2f}로 {kind_word} 시그널이며, "
-        f"신뢰도는 {conf_word} 편입니다({result.confidence:.2f})."
+        f"신호 강도는 {conf_word} 편입니다({result.confidence:.2f}). 적중 확률은 아닙니다."
     )
 
 
