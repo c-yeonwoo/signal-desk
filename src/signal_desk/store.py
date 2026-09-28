@@ -42,6 +42,9 @@ MACRO_FILE = CACHE_DIR / "macro.json"
 MACRO_KR_FILE = CACHE_DIR / "macro_kr.json"  # 한국은행 ECOS 거시(기준금리·국고채·CPI)
 GURUS_FILE = CACHE_DIR / "gurus.json"  # 거장 포트폴리오(SEC 13F) 스냅샷
 US_UNIVERSE_FILE = CACHE_DIR / "us_universe.json"   # S&P500 구성종목(datahub)
+US_MIN_UNIVERSE_SIZE = 495  # 부분 CSV를 500개 기업의 PIT 모집단으로 오인하지 않음
+US_UNIVERSE_HISTORY_FILE = CACHE_DIR / "us_universe_history.json"  # 최초 관측 구성종목, 소급 백필 금지
+US_UNIVERSE_HISTORY_LOCK_FILE = CACHE_DIR / ".us_universe_history.lock"
 US_PRICES_FILE = CACHE_DIR / "us_prices.parquet"    # 미국 종목 일봉(KIS 해외)
 US_EXCHANGES_FILE = CACHE_DIR / "us_exchanges.json"  # ticker→KIS 거래소코드 캐시(탐지 비용 절약)
 US_SYMBOLS_FILE = CACHE_DIR / "us_symbols.json"     # {provider: {ticker: 실제로 통한 심볼 표기}}
@@ -1009,8 +1012,11 @@ def fetch_us_universe() -> list[dict]:
     """S&P500 구성종목(datahub) 저장. [{ticker, name, sector}]."""
     from signal_desk.ingest import us
     items = us.sp500_constituents()
-    if items:
-        _write_json(US_UNIVERSE_FILE, items)
+    if not _valid_us_universe(items):
+        log.warning("US 유니버스 응답 불완전 — 기존 목록·PIT 이력 유지")
+        return []
+    _snapshot_us_universe(items)
+    _write_json(US_UNIVERSE_FILE, items)
     return items
 
 
@@ -1018,6 +1024,68 @@ def load_us_universe() -> list[dict]:
     if not US_UNIVERSE_FILE.exists():
         return []
     return json.loads(US_UNIVERSE_FILE.read_text(encoding="utf-8"))
+
+
+def _valid_us_universe(items: list[dict]) -> bool:
+    tickers = [str(item.get("ticker") or "") for item in items if isinstance(item, dict)]
+    return (len(tickers) == len(items) and len(tickers) >= US_MIN_UNIVERSE_SIZE and
+            all(tickers) and len(set(tickers)) == len(tickers))
+
+
+def _snapshot_us_universe(items: list[dict], observed_at: datetime.datetime | None = None) -> bool:
+    """미국 마감 후 첫 관측만 날짜별 동결. 장중 수동 갱신으로 마감 기록을 선점하지 않는다."""
+    observed_at = observed_at or datetime.datetime.now(datetime.timezone.utc)
+    if observed_at.tzinfo is None:
+        raise ValueError("observed_at must be timezone-aware")
+    day = observed_at.astimezone(ZoneInfo("America/New_York")).date().isoformat()
+    if not _valid_us_universe(items):
+        return False  # 불완전한 공급자 응답을 PIT 구성종목으로 확정하지 않음
+    from signal_desk import market_clock
+    session = market_clock.latest_completed_session("us", observed_at)
+    if session != day or market_clock.is_open("us", observed_at):
+        return False
+    close = market_clock._calendar("us").schedule.loc[session]["close"].to_pydatetime()
+    if observed_at.astimezone(datetime.timezone.utc) - close < datetime.timedelta(hours=1):
+        return False
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    with US_UNIVERSE_HISTORY_LOCK_FILE.open("a+b") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            history = json.loads(US_UNIVERSE_HISTORY_FILE.read_text(encoding="utf-8")) \
+                if US_UNIVERSE_HISTORY_FILE.exists() else {}
+            if not isinstance(history, dict):
+                raise ValueError("US universe history must be an object")
+            if day in history:
+                first = history[day]
+                members = first.get("members") if isinstance(first, dict) else None
+                if not isinstance(members, list):
+                    raise ValueError("invalid US universe history entry")
+                if {m.get("ticker") for m in members} != {m["ticker"] for m in items} and \
+                        not first.get("revision_detected_at"):
+                    first["revision_detected_at"] = observed_at.isoformat()
+                    _write_json(US_UNIVERSE_HISTORY_FILE, history)
+                return False
+            history[day] = {"observed_at": observed_at.isoformat(), "source": "datahub_sp500",
+                            "source_published_at": None, "members": items}
+            _write_json(US_UNIVERSE_HISTORY_FILE, history)
+            return True
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def load_us_universe_history() -> dict[str, list[dict]]:
+    """최초 관측일→구성종목. 발표시각 인증은 없어 이전 날짜로 소급하지 않는다."""
+    try:
+        rows = (json.loads(US_UNIVERSE_HISTORY_FILE.read_text(encoding="utf-8"))
+                if US_UNIVERSE_HISTORY_FILE.exists() else {})
+        if not isinstance(rows, dict):
+            raise ValueError("US universe history must be an object")
+    except (OSError, ValueError, TypeError) as exc:
+        log.warning("US 유니버스 PIT 이력 읽기 실패: %s", type(exc).__name__)
+        return {}
+    return {day: value["members"] for day, value in rows.items()
+            if isinstance(value, dict) and isinstance(value.get("members"), list)
+            and not value.get("revision_detected_at") and _valid_us_universe(value["members"])}
 
 
 def _load_us_exchanges() -> dict:
@@ -2145,7 +2213,8 @@ REGIME_HISTORY_KEY = "regime_history"        # kv — [{date, regime, exposure}]
 
 
 def snapshot_regime(regime_label: str | None, exposure: float | None,
-                    date: str | None = None, keep: int = 750) -> bool:
+                    date: str | None = None, keep: int = 750, *,
+                    market: str = "kr", ready: bool = True) -> bool:
     """그날의 국면·익스포저를 PIT로 남긴다(일 1회, 같은 날은 덮어쓴다).
 
     왜 필요한가(2026-09-06): 국면 익스포저에 **타이밍 능력이 있는지 아무도 잰 적이 없다.**
@@ -2159,18 +2228,25 @@ def snapshot_regime(regime_label: str | None, exposure: float | None,
     from signal_desk import db
     if not regime_label and exposure is None:
         return False
+    if market not in ("kr", "us"):
+        raise ValueError("unsupported market")
     date = date or datetime.date.today().isoformat()
-    rows = [r for r in (db.kv_get(REGIME_HISTORY_KEY) or []) if r.get("date") != date]
+    key = REGIME_HISTORY_KEY if market == "kr" else f"{REGIME_HISTORY_KEY}:us"
+    rows = [r for r in (db.kv_get(key) or []) if r.get("date") != date]
     rows.append({"date": date, "regime": regime_label,
+                 "ready": bool(ready),
                  "exposure": (round(float(exposure), 4) if exposure is not None else None)})
     rows.sort(key=lambda r: r["date"])
-    db.kv_set(REGIME_HISTORY_KEY, rows[-keep:])
+    db.kv_set(key, rows[-keep:])
     return True
 
 
-def regime_history() -> list[dict]:
+def regime_history(market: str = "kr") -> list[dict]:
     from signal_desk import db
-    return list(db.kv_get(REGIME_HISTORY_KEY) or [])
+    if market not in ("kr", "us"):
+        raise ValueError("unsupported market")
+    key = REGIME_HISTORY_KEY if market == "kr" else f"{REGIME_HISTORY_KEY}:us"
+    return list(db.kv_get(key) or [])
 
 
 def market_return_by_date(market: str = "kr") -> dict[str, float]:
@@ -2627,6 +2703,14 @@ def load_all_dated_closes() -> dict[str, tuple[list[str], list[float]]]:
             out[str(t)] = ([str(d) for d in g["date"].tolist()],
                            [float(c) for c in g["close"].tolist()])
     return out
+
+
+def load_market_dated_closes(market: str) -> dict[str, tuple[list[str], list[float]]]:
+    """시장별 원시 종가·날짜. 통합 맵의 동명 티커 덮어쓰기와 잠정봉 혼입을 피한다."""
+    prices, dates = load_portfolio_close_bundle(market)
+    return {ticker: (dates[ticker], closes) for ticker, closes in prices.items()
+            if ticker in dates and len(dates[ticker]) == len(closes)
+            and dates[ticker] == sorted(set(dates[ticker]))}
 
 
 def signal_history_for(ticker: str) -> dict[str, dict]:

@@ -39,8 +39,12 @@ def is_market_hours(now: datetime.datetime | None = None) -> bool:
     return market_clock.is_open("kr", now)
 
 
-def _today() -> str:
-    return datetime.date.today().isoformat()
+def _today(market: str = "kr") -> str:
+    """거래소 현지 날짜. 미국 세션 중 KST 자정을 넘어도 동일 거래일로 기록한다."""
+    zone = _KST if market == "kr" else ZoneInfo("America/New_York") if market == "us" else None
+    if zone is None:
+        raise ValueError("unsupported market")
+    return datetime.datetime.now(zone).date().isoformat()
 
 
 def _cfg(uid: int) -> dict:
@@ -54,7 +58,7 @@ def _daily_loss_breached(uid: int, bal: dict, dry_run: bool, market: str = "kr")
     total = bal.get("total_eval")
     if not total or total <= 0:
         return False
-    key = f"bot_day_equity:{uid}:{market}:{_today()}"
+    key = f"bot_day_equity:{uid}:{market}:{_today(market)}"
     start = db.kv_get(key)
     if start is None:
         if not dry_run:
@@ -143,7 +147,7 @@ def _live_price(ticker: str, fallback: float) -> float:
 
 
 def _market_read(prices: dict[str, list[float]]) -> dict:
-    """시장 국면 단일 스냅샷 — 한 사이클에 한 번만 계산해 공유(중복 계상·중복 계산 방지).
+    """국내 시장 국면 스냅샷 — 국내 주가·ECOS·시장 수급만 국내 주문에 적용.
 
     거시(FRED)·국면(국내 breadth)은 여기서 '매수 임계값 게이트'로 딱 한 번 반영된다(eff_cfg).
     context(regime/macro/cycle)는 LLM·저널에 넘기는 '참고 맥락'일 뿐, 게이트에서 이미 반영됐으므로
@@ -186,6 +190,58 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
         "macro_note": (macro_dg["summary"] if macro_dg and macro_dg.get("fresh") else ""),
     }
     return {"eff_cfg": eff_cfg, "adapt": adapt, "context": context}
+
+
+def _market_read_for(market: str) -> dict:
+    """봇/예약의 시장별 정책 맥락. 미국 주문에는 국내 breadth·ECOS·수급을 넣지 않는다.
+
+    미국 국면은 *완료된* 미국 세션의 원시 종가와 당시 분석 유니버스로만 판정한다.
+    정렬률이 낮으면 국면 미상으로 남기고 중립 노출을 사용한다. 장중 잠정봉이나
+    국내 가격의 존재 여부가 미국 투자 한도를 바꾸지 않도록 한다.
+    """
+    if market == "kr":
+        prices = store.load_price_series()
+        return _market_read(prices) if prices else {"eff_cfg": None, "context": {}}
+    if market != "us":
+        raise ValueError("unsupported market")
+    prices, dates = store.load_portfolio_close_bundle("us")
+    universe = store.load_us_universe()
+    session = market_clock.latest_completed_session("us", datetime.datetime.now(datetime.timezone.utc))
+    tickers = {str(u.get("ticker") or "") for u in universe} - {""}
+    aligned = {}
+    if session:
+        for ticker in tickers:
+            ds, ps = dates.get(ticker) or [], prices.get(ticker) or []
+            if len(ds) != len(ps) or not ds or ds != sorted(set(ds)) or session not in ds:
+                continue
+            end = ds.index(session) + 1
+            closes = ps[max(0, end - 61):end]
+            if len(closes) == 61 and all(math.isfinite(p) and p > 0 for p in closes):
+                aligned[ticker] = closes
+    coverage = len(aligned) / len(tickers) if tickers else 0.0
+    ready = len(aligned) >= 50 and coverage >= 0.95
+    reg = regime.classify(aligned) if ready else {"ready": False, "regime": None}
+    if not reg.get("ready"):
+        ready = False
+        reg = {"ready": False, "regime": None}
+    macro_ind = store.load_macro()
+    mread = macro.read(macro_ind, market="us")  # 공통 FRED만; 국내 ECOS 제외
+    eff_cfg, adapt = signalcfg.effective_config(reg, mread, base=engine.SignalConfig())
+    return {"eff_cfg": eff_cfg, "adapt": adapt,
+            "context": {"market": "us", "regime": reg.get("regime"),
+                        "regime_ready": ready, "price_session": session,
+                        "regime_coverage": round(coverage, 3),
+                        "macro_bias": mread.get("bias"),
+                        "macro_detail": " / ".join((mread.get("reasons") or [])[:5]),
+                        "cycle_phase": cycle.position(macro_ind).get("phase_name"),
+                        "gate_applied": bool(adapt.get("bump")),
+                        "effective_buy_threshold": adapt.get("effective_buy_threshold"),
+                        "bump": adapt.get("bump") or 0.0,
+                        "bump_reasons": list(adapt.get("reasons") or []),
+                        "selection_mode": adapt.get("mode"),
+                        "exposure": adapt.get("exposure"),
+                        "exposure_reasons": list(adapt.get("exposure_reasons") or []),
+                        "macro_note": ""}}
 
 
 # 채점 지평(거래일). 이 값을 고정해야 base rate 를 같은 관례로 만들 수 있다.
@@ -270,7 +326,7 @@ def reconcile_positions(uid: int, bal: dict, market: str = "kr") -> None:
         pos = db.bot_position_get(uid, t)
         price = h.get("price") or 0.0
         peak = max(pos["peak_price"] if pos else h["avg_price"], h["avg_price"], price)
-        entry = pos["entry_date"] if pos else _today()
+        entry = pos["entry_date"] if pos else _today(market)
         db.bot_position_upsert(uid, t, h["name"], h["qty"], h["avg_price"], peak, entry,
                                last_price=price or None, last_pnl_pct=h.get("pnl_pct"), market=market)
 
@@ -419,7 +475,7 @@ def _market_signals(market: str, mr: dict):
     signal_id = policy_contract.signal_policy_id("kr", mr["eff_cfg"] or engine.SignalConfig())
     for sig in sigs:
         sig.signal_policy_id = signal_id
-    execution_gate.apply_from_store(sigs, market="kospi", today=_today())
+    execution_gate.apply_from_store(sigs, market="kospi", today=_today("kr"))
     return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}
 
 
@@ -492,7 +548,7 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
     if not cand:
         return cash
 
-    today = datetime.date.today()
+    today = datetime.date.fromisoformat(_today(market))
     weak = []  # (score, holding, live_price) — 교체 가능한 약한 보유
     for h in holdings:
         sig = signal_by_ticker.get(h["ticker"])
@@ -593,8 +649,8 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                     # **신규 진입은 회차 1로 시작한다.** 안 넘기면 upsert가 기존 행 값을
                     # 보존하는데, 같은 종목을 팔고 다시 산 경우 옛 회차가 이어져 상한이
                     # 즉시 걸린다(로테이션 재편입이 그 경로다).
-                    db.bot_position_upsert(uid, best.ticker, bname, bqty, basis_per_share, blive, _today(),
-                                           market=market, tranches_done=1, last_buy_date=_today())
+                    db.bot_position_upsert(uid, best.ticker, bname, bqty, basis_per_share, blive, _today(market),
+                                           market=market, tranches_done=1, last_buy_date=_today(market))
                     bplan.update(order_no=buy_result["order_no"], fill_price=buy_result["fill_price"], fees=buy_result["total_fees"], ok=True)
                 else:
                     bplan["ok"] = False
@@ -635,8 +691,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         reconcile_positions(uid, bal, market)  # bot_positions(peak·entry) 미러를 paper 실측과 일치(stale 정리)
     block_new_buys = _daily_loss_breached(uid, bal, dry_run, market)
 
-    kr_prices = store.load_price_series()
-    mr = _market_read(kr_prices) if kr_prices else {"eff_cfg": None, "context": {}}  # 공용 국면(거시·advisor 참고)
+    mr = _market_read_for(market)
     universe, prices, signals, name_by_ticker = _market_signals(market, mr)
     if not universe or not prices:
         return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요"}
@@ -740,7 +795,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                     remaining = qty - sell_qty
                     if remaining > 0:  # 부분청산 — 잔여 포지션 유지(평단·진입일 보존)
                         db.bot_position_upsert(uid, ticker, plan["name"], remaining, avg_price, peak,
-                                                pos["entry_date"] if pos else _today(), market=market)
+                                                pos["entry_date"] if pos else _today(market), market=market)
                     else:
                         db.bot_position_delete(uid, ticker)
                     plan["ok"] = True
@@ -749,7 +804,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             sells.append(plan)
         elif not dry_run:
             db.bot_position_upsert(uid, ticker, name_by_ticker.get(ticker, ticker), qty, avg_price,
-                                    peak, pos["entry_date"] if pos else _today(), market=market)
+                                    peak, pos["entry_date"] if pos else _today(market), market=market)
 
     bal2 = paper.balance(uid, market) if not dry_run else bal
     held_after = {h["ticker"] for h in bal2["holdings"]}
@@ -821,7 +876,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                 advisor.build_lessons(), slots,
                 style=cfg.get("trading_style"), gate=g,
                 cache_scope={"uid": uid, "market": market, "style": cfg["trading_style"],
-                             "trade_date": _today(), "signal_policy_id": signal_policy_id,
+                             "trade_date": _today(market), "signal_policy_id": signal_policy_id,
                              "execution_policy_id": execution_policy_id,
                              "cash": bal2["cash"],
                              "holdings": sorted((h["ticker"], h["qty"]) for h in bal2["holdings"]),
@@ -909,8 +964,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                  "risk": _risk_for(closes).effective().__dict__},
                     )
                     db.bot_position_upsert(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), qty, basis_per_share, live,
-                                            _today(), market=market,
-                                            tranches_done=1, last_buy_date=_today())
+                                            _today(market), market=market,
+                                            tranches_done=1, last_buy_date=_today(market))
                     from signal_desk.signals import pick_reason as _pr
                     buy_ctx = {**(context or {}), "pick": _pr.from_signal(s),
                                "uid": uid, "qty": qty, "market": market,
@@ -976,7 +1031,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             continue
         if live > avg * (1 + _MAX_CHASE_PCT):   # 평단보다 크게 위면 추격 안 함(다음 눌림에)
             continue
-        ok, why = tranche_gate(db.bot_position_get(uid, t), tranches, today=_today())
+        ok, why = tranche_gate(db.bot_position_get(uid, t), tranches, today=_today(market))
         if not ok:
             skipped_tranche.append(f"{h['name']}: {why}")
             continue
@@ -1010,9 +1065,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                   fees=result["total_fees"], slippage_cost=result["slippage_cost"], cash_change=result["cash_change"])
                 db.bot_position_upsert(uid, t, h["name"], new_qty, new_avg,
                                         max(pos["peak_price"] if pos else new_avg, live),
-                                        pos["entry_date"] if pos else _today(), market=market,
+                                        pos["entry_date"] if pos else _today(market), market=market,
                                         tranches_done=int((pos or {}).get("tranches_done") or 1) + 1,
-                                        last_buy_date=_today())
+                                        last_buy_date=_today(market))
                 cash -= qty * live
                 plan.update(ok=True, order_no=result["order_no"], fill_price=result["fill_price"],
                             fees=result["total_fees"])
@@ -1024,7 +1079,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
 
     final_bal = paper.balance(uid, market) if not dry_run else bal2
     if not dry_run:  # 일별 자산 스냅샷(track record 자산곡선) — 같은 날 재실행 시 마지막 값으로 갱신
-        db.bot_equity_record(uid, market, _today(), final_bal["total_eval"],
+        db.bot_equity_record(uid, market, _today(market), final_bal["total_eval"],
                              final_bal["cash"], final_bal.get("invested") or 0.0)
     return {
         "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak,
@@ -1057,11 +1112,31 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
             mdd = min(mdd, te / peak - 1)
     trades = db.bot_trades_recent(uid, 500, market)
     sells = [t for t in trades if t["side"] == "sell"]
+    comparison_curve = curve
+    if market == "us" and universe_history:
+        # 미국은 매 세션 실제로 관측한 멤버십이 있어야 한다. 최초 도입 전/수집 누락
+        # 구간은 마지막 누락일 이후의 최대 60개 평가일만 비교한다.
+        comparison_curve = curve[-60:]
+        start = 0
+        for i, point in enumerate(comparison_curve[:-1]):
+            known_by = market_clock.previous_session("us", point["date"])
+            if known_by not in universe_history:
+                start = i + 1
+        comparison_curve = comparison_curve[start:]
     bench_curve = performance_evidence.pit_equal_weight_curve(
-        curve, market, dated_closes=dated_closes, universe_history=universe_history)
+        comparison_curve, market, dated_closes=dated_closes, universe_history=universe_history)
     bench = round((bench_curve[-1]["total_eval"] - 1) * 100, 2) if bench_curve else None
-    comparable = (round((curve[-1]["total_eval"] / curve[0]["total_eval"] - 1) * 100, 2)
-                  if len(curve) >= 2 and curve[0]["total_eval"] > 0 else None)
+    if bench_curve:
+        basis = ("최초 관측 이후 미국 구성종목 동일가중 근사·비용 전·원천 공개시각 미검증"
+                 if market == "us" else "과거 구성종목 동일가중 근사·비용 전·원천 공개시각 미검증")
+    elif market == "us" and not universe_history:
+        basis = "비교 불가 — 미국 구성종목 첫 관측이 아직 없습니다"
+    elif market == "us" and len(comparison_curve) < 2:
+        basis = "비교 불가 — 연속 관측 세션 2개 미만"
+    else:
+        basis = "비교 불가 — 과거 구성종목/가격/세션 누락"
+    comparable = (round((comparison_curve[-1]["total_eval"] / comparison_curve[0]["total_eval"] - 1) * 100, 2)
+                  if len(comparison_curve) >= 2 and comparison_curve[0]["total_eval"] > 0 else None)
     return {
         "market": market, "currency": "USD" if market == "us" else "KRW",
         "seed": seed, "total_eval": total, "return_pct": ret_pct,
@@ -1069,10 +1144,11 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
         # 과거 PIT 유니버스·모든 구성종목 가격이 없으면 추측하지 않는다.
         "benchmark_return_pct": bench,
         "benchmark_curve": bench_curve,
-        "benchmark_basis": ("과거 구성종목 동일가중 근사·비용 전·원천 공개시각 미검증"
-                            if bench_curve else "비교 불가 — 과거 구성종목/가격/세션 누락"),
+        "benchmark_basis": basis,
         "comparison_return_pct": comparable,
-        "comparison_window": ([curve[0]["date"], curve[-1]["date"]] if len(curve) >= 2 else None),
+        "comparison_window": ([comparison_curve[0]["date"], comparison_curve[-1]["date"]]
+                              if len(comparison_curve) >= 2 else None),
+        "comparison_curve": comparison_curve if bench_curve else None,
         "excess_return_pct": (round(comparable - bench, 2)
                               if (comparable is not None and bench is not None) else None),
         "max_drawdown_pct": round(mdd * 100, 2), "days": len(curve),
@@ -1133,8 +1209,10 @@ def reference_performance(market: str = "kr") -> dict:
     """3개 레퍼런스 봇(안정·균형·공격)의 공개 track record — 자산곡선·수익률·MDD."""
     ensure_reference_bots()
     try:
-        dated_closes = store.load_all_dated_closes() if market == "kr" else None
-        universe_history = store.load_universe_history() if market == "kr" else None
+        dated_closes = (store.load_all_dated_closes() if market == "kr"
+                        else store.load_market_dated_closes("us"))
+        universe_history = (store.load_universe_history() if market == "kr"
+                            else store.load_us_universe_history())
     except Exception:  # noqa: BLE001 — 기준선 오류가 계좌 원장을 가리면 안 된다
         dated_closes, universe_history = {}, {}
     bots = []
@@ -1151,8 +1229,7 @@ def reference_performance(market: str = "kr") -> dict:
 def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
     """유저: 종가·거시·KB를 종합해 '다음 개장 때 살' 예약을 만든다(LLM 자문 우선). 시장별(kr|us)."""
     unit = "$" if market == "us" else "원"
-    kr_prices = store.load_price_series()
-    mr = _market_read(kr_prices) if kr_prices else {"eff_cfg": None, "context": {}}
+    mr = _market_read_for(market)
     universe, prices, signals, name_by_ticker = _market_signals(market, mr)
     if not universe or not prices:
         return {"ok": False, "reason": "시세 데이터 없음"}
@@ -1188,7 +1265,7 @@ def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -
             advisor.build_lessons(), slots,
             style=cfg.get("trading_style"), gate=g,
             cache_scope={"uid": uid, "market": market, "style": cfg["trading_style"],
-                         "trade_date": _today(), "signal_policy_id": signal_policy_id,
+                         "trade_date": _today(market), "signal_policy_id": signal_policy_id,
                          "execution_policy_id": execution_policy_id,
                          "cash": bal["cash"],
                          "holdings": sorted((h["ticker"], h["qty"]) for h in bal["holdings"]),
@@ -1231,8 +1308,7 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
 
     if not dry_run and config.bot_kill_switch():
         return {"ok": False, "market": market, "executed": [], "reason": "긴급정지"}
-    kr_prices = store.load_price_series()
-    mr = _market_read(kr_prices) if kr_prices else {"eff_cfg": None, "context": {}}
+    mr = _market_read_for(market)
     _, prices, signals, _ = _market_signals(market, mr)
     signal_by_ticker = {s.ticker: s for s in signals}
     exposure = float(mr["context"].get("exposure", 1.0))
@@ -1294,8 +1370,8 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                              "target_price": r["target_price"], "reference_price": price,
                              "fees": result["total_fees"], "slippage_cost": result["slippage_cost"]},
                 )
-                db.bot_position_upsert(uid, r["ticker"], r["name"], qty, basis_per_share, price, _today(),
-                                        market=market, tranches_done=1, last_buy_date=_today())
+                db.bot_position_upsert(uid, r["ticker"], r["name"], qty, basis_per_share, price, _today(market),
+                                        market=market, tranches_done=1, last_buy_date=_today(market))
                 db.bot_reservation_resolve(r["id"], "filled")
                 executed.append({"ticker": r["ticker"], "name": r["name"], "status": "filled", "qty": qty,
                                  "note": note, "order_no": result["order_no"],

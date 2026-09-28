@@ -44,7 +44,7 @@ from signal_desk.signals import (
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, goal_plan, hypo_score,
-    horizon, hypothesis, macro, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
+    horizon, hypothesis, macro, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     sector_rel, target, why_now,
 )
@@ -426,9 +426,17 @@ def _bot_loop_iteration() -> None:
             log.warning("메타 진입 shadow 판정 실패(%s): %s", mkt, type(e).__name__)
     now = _kst_now()
     try:
+        _maybe_refresh_us_universe(now)
+    except Exception as e:
+        log.warning("미국 PIT 유니버스 관측 실패: %s", type(e).__name__)
+    try:
         _maybe_snapshot_us_signals(now)
     except Exception as e:
         log.warning("미국 시그널 스냅샷 실패: %s", type(e).__name__)
+    try:
+        _maybe_snapshot_us_regime(now)
+    except Exception as e:
+        log.warning("미국 국면 PIT 스냅샷 실패: %s", type(e).__name__)
     try:
         _maybe_us_personal_close(now)
     except Exception as e:
@@ -500,6 +508,24 @@ def _bot_loop_iteration() -> None:
             log.warning("개인 Telegram 주간 가상 대조 실패: %s", type(e).__name__)
 
 
+def _maybe_refresh_us_universe(now: datetime.datetime) -> bool:
+    """미국 마감 후 S&P 500 구성종목을 새로 관측한다. 시점 이전으로 소급하지 않는다."""
+    session = market_clock.latest_completed_session("us", now)
+    if not session or market_clock.is_open("us", now) or db.kv_get("us_universe_observed_session") == session:
+        return False
+    if now.astimezone(ZoneInfo("America/New_York")).date().isoformat() != session:
+        return False
+    close = market_clock._calendar("us").schedule.loc[session]["close"].to_pydatetime()
+    age = now.astimezone(datetime.timezone.utc) - close
+    if not datetime.timedelta(hours=1) <= age <= datetime.timedelta(hours=20):
+        return False
+    items = store.fetch_us_universe()
+    if len(items) < store.US_MIN_UNIVERSE_SIZE:
+        return False
+    db.kv_set("us_universe_observed_session", session)
+    return True
+
+
 def _maybe_snapshot_us_signals(now: datetime.datetime) -> int:
     """미국 종가가 확인된 세션만 미국 날짜로 기록. 국내 마감 시각 이후 1회 실행한다.
 
@@ -526,6 +552,22 @@ def _maybe_snapshot_us_signals(now: datetime.datetime) -> int:
     if n:
         db.kv_set("us_signal_snapshot_session", session)
     return n
+
+
+def _maybe_snapshot_us_regime(now: datetime.datetime) -> bool:
+    """해당 미국 시그널 세션과 같은 가격 세션의 노출만 전진 검증용으로 동결."""
+    session = market_clock.latest_completed_session("us", now)
+    if not session or db.kv_get("us_signal_snapshot_session") != session or \
+            db.kv_get("us_regime_snapshot_session") == session:
+        return False
+    ctx = bot._market_read_for("us")["context"]
+    if ctx.get("price_session") != session:
+        return False
+    saved = store.snapshot_regime(ctx.get("regime"), ctx.get("exposure"),
+                                  date=session, market="us", ready=bool(ctx.get("regime_ready")))
+    if saved:
+        db.kv_set("us_regime_snapshot_session", session)
+    return saved
 
 
 def _ensure_quality_attached() -> int:
@@ -3588,6 +3630,15 @@ def price_quality_verdict_get(request: Request, market: str = "kr"):
     return price_quality_verdict.assess(rows, market=market, completed_session=completed)
 
 
+@app.get("/api/admin/research/market-regime")
+def market_regime_research_get(request: Request, market: str = "kr"):
+    """시장별 노출 국면의 다음 세션 탐색 성적. 주문·승격에 연결되지 않는다."""
+    _admin_or_403(request)
+    if market not in ("kr", "us"):
+        raise HTTPException(status_code=422, detail="market 값이 올바르지 않습니다.")
+    return market_regime_study.report(market)
+
+
 @app.get("/api/admin/research/rotation-shadow")
 def rotation_shadow_get(request: Request, market: str = "kr", style: str = "balanced", limit: int = 30,
                         include_inputs: bool = False):
@@ -4648,7 +4699,7 @@ def _harm_alerts(market: str = "kr") -> list[dict]:
     out = []
     try:
         for b in (bot.reference_performance(market).get("bots") or []):
-            h = bot.harm_alert(b.get("curve") or [], seed=b.get("seed") or 0,
+            h = bot.harm_alert(b.get("comparison_curve") or b.get("curve") or [], seed=b.get("seed") or 0,
                                benchmark_curve=b.get("benchmark_curve"))
             out.append({"label": b.get("label"), **h})
     except Exception as e:                                  # noqa: BLE001 — 브리핑은 계속 나가야 한다

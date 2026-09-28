@@ -18,7 +18,8 @@ VIX_CALM = 20.0
 VIX_FEAR = 25.0
 
 
-def read(indicators: list[dict], extra: list[dict] | None = None) -> dict:
+def read(indicators: list[dict], extra: list[dict] | None = None,
+         market: str = "kr") -> dict:
     """macro_indicators() 결과를 받아 {bias, score, reasons, indicators}로 요약. score는 [-1,1].
 
     각 지표가 주식시장에 우호(+1)/비우호(-1)/중립(0) 표를 던지고 평균낸다. 지표별 favor는
@@ -54,7 +55,8 @@ def read(indicators: list[dict], extra: list[dict] | None = None) -> dict:
     if nas and nas["change"] is not None:
         if nas["change"] > 0:
             favor["NASDAQCOM"] = 1
-            reasons.append(f"[거시] 나스닥 {nas['change']:+.1f}% — 위험선호, 한국 동조 기대")
+            reasons.append(f"[거시] 나스닥 {nas['change']:+.1f}% — 위험선호"
+                           + (", 한국 동조 기대" if market == "kr" else ""))
         elif nas["change"] < 0:
             favor["NASDAQCOM"] = -1
             reasons.append(f"[거시] 나스닥 {nas['change']:+.1f}% — 위험회피")

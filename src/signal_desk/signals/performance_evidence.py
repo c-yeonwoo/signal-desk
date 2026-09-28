@@ -16,7 +16,7 @@ def pit_equal_weight_curve(curve: list[dict], market: str = "kr", *,
                            dated_closes: dict | None = None,
                            universe_history: dict | None = None) -> list[dict] | None:
     """매 세션 시작 시점 유니버스를 같은 비중으로 보유한 비용 전 종가 NAV(첫날=1)."""
-    if market != "kr" or len(curve) < 2:  # 미국 PIT 구성종목 이력은 아직 없다.
+    if market not in ("kr", "us") or len(curve) < 2:
         return None
     days = [str(p.get("date") or "") for p in curve]
     if days != sorted(set(days)):
@@ -24,17 +24,26 @@ def pit_equal_weight_curve(curve: list[dict], market: str = "kr", *,
     if any(not market_clock.consecutive_sessions(market, a, b) for a, b in zip(days, days[1:])):
         return None
     try:
-        closes = {t: dict(zip(ds, ps)) for t, (ds, ps) in (
-            dated_closes if dated_closes is not None else store.load_all_dated_closes()).items()}
+        market_closes = (dated_closes if dated_closes is not None else
+                         store.load_market_dated_closes("us") if market == "us"
+                         else store.load_all_dated_closes())
+        closes = {t: dict(zip(ds, ps)) for t, (ds, ps) in market_closes.items()}
         nav = 1.0
         out = [{"date": days[0], "total_eval": nav}]
         for a, b in zip(days, days[1:]):
             known_by = market_clock.previous_session(market, a)
             if universe_history is None:
-                universe = store.universe_at(known_by) if known_by else None
+                if market == "kr":
+                    universe = store.universe_at(known_by) if known_by else None
+                else:
+                    history = store.load_us_universe_history()
+                    universe = history.get(known_by) if known_by else None
             else:
-                keys = sorted(k for k in universe_history if known_by and k <= known_by)
-                universe = universe_history[keys[-1]] if keys else None
+                if market == "us":
+                    universe = universe_history.get(known_by) if known_by else None
+                else:
+                    keys = sorted(k for k in universe_history if known_by and k <= known_by)
+                    universe = universe_history[keys[-1]] if keys else None
             tickers = {str(u.get("ticker") or "") for u in (universe or [])}
             tickers.discard("")
             if not tickers:

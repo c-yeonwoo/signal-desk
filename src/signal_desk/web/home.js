@@ -117,9 +117,9 @@ window.InvestmentHome = (() => {
       const bot = paper && (paper.bots || []).find(b=>b.style===style);
       put('home-paper-sub',`${label[style]} · ${currency} · 초기자금 대비 · 모의 장부`);
       put('home-paper-return',bot ? percent(bot.return_pct) : '자료 없음');
-      const comparable = plot(bot && bot.curve, bot && bot.benchmark_curve);
+      const comparable = plot(bot && (bot.comparison_curve || bot.curve), bot && bot.benchmark_curve);
       put('home-chart-caption',bot && (bot.curve || []).length >= 2
-        ? `기록 첫날=100 · 최대낙폭 ${percent(bot.max_drawdown_pct)} · ${comparable ? '같은 거래일 PIT 동일가중(점선, 비용 전)' : '동일기간 비교선 없음'}`
+        ? `${comparable ? '비교 시작일' : '기록 첫날'}=100 · 전체 기록 최대낙폭 ${percent(bot.max_drawdown_pct)} · ${comparable ? '같은 거래일 PIT 동일가중(점선, 비용 전)' : '동일기간 비교선 없음'}`
         : '기록된 자산 경로가 아직 부족합니다.');
     })());
     await Promise.all(tasks);
