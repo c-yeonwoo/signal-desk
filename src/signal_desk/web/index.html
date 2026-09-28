@@ -1780,6 +1780,13 @@
       <div id="macro-release-body" class="placeholder" style="padding:8px 0">발표 기록을 확인하는 중…</div>
     </details>
 
+    <details class="card" id="lens-forward-study" style="margin-top:16px" ontoggle="if(this.open) loadLensForwardStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">투자 관점 성과 비교 <span style="color:var(--dim);font-weight:600;font-size:13px">· 당시 판단 고정 · 주문 미연결</span></summary>
+      <p class="page-desc" style="margin:8px 0">매주 처음 본 후보를 그대로 보관하고, 다음 거래일 종가부터 5거래일 뒤 종가까지 네 조합을 비교합니다. 선정하지 않은 몫은 현금으로 두고 가정 비용을 뺍니다. 실제 체결 수익률이나 투자 추천은 아닙니다.</p>
+      <div class="row" style="gap:8px;margin:8px 0"><label>시장 <select id="lens-forward-market" onchange="loadLensForwardStudy()"><option value="kr">국내</option><option value="us">미국</option></select></label><button type="button" class="btn" onclick="loadLensForwardStudy()">다시 조회</button></div>
+      <div id="lens-forward-body" class="placeholder" style="padding:8px 0">전진 비교를 불러오는 중…</div>
+    </details>
+
     <details class="card" id="industry-evidence-study" style="margin-top:16px" ontoggle="if(this.open) loadIndustryEvidenceStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">반도체 업황 근거 <span style="color:var(--dim);font-weight:600;font-size:13px">· 분야별 공식 공시 · 연구 전용</span></summary>
       <p class="page-desc" style="margin:8px 0">메모리·파운드리·장비를 따로 봅니다. 회사 공시 원문과 공개시각을 기록한 뒤 검토해야 하며, 서로 다른 회사 2곳과 근거 유형 3개 이상이 없으면 ‘자료 없음’으로 남습니다. 업황과 종목 수익은 별개이고 주문에 반영하지 않습니다.</p>
@@ -8339,6 +8346,22 @@ async function delShortform(id){
 }
 
 // ===== 시그널 엔진 설정(관리자) =====
+async function loadLensForwardStudy(){
+  const el = document.getElementById('lens-forward-body');
+  if (!el) return;
+  try {
+    const market = document.getElementById('lens-forward-market')?.value || 'kr';
+    const response = await fetch('/api/admin/research/lens-forward?market=' + encodeURIComponent(market));
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    const count = Number(data.independent_episodes || 0);
+    const pct = value => value == null ? '측정 전' : (Number(value) * 100).toFixed(2) + '%';
+    const rows = Object.entries(data.summary || {}).map(([key, row]) =>
+      `<div style="border-top:1px solid var(--line);padding:8px 0;font-size:12px;line-height:1.6"><b>${esc(row.label)}</b> · 평균 비용 후 ${pct(row.mean_net_return)} · 기본 대비 ${pct(row.mean_excess_vs_base)} · 투자 비중 ${pct(row.mean_coverage)} · 최대 하락 ${pct(row.max_episode_drawdown)}</div>`).join('');
+    const waiting = Object.entries(data.exclusions || {}).map(([reason, amount]) => `${esc(reason)} ${Number(amount)}건`).join(' · ');
+    el.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>겹치지 않는 비교 ${count}회 / 최소 ${Number(data.minimum_episodes)}회</b> · 편도 가정 비용 ${pct(data.cost_per_side)}<br>${count ? '자료가 쌓이는 중입니다. 차이가 보여도 아직 우위를 입증한 것은 아닙니다.' : '아직 비교 가능한 거래 구간이 없습니다. 과거 시그널을 사후에 끼워 넣지 않습니다.'}</div>${rows}<div style="font-size:12px;color:var(--dim);margin-top:8px">제외: ${waiting || '없음'}<br>${esc(data.note || '')}</div>`;
+  } catch(e) { el.textContent = '전진 성과 비교를 불러올 수 없습니다 · ' + e.message; }
+}
 function _macroReleaseInput(id){ return (document.getElementById(id)?.value || '').trim(); }
 function _macroReleaseIso(id){
   const value = _macroReleaseInput(id);

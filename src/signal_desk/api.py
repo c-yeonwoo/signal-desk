@@ -44,7 +44,7 @@ from signal_desk.signals import (
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
-    horizon, hypothesis, industry_cycle, lenses, macro, macro_release, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
+    horizon, hypothesis, industry_cycle, lens_forward, lenses, macro, macro_release, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     sector_rel, target, why_now,
 )
@@ -2395,6 +2395,9 @@ def _attach_lens_snapshot(items: list[dict], *, market: str, signal_policy_id: s
                 "reason": "관점 비교를 계산하지 못했습니다. 기본 시그널은 그대로입니다."}
     try:
         db.lens_snapshot_put(snapshot)
+        db.lens_forward_cohort_freeze(snapshot["market"],
+                                      lens_forward.iso_week(snapshot["market"], snapshot["observed_at"]),
+                                      snapshot["id"], snapshot["observed_at"])
         recorded = True  # 이미 있는 해시도 원장에 존재한다.
     except Exception as exc:
         log.warning("렌즈 원장 기록 실패(조회는 계속): %s", type(exc).__name__)
@@ -3939,6 +3942,16 @@ def macro_releases_get(request: Request):
     return {"version": macro_release.VERSION, "mode": "research_only", "live_eligible": False,
             "items": [{**row, "interpretation": macro_release.evaluate(row)} for row in rows],
             "note": "예상치는 발표 전에 동결된 것만 사용합니다. 실제값은 운영자 원문 대조 기록이며 자동 검증은 아닙니다."}
+
+
+@app.get("/api/admin/research/lens-forward")
+def lens_forward_get(request: Request, market: str = "kr"):
+    _admin_or_403(request)
+    if market not in ("kr", "us"):
+        raise HTTPException(400, "지원하지 않는 시장입니다")
+    cohorts = db.lens_forward_cohorts(market)
+    loader = store.load_price_history if market == "kr" else store.load_us_price_history
+    return lens_forward.evaluate(cohorts, market, loader, price_marker=db.lens_forward_mark)
 
 
 @app.post("/api/admin/research/macro-releases/forecast")
