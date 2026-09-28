@@ -46,7 +46,7 @@ from signal_desk.signals import (
     daily_change, flow_shock_study, goal_plan, hypo_score,
     horizon, hypothesis, industry_cycle, lens_forward, lens_governance, lenses, macro, macro_release, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
-    sector_rel, target, why_now,
+    scaling_readiness, sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
     GATE_LABELS, SignalConfig, _price_only_components, backtest_summary, chart_scores_and_zones,
@@ -3954,6 +3954,17 @@ def lens_forward_get(request: Request, market: str = "kr"):
     report = lens_forward.evaluate(cohorts, market, loader, price_marker=db.lens_forward_mark)
     report["promotion"] = lens_governance.assess(report)
     return report
+
+
+@app.get("/api/admin/research/scaling-readiness")
+def scaling_readiness_get(request: Request):
+    _admin_or_403(request)
+    document_count = sum(db.kb_doc_counts().values())
+    latency = db.kb_search_latency_summary()
+    cohorts = {market: len(db.lens_forward_cohorts(market)) for market in ("kr", "us")}
+    review_pending = db.kb_event_queue_status()["pending"]
+    return scaling_readiness.assess(document_count=document_count, latency=latency,
+                                    prospective_cohorts=cohorts, review_pending=review_pending)
 
 
 @app.post("/api/admin/research/macro-releases/forecast")

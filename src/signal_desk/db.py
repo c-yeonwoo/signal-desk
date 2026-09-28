@@ -50,6 +50,12 @@ CREATE TABLE IF NOT EXISTS lens_forward_marks(
     market TEXT NOT NULL, snapshot_id TEXT NOT NULL, ticker TEXT NOT NULL,
     price_session TEXT NOT NULL, price REAL NOT NULL, observed_at INTEGER NOT NULL,
     PRIMARY KEY(market,snapshot_id,ticker,price_session));
+-- 운영 검색 지연의 소량 표본. 질의 텍스트는 저장하지 않는다.
+CREATE TABLE IF NOT EXISTS kb_search_latency_samples(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, observed_at INTEGER NOT NULL,
+    corpus_size INTEGER NOT NULL, elapsed_ms REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_kb_search_latency_recent
+    ON kb_search_latency_samples(observed_at DESC);
 -- 발표 전 예상치/공식 실제값은 각각 append-only. 현재 수정값으로 과거를 덮지 않는다.
 CREATE TABLE IF NOT EXISTS macro_release_forecasts(
     id TEXT PRIMARY KEY, metric TEXT NOT NULL, period TEXT NOT NULL,
@@ -1267,6 +1273,38 @@ def lens_forward_mark(market: str, snapshot_id: str, ticker: str,
                         (market, snapshot_id, ticker, price_session)).fetchone()
         c.commit()
         return float(row[0]) if row else None
+    finally:
+        c.close()
+
+
+def kb_search_latency_add(corpus_size: int, elapsed_ms: float) -> None:
+    """검색어·사용자 식별자 없이 지연과 코퍼스 크기만 보관한다."""
+    import math
+    if corpus_size < 0 or not math.isfinite(elapsed_ms) or elapsed_ms < 0:
+        raise ValueError("invalid search latency")
+    now = int(time.time())
+    c = conn()
+    try:
+        c.execute("INSERT INTO kb_search_latency_samples(observed_at,corpus_size,elapsed_ms) "
+                  "VALUES(?,?,?)", (now, int(corpus_size), float(elapsed_ms)))
+        c.execute("DELETE FROM kb_search_latency_samples WHERE observed_at<?", (now - 30 * 86400,))
+        c.commit()
+    finally:
+        c.close()
+
+
+def kb_search_latency_summary(days: int = 30) -> dict:
+    import math
+    c = conn()
+    try:
+        rows = c.execute("SELECT elapsed_ms,corpus_size FROM kb_search_latency_samples "
+                         "WHERE observed_at>=? ORDER BY elapsed_ms",
+                         (int(time.time()) - min(max(int(days), 1), 30) * 86400,)).fetchall()
+        n = len(rows)
+        return {"samples": n,
+                "p95_ms": rows[max(0, math.ceil(.95 * n) - 1)][0] if n else None,
+                "max_corpus_size": max((r[1] for r in rows), default=None),
+                "sample_rate": .05, "period_days": min(max(int(days), 1), 30)}
     finally:
         c.close()
 

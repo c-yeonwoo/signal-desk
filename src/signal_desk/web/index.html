@@ -1787,6 +1787,13 @@
       <div id="lens-forward-body" class="placeholder" style="padding:8px 0">전진 비교를 불러오는 중…</div>
     </details>
 
+    <details class="card" id="scaling-readiness-study" style="margin-top:16px" ontoggle="if(this.open) loadScalingReadiness()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">분석 시스템 확대 판단 <span style="color:var(--dim);font-weight:600;font-size:13px">· 성능·자료 근거를 먼저 확인</span></summary>
+      <p class="page-desc" style="margin:8px 0">인공지능 학습, 문서 검색 서버, 분산 작업 처리를 늘릴 필요가 있는지 확인합니다. 서버를 늘리는 것 자체가 투자 수익 개선을 뜻하지 않습니다.</p>
+      <button type="button" class="btn" onclick="loadScalingReadiness()">다시 조회</button>
+      <div id="scaling-readiness-body" class="placeholder" style="padding:8px 0">측정 자료를 불러오는 중…</div>
+    </details>
+
     <details class="card" id="industry-evidence-study" style="margin-top:16px" ontoggle="if(this.open) loadIndustryEvidenceStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">반도체 업황 근거 <span style="color:var(--dim);font-weight:600;font-size:13px">· 분야별 공식 공시 · 연구 전용</span></summary>
       <p class="page-desc" style="margin:8px 0">메모리·파운드리·장비를 따로 봅니다. 회사 공시 원문과 공개시각을 기록한 뒤 검토해야 하며, 서로 다른 회사 2곳과 근거 유형 3개 이상이 없으면 ‘자료 없음’으로 남습니다. 업황과 종목 수익은 별개이고 주문에 반영하지 않습니다.</p>
@@ -8346,6 +8353,20 @@ async function delShortform(id){
 }
 
 // ===== 시그널 엔진 설정(관리자) =====
+async function loadScalingReadiness(){
+  const el = document.getElementById('scaling-readiness-body');
+  if (!el) return;
+  try {
+    const response = await fetch('/api/admin/research/scaling-readiness');
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    const m = data.metrics || {};
+    const topics = [['인공지능 학습', data.ml], ['문서 검색 서버', data.vector_database], ['분산 작업 처리', data.distributed_queue]];
+    el.innerHTML = `<div style="font-size:12px;line-height:1.6">확인된 문서 ${Number(m.confirmed_documents || 0)}개 · 검색 지연 표본 ${Number(m.search_latency_samples_30d || 0)}개 · 검색 95% 지연 ${m.search_p95_ms_30d == null ? '측정 전' : Number(m.search_p95_ms_30d).toFixed(0) + 'ms'}<br>전진 비교 원장: 국내 ${Number(m.prospective_cohorts?.kr || 0)}주 · 미국 ${Number(m.prospective_cohorts?.us || 0)}주 · 사건 검토 대기 ${Number(m.review_pending || 0)}건</div>`
+      + topics.map(([name, item]) => `<div style="border-top:1px solid var(--line);padding:8px 0;font-size:12px;line-height:1.6"><b>${name} · 도입 보류</b><br>${esc(item?.reason || '판단 근거 없음')}</div>`).join('')
+      + `<div style="font-size:12px;color:var(--dim)">${esc(data.note || '')}</div>`;
+  } catch(e) { el.textContent = '시스템 확대 판단 자료를 불러올 수 없습니다 · ' + e.message; }
+}
 async function loadLensForwardStudy(){
   const el = document.getElementById('lens-forward-body');
   if (!el) return;

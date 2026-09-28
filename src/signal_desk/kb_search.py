@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import math
+import random
 import re
 import time
 
@@ -201,7 +202,7 @@ def _dense_norm(pairs: list[tuple[float, int]]) -> dict[int, float]:
     return {i: min(1.0, max(_NORM_FLOOR, 0.5 + (s - mean) / DENSE_SPREAD)) for s, i in pairs}
 
 
-def retrieve(query: str, k: int = 5, *, alpha: float | None = None,
+def _retrieve_impl(query: str, k: int = 5, *, alpha: float | None = None,
              fresh_only: bool = False, now: float | None = None,
              recency: bool = True) -> list[dict]:
     """질의와 관련 높은 KB 문서 top-k.
@@ -267,3 +268,21 @@ def retrieve(query: str, k: int = 5, *, alpha: float | None = None,
                         if ts else None)
         out.append(doc)
     return out
+
+
+def retrieve(query: str, k: int = 5, *, alpha: float | None = None,
+             fresh_only: bool = False, now: float | None = None,
+             recency: bool = True) -> list[dict]:
+    """운영 기본 검색만 5% 무작위 표본으로 지연 측정. 질의 내용은 저장하지 않는다."""
+    measure = alpha is None and recency and bool((query or "").strip()) and random.random() < .05
+    start = time.perf_counter() if measure else 0.0
+    try:
+        return _retrieve_impl(query, k, alpha=alpha, fresh_only=fresh_only,
+                              now=now, recency=recency)
+    finally:
+        if measure and _idx.get("corpus"):
+            try:
+                db.kb_search_latency_add(len(_idx.get("corpus") or []),
+                                         (time.perf_counter() - start) * 1000)
+            except Exception:  # noqa: BLE001 — 계측 오류가 검색 결과를 깨뜨리지 않는다
+                pass
