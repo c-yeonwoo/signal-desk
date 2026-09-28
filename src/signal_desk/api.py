@@ -43,7 +43,7 @@ from signal_desk.signals import (
     accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate,
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
-    daily_change, goal_plan, hypo_score,
+    daily_change, flow_shock_study, goal_plan, hypo_score,
     horizon, hypothesis, macro, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     sector_rel, target, why_now,
@@ -496,6 +496,18 @@ def _bot_loop_iteration() -> None:
             db.kv_set("relation_event_forward_last", {**relation_marks, "at": now.isoformat()})
     except Exception as e:
         log.warning("R15 관계 사건 전진 가격 동결 실패: %s", type(e).__name__)
+    try:
+        flow_capture = flow_shock_study.capture(now)
+        prior_flow = db.kv_get("flow_shock_capture_last") or {}
+        if flow_capture.get("saved") or any(flow_capture.get(key) != prior_flow.get(key)
+                                             for key in ("session", "reason", "flow_rows", "eligible",
+                                                         "unmatched_candidates")):
+            db.kv_set("flow_shock_capture_last", {**flow_capture, "at": now.isoformat()})
+        flow_marks = flow_shock_study.collect(now)
+        if flow_marks.get("marked") or flow_marks.get("halted") or flow_marks.get("gaps"):
+            db.kv_set("flow_shock_forward_last", {**flow_marks, "at": now.isoformat()})
+    except Exception as e:
+        log.warning("R16 수급 충격 전진 연구 실패: %s", type(e).__name__)
     if market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40):
         try:
             telegram_inbound.enqueue_daily_summaries(_kst_today(), "kr")
@@ -3655,6 +3667,15 @@ def market_regime_research_get(request: Request, market: str = "kr"):
         log.warning("시장별 국면 입력 진단 실패(%s): %s", market, type(exc).__name__)
         result["current_input"] = {"error": "입력 진단 불가"}
     return result
+
+
+@app.get("/api/admin/research/flow-shock")
+def flow_shock_research_get(request: Request):
+    """최초 관측 KR 수급 충격의 동일 업종 대조 전진 연구. 주문 권한 없음."""
+    _admin_or_403(request)
+    return {**flow_shock_study.report(),
+            "capture_status": db.kv_get("flow_shock_capture_last") or {},
+            "forward_status": db.kv_get("flow_shock_forward_last") or {}}
 
 
 @app.get("/api/admin/research/rotation-shadow")

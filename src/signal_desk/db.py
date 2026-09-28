@@ -130,6 +130,17 @@ CREATE TABLE IF NOT EXISTS relation_event_marks(
     observed INTEGER NOT NULL, PRIMARY KEY(event_id,price_session));
 CREATE TABLE IF NOT EXISTS relation_event_halts(
     event_id INTEGER PRIMARY KEY, reason TEXT NOT NULL, detected INTEGER NOT NULL);
+-- R16 first-observed KR flow-shock candidate and matched control; research only.
+CREATE TABLE IF NOT EXISTS flow_shock_snapshots(
+    session TEXT NOT NULL, ticker TEXT NOT NULL, payload TEXT NOT NULL, created INTEGER NOT NULL,
+    PRIMARY KEY(session,ticker));
+CREATE TABLE IF NOT EXISTS flow_shock_marks(
+    session TEXT NOT NULL, ticker TEXT NOT NULL, price_session TEXT NOT NULL,
+    payload TEXT NOT NULL, observed INTEGER NOT NULL,
+    PRIMARY KEY(session,ticker,price_session));
+CREATE TABLE IF NOT EXISTS flow_shock_halts(
+    session TEXT NOT NULL, ticker TEXT NOT NULL, reason TEXT NOT NULL, detected INTEGER NOT NULL,
+    PRIMARY KEY(session,ticker));
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
@@ -1961,6 +1972,67 @@ def relation_event_halt(event_id: int, reason: str | None = None) -> str | None:
                       (event_id, reason, int(time.time())))
             c.commit()
         row = c.execute("SELECT reason FROM relation_event_halts WHERE event_id=?", (event_id,)).fetchone()
+        return row[0] if row else None
+    finally:
+        c.close()
+
+
+def flow_shock_add_once(session: str, ticker: str, payload: dict) -> bool:
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO flow_shock_snapshots VALUES(?,?,?,?)",
+                        (session, ticker, json.dumps(payload, ensure_ascii=False, sort_keys=True), int(time.time())))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def flow_shock_snapshots(limit: int | None = 500) -> list[dict]:
+    c = conn()
+    try:
+        query = "SELECT session,ticker,payload FROM flow_shock_snapshots ORDER BY session DESC,ticker"
+        rows = (c.execute(query).fetchall() if limit is None else
+                c.execute(query + " LIMIT ?", (max(1, min(int(limit), 5000)),)).fetchall())
+        return [{**json.loads(payload), "session": day, "ticker": ticker}
+                for day, ticker, payload in rows]
+    finally:
+        c.close()
+
+
+def flow_shock_mark_once(session: str, ticker: str, day: str,
+                         prices: dict[str, float], observed: int) -> bool:
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO flow_shock_marks VALUES(?,?,?,?,?)",
+                        (session, ticker, day, json.dumps(prices, sort_keys=True), observed))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def flow_shock_marks(session: str, ticker: str) -> dict[str, dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT price_session,payload,observed FROM flow_shock_marks "
+                         "WHERE session=? AND ticker=? ORDER BY price_session",
+                         (session, ticker)).fetchall()
+        return {day: {"prices": json.loads(payload), "observed": observed}
+                for day, payload, observed in rows}
+    finally:
+        c.close()
+
+
+def flow_shock_halt(session: str, ticker: str, reason: str | None = None) -> str | None:
+    c = conn()
+    try:
+        if reason is not None:
+            c.execute("INSERT OR IGNORE INTO flow_shock_halts VALUES(?,?,?,?)",
+                      (session, ticker, reason, int(time.time())))
+            c.commit()
+        row = c.execute("SELECT reason FROM flow_shock_halts WHERE session=? AND ticker=?",
+                        (session, ticker)).fetchone()
         return row[0] if row else None
     finally:
         c.close()
