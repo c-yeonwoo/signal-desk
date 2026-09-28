@@ -1885,6 +1885,12 @@
       </div>
       <div id="execution-cost-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
     </details>
+    <details class="card" id="market-regime-study" style="margin-top:16px" ontoggle="if(this.open) loadMarketRegimeStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">시장별 투자 비중 검증 <span style="color:var(--dim);font-weight:600;font-size:13px">· 국내/미국 분리 · 연구 전용</span></summary>
+      <p class="page-desc" style="margin:8px 0">국내 주가로 미국 투자 비중을 정하지 않습니다. 각 시장의 국면 판단이 다음 거래일에 도움이 됐는지 같은 평균 투자 비중의 고정 전략과 비교합니다. 아직 수익률 향상이나 실주문 승격의 증거가 아닙니다.</p>
+      <label>시장 <select id="market-regime-market" onchange="loadMarketRegimeStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>
+      <div id="market-regime-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
+    </details>
     <details class="card" id="rotation-shadow-study" style="margin-top:16px" ontoggle="if(this.open) loadRotationShadowStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">저회전 정책 비교 <span style="color:var(--dim);font-weight:600;font-size:13px">· 동일 보유·시그널 · 주문 미연결</span></summary>
       <p class="page-desc" style="margin:8px 0">챔피언의 종가 회전 프록시와 상위 3% 신규·상위 10% 계속 보유 정책을 같은 입력에서 비교합니다. 현재는 판단 기록만이며 수익·낙폭 우위가 입증된 것이 아닙니다.</p>
@@ -5501,7 +5507,7 @@ async function loadReferencePerf(seq = _botLoadSeq, market = _botMarket, style =
         <td class="num">${fmtM(b.total_eval)}</td>
         <td class="num" style="color:${dc}">${fmtNum(dd, 1)}%</td>
         <td class="num" style="color:${b.excess_return_pct == null || Math.abs(b.excess_return_pct) < 0.5 ? 'var(--dim)' : b.excess_return_pct > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'};font-weight:700"
-            title="기록된 동일 세션의 PIT 유니버스 동일가중 대비. 구성종목·가격이 완전하지 않으면 비교를 보류합니다.">${b.excess_return_pct == null ? '–' : (b.excess_return_pct > 0 ? '+' : '') + fmtNum(b.excess_return_pct, 2) + '%p'}</td>
+            title="${esc(b.excess_return_pct == null ? b.benchmark_basis : `비교 기간 ${b.comparison_window?.join('~') || '미확인'} · ${b.benchmark_basis}`)}">${b.excess_return_pct == null ? '–' : (b.excess_return_pct > 0 ? '+' : '') + fmtNum(b.excess_return_pct, 2) + '%p'}</td>
         <td class="num">${b.n_trades}</td><td class="num">${b.days}일</td></tr>`;
     }).join('');
     el.className = '';
@@ -5543,7 +5549,7 @@ function loadBotPerformance(all, style){
     const ex = d.excess_return_pct;
     const exTxt = ex == null ? '' :
       ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">비교 기준보다 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
-      + `<span style="color:var(--dim-2)"> (기록된 동일 기간 · 기준선 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
+      + `<span style="color:var(--dim-2)"> (${esc(d.comparison_window?.join('~') || '비교 기간 미확인')} · 기준선 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
     sumEl.innerHTML = `<b>계좌 수익률 ${rTxt}</b>${exTxt}`
       + (ex == null ? `<span style="color:var(--dim-2)"> · 상대 비교 보류: ${esc(d.benchmark_basis || '기준선 없음')}</span>` : '')
       + `<span style="color:var(--dim-2)"> · 초기자금 대비</span>`
@@ -9311,6 +9317,20 @@ async function loadPriceBaselineVerdict(market){
     const mean = d.net_delta_mean_pp == null ? '' : ` · 평균 ${Number(d.net_delta_mean_pp) >= 0 ? '+' : ''}${fmtNum(d.net_delta_mean_pp, 2)}%p · 보정 구간 ${fmtNum(d.net_delta_lower_pp, 2)}~${fmtNum(d.net_delta_upper_pp, 2)}%p`;
     el.innerHTML = `<b>${esc(names[d.status] || d.status)}</b> · 성숙 비중첩 ${Number(d.matured_blocks || 0)}건 · 유효 ${Number(d.effective_blocks || 0)}건${mean}<br><span style="color:var(--dim)">통계 신호가 나와도 섹터·베타·현금·실체결 민감도를 검증하기 전 주문 정책은 변경되지 않습니다.</span>`;
   } catch(e) { el.textContent = '전진 판정 조회 실패 · ' + e.message; }
+}
+async function loadMarketRegimeStudy(){
+  const el = document.getElementById('market-regime-body');
+  if (!el) return;
+  el.textContent = '시장별 관측 기록을 불러오는 중…';
+  const market = document.getElementById('market-regime-market').value;
+  try {
+    const response = await fetch('/api/admin/research/market-regime?market=' + encodeURIComponent(market));
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json();
+    const t = d.timing || {};
+    const effect = t.ready ? ` · 같은 평균 비중의 고정 전략 대비 ${Number(t.timing_pp) >= 0 ? '+' : ''}${fmtNum(t.timing_pp, 2)}%p (탐색값)` : '';
+    el.textContent = `관측 ${Number(d.observed_sessions || 0)}일 · 다음 세션 정렬 ${Number(d.paired_sessions || 0)}일 · 자료 부족 ${Number(d.excluded?.unready || 0)}일 · 가격/세션 누락 ${Number(d.excluded?.session_or_price_missing || 0)}일${effect}. ${t.ready ? '통계적으로 보이더라도 현재 가격 캐시의 생존편향·비용·낙폭을 아직 검증하지 않았습니다.' : t.reason || '전진 표본을 기다립니다.'} 실주문 규칙은 여기서 바뀌지 않습니다.`;
+  } catch(e) { el.textContent = '시장별 국면 연구를 표시할 수 없습니다 · ' + e.message; }
 }
 async function loadRotationShadowStudy(){
   const el = document.getElementById('rotation-shadow-body');
