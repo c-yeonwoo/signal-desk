@@ -176,6 +176,26 @@ def build_labeled_rows(history_records: list[dict], closes_by_ticker: dict[str, 
     return sorted(out, key=lambda r: (r["entry_index"], r["ticker"]))
 
 
+def maturity_diagnostics(history_records: list[dict], cfg: TripleBarrierConfig, *,
+                         market: str, as_of_session: str | None, labels: int) -> dict:
+    """Explain a zero-label cohort without treating legacy, non-PIT rows as usable history."""
+    pit_buys = [r for r in history_records if is_buy(str(r.get("kind") or ""))
+                and _strict_signal_available(r, market)]
+    first = min((str(r["date"])[:10] for r in pit_buys), default=None)
+    future = market_clock.next_sessions(market, first, cfg.horizon_days + 1) if first else []
+    earliest = future[-1] if len(future) == cfg.horizon_days + 1 else None
+    if not pit_buys:
+        status = "no_pit_buy_candidates"
+    elif labels:
+        status = "labels_available"
+    elif earliest and as_of_session and as_of_session < earliest:
+        status = "awaiting_horizon"
+    else:
+        status = "check_price_alignment"
+    return {"status": status, "pit_buy_rows": len(pit_buys),
+            "first_pit_buy_session": first, "earliest_possible_label_session": earliest}
+
+
 def _net_return_pct(entry: float, exit_price: float, market: str, assumptions: dict) -> float:
     buy = execution.calculate(entry, 1, "buy", market, assumptions=assumptions)
     sell = execution.calculate(exit_price, 1, "sell", market, assumptions=assumptions)
