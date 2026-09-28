@@ -11,7 +11,8 @@ from signal_desk.signals import market_regime_study, performance_evidence
 
 def test_us_market_read_uses_only_aligned_us_breadth_and_fred(monkeypatch):
     tickers = [f"US{i:03d}" for i in range(100)]
-    dates = pd.bdate_range(end="2026-09-23", periods=61).strftime("%Y-%m-%d").tolist()
+    dates = [d.date().isoformat() for d in bot.market_clock._calendar("us").sessions_in_range(
+        "2026-04-01", "2026-09-23")][-61:]
     captured = []
     monkeypatch.setattr(bot.market_clock, "latest_completed_session", lambda market, now: "2026-09-23")
     monkeypatch.setattr(bot.store, "load_us_universe", lambda: [{"ticker": t} for t in tickers])
@@ -32,6 +33,7 @@ def test_us_market_read_uses_only_aligned_us_breadth_and_fred(monkeypatch):
     assert out["context"]["regime_coverage"] == 1.0
     assert out["context"]["regime_n"] == 100
     assert out["context"]["regime_universe_n"] == 100
+    assert sum(out["context"]["regime_excluded"].values()) == 0
     assert len(captured[0]) == 100
 
 
@@ -58,6 +60,21 @@ def test_us_missing_or_stale_breadth_does_not_use_kr_or_full_exposure(monkeypatc
     assert out["context"]["regime_ready"] is False
     assert out["context"]["regime"] is None
     assert out["context"]["exposure"] == 0.7
+    assert out["context"]["regime_excluded"]["session_bar_missing"] == 1
+
+
+def test_us_breadth_rejects_a_missing_official_session_inside_61_bars(monkeypatch):
+    dates = [d.date().isoformat() for d in bot.market_clock._calendar("us").sessions_in_range(
+        "2026-04-01", "2026-09-23")][-62:]
+    broken = dates[:10] + dates[11:]
+    monkeypatch.setattr(bot.market_clock, "latest_completed_session", lambda market, now: "2026-09-23")
+    monkeypatch.setattr(bot.store, "load_us_universe", lambda: [{"ticker": "A"}, {"ticker": "B"}])
+    monkeypatch.setattr(bot.store, "load_portfolio_close_bundle", lambda market: (
+        {"A": [100.0] * 61, "B": [100.0] * 61}, {"A": broken, "B": dates[-61:]}))
+    monkeypatch.setattr(bot.store, "load_macro", lambda: [])
+    out = bot._market_read_for("us")["context"]
+    assert out["regime_n"] == 1 and out["regime_excluded"]["session_gap"] == 1
+    assert out["regime_ready"] is False
 
 
 def test_us_universe_history_is_first_observed_and_never_backfilled(tmp_path, monkeypatch):

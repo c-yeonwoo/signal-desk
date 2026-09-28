@@ -649,7 +649,12 @@ def _daily_maintenance(enabled: list[str]) -> None:
     except Exception as e:
         log.warning("마감후 퀄리티 백필 실패: %s", type(e).__name__)
     try:   # US도 KR과 같이 하루 1회 갱신 — 누락 백필만 돌리면 '한 번 채운' 종목이 영원히 멈춘다
-        rf = _refresh_us_prices_stale(batch=0)  # 0=stale 전량
+        # 이 시점은 미국 직전 세션 마감 후 수 시간 이상 지난 국내 마감이다.
+        # 공식 XNYS 완료 세션이 예상일과 같을 때에만 한 거래일 결손까지 재시도한다.
+        # 기존 전역 1일 유예는 휴장 오탐 방지용이므로 여기서만 좁게 무시한다.
+        expected_us = store.us_expected_last_bar(_kst_now())
+        completed_us = market_clock.latest_completed_session("us", _kst_now())
+        rf = _refresh_us_prices_stale(batch=0, max_trading_days=0 if completed_us == expected_us else 1)
         if rf["filled"]:
             _clear_us_signal_caches()
             log.info("마감후 US 시세 갱신 %d종목", rf["filled"])
@@ -3645,7 +3650,7 @@ def market_regime_research_get(request: Request, market: str = "kr"):
         ctx = bot._market_read_for(market)["context"]
         result["current_input"] = {key: ctx.get(key) for key in (
             "regime", "regime_ready", "regime_n", "regime_universe_n",
-            "regime_coverage", "price_session", "exposure")}
+            "regime_coverage", "regime_excluded", "price_session", "exposure")}
     except Exception as exc:
         log.warning("시장별 국면 입력 진단 실패(%s): %s", market, type(exc).__name__)
         result["current_input"] = {"error": "입력 진단 불가"}

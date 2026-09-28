@@ -80,7 +80,7 @@ def test_pit_snapshot_is_taken_on_closes(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "_signals", type("_", (), {"cache_clear": staticmethod(lambda: None),
                                                        "__call__": staticmethod(lambda: [])})())
     monkeypatch.setattr(api.store, "prices_need_deep_backfill", lambda: False)
-    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda batch=0: {"filled": 0, "stale": 0})
+    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda **kwargs: {"filled": 0, "stale": 0})
     monkeypatch.setattr(api, "_clear_us_signal_caches", lambda: None)
     for name in ("fetch_prices", "fetch_flows", "fetch_market_flow", "fetch_short",
                  "fetch_consensus", "fetch_warnings", "load_universe", "us_price_deferred_tickers"):
