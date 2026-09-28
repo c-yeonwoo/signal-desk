@@ -39,6 +39,20 @@ CREATE TABLE IF NOT EXISTS lens_snapshots(
     signal_policy_id TEXT, payload BLOB NOT NULL, first_observed INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_lens_snapshots_recent
     ON lens_snapshots(market,first_observed DESC);
+-- 발표 전 예상치/공식 실제값은 각각 append-only. 현재 수정값으로 과거를 덮지 않는다.
+CREATE TABLE IF NOT EXISTS macro_release_forecasts(
+    id TEXT PRIMARY KEY, metric TEXT NOT NULL, period TEXT NOT NULL,
+    scheduled_at TEXT NOT NULL, expected_value REAL NOT NULL,
+    forecast_source_url TEXT NOT NULL, forecast_observed_at TEXT NOT NULL,
+    actor_uid INTEGER, version TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS macro_release_actuals(
+    id INTEGER PRIMARY KEY AUTOINCREMENT, release_id TEXT NOT NULL,
+    actual_value REAL NOT NULL, source_published_at TEXT NOT NULL,
+    actual_observed_at TEXT NOT NULL, actual_source_url TEXT NOT NULL,
+    source_quality TEXT NOT NULL, actor_uid INTEGER, version TEXT NOT NULL,
+    FOREIGN KEY(release_id) REFERENCES macro_release_forecasts(id));
+CREATE INDEX IF NOT EXISTS idx_macro_release_actuals
+    ON macro_release_actuals(release_id,id DESC);
 CREATE TABLE IF NOT EXISTS profile(uid INTEGER PRIMARY KEY, data TEXT);
 CREATE TABLE IF NOT EXISTS favorites(uid INTEGER, kind TEXT, key TEXT, label TEXT, ts INTEGER,
     PRIMARY KEY(uid, kind, key));
@@ -1170,6 +1184,68 @@ def lens_snapshot_get(snapshot_id: str) -> dict | None:
         return json.loads(zlib.decompress(row[0])) if row else None
     finally:
         c.close()
+
+
+def macro_release_forecast_add(forecast: dict, *, actor_uid: int | None = None) -> bool:
+    """동일 발표의 동결 예상치 재작성 금지. 중복 요청만 거절한다."""
+    c = conn()
+    try:
+        cur = c.execute(
+            "INSERT OR IGNORE INTO macro_release_forecasts"
+            "(id,metric,period,scheduled_at,expected_value,forecast_source_url,"
+            "forecast_observed_at,actor_uid,version) VALUES(?,?,?,?,?,?,?,?,?)",
+            (forecast["id"], forecast["metric"], forecast["period"], forecast["scheduled_at"],
+             forecast["expected_value"], forecast["forecast_source_url"],
+             forecast["forecast_observed_at"], actor_uid, forecast["version"]))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def macro_release_get(release_id: str) -> dict | None:
+    c = conn()
+    try:
+        c.row_factory = sqlite3.Row
+        row = c.execute("SELECT * FROM macro_release_forecasts WHERE id=?", (release_id,)).fetchone()
+        if not row:
+            return None
+        out = dict(row)
+        actual = c.execute("SELECT * FROM macro_release_actuals WHERE release_id=? "
+                           "ORDER BY id DESC LIMIT 1", (release_id,)).fetchone()
+        if actual:
+            out.update(dict(actual))
+            out["id"] = release_id
+        return out
+    finally:
+        c.close()
+
+
+def macro_release_actual_add(actual: dict, *, actor_uid: int | None = None) -> int:
+    """정정은 새 행으로 보존한다. 원문 대조의 진실성은 운영자가 책임진다."""
+    c = conn()
+    try:
+        cur = c.execute(
+            "INSERT INTO macro_release_actuals"
+            "(release_id,actual_value,source_published_at,actual_observed_at,"
+            "actual_source_url,source_quality,actor_uid,version) VALUES(?,?,?,?,?,?,?,?)",
+            (actual["release_id"], actual["actual_value"], actual["source_published_at"],
+             actual["actual_observed_at"], actual["actual_source_url"],
+             actual["source_quality"], actor_uid, actual["version"]))
+        c.commit()
+        return int(cur.lastrowid)
+    finally:
+        c.close()
+
+
+def macro_release_recent(limit: int = 20) -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT id FROM macro_release_forecasts "
+                         "ORDER BY scheduled_at DESC LIMIT ?", (max(1, min(limit, 100)),)).fetchall()
+    finally:
+        c.close()
+    return [item for (rid,) in rows if (item := macro_release_get(rid))]
 
 
 def kv_get(k: str, max_age: int | None = None):

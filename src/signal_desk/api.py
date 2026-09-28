@@ -44,7 +44,7 @@ from signal_desk.signals import (
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
-    horizon, hypothesis, lenses, macro, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
+    horizon, hypothesis, lenses, macro, macro_release, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     sector_rel, target, why_now,
 )
@@ -2373,9 +2373,14 @@ def _attach_lens_snapshot(items: list[dict], *, market: str, signal_policy_id: s
         log.warning("렌즈 사건 조회 실패: %s", type(exc).__name__)
         events = []
     try:
+        releases = db.macro_release_recent(5)
+    except Exception as exc:
+        log.warning("렌즈 경제 발표 조회 실패: %s", type(exc).__name__)
+        releases = []
+    try:
         snapshot = lenses.build_snapshot(items, market="us" if market == "us" else "kr",
                                          signal_policy_id=signal_policy_id,
-                                         dates_by=dates_by, events=events)
+                                         dates_by=dates_by, events=events, macro_releases=releases)
     except Exception as exc:
         log.warning("조회용 렌즈 계산 실패(기본 시그널 유지): %s", type(exc).__name__)
         for row in items:
@@ -3903,7 +3908,7 @@ def revision_price_verdict_get(request: Request):
 def _relation_mutation_guard(request: Request) -> None:
     _admin_or_403(request)
     if request.headers.get("x-signal-desk-relation") != "review":
-        raise HTTPException(403, "관리자 관계 검토 화면에서 다시 시작하세요.")
+        raise HTTPException(403, "관리자 연구 검토 화면에서 다시 시작하세요.")
     origin = request.headers.get("origin")
     if origin:
         parsed = urlparse(origin)
@@ -3919,6 +3924,42 @@ def relation_research_get(request: Request):
             "source_available_at_verified": False, "edges": rows,
             "approved": sum((r.get("review") or {}).get("verdict") == "approved" for r in rows),
             "note": "공식 문서 URL·인용문은 관리자 검토 근거입니다. 원문 자동 대조·원천 공개시각·수익효과는 미검증입니다."}
+
+
+@app.get("/api/admin/research/macro-releases")
+def macro_releases_get(request: Request):
+    _admin_or_403(request)
+    rows = db.macro_release_recent(30)
+    return {"version": macro_release.VERSION, "mode": "research_only", "live_eligible": False,
+            "items": [{**row, "interpretation": macro_release.evaluate(row)} for row in rows],
+            "note": "예상치는 발표 전에 동결된 것만 사용합니다. 실제값은 운영자 원문 대조 기록이며 자동 검증은 아닙니다."}
+
+
+@app.post("/api/admin/research/macro-releases/forecast")
+def macro_release_forecast_post(request: Request, data: dict = Body(...)):
+    _relation_mutation_guard(request)
+    try:
+        forecast = macro_release.validate_forecast(data, observed_at=datetime.datetime.now(datetime.timezone.utc))
+        created = db.macro_release_forecast_add(forecast, actor_uid=_uid(request))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    if not created:
+        raise HTTPException(409, "이미 동결된 발표 예상치입니다. 수정·사후 입력은 허용하지 않습니다.")
+    return {"id": forecast["id"], "status": "forecast_frozen", "mode": "research_only", "live_eligible": False}
+
+
+@app.post("/api/admin/research/macro-releases/actual")
+def macro_release_actual_post(request: Request, data: dict = Body(...)):
+    _relation_mutation_guard(request)
+    forecast = db.macro_release_get(str(data.get("release_id") or ""))
+    try:
+        actual = macro_release.validate_actual(data, forecast,
+                                               observed_at=datetime.datetime.now(datetime.timezone.utc))
+        actual_id = db.macro_release_actual_add(actual, actor_uid=_uid(request))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"id": actual_id, "release_id": actual["release_id"],
+            "status": "operator_attested", "mode": "research_only", "live_eligible": False}
 
 
 @app.post("/api/admin/research/relations")
