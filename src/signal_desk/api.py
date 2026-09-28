@@ -570,6 +570,13 @@ def _maybe_snapshot_us_regime(now: datetime.datetime) -> bool:
     return saved
 
 
+def _snapshot_kr_regime(day: str) -> bool:
+    """국내 봇이 실제 사용한 국면·비중을 같은 거래일의 전진 관측으로 저장."""
+    ctx = bot._market_read_for("kr")["context"]
+    return store.snapshot_regime(ctx.get("regime"), ctx.get("exposure"),
+                                 date=day, market="kr", ready=bool(ctx.get("regime_ready")))
+
+
 def _ensure_quality_attached() -> int:
     """퀄리티(회사 체질)가 비어 있으면 계산한다. **날짜 게이트와 무관하게 presence 로 판단.**
 
@@ -728,10 +735,7 @@ def _daily_maintenance(enabled: list[str]) -> None:
     try:
         # 국면·익스포저도 그날 값으로 남긴다 — 사후에 오늘의 유니버스로 과거 국면을 다시
         # 매기면 그건 PIT가 아니다. 이게 없으면 익스포저의 타이밍 능력을 영영 못 잰다.
-        _rg = _regime() or {}
-        store.snapshot_regime(_rg.get("regime"),
-                              (_rg.get("adaptive") or {}).get("exposure"),
-                              date=_kst_today())
+        _snapshot_kr_regime(_kst_today())
     except Exception as e:
         log.warning("국면 스냅샷 실패: %s", type(e).__name__)
     try:
