@@ -270,6 +270,24 @@
     background:var(--panel); }
   .sig-toolbar #sig-search { flex:1 1 auto; min-width:0; }
   .sig-toolbar #sig-sort { flex:0 0 auto; }
+  .sig-lenses { margin:0 12px 10px; border:1px solid var(--line); border-radius:var(--r-md);
+    background:var(--bg); font-size:13px; }
+  .sig-lenses > summary { cursor:pointer; padding:9px 11px; font-weight:700; color:var(--txt); }
+  .sig-lenses > summary span { color:var(--dim); font-weight:600; margin-left:5px; }
+  .sig-lens-body { padding:0 11px 11px; border-top:1px solid var(--line); }
+  .sig-lens-control { display:flex; flex-direction:column; gap:7px; margin:9px 0; }
+  .sig-lens-control label { display:flex; align-items:center; justify-content:space-between; gap:10px;
+    font-weight:600; }
+  .sig-lens-control select { min-width:118px; border:1px solid var(--line); border-radius:6px;
+    padding:5px 7px; background:var(--panel); color:var(--txt); font-size:13px; }
+  .sig-lens-muted { color:var(--dim); font-size:12px; line-height:1.5; margin:6px 0; }
+  .sig-lens-compare { background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    padding:8px 9px; font-weight:600; line-height:1.5; }
+  .sig-lens-detail { margin-top:9px; font-size:12px; line-height:1.5; }
+  .sig-lens-detail > div { border-top:1px solid var(--line); padding:5px 0; }
+  .sig-lens-tag { display:inline-block; padding:1px 5px; border:1px solid var(--line);
+    border-radius:var(--r-sm); color:var(--dim-2); font-size:11px; }
+  .sig-lens-tag.hold, .sig-lens-tag.exclude { color:var(--sig-watch); }
   .sig-metric { color:var(--dim-2); font-size:var(--fs-2xs); margin-top:2px;
     font-variant-numeric:tabular-nums; }
   /* 커버리지 — **정상은 조용히, 낮으면 튀게.** 200행 전부를 칩으로 그리면 소음이 되고
@@ -1072,6 +1090,28 @@
               <button class="btn" style="padding:3px 10px;font-size:13px" onclick="resetScreen()">초기화</button>
               <button class="btn primary" style="padding:3px 10px;font-size:13px" onclick="saveScreen()">현재 조건 저장</button>
             </div>
+          </div>
+        </details>
+        <details id="sig-lenses" class="sig-lenses">
+          <summary>투자 관점 비교 <span id="sig-lens-summary">기본 시그널 그대로</span></summary>
+          <div class="sig-lens-body">
+            <p class="sig-lens-muted">같은 데이터로 목록만 비교합니다. 기본 판단·봇·실주문에는 적용되지 않습니다.</p>
+            <div class="sig-lens-control">
+              <div style="font-weight:600">가격·실적 · 기본 엔진에 항상 반영</div>
+              <label for="sig-lens-event">확인된 소식
+                <select id="sig-lens-event" onchange="setSignalLensMode('event',this.value)">
+                  <option value="off">기본 보기</option><option value="include">함께 보기</option><option value="require">충족 종목만</option>
+                </select>
+              </label>
+              <label for="sig-lens-entry">지금 진입
+                <select id="sig-lens-entry" onchange="setSignalLensMode('entry',this.value)">
+                  <option value="off">기본 보기</option><option value="include">함께 보기</option><option value="require">충족 종목만</option>
+                </select>
+              </label>
+            </div>
+            <div class="sig-lens-muted">경제 발표 · 산업 사이클 · 내 포트폴리오는 근거·시점 검증 후 추가합니다.</div>
+            <div id="sig-lens-compare" class="sig-lens-compare" role="status">관점 스냅샷 확인 중…</div>
+            <div id="sig-lens-detail" class="sig-lens-detail"></div>
           </div>
         </details>
         <div id="signal-body" class="placeholder" style="padding:32px 0">불러오는 중…</div>
@@ -3507,6 +3547,68 @@ async function loadMacro(){
 
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
 let _signalRows = null, _indexReady = false, _selectedTicker = null, _sigMarket = 'kospi', _sigLoadSeq = 0;
+// 조회 전용 비교 상태. 서버의 기본 판정이나 주문 설정으로 절대 전송하지 않는다.
+let _lensModes = { kospi: { event: 'off', entry: 'off' }, us: { event: 'off', entry: 'off' } };
+let _lensSnapshot = null;
+const _LENS_NAMES = { quant: '가격·실적', event: '확인된 소식', entry: '지금 진입' };
+const _LENS_VERDICTS = { pass: '충족', hold: '보류', exclude: '제외', unavailable: '자료 없음' };
+function lensPass(row, modes){
+  const strict = ['event', 'entry'].filter(k => modes[k] === 'require');
+  if (!strict.length) return true;
+  // 관점이 좋아도 기본 엔진의 안전 차단은 뒤집을 수 없다.
+  if (row.decision_buy_blocked || row.gate_blocked) return false;
+  return strict.every(k => row.lens_results && row.lens_results[k]
+    && row.lens_results[k].verdict === 'pass');
+}
+function setSignalLensMode(key, mode){
+  if (!['event', 'entry'].includes(key) || !['off', 'include', 'require'].includes(mode)) return;
+  if (!_lensSnapshot || !_lensSnapshot.id || _lensSnapshot.mode !== 'read_only') return;
+  _lensModes[_sigMarket][key] = mode;
+  renderSignalList();
+}
+function resetSignalLensModes(){
+  _lensModes[_sigMarket] = { event: 'off', entry: 'off' };
+  renderSignalList();
+}
+function renderSelectedLensDetail(ticker){
+  const el = document.getElementById('sig-lens-detail');
+  if (!el) return;
+  const row = _signalItems[ticker];
+  if (!_lensSnapshot || !_lensSnapshot.id || !row || !row.lens_results) {
+    el.textContent = '종목을 선택하면 관점별 근거를 볼 수 있습니다.';
+    return;
+  }
+  el.innerHTML = `<div style="font-weight:700">${esc(row.name)} · 관점별 근거</div>`
+    + ['quant', 'event', 'entry'].map(k => {
+      const result = row.lens_results[k] || {};
+      const verdict = _LENS_VERDICTS[result.verdict] || '자료 없음';
+      const timing = result.as_of ? ` · 기준 ${esc(result.as_of)}` : ' · 기준일 없음';
+      const expiry = result.valid_until ? ` · 유효 ${esc(result.valid_until)}까지` : '';
+      return `<div><strong>${_LENS_NAMES[k]} · ${verdict}</strong><br>${esc(result.reason || '근거 없음')}${timing}${expiry}</div>`;
+    }).join('');
+}
+function renderSignalLensPanel(baseCount, filteredCount){
+  const ready = !!(_lensSnapshot && _lensSnapshot.id && _lensSnapshot.mode === 'read_only');
+  const modes = _lensModes[_sigMarket];
+  ['event', 'entry'].forEach(k => {
+    const select = document.getElementById('sig-lens-' + k);
+    if (select) { select.disabled = !ready; select.value = ready ? modes[k] : 'off'; }
+  });
+  const active = ready && ['event', 'entry'].some(k => modes[k] !== 'off');
+  const summary = document.getElementById('sig-lens-summary');
+  if (summary) summary.textContent = active ? `${baseCount}건 → ${filteredCount}건` : '기본 시그널 그대로';
+  const compare = document.getElementById('sig-lens-compare');
+  if (compare) {
+    if (!ready) compare.textContent = '관점 비교 자료를 만들지 못했습니다. 기본 시그널은 그대로입니다.';
+    else {
+      const strict = ['event', 'entry'].filter(k => modes[k] === 'require').map(k => _LENS_NAMES[k]);
+      const note = strict.length ? ` · 충족 조건: ${strict.join(' + ')}` : ' · 목록 제외 조건 없음';
+      const saved = _lensSnapshot.recorded ? '' : ' · 근거 기록 실패';
+      compare.textContent = `기본 ${baseCount}건 → 비교 ${filteredCount}건${note}. 순위·비중·주문 변경 없음. 스냅샷 ${_lensSnapshot.id}${saved}`;
+    }
+  }
+  renderSelectedLensDetail(_selectedTicker);
+}
 // #14 기회 유형 필터
 const OPP_TYPES = ['낙폭과대', '저평가', '모멘텀', '실적우량', '정성호재'];
 let _oppFilter = null;
@@ -3541,8 +3643,13 @@ function applySignalData(d, bt){
     desk_report: (d && d.desk_report) || null,
     selection: (d && d.selection) || null,
   };
-  if (!d.ready) { el.textContent = d.message || '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.'; return; }
-  if (!d.items.length) { el.textContent = '시그널 데이터가 없습니다.'; return; }
+  if (!d.ready || !d.items.length) {
+    _lensSnapshot = null;
+    renderSignalLensPanel(0, 0);
+    el.textContent = d.message || (d.ready ? '시그널 데이터가 없습니다.' : '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.');
+    return;
+  }
+  _lensSnapshot = d.lens_snapshot || null;
   _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
   _signalRows = d.items;  // API 순서 = 점수 내림차순(시그널순 기본값)
   el.className = '';
@@ -3834,6 +3941,10 @@ function renderSignalList(){
     && screenPass(r, scr));
   renderOppFilters();
   updateScreenUI(scr, rows.length);
+  const baseCount = rows.length;
+  if (_lensSnapshot && _lensSnapshot.id && _lensSnapshot.mode === 'read_only')
+    rows = rows.filter(r => lensPass(r, _lensModes[_sigMarket]));
+  renderSignalLensPanel(baseCount, rows.length);
   const nn = (x) => (x == null ? -Infinity : x);  // 값 없으면 뒤로
   if (sort === 'mktcap') rows = [...rows].sort((a, b) => nn(capKrw(b)) - nn(capKrw(a)));
   else if (sort === 'volume') rows = [...rows].sort((a, b) => nn(b.vol_avg) - nn(a.vol_avg));
@@ -3850,6 +3961,12 @@ function renderSignalList(){
     const bits = [];
     if (tag) bits.push(`<span class="opp-badge">${esc(tag)}</span>`);
     if (r.external_watch) bits.push('<span class="ext-badge" title="외부 조사 후보 · 점수 가산 없음">조사</span>');
+    if (_lensSnapshot && _lensSnapshot.id) ['event', 'entry'].forEach(k => {
+      if (_lensModes[_sigMarket][k] === 'off') return;
+      const result = (r.lens_results || {})[k] || {};
+      const verdict = result.verdict || 'unavailable';
+      bits.push(`<span class="sig-lens-tag ${esc(verdict)}" title="${esc(result.reason || '근거 없음')}">${_LENS_NAMES[k]}: ${_LENS_VERDICTS[verdict] || '자료 없음'}</span>`);
+    });
     return bits.length ? `<div class="sig-tags">${bits.join('')}</div>` : '';
   };
   // 커버리지 배지 — **점수 옆에 붙는다.** 분모가 *발동한* 가중치의 합이라, 관점이 적을수록
@@ -3934,6 +4051,10 @@ function renderSignalList(){
        </tr></thead>
        <tbody>${body}</tbody></table>`
     : (() => {
+        if (baseCount > 0 && ['event', 'entry'].some(k => _lensModes[_sigMarket][k] === 'require'))
+          return `<div class="placeholder sig-empty"><div class="se-title">관점 조건 충족 · 0건</div>
+            <div class="se-body">확인된 근거가 없는 종목은 통과로 세지 않습니다. 기본 시그널은 그대로입니다.</div>
+            <div class="se-actions"><button type="button" class="btn" onclick="resetSignalLensModes()">관점 비교 초기화</button></div></div>`;
         if (q) return `<div class="placeholder sig-empty"><div class="se-title">검색 결과 없음</div>
           <div class="se-body">"${esc(q)}"에 맞는 종목이 없습니다.</div></div>`;
         const nearN = (_signalRows || []).filter(isNearBuy).length;
@@ -4200,6 +4321,7 @@ function selectSignalRow(ticker){
     return;
   }
   _selectedTicker = ticker;
+  renderSelectedLensDetail(ticker);
   document.querySelectorAll('#signal-body tr.clickable-row').forEach(tr => {
     tr.classList.toggle('selected-row', tr.dataset.ticker === ticker);
   });

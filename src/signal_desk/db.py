@@ -32,6 +32,13 @@ CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, uid INTEGER, ts INTE
 -- docs/north-star-d7.md의 정의를 그대로 구현한 유일한 소스. 방문 시각은 진단용이고 집계는 날짜만 쓴다.
 CREATE TABLE IF NOT EXISTS signal_visits(uid INTEGER, visit_date TEXT, ts INTEGER,
     PRIMARY KEY(uid, visit_date));
+-- 조회 전용 렌즈 판단의 입력·결과를 내용 해시로 중복 제거해 보존한다.
+-- 실주문/봇은 이 테이블을 읽지 않는다. 프런트 토글도 여기에 쓰지 않는다.
+CREATE TABLE IF NOT EXISTS lens_snapshots(
+    id TEXT PRIMARY KEY, market TEXT NOT NULL, version TEXT NOT NULL,
+    signal_policy_id TEXT, payload BLOB NOT NULL, first_observed INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_lens_snapshots_recent
+    ON lens_snapshots(market,first_observed DESC);
 CREATE TABLE IF NOT EXISTS profile(uid INTEGER PRIMARY KEY, data TEXT);
 CREATE TABLE IF NOT EXISTS favorites(uid INTEGER, kind TEXT, key TEXT, label TEXT, ts INTEGER,
     PRIMARY KEY(uid, kind, key));
@@ -1135,6 +1142,36 @@ def telegram_links_all() -> list[dict]:
 
 
 # ---------- kv (범용 JSON 캐시) ----------
+def lens_snapshot_put(snapshot: dict) -> bool:
+    """내용 해시가 처음 관측된 경우만 압축 저장한다. True면 새 원장 행."""
+    if snapshot.get("mode") != "read_only" or snapshot.get("order_eligible") is not False:
+        raise ValueError("렌즈 원장은 주문 불가 조회 결과만 받습니다")
+    payload = zlib.compress(json.dumps(snapshot, ensure_ascii=False, sort_keys=True,
+                                       allow_nan=False).encode(), level=6)
+    c = conn()
+    try:
+        if c.execute("SELECT 1 FROM lens_snapshots WHERE id=?", (snapshot["id"],)).fetchone():
+            return False
+        cur = c.execute("INSERT OR IGNORE INTO lens_snapshots"
+                        "(id,market,version,signal_policy_id,payload,first_observed) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (snapshot["id"], snapshot["market"], snapshot["version"],
+                         snapshot.get("signal_policy_id"), payload, int(snapshot["observed_at"])))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def lens_snapshot_get(snapshot_id: str) -> dict | None:
+    c = conn()
+    try:
+        row = c.execute("SELECT payload FROM lens_snapshots WHERE id=?", (snapshot_id,)).fetchone()
+        return json.loads(zlib.decompress(row[0])) if row else None
+    finally:
+        c.close()
+
+
 def kv_get(k: str, max_age: int | None = None):
     """캐시 값(JSON 역직렬화). 없거나 max_age(초) 초과 시 None."""
     c = conn()
