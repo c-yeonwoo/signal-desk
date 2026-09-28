@@ -3640,7 +3640,16 @@ def market_regime_research_get(request: Request, market: str = "kr"):
     _admin_or_403(request)
     if market not in ("kr", "us"):
         raise HTTPException(status_code=422, detail="market 값이 올바르지 않습니다.")
-    return market_regime_study.report(market)
+    result = market_regime_study.report(market)
+    try:
+        ctx = bot._market_read_for(market)["context"]
+        result["current_input"] = {key: ctx.get(key) for key in (
+            "regime", "regime_ready", "regime_n", "regime_universe_n",
+            "regime_coverage", "price_session", "exposure")}
+    except Exception as exc:
+        log.warning("시장별 국면 입력 진단 실패(%s): %s", market, type(exc).__name__)
+        result["current_input"] = {"error": "입력 진단 불가"}
+    return result
 
 
 @app.get("/api/admin/research/rotation-shadow")
@@ -4004,7 +4013,7 @@ def _meta_entry_shadow(market: str) -> dict:
                 "note": "PIT 스냅샷이 쌓이면 shadow 메타-진입 검증을 시작"}
     cfg = meta_entry.TripleBarrierConfig()
     tickers = set(history["ticker"].astype(str))
-    series = {t: s for t, s in store.load_all_dated_closes().items() if t in tickers}
+    series = {t: s for t, s in store.load_market_dated_closes(mkt).items() if t in tickers}
     labels = meta_entry.build_labeled_rows(history.to_dict("records"), series, cfg)
     estimates = meta_entry.oof_estimates(labels)
     return {"market": mkt, "barrier": {"horizon_days": cfg.horizon_days,
