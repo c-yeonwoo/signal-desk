@@ -174,6 +174,7 @@ def _market_read(prices: dict[str, list[float]]) -> dict:
     context = {
         "regime": reg.get("regime"),
         "regime_ready": bool(reg.get("ready")),
+        "regime_n": reg.get("n", 0),
         "macro_bias": mread.get("bias"),
         # FRED 정량 지표 근거(CPI·금리·나스닥·VIX) — KB엔 안 넣되 LLM이 시그널 판단 시 지표로 참고
         "macro_detail": " / ".join((mread.get("reasons") or [])[:5]),
@@ -231,6 +232,7 @@ def _market_read_for(market: str) -> dict:
     return {"eff_cfg": eff_cfg, "adapt": adapt,
             "context": {"market": "us", "regime": reg.get("regime"),
                         "regime_ready": ready, "price_session": session,
+                        "regime_n": len(aligned), "regime_universe_n": len(tickers),
                         "regime_coverage": round(coverage, 3),
                         "macro_bias": mread.get("bias"),
                         "macro_detail": " / ".join((mread.get("reasons") or [])[:5]),

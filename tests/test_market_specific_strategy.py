@@ -30,6 +30,8 @@ def test_us_market_read_uses_only_aligned_us_breadth_and_fred(monkeypatch):
     assert out["context"]["regime"] == "강세"
     assert out["context"]["exposure"] == 1.0
     assert out["context"]["regime_coverage"] == 1.0
+    assert out["context"]["regime_n"] == 100
+    assert out["context"]["regime_universe_n"] == 100
     assert len(captured[0]) == 100
 
 
@@ -194,6 +196,9 @@ def test_market_regime_research_api_is_admin_only(tmp_path, monkeypatch):
     monkeypatch.setenv("ADMIN_EMAILS", "market-admin@example.com")
     monkeypatch.setattr(api.market_regime_study, "report", lambda market: {
         "market": market, "binding": False, "live_eligible": False})
+    monkeypatch.setattr(api.bot, "_market_read_for", lambda market: {"context": {
+        "regime_ready": False, "regime_n": 470, "regime_universe_n": 500,
+        "regime_coverage": 0.94, "price_session": "2026-09-28"}})
     guest = TestClient(api.app)
     assert guest.get("/api/admin/research/market-regime?market=us").status_code == 401
     guest.post("/api/auth/signup", json={"email": "reader@example.com", "pw": "abcdef12"})
@@ -202,4 +207,18 @@ def test_market_regime_research_api_is_admin_only(tmp_path, monkeypatch):
     admin.post("/api/auth/signup", json={"email": "market-admin@example.com", "pw": "abcdef12"})
     response = admin.get("/api/admin/research/market-regime?market=us")
     assert response.status_code == 200 and response.json()["market"] == "us"
+    assert response.json()["current_input"]["regime_coverage"] == 0.94
     assert admin.get("/api/admin/research/market-regime?market=eu").status_code == 422
+
+
+def test_meta_entry_shadow_loads_closes_only_for_its_market(monkeypatch):
+    history = pd.DataFrame([{"date": "2026-09-28", "ticker": "AAPL", "kind": "BUY"}])
+    seen = []
+    monkeypatch.setattr(api.store, "load_signal_history", lambda market: history)
+    monkeypatch.setattr(api.store, "load_market_dated_closes", lambda market: seen.append(market) or {
+        "AAPL": (["2026-09-28"], [100.0])})
+    monkeypatch.setattr(api.store, "load_all_dated_closes", lambda: (_ for _ in ()).throw(
+        AssertionError("시장 혼합 가격열 사용 금지")))
+    monkeypatch.setattr(api.meta_entry, "build_labeled_rows", lambda rows, series, cfg: [])
+    assert api._meta_entry_shadow("us")["market"] == "us"
+    assert seen == ["us"]

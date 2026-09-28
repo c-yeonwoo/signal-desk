@@ -9329,7 +9329,11 @@ async function loadMarketRegimeStudy(){
     const d = await response.json();
     const t = d.timing || {};
     const effect = t.ready ? ` · 같은 평균 비중의 고정 전략 대비 ${Number(t.timing_pp) >= 0 ? '+' : ''}${fmtNum(t.timing_pp, 2)}%p (탐색값)` : '';
-    el.textContent = `관측 ${Number(d.observed_sessions || 0)}일 · 다음 세션 정렬 ${Number(d.paired_sessions || 0)}일 · 자료 부족 ${Number(d.excluded?.unready || 0)}일 · 가격/세션 누락 ${Number(d.excluded?.session_or_price_missing || 0)}일${effect}. ${t.ready ? '통계적으로 보이더라도 현재 가격 캐시의 생존편향·비용·낙폭을 아직 검증하지 않았습니다.' : t.reason || '전진 표본을 기다립니다.'} 실주문 규칙은 여기서 바뀌지 않습니다.`;
+    const input = d.current_input || {};
+    const inputText = input.error ? input.error : input.regime_universe_n != null
+      ? `현재 입력 ${input.price_session || '세션 미상'} · 61봉 정렬 ${Number(input.regime_n || 0)}/${Number(input.regime_universe_n || 0)}종목 (${fmtNum(Number(input.regime_coverage || 0) * 100, 1)}%) · 국면 ${input.regime_ready ? (input.regime || '미상') : '판정 보류'}`
+      : `현재 입력 · 국면 ${input.regime_ready ? (input.regime || '미상') : '판정 보류'} · 분석 ${Number(input.regime_n || 0)}종목`;
+    el.textContent = `관측 ${Number(d.observed_sessions || 0)}일 · 다음 세션 정렬 ${Number(d.paired_sessions || 0)}일 · 자료 부족 ${Number(d.excluded?.unready || 0)}일 · 가격/세션 누락 ${Number(d.excluded?.session_or_price_missing || 0)}일${effect}. ${t.ready ? '통계적으로 보이더라도 현재 가격 캐시의 생존편향·비용·낙폭을 아직 검증하지 않았습니다.' : t.reason || '전진 표본을 기다립니다.'} ${inputText}. 실주문 규칙은 여기서 바뀌지 않습니다.`;
   } catch(e) { el.textContent = '시장별 국면 연구를 표시할 수 없습니다 · ' + e.message; }
 }
 async function loadRotationShadowStudy(){
