@@ -44,7 +44,7 @@ from signal_desk.signals import (
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
-    horizon, hypothesis, macro, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
+    horizon, hypothesis, lenses, macro, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
     pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     sector_rel, target, why_now,
 )
@@ -2359,6 +2359,38 @@ def _annotate_trader_layers(items: list[dict], *, market: str = "kospi") -> list
     return items
 
 
+def _attach_lens_snapshot(items: list[dict], *, market: str, signal_policy_id: str | None) -> dict:
+    """조회용 관점 결과를 같은 목록에서 만들고 내용 해시 원장에 중복 없이 남긴다."""
+    try:
+        dates_by = (store.load_us_dates_by_ticker() if market == "us"
+                    else store.load_dates_by_ticker())
+    except Exception as exc:
+        log.warning("렌즈 가격 기준일 조회 실패: %s", type(exc).__name__)
+        dates_by = {}
+    try:
+        events = db.kb_events_active()
+    except Exception as exc:
+        log.warning("렌즈 사건 조회 실패: %s", type(exc).__name__)
+        events = []
+    try:
+        snapshot = lenses.build_snapshot(items, market="us" if market == "us" else "kr",
+                                         signal_policy_id=signal_policy_id,
+                                         dates_by=dates_by, events=events)
+    except Exception as exc:
+        log.warning("조회용 렌즈 계산 실패(기본 시그널 유지): %s", type(exc).__name__)
+        for row in items:
+            row.pop("lens_results", None)
+        return {"ready": False, "mode": "read_only", "order_eligible": False,
+                "reason": "관점 비교를 계산하지 못했습니다. 기본 시그널은 그대로입니다."}
+    try:
+        db.lens_snapshot_put(snapshot)
+        recorded = True  # 이미 있는 해시도 원장에 존재한다.
+    except Exception as exc:
+        log.warning("렌즈 원장 기록 실패(조회는 계속): %s", type(exc).__name__)
+        recorded = False
+    return {key: value for key, value in snapshot.items() if key != "rows"} | {"recorded": recorded}
+
+
 @app.get("/api/signals")
 def signals_get(request: Request, market: str = "kospi"):
     """시그널 리스트(요약). 상세 필드(about/moves/target/reasons/narrative/kb)는
@@ -2398,9 +2430,11 @@ def signals_get(request: Request, market: str = "kospi"):
             for it in items:
                 if it.get("mktcap") is not None:
                     it["mktcap_krw"] = it["mktcap"] * fx["rate"]
+        signal_policy_id = _signal_policy_id("us", us_sigs)
+        lens_snapshot = _attach_lens_snapshot(items, market="us", signal_policy_id=signal_policy_id)
         return {"ready": True, "items": items, "slim": True, "crowding": crowd,
                 "selection": sel, "desk_report": report, "fx": fx,
-                "signal_policy_id": _signal_policy_id("us", us_sigs),
+                "signal_policy_id": signal_policy_id, "lens_snapshot": lens_snapshot,
                 "score_semantics": policy_contract.SCORE_SEMANTICS}
     if not store.is_ready():
         return {"ready": False, "items": [], "message": "아직 수집된 데이터가 없습니다. /api/refresh를 먼저 호출하세요."}
@@ -2435,9 +2469,11 @@ def signals_get(request: Request, market: str = "kospi"):
         market="kospi")
     db.kv_set("crowding_last", {**crowd, "ts": int(time.time())})
     db.kv_set("desk_report_last", report)
+    signal_policy_id = _signal_policy_id("kr", sigs)
+    lens_snapshot = _attach_lens_snapshot(items, market="kospi", signal_policy_id=signal_policy_id)
     return {"ready": True, "items": items, "slim": True, "crowding": crowd,
             "selection": sel, "desk_report": report,
-            "signal_policy_id": _signal_policy_id("kr", sigs),
+            "signal_policy_id": signal_policy_id, "lens_snapshot": lens_snapshot,
             "score_semantics": policy_contract.SCORE_SEMANTICS}
 
 
