@@ -216,16 +216,19 @@ def retrieve(query: str, k: int = 5, *, alpha: float | None = None,
     if not corpus or not (query or "").strip():
         return []
 
-    bm = _bm25_scores(query)
-    dens = _dense_scores(query)
-    bm_n = _by_max(bm)        # 비율 보존 — 동점을 동점으로 남긴다
-    dens_n = _dense_norm(dens)   # 평균 대비 고정 감도 — 동점이면 중립
-
     try:
         from signal_desk import kb_embed
         a = kb_embed.HYBRID_ALPHA if alpha is None else float(alpha)
     except Exception:
         a = 0.0 if alpha is None else float(alpha)
+    if not 0 <= a <= 1:
+        raise ValueError("alpha must be between 0 and 1")
+    bm = _bm25_scores(query)
+    # BM25 대조군은 임베딩 API를 호출하지 않는다. 그렇지 않으면 alpha=0이어도
+    # 비용이 나가고 실패/지연이 측정치에 섞여 검색 비교가 깨진다.
+    dens = _dense_scores(query) if a > 0 else []
+    bm_n = _by_max(bm)        # 비율 보존 — 동점을 동점으로 남긴다
+    dens_n = _dense_norm(dens)   # 평균 대비 고정 감도 — 동점이면 중립
     if not dens_n:
         a = 0.0  # dense 없으면 순수 BM25
 

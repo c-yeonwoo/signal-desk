@@ -136,3 +136,27 @@ def test_extract_rejects_missing_evidence(tmp_path, monkeypatch):
     assert kb._extract_candidate_event("005930", {
         "title": "실적 호조", "url": "https://n.example/e", "summary": "영업이익",
     }) is None
+
+
+def test_extract_rejects_hallucinated_quote_and_attributes_cost(monkeypatch):
+    monkeypatch.setattr(kb.llm, "available", lambda: True)
+    seen = {}
+
+    def fake_complete(*args, **kwargs):
+        seen.update(kwargs)
+        return {"event": True, "event_type": "litigation", "direction": "negative",
+                "severity": "serious", "confidence": 0.99, "summary": "압수수색",
+                "rationale": "법적 위험", "evidence_text": "거래정지 결정"}
+
+    monkeypatch.setattr(kb.llm, "complete_json", fake_complete)
+    item = {"title": "검찰, 압수수색", "url": "https://n.example/e2", "summary": "횡령 혐의 수사"}
+    assert kb._extract_candidate_event("005930", item) is None
+    assert seen["purpose"] == "kb_event"
+    assert kb._supported_event_quote("검찰 압수수색", item["title"], item["summary"])
+
+
+def test_candidate_event_key_deduplicates_tracking_and_source():
+    first = kb._candidate_event_key("naver_news", "https://n.example/story?id=3&utm_source=x")
+    second = kb._candidate_event_key("other_feed", "https://N.EXAMPLE/story?fbclid=y&id=3")
+    assert first == second
+    assert kb._candidate_event_key("naver_news", "https://n.example/story?id=4") != first

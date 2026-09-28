@@ -4803,21 +4803,22 @@ def kb_events_get(ticker: str | None = None, limit: int = 50, active: bool = Fal
     for it in items:
         it["evidence"] = db.kb_event_evidence(it["id"])
     return {"items": items, "view": v if v in ("eligible", "candidate", "all") else "eligible",
-            "policy_version": policy}
+            "policy_version": policy, "review_summary": db.kb_event_review_summary()}
 
 
 @app.post("/api/kb/events/review")
 def kb_events_review(request: Request, data: dict = Body(...)):
-    """후보 이벤트 수동 오버라이드 — confirm|attention|reject.
+    """후보 이벤트 검토 및 자동 확정 악재 철회 — confirm|attention|reject|revoke.
     운영 기본은 추출 직후 자동 판정. Decision은 confirmed+eligible만 소비."""
-    _admin_or_403(request)
+    _relation_mutation_guard(request)
     try:
         eid = int((data or {}).get("event_id"))
     except (TypeError, ValueError):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="event_id 필요")
     action = str((data or {}).get("action") or "").strip().lower()
-    out = kb.review_candidate_event(eid, action, by="admin")
+    out = kb.review_candidate_event(eid, action, by="admin",
+                                    note=str((data or {}).get("note") or ""))
     if not out.get("ok"):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail=out.get("reason") or "실패")

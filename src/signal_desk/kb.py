@@ -17,6 +17,8 @@ import logging
 import math
 import re
 import time
+import unicodedata
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from signal_desk import config, db, llm
 from signal_desk.ingest import dart as ingest_dart
@@ -687,7 +689,8 @@ def sync_disclosure_events(ticker: str, items: list[dict]) -> int:
                 effective = int(datetime.datetime.strptime(published[:10], "%Y-%m-%d").timestamp())
             except ValueError:
                 effective = None
-        detected = effective or now
+        # 발표 날짜(자정 추정)와 앱 최초 관측시각을 혼동하지 않는다.
+        detected = now
         db.kb_event_upsert(
             {
                 "event_key": event_key,
@@ -703,7 +706,7 @@ def sync_disclosure_events(ticker: str, items: list[dict]) -> int:
                 "decision_action": meta["decision_action"],
                 "detected_at": detected,
                 "effective_at": effective,
-                "expires_at": detected + ttl,
+                "expires_at": (effective or now) + ttl,
                 "summary": f"{meta['matched']} — {title[:80]}",
                 "rationale": "DART 공식 공시 키워드 매칭(P0)",
                 "extractor_model": "rule:dart_p0",
@@ -847,9 +850,32 @@ _CANDIDATE_SEVERITIES = frozenset({"info", "watch", "serious", "critical"})
 _CANDIDATE_MAX_PER_REFRESH = 3  # 종목당 Sonnet 호출 상한(비용)
 
 
+def _canonical_event_url(url: str) -> str:
+    """전재 링크의 추적 파라미터만 제거한다. 기사 ID 같은 의미 있는 쿼리는 보존."""
+    parsed = urlsplit(url.strip())
+    query = sorted((k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True)
+                   if not k.lower().startswith("utm_") and k.lower() not in ("fbclid", "gclid"))
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"),
+                       urlencode(query), ""))
+
+
 def _candidate_event_key(source_key: str, url: str) -> str:
+    # 같은 원문 URL을 다른 수집 소스가 전달해도 사건은 하나로 센다.
+    h = hashlib.sha256(_canonical_event_url(url).encode("utf-8")).hexdigest()[:16]
+    return f"candidate:{h}"
+
+
+def _legacy_candidate_event_key(source_key: str, url: str) -> str:
     h = hashlib.sha256(url.strip().encode("utf-8")).hexdigest()[:16]
     return f"candidate:{source_key}:{h}"
+
+
+def _supported_event_quote(quote: str, title: str, summary: str) -> bool:
+    """문장 재서술은 원문 근거가 아니다. 유니코드/공백·구두점만 정규화한다."""
+    normalize = lambda value: "".join(c for c in unicodedata.normalize("NFKC", value).lower()
+                                       if c.isalnum())
+    needle = normalize(quote)
+    return len(needle) >= 4 and (needle in normalize(title) or needle in normalize(summary))
 
 
 def _news_source_key(item: dict) -> str:
@@ -876,7 +902,7 @@ def _extract_candidate_event(ticker: str, item: dict) -> dict | None:
         "루머·감성·일반 시황·중복 공시 재전송은 event=false. "
         "원문에 없는 사실·숫자를 지어내지 마라. "
         "악재(negative)는 근거가 있으면 우선 추출하고, 호재(positive)는 명확한 계약·실적·승인만. "
-        "evidence_text는 제목/요약에서 확인 가능한 짧은 인용·패러프레이즈여야 한다."
+        "evidence_text는 제목 또는 요약에서 그대로 찾아지는 연속 인용이어야 한다. 재서술·추측 금지."
     )
     user = (
         f"종목코드:{ticker}\n제목:{title}\n요약:{summary}\nURL:{url}\n\n"
@@ -891,7 +917,7 @@ def _extract_candidate_event(ticker: str, item: dict) -> dict | None:
         ' "rationale":"왜 물질적인지 한 줄",\n'
         ' "evidence_text":"원문 근거 인용"}'
     )
-    out = llm.complete_json(system, user, max_tokens=280, model=llm.DIGEST_QUALITY_MODEL, purpose="kb") or {}
+    out = llm.complete_json(system, user, max_tokens=280, model=llm.DIGEST_QUALITY_MODEL, purpose="kb_event") or {}
     if not out.get("event"):
         return None
     et = str(out.get("event_type") or "")
@@ -900,7 +926,7 @@ def _extract_candidate_event(ticker: str, item: dict) -> dict | None:
     evidence_text = str(out.get("evidence_text") or "").strip()
     if et not in _CANDIDATE_EVENT_TYPES or direction not in _CANDIDATE_DIRECTIONS:
         return None
-    if severity not in _CANDIDATE_SEVERITIES or not evidence_text:
+    if severity not in _CANDIDATE_SEVERITIES or not _supported_event_quote(evidence_text, title, summary):
         return None
     try:
         conf = max(0.0, min(1.0, float(out.get("confidence") or 0.5)))
@@ -945,35 +971,50 @@ def _auto_action_for_candidate(ev: dict) -> str:
     return "reject"
 
 
-def review_candidate_event(event_id: int, action: str, *, by: str = "admin") -> dict:
-    """후보 이벤트 검토. action=confirm|attention|reject.
+def review_candidate_event(event_id: int, action: str, *, by: str = "admin", note: str = "") -> dict:
+    """후보 이벤트 검토. action=confirm|attention|reject 또는 관리자 revoke.
     by=auto|admin — 근거 문구만 갈라지고 Decision 규칙은 동일.
     운영 기본은 자동 판정(`auto_review_candidate`); 수동 API는 예외 오버라이드용."""
     ev = db.kb_event_get(int(event_id))
     if not ev:
         return {"ok": False, "reason": "이벤트 없음"}
+    act = (action or "").strip().lower()
+    if act == "revoke":
+        if by != "admin" or ev.get("status") != "confirmed" or not ev.get("decision_eligible"):
+            return {"ok": False, "reason": "활성 매매 차단 사건만 관리자가 철회할 수 있습니다"}
+        if not 12 <= len((note or "").strip()) <= 500:
+            return {"ok": False, "reason": "철회 근거를 12~500자로 기록하세요"}
+        out = db.kb_event_review(int(event_id), status="rejected", decision_eligible=False,
+                                 decision_action="none", rationale_suffix="관리자 오탐 철회",
+                                 reviewer="admin", action="revoke", note=note.strip())
+        return {"ok": True, "event": out, "action": "revoke", "by": by}
     if (ev.get("status") or "") != "candidate":
         return {"ok": False, "reason": f"후보가 아님(status={ev.get('status')})"}
-    act = (action or "").strip().lower()
     who = "자동" if by == "auto" else "관리자"
     if act == "reject":
         out = db.kb_event_review(
             int(event_id), status="rejected", decision_eligible=False,
-            decision_action="none", rationale_suffix=f"{who} 기각")
+            decision_action="none", rationale_suffix=f"{who} 기각",
+            reviewer=by, action="reject")
         return {"ok": True, "event": out, "action": "reject", "by": by}
     if act == "attention":
         out = db.kb_event_review(
             int(event_id), status="confirmed", decision_eligible=False,
             decision_action="attention",
-            rationale_suffix=f"{who} 표시만(Decision 미반영)")
+            rationale_suffix=f"{who} 표시만(Decision 미반영)",
+            reviewer=by, action="attention")
         return {"ok": True, "event": out, "action": "attention", "by": by}
     if act == "confirm":
         eligible, d_action = _action_for_confirm(ev.get("severity") or "", ev.get("direction") or "")
+        if by == "auto" and d_action == "exit" and ev.get("trust_tier") != "official":
+            # 뉴스 LLM 단독으로 기존 보유분 전량 청산 금지. 신규 매수 차단까지만 자동화.
+            d_action = "buy_block"
         # confirm이어도 호재·info는 Decision 미반영(비대칭).
         out = db.kb_event_review(
             int(event_id), status="confirmed", decision_eligible=eligible,
             decision_action=d_action,
-            rationale_suffix=(f"{who} Decision 반영" if eligible else f"{who} 승인·Decision 비대상"))
+            rationale_suffix=(f"{who} Decision 반영" if eligible else f"{who} 승인·Decision 비대상"),
+            reviewer=by, action="confirm")
         return {"ok": True, "event": out, "action": "confirm", "by": by,
                 "decision_eligible": eligible, "decision_action": d_action}
     return {"ok": False, "reason": "action은 confirm|attention|reject"}
@@ -1041,7 +1082,7 @@ def sync_candidate_events(ticker: str, items: list[dict]) -> int:
             continue
         source_key = _news_source_key(it)
         event_key = _candidate_event_key(source_key, url)
-        if db.kb_event_exists(event_key):
+        if db.kb_event_exists(event_key) or db.kb_event_exists(_legacy_candidate_event_key(source_key, url)):
             continue
         src = db.kb_source_get(source_key) or db.kb_source_get("naver_news")
         if src and not src.get("enabled"):
@@ -1059,7 +1100,7 @@ def sync_candidate_events(ticker: str, items: list[dict]) -> int:
                 effective = int(datetime.datetime.strptime(published[:10], "%Y-%m-%d").timestamp())
             except ValueError:
                 effective = None
-        detected = effective or now
+        detected = now  # published 날짜는 원천 시점, detected는 최초 관측 시점.
         eid = db.kb_event_upsert(
             {
                 "event_key": event_key,
@@ -1075,7 +1116,7 @@ def sync_candidate_events(ticker: str, items: list[dict]) -> int:
                 "decision_action": "none",
                 "detected_at": detected,
                 "effective_at": effective,
-                "expires_at": detected + ttl,
+                "expires_at": (effective or now) + ttl,
                 "summary": meta["summary"],
                 "rationale": meta["rationale"] or "Sonnet 비-DART 후보 추출(P1b)",
                 "extractor_model": llm.DIGEST_QUALITY_MODEL,
