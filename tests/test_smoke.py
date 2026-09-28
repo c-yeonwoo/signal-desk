@@ -186,10 +186,10 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "트레이딩" in html  # 구 '공개 장부' → #282 '모의운용' 후보를 거쳐 확정
     assert "공개 장부" not in html and "공개장부" not in html and "모의운용" not in html
     assert ">장부<" not in html  # UI 라벨 잔재 — 전부 트레이딩
-    # 관리자: 오늘 할 일 랜딩 + 짧은 탭명(점검/엔진/성적/뉴스/발행)
+    # 관리자: 직접 확인할 문제와 고급 연구·엔진 설정을 분리한다.
     assert 'id="admin-todo"' in html and "오늘 할 일" in html
     assert "enterAdmin" in html and "renderAdminTodo" in html
-    assert 'data-aseg="ops"' in html and "점검" in html and "enterAdmin(" in html
+    assert 'data-aseg="ops"' in html and "운영 상태" in html and "enterAdmin(" in html
     assert "trust-paper-muted" in html  # 페이퍼 승률 ≠ 실측 헤드라인
     # 2026-08-05(N4): "매수 0 · 고장 아님" 하드코딩을 없앴다. 원인이 rank창인지 게이트인지
     # 수집 정지인지 가리지 않고 전부 정상이라 변호하면 고장 조사를 막는다. 이제 점검 결과를 쓴다.
