@@ -219,6 +219,8 @@ def test_meta_entry_shadow_loads_closes_only_for_its_market(monkeypatch):
         "AAPL": (["2026-09-28"], [100.0])})
     monkeypatch.setattr(api.store, "load_all_dated_closes", lambda: (_ for _ in ()).throw(
         AssertionError("시장 혼합 가격열 사용 금지")))
-    monkeypatch.setattr(api.meta_entry, "build_labeled_rows", lambda rows, series, cfg: [])
-    assert api._meta_entry_shadow("us")["market"] == "us"
+    monkeypatch.setattr(api.meta_entry, "build_labeled_rows", lambda rows, series, cfg, **kwargs: [])
+    result = api._meta_entry_shadow("us")
+    assert result["market"] == "us" and result["live_eligible"] is False
+    assert result["promotion"]["eligible"] is False
     assert seen == ["us"]
