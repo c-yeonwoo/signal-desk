@@ -39,6 +39,17 @@ CREATE TABLE IF NOT EXISTS lens_snapshots(
     signal_policy_id TEXT, payload BLOB NOT NULL, first_observed INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_lens_snapshots_recent
     ON lens_snapshots(market,first_observed DESC);
+-- 각 시장·주차의 첫 조회만 전진 비교 표본으로 고정한다. 사후에 유리한 조회를 고르지 않는다.
+CREATE TABLE IF NOT EXISTS lens_forward_cohorts(
+    market TEXT NOT NULL, iso_week TEXT NOT NULL, snapshot_id TEXT NOT NULL,
+    observed_at INTEGER NOT NULL, PRIMARY KEY(market,iso_week));
+CREATE INDEX IF NOT EXISTS idx_lens_forward_cohorts_recent
+    ON lens_forward_cohorts(market,observed_at DESC);
+-- 평가 시 처음 읽은 종가를 보존해 이후 데이터 수정으로 과거 성과가 바뀌지 않게 한다.
+CREATE TABLE IF NOT EXISTS lens_forward_marks(
+    market TEXT NOT NULL, snapshot_id TEXT NOT NULL, ticker TEXT NOT NULL,
+    price_session TEXT NOT NULL, price REAL NOT NULL, observed_at INTEGER NOT NULL,
+    PRIMARY KEY(market,snapshot_id,ticker,price_session));
 -- 발표 전 예상치/공식 실제값은 각각 append-only. 현재 수정값으로 과거를 덮지 않는다.
 CREATE TABLE IF NOT EXISTS macro_release_forecasts(
     id TEXT PRIMARY KEY, metric TEXT NOT NULL, period TEXT NOT NULL,
@@ -1202,6 +1213,60 @@ def lens_snapshot_get(snapshot_id: str) -> dict | None:
     try:
         row = c.execute("SELECT payload FROM lens_snapshots WHERE id=?", (snapshot_id,)).fetchone()
         return json.loads(zlib.decompress(row[0])) if row else None
+    finally:
+        c.close()
+
+
+def lens_forward_cohort_freeze(market: str, iso_week: str, snapshot_id: str,
+                               observed_at: int) -> bool:
+    """주차 첫 관측만 저장. 이미 저장한 판단은 새로운 조회로 대체할 수 없다."""
+    if market not in ("kr", "us") or not iso_week or not snapshot_id:
+        raise ValueError("invalid lens cohort")
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO lens_forward_cohorts"
+                        "(market,iso_week,snapshot_id,observed_at) VALUES(?,?,?,?)",
+                        (market, iso_week, snapshot_id, int(observed_at)))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def lens_forward_cohorts(market: str, limit: int = 200) -> list[dict]:
+    if market not in ("kr", "us"):
+        raise ValueError("invalid lens market")
+    c = conn()
+    try:
+        rows = c.execute("SELECT c.iso_week,c.snapshot_id,c.observed_at,s.payload "
+                         "FROM lens_forward_cohorts c JOIN lens_snapshots s ON s.id=c.snapshot_id "
+                         "WHERE c.market=? ORDER BY c.observed_at DESC LIMIT ?",
+                         (market, min(max(int(limit), 1), 1000))).fetchall()
+        return [{"iso_week": week, "snapshot_id": sid, "observed_at": observed,
+                 "snapshot": json.loads(zlib.decompress(payload))}
+                for week, sid, observed, payload in reversed(rows)]
+    finally:
+        c.close()
+
+
+def lens_forward_mark(market: str, snapshot_id: str, ticker: str,
+                      price_session: str, price: float | None) -> float | None:
+    """첫 관측 종가를 반환한다. 원천 수정·누락이 나중에 와도 평가값은 덮지 않는다."""
+    import math
+    value = float(price) if price is not None else None
+    if market not in ("kr", "us") or not snapshot_id or not ticker or (value is not None and (not math.isfinite(value) or value <= 0)):
+        raise ValueError("invalid forward price mark")
+    c = conn()
+    try:
+        if value is not None:
+            c.execute("INSERT OR IGNORE INTO lens_forward_marks"
+                      "(market,snapshot_id,ticker,price_session,price,observed_at) VALUES(?,?,?,?,?,?)",
+                      (market, snapshot_id, ticker, price_session, value, int(time.time())))
+        row = c.execute("SELECT price FROM lens_forward_marks WHERE market=? AND snapshot_id=? "
+                        "AND ticker=? AND price_session=?",
+                        (market, snapshot_id, ticker, price_session)).fetchone()
+        c.commit()
+        return float(row[0]) if row else None
     finally:
         c.close()
 
