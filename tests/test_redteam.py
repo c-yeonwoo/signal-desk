@@ -3450,6 +3450,8 @@ def test_admin_operator_view_does_not_turn_research_into_a_required_action():
     incidents = html.split("function _adminOpsIncidents(", 1)[1].split("\nfunction ", 1)[0]
     for critical in ("ephemeral_suspected", "stall_line", "auto_refresh_blocked", "scaled_suspect"):
         assert critical in incidents, f"상세 진단을 접으면 {critical} 위험이 숨는다"
+    assert "stale.length && !d.stall_line" in incidents, "같은 갱신 지연을 두 할 일로 세지 않는다"
+    assert "일부 자동 갱신이 지연 중입니다" in html
 
 
 def test_derived_freshness_is_rendered_as_computed_not_missing():
