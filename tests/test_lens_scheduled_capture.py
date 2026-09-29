@@ -93,3 +93,5 @@ def test_week_mismatch_and_unwired_loop_are_rejected(tmp_path, monkeypatch):
     loop = source.split("def _bot_loop_iteration(", 1)[1].split("\ndef ", 1)[0]
     assert "_maybe_capture_scheduled_lens(mkt, now)" in loop
     assert "lens_forward.collect_price_marks(cohorts, mkt, loader, db.lens_scheduled_price_mark" in loop
+    assert "lens_forward.audit_price_revisions(" in loop
+    assert "db.lens_scheduled_price_halt_add" in loop

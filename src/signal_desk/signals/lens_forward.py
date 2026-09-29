@@ -120,6 +120,41 @@ def collect_price_marks(cohorts: list[dict], market: str, price_loader, mark_wri
             "session": session, "due": due, "marked": marked, "missing": missing}
 
 
+def audit_price_revisions(marks: list[dict], market: str, price_loader, halt_writer, *,
+                          now: dt.datetime | None = None) -> dict:
+    """전일 이전에 동결한 종가를 현재 원천과 대조한다. 수정값으로 원장을 덮지 않는다."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    window = daily_mark_window(market, now)
+    if not window:
+        return {"status": "outside_window", "market": market, "checked": 0,
+                "source_missing": 0, "new_halts": 0}
+    current = window["session"]
+    cache: dict[str, dict[str, float]] = {}
+    checked = source_missing = new_halts = 0
+    for mark in marks:
+        session = mark["price_session"]
+        if session >= current:  # 같은 날 늦게 확정되는 가격을 수정으로 오인하지 않는다.
+            continue
+        ticker = mark["ticker"]
+        if ticker not in cache:
+            try:
+                cache[ticker] = _close_map(price_loader(ticker))
+            except Exception:  # noqa: BLE001 — 조회 실패는 수정 이벤트가 아니다
+                cache[ticker] = {}
+        revised = cache[ticker].get(session)
+        if revised is None:
+            source_missing += 1
+            continue
+        checked += 1
+        marked = float(mark["price"])
+        if not math.isclose(marked, revised, rel_tol=1e-6, abs_tol=1e-8):
+            if halt_writer(market, mark["snapshot_id"], ticker, session, marked, revised):
+                new_halts += 1
+    return {"status": "complete" if not source_missing else "source_missing", "market": market,
+            "session": current, "checked": checked, "source_missing": source_missing,
+            "new_halts": new_halts}
+
+
 def expected_capture_weeks(market: str, now: dt.datetime) -> list[str]:
     """정시 창이 끝난 거래 주차. 서비스가 꺼져 놓친 주도 분모에서 숨기지 않는다."""
     if market not in _ZONES or now.tzinfo is None or now.utcoffset() is None:
@@ -189,7 +224,8 @@ def _drawdown(returns: list[float]) -> float:
 
 def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime | None = None,
              price_marker=None, capture_source: str = "unverified",
-             expected_weeks: list[str] | None = None) -> dict:
+             expected_weeks: list[str] | None = None,
+             halted_marks: set[tuple[str, str, str]] | None = None) -> dict:
     """미래가 이미 완료된 표본만 읽고 동일 원본 후보를 네 방식으로 비교한다.
 
     종가 매수/매도는 실전 체결 가능 가격을 보장하지 않는다. 후보 10칸 중 미선정 칸은
@@ -228,6 +264,8 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
         if entry <= previous_exit:
             skip("보유 구간 겹침")
             continue
+        # 겹침 제거 순서는 미래 시세의 결손·정정 여부와 독립적으로 고정한다.
+        previous_exit = exit_day
         raw = snapshot.get("rows") or []
         # 원본 순위만 사용한다. 과거 성과로 재정렬하거나 누락 데이터로 후보를 메우지 않는다.
         ranked = sorted(enumerate(raw), key=lambda pair: (
@@ -241,10 +279,15 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
         picked = [row for row in buy_rows if _candidate(row, completed_at_decision)][:SLOTS]
         slot_returns = {}
         missing = False
+        halted = False
         for row in picked:
             ticker = str(row.get("ticker") or "")
             if not ticker:
                 missing = True
+                break
+            if halted_marks and ((cohort["snapshot_id"], ticker, entry) in halted_marks or
+                                 (cohort["snapshot_id"], ticker, exit_day) in halted_marks):
+                halted = True
                 break
             if price_marker:
                 try:
@@ -265,6 +308,9 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
                 missing = True
                 break
             slot_returns[ticker] = exit_price / entry_price - 1.0 - 2 * SIDE_COST
+        if halted:
+            skip("원천 가격 수정 감지")
+            continue
         if missing:
             skip("진입·청산 정시 표식 누락" if price_marker else "진입·청산 종가 누락")
             continue
@@ -281,7 +327,6 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
                          "signal_policy_id": snapshot.get("signal_policy_id"),
                          "observed_at": cohort["observed_at"], "entry": entry, "exit": exit_day,
                          "candidate_count": len(picked), "combos": comparison})
-        previous_exit = exit_day
 
     summary = {}
     for combo, label in COMBOS.items():
