@@ -29,7 +29,7 @@ def assess(report: dict) -> dict:
             "discovery_required": DISCOVERY_EPISODES, "holdout_required": HOLDOUT_EPISODES,
             "matured_episodes": len(episodes), "candidates": [],
             "operational_blocks": [
-                "주문과 무관한 사용자 조회 시각에 표본 수집이 의존함",
+                "정시 표본 수집의 연속성·결손률 장기 검증이 아직 없음",
                 "배당·분할을 포함한 수정주가 검증이 없음",
                 "실제 호가·체결·세금·슬리피지 비용 검증이 없음",
                 "시장·섹터 노출과 현금 효과를 분리하지 못함",
@@ -43,18 +43,28 @@ def assess(report: dict) -> dict:
             ]}
     if market not in ("kr", "us"):
         return {**base, "status": "invalid_market"}
+    if report.get("capture_source") != "scheduled":
+        return {**base, "status": "blocked_capture_source",
+                "reason": "사용자 조회 시각이나 출처 불명의 표본은 실전 승격 검증에 사용할 수 없습니다."}
     required = DISCOVERY_EPISODES + HOLDOUT_EPISODES
     if len(episodes) < required:
         return {**base, "status": "awaiting_prospective_evidence",
                 "next_required_episodes": required - len(episodes),
                 "reason": "사전 동결한 독립 구간과 미래 검증 구간이 아직 부족합니다."}
+    capture_coverage = report.get("capture_coverage")
+    if capture_coverage is None or not math.isfinite(float(capture_coverage)) or capture_coverage < .90:
+        return {**base, "status": "blocked_capture_coverage",
+                "capture_coverage": capture_coverage,
+                "reason": "정해진 주차의 자동 동결 누락이 많거나 아직 관측되지 않았습니다."}
     panel = episodes[:required]
     policy_ids = {e.get("signal_policy_id") for e in panel}
     if len(policy_ids) != 1 or None in policy_ids:
         return {**base, "status": "blocked_policy_drift",
                 "reason": "비교 도중 기본 시그널 정책 버전이 바뀌거나 확인되지 않았습니다."}
-    observed = max(int(report.get("cohorts_seen") or 0), len(episodes))
-    exclusion_rate = 1 - len(episodes) / observed
+    # 예정된 보유기간 중첩과 아직 청산일이 오지 않은 건은 자료 결손이 아니다.
+    quality_exclusions = sum(int(n) for reason, n in (report.get("exclusions") or {}).items()
+                             if reason not in ("보유 구간 겹침", "성과 관측 대기"))
+    exclusion_rate = quality_exclusions / (len(episodes) + quality_exclusions)
     if exclusion_rate > MAX_EXCLUSION_RATE:
         return {**base, "status": "blocked_sample_coverage", "exclusion_rate": exclusion_rate,
                 "reason": "조회 후 제외된 구간이 많아 결과 대표성을 판단할 수 없습니다."}

@@ -1782,7 +1782,7 @@
 
     <details class="card" id="lens-forward-study" style="margin-top:16px" ontoggle="if(this.open) loadLensForwardStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">투자 관점 성과 비교 <span style="color:var(--dim);font-weight:600;font-size:13px">· 당시 판단 고정 · 주문 미연결</span></summary>
-      <p class="page-desc" style="margin:8px 0">매주 처음 본 후보를 그대로 보관하고, 다음 거래일 종가부터 5거래일 뒤 종가까지 네 조합을 비교합니다. 선정하지 않은 몫은 현금으로 두고 가정 비용을 뺍니다. 실제 체결 수익률이나 투자 추천은 아닙니다.</p>
+      <p class="page-desc" style="margin:8px 0">첫 거래일 마감 후 정해진 시각에 후보를 자동 보관하고, 다음 거래일 종가부터 5거래일 뒤 종가까지 네 조합을 비교합니다. 사용자 조회 시각에 만든 과거 기록은 제외합니다. 선정하지 않은 몫은 현금으로 두고 가정 비용을 뺍니다. 실제 체결 수익률이나 투자 추천은 아닙니다.</p>
       <div class="row" style="gap:8px;margin:8px 0"><label>시장 <select id="lens-forward-market" onchange="loadLensForwardStudy()"><option value="kr">국내</option><option value="us">미국</option></select></label><button type="button" class="btn" onclick="loadLensForwardStudy()">다시 조회</button></div>
       <div id="lens-forward-body" class="placeholder" style="padding:8px 0">전진 비교를 불러오는 중…</div>
     </details>
@@ -8378,12 +8378,15 @@ async function loadLensForwardStudy(){
     const count = Number(data.independent_episodes || 0);
     const pct = value => value == null ? '측정 전' : (Number(value) * 100).toFixed(2) + '%';
     const rows = Object.entries(data.summary || {}).map(([key, row]) =>
-      `<div style="border-top:1px solid var(--line);padding:8px 0;font-size:12px;line-height:1.6"><b>${esc(row.label)}</b> · 평균 비용 후 ${pct(row.mean_net_return)} · 기본 대비 ${pct(row.mean_excess_vs_base)} · 투자 비중 ${pct(row.mean_coverage)} · 최대 하락 ${pct(row.max_episode_drawdown)}</div>`).join('');
+      `<div style="border-top:1px solid var(--line);padding:8px 0;font-size:12px;line-height:1.6"><b>${esc(row.label)}</b> · 평균 비용 후 ${pct(row.mean_net_return)} · 기본 대비 ${pct(row.mean_excess_vs_base)} · 투자 비중 ${pct(row.mean_coverage)} · 구간별 누적 최대 하락 ${pct(row.max_episode_drawdown)}</div>`).join('');
     const waiting = Object.entries(data.exclusions || {}).map(([reason, amount]) => `${esc(reason)} ${Number(amount)}건`).join(' · ');
     const gate = data.promotion || {};
     const gateText = gate.status === 'awaiting_prospective_evidence'
       ? `실전 적용 보류 · 독립 비교 ${Number(gate.next_required_episodes)}회 추가 필요` : '실전 적용 보류 · 가격·체결·표본 품질 검증과 승인 필요';
-    el.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>겹치지 않는 비교 ${count}회 / 최소 ${Number(data.minimum_episodes)}회</b> · 편도 가정 비용 ${pct(data.cost_per_side)}<br>${count ? '자료가 쌓이는 중입니다. 차이가 보여도 아직 우위를 입증한 것은 아닙니다.' : '아직 비교 가능한 거래 구간이 없습니다. 과거 시그널을 사후에 끼워 넣지 않습니다.'}</div><div style="font-size:13px;margin:8px 0;color:var(--sell)"><b>${gateText}</b><br><span style="font-size:12px">${esc(gate.reason || '')}</span></div>${rows}<div style="font-size:12px;color:var(--dim);margin-top:8px">제외: ${waiting || '없음'}<br>${esc(data.note || '')}</div>`;
+    const capture = data.capture_last || {};
+    const captureNames = {captured:'정시 표본 저장됨', waiting_daily_refresh:'마감 자료 갱신 대기', blocked_stale_prices:'종가 갱신 부족으로 보류', blocked_snapshot:'판단 기록 실패', blocked_open_market:'장중이라 보류'};
+    const captureText = capture.status ? `${esc(capture.iso_week || '')} · ${captureNames[capture.status] || '상태 확인 중'}${capture.fresh_fraction == null ? '' : ' · 종가 확인 ' + pct(capture.fresh_fraction)}` : '다음 첫 거래일 마감 후 자동 기록 예정';
+    el.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>겹치지 않는 정시 비교 ${count}회</b> · 초기 비교 ${Number(data.minimum_episodes)}회 / 별도 검증 50회 · 편도 가정 비용 ${pct(data.cost_per_side)}<br>${count ? '자료가 쌓이는 중입니다. 차이가 보여도 아직 우위를 입증한 것은 아닙니다.' : '아직 비교 가능한 정시 표본이 없습니다. 과거 조회 기록을 사후에 끼워 넣지 않습니다.'}<br>최근 동결: ${captureText} · 정시 누락 ${Number((data.missing_capture_weeks || []).length)}주</div><div style="font-size:13px;margin:8px 0;color:var(--sell)"><b>${gateText}</b><br><span style="font-size:12px">${esc(gate.reason || '')}</span></div>${rows}<div style="font-size:12px;color:var(--dim);margin-top:8px">제외: ${waiting || '없음'} · 과거 조회 기반 ${Number(data.legacy_view_cohorts_excluded || 0)}주는 성과에서 제외<br>${esc(data.note || '')}</div>`;
   } catch(e) { el.textContent = '전진 성과 비교를 불러올 수 없습니다 · ' + e.message; }
 }
 function _macroReleaseInput(id){ return (document.getElementById(id)?.value || '').trim(); }

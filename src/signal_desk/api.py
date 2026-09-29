@@ -485,6 +485,13 @@ def _bot_loop_iteration() -> None:
         _daily_maintenance(enabled)
     for mkt in ("kr", "us"):
         try:
+            capture = _maybe_capture_scheduled_lens(mkt, now)
+            if capture.get("status") not in ("outside_window", "already_frozen"):
+                db.kv_set(f"lens_scheduled_capture_last:{mkt}", capture)
+        except Exception as e:
+            log.warning("렌즈 정시 표본 동결 실패(%s): %s", mkt, type(e).__name__)
+    for mkt in ("kr", "us"):
+        try:
             status = rotation_shadow.capture(mkt, now)
             if status.get("saved") or status.get("reason") != "이미 동결됨":
                 db.kv_set(f"rotation_shadow_last:{mkt}", {**status, "at": now.isoformat()})
@@ -2359,7 +2366,9 @@ def _annotate_trader_layers(items: list[dict], *, market: str = "kospi") -> list
     return items
 
 
-def _attach_lens_snapshot(items: list[dict], *, market: str, signal_policy_id: str | None) -> dict:
+def _attach_lens_snapshot(items: list[dict], *, market: str, signal_policy_id: str | None,
+                          observed_at: int | None = None,
+                          record_view_cohort: bool = True) -> dict:
     """조회용 관점 결과를 같은 목록에서 만들고 내용 해시 원장에 중복 없이 남긴다."""
     try:
         dates_by = (store.load_us_dates_by_ticker() if market == "us"
@@ -2386,7 +2395,7 @@ def _attach_lens_snapshot(items: list[dict], *, market: str, signal_policy_id: s
         snapshot = lenses.build_snapshot(items, market="us" if market == "us" else "kr",
                                          signal_policy_id=signal_policy_id,
                                          dates_by=dates_by, events=events, macro_releases=releases,
-                                         industry_evidence=industry_evidence)
+                                         industry_evidence=industry_evidence, observed_at=observed_at)
     except Exception as exc:
         log.warning("조회용 렌즈 계산 실패(기본 시그널 유지): %s", type(exc).__name__)
         for row in items:
@@ -2395,14 +2404,54 @@ def _attach_lens_snapshot(items: list[dict], *, market: str, signal_policy_id: s
                 "reason": "관점 비교를 계산하지 못했습니다. 기본 시그널은 그대로입니다."}
     try:
         db.lens_snapshot_put(snapshot)
-        db.lens_forward_cohort_freeze(snapshot["market"],
-                                      lens_forward.iso_week(snapshot["market"], snapshot["observed_at"]),
-                                      snapshot["id"], snapshot["observed_at"])
+        if record_view_cohort:
+            db.lens_forward_cohort_freeze(snapshot["market"],
+                                          lens_forward.iso_week(snapshot["market"], snapshot["observed_at"]),
+                                          snapshot["id"], snapshot["observed_at"])
         recorded = True  # 이미 있는 해시도 원장에 존재한다.
     except Exception as exc:
         log.warning("렌즈 원장 기록 실패(조회는 계속): %s", type(exc).__name__)
         recorded = False
     return {key: value for key, value in snapshot.items() if key != "rows"} | {"recorded": recorded}
+
+
+def _maybe_capture_scheduled_lens(market: str, now: datetime.datetime) -> dict:
+    """주차 첫 거래일 종가를 확인한 뒤 사용자 조회와 별개로 원장을 동결한다."""
+    window = lens_forward.scheduled_capture_window(market, now)
+    if not window:
+        return {"status": "outside_window", "market": market}
+    result = {**window, "observed_at": int(now.timestamp())}
+    if db.lens_scheduled_cohort_exists(market, window["iso_week"]):
+        return {**result, "status": "already_frozen"}
+    # 국내는 마감 작업 이후에만. 미국은 한국 휴장일에도 갱신되므로 종가 자체의
+    # 세션 일치율로 검사하고 국내 마감 작업 완료를 억지로 요구하지 않는다.
+    if market == "kr" and db.kv_get("bot_daily_snap") != now.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat():
+        return {**result, "status": "waiting_daily_refresh"}
+    universe = store.load_us_universe() if market == "us" else store.load_universe()
+    dates_by = store.load_us_dates_by_ticker() if market == "us" else store.load_dates_by_ticker()
+    tickers = [str(row.get("ticker") or "") for row in universe if row.get("ticker")]
+    fresh = sum((dates_by.get(ticker) or [None])[-1] == window["session"] for ticker in tickers)
+    fraction = fresh / len(tickers) if tickers else 0.0
+    if fraction < lens_forward.MIN_FRESH_FRACTION:
+        return {**result, "status": "blocked_stale_prices", "fresh": fresh,
+                "universe": len(tickers), "fresh_fraction": round(fraction, 4)}
+    if market_clock.is_open("kr", now) or market_clock.is_open("us", now):
+        return {**result, "status": "blocked_open_market"}
+    store.clear_live_quotes()
+    if market == "us":
+        _clear_us_signal_caches()
+    else:
+        _signals.cache_clear()
+        _quotes.cache_clear()
+        _regime.cache_clear()
+    response = _signal_response("us" if market == "us" else "kospi", observed_at=int(now.timestamp()))
+    snapshot = response.get("lens_snapshot") or {}
+    if not response.get("ready") or not snapshot.get("recorded") or not snapshot.get("id"):
+        return {**result, "status": "blocked_snapshot"}
+    saved = db.lens_scheduled_cohort_freeze(market, window["iso_week"], window["session"],
+                                            snapshot["id"], snapshot["observed_at"])
+    return {**result, "status": "captured" if saved else "already_frozen",
+            "snapshot_id": snapshot["id"], "fresh_fraction": round(fraction, 4)}
 
 
 @app.get("/api/signals")
@@ -2418,6 +2467,11 @@ def signals_get(request: Request, market: str = "kospi"):
             db.signal_visit_mark(uid, _kst_today())
         except Exception as e:
             log.warning("D7 방문 기록 실패: %s", type(e).__name__)
+    return _signal_response(market)
+
+
+def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
+    """시그널 조회와 정시 연구 동결이 같은 행 조립 경로를 쓴다."""
     if market == "us":
         raw = _us_signal_items()
         if not raw:
@@ -2445,7 +2499,9 @@ def signals_get(request: Request, market: str = "kospi"):
                 if it.get("mktcap") is not None:
                     it["mktcap_krw"] = it["mktcap"] * fx["rate"]
         signal_policy_id = _signal_policy_id("us", us_sigs)
-        lens_snapshot = _attach_lens_snapshot(items, market="us", signal_policy_id=signal_policy_id)
+        lens_snapshot = _attach_lens_snapshot(items, market="us", signal_policy_id=signal_policy_id,
+                                               observed_at=observed_at,
+                                               record_view_cohort=observed_at is None)
         return {"ready": True, "items": items, "slim": True, "crowding": crowd,
                 "selection": sel, "desk_report": report, "fx": fx,
                 "signal_policy_id": signal_policy_id, "lens_snapshot": lens_snapshot,
@@ -2484,7 +2540,9 @@ def signals_get(request: Request, market: str = "kospi"):
     db.kv_set("crowding_last", {**crowd, "ts": int(time.time())})
     db.kv_set("desk_report_last", report)
     signal_policy_id = _signal_policy_id("kr", sigs)
-    lens_snapshot = _attach_lens_snapshot(items, market="kospi", signal_policy_id=signal_policy_id)
+    lens_snapshot = _attach_lens_snapshot(items, market="kospi", signal_policy_id=signal_policy_id,
+                                           observed_at=observed_at,
+                                           record_view_cohort=observed_at is None)
     return {"ready": True, "items": items, "slim": True, "crowding": crowd,
             "selection": sel, "desk_report": report,
             "signal_policy_id": signal_policy_id, "lens_snapshot": lens_snapshot,
@@ -3949,10 +4007,15 @@ def lens_forward_get(request: Request, market: str = "kr"):
     _admin_or_403(request)
     if market not in ("kr", "us"):
         raise HTTPException(400, "지원하지 않는 시장입니다")
-    cohorts = db.lens_forward_cohorts(market)
+    cohorts = db.lens_scheduled_cohorts(market)
     loader = store.load_price_history if market == "kr" else store.load_us_price_history
-    report = lens_forward.evaluate(cohorts, market, loader, price_marker=db.lens_forward_mark)
+    report = lens_forward.evaluate(cohorts, market, loader, price_marker=db.lens_forward_mark,
+                                   capture_source="scheduled",
+                                   expected_weeks=lens_forward.expected_capture_weeks(
+                                       market, datetime.datetime.now(datetime.timezone.utc)))
     report["promotion"] = lens_governance.assess(report)
+    report["capture_last"] = db.kv_get(f"lens_scheduled_capture_last:{market}")
+    report["legacy_view_cohorts_excluded"] = len(db.lens_forward_cohorts(market))
     return report
 
 
@@ -3961,7 +4024,7 @@ def scaling_readiness_get(request: Request):
     _admin_or_403(request)
     document_count = sum(db.kb_doc_counts().values())
     latency = db.kb_search_latency_summary()
-    cohorts = {market: len(db.lens_forward_cohorts(market)) for market in ("kr", "us")}
+    cohorts = {market: len(db.lens_scheduled_cohorts(market)) for market in ("kr", "us")}
     review_pending = db.kb_event_queue_status()["pending"]
     return scaling_readiness.assess(document_count=document_count, latency=latency,
                                     prospective_cohorts=cohorts, review_pending=review_pending)
