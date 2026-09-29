@@ -101,9 +101,38 @@ def test_first_observed_price_marks_survive_source_revision(tmp_path, monkeypatc
     def prices(end):
         return lambda _: [{"date": "2026-09-29", "close": 100},
                           {"date": "2026-10-07", "close": end}]
-    first = lens_forward.evaluate([cohort], "kr", prices(110), now=now,
-                                  price_marker=db.lens_forward_mark)
-    revised = lens_forward.evaluate([cohort], "kr", prices(999), now=now,
-                                    price_marker=db.lens_forward_mark)
+    unmarked = lens_forward.evaluate([cohort], "kr", prices(110), now=now,
+                                     price_marker=db.lens_scheduled_price_mark)
+    assert unmarked["exclusions"]["진입·청산 정시 표식 누락"] == 1
+    # 예전 관리자 조회 원장은 별도 보존하지만 새 정시 연구의 가격으로 승격하지 않는다.
+    db.lens_forward_mark("kr", cohort["snapshot_id"], "AAA", "2026-09-29", 100)
+    db.lens_forward_mark("kr", cohort["snapshot_id"], "AAA", "2026-10-07", 999)
+    still_unmarked = lens_forward.evaluate([cohort], "kr", prices(110), now=now,
+                                           price_marker=db.lens_scheduled_price_mark)
+    assert still_unmarked["independent_episodes"] == 0
+    entry_day = dt.datetime(2026, 9, 29, 16, 10, tzinfo=dt.timezone(dt.timedelta(hours=9)))
+    exit_day = dt.datetime(2026, 10, 7, 16, 10, tzinfo=dt.timezone(dt.timedelta(hours=9)))
+    entry = lens_forward.collect_price_marks([cohort], "kr", prices(110), db.lens_scheduled_price_mark,
+                                             now=entry_day)
+    exit_mark = lens_forward.collect_price_marks([cohort], "kr", prices(110), db.lens_scheduled_price_mark,
+                                                 now=exit_day)
+    assert entry["marked"] == 1 and exit_mark["marked"] == 1
+    first = lens_forward.evaluate([cohort], "kr", lambda _: 1 / 0, now=now,
+                                  price_marker=db.lens_scheduled_price_mark)
+    lens_forward.collect_price_marks([cohort], "kr", prices(999), db.lens_scheduled_price_mark,
+                                     now=exit_day)
+    revised = lens_forward.evaluate([cohort], "kr", lambda _: 1 / 0, now=now,
+                                    price_marker=db.lens_scheduled_price_mark)
     assert first["summary"]["base"]["mean_net_return"] == revised["summary"]["base"]["mean_net_return"]
-    assert db.lens_forward_mark("kr", cohort["snapshot_id"], "AAA", "2026-10-07", None) == 110
+    assert db.lens_scheduled_price_mark("kr", cohort["snapshot_id"], "AAA", "2026-10-07", None) == 110
+
+
+def test_missed_mark_window_cannot_be_backfilled(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cohort = _cohort()
+    prices = lambda _: [{"date": "2026-09-29", "close": 100},
+                        {"date": "2026-10-07", "close": 110}]
+    late = dt.datetime(2026, 10, 8, 16, 10, tzinfo=dt.timezone(dt.timedelta(hours=9)))
+    status = lens_forward.collect_price_marks([cohort], "kr", prices, db.lens_scheduled_price_mark, now=late)
+    assert status["marked"] == 0
+    assert db.lens_scheduled_price_mark("kr", cohort["snapshot_id"], "AAA", "2026-10-07", None) is None
