@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS lens_forward_marks(
     market TEXT NOT NULL, snapshot_id TEXT NOT NULL, ticker TEXT NOT NULL,
     price_session TEXT NOT NULL, price REAL NOT NULL, observed_at INTEGER NOT NULL,
     PRIMARY KEY(market,snapshot_id,ticker,price_session));
+-- 이전 관리자 조회가 처음 채운 가격과 섞지 않는 일일 정시 종가 원장.
+CREATE TABLE IF NOT EXISTS lens_scheduled_price_marks(
+    market TEXT NOT NULL, snapshot_id TEXT NOT NULL, ticker TEXT NOT NULL,
+    price_session TEXT NOT NULL, price REAL NOT NULL, observed_at INTEGER NOT NULL,
+    PRIMARY KEY(market,snapshot_id,ticker,price_session));
 -- 운영 검색 지연의 소량 표본. 질의 텍스트는 저장하지 않는다.
 CREATE TABLE IF NOT EXISTS kb_search_latency_samples(
     id INTEGER PRIMARY KEY AUTOINCREMENT, observed_at INTEGER NOT NULL,
@@ -1328,6 +1333,29 @@ def lens_forward_mark(market: str, snapshot_id: str, ticker: str,
                       "(market,snapshot_id,ticker,price_session,price,observed_at) VALUES(?,?,?,?,?,?)",
                       (market, snapshot_id, ticker, price_session, value, int(time.time())))
         row = c.execute("SELECT price FROM lens_forward_marks WHERE market=? AND snapshot_id=? "
+                        "AND ticker=? AND price_session=?",
+                        (market, snapshot_id, ticker, price_session)).fetchone()
+        c.commit()
+        return float(row[0]) if row else None
+    finally:
+        c.close()
+
+
+def lens_scheduled_price_mark(market: str, snapshot_id: str, ticker: str,
+                              price_session: str, price: float | None) -> float | None:
+    """일일 고정 창이 쓴 첫 종가만 반환. None이면 조회 전용이다."""
+    import math
+    value = float(price) if price is not None else None
+    if market not in ("kr", "us") or not snapshot_id or not ticker or \
+            (value is not None and (not math.isfinite(value) or value <= 0)):
+        raise ValueError("invalid scheduled price mark")
+    c = conn()
+    try:
+        if value is not None:
+            c.execute("INSERT OR IGNORE INTO lens_scheduled_price_marks"
+                      "(market,snapshot_id,ticker,price_session,price,observed_at) VALUES(?,?,?,?,?,?)",
+                      (market, snapshot_id, ticker, price_session, value, int(time.time())))
+        row = c.execute("SELECT price FROM lens_scheduled_price_marks WHERE market=? AND snapshot_id=? "
                         "AND ticker=? AND price_session=?",
                         (market, snapshot_id, ticker, price_session)).fetchone()
         c.commit()

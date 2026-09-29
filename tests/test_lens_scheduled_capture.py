@@ -34,6 +34,13 @@ def test_expected_weeks_count_missed_calendar_windows():
     assert lens_forward.expected_capture_weeks("us", after) == ["2026-W41"]
 
 
+def test_daily_price_mark_window_uses_each_market_close():
+    kst_after_close = dt.datetime(2026, 10, 6, 16, 10, tzinfo=KST)
+    assert lens_forward.daily_mark_window("kr", kst_after_close)["session"] == "2026-10-06"
+    assert lens_forward.daily_mark_window("us", kst_after_close)["session"] == "2026-10-05"
+    assert lens_forward.daily_mark_window("us", kst_after_close.replace(hour=21)) is None
+
+
 def test_scheduled_capture_is_separate_from_user_view_and_immutable(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     now = dt.datetime(2026, 10, 6, 16, 10, tzinfo=KST)
@@ -85,3 +92,4 @@ def test_week_mismatch_and_unwired_loop_are_rejected(tmp_path, monkeypatch):
     source = (Path(__file__).resolve().parents[1] / "src/signal_desk/api.py").read_text()
     loop = source.split("def _bot_loop_iteration(", 1)[1].split("\ndef ", 1)[0]
     assert "_maybe_capture_scheduled_lens(mkt, now)" in loop
+    assert "lens_forward.collect_price_marks(cohorts, mkt, loader, db.lens_scheduled_price_mark" in loop

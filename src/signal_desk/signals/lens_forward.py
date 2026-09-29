@@ -36,22 +36,88 @@ def scheduled_capture_window(market: str, now: dt.datetime) -> dict | None:
     미국은 그 거래일의 다음 KST 날짜에 국내 일일 시세 갱신이 끝난 뒤 동결한다.
     창을 놓치면 사후 유리한 시각을 선택하지 않고 그 주는 결손으로 둔다.
     """
-    if market not in _ZONES or now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError("valid market and timezone-aware now required")
-    session = market_clock.latest_completed_session(market, now)
-    if not session or session < SCHEDULE_START:
+    daily = daily_mark_window(market, now)
+    if not daily or daily["session"] < SCHEDULE_START:
         return None
+    session = daily["session"]
     previous = market_clock.previous_session(market, session)
     current_date = dt.date.fromisoformat(session)
     if previous and dt.date.fromisoformat(previous).isocalendar()[:2] == current_date.isocalendar()[:2]:
+        return None
+    year, week, _ = current_date.isocalendar()
+    return {"market": market, "session": session, "iso_week": f"{year}-W{week:02d}"}
+
+
+def daily_mark_window(market: str, now: dt.datetime) -> dict | None:
+    """그날 첫 종가를 관측할 수 있는 KST 16~21시. 이 창 밖 가격은 사후 표식 금지."""
+    if market not in _ZONES or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("valid market and timezone-aware now required")
+    session = market_clock.latest_completed_session(market, now)
+    if not session:
         return None
     local = now.astimezone(ZoneInfo("Asia/Seoul"))
     close = market_clock._calendar(market).schedule.loc[session]["close"].to_pydatetime()
     capture_date = close.astimezone(ZoneInfo("Asia/Seoul")).date()
     if local.date() != capture_date or not 16 <= local.hour < 21:
         return None
-    year, week, _ = current_date.isocalendar()
-    return {"market": market, "session": session, "iso_week": f"{year}-W{week:02d}"}
+    return {"market": market, "session": session}
+
+
+def collect_price_marks(cohorts: list[dict], market: str, price_loader, mark_writer, *,
+                        now: dt.datetime | None = None) -> dict:
+    """진입·청산일의 원천 종가를 정해진 당일 창에만 처음 관측·고정한다."""
+    now = now or dt.datetime.now(dt.timezone.utc)
+    window = daily_mark_window(market, now)
+    if not window:
+        return {"status": "outside_window", "market": market, "marked": 0, "missing": 0}
+    session = window["session"]
+    cache: dict[str, dict[str, float]] = {}
+    marked = missing = due = 0
+    for cohort in cohorts:
+        snapshot = cohort.get("snapshot") or {}
+        if snapshot.get("market") != market or snapshot.get("mode") != "read_only" \
+                or int(cohort.get("observed_at") or 0) > int(now.timestamp()):
+            continue
+        observed = dt.datetime.fromtimestamp(int(cohort["observed_at"]), dt.timezone.utc)
+        local_day = observed.astimezone(ZoneInfo(_ZONES[market])).date().isoformat()
+        anchor = local_day if market_clock.is_session(market, local_day) else \
+            market_clock.latest_completed_session(market, observed)
+        sessions = market_clock.next_sessions(market, anchor, HOLD_SESSIONS + 1) if anchor else []
+        if not sessions or session not in (sessions[0], sessions[-1]):
+            continue
+        expected_bar = market_clock.latest_completed_session(market, observed)
+        ranked = sorted(enumerate(snapshot.get("rows") or []), key=lambda pair: (
+            int(pair[1]["rank"]) if str(pair[1].get("rank", "")).isdigit() else 999999,
+            pair[0]))
+        buy_rows = [row for _, row in ranked if row.get("kind") in ("BUY", "STRONG_BUY")]
+        if any(((row.get("lenses") or {}).get("quant") or {}).get("as_of") != expected_bar
+               for row in buy_rows):
+            continue
+        picked = [row for row in buy_rows if _candidate(row, expected_bar)][:SLOTS]
+        for row in picked:
+            ticker = str(row.get("ticker") or "")
+            if not ticker:
+                continue
+            due += 1
+            if ticker not in cache:
+                try:
+                    cache[ticker] = _close_map(price_loader(ticker))
+                except Exception:  # noqa: BLE001 — 원천 실패를 성공 표식으로 만들지 않는다
+                    cache[ticker] = {}
+            value = cache[ticker].get(session)
+            if value is None:
+                missing += 1
+                continue
+            try:
+                stored = mark_writer(market, cohort["snapshot_id"], ticker, session, value)
+            except Exception:  # noqa: BLE001 — 원장 실패는 기록 누락으로 남긴다
+                stored = None
+            if stored is None:
+                missing += 1
+            else:
+                marked += 1
+    return {"status": "complete" if not missing else "price_missing", "market": market,
+            "session": session, "due": due, "marked": marked, "missing": missing}
 
 
 def expected_capture_weeks(market: str, now: dt.datetime) -> list[str]:
@@ -180,26 +246,27 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
             if not ticker:
                 missing = True
                 break
-            if ticker not in cache:
-                try:
-                    cache[ticker] = _close_map(price_loader(ticker))
-                except Exception:  # noqa: BLE001 — 원천 조회 실패는 연구 표본 제외
-                    cache[ticker] = {}
-            prices = cache[ticker]
-            entry_price, exit_price = prices.get(entry), prices.get(exit_day)
             if price_marker:
                 try:
-                    entry_price = price_marker(market, cohort["snapshot_id"], ticker, entry, entry_price)
-                    exit_price = price_marker(market, cohort["snapshot_id"], ticker, exit_day, exit_price)
-                except Exception:  # noqa: BLE001 — 원장 실패면 현재값으로 계속 평가하지 않는다
+                    entry_price = price_marker(market, cohort["snapshot_id"], ticker, entry, None)
+                    exit_price = price_marker(market, cohort["snapshot_id"], ticker, exit_day, None)
+                except Exception:  # noqa: BLE001 — 원장 실패면 현재 시세로 대체하지 않는다
                     missing = True
                     break
+            else:
+                if ticker not in cache:
+                    try:
+                        cache[ticker] = _close_map(price_loader(ticker))
+                    except Exception:  # noqa: BLE001 — 원천 조회 실패는 연구 표본 제외
+                        cache[ticker] = {}
+                prices = cache[ticker]
+                entry_price, exit_price = prices.get(entry), prices.get(exit_day)
             if entry_price is None or exit_price is None:
                 missing = True
                 break
             slot_returns[ticker] = exit_price / entry_price - 1.0 - 2 * SIDE_COST
         if missing:
-            skip("진입·청산 종가 누락")
+            skip("진입·청산 정시 표식 누락" if price_marker else "진입·청산 종가 누락")
             continue
         comparison = {}
         for combo in COMBOS:
