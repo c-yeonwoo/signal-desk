@@ -62,6 +62,12 @@ CREATE TABLE IF NOT EXISTS lens_scheduled_price_marks(
     market TEXT NOT NULL, snapshot_id TEXT NOT NULL, ticker TEXT NOT NULL,
     price_session TEXT NOT NULL, price REAL NOT NULL, observed_at INTEGER NOT NULL,
     PRIMARY KEY(market,snapshot_id,ticker,price_session));
+-- 원천 수정주가가 정시 원장과 달라지면 최초 차이를 보존하고 해당 회차 평가를 중단한다.
+CREATE TABLE IF NOT EXISTS lens_scheduled_price_halts(
+    market TEXT NOT NULL, snapshot_id TEXT NOT NULL, ticker TEXT NOT NULL,
+    price_session TEXT NOT NULL, marked_price REAL NOT NULL, revised_price REAL NOT NULL,
+    detected_at INTEGER NOT NULL,
+    PRIMARY KEY(market,snapshot_id,ticker,price_session));
 -- 운영 검색 지연의 소량 표본. 질의 텍스트는 저장하지 않는다.
 CREATE TABLE IF NOT EXISTS kb_search_latency_samples(
     id INTEGER PRIMARY KEY AUTOINCREMENT, observed_at INTEGER NOT NULL,
@@ -1360,6 +1366,56 @@ def lens_scheduled_price_mark(market: str, snapshot_id: str, ticker: str,
                         (market, snapshot_id, ticker, price_session)).fetchone()
         c.commit()
         return float(row[0]) if row else None
+    finally:
+        c.close()
+
+
+def lens_scheduled_price_marks(market: str) -> list[dict]:
+    if market not in ("kr", "us"):
+        raise ValueError("invalid lens market")
+    c = conn()
+    try:
+        rows = c.execute("SELECT snapshot_id,ticker,price_session,price FROM lens_scheduled_price_marks "
+                         "WHERE market=? ORDER BY price_session,snapshot_id,ticker", (market,)).fetchall()
+        return [{"snapshot_id": sid, "ticker": ticker, "price_session": session, "price": float(price)}
+                for sid, ticker, session, price in rows]
+    finally:
+        c.close()
+
+
+def lens_scheduled_price_halt_add(market: str, snapshot_id: str, ticker: str,
+                                  price_session: str, marked_price: float,
+                                  revised_price: float) -> bool:
+    import math
+    if market not in ("kr", "us") or not snapshot_id or not ticker or \
+            not all(math.isfinite(float(p)) and float(p) > 0 for p in (marked_price, revised_price)):
+        raise ValueError("invalid scheduled price revision")
+    c = conn()
+    try:
+        row = c.execute("SELECT price FROM lens_scheduled_price_marks WHERE market=? AND snapshot_id=? "
+                        "AND ticker=? AND price_session=?",
+                        (market, snapshot_id, ticker, price_session)).fetchone()
+        if row is None or not math.isclose(float(row[0]), marked_price, rel_tol=1e-9):
+            raise ValueError("scheduled mark provenance mismatch")
+        cur = c.execute("INSERT OR IGNORE INTO lens_scheduled_price_halts"
+                        "(market,snapshot_id,ticker,price_session,marked_price,revised_price,detected_at) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (market, snapshot_id, ticker, price_session, float(marked_price),
+                         float(revised_price), int(time.time())))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def lens_scheduled_price_halt_keys(market: str) -> set[tuple[str, str, str]]:
+    if market not in ("kr", "us"):
+        raise ValueError("invalid lens market")
+    c = conn()
+    try:
+        rows = c.execute("SELECT snapshot_id,ticker,price_session FROM lens_scheduled_price_halts "
+                         "WHERE market=?", (market,)).fetchall()
+        return {(sid, ticker, session) for sid, ticker, session in rows}
     finally:
         c.close()
 

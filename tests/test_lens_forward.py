@@ -136,3 +136,56 @@ def test_missed_mark_window_cannot_be_backfilled(tmp_path, monkeypatch):
     status = lens_forward.collect_price_marks([cohort], "kr", prices, db.lens_scheduled_price_mark, now=late)
     assert status["marked"] == 0
     assert db.lens_scheduled_price_mark("kr", cohort["snapshot_id"], "AAA", "2026-10-07", None) is None
+
+
+def test_later_source_revision_halts_episode_without_rewriting_mark(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cohort = _cohort()
+    sid = cohort["snapshot_id"]
+    db.lens_scheduled_price_mark("kr", sid, "AAA", "2026-09-29", 100)
+    db.lens_scheduled_price_mark("kr", sid, "AAA", "2026-10-07", 110)
+    marks = db.lens_scheduled_price_marks("kr")
+    now = dt.datetime(2026, 10, 8, 16, 10, tzinfo=dt.timezone(dt.timedelta(hours=9)))
+    prices = lambda _: [{"date": "2026-09-29", "close": 100},
+                        {"date": "2026-10-07", "close": 55}]
+    status = lens_forward.audit_price_revisions(marks, "kr", prices,
+                                                 db.lens_scheduled_price_halt_add, now=now)
+    assert status["checked"] == 2 and status["new_halts"] == 1
+    assert db.lens_scheduled_price_mark("kr", sid, "AAA", "2026-10-07", None) == 110
+    again = lens_forward.audit_price_revisions(marks, "kr", prices,
+                                                db.lens_scheduled_price_halt_add, now=now)
+    assert again["new_halts"] == 0
+    result = lens_forward.evaluate([cohort], "kr", lambda _: 1 / 0, now=now,
+                                   price_marker=db.lens_scheduled_price_mark,
+                                   halted_marks=db.lens_scheduled_price_halt_keys("kr"))
+    assert result["independent_episodes"] == 0
+    assert result["exclusions"]["원천 가격 수정 감지"] == 1
+    assert db.lens_scheduled_price_halt_keys("kr") == {(sid, "AAA", "2026-10-07")}
+
+
+def test_revision_audit_ignores_same_day_and_unavailable_source(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db.lens_scheduled_price_mark("kr", "s", "AAA", "2026-10-08", 100)
+    db.lens_scheduled_price_mark("kr", "s", "BBB", "2026-10-07", 100)
+    now = dt.datetime(2026, 10, 8, 16, 10, tzinfo=dt.timezone(dt.timedelta(hours=9)))
+    status = lens_forward.audit_price_revisions(db.lens_scheduled_price_marks("kr"), "kr",
+              lambda _: [{"date": "2026-10-08", "close": 50}],
+              db.lens_scheduled_price_halt_add, now=now)
+    assert status["source_missing"] == 1 and status["new_halts"] == 0
+    assert db.lens_scheduled_price_halt_keys("kr") == set()
+    with pytest.raises(ValueError, match="provenance"):
+        db.lens_scheduled_price_halt_add("kr", "s", "BBB", "2026-10-07", 999, 50)
+
+
+def test_overlapping_interval_not_selected_based_on_price_gap():
+    first = _cohort()
+    second = _cohort("2026-10-01")
+    first["snapshot"]["rows"][0]["ticker"] = "NO_PRICE"
+    second["snapshot"]["rows"][0]["ticker"] = "HAS_PRICE"
+    prices = lambda ticker: [] if ticker == "NO_PRICE" else [
+        {"date": "2026-10-02", "close": 100}, {"date": "2026-10-12", "close": 110}]
+    result = lens_forward.evaluate([first, second], "kr", prices,
+                                   now=dt.datetime(2026, 10, 20, tzinfo=dt.timezone.utc))
+    assert result["independent_episodes"] == 0
+    assert result["exclusions"]["진입·청산 종가 누락"] == 1
+    assert result["exclusions"]["보유 구간 겹침"] == 1

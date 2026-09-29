@@ -500,6 +500,13 @@ def _bot_loop_iteration() -> None:
             marks = lens_forward.collect_price_marks(cohorts, mkt, loader, db.lens_scheduled_price_mark, now=now)
             if marks.get("due"):
                 db.kv_set(f"lens_forward_marks_last:{mkt}", {**marks, "at": now.isoformat()})
+            audit_key = f"lens_forward_revision_audit_date:{mkt}"
+            if db.kv_get(audit_key) != lens_forward.daily_mark_window(mkt, now)["session"]:
+                audit = lens_forward.audit_price_revisions(
+                    db.lens_scheduled_price_marks(mkt), mkt, loader,
+                    db.lens_scheduled_price_halt_add, now=now)
+                db.kv_set(f"lens_forward_revision_audit_last:{mkt}", {**audit, "at": now.isoformat()})
+                db.kv_set(audit_key, audit["session"])
         except Exception as e:
             log.warning("렌즈 정시 가격 표식 실패(%s): %s", mkt, type(e).__name__)
     for mkt in ("kr", "us"):
@@ -4023,11 +4030,14 @@ def lens_forward_get(request: Request, market: str = "kr"):
     loader = store.load_price_history if market == "kr" else store.load_us_price_history
     report = lens_forward.evaluate(cohorts, market, loader, price_marker=db.lens_scheduled_price_mark,
                                    capture_source="scheduled",
+                                   halted_marks=db.lens_scheduled_price_halt_keys(market),
                                    expected_weeks=lens_forward.expected_capture_weeks(
                                        market, datetime.datetime.now(datetime.timezone.utc)))
     report["promotion"] = lens_governance.assess(report)
     report["capture_last"] = db.kv_get(f"lens_scheduled_capture_last:{market}")
     report["marks_last"] = db.kv_get(f"lens_forward_marks_last:{market}")
+    report["revision_audit_last"] = db.kv_get(f"lens_forward_revision_audit_last:{market}")
+    report["revision_halt_count"] = len(db.lens_scheduled_price_halt_keys(market))
     report["legacy_view_cohorts_excluded"] = len(db.lens_forward_cohorts(market))
     return report
 
