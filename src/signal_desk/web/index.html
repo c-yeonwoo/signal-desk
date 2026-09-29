@@ -1041,8 +1041,9 @@
             <button data-mkt="us" onclick="switchSignalMarket('us')">해외</button>
           </div>
           <input id="sig-search" class="ctrl" type="search" placeholder="종목명·코드 검색" aria-label="종목명·코드 검색" oninput="renderSignalList()">
-          <select id="sig-sort" class="ctrl" aria-label="시그널 목록 정렬" onchange="renderSignalList()">
-            <option value="signal">시그널순</option>
+          <select id="sig-sort" class="ctrl" aria-label="시그널 목록 정렬" title="시그널순: 최종 판정별 매수 우선 · 같은 판정은 점수순" onchange="renderSignalList()">
+            <option value="signal">시그널순 (매수 우선)</option>
+            <option value="score">점수순 (참고)</option>
             <option value="mktcap">시총순</option>
             <option value="volume">거래량순</option>
           </select>
@@ -3723,16 +3724,16 @@ function applySignalData(d, bt){
   }
   _lensSnapshot = d.lens_snapshot || null;
   _signalItems = Object.fromEntries(d.items.map(r => [r.ticker, r]));
-  _signalRows = d.items;  // API 순서 = 점수 내림차순(시그널순 기본값)
+  _signalRows = d.items;  // 원본 순서는 보존하고, 목록에서 선택한 정렬만 적용한다.
   el.className = '';
   populateScreenSectors();
   renderScreenPresets();
-  renderSignalList();
+  const firstVisibleTicker = renderSignalList();
   // 선택 우선순위: 밸류체인 딥링크 > 기존 선택(현 시장에 존재) > 1위. 기존 선택이 그대로면 재선택 생략(차트 재로딩 방지).
   const pending = (_pendingSignalTicker && _signalItems[_pendingSignalTicker]) ? _pendingSignalTicker : null;
   if (pending) { _pendingSignalTicker = null; selectSignalRow(pending); }
   else if (_selectedTicker && _signalItems[_selectedTicker]) { /* 유지 — 리스트가 이미 하이라이트 */ }
-  else selectSignalRow(d.items[0].ticker);
+  else if (firstVisibleTicker) selectSignalRow(firstVisibleTicker);
 }
 
 async function loadSignals(opts){
@@ -3990,6 +3991,19 @@ async function loadRelativeStrength(){  // 상대강도 리더보드(시장 대�
       r.addEventListener('click', () => selectSignalRow(r.dataset.ticker)));
   } catch(e){ card.style.display = 'none'; }
 }
+// 화면의 '시그널순'은 원점수가 아닌 최종 판정을 따른다. 안전장치로 관망이 된
+// 고득점 종목이 실제 매수 후보보다 위에 오르지 않게 한다. 매매 엔진/API의 순서는 변경하지 않는다.
+const _SIGNAL_KIND_ORDER = { STRONG_BUY: 0, BUY: 1, HOLD: 2, SELL: 3, STRONG_SELL: 4 };
+function sortSignalRows(rows, sort){
+  if (sort !== 'signal' && sort !== 'score') return rows;
+  const score = r => Number.isFinite(Number(r.score)) ? Number(r.score) : -Infinity;
+  return [...rows].sort((a, b) => {
+    const kindOrder = sort === 'signal'
+      ? (_SIGNAL_KIND_ORDER[a.kind] ?? 5) - (_SIGNAL_KIND_ORDER[b.kind] ?? 5) : 0;
+    return kindOrder || score(b) - score(a)
+      || String(a.ticker).localeCompare(String(b.ticker));
+  });
+}
 function renderSignalList(){
   const el = document.getElementById('signal-body');
   if (!_signalRows) return;
@@ -4020,10 +4034,10 @@ function renderSignalList(){
   const nn = (x) => (x == null ? -Infinity : x);  // 값 없으면 뒤로
   if (sort === 'mktcap') rows = [...rows].sort((a, b) => nn(capKrw(b)) - nn(capKrw(a)));
   else if (sort === 'volume') rows = [...rows].sort((a, b) => nn(b.vol_avg) - nn(a.vol_avg));
-  // 'signal'은 API 기본 순서(점수 내림차순) 유지
+  else rows = sortSignalRows(rows, sort);
   const metric = (r) => sort === 'mktcap' ? fmtCap(r)
     : sort === 'volume' ? '평균 ' + fmtVol(r.vol_avg)
-    : (r.score > 0 ? '+' : '') + fmtNum(r.score, 2);
+    : '점수 ' + (r.score > 0 ? '+' : '') + fmtNum(r.score, 2);
   const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
   // 기회 뱃지: 필터 중이거나 매수권일 때만 최대 1개 — 전 행 나열은 스캔을 죽인다
   const badges = (r) => {
@@ -4076,9 +4090,8 @@ function renderSignalList(){
   // "시그널 있는데 근거 낮음"도 조건이 성립하지 않는다 — 근거가 낮으면 **애초에 매수권에서
   // 빠지므로**(실측 저커버리지 31건 중 매수권 0건) 그 조합은 존재할 수 없다.
   //
-  // 남는 진짜 함정: **점수는 매수 문턱을 넘는데 근거가 부족한 것.** 목록이 점수순이라
-  // 그런 종목이 화면 맨 위로 올라온다(실측 1위: 점수 3.00 · 근거 24% · HOLD).
-  // 살 뻔했는데 못 사는 자리이고, 설명이 필요한 자리도 거기뿐이다. 실측 31건 → 6건.
+  // 남는 진짜 함정: **점수는 매수 문턱을 넘는데 근거가 부족한 것.** 점수순을
+  // 선택하면 상단에 오를 수 있지만, 시그널순에서는 매수 후보 뒤에 둔다.
   const covTraps = (r) => !!r.low_coverage && r.score != null && r.score >= buyScoreFloor();
   const covBadge = (r) => {
     const c = r.data_coverage;
@@ -4107,7 +4120,7 @@ function renderSignalList(){
   };
   const body = rows.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}" title="${r.sector ? esc(r.sector) : ''}">
       <td>${star(r.ticker)}</td>
-      <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}${sort === 'signal' ? covBadge(r) : ''}</div>${badges(r)}</td>
+      <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}${sort === 'signal' || sort === 'score' ? covBadge(r) : ''}</div>${badges(r)}</td>
       <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}</td>
       <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(sigPillTitle(r))}">${kindLabel(r.kind)}</span>${holdNote(r)}</div></td>
     </tr>`).join('');
@@ -4161,6 +4174,7 @@ function renderSignalList(){
   if (tbl) { applySigColWidths(tbl); bindSigColResize(tbl); }
   // 경로 ③ — 목록을 다시 그리면 드릴 행도 같이 날아간다. 선택된 종목이 있으면 다시 끼운다.
   try { _drillSync(); } catch (e) {}
+  return rows[0]?.ticker;
 }
 
 // 시그널 표 열 너비 — 별 열 고정, 종목·섹터·시그널 % 합 100. 드래그로 조절·localStorage 유지.
@@ -4641,8 +4655,8 @@ function renderTodayCard(){
       + `<div>${whyThr} 점수가 모자라거나 안전장치가 막으면 자리가 빕니다.`
       + (nearN ? ` 가까운 종목 <b>${nearN}</b>개.` : ' 관심종목을 넣으면 대기 리스트가 채워집니다.')
       + `</div>`;
-    // 근접 5종목 목록을 여기 두지 않는다. **바로 아래 표의 상위 5행과 같은 종목**이고
-    // (기본 정렬이 시그널순이므로 항상 그렇다) 표는 섹터·시그널 배지·관심★까지 더 보여준다.
+    // 근접 5종목 목록을 여기 두지 않는다. 바로 아래 표에서 '근접만'으로 볼 수 있고,
+    // 표는 섹터·시그널 배지·관심★까지 더 보여준다.
     // 유일한 추가 정보였던 `문턱까지`는 실측에서 5행 전부 **0.00**이었다 — 이 종목들은 문턱을
     // 이미 통과했고 게이트로 막힌 것이라(헤더가 `문턱 통과 31 > 창 6자리`라고 말한다)
     // "문턱에 아직 못 미쳤다"는 반대 인상을 준다. 중복인데다 오해를 만들었다.
