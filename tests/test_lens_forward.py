@@ -60,7 +60,26 @@ def test_missing_price_and_stale_input_fail_closed():
     assert missing["exclusions"]["진입·청산 종가 누락"] == 1
     cohort["snapshot"]["rows"][0]["lenses"]["quant"]["as_of"] = "2026-09-24"
     stale = lens_forward.evaluate([cohort], "kr", lambda _: [], now=now)
-    assert stale["exclusions"]["당시 유효 매수 후보 없음"] == 1
+    assert stale["exclusions"]["매수 후보 가격 기준 불일치"] == 1
+
+
+def test_no_buy_signal_is_a_cash_week_not_a_missing_week():
+    cohort = _cohort()
+    cohort["snapshot"]["rows"][0]["kind"] = "HOLD"
+    result = lens_forward.evaluate([cohort], "kr", lambda _: 1 / 0,
+              now=dt.datetime(2026, 10, 8, 9, tzinfo=dt.timezone.utc))
+    assert result["independent_episodes"] == 1
+    assert result["episodes"][0]["candidate_count"] == 0
+    assert result["summary"]["base"]["mean_net_return"] == 0
+
+
+def test_missing_scheduled_week_is_reported_not_backfilled():
+    cohort = _cohort()
+    result = lens_forward.evaluate([cohort], "kr", lambda _: [],
+             now=dt.datetime(2026, 10, 8, 9, tzinfo=dt.timezone.utc),
+             capture_source="scheduled", expected_weeks=["2026-W40", "2026-W41"])
+    assert result["capture_coverage"] == .5
+    assert result["missing_capture_weeks"] == ["2026-W41"]
 
 
 def test_overlapping_weeks_are_not_independent():

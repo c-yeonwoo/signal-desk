@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS lens_forward_cohorts(
     observed_at INTEGER NOT NULL, PRIMARY KEY(market,iso_week));
 CREATE INDEX IF NOT EXISTS idx_lens_forward_cohorts_recent
     ON lens_forward_cohorts(market,observed_at DESC);
+-- 사용자 조회 기반 표본과 섞지 않는 정시 연구 표본. 첫 동결은 교체 불가.
+CREATE TABLE IF NOT EXISTS lens_scheduled_cohorts(
+    market TEXT NOT NULL, iso_week TEXT NOT NULL, price_session TEXT NOT NULL,
+    snapshot_id TEXT NOT NULL, observed_at INTEGER NOT NULL,
+    PRIMARY KEY(market,iso_week));
+CREATE INDEX IF NOT EXISTS idx_lens_scheduled_cohorts_recent
+    ON lens_scheduled_cohorts(market,observed_at DESC);
 -- 평가 시 처음 읽은 종가를 보존해 이후 데이터 수정으로 과거 성과가 바뀌지 않게 한다.
 CREATE TABLE IF NOT EXISTS lens_forward_marks(
     market TEXT NOT NULL, snapshot_id TEXT NOT NULL, ticker TEXT NOT NULL,
@@ -1251,6 +1258,58 @@ def lens_forward_cohorts(market: str, limit: int = 200) -> list[dict]:
         return [{"iso_week": week, "snapshot_id": sid, "observed_at": observed,
                  "snapshot": json.loads(zlib.decompress(payload))}
                 for week, sid, observed, payload in reversed(rows)]
+    finally:
+        c.close()
+
+
+def lens_scheduled_cohort_freeze(market: str, iso_week: str, price_session: str,
+                                  snapshot_id: str, observed_at: int) -> bool:
+    """정해진 마감 관측 주차당 한 번. 조회 기반 표본으로 덮을 수 없다."""
+    if market not in ("kr", "us") or not iso_week or not price_session or not snapshot_id:
+        raise ValueError("invalid scheduled lens cohort")
+    year, week, _ = datetime.date.fromisoformat(price_session).isocalendar()
+    if iso_week != f"{year}-W{week:02d}":
+        raise ValueError("scheduled session/week mismatch")
+    c = conn()
+    try:
+        row = c.execute("SELECT market,payload FROM lens_snapshots WHERE id=?", (snapshot_id,)).fetchone()
+        if not row or row[0] != market:
+            raise ValueError("snapshot must exist for the same market")
+        snapshot = json.loads(zlib.decompress(row[1]))
+        if snapshot.get("mode") != "read_only" or snapshot.get("order_eligible") is not False \
+                or int(snapshot.get("observed_at") or 0) > int(observed_at):
+            raise ValueError("invalid scheduled snapshot provenance")
+        cur = c.execute("INSERT OR IGNORE INTO lens_scheduled_cohorts"
+                        "(market,iso_week,price_session,snapshot_id,observed_at) VALUES(?,?,?,?,?)",
+                        (market, iso_week, price_session, snapshot_id, int(observed_at)))
+        c.commit()
+        return cur.rowcount == 1
+    finally:
+        c.close()
+
+
+def lens_scheduled_cohort_exists(market: str, iso_week: str) -> bool:
+    c = conn()
+    try:
+        return c.execute("SELECT 1 FROM lens_scheduled_cohorts WHERE market=? AND iso_week=?",
+                         (market, iso_week)).fetchone() is not None
+    finally:
+        c.close()
+
+
+def lens_scheduled_cohorts(market: str, limit: int = 200) -> list[dict]:
+    if market not in ("kr", "us"):
+        raise ValueError("invalid lens market")
+    c = conn()
+    try:
+        rows = c.execute("SELECT c.iso_week,c.price_session,c.snapshot_id,c.observed_at,s.payload "
+                         "FROM lens_scheduled_cohorts c JOIN lens_snapshots s ON s.id=c.snapshot_id "
+                         "WHERE c.market=? ORDER BY c.observed_at DESC LIMIT ?",
+                         (market, min(max(int(limit), 1), 1000))).fetchall()
+        return [{"iso_week": week, "price_session": session, "snapshot_id": sid,
+                 "observed_at": observed, "capture_source": "scheduled",
+                 "snapshot": json.loads(zlib.decompress(payload))}
+                for week, session, sid, observed, payload in reversed(rows)]
     finally:
         c.close()
 

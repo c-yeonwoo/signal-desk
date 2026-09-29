@@ -14,6 +14,8 @@ HOLD_SESSIONS = 5
 SIDE_COST = 0.002  # 체결·수수료의 보수적 연구 가정; 실측 비용이 아니다.
 MIN_INDEPENDENT_COHORTS = 20
 _ZONES = {"kr": "Asia/Seoul", "us": "America/New_York"}
+MIN_FRESH_FRACTION = .95
+SCHEDULE_START = "2026-10-05"  # 이 배포 다음의 첫 완전한 주; 과거 소급 동결 금지.
 COMBOS = {
     "base": "기본 매수 후보",
     "event": "확인된 호재까지",
@@ -26,6 +28,59 @@ def iso_week(market: str, observed_at: int) -> str:
     local = dt.datetime.fromtimestamp(observed_at, dt.timezone.utc).astimezone(ZoneInfo(_ZONES[market]))
     year, week, _ = local.isocalendar()
     return f"{year}-W{week:02d}"
+
+
+def scheduled_capture_window(market: str, now: dt.datetime) -> dict | None:
+    """각 시장 첫 거래일 마감 후 정해진 KST 16~21시에만 표본을 만든다.
+
+    미국은 그 거래일의 다음 KST 날짜에 국내 일일 시세 갱신이 끝난 뒤 동결한다.
+    창을 놓치면 사후 유리한 시각을 선택하지 않고 그 주는 결손으로 둔다.
+    """
+    if market not in _ZONES or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("valid market and timezone-aware now required")
+    session = market_clock.latest_completed_session(market, now)
+    if not session or session < SCHEDULE_START:
+        return None
+    previous = market_clock.previous_session(market, session)
+    current_date = dt.date.fromisoformat(session)
+    if previous and dt.date.fromisoformat(previous).isocalendar()[:2] == current_date.isocalendar()[:2]:
+        return None
+    local = now.astimezone(ZoneInfo("Asia/Seoul"))
+    close = market_clock._calendar(market).schedule.loc[session]["close"].to_pydatetime()
+    capture_date = close.astimezone(ZoneInfo("Asia/Seoul")).date()
+    if local.date() != capture_date or not 16 <= local.hour < 21:
+        return None
+    year, week, _ = current_date.isocalendar()
+    return {"market": market, "session": session, "iso_week": f"{year}-W{week:02d}"}
+
+
+def expected_capture_weeks(market: str, now: dt.datetime) -> list[str]:
+    """정시 창이 끝난 거래 주차. 서비스가 꺼져 놓친 주도 분모에서 숨기지 않는다."""
+    if market not in _ZONES or now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("valid market and timezone-aware now required")
+    start = dt.date.fromisoformat(SCHEDULE_START)
+    end = now.astimezone(ZoneInfo(_ZONES[market])).date()
+    if end < start:
+        return []
+    calendar = market_clock._calendar(market)
+    end = min(end, calendar.last_session.date())
+    try:
+        sessions = calendar.sessions_in_range(start.isoformat(), end.isoformat())
+    except (KeyError, ValueError):
+        return []
+    weeks = []
+    for stamp in sessions:
+        day = stamp.date()
+        year, week, _ = day.isocalendar()
+        key = f"{year}-W{week:02d}"
+        if key in weeks:
+            continue
+        close = calendar.schedule.loc[day.isoformat()]["close"].to_pydatetime()
+        capture_day = close.astimezone(ZoneInfo("Asia/Seoul")).date()
+        window_end = dt.datetime.combine(capture_day, dt.time(21), ZoneInfo("Asia/Seoul"))
+        if now >= window_end:
+            weeks.append(key)
+    return weeks
 
 
 def _close_map(history: list[dict]) -> dict[str, float]:
@@ -67,7 +122,8 @@ def _drawdown(returns: list[float]) -> float:
 
 
 def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime | None = None,
-             price_marker=None) -> dict:
+             price_marker=None, capture_source: str = "unverified",
+             expected_weeks: list[str] | None = None) -> dict:
     """미래가 이미 완료된 표본만 읽고 동일 원본 후보를 네 방식으로 비교한다.
 
     종가 매수/매도는 실전 체결 가능 가격을 보장하지 않는다. 후보 10칸 중 미선정 칸은
@@ -75,6 +131,8 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
     """
     if market not in _ZONES:
         raise ValueError("invalid lens market")
+    if capture_source not in ("scheduled", "unverified"):
+        raise ValueError("invalid capture source")
     now = now or dt.datetime.now(dt.timezone.utc)
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("timezone-aware now required")
@@ -109,10 +167,12 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
         ranked = sorted(enumerate(raw), key=lambda pair: (
             int(pair[1]["rank"]) if str(pair[1].get("rank", "")).isdigit() else 999999,
             pair[0]))
-        picked = [row for _, row in ranked if _candidate(row, completed_at_decision)][:SLOTS]
-        if not picked:
-            skip("당시 유효 매수 후보 없음")
+        buy_rows = [row for _, row in ranked if row.get("kind") in ("BUY", "STRONG_BUY")]
+        if any(((row.get("lenses") or {}).get("quant") or {}).get("as_of") != completed_at_decision
+               for row in buy_rows):
+            skip("매수 후보 가격 기준 불일치")
             continue
+        picked = [row for row in buy_rows if _candidate(row, completed_at_decision)][:SLOTS]
         slot_returns = {}
         missing = False
         for row in picked:
@@ -171,9 +231,15 @@ def evaluate(cohorts: list[dict], market: str, price_loader, *, now: dt.datetime
             "mean_turnover": sum(ep["combos"][combo]["turnover"] for ep in episodes) / n if n else None,
             "max_episode_drawdown": _drawdown(returns) if n else None,
         }
+    expected = expected_weeks if expected_weeks is not None else []
+    observed_weeks = {str(c.get("iso_week")) for c in cohorts}
     return {"version": VERSION, "market": market, "mode": "research_only",
-            "live_eligible": False, "cohorts_seen": len(cohorts), "independent_episodes": len(episodes),
+            "live_eligible": False, "capture_source": capture_source,
+            "cohorts_seen": len(cohorts), "independent_episodes": len(episodes),
+            "expected_capture_weeks": len(expected),
+            "missing_capture_weeks": [w for w in expected if w not in observed_weeks],
+            "capture_coverage": len(observed_weeks.intersection(expected)) / len(expected) if expected else None,
             "minimum_episodes": MIN_INDEPENDENT_COHORTS,
             "cost_per_side": SIDE_COST, "slots": SLOTS, "hold_sessions": HOLD_SESSIONS,
             "exclusions": exclusions, "summary": summary, "episodes": episodes,
-            "note": "실제 체결·배당·세금·기업행동 보정이 없는 종가 연구 대용치입니다. 주문에 연결되지 않습니다."}
+            "note": "정시 원장만 비교합니다. 과거 조회 기반 표본은 제외합니다. 실제 체결·배당·세금·기업행동 보정이 없는 종가 연구 대용치이며 주문에 연결되지 않습니다."}
