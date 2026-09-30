@@ -1862,6 +1862,20 @@ def bot_trade_log(uid: int, ticker: str, name: str, side: str, qty: int, price: 
     c.close()
 
 
+def bot_trade_facts(uid: int, market: str = "kr") -> list[dict]:
+    """체결의 측면·사유·시각만. 최근 N건으로 자르지 않는다.
+
+    보유일과 매수 구성은 계좌 전체의 사실이다. LIMIT를 두면 오래된 손절이 조용히 빠지고
+    최근 추가매수만 남은 것처럼 보인다.
+    """
+    c = conn()
+    rows = c.execute("SELECT ticker,side,qty,reason,ts FROM bot_trades "
+                     "WHERE uid=? AND market=? ORDER BY ts,id", (uid, market)).fetchall()
+    c.close()
+    return [{"ticker": t, "side": s, "qty": q, "reason": r, "ts": ts}
+            for t, s, q, r, ts in rows]
+
+
 def bot_trades_recent(uid: int, limit: int = 20, market: str = "kr") -> list[dict]:
     c = conn()
     rows = c.execute("SELECT id,ticker,name,side,qty,price,reason,order_no,ts,score,note,reference_price,fees,"
@@ -4223,6 +4237,24 @@ def _tunable_param_names() -> list[str]:
 
 def _has_sharpe_col(c) -> bool:
     return "sharpe_json" in {r[1] for r in c.execute("PRAGMA table_info(harness_runs)")}
+
+
+def research_row_counts(market: str) -> dict:
+    """연구 원장 행 수. 페이로드를 풀어 수익률을 계산하지 않는다."""
+    c = conn()
+    try:
+        def n(sql: str, args: tuple = ()) -> int:
+            return int(c.execute(sql, args).fetchone()[0])
+        return {
+            "rotation": n("SELECT COUNT(*) FROM rotation_shadow_snapshots WHERE market=?", (market,)),
+            "price_baseline": n("SELECT COUNT(*) FROM price_baseline_snapshots WHERE market=?", (market,)),
+            "price_quality": n("SELECT COUNT(*) FROM price_quality_snapshots WHERE market=?", (market,)),
+            "revision": n("SELECT COUNT(*) FROM revision_price_snapshots"),
+            "relation": n("SELECT COUNT(*) FROM relation_event_snapshots"),
+            "flow": n("SELECT COUNT(*) FROM flow_shock_snapshots"),
+        }
+    finally:
+        c.close()
 
 
 def harness_sharpes(*, market: str | None = None) -> list[float]:

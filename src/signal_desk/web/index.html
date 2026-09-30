@@ -5727,6 +5727,41 @@ async function loadBotCosts(seq, market, style){
   if (el) el.innerHTML = InvestmentGuide.renderCosts(d);
 }
 
+const _TRADE_REASON = {
+  SIGNAL: '신규', ADD: '추가', ROTATE_IN: '교체 매수', RESERVATION: '예약', COPY: '추종',
+  STOP_LOSS: '손절', TRAILING: '트레일링', TAKE_PROFIT: '익절', ROTATE_OUT: '교체 매도',
+  EVENT: '사건', EVENT_TRIM: '사건 축소',
+};
+
+function _mixLine(bag, title){
+  if (!bag) return '';
+  const part = (obj) => Object.entries(obj || {}).filter(([, n]) => n)
+    .map(([k, n]) => `${_TRADE_REASON[k] || k} ${n}`).join(' · ');
+  const buys = part(bag.buys);
+  const sells = part(bag.sells);
+  if (!bag.n) return bag.reason ? `${title}: ${esc(bag.reason)}` : '';
+  return `${title} ${bag.n}건: 매수 ${buys || '없음'} · 매도 ${sells || '없음'}`;
+}
+
+function _holdLine(h, title){
+  if (!h) return '';
+  if (h.median_days == null) return h.reason ? `${title}: ${esc(h.reason)}` : '';
+  const gap = h.mismatch ? ` · ${esc(h.mismatch)}` : '';
+  return `${title} 보유 중위 ${fmtNum(h.median_days, 2)}달력일${gap}`;
+}
+
+function _roadmapNote(road){
+  if (!road || !road.ok) return '';
+  const steps = (road.steps || []).map(s => {
+    const prog = s.matured_blocks != null ? ` ${s.matured_blocks}/${s.next_look || 12}` : '';
+    return `<b>${s.order}. ${esc(s.title)}</b>${prog} — ${esc(s.reason || '')}`;
+  }).join('<br>');
+  const champ = road.champion && road.champion.changes ? esc(road.champion.changes) : '';
+  return `<div style="margin-top:10px;font-size:var(--fs-xs);line-height:1.55;color:var(--dim)">`
+    + `${champ}<br>${steps}`
+    + `<br>이 순서는 주문에 연결되어 있지 않습니다. 연구 수익률은 여기에 싣지 않습니다.</div>`;
+}
+
 async function loadReferencePerf(seq = _botLoadSeq, market = _botMarket, style = _ledgerStyle){
   const el = document.getElementById('reference-perf');
   if (!el) return;
@@ -5757,7 +5792,8 @@ async function loadReferencePerf(seq = _botLoadSeq, market = _botMarket, style =
       <tbody>${rows}</tbody></table>
       ${_styleVerdictNote(d)}
       <div style="color:var(--dim-2);font-size:var(--fs-2xs);margin-top:6px">같은 시그널, 다른 규칙 강도로 집행한 결과 — 시그널 실측과는 다른 지표입니다.
-      성향은 <b>후보를 좁히지 않고 종목당 비중으로</b> 갈립니다(안정 6% · 균형 8% · 공격 14%).</div>`;
+      성향은 <b>후보를 좁히지 않고 종목당 비중으로</b> 갈립니다(안정 6% · 균형 8% · 공격 14%).</div>
+      ${_roadmapNote(d.roadmap)}`;
     loadBotPerformance(d, style);
   } catch (e) { if (seq !== _botLoadSeq) return; el.className = 'placeholder'; el.textContent = '성과 비교를 불러오지 못했습니다. 봇을 다시 선택해 주세요.'; document.getElementById('bot-perf-summary').textContent = '날짜별 기록 조회 실패'; }
 }
@@ -5791,11 +5827,19 @@ function loadBotPerformance(all, style){
     const exTxt = ex == null ? '' :
       ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">비교 기준보다 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
       + `<span style="color:var(--dim-2)"> (${esc(d.comparison_window?.join('~') || '비교 기간 미확인')} · 기준선 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
+    const holdLine = _holdLine(d.holding, '전체');
+    const sinceLine = _holdLine(d.holding_since_exit_policy, '청산 규칙 변경 이후');
+    const mixAll = _mixLine(d.trades && d.trades.all, '체결 구성');
+    const mixSince = _mixLine(d.trades && d.trades.since_exit_policy, '변경 이후 체결');
     sumEl.innerHTML = `<b>계좌 수익률 ${rTxt}</b>${exTxt}`
       + (ex == null ? `<span style="color:var(--dim-2)"> · 상대 비교 보류: ${esc(d.benchmark_basis || '기준선 없음')}</span>` : '')
       + `<span style="color:var(--dim-2)"> · 초기자금 대비</span>`
       + ` · ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최고점 대비 최대 하락 ${fmtNum(d.max_drawdown_pct, 1)}%`
-      + ` · ${d.days}일 · 거래 ${d.n_trades}건`;
+      + ` · ${d.days}일 · 거래 ${d.n_trades}건`
+      + (holdLine ? `<div style="margin-top:6px;color:var(--fg)">${holdLine}</div>` : '')
+      + (sinceLine ? `<div style="color:var(--dim)">${sinceLine}</div>` : '')
+      + (mixAll ? `<div style="color:var(--dim)">${mixAll}</div>` : '')
+      + (mixSince ? `<div style="color:var(--dim)">${mixSince}</div>` : '');
     const curve = d.curve || [];
     if (_botEquityChart) { _botEquityChart.dispose(); _botEquityChart = null; }
     if (!curve.length) {

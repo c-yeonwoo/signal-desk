@@ -1133,8 +1133,7 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
         peak = te if peak is None else max(peak, te)
         if peak:
             mdd = min(mdd, te / peak - 1)
-    trades = db.bot_trades_recent(uid, 500, market)
-    sells = [t for t in trades if t["side"] == "sell"]
+    composition = trade_composition(uid, market)
     comparison_curve = curve
     if market == "us" and universe_history:
         # 미국은 매 세션 실제로 관측한 멤버십이 있어야 한다. 최초 도입 전/수집 누락
@@ -1175,7 +1174,11 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
         "excess_return_pct": (round(comparable - bench, 2)
                               if (comparable is not None and bench is not None) else None),
         "max_drawdown_pct": round(mdd * 100, 2), "days": len(curve),
-        "n_trades": len(trades), "n_sells": len(sells),
+        "n_trades": composition["all"]["n"],
+        "n_sells": sum(composition["all"]["sells"].values()),
+        "trades": composition,
+        "holding_since_exit_policy": holding_period_stats(
+            uid, market, closed_on_or_after=EXIT_POLICY_SESSION),
         "curve": curve,
     }
 
@@ -1246,7 +1249,14 @@ def reference_performance(market: str = "kr") -> dict:
                      # 실제 보유일 — 측정 지평과 얼마나 어긋나는지 장부에 같이 싣는다.
                      # 안 실으면 "h20에서 +9.9%p"와 "1.3일 만에 나갔다"가 한 화면에 안 보인다.
                      "holding": holding_period_stats(uid, market)})
-    return {"market": market, "currency": "USD" if market == "us" else "KRW", "bots": bots}
+    from signal_desk.signals import roadmap_status
+    try:
+        roadmap = roadmap_status.for_market(market)
+    except Exception as e:  # noqa: BLE001 — 연구 진척이 장부 수익률을 가리면 안 된다
+        log.warning("연구 진척 조회 실패: %s", type(e).__name__)
+        roadmap = {"ok": False, "live_eligible": False, "reason": "연구 진척을 읽지 못했습니다"}
+    return {"market": market, "currency": "USD" if market == "us" else "KRW",
+            "bots": bots, "roadmap": roadmap}
 
 
 def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
@@ -1411,7 +1421,51 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
 
 # 손해 경보 문턱 — 초과수익 **상한**이 이 값 아래로 확정되면 경고한다. 0이 아니라 살짝
 # 아래인 이유: 정확히 0 근처는 늘 걸려 매주 우는 늑대가 된다(신선도 오탐에서 배운 것).
-def holding_period_stats(uid: int, market: str = "kr", limit: int = 2000) -> dict:
+# 트레일링을 이익 구간에서만 켜고 청산 폭을 종목 변동성 배수로 바꾼 세션.
+# 그 전 체결과 그 후 체결을 한 평균으로 묶으면 고친 규칙의 보유·매도 사유가 안 보인다.
+EXIT_POLICY_SESSION = "2026-09-07"
+
+
+def _trade_session(ts: float, market: str) -> str:
+    zone = _KST if market == "kr" else ZoneInfo("America/New_York")
+    return datetime.datetime.fromtimestamp(float(ts), zone).date().isoformat()
+
+
+def trade_composition(uid: int, market: str = "kr") -> dict:
+    """매수·매도 사유 구성. 최근 N건이 아니라 장부 전체다.
+
+    추가매수와 교체가 신규 시그널보다 많으면, 점수 리프트와 계좌 수익이 다른 이유가
+    종목 선택이 아니라 회전이다.
+    """
+    rows = db.bot_trade_facts(uid, market)
+
+    def bucket(keep) -> dict:
+        buys: dict[str, int] = {}
+        sells: dict[str, int] = {}
+        other: dict[str, int] = {}
+        n = 0
+        for row in rows:
+            if not keep(row):
+                continue
+            n += 1
+            key = row.get("reason") or "UNKNOWN"
+            target = buys if row["side"] == "buy" else sells if row["side"] == "sell" else other
+            target[key] = target.get(key, 0) + 1
+        return {"n": n, "buys": buys, "sells": sells, "other": other}
+
+    since = bucket(lambda row: _trade_session(row["ts"] or 0, market) >= EXIT_POLICY_SESSION)
+    if since["n"] == 0:
+        since["reason"] = f"{EXIT_POLICY_SESSION} 이후 체결 없음"
+    return {
+        "from_session": EXIT_POLICY_SESSION,
+        "note": "청산 규칙을 이익 구간 트레일링과 변동성 배수로 바꾼 세션 기준.",
+        "all": bucket(lambda _row: True),
+        "since_exit_policy": since,
+    }
+
+
+def holding_period_stats(uid: int, market: str = "kr", *,
+                         closed_on_or_after: str | None = None) -> dict:
     """**실제로 며칠 들고 있었나** — 체결 이력을 FIFO로 맞춰 보유일을 센다.
 
     왜 세야 하나(2026-09-06 진단): 이 리포에는 지평이 **넷** 있는데 서로 다르다.
@@ -1429,10 +1483,11 @@ def holding_period_stats(uid: int, market: str = "kr", limit: int = 2000) -> dic
     """
     from signal_desk import db
 
-    rows = sorted(db.bot_trades_recent(uid, limit, market), key=lambda t: t["ts"])
+    rows = db.bot_trade_facts(uid, market)
     open_lots: dict[str, list[list[float]]] = {}       # ticker -> [[ts, qty], ...] FIFO
     held_days: list[float] = []
     weights: list[float] = []
+    saw_earlier_close = False
     for t in rows:
         tick, qty, ts = t["ticker"], float(t["qty"] or 0), float(t["ts"] or 0)
         if qty <= 0:
@@ -1440,13 +1495,18 @@ def holding_period_stats(uid: int, market: str = "kr", limit: int = 2000) -> dic
         if t["side"] == "buy":
             open_lots.setdefault(tick, []).append([ts, qty])
             continue
+        in_window = (closed_on_or_after is None
+                     or _trade_session(ts, market) >= closed_on_or_after)
+        if not in_window:
+            saw_earlier_close = True
         lots = open_lots.get(tick) or []
         remaining = qty
         while remaining > 0 and lots:
             lot_ts, lot_qty = lots[0]
             take = min(remaining, lot_qty)
-            held_days.append((ts - lot_ts) / 86400.0)
-            weights.append(take)
+            if in_window:
+                held_days.append((ts - lot_ts) / 86400.0)
+                weights.append(take)
             lot_qty -= take
             remaining -= take
             if lot_qty <= 0:
@@ -1467,7 +1527,10 @@ def holding_period_stats(uid: int, market: str = "kr", limit: int = 2000) -> dic
         "unit": "달력일",
     }
     if not held_days:
-        out["reason"] = "청산된 로트 없음 — 아직 한 바퀴도 안 돌았거나 체결 이력이 비었다"
+        if closed_on_or_after and saw_earlier_close:
+            out["reason"] = f"{closed_on_or_after} 이후 청산된 로트 없음 — 그 전 청산은 옛 청산 규칙이다"
+        else:
+            out["reason"] = "청산된 로트 없음 — 아직 한 바퀴도 안 돌았거나 체결 이력이 비었다"
         return out
     tot = sum(weights) or 1.0
     out["mean_days"] = round(sum(d * w for d, w in zip(held_days, weights)) / tot, 2)
