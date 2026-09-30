@@ -27,11 +27,18 @@ def _r11(market: str, completed: str | None) -> dict:
         matured = sum(1 for _ep, end in selected if completed and end <= completed)
         styles.append({
             "style": style,
+            "observed_sessions": len(rows),
             "divergent_episodes": len(eligible),
             "nonoverlap_blocks": len(selected),
             "matured_blocks": matured,
         })
     slowest = min((s["matured_blocks"] for s in styles), default=0)
+    observed = min((s["observed_sessions"] for s in styles), default=0)
+    if observed == 0:
+        observed_line = f"관측 0세션 · 갈라진 비중첩 블록 {slowest}/{_NEXT}."
+    else:
+        observed_line = (f"관측 {observed}세션 · 주문 계획이 갈라진 비중첩 블록 {slowest}/{_NEXT}. "
+                         "두 정책의 동결 주문이 같으면 블록이 늘지 않습니다.")
     return {
         "id": "r11",
         "order": 2,
@@ -40,10 +47,11 @@ def _r11(market: str, completed: str | None) -> dict:
         "live_eligible": False,
         "auto_promote": False,
         "next_look": _NEXT,
+        "observed_sessions": observed,
         "matured_blocks": slowest,
         "styles": styles,
         "status": "awaiting_oos" if slowest < _NEXT else "look_ready_admin_only",
-        "reason": (f"비중첩 20거래일 블록 {slowest}/{_NEXT}. "
+        "reason": (f"{observed_line} "
                    "비용 후 차이는 관리자 판정에서만 보고, 여기 숫자로 주문을 바꾸지 않습니다."),
     }
 

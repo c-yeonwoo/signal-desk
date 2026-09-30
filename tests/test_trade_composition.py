@@ -90,6 +90,28 @@ def test_roadmap_does_not_carry_a_return(fresh):
     assert all(s["live_eligible"] is False for s in out["steps"])
     assert "net_delta" not in blob and "return_pct" not in blob
     assert out["champion"]["frozen"] is True
+    assert out["steps"][0]["observed_sessions"] == 0
+    assert "관측 0세션" in out["steps"][0]["reason"]
+
+
+def test_roadmap_counts_same_plan_observations_without_a_return(fresh):
+    from signal_desk.signals import rotation_shadow
+    payload = {
+        "version": rotation_shadow.VERSION,
+        "decisions": {
+            "champion_rotation_proxy": {"fixed_orders": []},
+            "s0_rank_buffer": {"fixed_orders": []},
+        },
+    }
+    for uid in (900001, 900002, 900003):
+        assert db.rotation_shadow_add_once(uid, "kr", "2026-09-28", payload)
+    out = roadmap_status.for_market("kr")
+    step = out["steps"][0]
+    assert step["observed_sessions"] == 1
+    assert step["matured_blocks"] == 0
+    assert "관측 1세션" in step["reason"]
+    assert "갈라진" in step["reason"]
+    assert "net_delta" not in json.dumps(out)
 
 
 def test_screen_shows_the_mix_and_the_order_without_a_research_return():

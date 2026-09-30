@@ -50,9 +50,9 @@ def test_since_seed_return_is_not_subtracted_from_shorter_benchmark_window(tmp_p
     db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 1_000_000.0, "positions": {}}))
     db.bot_equity_record(UID, "kr", "2026-09-22", 900_000, 900_000, 0)
     db.bot_equity_record(UID, "kr", "2026-09-23", 990_000, 990_000, 0)
-    monkeypatch.setattr(bot.performance_evidence, "pit_equal_weight_curve", lambda *a, **k: [
+    monkeypatch.setattr(bot.performance_evidence, "pit_equal_weight_detail", lambda *a, **k: ([
         {"date": "2026-09-22", "total_eval": 1.0},
-        {"date": "2026-09-23", "total_eval": 1.05}])
+        {"date": "2026-09-23", "total_eval": 1.05}], None))
     out = bot.performance(UID)
     assert out["return_pct"] == 0.0              # 현재 계좌 / 시드
     assert out["comparison_return_pct"] == 10.0   # 기록된 첫날 / 마지막날

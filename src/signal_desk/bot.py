@@ -1145,7 +1145,7 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
             if known_by not in universe_history:
                 start = i + 1
         comparison_curve = comparison_curve[start:]
-    bench_curve = performance_evidence.pit_equal_weight_curve(
+    bench_curve, gap = performance_evidence.pit_equal_weight_detail(
         comparison_curve, market, dated_closes=dated_closes, universe_history=universe_history)
     bench = round((bench_curve[-1]["total_eval"] - 1) * 100, 2) if bench_curve else None
     if bench_curve:
@@ -1156,7 +1156,7 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
     elif market == "us" and len(comparison_curve) < 2:
         basis = "비교 불가 — 연속 관측 세션 2개 미만"
     else:
-        basis = "비교 불가 — 과거 구성종목/가격/세션 누락"
+        basis = gap or "비교 불가 — 과거 구성종목/가격/세션 누락"
     comparable = (round((comparison_curve[-1]["total_eval"] / comparison_curve[0]["total_eval"] - 1) * 100, 2)
                   if len(comparison_curve) >= 2 and comparison_curve[0]["total_eval"] > 0 else None)
     return {
