@@ -115,7 +115,9 @@ window.InvestmentHome = (() => {
       const paper = await read(`/api/reference-performance?market=${mkt}`);
       if (seq !== requestId) return;
       const bot = paper && (paper.bots || []).find(b=>b.style===style);
-      put('home-paper-sub',`${label[style]} · ${currency} · 초기자금 대비 · 모의 장부`);
+      const hold = bot && bot.holding && bot.holding.median_days != null
+        ? ` · 보유 중위 ${bot.holding.median_days}달력일` : '';
+      put('home-paper-sub',`${label[style]} · ${currency} · 초기자금 대비 · 모의 장부${hold}`);
       put('home-paper-return',bot ? percent(bot.return_pct) : '자료 없음');
       const comparable = plot(bot && (bot.comparison_curve || bot.curve), bot && bot.benchmark_curve);
       put('home-chart-caption',bot && (bot.curve || []).length >= 2
