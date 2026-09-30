@@ -24,13 +24,19 @@ def test_pit_benchmark_refuses_missing_delisted_price(monkeypatch):
     monkeypatch.setattr(evidence.store, "universe_at", lambda _: [{"ticker": "A"}, {"ticker": "DELISTED"}])
     monkeypatch.setattr(evidence.store, "load_all_dated_closes", lambda: {
         "A": (days, [100.0, 110.0]), "DELISTED": ([days[0]], [100.0])})
-    assert evidence.pit_equal_weight_curve([{"date": d} for d in days]) is None
+    curve = [{"date": d} for d in days]
+    assert evidence.pit_equal_weight_curve(curve) is None
+    _built, reason = evidence.pit_equal_weight_detail(curve)
+    assert reason == "비교 불가 — 2026-09-22→2026-09-23 가격 결측 1종목 (DELISTED)"
 
 
 def test_pit_benchmark_refuses_missing_account_session(monkeypatch):
     called = []
     monkeypatch.setattr(evidence.store, "load_all_dated_closes", lambda: called.append(True) or {})
-    assert evidence.pit_equal_weight_curve([{"date": "2026-09-22"}, {"date": "2026-09-28"}]) is None
+    curve = [{"date": "2026-09-22"}, {"date": "2026-09-28"}]
+    assert evidence.pit_equal_weight_curve(curve) is None
+    _built, reason = evidence.pit_equal_weight_detail(curve)
+    assert "2026-09-22→2026-09-28" in reason and "연속 거래세션 아님" in reason
     assert called == []  # 세션 불연속이면 가격을 읽기도 전에 기권
 
 

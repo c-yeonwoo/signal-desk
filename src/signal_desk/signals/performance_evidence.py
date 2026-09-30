@@ -16,13 +16,23 @@ def pit_equal_weight_curve(curve: list[dict], market: str = "kr", *,
                            dated_closes: dict | None = None,
                            universe_history: dict | None = None) -> list[dict] | None:
     """매 세션 시작 시점 유니버스를 같은 비중으로 보유한 비용 전 종가 NAV(첫날=1)."""
+    built, _reason = pit_equal_weight_detail(
+        curve, market, dated_closes=dated_closes, universe_history=universe_history)
+    return built
+
+
+def pit_equal_weight_detail(curve: list[dict], market: str = "kr", *,
+                            dated_closes: dict | None = None,
+                            universe_history: dict | None = None) -> tuple[list[dict] | None, str | None]:
+    """NAV와, 기권일 때의 첫 결손. 결손은 보간하지 않고 날짜·종목 수만 남긴다."""
     if market not in ("kr", "us") or len(curve) < 2:
-        return None
+        return None, "비교 불가 — 평가일 2개 미만"
     days = [str(p.get("date") or "") for p in curve]
     if days != sorted(set(days)):
-        return None
-    if any(not market_clock.consecutive_sessions(market, a, b) for a, b in zip(days, days[1:])):
-        return None
+        return None, "비교 불가 — 평가일 중복 또는 역순"
+    for a, b in zip(days, days[1:]):
+        if not market_clock.consecutive_sessions(market, a, b):
+            return None, f"비교 불가 — {a}→{b} 연속 거래세션 아님"
     try:
         market_closes = (dated_closes if dated_closes is not None else
                          store.load_market_dated_closes("us") if market == "us"
@@ -47,19 +57,25 @@ def pit_equal_weight_curve(curve: list[dict], market: str = "kr", *,
             tickers = {str(u.get("ticker") or "") for u in (universe or [])}
             tickers.discard("")
             if not tickers:
-                return None
+                return None, f"비교 불가 — {known_by or a} 시점 구성종목 없음"
             ratios = []
-            for ticker in tickers:
+            missing = []
+            for ticker in sorted(tickers):
                 series = closes.get(ticker) or {}
                 old, new = series.get(a), series.get(b)
                 if not old or not new or old <= 0 or new <= 0 or not math.isfinite(old * new):
-                    return None
+                    missing.append(ticker)
+                    continue
                 ratios.append(new / old)
+            if missing:
+                shown = ", ".join(missing[:3])
+                extra = f" 외 {len(missing) - 3}" if len(missing) > 3 else ""
+                return None, f"비교 불가 — {a}→{b} 가격 결측 {len(missing)}종목 ({shown}{extra})"
             nav *= sum(ratios) / len(ratios)
             out.append({"date": b, "total_eval": nav})
-        return out
+        return out, None
     except Exception:  # noqa: BLE001 — 기준선 캐시 장애가 계좌 원장을 가리지 않도록 기권
-        return None
+        return None, "비교 불가 — 기준선 계산 실패"
 
 
 def paired_harm(curve: list[dict], benchmark_curve: list[dict] | None, *,
