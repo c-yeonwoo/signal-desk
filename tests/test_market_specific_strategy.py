@@ -120,6 +120,32 @@ def test_us_universe_is_refreshed_once_after_its_own_close(tmp_path, monkeypatch
     assert len(calls) == 1
 
 
+def test_us_universe_snapshot_keeps_the_session_after_new_york_midnight(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    items = [{"ticker": f"US{i:03d}"} for i in range(500)]
+    # 2026-10-01 15:40 KST = 02:40 ET. 뉴욕 날짜는 10-01이지만 완료 세션은 09-30이다.
+    at = dt.datetime(2026, 10, 1, 6, 40, tzinfo=dt.timezone.utc)
+    assert store._snapshot_us_universe(items, at)
+    assert list(store.load_us_universe_history()) == ["2026-09-30"]
+    weekend = dt.datetime(2026, 10, 3, 17, 0, tzinfo=dt.timezone.utc)  # 10-02 마감 후 21시간
+    assert not store._snapshot_us_universe(items, weekend)
+    assert list(store.load_us_universe_history()) == ["2026-09-30"]
+
+
+def test_us_universe_refresh_runs_at_kst_afternoon_and_not_after_20h(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    calls = []
+    monkeypatch.setattr(api.store, "fetch_us_universe", lambda: calls.append(True) or
+                        [{"ticker": f"US{i:03d}"} for i in range(500)])
+    afternoon = dt.datetime(2026, 10, 1, 6, 40, tzinfo=dt.timezone.utc)
+    assert api._maybe_refresh_us_universe(afternoon)
+    assert calls == [True]
+    assert db.kv_get("us_universe_observed_session") == "2026-09-30"
+    calls.clear()
+    assert not api._maybe_refresh_us_universe(dt.datetime(2026, 10, 3, 17, 0, tzinfo=dt.timezone.utc))
+    assert calls == []
+
+
 def test_us_benchmark_starts_only_after_observed_membership(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     days = ["2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25"]

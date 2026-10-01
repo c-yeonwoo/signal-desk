@@ -586,11 +586,13 @@ def _bot_loop_iteration() -> None:
 
 
 def _maybe_refresh_us_universe(now: datetime.datetime) -> bool:
-    """미국 마감 후 S&P 500 구성종목을 새로 관측한다. 시점 이전으로 소급하지 않는다."""
+    """미국 마감 후 S&P 500 구성종목을 그 세션으로 관측한다. 시점 이전으로 소급하지 않는다.
+
+    국내 15:40은 뉴욕 날짜가 이미 다음 날이다. 날짜가 다르다는 이유만으로 건너뛰면
+    그 세션 구성이 영원히 안 남고, 비교 창이 마지막 구멍 뒤로 잘린 채 유지된다.
+    """
     session = market_clock.latest_completed_session("us", now)
     if not session or market_clock.is_open("us", now) or db.kv_get("us_universe_observed_session") == session:
-        return False
-    if now.astimezone(ZoneInfo("America/New_York")).date().isoformat() != session:
         return False
     close = market_clock._calendar("us").schedule.loc[session]["close"].to_pydatetime()
     age = now.astimezone(datetime.timezone.utc) - close
