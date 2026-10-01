@@ -12,6 +12,31 @@ import random
 from signal_desk import market_clock, store
 
 
+def session_points(curve: list[dict], market: str) -> tuple[list[dict], list[str]]:
+    """거래 세션이 아닌 평가점은 비교 표본에서 뺀다. 뺀 날짜는 이름과 함께 돌려준다.
+
+    휴장일 평가를 세션 사이에 두면 연속 세션 검사가 곡선 전체를 기권한다.
+    그 점을 지우는 것이지, 비어 있는 거래일을 성과 0으로 잇지는 않는다.
+    """
+    kept: list[dict] = []
+    dropped: list[str] = []
+    for point in curve:
+        day = str(point.get("date") or "")
+        if market_clock.is_session(market, day):
+            kept.append(point)
+        else:
+            dropped.append(day)
+    return kept, dropped
+
+
+def non_session_note(dropped: list[str]) -> str:
+    if not dropped:
+        return ""
+    shown = ", ".join(dropped[:3])
+    extra = f" 외 {len(dropped) - 3}" if len(dropped) > 3 else ""
+    return f"비거래일 평가 {len(dropped)}건({shown}{extra})은 비교에서 제외"
+
+
 def pit_equal_weight_curve(curve: list[dict], market: str = "kr", *,
                            dated_closes: dict | None = None,
                            universe_history: dict | None = None) -> list[dict] | None:

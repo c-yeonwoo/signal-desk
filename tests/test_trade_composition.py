@@ -137,5 +137,8 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     inner = block.split("heroEl.innerHTML = ", 1)[1]
     assert inner.index("hero-metrics") < inner.index("hero-reason") < inner.index("${after}")
     assert "당시 메모" in src and "연구 순서 · 주문에 연결되어 있지 않습니다" in src
+    perf_fn = src.split("function loadBotPerformance", 1)[1].split("\nfunction ", 1)[0]
+    assert "ex != null && (d.excluded_non_sessions" in perf_fn
+    assert "비거래일 평가" in perf_fn
     summary = src.split("if (matureOk)", 1)[1].split("rows.push", 1)[0]
     assert "liftNote" in summary
