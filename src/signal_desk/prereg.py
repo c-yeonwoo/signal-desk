@@ -407,6 +407,38 @@ def progress(look: dict, *, effective_periods: int, pit_dates: int) -> dict:
     }
 
 
+def run_due(requirement: dict | None) -> bool:
+    """사전등록 하네스를 오늘 한 번 돌릴 시점인가.
+
+    실측 실효는 마지막 실행에 고정된다. 그 숫자만 90%와 비교하면, PIT가 그 뒤로
+    쌓여도 문턱에 영원히 못 미쳐 확정이 안 된다. 매일 돌리는 것은 매일 백분위를
+    보는 것이라 하지 않는다. 지난 실행 이후 날짜를 보유일수로 나눈 상한이 90%를
+    넘을 때만 다시 돌린다. 추정 실효(아직 실행이 없음)는 날짜가 늘면 같이 오르므로
+    그 보정을 하지 않는다.
+    """
+    rq = requirement or {}
+    need_eff = int(rq.get("min_effective_periods") or 0)
+    need_pit = int(rq.get("min_pit_dates") or 0)
+    if not need_eff and not need_pit:
+        return False
+    eff = int(rq.get("effective_periods") or 0)
+    pit = int(rq.get("pit_dates") or 0)
+    if need_eff and eff < 0.9 * need_eff:
+        measured_pit = rq.get("measured_pit_dates")
+        if rq.get("effective_periods_source") != "measured" or measured_pit is None:
+            return False
+        added = pit - int(measured_pit)
+        hold = max(1, int(rq.get("hold") or 1))
+        if added < hold:
+            return False
+        eff += added // hold
+        if eff < 0.9 * need_eff:
+            return False
+    if need_pit and pit < 0.9 * need_pit:
+        return False
+    return True
+
+
 # ------------------------------------------------------- 파라미터 변경 게이트 (N2)
 
 def verdict_state(board: dict | None) -> tuple[bool, str]:

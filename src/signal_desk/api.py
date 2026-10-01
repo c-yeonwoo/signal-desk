@@ -869,16 +869,18 @@ def _daily_maintenance(enabled: list[str]) -> None:
     try:
         # 사전등록 판정 — 진척은 매일 세지만(스냅샷 날짜만 읽으므로 싸다) **하네스는 요건 90%
         # 도달 후에만** 돌린다. 매일 돌리면 매일 판정을 보게 되고 그게 곧 다중검정이다.
+        # 실측 실효는 마지막 실행에 고정되므로, 그 뒤 PIT만 늘면 `run_due`가 상한으로
+        # 한 번 다시 연다. 옛 실효만 보면 확정이 영원히 안 된다.
         # (2026-08-05 이전에는 "7일 이상 낡으면 가격 하네스 40시행"이었다. 가격 하네스는
         #  technical·reversion·momentum 셋만 재므로 더 이상 정본이 아니다 — 탐색 도구로 강등.)
+        from signal_desk import prereg
         board = store.harness_board("kr")
         if board.get("ready"):
             for lk in board.get("looks") or []:
                 if lk.get("status") != "pending":
                     continue
                 rq = lk.get("requirement") or {}
-                near = (rq.get("effective_periods", 0) >= 0.9 * max(1, rq.get("min_effective_periods", 1))
-                        and rq.get("pit_dates", 0) >= 0.9 * max(1, rq.get("min_pit_dates", 1)))
+                near = prereg.run_due(rq)
                 if near:
                     log.info("사전등록 요건 임박 — 하네스 실행: %s (실효 %s/%s · PIT %s/%s)",
                              lk["id"], rq.get("effective_periods"), rq.get("min_effective_periods"),
