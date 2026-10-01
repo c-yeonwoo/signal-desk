@@ -40,6 +40,25 @@ def test_pit_benchmark_refuses_missing_account_session(monkeypatch):
     assert called == []  # 세션 불연속이면 가격을 읽기도 전에 기권
 
 
+def test_session_points_drop_a_holiday_and_detail_still_refuses_it(monkeypatch):
+    curve = [
+        {"date": "2026-08-14", "total_eval": 100.0},
+        {"date": "2026-08-17", "total_eval": 150.0},  # 광복절 대체휴무
+        {"date": "2026-08-18", "total_eval": 110.0},
+        {"date": "2026-08-22", "total_eval": 200.0},  # 토요일
+    ]
+    kept, dropped = evidence.session_points(curve, "kr")
+    assert [p["date"] for p in kept] == ["2026-08-14", "2026-08-18"]
+    assert dropped == ["2026-08-17", "2026-08-22"]
+    note = evidence.non_session_note(dropped)
+    assert "2026-08-17" in note and "2026-08-22" in note and "비교에서 제외" in note
+    called = []
+    monkeypatch.setattr(evidence.store, "load_all_dated_closes", lambda: called.append(True) or {})
+    _built, reason = evidence.pit_equal_weight_detail(curve)
+    assert "2026-08-14→2026-08-17" in reason and "연속 거래세션 아님" in reason
+    assert called == []  # 휴장일 평가는 여기서 지우지 않는다. 표본 선택은 호출자 몫이다.
+
+
 def test_paired_harm_refuses_mismatched_dates():
     curve = [{"date": str(i), "total_eval": 100.0} for i in range(45)]
     bench = [{"date": str(i), "total_eval": 1.0} for i in range(44)] + [

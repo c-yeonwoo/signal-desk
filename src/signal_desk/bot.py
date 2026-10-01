@@ -1134,11 +1134,17 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
         if peak:
             mdd = min(mdd, te / peak - 1)
     composition = trade_composition(uid, market)
-    comparison_curve = curve
+    # 휴장·주말 평가는 세션 비교에 넣지 않는다. 미국 창을 자르기 전에 빼야
+    # 비거래일이 구성종목 누락으로 오인되어 앞 구간을 통째로 버리지 않는다.
+    session_curve, excluded_non_sessions = performance_evidence.session_points(curve, market)
+    comparison_curve = session_curve
     if market == "us" and universe_history:
         # 미국은 매 세션 실제로 관측한 멤버십이 있어야 한다. 최초 도입 전/수집 누락
         # 구간은 마지막 누락일 이후의 최대 60개 평가일만 비교한다.
-        comparison_curve = curve[-60:]
+        comparison_curve = session_curve[-60:]
+        if comparison_curve:
+            first = comparison_curve[0]["date"]
+            excluded_non_sessions = [d for d in excluded_non_sessions if d >= first]
         start = 0
         for i, point in enumerate(comparison_curve[:-1]):
             known_by = market_clock.previous_session("us", point["date"])
@@ -1157,6 +1163,9 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
         basis = "비교 불가 — 연속 관측 세션 2개 미만"
     else:
         basis = gap or "비교 불가 — 과거 구성종목/가격/세션 누락"
+    skipped = performance_evidence.non_session_note(excluded_non_sessions)
+    if skipped:
+        basis = f"{basis} · {skipped}"
     comparable = (round((comparison_curve[-1]["total_eval"] / comparison_curve[0]["total_eval"] - 1) * 100, 2)
                   if len(comparison_curve) >= 2 and comparison_curve[0]["total_eval"] > 0 else None)
     return {
@@ -1171,6 +1180,7 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
         "comparison_window": ([comparison_curve[0]["date"], comparison_curve[-1]["date"]]
                               if len(comparison_curve) >= 2 else None),
         "comparison_curve": comparison_curve if bench_curve else None,
+        "excluded_non_sessions": excluded_non_sessions,
         "excess_return_pct": (round(comparable - bench, 2)
                               if (comparable is not None and bench is not None) else None),
         "max_drawdown_pct": round(mdd * 100, 2), "days": len(curve),
