@@ -127,3 +127,15 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     follow = src.split("function _followGate(", 1)[1].split("\nfunction ", 1)[0]
     assert "percentile" not in follow
     assert "이 화면은 주문을 넣지 않습니다" in follow
+    signal = src.split('id="view-signal"', 1)[1].split('id="view-cycle"', 1)[0]
+    rebal = src.split('id="trading-rebal"', 1)[1].split('id="trading-live"', 1)[0]
+    assert 'id="investment-home"' not in signal
+    assert 'id="investment-home"' in rebal
+    block = src.split("점수와 올린 관점을 목표가", 1)[1].split("else heroEl.style.display", 1)[0]
+    upside = block.split("hero-upside", 1)[1].split("const after", 1)[0]
+    assert "sig-buy" not in upside
+    inner = block.split("heroEl.innerHTML = ", 1)[1]
+    assert inner.index("hero-metrics") < inner.index("hero-reason") < inner.index("${after}")
+    assert "당시 메모" in src and "연구 순서 · 주문에 연결되어 있지 않습니다" in src
+    summary = src.split("if (matureOk)", 1)[1].split("rows.push", 1)[0]
+    assert "liftNote" in summary

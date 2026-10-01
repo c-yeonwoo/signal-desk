@@ -332,6 +332,12 @@
   .detail-legend { margin-left:auto; display:inline-flex; align-items:center; gap:5px;
     font-size:var(--fs-2xs); color:var(--dim-2); padding:0 4px; }
   .detail-legend .lyr-dot { margin-left:6px; }
+  .detail-more { display:inline-flex; align-items:center; }
+  .detail-more[open] { display:contents; }
+  .detail-more summary { list-style:none; cursor:pointer; padding:8px 12px;
+    font-size:var(--fs-sm); font-weight:600; color:var(--dim); }
+  .detail-more summary::-webkit-details-marker { display:none; }
+  .detail-more summary:hover { color:var(--txt); }
   .detail-panels { margin-top:10px; min-height:210px; }  /* 탭 전환 시 카드·차트 높이 튐 방지 */
   /* 상세 패널은 자체 스크롤 없이 그대로 늘어남 → 차트 카드(.sig-chart-pane)만 스크롤.
      총 스크롤 = 브라우저 스크롤 + 차트 카드 스크롤 2개만. */
@@ -346,7 +352,10 @@
   .hero-card.SELL, .hero-card.STRONG_SELL { border-left-color:var(--sig-sell); }
   .hero-top { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
   .hero-price { font-size:21px; font-weight:700; color:var(--txt); }
-  .hero-reason { font-size:13px; color:var(--txt); margin:5px 0 6px; line-height:1.45; font-weight:600; }
+  .hero-reason { font-size:13px; color:var(--dim); margin:5px 0 0; line-height:1.45; font-weight:600; }
+  .hero-reason:empty { display:none; }
+  .hero-after { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:6px; font-size:13px; color:var(--dim); font-weight:600; }
+  .hero-upside b { color:var(--txt); font-weight:700; }
   .hero-metrics { display:flex; gap:14px; flex-wrap:wrap; font-size:13px; color:var(--dim); }
   .hero-metrics b { font-variant-numeric:tabular-nums; }
   .hero-runup { color:var(--sig-buy); font-weight:700; }
@@ -542,6 +551,9 @@
   #bot-trades-body table.dtable td.reasons { width:auto; min-width:0; }
   #bot-trades-body .trade-note { color:var(--dim); font-size:12px; margin-top:2px; line-height:1.45;
     white-space:normal; word-break:keep-all; overflow-wrap:anywhere; }
+  #bot-trades-body .trade-note summary { cursor:pointer; color:var(--dim-2); font-weight:600; }
+  #bot-perf-summary[hidden] { display:none; }
+  #bot-perf-summary { margin-bottom:14px; font-size:var(--fs-sm); line-height:1.55; }
   #signal-factors .fct-title { font-size:13px; font-weight:700; margin-bottom:6px; }
   .fct-row { display:flex; align-items:center; gap:8px; margin:3px 0; }
   .fct-label { flex:0 0 52px; font-size:13px; color:var(--dim); text-align:right; }
@@ -996,34 +1008,6 @@
 
 <main>
   <div id="view-signal" class="view-app" style="display:none">
-    <!-- /api/portfolio/latest 는 home.js 가 호출한다. 이 HTML 밖의 컴포넌트가 최신 저장 진단만 읽는다. -->
-    <section id="investment-home" class="home-desk" aria-label="오늘의 투자 상태">
-      <div class="home-heading"><div><span class="home-eyebrow">내 투자 데스크</span><h2>오늘의 투자 상태</h2></div><span id="home-market">국내 · 원</span></div>
-      <div class="home-status" aria-live="polite">
-        <span id="home-account">실계좌 확인 중…</span><span id="home-copy">추종 설정 확인 중…</span>
-        <span id="home-asof">진단 기준시각 확인 중…</span>
-      </div>
-      <div class="home-grid">
-        <div class="home-action">
-          <span class="home-kicker">내 행동 · 저장된 포트폴리오 진단</span>
-          <h3 id="home-action-title">내 보유 상태를 확인하는 중</h3>
-          <p id="home-action-why">진단이 없으면 입력을 보완하고, 새 진단 전에는 매매를 제안하지 않습니다.</p>
-          <p id="home-action-meta" class="home-small"></p>
-          <p id="home-next" class="home-next">다음 확인 조건 · 최신 보유·가격 입력이 준비되면 다시 진단</p>
-          <a class="home-link" href="#trading/rebal">포트폴리오 진단 보기 →</a>
-        </div>
-        <div class="home-results">
-          <span class="home-kicker">성과의 기준을 분리해서 보기</span>
-          <div class="home-result-row"><div><b>봇 모의투자</b><small id="home-paper-sub">선택 성향 · 초기자금 대비</small></div><strong id="home-paper-return">—</strong></div>
-          <div id="home-paper-chart" class="home-chart" aria-label="모의투자 계좌 금액 추이"></div>
-          <p id="home-chart-caption" class="home-small">기록된 순자산 경로 확인 중…</p>
-          <div class="home-result-row home-minor"><div><b>실계좌 보유주식</b><small>당일 변동 참고값 · 계좌 전체 수익률 아님</small></div><strong id="home-real-return">—</strong></div>
-          <div class="home-result-row home-minor"><div><b>시그널 실측</b><small>매수 판정의 사후 채점 · 계좌 수익률 아님</small></div><button type="button" class="linkish" onclick="document.getElementById('signal-trust').open=true;document.getElementById('signal-trust').scrollIntoView({behavior:'smooth'})">아래 판정 보기 ↓</button></div>
-          <p id="home-performance-note" class="home-small">원화·달러는 합산하지 않습니다. 기준선이 없는 차트는 초과성과를 뜻하지 않습니다.</p>
-        </div>
-      </div>
-      <p id="home-change" class="home-change">시장 시그널 변화 확인 중…</p>
-    </section>
     <details id="signal-trust"><summary id="signal-trust-sum">성적</summary><div class="trust-body" id="signal-trust-body"></div></details>
     <!-- 매일 열 이유. 판정 줄 **바로 아래**다 — 판정은 "아직 모른다"만 말하므로 그 다음에
          "그래도 오늘 이건 달라졌다"가 있어야 습관이 생긴다. 변화 없는 날은 한 줄로 짧게. -->
@@ -1267,6 +1251,11 @@
     <div id="bot-kospi">
     <div id="portfolio-bot">
       <section id="bot-review" class="invest-review" aria-live="polite" aria-label="손익 해설과 재점검 계획">선택한 봇의 손익을 확인하는 중…</section>
+      <div id="bot-perf-summary" class="card" hidden></div>
+      <div class="card" style="margin-bottom:16px">
+        <b style="font-size:14px">최근 거래내역</b>
+        <div id="bot-trades-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+      </div>
       <div class="card">
         <div class="row" style="align-items:baseline">
           <b style="font-size:var(--fs-md)">다른 성향과 비교하기</b>
@@ -1288,8 +1277,6 @@
         <div class="card">
           <b style="font-size:14px">보유종목</b>
           <div id="bot-holdings-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
-          <b style="font-size:14px;display:block;margin-top:18px">최근 거래내역</b>
-          <div id="bot-trades-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
         </div>
         <div class="card">
           <b style="font-size:14px">포트폴리오</b>
@@ -1299,7 +1286,6 @@
       <div class="card">
         <div class="row" style="align-items:baseline">
           <b style="font-size:14px">날짜별 계좌 금액 <span style="color:var(--dim);font-weight:600;font-size:13px">· 하루 한 번 기록</span></b>
-          <span id="bot-perf-summary" class="stat-label" style="margin:0 0 0 auto"></span>
         </div>
         <div id="bot-equity-chart" style="height:260px;margin-top:8px"></div>
       </div>
@@ -1431,6 +1417,34 @@
     </div>
 
     <div id="trading-rebal" style="display:none">
+    <!-- /api/portfolio/latest 는 home.js 가 최신 저장 진단만 읽는다. -->
+    <section id="investment-home" class="home-desk" aria-label="오늘의 투자 상태">
+      <div class="home-heading"><div><span class="home-eyebrow">내 투자 데스크</span><h2>오늘의 투자 상태</h2></div><span id="home-market">국내 · 원</span></div>
+      <div class="home-status" aria-live="polite">
+        <span id="home-account">실계좌 확인 중…</span><span id="home-copy">추종 설정 확인 중…</span>
+        <span id="home-asof">진단 기준시각 확인 중…</span>
+      </div>
+      <div class="home-grid">
+        <div class="home-action">
+          <span class="home-kicker">내 행동 · 저장된 포트폴리오 진단</span>
+          <h3 id="home-action-title">내 보유 상태를 확인하는 중</h3>
+          <p id="home-action-why">진단이 없으면 입력을 보완하고, 새 진단 전에는 매매를 제안하지 않습니다.</p>
+          <p id="home-action-meta" class="home-small"></p>
+          <p id="home-next" class="home-next">다음 확인 조건 · 최신 보유·가격 입력이 준비되면 다시 진단</p>
+          <a class="home-link" href="#trading/rebal" onclick="document.getElementById('portfolio-intelligence-card')?.scrollIntoView({behavior:'smooth'});return false">보유 진단으로</a>
+        </div>
+        <div class="home-results">
+          <span class="home-kicker">성과의 기준을 분리해서 보기</span>
+          <div class="home-result-row"><div><b>봇 모의투자</b><small id="home-paper-sub">선택 성향 · 초기자금 대비</small></div><strong id="home-paper-return">—</strong></div>
+          <div id="home-paper-chart" class="home-chart" aria-label="모의투자 계좌 금액 추이"></div>
+          <p id="home-chart-caption" class="home-small">기록된 순자산 경로 확인 중…</p>
+          <div class="home-result-row home-minor"><div><b>실계좌 보유주식</b><small>당일 변동 참고값 · 계좌 전체 수익률 아님</small></div><strong id="home-real-return">—</strong></div>
+          <div class="home-result-row home-minor"><div><b>시그널 실측</b><small>매수 판정의 사후 채점 · 계좌 수익률 아님</small></div><button type="button" class="linkish" onclick="switchTab('signal');const t=document.getElementById('signal-trust');if(t){t.open=true;t.scrollIntoView({behavior:'smooth'})}">시그널 판정 보기</button></div>
+          <p id="home-performance-note" class="home-small">원화·달러는 합산하지 않습니다. 기준선이 없는 차트는 초과성과를 뜻하지 않습니다.</p>
+        </div>
+      </div>
+      <p id="home-change" class="home-change">시장 시그널 변화 확인 중…</p>
+    </section>
       <div class="pcard" style="margin-bottom:10px;padding:8px 12px">
         <div style="font-size:12px;line-height:1.5;color:var(--dim)">
           내가 보유한 주식의 분석입니다. <b style="color:var(--txt)">봇 모의투자와 별개</b>이며 비중 조정은 제안만 합니다.
@@ -3482,8 +3496,12 @@ async function loadScorecard(){
       + thrTxt;
     if (matureOk) {
       const prec = acc.buy_precision_pct;
+      const base = (acc.baseline || {}).up_pct;
       const pc = liftColor(acc.buy_lift_pp, acc.lift_min_pp);
-      sumTxt += ` · 매수 정밀도 <span class="trust-sum-n" style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</span>`;
+      const note = liftNote(acc.buy_lift_pp, base, acc.buy_precision_ci_pp);
+      // 접힌 줄의 정밀도는 기준선·리프트가 있을 때만. 숫자만 있으면 판정 보류 옆에서 성적으로 읽힌다.
+      if (prec != null && note)
+        sumTxt += ` · 매수 정밀도 <span class="trust-sum-n" style="color:${pc}">${fmtNum(prec, 1)}%</span>${note}`;
       rows.push(`<div class="trust-row"><span class="trust-badge live">실측</span>`
         + `<b>시그널 성적</b> · 매수 정밀도 <b style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</b>`
         + liftNote(acc.buy_lift_pp, (acc.baseline || {}).up_pct, acc.buy_precision_ci_pp)
@@ -4762,7 +4780,8 @@ const _DETAIL_PANELS = [
   { key: 'events', layer: 'ctx', label: '일정', el: 'signal-events' },
 ];
 const _LAYER_HINT = { sig: '엔진이 계산한 신호', ctx: '판단에 참고하는 맥락 — 신호 아님' };
-let _activeDetailTab = 'metrics';   // 자주 보는 지표·목표가를 기본 노출
+let _activeDetailTab = 'factor';   // 점수 옆 관점 다음에 팩터 막대를 연다. 없으면 있는 탭으로 내려간다.
+const _DETAIL_LEAD = ['factor', 'metrics'];
 function setDetailHas(elId, has){ const el = document.getElementById(elId); if (el) el.dataset.has = has ? '1' : '0'; }
 function buildDetailTabs(){
   const avail = _DETAIL_PANELS.filter(p => (document.getElementById(p.el) || {}).dataset?.has === '1');
@@ -4771,10 +4790,17 @@ function buildDetailTabs(){
   if (!avail.length) { bar.style.display = 'none'; return; }
   if (!avail.some(p => p.key === _activeDetailTab)) _activeDetailTab = avail[0].key;
   bar.style.display = '';
-  bar.innerHTML = avail.map(p =>
+  const tabBtn = p =>
     `<button class="detail-tab${p.key === _activeDetailTab ? ' on' : ''}" data-layer="${p.layer}"`
     + ` title="${_LAYER_HINT[p.layer]}" onclick="showDetailTab('${p.key}')">`
-    + `<i class="lyr-dot"></i>${p.label}</button>`).join('')
+    + `<i class="lyr-dot"></i>${p.label}</button>`;
+  const lead = _DETAIL_LEAD.map(k => avail.find(p => p.key === k)).filter(Boolean);
+  const rest = avail.filter(p => !_DETAIL_LEAD.includes(p.key));
+  const restOpen = rest.some(p => p.key === _activeDetailTab) ? ' open' : '';
+  bar.innerHTML = lead.map(tabBtn).join('')
+    + (rest.length
+      ? `<details class="detail-more"${restOpen}><summary>더 보기</summary>${rest.map(tabBtn).join('')}</details>`
+      : '')
     + `<span class="detail-legend"><i class="lyr-dot" data-layer="sig"></i>신호`
     + `<i class="lyr-dot" data-layer="ctx"></i>맥락</span>`;
   const active = _DETAIL_PANELS.find(p => p.key === _activeDetailTab);
@@ -5005,24 +5031,27 @@ function _paintSignalDetail(ticker, item){
         + (firePx ? ` <span style="font-weight:600;color:var(--dim)">(${esc(firePx)}→)</span>` : '')
         + ` <span style="font-weight:600;color:var(--dim)">· ${esc(age)}</span></span>`;
     }
-    // 리스트에 이미 있는 pill·점수는 반복하지 않음 — 가격·한 줄 이유·상승여력만
+    // 점수와 올린 관점을 목표가 여력보다 앞에 둔다. 여력은 추정이고 초록으로 칠하지 않는다.
     heroEl.style.display = '';
+    const beside = scoreBeside(item) ? `<span class="hero-score-why">${esc(scoreBeside(item))}</span>` : '';
+    const upside = up != null
+      ? `<span class="hero-upside">참고 목표가 여력 <b>${up > 0 ? '+' : ''}${fmtNum(up, 1)}%</b></span>` : '';
+    const after = (runUpHtml || upside) ? `<div class="hero-after">${runUpHtml}${upside}</div>` : '';
     heroEl.innerHTML = `<div class="hero-card ${item.kind}">
         <div class="hero-top">
           ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
           ${chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
           <span class="sig-pill ${item.kind}" style="font-size:13px;margin-left:auto" title="${esc(sigPillTitle(item))}">${kindLabel(item.kind)}</span>
         </div>
-        <div class="hero-reason">${esc(heroReason(item))}</div>
         <div class="hero-metrics">
-          ${runUpHtml}
-          ${up != null ? `<span>목표가 상승여력 <b style="color:var(--sig-buy)">+${fmtNum(up, 1)}%</b></span>` : ''}
           <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
           + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b>`
           + _heroCov(item) + `</span>`
-          + (scoreBeside(item) ? `<span class="hero-score-why">${esc(scoreBeside(item))}</span>` : '')
+          + beside
           + `${_pitHeroLine(item._pit)}
         </div>
+        <div class="hero-reason">${esc(heroReason(item))}</div>
+        ${after}
       </div>`;
   } else heroEl.style.display = 'none';
   const qEl = document.getElementById('signal-quote');
@@ -5702,7 +5731,7 @@ async function loadBotState(){
         <td class="num">${t.qty}</td><td class="num">${fmtNum(t.price, 0)}</td>
         <td class="reasons">
           <span style="font-weight:600">${esc(_tradeSentence(t))}</span>${t.score != null ? ` <span style="color:var(--dim)">· 그날 점수 ${t.score > 0 ? '+' : ''}${fmtNum(t.score, 2)}</span>` : ''}
-          ${t.note ? `<div class="trade-note">${esc(plainNote(t.note))}</div>` : ''}
+          ${t.note ? `<details class="trade-note"><summary>당시 메모</summary>${esc(plainNote(t.note))}</details>` : ''}
         </td>
       </tr>`).join('');
       tEl.innerHTML = `<table class="dtable"><thead><tr>
@@ -5818,9 +5847,10 @@ function _roadmapNote(road){
     return `<b>${s.order}. ${esc(s.title)}</b>${prog} — ${esc(s.reason || '')}`;
   }).join('<br>');
   const champ = road.champion && road.champion.changes ? esc(road.champion.changes) : '';
-  return `<div style="margin-top:10px;font-size:var(--fs-xs);line-height:1.55;color:var(--dim)">`
-    + `${champ}<br>${steps}`
-    + `<br>이 순서는 주문에 연결되어 있지 않습니다. 연구 수익률은 여기에 싣지 않습니다.</div>`;
+  return `<details class="roadmap-fold" style="margin-top:10px;font-size:var(--fs-xs);line-height:1.55;color:var(--dim)">`
+    + `<summary style="cursor:pointer;font-weight:600;color:var(--dim-2)">연구 순서 · 주문에 연결되어 있지 않습니다</summary>`
+    + `<div style="margin-top:6px">${champ}<br>${steps}`
+    + `<br>연구 수익률은 여기에 싣지 않습니다.</div></details>`;
 }
 
 async function loadReferencePerf(seq = _botLoadSeq, market = _botMarket, style = _ledgerStyle){
@@ -5875,7 +5905,8 @@ let _botEquityChart = null;
 function loadBotPerformance(all, style){
   const sumEl = document.getElementById('bot-perf-summary');
   const holder = document.getElementById('bot-equity-chart');
-  if (!holder) return;
+  if (!holder || !sumEl) return;
+  sumEl.hidden = false;
   try {
     const selected = (all.bots || []).find(b => b.style === style);
     if (!selected) { sumEl.textContent = '선택한 봇의 날짜별 기록이 없습니다.'; return; }
@@ -5991,7 +6022,10 @@ function switchTradingSeg(seg){
     loadTossManualStatus();
     if (!_liveCopyLoaded) loadLiveCopyPolicy();
   }
-  if (seg === 'rebal') { gpRestore(); refreshPortfolio(); }   // 국내/해외 판 — 선택 시장 기준 전체 갱신
+  if (seg === 'rebal') {
+    gpRestore(); refreshPortfolio();
+    if (window.InvestmentHome) InvestmentHome.load({market: _pfMarket === 'us' ? 'us' : 'kospi', profile: _profile});
+  }
   if (seg === 'dividend') loadDividends();
   history.replaceState(null, '', '#trading/' + seg);   // 새로고침 시 서브탭 유지
 }
