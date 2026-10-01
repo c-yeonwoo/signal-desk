@@ -5833,10 +5833,10 @@ function _mixLine(bag, title){
   return `${title} ${bag.n}건: 매수 ${buys || '없음'} · 매도 ${sells || '없음'}`;
 }
 
-function _holdLine(h, title){
+function _holdLine(h, title, skipMismatch){
   if (!h) return '';
   if (h.median_days == null) return h.reason ? `${title}: ${esc(h.reason)}` : '';
-  const gap = h.mismatch ? ` · ${esc(h.mismatch)}` : '';
+  const gap = !skipMismatch && h.mismatch ? ` · ${esc(h.mismatch)}` : '';
   return `${title} 보유 중위 ${fmtNum(h.median_days, 2)}달력일${gap}`;
 }
 
@@ -5923,11 +5923,14 @@ function loadBotPerformance(all, style){
     const exTxt = ex == null ? '' :
       ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">비교 기준보다 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
       + `<span style="color:var(--dim-2)"> (${esc(d.comparison_window?.join('~') || '비교 기간 미확인')} · 기준선 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
+    const sinceHold = d.holding_since_exit_policy;
+    const shortHold = sinceHold && sinceHold.mismatch
+      ? `<div style="margin-bottom:6px;color:var(--sig-watch);font-weight:600">${esc(sinceHold.mismatch)}</div>` : '';
     const holdLine = _holdLine(d.holding, '전체');
-    const sinceLine = _holdLine(d.holding_since_exit_policy, '청산 규칙 변경 이후');
+    const sinceLine = _holdLine(sinceHold, '청산 규칙 변경 이후', !!shortHold);
     const mixAll = _mixLine(d.trades && d.trades.all, '체결 구성');
     const mixSince = _mixLine(d.trades && d.trades.since_exit_policy, '변경 이후 체결');
-    sumEl.innerHTML = `<b>계좌 수익률 ${rTxt}</b>${exTxt}`
+    sumEl.innerHTML = shortHold + `<b>계좌 수익률 ${rTxt}</b>${exTxt}`
       + (ex == null ? `<span style="color:var(--dim-2)"> · 상대 비교 보류: ${esc(d.benchmark_basis || '기준선 없음')}</span>` : '')
       + `<span style="color:var(--dim-2)"> · 초기자금 대비</span>`
       + ` · ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최고점 대비 최대 하락 ${fmtNum(d.max_drawdown_pct, 1)}%`
@@ -6103,7 +6106,8 @@ function renderGoalPlan(d) {
   // 한 문장으로 먼저 말한다 — 표를 읽을 수 있는 사람만 쓰는 화면이 되지 않게.
   const lead = `지금 보유 <b>${_gpMoney(d.current_value, cur)}</b>에 월 <b>${_gpMoney(d.monthly_contribution, cur)}</b>씩 넣고`
     + ` 배당을 세후로 재투자하면, ${d.months}개월 뒤 중간 경로는 <b>${_gpMoney(d.terminal.p50, cur)}</b>입니다.`
-    + ` 목표 ${_gpMoney(d.goal_amount, cur)} 달성 확률은 <b>${fmtNum(d.success_pct, 1)}%</b>입니다.`;
+    + ` 같은 가정으로 다시 뽑은 경로 중 기간 말에 목표를 넘은 비율은 <b>${fmtNum(d.success_pct, 1)}%</b>입니다.`
+    + ` 이 비율은 수익 확률이 아닙니다.`;
 
   const rows = [
     ['좋은 경로 (p90)', d.terminal.p90, d.reach_month.p90],
@@ -8918,7 +8922,7 @@ async function loadBrain(){
   } else fb.innerHTML = '<div style="font-size:13px;color:var(--dim-2)">특이사항 없음 — 파이프라인 정상.</div>';
 }
 
-const _BP_CONF = { high: '신뢰 높음', medium: '신뢰 보통', low: '신뢰 낮음' };
+const _BP_CONF = { high: '점수 강도 큼', medium: '점수 강도 중간', low: '점수 강도 작음' };
 const _BP_FIELD_KO = {
   weight_technical: '기술', weight_fundamental: '기본', weight_valuation: '저평가',
   weight_reversion: '낙폭', weight_flow: '수급', weight_quality: '퀄리티',
