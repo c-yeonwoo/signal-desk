@@ -119,3 +119,52 @@ def test_fetch_prices_incremental_upsert(tmp_path, monkeypatch):
     closes = dict(zip(df2["date"], df2["close"]))
     assert closes["2026-07-03"] == 12.5 and closes["2026-07-04"] == 13.0
     assert len(df2) == 4  # 중복 없이 upsert
+
+
+def test_fetch_prices_rewinds_to_an_interior_session_hole(tmp_path, monkeypatch):
+    """마지막 봉이 최신이어도 그 사이 거래일이 비면 그 날부터 다시 받는다."""
+    monkeypatch.chdir(tmp_path)
+    uni = [{"ticker": "005930", "name": "삼성"}]
+    store._write_parquet(pd.DataFrame([
+        {"date": "2026-07-01", "ticker": "005930", "open": 1, "close": 10, "volume": 1},
+        {"date": "2026-07-02", "ticker": "005930", "open": 1, "close": 11, "volume": 1},
+        {"date": "2026-07-06", "ticker": "005930", "open": 1, "close": 13, "volume": 1},
+    ]), store.PRICES_FILE)
+    calls = []
+
+    def fake_ohlcv(ticker, start, end):
+        calls.append(start)
+        return [{"date": "2026-07-03", "open": 1.0, "close": 12.0, "volume": 1.0}]
+
+    monkeypatch.setattr(krx, "ohlcv", fake_ohlcv)
+    df = store.fetch_prices(uni)
+    assert calls == ["20260703"]
+    assert set(df["date"].astype(str).str[:10]) >= {"2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06"}
+    assert store._load_kr_price_absent() == {}
+
+
+def test_fetch_prices_remembers_a_session_the_provider_omits(tmp_path, monkeypatch):
+    """제공자가 다음 거래일은 주고 그 날만 빼면, 다음 증분은 그 날로 되감지 않는다."""
+    monkeypatch.chdir(tmp_path)
+    uni = [{"ticker": "005930", "name": "삼성"}]
+    store._write_parquet(pd.DataFrame([
+        {"date": "2026-07-01", "ticker": "005930", "open": 1, "close": 10, "volume": 1},
+        {"date": "2026-07-02", "ticker": "005930", "open": 1, "close": 11, "volume": 1},
+        {"date": "2026-07-06", "ticker": "005930", "open": 1, "close": 13, "volume": 1},
+    ]), store.PRICES_FILE)
+
+    def omit(ticker, start, end):
+        return [{"date": "2026-07-06", "open": 1.0, "close": 13.0, "volume": 1.0}]
+
+    monkeypatch.setattr(krx, "ohlcv", omit)
+    store.fetch_prices(uni)
+    assert store._load_kr_price_absent()["005930"] == {"2026-07-03"}
+    calls = []
+
+    def tail(ticker, start, end):
+        calls.append(start)
+        return [{"date": "2026-07-06", "open": 1.0, "close": 13.5, "volume": 1.0}]
+
+    monkeypatch.setattr(krx, "ohlcv", tail)
+    store.fetch_prices(uni)
+    assert calls == ["20260706"]

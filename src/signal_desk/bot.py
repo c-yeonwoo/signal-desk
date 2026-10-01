@@ -1153,6 +1153,10 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
         comparison_curve = comparison_curve[start:]
     # 구성종목 가격이 빈 쌍은 0으로 잇지 않는다. 그 쌍의 끝 날짜부터 다시 본다.
     # 계좌 수익도 같은 날짜에서 시작해, 긴 계좌와 짧은 기준선을 빼지 않는다.
+    # 종가는 루프 밖에서 한 번만 읽는다. 쌍마다 다시 읽으면 구멍 수만큼 시세 파일을 연다.
+    if dated_closes is None:
+        dated_closes = (store.load_market_dated_closes("us") if market == "us"
+                        else store.load_all_dated_closes())
     price_gap_notes: list[str] = []
     first_price_gap = None
     while True:

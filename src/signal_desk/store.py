@@ -36,6 +36,8 @@ UNIVERSE_FILE = CACHE_DIR / "universe.json"
 UNIVERSE_HISTORY_FILE = CACHE_DIR / "universe_history.json"
 _UNIVERSE_CALL_GAP_SEC = 0.4   # PIT 유니버스 백필 콜 간격
 PRICES_FILE = CACHE_DIR / "prices.parquet"
+# 제공자가 봉을 주지 않은 국내 (종목, 거래일). 없으면 증분이 그 날부터 매일 다시 받는다.
+KR_PRICE_ABSENT_FILE = CACHE_DIR / "kr_price_absent.json"
 FUNDAMENTALS_FILE = CACHE_DIR / "fundamentals.json"
 FUNDAMENTALS_HISTORY_FILE = CACHE_DIR / "fundamentals_history.json"  # point-in-time 백테스트용 연도별 재무
 MACRO_FILE = CACHE_DIR / "macro.json"
@@ -181,6 +183,44 @@ def fetch_universe() -> list[dict]:
     return items
 
 
+def kr_interior_hole(have: set[str], absent: set[str] | None = None) -> str | None:
+    """첫 봉과 마지막 봉 사이, 최근 구간에서 가장 이른 빈 거래일.
+
+    증분이 마지막 봉만 다시 받으면 그 앞의 빈 거래일(시장 전체가 하루 빠진 날 포함)은
+    영구히 남는다. 상장 전은 구멍이 아니다. 제공자가 봉이 없다고 한 날은 `absent`로 건너뛴다.
+    """
+    if len(have) < 2:
+        return None
+    first, last = min(have), max(have)
+    from signal_desk import market_clock
+    try:
+        window = datetime.date.fromisoformat(last) - datetime.timedelta(days=220)
+        start = max(first, window.isoformat())
+        sessions = market_clock._calendar("kr").sessions_in_range(start, last)
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return None
+    skipped = absent or set()
+    for ts in sessions:
+        day = ts.date().isoformat()
+        if day in (first, last) or day in have or day in skipped:
+            continue
+        return day
+    return None
+
+
+def _load_kr_price_absent() -> dict[str, set[str]]:
+    raw = _load_json_dict(KR_PRICE_ABSENT_FILE)
+    out: dict[str, set[str]] = {}
+    for ticker, days in raw.items():
+        if isinstance(days, list):
+            out[str(ticker)] = {str(d)[:10] for d in days}
+    return out
+
+
+def _save_kr_price_absent(absent: dict[str, set[str]]) -> None:
+    _write_json(KR_PRICE_ABSENT_FILE, {t: sorted(days) for t, days in sorted(absent.items()) if days})
+
+
 def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_DAYS,
                  full: bool = False) -> pd.DataFrame:
     """유니버스 일봉 수집 → prices.parquet(upsert). 기본은 **증분**(각 종목 마지막 저장일부터
@@ -188,18 +228,34 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
     기존 데이터가 없는 종목은 days만큼 전량 백필한다. (ticker,date) 중복은 keep='last'로 제거 —
     마지막 저장일을 재수집해 잠정 종가를 확정치로 덮는다.
 
+    마지막 봉보다 앞선 거래일이 비어 있으면 그 날부터 받는다. 제공자가 바로 다음 거래일은
+    주면서 그 날만 빼면, 그 종목·날짜를 기억해 다음 증분이 같은 구간을 매일 다시 받지 않는다.
+
     ※ 최초 5년 백필은 한 번 `full=True`(CLI `sigdesk fetch --full`)로 돌린 뒤, 이후 데일리 루프는
     증분으로 유지한다. (액면분할 등 소급 수정주가 반영은 주기적 full 재수집 필요 — 후속 과제.)"""
+    from signal_desk import market_clock
     universe = universe if universe is not None else load_universe()
     end = datetime.date.today()
     existing = _read_parquet(PRICES_FILE) if PRICES_FILE.exists() else None
     has_existing = existing is not None and not existing.empty
     last_by_ticker = (existing.groupby("ticker")["date"].max().to_dict() if has_existing else {})
+    dates_by_ticker: dict[str, set[str]] = {}
+    if has_existing:
+        for ticker, grp in existing.groupby("ticker"):
+            dates_by_ticker[str(ticker)] = {str(d)[:10] for d in grp["date"].tolist()}
+    absent = {} if full else _load_kr_price_absent()
     rows = []
     for item in universe:
         ticker = item["ticker"]
         last = None if full else last_by_ticker.get(ticker)
-        start = datetime.date.fromisoformat(str(last)[:10]) if last else end - datetime.timedelta(days=days)
+        have = dates_by_ticker.get(ticker, set())
+        hole = None if full or last is None else kr_interior_hole(have, absent.get(ticker))
+        if hole:
+            start = datetime.date.fromisoformat(hole)
+        elif last:
+            start = datetime.date.fromisoformat(str(last)[:10])
+        else:
+            start = end - datetime.timedelta(days=days)
         if start > end:
             continue  # 이미 최신(오늘 이후 시작일 없음)
         try:
@@ -207,8 +263,18 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
         except Exception as e:
             log.error("시세 수집 실패(%s): %s", ticker, e)
             continue
+        returned = {str(bar.get("date") or "")[:10] for bar in bars}
+        if hole and returned and hole not in returned:
+            nxt = market_clock.next_sessions("kr", hole, 1)
+            if nxt and nxt[0] in returned:
+                absent.setdefault(ticker, set()).add(hole)
+                log.info("국내 시세 결측 확정 %s %s — 제공자가 다음 거래일은 줬다", ticker, hole)
+        elif hole and hole in returned:
+            absent.get(ticker, set()).discard(hole)
         for bar in bars:
             rows.append({"ticker": ticker, **bar})
+    if not full:
+        _save_kr_price_absent(absent)
 
     new = pd.DataFrame(rows, columns=["date", "ticker", "open", "close", "volume"])
     combined = pd.concat([existing, new], ignore_index=True) if has_existing else new
@@ -1231,7 +1297,7 @@ def us_price_gap_depth(tickers: list[str] | None = None, *,
     **왜 필요한가**: US 일봉 수집은 KR과 달리 "최근 N봉"을 받는다 — 그 종목의 마지막 저장일을
     보지 않는다(`fetch_us_prices` 는 `toss.daily_ohlcv(count=...)` 를 부른다). 일상 갱신이
     `days=60` 고정이라 **공백이 60거래일을 넘으면 그 구멍은 영원히 안 메워진다.**
-    KR(`fetch_prices`)은 `start = 마지막 저장일` 이라 공백 길이와 무관하게 자동으로 채운다.
+    KR(`fetch_prices`)은 마지막 저장일부터 받고, 그 사이 빈 거래일이 있으면 그 날로 되감는다.
 
     구멍이 남으면 조용히 틀어진다 — 모멘텀(252거래일)·이동평균·수익률이 짧은 시리즈로
     계산되고 아무도 모른다. 그래서 **필요한 깊이를 데이터에서 계산**해 넘긴다.
