@@ -136,6 +136,9 @@ def test_us_benchmark_starts_only_after_observed_membership(tmp_path, monkeypatc
         full, "us", dated_closes=closes, universe_history=history) is None
     out = bot.performance(911, "us", dated_closes=closes, universe_history=history)
     assert out["comparison_window"] == ["2026-09-23", "2026-09-25"]
+    assert out["membership_gap_note"] == (
+        "2026-09-21 구성종목 관측이 없어 2026-09-22까지 빼고 2026-09-23부터 비교")
+    assert out["membership_gap_note"] in out["benchmark_basis"]
     assert out["benchmark_return_pct"] == 21.0
     assert out["comparison_return_pct"] == 21.0
     assert out["excess_return_pct"] == 0.0

@@ -147,6 +147,7 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     assert painted.index("shortHold") < painted.index("시드 이후")
     assert "비교 구간 계좌" in perf_fn and "comparison_return_pct" in perf_fn
     assert "price_gap_notes" in perf_fn and "앞구간 제외" in perf_fn and "price_gap_skipped" in perf_fn
+    assert "membership_gap_note" in perf_fn
     goal = src.split("function renderGoalPlan", 1)[1].split("\nfunction ", 1)[0]
     assert "이 비율은 수익 확률이 아닙니다" in goal and "달성 확률" not in goal
     assert "점수 강도 큼" in src and "신뢰 높음" not in src
