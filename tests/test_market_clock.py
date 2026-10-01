@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from signal_desk import api, bot, market_clock
+from signal_desk import api, bot, db, market_clock
 
 KST = ZoneInfo("Asia/Seoul")
 NY = ZoneInfo("America/New_York")
@@ -57,6 +57,16 @@ def test_us_snapshot_only_fresh_completed_session(tmp_path, monkeypatch):
     assert api._maybe_snapshot_us_signals(now) == 1
     assert calls == ["clear", "cache", ("2026-09-25", "us", ["A"])]
     assert api._maybe_snapshot_us_signals(now) == 0  # 동일 세션 중복 기록 금지
+
+
+def test_us_snapshot_names_a_session_with_no_fresh_close(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    now = dt.datetime(2026, 9, 28, 15, 40, tzinfo=KST)
+    monkeypatch.setattr(api.store, "us_price_last_dates", lambda: {"A": "2026-09-24"})
+    assert api._maybe_snapshot_us_signals(now) == 0
+    last = db.kv_get("us_signal_snapshot_last")
+    assert last["saved"] == 0 and last["session"] == "2026-09-25"
+    assert "2026-09-25" in last["reason"] and "종가" in last["reason"]
 
 
 class _Signal:

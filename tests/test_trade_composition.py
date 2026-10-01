@@ -92,6 +92,10 @@ def test_roadmap_does_not_carry_a_return(fresh):
     assert out["champion"]["frozen"] is True
     assert out["steps"][0]["observed_sessions"] == 0
     assert "관측 0세션" in out["steps"][0]["reason"]
+    db.kv_set("rotation_shadow_last:kr", {"saved": 0, "reason": "미국 PIT 스냅샷 세션 불일치"})
+    named = roadmap_status.for_market("kr")["steps"][0]["reason"]
+    assert "미국 PIT 스냅샷 세션 불일치" in named
+    assert "net_delta" not in named and "return" not in named
 
 
 def test_roadmap_counts_same_plan_observations_without_a_return(fresh):
@@ -139,6 +143,11 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     assert "당시 메모" in src and "연구 순서 · 주문에 연결되어 있지 않습니다" in src
     perf_fn = src.split("function loadBotPerformance", 1)[1].split("\nfunction ", 1)[0]
     assert "ex != null && (d.excluded_non_sessions" in perf_fn
+    painted = perf_fn.split("sumEl.innerHTML = ", 1)[1]
+    assert painted.index("shortHold") < painted.index("계좌 수익률")
+    goal = src.split("function renderGoalPlan", 1)[1].split("\nfunction ", 1)[0]
+    assert "이 비율은 수익 확률이 아닙니다" in goal and "달성 확률" not in goal
+    assert "점수 강도 큼" in src and "신뢰 높음" not in src
     assert "비거래일 평가" in perf_fn
     summary = src.split("if (matureOk)", 1)[1].split("rows.push", 1)[0]
     assert "liftNote" in summary

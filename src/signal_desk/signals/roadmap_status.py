@@ -35,7 +35,12 @@ def _r11(market: str, completed: str | None) -> dict:
     slowest = min((s["matured_blocks"] for s in styles), default=0)
     observed = min((s["observed_sessions"] for s in styles), default=0)
     if observed == 0:
-        observed_line = f"관측 0세션 · 갈라진 비중첩 블록 {slowest}/{_NEXT}."
+        last = db.kv_get(f"rotation_shadow_last:{market}") or {}
+        snap = db.kv_get("us_signal_snapshot_last") or {} if market == "us" else {}
+        snap_reason = snap.get("reason") if snap.get("saved") == 0 else None
+        named = [str(x) for x in (last.get("reason"), snap_reason) if x]
+        tail = (" 마지막 시도: " + " · ".join(named) + ".") if named else ""
+        observed_line = f"관측 0세션 · 갈라진 비중첩 블록 {slowest}/{_NEXT}.{tail}"
     else:
         observed_line = (f"관측 {observed}세션 · 주문 계획이 갈라진 비중첩 블록 {slowest}/{_NEXT}. "
                          "두 정책의 동결 주문이 같으면 블록이 늘지 않습니다.")

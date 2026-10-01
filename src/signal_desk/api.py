@@ -619,15 +619,28 @@ def _maybe_snapshot_us_signals(now: datetime.datetime) -> int:
         return 0
     fresh = {t for t, day in store.us_price_last_dates().items() if day == session}
     if not fresh:
+        db.kv_set("us_signal_snapshot_last", {
+            "saved": 0, "session": session,
+            "reason": f"{session} 종가가 있는 미국 종목 없음",
+        })
         return 0
     store.clear_live_quotes()  # 마감 종가 시그널에 잠정 현재가가 섞이지 않도록 한다.
     _clear_us_signal_caches()
     signals = [s for s in _us_signals().values() if s.ticker in fresh]
     if not signals:
+        db.kv_set("us_signal_snapshot_last", {
+            "saved": 0, "session": session,
+            "reason": f"{session} 종가 종목의 시그널 없음",
+        })
         return 0
     n = store.snapshot_signals(signals, date=session, market="us")
     if n:
         db.kv_set("us_signal_snapshot_session", session)
+        db.kv_set("us_signal_snapshot_last", {"saved": n, "session": session, "reason": "기록함"})
+    else:
+        db.kv_set("us_signal_snapshot_last", {
+            "saved": 0, "session": session, "reason": f"{session} 스냅샷 기록 0",
+        })
     return n
 
 
