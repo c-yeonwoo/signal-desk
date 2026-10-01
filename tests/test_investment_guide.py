@@ -83,22 +83,28 @@ const base = {...state,label:'균형형',positions:[],recent_trades:[],config:{}
   assert.equal(pending[2].url,'/api/reference-performance?market=us');
   answer(2,{currency:'USD',bots:[{style:'aggressive',curve:[],days:3}]});
   answer(3,{currency:'USD',costs:{trades:0,cost_recorded_trades:0,total_execution_cost:0}});
+  await new Promise(setImmediate);
+  assert.equal(pending[4].url,'/api/verdict');
+  answer(4,{status:'pending'});
   await latest;
   answer(0,base); await old;
   assert.match(el('bot-review').innerHTML,/공격형/);
-  assert.equal(pending.length,4); // one performance request; stale state creates no extra requests.
+  assert.match(el('bot-perf-summary').innerHTML,/따라가기 닫힘/);
+  assert.equal(pending.length,5); // ledger, performance, costs, one verdict; stale state adds none.
   assert.equal(el('portfolio-bot').attributes['aria-busy'],'false');
   // A performance response from an old style must also be ignored.
-  const p1 = vm.runInContext('loadBotState()',ctx); answer(4,base);
+  // Verdict is already cached, so later loads do not ask again.
+  const p1 = vm.runInContext('loadBotState()',ctx); answer(5,base);
   await new Promise(setImmediate);
-  const p2 = vm.runInContext('loadBotState()',ctx); answer(7,{...base,label:'최신'});
+  const p2 = vm.runInContext('loadBotState()',ctx); answer(8,{...base,label:'최신'});
   await new Promise(setImmediate);
-  answer(8,{bots:[{style:'aggressive',label:'최신',curve:[],days:3}]}); answer(9,null,false); await p2;
-  answer(5,{bots:[{style:'aggressive',label:'오래된 응답',curve:[],days:3}]});
-  answer(6,{costs:{trades:999,cost_recorded_trades:999,total_execution_cost:999}}); await p1;
+  answer(9,{bots:[{style:'aggressive',label:'최신',curve:[],days:3}]}); answer(10,null,false); await p2;
+  answer(6,{bots:[{style:'aggressive',label:'오래된 응답',curve:[],days:3}]});
+  answer(7,{costs:{trades:999,cost_recorded_trades:999,total_execution_cost:999}}); await p1;
   assert.doesNotMatch(el('reference-perf').innerHTML,/오래된 응답/);
   assert.doesNotMatch(el('bot-cost-review').innerHTML,/999/);
-  const failed = vm.runInContext('loadBotState()',ctx); answer(10,null,false); await failed;
+  assert.equal(pending.length,11);
+  const failed = vm.runInContext('loadBotState()',ctx); answer(11,null,false); await failed;
   assert.match(el('bot-review').innerHTML,/다시 확인/);
   assert.equal(el('portfolio-bot').attributes['aria-busy'],'false');
 })().catch(e=>{console.error(e);process.exitCode=1}).finally(()=>clearTimeout(watchdog));
