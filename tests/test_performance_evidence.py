@@ -59,6 +59,12 @@ def test_session_points_drop_a_holiday_and_detail_still_refuses_it(monkeypatch):
     assert called == []  # 휴장일 평가는 여기서 지우지 않는다. 표본 선택은 호출자 몫이다.
 
 
+def test_price_gap_bounds_ignore_a_session_break():
+    assert evidence.price_gap_bounds(
+        "비교 불가 — 2026-07-08→2026-07-09 가격 결측 1종목 (017960)") == ("2026-07-08", "2026-07-09")
+    assert evidence.price_gap_bounds("비교 불가 — 2026-09-22→2026-09-28 연속 거래세션 아님") is None
+
+
 def test_paired_harm_refuses_mismatched_dates():
     curve = [{"date": str(i), "total_eval": 100.0} for i in range(45)]
     bench = [{"date": str(i), "total_eval": 1.0} for i in range(44)] + [

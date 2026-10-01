@@ -5937,6 +5937,8 @@ function loadBotPerformance(all, style){
       + ` · ${d.days}일 · 거래 ${d.n_trades}건`
       + (ex != null && (d.excluded_non_sessions || []).length
           ? `<div style="color:var(--dim)">비거래일 평가 ${(d.excluded_non_sessions || []).length}건(${esc((d.excluded_non_sessions || []).slice(0, 3).join(', '))})은 비교에서 제외</div>` : '')
+      + (ex != null && (d.price_gap_notes || []).length
+          ? `<div style="color:var(--dim)">앞구간 제외: ${esc((d.price_gap_notes || [])[0])}</div>` : '')
       + (holdLine ? `<div style="margin-top:6px;color:var(--fg)">${holdLine}</div>` : '')
       + (sinceLine ? `<div style="color:var(--dim)">${sinceLine}</div>` : '')
       + (mixAll ? `<div style="color:var(--dim)">${mixAll}</div>` : '')

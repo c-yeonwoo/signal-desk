@@ -1151,8 +1151,25 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
             if known_by not in universe_history:
                 start = i + 1
         comparison_curve = comparison_curve[start:]
-    bench_curve, gap = performance_evidence.pit_equal_weight_detail(
-        comparison_curve, market, dated_closes=dated_closes, universe_history=universe_history)
+    # 구성종목 가격이 빈 쌍은 0으로 잇지 않는다. 그 쌍의 끝 날짜부터 다시 본다.
+    # 계좌 수익도 같은 날짜에서 시작해, 긴 계좌와 짧은 기준선을 빼지 않는다.
+    price_gap_notes: list[str] = []
+    first_price_gap = None
+    while True:
+        bench_curve, gap = performance_evidence.pit_equal_weight_detail(
+            comparison_curve, market, dated_closes=dated_closes, universe_history=universe_history)
+        bounds = performance_evidence.price_gap_bounds(gap)
+        if bench_curve or not bounds:
+            if not bench_curve and first_price_gap:
+                gap = first_price_gap
+            break
+        if first_price_gap is None:
+            first_price_gap = gap
+        nxt = [p for p in comparison_curve if p["date"] >= bounds[1]]
+        if len(nxt) >= len(comparison_curve):
+            break
+        price_gap_notes.append(gap)
+        comparison_curve = nxt
     bench = round((bench_curve[-1]["total_eval"] - 1) * 100, 2) if bench_curve else None
     if bench_curve:
         basis = ("최초 관측 이후 미국 구성종목 동일가중 근사·비용 전·원천 공개시각 미검증"
@@ -1166,6 +1183,8 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
     skipped = performance_evidence.non_session_note(excluded_non_sessions)
     if skipped:
         basis = f"{basis} · {skipped}"
+    if price_gap_notes:
+        basis = f"{basis} · 앞구간 제외: {' / '.join(price_gap_notes)}"
     comparable = (round((comparison_curve[-1]["total_eval"] / comparison_curve[0]["total_eval"] - 1) * 100, 2)
                   if len(comparison_curve) >= 2 and comparison_curve[0]["total_eval"] > 0 else None)
     return {
@@ -1181,6 +1200,7 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
                               if len(comparison_curve) >= 2 else None),
         "comparison_curve": comparison_curve if bench_curve else None,
         "excluded_non_sessions": excluded_non_sessions,
+        "price_gap_notes": price_gap_notes,
         "excess_return_pct": (round(comparable - bench, 2)
                               if (comparable is not None and bench is not None) else None),
         "max_drawdown_pct": round(mdd * 100, 2), "days": len(curve),

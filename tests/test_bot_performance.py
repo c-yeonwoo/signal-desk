@@ -101,3 +101,45 @@ def test_us_holiday_mark_does_not_truncate_the_session_window(tmp_path, monkeypa
     assert seen["dates"] == ["2026-07-02", "2026-07-06"]
     assert out["excluded_non_sessions"] == ["2026-07-03"]
     assert out["comparison_return_pct"] == 10.0
+
+
+def test_a_missing_price_drops_only_the_broken_prefix(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path)
+    db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 1_000_000.0, "positions": {}}))
+    for d, te in [("2026-09-22", 1_000_000), ("2026-09-23", 1_100_000), ("2026-09-28", 1_210_000)]:
+        db.bot_equity_record(UID, "kr", d, te, te, 0)
+    calls = []
+
+    def fake(curve, market="kr", **_k):
+        dates = [p["date"] for p in curve]
+        calls.append(dates)
+        if dates and dates[0] == "2026-09-22":
+            return None, "비교 불가 — 2026-09-22→2026-09-23 가격 결측 1종목 (017960)"
+        built = [{"date": day, "total_eval": 1.0} for day in dates]
+        built[-1]["total_eval"] = 1.05
+        return built, None
+
+    monkeypatch.setattr(bot.performance_evidence, "pit_equal_weight_detail", fake)
+    out = bot.performance(UID, "kr")
+    assert calls == [["2026-09-22", "2026-09-23", "2026-09-28"], ["2026-09-23", "2026-09-28"]]
+    assert out["comparison_return_pct"] == 10.0
+    assert out["excess_return_pct"] == 5.0
+    assert out["price_gap_notes"] == ["비교 불가 — 2026-09-22→2026-09-23 가격 결측 1종목 (017960)"]
+
+
+def test_a_missing_session_is_not_trimmed_into_a_comparison(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path)
+    db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 1_000_000.0, "positions": {}}))
+    for d, te in [("2026-09-22", 1_000_000), ("2026-09-28", 1_100_000)]:
+        db.bot_equity_record(UID, "kr", d, te, te, 0)
+    calls = []
+
+    def fake(curve, market="kr", **_k):
+        calls.append([p["date"] for p in curve])
+        return None, "비교 불가 — 2026-09-22→2026-09-28 연속 거래세션 아님"
+
+    monkeypatch.setattr(bot.performance_evidence, "pit_equal_weight_detail", fake)
+    out = bot.performance(UID, "kr")
+    assert calls == [["2026-09-22", "2026-09-28"]]
+    assert out["excess_return_pct"] is None and out["price_gap_notes"] == []
+    assert "연속 거래세션 아님" in out["benchmark_basis"]
