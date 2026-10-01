@@ -142,3 +142,15 @@ def test_fetch_us_prices_short_window_keeps_old_history(tmp_path, monkeypatch):
     series = store.load_us_price_series()
     assert series["AAPL"] == [1.0, 2.0, 3.0]   # 과거 2봉 + 신규
     assert series["MSFT"] == [9.0]             # 다른 종목 보존
+
+
+def test_stale_us_refresh_includes_a_holding_that_left_the_index(monkeypatch):
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [{"ticker": "AAA"}])
+    monkeypatch.setattr(api.db, "bot_positions_all",
+                        lambda uid, market: [{"ticker": "LEFT"}] if market == "us" and uid == 900001 else [])
+    seen: list[list[str]] = []
+    monkeypatch.setattr(api.store, "us_prices_stale_tickers",
+                        lambda tickers, **k: seen.append(list(tickers)) or [])
+    monkeypatch.setattr(api.store, "us_price_skips", lambda: {})
+    assert api._refresh_us_prices_stale() == {"filled": 0, "stale": 0}
+    assert seen and seen[0] == ["AAA", "LEFT"]
