@@ -352,6 +352,7 @@
   .hero-runup { color:var(--sig-buy); font-weight:700; }
   .hero-runup.down { color:var(--sig-sell); }
   .hero-tk { margin-left:auto; color:var(--dim-2); }
+  .hero-score-why { flex:1 1 100%; color:var(--txt); font-weight:600; line-height:1.45; }
   /* 안내 에이전트(챗봇) */
   #chat-fab { position:fixed; right:max(16px, var(--safe-right)); bottom:max(16px, var(--safe-bottom));
     width:52px; height:52px; border-radius:50%;
@@ -3453,6 +3454,7 @@ async function loadScorecard(){
       fetch('/api/signal-scorecard').then(r => r.json()).catch(() => ({ resolved: 0 })),
       fetch('/api/verdict').then(r => r.json()).catch(() => ({ ready: false })),
     ]);
+    _verdictCache = hz;
     const rows = [];
     const cov = acc.coverage || {};
     const need = acc.ic_min_samples || _TRUST_MATURE_N;
@@ -4550,6 +4552,30 @@ function _heroCov(item) {
     + `근거 ${Math.round(c * 100)}%</span>`;
 }
 
+// 점수 옆 한 줄 — 종합점수를 만든 관점만. 해설·뉴스는 여기 넣지 않는다.
+const _GATE_SHORT = {
+  trend: '하락 추세', earnings: '실적 임박', crash: '급락', event: '악재', coverage: '자료 부족',
+};
+function scoreBeside(item){
+  if (!item) return '';
+  const fs = item.factor_scores || {};
+  const keys = Object.keys(fs);
+  const missing = item.missing_factors || [];
+  const gates = item.gates || [];
+  if (!keys.length && !missing.length && !gates.length) return '';
+  const up = _FACTOR_ORDER.filter(k => fs[k] != null && fs[k] > 0.05)
+    .sort((a, b) => fs[b] - fs[a]).slice(0, 3)
+    .map(k => (_FACTOR_META[k] && _FACTOR_META[k].ko) || k);
+  const miss = missing.map(k => (_FACTOR_META[k] && _FACTOR_META[k].ko) || k);
+  const bits = [up.length ? `올린 관점 ${up.join(' · ')}` : '점수를 올린 관점 없음'];
+  if (miss.length) bits.push(`빠진 관점 ${miss.join(' · ')}`);
+  if (gates.length && (item.kind === 'HOLD' || item.gate_blocked)) {
+    const name = gates.map(k => _GATE_SHORT[k] || k).filter((v, i, a) => a.indexOf(v) === i);
+    bits.push(`매수 차단 ${name.join(' · ')}`);
+  }
+  return bits.join(' · ');
+}
+
 function sigPillTitle(r){
   return kindHint(r.kind) + entryTip(r) + pricedInTip(r) + demoteTip(r)
     + horizonTip(r) + revisionTip(r) + sectorRelTip(r);
@@ -4993,8 +5019,9 @@ function _paintSignalDetail(ticker, item){
           ${up != null ? `<span>목표가 상승여력 <b style="color:var(--sig-buy)">+${fmtNum(up, 1)}%</b></span>` : ''}
           <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
           + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b>`
-          + _heroCov(item) + `</span>
-          ${_pitHeroLine(item._pit)}
+          + _heroCov(item) + `</span>`
+          + (scoreBeside(item) ? `<span class="hero-score-why">${esc(scoreBeside(item))}</span>` : '')
+          + `${_pitHeroLine(item._pit)}
         </div>
       </div>`;
   } else heroEl.style.display = 'none';
@@ -5674,8 +5701,8 @@ async function loadBotState(){
         <td><span class="sig-pill ${t.side === 'buy' ? 'BUY' : 'SELL'}">${t.side === 'buy' ? '매수' : '매도'}</span></td>
         <td class="num">${t.qty}</td><td class="num">${fmtNum(t.price, 0)}</td>
         <td class="reasons">
-          <span style="font-weight:600">${_REASON_LABEL[t.reason] || esc(t.reason)}</span>${t.score != null ? ` <span style="color:var(--dim)">· 점수 ${t.score > 0 ? '+' : ''}${fmtNum(t.score, 2)}</span>` : ''}
-          ${t.note ? `<div class="trade-note">${esc(t.note)}</div>` : ''}
+          <span style="font-weight:600">${esc(_tradeSentence(t))}</span>${t.score != null ? ` <span style="color:var(--dim)">· 그날 점수 ${t.score > 0 ? '+' : ''}${fmtNum(t.score, 2)}</span>` : ''}
+          ${t.note ? `<div class="trade-note">${esc(plainNote(t.note))}</div>` : ''}
         </td>
       </tr>`).join('');
       tEl.innerHTML = `<table class="dtable"><thead><tr>
@@ -5728,10 +5755,44 @@ async function loadBotCosts(seq, market, style){
 }
 
 const _TRADE_REASON = {
-  SIGNAL: '신규', ADD: '추가', ROTATE_IN: '교체 매수', RESERVATION: '예약', COPY: '추종',
-  STOP_LOSS: '손절', TRAILING: '트레일링', TAKE_PROFIT: '익절', ROTATE_OUT: '교체 매도',
-  EVENT: '사건', EVENT_TRIM: '사건 축소',
+  SIGNAL: '처음 매수', ADD: '추가 매수', ROTATE_IN: '교체 매수', RESERVATION: '예약 매수', COPY: '추종 매수',
+  STOP_LOSS: '손절 매도', TRAILING: '트레일링 매도', TAKE_PROFIT: '익절 매도', ROTATE_OUT: '교체 매도',
+  EVENT: '악재 매도', EVENT_TRIM: '악재 축소',
 };
+const _TRADE_SENTENCE = {
+  SIGNAL: '처음 매수 — 그날 시그널로 샀습니다',
+  ADD: '추가 매수 — 이미 가진 종목을 더 샀습니다',
+  ROTATE_IN: '교체 매수 — 다른 종목을 빼고 샀습니다',
+  RESERVATION: '예약 매수 — 미리 걸어 둔 주문입니다',
+  COPY: '추종 매수 — 다른 장부를 따라 샀습니다',
+  STOP_LOSS: '손절 매도 — 손실 기준에 닿아 나갔습니다',
+  TAKE_PROFIT: '익절 매도 — 목표 수익에 닿아 나갔습니다',
+  TRAILING: '트레일링 매도 — 고점에서 되밀려 나갔습니다',
+  ROTATE_OUT: '교체 매도 — 다른 종목으로 바꾸려고 나갔습니다',
+  EVENT: '악재 매도 — 사건 때문에 전부 나갔습니다',
+  EVENT_TRIM: '악재 축소 — 사건 때문에 일부만 나갔습니다',
+};
+function _tradeSentence(t){
+  return _TRADE_SENTENCE[t.reason] || _TRADE_REASON[t.reason] || (t.reason || '');
+}
+let _verdictCache = null;
+function _followGate(verdict, holding){
+  const locked = !!(verdict && verdict.status === 'locked');
+  const horizons = (holding && holding.measured_horizons) || {};
+  const need = horizons['실측 헤드라인'];
+  const median = holding && holding.median_days;
+  const approxSessions = median == null ? null : median * 5 / 7;
+  const held = need != null && approxSessions != null && approxSessions + 1e-9 >= need;
+  if (!verdict) return '따라가기 닫힘 — 판정을 읽지 못했습니다';
+  if (locked && held)
+    return '따라가기 조건은 찼습니다. 이 화면은 주문을 넣지 않습니다';
+  const why = [];
+  if (!locked) why.push('판정이 확정 전입니다');
+  if (!held) why.push(need != null
+    ? `청산 규칙 변경 이후 보유가 실측 지평 ${need}거래일에 못 미칩니다`
+    : '보유 지평을 아직 재지 못했습니다');
+  return `따라가기 닫힘 — ${why.join(' · ')}`;
+}
 
 function _mixLine(bag, title){
   if (!bag) return '';
@@ -5770,6 +5831,10 @@ async function loadReferencePerf(seq = _botLoadSeq, market = _botMarket, style =
     if (seq !== _botLoadSeq) return;
     if (!res.ok) throw new Error(res.reason);
     const d = res.data;
+    if (!_verdictCache) {
+      const vr = await getJSON('/api/verdict');
+      if (vr.ok) _verdictCache = vr.data;
+    }
     const usd = d.currency === 'USD';
     const fmtM = v => v == null ? '–' : (usd ? '$' + fmtNum(v, 0) : fmtKRW(v));
     const rows = (d.bots || []).map(b => {
@@ -5839,7 +5904,8 @@ function loadBotPerformance(all, style){
       + (holdLine ? `<div style="margin-top:6px;color:var(--fg)">${holdLine}</div>` : '')
       + (sinceLine ? `<div style="color:var(--dim)">${sinceLine}</div>` : '')
       + (mixAll ? `<div style="color:var(--dim)">${mixAll}</div>` : '')
-      + (mixSince ? `<div style="color:var(--dim)">${mixSince}</div>` : '');
+      + (mixSince ? `<div style="color:var(--dim)">${mixSince}</div>` : '')
+      + `<div style="color:var(--dim)">${esc(_followGate(_verdictCache, d.holding_since_exit_policy))}</div>`;
     const curve = d.curve || [];
     if (_botEquityChart) { _botEquityChart.dispose(); _botEquityChart = null; }
     if (!curve.length) {

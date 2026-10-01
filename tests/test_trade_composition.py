@@ -119,3 +119,11 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     assert "holding_since_exit_policy" in src
     assert "_mixLine" in src and "_roadmapNote" in src
     assert "연구 수익률은 여기에 싣지 않습니다" in src
+    assert "function scoreBeside(" in src
+    assert "올린 관점" in src and "빠진 관점" in src and "매수 차단" in src
+    assert "처음 매수 — 그날 시그널로 샀습니다" in src
+    assert "추가 매수 — 이미 가진 종목을 더 샀습니다" in src
+    assert "따라가기 닫힘" in src
+    follow = src.split("function _followGate(", 1)[1].split("\nfunction ", 1)[0]
+    assert "percentile" not in follow
+    assert "이 화면은 주문을 넣지 않습니다" in follow
