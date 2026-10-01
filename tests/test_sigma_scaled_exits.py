@@ -126,3 +126,6 @@ def test_run_preregistered_honours_the_declaration():
     src = open("src/signal_desk/store.py", encoding="utf-8").read()
     assert 'hzc.get("exits")' in src, "run_preregistered가 등록된 청산 레이어를 안 읽는다"
     assert "exit_rules=_exit_rules" in src, "읽어 놓고 하네스에 안 넘긴다"
+    body = src.split("def run_preregistered", 1)[1].split("\ndef harness_board", 1)[0]
+    assert "run_harness(**common, lock=True)" in body, "잠금 재실행이 등록 인자를 다시 적지 않는다"
+    assert "run_harness(**common, lock=False)" in body
