@@ -155,6 +155,36 @@ def test_forward_marks_are_first_observed_and_revision_halts(tmp_path, monkeypat
     assert "2026-09-29" not in db.rotation_shadow_marks(900002, "kr", s["session"])
 
 
+def test_session_close_is_used_when_a_later_bar_exists_and_a_hole_names_the_ticker(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    session = "2026-09-23"
+    now = dt.datetime(2026, 9, 23, 9, 30, tzinfo=dt.timezone.utc)
+    db.kv_set("paper_account:900002", json.dumps({"cash": 0, "positions": {
+        "HELD": {"qty": 10, "avg_price": 100}}}))
+    db.bot_position_upsert(900002, "HELD", "Held", 10, 100, 100, "2026-09-01")
+    rows = pd.DataFrame([{"date": session, "ticker": t, "score": score, "kind": kind,
+                          "rank": rank, "event_risk": 0, "session_valid": True, "bar_asof": session}
+                         for t, score, kind, rank in (("HELD", 0.1, "HOLD", 20), ("NEW", 1.8, "BUY", 1))])
+    monkeypatch.setattr(rs.store, "load_signal_history", lambda market: rows)
+    monkeypatch.setattr(rs.store, "load_warned_tickers", lambda: set())
+    monkeypatch.setattr(rs.store, "load_portfolio_close_bundle", lambda market: (
+        {"HELD": [100.0, 130.0], "NEW": [100.0, 140.0]},
+        {"HELD": [session, "2026-09-24"], "NEW": [session, "2026-09-24"]}))
+    saved = rs.capture("kr", now)
+    assert saved["saved"] == 1, saved
+    held = db.rotation_shadow_recent(900002, "kr")[0]["holdings"][0]
+    assert held["price"] == 100.0
+    db.kv_set("paper_account:900001", json.dumps({"cash": 10, "positions": {
+        "GONE": {"qty": 1, "avg_price": 80}}}))
+    db.bot_position_upsert(900001, "GONE", "Gone", 1, 80, 80, "2026-09-01")
+    monkeypatch.setattr(rs.store, "load_portfolio_close_bundle", lambda market: (
+        {"HELD": [100.0], "NEW": [100.0], "GONE": [80.0]},
+        {"HELD": [session], "NEW": [session], "GONE": ["2026-09-22"]}))
+    missed = rs.capture("kr", now)
+    assert missed["saved"] == 0
+    assert "GONE" in (missed["reason"] or "")
+
+
 def test_a_missed_snapshot_names_the_holding_gap_alone():
     reason = rs._skip_reason(saved=0, account_seen=3, holding_mismatch=3, bad_cash=0, frozen=0)
     assert reason == "보유 종가가 마감 세션과 다른 계좌 3"

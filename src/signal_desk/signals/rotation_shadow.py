@@ -127,14 +127,27 @@ def decide(snapshot: dict, style: str, *, review_due: bool) -> dict:
     return results
 
 
+def _session_close(prices: dict, dates: dict, ticker: str, session: str) -> float | None:
+    """그 세션의 종가. 시리즈 끝이 다음 날로 넘어가도 그 날 값을 쓰고, 없으면 더 이른 종가로 대신하지 않는다."""
+    days = dates.get(ticker) or []
+    bars = prices.get(ticker) or []
+    if session not in days or len(bars) != len(days):
+        return None
+    price = _finite(bars[days.index(session)])
+    if price is None or price <= 0:
+        return None
+    return price
+
+
 def _skip_reason(*, saved: int, account_seen: int, holding_mismatch: int,
-                 bad_cash: int, frozen: int) -> str | None:
+                 bad_cash: int, frozen: int, holding_detail: str | None = None) -> str | None:
     """저장이 0일 때 이유를 하나로 섞지 않는다. 종가 불일치와 이미 동결은 다른 고장이다."""
     if saved:
         return None
     parts = []
     if holding_mismatch:
-        parts.append(f"보유 종가가 마감 세션과 다른 계좌 {holding_mismatch}")
+        tail = f" ({holding_detail})" if holding_detail else ""
+        parts.append(f"보유 종가가 마감 세션과 다른 계좌 {holding_mismatch}{tail}")
     if bad_cash:
         parts.append(f"현금이 비정상인 계좌 {bad_cash}")
     if frozen:
@@ -186,8 +199,8 @@ def capture(market: str, now: dt.datetime) -> dict:
         ticker = str(r["ticker"])
         score = _finite(r.get("score"))
         rank = _finite(r.get("rank"))
-        price = _finite(prices[ticker][-1]) if prices.get(ticker) else None
-        if score is None or not dates.get(ticker) or dates[ticker][-1] != session or price is None or price <= 0:
+        price = _session_close(prices, dates, ticker, session)
+        if score is None or price is None:
             if engine.is_buy(str(r.get("kind"))) and (rank is None or rank <= entry_k):
                 return {"saved": 0, "reason": "상위 신규 후보 가격 결손"}
             excluded.append(ticker)
@@ -200,6 +213,7 @@ def capture(market: str, now: dt.datetime) -> dict:
     saved = 0
     account_seen = 0
     holding_mismatch = 0
+    mismatch_names: list[str] = []
     bad_cash = 0
     frozen = 0
     warned = sorted(store.load_warned_tickers()) if market == "kr" else []
@@ -220,10 +234,12 @@ def capture(market: str, now: dt.datetime) -> dict:
         positions = {p["ticker"]: p for p in db.bot_positions_all(uid, market)}
         holdings = []
         for ticker, position in account["positions"].items():
-            if ticker not in dates or dates[ticker][-1] != session:
+            price = _session_close(prices, dates, ticker, session)
+            if price is None:
                 holdings = []
+                if ticker not in mismatch_names:
+                    mismatch_names.append(ticker)
                 break
-            price = _finite(prices[ticker][-1])
             avg = _finite(position.get("avg_price"))
             qty = position.get("qty")
             if price is None or price <= 0 or avg is None or avg <= 0 or type(qty) is not int or qty <= 0:
@@ -266,9 +282,11 @@ def capture(market: str, now: dt.datetime) -> dict:
         if not added:
             frozen += 1
     return {"saved": saved, "session": session,
-            "reason": _skip_reason(saved=saved, account_seen=account_seen,
-                                   holding_mismatch=holding_mismatch, bad_cash=bad_cash,
-                                   frozen=frozen)}
+            "reason": _skip_reason(
+                saved=saved, account_seen=account_seen, holding_mismatch=holding_mismatch,
+                bad_cash=bad_cash, frozen=frozen,
+                holding_detail=(", ".join(mismatch_names[:3])
+                                + (f" 외 {len(mismatch_names) - 3}" if len(mismatch_names) > 3 else "")))}
 
 
 def _recent_sold(uid: int, market: str, style: str, now: dt.datetime) -> set[str]:

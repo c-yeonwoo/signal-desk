@@ -3458,6 +3458,25 @@ def _backfill_us_prices_batch(batch: int = 60) -> dict:
     return {"filled": filled, "missing": max(0, len(missing) - batch), "deferred": deferred}
 
 
+def _us_refresh_tickers() -> list[str]:
+    """오늘 미국 유니버스와, 레퍼런스 봇이 아직 들고 있는 종목.
+
+    지수에서 빠진 보유를 갱신 목록에서 빼면 그 종가 날짜가 마감 세션과 달라지고,
+    그 계좌의 회전 관측이 통째로 거절된다.
+    """
+    seen: list[str] = []
+    for item in store.load_us_universe():
+        ticker = str(item.get("ticker") or "")
+        if ticker and ticker not in seen:
+            seen.append(ticker)
+    for uid in bot.REFERENCE_BOTS:
+        for row in db.bot_positions_all(uid, "us"):
+            ticker = str(row.get("ticker") or "")
+            if ticker and ticker not in seen:
+                seen.append(ticker)
+    return seen
+
+
 def _refresh_us_prices_stale(batch: int = 60, *,
                              max_trading_days: int = store.US_STALE_TRADING_DAYS,
                              days: int = 60) -> dict:
@@ -3469,7 +3488,7 @@ def _refresh_us_prices_stale(batch: int = 60, *,
     문턱은 **거래일** 기준이다(`store.US_STALE_TRADING_DAYS`) — 달력일 3일 문턱은 마지막 봉이
     정확히 3일 전일 때 `08-04 < 08-04` 가 거짓이 되어 갱신 대상 0건으로 통과했고, 그 상태로
     거래일 2일이 비어 있었다(2026-08-07 실측)."""
-    universe = [u["ticker"] for u in store.load_us_universe()]
+    universe = _us_refresh_tickers()
     if not universe:
         return {"filled": 0, "stale": 0}
     skip = store.us_price_skips()
