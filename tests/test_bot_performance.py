@@ -125,6 +125,8 @@ def test_a_missing_price_drops_only_the_broken_prefix(tmp_path, monkeypatch):
     assert out["comparison_return_pct"] == 10.0
     assert out["excess_return_pct"] == 5.0
     assert out["price_gap_notes"] == ["비교 불가 — 2026-09-22→2026-09-23 가격 결측 1종목 (017960)"]
+    assert out["price_gap_skipped"] == 1
+    assert out["comparison_return_pct"] == 10.0 and out["return_pct"] != out["comparison_return_pct"]
 
 
 def test_a_missing_session_is_not_trimmed_into_a_comparison(tmp_path, monkeypatch):
