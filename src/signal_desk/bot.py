@@ -1188,6 +1188,7 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
     if skipped:
         basis = f"{basis} · {skipped}"
     # 구멍 목록을 이어 붙이면 화면이 세션 쌍마다 한 줄이 된다. 첫 구멍과 개수만 남긴다.
+    price_gap_skipped = len(price_gap_notes) if bench_curve else 0
     if price_gap_notes and bench_curve:
         extra = f" 외 {len(price_gap_notes) - 1}쌍" if len(price_gap_notes) > 1 else ""
         basis = f"{basis} · 앞구간 제외: {price_gap_notes[0]}{extra}"
@@ -1211,6 +1212,7 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
         "comparison_curve": comparison_curve if bench_curve else None,
         "excluded_non_sessions": excluded_non_sessions,
         "price_gap_notes": price_gap_notes,
+        "price_gap_skipped": price_gap_skipped,
         "excess_return_pct": (round(comparable - bench, 2)
                               if (comparable is not None and bench is not None) else None),
         "max_drawdown_pct": round(mdd * 100, 2), "days": len(curve),

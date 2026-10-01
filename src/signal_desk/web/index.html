@@ -5878,12 +5878,12 @@ async function loadReferencePerf(seq = _botLoadSeq, market = _botMarket, style =
         <td class="num">${fmtM(b.total_eval)}</td>
         <td class="num" style="color:${dc}">${fmtNum(dd, 1)}%</td>
         <td class="num" style="color:${b.excess_return_pct == null || Math.abs(b.excess_return_pct) < 0.5 ? 'var(--dim)' : b.excess_return_pct > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'};font-weight:700"
-            title="${esc(b.excess_return_pct == null ? b.benchmark_basis : `비교 기간 ${b.comparison_window?.join('~') || '미확인'} · ${b.benchmark_basis}`)}">${b.excess_return_pct == null ? '–' : (b.excess_return_pct > 0 ? '+' : '') + fmtNum(b.excess_return_pct, 2) + '%p'}</td>
+            title="${esc(b.excess_return_pct == null ? b.benchmark_basis : `비교 기간 ${b.comparison_window?.join('~') || '미확인'} · 그 구간 계좌 ${b.comparison_return_pct == null ? '–' : fmtNum(b.comparison_return_pct, 2) + '%'} · ${b.benchmark_basis}`)}">${b.excess_return_pct == null ? '–' : (b.excess_return_pct > 0 ? '+' : '') + fmtNum(b.excess_return_pct, 2) + '%p'}${b.excess_return_pct != null && b.comparison_window ? `<div style="font-size:11px;font-weight:600;color:var(--dim)">${esc(b.comparison_window.map(x => x.slice(5)).join('~'))} 계좌 ${b.comparison_return_pct == null ? '–' : (b.comparison_return_pct > 0 ? '+' : '') + fmtNum(b.comparison_return_pct, 2) + '%'}</div>` : ''}</td>
         <td class="num">${b.n_trades}</td><td class="num">${b.days}일</td></tr>`;
     }).join('');
     el.className = '';
     el.innerHTML = `<table class="dtable"><thead><tr><th>성향</th><th class="num" title="시드 대비 계좌 전체 수익률 — 이게 성적입니다">계좌 수익률</th>
-      <th class="num">현재 금액</th><th class="num" title="이전 최고 계좌 금액에서 가장 많이 내려간 비율">가장 크게 하락</th><th class="num" title="당시 분석 대상 종목에 똑같이 투자한 가상 기준과 같은 기록 기간을 비교합니다. 기준선은 거래비용 제외입니다.">비교 기준보다</th><th class="num">거래</th><th class="num">기록 일수</th></tr></thead>
+      <th class="num">현재 금액</th><th class="num" title="이전 최고 계좌 금액에서 가장 많이 내려간 비율">가장 크게 하락</th><th class="num" title="비교 창의 계좌 수익에서 같은 창의 기준선을 뺀 값입니다. 가격이 빈 앞구간은 빠지므로 시드 이후 계좌 수익률과 기간이 다를 수 있습니다. 기준선은 거래비용 제외입니다.">비교 기준보다</th><th class="num">거래</th><th class="num">기록 일수</th></tr></thead>
       <tbody>${rows}</tbody></table>
       ${_styleVerdictNote(d)}
       <div style="color:var(--dim-2);font-size:var(--fs-2xs);margin-top:6px">같은 시그널, 다른 규칙 강도로 집행한 결과 — 시그널 실측과는 다른 지표입니다.
@@ -5920,9 +5920,14 @@ function loadBotPerformance(all, style){
     // 보유 손익률은 지금 들고 있는 것의 상태이고, **계좌 수익률이 track record**다.
     // 전체 계좌 수익률(시드 이후)과 상대 비교(기록된 첫날~마지막날)는 기간이 다르다.
     const ex = d.excess_return_pct;
+    const cmp = d.comparison_return_pct;
+    const cmpTxt = cmp == null ? '–' : `${cmp > 0 ? '+' : ''}${fmtNum(cmp, 2)}%`;
+    const winLabel = (d.comparison_window || []).join('~') || '비교 기간 미확인';
+    // 시드 이후 수익률과 비교 창 수익률은 다른 기간이다. 한 줄에 붙이면 초과가 전체 장부의 성적처럼 읽힌다.
     const exTxt = ex == null ? '' :
-      ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">비교 기준보다 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
-      + `<span style="color:var(--dim-2)"> (${esc(d.comparison_window?.join('~') || '비교 기간 미확인')} · 기준선 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
+      ` · <b>비교 구간 계좌 ${cmpTxt}</b>`
+      + ` · <b style="color:${Math.abs(ex) < 0.5 ? 'var(--dim)' : ex > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)'}">같은 구간 기준보다 ${ex > 0 ? '+' : ''}${fmtNum(ex, 2)}%p</b>`
+      + `<span style="color:var(--dim-2)"> (${esc(winLabel)} · 기준선 ${d.benchmark_return_pct > 0 ? '+' : ''}${fmtNum(d.benchmark_return_pct, 2)}%)</span>`;
     const sinceHold = d.holding_since_exit_policy;
     const shortHold = sinceHold && sinceHold.mismatch
       ? `<div style="margin-bottom:6px;color:var(--sig-watch);font-weight:600">${esc(sinceHold.mismatch)}</div>` : '';
@@ -5930,7 +5935,9 @@ function loadBotPerformance(all, style){
     const sinceLine = _holdLine(sinceHold, '청산 규칙 변경 이후', !!shortHold);
     const mixAll = _mixLine(d.trades && d.trades.all, '체결 구성');
     const mixSince = _mixLine(d.trades && d.trades.since_exit_policy, '변경 이후 체결');
-    sumEl.innerHTML = shortHold + `<b>계좌 수익률 ${rTxt}</b>${exTxt}`
+    const gapN = d.price_gap_skipped || 0;
+    const gapExtra = gapN > 1 ? ` 외 ${gapN - 1}쌍` : '';
+    sumEl.innerHTML = shortHold + `<b>시드 이후 ${rTxt}</b>${exTxt}`
       + (ex == null ? `<span style="color:var(--dim-2)"> · 상대 비교 보류: ${esc(d.benchmark_basis || '기준선 없음')}</span>` : '')
       + `<span style="color:var(--dim-2)"> · 초기자금 대비</span>`
       + ` · ${fmtM(d.seed)}→${fmtM(d.total_eval)} · 최고점 대비 최대 하락 ${fmtNum(d.max_drawdown_pct, 1)}%`
@@ -5938,7 +5945,7 @@ function loadBotPerformance(all, style){
       + (ex != null && (d.excluded_non_sessions || []).length
           ? `<div style="color:var(--dim)">비거래일 평가 ${(d.excluded_non_sessions || []).length}건(${esc((d.excluded_non_sessions || []).slice(0, 3).join(', '))})은 비교에서 제외</div>` : '')
       + (ex != null && (d.price_gap_notes || []).length
-          ? `<div style="color:var(--dim)">앞구간 제외: ${esc((d.price_gap_notes || [])[0])}</div>` : '')
+          ? `<div style="color:var(--dim)">앞구간 제외: ${esc((d.price_gap_notes || [])[0])}${gapExtra}</div>` : '')
       + (holdLine ? `<div style="margin-top:6px;color:var(--fg)">${holdLine}</div>` : '')
       + (sinceLine ? `<div style="color:var(--dim)">${sinceLine}</div>` : '')
       + (mixAll ? `<div style="color:var(--dim)">${mixAll}</div>` : '')
