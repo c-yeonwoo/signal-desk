@@ -145,6 +145,7 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     assert "ex != null && (d.excluded_non_sessions" in perf_fn
     painted = perf_fn.split("sumEl.innerHTML = ", 1)[1]
     assert painted.index("shortHold") < painted.index("계좌 수익률")
+    assert "price_gap_notes" in perf_fn and "앞구간 제외" in perf_fn
     goal = src.split("function renderGoalPlan", 1)[1].split("\nfunction ", 1)[0]
     assert "이 비율은 수익 확률이 아닙니다" in goal and "달성 확률" not in goal
     assert "점수 강도 큼" in src and "신뢰 높음" not in src

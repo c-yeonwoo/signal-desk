@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import math
 import random
+import re
 
 from signal_desk import market_clock, store
+
+_PRICE_GAP = re.compile(r"(\d{4}-\d{2}-\d{2})→(\d{4}-\d{2}-\d{2}) 가격 결측")
 
 
 def session_points(curve: list[dict], market: str) -> tuple[list[dict], list[str]]:
@@ -27,6 +30,14 @@ def session_points(curve: list[dict], market: str) -> tuple[list[dict], list[str
         else:
             dropped.append(day)
     return kept, dropped
+
+
+def price_gap_bounds(reason: str | None) -> tuple[str, str] | None:
+    """가격이 비어 비교가 멈춘 쌍. 세션이 비 continuous 한 이유는 여기 해당하지 않는다."""
+    if not reason:
+        return None
+    found = _PRICE_GAP.search(reason)
+    return (found.group(1), found.group(2)) if found else None
 
 
 def non_session_note(dropped: list[str]) -> str:
