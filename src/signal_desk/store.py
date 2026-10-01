@@ -3188,6 +3188,12 @@ def harness_board(market: str = "kr", *, path=None) -> dict:
             eff, eff_src = lk_pit // max(1, hold), "estimated"
         prog = prereg.progress(lk, effective_periods=eff, pit_dates=lk_pit)
         prog["effective_periods_source"] = eff_src
+        # 실측이 어느 PIT에서 멈췄는지. 이게 없으면 날짜가 늘어도 자동 실행이
+        # 옛 실효만 보고 영원히 건너뛴다(`prereg.run_due`).
+        prog["measured_pit_dates"] = (
+            int(recent["pit_dates"]) if eff_src == "measured" and recent.get("pit_dates") is not None
+            else None)
+        prog["hold"] = hold
         # 창 밖 날짜를 세지 않았다는 사실을 **드러낸다** — 두 look의 분자가 다른 이유가
         # 화면에 안 보이면 "왜 얘만 느리지"로 읽힌다.
         prog["counts_from"] = oos_from or None
