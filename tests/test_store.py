@@ -168,3 +168,33 @@ def test_fetch_prices_remembers_a_session_the_provider_omits(tmp_path, monkeypat
     monkeypatch.setattr(krx, "ohlcv", tail)
     store.fetch_prices(uni)
     assert calls == ["20260706"]
+
+
+def test_fetch_prices_starts_where_a_past_constituent_has_no_close(tmp_path, monkeypatch):
+    """오늘 명단에서 빠져도, 그날 구성이었던 세션의 종가가 없으면 그 날부터 받는다."""
+    monkeypatch.chdir(tmp_path)
+    store._write_json(store.UNIVERSE_HISTORY_FILE, {
+        "2026-07-01": [{"ticker": "017960", "name": "한국카본"}],
+    })
+    store._write_parquet(pd.DataFrame([
+        {"date": "2026-07-06", "ticker": "017960", "open": 1, "close": 13, "volume": 1},
+    ]), store.PRICES_FILE)
+    calls = []
+
+    def fake_ohlcv(ticker, start, end):
+        calls.append((ticker, start))
+        return [{"date": "2026-07-02", "open": 1.0, "close": 12.0, "volume": 1.0}]
+
+    monkeypatch.setattr(krx, "ohlcv", fake_ohlcv)
+    store.fetch_prices([{"ticker": "017960", "name": "한국카본"}])
+    assert calls == [("017960", "20260702")]
+
+
+def test_prices_universe_keeps_a_name_that_left_the_live_list(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    store._write_json(store.UNIVERSE_FILE, [{"ticker": "005930", "name": "삼성"}])
+    store._write_json(store.UNIVERSE_HISTORY_FILE, {
+        "2026-07-01": [{"ticker": "017960", "name": "한국카본"}],
+    })
+    tickers = {u["ticker"] for u in store.prices_universe()}
+    assert tickers == {"005930", "017960"}
