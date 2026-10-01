@@ -3123,16 +3123,19 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
     # 잠금 여부는 실행 결과의 실효 기간으로 정해진다 → 먼저 돌리고, 요건을 만족하면 그 실행을 잠근다.
     # 1패스로 끝내려고 run_harness에 lock을 두 번 넘기지 않고, 여기서 미리 계산할 수 있는 것만 계산한다.
     already = db.harness_locked_run(look_id)
-    out = run_harness(
+    # 잠금 재실행이 이 딕셔너리를 그대로 써야 한다. 인자를 다시 적으면 청산·분모·장중
+    # 표본이 빠지고, 요건을 충족한 전략과 다른 전략이 정본이 된다.
+    common = dict(
         market=look["market"], top_pct=float(hzc.get("top_pct") or look["config"].get("rank_top_pct") or 3.0),
         hold=int(hzc.get("hold") or 5), cost=float(hzc.get("cost_pct") or 0.25),
         trials=int(hzc.get("trials") or 200), exposure=bool(hzc.get("exposure") or False),
         signal_config=_signal_config_from(look["config"]), pit=pit, pit_fund=pit_fund,
-        preregistered_id=look_id, lock=False,
+        preregistered_id=look_id,
         threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"],
         from_date=(look["requirement"] or {}).get("from_date"),
         exit_rules=_exit_rules, full_denominator=_full_den,
         intraday_samples=int(hzc.get("intraday_samples") or 1))
+    out = run_harness(**common, lock=False)
     if not out.get("ready"):
         return out
     # price6 경로의 `pit_dates` 는 **자르기 전** 재무 날짜 수다. OOS면 자른 뒤(`oos_dates`)를 쓴다.
@@ -3140,15 +3143,12 @@ def run_preregistered(look_id: str, *, path=None) -> dict:
     prog = prereg.progress(look, effective_periods=out.get("effective_periods") or 0,
                            pit_dates=_pit_num or 0)
     if prog["met"] and not already:
-        # 요건 충족 첫 실행 — 같은 실행을 잠긴 것으로 다시 남기고 보드를 갱신한다.
-        return run_harness(
-            market=look["market"], top_pct=float(hzc.get("top_pct") or look["config"].get("rank_top_pct") or 3.0),
-            hold=int(hzc.get("hold") or 5), cost=float(hzc.get("cost_pct") or 0.25),
-            trials=int(hzc.get("trials") or 200), exposure=bool(hzc.get("exposure") or False),
-            signal_config=_signal_config_from(look["config"]), pit=pit, pit_fund=pit_fund,
-            preregistered_id=look_id, lock=True,
-            from_date=(look["requirement"] or {}).get("from_date"),
-            threshold_pct=reg["threshold_pct"], n_registered=reg["n_canonical"])
+        # 요건 충족 첫 실행 — 같은 인자로 잠긴 행을 다시 남기고 보드를 갱신한다.
+        # 시드가 고정이라 백분위는 같은 추첨이다. 인자가 다르면 다른 실험이 잠긴다.
+        locked = run_harness(**common, lock=True)
+        if not locked.get("ready"):
+            return locked
+        return {**locked, "progress": prog, "board_updated": True}
     return {**out, "progress": prog, "board_updated": False}
 
 
