@@ -1138,19 +1138,35 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
     # 비거래일이 구성종목 누락으로 오인되어 앞 구간을 통째로 버리지 않는다.
     session_curve, excluded_non_sessions = performance_evidence.session_points(curve, market)
     comparison_curve = session_curve
+    membership_gap_note = None
     if market == "us" and universe_history:
         # 미국은 매 세션 실제로 관측한 멤버십이 있어야 한다. 최초 도입 전/수집 누락
         # 구간은 마지막 누락일 이후의 최대 60개 평가일만 비교한다.
-        comparison_curve = session_curve[-60:]
+        # 자른 이유는 남긴다. 창만 짧아지면 이틀 초과가 장부 전체의 성적처럼 읽힌다.
+        capped = session_curve[-60:]
+        cap_dropped = len(session_curve) - len(capped)
+        comparison_curve = capped
         if comparison_curve:
             first = comparison_curve[0]["date"]
             excluded_non_sessions = [d for d in excluded_non_sessions if d >= first]
         start = 0
+        missing_n = 0
+        last_missing = None
         for i, point in enumerate(comparison_curve[:-1]):
             known_by = market_clock.previous_session("us", point["date"])
             if known_by not in universe_history:
+                missing_n += 1
+                last_missing = (known_by, point["date"])
                 start = i + 1
         comparison_curve = comparison_curve[start:]
+        if last_missing and len(comparison_curve) >= 2:
+            known_by, through = last_missing
+            extra = f" · 구성종목 관측이 빈 앞 세션 {missing_n}개" if missing_n > 1 else ""
+            membership_gap_note = (
+                f"{known_by} 구성종목 관측이 없어 {through}까지 빼고 "
+                f"{comparison_curve[0]['date']}부터 비교{extra}")
+        elif cap_dropped and last_missing is None and len(comparison_curve) >= 2:
+            membership_gap_note = f"최근 60세션만 비교하고 그 앞 {cap_dropped}일은 창 밖"
     # 구성종목 가격이 빈 쌍은 0으로 잇지 않는다. 그 쌍의 끝 날짜부터 다시 본다.
     # 계좌 수익도 같은 날짜에서 시작해, 긴 계좌와 짧은 기준선을 빼지 않는다.
     # 종가는 루프 밖에서 한 번만 읽는다. 쌍마다 다시 읽으면 구멍 수만큼 시세 파일을 연다.
@@ -1196,6 +1212,8 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
     elif price_gap_notes:
         basis = f"{basis} · 가격이 빈 세션 쌍 {len(price_gap_notes)}개라 비교할 구간이 없다"
         price_gap_notes = []
+    if membership_gap_note and bench_curve:
+        basis = f"{basis} · 앞구간 제외: {membership_gap_note}"
     comparable = (round((comparison_curve[-1]["total_eval"] / comparison_curve[0]["total_eval"] - 1) * 100, 2)
                   if len(comparison_curve) >= 2 and comparison_curve[0]["total_eval"] > 0 else None)
     return {
@@ -1213,6 +1231,7 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
         "excluded_non_sessions": excluded_non_sessions,
         "price_gap_notes": price_gap_notes,
         "price_gap_skipped": price_gap_skipped,
+        "membership_gap_note": membership_gap_note,
         "excess_return_pct": (round(comparable - bench, 2)
                               if (comparable is not None and bench is not None) else None),
         "max_drawdown_pct": round(mdd * 100, 2), "days": len(curve),

@@ -5946,6 +5946,8 @@ function loadBotPerformance(all, style){
           ? `<div style="color:var(--dim)">비거래일 평가 ${(d.excluded_non_sessions || []).length}건(${esc((d.excluded_non_sessions || []).slice(0, 3).join(', '))})은 비교에서 제외</div>` : '')
       + (ex != null && (d.price_gap_notes || []).length
           ? `<div style="color:var(--dim)">앞구간 제외: ${esc((d.price_gap_notes || [])[0])}${gapExtra}</div>` : '')
+      + (ex != null && d.membership_gap_note
+          ? `<div style="color:var(--dim)">앞구간 제외: ${esc(d.membership_gap_note)}</div>` : '')
       + (holdLine ? `<div style="margin-top:6px;color:var(--fg)">${holdLine}</div>` : '')
       + (sinceLine ? `<div style="color:var(--dim)">${sinceLine}</div>` : '')
       + (mixAll ? `<div style="color:var(--dim)">${mixAll}</div>` : '')
