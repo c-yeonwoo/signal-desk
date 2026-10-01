@@ -405,7 +405,7 @@ def _bot_loop_iteration() -> None:
     except Exception as e:
         log.warning("US 시세 자동 백필 실패(무시): %s", type(e).__name__)
     try:  # 이미 있는 종목도 며칠째 안 움직이면 증분 갱신(백필 no-op만으론 7/2에 영구 고정됨)
-        rf = _refresh_us_prices_stale(25)
+        rf = _refresh_us_prices_stale(25, max_trading_days=_us_price_stale_slack())
         if rf["filled"]:
             _clear_us_signal_caches()
             log.info("US 시세 자동 갱신 %d종목(잔여 stale %s)", rf["filled"], rf["stale"])
@@ -778,9 +778,7 @@ def _daily_maintenance(enabled: list[str]) -> None:
         # 이 시점은 미국 직전 세션 마감 후 수 시간 이상 지난 국내 마감이다.
         # 공식 XNYS 완료 세션이 예상일과 같을 때에만 한 거래일 결손까지 재시도한다.
         # 기존 전역 1일 유예는 휴장 오탐 방지용이므로 여기서만 좁게 무시한다.
-        expected_us = store.us_expected_last_bar(_kst_now())
-        completed_us = market_clock.latest_completed_session("us", _kst_now())
-        rf = _refresh_us_prices_stale(batch=0, max_trading_days=0 if completed_us == expected_us else 1)
+        rf = _refresh_us_prices_stale(batch=0, max_trading_days=_us_price_stale_slack())
         if rf["filled"]:
             _clear_us_signal_caches()
             log.info("마감후 US 시세 갱신 %d종목", rf["filled"])
@@ -3456,6 +3454,19 @@ def _backfill_us_prices_batch(batch: int = 60) -> dict:
         return {"filled": 0, "missing": 0, "deferred": deferred, "shallow": 0}
     filled = store.fetch_us_prices(missing[:batch], days=400)
     return {"filled": filled, "missing": max(0, len(missing) - batch), "deferred": deferred}
+
+
+def _us_price_stale_slack(now: datetime.datetime | None = None) -> int:
+    """미국 일봉을 다시 받을 때 허용하는 거래일 결손.
+
+    주말만 뺀 기대일과 거래소 완료 세션이 같으면 하루 밀린 봉은 휴장이 아니다.
+    30분 루프가 여유 1일을 그대로 쓰면, 마감 작업이 이미 지난 날의 하루 결손은
+    다음 국내 마감까지 갱신되지 않는다. 둘이 다를 때만 여유를 둬 공휴일 전량 재수집을 피한다.
+    """
+    now = now or _kst_now()
+    expected = store.us_expected_last_bar(now)
+    completed = market_clock.latest_completed_session("us", now)
+    return 0 if completed and completed == expected else store.US_STALE_TRADING_DAYS
 
 
 def _us_refresh_tickers() -> list[str]:

@@ -134,7 +134,7 @@ def test_maintenance_runs_after_the_close_on_weekdays(monkeypatch):
     monkeypatch.setattr(api.db, "user_bots_enabled", lambda: [])
     monkeypatch.setattr(api, "_open_markets", lambda: [])
     monkeypatch.setattr(api, "_backfill_us_prices_batch", lambda n: {"filled": 0, "missing": 0})
-    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda n: {"filled": 0, "stale": 0})
+    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda *a, **k: {"filled": 0, "stale": 0})
     monkeypatch.setattr(api, "_backfill_about_batch", lambda n: 0)
     monkeypatch.setattr(api, "_backfill_moves_batch", lambda n: 0)
     monkeypatch.setattr(api, "_daily_maintenance", lambda enabled: ran.append("ran"))
@@ -152,3 +152,12 @@ def test_maintenance_runs_after_the_close_on_weekdays(monkeypatch):
     _at(datetime.datetime(2026, 7, 24, 16, 0))   # 금요일 마감후
     api._bot_loop_iteration()
     assert ran == ["ran"]
+
+
+def test_one_session_us_hole_is_retried_when_the_calendar_agrees():
+    kst = datetime.timezone(datetime.timedelta(hours=9))
+    matched = datetime.datetime(2026, 10, 1, 15, 40, tzinfo=kst)
+    assert api._us_price_stale_slack(matched) == 0
+    # 2026-09-07은 미국 휴장. 주말만 뺀 기대일(09-07)과 완료 세션(09-04)이 갈라진다.
+    holiday = datetime.datetime(2026, 9, 8, 15, 40, tzinfo=kst)
+    assert api._us_price_stale_slack(holiday) == 1

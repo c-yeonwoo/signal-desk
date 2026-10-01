@@ -57,7 +57,7 @@ def test_about_moves_skipped_on_weekend(monkeypatch):
     monkeypatch.setattr(api.db, "user_bots_enabled", lambda: [])
     monkeypatch.setattr(api, "_open_markets", lambda: [])
     monkeypatch.setattr(api, "_backfill_us_prices_batch", lambda n: {"filled": 0, "missing": 0})
-    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda n: {"filled": 0, "stale": 0})
+    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda *a, **k: {"filled": 0, "stale": 0})
     monkeypatch.setattr(api, "_backfill_about_batch", lambda n: ran.append("about") or 0)
     monkeypatch.setattr(api, "_backfill_moves_batch", lambda n: ran.append("moves") or 0)
     monkeypatch.setattr(api.db, "uids_with_ticker_favorites", lambda: [])
