@@ -727,7 +727,7 @@ def _daily_maintenance(enabled: list[str]) -> None:
     단계별로 try를 나눠 한 소스가 죽어도 나머지는 갱신된다."""
     try:   # 일봉 이력 갱신 — 이게 없으면 멈춘 가격으로 시그널만 계속 쌓인다(점수 동결)
         deep = store.prices_need_deep_backfill()
-        store.fetch_prices(store.load_universe(), full=deep)
+        store.fetch_prices(store.prices_universe(), full=deep)
         _signals.cache_clear()
         if deep:
             log.info("시세 전량 백필 완료(목표 %d일)", store.PRICE_HISTORY_DAYS)
@@ -3342,7 +3342,7 @@ def _refresh_kr(data: dict) -> dict:
     # 이력이 목표(5년)에 못 미치면 전량 백필, 채워져 있으면 마지막 저장일부터 증분. 완료 플래그가
     # 아니라 실제 커버리지를 보므로 목표 깊이를 올리면 다음 갱신에서 자동으로 다시 채운다.
     deep = bool(data.get("full_prices")) or store.prices_need_deep_backfill()
-    store.fetch_prices(universe, full=deep)
+    store.fetch_prices(store.prices_universe(), full=deep)
     if deep:
         db.kv_set("prices_deep_backfilled", _kst_today())
     if bool(data.get("force_dart")) or _dart_stale():

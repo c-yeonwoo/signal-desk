@@ -217,6 +217,54 @@ def _load_kr_price_absent() -> dict[str, set[str]]:
     return out
 
 
+def kr_missing_constituent_day(ticker: str, have: set[str], absent: set[str] | None,
+                               history: dict) -> str | None:
+    """최근 구간의 거래일 중, 그날 구성이었는데 종가가 없는 가장 이른 날.
+
+    시리즈 중간 구멍만 보면, 오늘 유니버스에서 빠진 종목의 앞쪽 결측은 영구히 남는다.
+    그 종목이 그 세션의 구성이 아니면 요구하지 않는다.
+    """
+    from signal_desk import market_clock
+    if not history:
+        return kr_interior_hole(have, absent)
+    last = max(have) if have else datetime.date.today().isoformat()
+    try:
+        window = (datetime.date.fromisoformat(last) - datetime.timedelta(days=220)).isoformat()
+        sessions = market_clock._calendar("kr").sessions_in_range(window, last)
+        keys = sorted(history)
+    except (KeyError, ValueError, TypeError, OverflowError):
+        return kr_interior_hole(have, absent)
+    skipped = absent or set()
+    import bisect
+    for ts in sessions:
+        day = ts.date().isoformat()
+        if day in have or day in skipped or day == last:
+            continue
+        known = market_clock.previous_session("kr", day)
+        if not known:
+            continue
+        i = bisect.bisect_right(keys, known) - 1
+        if i < 0:
+            continue
+        rows = history.get(keys[i]) or []
+        if any(str(u.get("ticker") or "") == ticker for u in rows):
+            return day
+    return kr_interior_hole(have, absent)
+
+
+def prices_universe() -> list[dict]:
+    """오늘 유니버스와, PIT 스냅샷에 한 번이라도 있던 종목.
+
+    비교는 그날의 구성종목 종가를 요구한다. 오늘 명단만 받으면 편출 종목의 구멍이 남는다.
+    """
+    merged = {u["ticker"]: u for u in pit_universe_tickers()}
+    for u in load_universe():
+        ticker = str(u.get("ticker") or "")
+        if ticker:
+            merged.setdefault(ticker, u)
+    return list(merged.values())
+
+
 def _save_kr_price_absent(absent: dict[str, set[str]]) -> None:
     _write_json(KR_PRICE_ABSENT_FILE, {t: sorted(days) for t, days in sorted(absent.items()) if days})
 
@@ -244,12 +292,15 @@ def fetch_prices(universe: list[dict] | None = None, days: int = PRICE_HISTORY_D
         for ticker, grp in existing.groupby("ticker"):
             dates_by_ticker[str(ticker)] = {str(d)[:10] for d in grp["date"].tolist()}
     absent = {} if full else _load_kr_price_absent()
+    hist = {} if full else load_universe_history()
     rows = []
     for item in universe:
         ticker = item["ticker"]
         last = None if full else last_by_ticker.get(ticker)
         have = dates_by_ticker.get(ticker, set())
-        hole = None if full or last is None else kr_interior_hole(have, absent.get(ticker))
+        hole = None if full or last is None else (
+            kr_missing_constituent_day(ticker, have, absent.get(ticker), hist)
+            if hist else kr_interior_hole(have, absent.get(ticker)))
         if hole:
             start = datetime.date.fromisoformat(hole)
         elif last:
