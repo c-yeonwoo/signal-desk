@@ -1183,8 +1183,14 @@ def performance(uid: int, market: str = "kr", *, dated_closes: dict | None = Non
     skipped = performance_evidence.non_session_note(excluded_non_sessions)
     if skipped:
         basis = f"{basis} · {skipped}"
-    if price_gap_notes:
-        basis = f"{basis} · 앞구간 제외: {' / '.join(price_gap_notes)}"
+    # 구멍 목록을 이어 붙이면 화면이 세션 쌍마다 한 줄이 된다. 첫 구멍과 개수만 남긴다.
+    if price_gap_notes and bench_curve:
+        extra = f" 외 {len(price_gap_notes) - 1}쌍" if len(price_gap_notes) > 1 else ""
+        basis = f"{basis} · 앞구간 제외: {price_gap_notes[0]}{extra}"
+        price_gap_notes = price_gap_notes[:1]
+    elif price_gap_notes:
+        basis = f"{basis} · 가격이 빈 세션 쌍 {len(price_gap_notes)}개라 비교할 구간이 없다"
+        price_gap_notes = []
     comparable = (round((comparison_curve[-1]["total_eval"] / comparison_curve[0]["total_eval"] - 1) * 100, 2)
                   if len(comparison_curve) >= 2 and comparison_curve[0]["total_eval"] > 0 else None)
     return {

@@ -143,3 +143,23 @@ def test_a_missing_session_is_not_trimmed_into_a_comparison(tmp_path, monkeypatc
     assert calls == [["2026-09-22", "2026-09-28"]]
     assert out["excess_return_pct"] is None and out["price_gap_notes"] == []
     assert "연속 거래세션 아님" in out["benchmark_basis"]
+
+
+def test_price_holes_through_the_curve_stay_one_sentence(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path)
+    db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 1_000_000.0, "positions": {}}))
+    for d, te in [("2026-09-22", 1_000_000), ("2026-09-23", 1_100_000), ("2026-09-28", 1_210_000)]:
+        db.bot_equity_record(UID, "kr", d, te, te, 0)
+
+    def fake(curve, market="kr", **_k):
+        dates = [p["date"] for p in curve]
+        if len(dates) < 2:
+            return None, "비교 불가 — 평가일 2개 미만"
+        return None, f"비교 불가 — {dates[0]}→{dates[1]} 가격 결측 1종목 (017960)"
+
+    monkeypatch.setattr(bot.performance_evidence, "pit_equal_weight_detail", fake)
+    out = bot.performance(UID, "kr")
+    assert out["excess_return_pct"] is None and out["price_gap_notes"] == []
+    assert out["benchmark_basis"].count("017960") == 1
+    assert "2026-09-23→2026-09-28" not in out["benchmark_basis"]
+    assert "가격이 빈 세션 쌍 2개라 비교할 구간이 없다" in out["benchmark_basis"]
