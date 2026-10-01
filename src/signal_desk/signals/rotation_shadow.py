@@ -127,6 +127,23 @@ def decide(snapshot: dict, style: str, *, review_due: bool) -> dict:
     return results
 
 
+def _skip_reason(*, saved: int, account_seen: int, holding_mismatch: int,
+                 bad_cash: int, frozen: int) -> str | None:
+    """저장이 0일 때 이유를 하나로 섞지 않는다. 종가 불일치와 이미 동결은 다른 고장이다."""
+    if saved:
+        return None
+    parts = []
+    if holding_mismatch:
+        parts.append(f"보유 종가가 마감 세션과 다른 계좌 {holding_mismatch}")
+    if bad_cash:
+        parts.append(f"현금이 비정상인 계좌 {bad_cash}")
+    if frozen:
+        parts.append(f"이미 동결된 계좌 {frozen}")
+    if parts:
+        return " · ".join(parts)
+    return None if account_seen else "레퍼런스 계좌 없음"
+
+
 def capture(market: str, now: dt.datetime) -> dict:
     """완료 세션과 PIT/가격 날짜가 일치할 때만 레퍼런스 계좌별 최초 관측을 저장."""
     if market not in ("kr", "us") or now.tzinfo is None or now.utcoffset() is None:
@@ -182,10 +199,14 @@ def capture(market: str, now: dt.datetime) -> dict:
         return {"saved": 0, "reason": "PIT/원시 종가 최종 정렬 95% 미달"}
     saved = 0
     account_seen = 0
+    holding_mismatch = 0
+    bad_cash = 0
+    frozen = 0
     warned = sorted(store.load_warned_tickers()) if market == "kr" else []
     assumptions = execution.cost_assumptions(market)
     for uid, style in REFERENCE_BOTS.items():
         if db.rotation_shadow_exists(uid, market, session):
+            frozen += 1
             continue
         raw = db.kv_get(f"paper_account:{uid}" + (f":{market}" if market == "us" else ""))
         account = json.loads(raw) if isinstance(raw, str) else raw
@@ -194,6 +215,7 @@ def capture(market: str, now: dt.datetime) -> dict:
         account_seen += 1
         cash = _finite(account.get("cash"))
         if cash is None or cash < 0:
+            bad_cash += 1
             continue
         positions = {p["ticker"]: p for p in db.bot_positions_all(uid, market)}
         holdings = []
@@ -217,6 +239,7 @@ def capture(market: str, now: dt.datetime) -> dict:
                              "entry_date": entry, "calendar_days_held": calendar_days,
                              "hold_sessions": held_sessions})
         if account["positions"] and not holdings:
+            holding_mismatch += 1
             continue
         previous = db.rotation_shadow_recent(uid, market, 1)
         review_due = not previous or dt.date.fromisoformat(previous[0]["session"]).isocalendar()[:2] != dt.date.fromisoformat(session).isocalendar()[:2]
@@ -238,10 +261,14 @@ def capture(market: str, now: dt.datetime) -> dict:
         snapshot["decisions"] = decide(snapshot, style, review_due=review_due)
         for decision in snapshot["decisions"].values():
             decision["fixed_orders"] = _fixed_orders(snapshot, decision["pairs"])
-        saved += int(db.rotation_shadow_add_once(uid, market, session, snapshot))
+        added = int(db.rotation_shadow_add_once(uid, market, session, snapshot))
+        saved += added
+        if not added:
+            frozen += 1
     return {"saved": saved, "session": session,
-            "reason": (None if saved else "레퍼런스 계좌 없음" if not account_seen
-                       else "보유 종가·현금 정합성 미충족 또는 해당 세션 이미 동결")}
+            "reason": _skip_reason(saved=saved, account_seen=account_seen,
+                                   holding_mismatch=holding_mismatch, bad_cash=bad_cash,
+                                   frozen=frozen)}
 
 
 def _recent_sold(uid: int, market: str, style: str, now: dt.datetime) -> set[str]:

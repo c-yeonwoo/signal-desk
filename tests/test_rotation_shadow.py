@@ -153,3 +153,11 @@ def test_forward_marks_are_first_observed_and_revision_halts(tmp_path, monkeypat
     assert second["revision_halts"] == 1
     assert db.rotation_shadow_revision_halt(900002, "kr", s["session"]) == "HELD:2026-09-23"
     assert "2026-09-29" not in db.rotation_shadow_marks(900002, "kr", s["session"])
+
+
+def test_a_missed_snapshot_names_the_holding_gap_alone():
+    reason = rs._skip_reason(saved=0, account_seen=3, holding_mismatch=3, bad_cash=0, frozen=0)
+    assert reason == "보유 종가가 마감 세션과 다른 계좌 3"
+    assert "또는" not in reason
+    assert rs._skip_reason(saved=1, account_seen=1, holding_mismatch=1, bad_cash=0, frozen=0) is None
+    assert rs._skip_reason(saved=0, account_seen=0, holding_mismatch=0, bad_cash=0, frozen=2) == "이미 동결된 계좌 2"
