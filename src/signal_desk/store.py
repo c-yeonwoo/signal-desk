@@ -1198,20 +1198,26 @@ def _valid_us_universe(items: list[dict]) -> bool:
 
 
 def _snapshot_us_universe(items: list[dict], observed_at: datetime.datetime | None = None) -> bool:
-    """미국 마감 후 첫 관측만 날짜별 동결. 장중 수동 갱신으로 마감 기록을 선점하지 않는다."""
+    """미국 마감 후 첫 관측만 그 세션 날짜로 동결. 장중 갱신으로 마감 기록을 선점하지 않는다.
+
+    키는 뉴욕의 벽시계 날짜가 아니라 완료된 거래 세션이다. 국내 오후(뉴욕은 이미 다음 날)
+    에도 직전 마감이 20시간 안이면 그 세션으로 남긴다. 그 창을 넘기면 오늘 명단을
+    과거 세션에 붙이지 않는다.
+    """
     observed_at = observed_at or datetime.datetime.now(datetime.timezone.utc)
     if observed_at.tzinfo is None:
         raise ValueError("observed_at must be timezone-aware")
-    day = observed_at.astimezone(ZoneInfo("America/New_York")).date().isoformat()
     if not _valid_us_universe(items):
         return False  # 불완전한 공급자 응답을 PIT 구성종목으로 확정하지 않음
     from signal_desk import market_clock
     session = market_clock.latest_completed_session("us", observed_at)
-    if session != day or market_clock.is_open("us", observed_at):
+    if not session or market_clock.is_open("us", observed_at):
         return False
     close = market_clock._calendar("us").schedule.loc[session]["close"].to_pydatetime()
-    if observed_at.astimezone(datetime.timezone.utc) - close < datetime.timedelta(hours=1):
+    age = observed_at.astimezone(datetime.timezone.utc) - close
+    if not datetime.timedelta(hours=1) <= age <= datetime.timedelta(hours=20):
         return False
+    day = session
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     with US_UNIVERSE_HISTORY_LOCK_FILE.open("a+b") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
