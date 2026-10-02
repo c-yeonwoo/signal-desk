@@ -4674,6 +4674,9 @@ function renderTodayCard(){
       + (sellN ? ` <span class="st-c">매도 ${sellN}</span>` : '');
   if (slots != null) line += ` <span class="st-c" title="뽑을 수 있는 자리 중 실제로 뽑은 수 (원어: 선정)">· 뽑음 ${eligible ?? 0}/${slots}</span>`;
   else line += ` <span class="st-c" title="오늘 매수로 인정되는 최저 점수 (원어: 매수 문턱)">· 매수 기준 +${fmtNum(thr, 1)}</span>`;
+  if (rep.outside_note) {
+    line += ` <span class="st-c" title="장중 상승은 점수 순위와 다른 질문이다. 이 문장은 주문을 바꾸지 않는다.">· ${esc(rep.outside_note)}</span>`;
+  }
   lineEl.innerHTML = line;
 
   const chips = [];

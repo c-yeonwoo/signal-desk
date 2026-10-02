@@ -57,6 +57,33 @@ def test_crowding_unmapped_is_data_quality_not_warn():
     assert "편중 아님" in out["note"]
 
 
+def test_biggest_riser_outside_the_buy_window_is_named_and_not_an_order():
+    """+10% 매수보다 +18% 관망이 문장의 주어다. kind는 그대로다."""
+    buy = _sig("267250", kind="BUY", rank=2, score=1.99)
+    riser = _sig("020150", kind="HOLD", rank=177, eligible=False, score=-0.48)
+    riser.hold_tag = "데이터부족"
+    quiet = _sig("000660", kind="HOLD", rank=10, eligible=False, score=1.47)
+    out = desk_report.build(
+        [buy, riser, quiet],
+        selection={"mode": "rank", "rank_slots": 6, "eligible": 1},
+        move_rows=[
+            {"ticker": "267250", "change_pct": 10.0},
+            {"ticker": "020150", "change_pct": 18.6},
+            {"ticker": "000660", "change_pct": 0.2},
+        ])
+    assert out["outside_movers"][0]["ticker"] == "020150"
+    assert out["outside_note"] == (
+        "오늘 최대 상승 020150 +18.6% · 177위 · 점수 -0.48 · 데이터부족 · 매수 아님")
+    assert buy.kind == "BUY"
+    assert "267250" not in out["outside_note"]
+
+
+def test_today_card_prints_the_server_sentence():
+    html = open("src/signal_desk/web/index.html", encoding="utf-8").read()
+    assert "rep.outside_note" in html
+    assert "이 문장은 주문을 바꾸지 않는다" in html
+
+
 def test_crowding_real_sector_still_warns():
     buys = [_sig("005930"), _sig("000660"), _sig("042700")]
     out = crowding.assess(buys)

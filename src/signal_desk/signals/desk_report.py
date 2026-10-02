@@ -36,6 +36,56 @@ def _buy_row(r) -> dict:
     }
 
 
+def _outside_movers(rows, move_rows, *, n: int = 1) -> list[dict]:
+    """매수가 아닌 종목 중 오늘 등락이 큰 것. 주문 근거가 아니다.
+
+    등락 색과 같은 0.5%를 넘을 때만 고른다. 그 아래는 화면이 이미 무채색으로 두는
+    크기라 문장으로 올릴 이유가 없다. 문턱을 오늘 분포에 맞춰 올리지 않는다.
+    """
+    changes: dict[str, float] = {}
+    for r in (rows if move_rows is None else move_rows):
+        ticker = _g(r, "ticker")
+        if not ticker:
+            continue
+        try:
+            ch = float(_g(r, "change_pct"))
+        except (TypeError, ValueError):
+            continue
+        changes[str(ticker)] = ch
+    out = []
+    for r in rows:
+        if is_buy(str(_g(r, "kind") or "")):
+            continue
+        ticker = str(_g(r, "ticker") or "")
+        ch = changes.get(ticker)
+        if ch is None or ch < 0.5:
+            continue
+        try:
+            score = float(_g(r, "score") or 0)
+        except (TypeError, ValueError):
+            score = 0.0
+        out.append({
+            "ticker": ticker,
+            "name": _g(r, "name") or ticker,
+            "change_pct": round(ch, 2),
+            "score": round(score, 2),
+            "rank": _g(r, "rank"),
+            "hold_tag": _g(r, "hold_tag"),
+        })
+    out.sort(key=lambda x: (-x["change_pct"], x["rank"] or 999))
+    return out[:n]
+
+
+def _outside_note(movers: list[dict]) -> str | None:
+    if not movers:
+        return None
+    m = movers[0]
+    rank = f"{m['rank']}위" if m.get("rank") else "순위 없음"
+    tag = f" · {m['hold_tag']}" if m.get("hold_tag") else ""
+    return (f"오늘 최대 상승 {m['name']} {m['change_pct']:+.1f}% · "
+            f"{rank} · 점수 {m['score']:+.2f}{tag} · 매수 아님")
+
+
 def build(
     signals,
     *,
@@ -44,6 +94,7 @@ def build(
     exposure: float | None = None,
     exposure_reasons: list[str] | None = None,
     market: str = "kospi",
+    move_rows=None,
 ) -> dict:
     """결정론 Desk Report.
 
@@ -71,6 +122,8 @@ def build(
             "hold_tag": _g(r, "hold_tag"),
         })
     vacancies.sort(key=lambda x: x["rank"] or 999)
+    outside = _outside_movers(rows, move_rows)
+    outside_note = _outside_note(outside)
 
     n_buy = len(buys)
     eligible = sel.get("eligible", n_buy)
@@ -132,6 +185,8 @@ def build(
         "buys": [_buy_row(r) for r in sorted(
             buys, key=lambda x: float(_g(x, "score") or 0), reverse=True)[:8]],
         "vacancies": vacancies[:8],
+        "outside_movers": outside,
+        "outside_note": outside_note,
         "crowding": {
             "warn": bool(crowd.get("warn")),
             "data_quality": bool(crowd.get("data_quality")),
