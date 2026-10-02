@@ -2522,7 +2522,7 @@ def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
         sel = selection_summary(us_sigs, cfg)
         crowd = crowding.assess(items)
         report = desk_report.build(
-            us_sigs, selection=sel, crowding=crowd, market="us")
+            us_sigs, selection=sel, crowding=crowd, market="us", move_rows=items)
         db.kv_set("crowding_last_us", {**crowd, "ts": int(time.time())})
         # **시총을 국내와 같은 축으로 실어 보낸다.** 화면이 달러 값에 원화 서식(조/억)을
         # 그대로 씌워 USB $101.3B가 `1013억`으로 보였다 — 삼성전자 `1494조` 옆에 놓이면
@@ -2570,7 +2570,7 @@ def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
         sigs, selection=sel, crowding=crowd,
         exposure=adapt.get("exposure"),
         exposure_reasons=adapt.get("exposure_reasons"),
-        market="kospi")
+        market="kospi", move_rows=items)
     db.kv_set("crowding_last", {**crowd, "ts": int(time.time())})
     db.kv_set("desk_report_last", report)
     signal_policy_id = _signal_policy_id("kr", sigs)
