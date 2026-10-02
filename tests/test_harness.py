@@ -146,6 +146,18 @@ def test_refuses_to_certify_when_conclusion_depends_on_calendar():
     assert hz._verdict(50.0, phase_min=19.0, phase_max=21.0, random_median=20.0)[0] == "판정 불가"
 
 
+def test_registered_bar_rejects_what_the_explore_bar_accepts():
+    """96%는 탐색 라벨에선 판별력 있음이고, 등록 문턱 99.15%에선 불가여야 한다."""
+    assert hz._verdict(96.0, phase_min=30.0, phase_max=40.0, random_median=10.0)[0] == "판별력 있음"
+    blocked, why = hz._verdict(96.0, phase_min=30.0, phase_max=40.0, random_median=10.0,
+                               pass_pct=99.15)
+    assert blocked == "판정 불가" and "99.15" in why
+    assert hz._verdict(99.2, phase_min=30.0, phase_max=40.0, random_median=10.0,
+                       pass_pct=99.15)[0] == "판별력 있음"
+    assert hz._verdict(99.5, phase_min=-10.0, phase_max=90.0, random_median=20.0,
+                       pass_pct=99.15)[0] == "판정 불가"
+
+
 def test_random_baseline_is_phase_averaged():
     """대조군도 전략과 같은 위상 평균을 거쳐야 분산이 같아진다.
     (전략만 평균내면 대조군이 흔들려서 전략이 이긴 것처럼 보인다.)"""

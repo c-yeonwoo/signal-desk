@@ -534,6 +534,29 @@ def test_harness_checks_the_config_the_engine_actually_runs(tmp_path, monkeypatc
     store.run_harness(market="kr")
     assert seen["cfg"].signal_config.weight_momentum == 0.05, (
         "하네스가 라이브 설정을 무시하고 소스 상수를 쟀다")
+    assert "pass_pct" not in seen["kw"], "탐색 실행이 등록 문턱을 읽으면 95% 막대가 사라진다"
+
+
+def test_preregistered_run_passes_the_file_threshold_into_the_label(tmp_path, monkeypatch):
+    """등록 실행만 파일 문턱을 라벨에 넘긴다. 안 넘기면 99.15가 기록에만 남고 라벨은 95다."""
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import db, store
+    from signal_desk.signals import harness as hz_mod
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    seen: dict = {}
+
+    def _capture(panel, cfg=None, regimes=None, scores=None, score_source="price", **kw):
+        seen["kw"] = kw
+        return {"ready": False, "reason": "stub"}
+
+    monkeypatch.setattr(store, "is_ready", lambda: True)
+    monkeypatch.setattr(store, "load_universe", lambda: [{"ticker": "A"}])
+    monkeypatch.setattr(store, "load_all_dated_closes",
+                        lambda: {"A": (_dates(60), [100.0 + i for i in range(60)])})
+    monkeypatch.setattr(hz_mod, "run", _capture)
+    store.run_harness(market="kr", preregistered_id="pit-8factor-rank3-hold5-final",
+                      threshold_pct=99.15)
+    assert seen["kw"]["pass_pct"] == 99.15
 
 
 def test_verdict_blocks_when_most_periods_bought_nothing():
