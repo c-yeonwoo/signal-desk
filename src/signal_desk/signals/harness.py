@@ -823,7 +823,8 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
         covers: dict[str, list[float | None]] | None = None,
         caps: dict[str, list[float | None]] | None = None,
         n_trials: int | None = None,
-        sr_variance: float | None = None) -> dict:
+        sr_variance: float | None = None,
+        pass_pct: float | None = None) -> dict:
     """전략(횡단면 분위 top N%) + 무작위 대조군 + 동일가중 벤치마크를 같은 날짜축에서 비교.
 
     리밸런스 위상을 전부 돌려 평균 내고(`phase_average`), 위상 간 편차를 함께 낸다. 편차가
@@ -943,7 +944,8 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
     # 아무 것도 막지 못했고, 대신 실효 3~4기간의 결과가 판정으로 나갔다. 이제 실효 기간으로 센다.
     verdict, why = _verdict(percentile, min(totals), max(totals), rnd["median"],
                             periods=runs[0]["periods"], min_periods=cfg.min_periods,
-                            effective_periods=effective_periods, weak_factors=weak)
+                            effective_periods=effective_periods, weak_factors=weak,
+                            pass_pct=95.0 if pass_pct is None else float(pass_pct))
 
     return {
         "ready": True,
@@ -1050,7 +1052,8 @@ def run(panel: Panel, cfg: HarnessConfig | None = None,
 def _verdict(percentile: float | None, phase_min: float, phase_max: float,
              random_median: float, *, periods: int = 10 ** 6, min_periods: int = 0,
              effective_periods: int | None = None,
-             weak_factors: list[str] | None = None) -> tuple[str, str]:
+             weak_factors: list[str] | None = None,
+             pass_pct: float = 95.0) -> tuple[str, str]:
     """숫자를 행동으로 옮겨도 되는지의 판정. 기본값은 '판정 불가'다. (짧은 라벨, 사유).
 
     백분위만 보지 않고 **가장 나쁜 위상까지 무작위 중위를 이겼는지**를 함께 요구한다.
@@ -1062,26 +1065,34 @@ def _verdict(percentile: float | None, phase_min: float, phase_max: float,
     표본은 `periods`(전체 리밸런스 횟수)가 아니라 **`effective_periods`(매수가 실제로 있던 기간)**로
     센다. 2026-08-05 진단: PIT 점수가 없는 날은 후보가 비어 매수 0건이 되는데, 리밸런스 인덱스는
     가격 패널 전체에 깔리므로 hold=5면 218회쯤 된다. 실제 신호가 4기간뿐이어도 `218 >= min_periods`로
-    통과했다. 미참여 기간을 표본으로 세면 "표본 218회"라는 문장이 거짓이 된다.
+    통과했다.     미참여 기간을 표본으로 세면 "표본 218회"라는 문장이 거짓이 된다.
+
+    `pass_pct` 기본 95는 탐색 실행의 막대다. 사전등록 실행은 파일의 Šidák 문턱
+    (지금 99.15)을 넘긴다. 95로 라벨을 쓰면 등록보다 느슨한 문장에 판별력 있음이 붙는다.
     """
     if percentile is None:
         return "판정 불가", "대조군 없음"
+    bar = float(pass_pct)
+    tail = 100.0 - bar
     eff = periods if effective_periods is None else effective_periods
     if eff < min_periods:
         if eff != periods:
             return "판정 불가", (f"실효 리밸런스 표본 {eff}회 < 최소 {min_periods}회 "
                               f"(전체 {periods}회 중 {periods - eff}회는 매수 0건)")
         return "판정 불가", f"리밸런스 표본 {periods}회 < 최소 {min_periods}회"
-    if weak_factors and percentile >= 95:
+    if weak_factors and percentile >= bar:
         return "판정 불가", (f"{', '.join(weak_factors)} 커버리지 미달 — 이 결과는 이름과 다른 "
                           f"전략을 측정한 것이다")
-    if percentile >= 95 and phase_min > random_median:
+    if percentile >= bar and phase_min > random_median:
         return "판별력 있음", f"무작위 대비 상위 {100 - percentile:.0f}%, 최악 위상도 우위"
-    if percentile <= 5 and phase_max < random_median:
+    if percentile <= tail and phase_max < random_median:
         return "역판별력", "모든 위상에서 무작위보다 나쁘다 — 순위를 그대로 쓰면 안 된다"
-    if phase_min <= random_median <= phase_max and (percentile >= 95 or percentile <= 5):
+    if phase_min <= random_median <= phase_max and (percentile >= bar or percentile <= tail):
         return "판정 불가", (f"위상에 따라 무작위 중위를 넘기도 못 넘기도 한다"
                           f"({phase_min:+.0f}~{phase_max:+.0f}% vs {random_median:+.0f}%)")
+    if bar > 95 and percentile >= 95 and phase_min > random_median:
+        return "판정 불가", (f"백분위 {percentile:.2f}% · 등록 문턱 {bar:.2f}% 미달 "
+                          f"(최악 위상은 대조 중위보다 큼)")
     return "판정 불가", "무작위와 구분되지 않는다"
 
 

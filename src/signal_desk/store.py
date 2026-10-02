@@ -2836,6 +2836,9 @@ def run_harness(*, market: str = "kr", top_pct: float = 3.0, hold: int = 5,
     # 인덱스가 안 밀린다("한쪽만 자르면 다른 날짜의 점수로 채점한다").
     caps = mktcap_panel(panel) if cfg.min_mktcap_pct > 0 else None
     kw = {"n_trials": n_trials, "sr_variance": sr_var, "caps": caps}
+    if threshold_pct is not None:
+        # 탐색 실행은 넘기지 않는다. 그러면 라벨은 95%다. 등록 실행만 파일 문턱을 쓴다.
+        kw["pass_pct"] = float(threshold_pct)
     out = (hz.run(panel, cfg, regimes, scores=scores, score_source=source,
                   coverage=cov6, fired=fired6, covers=covers, **kw) if scores is not None
            else hz.run(panel, cfg, regimes, **kw))
