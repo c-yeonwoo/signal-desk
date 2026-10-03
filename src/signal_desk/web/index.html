@@ -181,6 +181,9 @@
   .macro-chip .mc-label a { color:inherit; text-decoration:underline dotted; text-underline-offset:2px; }
   .macro-chip .mc-value { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
   .macro-chip .mc-chg { font-size:11px; font-variant-numeric:tabular-nums; }
+  .industry-pulse .ip-values { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:6px 0; }
+  .industry-pulse .ip-index { font-size:21px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .industry-pulse .ip-meta { font-size:12px; color:var(--dim); line-height:1.5; }
   .mc-bad { color:var(--sig-sell); } .mc-good { color:var(--sig-buy); } .mc-flat { color:var(--dim); }
   /* 기회 유형 — 종목명 아래. 섹터 열에 붙이면 섹터 속성처럼 읽힌다 */
   .sig-tags { display:flex; flex-wrap:wrap; gap:3px; margin-top:3px; }
@@ -983,12 +986,16 @@
   <span id="macro-bias" class="sig-pill" style="display:none">-</span>
   <span class="market-bar-end">
     <span id="live-status" class="tb-live" title="현재가 데이터 기준 시각"></span>
-    <button id="macro-toggle" class="btn" type="button" onclick="toggleMacro()">거시 지표 ▾</button>
+    <button id="macro-toggle" class="btn" type="button" onclick="toggleMacro()">시장 근거 ▾</button>
   </span>
 </div>
 <div id="macro-detail" style="display:none">
   <div class="market-bar" style="border-top:none;padding-top:0"><div class="macro-chips" id="macro-chips"></div></div>
   <div class="macro-callout" id="macro-narrative" style="display:none"></div>
+  <div id="industry-pulse" class="pcard industry-pulse" style="margin:var(--space-2) var(--space-4)">
+    <div class="pcard-title">미국 반도체·전자부품 생산 <span class="sub">연준 월간 통계 · 시장 이해용, 매수 신호 아님</span></div>
+    <div id="industry-pulse-body" class="ip-meta">공식 자료 관측 확인 중</div>
+  </div>
   <div id="regime-card" class="pcard" style="display:none;margin:var(--space-2) var(--space-4)">
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
       <span style="font-weight:700;font-size:13px">지금 시장 체온계</span>
@@ -2258,6 +2265,8 @@
     <span class="foot-link" onclick="openLegal('privacy')">개인정보처리방침</span> ·
     <span class="foot-link" onclick="openLegal('disclaimer')">투자 유의사항</span>
   </span>
+  <span class="foot-disc">This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis.
+    <a href="https://fred.stlouisfed.org/docs/api/terms_of_use.html" target="_blank" rel="noopener noreferrer">FRED API 이용조건 ↗</a></span>
 </footer>
 
 <div id="authGate">
@@ -3128,7 +3137,7 @@ function applyMacroState(){
   const open = localStorage.getItem('macroOpen') === '1';
   const d = document.getElementById('macro-detail'), t = document.getElementById('macro-toggle');
   if (d) d.style.display = open ? '' : 'none';
-  if (t) t.textContent = open ? '거시 지표 ▴' : '거시 지표 ▾';
+  if (t) t.textContent = open ? '시장 근거 ▴' : '시장 근거 ▾';
 }
 function toggleMacro(){
   localStorage.setItem('macroOpen', localStorage.getItem('macroOpen') === '1' ? '0' : '1');
@@ -3636,6 +3645,27 @@ async function loadMacro(){
         <span class="mc-value">${val}</span>${chg}</div>`;
     }).join('');
   } catch (e) { hide(); note.style.display = 'none'; }
+}
+
+async function loadIndustryPulse(){
+  const el = document.getElementById('industry-pulse-body');
+  if (!el) return;
+  try {
+    const response = await getJSON('/api/industry-pulse');
+    if (!response.ok) { el.textContent = response.reason; return; }
+    const d = response.data;
+    if (!d || !['ready','stale'].includes(d.status)) {
+      el.textContent = d?.reason || '공식 자료를 아직 관측하지 않았습니다.';
+      return;
+    }
+    const pct = (v) => v == null ? '비교 자료 없음' : `${v > 0 ? '+' : ''}${fmtNum(v, 1)}%`;
+    const stale = d.status === 'stale' ? ' · 자료 갱신 지연' : '';
+    el.innerHTML = `<div class="ip-values"><span class="ip-index">${esc(fmtNum(d.index, 1))}</span>
+      <span>전월 대비 ${esc(pct(d.mom_pct))}</span><span>전년 동월 대비 ${esc(pct(d.yoy_pct))}</span></div>
+      <div class="ip-meta">${esc(d.period)} · 2017=100 계절조정 · 미국 내 생산${stale} · ${esc(d.observed_at?.slice(0,10) || '')} 확인</div>
+      <div class="ip-meta">${esc(d.note)} 수정 가능한 현행 통계이며 당시 발표값을 재현한 것은 아닙니다.</div>
+      <a href="https://www.federalreserve.gov/releases/g17/download.htm" target="_blank" rel="noopener noreferrer">연준 원문·설명 보기 ↗</a>`;
+  } catch (e) { el.textContent = '공식 산업 자료 상태를 표시할 수 없습니다.'; }
 }
 
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
@@ -10576,7 +10606,7 @@ async function toggleFav(ticker, el){
 // ===== 부팅 =====
 async function startApp(){
   applyProfileHeader();
-  loadRegime(); loadMacro();  // 시황 리본은 전역 노출 — 어느 탭에서도 보이게 시작 시 로드
+  loadRegime(); loadMacro(); loadIndustryPulse();  // 시황 리본은 전역 노출
   loadAlertBadge();
   initChat();  // 안내 에이전트(챗봇) 플로팅 버튼 — 사용 가능 시 노출
   routeFromHash() || switchTab('signal');

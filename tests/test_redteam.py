@@ -2938,6 +2938,11 @@ def test_jargon_scan_is_derived_from_the_screen_not_a_hand_list():
     """
     import re
     text = _visible_static_text()
+    # FRED API 이용조건의 정해진 비후원 고지는 원문 그대로 표시해야 한다.
+    # 정확히 이 한 문장만 예외로 빼고, 다른 화면 카피의 미번역 영문은 계속 잡는다.
+    notice = "This product uses the FRED® API but is not endorsed or certified by the Federal Reserve Bank of St. Louis."
+    assert notice in text
+    text = text.replace(notice, "")
     latin = set(re.findall(r"\b[A-Za-z][A-Za-z0-9]{1,}\b", text))
     allow = {
         # 표준 투자 지표 — 바꾸면 오히려 찾을 수 없다(학습 탭이 뜻을 설명한다)
