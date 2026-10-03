@@ -44,12 +44,17 @@ def test_same_report_comparison_and_source_links(tmp_path):
                                             as_of="2026-10-03T03:00:00Z")
     assert result["status"] == "comparison"
     assert result["metrics"]["revenue"]["change_pct"] == 20.0
+    assert result["metrics"]["revenue"]["label"] == "매출액(3개월)"
+    assert result["metrics"]["operating_cash_flow"]["label"] == "영업현금흐름(보고기간)"
+    assert result["metrics"]["inventory"]["label"] == "재고자산(보고기말)"
     assert result["operating_margin_change_pp"] == 5.0
     assert result["metrics"]["operating_cash_flow"]["change_pct"] == -110.0
     assert result["metrics"]["revenue"]["current_source"].startswith("https://dart.fss.or.kr/")
     assert any("영업현금흐름이 음수" in message for message in result["cautions"])
     assert any("재고 증가율" in message for message in result["cautions"])
     assert result["source_available_at_verified"] is False and result["not_order_advice"] is True
+    assert result["period_dates_verified"] is False
+    assert "회계기간 시작·끝" in result["caveat"]
 
 
 def test_asof_requires_both_reports_and_does_not_backfill(tmp_path):
