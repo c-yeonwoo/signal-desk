@@ -56,6 +56,28 @@ def _collect_facts(path: Path, cik: str) -> dict:
         return {"status": "collection_failed", "response_bytes": len(raw)}
 
 
+def _attempt(now: dt.datetime, marker: str, *, reserve: Callable[[str], bool],
+             state_set: Callable[[str, object], None], collect: Callable[[], dict]) -> tuple[str, dict | None]:
+    """Reserve before I/O; distinguish unused reservations from actual calls."""
+    try:
+        if not reserve(_month_key(now)):
+            return "budget_exhausted", None
+        state_set(marker, {"at": now.isoformat(), "status": "started"})
+    except Exception:
+        return "state_failure", None
+    try:
+        result = collect()
+        if not isinstance(result, dict) or not isinstance(result.get("status"), str):
+            result = {"status": "collection_failed", "response_bytes": 0}
+    except Exception:
+        result = {"status": "collection_failed", "response_bytes": 0}
+    try:
+        state_set(marker, {"at": now.isoformat(), "status": result.get("status")})
+    except Exception:
+        return "state_failure", result
+    return "collected", result
+
+
 def run(map_path: Path, facts_path: Path, favorites: list[str], *, now: dt.datetime,
         state_get: Callable[[str], object], state_set: Callable[[str, object], None],
         reserve: Callable[[str], bool], map_collect: Callable[[Path], dict] = sec_issuer_map.collect,
@@ -91,18 +113,17 @@ def run(map_path: Path, facts_path: Path, favorites: list[str], *, now: dt.datet
     map_stale = (observed_map is None or
                  (now - dt.datetime.fromisoformat(observed_map["available_at"])).days >= MAP_RETRY_DAYS)
     if map_stale and (map_age is None or map_age >= MAP_RETRY_DAYS):
-        if not reserve(_month_key(now)):
-            return {**summary, "status": "budget_exhausted"}
-        state_set("sec_evidence_map_attempt", {"at": now.isoformat(), "status": "started"})
-        try:
-            result = map_collect(map_path)
-        except Exception:
-            result = {"status": "collection_failed", "response_bytes": 0}
-        state_set("sec_evidence_map_attempt", {"at": now.isoformat(), "status": result.get("status")})
+        outcome, result = _attempt(now, "sec_evidence_map_attempt", reserve=reserve,
+                                   state_set=state_set, collect=lambda: map_collect(map_path))
+        if result is None:
+            return {**summary, "status": outcome}
         summary["requested"] += 1
         summary["response_bytes"] += max(0, int(result.get("response_bytes") or 0))
         summary["map_status"] = result.get("status")
         summary["ok" if result.get("status") == "ok" else "failed"] += 1
+        if outcome == "state_failure":
+            summary["status"] = "state_failure"
+            return summary
         if result.get("status") != "ok":
             summary["status"] = "partial_failure"
             return summary
@@ -135,19 +156,18 @@ def run(map_path: Path, facts_path: Path, favorites: list[str], *, now: dt.datet
     if due:
         due.sort(key=lambda row: (-row[0], row[1]))
         cik = due[0][2]
-        if not reserve(_month_key(now)):
-            summary["status"] = "budget_exhausted" if not summary["requested"] else "partial_failure"
+        outcome, result = _attempt(now, _attempt_key(cik), reserve=reserve,
+                                   state_set=state_set, collect=lambda: facts_collect(facts_path, cik))
+        if result is None:
+            summary["status"] = outcome if outcome == "state_failure" or not summary["requested"] else "partial_failure"
             return summary
-        state_set(_attempt_key(cik), {"at": now.isoformat(), "status": "started"})
-        try:
-            result = facts_collect(facts_path, cik)
-        except Exception:
-            result = {"status": "collection_failed", "response_bytes": 0}
-        state_set(_attempt_key(cik), {"at": now.isoformat(), "status": result.get("status")})
         summary["requested"] += 1
         summary["response_bytes"] += max(0, int(result.get("response_bytes") or 0))
         summary["facts_status"] = result.get("status")
         summary["ok" if result.get("status") in {"ok", "no_supported_facts"} else "failed"] += 1
         summary["raw_changed"] += int(bool(result.get("raw_changed")))
+        if outcome == "state_failure":
+            summary["status"] = "state_failure"
+            return summary
     summary["status"] = "partial_failure" if summary["failed"] else "ok" if summary["requested"] else "not_due"
     return summary
