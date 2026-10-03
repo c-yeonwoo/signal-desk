@@ -164,6 +164,44 @@ def test_daily_api_refresh_reports_missing_key_and_empty_favorites(monkeypatch):
     assert state["financial_evidence_refresh_last"]["status"] == "no_favorites"
 
 
+def test_daily_api_refresh_ignores_us_favorites_without_loading_dart_mapping(monkeypatch):
+    from signal_desk import api
+    from signal_desk.ingest import evidence_ops
+
+    state = {}
+    monkeypatch.setattr(evidence_ops, "record", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(api.config, "dart_key", lambda: "test-key")
+    monkeypatch.setattr(api.db, "uids_with_ticker_favorites", lambda: [1])
+    monkeypatch.setattr(api.db, "fav_list", lambda uid: [
+        {"kind": "ticker", "key": "AAPL"}, {"kind": "ticker", "key": "BRK.B"}])
+    monkeypatch.setattr(api.db, "kv_set", state.__setitem__)
+    monkeypatch.setattr(api, "_corp_codes", lambda: (_ for _ in ()).throw(
+        AssertionError("US-only favorites must not request a DART mapping")))
+
+    api._refresh_financial_evidence_daily()
+    assert state["financial_evidence_refresh_last"] == {"status": "no_favorites", "requested": 0}
+
+
+def test_daily_api_refresh_reports_unmapped_kr_favorites_without_claiming_success(monkeypatch):
+    from signal_desk import api
+    from signal_desk.ingest import evidence_ops, financial_refresh
+
+    state = {}
+    monkeypatch.setattr(evidence_ops, "record", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(api.config, "dart_key", lambda: "test-key")
+    monkeypatch.setattr(api.db, "uids_with_ticker_favorites", lambda: [1])
+    monkeypatch.setattr(api.db, "fav_list", lambda uid: [
+        {"kind": "ticker", "key": "005930"}, {"kind": "ticker", "key": "AAPL"}])
+    monkeypatch.setattr(api.db, "kv_set", state.__setitem__)
+    monkeypatch.setattr(api, "_corp_codes", lambda: {"000660": "00164779"})
+    monkeypatch.setattr(financial_refresh, "run", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("unmapped favorites must not be reported as collected")))
+
+    api._refresh_financial_evidence_daily()
+    assert state["financial_evidence_refresh_last"] == {
+        "status": "no_dart_mapped_favorites", "requested": 0, "kr_favorites": 1}
+
+
 def test_daily_api_refresh_uses_only_ticker_favorites(monkeypatch, tmp_path):
     from signal_desk import api
     from signal_desk.ingest import evidence_ops, financial_refresh

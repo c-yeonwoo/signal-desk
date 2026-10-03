@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import math
+import re
 import threading
 import time
 import zlib
@@ -809,7 +810,10 @@ def _refresh_financial_evidence_daily() -> None:
         result = {"status": "missing_credentials", "requested": 0}
     else:
         favorites = sorted({item["key"] for uid in db.uids_with_ticker_favorites()
-                            for item in db.fav_list(uid) if item["kind"] == "ticker"})
+                            for item in db.fav_list(uid)
+                            if item["kind"] == "ticker"
+                            and isinstance(item.get("key"), str)
+                            and re.fullmatch(r"[0-9]{6}", item["key"])})
         if not favorites:
             result = {"status": "no_favorites", "requested": 0}
         else:
@@ -818,6 +822,10 @@ def _refresh_financial_evidence_daily() -> None:
             corp_codes = _corp_codes()
             if not corp_codes:
                 result = {"status": "corp_codes_unavailable", "requested": 0}
+            elif not any(re.fullmatch(r"[0-9]{8}", str(corp_codes.get(ticker, "")))
+                         for ticker in favorites):
+                result = {"status": "no_dart_mapped_favorites", "requested": 0,
+                          "kr_favorites": len(favorites)}
             else:
                 result = financial_refresh.run(
                     financial_change.DEFAULT_ARCHIVE, favorites, corp_codes,
