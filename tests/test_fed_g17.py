@@ -41,9 +41,11 @@ def test_archive_is_observation_not_backfilled_pit_and_keeps_revisions(tmp_path,
     path = tmp_path / "industry.db"
     monkeypatch.setattr(g17, "_now", lambda: NOW.isoformat())
     old = g17.archive(path, raw(), observed_at=NOW.isoformat())
+    assert old["revised_periods"] == []
     assert g17.latest(path, as_of="2026-10-02T23:59:59Z") is None
     changed = g17.archive(path, raw(last="191.0987"),
                           observed_at=(NOW + dt.timedelta(days=1)).isoformat())
+    assert changed["revised_periods"] == ["2026-08"]
     assert old["id"] != changed["id"]
     assert g17.latest(path, as_of=NOW.isoformat())["months"][-1]["value"] == "190.0987"
     assert g17.latest(path, as_of=(NOW + dt.timedelta(days=1)).isoformat())["months"][-1]["value"] == "191.0987"

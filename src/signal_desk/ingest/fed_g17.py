@@ -98,16 +98,23 @@ def archive(path: Path, raw: bytes, *, observed_at: str, source_last_modified: s
                 "months": months}
     material = json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode()
     identifier = hashlib.sha256(material).hexdigest()
+    prior = latest(path, as_of=_now())
     conn = _connect(path)
+    revised_periods: list[str] = []
     try:
         with conn:
-            conn.execute("INSERT OR IGNORE INTO fed_g17_observations VALUES (?,?,?,?)",
-                         (identifier, available, material, zlib.compress(raw, level=6)))
+            inserted = conn.execute("INSERT OR IGNORE INTO fed_g17_observations VALUES (?,?,?,?)",
+                                    (identifier, available, material, zlib.compress(raw, level=6))).rowcount
+            if inserted and prior:
+                old_values = {row["period"]: row["value"] for row in prior["months"]}
+                revised_periods = [row["period"] for row in months
+                                   if row["period"] in old_values and old_values[row["period"]] != row["value"]]
     finally:
         conn.close()
     return {"status": "ok", "id": identifier, "latest_period": months[-1]["period"],
             "raw_sha256": envelope["raw_sha256"], "observed_at": envelope["observed_at"],
-            "available_at": available, "response_bytes": len(raw)}
+            "available_at": available, "response_bytes": len(raw),
+            "revised_periods": revised_periods}
 
 
 def latest(path: Path, *, as_of: str) -> dict | None:

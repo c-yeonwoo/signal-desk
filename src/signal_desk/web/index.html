@@ -7500,6 +7500,32 @@ function renderDataHealth(d){
       html += `<b>🗂 데이터 신선도 ${staleN ? `<span style="color:var(--sig-watch)">· ${staleN}개 갱신 필요</span>` : '<span style="color:var(--sig-buy)">· 모두 최신</span>'}</b>`
         + `<table class="dtable" style="margin-top:6px"><thead><tr><th>소스</th><th>최종 갱신</th><th class="num">경과</th><th class="num">건수</th><th>상태</th></tr></thead><tbody>${fr}</tbody></table>`;
     }
+    // 새 근거 자료는 종목 점수와 별개. 한 번의 성공/실패뿐 아니라 최근 요청량을 보여 준다.
+    const ea = d.evidence_activity || {}, src = ea.sources || {};
+    if (ea.status === 'unavailable') {
+      html += `<div style="color:var(--sig-watch);margin-top:10px">공식 근거 수집 기록을 읽지 못했습니다.</div>`;
+    } else if (src.dart || src.fed_g17 || d.sec_edgar) {
+      const statusText = {'not_started':'아직 수집 전', 'missing_credentials':'DART 키 없음',
+        'no_favorites':'관심종목 없음', 'ok':'수집 완료', 'partial_failure':'일부 실패',
+        'collection_failed':'수집 실패', 'budget_exhausted':'요청 한도 소진',
+        'not_due':'다음 수집 대기', 'missing_real_contact':'실제 연락처 미설정'};
+      const row = (label, last, totals, changedKey, changedLabel) => {
+        const state = statusText[last?.status] || last?.status || '아직 수집 전';
+        const requested = totals?.requested ?? 0, failed = totals?.failed ?? 0;
+        const bytes = totals?.response_bytes == null ? '–' : `${(totals.response_bytes / 1048576).toFixed(1)} MiB`;
+        const changed = totals?.[changedKey] ?? 0;
+        return `<div style="padding:7px 0;border-bottom:1px solid var(--line)"><b>${label}</b> · ${esc(state)}`
+          + `<div style="color:var(--dim);margin-top:2px">최근 ${ea.window_days ?? 30}일 요청 ${requested}회 · 실패 ${failed}회`
+          + `${requested ? ` (${totals?.failed_pct ?? 0}%)` : ' (비율 판정 불가)'} · 받은 양 ${bytes} · ${changedLabel} ${changed}건`
+          + `${totals?.last_day ? ` · 마지막 기록 ${esc(totals.last_day)}` : ''}</div></div>`;
+      };
+      html += `<div style="margin-top:12px;padding:9px 11px;border:1px solid var(--line);border-radius:8px">`
+        + `<b>공식 근거 수집 · 점수/주문과 분리</b>`
+        + row('국내 관심종목 재무(DART)', d.financial_evidence_refresh, src.dart, 'raw_changed', '원문 변화 관측')
+        + row('미국 산업생산(연준)', d.fed_g17_refresh, src.fed_g17, 'revised_periods', '과거 월 수치 수정 관측')
+        + `<div style="padding-top:7px;color:var(--dim)">미국 공시(SEC): ${d.sec_edgar?.contact_configured ? '연락처 설정됨 · 수집 성공은 별도 확인' : '실제 연락처 미설정 · 새 요청 중단, 기존 저장값 유지'}</div>`
+        + `<div style="color:var(--dim-2);margin-top:5px">요청 횟수·받은 양은 비용 단서일 뿐 실제 금액이 아닙니다. 원문 변화는 회계 정정이 확인됐다는 뜻이 아닙니다.</div></div>`;
+    }
     // 점수 동결 — 시세가 멈추면 문턱·분위를 어떻게 바꿔도 매일 같은 결과가 나온다
     const sd = d.signal_drift;
     if (sd) {
