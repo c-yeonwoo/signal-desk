@@ -103,21 +103,25 @@ def plan(path: Path, favorites: list[str], corp_codes: dict[str, str], *, now: d
 
 def run(path: Path, favorites: list[str], corp_codes: dict[str, str], *, now: dt.datetime,
         dart_key: str, attempt_get: Callable[[str], object],
-        attempt_set: Callable[[str, object], None],
+        attempt_set: Callable[[str, object], None], reserve: Callable[[str], bool],
         collector: Callable[..., dict] = evidence.collect) -> dict:
-    """Run one bounded batch with durable attempt marks and per-request isolation."""
+    """Run a bounded batch with atomic daily request reservations."""
     if not dart_key:
         return {"status": "missing_credentials", "requested": 0, "ok": 0, "no_data": 0,
                 "failed": 0, "response_bytes": 0}
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("timezone required")
     daily_budget = budget_key(now.date())
-    try:
-        used = int(attempt_get(daily_budget) or 0)
-    except (TypeError, ValueError):
-        # Corrupt/malformed budget must fail closed, not reset the allowance.
+    raw_used = attempt_get(daily_budget)
+    # The stored counter is an integer. A malformed value must fail closed,
+    # never be coerced to a smaller allowance (bool is an int in Python).
+    if raw_used is None:
+        used = 0
+    elif (isinstance(raw_used, int) and not isinstance(raw_used, bool)
+          and 0 <= raw_used <= MAX_REQUESTS_PER_DAY):
+        used = raw_used
+    else:
         used = MAX_REQUESTS_PER_DAY
-    used = MAX_REQUESTS_PER_DAY if used < 0 else min(MAX_REQUESTS_PER_DAY, used)
     remaining = MAX_REQUESTS_PER_DAY - used
     targets = plan(path, favorites, corp_codes, now=now, last_attempt=attempt_get,
                    max_requests=remaining) if remaining else []
@@ -130,10 +134,11 @@ def run(path: Path, favorites: list[str], corp_codes: dict[str, str], *, now: dt
         key = attempt_key(target)
         mark = {"at": int(now.timestamp()), "status": "started"}
         try:
-            # Reserve the request before contacting the provider. A crash may
-            # underuse today's allowance but cannot silently exceed it.
-            attempt_set(daily_budget, used + 1)
-            used += 1
+            # Two workers may plan from the same snapshot. Reserve atomically
+            # before contacting DART so their combined calls stay within 8.
+            if not reserve(daily_budget):
+                summary["status"] = "budget_exhausted"
+                break
             attempt_set(key, mark)
         except Exception:
             # No collector call occurred. Do not count a reserved-but-unused
@@ -163,6 +168,6 @@ def run(path: Path, favorites: list[str], corp_codes: dict[str, str], *, now: dt
         summary["raw_changed"] += int(bool(result.get("raw_changed")))
         if summary["status"] == "state_failure":
             break
-    if summary["failed"] and summary["status"] != "state_failure":
+    if summary["failed"] and summary["status"] == "ok":
         summary["status"] = "partial_failure"
     return summary
