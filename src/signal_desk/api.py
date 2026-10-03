@@ -596,6 +596,22 @@ def _bot_loop_iteration() -> None:
                       {"status": "collection_failed", "reason": type(e).__name__, "at": _kst_now().isoformat()})
         finally:
             db.kv_set("financial_evidence_refresh_date", _kst_today())
+    # A separate, weekly-bounded official US industry observation. It is never
+    # supplied to the signal/risk/order pipeline or to registered research.
+    if (market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40)
+            and db.kv_get("bot_daily_snap") == _kst_today()):
+        try:
+            from signal_desk.ingest import fed_g17
+            result = fed_g17.refresh(fed_g17.DEFAULT_ARCHIVE, now=now,
+                                     state_get=db.kv_get, state_set=db.kv_set)
+            prior = db.kv_get("fed_g17_refresh_last") or {}
+            if result.get("requested") or result.get("status") != prior.get("status"):
+                db.kv_set("fed_g17_refresh_last", result)
+        except Exception as e:
+            log.warning("마감후 연준 산업 자료 수집 실패: %s", type(e).__name__)
+            db.kv_set("fed_g17_refresh_last",
+                      {"status": "collection_failed", "reason": type(e).__name__,
+                       "at": _kst_now().isoformat()})
 
 
 def _maybe_refresh_us_universe(now: datetime.datetime) -> bool:
@@ -3881,6 +3897,7 @@ def data_health_get():
             "dart_lite": db.kv_get("kb_dart_lite_last") or {},
             # Read-only official financial evidence; never a trading input.
             "financial_evidence_refresh": db.kv_get("financial_evidence_refresh_last") or {"status": "not_started"},
+            "fed_g17_refresh": db.kv_get("fed_g17_refresh_last") or {"status": "not_started"},
             # 사람 확인 대기 중인 이벤트 후보 — 안 보면 유효한 악재가 만료로 조용히 사라진다.
             "event_queue": db.kb_event_queue_status(),
             # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.
@@ -6245,6 +6262,13 @@ def macro_get():
         # FRED 정량 지표는 없어도 미주은 시황 내러티브는 있을 수 있음(전광판 코멘터리)
         return {"ready": False, "indicators": [], "narrative": data.get("narrative")}
     return {"ready": True, **data}
+
+
+@app.get("/api/industry-pulse")
+def industry_pulse_get():
+    """Read-only official US production observation; no network work on page load."""
+    from signal_desk.ingest import fed_g17
+    return fed_g17.describe(fed_g17.DEFAULT_ARCHIVE, as_of=_kst_now().isoformat())
 
 
 # ---------- 시그널 엔진 설정(관리자) ----------
