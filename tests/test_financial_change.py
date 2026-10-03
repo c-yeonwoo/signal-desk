@@ -7,8 +7,9 @@ from signal_desk.ingest import financial_evidence as intake
 from signal_desk.signals import financial_change
 
 
-def _report(year, *, revenue, profit, cash=None, inventory=None, currency="KRW", basis="CFS"):
-    target = intake.Target("dart", "00126380", str(year), "11012", basis)
+def _report(year, *, revenue, profit, cash=None, inventory=None, currency="KRW", basis="CFS",
+            report="11012"):
+    target = intake.Target("dart", "00126380", str(year), report, basis)
     items = []
     for statement, concept, amount, field in (
         ("IS", "ifrs-full_Revenue", revenue, "thstrm_amount"),
@@ -55,6 +56,27 @@ def test_same_report_comparison_and_source_links(tmp_path):
     assert result["source_available_at_verified"] is False and result["not_order_advice"] is True
     assert result["period_dates_verified"] is False
     assert "회계기간 시작·끝" in result["caveat"]
+
+
+def test_annual_report_uses_annual_income_not_quarter_amount(tmp_path):
+    path = tmp_path / "e.db"
+    _save(path, 2024, seen="2026-10-03T01:00:00Z", revenue=100, profit=10,
+          cash=20, report="11011")
+    _save(path, 2025, seen="2026-10-03T02:00:00Z", revenue=120, profit=18,
+          cash=22, report="11011")
+    result = financial_change.describe_dart(path, ticker="005930", issuer="00126380",
+                                            as_of="2026-10-03T03:00:00Z")
+    assert result["status"] == "comparison"
+    assert result["report"] == "11011"
+    assert result["metrics"]["revenue"]["label"] == "매출액(사업보고서 당기)"
+    assert result["metrics"]["revenue"]["change_pct"] == 20.0
+    assert result["metrics"]["operating_income"]["label"] == "영업이익(사업보고서 당기)"
+    assert result["operating_margin_change_pp"] == 5.0
+    assert any("사업보고서 당기 매출" in message for message in result["increases"])
+    assert any("다음 사업보고서에도" in message for message in result["next_checks"])
+    assert "손익계산서 당기금액은 사업보고서의 보고기간 금액" in result["caveat"]
+    assert "손익계산서 당기금액은 3개월" not in result["caveat"]
+    assert result["period_dates_verified"] is False
 
 
 def test_asof_requires_both_reports_and_does_not_backfill(tmp_path):

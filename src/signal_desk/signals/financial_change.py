@@ -24,6 +24,18 @@ _METRICS = {
 }
 
 
+def _dart_metrics(report: str) -> dict[str, tuple[str, str, str, str, str]]:
+    if report != "11011":
+        return _METRICS
+    # DART's three-month IS amount applies only to quarterly/half-year reports.
+    # The annual statement has a reported-duration amount, not a Q4 amount.
+    return {**_METRICS,
+            "revenue": ("ifrs-full_Revenue", "IS", "reported_duration",
+                        "thstrm_amount", "매출액(사업보고서 당기)"),
+            "operating_income": ("dart_OperatingIncomeLoss", "IS", "reported_duration",
+                                 "thstrm_amount", "영업이익(사업보고서 당기)")}
+
+
 def _choose(facts: list[dict], spec: tuple[str, str, str, str, str]) -> dict | None:
     concept, statement, period, amount_field, _ = spec
     rows = [row for row in facts if row.get("concept") == concept and row.get("statement") == statement
@@ -77,7 +89,7 @@ def describe_dart(path: Path, *, ticker: str, issuer: str, as_of: str) -> dict:
         result.update({"business_year": target.year, "report": target.report,
                        "basis": target.basis, "current_observed_at": current["available_at"]})
         return result
-    pairs = {name: pair for name, spec in _METRICS.items()
+    pairs = {name: pair for name, spec in _dart_metrics(target.report).items()
              if (pair := _pair(current["facts"], previous["facts"], spec)) is not None}
     if not pairs:
         return _base("no_comparable_facts", "계정·통화·기간·연결 기준이 일치하는 항목이 없습니다.",
@@ -88,7 +100,8 @@ def describe_dart(path: Path, *, ticker: str, issuer: str, as_of: str) -> dict:
     if rev and rev["change_pct"] is not None:
         direction = good if rev["change_pct"] > 0 else caution if rev["change_pct"] < 0 else None
         if direction is not None:
-            direction.append(f"같은 분기 매출이 전년보다 {abs(rev['change_pct']):.1f}% "
+            period_name = "사업보고서 당기" if target.report == "11011" else "같은 분기"
+            direction.append(f"{period_name} 매출이 전년보다 {abs(rev['change_pct']):.1f}% "
                              + ("늘었습니다." if rev["change_pct"] > 0 else "줄었습니다."))
 
     margin_pp = None
@@ -100,7 +113,8 @@ def describe_dart(path: Path, *, ticker: str, issuer: str, as_of: str) -> dict:
                                      - Decimal(profit["previous"]) / previous_rev) * 100), 1)
             if margin_pp != 0:
                 direction = good if margin_pp > 0 else caution
-                direction.append(f"같은 분기 영업이익률이 {abs(margin_pp):.1f}%p "
+                period_name = "사업보고서 당기" if target.report == "11011" else "같은 분기"
+                direction.append(f"{period_name} 영업이익률이 {abs(margin_pp):.1f}%p "
                                  + ("높아졌습니다." if margin_pp > 0 else "낮아졌습니다."))
 
     cash = pairs.get("operating_cash_flow")
@@ -120,7 +134,8 @@ def describe_dart(path: Path, *, ticker: str, issuer: str, as_of: str) -> dict:
         if inventory["change_pct"] > rev["change_pct"]:
             checks.append("다음 보고서에서 재고가 매출보다 빠르게 늘어나는지 확인하세요.")
     if not checks:
-        checks.append("다음 분기에도 같은 계정과 회계기준으로 변화가 이어지는지 확인하세요.")
+        next_period = "다음 사업보고서" if target.report == "11011" else "다음 분기"
+        checks.append(f"{next_period}에도 같은 계정과 회계기준으로 변화가 이어지는지 확인하세요.")
     return {**_base("comparison", "같은 종류의 전년 보고서와 비교했습니다.", ticker=ticker, issuer=issuer),
             "business_year": target.year, "prior_year": str(int(target.year) - 1),
             "report": target.report, "basis": target.basis,
@@ -128,7 +143,9 @@ def describe_dart(path: Path, *, ticker: str, issuer: str, as_of: str) -> dict:
             "current_observation_id": current["id"], "prior_observation_id": previous["id"],
             "metrics": pairs, "operating_margin_change_pp": margin_pp,
             "increases": good, "cautions": caution, "next_checks": checks,
-            "caveat": "손익계산서 당기금액은 3개월, 현금흐름은 보고기간 금액, 재고는 보고기말 잔액입니다. 이 API 응답만으로 실제 회계기간 시작·끝과 장중 공개시각은 인증하지 못했습니다. 발표 전 기대치·현재 주가 반영·미래 수익도 확인하지 않았습니다."}
+            "caveat": ("손익계산서 당기금액은 사업보고서의 보고기간 금액" if target.report == "11011"
+                       else "손익계산서 당기금액은 3개월")
+                      + ", 현금흐름은 보고기간 금액, 재고는 보고기말 잔액입니다. 이 API 응답만으로 실제 회계기간 시작·끝과 장중 공개시각은 인증하지 못했습니다. 발표 전 기대치·현재 주가 반영·미래 수익도 확인하지 않았습니다."}
 
 
 _SEC_REVENUE_TAGS = ("us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
