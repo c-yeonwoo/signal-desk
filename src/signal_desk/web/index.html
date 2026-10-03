@@ -7426,6 +7426,13 @@ function evidenceOpsHtml(d){
   const boots = Number(continuity.app_db_boot_count);
   const bootText = continuity.app_db_boot_count != null && Number.isSafeInteger(boots) && boots >= 0
     ? `${boots}회` : '확인 불가';
+  const storageState = {'mount_observed':'저장 볼륨 마운트와 원문 경로가 맞습니다',
+    'mount_not_declared':'저장 볼륨 선언을 확인하지 못했습니다',
+    'mount_path_missing':'선언된 저장 경로가 없습니다',
+    'mount_not_observed':'저장 경로의 마운트를 관측하지 못했습니다',
+    'archive_path_outside_mount':'앱 DB 또는 원문 DB 경로가 저장 볼륨 밖입니다',
+    'probe_error':'저장 경로를 읽지 못했습니다'};
+  const storageText = storageState[continuity.storage_preflight?.status] || '저장 경로 검사 기록이 없습니다';
   return row('국내 관심종목 재무(DART)', d.financial_evidence_refresh, src.dart, 'raw_changed', '원문 변화 관측', true)
     + row('미국 산업생산(연준)', d.fed_g17_refresh, src.fed_g17, 'revised_periods', '과거 월 수치 수정 관측')
     + `<div style="padding-top:7px;color:var(--dim)">미국 공시(SEC): ${d.sec_edgar?.contact_configured ? '연락처 설정됨 · 수집 성공은 별도 확인' : '실제 연락처 미설정 · 새 요청 중단, 기존 저장값 유지'}</div>`
@@ -7434,6 +7441,7 @@ function evidenceOpsHtml(d){
     + `<details style="margin-top:8px"><summary style="cursor:pointer">보존 연속성 확인 · ${esc(archiveSummary)}</summary>`
     + `<div style="margin-top:5px;color:var(--dim)">앱 DB 부팅 ${bootText}`
     + (continuity.app_db_first_boot ? ` · 최초 ${esc(continuity.app_db_first_boot)}` : ' · 최초 기록 없음')
+    + `<br>${esc(storageText)}. 배포 후에도 원문이 남는지는 아직 별도 확인이 필요합니다.`
     + `<br>배포 전후 첫 관측 ID와 건수를 비교하세요. 일치만으로 원문 무결성을 증명하지 않습니다.</div>`
     + archiveRows + '</details>'
     + `<button type="button" class="btn" style="margin-top:8px" onclick="loadDartCardAudit(this)">국내 재무 카드·보존 원문 대조</button>`

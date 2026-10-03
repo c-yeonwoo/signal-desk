@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sqlite3
 from pathlib import Path
 
@@ -136,3 +137,39 @@ def archive_inventory(*, financial_path: Path | None = None, g17_path: Path | No
         "sec": _archive_inventory(financial_path, "financial_observations", _SEC_URL),
         "fed_g17": _archive_inventory(g17_path, "fed_g17_observations"),
     }
+
+
+def storage_preflight(*, mount_path: str | None = None, expected_mount: str = "/app/data",
+                      app_db_path: Path | None = None, financial_path: Path | None = None,
+                      g17_path: Path | None = None) -> dict:
+    """Check declared archive placement, not persistence across deployments.
+
+    Only an unchanged raw observation anchor after a deployment can establish
+    that the archive survived it. A mounted path alone cannot prove that.
+    """
+    from signal_desk.ingest import fed_g17
+    from signal_desk.signals import financial_change
+
+    declared = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "") if mount_path is None else mount_path
+    paths = (app_db_path or db.DB, financial_path or financial_change.DEFAULT_ARCHIVE,
+             g17_path or fed_g17.DEFAULT_ARCHIVE)
+    try:
+        root = Path(expected_mount).resolve()
+        aligned = all(path.resolve().is_relative_to(root) for path in paths)
+        directory_exists = root.is_dir()
+        mount_observed = root.is_mount() if directory_exists else False
+    except (OSError, RuntimeError):
+        return {"status": "probe_error", "archive_paths_aligned": False,
+                "persistence_proven": False}
+    if declared != expected_mount:
+        status = "mount_not_declared"
+    elif not directory_exists:
+        status = "mount_path_missing"
+    elif not aligned:
+        status = "archive_path_outside_mount"
+    elif not mount_observed:
+        status = "mount_not_observed"
+    else:
+        status = "mount_observed"
+    return {"status": status, "archive_paths_aligned": aligned,
+            "persistence_proven": False}

@@ -115,3 +115,44 @@ def test_archive_inventory_distinguishes_corruption_from_no_observations(tmp_pat
     assert result["dart"]["observations"] is None
     assert result["sec"]["status"] == "archive_error"
     assert result["fed_g17"]["status"] == "not_recorded"
+
+
+def test_storage_preflight_checks_all_archive_paths_without_claiming_persistence(tmp_path, monkeypatch):
+    mount = str(tmp_path)
+    app = tmp_path / "cache/app.db"
+    financial = tmp_path / "raw/financial.db"
+    g17 = tmp_path / "raw/g17.db"
+    paths = {"expected_mount": mount, "app_db_path": app,
+             "financial_path": financial, "g17_path": g17}
+    monkeypatch.setattr(type(tmp_path), "is_mount", lambda self: self.resolve() == tmp_path.resolve())
+
+    missing = ops.storage_preflight(mount_path="", **paths)
+    assert missing == {"status": "mount_not_declared", "archive_paths_aligned": True,
+                       "persistence_proven": False}
+    observed = ops.storage_preflight(mount_path=mount, **paths)
+    assert observed["status"] == "mount_observed"
+    assert observed["persistence_proven"] is False
+    outside = ops.storage_preflight(mount_path=mount, g17_path=tmp_path.parent / "elsewhere.db",
+                                     **{key: value for key, value in paths.items() if key != "g17_path"})
+    assert outside["status"] == "archive_path_outside_mount"
+    assert outside["archive_paths_aligned"] is False
+
+
+def test_storage_preflight_distinguishes_declared_directory_from_mount(tmp_path):
+    result = ops.storage_preflight(
+        mount_path=str(tmp_path), expected_mount=str(tmp_path),
+        app_db_path=tmp_path / "cache/app.db", financial_path=tmp_path / "raw/financial.db",
+        g17_path=tmp_path / "raw/g17.db")
+    assert result["status"] == "mount_not_observed"
+    assert result["persistence_proven"] is False
+
+
+def test_storage_preflight_probe_error_does_not_break_admin_status(tmp_path):
+    loop = tmp_path / "loop"
+    loop.symlink_to("loop")
+    result = ops.storage_preflight(
+        mount_path=str(tmp_path), expected_mount=str(tmp_path),
+        app_db_path=tmp_path / "cache/app.db", financial_path=loop,
+        g17_path=tmp_path / "raw/g17.db")
+    assert result == {"status": "probe_error", "archive_paths_aligned": False,
+                      "persistence_proven": False}

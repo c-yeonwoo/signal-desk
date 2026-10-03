@@ -98,12 +98,14 @@ def test_evidence_ops_is_admin_only_and_independent_of_full_health(monkeypatch):
     monkeypatch.setattr(edgar, "available", lambda: False)
     monkeypatch.setattr(evidence_ops, "report", lambda *, now: {"window_days": 30, "sources": {"dart": {"requested": 2, "failed": 0}}})
     monkeypatch.setattr(evidence_ops, "archive_inventory", lambda: {"dart": {"status": "recorded", "observations": 1, "first_id": "anchor"}})
+    monkeypatch.setattr(evidence_ops, "storage_preflight", lambda: {"status": "mount_observed", "persistence_proven": False})
     out = api.evidence_ops_get(object())
     assert out["financial_evidence_refresh"] == {"status": "ok", "requested": 2}
     assert out["sec_evidence_refresh"] == {"status": "not_started"}
     assert out["sec_edgar"]["contact_configured"] is False
     assert out["evidence_activity"]["sources"]["dart"]["requested"] == 2
     assert out["archive_continuity"]["archives"]["dart"]["first_id"] == "anchor"
+    assert out["archive_continuity"]["storage_preflight"] == {"status": "mount_observed", "persistence_proven": False}
 
 
 def test_kb_refresh_stall_is_visible_per_target(tmp_path, monkeypatch):
