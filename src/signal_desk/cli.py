@@ -24,6 +24,47 @@ console = Console()
 _KIND_COLOR = {"BUY": "bold green", "SELL": "bold red", "HOLD": "white"}
 
 
+@app.command("financial-evidence")
+def financial_evidence_cmd(
+    source: str = typer.Option(..., help="sec 또는 dart; 주문·점수와 분리된 연구용 수집"),
+    issuer: str = typer.Option(..., help="SEC 10자리 CIK / DART 8자리 corp_code"),
+    archive_path: str = typer.Option(..., "--archive", help="별도 증거 SQLite 경로(운영 app.db 사용 금지)"),
+    year: str = typer.Option("", help="DART 사업연도"),
+    report: str = typer.Option("", help="DART 11013/11012/11014/11011"),
+    basis: str = typer.Option("CFS", help="DART CFS 또는 OFS. 자동 폴백 없음"),
+    as_of: str = typer.Option("", help="지정하면 수집 없이 해당 시각까지 실제 관측한 최신 자료 조회(시간대 필수)"),
+):
+    """기업 하나의 공식 재무 응답 보존. 자동 반복·백필·LLM·매매 반영 없음.
+
+    SEC_CONTACT_EMAIL 또는 DART_API_KEY 환경설정 필요. 과거 보고서를 지금
+    수집해도 과거 시점 데이터로 인증하지 않습니다. 원문 API와 공시 링크를 보존합니다.
+    """
+    from pathlib import Path
+    import sqlite3
+    from signal_desk.ingest import financial_evidence as evidence
+
+    try:
+        target = evidence.Target(source, issuer, year, report, basis)
+        path = Path(archive_path)
+        if path.name == "app.db":
+            raise ValueError("use a separate financial evidence database")
+        if as_of:
+            item = evidence.latest(path, target, as_of=as_of)
+            result = ({"status": "not_observed"} if item is None else {
+                "id": item["id"], "status": item["status"], "observed_at": item["observed_at"],
+                "available_at": item["available_at"],
+                "facts": len(item["facts"]), "source_url": item["source_url"],
+                "strict_pit_eligible": False, "live_eligible": False})
+        else:
+            result = evidence.collect(path, target, dart_key=config.dart_key() or "",
+                                      sec_contact=os.environ.get("SEC_CONTACT_EMAIL", ""))
+    except (ValueError, OSError, sqlite3.Error):
+        raise typer.BadParameter("대상·시간대·별도 저장 경로 또는 보존 데이터 무결성을 확인하세요") from None
+    console.print_json(data=result)
+    if result["status"] in {"collection_failed", "missing_credentials", "missing_contact"}:
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def serve(
     host: str = typer.Option(lambda: os.environ.get("HOST", "127.0.0.1")),
