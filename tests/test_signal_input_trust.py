@@ -74,6 +74,7 @@ def test_macro_freshness_uses_source_date_not_file_write_time(tmp_path, monkeypa
 
 def test_edgar_failed_retry_preserves_values(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(edgar, "available", lambda: True)
     store._write_json(store.US_FUNDAMENTALS_FILE, {"AAPL": {
         "net_income": 100, "dps": 1.2, "edgar_observed_at": "2025-01-01"}})
     calls = []

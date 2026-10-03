@@ -1258,6 +1258,8 @@ def fetch_gurus(top: int = 10) -> list[dict]:
     반환·저장: [{key, name, desc, period, total_usd, n_holdings, holdings:[...]}]."""
     from signal_desk.ingest import edgar
     from signal_desk.reference import gurus as gref
+    if not edgar.available():
+        return load_gurus()  # 연락처 미설정은 빈 새 자료가 아니다. 기존 관측을 보존한다.
     out = []
     for g in gref.all_gurus():
         h = edgar.holdings_13f(g["cik"], top=top)
@@ -1857,6 +1859,8 @@ def fetch_us_fundamentals_edgar(tickers: list[str], max_calls: int = 40) -> int:
     발표시각이 아니므로 PIT 검증에 사용하지 않는다.
     """
     from signal_desk.ingest import edgar
+    if not edgar.available():
+        return 0  # 요청하지 않았으므로 attempted_at도 새로 찍지 않는다.
     cache = load_us_fundamentals()
     done = 0
     today = datetime.date.today()

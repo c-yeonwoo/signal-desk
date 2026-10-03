@@ -3853,6 +3853,10 @@ def data_health_get():
     """데이터 진단(관리자) — 시세 스케일 정합(price_sanity) + 소스별 신선도(마지막 갱신·경과·stale).
     track record 신뢰의 전제(실데이터) + 어떤 소스가 오래됐는지 한눈에."""
     fresh = store.data_freshness()
+    from signal_desk.ingest import edgar
+    sec_contact_configured = edgar.available()
+    sec_edgar = {"contact_configured": sec_contact_configured,
+                 "status": "contact_configured" if sec_contact_configured else "missing_real_contact"}
     # 저장소가 배포를 넘어 살아남는지 — 리셋 불가 장부의 전제다.
     storage = store.storage_report()
     # stale 자동 갱신이 **거부**된 소스(키 없음 등). 성공 로그만 찍고 넘어가면 매일 실패해도 모른다.
@@ -3898,6 +3902,7 @@ def data_health_get():
             # Read-only official financial evidence; never a trading input.
             "financial_evidence_refresh": db.kv_get("financial_evidence_refresh_last") or {"status": "not_started"},
             "fed_g17_refresh": db.kv_get("fed_g17_refresh_last") or {"status": "not_started"},
+            "sec_edgar": sec_edgar,
             # 사람 확인 대기 중인 이벤트 후보 — 안 보면 유효한 악재가 만료로 조용히 사라진다.
             "event_queue": db.kb_event_queue_status(),
             # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.

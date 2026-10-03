@@ -38,6 +38,7 @@ from signal_desk.ingest import edgar  # noqa: E402
 
 def _mock_edgar(monkeypatch):
     edgar._cik_map = None
+    monkeypatch.setattr(edgar, "available", lambda: True)
     tickers_json = json.dumps({"0": {"ticker": "AAPL", "cik_str": 320193, "title": "Apple"}}).encode()
     facts = {"facts": {"us-gaap": {
         "NetIncomeLoss": {"units": {"USD": [
@@ -61,9 +62,21 @@ def test_edgar_backfill_and_per_pbr(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)
     _mock_edgar(monkeypatch)
+    monkeypatch.setattr(edgar, "available", lambda: True)
     store._write_json(store.US_FUNDAMENTALS_FILE, {"AAPL": {"shares": 15_000_000_000, "per": None, "sector": "Tech"}})
     assert store.fetch_us_fundamentals_edgar(["AAPL"], max_calls=10) == 1
     mc = store.us_marketcaps({"AAPL": [180.0, 200.0]})["AAPL"]  # 시총 = 150억주×$200 = $3T
     assert mc["mktcap"] == 3_000_000_000_000
     assert mc["per"] == 32.26 and mc["pbr"] == 52.63           # 3T/93B, 3T/57B
     assert store.fetch_us_fundamentals_edgar(["AAPL"], max_calls=10) == 0  # 이미 채워짐 → 스킵
+
+
+def test_missing_sec_contact_preserves_us_cache_and_does_not_mark_attempt(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "data/cache").mkdir(parents=True)
+    monkeypatch.setattr(edgar, "available", lambda: False)
+    monkeypatch.setattr(edgar, "fundamentals", lambda _ticker: (_ for _ in ()).throw(AssertionError("network")))
+    original = {"AAPL": {"shares": 100, "net_income": 5, "edgar_observed_at": "2025-01-01"}}
+    store._write_json(store.US_FUNDAMENTALS_FILE, original)
+    assert store.fetch_us_fundamentals_edgar(["AAPL"]) == 0
+    assert store.load_us_fundamentals() == original

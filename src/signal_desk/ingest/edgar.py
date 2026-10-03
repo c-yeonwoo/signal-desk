@@ -1,7 +1,7 @@
 """SEC EDGAR 13F 수집 — 미국 기관투자자의 분기 보유내역(공개 공시) 파싱.
 
 13F-HR은 운용자산 $100M 이상 기관이 분기마다 롱 포지션(미국 상장분)을 공시하는 서식이다.
-키·인증 불필요(공개 데이터). SEC는 식별 가능한 User-Agent를 요구한다.
+키·인증 불필요(공개 데이터). 자동 접근에는 실제 SEC_CONTACT_EMAIL이 필요하다.
 
 한계(반드시 UI에 명시): 분기 스냅샷 + 공시까지 최대 45일 지연, 롱·미국상장분만(현금·채권·
 숏·해외주식 제외). '지금 이 순간의 포지션'이 아니라 '직전 분기말 공시 스냅샷'이다.
@@ -13,27 +13,67 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import threading
+import time
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 
 log = logging.getLogger("signal_desk.ingest.edgar")
 
-_UA = "signal-desk/0.1 (research contact: admin@signal-desk.local)"  # SEC는 식별 UA 요구
 _TIMEOUT = 20
+_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+_REQUEST_INTERVAL = 0.2  # 단일 프로세스에서 공식 최대 속도보다 충분히 낮게 유지
+_request_lock = threading.Lock()
+_last_request_at = 0.0
+
+
+def _contact() -> str | None:
+    """No placeholder identity: SEC_CONTACT_EMAIL must be configured by the operator."""
+    value = os.environ.get("SEC_CONTACT_EMAIL", "").strip()
+    domain = value.rsplit("@", 1)[-1].lower()
+    if (not re.fullmatch(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", value)
+            or domain in {"example.com", "example.org", "example.net"}
+            or domain.endswith((".local", ".invalid", ".example", ".test"))):
+        return None
+    return value
+
+
+def available() -> bool:
+    return _contact() is not None
 
 
 def _get(url: str) -> bytes | None:
-    req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept-Encoding": "gzip, deflate"})
+    contact = _contact()
+    parsed = urllib.parse.urlsplit(url)
+    if not contact or parsed.scheme != "https" or parsed.netloc not in {"www.sec.gov", "data.sec.gov"}:
+        return None
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+            return None
+
+    req = urllib.request.Request(url, headers={
+        "User-Agent": f"signal-desk/0.1 ({contact})", "Accept-Encoding": "identity"})
     try:
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
-            raw = resp.read()
-            if resp.headers.get("Content-Encoding") == "gzip":
-                import gzip
-                raw = gzip.decompress(raw)
-            return raw
+        # All legacy EDGAR paths share this one limiter. No SEC request is made
+        # when the configured contact is absent or invalid.
+        global _last_request_at
+        with _request_lock:
+            delay = _REQUEST_INTERVAL - (time.monotonic() - _last_request_at)
+            if delay > 0:
+                time.sleep(delay)
+            _last_request_at = time.monotonic()
+            with urllib.request.build_opener(NoRedirect()).open(req, timeout=_TIMEOUT) as resp:
+                raw = resp.read(_MAX_RESPONSE_BYTES + 1)
+        if len(raw) > _MAX_RESPONSE_BYTES:
+            raise ValueError("EDGAR response too large")
+        return raw
     except Exception as e:
-        log.warning("EDGAR 요청 실패(%s): %s", url.split("/")[-1], type(e).__name__)
+        log.warning("EDGAR 요청 실패: %s", type(e).__name__)
         return None
 
 
@@ -45,6 +85,8 @@ def _ticker_cik_map() -> dict[str, str]:
     global _cik_map
     if _cik_map is not None:
         return _cik_map
+    if not available():
+        return {}
     _cik_map = {}
     raw = _get("https://www.sec.gov/files/company_tickers.json")
     if raw:
