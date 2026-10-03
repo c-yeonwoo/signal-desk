@@ -135,11 +135,23 @@ def run(path: Path, favorites: list[str], corp_codes: dict[str, str], *, now: dt
             attempt_set(daily_budget, used + 1)
             used += 1
             attempt_set(key, mark)
+        except Exception:
+            # No collector call occurred. Do not count a reserved-but-unused
+            # allowance as a network request, and stop on broken state storage.
+            summary["status"] = "state_failure"
+            break
+        try:
             result = collector(path, target, dart_key=dart_key)
-            result_status = result.get("status", "collection_failed")
-            attempt_set(key, {**mark, "status": result_status})
+            if not isinstance(result, dict):
+                result = {"status": "collection_failed", "response_bytes": 0}
         except Exception:
             result = {"status": "collection_failed", "response_bytes": 0}
+        try:
+            attempt_set(key, {**mark, "status": result.get("status", "collection_failed")})
+        except Exception:
+            # Preserve the collector's actual outcome/bytes even if its cooldown
+            # marker cannot be finalized. The pre-request reservation remains.
+            summary["status"] = "state_failure"
         summary["requested"] += 1
         if result["status"] == "ok":
             summary["ok"] += 1
@@ -149,6 +161,8 @@ def run(path: Path, favorites: list[str], corp_codes: dict[str, str], *, now: dt
             summary["failed"] += 1
         summary["response_bytes"] += int(result.get("response_bytes") or 0)
         summary["raw_changed"] += int(bool(result.get("raw_changed")))
-    if summary["failed"]:
+        if summary["status"] == "state_failure":
+            break
+    if summary["failed"] and summary["status"] != "state_failure":
         summary["status"] = "partial_failure"
     return summary

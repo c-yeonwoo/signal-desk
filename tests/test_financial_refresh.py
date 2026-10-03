@@ -79,6 +79,50 @@ def test_corrupt_daily_budget_fails_closed(tmp_path):
                        attempt_set=lambda *_: None)["status"] == "budget_exhausted"
 
 
+@pytest.mark.parametrize("fail_at", ["budget", "started"])
+def test_pre_request_state_failure_does_not_invent_network_calls(tmp_path, fail_at):
+    state = {}
+
+    def fail_on_started(key, value):
+        if (fail_at == "budget" and key.startswith("financial_evidence_requests:")
+                or fail_at == "started" and key.startswith("financial_evidence_attempt:")):
+            raise OSError("state storage unavailable")
+        state[key] = value
+
+    def collector(*_args, **_kwargs):
+        raise AssertionError("no network call after state failure")
+
+    result = refresh.run(tmp_path / "e.db", ["000001"], CORPS, now=NOW,
+                         dart_key="test-key", attempt_get=state.get,
+                         attempt_set=fail_on_started, collector=collector)
+    assert result["status"] == "state_failure"
+    assert result["requested"] == result["ok"] == result["failed"] == 0
+    assert state.get(refresh.budget_key(NOW.date())) == (1 if fail_at == "started" else None)
+
+
+def test_post_request_state_failure_keeps_real_result_and_stops_batch(tmp_path):
+    state = {}
+    seen = []
+
+    def fail_on_final(key, value):
+        if key.startswith("financial_evidence_attempt:") and value["status"] != "started":
+            raise OSError("state storage unavailable")
+        state[key] = value
+
+    def collector(_path, target, **_kwargs):
+        seen.append(target)
+        return {"status": "ok", "response_bytes": 123, "raw_changed": True}
+
+    result = refresh.run(tmp_path / "e.db", ["000001", "000002"], CORPS, now=NOW,
+                         dart_key="test-key", attempt_get=state.get,
+                         attempt_set=fail_on_final, collector=collector)
+    assert result["status"] == "state_failure"
+    assert result["requested"] == result["ok"] == 1
+    assert result["failed"] == 0 and result["response_bytes"] == 123
+    assert result["raw_changed"] == 1 and len(seen) == 1
+    assert state[refresh.budget_key(NOW.date())] == 1
+
+
 def test_archived_no_data_and_prior_success_have_separate_ttls(tmp_path, monkeypatch):
     path = tmp_path / "e.db"
     day = NOW - dt.timedelta(days=8)
