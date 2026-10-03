@@ -289,6 +289,7 @@ def collect(path: Path, target: Target, *, dart_key: str = "", sec_contact: str 
             return {"status": "missing_contact", "facts": 0}
         headers["User-Agent"] = f"signal-desk financial-research ({sec_contact})"
     stage = "request"
+    response_bytes = 0
     try:
         # No redirect may forward credentials to another origin.
         class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -298,9 +299,11 @@ def collect(path: Path, target: Target, *, dart_key: str = "", sec_contact: str 
         opener = urllib.request.build_opener(NoRedirect())
         with opener.open(urllib.request.Request(url, headers=headers), timeout=30) as response:
             raw = response.read(MAX_BYTES + 1)
+        response_bytes = len(raw)
         observed = _now()
         stage = "validate_and_archive"
-        return archive(path, target, raw, observed_at=observed)
+        return {**archive(path, target, raw, observed_at=observed), "response_bytes": response_bytes}
     except Exception:
         # urllib exceptions may contain a URL with the key. Never log/return them.
-        return {"status": "collection_failed", "failure_stage": stage, "facts": 0}
+        return {"status": "collection_failed", "failure_stage": stage,
+                "facts": 0, "response_bytes": response_bytes}

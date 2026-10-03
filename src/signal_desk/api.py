@@ -583,6 +583,19 @@ def _bot_loop_iteration() -> None:
             telegram_inbound.enqueue_weekly_summaries(now=now)
         except Exception as e:
             log.warning("개인 Telegram 주간 가상 대조 실패: %s", type(e).__name__)
+    # Low-priority official evidence runs last; it cannot delay the PIT marks,
+    # research observations, or personal close notifications above.
+    if (market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40)
+            and db.kv_get("bot_daily_snap") == _kst_today()
+            and db.kv_get("financial_evidence_refresh_date") != _kst_today()):
+        try:
+            _refresh_financial_evidence_daily()
+        except Exception as e:
+            log.warning("마감후 관심종목 재무 근거 갱신 실패: %s", type(e).__name__)
+            db.kv_set("financial_evidence_refresh_last",
+                      {"status": "collection_failed", "reason": type(e).__name__, "at": _kst_now().isoformat()})
+        finally:
+            db.kv_set("financial_evidence_refresh_date", _kst_today())
 
 
 def _maybe_refresh_us_universe(now: datetime.datetime) -> bool:
@@ -720,6 +733,26 @@ def _auto_refresh_note(key: str, label: str, reason: str | None) -> None:
         db.kv_set("auto_refresh_last", json.dumps(cur, ensure_ascii=False))
     except Exception as e:                         # noqa: BLE001 — 기록 실패가 갱신을 막지 않는다
         log.warning("자동 갱신 기록 실패 %s: %s", key, type(e).__name__)
+
+
+def _refresh_financial_evidence_daily() -> None:
+    """Collect a small official-filing batch for favorite cards, never for scores."""
+    key = config.dart_key()
+    if not key:
+        result = {"status": "missing_credentials", "requested": 0}
+    else:
+        favorites = sorted({item["key"] for uid in db.uids_with_ticker_favorites()
+                            for item in db.fav_list(uid) if item["kind"] == "ticker"})
+        if not favorites:
+            result = {"status": "no_favorites", "requested": 0}
+        else:
+            from signal_desk.ingest import financial_refresh
+            from signal_desk.signals import financial_change
+            result = financial_refresh.run(
+                financial_change.DEFAULT_ARCHIVE, favorites, _corp_codes(),
+                now=_kst_now(), dart_key=key,
+                attempt_get=db.kv_get, attempt_set=db.kv_set)
+    db.kv_set("financial_evidence_refresh_last", result)
 
 
 def _daily_maintenance(enabled: list[str]) -> None:
@@ -3846,6 +3879,8 @@ def data_health_get():
             "kb_refresh": kb_refresh,
             # 장중 DART lite(공시→Decision만). 하루 1회 full refresh와 별개.
             "dart_lite": db.kv_get("kb_dart_lite_last") or {},
+            # Read-only official financial evidence; never a trading input.
+            "financial_evidence_refresh": db.kv_get("financial_evidence_refresh_last") or {"status": "not_started"},
             # 사람 확인 대기 중인 이벤트 후보 — 안 보면 유효한 악재가 만료로 조용히 사라진다.
             "event_queue": db.kb_event_queue_status(),
             # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.
