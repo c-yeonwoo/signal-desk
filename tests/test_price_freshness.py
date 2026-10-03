@@ -145,6 +145,27 @@ def test_price_failure_does_not_block_the_rest_of_maintenance(monkeypatch, _quie
     assert done == ["short"]                           # 시세가 죽어도 나머지는 계속
 
 
+def test_paper_snapshot_failure_does_not_block_other_ledgers_or_daily_completion(
+        monkeypatch, _quiet_maintenance):
+    """한 레퍼런스 장부 오류가 다른 장부와 공식 자료 수집의 선행 게이트를 막지 않는다."""
+    calls = []
+    saved = {}
+
+    def snapshot(uid, market):
+        calls.append((uid, market))
+        if (uid, market) == (101, "kr"):
+            raise RuntimeError("paper ledger unavailable")
+        return True
+
+    monkeypatch.setattr(api.store, "fetch_prices", lambda u, full=False: None)
+    monkeypatch.setattr(api.bot, "snapshot_positions", snapshot)
+    monkeypatch.setattr(api.db, "kv_set", lambda key, value: saved.__setitem__(key, value))
+    api._daily_maintenance([101, 102])
+
+    assert calls == [(101, "kr"), (101, "us"), (102, "kr"), (102, "us")]
+    assert saved["bot_daily_snap"] == api._kst_today()
+
+
 def test_maintenance_runs_after_the_close_on_weekdays(monkeypatch):
     """게이트: 평일 마감후 + 그날 아직 안 돎 일 때만 돈다."""
     ran: list[str] = []

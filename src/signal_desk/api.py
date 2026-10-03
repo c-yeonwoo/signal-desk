@@ -585,54 +585,59 @@ def _bot_loop_iteration() -> None:
             log.warning("개인 Telegram 주간 가상 대조 실패: %s", type(e).__name__)
     # Low-priority official evidence runs last; it cannot delay the PIT marks,
     # research observations, or personal close notifications above.
-    if (market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40)
-            and db.kv_get("bot_daily_snap") == _kst_today()
-            and db.kv_get("financial_evidence_refresh_date") != _kst_today()):
+    _collect_official_evidence_after_close(now)
+
+
+def _collect_official_evidence_after_close(now: datetime.datetime) -> None:
+    """Independent, low-priority collectors after a completed KR daily snapshot."""
+    if not (market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40)
+            and db.kv_get("bot_daily_snap") == _kst_today()):
+        return
+    if db.kv_get("financial_evidence_refresh_date") != _kst_today():
         try:
             _refresh_financial_evidence_daily()
         except Exception as e:
             log.warning("마감후 관심종목 재무 근거 갱신 실패: %s", type(e).__name__)
-            db.kv_set("financial_evidence_refresh_last",
-                      {"status": "collection_failed", "reason": type(e).__name__, "at": _kst_now().isoformat()})
+            failure = {"status": "collection_failed", "reason": type(e).__name__,
+                       "at": now.isoformat(), "requested": 0}
+            db.kv_set("financial_evidence_refresh_last", failure)
+            _record_official_evidence_ops("dart", now, failure)
         finally:
             db.kv_set("financial_evidence_refresh_date", _kst_today())
     # A separate, weekly-bounded official US industry observation. It is never
     # supplied to the signal/risk/order pipeline or to registered research.
-    if (market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40)
-            and db.kv_get("bot_daily_snap") == _kst_today()):
-        try:
-            from signal_desk.ingest import fed_g17
-            result = fed_g17.refresh(fed_g17.DEFAULT_ARCHIVE, now=now,
-                                     state_get=db.kv_get, state_set=db.kv_set,
-                                     reserve=_reserve_fed_g17_request)
-            prior = db.kv_get("fed_g17_refresh_last") or {}
-            if result.get("requested") or result.get("status") != prior.get("status"):
-                db.kv_set("fed_g17_refresh_last", result)
-                try:
-                    from signal_desk.ingest import evidence_ops
-                    evidence_ops.record("fed_g17", when=now, result=result)
-                except Exception as e:
-                    log.warning("연준 산업 자료 운영 계측 실패: %s", type(e).__name__)
-        except Exception as e:
-            log.warning("마감후 연준 산업 자료 수집 실패: %s", type(e).__name__)
-            db.kv_set("fed_g17_refresh_last",
-                      {"status": "collection_failed", "reason": type(e).__name__,
-                       "at": _kst_now().isoformat()})
-    if (market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40)
-            and db.kv_get("bot_daily_snap") == _kst_today()):
-        try:
-            # Claim before I/O so overlapping workers cannot each spend the
-            # daily allowance. A crash underuses the budget, never doubles it.
-            day = _kst_today()
-            claimed = db.kv_transform("sec_evidence_refresh_date",
-                                      lambda old: (day, True) if old != day else (None, False))
-            if claimed:
-                _refresh_sec_evidence_daily(now)
-        except Exception as e:
-            log.warning("마감후 SEC 관심종목 근거 수집 실패: %s", type(e).__name__)
-            db.kv_set("sec_evidence_refresh_last",
-                      {"status": "collection_failed", "reason": type(e).__name__,
-                       "at": now.isoformat(), "requested": 0})
+    try:
+        from signal_desk.ingest import fed_g17
+        result = fed_g17.refresh(fed_g17.DEFAULT_ARCHIVE, now=now,
+                                 state_get=db.kv_get, state_set=db.kv_set,
+                                 reserve=_reserve_fed_g17_request)
+        prior = db.kv_get("fed_g17_refresh_last") or {}
+        if result.get("requested") or result.get("status") != prior.get("status"):
+            db.kv_set("fed_g17_refresh_last", result)
+            # A no-request poll may precede an actual weekly request later
+            # today. Keep the first daily resource record for that request.
+            if result.get("status") != "not_due":
+                _record_official_evidence_ops("fed_g17", now, result)
+    except Exception as e:
+        log.warning("마감후 연준 산업 자료 수집 실패: %s", type(e).__name__)
+        failure = {"status": "collection_failed", "reason": type(e).__name__,
+                   "at": now.isoformat(), "requested": 0}
+        db.kv_set("fed_g17_refresh_last", failure)
+        _record_official_evidence_ops("fed_g17", now, failure)
+    try:
+        # Claim before I/O so overlapping workers cannot each spend the
+        # daily allowance. A crash underuses the budget, never doubles it.
+        day = _kst_today()
+        claimed = db.kv_transform("sec_evidence_refresh_date",
+                                  lambda old: (day, True) if old != day else (None, False))
+        if claimed:
+            _refresh_sec_evidence_daily(now)
+    except Exception as e:
+        log.warning("마감후 SEC 관심종목 근거 수집 실패: %s", type(e).__name__)
+        failure = {"status": "collection_failed", "reason": type(e).__name__,
+                   "at": now.isoformat(), "requested": 0}
+        db.kv_set("sec_evidence_refresh_last", failure)
+        _record_official_evidence_ops("sec", now, failure)
 
 
 def _maybe_refresh_us_universe(now: datetime.datetime) -> bool:
@@ -788,6 +793,15 @@ def _reserve_fed_g17_request(key: str) -> bool:
     return bool(db.kv_transform(key, increment))
 
 
+def _record_official_evidence_ops(source: str, when: datetime.datetime, result: dict) -> None:
+    """Operational evidence is best-effort, including failures before a request."""
+    try:
+        from signal_desk.ingest import evidence_ops
+        evidence_ops.record(source, when=when, result=result)
+    except Exception as e:
+        log.warning("공식 자료 운영 계측 실패(%s): %s", source, type(e).__name__)
+
+
 def _refresh_financial_evidence_daily() -> None:
     """Collect a small official-filing batch for favorite cards, never for scores."""
     key = config.dart_key()
@@ -806,11 +820,7 @@ def _refresh_financial_evidence_daily() -> None:
                 now=_kst_now(), dart_key=key,
                 attempt_get=db.kv_get, attempt_set=db.kv_set)
     db.kv_set("financial_evidence_refresh_last", result)
-    try:
-        from signal_desk.ingest import evidence_ops
-        evidence_ops.record("dart", when=_kst_now(), result=result)
-    except Exception as e:
-        log.warning("관심종목 재무 근거 운영 계측 실패: %s", type(e).__name__)
+    _record_official_evidence_ops("dart", _kst_now(), result)
 
 
 def _refresh_sec_evidence_daily(now: datetime.datetime) -> None:
@@ -834,11 +844,7 @@ def _refresh_sec_evidence_daily(now: datetime.datetime) -> None:
                              favorites, now=now, state_get=db.kv_get,
                              state_set=db.kv_set, reserve=reserve)
     db.kv_set("sec_evidence_refresh_last", result)
-    try:
-        from signal_desk.ingest import evidence_ops
-        evidence_ops.record("sec", when=now, result=result)
-    except Exception as e:
-        log.warning("SEC 관심종목 근거 운영 계측 실패: %s", type(e).__name__)
+    _record_official_evidence_ops("sec", now, result)
 
 
 def _daily_maintenance(enabled: list[str]) -> None:
@@ -1027,8 +1033,13 @@ def _daily_maintenance(enabled: list[str]) -> None:
     except Exception as e:
         log.warning("토스 실보유 성과 관측 실패: %s", type(e).__name__)
     for uid in enabled:
-        bot.snapshot_positions(uid, "kr")
-        bot.snapshot_positions(uid, "us")
+        for market in ("kr", "us"):
+            try:
+                bot.snapshot_positions(uid, market)
+            except Exception as e:
+                # One paper ledger must not prevent the daily completion marker
+                # and the independent, lower-priority official-source collectors.
+                log.warning("봇 보유 스냅샷 실패(uid=%s, %s): %s", uid, market, type(e).__name__)
     db.kv_set("bot_daily_snap", _kst_today())
 
 
