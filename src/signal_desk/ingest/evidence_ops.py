@@ -8,11 +8,16 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import sqlite3
+from pathlib import Path
 
 from signal_desk import db
 
 SOURCES = ("dart", "fed_g17", "sec")
 PREFIX = "evidence_ops:"
+
+_DART_URL = "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json?%"
+_SEC_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK%"
 
 
 def _count(value: object) -> int:
@@ -86,3 +91,48 @@ def report(*, now: dt.datetime, days: int = 30) -> dict:
     return {"window_days": days, "sources": sources, "invalid_rows": invalid_rows,
             "monetary_cost_usd": None,
             "cost_note": "요청·응답량만 계측합니다. 제공자 요금과 서버/네트워크 비용은 검증되지 않았습니다."}
+
+
+def _archive_inventory(path: Path, table: str, source_url: str | None = None) -> dict:
+    """Read one archive without creating it; a broken DB is not an empty archive."""
+    if table not in {"financial_observations", "fed_g17_observations"}:
+        raise ValueError("unsupported archive table")
+    if not path.exists():
+        return {"status": "not_recorded", "observations": 0, "first_id": None}
+    try:
+        # The allowlisted table name is the only SQL interpolation; source_url is bound.
+        conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            conn.execute("BEGIN")  # Count and first anchor must describe one read snapshot.
+            where = " WHERE source_url LIKE ?" if source_url else ""
+            params = (source_url,) if source_url else ()
+            count = conn.execute(f"SELECT COUNT(*) FROM {table}{where}", params).fetchone()[0]
+            first = conn.execute(
+                f"SELECT id, available_at FROM {table}{where} "
+                "ORDER BY available_at, id LIMIT 1", params).fetchone()
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error, ValueError):
+        return {"status": "archive_error", "observations": None, "first_id": None}
+    return {"status": "recorded" if count else "not_recorded", "observations": count,
+            "first_id": first[0] if first else None,
+            "first_available_at": first[1] if first else None}
+
+
+def archive_inventory(*, financial_path: Path | None = None, g17_path: Path | None = None) -> dict:
+    """Stable anchors for comparing archive continuity across deployments.
+
+    Counts and IDs are only an inventory, not a raw-byte integrity check.
+    Missing and unreadable files are distinguished; neither is success.
+    """
+    if financial_path is None:
+        from signal_desk.signals import financial_change
+        financial_path = financial_change.DEFAULT_ARCHIVE
+    if g17_path is None:
+        from signal_desk.ingest import fed_g17
+        g17_path = fed_g17.DEFAULT_ARCHIVE
+    return {
+        "dart": _archive_inventory(financial_path, "financial_observations", _DART_URL),
+        "sec": _archive_inventory(financial_path, "financial_observations", _SEC_URL),
+        "fed_g17": _archive_inventory(g17_path, "fed_g17_observations"),
+    }
