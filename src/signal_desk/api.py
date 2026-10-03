@@ -2718,6 +2718,23 @@ def watchlist_learning_get(request: Request, market: str, ticker: str):
     return report
 
 
+@app.get("/api/watchlist/financial-change")
+def watchlist_financial_change_get(request: Request, market: str, ticker: str):
+    """Own favorite's observed DART accounting changes; never reads the trading engine."""
+    _watchlist_learning_uid(request, market, ticker)
+    from signal_desk.signals import financial_change
+    if market != "kr":
+        return {"status": "not_supported", "reason": "해외 기업의 같은 회계기간 비교는 준비 중입니다.",
+                "not_order_advice": True}
+    corp_code = _corp_codes().get(ticker)
+    if not corp_code:
+        return {"status": "issuer_unmapped", "reason": "공식 기업 식별자를 확인하지 못했습니다.",
+                "not_order_advice": True}
+    return financial_change.describe_dart(
+        financial_change.DEFAULT_ARCHIVE, ticker=ticker, issuer=corp_code,
+        as_of=datetime.datetime.now(datetime.timezone.utc).isoformat())
+
+
 @app.put("/api/watchlist/thesis")
 def watchlist_thesis_put(request: Request, data: dict = Body(...)):
     """사용자 가설/반증 메모만 저장한다. 공용 팩터·봇·ML에는 전달하지 않는다."""

@@ -238,6 +238,44 @@ def latest(path: Path, target: Target, *, as_of: str) -> dict | None:
     return {"id": identifier, **envelope}
 
 
+def dart_targets(path: Path, issuer: str, *, as_of: str) -> list[Target]:
+    """Enumerate actually observed DART report requests for one issuer.
+
+    No file creation or network access. A target with a later no-data response
+    remains visible so callers can represent that state explicitly.
+    """
+    if not re.fullmatch(r"[0-9]{8}", issuer):
+        raise ValueError("invalid DART corp_code")
+    cutoff = _utc(as_of)
+    if not path.exists():
+        return []
+    conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    try:
+        urls = [row[0] for row in conn.execute(
+            "SELECT DISTINCT source_url FROM financial_observations WHERE available_at<=? "
+            "AND source_url LIKE 'https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json?%'",
+            (cutoff,))]
+    finally:
+        conn.close()
+    targets = []
+    for url in urls:
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme != "https" or parsed.netloc != "opendart.fss.or.kr" or parsed.path != "/api/fnlttSinglAcntAll.json":
+            continue
+        params = urllib.parse.parse_qs(parsed.query)
+        if params.get("corp_code") != [issuer]:
+            continue
+        try:
+            target = Target("dart", issuer, params["bsns_year"][0], params["reprt_code"][0],
+                            params["fs_div"][0])
+        except (ValueError, KeyError, IndexError):
+            continue
+        if target.url == url:
+            targets.append(target)
+    return sorted(targets, key=lambda target: (target.year,
+                    {"11013": 1, "11012": 2, "11014": 3, "11011": 4}[target.report]), reverse=True)
+
+
 def collect(path: Path, target: Target, *, dart_key: str = "", sec_contact: str = "") -> dict:
     """One official request, bounded response, no retries/fallback or key persistence."""
     url = target.url
