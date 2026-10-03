@@ -1,6 +1,7 @@
 """Observed operational costs stay separate from investment verdicts."""
 
 import datetime as dt
+import sqlite3
 
 from signal_desk import db
 from signal_desk.ingest import evidence_ops as ops
@@ -68,3 +69,49 @@ def test_invalid_source_and_naive_time_rejected(tmp_path, monkeypatch):
         ops.record("live_orders", when=now, result={})
     with pytest.raises(ValueError):
         ops.record("dart", when=now.replace(tzinfo=None), result={})
+
+
+def test_archive_inventory_tracks_stable_anchors_without_creating_files(tmp_path):
+    financial = tmp_path / "raw" / "financial.db"
+    g17 = tmp_path / "raw" / "g17.db"
+    empty = ops.archive_inventory(financial_path=financial, g17_path=g17)
+    assert all(item["status"] == "not_recorded" for item in empty.values())
+    assert not financial.exists() and not g17.exists()
+
+    financial.parent.mkdir(parents=True)
+    with sqlite3.connect(financial) as conn:
+        conn.execute("CREATE TABLE financial_observations "
+                     "(id TEXT, source_url TEXT, available_at TEXT)")
+        conn.executemany("INSERT INTO financial_observations VALUES (?,?,?)", [
+            ("dart-first", "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json?corp_code=00126380",
+             "2026-10-06T07:00:00+00:00"),
+            ("sec-first", "https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json",
+             "2026-10-07T07:00:00+00:00"),
+        ])
+    with sqlite3.connect(g17) as conn:
+        conn.execute("CREATE TABLE fed_g17_observations (id TEXT, available_at TEXT)")
+        conn.execute("INSERT INTO fed_g17_observations VALUES (?,?)",
+                     ("g17-first", "2026-10-06T07:00:00+00:00"))
+    first = ops.archive_inventory(financial_path=financial, g17_path=g17)
+    assert {key: item["first_id"] for key, item in first.items()} == {
+        "dart": "dart-first", "sec": "sec-first", "fed_g17": "g17-first"}
+    assert all(item["observations"] == 1 for item in first.values())
+
+    with sqlite3.connect(financial) as conn:
+        conn.execute("INSERT INTO financial_observations VALUES (?,?,?)",
+                     ("dart-later", "https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json?corp_code=00126380",
+                      "2026-10-08T07:00:00+00:00"))
+    later = ops.archive_inventory(financial_path=financial, g17_path=g17)
+    assert later["dart"]["observations"] == 2
+    assert later["dart"]["first_id"] == "dart-first"
+    assert later["sec"]["first_id"] == "sec-first"
+
+
+def test_archive_inventory_distinguishes_corruption_from_no_observations(tmp_path):
+    invalid = tmp_path / "corrupt.db"
+    invalid.write_bytes(b"not sqlite")
+    result = ops.archive_inventory(financial_path=invalid, g17_path=tmp_path / "absent.db")
+    assert result["dart"]["status"] == "archive_error"
+    assert result["dart"]["observations"] is None
+    assert result["sec"]["status"] == "archive_error"
+    assert result["fed_g17"]["status"] == "not_recorded"

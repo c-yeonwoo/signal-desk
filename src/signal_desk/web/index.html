@@ -7410,11 +7410,32 @@ function evidenceOpsHtml(d){
       + `${requested ? ` (${totals?.failed_pct ?? 0}%)` : ' (비율 판정 불가)'} · 받은 양 ${bytes} · ${changedLabel} ${changed}건`
       + `${totals?.last_day ? ` · 마지막 기록 ${esc(totals.last_day)}` : ''}</div></div>`;
   };
+  const continuity = d.archive_continuity || {}, archives = continuity.archives || {};
+  const archiveRows = [['dart', 'DART'], ['fed_g17', '연준 G.17'], ['sec', 'SEC']].map(([key, label]) => {
+    const item = archives[key] || {}, count = item.observations;
+    const state = item.status === 'archive_error' ? '보존 파일 읽기 실패'
+      : count == null ? '확인 불가' : `${Number(count)}건`;
+    return `<div>${label} ${esc(state)}`
+      + (item.first_id ? ` · 첫 관측 ID <code style="overflow-wrap:anywhere">${esc(item.first_id)}</code>` : '')
+      + (item.first_available_at ? ` · 첫 이용 가능 ${esc(item.first_available_at)}` : '')
+      + '</div>';
+  }).join('');
+  const archiveSummary = [['dart', 'DART'], ['fed_g17', '연준'], ['sec', 'SEC']]
+    .map(([key, label]) => `${label} ${archives[key]?.status === 'archive_error' ? '오류' : `${archives[key]?.observations ?? '–'}건`}`)
+    .join(' · ');
+  const boots = Number(continuity.app_db_boot_count);
+  const bootText = continuity.app_db_boot_count != null && Number.isSafeInteger(boots) && boots >= 0
+    ? `${boots}회` : '확인 불가';
   return row('국내 관심종목 재무(DART)', d.financial_evidence_refresh, src.dart, 'raw_changed', '원문 변화 관측', true)
     + row('미국 산업생산(연준)', d.fed_g17_refresh, src.fed_g17, 'revised_periods', '과거 월 수치 수정 관측')
     + `<div style="padding-top:7px;color:var(--dim)">미국 공시(SEC): ${d.sec_edgar?.contact_configured ? '연락처 설정됨 · 수집 성공은 별도 확인' : '실제 연락처 미설정 · 새 요청 중단, 기존 저장값 유지'}</div>`
     + row('미국 관심종목 재무(SEC)', d.sec_evidence_refresh, src.sec, 'raw_changed', '원문 변화 관측')
     + `<div style="color:var(--dim);margin-top:3px">SEC 이번 달 요청 예약 ${Number(d.sec_evidence_monthly_requests || 0)}/24회 · 점수/주문과 분리</div>`
+    + `<details style="margin-top:8px"><summary style="cursor:pointer">보존 연속성 확인 · ${esc(archiveSummary)}</summary>`
+    + `<div style="margin-top:5px;color:var(--dim)">앱 DB 부팅 ${bootText}`
+    + (continuity.app_db_first_boot ? ` · 최초 ${esc(continuity.app_db_first_boot)}` : ' · 최초 기록 없음')
+    + `<br>배포 전후 첫 관측 ID와 건수를 비교하세요. 일치만으로 원문 무결성을 증명하지 않습니다.</div>`
+    + archiveRows + '</details>'
     + `<button type="button" class="btn" style="margin-top:8px" onclick="loadDartCardAudit(this)">국내 재무 카드·보존 원문 대조</button>`
     + `<div class="dart-card-audit-result" style="margin-top:6px;color:var(--dim)">실제 수집된 법인코드 앞 2개를 대상으로, 버튼을 누르면 저장된 원문과 카드 숫자를 대조합니다. 외부 요청은 하지 않습니다.</div>`
     + `<div style="color:var(--dim-2);margin-top:5px">요청 횟수·받은 양은 비용 단서일 뿐 실제 금액이 아닙니다. 원문 변화는 회계 정정이 확인됐다는 뜻이 아닙니다.</div>`;

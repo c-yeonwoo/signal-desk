@@ -4022,6 +4022,12 @@ def evidence_ops_get(request: Request):
         "sec_evidence_monthly_requests": db.kv_get(f"sec_evidence_requests:{now:%Y-%m}") or 0,
         "sec_edgar": {"contact_configured": edgar.available()},
         "evidence_activity": evidence_ops.report(now=now),
+        "archive_continuity": {
+            "app_db_boot_count": db.kv_get("storage_boot_count"),
+            "app_db_first_boot": db.kv_get("storage_first_boot"),
+            "archives": evidence_ops.archive_inventory(),
+            "note": "부팅 횟수와 첫 관측 ID는 배포 전후 비교용입니다. 원문 무결성은 별도 대조가 필요합니다.",
+        },
     }
 
 
