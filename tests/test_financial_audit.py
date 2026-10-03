@@ -16,15 +16,15 @@ from signal_desk.signals import financial_change
 NOW = "2026-10-03T12:00:00+00:00"
 
 
-def _save(path, issuer, year, revenue, profit, *, raw_revenue=None):
-    target = evidence.Target("dart", issuer, str(year), "11012")
+def _save(path, issuer, year, revenue, profit, *, raw_revenue=None, report="11012"):
+    target = evidence.Target("dart", issuer, str(year), report)
     accession = f"{year}0814000001"
     rows = []
     for concept, statement, amount in (
         ("ifrs-full_Revenue", "IS", revenue if raw_revenue is None else raw_revenue),
         ("dart_OperatingIncomeLoss", "IS", profit),
     ):
-        rows.append({"corp_code": issuer, "bsns_year": str(year), "reprt_code": "11012",
+        rows.append({"corp_code": issuer, "bsns_year": str(year), "reprt_code": report,
                      "fs_div": "CFS", "rcept_no": accession, "sj_div": statement,
                      "account_id": concept, "account_nm": concept,
                      "currency": "KRW", "thstrm_amount": str(amount)})
@@ -44,6 +44,17 @@ def test_two_deterministic_issuers_match_archived_raw(tmp_path, monkeypatch):
     assert check["status"] == "matched" and check["raw_previous"] == "100"
     assert check["raw_current"] == "120" and check["unit"] == "KRW"
     assert result["items"][0]["not_order_advice"]
+
+
+def test_annual_report_card_also_matches_archived_raw(tmp_path, monkeypatch):
+    monkeypatch.setattr(evidence, "_now", lambda: NOW)
+    path = tmp_path / "e.db"
+    _save(path, "00126380", 2024, 100, 10, report="11011")
+    _save(path, "00126380", 2025, 120, 18, report="11011")
+    result = audit.audit_dart(path, issuer="00126380", as_of=NOW)
+    assert result["status"] == "matched"
+    assert {item["metric"] for item in result["checks"]} == {"revenue", "operating_income"}
+    assert all(item["report"] == "11011" for item in result["checks"])
 
 
 def test_card_number_mismatch_and_raw_tampering_fail(tmp_path, monkeypatch):
