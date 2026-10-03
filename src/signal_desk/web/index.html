@@ -7527,6 +7527,8 @@ function renderDataHealth(d){
         + `<div style="padding-top:7px;color:var(--dim)">미국 공시(SEC): ${d.sec_edgar?.contact_configured ? '연락처 설정됨 · 수집 성공은 별도 확인' : '실제 연락처 미설정 · 새 요청 중단, 기존 저장값 유지'}</div>`
         + row('미국 관심종목 재무(SEC)', d.sec_evidence_refresh, src.sec, 'raw_changed', '원문 변화 관측')
         + `<div style="color:var(--dim);margin-top:3px">SEC 이번 달 요청 예약 ${Number(d.sec_evidence_monthly_requests || 0)}/24회 · 점수/주문과 분리</div>`
+        + `<button type="button" class="btn" style="margin-top:8px" onclick="loadDartCardAudit(this)">국내 재무 카드·보존 원문 대조</button>`
+        + `<div class="dart-card-audit-result" style="margin-top:6px;color:var(--dim)">실제 수집된 법인코드 앞 2개를 대상으로, 버튼을 누르면 저장된 원문과 카드 숫자를 대조합니다. 외부 요청은 하지 않습니다.</div>`
         + `<div style="color:var(--dim-2);margin-top:5px">요청 횟수·받은 양은 비용 단서일 뿐 실제 금액이 아닙니다. 원문 변화는 회계 정정이 확인됐다는 뜻이 아닙니다.</div></div>`;
     }
     // 점수 동결 — 시세가 멈추면 문턱·분위를 어떻게 바꿔도 매일 같은 결과가 나온다
@@ -7616,6 +7618,44 @@ function renderDataHealth(d){
     }
     box.innerHTML = html || '데이터 없음';
   } catch (e) { box.innerHTML = '표시 실패'; }
+}
+
+async function loadDartCardAudit(button) {
+  const box = button.parentElement.querySelector('.dart-card-audit-result');
+  if (!box) return;
+  button.disabled = true;
+  box.textContent = '저장된 원문 대조 중…';
+  try {
+    const response = await fetch('/api/admin/evidence-audit/dart');
+    if (!response.ok) throw new Error(`감사 조회 실패 (${response.status})`);
+    const d = await response.json();
+    const names = {'matched':'원문·카드 일치', 'mismatch':'원문·카드 불일치',
+      'not_ready':'비교 카드 없음', 'audit_error':'보존 원문 검증 실패',
+      'invalid_issuer':'법인코드 오류'};
+    const metrics = {'revenue':'매출액', 'operating_income':'영업이익',
+      'operating_cash_flow':'영업현금흐름', 'inventory':'재고자산'};
+    const items = (d.items || []).map(item => {
+      const checks = (item.checks || []).map(check => {
+        const accession = String(check.current_accession || '');
+        const source = /^\d{14}$/.test(accession)
+          ? ` · <a href="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${accession}" target="_blank" rel="noopener noreferrer">DART 원문</a>` : '';
+        return `<div>${esc(metrics[check.metric] || check.metric)} · ${check.status === 'matched' ? '일치' : '불일치'}`
+          + ` · ${esc(check.previous_year)}→${esc(check.current_year)}`
+          + ` · 원문 ${esc(check.raw_previous)}→${esc(check.raw_current)} ${esc(check.unit)}`
+          + (check.status === 'matched' ? '' : ` · 카드 ${esc(check.card_previous)}→${esc(check.card_current)}`)
+          + `${source}</div>`;
+      }).join('');
+      return `<div style="margin-top:5px"><b>법인 ${esc(item.issuer)} · ${esc(names[item.status] || item.status)}</b>`
+        + `${item.reason ? ` · ${esc(item.reason)}` : ''}${checks}</div>`;
+    }).join('');
+    box.innerHTML = `<b>선정 ${d.selected || 0}/${d.sample_size || 2}개 · 일치 ${d.matched || 0}개</b>`
+      + (items || `<div>아직 보존된 비교 대상이 없습니다.</div>`)
+      + `<div style="margin-top:5px;color:var(--dim-2)">보존된 API 응답과 카드 계산의 일치만 확인합니다. DART 사이트 원문·공개시각·재배포 보존은 별도 확인이 필요합니다.</div>`;
+  } catch (error) {
+    box.textContent = String(error);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function pitUniverseBackfill() {

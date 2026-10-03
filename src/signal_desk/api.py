@@ -1237,6 +1237,7 @@ _ADMIN_PATHS = {
     "/api/brain/proposals", "/api/brain/proposals/refresh", "/api/engine/config/history",
     "/api/engine/llm-usage",
     "/api/data-health", "/api/egress-ip",
+    "/api/admin/evidence-audit/dart",
     "/api/hypothesis/refresh",
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
     "/api/morning-digest", "/api/morning-digest/test",
@@ -3984,6 +3985,17 @@ def data_health_get():
             "portfolio_shadow_daily": db.kv_get("portfolio_shadow_daily_last") or {},
             # 콜드 경로에서 전체 시그널 재계산을 피한다 — lru 캐시 히트 시만 편중 평가.
             "crowding": _crowding_status()}
+
+
+@app.get("/api/admin/evidence-audit/dart")
+def dart_card_raw_audit_get(request: Request):
+    """Read-only, deterministic two-issuer sample from persisted DART bytes."""
+    _admin_or_403(request)
+    from signal_desk.ingest import financial_audit
+    from signal_desk.signals import financial_change
+    return financial_audit.sample_dart(
+        financial_change.DEFAULT_ARCHIVE,
+        as_of=_kst_now().astimezone(datetime.timezone.utc).isoformat())
 
 
 def _revision_ic_status() -> dict:
