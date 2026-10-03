@@ -10305,6 +10305,7 @@ async function openWatchLearning(button) {
     if (d.status !== 'comparison' && d.status !== 'first_observation') {
       body.innerHTML = `<div class="stat-label" style="padding:8px 0">${esc(d.reason || '아직 비교할 기록이 없습니다.')}</div>`;
       attachWatchThesis(body, d);
+      attachWatchFinancial(body, button);
       body.dataset.loaded = '1';
       return;
     }
@@ -10326,9 +10327,49 @@ async function openWatchLearning(button) {
       <div style="margin-top:4px">다음 확인: ${checks}</div>
       <div style="margin-top:5px;color:var(--dim-2)">${esc(d.caveat || '')}</div></div>`;
     attachWatchThesis(body, d);
+    attachWatchFinancial(body, button);
     body.dataset.loaded = '1';
   } catch (error) {
     body.innerHTML = `<div class="stat-label" style="padding:8px 0">${esc(String(error))}</div>`;
+  }
+}
+
+async function attachWatchFinancial(body, button) {
+  const box = document.createElement('div');
+  box.style.cssText = 'padding:8px 10px;margin-bottom:8px;border:1px solid var(--line);border-radius:8px;font-size:12px';
+  box.innerHTML = '<b>기업 실적의 변화</b><div style="margin-top:5px;color:var(--dim)">공식 보고서를 확인하는 중…</div>';
+  body.appendChild(box);
+  try {
+    const url = '/api/watchlist/financial-change?market=' + encodeURIComponent(button.dataset.market)
+      + '&ticker=' + encodeURIComponent(button.dataset.ticker);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('기업 자료를 읽을 수 없습니다 (' + response.status + ')');
+    const d = await response.json();
+    if (d.status !== 'comparison') {
+      box.innerHTML = `<b>기업 실적의 변화</b><div style="margin-top:5px;color:var(--dim)">${esc(d.reason || '아직 비교할 자료가 없습니다.')}</div>`;
+      return;
+    }
+    const reportName = {'11013':'1분기', '11012':'반기', '11014':'3분기', '11011':'연간'}[d.report] || '보고서';
+    const metric = (key) => {
+      const item = (d.metrics || {})[key];
+      if (!item) return '';
+      const change = item.change_pct == null ? '비율 비교 불가' : `${item.change_pct > 0 ? '+' : ''}${fmtNum(item.change_pct, 1)}%`;
+      const href = String(item.current_source || '');
+      const source = href.startsWith('https://dart.fss.or.kr/')
+        ? ` <a href="${esc(href)}" target="_blank" rel="noopener noreferrer">원문</a>` : '';
+      return `<span style="display:inline-block;margin:2px 10px 2px 0">${esc(item.label)} ${esc(change)}${source}</span>`;
+    };
+    const positives = (d.increases || []).map(s => `<div>확인된 증가 · ${esc(s)}</div>`).join('');
+    const cautions = (d.cautions || []).map(s => `<div>추가 확인 · ${esc(s)}</div>`).join('');
+    const checks = (d.next_checks || []).map(esc).join(' · ');
+    box.innerHTML = `<div style="font-weight:700">기업 실적의 변화 <span style="font-weight:400;color:var(--dim)">· ${esc(d.business_year)} ${esc(reportName)}와 전년 비교</span></div>
+      <div style="margin-top:5px">${metric('revenue')}${metric('operating_income')}${metric('operating_cash_flow')}${metric('inventory')}</div>
+      ${positives ? `<div style="margin-top:5px">${positives}</div>` : ''}
+      ${cautions ? `<div style="margin-top:5px">${cautions}</div>` : ''}
+      <div style="margin-top:5px;color:var(--dim)">다음 확인: ${checks}</div>
+      <div style="margin-top:5px;color:var(--dim-2)">${esc(d.caveat || '')}</div>`;
+  } catch (error) {
+    box.innerHTML = `<b>기업 실적의 변화</b><div style="margin-top:5px;color:var(--dim)">${esc(String(error))}</div>`;
   }
 }
 
