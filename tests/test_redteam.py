@@ -2592,8 +2592,8 @@ def test_verdict_summary_shows_progress_without_a_click():
     for field in ("rq.effective_periods", "rq.min_effective_periods",
                   "rq.pit_dates", "rq.min_pit_dates"):
         assert field in blk, f"{field} 진척이 요약에 없다"
-    # locked가 아닐 때만 진척을 쓴다(확정 후에는 판정·백분위가 본문이다).
-    assert "hz.status !== 'locked'" in blk
+    # 대기 중일 때만 진척을 쓴다(확정·설정 변경 무효 상태에는 이전 진척을 붙이지 않는다).
+    assert "hz.status === 'pending'" in blk
     # 요약에 백분위가 새어 나오지 않는다.
     assert "percentile" not in blk, "요약 줄에서 백분위를 쓴다(요건 미달 동안 금지)"
     css = html[:html.find("</style>")]
