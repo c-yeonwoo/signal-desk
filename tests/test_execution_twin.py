@@ -68,3 +68,37 @@ def test_execution_audit_reports_unmatched_exit_as_coverage_gap():
 
     assert rows[0]["auditable"] is False
     assert execution_audit.summary(rows)["unmatched_exits"] == 1
+
+
+def test_add_without_historical_average_and_peak_abstains_from_risk_match():
+    events = [
+        {"ticker": "A", "price": 100, "ts": 10, "event_type": "filled_buy",
+         "payload": {"qty": 2, "risk": {"stop_loss_pct": -0.07}}},
+        {"ticker": "A", "price": 80, "ts": 20, "event_type": "filled_buy",
+         "payload": {"qty": 1, "risk": {"stop_loss_pct": -0.07}}},
+        {"ticker": "A", "price": 85, "ts": 30, "event_type": "filled_sell",
+         "payload": {"qty": 3, "reason": "STOP_LOSS"}},
+    ]
+    rows = execution_audit.audit_events(events, lambda *_args: [{"ts": 30, "price": 85}])
+    assert sum(row["quantity"] for row in rows) == 3
+    assert all(row["auditable"] is False and row["match"] is None for row in rows)
+    assert "추가매수" in rows[0]["reason"]
+
+
+def test_changed_risk_without_change_timestamp_abstains():
+    entry = {"ticker": "A", "price": 100, "ts": 10,
+             "payload": {"risk": {"stop_loss_pct": -0.07}}}
+    exit_event = {"ticker": "A", "price": 93, "ts": 20,
+                  "payload": {"risk": {"stop_loss_pct": -0.05}, "reason": "STOP_LOSS"}}
+    row = execution_audit.audit_round_trip(entry, exit_event, [{"ts": 20, "price": 93}])
+    assert row["auditable"] is False and row["match"] is None
+    assert "리스크 설정 변경" in row["reason"]
+
+
+def test_exit_risk_does_not_retroactively_fill_missing_entry_rule():
+    entry = {"ticker": "A", "price": 100, "ts": 10, "payload": {}}
+    exit_event = {"ticker": "A", "price": 93, "ts": 20,
+                  "payload": {"risk": {"stop_loss_pct": -0.07}, "reason": "STOP_LOSS"}}
+    row = execution_audit.audit_round_trip(entry, exit_event, [{"ts": 20, "price": 93}])
+    assert row["auditable"] is False and row["match"] is None
+    assert "소급" in row["reason"]
