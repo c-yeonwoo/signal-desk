@@ -14,7 +14,7 @@ def test_events_endpoint(tmp_path, monkeypatch):
     (tmp_path / "data/cache").mkdir(parents=True)
     from signal_desk import api, store
     store._write_json(store.FUNDAMENTALS_FILE, {"005930": {"dps": 1500}})
-    api._corp_codes.cache_clear()
+    api._corp_codes_cache_clear()
     api._disclosures_cached.cache_clear()
     monkeypatch.setattr(api, "_corp_codes", lambda: {"005930": "00126380"})
     monkeypatch.setattr(api, "_disclosures_cached", lambda c, b, e: (

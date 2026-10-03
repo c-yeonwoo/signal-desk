@@ -188,3 +188,32 @@ def test_daily_api_refresh_uses_only_ticker_favorites(monkeypatch, tmp_path):
     assert seen["favorites"] == ["000001"]
     assert seen["path"] == tmp_path / "e.db"
     assert state["financial_evidence_refresh_last"] == {"status": "ok", "requested": 0}
+
+
+def test_corp_code_failure_retries_after_interval_without_hammering(monkeypatch):
+    from signal_desk import api
+
+    calls = []
+
+    def load():
+        calls.append(1)
+        return {} if len(calls) == 1 else {"005930": "00126380"}
+
+    api._corp_codes_cache_clear()
+    monkeypatch.setattr(api.kb, "corp_codes_cached", load)
+    try:
+        monkeypatch.setattr(api.time, "monotonic", lambda: 100.0)
+        assert api._corp_codes() == {}
+        assert api._corp_codes() == {}
+        assert len(calls) == 1
+
+        monkeypatch.setattr(api.time, "monotonic", lambda: 1899.0)
+        assert api._corp_codes() == {}
+        assert len(calls) == 1
+
+        monkeypatch.setattr(api.time, "monotonic", lambda: 1900.0)
+        assert api._corp_codes() == {"005930": "00126380"}
+        assert api._corp_codes() == {"005930": "00126380"}
+        assert len(calls) == 2
+    finally:
+        api._corp_codes_cache_clear()
