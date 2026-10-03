@@ -209,12 +209,16 @@ def collect(path: Path) -> dict:
 
 def refresh(path: Path, *, now: dt.datetime,
             state_get: Callable[[str], object], state_set: Callable[[str, object], None],
+            reserve: Callable[[str], bool],
             collector: Callable[[Path], dict] = collect) -> dict:
-    """One weekly attempt; durable four-request monthly ceiling across restarts."""
+    """Weekly-gated attempt; atomic four-request monthly ceiling across workers."""
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("timezone required")
     key = "fed_g17_attempt"
-    prior = state_get(key)
+    try:
+        prior = state_get(key)
+    except Exception:
+        return {"status": "state_failure", "requested": 0}
     if isinstance(prior, dict) and prior.get("at") is not None:
         try:
             age = now.timestamp() - float(prior["at"])
@@ -224,15 +228,26 @@ def refresh(path: Path, *, now: dt.datetime,
             return {"status": "not_due", "requested": 0}
     budget_key = f"fed_g17_requests:{now.strftime('%Y-%m')}"
     try:
-        used = int(state_get(budget_key) or 0)
-    except (TypeError, ValueError):
-        used = MAX_REQUESTS_PER_MONTH
-    if used < 0 or used >= MAX_REQUESTS_PER_MONTH:
+        allowed = reserve(budget_key)
+    except Exception:
+        return {"status": "state_failure", "requested": 0}
+    if not allowed:
         return {"status": "budget_exhausted", "requested": 0}
     stamp = {"at": int(now.timestamp()), "status": "started"}
-    state_set(budget_key, used + 1)
-    state_set(key, stamp)
-    result = collector(path)
+    try:
+        state_set(key, stamp)
+    except Exception:
+        return {"status": "state_failure", "requested": 0}
+    try:
+        result = collector(path)
+        if not isinstance(result, dict) or not isinstance(result.get("status"), str):
+            result = {"status": "collection_failed", "response_bytes": 0}
+    except Exception:
+        result = {"status": "collection_failed", "response_bytes": 0}
     status = str(result.get("status") or "collection_failed")
-    state_set(key, {**stamp, "status": status})
+    try:
+        state_set(key, {**stamp, "status": status})
+    except Exception:
+        return {"requested": 1, **result, "collection_status": status,
+                "status": "state_failure", "at": now.isoformat()}
     return {"requested": 1, **result, "at": now.isoformat()}

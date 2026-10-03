@@ -603,7 +603,8 @@ def _bot_loop_iteration() -> None:
         try:
             from signal_desk.ingest import fed_g17
             result = fed_g17.refresh(fed_g17.DEFAULT_ARCHIVE, now=now,
-                                     state_get=db.kv_get, state_set=db.kv_set)
+                                     state_get=db.kv_get, state_set=db.kv_set,
+                                     reserve=_reserve_fed_g17_request)
             prior = db.kv_get("fed_g17_refresh_last") or {}
             if result.get("requested") or result.get("status") != prior.get("status"):
                 db.kv_set("fed_g17_refresh_last", result)
@@ -769,6 +770,22 @@ def _auto_refresh_note(key: str, label: str, reason: str | None) -> None:
         db.kv_set("auto_refresh_last", json.dumps(cur, ensure_ascii=False))
     except Exception as e:                         # noqa: BLE001 — 기록 실패가 갱신을 막지 않는다
         log.warning("자동 갱신 기록 실패 %s: %s", key, type(e).__name__)
+
+
+def _reserve_fed_g17_request(key: str) -> bool:
+    """Atomically reserve one of the four monthly official-source requests."""
+    from signal_desk.ingest import fed_g17
+
+    def increment(old):
+        if old is None:
+            count = 0
+        elif isinstance(old, int) and not isinstance(old, bool) and 0 <= old <= fed_g17.MAX_REQUESTS_PER_MONTH:
+            count = old
+        else:
+            return None, False
+        return (count + 1, True) if count < fed_g17.MAX_REQUESTS_PER_MONTH else (None, False)
+
+    return bool(db.kv_transform(key, increment))
 
 
 def _refresh_financial_evidence_daily() -> None:
