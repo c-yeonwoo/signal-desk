@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+import math
 import urllib.request
 
 from signal_desk import config
@@ -20,7 +21,17 @@ log = logging.getLogger("signal_desk.ingest.ecos")
 
 _BASE = "https://ecos.bok.or.kr/api/StatisticSearch"
 _TIMEOUT = 20
+_MAX_RESPONSE_BYTES = 1024 * 1024
 CPI_TARGET = 2.0  # 한은 물가안정목표 2% — 초과 + 상승이면 금리 부담(비우호)
+
+
+def _open(url: str):
+    # The ECOS key is a URL path segment; redirects must not forward it.
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+            return None
+
+    return urllib.request.build_opener(NoRedirect()).open(url, timeout=_TIMEOUT)
 
 
 def _series(code: str, cycle: str, item: str, count: int) -> list[tuple[str, float]]:
@@ -37,13 +48,30 @@ def _series(code: str, cycle: str, item: str, count: int) -> list[tuple[str, flo
         end = today.strftime("%Y%m")
     url = f"{_BASE}/{key}/json/kr/1/{count + 20}/{code}/{cycle}/{start}/{end}/{item}"
     try:
-        with urllib.request.urlopen(url, timeout=_TIMEOUT) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        with _open(url) as resp:
+            raw = resp.read(_MAX_RESPONSE_BYTES + 1)
+        if len(raw) > _MAX_RESPONSE_BYTES:
+            raise ValueError("ECOS response over limit")
+        body = json.loads(raw)
+        if not isinstance(body, dict):
+            raise ValueError("ECOS response shape invalid")
     except Exception as e:
         log.warning("ECOS 요청 실패(%s): %s", code, type(e).__name__)
         return []
-    rows = (body.get("StatisticSearch") or {}).get("row") or []
-    out = [(r["TIME"], float(r["DATA_VALUE"])) for r in rows if r.get("DATA_VALUE") not in (None, "", ".")]
+    search = body.get("StatisticSearch") or {}
+    rows = (search.get("row") or []) if isinstance(search, dict) else []
+    if not isinstance(rows, list):
+        return []
+    out = []
+    for row in rows:
+        try:
+            value = float(row.get("DATA_VALUE"))
+            period = str(row["TIME"])
+            datetime.datetime.strptime(period, "%Y%m%d" if cycle == "D" else "%Y%m")
+        except (TypeError, ValueError, KeyError, AttributeError):
+            continue
+        if math.isfinite(value):
+            out.append((period, value))
     return list(reversed(out))  # ECOS는 과거→최신 → 최신→과거로 뒤집음
 
 
@@ -70,10 +98,11 @@ def macro_indicators() -> list[dict]:
 
     # CPI YoY (901Y009 월간 레벨 → 전년동월비)
     cpi = _series("901Y009", "M", "0", 16)
-    if len(cpi) > 12:
+    if len(cpi) > 12 and cpi[0][1] > 0 and cpi[12][1] > 0:
         asof, latest = cpi[0]
         yoy = round((latest / cpi[12][1] - 1) * 100, 2)
-        prev_yoy = round((cpi[1][1] / cpi[13][1] - 1) * 100, 2) if len(cpi) > 13 else None
+        prev_yoy = (round((cpi[1][1] / cpi[13][1] - 1) * 100, 2)
+                    if len(cpi) > 13 and cpi[1][1] > 0 and cpi[13][1] > 0 else None)
         change = round(yoy - prev_yoy, 2) if prev_yoy is not None else None
         favor = 0
         reason = None
@@ -84,4 +113,9 @@ def macro_indicators() -> list[dict]:
         out.append({"key": "KR_CPI", "label": "한국 CPI", "unit": "% YoY", "value": yoy,
                     "change": change, "dir": 0 if not change else (1 if change > 0 else -1),
                     "asof": asof, "favor": favor, "reason": reason})
-    return out
+    source_series = {"KR_BASE": "722Y001/M/0101000", "KR_TB10": "817Y002/D/010210000",
+                     "KR_CPI": "901Y009/M/0"}
+    observed = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return [{**item, "source": "ECOS", "source_url": "https://ecos.bok.or.kr/",
+             "source_series": source_series[item["key"]], "retrieved_at": observed,
+             "source_published_at": None, "strict_pit_eligible": False} for item in out]

@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 
 from signal_desk import config
 
@@ -25,6 +27,7 @@ log = logging.getLogger("signal_desk.ingest.fred")
 
 BASE = "https://api.stlouisfed.org/fred/series/observations"
 _TIMEOUT = 20
+_MAX_RESPONSE_BYTES = 1024 * 1024
 
 # (series_id, 화면 라벨, 단위, 최근 몇 개 관측을 받아올지 — 월간 시계열은 YoY 위해 넉넉히)
 SERIES = [
@@ -35,6 +38,15 @@ SERIES = [
     ("VIXCLS", "VIX", "", 30),
     ("DEXKOUS", "원/달러", "KRW", 30),
 ]
+
+
+def _open(url: str):
+    # The API key is in the query string; never follow a redirect to another host.
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, hdrs, newurl):
+            return None
+
+    return urllib.request.build_opener(NoRedirect()).open(url, timeout=_TIMEOUT)
 
 
 def _observations(series_id: str, limit: int) -> list[tuple[str, float]]:
@@ -49,16 +61,27 @@ def _observations(series_id: str, limit: int) -> list[tuple[str, float]]:
         "limit": limit,
     })
     try:
-        with urllib.request.urlopen(f"{BASE}?{qs}", timeout=_TIMEOUT) as resp:
-            body = json.loads(resp.read().decode("utf-8"))
+        with _open(f"{BASE}?{qs}") as resp:
+            raw = resp.read(_MAX_RESPONSE_BYTES + 1)
+        if len(raw) > _MAX_RESPONSE_BYTES:
+            raise ValueError("FRED response over limit")
+        body = json.loads(raw)
+        if not isinstance(body, dict) or not isinstance(body.get("observations"), list):
+            raise ValueError("FRED response shape invalid")
     except Exception as e:
-        log.error("FRED 요청 실패(%s): %s", series_id, e)
+        # HTTP errors can contain the complete query URL, including the API key.
+        log.error("FRED 요청 실패(%s): %s", series_id, type(e).__name__)
         return []
     out = []
     for o in body.get("observations", []):
-        v = o.get("value")
-        if v and v != ".":
-            out.append((o["date"], float(v)))
+        try:
+            value = float(o.get("value"))
+            day = str(o["date"])
+            datetime.strptime(day, "%Y-%m-%d")
+        except (TypeError, ValueError, KeyError, AttributeError):
+            continue
+        if math.isfinite(value):
+            out.append((day, value))
     return out  # 최신 -> 과거 순
 
 
@@ -80,9 +103,12 @@ def macro_indicators() -> list[dict]:
             if len(obs) <= 12:
                 continue
             year_ago = obs[12][1]
+            if latest <= 0 or year_ago <= 0:
+                continue
             value = round((latest / year_ago - 1) * 100, 2)
             prev_year_ago = obs[13][1] if len(obs) > 13 else None
-            prev = round((obs[1][1] / prev_year_ago - 1) * 100, 2) if prev_year_ago else None
+            prev = (round((obs[1][1] / prev_year_ago - 1) * 100, 2)
+                    if prev_year_ago and prev_year_ago > 0 and obs[1][1] > 0 else None)
             change = round(value - prev, 2) if prev is not None else None
         elif unit == "%":  # 금리: 변화는 %p
             value = round(latest, 2)
@@ -100,5 +126,10 @@ def macro_indicators() -> list[dict]:
             "change": change,
             "dir": direction,
             "asof": asof,
+            "source": "FRED",
+            "source_url": f"https://fred.stlouisfed.org/series/{series_id}",
+            "retrieved_at": datetime.now(timezone.utc).isoformat(),
+            "source_published_at": None,
+            "strict_pit_eligible": False,
         })
     return out

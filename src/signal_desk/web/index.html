@@ -178,6 +178,7 @@
   .macro-chip { display:flex; flex-direction:column; gap:1px; border:1px solid var(--line);
     border-radius:9px; padding:5px 10px; background:var(--bg); min-width:76px; }
   .macro-chip .mc-label { font-size:11px; color:var(--dim); }
+  .macro-chip .mc-label a { color:inherit; text-decoration:underline dotted; text-underline-offset:2px; }
   .macro-chip .mc-value { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
   .macro-chip .mc-chg { font-size:11px; font-variant-numeric:tabular-nums; }
   .mc-bad { color:var(--sig-sell); } .mc-good { color:var(--sig-buy); } .mc-flat { color:var(--dim); }
@@ -3626,8 +3627,12 @@ async function loadMacro(){
       const favorCls = m.favor > 0 ? 'mc-good' : m.favor < 0 ? 'mc-bad' : 'mc-flat';  // 우호=초록, 비우호=빨강
       const chg = m.change == null ? '' :
         `<span class="mc-chg ${favorCls}">${arrow} ${m.change > 0 ? '+' : ''}${fmtNum(m.change, 2)}${chgUnit}</span>`;
-      return `<div class="macro-chip" title="${esc(m.label)} · ${m.asof}">
-        <span class="mc-label">${esc(m.label)}</span>
+      const official = /^https:\/\/(fred\.stlouisfed\.org|ecos\.bok\.or\.kr)\//.test(m.source_url || '');
+      const label = official
+        ? `<a href="${esc(m.source_url)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(m.label)} 공식 원천 보기">${esc(m.label)}</a>`
+        : esc(m.label);
+      return `<div class="macro-chip" title="${esc(m.label)} · 원천 관측일 ${esc(m.asof)} · 실제 공개시각 미검증">
+        <span class="mc-label">${label}</span>
         <span class="mc-value">${val}</span>${chg}</div>`;
     }).join('');
   } catch (e) { hide(); note.style.display = 'none'; }
