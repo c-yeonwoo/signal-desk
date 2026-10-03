@@ -47,6 +47,18 @@ def test_sec_mixed_batch_keeps_actual_request_outcomes_and_first_status(tmp_path
     assert sec["last_status"] == "partial_failure"
 
 
+def test_g17_marker_failure_keeps_actual_collection_outcome(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    now = dt.datetime.now(dt.timezone.utc)
+    assert ops.record("fed_g17", when=now, result={"status": "state_failure",
+                                                   "collection_status": "ok", "requested": 1,
+                                                   "response_bytes": 321})
+    item = ops.report(now=now + dt.timedelta(seconds=1))["sources"]["fed_g17"]
+    assert item["requested"] == item["ok"] == 1
+    assert item["failed"] == 0 and item["response_bytes"] == 321
+    assert item["last_status"] == "state_failure"
+
+
 def test_invalid_source_and_naive_time_rejected(tmp_path, monkeypatch):
     import pytest
 

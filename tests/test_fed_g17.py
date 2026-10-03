@@ -11,6 +11,19 @@ from signal_desk.ingest import fed_g17 as g17
 NOW = dt.datetime(2026, 10, 3, 12, tzinfo=dt.timezone.utc)
 
 
+def _state():
+    state = {}
+
+    def reserve(key):
+        used = state.get(key, 0)
+        if not isinstance(used, int) or isinstance(used, bool) or not 0 <= used < g17.MAX_REQUESTS_PER_MONTH:
+            return False
+        state[key] = used + 1
+        return True
+
+    return state, reserve
+
+
 def raw(*, last="190.0987"):
     previous = " ".join(f"{169 + month:.4f}" for month in range(1, 13))
     current = " ".join(["176.7104", "176.1804", "173.6932", "176.6948",
@@ -77,7 +90,7 @@ def test_read_only_card_separates_index_change_from_stock_advice(tmp_path, monke
 
 
 def test_weekly_retry_and_monthly_budget_survive_restart(tmp_path):
-    state = {}
+    state, reserve = _state()
     calls = []
 
     def failure(_path):
@@ -86,23 +99,76 @@ def test_weekly_retry_and_monthly_budget_survive_restart(tmp_path):
 
     for day in (3, 10, 17, 24):
         result = g17.refresh(tmp_path / "industry.db", now=NOW.replace(day=day),
-                             state_get=state.get, state_set=state.__setitem__, collector=failure)
+                             state_get=state.get, state_set=state.__setitem__,
+                             reserve=reserve, collector=failure)
         assert result["requested"] == 1
     assert state["fed_g17_requests:2026-10"] == 4
     assert g17.refresh(tmp_path / "industry.db", now=NOW.replace(day=31),
-                       state_get=state.get, state_set=state.__setitem__,
+                       state_get=state.get, state_set=state.__setitem__, reserve=reserve,
                        collector=failure)["status"] == "budget_exhausted"
     assert len(calls) == 4
 
 
 def test_success_waits_seven_days_and_bad_budget_fails_closed(tmp_path):
-    state = {}
+    state, reserve = _state()
     collect = lambda _path: {"status": "ok", "response_bytes": 5}
-    opts = dict(state_get=state.get, state_set=state.__setitem__, collector=collect)
+    opts = dict(state_get=state.get, state_set=state.__setitem__, reserve=reserve, collector=collect)
     assert g17.refresh(tmp_path / "industry.db", now=NOW, **opts)["status"] == "ok"
     assert g17.refresh(tmp_path / "industry.db", now=NOW + dt.timedelta(days=3), **opts)["status"] == "not_due"
     state["fed_g17_requests:2026-10"] = "broken"
     assert g17.refresh(tmp_path / "industry.db", now=NOW + dt.timedelta(days=8), **opts)["status"] == "budget_exhausted"
+
+
+@pytest.mark.parametrize("step", ["reserve", "started", "completed"])
+def test_state_failure_counts_only_collector_calls(tmp_path, step):
+    state, reserve = _state()
+    seen = []
+
+    def checked_reserve(key):
+        if step == "reserve":
+            raise OSError("state storage unavailable")
+        return reserve(key)
+
+    def save(key, value):
+        if ((step == "started" and value["status"] == "started")
+                or (step == "completed" and value["status"] != "started")):
+            raise OSError("state storage unavailable")
+        state[key] = value
+
+    def collector(_path):
+        seen.append("request")
+        return {"status": "ok", "response_bytes": 29}
+
+    result = g17.refresh(tmp_path / "industry.db", now=NOW, state_get=state.get,
+                         state_set=save, reserve=checked_reserve, collector=collector)
+    assert result["status"] == "state_failure"
+    assert result["requested"] == len(seen)
+    if step == "completed":
+        assert result["collection_status"] == "ok" and result["response_bytes"] == 29
+    else:
+        assert result["requested"] == 0
+    assert state.get("fed_g17_requests:2026-10") == (None if step == "reserve" else 1)
+
+
+def test_api_monthly_reservation_fails_closed_and_uses_atomic_transform(monkeypatch):
+    from signal_desk import api
+
+    state = {}
+    called = []
+
+    def transform(key, fn):
+        called.append(key)
+        new, result = fn(state.get(key))
+        if new is not None:
+            state[key] = new
+        return result
+
+    monkeypatch.setattr(api.db, "kv_transform", transform)
+    key = "fed_g17_requests:2026-10"
+    assert [api._reserve_fed_g17_request(key) for _ in range(5)] == [True] * 4 + [False]
+    assert state[key] == 4 and called == [key] * 5
+    state[key] = "broken"
+    assert api._reserve_fed_g17_request(key) is False and state[key] == "broken"
 
 
 def test_api_read_does_not_fetch_network(tmp_path, monkeypatch):
