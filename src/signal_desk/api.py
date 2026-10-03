@@ -819,6 +819,21 @@ def _refresh_financial_evidence_daily() -> None:
         else:
             from signal_desk.ingest import financial_refresh
             from signal_desk.signals import financial_change
+
+            def reserve_dart_budget(budget_key: str) -> bool:
+                def increment(old):
+                    if old is None:
+                        count = 0
+                    elif (isinstance(old, int) and not isinstance(old, bool)
+                          and 0 <= old <= financial_refresh.MAX_REQUESTS_PER_DAY):
+                        count = old
+                    else:
+                        return None, False
+                    return ((count + 1, True) if count < financial_refresh.MAX_REQUESTS_PER_DAY
+                            else (None, False))
+
+                return bool(db.kv_transform(budget_key, increment))
+
             corp_codes = _corp_codes()
             if not corp_codes:
                 result = {"status": "corp_codes_unavailable", "requested": 0}
@@ -830,7 +845,8 @@ def _refresh_financial_evidence_daily() -> None:
                 result = financial_refresh.run(
                     financial_change.DEFAULT_ARCHIVE, favorites, corp_codes,
                     now=_kst_now(), dart_key=key,
-                    attempt_get=db.kv_get, attempt_set=db.kv_set)
+                    attempt_get=db.kv_get, attempt_set=db.kv_set,
+                    reserve=reserve_dart_budget)
     db.kv_set("financial_evidence_refresh_last", result)
     _record_official_evidence_ops("dart", _kst_now(), result)
 

@@ -2,6 +2,8 @@
 
 import datetime as dt
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -11,6 +13,21 @@ from signal_desk.ingest import financial_refresh as refresh
 
 NOW = dt.datetime(2026, 10, 3, 18, tzinfo=dt.timezone(dt.timedelta(hours=9)))
 CORPS = {f"{i:06d}": f"{i:08d}" for i in range(1, 8)}
+
+
+def _reserve(state, lock=None):
+    lock = lock or threading.Lock()
+
+    def reserve(key):
+        with lock:
+            used = state.get(key, 0)
+            if (not isinstance(used, int) or isinstance(used, bool)
+                    or not 0 <= used < refresh.MAX_REQUESTS_PER_DAY):
+                return False
+            state[key] = used + 1
+            return True
+
+    return reserve
 
 
 @pytest.mark.parametrize("month,expected", [
@@ -43,7 +60,7 @@ def test_failures_cool_down_and_do_not_block_other_targets(tmp_path):
         return {"status": "no_data", "response_bytes": 12}
 
     opts = dict(now=NOW, dart_key="test-key", attempt_get=kv.get,
-                attempt_set=kv.__setitem__, collector=collect)
+                attempt_set=kv.__setitem__, reserve=_reserve(kv), collector=collect)
     first = refresh.run(tmp_path / "e.db", ["000001"], CORPS, **opts)
     assert first == {"status": "partial_failure", "requested": 2, "ok": 0,
                      "no_data": 1, "failed": 1, "response_bytes": 12,
@@ -63,7 +80,7 @@ def test_daily_budget_persists_across_runs_and_new_favorites(tmp_path):
         return {"status": "no_data", "response_bytes": 3}
 
     opts = dict(now=NOW, dart_key="test-key", attempt_get=state.get,
-                attempt_set=state.__setitem__, collector=collect)
+                attempt_set=state.__setitem__, reserve=_reserve(state), collector=collect)
     first = refresh.run(tmp_path / "e.db", list(CORPS)[:4], CORPS, **opts)
     assert first["requested"] == 8
     assert state[refresh.budget_key(NOW.date())] == 8
@@ -72,11 +89,50 @@ def test_daily_budget_persists_across_runs_and_new_favorites(tmp_path):
     assert second["requested"] == 0 and len(seen) == 8
 
 
-def test_corrupt_daily_budget_fails_closed(tmp_path):
+def test_parallel_runs_cannot_exceed_daily_budget_from_stale_plans(tmp_path, monkeypatch):
+    state = {}
+    lock = threading.Lock()
+    gate = threading.Barrier(2)
+    key = refresh.budget_key(NOW.date())
+    planned = refresh.plan(tmp_path / "e.db", list(CORPS), CORPS,
+                           now=NOW, last_attempt=lambda _: None)
+    assert len(planned) == refresh.MAX_REQUESTS_PER_DAY
+    monkeypatch.setattr(refresh, "plan", lambda *_args, **_kwargs: planned)
+    seen = []
+
+    def get(budget_or_attempt):
+        if budget_or_attempt == key:
+            gate.wait(timeout=5)
+            return 0  # Both workers planned against the same stale counter.
+        return state.get(budget_or_attempt)
+
+    def mark(mark_key, value):
+        with lock:
+            state[mark_key] = value
+
+    def collect(_path, target, **_kwargs):
+        with lock:
+            seen.append(target)
+        return {"status": "no_data", "response_bytes": 1}
+
+    def run():
+        return refresh.run(tmp_path / "e.db", list(CORPS), CORPS, now=NOW,
+                           dart_key="test-key", attempt_get=get, attempt_set=mark,
+                           reserve=_reserve(state, lock), collector=collect)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: run(), range(2)))
+    assert sum(item["requested"] for item in results) == refresh.MAX_REQUESTS_PER_DAY
+    assert len(seen) == state[key] == refresh.MAX_REQUESTS_PER_DAY
+
+
+@pytest.mark.parametrize("corrupt", ["broken", True, -1, 9])
+def test_corrupt_daily_budget_fails_closed(tmp_path, corrupt):
     key = refresh.budget_key(NOW.date())
     assert refresh.run(tmp_path / "e.db", ["000001"], CORPS, now=NOW,
-                       dart_key="test-key", attempt_get=lambda k: "broken" if k == key else None,
-                       attempt_set=lambda *_: None)["status"] == "budget_exhausted"
+                       dart_key="test-key", attempt_get=lambda k: corrupt if k == key else None,
+                       attempt_set=lambda *_: None, reserve=lambda _: (_ for _ in ()).throw(
+                           AssertionError("corrupt budget must not reserve")))["status"] == "budget_exhausted"
 
 
 @pytest.mark.parametrize("fail_at", ["budget", "started"])
@@ -84,17 +140,21 @@ def test_pre_request_state_failure_does_not_invent_network_calls(tmp_path, fail_
     state = {}
 
     def fail_on_started(key, value):
-        if (fail_at == "budget" and key.startswith("financial_evidence_requests:")
-                or fail_at == "started" and key.startswith("financial_evidence_attempt:")):
+        if fail_at == "started" and key.startswith("financial_evidence_attempt:"):
             raise OSError("state storage unavailable")
         state[key] = value
+
+    def reserve(key):
+        if fail_at == "budget":
+            raise OSError("state storage unavailable")
+        return _reserve(state)(key)
 
     def collector(*_args, **_kwargs):
         raise AssertionError("no network call after state failure")
 
     result = refresh.run(tmp_path / "e.db", ["000001"], CORPS, now=NOW,
                          dart_key="test-key", attempt_get=state.get,
-                         attempt_set=fail_on_started, collector=collector)
+                         attempt_set=fail_on_started, reserve=reserve, collector=collector)
     assert result["status"] == "state_failure"
     assert result["requested"] == result["ok"] == result["failed"] == 0
     assert state.get(refresh.budget_key(NOW.date())) == (1 if fail_at == "started" else None)
@@ -115,7 +175,7 @@ def test_post_request_state_failure_keeps_real_result_and_stops_batch(tmp_path):
 
     result = refresh.run(tmp_path / "e.db", ["000001", "000002"], CORPS, now=NOW,
                          dart_key="test-key", attempt_get=state.get,
-                         attempt_set=fail_on_final, collector=collector)
+                         attempt_set=fail_on_final, reserve=_reserve(state), collector=collector)
     assert result["status"] == "state_failure"
     assert result["requested"] == result["ok"] == 1
     assert result["failed"] == 0 and result["response_bytes"] == 123
@@ -140,7 +200,8 @@ def test_missing_credentials_never_plans_or_requests(tmp_path):
         raise AssertionError("must not read state")
 
     assert refresh.run(tmp_path / "e.db", ["000001"], CORPS, now=NOW, dart_key="",
-                       attempt_get=bomb, attempt_set=lambda *_: None)["status"] == "missing_credentials"
+                       attempt_get=bomb, attempt_set=lambda *_: None,
+                       reserve=bomb)["status"] == "missing_credentials"
 
 
 def test_daily_api_refresh_reports_missing_key_and_empty_favorites(monkeypatch):
@@ -216,6 +277,14 @@ def test_daily_api_refresh_uses_only_ticker_favorites(monkeypatch, tmp_path):
         {"kind": "ticker", "key": "000001"}, {"kind": "sector", "key": "000002"}])
     monkeypatch.setattr(api.db, "kv_get", state.get)
     monkeypatch.setattr(api.db, "kv_set", state.__setitem__)
+
+    def transform(key, fn):
+        new, result = fn(state.get(key))
+        if new is not None:
+            state[key] = new
+        return result
+
+    monkeypatch.setattr(api.db, "kv_transform", transform)
     monkeypatch.setattr(api, "_corp_codes", lambda: CORPS)
     monkeypatch.setattr(api, "_kst_now", lambda: NOW)
     monkeypatch.setattr(financial_change, "DEFAULT_ARCHIVE", tmp_path / "e.db")
@@ -226,6 +295,13 @@ def test_daily_api_refresh_uses_only_ticker_favorites(monkeypatch, tmp_path):
     assert seen["favorites"] == ["000001"]
     assert seen["path"] == tmp_path / "e.db"
     assert state["financial_evidence_refresh_last"] == {"status": "ok", "requested": 0}
+    daily = financial_refresh.budget_key(NOW.date())
+    assert all(seen["reserve"](daily) for _ in range(financial_refresh.MAX_REQUESTS_PER_DAY))
+    assert not seen["reserve"](daily)
+    assert state[daily] == financial_refresh.MAX_REQUESTS_PER_DAY
+    state[daily] = True
+    assert not seen["reserve"](daily)
+    assert state[daily] is True
 
 
 def test_daily_api_refresh_does_not_mark_empty_corp_codes_as_complete(monkeypatch):
