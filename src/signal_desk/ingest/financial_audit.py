@@ -123,7 +123,12 @@ def audit_dart(path: Path, *, issuer: str, as_of: str) -> dict:
 
 
 def sample_dart(path: Path, *, as_of: str, count: int = 2) -> dict:
-    """First sorted observed issuers, fixed before seeing their card outcomes."""
+    """First comparable cards in issuer order, fixed before checking raw amounts.
+
+    Missing prior reports cannot be audited as cards. Record every such
+    exclusion, and fail closed on archive errors rather than selecting around
+    them. A mismatch remains in the sample; it must never be skipped.
+    """
     if not 1 <= count <= 5:
         raise ValueError("sample size must be 1..5")
     if not path.exists():
@@ -148,11 +153,26 @@ def sample_dart(path: Path, *, as_of: str, count: int = 2) -> dict:
         code = urllib.parse.parse_qs(parsed.query).get("corp_code", [""])[0]
         if re.fullmatch(r"[0-9]{8}", code):
             issuers.add(code)
-    selected = sorted(issuers)[:count]
+    selected = []
+    excluded = []
+    for issuer in sorted(issuers):
+        card = financial_change.describe_dart(path, ticker=issuer, issuer=issuer, as_of=as_of)
+        if card["status"] == "archive_error":
+            excluded.append({"issuer": issuer, "card_status": "archive_error"})
+            return {"version": VERSION, "status": "archive_error", "sample_size": count,
+                    "observed": len(issuers), "selected": 0, "matched": 0,
+                    "excluded": excluded, "items": []}
+        if card["status"] == "comparison":
+            selected.append(issuer)
+            if len(selected) == count:
+                break
+        else:
+            excluded.append({"issuer": issuer, "card_status": card["status"]})
     items = [audit_dart(path, issuer=issuer, as_of=as_of) for issuer in selected]
     matched = sum(item["status"] == "matched" for item in items)
     return {"version": VERSION,
             "status": "matched" if matched == count else "insufficient_sample" if len(selected) < count else "not_ready",
-            "sample_size": count, "selected": len(selected), "matched": matched, "items": items,
-            "selection": "관측된 DART 법인코드를 정렬해 앞의 2개를 결과 확인 전에 선택",
+            "sample_size": count, "observed": len(issuers), "selected": len(selected),
+            "matched": matched, "excluded": excluded, "items": items,
+            "selection": f"관측 법인코드 순서대로 비교 카드가 성립하는 첫 {count}개를 금액 대조 전 선택; 제외 이유 공개",
             "note": "두 카드와 보존 원문이 맞아도 DART 사이트 원문·재배포 보존·사용자 이해도는 별도 검증이 필요합니다."}
