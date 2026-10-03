@@ -796,13 +796,16 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                       slippage_cost=result["slippage_cost"], cash_change=result["cash_change"])
                     plan["order_no"] = result["order_no"]
                     plan["fill_price"], plan["fees"] = filled, result["total_fees"]
+                    trade_event_key = f"trade:{market}:{uid}:{result['order_no']}"
                     db.execution_event_add(
-                        f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=ticker,
+                        trade_event_key, uid=uid, market=market, ticker=ticker,
                         event_type="filled_sell", price=filled,
                         payload={"qty": sell_qty, "reason": reason, "peak": peak,
                                  "entry_price": avg_price, "reference_price": current_price,
                                  "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
-                                 "risk": pos_risk.effective().__dict__},
+                                 "risk": pos_risk.effective().__dict__,
+                                 "signal_policy_id": signal_policy_id,
+                                 "execution_policy_id": execution_policy_id},
                     )
                     if reason in ("EVENT", "EVENT_TRIM") and dec:
                         db.bot_decision_log(
@@ -811,6 +814,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                             {"event_id": dec.event_id, "policy_version": dec.policy_version,
                              "holding_action": dec.holding_action, "severity": dec.severity,
                              "uid": uid, "qty": sell_qty,
+                             "execution_event_key": trade_event_key,
                              "signal_policy_id": signal_policy_id,
                              "execution_policy_id": execution_policy_id},
                             current_price,
@@ -975,13 +979,16 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                       fees=result["total_fees"], slippage_cost=result["slippage_cost"], cash_change=result["cash_change"])
                     plan["order_no"] = result["order_no"]
                     plan["fill_price"], plan["fees"] = filled, result["total_fees"]
+                    trade_event_key = f"trade:{market}:{uid}:{result['order_no']}"
                     db.execution_event_add(
-                        f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=s.ticker,
+                        trade_event_key, uid=uid, market=market, ticker=s.ticker,
                         event_type="filled_buy", price=filled,
                         payload={"qty": qty, "reason": "SIGNAL", "score": s.score,
                                  "rank": s.rank, "confidence": s.confidence, "style": cfg["trading_style"],
                                  "reference_price": live, "fees": result["total_fees"],
                                  "slippage_cost": result["slippage_cost"],
+                                 "signal_policy_id": signal_policy_id,
+                                 "execution_policy_id": execution_policy_id,
                                  # 해당 진입에 실제 적용한 폭을 동결한다. 나중에 config가 바뀌어도
                                  # 과거 실행을 새 규칙으로 재생하는 룩어헤드가 생기지 않는다.
                                  "risk": _risk_for(closes).effective().__dict__},
@@ -992,6 +999,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                     from signal_desk.signals import pick_reason as _pr
                     buy_ctx = {**(context or {}), "pick": _pr.from_signal(s),
                                "uid": uid, "qty": qty, "market": market,
+                               "execution_event_key": trade_event_key,
                                "signal_policy_id": signal_policy_id,
                                "execution_policy_id": execution_policy_id,
                                "score_semantics": policy_contract.SCORE_SEMANTICS}
@@ -1462,7 +1470,9 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                     event_type="filled_buy", price=filled,
                     payload={"qty": qty, "reason": "RESERVATION", "reservation_id": r["id"],
                              "target_price": r["target_price"], "reference_price": price,
-                             "fees": result["total_fees"], "slippage_cost": result["slippage_cost"]},
+                             "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
+                             "signal_policy_id": signal_policy_id,
+                             "execution_policy_id": execution_policy_id},
                 )
                 db.bot_position_upsert(uid, r["ticker"], r["name"], qty, basis_per_share, price, _today(market),
                                         market=market, tranches_done=1, last_buy_date=_today(market))
