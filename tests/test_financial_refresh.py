@@ -53,6 +53,31 @@ def test_failures_cool_down_and_do_not_block_other_targets(tmp_path):
                        **{**opts, "now": NOW + dt.timedelta(days=3)})["requested"] == 2
 
 
+def test_daily_budget_persists_across_runs_and_new_favorites(tmp_path):
+    state = {}
+    seen = []
+
+    def collect(_path, target, **_kwargs):
+        seen.append(target)
+        return {"status": "no_data", "response_bytes": 3}
+
+    opts = dict(now=NOW, dart_key="test-key", attempt_get=state.get,
+                attempt_set=state.__setitem__, collector=collect)
+    first = refresh.run(tmp_path / "e.db", list(CORPS)[:4], CORPS, **opts)
+    assert first["requested"] == 8
+    assert state[refresh.budget_key(NOW.date())] == 8
+    second = refresh.run(tmp_path / "e.db", list(CORPS)[4:], CORPS, **opts)
+    assert second["status"] == "budget_exhausted"
+    assert second["requested"] == 0 and len(seen) == 8
+
+
+def test_corrupt_daily_budget_fails_closed(tmp_path):
+    key = refresh.budget_key(NOW.date())
+    assert refresh.run(tmp_path / "e.db", ["000001"], CORPS, now=NOW,
+                       dart_key="test-key", attempt_get=lambda k: "broken" if k == key else None,
+                       attempt_set=lambda *_: None)["status"] == "budget_exhausted"
+
+
 def test_archived_no_data_and_prior_success_have_separate_ttls(tmp_path, monkeypatch):
     path = tmp_path / "e.db"
     day = NOW - dt.timedelta(days=8)

@@ -35,6 +35,10 @@ def attempt_key(target: evidence.Target) -> str:
     return "financial_evidence_attempt:" + hashlib.sha256(target.url.encode()).hexdigest()[:24]
 
 
+def budget_key(day: dt.date) -> str:
+    return f"financial_evidence_requests:{day.isoformat()}"
+
+
 def _due(path: Path, target: evidence.Target, now: dt.datetime,
          last_attempt: Callable[[str], object], *, prior: bool) -> bool:
     current = evidence.latest(path, target, as_of=now.isoformat())
@@ -105,13 +109,31 @@ def run(path: Path, favorites: list[str], corp_codes: dict[str, str], *, now: dt
     if not dart_key:
         return {"status": "missing_credentials", "requested": 0, "ok": 0, "no_data": 0,
                 "failed": 0, "response_bytes": 0}
-    targets = plan(path, favorites, corp_codes, now=now, last_attempt=attempt_get)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("timezone required")
+    daily_budget = budget_key(now.date())
+    try:
+        used = int(attempt_get(daily_budget) or 0)
+    except (TypeError, ValueError):
+        # Corrupt/malformed budget must fail closed, not reset the allowance.
+        used = MAX_REQUESTS_PER_DAY
+    used = MAX_REQUESTS_PER_DAY if used < 0 else min(MAX_REQUESTS_PER_DAY, used)
+    remaining = MAX_REQUESTS_PER_DAY - used
+    targets = plan(path, favorites, corp_codes, now=now, last_attempt=attempt_get,
+                   max_requests=remaining) if remaining else []
     summary = {"status": "ok", "requested": 0, "ok": 0, "no_data": 0,
                "failed": 0, "response_bytes": 0, "at": now.isoformat()}
+    if not remaining:
+        summary["status"] = "budget_exhausted"
+        return summary
     for target in targets:
         key = attempt_key(target)
         mark = {"at": int(now.timestamp()), "status": "started"}
         try:
+            # Reserve the request before contacting the provider. A crash may
+            # underuse today's allowance but cannot silently exceed it.
+            attempt_set(daily_budget, used + 1)
+            used += 1
             attempt_set(key, mark)
             result = collector(path, target, dart_key=dart_key)
             result_status = result.get("status", "collection_failed")
