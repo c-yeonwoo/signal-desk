@@ -3318,9 +3318,10 @@ const _T = {
     '역판별력': '거꾸로 고르고 있습니다',
     '판정 불가': '아직 알 수 없습니다',
     '판정 보류': '아직 알 수 없습니다',
+    '무효': '이전 판정은 무효입니다',
   },
   // 요건 진척 — `실효 1/30기간`·`PIT 12/150일`은 무엇의 진척인지가 안 보인다.
-  effective: (n, need) => `매매 ${need}회 중 <b>${n}</b>회`,
+  effective: (n, need) => `매수가 있었던 평가기간 ${need}개 중 <b>${n}</b>개`,
   pit: (n, need) => `기록 ${need}일 중 <b>${n}</b>일`,
 };
 
@@ -3365,19 +3366,25 @@ function verdictRow(hz){
   }
   const req = hz.requirement || {};
   const thr = hz.threshold_pct;
-  const nreg = hz.n_looks_total ?? hz.n_registered;
-  const meta = `<span style="color:var(--dim-2)">문턱 ${fmtNum(thr, 2)}%`
-    + (nreg > 1 ? ` · 가설군 ${nreg}개 Šidák 보정` : '') + `</span>`;
+  if (hz.status === 'invalidated') {
+    return `<div class="trust-row trust-verdict"><span class="trust-badge verdict-hold">판정</span>`
+      + `<b>이전 판정은 무효입니다</b>`
+      + ` <span style="color:var(--dim)">${esc(hz.verdict_why || '등록 설정을 다시 확인해야 합니다.')}</span></div>`;
+  }
   if (hz.status === 'locked') {
     const p = hz.percentile;
-    const ok = p != null && thr != null && p >= thr;
+    const ok = hz.verdict === '판별력 있음' && Number.isFinite(p) && thr != null && p >= thr;
     const c = ok ? 'var(--sig-buy)' : 'var(--txt)';
-    // 백분위는 "무작위로 뽑은 것보다 몇 % 위" — 숫자만 쓰면 무엇과 비교한 값인지 모른다.
+    // 백분위는 대조군 성적 분포 안의 위치다. 수익률을 몇 % 더 냈다는 뜻이 아니다.
+    const position = Number.isFinite(p)
+      ? `무작위 대조 성적의 ${fmtNum(p, 1)}백분위`
+      : '대조 백분위 미산출';
     return `<div class="trust-row trust-verdict"><span class="trust-badge verdict"`
       + ` title="사전등록한 기준으로 1회 확정한 판정입니다 (원어: 판별력 ${esc(hz.verdict || '')})">판정</span>`
       + `<b>이 시그널은 <span style="color:${c}">${esc(plainVerdict(hz.verdict))}</span></b>`
-      + ` <span style="color:var(--dim)">무작위로 고른 것보다 ${fmtNum(p, 1)}% 위`
-      + (thr != null ? ` · 통과 기준 ${fmtNum(thr, 2)}%` : '') + `</span>`
+      + ` <span style="color:var(--dim)">${position}`
+      + (thr != null ? ` · 등록 문턱 ${fmtNum(thr, 2)}백분위` : '')
+      + (hz.verdict_why ? ` · ${esc(hz.verdict_why)}` : '') + `</span>`
       + `<button type="button" class="linkish" onclick="toggleTrustLegend()">용어</button></div>`;
   }
   // 보류 — 진척만 쓴다. 백분위 자리에 숫자를 넣지 않는다.
@@ -3494,14 +3501,15 @@ async function loadScorecard(){
     const rq = (hz && hz.requirement) || {};
     const prog = [];
     if (rq.min_effective_periods)
-      prog.push(`매매 ${rq.min_effective_periods}회 중 ${rq.effective_periods ?? 0}회`);
+      prog.push(`매수가 있었던 평가기간 ${rq.min_effective_periods}개 중 ${rq.effective_periods ?? 0}개`
+        + (rq.effective_periods_source === 'estimated' ? '(추정)' : ''));
     if (rq.min_pit_dates) prog.push(`기록 ${rq.min_pit_dates}일 중 ${rq.pit_dates ?? 0}일`);
     // 문턱·등록 수는 요약에서 뺀다 — 접힌 한 줄에서 보정 원리를 설명할 수 없고,
     // 설명 없는 `98.30%`는 성적으로 오독된다. `용어` 토글이 뜻과 함께 말한다.
     const thrTxt = '';
     // 접힌 한 줄도 **판정부터**. 예전엔 `판별력 판정 보류`였는데 두 단어 다 전문용어였다.
     let sumTxt = `잘 고르는지 <span class="trust-sum-n">${esc(plainVerdict(vTxt))}</span>`
-      + (prog.length && hz && hz.status !== 'locked'
+      + (prog.length && hz && hz.status === 'pending'
           ? ` <span class="trust-sum-meta">${prog.join(' · ')}</span>` : '')
       + thrTxt;
     if (matureOk) {
@@ -3543,11 +3551,11 @@ async function loadScorecard(){
     body.innerHTML = rows.join('')
       + `<div class="trust-legend" id="trust-legend" hidden>`
       + `<div><b>실측</b> 그날 실제로 낸 시그널을 나중에 수익률로 채점한 것 · <b>시뮬</b> 과거 가격으로 돌려본 것(실제로 산 게 아님) · <b>트레이딩</b> 봇의 가상 체결 · <b>누적중</b> 판단하기엔 자료가 아직 적음</div>`
-      + `<div style="margin-top:4px"><b>매매 30회 / 기록 150일</b> 판정에 필요한 최소 자료량입니다. 자료가 적을 때 나온 좋은 성적은 우연일 수 있어서, 다 찰 때까지 성적을 숨깁니다`
-      + (hz && hz.threshold_pct ? ` — 다 차면 <b>무작위보다 ${fmtNum(hz.threshold_pct, 2)}% 위</b>여야 통과입니다` : '')
+      + `<div style="margin-top:4px"><b>매수가 있었던 평가기간 30개 / 기록 150일</b> 판정에 필요한 최소 자료량입니다. 자료가 적을 때 나온 좋은 성적은 우연일 수 있어서, 다 찰 때까지 성적을 숨깁니다`
+      + (hz && hz.threshold_pct ? ` — 다 차면 <b>무작위 대조 성적의 ${fmtNum(hz.threshold_pct, 2)}백분위 이상</b>이고 최악의 시작 시점도 대조군 중위보다 나아야 통과입니다` : '')
       + (hz && (hz.n_looks_total ?? hz.n_registered) > 1 ? ` (같은 자료로 가설 ${(hz.n_looks_total ?? hz.n_registered)}개를 보므로 그중 하나가 우연히 좋을 확률만큼 기준을 올렸습니다 · 원어: Šidák 보정)` : '') + `</div>`
       + `<div style="margin-top:4px"><b>정밀도</b> 매수라고 한 것 중 실제로 오른 비율. 옆의 <b>기준선</b>은 아무것도 안 보고 찍었을 때의 비율이고, 둘의 차이(<b>리프트</b>)만이 실력입니다 — 상승장에서는 찍어도 정밀도가 높습니다</div>`
-      + `<div style="margin-top:4px">쉬운 말로 바꿔 쓴 원어: <b>판별력</b>(잘 고르는 능력) · <b>실효 기간</b>(매매 회차) · <b>PIT</b>(그날 알 수 있었던 정보만으로 남긴 기록) · <b>공석</b>(자리 비움) · <b>게이트</b>(안전장치)</div>`
+      + `<div style="margin-top:4px">쉬운 말로 바꿔 쓴 원어: <b>판별력</b>(잘 고르는 능력) · <b>실효 기간</b>(매수가 있었던 평가기간) · <b>PIT</b>(그날 알 수 있었던 정보만으로 남긴 기록) · <b>공석</b>(자리 비움) · <b>게이트</b>(안전장치)</div>`
       + `</div>`;
     el.style.display = 'block';
   } catch (e) { el.style.display = 'none'; }
@@ -9171,7 +9179,7 @@ async function loadExperiments(){
       pre.innerHTML = `<div style="color:var(--sell);font-size:13px">${esc(b.reason || '사전등록 없음')}</div>`;
     } else {
       pre.innerHTML = `<div style="font-size:12px;color:var(--dim);margin-bottom:6px">`
-        + `문턱 <b>${fmtNum(b.threshold_pct, 2)}%</b> · 보정 가설군 ${b.n_looks_total ?? b.n_registered} look`
+        + `문턱 <b>${fmtNum(b.threshold_pct, 2)}백분위</b> · 보정 가설군 ${b.n_looks_total ?? b.n_registered} look`
         + `${b.n_harness_looks != null ? ` (하네스 ${b.n_harness_looks})` : ''}`
         + `${(b.n_looks_total ?? b.n_registered) > 1 ? ' (Šidák 보정 — 등록 수로 고정, lock돼도 안 느슨해짐)' : ''}</div>`
         + (b.looks || []).map(lk => {
@@ -9365,7 +9373,7 @@ async function loadProofOs(force=false){
           <div style="font-size:12px;margin-top:6px">harness
             <b>${hz.verdict || (hz.blocked_reason || '미실행')}</b>
             <span style="color:var(--dim)">${hz.percentile == null ? '' : ' · p' + fmtNum(hz.percentile, 1)}</span>
-            ${hz.threshold_pct != null ? `<span style="color:var(--dim)"> · 문턱 ${fmtNum(hz.threshold_pct, 2)}%${(hz.n_looks_total ?? hz.n_registered) > 1 ? ` (가설군 ${hz.n_looks_total ?? hz.n_registered} look Šidák · 하네스 ${hz.n_harness_looks ?? hz.n_registered})` : ''}</span>` : ''}
+            ${hz.threshold_pct != null ? `<span style="color:var(--dim)"> · 문턱 ${fmtNum(hz.threshold_pct, 2)}백분위${(hz.n_looks_total ?? hz.n_registered) > 1 ? ` (가설군 ${hz.n_looks_total ?? hz.n_registered} look Šidák · 하네스 ${hz.n_harness_looks ?? hz.n_registered})` : ''}</span>` : ''}
             ${hz.saved_at && hz.status === 'locked' ? `<span style="color:var(--dim-2)"> · ${esc(String(hz.saved_at).slice(0, 10))}</span>` : ''}
           </div>
           ${hz.verdict_why ? `<div style="font-size:12px;color:var(--dim);margin-top:2px">${esc(hz.verdict_why)}</div>` : ''}
