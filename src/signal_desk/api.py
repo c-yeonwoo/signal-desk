@@ -815,10 +815,14 @@ def _refresh_financial_evidence_daily() -> None:
         else:
             from signal_desk.ingest import financial_refresh
             from signal_desk.signals import financial_change
-            result = financial_refresh.run(
-                financial_change.DEFAULT_ARCHIVE, favorites, _corp_codes(),
-                now=_kst_now(), dart_key=key,
-                attempt_get=db.kv_get, attempt_set=db.kv_set)
+            corp_codes = _corp_codes()
+            if not corp_codes:
+                result = {"status": "corp_codes_unavailable", "requested": 0}
+            else:
+                result = financial_refresh.run(
+                    financial_change.DEFAULT_ARCHIVE, favorites, corp_codes,
+                    now=_kst_now(), dart_key=key,
+                    attempt_get=db.kv_get, attempt_set=db.kv_set)
     db.kv_set("financial_evidence_refresh_last", result)
     _record_official_evidence_ops("dart", _kst_now(), result)
 

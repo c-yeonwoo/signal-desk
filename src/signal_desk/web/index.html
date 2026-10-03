@@ -7394,7 +7394,8 @@ function evidenceOpsHtml(d){
   const ea = d.evidence_activity || {}, src = ea.sources || {};
   if (ea.status === 'unavailable') return '<span style="color:var(--sig-watch)">공식 근거 수집 기록을 읽지 못했습니다.</span>';
   const statusText = {'not_started':'아직 수집 전', 'missing_credentials':'DART 키 없음',
-    'no_favorites':'관심종목 없음', 'ok':'수집 완료', 'partial_failure':'일부 실패',
+    'no_favorites':'관심종목 없음', 'corp_codes_unavailable':'DART 기업코드 조회 실패',
+    'ok':'수집 완료', 'partial_failure':'일부 실패',
     'collection_failed':'수집 실패', 'budget_exhausted':'요청 한도 소진',
     'not_due':'다음 수집 대기', 'missing_real_contact':'실제 연락처 미설정',
     'no_us_favorites':'미국 관심종목 없음', 'no_mapped_favorites':'기업 식별 확인 대기'};
