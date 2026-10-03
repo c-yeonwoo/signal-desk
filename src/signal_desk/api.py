@@ -1254,7 +1254,7 @@ _ADMIN_PATHS = {
     "/api/brain/proposals", "/api/brain/proposals/refresh", "/api/engine/config/history",
     "/api/engine/llm-usage",
     "/api/data-health", "/api/egress-ip",
-    "/api/admin/evidence-audit/dart",
+    "/api/admin/evidence-audit/dart", "/api/admin/evidence-ops",
     "/api/hypothesis/refresh",
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
     "/api/morning-digest", "/api/morning-digest/test",
@@ -4002,6 +4002,27 @@ def data_health_get():
             "portfolio_shadow_daily": db.kv_get("portfolio_shadow_daily_last") or {},
             # 콜드 경로에서 전체 시그널 재계산을 피한다 — lru 캐시 히트 시만 편중 평가.
             "crowding": _crowding_status()}
+
+
+@app.get("/api/admin/evidence-ops")
+def evidence_ops_get(request: Request):
+    """Small read-only collector ledger, independent of expensive full diagnostics.
+
+    A timeout in ``/api/data-health`` must not hide whether official evidence
+    actually arrived. These are operating counters, never trading inputs.
+    """
+    _admin_or_403(request)
+    from signal_desk.ingest import edgar, evidence_ops
+
+    now = _kst_now()
+    return {
+        "financial_evidence_refresh": db.kv_get("financial_evidence_refresh_last") or {"status": "not_started"},
+        "fed_g17_refresh": db.kv_get("fed_g17_refresh_last") or {"status": "not_started"},
+        "sec_evidence_refresh": db.kv_get("sec_evidence_refresh_last") or {"status": "not_started"},
+        "sec_evidence_monthly_requests": db.kv_get(f"sec_evidence_requests:{now:%Y-%m}") or 0,
+        "sec_edgar": {"contact_configured": edgar.available()},
+        "evidence_activity": evidence_ops.report(now=now),
+    }
 
 
 @app.get("/api/admin/evidence-audit/dart")
