@@ -16,11 +16,11 @@ from signal_desk.ingest import financial_evidence as evidence
 VERSION = "watchlist-financial-change-v1"
 DEFAULT_ARCHIVE = Path("data/raw/financial-evidence.db")
 _METRICS = {
-    "revenue": ("ifrs-full_Revenue", "IS", "quarter", "thstrm_amount", "매출액"),
-    "operating_income": ("dart_OperatingIncomeLoss", "IS", "quarter", "thstrm_amount", "영업이익"),
+    "revenue": ("ifrs-full_Revenue", "IS", "quarter", "thstrm_amount", "매출액(3개월)"),
+    "operating_income": ("dart_OperatingIncomeLoss", "IS", "quarter", "thstrm_amount", "영업이익(3개월)"),
     "operating_cash_flow": ("ifrs-full_CashFlowsFromUsedInOperatingActivities", "CF",
-                            "reported_duration", "thstrm_amount", "영업현금흐름"),
-    "inventory": ("ifrs-full_Inventories", "BS", "instant", "thstrm_amount", "재고자산"),
+                            "reported_duration", "thstrm_amount", "영업현금흐름(보고기간)"),
+    "inventory": ("ifrs-full_Inventories", "BS", "instant", "thstrm_amount", "재고자산(보고기말)"),
 }
 
 
@@ -53,7 +53,7 @@ def _pair(current: list[dict], previous: list[dict], spec: tuple[str, str, str, 
 def _base(status: str, reason: str, *, ticker: str, issuer: str) -> dict:
     return {"version": VERSION, "status": status, "reason": reason, "ticker": ticker,
             "issuer": issuer, "market": "kr", "mode": "research_only", "not_order_advice": True,
-            "source_available_at_verified": False}
+            "source_available_at_verified": False, "period_dates_verified": False}
 
 
 def describe_dart(path: Path, *, ticker: str, issuer: str, as_of: str) -> dict:
@@ -128,7 +128,7 @@ def describe_dart(path: Path, *, ticker: str, issuer: str, as_of: str) -> dict:
             "current_observation_id": current["id"], "prior_observation_id": previous["id"],
             "metrics": pairs, "operating_margin_change_pp": margin_pp,
             "increases": good, "cautions": caution, "next_checks": checks,
-            "caveat": "재무제표에 기록된 전년 대비 변화입니다. 발표 전 기대치·현재 주가의 반영 정도·미래 수익은 확인하지 않았습니다. 원천의 정확한 장중 공개시각은 미인증입니다."}
+            "caveat": "손익계산서 당기금액은 3개월, 현금흐름은 보고기간 금액, 재고는 보고기말 잔액입니다. 이 API 응답만으로 실제 회계기간 시작·끝과 장중 공개시각은 인증하지 못했습니다. 발표 전 기대치·현재 주가 반영·미래 수익도 확인하지 않았습니다."}
 
 
 _SEC_REVENUE_TAGS = ("us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
