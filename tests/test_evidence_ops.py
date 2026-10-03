@@ -34,6 +34,19 @@ def test_zero_requests_do_not_claim_zero_failure_rate(tmp_path, monkeypatch):
     assert dart["failed_pct"] is None and dart["last_status"] == "missing_credentials"
 
 
+def test_sec_mixed_batch_keeps_actual_request_outcomes_and_first_status(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    now = dt.datetime.now(dt.timezone.utc)
+    first = {"status": "partial_failure", "requested": 2, "ok": 1, "failed": 1,
+             "response_bytes": 3000, "raw_changed": 1}
+    assert ops.record("sec", when=now, result=first)
+    assert not ops.record("sec", when=now, result={"status": "ok", "requested": 9, "ok": 9})
+    sec = ops.report(now=now + dt.timedelta(seconds=1))["sources"]["sec"]
+    assert sec["requested"] == 2 and sec["ok"] == 1 and sec["failed"] == 1
+    assert sec["failed_pct"] == 50.0 and sec["raw_changed"] == 1
+    assert sec["last_status"] == "partial_failure"
+
+
 def test_invalid_source_and_naive_time_rejected(tmp_path, monkeypatch):
     import pytest
 

@@ -11,7 +11,7 @@ import json
 
 from signal_desk import db
 
-SOURCES = ("dart", "fed_g17")
+SOURCES = ("dart", "fed_g17", "sec")
 PREFIX = "evidence_ops:"
 
 
@@ -30,13 +30,13 @@ def record(source: str, *, when: dt.datetime, result: dict) -> bool:
     day = when.date().isoformat()
     requested = _count(result.get("requested"))
     status = str(result.get("status") or "unknown")[:48]
-    failed = (_count(result.get("failed")) if source == "dart"
+    failed = (_count(result.get("failed")) if source in {"dart", "sec"}
               else int(requested > 0 and status != "ok"))
     payload = {"source": source, "day": day, "status": status,
-               "requested": requested, "ok": _count(result.get("ok")) if source == "dart" else int(status == "ok" and requested > 0),
+               "requested": requested, "ok": _count(result.get("ok")) if source in {"dart", "sec"} else int(status == "ok" and requested > 0),
                "no_data": _count(result.get("no_data")) if source == "dart" else 0,
                "failed": failed, "response_bytes": _count(result.get("response_bytes")),
-               "raw_changed": _count(result.get("raw_changed")) if source == "dart" else 0,
+               "raw_changed": _count(result.get("raw_changed")) if source in {"dart", "sec"} else 0,
                "revised_periods": (len(result.get("revised_periods"))
                                    if source == "fed_g17" and isinstance(result.get("revised_periods"), list) else 0)}
     key = f"{PREFIX}{source}:{day}"
