@@ -617,6 +617,21 @@ def _bot_loop_iteration() -> None:
             db.kv_set("fed_g17_refresh_last",
                       {"status": "collection_failed", "reason": type(e).__name__,
                        "at": _kst_now().isoformat()})
+    if (market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40)
+            and db.kv_get("bot_daily_snap") == _kst_today()):
+        try:
+            # Claim before I/O so overlapping workers cannot each spend the
+            # daily allowance. A crash underuses the budget, never doubles it.
+            day = _kst_today()
+            claimed = db.kv_transform("sec_evidence_refresh_date",
+                                      lambda old: (day, True) if old != day else (None, False))
+            if claimed:
+                _refresh_sec_evidence_daily(now)
+        except Exception as e:
+            log.warning("마감후 SEC 관심종목 근거 수집 실패: %s", type(e).__name__)
+            db.kv_set("sec_evidence_refresh_last",
+                      {"status": "collection_failed", "reason": type(e).__name__,
+                       "at": now.isoformat(), "requested": 0})
 
 
 def _maybe_refresh_us_universe(now: datetime.datetime) -> bool:
@@ -779,6 +794,29 @@ def _refresh_financial_evidence_daily() -> None:
         evidence_ops.record("dart", when=_kst_now(), result=result)
     except Exception as e:
         log.warning("관심종목 재무 근거 운영 계측 실패: %s", type(e).__name__)
+
+
+def _refresh_sec_evidence_daily(now: datetime.datetime) -> None:
+    """Own US favorites only; durable monthly request reservation before I/O."""
+    from signal_desk.ingest import sec_issuer_map, sec_refresh
+    from signal_desk.signals import financial_change
+
+    def reserve(key: str) -> bool:
+        def increment(old):
+            if old is None:
+                count = 0
+            elif isinstance(old, int) and not isinstance(old, bool) and 0 <= old <= sec_refresh.MAX_REQUESTS_PER_MONTH:
+                count = old
+            else:
+                return None, False
+            return (count + 1, True) if count < sec_refresh.MAX_REQUESTS_PER_MONTH else (None, False)
+        return bool(db.kv_transform(key, increment))
+
+    favorites = sorted(db.fav_tickers_all())
+    result = sec_refresh.run(sec_issuer_map.DEFAULT_ARCHIVE, financial_change.DEFAULT_ARCHIVE,
+                             favorites, now=now, state_get=db.kv_get,
+                             state_set=db.kv_set, reserve=reserve)
+    db.kv_set("sec_evidence_refresh_last", result)
 
 
 def _daily_maintenance(enabled: list[str]) -> None:
@@ -2779,19 +2817,30 @@ def watchlist_learning_get(request: Request, market: str, ticker: str):
 
 @app.get("/api/watchlist/financial-change")
 def watchlist_financial_change_get(request: Request, market: str, ticker: str):
-    """Own favorite's observed DART accounting changes; never reads the trading engine."""
+    """Own favorite's observed official accounting changes; never reads trading inputs."""
     _watchlist_learning_uid(request, market, ticker)
     from signal_desk.signals import financial_change
-    if market != "kr":
-        return {"status": "not_supported", "reason": "해외 기업의 같은 회계기간 비교는 준비 중입니다.",
-                "not_order_advice": True}
+    as_of = _kst_now().astimezone(datetime.timezone.utc).isoformat()
+    if market == "us":
+        from signal_desk.ingest import sec_issuer_map
+        mapped = sec_issuer_map.lookup(sec_issuer_map.DEFAULT_ARCHIVE, ticker=ticker, as_of=as_of)
+        if mapped["status"] != "mapped":
+            reasons = {"not_recorded": "SEC 공식 티커·기업 대응표를 아직 관측하지 않았습니다.",
+                       "stale": "SEC 기업 대응표가 오래됐습니다. 새 자료 확인 전에는 비교하지 않습니다.",
+                       "ambiguous": "이 티커에 대응하는 기업 식별자가 둘 이상입니다. 비교를 보류합니다.",
+                       "unmapped": "공식 대응표에서 이 티커의 기업을 확인하지 못했습니다.",
+                       "archive_error": "기업 대응표 보존 기록을 검증할 수 없습니다."}
+            return {"status": "issuer_unmapped", "reason": reasons.get(mapped["status"], "기업 식별자를 확인하지 못했습니다."),
+                    "market": "us", "not_order_advice": True}
+        return financial_change.describe_sec(
+            financial_change.DEFAULT_ARCHIVE, ticker=ticker, issuer=mapped["cik"], as_of=as_of)
     corp_code = _corp_codes().get(ticker)
     if not corp_code:
         return {"status": "issuer_unmapped", "reason": "공식 기업 식별자를 확인하지 못했습니다.",
                 "not_order_advice": True}
     return financial_change.describe_dart(
         financial_change.DEFAULT_ARCHIVE, ticker=ticker, issuer=corp_code,
-        as_of=datetime.datetime.now(datetime.timezone.utc).isoformat())
+        as_of=as_of)
 
 
 @app.put("/api/watchlist/thesis")
@@ -3917,6 +3966,8 @@ def data_health_get():
             # Read-only official financial evidence; never a trading input.
             "financial_evidence_refresh": db.kv_get("financial_evidence_refresh_last") or {"status": "not_started"},
             "fed_g17_refresh": db.kv_get("fed_g17_refresh_last") or {"status": "not_started"},
+            "sec_evidence_refresh": db.kv_get("sec_evidence_refresh_last") or {"status": "not_started"},
+            "sec_evidence_monthly_requests": db.kv_get(f"sec_evidence_requests:{_kst_now():%Y-%m}") or 0,
             "sec_edgar": sec_edgar,
             "evidence_activity": evidence_activity,
             # 사람 확인 대기 중인 이벤트 후보 — 안 보면 유효한 악재가 만료로 조용히 사라진다.

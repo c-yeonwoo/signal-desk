@@ -1,8 +1,9 @@
 """Opt-in official financial evidence intake, isolated from scoring and orders.
 
-One explicit issuer/request at a time; no scheduler, backfill, LLM or automatic
-promotion. Filing dates are NOT intraday publication times. Observing old filings
-today never makes them historical PIT inputs. Raw API responses are retained;
+One explicit issuer/request at a time; any scheduled intake is independently
+bounded and cannot promote facts to a signal. No backfill or LLM. Filing dates
+are NOT intraday publication times. Observing old filings today never makes them
+historical PIT inputs. Raw API responses are retained;
 they are not substitutes for the original filing documents linked by each fact.
 """
 

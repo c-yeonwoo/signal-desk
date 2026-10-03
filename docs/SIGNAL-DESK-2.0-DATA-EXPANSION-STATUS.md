@@ -20,6 +20,7 @@
    - [연준 G.17 `G3344`](INDUSTRY-PULSE-G17-2026-10-03.md)는 공식 원문을 2026-10-03 로컬에서 시험 수집했고, 월간 미국 산업생산이라는 범위를 분리했다. 읽기 전용 카드·보존 코드는 **운영 확인 전**이며 3단계의 8점을 아직 더하지 않는다.
 3. 미국 [SEC companyfacts API](https://www.sec.gov/search-filings/edgar-application-programming-interfaces)는 회사별 공식 XBRL 사실을 제공한다. `SEC_CONTACT_EMAIL`에 실제 운영 연락처가 없으면 자동 수집을 열지 않는다. 회사/티커-공식 CIK 매핑과 정확히 같은 태그·단위·보고기간 비교, 정정본 선택 기준을 먼저 테스트한다.
    - [기존 EDGAR 연락처 관문](SEC-EDGAR-CONTACT-GUARD-2026-10-03.md)은 예시 주소를 실제 신원으로 쓰지 않게 하고 기존 캐시 보존을 검증한다. 운영의 실제 연락처·새 비교 카드가 없으므로 3단계 SEC 7점은 여전히 대기다.
+   - [미국 관심종목 SEC 비교 설계](SEC-WATCHLIST-FINANCIAL-CHANGE-2026-10-03.md)는 코드·테스트 단계다. 운영 연락처가 미설정인 동안 실제 요청은 0이며, 테스트의 예시 기업·금액을 운영 증거로 세지 않는다.
 4. [FRED 관측 API](https://fred.stlouisfed.org/docs/api/fred/series_observations.html)의 기본 조회는 현재 알려진 과거값이다. 역사적 의사결정 자료에는 [ALFRED vintage](https://fred.stlouisfed.org/docs/api/fred/realtime_period.html)와 실제 공개시각·입수시각을 별도 검증해야 한다. 현재 #516의 표시 개선을 PIT 적격 증거로 승격하지 않는다.
 
 기존 잠금 유지: `pit-8factor-rank3-hold5-final`의 문턱 **99.15%**, PIT **150**, 실효 **30**, interim 2026-10-13 이전 미실행, R11–R16 연구 전용. 데이터 확장 진척이 이 판정 관문을 열지 않는다. 수익 우위가 입증되지 않으면 점수·가중치·주문을 바꾸지 않고 설명·관측의 가치만 평가한다.
