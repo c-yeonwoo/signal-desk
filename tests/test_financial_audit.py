@@ -46,6 +46,44 @@ def test_two_deterministic_issuers_match_archived_raw(tmp_path, monkeypatch):
     assert result["items"][0]["not_order_advice"]
 
 
+def test_sample_excludes_unready_cards_before_amount_check_without_hiding_mismatch(tmp_path, monkeypatch):
+    monkeypatch.setattr(evidence, "_now", lambda: NOW)
+    path = tmp_path / "e.db"
+    _save(path, "00000000", 2026, 120, 18)  # no prior-year card
+    for issuer in ("00000001", "00126380"):
+        _save(path, issuer, 2025, 100, 10)
+        _save(path, issuer, 2026, 120, 18)
+    original = financial_change.describe_dart
+
+    def altered(*args, **kwargs):
+        card = copy.deepcopy(original(*args, **kwargs))
+        if kwargs["issuer"] == "00000001":
+            card["metrics"]["revenue"]["current"] = "121"
+        return card
+
+    monkeypatch.setattr(financial_change, "describe_dart", altered)
+    result = audit.sample_dart(path, as_of=NOW)
+    assert result["observed"] == 3
+    assert result["excluded"] == [{"issuer": "00000000", "card_status": "need_prior_year"}]
+    assert [item["issuer"] for item in result["items"]] == ["00000001", "00126380"]
+    assert result["items"][0]["status"] == "mismatch"
+    assert result["status"] == "not_ready" and result["matched"] == 1
+
+
+def test_sample_stops_on_corrupt_earlier_issuer_instead_of_selecting_around_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(evidence, "_now", lambda: NOW)
+    path = tmp_path / "e.db"
+    for issuer in ("00000001", "00000002", "00126380"):
+        _save(path, issuer, 2025, 100, 10)
+        _save(path, issuer, 2026, 120, 18)
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE financial_observations SET raw=? WHERE source_url LIKE ?",
+                     (b"{}", "%corp_code=00000001%"))
+    result = audit.sample_dart(path, as_of=NOW)
+    assert result["status"] == "archive_error" and result["matched"] == 0
+    assert result["excluded"] == [{"issuer": "00000001", "card_status": "archive_error"}]
+
+
 def test_annual_report_card_also_matches_archived_raw(tmp_path, monkeypatch):
     monkeypatch.setattr(evidence, "_now", lambda: NOW)
     path = tmp_path / "e.db"
