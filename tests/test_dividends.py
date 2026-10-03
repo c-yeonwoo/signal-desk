@@ -8,6 +8,7 @@ from signal_desk.ingest import edgar
 
 def test_edgar_extracts_dps(monkeypatch):
     edgar._cik_map = None
+    monkeypatch.setattr(edgar, "available", lambda: True)
     tickers = json.dumps({"0": {"ticker": "O", "cik_str": 726728, "title": "Realty Income"}}).encode()
     facts = {"facts": {"us-gaap": {
         "CommonStockDividendsPerShareDeclared": {"units": {"USD/shares": [
