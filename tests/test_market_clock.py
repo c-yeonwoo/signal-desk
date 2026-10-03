@@ -19,6 +19,15 @@ def test_kr_holiday_is_closed_even_on_weekday():
     assert bot.is_market_hours(dt.datetime(2026, 9, 23, 10, 0, tzinfo=KST))
 
 
+def test_october_2026_substitute_holiday_does_not_advance_pit_sessions():
+    # 개천절 대체휴일 10/05, 한글날 10/09. 10/02 이후 여섯 번째 국내
+    # 세션은 10/13이 아니라 10/14다. 휴장일을 PIT 날짜로 세면 interim을 엿본다.
+    dates = [dt.date(2026, 10, day) for day in range(3, 15)]
+    sessions = [date.isoformat() for date in dates if market_clock.is_session("kr", date)]
+    assert sessions == ["2026-10-06", "2026-10-07", "2026-10-08",
+                        "2026-10-12", "2026-10-13", "2026-10-14"]
+
+
 def test_kr_auction_buffer_and_naive_time_rejected():
     assert bot.is_market_hours(dt.datetime(2026, 9, 23, 15, 19, tzinfo=KST))
     assert not bot.is_market_hours(dt.datetime(2026, 9, 23, 15, 20, tzinfo=KST))
