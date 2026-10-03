@@ -3,6 +3,8 @@
 import datetime as dt
 import json
 
+import pytest
+
 from signal_desk.ingest import edgar, sec_issuer_map as secmap, sec_refresh
 
 
@@ -68,6 +70,44 @@ def test_failed_mapping_never_falls_back_to_old_or_guessed_cik(tmp_path, monkeyp
                            facts_collect=lambda *_: (_ for _ in ()).throw(AssertionError("facts")))
     assert item["status"] == "partial_failure" and item["requested"] == 1
     assert not (tmp_path / "f.db").exists()
+
+
+@pytest.mark.parametrize("step", ["map_start", "map_final", "fact_start", "fact_final"])
+def test_state_failure_preserves_actual_sec_call_accounting(tmp_path, monkeypatch, step):
+    monkeypatch.setattr(edgar, "available", lambda: True)
+    monkeypatch.setattr(secmap, "_now", lambda: NOW.isoformat())
+    map_path, facts_path = tmp_path / "m.db", tmp_path / "f.db"
+    if step.startswith("fact"):
+        _map(map_path)
+    state, reserve = _state()
+    seen = []
+
+    def save(key, value):
+        source = "map" if key == "sec_evidence_map_attempt" else "fact"
+        if source == step.split("_")[0] and (value["status"] == "started") == step.endswith("start"):
+            raise OSError("state storage unavailable")
+        state[key] = value
+
+    def collect_map(path):
+        seen.append("map")
+        return _map(path)
+
+    def collect_fact(_path, _cik):
+        seen.append("fact")
+        return {"status": "ok", "response_bytes": 37}
+
+    result = sec_refresh.run(map_path, facts_path, ["AAPL"], now=NOW,
+                             state_get=state.get, state_set=save, reserve=reserve,
+                             map_collect=collect_map, facts_collect=collect_fact)
+    assert result["status"] == "state_failure"
+    expected = 0 if step.endswith("start") else 1
+    assert result["requested"] == result["ok"] == expected
+    assert result["failed"] == 0 and len(seen) == expected
+    assert state[sec_refresh._month_key(NOW)] == 1
+    if step == "fact_final":
+        assert result["response_bytes"] == 37 and result["facts_status"] == "ok"
+    if step == "map_final":
+        assert result["map_status"] == "ok" and "fact" not in seen
 
 
 def test_monthly_limit_and_non_us_favorite(tmp_path, monkeypatch):
