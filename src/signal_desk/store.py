@@ -2674,6 +2674,10 @@ def snapshot_signals(signals, date: str | None = None, market: str = "kr") -> in
         rows.append({
             "date": date, "ticker": s.ticker, "score": round(s.score, 3), "kind": s.kind,
             "observed_at": observed_at,
+            # 계산 시각은 저장 시각과 다르다. 캐시된 시그널을 나중에 저장해도 새
+            # 판단인 척하지 않는다. 원천 공개시각은 이 값만으로 증명할 수 없다.
+            "computed_at": getattr(s, "computed_at", None),
+            "signal_policy_id": getattr(s, "signal_policy_id", None),
             "exchange_session": date if session_valid else None,
             "session_valid": session_valid,
             "bar_asof": (bar_dates.get(s.ticker) or [None])[-1],

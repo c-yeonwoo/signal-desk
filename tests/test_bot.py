@@ -120,6 +120,9 @@ def test_sells_on_stop_loss(tmp_path, monkeypatch):
     assert (s["ticker"], s["qty"], s["reason"], s["ok"]) == ("005930", 10, "STOP_LOSS", True)
     assert db.bot_position_get(UID, "005930") is None            # 청산 → 포지션 삭제
     assert paper.balance(UID)["cash"] == 897.62                   # 슬리피지·수수료·거래세 후 회수
+    event = db.execution_events_for_uid(UID, "kr")[-1]
+    assert event["payload"]["signal_policy_id"]
+    assert event["payload"]["execution_policy_id"]
 
 
 def test_sells_on_signal_flip(tmp_path, monkeypatch):
@@ -168,6 +171,14 @@ def test_buys_top_scored_respecting_slots_and_lot(tmp_path, monkeypatch):
     assert [b["ticker"] for b in out["buys"]] == ["BBB", "AAA", "CCC"]   # 점수 내림차순
     p = db.bot_position_get(UID, "BBB")
     assert (p["ticker"], p["qty"], round(p["avg_price"], 4)) == ("BBB", 2, 100.065)
+    events = db.execution_events_for_uid(UID, "kr")
+    decisions = db.bot_decisions_recent()
+    by_event = {d["context"].get("execution_event_key"): d for d in decisions}
+    for event in events:
+        assert event["event_key"] in by_event
+        assert isinstance(by_event[event["event_key"]]["id"], int)
+        assert event["payload"]["signal_policy_id"] == by_event[event["event_key"]]["context"]["signal_policy_id"]
+        assert event["payload"]["execution_policy_id"] == by_event[event["event_key"]]["context"]["execution_policy_id"]
 
 
 def test_pyramid_adds_to_under_target_holding(tmp_path, monkeypatch):

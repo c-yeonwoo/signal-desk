@@ -1949,6 +1949,9 @@ def _signals():
         result.signal_policy_id = policy_id
     execution_gate.apply_from_store(results, market="kospi", today=_kst_today())
     _sync_episode_state(results, market="kospi")
+    computed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    for result in results:
+        result.computed_at = computed_at
     return results
 
 
@@ -2690,6 +2693,43 @@ def buylist_get(request: Request):
     if not uid:
         return {"items": []}
     return {"items": _buylist(uid)}
+
+
+def _watchlist_learning_uid(request: Request, market: str, ticker: str) -> int:
+    from signal_desk.signals import watchlist_learning
+    uid = _uid(request)
+    if not uid:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    if not watchlist_learning.valid_identity(market, ticker):
+        raise HTTPException(400, "시장 또는 종목 코드가 올바르지 않습니다.")
+    if ticker not in {f["key"] for f in db.fav_list(uid) if f["kind"] == "ticker"}:
+        raise HTTPException(403, "내 관심종목만 볼 수 있습니다.")
+    return uid
+
+
+@app.get("/api/watchlist/learning")
+def watchlist_learning_get(request: Request, market: str, ticker: str):
+    """보존된 두 관심종목 판단과 별도 개인 가설을 반환한다. 시그널·주문 재계산은 없다."""
+    uid = _watchlist_learning_uid(request, market, ticker)
+    from signal_desk.signals import watchlist_learning
+    report = watchlist_learning.describe(
+        store.SIGNAL_HISTORY_FILE.parent / "signal_observations", market, ticker)
+    report["personal_note"] = db.favorite_thesis_get(uid, market, ticker)
+    return report
+
+
+@app.put("/api/watchlist/thesis")
+def watchlist_thesis_put(request: Request, data: dict = Body(...)):
+    """사용자 가설/반증 메모만 저장한다. 공용 팩터·봇·ML에는 전달하지 않는다."""
+    market, ticker = data.get("market"), data.get("ticker")
+    uid = _watchlist_learning_uid(request, market, ticker)
+    thesis, invalidates = data.get("thesis"), data.get("invalidates")
+    if not isinstance(thesis, str) or not isinstance(invalidates, str):
+        raise HTTPException(400, "가설과 반증 조건은 텍스트여야 합니다.")
+    try:
+        return {"personal_note": db.favorite_thesis_set(uid, market, ticker, thesis, invalidates)}
+    except ValueError:
+        raise HTTPException(400, "각 메모는 1,000자 이하로 입력하세요.") from None
 
 
 _narr_locks: dict[str, threading.Lock] = {}
@@ -5556,6 +5596,9 @@ def _us_signals():
         result.signal_policy_id = policy_id
     execution_gate.apply_from_store(results, market="us", today=_kst_today())
     _sync_episode_state(results, market="us")
+    computed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    for result in results:
+        result.computed_at = computed_at
     return {s.ticker: s for s in results}
 
 

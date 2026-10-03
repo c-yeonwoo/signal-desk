@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pandas as pd
 import pytest
 
@@ -79,3 +81,22 @@ def test_readiness_counts_sessions_not_independent_rows(tmp_path):
     assert report["markets"]["kr"]["distinct_sessions"] == 1
     assert report["markets"]["kr"]["strict_pit_eligible"] == 0
     assert report["matured_label_spec"] is None and report["decision"] == "defer"
+
+
+def test_store_snapshot_preserves_computation_time_and_applied_policy(tmp_path, monkeypatch):
+    from signal_desk import store
+    from signal_desk.signals.engine import SignalResult
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(store, "SIGNAL_HISTORY_FILE", tmp_path / "signal_history.parquet")
+    signal = SignalResult(ticker="005930", name="삼성전자", score=1.0, kind="HOLD",
+                          confidence=0.5, technical_score=0.0, fundamental_score=0.0,
+                          has_fundamental=False)
+    signal.computed_at = datetime.now(timezone.utc).isoformat()
+    signal.signal_policy_id = "policy-test"
+    store.snapshot_signals([signal], date="2026-10-05")
+    manifests = list((tmp_path / "signal_observations").rglob("*.json"))
+    assert len(manifests) == 1
+    manifest, frame = archive.read_verified(manifests[0])
+    assert manifest["signal_policy_ids"] == ["policy-test"]
+    assert manifest["missing_computed_at"] == 0
+    assert frame.iloc[0]["computed_at"] == signal.computed_at

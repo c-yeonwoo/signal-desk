@@ -10279,12 +10279,87 @@ async function loadBuyWait() {
     el.innerHTML = items.map(it => {
       const [lbl, col] = _WAIT_STATUS[it.status] || _WAIT_STATUS.far;
       const blk = (it.blockers || []).map(b => esc(plainNote(b.label))).join(' · ');
-      return `<div style="display:flex;gap:8px;align-items:baseline;padding:5px 0;border-top:1px solid var(--line)">
+      return `<div class="buywait-row" style="padding:5px 0;border-top:1px solid var(--line)">
+        <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap">
         <span style="min-width:96px"><b>${esc(it.name)}</b></span>
         <span style="color:${col};font-weight:700;font-size:12px;min-width:56px">${lbl}</span>
-        <span style="flex:1;color:var(--dim);font-size:13px">${esc(plainNote(it.hint || ''))}${blk ? ` · ${blk}` : ''}</span></div>`;
+        <span style="flex:1;color:var(--dim);font-size:13px">${esc(plainNote(it.hint || ''))}${blk ? ` · ${blk}` : ''}</span>
+        <button type="button" class="btn" style="font-size:11px;padding:3px 7px" data-market="${esc(it.market)}" data-ticker="${esc(it.ticker)}" onclick="openWatchLearning(this)">지난 판단</button>
+        </div><div class="watch-learning-body" hidden></div></div>`;
     }).join('');
   } catch (e) { el.innerHTML = `<div class="stat-label">불러오기 실패: ${esc(String(e))}</div>`; }
+}
+
+async function openWatchLearning(button) {
+  const body = button.closest('.buywait-row')?.querySelector('.watch-learning-body');
+  if (!body) return;
+  if (body.dataset.loaded === '1') { body.hidden = !body.hidden; return; }
+  body.hidden = false;
+  body.innerHTML = '<div class="stat-label">보존된 판단 기록 확인 중…</div>';
+  try {
+    const url = '/api/watchlist/learning?market=' + encodeURIComponent(button.dataset.market)
+      + '&ticker=' + encodeURIComponent(button.dataset.ticker);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('기록을 읽을 수 없습니다 (' + response.status + ')');
+    const d = await response.json();
+    if (d.status !== 'comparison' && d.status !== 'first_observation') {
+      body.innerHTML = `<div class="stat-label" style="padding:8px 0">${esc(d.reason || '아직 비교할 기록이 없습니다.')}</div>`;
+      attachWatchThesis(body, d);
+      body.dataset.loaded = '1';
+      return;
+    }
+    const cur = d.current || {}, prev = d.previous, change = d.change || {};
+    const movement = prev
+      ? `<b>${esc(prev.session)}</b> ${esc(kindLabel(prev.kind))} ${fmtNum(prev.score, 2)} → <b>${esc(cur.session)}</b> ${esc(kindLabel(cur.kind))} ${fmtNum(cur.score, 2)}`
+      : `<b>${esc(cur.session)}</b> 첫 기록 · ${esc(kindLabel(cur.kind))} ${fmtNum(cur.score, 2)}`;
+    const factors = (change.factor_deltas || []).slice(0, 4).map(f =>
+      `${esc(f.name)} ${f.delta > 0 ? '+' : ''}${fmtNum(f.delta, 2)}`).join(' · ');
+    const reasons = (change.new_reasons || cur.reasons || []).slice(0, 2).map(esc).join(' · ');
+    const checks = (d.next_checks || []).slice(0, 2).map(esc).join(' · ');
+    const kstTime = value => value && !Number.isNaN(Date.parse(value))
+      ? new Date(value).toLocaleString('ko-KR', {timeZone: 'Asia/Seoul', hour12: false}) : '미확인';
+    body.innerHTML = `<div style="margin:6px 0 8px;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:12px;color:var(--dim)">
+      <div style="color:var(--txt)">기록 비교 · ${movement}</div>
+      <div style="margin-top:4px">계산 ${esc(kstTime(cur.computed_at))} · 기록 ${esc(kstTime(cur.captured_at))} (한국시간) · 가격 기준 ${esc(cur.bar_asof || '미확인')}</div>
+      ${factors ? `<div style="margin-top:4px">달라진 지표: ${factors}</div>` : ''}
+      ${reasons ? `<div style="margin-top:4px">새로 기록된 이유: ${reasons}</div>` : ''}
+      <div style="margin-top:4px">다음 확인: ${checks}</div>
+      <div style="margin-top:5px;color:var(--dim-2)">${esc(d.caveat || '')}</div></div>`;
+    attachWatchThesis(body, d);
+    body.dataset.loaded = '1';
+  } catch (error) {
+    body.innerHTML = `<div class="stat-label" style="padding:8px 0">${esc(String(error))}</div>`;
+  }
+}
+
+function attachWatchThesis(body, report) {
+  const box = document.createElement('div');
+  box.style.cssText = 'padding:8px 10px;margin-bottom:8px;border:1px solid var(--line);border-radius:8px;font-size:12px';
+  box.innerHTML = `<div style="font-weight:700;margin-bottom:4px">내 투자 가설 <span style="color:var(--dim)">· 나만 보는 메모, 시그널 점수에 미반영</span></div>
+    <label style="display:block;margin-top:5px">왜 관심을 두는가<textarea class="watch-thesis" maxlength="1000" rows="2" style="display:block;width:100%;margin-top:3px" placeholder="예: 다음 분기 수요 회복을 예상한다"></textarea></label>
+    <label style="display:block;margin-top:5px">무엇이 확인되면 생각을 바꿀까<textarea class="watch-invalidates" maxlength="1000" rows="2" style="display:block;width:100%;margin-top:3px" placeholder="예: 수주 지표가 두 분기 연속 악화된다"></textarea></label>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:6px"><button type="button" class="btn" onclick="saveWatchThesis(this)">메모 저장</button><span class="watch-thesis-status" style="color:var(--dim)"></span></div>`;
+  body.appendChild(box);
+  box.querySelector('.watch-thesis').value = report.personal_note?.thesis || '';
+  box.querySelector('.watch-invalidates').value = report.personal_note?.invalidates || '';
+}
+
+async function saveWatchThesis(button) {
+  const row = button.closest('.buywait-row');
+  const source = row?.querySelector('button[data-ticker]');
+  const box = button.parentElement.parentElement;
+  const status = box.querySelector('.watch-thesis-status');
+  if (!source || !status) return;
+  status.textContent = '저장 중…';
+  try {
+    const response = await fetch('/api/watchlist/thesis', {method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({market: source.dataset.market, ticker: source.dataset.ticker,
+        thesis: box.querySelector('.watch-thesis').value,
+        invalidates: box.querySelector('.watch-invalidates').value})});
+    if (!response.ok) throw new Error('저장 실패 (' + response.status + ')');
+    status.textContent = '저장됨 · 시그널·주문에는 반영되지 않습니다';
+  } catch (error) { status.textContent = String(error); }
 }
 
 async function loadAccuracy(){

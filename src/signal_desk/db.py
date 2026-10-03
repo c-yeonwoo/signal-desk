@@ -103,6 +103,10 @@ CREATE INDEX IF NOT EXISTS idx_industry_evidence_segment
 CREATE TABLE IF NOT EXISTS profile(uid INTEGER PRIMARY KEY, data TEXT);
 CREATE TABLE IF NOT EXISTS favorites(uid INTEGER, kind TEXT, key TEXT, label TEXT, ts INTEGER,
     PRIMARY KEY(uid, kind, key));
+-- 개인 가설과 반증 기준은 공용 시그널/ML 입력과 분리한다.
+CREATE TABLE IF NOT EXISTS favorite_theses(uid INTEGER NOT NULL, market TEXT NOT NULL,
+    ticker TEXT NOT NULL, thesis TEXT NOT NULL, invalidates TEXT NOT NULL,
+    updated INTEGER NOT NULL, PRIMARY KEY(uid,market,ticker));
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT, ts INTEGER);
 CREATE TABLE IF NOT EXISTS user_bot(uid INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0,
     trading_style TEXT NOT NULL DEFAULT 'balanced', seed_cash REAL NOT NULL DEFAULT 10000000,
@@ -807,8 +811,40 @@ def fav_add(uid: int, kind: str, key: str, label: str) -> None:
 def fav_remove(uid: int, kind: str, key: str) -> None:
     c = conn()
     c.execute("DELETE FROM favorites WHERE uid=? AND kind=? AND key=?", (uid, kind, key))
+    if kind == "ticker":
+        c.execute("DELETE FROM favorite_theses WHERE uid=? AND ticker=?", (uid, key))
     c.commit()
     c.close()
+
+
+def favorite_thesis_get(uid: int, market: str, ticker: str) -> dict:
+    c = conn()
+    row = c.execute("SELECT thesis,invalidates,updated FROM favorite_theses "
+                    "WHERE uid=? AND market=? AND ticker=?", (uid, market, ticker)).fetchone()
+    c.close()
+    return ({"thesis": row[0], "invalidates": row[1], "updated": row[2]}
+            if row else {"thesis": "", "invalidates": "", "updated": None})
+
+
+def favorite_thesis_set(uid: int, market: str, ticker: str, thesis: str, invalidates: str) -> dict:
+    """Private note only. Empty values clear it; no path to shared signal or research stores."""
+    thesis, invalidates = thesis.strip(), invalidates.strip()
+    if len(thesis) > 1000 or len(invalidates) > 1000:
+        raise ValueError("note too long")
+    c = conn()
+    try:
+        if not thesis and not invalidates:
+            c.execute("DELETE FROM favorite_theses WHERE uid=? AND market=? AND ticker=?",
+                      (uid, market, ticker))
+        else:
+            c.execute("INSERT INTO favorite_theses(uid,market,ticker,thesis,invalidates,updated) "
+                      "VALUES(?,?,?,?,?,?) ON CONFLICT(uid,market,ticker) DO UPDATE SET "
+                      "thesis=excluded.thesis,invalidates=excluded.invalidates,updated=excluded.updated",
+                      (uid, market, ticker, thesis, invalidates, int(time.time())))
+        c.commit()
+    finally:
+        c.close()
+    return favorite_thesis_get(uid, market, ticker)
 
 
 def fav_tickers_all() -> set[str]:
@@ -3190,14 +3226,14 @@ _DECISION_DEDUP = ("SELECT MIN(id) FROM bot_decisions GROUP BY ticker, action, d
 def bot_decisions_recent(limit: int = 40) -> list[dict]:
     """최근 판단(중복 제거). 성향별 봇이 같은 날 같은 종목을 사도 판단 자체는 하나다."""
     c = conn()
-    rows = c.execute("SELECT ticker,name,action,score,rationale,context,decided_price,ts,outcome_pct,outcome_ts "
+    rows = c.execute("SELECT id,ticker,name,action,score,rationale,context,decided_price,ts,outcome_pct,outcome_ts "
                      f"FROM bot_decisions WHERE id IN ({_DECISION_DEDUP}) "
                      "ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
     c.close()
-    return [{"ticker": t, "name": n, "action": a, "score": sc, "rationale": r,
+    return [{"id": rid, "ticker": t, "name": n, "action": a, "score": sc, "rationale": r,
              "context": json.loads(cx or "{}"), "decided_price": dp, "ts": ts,
              "outcome_pct": op, "outcome_ts": ot}
-            for t, n, a, sc, r, cx, dp, ts, op, ot in rows]
+            for rid, t, n, a, sc, r, cx, dp, ts, op, ot in rows]
 
 
 def bot_decision_scorecard() -> dict:

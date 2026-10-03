@@ -75,12 +75,23 @@ def publish(frame: pd.DataFrame, *, market: str, session: str, root: Path,
     observed_date = datetime.fromisoformat(captured_at).astimezone(
         ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")).date()
     timing = "observed_session" if observed_date.isoformat() == session else "retrospective_or_delayed"
+    computed = (pd.to_datetime(frame["computed_at"], utc=True, errors="coerce")
+                if "computed_at" in frame else pd.Series([pd.NaT] * len(frame)))
+    computed_valid = computed.dropna()
+    policy_ids = (sorted(set(frame["signal_policy_id"].dropna().astype(str)))
+                  if "signal_policy_id" in frame else [])
     manifest = {
         "schema": SCHEMA, "snapshot_id": logical_hash, "market": market, "session": session,
         "captured_at": captured_at, "timing": timing, "rows": len(frame),
         "tickers_sha256": hashlib.sha256("\n".join(sorted(frame["ticker"].astype(str))).encode()).hexdigest(),
         "artifact_sha256": file_hash, "source_available_at_verified": False,
         "strict_pit_eligible": False, "engine_reference": "unversioned-legacy-engine",
+        "signal_policy_ids": policy_ids,
+        "missing_computed_at": int(computed.isna().sum()),
+        "first_computed_at": computed_valid.min().isoformat() if not computed_valid.empty else None,
+        "last_computed_at": computed_valid.max().isoformat() if not computed_valid.empty else None,
+        "computed_after_capture": (int((computed_valid > pd.Timestamp(captured_at)).sum())
+                                   if not computed_valid.empty else 0),
         "missing_bar_asof": int(frame["bar_asof"].isna().sum()) if "bar_asof" in frame else len(frame),
         "missing_coverage": int(frame["data_coverage"].isna().sum()) if "data_coverage" in frame else len(frame),
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -104,8 +115,8 @@ def publish(frame: pd.DataFrame, *, market: str, session: str, root: Path,
         return saved
 
 
-def verify(manifest_path: Path) -> dict:
-    """Read without repair or silent deletion; a corrupt artifact is not usable data."""
+def read_verified(manifest_path: Path) -> tuple[dict, pd.DataFrame]:
+    """Read manifest and rows without repair or silent deletion."""
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     if manifest.get("schema") != SCHEMA or manifest_path.stem != manifest.get("snapshot_id"):
         raise ValueError("unsupported or misplaced observation manifest")
@@ -115,7 +126,12 @@ def verify(manifest_path: Path) -> dict:
     frame = pd.read_parquet(artifact)
     if hashlib.sha256(_canonical(frame)).hexdigest() != manifest["snapshot_id"] or len(frame) != manifest["rows"]:
         raise ValueError("observation rows mismatch")
-    return manifest
+    return manifest, frame
+
+
+def verify(manifest_path: Path) -> dict:
+    """Verify an immutable observation without returning its full panel."""
+    return read_verified(manifest_path)[0]
 
 
 def freeze_dataset(manifest_paths: list[Path], *, output_root: Path) -> dict:
