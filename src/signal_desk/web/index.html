@@ -10362,7 +10362,7 @@ async function attachWatchFinancial(body, button) {
     const positives = (d.increases || []).map(s => `<div>확인된 증가 · ${esc(s)}</div>`).join('');
     const cautions = (d.cautions || []).map(s => `<div>추가 확인 · ${esc(s)}</div>`).join('');
     const checks = (d.next_checks || []).map(esc).join(' · ');
-    box.innerHTML = `<div style="font-weight:700">기업 실적의 변화 <span style="font-weight:400;color:var(--dim)">· ${esc(d.business_year)} ${esc(reportName)}와 전년 비교</span></div>
+    box.innerHTML = `<div style="font-weight:700">기업 실적의 변화 <span style="font-weight:600;color:var(--dim)">· ${esc(d.business_year)} ${esc(reportName)}와 전년 비교</span></div>
       <div style="margin-top:5px">${metric('revenue')}${metric('operating_income')}${metric('operating_cash_flow')}${metric('inventory')}</div>
       ${positives ? `<div style="margin-top:5px">${positives}</div>` : ''}
       ${cautions ? `<div style="margin-top:5px">${cautions}</div>` : ''}
