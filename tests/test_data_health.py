@@ -80,6 +80,30 @@ def test_data_health_includes_freshness(tmp_path, monkeypatch):
     assert out["evidence_activity"]["sources"]["dart"]["failed_pct"] is None
 
 
+def test_evidence_ops_is_admin_only_and_independent_of_full_health(monkeypatch):
+    from fastapi import HTTPException
+    from signal_desk import api, db
+    from signal_desk.ingest import edgar, evidence_ops
+
+    monkeypatch.setattr(api, "_require_admin", lambda _request: False)
+    with pytest.raises(HTTPException) as exc:
+        api.evidence_ops_get(object())
+    assert exc.value.status_code == 403
+    assert "/api/admin/evidence-ops" in api._ADMIN_PATHS
+
+    monkeypatch.setattr(api, "_require_admin", lambda _request: True)
+    monkeypatch.setattr(api.store, "data_freshness", lambda: (_ for _ in ()).throw(AssertionError("full health")))
+    monkeypatch.setattr(api.store, "price_sanity", lambda **_kw: (_ for _ in ()).throw(AssertionError("full health")))
+    monkeypatch.setattr(db, "kv_get", lambda key: {"financial_evidence_refresh_last": {"status": "ok", "requested": 2}}.get(key))
+    monkeypatch.setattr(edgar, "available", lambda: False)
+    monkeypatch.setattr(evidence_ops, "report", lambda *, now: {"window_days": 30, "sources": {"dart": {"requested": 2, "failed": 0}}})
+    out = api.evidence_ops_get(object())
+    assert out["financial_evidence_refresh"] == {"status": "ok", "requested": 2}
+    assert out["sec_evidence_refresh"] == {"status": "not_started"}
+    assert out["sec_edgar"]["contact_configured"] is False
+    assert out["evidence_activity"]["sources"]["dart"]["requested"] == 2
+
+
 def test_kb_refresh_stall_is_visible_per_target(tmp_path, monkeypatch):
     """다이제스트 신선도를 전체 max()로 재면 정지를 못 잡는다 — 거시·US가 매일 갱신되면
     국내 종목이 몇 주 멈춰도 '방금 갱신'으로 보인다(실제로 7일 놓쳤다). 대상별로 센다."""
