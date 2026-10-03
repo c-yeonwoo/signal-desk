@@ -80,14 +80,17 @@ def test_refresh_kr_skips_company_backfill_when_present(monkeypatch):
     assert "cp" not in calls   # 있으면 재백필 안 함(정적 데이터)
 
 
-def test_refresh_kr_deep_backfill_first_then_incremental(monkeypatch):
-    # 이력이 목표에 못 미치면 5년 전량(full=True) + 시점 기록. 채워졌으면 증분(full=False)
+def test_refresh_kr_requires_an_explicit_full_request(monkeypatch):
+    # 얕은 이력만으로 5년 전량 요청을 하지 않는다. 명시적 full에서만 시점을 기록한다.
     calls = []
     kv = _stub_kr(monkeypatch, {"005930": {}}, calls, deep_done=False)
     api._refresh_kr({})
-    assert ("prices_full", True) in calls and kv.get("prices_deep_backfilled")
+    assert calls == [("prices_full", False)] and not kv.get("prices_deep_backfilled")
+
+    api._refresh_kr({"full_prices": True})
+    assert calls[-1] == ("prices_full", True) and kv.get("prices_deep_backfilled")
 
     calls2 = []
     _stub_kr(monkeypatch, {"005930": {}}, calls2, deep_done=True)
     api._refresh_kr({})
-    assert ("prices_full", False) in calls2   # 백필 완료 후엔 증분
+    assert ("prices_full", False) in calls2

@@ -39,8 +39,8 @@ def test_deep_history_is_left_alone(tmp_path, monkeypatch):
     assert store.prices_need_deep_backfill() is False   # 채워졌으면 매일 재백필하지 않는다
 
 
-def test_raising_the_target_depth_unlatches_the_backfill(tmp_path, monkeypatch):
-    """완료 플래그가 이미 찍혀 있어도, 이력이 목표에 못 미치면 다시 전량 백필한다."""
+def test_refresh_with_shallow_history_does_not_start_full_backfill(tmp_path, monkeypatch):
+    """얕은 이력은 상태로 남기되 일반 갱신에서 5년 전량 수집을 시작하지 않는다."""
     monkeypatch.chdir(tmp_path)
     _seed_prices(tmp_path, depth_days=400)
     kv = {"prices_deep_backfilled": "2025-06-01"}       # 예전에 한 번 백필했다고 표시됨
@@ -54,7 +54,25 @@ def test_raising_the_target_depth_unlatches_the_backfill(tmp_path, monkeypatch):
     monkeypatch.setattr(api.db, "kv_get", lambda k: kv.get(k))
     monkeypatch.setattr(api.db, "kv_set", lambda k, v: kv.__setitem__(k, v))
     api._refresh_kr({})
-    assert calls == [True]
+    assert calls == [False]
+
+
+def test_explicit_full_flag_is_required_for_full_price_refresh(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    calls: list[bool] = []
+    monkeypatch.setattr(api.store, "fetch_universe", lambda: [{"ticker": "005930", "name": "삼성전자"}])
+    monkeypatch.setattr(api.store, "prices_universe", lambda: [{"ticker": "005930"}])
+    monkeypatch.setattr(api.store, "fetch_prices", lambda u, full=False: calls.append(full))
+    monkeypatch.setattr(api, "_dart_stale", lambda: False)
+    monkeypatch.setattr(api.store, "update_valuation", lambda: None)
+    monkeypatch.setattr(api.store, "load_fundamentals", lambda: {"005930": {}})
+    monkeypatch.setattr(api.store, "load_company_profiles", lambda: {"005930": {"ceo": "x"}})
+    monkeypatch.setattr(api.db, "kv_get", lambda k: None)
+    monkeypatch.setattr(api.db, "kv_set", lambda k, v: None)
+    api._refresh_kr({"full_prices": "false"})
+    assert calls == [False]
+    api._refresh_kr({"full_prices": True})
+    assert calls == [False, True]
 
 
 @pytest.fixture
@@ -66,6 +84,7 @@ def _quiet_maintenance(monkeypatch):
                                                         "__call__": staticmethod(lambda: [])})())
     monkeypatch.setattr(api, "_regime", type("_", (), {"cache_clear": staticmethod(lambda: None)}))
     monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda **kwargs: {"filled": 0, "stale": 0})
+    monkeypatch.setattr(api.store, "repair_kr_price_gaps", lambda: {"filled": 0})
     monkeypatch.setattr(api, "_clear_us_signal_caches", lambda: None)
     for name in ("fetch_flows", "fetch_market_flow", "fetch_short", "fetch_consensus",
                  "snapshot_signals", "load_universe", "us_price_deferred_tickers"):
@@ -108,12 +127,12 @@ def test_daily_us_refresh_keeps_holiday_slack_when_calendar_disagrees(monkeypatc
     assert seen == [{"batch": 0, "max_trading_days": 1}]
 
 
-def test_daily_maintenance_backfills_when_history_is_short(monkeypatch, _quiet_maintenance):
+def test_daily_maintenance_keeps_incremental_when_history_is_short(monkeypatch, _quiet_maintenance):
     calls: list[bool] = []
     monkeypatch.setattr(api.store, "prices_need_deep_backfill", lambda: True)
     monkeypatch.setattr(api.store, "fetch_prices", lambda u, full=False: calls.append(full))
     api._daily_maintenance([])
-    assert calls == [True]
+    assert calls == [False]
 
 
 def test_price_failure_does_not_block_the_rest_of_maintenance(monkeypatch, _quiet_maintenance):

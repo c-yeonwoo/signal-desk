@@ -728,13 +728,17 @@ def _daily_maintenance(enabled: list[str]) -> None:
     봇 사용자(enabled) 유무와 무관하게 돈다 — 데이터 신선도가 봇 활성화에 딸려 있으면 안 된다.
     단계별로 try를 나눠 한 소스가 죽어도 나머지는 갱신된다."""
     try:   # 일봉 이력 갱신 — 이게 없으면 멈춘 가격으로 시그널만 계속 쌓인다(점수 동결)
-        deep = store.prices_need_deep_backfill()
-        store.fetch_prices(store.prices_universe(), full=deep)
+        store.fetch_prices(store.prices_universe(), full=False)
         _signals.cache_clear()
-        if deep:
-            log.info("시세 전량 백필 완료(목표 %d일)", store.PRICE_HISTORY_DAYS)
     except Exception as e:
         log.warning("마감후 시세 갱신 실패: %s", type(e).__name__)
+    try:
+        repaired = store.repair_kr_price_gaps()
+        if repaired["filled"]:
+            _signals.cache_clear()
+            log.info("국내 누락 종가 한정 재조회 %d건 복구", repaired["filled"])
+    except Exception as e:
+        log.warning("국내 누락 종가 재조회 실패: %s", type(e).__name__)
     try:
         if config.dart_key() and _dart_stale():
             universe = store.load_universe()
@@ -3341,9 +3345,8 @@ def _refresh_kr(data: dict) -> dict:
     """국내 유니버스+시세+재무(+PER/PBR·퀄리티·배당). DART 재무는 분기(≈80일)마다만 재수집하고
     (연간 데이터라 거의 불변), 그 외엔 시총만 다시 받아 매일 재계산. force_dart=true면 강제."""
     universe = store.fetch_universe()
-    # 이력이 목표(5년)에 못 미치면 전량 백필, 채워져 있으면 마지막 저장일부터 증분. 완료 플래그가
-    # 아니라 실제 커버리지를 보므로 목표 깊이를 올리면 다음 갱신에서 자동으로 다시 채운다.
-    deep = bool(data.get("full_prices")) or store.prices_need_deep_backfill()
+    # 전량 백필은 명시적 요청에서만 허용한다. 얕은 이력·앞구간 구멍은 자동 전량 수집 이유가 아니다.
+    deep = data.get("full_prices") is True
     store.fetch_prices(store.prices_universe(), full=deep)
     if deep:
         db.kv_set("prices_deep_backfilled", _kst_today())
