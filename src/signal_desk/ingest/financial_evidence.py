@@ -202,15 +202,19 @@ def archive(path: Path, target: Target, raw: bytes, *, observed_at: str) -> dict
                 "live_eligible": False}
     material = _json(envelope)
     identifier = hashlib.sha256(material).hexdigest()
+    prior = latest(path, target, as_of=_now())
     conn = _connect(path)
+    raw_changed = False
     try:
         with conn:
-            conn.execute("INSERT OR IGNORE INTO financial_observations VALUES (?,?,?,?,?,?)",
-                         (identifier, target.url, observed, available, material, raw))
+            inserted = conn.execute("INSERT OR IGNORE INTO financial_observations VALUES (?,?,?,?,?,?)",
+                                    (identifier, target.url, observed, available, material, raw)).rowcount
+            if inserted and prior:
+                raw_changed = prior["raw_sha256"] != envelope["raw_sha256"]
     finally:
         conn.close()
     return {"id": identifier, "status": status, "facts": len(facts), "observed_at": observed,
-            "available_at": available,
+            "available_at": available, "raw_changed": raw_changed,
             "strict_pit_eligible": False, "live_eligible": False}
 
 

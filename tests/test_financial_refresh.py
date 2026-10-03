@@ -46,7 +46,8 @@ def test_failures_cool_down_and_do_not_block_other_targets(tmp_path):
                 attempt_set=kv.__setitem__, collector=collect)
     first = refresh.run(tmp_path / "e.db", ["000001"], CORPS, **opts)
     assert first == {"status": "partial_failure", "requested": 2, "ok": 0,
-                     "no_data": 1, "failed": 1, "response_bytes": 12, "at": NOW.isoformat()}
+                     "no_data": 1, "failed": 1, "response_bytes": 12,
+                     "raw_changed": 0, "at": NOW.isoformat()}
     assert refresh.run(tmp_path / "e.db", ["000001"], CORPS, **opts)["requested"] == 0
     assert len(seen) == 2
     assert refresh.run(tmp_path / "e.db", ["000001"], CORPS,
@@ -100,8 +101,10 @@ def test_missing_credentials_never_plans_or_requests(tmp_path):
 
 def test_daily_api_refresh_reports_missing_key_and_empty_favorites(monkeypatch):
     from signal_desk import api
+    from signal_desk.ingest import evidence_ops
 
     state = {}
+    monkeypatch.setattr(evidence_ops, "record", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(api.db, "kv_set", state.__setitem__)
     monkeypatch.setattr(api.config, "dart_key", lambda: None)
     monkeypatch.setattr(api.db, "uids_with_ticker_favorites", lambda: (_ for _ in ()).throw(
@@ -119,10 +122,11 @@ def test_daily_api_refresh_reports_missing_key_and_empty_favorites(monkeypatch):
 
 def test_daily_api_refresh_uses_only_ticker_favorites(monkeypatch, tmp_path):
     from signal_desk import api
-    from signal_desk.ingest import financial_refresh
+    from signal_desk.ingest import evidence_ops, financial_refresh
     from signal_desk.signals import financial_change
 
     state = {}
+    monkeypatch.setattr(evidence_ops, "record", lambda *_args, **_kwargs: True)
     seen = {}
     monkeypatch.setattr(api.config, "dart_key", lambda: "test-key")
     monkeypatch.setattr(api.db, "uids_with_ticker_favorites", lambda: [1, 2])

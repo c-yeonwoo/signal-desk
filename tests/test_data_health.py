@@ -77,6 +77,7 @@ def test_data_health_includes_freshness(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB", tmp_path / "app.db")
     out = api.data_health_get()
     assert isinstance(out.get("freshness"), list) and out["freshness"]
+    assert out["evidence_activity"]["sources"]["dart"]["failed_pct"] is None
 
 
 def test_kb_refresh_stall_is_visible_per_target(tmp_path, monkeypatch):

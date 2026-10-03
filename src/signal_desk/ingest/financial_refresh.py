@@ -122,7 +122,7 @@ def run(path: Path, favorites: list[str], corp_codes: dict[str, str], *, now: dt
     targets = plan(path, favorites, corp_codes, now=now, last_attempt=attempt_get,
                    max_requests=remaining) if remaining else []
     summary = {"status": "ok", "requested": 0, "ok": 0, "no_data": 0,
-               "failed": 0, "response_bytes": 0, "at": now.isoformat()}
+               "failed": 0, "response_bytes": 0, "raw_changed": 0, "at": now.isoformat()}
     if not remaining:
         summary["status"] = "budget_exhausted"
         return summary
@@ -148,6 +148,7 @@ def run(path: Path, favorites: list[str], corp_codes: dict[str, str], *, now: dt
         else:
             summary["failed"] += 1
         summary["response_bytes"] += int(result.get("response_bytes") or 0)
+        summary["raw_changed"] += int(bool(result.get("raw_changed")))
     if summary["failed"]:
         summary["status"] = "partial_failure"
     return summary

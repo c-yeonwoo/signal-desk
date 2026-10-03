@@ -607,6 +607,11 @@ def _bot_loop_iteration() -> None:
             prior = db.kv_get("fed_g17_refresh_last") or {}
             if result.get("requested") or result.get("status") != prior.get("status"):
                 db.kv_set("fed_g17_refresh_last", result)
+                try:
+                    from signal_desk.ingest import evidence_ops
+                    evidence_ops.record("fed_g17", when=now, result=result)
+                except Exception as e:
+                    log.warning("연준 산업 자료 운영 계측 실패: %s", type(e).__name__)
         except Exception as e:
             log.warning("마감후 연준 산업 자료 수집 실패: %s", type(e).__name__)
             db.kv_set("fed_g17_refresh_last",
@@ -769,6 +774,11 @@ def _refresh_financial_evidence_daily() -> None:
                 now=_kst_now(), dart_key=key,
                 attempt_get=db.kv_get, attempt_set=db.kv_set)
     db.kv_set("financial_evidence_refresh_last", result)
+    try:
+        from signal_desk.ingest import evidence_ops
+        evidence_ops.record("dart", when=_kst_now(), result=result)
+    except Exception as e:
+        log.warning("관심종목 재무 근거 운영 계측 실패: %s", type(e).__name__)
 
 
 def _daily_maintenance(enabled: list[str]) -> None:
@@ -3857,6 +3867,11 @@ def data_health_get():
     sec_contact_configured = edgar.available()
     sec_edgar = {"contact_configured": sec_contact_configured,
                  "status": "contact_configured" if sec_contact_configured else "missing_real_contact"}
+    try:
+        from signal_desk.ingest import evidence_ops
+        evidence_activity = evidence_ops.report(now=_kst_now())
+    except Exception as e:
+        evidence_activity = {"status": "unavailable", "reason": type(e).__name__}
     # 저장소가 배포를 넘어 살아남는지 — 리셋 불가 장부의 전제다.
     storage = store.storage_report()
     # stale 자동 갱신이 **거부**된 소스(키 없음 등). 성공 로그만 찍고 넘어가면 매일 실패해도 모른다.
@@ -3903,6 +3918,7 @@ def data_health_get():
             "financial_evidence_refresh": db.kv_get("financial_evidence_refresh_last") or {"status": "not_started"},
             "fed_g17_refresh": db.kv_get("fed_g17_refresh_last") or {"status": "not_started"},
             "sec_edgar": sec_edgar,
+            "evidence_activity": evidence_activity,
             # 사람 확인 대기 중인 이벤트 후보 — 안 보면 유효한 악재가 만료로 조용히 사라진다.
             "event_queue": db.kb_event_queue_status(),
             # 축적만 하는 데이터에 '언제 판정 가능한가'를 붙인다 — 조건 없는 축적은 안 본다.

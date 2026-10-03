@@ -91,11 +91,13 @@ def test_dart_identity_and_scope_fail_closed(field, value):
 def test_archive_asof_does_not_backdate_and_retains_revisions(tmp_path):
     path = tmp_path / "financial.db"
     first = e.archive(path, SEC, encoded(sec_body()), observed_at=EARLY)
+    assert first["raw_changed"] is False
     assert e.latest(path, SEC, as_of="2026-10-02T23:59:59Z") is None
     body = sec_body()
     body["facts"]["us-gaap"]["Revenues"]["units"]["USD"][0]["val"] = 101
     second = e.archive(path, SEC, encoded(body), observed_at=LATE)
     assert first["id"] != second["id"]
+    assert second["raw_changed"] is True  # 원문 변경 관측, 회계 정정 인증은 아님
     assert e.latest(path, SEC, as_of=EARLY)["facts"][0]["value"] == "100"
     assert e.latest(path, SEC, as_of=LATE)["facts"][0]["value"] == "101"
     assert not e.latest(path, SEC, as_of=LATE)["strict_pit_eligible"]
