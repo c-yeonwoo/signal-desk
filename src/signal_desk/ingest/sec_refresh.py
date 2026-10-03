@@ -69,7 +69,7 @@ def run(map_path: Path, facts_path: Path, favorites: list[str], *, now: dt.datet
         raise ValueError("timezone required")
     now = now.astimezone(dt.timezone.utc)
     summary = {"status": "not_due", "requested": 0, "ok": 0, "failed": 0,
-               "response_bytes": 0, "at": now.isoformat(), "map_status": None,
+               "response_bytes": 0, "raw_changed": 0, "at": now.isoformat(), "map_status": None,
                "facts_status": None}
     if not edgar.available():
         return {**summary, "status": "missing_real_contact"}
@@ -148,5 +148,6 @@ def run(map_path: Path, facts_path: Path, favorites: list[str], *, now: dt.datet
         summary["response_bytes"] += max(0, int(result.get("response_bytes") or 0))
         summary["facts_status"] = result.get("status")
         summary["ok" if result.get("status") in {"ok", "no_supported_facts"} else "failed"] += 1
+        summary["raw_changed"] += int(bool(result.get("raw_changed")))
     summary["status"] = "partial_failure" if summary["failed"] else "ok" if summary["requested"] else "not_due"
     return summary

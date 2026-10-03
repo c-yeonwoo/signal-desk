@@ -88,3 +88,21 @@ def test_malformed_cik_does_not_coerce_to_real_issuer():
     rows["1000"] = {"ticker": "AAPL", "cik_str": 320193.9, "title": "Wrong"}
     mapping, _ambiguous = secmap.parse(json.dumps(rows).encode())
     assert "AAPL" not in mapping
+
+
+def test_api_refresh_records_sec_operation_without_touching_score(tmp_path, monkeypatch):
+    from signal_desk import api
+    from signal_desk.ingest import evidence_ops
+
+    state = {}
+    observed = []
+    monkeypatch.setattr(api.db, "fav_tickers_all", lambda: {"AAPL"})
+    monkeypatch.setattr(api.db, "kv_get", state.get)
+    monkeypatch.setattr(api.db, "kv_set", state.__setitem__)
+    monkeypatch.setattr(sec_refresh, "run", lambda *_args, **_kwargs: {
+        "status": "missing_real_contact", "requested": 0, "ok": 0, "failed": 0,
+        "response_bytes": 0})
+    monkeypatch.setattr(evidence_ops, "record", lambda source, **kwargs: observed.append((source, kwargs)))
+    api._refresh_sec_evidence_daily(NOW)
+    assert state["sec_evidence_refresh_last"]["status"] == "missing_real_contact"
+    assert observed == [("sec", {"when": NOW, "result": state["sec_evidence_refresh_last"]})]

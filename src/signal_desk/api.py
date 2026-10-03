@@ -817,6 +817,11 @@ def _refresh_sec_evidence_daily(now: datetime.datetime) -> None:
                              favorites, now=now, state_get=db.kv_get,
                              state_set=db.kv_set, reserve=reserve)
     db.kv_set("sec_evidence_refresh_last", result)
+    try:
+        from signal_desk.ingest import evidence_ops
+        evidence_ops.record("sec", when=now, result=result)
+    except Exception as e:
+        log.warning("SEC 관심종목 근거 운영 계측 실패: %s", type(e).__name__)
 
 
 def _daily_maintenance(enabled: list[str]) -> None:

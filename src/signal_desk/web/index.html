@@ -7525,7 +7525,8 @@ function renderDataHealth(d){
         + row('국내 관심종목 재무(DART)', d.financial_evidence_refresh, src.dart, 'raw_changed', '원문 변화 관측')
         + row('미국 산업생산(연준)', d.fed_g17_refresh, src.fed_g17, 'revised_periods', '과거 월 수치 수정 관측')
         + `<div style="padding-top:7px;color:var(--dim)">미국 공시(SEC): ${d.sec_edgar?.contact_configured ? '연락처 설정됨 · 수집 성공은 별도 확인' : '실제 연락처 미설정 · 새 요청 중단, 기존 저장값 유지'}</div>`
-        + `<div style="color:var(--dim);margin-top:3px">미국 관심종목 재무(SEC): ${esc(statusText[d.sec_evidence_refresh?.status] || d.sec_evidence_refresh?.status || '아직 수집 전')} · 이번 달 예약 ${Number(d.sec_evidence_monthly_requests || 0)}/24회 · 마지막 실행 요청 ${Number(d.sec_evidence_refresh?.requested || 0)}회</div>`
+        + row('미국 관심종목 재무(SEC)', d.sec_evidence_refresh, src.sec, 'raw_changed', '원문 변화 관측')
+        + `<div style="color:var(--dim);margin-top:3px">SEC 이번 달 요청 예약 ${Number(d.sec_evidence_monthly_requests || 0)}/24회 · 점수/주문과 분리</div>`
         + `<div style="color:var(--dim-2);margin-top:5px">요청 횟수·받은 양은 비용 단서일 뿐 실제 금액이 아닙니다. 원문 변화는 회계 정정이 확인됐다는 뜻이 아닙니다.</div></div>`;
     }
     // 점수 동결 — 시세가 멈추면 문턱·분위를 어떻게 바꿔도 매일 같은 결과가 나온다
