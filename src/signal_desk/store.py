@@ -2697,6 +2697,13 @@ def snapshot_signals(signals, date: str | None = None, market: str = "kr") -> in
             **meta,
         })
     df_new = pd.DataFrame(rows)
+    # Compatibility history is deliberately replaceable on a same-day rerun. Preserve
+    # each actual observation first; never reconstruct a past input from today's data.
+    from signal_desk.signals import observation_archive
+    observation_archive.publish(
+        df_new, market=market, session=date,
+        root=SIGNAL_HISTORY_FILE.parent / "signal_observations", captured_at=observed_at,
+    )
     if SIGNAL_HISTORY_FILE.exists():
         old = _read_parquet(SIGNAL_HISTORY_FILE)
         if not old.empty and "date" in old.columns:

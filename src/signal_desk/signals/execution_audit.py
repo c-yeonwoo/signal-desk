@@ -35,7 +35,20 @@ def audit_round_trip(entry: dict, exit_event: dict | None, quotes: list[dict]) -
     # σ 폭은 보유 중에도 최신 종가 변동성으로 재산출된다. 따라서 과거 *진입* 설정이 아니라
     # 실제 청산 판정에 남긴 설정을 우선한다. 열린 포지션은 아직 청산 이벤트가 없으므로 진입
     # 설정으로 현재까지의 관측만 재생한다.
-    cfg = _risk_config(exit_event or {}) or _risk_config(entry)
+    if entry.get("aggregate_replay_unsupported"):
+        return {"ticker": entry.get("ticker"), "quantity": entry.get("quantity"),
+                "auditable": False, "match": None,
+                "reason": "추가매수 후 평단·고점 변경의 시점별 원장이 없어 단일 진입 재생 불가"}
+    entry_cfg, exit_cfg = _risk_config(entry), _risk_config(exit_event or {})
+    if exit_event and exit_cfg and not entry_cfg:
+        return {"ticker": entry.get("ticker"), "quantity": entry.get("quantity"),
+                "auditable": False, "match": None,
+                "reason": "진입 시점 리스크 설정이 없어 청산 시점 규칙을 과거에 소급할 수 없음"}
+    if entry_cfg and exit_cfg and entry_cfg != exit_cfg:
+        return {"ticker": entry.get("ticker"), "quantity": entry.get("quantity"),
+                "auditable": False, "match": None,
+                "reason": "보유 중 리스크 설정 변경 시각이 없어 단일 규칙 재생 불가"}
+    cfg = exit_cfg or entry_cfg
     entry_price = ((exit_event or {}).get("payload") or {}).get("entry_price") or entry.get("price")
     if not cfg or not entry_price or float(entry_price) <= 0:
         return {"ticker": entry.get("ticker"), "quantity": entry.get("quantity"), "auditable": False,
@@ -82,13 +95,19 @@ def audit_events(events: list[dict], quotes_for_ticker) -> list[dict]:
     for event in events:
         ticker = event.get("ticker")
         if event.get("event_type") == "filled_buy":
-            entries[ticker].append({"event": event, "remaining_qty": _quantity(event)})
+            aggregate = bool(entries[ticker])
+            if aggregate:
+                for lot in entries[ticker]:
+                    lot["aggregate_replay_unsupported"] = True
+            entries[ticker].append({"event": event, "remaining_qty": _quantity(event),
+                                    "aggregate_replay_unsupported": aggregate})
         elif event.get("event_type") == "filled_sell" and entries.get(ticker):
             remaining = _quantity(event)
             while remaining > 0 and entries[ticker]:
                 lot = entries[ticker][0]
                 used = min(remaining, lot["remaining_qty"])
-                entry = {**lot["event"], "quantity": used}
+                entry = {**lot["event"], "quantity": used,
+                         "aggregate_replay_unsupported": lot["aggregate_replay_unsupported"]}
                 out.append(audit_round_trip(
                     entry, event, quotes_for_ticker(ticker, entry["ts"], event["ts"])))
                 remaining -= used
@@ -108,7 +127,8 @@ def audit_events(events: list[dict], quotes_for_ticker) -> list[dict]:
     # 열린 포지션도 계속 감사한다. 아직 exit가 없다는 건 오류가 아니라 관측 중이다.
     for ticker, pending in entries.items():
         for lot in pending:
-            entry = {**lot["event"], "quantity": lot["remaining_qty"]}
+            entry = {**lot["event"], "quantity": lot["remaining_qty"],
+                     "aggregate_replay_unsupported": lot["aggregate_replay_unsupported"]}
             out.append(audit_round_trip(entry, None, quotes_for_ticker(ticker, entry["ts"], None)))
     return out
 

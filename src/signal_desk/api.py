@@ -4095,12 +4095,16 @@ def lens_forward_get(request: Request, market: str = "kr"):
 @app.get("/api/admin/research/scaling-readiness")
 def scaling_readiness_get(request: Request):
     _admin_or_403(request)
+    from signal_desk.signals import observation_archive
     document_count = sum(db.kb_doc_counts().values())
     latency = db.kb_search_latency_summary()
     cohorts = {market: len(db.lens_scheduled_cohorts(market)) for market in ("kr", "us")}
     review_pending = db.kb_event_queue_status()["pending"]
-    return scaling_readiness.assess(document_count=document_count, latency=latency,
-                                    prospective_cohorts=cohorts, review_pending=review_pending)
+    report = scaling_readiness.assess(document_count=document_count, latency=latency,
+                                      prospective_cohorts=cohorts, review_pending=review_pending)
+    report["observation_archive"] = observation_archive.readiness(
+        store.SIGNAL_HISTORY_FILE.parent / "signal_observations")
+    return report
 
 
 @app.post("/api/admin/research/macro-releases/forecast")
