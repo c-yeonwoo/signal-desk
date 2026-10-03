@@ -21,7 +21,7 @@ const ctx = vm.createContext({esc:s => String(s).replaceAll('<','&lt;').replaceA
 vm.runInContext(source, ctx);
 const render = item => vm.runInContext('evidenceOpsHtml(' + JSON.stringify(item) + ')', ctx);
 const base = {evidence_activity:{window_days:30,sources:{}},
-  archive_continuity:{app_db_boot_count:null, archives:{
+  archive_continuity:{app_db_boot_count:null, storage_preflight:{status:'mount_not_observed'}, archives:{
     dart:{status:'not_recorded',observations:0,first_id:null},
     sec:{status:'archive_error',observations:null,first_id:null},
     fed_g17:{status:'recorded',observations:2,first_id:'g17-anchor',first_available_at:'2026-10-06T07:00:00Z'}}}};
@@ -31,6 +31,8 @@ assert.match(page, /앱 DB 부팅 확인 불가/);
 assert.match(page, /보존 파일 읽기 실패/);
 assert.match(page, /g17-anchor/);
 assert.match(page, /일치만으로 원문 무결성을 증명하지 않습니다/);
+assert.match(page, /저장 경로의 마운트를 관측하지 못했습니다/);
+assert.match(page, /배포 후에도 원문이 남는지는 아직 별도 확인이 필요합니다/);
 assert.doesNotMatch(page, /앱 DB 부팅 0회/);
 const escaped = render({...base, archive_continuity:{...base.archive_continuity,
   archives:{...base.archive_continuity.archives,
