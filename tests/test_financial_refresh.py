@@ -188,3 +188,50 @@ def test_daily_api_refresh_uses_only_ticker_favorites(monkeypatch, tmp_path):
     assert seen["favorites"] == ["000001"]
     assert seen["path"] == tmp_path / "e.db"
     assert state["financial_evidence_refresh_last"] == {"status": "ok", "requested": 0}
+
+
+def test_daily_api_refresh_does_not_mark_empty_corp_codes_as_complete(monkeypatch):
+    from signal_desk import api
+    from signal_desk.ingest import evidence_ops, financial_refresh
+
+    state = {}
+    monkeypatch.setattr(evidence_ops, "record", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(api.config, "dart_key", lambda: "test-key")
+    monkeypatch.setattr(api.db, "uids_with_ticker_favorites", lambda: [1])
+    monkeypatch.setattr(api.db, "fav_list", lambda uid: [{"kind": "ticker", "key": "005930"}])
+    monkeypatch.setattr(api.db, "kv_set", state.__setitem__)
+    monkeypatch.setattr(api, "_corp_codes", lambda: {})
+    monkeypatch.setattr(financial_refresh, "run", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("must not report an empty mapping as a collection")))
+
+    api._refresh_financial_evidence_daily()
+    assert state["financial_evidence_refresh_last"] == {"status": "corp_codes_unavailable", "requested": 0}
+
+
+def test_corp_code_failure_retries_after_interval_without_hammering(monkeypatch):
+    from signal_desk import api
+
+    calls = []
+
+    def load():
+        calls.append(1)
+        return {} if len(calls) == 1 else {"005930": "00126380"}
+
+    api._corp_codes_cache_clear()
+    monkeypatch.setattr(api.kb, "corp_codes_cached", load)
+    try:
+        monkeypatch.setattr(api.time, "monotonic", lambda: 100.0)
+        assert api._corp_codes() == {}
+        assert api._corp_codes() == {}
+        assert len(calls) == 1
+
+        monkeypatch.setattr(api.time, "monotonic", lambda: 1899.0)
+        assert api._corp_codes() == {}
+        assert len(calls) == 1
+
+        monkeypatch.setattr(api.time, "monotonic", lambda: 1900.0)
+        assert api._corp_codes() == {"005930": "00126380"}
+        assert api._corp_codes() == {"005930": "00126380"}
+        assert len(calls) == 2
+    finally:
+        api._corp_codes_cache_clear()

@@ -815,10 +815,14 @@ def _refresh_financial_evidence_daily() -> None:
         else:
             from signal_desk.ingest import financial_refresh
             from signal_desk.signals import financial_change
-            result = financial_refresh.run(
-                financial_change.DEFAULT_ARCHIVE, favorites, _corp_codes(),
-                now=_kst_now(), dart_key=key,
-                attempt_get=db.kv_get, attempt_set=db.kv_set)
+            corp_codes = _corp_codes()
+            if not corp_codes:
+                result = {"status": "corp_codes_unavailable", "requested": 0}
+            else:
+                result = financial_refresh.run(
+                    financial_change.DEFAULT_ARCHIVE, favorites, corp_codes,
+                    now=_kst_now(), dart_key=key,
+                    attempt_get=db.kv_get, attempt_set=db.kv_set)
     db.kv_set("financial_evidence_refresh_last", result)
     _record_official_evidence_ops("dart", _kst_now(), result)
 
@@ -5882,11 +5886,35 @@ def signal_peers_get(ticker: str, market: str = "kospi"):
     return {"ready": True, "sector": sec, "peer_count": len(peer_tks), "metrics": metrics, "peers": peers}
 
 
-@lru_cache(maxsize=1)
-def _corp_codes():
-    """DART stock_code→corp_code (zip 다운로드) — 요청마다 재다운로드 방지용 프로세스 캐시."""
-    from signal_desk.ingest import dart
-    return dart.corp_codes()
+_CORP_CODES_CHECK_INTERVAL_SEC = 30 * 60
+_corp_codes_lock = threading.Lock()
+_corp_codes_value: dict[str, str] | None = None
+_corp_codes_next_check = 0.0
+
+
+def _corp_codes_cache_clear() -> None:
+    global _corp_codes_value, _corp_codes_next_check
+    with _corp_codes_lock:
+        _corp_codes_value = None
+        _corp_codes_next_check = 0.0
+
+
+def _corp_codes() -> dict[str, str]:
+    """DART stock_code→corp_code with a 30-minute retry after an empty result.
+
+    An empty corpCode download used to be cached for the entire process life.
+    One transient failure then made the official favorite collector silently
+    plan zero requests until the next deployment. Successful mappings remain
+    shared in KB's durable 24-hour cache across workers and restarts.
+    """
+    global _corp_codes_value, _corp_codes_next_check
+    with _corp_codes_lock:
+        if _corp_codes_value is not None and time.monotonic() < _corp_codes_next_check:
+            return _corp_codes_value
+        codes = kb.corp_codes_cached()
+        _corp_codes_value = codes
+        _corp_codes_next_check = time.monotonic() + _CORP_CODES_CHECK_INTERVAL_SEC
+        return codes
 
 
 @lru_cache(maxsize=256)
