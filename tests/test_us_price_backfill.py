@@ -95,6 +95,8 @@ def test_stale_refresh_skips_fresh_and_respects_batch(monkeypatch):
             "AMZN": "2026-08-06"}   # 갭 1거래일 — 공휴일 여유 안쪽이라 신선
     requested: list[list[str]] = []
 
+    # 실제 로컬 DB의 보유종목·관심종목이 수집 대상에 섞이지 않게 입력 풀만 고정한다.
+    monkeypatch.setattr(api, "_us_refresh_tickers", lambda: [u["ticker"] for u in universe])
     monkeypatch.setattr(api.store, "load_us_universe", lambda: universe)
     monkeypatch.setattr(api.store, "us_price_last_dates", lambda: last)
     monkeypatch.setattr(api.store, "us_expected_last_bar", lambda as_of=None: "2026-08-07")

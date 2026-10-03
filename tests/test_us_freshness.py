@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime
 
+import pandas as pd
+
 from signal_desk import store
 
 
@@ -121,14 +123,22 @@ def test_quality_attached_count_counts_has_not_presence_of_the_key(monkeypatch):
     assert store.quality_attached_count() == 1
 
 
-# ─────────────────── 공백 복구: KR은 자동, US는 깊이를 계산해야 한다 ───────────────────
+# ─────────────────── 공백 복구: KR은 최근 꼬리·한정 재조회, US는 깊이를 계산한다 ───────────────────
 
-def test_kr_incremental_fetch_starts_from_each_tickers_last_bar():
-    """KR은 **마지막 저장일부터** 받는다 — 공백이 며칠이든 몇 달이든 자동으로 채워진다."""
-    import inspect
-    src = inspect.getsource(store.fetch_prices)
-    assert "last_by_ticker.get(ticker)" in src, "종목별 마지막 저장일을 안 본다"
-    assert "start = datetime.date.fromisoformat" in src
+def test_kr_incremental_fetch_starts_from_each_tickers_last_bar(tmp_path, monkeypatch):
+    """최근 꼬리 재수집은 종목별 마지막 봉에서 시작한다."""
+    monkeypatch.chdir(tmp_path)
+    today = datetime.date.today()
+    first = (today - datetime.timedelta(days=10)).isoformat()
+    second = (today - datetime.timedelta(days=3)).isoformat()
+    store._write_parquet(pd.DataFrame([
+        {"ticker": ticker, "date": day, "open": 1, "close": 10, "volume": 1}
+        for ticker, day in (("A", first), ("B", second))
+    ]), store.PRICES_FILE)
+    calls = []
+    monkeypatch.setattr(store.krx, "ohlcv", lambda ticker, start, end: calls.append((ticker, start)) or [])
+    store.fetch_prices([{"ticker": "A"}, {"ticker": "B"}])
+    assert calls == [("A", first.replace("-", "")), ("B", second.replace("-", ""))]
 
 
 def test_us_fetch_depth_is_computed_from_the_actual_gap(monkeypatch):

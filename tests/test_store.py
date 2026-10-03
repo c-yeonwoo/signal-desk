@@ -1,3 +1,5 @@
+import datetime
+
 import pandas as pd
 
 from signal_desk import store
@@ -121,10 +123,23 @@ def test_fetch_prices_incremental_upsert(tmp_path, monkeypatch):
     assert len(df2) == 4  # 중복 없이 upsert
 
 
-def test_fetch_prices_rewinds_to_an_interior_session_hole(tmp_path, monkeypatch):
-    """마지막 봉이 최신이어도 그 사이 거래일이 비면 그 날부터 다시 받는다."""
+def test_incremental_price_refresh_caps_a_long_stale_ticker(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    store._write_parquet(pd.DataFrame([
+        {"date": "2024-01-02", "ticker": "012510", "open": 1, "close": 10, "volume": 1},
+    ]), store.PRICES_FILE)
+    calls = []
+    monkeypatch.setattr(krx, "ohlcv", lambda ticker, start, end: calls.append((start, end)) or [])
+    store.fetch_prices([{"ticker": "012510"}])
+    floor = datetime.date.today() - datetime.timedelta(days=store.PRICE_INCREMENTAL_BOOTSTRAP_DAYS)
+    assert calls == [(floor.strftime("%Y%m%d"), datetime.date.today().strftime("%Y%m%d"))]
+
+
+def test_kr_interior_gap_repair_requests_only_the_missing_session(tmp_path, monkeypatch):
+    """일상 증분은 최신 봉부터, 과거 공백은 정확히 하루만 재조회한다."""
     monkeypatch.chdir(tmp_path)
     uni = [{"ticker": "005930", "name": "삼성"}]
+    store._write_json(store.UNIVERSE_HISTORY_FILE, {"2026-07-01": uni})
     store._write_parquet(pd.DataFrame([
         {"date": "2026-07-01", "ticker": "005930", "open": 1, "close": 10, "volume": 1},
         {"date": "2026-07-02", "ticker": "005930", "open": 1, "close": 11, "volume": 1},
@@ -133,20 +148,26 @@ def test_fetch_prices_rewinds_to_an_interior_session_hole(tmp_path, monkeypatch)
     calls = []
 
     def fake_ohlcv(ticker, start, end):
-        calls.append(start)
-        return [{"date": "2026-07-03", "open": 1.0, "close": 12.0, "volume": 1.0}]
+        calls.append((ticker, start, end))
+        day = "2026-07-03" if start == "20260703" else "2026-07-06"
+        return [{"date": day, "open": 1.0, "close": 12.0, "volume": 1.0}]
 
     monkeypatch.setattr(krx, "ohlcv", fake_ohlcv)
-    df = store.fetch_prices(uni)
-    assert calls == ["20260703"]
+    store.fetch_prices(uni)
+    assert calls[0][1] == "20260706"
+    result = store.repair_kr_price_gaps(limit=1, as_of="2026-07-06")
+    assert result["items"] == [{"ticker": "005930", "date": "2026-07-03", "status": "filled"}]
+    assert calls[1] == ("005930", "20260703", "20260703")
+    df = store._read_parquet(store.PRICES_FILE)
     assert set(df["date"].astype(str).str[:10]) >= {"2026-07-01", "2026-07-02", "2026-07-03", "2026-07-06"}
     assert store._load_kr_price_absent() == {}
 
 
 def test_fetch_prices_remembers_a_session_the_provider_omits(tmp_path, monkeypatch):
-    """제공자가 다음 거래일은 주고 그 날만 빼면, 다음 증분은 그 날로 되감지 않는다."""
+    """제공자가 빈 하루를 주면 이름을 남기고 정기 증분을 과거로 되감지 않는다."""
     monkeypatch.chdir(tmp_path)
     uni = [{"ticker": "005930", "name": "삼성"}]
+    store._write_json(store.UNIVERSE_HISTORY_FILE, {"2026-07-01": uni})
     store._write_parquet(pd.DataFrame([
         {"date": "2026-07-01", "ticker": "005930", "open": 1, "close": 10, "volume": 1},
         {"date": "2026-07-02", "ticker": "005930", "open": 1, "close": 11, "volume": 1},
@@ -157,7 +178,8 @@ def test_fetch_prices_remembers_a_session_the_provider_omits(tmp_path, monkeypat
         return [{"date": "2026-07-06", "open": 1.0, "close": 13.0, "volume": 1.0}]
 
     monkeypatch.setattr(krx, "ohlcv", omit)
-    store.fetch_prices(uni)
+    result = store.repair_kr_price_gaps(limit=1, as_of="2026-07-06")
+    assert result["items"] == [{"ticker": "005930", "date": "2026-07-03", "status": "empty"}]
     assert store._load_kr_price_absent()["005930"] == {"2026-07-03"}
     calls = []
 
@@ -168,10 +190,11 @@ def test_fetch_prices_remembers_a_session_the_provider_omits(tmp_path, monkeypat
     monkeypatch.setattr(krx, "ohlcv", tail)
     store.fetch_prices(uni)
     assert calls == ["20260706"]
+    assert store.repair_kr_price_gaps(limit=1, as_of="2026-07-06")["requested"] == 0
 
 
-def test_fetch_prices_starts_where_a_past_constituent_has_no_close(tmp_path, monkeypatch):
-    """오늘 명단에서 빠져도, 그날 구성이었던 세션의 종가가 없으면 그 날부터 받는다."""
+def test_gap_repair_keeps_a_past_constituent_without_a_close(tmp_path, monkeypatch):
+    """편출 종목도 당시 PIT 구성에 있었다면 공백 재조회 대상이다."""
     monkeypatch.chdir(tmp_path)
     store._write_json(store.UNIVERSE_HISTORY_FILE, {
         "2026-07-01": [{"ticker": "017960", "name": "한국카본"}],
@@ -186,8 +209,32 @@ def test_fetch_prices_starts_where_a_past_constituent_has_no_close(tmp_path, mon
         return [{"date": "2026-07-02", "open": 1.0, "close": 12.0, "volume": 1.0}]
 
     monkeypatch.setattr(krx, "ohlcv", fake_ohlcv)
-    store.fetch_prices([{"ticker": "017960", "name": "한국카본"}])
+    store.repair_kr_price_gaps(limit=1, as_of="2026-07-06")
     assert calls == [("017960", "20260702")]
+
+
+def test_gap_repair_does_not_use_a_different_day_or_guess_auth_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    ticker = "012510"
+    store._write_json(store.UNIVERSE_HISTORY_FILE, {"2026-07-01": [{"ticker": ticker}]})
+    store._write_parquet(pd.DataFrame([
+        {"date": "2026-07-01", "ticker": ticker, "open": 1, "close": 10, "volume": 1},
+        {"date": "2026-07-06", "ticker": ticker, "open": 1, "close": 11, "volume": 1},
+    ]), store.PRICES_FILE)
+    def wrong_day(t, start, end):
+        return [{"date": "2026-07-06", "open": 1, "close": 11, "volume": 1}]
+    monkeypatch.setattr(krx, "ohlcv", wrong_day)
+    first = store.repair_kr_price_gaps(limit=1, as_of="2026-07-06")
+    assert first["items"] == [{"ticker": ticker, "date": "2026-07-02", "status": "empty"}]
+    assert (ticker, "2026-07-02") not in set(zip(
+        store._read_parquet(store.PRICES_FILE)["ticker"],
+        store._read_parquet(store.PRICES_FILE)["date"]))
+    def auth_error(t, start, end):
+        raise RuntimeError("KRX 로그인 실패")
+    monkeypatch.setattr(krx, "ohlcv", auth_error)
+    second = store.repair_kr_price_gaps(limit=1, as_of="2026-07-13")
+    assert second["items"] == [{"ticker": ticker, "date": "2026-07-02", "status": "auth_error"}]
+    assert store._load_kr_price_absent()[ticker] == {"2026-07-02"}
 
 
 def test_prices_universe_keeps_a_name_that_left_the_live_list(tmp_path, monkeypatch):
