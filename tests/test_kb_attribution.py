@@ -100,4 +100,5 @@ def test_watchlist_tab_and_storage_diagnostic_are_visible():
     html = (api.WEB_DIR / "index.html").read_text(encoding="utf-8")
     assert 'data-tab="watchlist"' in html and 'id="watchlist-briefs"' in html
     assert "최근 변화" in html and "아직 모르는 점" in html
+    assert "마지막 수집 시도" in html and "수집 확인 기록 없음" in html
     assert "sto.used_pct" in html and "sto.largest_paths" in html
