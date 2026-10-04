@@ -2,7 +2,7 @@
 
 import time
 
-from signal_desk import db, kb
+from signal_desk import db, kb, kb_attribution
 
 
 def test_kb_sources_seeded(tmp_path, monkeypatch):
@@ -58,8 +58,8 @@ def test_ingest_accepts_manual_and_lazy_child(tmp_path, monkeypatch):
 def test_ingest_stock_batch_gate(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB", tmp_path / "app.db")
     items = [
-        {"title": "공시", "source": "dart", "published": "2026-07-01", "url": "https://dart.example/1"},
-        {"title": "뉴스", "source": "naver_news", "published": "2026-07-01", "url": "https://n.example/1"},
+        {"title": "공시", "source": "dart", "published": "2026-07-01", "url": "https://dart.example/1", "attribution_version": kb_attribution.POLICY_VERSION},
+        {"title": "뉴스", "source": "naver_news", "published": "2026-07-01", "url": "https://n.example/1", "attribution_version": kb_attribution.POLICY_VERSION},
     ]
     n = kb.ingest_stock_batch("005930", items)
     assert n == 2
@@ -70,8 +70,8 @@ def test_ingest_stock_batch_gate(tmp_path, monkeypatch):
     c.commit()
     c.close()
     n2 = kb.ingest_stock_batch("005930", [
-        {"title": "공시2", "source": "dart", "published": "2026-07-02", "url": "https://dart.example/2"},
-        {"title": "뉴스2", "source": "naver_news", "published": "2026-07-02", "url": "https://n.example/2"},
+        {"title": "공시2", "source": "dart", "published": "2026-07-02", "url": "https://dart.example/2", "attribution_version": kb_attribution.POLICY_VERSION},
+        {"title": "뉴스2", "source": "naver_news", "published": "2026-07-02", "url": "https://n.example/2", "attribution_version": kb_attribution.POLICY_VERSION},
     ])
     assert n2 == 1  # naver only
 
@@ -89,7 +89,7 @@ def test_refresh_still_writes_with_gate(tmp_path, monkeypatch):
     import datetime
     monkeypatch.setattr(kb.db, "DB", tmp_path / "app.db")
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [
-        {"title": "일반 뉴스", "source": "naver_news", "published": datetime.date.today().isoformat(),
+        {"title": "삼성전자, 일반 뉴스", "source": "naver_news", "published": datetime.date.today().isoformat(),
          "url": "https://n.example/r", "summary": "내용"},
     ])
     monkeypatch.setattr(kb.ingest_dart, "corp_codes", lambda: {"005930": "00126380"})

@@ -53,8 +53,8 @@ Collect (화이트리스트 · high validate)
 | tier | 예 | Decision | 비고 |
 |---|---|---|---|
 | `official` | DART 공시 | 규칙만으로 eligible 가능 | P0 첫 대상 |
-| `high` | 큐레이션 전문가·기관 RSS | Opus validate 후 | trusted 완화바 가능 |
-| `medium` | 화이트리스트 뉴스·채널 | Opus validate 필수 | |
+| `high` | 큐레이션 전문가·기관 RSS | 현재 불가 | 설명·조사만 |
+| `medium` | 화이트리스트 뉴스·채널 | 현재 불가 | 회사 귀속 확인 뒤 설명·학습만 |
 | `low` / shadow | 실험 소스 | 저장·검색만 | 엔진 금지 |
 
 validate bar(종목 import Opus · 거시 Opus)는 **유지·강화**. 풀이 늘수록 티어 분리가 더 중요.
@@ -111,7 +111,7 @@ validate bar(종목 import Opus · 거시 Opus)는 **유지·강화**. 풀이 �
 
 ### P0 수용 기준
 - 주요 DART 공시가 `kb_events` (+ evidence)로 저장
-- `sentiment_map()`이 active 이벤트에서 `event_risk`/`event_severity` 산출 (레거시 digest 플래그 폴백)
+- `sentiment_map()`이 공식 active 이벤트에서 `event_risk`/`event_severity` 산출 (레거시 digest 플래그는 Decision 입력 아님)
 - 미확정·근거 없는 카드는 decision 입력 불가
 - 기존 봇 critical/serious 동작 회귀 유지
 
@@ -124,13 +124,12 @@ validate bar(종목 import Opus · 거시 Opus)는 **유지·강화**. 풀이 �
 
 ### P1b 수용 기준
 - `refresh()`의 **신규** 비-DART 뉴스만 Sonnet(`DIGEST_QUALITY_MODEL`) 후보 추출
-- 추출 직후 **자동 판정**: `negative` + `critical|serious` + `confidence≥0.7` → `confirm`(Decision),
-  그 외(호재·info/watch·mixed/unknown·저신뢰) → `reject`. 사람 승인 큐에 쌓지 않음.
+- 추출 직후 자동 검토하더라도 일반 뉴스는 `attention`만 허용한다. `confirm`과 관리자 수동 확인도 Decision 자격을 주지 않는다. 공식 DART 공시만 위험 Decision 경로를 쓴다.
 - 잔여 candidate는 일일 루프 `auto_review_pending_candidates`가 비움.
 - URL·evidence_text 없으면 저장 안 함 · 종목당 호출 상한
 - `sentiment_map()` / `kb_events_active(decision_only=True)`에 미확정 후보 미포함
 - 관리자: 확정 / 잔여 후보 조회 · `GET /api/kb/events?view=candidate`(보통 비어 있음)
-- `POST /api/kb/events/review`는 예외 오버라이드용. `confirm`이어도 호재·info는 Decision 미반영(비대칭).
+- `POST /api/kb/events/review`는 예외 검토용. 일반 뉴스는 `confirm`이어도 Decision 미반영.
 
 ### P2 수용 기준
 - `signals/decision.py`가 confirmed+eligible만으로 buy_blocked / holding_action 산출

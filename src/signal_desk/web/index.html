@@ -907,6 +907,14 @@
   .pi-audit-scroll{overflow-x:auto;max-width:100%}
   .pi-audit-feedback{margin-top:10px;font-size:13px;line-height:1.7;overflow-wrap:anywhere}
   @media(max-width:600px){.pi-evidence-grid{grid-template-columns:1fr}.pi-evidence-step{padding:10px 12px}}
+  .watch-briefs{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:14px}
+  .watch-brief{padding:18px 20px;line-height:1.55;min-width:0}
+  .watch-brief h3{font-size:17px;margin:0 0 12px}
+  .watch-brief h3 button{font:inherit;color:var(--accent);background:none;border:0;padding:0;cursor:pointer}
+  .watch-brief .wb-label{font-size:13px;font-weight:700;color:var(--dim);margin-top:12px}
+  .watch-brief .wb-body{font-size:15px;overflow-wrap:anywhere}
+  .watch-brief a{color:var(--accent);font-size:14px}
+  .watch-brief .wb-unknown{color:var(--dim);font-size:14px}
 </style>
 </head>
 <body>
@@ -915,6 +923,7 @@
   <h1><span class="wm-a">Signal</span> <span class="wm-b">Desk</span></h1>
   <div class="tabs">
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
+    <button class="tab" data-tab="watchlist" onclick="switchTab('watchlist')">관심종목</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="봇 모의투자 · 내 포트폴리오 · 실계좌">투자 관리</button>
     <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">인사이트</button>
     <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
@@ -1139,6 +1148,12 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <div id="view-watchlist" class="view-app" style="display:none">
+    <h2 class="page-head">내 관심종목</h2>
+    <p class="page-desc">무엇이 달라졌고 어디서 확인했는지 봅니다. 뉴스는 매매 신호가 아니며, 확인되지 않은 내용은 비워 둡니다.</p>
+    <div id="watchlist-briefs" class="watch-briefs" aria-live="polite">불러오는 중…</div>
   </div>
 
 
@@ -2375,7 +2390,7 @@
 </dialog>
 
 <script>
-const _ROUTES = ['signal','trading','cycle','admin','mypage'];
+const _ROUTES = ['signal','watchlist','trading','cycle','admin','mypage'];
 let _isAdmin = false;
 let _userEmail = '', _profile = {};
 
@@ -2395,6 +2410,7 @@ function switchTab(t){
   // 내 투자 홈은 `trading/rebal` 안에만 있다. 시그널 화면에서 계좌·성과 API를 미리
   // 부르면 보이지 않는 카드 때문에 첫 목록 요청과 경쟁한다.
   if (t === 'signal') { loadSignals(); loadRegimeZone(); loadRelativeStrength(); }
+  if (t === 'watchlist') loadWatchlistBriefs();
   if (t === 'cycle') switchCycleSeg(_cycleSeg);   // 인사이트: 사이클/밸류체인/학습/거장 서브탭
   if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'admin') {
@@ -7595,6 +7611,13 @@ function renderDataHealth(d){
         + `${sto.first_boot ? ' · 최초 ' + esc(String(sto.first_boot).slice(0, 16).replace('T', ' ')) : ''}`
         + `<br>${esc(sto.how_to_verify || '')}</div></div>`;
     }
+    if (sto.used_pct != null) {
+      const paths = (sto.largest_paths || []).filter(p => p.path !== 'cache').slice(0, 6);
+      html += `<details style="margin:0 0 12px"><summary style="cursor:pointer;font-size:14px;font-weight:700">저장 공간 ${esc(sto.used_pct)}% 사용 · 남음 ${esc(sto.free_mb)} MB</summary>`
+        + `<div style="font-size:13px;color:var(--dim);margin-top:6px">메모리(RAM)가 아닌 앱 파일시스템 참고치입니다. Railway 볼륨 지표와 꼭 일치하지 않을 수 있습니다. 상위 경로는 삭제 대상 추천이 아니라 원인 확인용입니다.</div>`
+        + paths.map(p => `<div style="font-size:13px;margin-top:3px">${esc(p.path)} · ${(Number(p.bytes || 0)/1e6).toFixed(1)} MB</div>`).join('')
+        + `</details>`;
+    }
     // 데이터 신선도(항상) — 소스별 최종 갱신·경과·건수·상태
     if (d.freshness && d.freshness.length) {
       const fmtAge = h => h == null ? '–' : (h >= 24 ? (h / 24).toFixed(1) + '일' : h.toFixed(1) + '시간') + ' 전';
@@ -10745,6 +10768,46 @@ async function resetEngine(){
   await loadEngine();
 }
 // ===== 관심종목(⭐, 시그널 리스트에서 토글) =====
+function watchlistSourceUrl(raw){
+  try { const u = new URL(raw); return ['https:', 'http:'].includes(u.protocol) ? u.href : ''; }
+  catch (e) { return ''; }
+}
+function watchlistCheckedAt(ts){
+  return ts ? new Date(Number(ts) * 1000).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'}) : '확인 기록 없음';
+}
+async function loadWatchlistBriefs(){
+  const el = document.getElementById('watchlist-briefs');
+  if (!el) return;
+  el.textContent = '관심종목 확인 중…';
+  try {
+    const response = await fetch('/api/watchlist/briefs');
+    if (!response.ok) throw new Error('watchlist unavailable');
+    const data = await response.json();
+    const rows = data.items || [];
+    if (!rows.length) {
+      el.innerHTML = `<div class="card"><b>아직 관심종목이 없습니다.</b><p>시그널 목록의 ☆를 누르면 여기에 모아 볼 수 있어요.</p><button type="button" class="btn primary" onclick="switchTab('signal')">종목 찾기</button></div>`;
+      return;
+    }
+    el.innerHTML = rows.map(row => {
+      const sources = (row.evidence || []).map(e => {
+        const href = watchlistSourceUrl(e.url);
+        const label = e.kind === 'disclosure' ? '공시 원문' : '기사 원문';
+        return `<div class="wb-body">${e.kind === 'disclosure' && e.risk ? '<b style="color:var(--sell)">위험 공시 · </b>' : ''}${esc(e.summary || '')}</div>`
+          + `<div>${href ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${label} ↗</a>` : '원문 링크 확인 불가'}`
+          + ` <span class="wb-unknown">· 발표 ${esc(e.published || '미확인')} · 확인 ${esc(watchlistCheckedAt(e.checked_at))}</span></div>`;
+      }).join('');
+      const unknown = (row.unknown || []).map(x => `<div class="wb-unknown">· ${esc(x)}</div>`).join('');
+      return `<article class="card watch-brief"><h3><button type="button" data-watch-ticker="${esc(row.ticker)}" data-watch-market="${esc(row.market)}">${esc(row.name)}</button> <span class="wb-unknown">${esc(row.ticker)}</span></h3>`
+        + `<div class="wb-label">최근 변화</div><div class="wb-body">${esc(row.recent_change || '확인된 새 변화 없음')}</div>`
+        + `<div class="wb-label">원문·확인 시각</div>${sources || '<div class="wb-unknown">확인된 원문이 없습니다.</div>'}`
+        + `<div class="wb-label">아직 모르는 점</div>${unknown || '<div class="wb-unknown">새 근거의 효과와 앞으로의 주가는 알 수 없습니다.</div>'}`
+        + `</article>`;
+    }).join('');
+    el.querySelectorAll('[data-watch-ticker]').forEach(b => b.addEventListener('click', () => gotoSignal(b.dataset.watchTicker, b.dataset.watchMarket)));
+  } catch (e) {
+    el.textContent = '관심종목 근거를 불러오지 못했습니다. 잠시 후 다시 열어 주세요.';
+  }
+}
 async function toggleFav(ticker, el){
   const on = _favorites.has(ticker);
   if (on) {

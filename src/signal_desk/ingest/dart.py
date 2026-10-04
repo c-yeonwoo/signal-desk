@@ -181,7 +181,8 @@ def disclosures(corp_code: str, bgn_de: str, end_de: str) -> list[dict]:
         nm = str(row.get("report_nm") or "").strip()
         if nm:
             out.append({"report_nm": nm, "rcept_dt": str(row.get("rcept_dt") or ""),
-                        "rcept_no": str(row.get("rcept_no") or "")})
+                        "rcept_no": str(row.get("rcept_no") or ""),
+                        "corp_code": str(row.get("corp_code") or "")})
     return out
 
 

@@ -1,5 +1,7 @@
 """사업 개요(무엇을 하는 회사) — 요청 경로는 무비용(캐시/섹터 폴백), 생성은 백필에서만."""
 
+import time
+
 from signal_desk import company, db, llm
 
 
@@ -120,7 +122,9 @@ def test_recent_moves_request_path_no_llm(tmp_path, monkeypatch):
     calls = {"n": 0}
     monkeypatch.setattr(llm, "available", lambda: True)
     monkeypatch.setattr(llm, "complete_json", lambda *a, **k: (calls.__setitem__("n", calls["n"] + 1), {"moves": ["x"]})[1])
-    monkeypatch.setattr(db, "kb_digest_get", lambda t: {"n_sources": 3, "newest_ts": 111})
+    monkeypatch.setattr(db, "kb_digest_get", lambda t: {
+        "n_sources": 3, "newest_ts": int(time.time()), "summary": "최근 사실",
+        "policy_version": db.KB_DIGEST_POLICY_VERSION})
     # 캐시 없음 + generate=False → LLM 호출 없이 None
     assert company.recent_moves("005930", "삼성전자") is None
     assert calls["n"] == 0
@@ -136,14 +140,21 @@ def test_recent_moves_generate_cache_and_freshness(tmp_path, monkeypatch):
         return {"moves": ["신제품 출시", "대형 공급계약"]}
 
     monkeypatch.setattr(llm, "complete_json", fake)
-    monkeypatch.setattr(db, "kb_entries_recent", lambda t, n=12, confirmed_only=False: [{"title": "삼성 신제품", "source": "news"}])
-    monkeypatch.setattr(db, "kb_digest_get", lambda t: {"n_sources": 3, "newest_ts": 111})
+    monkeypatch.setattr(db, "kb_entries_recent", lambda t, n=12, **kwargs: [{
+        "title": "삼성전자, 신제품 출시", "source": "naver_news",
+        "published": time.strftime("%Y-%m-%d"), "url": "https://news.example/new"}])
+    stamp = int(time.time())
+    monkeypatch.setattr(db, "kb_digest_get", lambda t: {
+        "n_sources": 3, "newest_ts": stamp, "summary": "최근 사실",
+        "policy_version": db.KB_DIGEST_POLICY_VERSION})
     out = company.recent_moves("005930", "삼성전자", generate=True)
     assert out == ["신제품 출시", "대형 공급계약"] and calls["n"] == 1
     # 서명 동일 → 캐시 히트(재생성 없음)
     assert company.recent_moves("005930", "삼성전자", generate=True) == out and calls["n"] == 1
     # 새 뉴스로 서명 변경 → 재생성
-    monkeypatch.setattr(db, "kb_digest_get", lambda t: {"n_sources": 5, "newest_ts": 222})
+    monkeypatch.setattr(db, "kb_digest_get", lambda t: {
+        "n_sources": 5, "newest_ts": stamp, "summary": "최근 사실",
+        "policy_version": db.KB_DIGEST_POLICY_VERSION})
     company.recent_moves("005930", "삼성전자", generate=True)
     assert calls["n"] == 2
 
@@ -154,3 +165,5 @@ def test_recent_moves_no_kb_docs_returns_none(tmp_path, monkeypatch):
     monkeypatch.setattr(llm, "complete_json", lambda *a, **k: {"moves": ["지어냄"]})
     monkeypatch.setattr(db, "kb_digest_get", lambda t: None)  # KB 문서 없음 → 허구 방지
     assert company.recent_moves("AAPL", "Apple", generate=True) is None
+    db.kv_set("moves:AAPL", {"moves": ["옛날 호재"], "sig": "legacy"})
+    assert company.recent_moves("AAPL", "Apple", generate=False) is None

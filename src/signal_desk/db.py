@@ -215,7 +215,8 @@ CREATE TABLE IF NOT EXISTS flow_shock_halts(
     PRIMARY KEY(session,ticker));
 CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, title TEXT,
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
-    doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
+    doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed',
+    attribution_version TEXT, attribution_checked_at INTEGER);
 CREATE TABLE IF NOT EXISTS kb_digest(ticker TEXT PRIMARY KEY, name TEXT, sentiment REAL, summary TEXT,
     points TEXT, n_sources INTEGER, updated INTEGER, newest_ts INTEGER,
     event_flag INTEGER NOT NULL DEFAULT 0, event_note TEXT, policy_version TEXT);
@@ -636,6 +637,10 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE kb_entries ADD COLUMN raw_text TEXT")
     if "status" not in ecols:  # confirmed(다이제스트 반영) / pending(검토 보류, 반영 안 함)
         c.execute("ALTER TABLE kb_entries ADD COLUMN status TEXT NOT NULL DEFAULT 'confirmed'")
+    if "attribution_version" not in ecols:
+        c.execute("ALTER TABLE kb_entries ADD COLUMN attribution_version TEXT")
+    if "attribution_checked_at" not in ecols:
+        c.execute("ALTER TABLE kb_entries ADD COLUMN attribution_checked_at INTEGER")
     if "scenes" not in {r[1] for r in c.execute("PRAGMA table_info(shortform)").fetchall()}:
         c.execute("ALTER TABLE shortform ADD COLUMN scenes TEXT")  # 장면 시퀀스(인트로+근거별 프레임) JSON
     hcols = {r[1] for r in c.execute("PRAGMA table_info(harness_runs)").fetchall()}
@@ -2558,11 +2563,19 @@ def kb_entry_add_many(ticker: str, items: list[dict]) -> int:
         if title and title in seen_titles:  # 같은 기사 다른 URL(재발행·연합송고) 중복 제거
             continue
         seen_titles.add(title)
-        cur = c.execute("INSERT OR IGNORE INTO kb_entries(ticker,title,summary,url,source,published,fetched,doc_class) "
-                        "VALUES(?,?,?,?,?,?,?,?)",
+        cur = c.execute("INSERT OR IGNORE INTO kb_entries(ticker,title,summary,url,source,published,fetched,doc_class,"
+                        "attribution_version,attribution_checked_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                         (ticker, title, it.get("summary", ""), it["url"],
-                         it.get("source", ""), it.get("published", ""), int(time.time()), it.get("doc_class")))
+                         it.get("source", ""), it.get("published", ""), int(time.time()), it.get("doc_class"),
+                         it.get("attribution_version"),
+                         int(time.time()) if it.get("attribution_version") else None))
         added += cur.rowcount
+        if not cur.rowcount and it.get("attribution_version"):
+            # Previously stored, same issuer and same URL: successful re-observation
+            # may certify it. Never reassign a URL already attributed to another issuer.
+            c.execute("UPDATE kb_entries SET attribution_version=?,attribution_checked_at=? "
+                      "WHERE url=? AND ticker=?",
+                      (it["attribution_version"], int(time.time()), it["url"], ticker))
     c.commit()
     c.close()
     return added
@@ -2711,6 +2724,22 @@ def kb_entry_urls_existing(urls: list[str]) -> set[str]:
     return found
 
 
+def kb_entry_url_owners(urls: list[str]) -> dict[str, str]:
+    """Existing URL -> issuer. One stored article URL must not certify another issuer."""
+    clean = [u for u in urls if u]
+    if not clean:
+        return {}
+    c = conn()
+    owners = {}
+    for i in range(0, len(clean), 80):
+        chunk = clean[i:i + 80]
+        ph = ",".join("?" * len(chunk))
+        rows = c.execute(f"SELECT url,ticker FROM kb_entries WHERE url IN ({ph})", chunk).fetchall()
+        owners.update(rows)
+    c.close()
+    return owners
+
+
 def kb_doc_counts(*, before_ts: float | None = None) -> dict[str, int]:
     """ticker -> confirmed 원문 문서 수. before_ts를 주면 그 시점 이전에 수집된 것만 센다.
 
@@ -2753,17 +2782,24 @@ def kb_class_counts() -> dict[str, int]:
     return {k: n for k, n in rows}
 
 
-def kb_entries_recent(ticker: str, limit: int = 12, confirmed_only: bool = False) -> list[dict]:
+def kb_entries_recent(ticker: str, limit: int = 12, confirmed_only: bool = False,
+                      attribution_version: str | None = None) -> list[dict]:
     c = conn()
-    q = "SELECT title,summary,url,source,published FROM kb_entries WHERE ticker=? "
+    q = "SELECT title,summary,url,source,published,fetched,attribution_checked_at FROM kb_entries WHERE ticker=? "
+    args: list = [ticker]
     if confirmed_only:  # 다이제스트(시그널 반영)는 confirmed만 — pending 문서는 제외해 오염 방지
         q += "AND status='confirmed' "
-    rows = c.execute(q + "ORDER BY id DESC LIMIT ?", (ticker, limit)).fetchall()
+    if attribution_version is not None:
+        q += "AND attribution_version=? "
+        args.append(attribution_version)
+    rows = c.execute(q + "ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
     c.close()
-    return [{"title": t, "summary": s, "url": u, "source": src, "published": p} for t, s, u, src, p in rows]
+    return [{"title": t, "summary": s, "url": u, "source": src, "published": p,
+             "fetched": fetched, "attribution_checked_at": checked}
+            for t, s, u, src, p, fetched, checked in rows]
 
 
-KB_DIGEST_POLICY_VERSION = "source-72h-v1"
+KB_DIGEST_POLICY_VERSION = "source-72h-issuer-role-v2"
 
 
 def kb_digest_set(ticker: str, name: str, sentiment: float, summary: str, points: list[str],
@@ -3086,7 +3122,7 @@ def kb_event_upsert(event: dict, evidence: dict | None = None) -> int:
 
 def kb_events_active(ticker: str | None = None, *, now: int | None = None,
                      decision_only: bool = False) -> list[dict]:
-    """만료되지 않은 confirmed 이벤트. decision_only면 decision_eligible=1만."""
+    """만료되지 않은 confirmed 이벤트. 주문 Decision에는 공식 원천만 허용한다."""
     ts = int(now if now is not None else time.time())
     c = conn()
     q = f"SELECT {_EVT_COLS} FROM kb_events WHERE status='confirmed' AND (expires_at IS NULL OR expires_at>=?)"
@@ -3094,7 +3130,7 @@ def kb_events_active(ticker: str | None = None, *, now: int | None = None,
     if ticker:
         q += " AND ticker=?"; args.append(ticker)
     if decision_only:
-        q += " AND decision_eligible=1"
+        q += " AND decision_eligible=1 AND trust_tier='official'"
     q += " ORDER BY CASE severity WHEN 'critical' THEN 0 WHEN 'serious' THEN 1 WHEN 'watch' THEN 2 ELSE 3 END, detected_at DESC"
     rows = c.execute(q, args).fetchall()
     c.close()

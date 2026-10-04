@@ -2218,6 +2218,7 @@ def storage_report() -> dict:
     있으면 저장소가 이전 프로세스를 기억한다는 뜻이다. 배포 후에도 count가 늘어나면 볼륨이 있고,
     매번 1로 돌아오면 휘발성이다. 볼륨 설정을 코드가 알 방법은 없으므로 **증상으로 판정한다.**
     """
+    import os
     import shutil
 
     from signal_desk import db
@@ -2226,11 +2227,49 @@ def storage_report() -> dict:
     first = db.kv_get("storage_first_boot")
     dbf = CACHE_DIR / "app.db"
     exists = dbf.exists()
+    total_mb = used_mb = used_pct = None
     try:
         du = shutil.disk_usage(str(CACHE_DIR if CACHE_DIR.exists() else "."))
         free_mb = round(du.free / 1e6, 1)
+        total_mb = round(du.total / 1e6, 1)
+        used_mb = round(du.used / 1e6, 1)
+        used_pct = round(du.used / du.total * 100, 1) if du.total else None
     except Exception:                            # noqa: BLE001
         free_mb = None
+    # Read-only bounded inventory.  Report the largest children of the mounted
+    # data directory; never delete or vacuum an evidence/ledger file in place.
+    top_files = []
+    data_root = CACHE_DIR.parent
+    if data_root.exists():
+        try:
+            for child in data_root.iterdir():
+                if child.is_symlink():
+                    continue
+                size = child.stat().st_size if child.is_file() else 0
+                count = 1 if child.is_file() else 0
+                if child.is_dir():
+                    pending = [child]
+                    while pending and count < 20000:
+                        folder = pending.pop()
+                        with os.scandir(folder) as entries:
+                            for entry in entries:
+                                if entry.is_symlink():
+                                    continue
+                                if entry.is_dir(follow_symlinks=False):
+                                    pending.append(entry.path)
+                                elif entry.is_file(follow_symlinks=False):
+                                    size += entry.stat(follow_symlinks=False).st_size
+                                    count += 1
+                top_files.append({"path": str(child.relative_to(data_root)),
+                                  "bytes": size, "files": count})
+            # Inside cache the large file is often more useful than the cache
+            # aggregate.  Keep a separate top-file list without a second walk.
+            if CACHE_DIR.exists():
+                top_files.extend({"path": f"cache/{p.name}", "bytes": p.stat().st_size, "files": 1}
+                                 for p in CACHE_DIR.iterdir() if p.is_file() and not p.is_symlink())
+            top_files = sorted(top_files, key=lambda row: row["bytes"], reverse=True)[:12]
+        except OSError:
+            top_files = []
     # 휘발성 의심: 부팅을 여러 번 했는데 카운터가 1이거나, DB는 있는데 최초 부팅 기록이 없다.
     suspected, reason = False, None
     if not first:
@@ -2245,6 +2284,10 @@ def storage_report() -> dict:
         "first_boot": first,
         "boot_count": boot_count,
         "free_mb": free_mb,
+        "total_mb": total_mb,
+        "used_mb": used_mb,
+        "used_pct": used_pct,
+        "largest_paths": top_files,
         "ephemeral_suspected": suspected,
         "reason": reason,
         # 볼륨은 인프라 설정이라 코드가 단정할 수 없다 — 무엇을 확인해야 하는지 문장으로 남긴다.

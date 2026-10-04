@@ -3,7 +3,7 @@
 import datetime
 import time
 
-from signal_desk import db, kb
+from signal_desk import db, kb, kb_attribution
 
 _TODAY = datetime.date.today().isoformat()
 
@@ -25,25 +25,26 @@ def test_sync_candidate_auto_confirms_clear_negative(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.llm, "available", lambda: True)
     monkeypatch.setattr(kb, "_extract_candidate_event", _fake_extract)
     items = [{
-        "title": "검찰, ○○ 압수수색", "source": "naver_news",
+        "title": "삼성전자, 검찰 압수수색", "source": "naver_news",
         "published": _TODAY, "url": "https://n.example/cand1",
         "summary": "횡령 혐의 수사",
+        "attribution_version": kb_attribution.POLICY_VERSION,
     }]
     assert kb.sync_candidate_events("005930", items) == 1
     assert db.kb_events_list(status="candidate") == []
     confirmed = db.kb_events_list(status="confirmed")
     assert len(confirmed) == 1
     ev = confirmed[0]
-    assert ev["decision_eligible"] is True
-    assert ev["decision_action"] == "buy_block"
+    assert ev["decision_eligible"] is False
+    assert ev["decision_action"] == "attention"
     assert ev["policy_version"] == "p1b"
     assert ev["trust_tier"] == "medium"
     assert db.kb_event_evidence(ev["id"])
-    assert db.kb_events_active("005930", decision_only=True)
+    assert db.kb_events_active("005930", decision_only=True) == []
     db.kb_digest_set("005930", "삼성전자", 0.1, "요약", [], 1, newest_ts=int(time.time()))
     sm = kb.sentiment_map()["005930"]
-    assert sm["event_risk"] is True
-    assert sm.get("event_id") == ev["id"]
+    assert sm["event_risk"] is False
+    assert sm.get("event_id") is None
 
 
 def test_sync_candidate_auto_rejects_ambiguous(tmp_path, monkeypatch):
@@ -57,6 +58,7 @@ def test_sync_candidate_auto_rejects_ambiguous(tmp_path, monkeypatch):
     assert kb.sync_candidate_events("005930", [{
         "title": "관측 이슈", "source": "naver_news", "published": _TODAY,
         "url": "https://n.example/soft", "summary": "소송 언급",
+        "attribution_version": kb_attribution.POLICY_VERSION,
     }]) == 1
     assert db.kb_events_list(status="candidate") == []
     assert db.kb_events_list(status="rejected")
@@ -91,7 +93,8 @@ def test_candidate_dedup_no_second_extract(tmp_path, monkeypatch):
 
     monkeypatch.setattr(kb, "_extract_candidate_event", once)
     items = [{"title": "과징금 부과 이슈", "source": "naver_news", "url": "https://n.example/dup",
-              "published": _TODAY, "summary": "공정위 제재"}]
+              "published": _TODAY, "summary": "공정위 제재",
+              "attribution_version": kb_attribution.POLICY_VERSION}]
     assert kb.sync_candidate_events("005930", items) == 1
     assert kb.sync_candidate_events("005930", items) == 0
     assert n["c"] == 1
@@ -100,7 +103,7 @@ def test_candidate_dedup_no_second_extract(tmp_path, monkeypatch):
 def test_refresh_candidates_only_on_new_urls(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.db, "DB", tmp_path / "app.db")
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [
-        {"title": "검찰 압수수색 보도", "source": "naver_news", "published": _TODAY,
+        {"title": "삼성전자, 검찰 압수수색 보도", "source": "naver_news", "published": _TODAY,
          "url": "https://n.example/new1", "summary": "횡령 혐의 수사"},
     ])
     monkeypatch.setattr(kb.ingest_dart, "corp_codes", lambda: {"005930": "00126380"})

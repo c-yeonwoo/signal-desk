@@ -192,14 +192,15 @@ def backfill(targets: list[dict], max_llm: int = 40) -> dict:
 
 # ---------- 최근 행보(최근 무엇을 했나) — KB 원자료(뉴스+공시) 기반 사실 요약 ----------
 def _freshness_sig(ticker: str) -> str | None:
-    """KB 다이제스트의 소스 수·최신시각으로 캐시 신선도 서명. 새 뉴스가 들어오면 서명이 바뀌어 재생성."""
+    """현재 귀속·시각 계약을 통과한 KB만 최근 행보의 캐시 근거로 쓴다."""
     try:
+        from signal_desk import kb
         dg = db.kb_digest_get(ticker)
+        if not kb.digest_freshness(dg, check=kb.digest_checks().get(ticker))["current"]:
+            return None
     except Exception:
-        dg = None
-    if not dg:
         return None
-    return f"{dg.get('n_sources')}:{dg.get('newest_ts')}"
+    return f"{dg.get('policy_version')}:{dg.get('n_sources')}:{dg.get('newest_ts')}"
 
 
 def _generate_moves(name: str, items: list[dict]) -> list[str] | None:
@@ -230,15 +231,18 @@ def recent_moves(ticker: str, name: str, generate: bool = False) -> list[str] | 
         cached = db.kv_get(_MOVES_KEY % ticker)
     except Exception:
         cached = None
-    fresh = isinstance(cached, dict) and cached.get("moves") and (sig is None or cached.get("sig") == sig)
+    if sig is None:
+        return None  # Old cached prose must not survive a failed/expired KB check.
+    fresh = isinstance(cached, dict) and cached.get("moves") and cached.get("sig") == sig
     if fresh:
         return cached["moves"]
     if not generate:
-        # 요청 경로: 오래됐어도 있으면 보여주되, 아예 없으면 None
-        return cached["moves"] if isinstance(cached, dict) and cached.get("moves") else None
-    if sig is None:  # KB 문서가 없으면 생성 대상 아님(허구 방지)
-        return cached["moves"] if isinstance(cached, dict) and cached.get("moves") else None
-    items = db.kb_entries_recent(ticker, 12, confirmed_only=True)
+        return None
+    from signal_desk import kb, kb_attribution
+    items = kb._current_digest_items(db.kb_entries_recent(
+        ticker, 12, confirmed_only=True, attribution_version=kb_attribution.POLICY_VERSION))
+    if not items:
+        return None
     moves = _generate_moves(name, items)
     if moves:
         try:
@@ -246,7 +250,7 @@ def recent_moves(ticker: str, name: str, generate: bool = False) -> list[str] | 
         except Exception:
             pass
         return moves
-    return cached["moves"] if isinstance(cached, dict) and cached.get("moves") else None
+    return None
 
 
 def backfill_moves(targets: list[dict], max_llm: int = 20) -> dict:
@@ -277,7 +281,11 @@ def backfill_moves(targets: list[dict], max_llm: int = 20) -> dict:
         if tried >= max_llm:                           # ← 호출 수 상한
             break
         tried += 1
-        items = db.kb_entries_recent(tk, 12, confirmed_only=True)
+        from signal_desk import kb, kb_attribution
+        items = kb._current_digest_items(db.kb_entries_recent(
+            tk, 12, confirmed_only=True, attribution_version=kb_attribution.POLICY_VERSION))
+        if not items:
+            continue
         moves = _generate_moves(nm, items)
         if moves:
             try:

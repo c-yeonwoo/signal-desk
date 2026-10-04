@@ -1477,6 +1477,66 @@ def favorites_del(request: Request, kind: str, key: str):
     return {"ok": True}
 
 
+@app.get("/api/watchlist/briefs")
+def watchlist_briefs_get(request: Request):
+    """Own favorites: sourced changes and explicit unknowns, never order advice.
+
+    Only newly issuer-verified KB entries appear.  Legacy digests/documents stay
+    in the admin archive and cannot silently become a current company fact.
+    """
+    uid = _uid(request)
+    from signal_desk import kb_attribution
+    from signal_desk.ingest import news
+
+    names = {u["ticker"]: u["name"] for u in store.load_universe()}
+    for u in store.load_us_universe() or []:
+        names.setdefault(u["ticker"], us_ko.name_ko(u["ticker"], u.get("name") or u["ticker"]))
+    checks = kb.digest_checks()
+    now = time.time()
+    rows = []
+    for fav in db.fav_list(uid):
+        if fav["kind"] != "ticker":
+            continue
+        ticker = fav["key"]
+        market = "kr" if len(ticker) == 6 and ticker.isdigit() else "us"
+        check = checks.get(ticker) or {}
+        docs = db.kb_entries_recent(ticker, 8, confirmed_only=True,
+                                    attribution_version=kb_attribution.POLICY_VERSION)
+        news_docs = [d for d in kb._current_digest_items(docs, now=now)
+                     if d["source"] != "dart" and check.get("status") == "ok"]
+        news_docs.sort(key=lambda d: news._parse_dt(d["published"]).timestamp(), reverse=True)
+        official = [e for e in db.kb_events_active(ticker)
+                    if e.get("trust_tier") == "official" and e.get("policy_version") == "p0"]
+        official.sort(key=lambda e: e.get("detected_at") or 0, reverse=True)
+        evidence = []
+        for ev in official[:1]:
+            proof = next((p for p in db.kb_event_evidence(ev["id"])
+                          if p.get("source_key") == "dart" and p.get("url")), None)
+            if proof:
+                evidence.append({"kind": "disclosure", "summary": ev["summary"],
+                                 "url": proof["url"], "published": proof.get("published"),
+                                 "checked_at": ev.get("detected_at"), "source": "DART",
+                                 "risk": bool(ev.get("decision_eligible"))})
+        for d in news_docs[:2]:
+            evidence.append({"kind": "news", "summary": d["title"], "url": d["url"],
+                             "published": d["published"], "checked_at": d["attribution_checked_at"],
+                             "source": "네이버 뉴스 검색", "risk": False})
+        unknown = []
+        if not news_docs:
+            unknown.append("회사와 역할까지 확인된 최근 뉴스가 없습니다.")
+        if market == "kr" and not official:
+            unknown.append("최근 확인된 주요 공시가 없습니다. 공시 전체를 확인한 뜻은 아닙니다.")
+        if market == "us":
+            unknown.append("미국 공식 공시의 기업별 대조는 아직 완료되지 않았습니다.")
+        if check.get("status") == "failed":
+            unknown.insert(0, "마지막 뉴스 확인이 실패했습니다. 이전 기사를 현재 근거로 쓰지 않습니다.")
+        rows.append({"ticker": ticker, "name": names.get(ticker) or fav.get("label") or ticker,
+                     "market": market, "recent_change": evidence[0]["summary"] if evidence else None,
+                     "evidence": evidence, "checked_at": check.get("checked_at"),
+                     "unknown": unknown, "not_order_advice": True})
+    return {"items": rows, "not_order_advice": True}
+
+
 # ---------- 알림 (#16 관심종목 시그널 변동) ----------
 _KIND_KO = {
     "STRONG_BUY": "Strong Buy", "BUY": "Buy", "HOLD": "Hold",

@@ -1851,6 +1851,12 @@ def test_storage_report_detects_ephemeral_and_stays_quiet_when_healthy(tmp_path,
     if r1["db_exists"]:
         assert r1["ephemeral_suspected"] is True, r1
 
+    (tmp_path / "data" / "cache" / "volume-check.bin").write_bytes(b"v" * 4096)
+    measured = store_mod.storage_report()
+    assert measured["used_pct"] is not None
+    assert any(row["path"] == "cache/volume-check.bin" and row["bytes"] == 4096
+               for row in measured["largest_paths"])
+
     store_mod.mark_boot()
     r2 = store_mod.storage_report()
     assert r2["boot_count"] == 2
