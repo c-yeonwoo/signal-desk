@@ -35,7 +35,7 @@ from signal_desk.broker import execution, paper, toss_readonly
 
 from signal_desk import (
     account_performance, auth, bot, bot_alerts, brain, brain_proposals, company, config, db, digest, kb,
-    llm, market_brief, market_clock, notify, shortform, signalcfg, store, strategy, telegram_inbound,
+    llm, market_brief, market_brief_image, market_clock, notify, shortform, signalcfg, store, strategy, telegram_inbound,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
@@ -4087,16 +4087,21 @@ def market_brief_get(market: str = "kr"):
         else:
             cfg = signalcfg.get_config()
         sel = selection_summary(sigs, cfg)
-        card["selection"] = {
-            "buy_count": sum(s.kind in {"BUY", "STRONG_BUY"} for s in sigs),
-            "strong_buy_count": sum(s.kind == "STRONG_BUY" for s in sigs),
-            "slots": sel["rank_slots"] if sel["mode"] == "rank" else None,
-            "computed_at": max((s.computed_at for s in sigs if s.computed_at), default=None),
-        }
+        computed_at = max((s.computed_at for s in sigs if s.computed_at), default=None)
+        if computed_at:
+            card["selection"] = {
+                "buy_count": sum(s.kind in {"BUY", "STRONG_BUY"} for s in sigs),
+                "strong_buy_count": sum(s.kind == "STRONG_BUY" for s in sigs),
+                "slots": sel["rank_slots"] if sel["mode"] == "rank" else None,
+                "computed_at": computed_at,
+            }
+        else:
+            card["unknown"].append("시그널 판정 시각을 확인하지 못해 매수 건수를 보류합니다.")
         card["selection_mode"] = sel["mode"]
         card["selection_policy"] = {"mode": sel["mode"], "cutoff_score": sel["cutoff_score"],
                                     "buy_threshold": sel["buy_threshold"],
                                     "rank_min_score": sel["rank_min_score"]}
+    card["image_svg"] = market_brief_image.render(card)
     return card
 
 
