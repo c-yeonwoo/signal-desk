@@ -218,7 +218,7 @@ CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, tick
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed');
 CREATE TABLE IF NOT EXISTS kb_digest(ticker TEXT PRIMARY KEY, name TEXT, sentiment REAL, summary TEXT,
     points TEXT, n_sources INTEGER, updated INTEGER, newest_ts INTEGER,
-    event_flag INTEGER NOT NULL DEFAULT 0, event_note TEXT);
+    event_flag INTEGER NOT NULL DEFAULT 0, event_note TEXT, policy_version TEXT);
 -- horizon_days: 채점 지평(거래일). NULL 이면 **지평이 섞인 옛 채점**이라 리프트 계산에서 뺀다.
 -- 2026-08-05 진단: 채점이 `closes[-1]`(오늘 종가)을 써서 보유 기간이 "채점 루프가 돌 때까지"로
 -- 판단마다 달랐다(실측 3.0~6.1일). 지평이 섞이면 비교 가능한 base rate 를 만들 수 없다.
@@ -627,6 +627,8 @@ def _migrate(c: sqlite3.Connection) -> None:
         c.execute("ALTER TABLE kb_digest ADD COLUMN event_flag INTEGER NOT NULL DEFAULT 0")
     if "event_note" not in dcols:
         c.execute("ALTER TABLE kb_digest ADD COLUMN event_note TEXT")
+    if "policy_version" not in dcols:
+        c.execute("ALTER TABLE kb_digest ADD COLUMN policy_version TEXT")
     ecols = {r[1] for r in c.execute("PRAGMA table_info(kb_entries)").fetchall()}
     if "doc_class" not in ecols:  # 문서 유형(뉴스/리포트/공시/실적/이벤트/시황)
         c.execute("ALTER TABLE kb_entries ADD COLUMN doc_class TEXT")
@@ -2761,29 +2763,35 @@ def kb_entries_recent(ticker: str, limit: int = 12, confirmed_only: bool = False
     return [{"title": t, "summary": s, "url": u, "source": src, "published": p} for t, s, u, src, p in rows]
 
 
+KB_DIGEST_POLICY_VERSION = "source-72h-v1"
+
+
 def kb_digest_set(ticker: str, name: str, sentiment: float, summary: str, points: list[str],
                   n_sources: int, newest_ts: int | None = None,
-                  event_flag: bool = False, event_note: str | None = None) -> None:
+                  event_flag: bool = False, event_note: str | None = None,
+                  policy_version: str | None = KB_DIGEST_POLICY_VERSION) -> None:
     c = conn()
-    c.execute("INSERT INTO kb_digest(ticker,name,sentiment,summary,points,n_sources,updated,newest_ts,event_flag,event_note) "
-              "VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ticker) DO UPDATE SET "
+    c.execute("INSERT INTO kb_digest(ticker,name,sentiment,summary,points,n_sources,updated,newest_ts,event_flag,event_note,policy_version) "
+              "VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(ticker) DO UPDATE SET "
               "name=excluded.name, sentiment=excluded.sentiment, summary=excluded.summary, "
               "points=excluded.points, n_sources=excluded.n_sources, updated=excluded.updated, "
-              "newest_ts=excluded.newest_ts, event_flag=excluded.event_flag, event_note=excluded.event_note",
+              "newest_ts=excluded.newest_ts, event_flag=excluded.event_flag, event_note=excluded.event_note, "
+              "policy_version=excluded.policy_version",
               (ticker, name, sentiment, summary, json.dumps(points, ensure_ascii=False), n_sources,
-               int(time.time()), newest_ts, 1 if event_flag else 0, event_note))
+               int(time.time()), newest_ts, 1 if event_flag else 0, event_note, policy_version))
     c.commit()
     c.close()
 
 
-_KB_COLS = "ticker,name,sentiment,summary,points,n_sources,updated,newest_ts,event_flag,event_note"
+_KB_COLS = "ticker,name,sentiment,summary,points,n_sources,updated,newest_ts,event_flag,event_note,policy_version"
 
 
 def _kb_row(row) -> dict:
-    t, n, s, sm, p, ns, up, nts, ef, en = row
+    t, n, s, sm, p, ns, up, nts, ef, en, pv = row
     return {"ticker": t, "name": n, "sentiment": s, "summary": sm,
             "points": json.loads(p or "[]"), "n_sources": ns, "updated": up,
-            "newest_ts": nts, "event_flag": bool(ef), "event_note": en}
+            "newest_ts": nts, "event_flag": bool(ef), "event_note": en,
+            "policy_version": pv}
 
 
 def kb_digest_get(ticker: str) -> dict | None:

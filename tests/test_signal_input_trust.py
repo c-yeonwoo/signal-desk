@@ -100,8 +100,10 @@ def test_edgar_attempt_does_not_block_av_shares_or_erase_edgar_values(tmp_path, 
 
 def test_advisor_digest_rejects_old_unknown_or_nonfinite(monkeypatch):
     now = time.time()
-    holder = {"summary": "old news", "newest_ts": now - 4 * 86400}
+    holder = {"summary": "old news", "newest_ts": now - 4 * 86400,
+              "policy_version": kb.db.KB_DIGEST_POLICY_VERSION}
     monkeypatch.setattr(kb.db, "kb_digest_get", lambda _: holder)
+    monkeypatch.setattr(kb, "digest_checks", lambda: {})
     assert kb.advisor_digest("005930", now=now) is None
     holder["newest_ts"] = None
     assert kb.advisor_digest("005930", now=now) is None

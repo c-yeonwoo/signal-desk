@@ -86,9 +86,10 @@ def test_scope_rejected(tmp_path, monkeypatch):
 
 
 def test_refresh_still_writes_with_gate(tmp_path, monkeypatch):
+    import datetime
     monkeypatch.setattr(kb.db, "DB", tmp_path / "app.db")
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [
-        {"title": "일반 뉴스", "source": "naver_news", "published": "2026-07-01",
+        {"title": "일반 뉴스", "source": "naver_news", "published": datetime.date.today().isoformat(),
          "url": "https://n.example/r", "summary": "내용"},
     ])
     monkeypatch.setattr(kb.ingest_dart, "corp_codes", lambda: {"005930": "00126380"})

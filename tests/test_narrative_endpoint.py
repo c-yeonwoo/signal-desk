@@ -1,5 +1,7 @@
 """회귀: /api/narrative가 narrative 모듈을 실제 호출 — import 누락 시 NameError를 잡는다."""
 
+import time
+
 from signal_desk import api, company, llm
 from signal_desk.signals.engine import SignalResult
 
@@ -40,3 +42,23 @@ def test_narrative_hold_skips_llm(tmp_path, monkeypatch):
     out = api.narrative_get("005930")
     assert out["ok"] and out["source"] == "rule" and out["narrative"] == "관망 규칙 해설"
     assert called["n"] == 0
+
+
+def test_narrative_never_includes_stale_kb_summary(tmp_path, monkeypatch):
+    monkeypatch.setattr(api.db, "DB", tmp_path / "app.db")
+    sig = SignalResult(ticker="005930", name="삼성전자", score=1.5, kind="BUY", confidence=0.6,
+                       technical_score=0.0, fundamental_score=0.0, has_fundamental=False,
+                       reasons=[], narrative="규칙 해설")
+    monkeypatch.setattr(api.store, "is_ready", lambda: True)
+    monkeypatch.setattr(api, "_signals", lambda: [sig])
+    monkeypatch.setattr(api.store, "load_universe", lambda: [{"ticker": "005930", "name": "삼성전자"}])
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [])
+    monkeypatch.setattr(company, "about", lambda *a, **k: "반도체 회사")
+    monkeypatch.setattr(llm, "available", lambda: True)
+    monkeypatch.setattr(api.db, "kb_digest_get", lambda ticker: {
+        "summary": "지난달 호재", "newest_ts": int(time.time()) - 30 * 86400,
+    })
+    seen = []
+    monkeypatch.setattr(api.narrative, "explain_llm", lambda *args, **kwargs: seen.append(args[5]) or "오늘 해설")
+    out = api.narrative_get("005930")
+    assert out["ok"] and seen == [""]

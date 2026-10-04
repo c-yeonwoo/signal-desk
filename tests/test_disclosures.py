@@ -2,6 +2,7 @@
 
 import io
 import logging
+import datetime
 
 from signal_desk import kb
 from signal_desk.ingest import dart
@@ -51,7 +52,7 @@ def test_refresh_merges_disclosures(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [])          # 뉴스 없음
     monkeypatch.setattr(kb.ingest_dart, "corp_codes", lambda: {"005930": "00126380"})
     monkeypatch.setattr(kb.ingest_dart, "disclosures", lambda cc, b, e: [
-        {"report_nm": "감자 결정", "rcept_dt": "20260708", "rcept_no": "9"}])
+        {"report_nm": "감자 결정", "rcept_dt": datetime.date.today().strftime("%Y%m%d"), "rcept_no": "9"}])
     monkeypatch.setattr(kb, "build_digest", lambda name, items: {"sentiment": -0.5, "summary": "s", "points": []})
     out = kb.refresh([{"ticker": "005930", "name": "삼성전자"}])
     assert out["updated"] == 1                                          # 뉴스 0이어도 공시로 갱신

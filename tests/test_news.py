@@ -1,5 +1,7 @@
 import datetime
 
+import pytest
+
 from signal_desk.ingest import news
 
 
@@ -13,13 +15,15 @@ def test_is_securities_relevant_gate():
     assert not news.is_securities_relevant({"title": "삼성전자 노란봉투법 논란", "summary": "정치권 공방"})
 
 
-def test_within_days_filters_old_and_keeps_unparseable():
+def test_within_days_filters_old_unparseable_and_future():
     now = datetime.datetime.now(datetime.timezone.utc)
     recent = now.strftime("%a, %d %b %Y %H:%M:%S +0000")
     old = (now - datetime.timedelta(days=30)).strftime("%a, %d %b %Y %H:%M:%S +0000")
     assert news._within_days(recent, 7) is True
     assert news._within_days(old, 7) is False
-    assert news._within_days("", 7) is True  # 파싱 불가 → 보수적으로 유지
+    assert news._within_days("", 7) is False  # 시점 불명은 현재 근거에서 제외
+    future = (now + datetime.timedelta(hours=1)).strftime("%a, %d %b %Y %H:%M:%S +0000")
+    assert news._within_days(future, 7) is False
 
 
 def test_collect_applies_freshness_and_gate(monkeypatch):
@@ -42,3 +46,27 @@ def test_collect_skips_youtube_by_default(monkeypatch):
     monkeypatch.setattr(news, "youtube_search", lambda q, n: called.__setitem__("yt", True) or [])
     news.collect("삼성전자")
     assert called["yt"] is False  # 유튜브 보류 — 기본 미호출
+
+
+def test_news_error_is_not_reported_as_zero_articles(monkeypatch):
+    monkeypatch.setattr(news.config, "naver_search", lambda: ("id", "secret"))
+    monkeypatch.setattr(news.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(
+        TimeoutError("network unavailable")))
+    with pytest.raises(news.NewsCollectionError):
+        news.collect("삼성전자")
+
+
+def test_malformed_news_response_is_failure(monkeypatch):
+    monkeypatch.setattr(news.config, "naver_search", lambda: ("id", "secret"))
+
+    class Response:
+        def __enter__(self):
+            return self
+        def __exit__(self, *_):
+            return False
+        def read(self):
+            return b'{"errorCode":"SE01"}'
+
+    monkeypatch.setattr(news.urllib.request, "urlopen", lambda *a, **k: Response())
+    with pytest.raises(news.NewsCollectionError):
+        news.collect("삼성전자")
