@@ -46,6 +46,45 @@ _EVENT_SERIOUS = [
 _EVENT_TERMS = _EVENT_CRITICAL + _EVENT_SERIOUS
 EVENT_TTL_DAYS = 5  # 이 기간 지난 악재는 veto에서 해제(신선도)
 ADVISOR_DIGEST_MAX_AGE_HOURS = 72
+DIGEST_FUTURE_TOLERANCE_SECONDS = 300
+
+
+def digest_freshness(dg: dict | None, *, now: float | None = None,
+                     max_age_hours: float = ADVISOR_DIGEST_MAX_AGE_HOURS,
+                     check: dict | None = None) -> dict:
+    """종목 요약의 사용 자격은 재계산 시각이 아닌 최신 원문 발행시각으로 판단한다.
+
+    오래된 자료는 보관하되 오늘의 뉴스·자문·해설에서 제외한다. 공식 Decision 이벤트의
+    별도 만료 정책에는 영향을 주지 않는다.
+    """
+    if not dg or not dg.get("summary"):
+        return {"status": "missing", "current": False, "newest_ts": None, "age_hours": None}
+    if isinstance(check, dict) and check.get("status") == "failed":
+        return {"status": "source_failed", "current": False,
+                "newest_ts": dg.get("newest_ts"), "age_hours": None}
+    if dg.get("policy_version") != db.KB_DIGEST_POLICY_VERSION:
+        return {"status": "unverified_legacy", "current": False,
+                "newest_ts": dg.get("newest_ts"), "age_hours": None}
+    try:
+        newest = float(dg.get("newest_ts"))
+        current_time = time.time() if now is None else float(now)
+        age_hours = (current_time - newest) / 3600
+    except (TypeError, ValueError, OverflowError):
+        return {"status": "undated", "current": False, "newest_ts": None, "age_hours": None}
+    if not all(map(math.isfinite, (newest, current_time, age_hours))) or newest <= 0:
+        return {"status": "undated", "current": False, "newest_ts": None, "age_hours": None}
+    if age_hours < -DIGEST_FUTURE_TOLERANCE_SECONDS / 3600:
+        return {"status": "future", "current": False, "newest_ts": newest, "age_hours": round(age_hours, 1)}
+    if age_hours > max_age_hours:
+        return {"status": "stale", "current": False, "newest_ts": newest, "age_hours": round(age_hours, 1)}
+    return {"status": "current", "current": True, "newest_ts": newest,
+            "age_hours": round(max(0.0, age_hours), 1)}
+
+
+def digest_checks() -> dict[str, dict]:
+    """마지막 종목별 뉴스 확인 결과. 과거 데이터에는 값이 없어 발행시각 게이트만 적용한다."""
+    checks = db.kv_get("kb_digest_checks")
+    return checks if isinstance(checks, dict) else {}
 
 # 시맨틱 veto용 프로토타입 — 키워드 동의어·완곡 표현. 점수 팩터가 아니라 악재 후보만.
 # (라벨, 강도, 표현들). 임베딩 백엔드가 hashing이면 공유 토큰이 있을 때만 의미 있게 매칭.
@@ -542,7 +581,8 @@ def _rebuild_digest(ticker: str, name: str) -> None:
     digest = build_digest(name, items)
     event_flag, event_note = detect_event(items)
     db.kb_digest_set(ticker, name, digest["sentiment"], digest["summary"], digest["points"],
-                     len(items), newest_ts=_newest_ts(items), event_flag=event_flag, event_note=event_note)
+                     len(items), newest_ts=_newest_ts(items), event_flag=event_flag, event_note=event_note,
+                     policy_version=None)  # 수동 업로드를 섞은 요약은 현재 뉴스 계약으로 인증하지 않음
 
 
 def detect_event(items: list[dict]) -> tuple[bool, str]:
@@ -1076,6 +1116,8 @@ def sync_candidate_events(ticker: str, items: list[dict]) -> int:
     for it in items:
         if n >= _CANDIDATE_MAX_PER_REFRESH:
             break
+        if not _current_digest_items([it], now=now):
+            continue  # 날짜 없는/오래된 뉴스로 오늘의 매매 차단 사건을 만들지 않는다.
         if (it.get("source") or "") == "dart":
             continue
         url = (it.get("url") or "").strip()
@@ -1095,12 +1137,8 @@ def sync_candidate_events(ticker: str, items: list[dict]) -> int:
         if not meta:
             continue
         published = it.get("published") or ""
-        effective = None
-        if len(published) >= 10 and published[4] == "-":
-            try:
-                effective = int(datetime.datetime.strptime(published[:10], "%Y-%m-%d").timestamp())
-            except ValueError:
-                effective = None
+        parsed = news._parse_dt(published)
+        effective = int(parsed.timestamp()) if parsed else None
         detected = now  # published 날짜는 원천 시점, detected는 최초 관측 시점.
         eid = db.kb_event_upsert(
             {
@@ -1152,6 +1190,24 @@ def _newest_ts(items: list[dict]) -> int | None:
     """원자료 중 가장 최근 발행 시각(epoch). 파싱 가능한 게 없으면 None."""
     times = [dt.timestamp() for it in items if (dt := news._parse_dt(it.get("published", "")))]
     return int(max(times)) if times else None
+
+
+def _current_digest_items(items: list[dict], *, now: float | None = None) -> list[dict]:
+    """오늘의 종목 요약에는 시각을 확인한 72시간 이내 원문만 넣는다.
+
+    원문 보존·공식 사건 TTL은 별도다. 최근 기사 1건이 지난주 기사까지 '최신 요약'으로
+    세탁하는 것을 막는다.
+    """
+    current_time = time.time() if now is None else now
+    out = []
+    for item in items:
+        published = news._parse_dt(item.get("published", ""))
+        if published is None:
+            continue
+        age = current_time - published.timestamp()
+        if -DIGEST_FUTURE_TOLERANCE_SECONDS <= age <= ADVISOR_DIGEST_MAX_AGE_HOURS * 3600:
+            out.append(item)
+    return out
 
 
 def _rule_digest(name: str, items: list[dict]) -> dict:
@@ -1428,16 +1484,7 @@ def advisor_digest(ticker: str, *, now: float | None = None) -> dict | None:
     신규 공시 악재 veto는 별도 사건 원장을 읽으므로 여기서 제거하지 않는다.
     """
     dg = db.kb_digest_get(ticker)
-    if not dg or not dg.get("summary"):
-        return None
-    try:
-        newest = float(dg.get("newest_ts"))
-        age = (time.time() if now is None else now) - newest
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(newest) or not math.isfinite(age) or newest <= 0 or age < 0 or age > ADVISOR_DIGEST_MAX_AGE_HOURS * 3600:
-        return None
-    return dg
+    return dg if digest_freshness(dg, now=now, check=digest_checks().get(ticker))["current"] else None
 
 
 def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days: int) -> bool:
@@ -1446,8 +1493,13 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
     신규 URL(뉴스·공시)이 없고 기존 다이제스트가 있으면 LLM 다이제스트를 다시 돌리지 않는다 —
     같은 헤드라인으로 Sonnet/Haiku를 하루 두 번 태우던 경로가 비용의 본체였다.
     """
-    news_items = news.collect(name, news_n=news_n, lookback_days=lookback_days)
     disc = _disclosure_items(codes.get(ticker))  # DART 주요공시(악재 veto·호재 근거) — 뉴스보다 확실
+    try:
+        news_items = news.collect(name, news_n=news_n, lookback_days=lookback_days)
+    except news.NewsCollectionError:
+        # 뉴스 장애가 공식 공시의 기존 위험 차단까지 막아서는 안 된다.
+        sync_disclosure_events(ticker, disc)
+        raise
     items = disc + news_items
     if not items:
         return False
@@ -1457,35 +1509,38 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
     # 증분 판정은 ingest 전 — INSERT 이후엔 전부 '이미 있음'이 된다
     all_urls = [it["url"] for it in items if it.get("url")]
     already = db.kb_entry_urls_existing(all_urls)
+    digest_items = _current_digest_items(items)
+    digest_new = [it for it in digest_items if not it.get("url") or it["url"] not in already]
     new_news = [it for it in news_items if it.get("url") and it["url"] not in already]
-    new_disc = [it for it in disc if it.get("url") and it["url"] not in already]
-    no_url_new = [it for it in items if not it.get("url")]  # URL 없는 항목은 매번 신규로 본다
     ingest_stock_batch(ticker, items)  # P1: source registry 게이트
     sync_disclosure_events(ticker, disc)  # P0: 구조화 이벤트 카드(공식 공시)
     sync_candidate_events(ticker, new_news)  # P1b: 추출→자동 판정(명확 악재만 Decision)
     existing = db.kb_digest_get(ticker)
-    if not new_news and not new_disc and not no_url_new and existing:
+    if not digest_items and not existing:
+        return False
+    if (not digest_new and existing and existing.get("policy_version") == db.KB_DIGEST_POLICY_VERSION) or not digest_items:
         # 이벤트 플래그만 Decision 기준으로 동기화(요약 재생성 X)
         event_flag, event_note = detect_event(items)
         active = _active_decision_event(ticker)
         if active:
             event_flag, event_note = True, active.get("summary") or event_note
-        if bool(existing.get("event_flag")) != bool(event_flag) or (existing.get("event_note") or "") != (event_note or ""):
+        if existing and (bool(existing.get("event_flag")) != bool(event_flag) or (existing.get("event_note") or "") != (event_note or "")):
             db.kb_digest_set(
                 ticker, name, float(existing.get("sentiment") or 0),
                 existing.get("summary") or "", existing.get("points") or [],
                 len(items), newest_ts=existing.get("newest_ts") or _newest_ts(items),
                 event_flag=event_flag, event_note=event_note,
+                policy_version=existing.get("policy_version"),
             )
-        return False  # LLM 비용 0 · updated 카운트에도 안 잡힘
-    digest = build_digest(name, items)
+        return False  # LLM 비용 0 · 오래된 원문으로 오늘 요약을 만들지 않음
+    digest = build_digest(name, digest_items)
     # digest 플래그는 레거시·폴백 — Decision은 active event 우선(sentiment_map)
     event_flag, event_note = detect_event(items)
     active = _active_decision_event(ticker)
     if active:
         event_flag, event_note = True, active.get("summary") or event_note
     db.kb_digest_set(ticker, name, digest["sentiment"], digest["summary"], digest["points"],
-                     len(items), newest_ts=_newest_ts(items), event_flag=event_flag, event_note=event_note)
+                     len(digest_items), newest_ts=_newest_ts(digest_items), event_flag=event_flag, event_note=event_note)
     return True
 
 
@@ -1497,7 +1552,7 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
     전체 다이제스트 신선도를 max()로 재고 있었고 거시/US 다이제스트가 매일 갱신돼 최신으로 보였다.
     마지막 실행 결과는 kv에 남겨 관리자 진단(refresh_status)이 실패 종목을 이름으로 드러낸다.
     """
-    updated, failed = 0, []
+    updated, failed, checked = 0, [], []
     try:
         codes = corp_codes_cached()  # stock_code→corp_code(캐시). 키 없으면 {}
     except Exception as e:
@@ -1510,6 +1565,7 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
         try:
             if _refresh_one(ticker, name, codes, news_n, lookback_days):
                 updated += 1
+            checked.append(ticker)  # 새 URL이 없어도 요청 자체는 성공했다.
         except Exception as e:
             failed.append({"ticker": ticker, "name": name, "error": type(e).__name__})
             log.warning("KB 종목 수집 실패 %s(%s): %s", name, ticker, type(e).__name__)
@@ -1525,7 +1581,19 @@ def refresh(targets: list[dict], news_n: int = 8, lookback_days: int = 7) -> dic
     if failed:
         log.warning("KB 종목 수집 %d/%d 실패: %s", len(failed), len(targets),
                     ", ".join(f["name"] for f in failed[:8]))
-    db.kv_set("kb_refresh_last", {**out, "ts": int(time.time())})
+    ts = int(time.time())
+    failed_tickers = {f["ticker"] for f in failed}
+    def merge_checks(old):
+        merged = dict(old) if isinstance(old, dict) else {}
+        for ticker in checked:
+            merged[ticker] = {"status": "ok", "checked_at": ts, "last_success_at": ts}
+        for ticker in failed_tickers:
+            prior = merged.get(ticker) or {}
+            merged[ticker] = {"status": "failed", "checked_at": ts,
+                              "last_success_at": prior.get("last_success_at")}
+        return merged, None
+    db.kv_transform("kb_digest_checks", merge_checks)
+    db.kv_set("kb_refresh_last", {**out, "ts": ts})
     return out
 
 
@@ -1539,25 +1607,32 @@ def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3,
     """
     last = db.kv_get("kb_refresh_last") or {}
     digests = db.kb_digests_all()
+    checks = digest_checks()
     now = time.time()
-    rows, cutoff = [], now - stale_days * 86400
+    rows = []
     for t in targets or []:
         dg = digests.get(t.get("ticker") or "")
-        upd = (dg or {}).get("updated")
+        state = digest_freshness(dg, now=now, max_age_hours=stale_days * 24,
+                                 check=checks.get(t.get("ticker") or ""))
         rows.append({"ticker": t.get("ticker"), "name": t.get("name"),
-                     "age_days": round((now - upd) / 86400, 1) if upd else None,
-                     "fresh": bool(upd and upd >= cutoff)})
+                     "age_days": round(state["age_hours"] / 24, 1) if state["age_hours"] is not None else None,
+                     "fresh": state["current"], "status": state["status"]})
     fresh = [r for r in rows if r["fresh"]]
     stale = [r for r in rows if not r["fresh"]]
     oldest = max((r["age_days"] for r in rows if r["age_days"] is not None), default=None)
     reason = None
     kind = None
+    failed_rows = [r for r in rows if r["status"] == "source_failed"]
     if not rows:
         reason = "수집 대상 없음 — 확정 국면 주도섹터·보유·관심종목이 비었다"
         kind = "empty"
     elif last.get("failed"):
         reason = (f"마지막 실행에서 {len(last['failed'])}종목 실패: "
                   + ", ".join(f["name"] for f in last["failed"][:5]))
+        kind = "fault"
+    elif failed_rows:
+        reason = (f"대상 {len(failed_rows)}종목의 마지막 뉴스 확인 실패: "
+                  + ", ".join(r["name"] for r in failed_rows[:5]))
         kind = "fault"
     elif not fresh and auto_collect is False:
         # **동결과 고장을 구분한다.** 자동수집은 기본 OFF다(`config.kb_auto_collect` — 트레이딩
@@ -1571,8 +1646,12 @@ def refresh_status(targets: list[dict] | None = None, *, stale_days: int = 3,
         # 어디에서도 검사되지 않는다(`[추세]` 접두어 파싱과 같은 병).
         kind = "frozen"
     elif not fresh:
-        reason = f"대상 {len(rows)}종목 전부 {stale_days}일 이상 미갱신 — 수집 루프가 멈췄을 수 있다"
+        reason = (f"대상 {len(rows)}종목 전부 현재 근거 없음 — 원문 발표시각·요약 정책 확인 필요, "
+                  "수집 루프가 멈췄을 수 있다")
         kind = "fault"
+    elif stale:
+        reason = f"대상 {len(rows)}종목 중 {len(stale)}종목은 현재 근거 없음 — 지난 요약은 판단에서 제외"
+        kind = "frozen" if auto_collect is False else "degraded"
     return {"targets": len(rows), "fresh": len(fresh), "stale": len(stale),
             "oldest_age_days": oldest, "stale_days": stale_days,
             "stale_names": [r["name"] for r in stale[:8]],
@@ -1595,24 +1674,25 @@ def sentiment_map() -> dict[str, dict]:
     """
     from signal_desk.signals import decision as decmod
     out = {}
+    checks = digest_checks()
     for ticker, dg in db.kb_digests_all().items():
         if ticker.startswith("_"):  # 거시·시황 등 가상 종목은 개별 시그널에 반영 안 함(격리)
             continue
         reasons = []
-        # 정성 근거에는 시점을 붙인다 — 며칠 전 감성이 현재 판단처럼 읽히면 신선도는 없는 것과 같다.
-        dg_ts = dg.get("newest_ts") or dg.get("updated")
-        age_h = round((time.time() - dg_ts) / 3600, 1) if dg_ts else None
-        if dg.get("summary"):
-            stamp = ("" if age_h is None or age_h <= 24
-                     else f" (⏱ {age_h / 24:.0f}일 전 뉴스 기준)")
+        # 정성 설명은 최신 원문 날짜가 확인될 때만 노출한다. 공식 이벤트는 별도 원장이다.
+        freshness = digest_freshness(dg, check=checks.get(ticker))
+        age_h = freshness["age_hours"]
+        if freshness["current"]:
+            stamp = "" if age_h is None or age_h <= 24 else f" (⏱ {age_h / 24:.0f}일 전 뉴스 기준)"
             reasons.append(f"[정성] {dg['summary']}{stamp}")
         events = db.kb_events_active(ticker, decision_only=True)
         dec = decmod.decide(events)
         if dec.summary:
             reasons.append(f"[이벤트] {dec.summary}")
         out[ticker] = {
-            "score": dg.get("sentiment", 0.0), "reasons": reasons,
-            "age_hours": age_h, "stale": bool(age_h is not None and age_h > 72),
+            "score": dg.get("sentiment", 0.0) if freshness["current"] else 0.0,
+            "reasons": reasons, "age_hours": age_h, "stale": not freshness["current"],
+            "freshness_status": freshness["status"],
             "event_risk": dec.buy_blocked,  # 별칭
             "event_note": dec.summary,
             "event_severity": dec.severity or "",
@@ -1631,7 +1711,7 @@ def sentiment_map() -> dict[str, dict]:
         out[ticker] = {
             "score": 0.0,
             "reasons": [f"[이벤트] {dec.summary}"] if dec.summary else [],
-            "age_hours": None, "stale": False,
+            "age_hours": None, "stale": True, "freshness_status": "missing",
             "event_risk": True,
             "event_note": dec.summary,
             "event_severity": dec.severity or "",

@@ -909,8 +909,10 @@ def evaluate(
         )
         # `_norm`·`_weight`를 **버린다는 것을 이름으로** 드러낸다 — 예전엔 `qual_norm`·`qual_weight`
         # 로 받아 놓고 아래에서 쓰지 않아, 읽는 사람이 combine에 들어간다고 착각했다.
+        qual_entry = sentiment.get(ticker)
         _unused_norm, _unused_weight, qual_reasons, qual_score, has_qualitative = qual.component(
-            sentiment.get(ticker), config.weight_qualitative
+            qual_entry if qual_entry and not qual_entry.get("stale") else None,
+            config.weight_qualitative,
         )
         del _unused_norm, _unused_weight
         flow_norm, flow_weight, flow_reasons, flow_intensity, has_flow = flow_mod.component(

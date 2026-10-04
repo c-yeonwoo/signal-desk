@@ -1,12 +1,14 @@
 """KB 다이제스트 비용 가드 — 신규 없을 때 LLM 스킵 · 후보 프리필터."""
 
+import datetime
+
 from signal_desk import db, kb
 
 
 def test_refresh_skips_digest_when_urls_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.db, "DB", tmp_path / "app.db")
     item = {
-        "title": "주가 상승 마감", "source": "naver_news", "published": "2026-07-18",
+        "title": "주가 상승 마감", "source": "naver_news", "published": datetime.date.today().isoformat(),
         "url": "https://n.example/same1", "summary": "외국인 순매수",
     }
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [item])
@@ -41,7 +43,7 @@ def test_candidate_prefilter_skips_noise(tmp_path, monkeypatch):
     assert kb.sync_candidate_events("005930", [{
         "title": "외국인 순매수에 주가 상승 마감", "source": "naver_news",
         "url": "https://n.example/noise", "summary": "코스피 강세",
-        "published": "2026-07-18",
+        "published": datetime.date.today().isoformat(),
     }]) == 0
     assert calls["n"] == 0
 
@@ -57,7 +59,7 @@ def test_candidate_prefilter_allows_material(tmp_path, monkeypatch):
     assert kb.sync_candidate_events("005930", [{
         "title": "검찰, 압수수색", "source": "naver_news",
         "url": "https://n.example/mat", "summary": "횡령 혐의",
-        "published": "2026-07-18",
+        "published": datetime.date.today().isoformat(),
     }]) == 1
 
 

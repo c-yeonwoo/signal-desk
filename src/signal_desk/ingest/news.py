@@ -1,6 +1,7 @@
 """뉴스·영상 수집 — 네이버 뉴스 검색 API + 유튜브 데이터 API v3.
 
-키가 없으면 조용히 빈 리스트(그레이스풀 폴백). 원자료는 kb.py가 한 번 더 가공(요약·감성)해
+키가 없거나 요청에 실패하면 수집 실패를 호출자에 전달한다. 빈 결과와 실패를 구분해야
+지난 요약을 오늘 확인한 뉴스처럼 보이지 않을 수 있다. 원자료는 kb.py가 한 번 더 가공(요약·감성)해
 KB로 적재한다. 여기서는 정규화된 원자료만 반환한다: {title, summary, url, source, published}.
 
 증권 특화(2026-07 재설계): 종목명 단독 검색은 정치·산업 노이즈가 섞여(실측 확인) 종목명+"주가"로
@@ -25,6 +26,11 @@ log = logging.getLogger("signal_desk.ingest.news")
 _TIMEOUT = 15
 _TAG = re.compile(r"<[^>]+>")
 _ENT = {"&quot;": '"', "&amp;": "&", "&lt;": "<", "&gt;": ">", "&#39;": "'", "&apos;": "'"}
+
+
+class NewsCollectionError(RuntimeError):
+    """뉴스 원천을 확인하지 못했다. '새 기사 0건'과 다르다."""
+
 
 # 증권 관련성 판정 키워드 — 제목/요약에 하나라도 있으면 증권 뉴스로 통과(관련성 게이트).
 SECURITIES_TERMS = (
@@ -62,12 +68,13 @@ def _parse_dt(s: str) -> datetime.datetime | None:
 
 
 def _within_days(published: str, days: int) -> bool:
-    """발행일이 최근 days일 이내인가. 파싱 실패 시 True(보수적으로 유지 — 필터로 버리지 않음)."""
+    """발행일을 확인할 수 없는 기사는 오늘의 근거로 수집하지 않는다."""
     dt = _parse_dt(published)
     if dt is None:
-        return True
+        return False
     now = datetime.datetime.now(dt.tzinfo)
-    return (now - dt).days <= days
+    age_seconds = (now - dt).total_seconds()
+    return -300 <= age_seconds <= days * 86400
 
 
 def _clean(s: str) -> str:
@@ -78,10 +85,10 @@ def _clean(s: str) -> str:
 
 
 def naver_news(query: str, n: int = 5) -> list[dict]:
-    """네이버 뉴스 검색(최신순). CLIENT_ID/SECRET 없으면 []."""
+    """네이버 뉴스 검색(최신순). 인증·요청 실패는 빈 결과로 숨기지 않는다."""
     cid, secret = config.naver_search()
     if not (cid and secret):
-        return []
+        raise NewsCollectionError("naver_credentials_missing")
     qs = urllib.parse.urlencode({"query": query, "display": n, "sort": "date"})
     req = urllib.request.Request(f"https://openapi.naver.com/v1/search/news.json?{qs}")
     req.add_header("X-Naver-Client-Id", cid)
@@ -91,7 +98,9 @@ def naver_news(query: str, n: int = 5) -> list[dict]:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception as e:
         log.warning("네이버 뉴스 실패(%s): %s", query, type(e).__name__)
-        return []
+        raise NewsCollectionError(type(e).__name__) from e
+    if not isinstance(data, dict) or not isinstance(data.get("items"), list):
+        raise NewsCollectionError("invalid_response")
     out = []
     for it in data.get("items", []):
         out.append({

@@ -115,7 +115,7 @@ def _daily_kb_collect():
             targets = _kb_targets()
             if targets:
                 out = kb.refresh(targets)  # per-target 격리 — 한 종목 실패가 나머지·prune을 죽이지 않는다
-                got = got or bool(out.get("updated"))
+                got = got or bool(out.get("updated") or out.get("failed"))
                 if out.get("failed"):
                     log.warning("KB 종목 자동수집 일부 실패 %d/%d — 관리자 데이터 상태에 노출됨",
                                 len(out["failed"]), out.get("targets") or 0)
@@ -2463,7 +2463,10 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     )
     d["moves"] = company.recent_moves(ticker, r.name)
     dg = db.kb_digest_get(ticker)
-    d["kb"] = {"sentiment": dg["sentiment"], "summary": dg["summary"], "points": dg["points"]} if dg else None
+    kb_state = kb.digest_freshness(dg, check=kb.digest_checks().get(ticker))
+    d["kb_status"] = kb_state
+    d["kb"] = ({"sentiment": dg["sentiment"], "summary": dg["summary"], "points": dg["points"],
+                "newest_ts": dg["newest_ts"]} if kb_state["current"] else None)
     d["opp_tags"] = opportunity.classify(r)
     d["target"] = target.compute(d["price"], f.get("per"), sec_med.get(sector) or med_per,
                                  store.load_price_series().get(ticker),
@@ -3034,12 +3037,13 @@ def narrative_get(ticker: str):
             generate=True, model=llm_mod.ABOUT_QUALITY_MODEL,
         ) or ""
         dg = db.kb_digest_get(ticker)
-        kb_summary = (dg or {}).get("summary") or ""
+        kb_state = kb.digest_freshness(dg, check=kb.digest_checks().get(ticker))
+        kb_summary = dg["summary"] if kb_state["current"] else ""
         # 데이터 스냅샷 해시로 캐시 키 — 시그널/KB/개요가 바뀌면 자동 무효화
         h = hashlib.md5(
-            f"{sig.kind}|{round(sig.score, 1)}|{kb_summary}|{about_txt}".encode()
+            f"{sig.kind}|{round(sig.score, 1)}|{kb_summary}|{kb_state['newest_ts'] if kb_state['current'] else ''}|{about_txt}".encode()
         ).hexdigest()[:12]
-        key = f"narrv6:{ticker}:{h}"  # 문체·길이 계약 변경. 이전 해설 캐시와 구분
+        key = f"narrv7:{ticker}:{h}"  # 만료된 KB가 들어간 옛 해설 캐시와 분리
         cached = db.kv_get(key)
         if cached:
             return {"ok": True, "narrative": cached, "source": "llm", "cached": True}
@@ -4085,9 +4089,11 @@ def data_health_get():
         log.warning("KB 수집 상태 계산 실패: %s", type(e).__name__)
         kb_refresh = {"blocked_reason": f"상태 계산 실패({type(e).__name__})"}
     if digests:
-        # 신선도는 '수집 대상 중 신선한 것'으로 판정한다 — 전체 max()는 거시·US 다이제스트가 매일
+        # 신선도는 '수집 대상의 최신 원문'으로 판정한다 — 전체 max()는 거시·US 다이제스트가 매일
         # 갱신되는 것에 가려 국내 종목 수집이 몇 주 멈춰도 '방금 갱신'으로 보인다(실제로 7일 놓쳤다).
-        latest = max((d.get("updated") or 0) for d in digests.values())
+        checks = kb.digest_checks()
+        latest = max((d.get("newest_ts") or 0 for ticker, d in digests.items()
+                      if not ticker.startswith("_") and kb.digest_freshness(d, check=checks.get(ticker))["current"]), default=0)
         age_h = (time.time() - latest) / 3600 if latest else None
         fresh.append({"key": "kb", "label": "KB 다이제스트", "rows": len(digests),
                       "updated": (datetime.datetime.fromtimestamp(latest).strftime("%Y-%m-%d %H:%M")
@@ -5394,12 +5400,16 @@ def kb_digests_get():
     names = {u["ticker"]: u["name"] for u in store.load_universe()}
     names[kb.MACRO_TICKER] = kb.MACRO_NAME
     out = []
+    checks = kb.digest_checks()
     for ticker, dg in db.kb_digests_all().items():
+        freshness = kb.digest_freshness(dg, check=checks.get(ticker),
+                                        max_age_hours=240 if ticker.startswith("_") else 72)
         out.append({
             "ticker": ticker, "name": names.get(ticker, dg.get("name") or ticker),
             "summary": dg.get("summary"), "points": dg.get("points") or [],
             "sentiment": dg.get("sentiment"), "n_sources": dg.get("n_sources"),
-            "newest_ts": dg.get("newest_ts"), "event_flag": dg.get("event_flag"),
+            "newest_ts": dg.get("newest_ts"), "updated": dg.get("updated"),
+            "freshness": freshness, "event_flag": dg.get("event_flag"),
             "is_macro": ticker.startswith("_"),
         })
     # 거시 먼저, 그다음 최신 원자료순
@@ -5452,8 +5462,12 @@ async def kb_import_file(ticker: str = Form(""), file: UploadFile = FastFile(...
 
 @app.get("/api/kb/{ticker}")
 def kb_get(ticker: str):
-    """종목 KB 다이제스트 + 최근 원자료 헤드라인."""
-    return {"digest": db.kb_digest_get(ticker), "entries": db.kb_entries_recent(ticker, 8)}
+    """현재 사용 가능한 요약과 지난 기록을 구분한다."""
+    dg = db.kb_digest_get(ticker)
+    state = kb.digest_freshness(dg, check=kb.digest_checks().get(ticker))
+    return {"digest": dg if state["current"] else None,
+            "archived_digest": dg if dg and not state["current"] else None,
+            "freshness": state, "entries": db.kb_entries_recent(ticker, 8)}
 
 
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------
