@@ -23,6 +23,14 @@
 .invest-guidance h3 {font-size:17px;margin:7px 0}.invest-next b {color:var(--txt)}
 #reference-perf {overflow-x:auto}#bot-rules {line-height:1.8}
 #portfolio-bot.is-loading > :not(#bot-review) {display:none}
+#trading-rebal .pf-settings {margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
+#trading-rebal .pf-settings>summary {cursor:pointer;color:var(--accent);font-size:13px;font-weight:700;padding:6px 0}
+#trading-rebal .pf-settings>summary span,#trading-rebal .pf-advanced>summary span {color:var(--dim);font-weight:500}
+#trading-rebal .pf-settings>summary:focus-visible,#trading-rebal .pf-advanced>summary:focus-visible {outline:2px solid var(--accent);outline-offset:3px}
+#trading-rebal .pf-advanced {border:1px solid var(--line);border-radius:var(--r-md);background:var(--panel);margin-bottom:12px;min-width:0}
+#trading-rebal .pf-advanced>summary {cursor:pointer;padding:15px 18px;font-size:14px;font-weight:700;line-height:1.5}
+#trading-rebal .pf-advanced[open] {padding:0 16px 4px}
+#trading-rebal .pf-advanced[open]>summary {margin:0 -16px 16px;border-bottom:1px solid var(--line)}
 @media(max-width:640px) {
   .invest-hero,.invest-review {padding:18px}.invest-breakdown {grid-template-columns:1fr;gap:8px;margin:14px 0}
   .invest-breakdown>div {display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px}

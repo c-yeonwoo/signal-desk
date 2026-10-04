@@ -44,7 +44,6 @@ window.InvestmentHome = (() => {
       put('home-action-why','저장된 진단이 없어 오늘의 개인별 매매 행동을 판단할 수 없습니다.');
       put('home-action-meta','주문 제안 없음 · 먼저 보유와 현금을 확인하세요.');
       put('home-asof','진단 가격 기준시각 없음');
-      put('home-next','보유종목과 현금을 입력한 뒤 진단해 주세요.');
       return;
     }
     const g = (d.guidance || [])[0];
@@ -60,10 +59,16 @@ window.InvestmentHome = (() => {
       put('home-action-title',`${old ? '지난 진단 · ' : ''}${g.action || '검토 필요'}`);
       put('home-action-why',g.reason || '상세 진단의 근거를 확인하세요.');
     }
+    if (g?.kind === 'input') {
+      put('home-action-meta','입력 전 · 매매 제안 없음');
+      put('home-asof','');
+      return;
+    }
     const cur = g && g.current_pct != null ? `현재 ${g.current_pct}%` : '현재 비중 미확인';
     const cap = g && g.limit_pct != null ? `한도 ${g.limit_pct}%` : '제안 비중·금액 미산출';
-    put('home-action-meta',`${cur} · ${cap} · ${d.as_of || '시점 미확인'} 기준 · 주문 아님`);
-    put('home-next','보유종목·가격·설정 한도가 바뀌면 다시 진단해 주세요.');
+    put('home-action-meta',g && (g.current_pct != null || g.limit_pct != null)
+      ? `${cur} · ${cap} · ${d.as_of || '시점 미확인'} 기준 · 주문 아님`
+      : `${d.as_of || '시점 미확인'} 기준 · 주문 아님`);
   }
   function updateChange(d) {
     lastChange = d;
