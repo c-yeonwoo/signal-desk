@@ -32,6 +32,16 @@ def test_signal_screen_does_not_load_hidden_portfolio_home():
     assert "if (seg === 'rebal')" in html and "InvestmentHome.load" in html
 
 
+def test_market_detail_does_not_show_or_fetch_relative_strength_leaderboard():
+    html = WEB.read_text(encoding="utf-8")
+    details = html.split('<div id="macro-detail"', 1)[1].split("</main>", 1)[0]
+    loader = html.split("function loadMacroDetails(){", 1)[1].split("}\n", 1)[0]
+    assert 'id="relstr-card"' not in details
+    assert "loadRelativeStrength" not in loader
+    assert "'/api/relative-strength'" not in html
+    assert '/api/relative-strength' not in Path(api.__file__).read_text(encoding="utf-8")
+
+
 def test_signal_list_renders_without_waiting_for_backtest():
     node = shutil.which("node")
     if not node:
