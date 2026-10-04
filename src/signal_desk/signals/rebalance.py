@@ -7,11 +7,14 @@
 from __future__ import annotations
 
 from signal_desk import llm
+from signal_desk.copy_style import PLAIN_KOREAN
 from signal_desk.signals import engine
 
 
 # 목표비중 ±밴드 — 이 안이면 유지(라오어 VR 응용: 밴드 벗어날 때만 리밸런싱 → 잦은 매매·노이즈 방지)
 REBAL_BAND = 0.25
+_SIGNAL_LABEL = {"STRONG_BUY": "강력매수", "BUY": "매수", "HOLD": "관망",
+                 "SELL": "매도", "STRONG_SELL": "강력매도"}
 
 
 def propose(holdings: list[dict], signal_by_ticker: dict, prices: dict[str, list[float]],
@@ -40,17 +43,18 @@ def propose(holdings: list[dict], signal_by_ticker: dict, prices: dict[str, list
         kind = sig.kind if sig else None
         score = sig.score if sig else None
         pl = (r["price"] / r["avg_price"] - 1) * 100 if r["avg_price"] else 0.0
-        band = f"목표 {target_w * 100:.0f}%±{REBAL_BAND * 100:.0f}%"
+        band = f"목표 {target_w * 100:.0f}% (유지 범위 {band_lo * 100:.1f}~{band_hi * 100:.1f}%)"
+        signal = _SIGNAL_LABEL.get(kind, "신호 없음")
         if engine.is_sell(kind):
-            action, reason = "매도", (f"시그널 {kind}(점수 {score:+.2f}) — 비중 정리 권고")
+            action, reason = "매도", f"{signal} 판정(점수 {score:+.2f})이 나왔습니다. 보유 이유를 다시 확인하세요."
         elif w > band_hi:  # 밴드 상단 초과 → 과다
-            action, reason = "축소", (f"비중 {w * 100:.0f}% > 밴드 상단({band}) — 일부 차익/분산")
+            action, reason = "축소", f"현재 비중 {w * 100:.1f}%가 {band}를 넘었습니다. 일부 축소를 검토하세요."
             keep_n += 1
         elif engine.is_buy(kind) and w < band_lo:  # 밴드 하단 미만 + BUY → 채움
-            action, reason = "비중확대", (f"시그널 {kind}(점수 {score:+.2f}) + 비중 {w * 100:.0f}% < 밴드 하단({band}) — 목표까지 분할 확대")
+            action, reason = "비중확대", f"{signal} 판정(점수 {score:+.2f})이고 현재 비중 {w * 100:.1f}%가 {band}보다 낮습니다."
             keep_n += 1
         else:  # 밴드 내 → 유지(리밸런싱 안 함)
-            action, reason = "유지", (f"시그널 {kind or '정보없음'} · 비중 {w * 100:.0f}% (밴드 {band} 내)")
+            action, reason = "유지", f"{signal} 판정이며 현재 비중 {w * 100:.1f}%입니다. {band}를 기준으로 지켜봅니다."
             keep_n += 1
         actions.append({"ticker": r["ticker"], "name": r["name"], "kind": kind, "score": score,
                         "action": action, "reason": reason, "weight": round(w * 100, 1),
@@ -64,7 +68,7 @@ def propose(holdings: list[dict], signal_by_ticker: dict, prices: dict[str, list
                      and t not in held and not getattr(s, "event_risk", False)),
                     key=lambda s: s.score, reverse=True)[:slots]
     adds = [{"ticker": s.ticker, "name": s.name, "score": s.score, "kind": s.kind,
-             "reason": f"미보유 {s.kind}(점수 {s.score:+.2f}) — 목표배분 채움(약 {target_w * 100:.0f}%)"}
+             "reason": f"아직 보유하지 않은 종목입니다. {_SIGNAL_LABEL.get(s.kind, s.kind)} 판정(점수 {s.score:+.2f}), 목표 비중 약 {target_w * 100:.0f}%."}
             for s in strong]
 
     return {"actions": actions, "adds": adds, "total_value": round(total),
@@ -78,7 +82,7 @@ def explain(plan: dict, style_label: str, context: dict) -> str:
     adds = [a["name"] for a in plan["adds"]]
     if llm.available():
         system = ("너는 한국 주식 포트폴리오 자문역이다. 아래 리밸런싱 제안을 성향과 시장 맥락에 비추어 "
-                  "2~3문장으로 쉽게 설명한다. 추천·단정 대신 근거 중심. 숫자를 지어내지 마라.")
+                  "2~3문장으로 설명한다. 추천·단정 대신 근거 중심. 숫자를 지어내지 마라. " + PLAIN_KOREAN)
         user = (f"[성향] {style_label} · [시장] 국면 {context.get('regime')}/거시 {context.get('macro_bias')}\n"
                 f"매도 권고: {sells or '없음'} / 축소: {trims or '없음'} / 신규 편입: {adds or '없음'} / "
                 f"목표 종목당 비중 {plan['target_weight']}%\n왜 이렇게 조정하는지 설명해줘.")
@@ -87,10 +91,10 @@ def explain(plan: dict, style_label: str, context: dict) -> str:
             return out
     parts = []
     if sells:
-        parts.append(f"시그널이 꺾인 {', '.join(sells)}는 정리")
+        parts.append(f"{', '.join(sells)}의 매도 판정을 다시 확인하세요.")
     if trims:
-        parts.append(f"과다 비중 {', '.join(trims)}는 축소")
+        parts.append(f"비중이 높은 {', '.join(trims)}의 축소를 검토하세요.")
     if adds:
-        parts.append(f"강한 BUY {', '.join(adds)} 신규 편입")
-    return (f"{style_label} 기준 " + ", ".join(parts) + "을 제안합니다.") if parts else \
-        f"{style_label} 기준 현재 보유가 대체로 목표배분에 부합합니다."
+        parts.append(f"{', '.join(adds)}의 신규 편입을 검토하세요.")
+    return (f"{style_label} 기준입니다. " + " ".join(parts)) if parts else \
+        f"{style_label} 기준에서 현재 보유 비중은 대체로 목표 범위에 있습니다."
