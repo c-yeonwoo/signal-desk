@@ -124,7 +124,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "무게↑" not in html and "갈래 무게" not in html
     assert "지금 더 가까움" in html
     assert "다시 볼 종목" in html
-    assert "market-bar-end" in html  # 시황 바 오른쪽 슬롯(live·거시토글)
+    assert 'id="market-ribbon" class="market-brief"' in html
+    assert 'id="market-brief-sources"' in html and "onMarketBriefSourcesToggle" in html
     # 이중 국면 라벨 **분리**가 계약이다(오늘의 코스피 상태 vs 다개월 경기 사이클).
     # 리터럴 `시장 ZONE`을 박으면 카피를 쉬운 말로 바꿀 때마다 깨진다 — 2026-08-06에 깨졌다.
     assert "지금 시장" in html and "경기 사이클(확정)" in html

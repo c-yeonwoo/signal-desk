@@ -97,20 +97,6 @@
   .tab:hover { background:var(--brand-50); color:var(--accent); }
   .tab.on { color:var(--accent); background:var(--accent-weak); border-color:var(--ring); }
   .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
-  /* 시황 바에 얕은 틴트 — 흰 헤더 아래 흰 바라 층이 안 보였다. 3% 정도면 경계만 생긴다. */
-  .market-bar { background:linear-gradient(var(--brand-50), var(--bg)); }
-  /* 시황 바 — 한 줄 밀도 우선(오른쪽 end 슬롯에 live·거시토글) */
-  .market-bar { display:flex; align-items:center; gap:7px 10px; flex-wrap:nowrap;
-    padding:7px clamp(16px,3.5vw,28px); border-bottom:1px solid var(--line); background:var(--panel); }
-  .market-bar .tb-label { font-size:var(--fs-xs); color:var(--dim-2); font-weight:700; letter-spacing:.03em; flex:0 0 auto; }
-  .market-bar .tb-detail { font-size:var(--fs-sm); color:var(--dim); min-width:0; }
-  .market-bar .tb-sep { width:1px; height:16px; background:var(--line-strong); flex:0 0 auto; }
-  .market-bar .tb-live { font-size:12px; color:var(--dim-2); max-width:200px;
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-  .market-bar-end { margin-left:auto; display:flex; align-items:center; gap:8px; flex:0 0 auto; min-width:0; }
-  .market-bar .macro-chip { flex-direction:row; align-items:baseline; gap:5px; padding:3px 9px; min-width:0; }
-  .market-bar .macro-chip .mc-label { font-size:11px; }
-  .market-bar .macro-chip .mc-value { font-size:var(--fs-sm); }
   .btn { padding:8px 14px; border:1px solid var(--line-strong); border-radius:var(--r-sm); background:var(--panel);
          color:var(--txt); cursor:pointer; font-size:var(--fs-base); font-weight:600;
          transition:background .12s,border-color .12s,color .12s; }
@@ -175,6 +161,34 @@
   .sig-topbar .tb-sep { width:1px; align-self:stretch; background:var(--line); margin:2px 0; }
   .sig-topbar .tb-detail { font-size:13px; color:var(--dim); }
   .macro-chips { display:flex; gap:7px; flex-wrap:wrap; }
+  .market-brief { margin:10px clamp(14px,3.5vw,44px) 2px; padding:18px 22px 13px;
+    border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel);
+    box-shadow:var(--shadow-sm); min-width:0; }
+  .mb-top, .mb-main, .mb-source-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .mb-eyebrow { color:var(--accent); font-size:12px; font-weight:700; letter-spacing:.06em; }
+  .mb-asof { color:var(--dim); font-size:12px; font-variant-numeric:tabular-nums; }
+  .mb-main { align-items:flex-end; margin-top:8px; }
+  .mb-market { color:var(--dim); font-size:13px; font-weight:600; }
+  .mb-state { font-size:clamp(21px,2.2vw,27px); line-height:1.25; margin:2px 0 4px; letter-spacing:-.035em; }
+  .mb-basis { color:var(--dim); font-size:13px; line-height:1.45; margin:0; }
+  .mb-selection { flex:0 0 auto; background:var(--bg); border:1px solid var(--line);
+    border-radius:var(--r-md); padding:9px 12px; min-width:142px; text-align:right; }
+  .mb-selection b { display:block; font-size:17px; line-height:1.2; font-variant-numeric:tabular-nums; }
+  .mb-selection small { display:block; color:var(--dim); font-size:11px; margin-top:3px; }
+  .mb-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-top:16px; }
+  .mb-fact { border:1px solid var(--line); border-radius:var(--r-md); padding:10px 12px; min-width:0; }
+  .mb-fact-label { display:block; color:var(--dim); font-size:12px; }
+  .mb-fact-value { display:block; font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.35; }
+  .mb-fact-detail { display:block; color:var(--dim); font-size:11px; line-height:1.4; }
+  .mb-meter { width:100%; height:7px; margin:5px 0 2px; accent-color:var(--accent); }
+  .mb-unknown { color:var(--dim); font-size:12px; line-height:1.5; margin:11px 0 0; }
+  .mb-unknown.is-warning { color:var(--sig-sell); font-weight:600; }
+  .mb-sources { border-top:1px solid var(--line); margin-top:13px; padding-top:9px; }
+  .mb-sources > summary { cursor:pointer; color:var(--accent); font-size:13px; font-weight:700; }
+  #macro-detail { padding:13px 0 3px; display:grid; gap:10px; }
+  #macro-detail .pcard { margin:0; }
+  .mb-source-head b { font-size:13px; }
+  .mb-source-foot { color:var(--dim-2); font-size:11px; line-height:1.5; margin:0; }
   .macro-chip { display:flex; flex-direction:column; gap:1px; border:1px solid var(--line);
     border-radius:9px; padding:5px 10px; background:var(--bg); min-width:76px; }
   .macro-chip .mc-label { font-size:11px; color:var(--dim); }
@@ -628,15 +642,6 @@
   footer b { color:var(--txt); }
 
 
-  /* 시황 적응 문구 — 칩은 인라인, 펼친 설명만 다음 줄 */
-  #regime-adaptive { display:none; flex:0 0 auto; }
-  #regime-adaptive.is-on { display:inline-flex; flex-wrap:wrap; align-items:center; gap:6px; }
-  #regime-adaptive.open { flex:1 1 100%; }
-  #regime-adaptive .adapt-chip { border:1px solid var(--line-strong); background:var(--bg); color:var(--sig-watch);
-    border-radius:var(--r-sm); padding:2px 9px; font-size:12px; font-weight:700; cursor:pointer; }
-  #regime-adaptive .adapt-full { display:none; flex:1 1 100%; font-size:12px; color:var(--dim); line-height:1.45; }
-  #regime-adaptive.open .adapt-full { display:block; }
-  #regime-detail { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   #myPageLabel { max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .btn-logout { white-space:nowrap; flex:0 0 auto; }
   .btn-logout .logout-short { display:none; }
@@ -652,7 +657,6 @@
   .sig-explore > summary { padding:9px 11px; cursor:pointer; color:var(--accent); font-size:13px; font-weight:700; }
   .sig-explore-body { padding:0 10px 10px; }
   .alert-bell-ico { display:inline-flex; align-items:center; line-height:0; }
-  .market-bar #macro-toggle { margin-left:0; flex:0 0 auto; padding:2px 10px; font-size:13px; }
 
   /* 반응형: 좁은 화면에서 워크스페이스를 세로로 쌓음 */
   @media (max-width:900px){
@@ -666,10 +670,6 @@
     .sig-chart-pane { min-height:0; max-height:none; width:100%; max-width:100%; }
     .sig-chart-pane .pane-head { flex-wrap:wrap; }
     .sig-chart-pane .pane-head #chart-mode-seg { margin-left:0; }
-    .market-bar { gap:6px 8px; flex-wrap:wrap; }
-    #regime-detail { white-space:normal; display:-webkit-box; -webkit-box-orient:vertical;
-      -webkit-line-clamp:2; overflow:hidden; flex:1 1 12rem; }
-    .market-bar-end { margin-left:0; flex:1 1 auto; justify-content:flex-end; }
   }
   /* 조용한 0 표 — dtable nowrap이 긴 상태문장을 카드 밖으로 민다 */
   #data-health { overflow-x:auto; max-width:100%; }
@@ -680,6 +680,10 @@
   #data-health table.dtable th:nth-child(1), #data-health table.dtable td:nth-child(1) { width:36%; }
   #data-health table.dtable th:nth-child(2), #data-health table.dtable td:nth-child(2) { width:16%; }
   @media (max-width:640px){
+    .market-brief { margin:8px 14px 0; padding:15px 14px 11px; }
+    .mb-main { align-items:stretch; flex-direction:column; }
+    .mb-selection { text-align:left; min-width:0; }
+    .mb-facts { grid-template-columns:1fr; }
     header { padding:10px 14px; gap:8px 6px; align-items:center; }
     header h1 { font-size:17px; flex:1 1 auto; min-width:0; }
     .right { order:2; gap:4px; max-width:58%; justify-content:flex-end; flex-wrap:nowrap; }
@@ -705,9 +709,6 @@
     .sig-list table.dtable th:nth-child(3), .sig-list table.dtable td:nth-child(3) { display:none; }
     .sig-list table.dtable th:nth-child(4) { text-align:center; }
     .sig-list .col-resizer { display:none; }
-    .market-bar #regime-detail { flex:1 1 100%; }
-    .market-bar-end { flex:1 1 100%; justify-content:space-between; }
-    .market-bar .tb-live { max-width:none; flex:1 1 auto; }
   }
 
   #authGate { position:fixed; inset:0; z-index:9999; display:none; align-items:center; justify-content:center;
@@ -944,38 +945,40 @@
   <button class="subtab" data-ref="etf" onclick="switchCycleRef('etf')">ETF</button>
 </nav>
 
-<div class="market-bar" id="market-ribbon">
-  <span class="tb-label" title="코스피 종목 중 오르는 종목 비율·최근 수익률로 판정한 오늘의 시장 상태. 인사이트 탭의 경기 사이클(다개월)과 다른 지표입니다 (원어: 시장 ZONE)">지금 시장</span>
-  <span id="regime-pill" class="sig-pill" title="지금 시장 · 강세/과열/조정/약세 (원어: 시장 ZONE)">-</span>
-  <span id="regime-detail" class="tb-detail"></span>
-  <span id="regime-adaptive" class="tb-detail"></span>
-  <span class="tb-sep" id="macro-sep" style="display:none"></span>
-  <span id="macro-bias" class="sig-pill" style="display:none">-</span>
-  <span class="market-bar-end">
-    <span id="live-status" class="tb-live" title="현재가 데이터 기준 시각"></span>
-    <button id="macro-toggle" class="btn" type="button" onclick="toggleMacro()">시장 근거 ▾</button>
-  </span>
-</div>
-<div id="macro-detail" style="display:none">
-  <div class="market-bar" style="border-top:none;padding-top:0"><div class="macro-chips" id="macro-chips"></div></div>
-  <div class="macro-callout" id="macro-narrative" style="display:none"></div>
-  <div id="industry-pulse" class="pcard industry-pulse" style="margin:var(--space-2) var(--space-4)">
-    <div class="pcard-title">미국 반도체·전자부품 생산 <span class="sub">연준 월간 통계 · 시장 이해용, 매수 신호 아님</span></div>
-    <div id="industry-pulse-body" class="ip-meta">공식 자료 관측 확인 중</div>
-  </div>
-  <div id="regime-card" class="pcard" style="display:none;margin:var(--space-2) var(--space-4)">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-      <span style="font-weight:700;font-size:13px">지금 시장 체온계</span>
-      <span style="font-size:11px;color:var(--dim-2)">코스피 · 경기 사이클과 별개</span>
-      <span id="regime-zone" style="font-weight:700;font-size:13px"></span>
-      <span id="regime-score" style="margin-left:auto;font-size:12px;color:var(--dim)"></span>
+<section id="market-ribbon" class="market-brief" aria-label="하루 시장 한눈에">
+  <div class="mb-top"><span class="mb-eyebrow">지금 시장 · 한눈에</span><span id="mb-asof" class="mb-asof">종가 확인 중…</span></div>
+  <div class="mb-main"><div><div id="mb-market" class="mb-market">국내 시장</div>
+    <h2 id="mb-state" class="mb-state" title="원어: 시장 ZONE · 유니버스 종가 흐름의 읽기 전용 근사">시장 자료를 확인하고 있습니다</h2>
+    <p id="mb-basis" class="mb-basis">저장된 종가를 확인한 뒤 표시합니다.</p></div>
+    <div id="mb-selection" class="mb-selection"></div></div>
+  <div id="mb-facts" class="mb-facts" aria-label="이렇게 본 이유"></div>
+  <p id="mb-unknown" class="mb-unknown"></p>
+  <details id="market-brief-sources" class="mb-sources" ontoggle="onMarketBriefSourcesToggle()">
+    <summary>수치·원문 근거 보기</summary>
+    <div id="macro-detail">
+      <div id="mb-fact-sources" class="mb-source-foot"></div>
+      <div class="mb-source-head"><b id="mb-macro-title">국내 시장 참고 지표</b><span id="macro-bias" class="sig-pill" style="display:none">-</span></div>
+      <div class="macro-chips" id="macro-chips"></div>
+      <div class="macro-callout" id="macro-narrative" style="display:none"></div>
+      <div id="industry-pulse" class="pcard industry-pulse" style="display:none">
+        <div class="pcard-title">미국 반도체·전자부품 생산 <span class="sub">연준 월간 통계 · 매수 신호 아님</span></div>
+        <div id="industry-pulse-body" class="ip-meta">공식 자료 관측 확인 중</div>
+      </div>
+      <div id="regime-card" class="pcard" style="display:none">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+          <span style="font-weight:700;font-size:13px">국내 시장 체온계</span>
+          <span id="regime-zone" style="font-weight:700;font-size:13px"></span>
+          <span id="regime-score" style="margin-left:auto;font-size:12px;color:var(--dim)"></span>
+        </div>
+        <div id="regime-summary" style="font-size:13px;color:var(--dim);margin-bottom:6px"></div>
+        <div id="regime-indicators" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
+        <div id="regime-recovery" style="font-size:12px;color:var(--dim-2)"></div>
+      </div>
+      <div id="live-status" class="mb-source-foot"></div>
+      <p class="mb-source-foot">시장 흐름은 종가로 관측한 현재 상태이며, 다음 가격이나 매수 성과를 예측하지 않습니다.</p>
     </div>
-    <div id="regime-summary" style="font-size:13px;color:var(--dim);margin-bottom:6px"></div>
-    <div id="regime-indicators" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px"></div>
-    <div id="regime-recovery" style="font-size:12px;color:var(--dim-2)"></div>
-    <div style="font-size:11px;color:var(--dim-2);margin-top:4px">※ 예측이 아니라 현재 구간 감지 — 바닥·반등 시점은 맞히지 않습니다</div>
-  </div>
-</div>
+  </details>
+</section>
 
 <main>
   <div id="view-signal" class="view-app" style="display:none">
@@ -2382,11 +2385,10 @@ function switchTab(t){
   if (refNav && t !== 'cycle') refNav.style.display = 'none';  // 참고 2단 내비는 인사이트에서만
   const onSignal = (t === 'signal');  // 시황 전광판·코멘터리는 시그널 탭에서만
   document.getElementById('market-ribbon').style.display = onSignal ? '' : 'none';
-  const _md = document.getElementById('macro-detail');
-  if (onSignal) applyMacroState(); else if (_md) _md.style.display = 'none';  // 접이식 상태 복원/숨김
+  if (onSignal) applyMacroState();
   // 내 투자 홈은 `trading/rebal` 안에만 있다. 시그널 화면에서 계좌·성과 API를 미리
   // 부르면 보이지 않는 카드 때문에 첫 목록 요청과 경쟁한다.
-  if (t === 'signal') { loadSignals(); if (_md && _md.style.display !== 'none') loadMacroDetails(); }
+  if (t === 'signal') { loadSignals(); loadRegime(); }
   if (t === 'watchlist') loadWatchlistBriefs();
   if (t === 'cycle') switchCycleSeg(_cycleSeg);   // 인사이트: 사이클/밸류체인/학습/거장 서브탭
   if (t === 'trading') switchTradingSeg(_tradingSeg);
@@ -3106,20 +3108,31 @@ function drawVcDiagram(s){
     <div class="vc-spine"></div><div class="vc-cols">${cols}</div></div>`;
 }
 
-// 시황 리본 — 기본은 국면 1줄 요약, 거시 지표칩·내러티브는 접이식(사용자 선택 기억)
+// 하루 시장 카드 — 근거만 접이식(사용자 선택 기억).
 function applyMacroState(){
   const open = localStorage.getItem('macroOpen') === '1';
-  const d = document.getElementById('macro-detail'), t = document.getElementById('macro-toggle');
-  if (d) d.style.display = open ? '' : 'none';
-  if (t) t.textContent = open ? '시장 근거 ▴' : '시장 근거 ▾';
+  const d = document.getElementById('market-brief-sources');
+  if (d) d.open = open;
 }
-function toggleMacro(){
-  localStorage.setItem('macroOpen', localStorage.getItem('macroOpen') === '1' ? '0' : '1');
-  applyMacroState();
-  if (document.getElementById('macro-detail')?.style.display !== 'none') loadMacroDetails();
+function onMarketBriefSourcesToggle(){
+  const d = document.getElementById('market-brief-sources');
+  localStorage.setItem('macroOpen', d.open ? '1' : '0');
+  if (d.open) loadMacroDetails();
 }
 function loadMacroDetails(){
-  loadIndustryPulse(); loadRegimeZone();
+  document.getElementById('mb-macro-title').textContent = _sigMarket === 'us' ? '미국 경제 지표' : '국내 시장 참고 지표(국내·미국)';
+  document.getElementById('macro-chips').textContent = '근거 확인 중…';
+  document.getElementById('macro-narrative').style.display = 'none';
+  document.getElementById('macro-bias').style.display = 'none';
+  document.getElementById('live-status').textContent = '';
+  loadMacro(); loadLiveStatus();
+  const kr = _sigMarket !== 'us';
+  document.getElementById('industry-pulse').style.display = kr ? 'none' : '';
+  document.getElementById('regime-card').style.display = 'none';
+  if (kr) loadRegimeZone(); else {
+    document.getElementById('industry-pulse-body').textContent = '공식 자료 관측 확인 중';
+    loadIndustryPulse();
+  }
 }
 function openHelp(){
   document.getElementById('helpDlg').showModal();
@@ -3179,54 +3192,65 @@ async function fillHelpWeights(){
   }
 }
 
+let _marketBriefSeq = 0;
 async function loadRegime(){
-  const pill = document.getElementById('regime-pill');
-  const detail = document.getElementById('regime-detail');
+  const market = _sigMarket === 'us' ? 'us' : 'kr', seq = ++_marketBriefSeq;
+  const asof = document.getElementById('mb-asof'), state = document.getElementById('mb-state');
+  const facts = document.getElementById('mb-facts'), unknown = document.getElementById('mb-unknown');
+  document.getElementById('mb-market').textContent = market === 'us' ? '해외 시장' : '국내 시장';
+  asof.textContent = '종가 확인 중…';
+  state.textContent = '시장 자료를 확인하고 있습니다';
+  document.getElementById('mb-basis').textContent = '저장된 종가를 확인한 뒤 표시합니다.';
+  document.getElementById('mb-selection').textContent = '판정 현황 확인 중…';
+  document.getElementById('mb-fact-sources').replaceChildren();
+  unknown.textContent = '';
+  facts.replaceChildren();
   try {
-    const d = await (await fetch('/api/regime')).json();
-    if (!d.ready) { pill.textContent = '데이터 없음'; pill.className = 'sig-pill HOLD'; detail.textContent = ''; return; }
-    pill.textContent = d.regime;
-    pill.className = 'sig-pill ' + d.regime;
-    // `MA60 상회`·`모멘텀`은 뜻을 풀어 쓴다. 원어는 title 에 남긴다.
-    // **`textContent` 로 들어가므로 태그를 쓸 수 없다** — 실측: `<span title=...>`이 글자로 보였다.
-    // 원어는 컨테이너 `title` 에 한 번 붙인다.
-    let detailTxt = `60일 평균선 위 종목 ${fmtNum(d.breadth_pct, 1)}%`
-      + ` · 최근 20일 평균 수익률 ${d.avg_momentum_pct > 0 ? '+' : ''}${fmtNum(d.avg_momentum_pct, 1)}%`;
-    // 시장 전체(KOSPI) 외국인·기관 순매수 방향(토스) — 종목별 수급이 아니라 시장 스마트머니 흐름
-    const mf = d.market_flow;
-    if (mf && mf.available && mf.smart_net_20d != null) {
-      const net = mf.smart_net_20d, sign = net > 0 ? '+' : '';
-      const icon = mf.bias === '순매수' ? '🟢' : mf.bias === '순매도' ? '🔴' : '⚪';
-      detailTxt += ` · ${icon} 외국인·기관 20일 ${mf.bias} ${sign}${fmtNum(net, 2)}조`;
+    const res = await fetch('/api/market-brief?market=' + market);
+    if (!res.ok) throw new Error('brief unavailable');
+    const d = await res.json();
+    if (seq !== _marketBriefSeq || (_sigMarket === 'us' ? 'us' : 'kr') !== market) return;
+    const fresh = d.status === 'ready' || d.status === 'partial';
+    asof.textContent = d.price_as_of ? `${d.price_as_of} 종가${fresh ? '' : ' · 갱신 지연'}` : '종가 확인 불가';
+    state.textContent = fresh
+      ? (market === 'us' ? (d.state || '자료 부족') : `${d.state || '자료 부족'} · 종목 흐름`)
+      : '가격 갱신을 기다리고 있습니다';
+    document.getElementById('mb-basis').textContent = fresh
+      ? `${d.state_basis || '저장된 종가 기준'} · ${d.price_count}/${d.universe_count}종목 날짜 확인`
+      : '오래된 가격으로 오늘의 시장 흐름을 판정하지 않습니다.';
+    facts.innerHTML = fresh ? (d.facts || []).map(f => `<div class="mb-fact">
+      <span class="mb-fact-label">${esc(f.label)}</span><span class="mb-fact-value">${esc(f.value)}</span>
+      ${Number.isFinite(f.percent) ? `<progress class="mb-meter" max="100" value="${Math.max(0, Math.min(100, f.percent))}" aria-label="${esc(f.label)} ${esc(f.value)}"></progress>` : ''}
+      <span class="mb-fact-detail">${esc(f.detail || '')} · ${esc(f.as_of || '')}</span></div>`).join('') : '';
+    document.getElementById('mb-fact-sources').innerHTML = fresh
+      ? (d.facts || []).map(f => {
+          const url = f.source_url || '';
+          const linked = /^https:\/\/fred\.stlouisfed\.org\//.test(url)
+            ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(f.source)} 원문 ↗</a>`
+            : esc(f.source || '저장된 자료');
+          return `<div>· ${esc(f.label)}: ${linked} · 관측 ${esc(f.as_of || '미확인')}</div>`;
+        }).join('') : '';
+    const sel = d.selection;
+    document.getElementById('mb-selection').innerHTML = fresh && sel
+      ? `<b>매수 판정 ${sel.buy_count}개</b><small>강력매수 ${sel.strong_buy_count}개${sel.slots != null ? ' · 매수 창 ' + sel.slots + '자리' : ''}</small><small>현재 판정 · ${esc(sel.computed_at ? new Date(sel.computed_at).toLocaleString('ko-KR') : '시각 미확인')}</small>`
+      : '<b>판정 건수 보류</b><small>종가 누락 · 개별 시그널은 목록에서 확인</small>';
+    unknown.textContent = (d.unknown || []).length ? `이 카드가 모르는 점: ${d.unknown.join(' ')}` : '';
+    unknown.classList.toggle('is-warning', !fresh);
+    const policy = d.selection_policy || {}, ad = d.adaptive || {};
+    if (fresh) {
+      _effBuyThreshold = (policy.mode === 'rank' ? policy.cutoff_score : (ad.effective_buy_threshold ?? policy.buy_threshold)) || 1.2;
+      _adaptBump = ad.bump || 0;
+      _adaptReasons = (policy.mode === 'rank' ? ad.exposure_reasons : ad.reasons) || [];
     }
-    detail.textContent = detailTxt;
-    detail.title = '원어: MA60 상회(breadth) · 평균 20일 모멘텀 · 외국인·기관 순매수/순매도';
-    const adapt = document.getElementById('regime-adaptive');
-    const ad = d.adaptive || {}, sel = d.selection || {};
-    // 분위 모드: 국면은 매수 자격이 아니라 투자 크기를 정한다 → 칩도 익스포저를 보여준다
-    const ranked = sel.mode === 'rank';
-    if (ranked && ad.exposure != null) {
-      const why = (ad.exposure_reasons || []).join(', ');
-      adapt.classList.add('is-on'); adapt.classList.remove('open');
-      adapt.innerHTML = `<button type="button" class="adapt-chip" onclick="this.parentElement.classList.toggle('open')" title="${esc(why)}">`
-        + `뽑음 ${sel.eligible ?? 0}/${sel.rank_slots ?? '–'} · 투입 한도 ${Math.round(ad.exposure * 100)}%</button>`
-        + `<span class="adapt-full">${esc(why)}`
-        + (sel.rank_min_score != null ? ` · 최소점수 ${fmtNum(sel.rank_min_score, 1)}` : '')
-        + `</span>`;
-    } else if (ad.bump > 0) {
-      const why = (ad.reasons || []).join(', ');
-      adapt.classList.add('is-on'); adapt.classList.remove('open');
-      adapt.innerHTML = `<button type="button" class="adapt-chip" onclick="this.parentElement.classList.toggle('open')" title="${esc(why)}">매수기준 +${fmtNum(ad.bump, 1)} → ${fmtNum(ad.effective_buy_threshold, 1)}</button>`
-        + `<span class="adapt-full">${esc(why)}</span>`;
-    } else { adapt.classList.remove('is-on', 'open'); adapt.innerHTML = ''; }
-    // 분위 모드에선 '기준선'이 절대 문턱이 아니라 매수권 컷오프 점수다
-    _effBuyThreshold = (ranked ? sel.cutoff_score : ad.effective_buy_threshold) || 1.2;
-    _adaptBump = ad.bump || 0;
-    _adaptReasons = (ranked ? ad.exposure_reasons : ad.reasons) || [];
   } catch (e) {
-    pill.textContent = '-'; pill.className = 'sig-pill HOLD'; detail.textContent = '';
+    if (seq !== _marketBriefSeq) return;
+    asof.textContent = '자료 확인 실패'; state.textContent = '시장 요약을 불러오지 못했습니다';
+    document.getElementById('mb-basis').textContent = '시그널 목록은 별도로 확인할 수 있습니다.';
+    document.getElementById('mb-selection').innerHTML = '<b>요약 확인 불가</b><small>개별 시그널은 목록에서 확인</small>';
+    document.getElementById('mb-fact-sources').replaceChildren();
+    unknown.textContent = '오래된 화면을 최신 정보로 표시하지 않습니다.';
+    unknown.classList.add('is-warning');
   }
-  loadLiveStatus();
   loadScorecard();
   // 어제와 달라진 내용은 접힌 「오늘」을 열었을 때만 조회한다.
 }
@@ -3562,14 +3586,15 @@ function toggleMacroCallout(){
 }
 
 async function loadMacro(){
-  const sep = document.getElementById('macro-sep');
+  const market = _sigMarket;
   const bias = document.getElementById('macro-bias');
   const chips = document.getElementById('macro-chips');
   const note = document.getElementById('macro-narrative');
-  const hide = () => { sep.style.display = 'none'; bias.style.display = 'none'; chips.innerHTML = ''; };
+  const hide = () => { bias.style.display = 'none'; chips.innerHTML = ''; };
   const renderNote = (nar) => {
-    if (nar && nar.summary) {
-      const d = nar.updated ? new Date(nar.updated * 1000) : null;
+    if (_sigMarket !== 'us') { note.style.display = 'none'; return; }
+    if (nar && nar.summary && nar.fresh && nar.newest_ts) {
+      const d = new Date(nar.newest_ts * 1000);
       const dstr = d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} 기준` : '';
       note.className = 'macro-callout' + (_macroCollapsed ? ' collapsed' : '');
       note.innerHTML = `
@@ -3580,22 +3605,30 @@ async function loadMacro(){
         </div>
         <div class="mco-body">${readableText(nar.summary, '전체 설명과 근거', nar.points)}</div>`;
       note.style.display = '';
-    } else { note.style.display = 'none'; }
+    } else {
+      note.className = 'macro-callout';
+      note.textContent = '미국 시황 해설의 원문 날짜가 오래됐거나 확인되지 않아 표시하지 않습니다.';
+      note.style.display = '';
+    }
   };
   try {
     const d = (await getJSON('/api/macro')).data;
+    if (_sigMarket !== market) return;
     // 거시 리본은 **전역 노출**이라(어느 탭에서도 보인다) 여기서 터지면 `startApp` 초기화가
     // 끊긴다 — 실패는 조용히 숨기고 리본만 감춘다(리본 없음이 정상 상태 중 하나다).
     if (!d) { hide(); return; }
     renderNote(d.narrative);
-    if (!d.ready || !d.indicators.length) { hide(); return; }
-    sep.style.display = ''; bias.style.display = '';
+    const indicators = _sigMarket === 'us'
+      ? (d.indicators || []).filter(m => /^https:\/\/fred\.stlouisfed\.org\//.test(m.source_url || ''))
+      : (d.indicators || []);
+    if (!d.ready || !indicators.length) { hide(); return; }
+    bias.style.display = _sigMarket === 'us' ? 'none' : '';
     // `거시 비우호`는 화면 배지다 — 쉬운 말로. 원어는 title 에.
     const _BIAS_KO = { '우호': '경제 여건 좋음', '비우호': '경제 여건 나쁨', '중립': '경제 여건 보통' };
     bias.textContent = _BIAS_KO[d.bias] || ('경제 여건 ' + (d.bias || '-'));
     bias.title = '미국 물가·금리·나스닥·변동성으로 판단한 한국 주식시장 여건 (원어: 거시 ' + (d.bias || '-') + ')';
     bias.className = 'sig-pill ' + (d.bias === '우호' ? 'BUY' : d.bias === '비우호' ? 'SELL' : 'HOLD');
-    chips.innerHTML = d.indicators.map(m => {
+    chips.innerHTML = indicators.map(m => {
       const isPct = m.unit === '%' || m.unit === '% YoY';
       const val = m.key === 'DEXKOUS' ? Math.round(m.value).toLocaleString() + '원'
                 : m.key === 'NASDAQCOM' ? Math.round(m.value).toLocaleString()
@@ -3621,6 +3654,7 @@ async function loadIndustryPulse(){
   if (!el) return;
   try {
     const response = await getJSON('/api/industry-pulse');
+    if (_sigMarket !== 'us') return;
     if (!response.ok) { el.textContent = response.reason; return; }
     const d = response.data;
     if (!d || !['ready','stale'].includes(d.status)) {
@@ -3725,7 +3759,8 @@ function switchSignalMarket(m){
   if (document.getElementById('view-signal').style.display === 'none') switchTab('signal');
   else {
     document.querySelectorAll('#subnav-signal button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
-    loadSignals();
+    loadSignals(); loadRegime();
+    if (document.getElementById('market-brief-sources').open) loadMacroDetails();
   }
 }
 
@@ -3980,6 +4015,7 @@ async function loadRegimeZone(){  // 시장 국면 체온계(ZONE 감지 — 예
   const card = document.getElementById('regime-card');
   try {
     const d = await (await fetch('/api/regime-zone')).json();
+    if (_sigMarket === 'us') return;
     if (!d || !d.ready){ card.style.display = 'none'; return; }
     card.style.display = '';
     const z = document.getElementById('regime-zone');
@@ -10787,7 +10823,7 @@ async function startApp(){
   applyProfileHeader();
   // 큰 조건 폼은 목록 카드 밖에 둔다. 저장 조건 DOM과 이벤트는 그대로 유지한다.
   document.getElementById('signal-explore-slot').appendChild(document.getElementById('sig-explore'));
-  loadRegime(); loadMacro();  // 접힌 시장 근거의 세부 API는 펼칠 때만 요청
+  // 시황 요약은 신호 탭 진입 시, 세부 원문은 근거를 펼쳤을 때만 요청한다.
   loadAlertBadge();
   routeFromHash() || switchTab('signal');
   maybeShowOnboard();  // 성향·관심종목 미설정 시 미니 온보딩
