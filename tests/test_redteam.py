@@ -2419,8 +2419,7 @@ def test_signal_grade_badge_does_not_wander_between_rows():
 
 
 def test_zero_buy_card_does_not_push_the_list_off_screen():
-    """`매수 0` 카드는 대부분의 날 자동으로 펼쳐진다 — 그 안의 진단을 접어 두지 않으면
-    목록을 보러 온 화면에서 목록이 접힌다.
+    """`매수 0`이어도 기본은 접고, 펼쳤을 때의 긴 계산도 다시 접어 둔다.
 
     실측(1440×900): 카드 439px · 종목 표가 827px에서 시작했다. 게다가 서버 `reasons` 첫 두 줄은
     헤더(`zeroWhy`)가 이미 말하는 것이고 나머지 셋은 상단 시장바의 `자금 한도`·`거시 비우호`와
@@ -2429,6 +2428,8 @@ def test_zero_buy_card_does_not_push_the_list_off_screen():
     from pathlib import Path
 
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    today = html.split("function renderTodayCard(", 1)[1].split("\n}", 1)[0]
+    assert "box.open = true" not in today, "오늘 상세 자동 펼침이 목록과 요청을 밀어낸다"
     blk = html.split("if (why || rep.disclaimer)", 1)
     assert len(blk) == 2, "사유·면책이 접이식으로 감싸이지 않았다"
     body = blk[1][:700]
