@@ -7611,10 +7611,10 @@ function renderDataHealth(d){
         + `${sto.first_boot ? ' · 최초 ' + esc(String(sto.first_boot).slice(0, 16).replace('T', ' ')) : ''}`
         + `<br>${esc(sto.how_to_verify || '')}</div></div>`;
     }
-    if (sto.used_pct != null) {
+    if (sto.data_bytes != null) {
       const paths = (sto.largest_paths || []).filter(p => p.path !== 'cache').slice(0, 6);
-      html += `<details style="margin:0 0 12px"><summary style="cursor:pointer;font-size:14px;font-weight:700">저장 공간 ${esc(sto.used_pct)}% 사용 · 남음 ${esc(sto.free_mb)} MB</summary>`
-        + `<div style="font-size:13px;color:var(--dim);margin-top:6px">메모리(RAM)가 아닌 앱 파일시스템 참고치입니다. Railway 볼륨 지표와 꼭 일치하지 않을 수 있습니다. 상위 경로는 삭제 대상 추천이 아니라 원인 확인용입니다.</div>`
+      html += `<details style="margin:0 0 12px"><summary style="cursor:pointer;font-size:14px;font-weight:700">앱 데이터 ${(Number(sto.data_bytes)/1e6).toFixed(1)} MB</summary>`
+        + `<div style="font-size:13px;color:var(--dim);margin-top:6px">Railway 볼륨 사용률은 Railway 화면에서 확인하세요. 여기서는 앱의 파일 크기만 보여줍니다. 상위 경로는 삭제 대상 추천이 아니라 원인 확인용입니다.</div>`
         + paths.map(p => `<div style="font-size:13px;margin-top:3px">${esc(p.path)} · ${(Number(p.bytes || 0)/1e6).toFixed(1)} MB</div>`).join('')
         + `<button type="button" class="btn" style="margin-top:8px" onclick="loadStorageBreakdown()">DB 안에서 큰 기록 확인</button>`
         + `<div id="storage-breakdown" style="margin-top:6px;font-size:13px;color:var(--dim)"></div>`

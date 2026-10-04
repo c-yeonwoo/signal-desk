@@ -2239,9 +2239,11 @@ def storage_report() -> dict:
     # Read-only bounded inventory.  Report the largest children of the mounted
     # data directory; never delete or vacuum an evidence/ledger file in place.
     top_files = []
+    data_bytes = None
     data_root = CACHE_DIR.parent
     if data_root.exists():
         try:
+            data_bytes = 0
             for child in data_root.iterdir():
                 if child.is_symlink():
                     continue
@@ -2262,6 +2264,7 @@ def storage_report() -> dict:
                                     count += 1
                 top_files.append({"path": str(child.relative_to(data_root)),
                                   "bytes": size, "files": count})
+                data_bytes += size
             # Inside cache the large file is often more useful than the cache
             # aggregate.  Keep a separate top-file list without a second walk.
             if CACHE_DIR.exists():
@@ -2270,6 +2273,7 @@ def storage_report() -> dict:
             top_files = sorted(top_files, key=lambda row: row["bytes"], reverse=True)[:12]
         except OSError:
             top_files = []
+            data_bytes = None
     # 휘발성 의심: 부팅을 여러 번 했는데 카운터가 1이거나, DB는 있는데 최초 부팅 기록이 없다.
     suspected, reason = False, None
     if not first:
@@ -2287,6 +2291,7 @@ def storage_report() -> dict:
         "total_mb": total_mb,
         "used_mb": used_mb,
         "used_pct": used_pct,
+        "data_bytes": data_bytes,
         "largest_paths": top_files,
         "ephemeral_suspected": suspected,
         "reason": reason,
