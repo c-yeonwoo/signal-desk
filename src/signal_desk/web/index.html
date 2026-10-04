@@ -3462,7 +3462,7 @@ async function loadScorecard(){
   const sum = document.getElementById('signal-trust-sum');
   if (!el || !body) return;
   try {
-    const hz = _verdictCache || await fetch('/api/verdict').then(r => r.json()).catch(() => ({ ready: false }));
+    const hz = await fetch('/api/verdict').then(r => r.json()).catch(() => ({ ready: false }));
     _verdictCache = hz;
     // 접힌 요약도 **판정부터** 쓴다. 진단에서 "'판정 불가'가 12px 회색으로, 확신은 초록
     // 그라디언트로"였던 것을 뒤집는다 — 성적 숫자보다 판정 상태가 먼저 읽혀야 한다.
