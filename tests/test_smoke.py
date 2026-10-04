@@ -163,7 +163,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "tests/test_redteam.py" in html
     assert "/api/audit/run" in html and "점수 동결 의심" in html
     assert 'aria-label="종합점수 이상"' in html and 'aria-label="팩터 강도 이상"' in html
-    assert "toggleSignalFilterDrawer" in html and 'id="sig-filter-fab"' in html
+    assert 'id="sig-explore"' in html and 'id="sig-screener"' in html
+    assert "sigScreens" in html, "저장된 상세 탐색 조건을 잃으면 안 된다"
 
     assert "/detail?market=" in html  # 클릭 시 상세 병렬 fetch
     assert "_ensureSignalChart" in html  # 차트 DOM 파괴 후 재생성(국내 차트 미표시 방지)
@@ -180,13 +181,10 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
     assert ">투자 관리<" in html  # 실제 계좌·개인 분석까지 포함하는 상위 메뉴
     assert ">봇 모의투자<" in html
-    # 상태(precision·편중·데스크)는 「오늘」카드 하나. 매수대기·조사후보 퀵칩은 제거.
-    # `.sig-head`(국내/해외 전용 줄)는 툴바로 합쳐 없앴다 — 상시 블록을 3개로 줄이기 위해서다.
-    # 마크업 이름이 아니라 **규약**을 본다: 오늘 카드가 있고 세그가 툴바 안에 있다.
+    # 국내·해외·관심종목은 같은 깊이의 탭. 상세 조건은 접힌 별도 영역에 둔다.
     assert 'id="sig-today"' in html
-    assert 'class="sig-toolbar"' in html and 'id="sig-market-seg"' in html
-    tb = html.split('class="sig-toolbar"', 1)[1].split("</div>\n        <details", 1)[0]
-    assert 'id="sig-market-seg"' in tb, "시장 세그가 툴바 안에 없다"
+    assert 'id="subnav-signal"' in html and 'data-mkt="watchlist"' in html
+    assert 'class="sig-toolbar"' in html and 'id="sig-market-seg"' not in html
     assert "renderTodayCard" in html
     assert 'id="buylist-card"' not in html
     assert 'id="qf-extwatch"' not in html and 'id="screen-extwatch"' in html

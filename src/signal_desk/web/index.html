@@ -646,9 +646,11 @@
      108px을 먹었다. 미디어쿼리 안이라고 생각하고 넣었는데 기본 CSS였다). basis를 140px로 주면
      들어갈 때는 한 줄, 안 들어갈 때만 접힌다. */
   .sig-toolbar { flex-wrap:wrap; }
-  .sig-toolbar #sig-market-seg { order:1; }
-  .sig-toolbar #sig-sort { order:2; }
-  .sig-toolbar #sig-search { order:3; flex:1 1 140px; }
+  .sig-toolbar #sig-sort { order:1; }
+  .sig-toolbar #sig-search { order:2; flex:1 1 140px; }
+  .sig-explore { margin:0 12px 10px; border:1px solid var(--line); border-radius:var(--r-md); }
+  .sig-explore > summary { padding:9px 11px; cursor:pointer; color:var(--accent); font-size:13px; font-weight:700; }
+  .sig-explore-body { padding:0 10px 10px; }
   .alert-bell-ico { display:inline-flex; align-items:center; line-height:0; }
   .market-bar #macro-toggle { margin-left:0; flex:0 0 auto; padding:2px 10px; font-size:13px; }
 
@@ -669,12 +671,6 @@
       -webkit-line-clamp:2; overflow:hidden; flex:1 1 12rem; }
     .market-bar-end { margin-left:0; flex:1 1 auto; justify-content:flex-end; }
   }
-  /* 필터 FAB·스크림 기본 숨김(데스크톱). media(640)에서 FAB만 다시 켠다.
-     scrim을 기본 미숨김이면 빈 버튼이 스크리너 위에 떠 보인다. */
-  #sig-filter-fab { display:none; margin:0 10px 8px; width:calc(100% - 20px); justify-content:center;
-    padding:8px 12px; font-size:13px; font-weight:600; }
-  #sig-filter-scrim { display:none; border:0; padding:0; margin:0; background:transparent;
-    width:0; height:0; overflow:hidden; appearance:none; -webkit-appearance:none; }
   /* 조용한 0 표 — dtable nowrap이 긴 상태문장을 카드 밖으로 민다 */
   #data-health { overflow-x:auto; max-width:100%; }
   #data-health table.dtable { table-layout:fixed; width:100%; }
@@ -712,25 +708,6 @@
     .market-bar #regime-detail { flex:1 1 100%; }
     .market-bar-end { flex:1 1 100%; justify-content:space-between; }
     .market-bar .tb-live { max-width:none; flex:1 1 auto; }
-    /* 필터 드로어 — 스크리너를 하단 시트로 */
-    #sig-filter-fab { display:inline-flex; }
-    #sig-screener > summary { display:none; }
-    #sig-screener { margin:0 !important; border:none; }
-    #sig-screener:not([open]) .screen-body { display:none; }
-    #sig-screener[open] {
-      position:fixed; left:0; right:0; bottom:0; z-index:90; margin:0 !important;
-      max-height:min(72vh, 560px); overflow:auto; -webkit-overflow-scrolling:touch;
-      background:var(--panel); border:1px solid var(--line); border-bottom:none;
-      border-radius:var(--r-lg) var(--r-lg) 0 0; box-shadow:0 -12px 40px rgba(11,18,32,.18);
-      padding:10px 12px calc(14px + var(--safe-bottom));
-    }
-    #sig-screener[open]::before {
-      content:"필터·스크리너"; display:block; font-weight:700; font-size:14px; color:var(--txt);
-      padding:4px 2px 10px; border-bottom:1px solid var(--line); margin-bottom:10px;
-    }
-    #sig-filter-scrim { position:fixed; inset:0; z-index:89; background:rgba(11,18,32,.35);
-      width:auto; height:auto; overflow:visible; }
-    #sig-filter-scrim.on { display:block; }
   }
 
   #authGate { position:fixed; inset:0; z-index:9999; display:none; align-items:center; justify-content:center;
@@ -923,7 +900,6 @@
   <h1><span class="wm-a">Signal</span> <span class="wm-b">Desk</span></h1>
   <div class="tabs">
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
-    <button class="tab" data-tab="watchlist" onclick="switchTab('watchlist')">관심종목</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="봇 모의투자 · 내 포트폴리오 · 실계좌">투자 관리</button>
     <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">인사이트</button>
     <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
@@ -950,6 +926,11 @@
   <button class="subtab" data-seg="rebal" onclick="switchTradingSeg('rebal')">내 포트폴리오</button>
   <button class="subtab" data-seg="live" onclick="switchTradingSeg('live')">실계좌 추종</button>
   <button class="subtab" data-seg="dividend" onclick="switchTradingSeg('dividend')">배당 플래너</button>
+</nav>
+<nav class="subnav" id="subnav-signal" style="display:none" aria-label="종목 목록">
+  <button class="subtab on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
+  <button class="subtab" data-mkt="us" onclick="switchSignalMarket('us')">해외</button>
+  <button class="subtab" data-mkt="watchlist" onclick="switchTab('watchlist')">관심종목</button>
 </nav>
 <nav class="subnav" id="subnav-cycle" style="display:none">
   <button class="subtab on" data-cseg="cycle" onclick="switchCycleSeg('cycle')">경기 사이클</button>
@@ -1002,23 +983,18 @@
 
 <main>
   <div id="view-signal" class="view-app" style="display:none">
-    <details id="signal-trust"><summary id="signal-trust-sum">성적</summary><div class="trust-body" id="signal-trust-body"></div></details>
-    <!-- 매일 열 이유. 판정 줄 **바로 아래**다 — 판정은 "아직 모른다"만 말하므로 그 다음에
-         "그래도 오늘 이건 달라졌다"가 있어야 습관이 생긴다. 변화 없는 날은 한 줄로 짧게. -->
-    <div id="daily-change" class="dchg" hidden></div>
+    <details id="signal-trust" ontoggle="if(this.open) loadScorecard()"><summary id="signal-trust-sum">시그널 검증</summary><div class="trust-body" id="signal-trust-body"></div></details>
+    <div id="signal-explore-slot"></div>
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
         <!-- 상태(precision·편중·데스크)는 「오늘」카드 하나. 리스트 시작을 위로. -->
-        <details id="sig-today" class="sig-today" ontoggle="if(this.open) loadBuyWait()">
+        <details id="sig-today" class="sig-today" ontoggle="if(this.open){loadBuyWait();loadDailyChange()}">
           <summary><span id="sig-today-line"></span><span id="sig-today-chips"></span><span class="st-more">상세</span></summary>
           <div class="st-body" id="sig-today-body"></div>
+          <div id="daily-change" class="dchg" hidden></div>
         </details>
-        <!-- 정보 우선순위: 시황 → 오늘 → 검색/필터 → 리스트 → 상세 -->
+        <!-- 기본 목록에서는 시장·검색·정렬만. 저장된 조건은 아래 상세 탐색에 둔다. -->
         <div class="sig-toolbar">
-          <div class="seg-toggle" id="sig-market-seg" style="margin:0;flex:0 0 auto">
-            <button class="on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
-            <button data-mkt="us" onclick="switchSignalMarket('us')">해외</button>
-          </div>
           <input id="sig-search" class="ctrl" type="search" placeholder="종목명·코드 검색" aria-label="종목명·코드 검색" oninput="renderSignalList()">
           <select id="sig-sort" class="ctrl" aria-label="시그널 목록 정렬" title="시그널순: 최종 판정별 매수 우선 · 같은 판정은 점수순" onchange="renderSignalList()">
             <option value="signal">시그널순 (매수 우선)</option>
@@ -1027,10 +1003,11 @@
             <option value="volume">거래량순</option>
           </select>
         </div>
-        <button type="button" id="sig-filter-fab" class="btn" onclick="toggleSignalFilterDrawer()" aria-controls="sig-screener">필터·스크리너 <span id="screen-count-fab" style="color:var(--dim);font-weight:600"></span></button>
-        <button type="button" id="sig-filter-scrim" onclick="closeSignalFilterDrawer()" aria-label="필터 닫기" tabindex="-1"></button>
-        <details id="sig-screener" style="margin:0 12px 10px">
-          <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:13px">필터·스크리너 <span id="screen-count" style="color:var(--dim);font-weight:600"></span></summary>
+        <details id="sig-explore" class="sig-explore" ontoggle="if(this.open) openSignalExplore()">
+          <summary>상세 탐색 <span id="screen-count" style="color:var(--dim);font-weight:600"></span></summary>
+          <div class="sig-explore-body">
+        <details id="sig-screener" open>
+          <summary>조건 검색 · 저장한 조건</summary>
           <div class="screen-body">
             <div id="sig-opp-filters" class="row" style="gap:6px;flex-wrap:wrap"></div>
             <div id="screen-presets" class="screen-presets"></div>
@@ -1102,6 +1079,8 @@
             <div class="sig-lens-muted">경제 발표·반도체 업황은 근거가 있을 때만 참고 표시하며 종목을 거르지 않습니다. 내 포트폴리오는 근거·시점 검증 후 추가합니다.</div>
             <div id="sig-lens-compare" class="sig-lens-compare" role="status">관점 스냅샷 확인 중…</div>
             <div id="sig-lens-detail" class="sig-lens-detail"></div>
+          </div>
+        </details>
           </div>
         </details>
         <div id="signal-body" class="placeholder" style="padding:32px 0">불러오는 중…</div>
@@ -2397,9 +2376,11 @@ let _userEmail = '', _profile = {};
 function switchTab(t){
   if(!_ROUTES.includes(t)) t = 'signal';
   if (t === 'admin' && !_isAdmin) t = 'signal';  // 관리자만 접근
-  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === (t === 'watchlist' ? 'signal' : t)));
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
   document.getElementById('subnav-trading').style.display = (t === 'trading') ? '' : 'none';  // 페이퍼 서브내비
+  document.getElementById('subnav-signal').style.display = (t === 'signal' || t === 'watchlist') ? '' : 'none';
+  document.querySelectorAll('#subnav-signal button').forEach(b => b.classList.toggle('on', b.dataset.mkt === (t === 'watchlist' ? 'watchlist' : _sigMarket)));
   document.getElementById('subnav-cycle').style.display = (t === 'cycle') ? '' : 'none';       // 인사이트 서브내비
   const refNav = document.getElementById('subnav-cycle-ref');
   if (refNav && t !== 'cycle') refNav.style.display = 'none';  // 참고 2단 내비는 인사이트에서만
@@ -2409,7 +2390,7 @@ function switchTab(t){
   if (onSignal) applyMacroState(); else if (_md) _md.style.display = 'none';  // 접이식 상태 복원/숨김
   // 내 투자 홈은 `trading/rebal` 안에만 있다. 시그널 화면에서 계좌·성과 API를 미리
   // 부르면 보이지 않는 카드 때문에 첫 목록 요청과 경쟁한다.
-  if (t === 'signal') { loadSignals(); loadRegimeZone(); loadRelativeStrength(); }
+  if (t === 'signal') { loadSignals(); if (_md && _md.style.display !== 'none') loadMacroDetails(); }
   if (t === 'watchlist') loadWatchlistBriefs();
   if (t === 'cycle') switchCycleSeg(_cycleSeg);   // 인사이트: 사이클/밸류체인/학습/거장 서브탭
   if (t === 'trading') switchTradingSeg(_tradingSeg);
@@ -2469,7 +2450,7 @@ window.addEventListener('resize', () => {
     });
     // 어제와 달라진 것도 폭에 따라 행 수가 달라진다 — 안 다시 그리면 세로로 열었다가
     // 가로로 돌릴 때 2행으로 접힌 채 남는다. 리스너를 새로 만들지 않고 여기 붙인다.
-    try { loadDailyChange(); } catch (e) {}
+    if (document.getElementById('sig-today')?.open) try { loadDailyChange(); } catch (e) {}
     try { _drillSync(); } catch (e) {}          // 경로 ② — 위 `_drillSync` 주석 참고
   }, 120);
 });
@@ -2563,7 +2544,6 @@ function gotoSignal(ticker, market){  // market: 'kr'|'us' — 시그널 탭 시
   _pendingSignalTicker = ticker;
   const m = (market === 'us') ? 'us' : 'kospi';
   _sigMarket = m;
-  document.querySelectorAll('#sig-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
   switchTab('signal');  // → loadSignals(_sigMarket)가 _pendingSignalTicker 소비
 }
 
@@ -3042,7 +3022,7 @@ function toggleGuruPreset(key){
     const s = (_guruScreens || []).find(x => x.key === key);
     _screenGuru = key; _guruTickers = new Set((s && s.tickers) || []);
   }
-  document.getElementById('sig-screener').open = true;
+  document.getElementById('sig-explore').open = true;
   renderScreenPresets(); renderSignalList();
 }
 async function loadValuechain(){
@@ -3140,6 +3120,10 @@ function applyMacroState(){
 function toggleMacro(){
   localStorage.setItem('macroOpen', localStorage.getItem('macroOpen') === '1' ? '0' : '1');
   applyMacroState();
+  if (document.getElementById('macro-detail')?.style.display !== 'none') loadMacroDetails();
+}
+function loadMacroDetails(){
+  loadIndustryPulse(); loadRegimeZone(); loadRelativeStrength();
 }
 function openHelp(){
   document.getElementById('helpDlg').showModal();
@@ -3248,7 +3232,7 @@ async function loadRegime(){
   }
   loadLiveStatus();
   loadScorecard();
-  loadDailyChange();   // 매일 열 이유 — 판정 줄 바로 아래
+  // 어제와 달라진 내용은 접힌 「오늘」을 열었을 때만 조회한다.
 }
 
 // ③ 신뢰 스트립 — 실측 track record(누적중 가드) + 봇 체결 성적. 백테스트 숫자는 여기 안 올림.
@@ -3478,53 +3462,38 @@ async function loadScorecard(){
   const sum = document.getElementById('signal-trust-sum');
   if (!el || !body) return;
   try {
-    const [acc, bot, hz] = await Promise.all([
+    const hz = await fetch('/api/verdict').then(r => r.json()).catch(() => ({ ready: false }));
+    _verdictCache = hz;
+    // 접힌 요약도 **판정부터** 쓴다. 진단에서 "'판정 불가'가 12px 회색으로, 확신은 초록
+    // 그라디언트로"였던 것을 뒤집는다 — 성적 숫자보다 판정 상태가 먼저 읽혀야 한다.
+    const vTxt = (!hz || hz.ready === false) ? '판정 불가'
+      : (hz.status === 'locked' ? (hz.verdict || '–') : (hz.verdict || '판정 보류'));
+    // 목록 위에는 검증 상태만 남긴다. 표본·문턱·정밀도는 펼친 설명과 함께 읽는다.
+    const sumTxt = `시그널 검증 · <span class="trust-sum-n">${esc(plainVerdict(vTxt))}</span>`
+      + (hz && hz.status === 'pending' ? ' <span class="trust-sum-meta">· 기록 쌓는 중</span>' : '');
+    if (sum) sum.innerHTML = sumTxt;
+    el.style.display = 'block';
+    if (!el.open) return;  // 접힌 검증 줄은 판정만 요청한다.
+    body.textContent = '성적 확인 중…';
+    const [acc, bot] = await Promise.all([
       fetch('/api/accuracy').then(r => r.json()).catch(() => ({ ready: false })),
       fetch('/api/signal-scorecard').then(r => r.json()).catch(() => ({ resolved: 0 })),
-      fetch('/api/verdict').then(r => r.json()).catch(() => ({ ready: false })),
     ]);
-    _verdictCache = hz;
     const rows = [];
     const cov = acc.coverage || {};
     const need = acc.ic_min_samples || _TRUST_MATURE_N;
     const matured = cov.matured_primary || 0;
     const matureOk = !!acc.ready && matured >= need;
-    // 접힌 요약도 **판정부터** 쓴다. 진단에서 "'판정 불가'가 12px 회색으로, 확신은 초록
-    // 그라디언트로"였던 것을 뒤집는다 — 성적 숫자보다 판정 상태가 먼저 읽혀야 한다.
-    const vTxt = (!hz || hz.ready === false) ? '판정 불가'
-      : (hz.status === 'locked' ? (hz.verdict || '–') : (hz.verdict || '판정 보류'));
-    // 요약 한 줄이 1440px을 쓰면서 `판정 보류`만 말했다 — 폭을 값어치 있게 쓰려면 **진척을
-    // 인라인으로** 올린다. 클릭해야 보이는 진척은 안 보는 진척이고, X4의 의도는 판정 상태를
-    // 첫 줄에 두는 것이었다. 요건 미달 동안 **백분위는 여기서도 쓰지 않는다**(매일 보면 peeking).
-    const rq = (hz && hz.requirement) || {};
-    const prog = [];
-    if (rq.min_effective_periods)
-      prog.push(`매수가 있었던 평가기간 ${rq.min_effective_periods}개 중 ${rq.effective_periods ?? 0}개`
-        + (rq.effective_periods_source === 'estimated' ? '(추정)' : ''));
-    if (rq.min_pit_dates) prog.push(`기록 ${rq.min_pit_dates}일 중 ${rq.pit_dates ?? 0}일`);
-    // 문턱·등록 수는 요약에서 뺀다 — 접힌 한 줄에서 보정 원리를 설명할 수 없고,
-    // 설명 없는 `98.30%`는 성적으로 오독된다. `용어` 토글이 뜻과 함께 말한다.
-    const thrTxt = '';
-    // 접힌 한 줄도 **판정부터**. 예전엔 `판별력 판정 보류`였는데 두 단어 다 전문용어였다.
-    let sumTxt = `잘 고르는지 <span class="trust-sum-n">${esc(plainVerdict(vTxt))}</span>`
-      + (prog.length && hz && hz.status === 'pending'
-          ? ` <span class="trust-sum-meta">${prog.join(' · ')}</span>` : '')
-      + thrTxt;
     if (matureOk) {
       const prec = acc.buy_precision_pct;
-      const base = (acc.baseline || {}).up_pct;
       const pc = liftColor(acc.buy_lift_pp, acc.lift_min_pp);
-      const note = liftNote(acc.buy_lift_pp, base, acc.buy_precision_ci_pp);
-      // 접힌 줄의 정밀도는 기준선·리프트가 있을 때만. 숫자만 있으면 판정 보류 옆에서 성적으로 읽힌다.
-      if (prec != null && note)
-        sumTxt += ` · 매수 정밀도 <span class="trust-sum-n" style="color:${pc}">${fmtNum(prec, 1)}%</span>${note}`;
+      // 성적은 기준선·표본과 함께 펼친 본문에서만 읽는다.
       rows.push(`<div class="trust-row"><span class="trust-badge live">실측</span>`
         + `<b>시그널 성적</b> · 매수 정밀도 <b style="color:${pc}">${prec == null ? '–' : fmtNum(prec, 1) + '%'}</b>`
         + liftNote(acc.buy_lift_pp, (acc.baseline || {}).up_pct, acc.buy_precision_ci_pp)
         + ` <span style="color:var(--dim-2)">(${acc.primary_horizon || 20}거래일 · 표본 ${acc.buy_sample || matured})</span></div>`);
       rows.push(sellPrecisionRow(acc, need));
     } else {
-      sumTxt += ` · 성적 누적중 <span class="trust-sum-n">${matured}/${need}</span>`;
       rows.push(`<div class="trust-row"><span class="trust-badge accum"`
         + ` title="표본이 차기 전까지 정밀도 숫자는 표시하지 않습니다">누적중</span>`
         + `<b>시그널 성적</b>`
@@ -3545,7 +3514,6 @@ async function loadScorecard(){
     rows[0] = rows[0].replace(/<\/div>$/, tail + '</div>');
     // 판정 줄을 **맨 앞에** 넣는다. 성적·페이퍼보다 먼저 읽혀야 한다.
     rows.unshift(verdictRow(hz));
-    if (sum) sum.innerHTML = sumTxt;
     body.innerHTML = rows.join('')
       + `<div class="trust-legend" id="trust-legend" hidden>`
       + `<div><b>실측</b> 그날 실제로 낸 시그널을 나중에 수익률로 채점한 것 · <b>시뮬</b> 과거 가격으로 돌려본 것(실제로 산 게 아님) · <b>트레이딩</b> 봇의 가상 체결 · <b>누적중</b> 판단하기엔 자료가 아직 적음</div>`
@@ -3748,14 +3716,21 @@ let _oppFilter = null;
 function setOppFilter(t){ _oppFilter = (_oppFilter === t) ? null : t; renderSignalList(); }
 
 function switchSignalMarket(m){
-  if (_sigMarket === m) return;
+  if (m !== 'kospi' && m !== 'us') return;
+  const changed = _sigMarket !== m;
+  if (!changed && document.getElementById('view-signal').style.display !== 'none') return;
   _sigMarket = m;
-  clearScreenInputs();   // 시장 전환 시 스크리너·매수전용·기회유형 필터 초기화 — KR 필터가 US로 새어 목록이 텅 비는 것 방지
-  _precisionBucket = null;
-  document.querySelectorAll('#sig-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
-  document.getElementById('sig-search').value = '';
-  document.getElementById('sig-sort').value = 'signal';
-  loadSignals();
+  if (changed) {
+    clearScreenInputs();   // 시장 전환 시 국내 조건이 해외 목록에 남지 않게 한다.
+    _precisionBucket = null;
+    document.getElementById('sig-search').value = '';
+    document.getElementById('sig-sort').value = 'signal';
+  }
+  if (document.getElementById('view-signal').style.display === 'none') switchTab('signal');
+  else {
+    document.querySelectorAll('#subnav-signal button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
+    loadSignals();
+  }
 }
 
 // 시장별 응답 캐시 — 국내/해외 전환 시 재요청 없이 즉시 렌더(stale-while-revalidate).
@@ -3910,8 +3885,6 @@ function updateScreenUI(s, matched){
   const txt = (screenActive(s) || _oppFilter) ? `· ${matched}개 일치` : '';
   const c = document.getElementById('screen-count');
   if (c) c.textContent = txt;
-  const fab = document.getElementById('screen-count-fab');
-  if (fab) fab.textContent = txt;
   const note = document.getElementById('screen-note');
   if (note) {
     const usFund = _sigMarket === 'us' && (s.minRoe != null || s.minYield != null);
@@ -3919,16 +3892,10 @@ function updateScreenUI(s, matched){
     note.textContent = usFund ? '※ 해외 종목은 ROE·배당 데이터가 없어 해당 조건에선 제외됩니다.' : '';
   }
 }
-function toggleSignalFilterDrawer(){
-  const d = document.getElementById('sig-screener');
-  if (!d) return;
-  if (d.open) closeSignalFilterDrawer();
-  else { d.open = true; document.getElementById('sig-filter-scrim')?.classList.add('on'); }
-}
-function closeSignalFilterDrawer(){
-  const d = document.getElementById('sig-screener');
-  if (d) d.open = false;
-  document.getElementById('sig-filter-scrim')?.classList.remove('on');
+function openSignalExplore(){
+  renderScreenPresets();
+  if (_sigMarket === 'kospi' && _guruScreens === null)
+    ensureGuruScreens().then(renderScreenPresets);
 }
 // 스크리너 입력·필터 상태를 비운다(DOM만 — 재렌더는 호출부에서). 시장 전환/리셋 공용.
 function clearScreenInputs(){
@@ -3960,7 +3927,6 @@ function renderScreenPresets(){
   // 전략(거장) 프리셋 — KR만(재무 규칙). 서버 매칭 집합으로 리스트 제한.
   let guruHtml = '';
   if (_sigMarket === 'kospi') {
-    if (_guruScreens === null) ensureGuruScreens().then(renderScreenPresets);  // 최초 1회 로드 후 재렌더
     guruHtml = (_guruScreens || []).map(s =>
       `<span class="preset guru${_screenGuru === s.key ? ' on' : ''}" onclick="toggleGuruPreset('${s.key}')" title="${esc(s.style)}">🧑‍🏫 ${esc(s.name.split(' · ')[0])} · ${s.count}</span>`).join('');
   }
@@ -4005,7 +3971,7 @@ function loadScreenPreset(i){
     const s = (_guruScreens || []).find(x => x.key === c.guru);
     _screenGuru = c.guru; _guruTickers = new Set((s && s.tickers) || []);
   } else { _screenGuru = null; _guruTickers = new Set(); }
-  document.getElementById('sig-screener').open = true;
+  document.getElementById('sig-explore').open = true;
   renderScreenPresets(); renderSignalList();
 }
 function deleteScreenPreset(i){
@@ -10847,7 +10813,9 @@ async function toggleFav(ticker, el){
 // ===== 부팅 =====
 async function startApp(){
   applyProfileHeader();
-  loadRegime(); loadMacro(); loadIndustryPulse();  // 시황 리본은 전역 노출
+  // 큰 조건 폼은 목록 카드 밖에 둔다. 저장 조건 DOM과 이벤트는 그대로 유지한다.
+  document.getElementById('signal-explore-slot').appendChild(document.getElementById('sig-explore'));
+  loadRegime(); loadMacro();  // 접힌 시장 근거의 세부 API는 펼칠 때만 요청
   loadAlertBadge();
   routeFromHash() || switchTab('signal');
   maybeShowOnboard();  // 성향·관심종목 미설정 시 미니 온보딩

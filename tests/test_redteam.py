@@ -1667,12 +1667,11 @@ def test_first_screen_shows_the_verdict_before_the_score():
     assert "rows.unshift(verdictRow(hz))" in html, "판정 줄이 맨 앞에 들어가지 않는다"
     assert "fetch('/api/verdict')" in html
     # 접힌 요약도 **판정부터** — "'판정 불가'가 12px 회색으로, 확신은 초록"이었던 것을 뒤집는다.
-    # 문구가 아니라 **순서**를 본다: `sumTxt` 의 첫 조립이 판정값이어야 하고, 성적(정밀도)은
-    # 그 뒤에 `+=` 로 붙어야 한다. 리터럴로 박으면 카피를 고칠 때마다 깨진다(2026-08-06에 깨졌다).
-    head = html.split("let sumTxt = ", 1)[1].split("\n", 1)[0]
+    # 접힌 줄은 판정만. 정밀도는 펼친 본문에서 기준선과 함께 읽는다.
+    head = html.split("const sumTxt = ", 1)[1].split("\n", 1)[0]
     assert "plainVerdict" in head or "vTxt" in head, "요약 첫 조립이 판정값이 아니다"
-    after = html.split("let sumTxt = ", 1)[1].split("if (matureOk)", 1)[1]
-    assert "sumTxt +=" in after, "성적이 판정보다 먼저 조립된다"
+    summary = html.split("const sumTxt = ", 1)[1].split("if (matureOk)", 1)[0]
+    assert "정밀도" not in summary and "percentile" not in summary
     # 보류 분기가 백분위를 **읽지도** 않아야 한다 — 보드가 실수로 실어 보내도 화면은 안 그린다.
     body = html.split("function verdictRow(", 1)[1].split("\nfunction ", 1)[0]
     hold = body.split("// 보류", 1)[1]
@@ -2541,21 +2540,18 @@ def test_button_brand_is_not_near_black():
 
 
 def test_signal_panel_has_at_most_three_always_on_blocks():
-    """상시 노출 컨트롤은 3개까지 — 목록을 보러 온 화면에서 목록이 접히면 안 된다.
-
-    실측: 세그·오늘카드·정렬툴바·퀵필터·스크리너 **5개**가 538px을 먹고 표가 740px에서 시작했다.
-    세그를 툴바로 합치고, 퀵필터는 통째로 없앴다 — `★관심`·`매수만`은 스크리너 체크박스를
-    토글하는 **두 번째 진입점**이었고(`quickFilter`가 `screen-favonly`를 켠다), `근접만`은
-    매수0 카드에 이미 있었다. **진입점이 둘이면 사용자는 둘 다 안 쓴다.**
-    """
+    """기본 목록은 짧게, 저장 조건은 접힌 상세 탐색으로 분리한다."""
     from pathlib import Path
 
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     panel = html.split('<div class="sig-list card"', 1)[1].split("</table>", 1)[0]
-    # 표 앞의 상시 블록: 툴바 · 오늘카드 · 스크리너
+    # 표 앞의 상시 블록: 툴바 · 접힌 오늘 · 접힌 상세 탐색
     assert 'class="sig-toolbar"' in panel
     assert 'id="sig-today"' in panel
-    assert 'id="sig-screener"' in panel
+    assert 'id="sig-explore"' in panel and 'id="sig-screener"' in panel
+    assert 'id="signal-explore-slot"' in html
+    assert "appendChild(document.getElementById('sig-explore'))" in html
+    assert 'id="sig-filter-fab"' not in html
     # 없어진 것들이 돌아오지 않게
     assert 'class="sig-quickfilters"' not in html, "퀵필터가 되살아났다(중복 진입점)"
     assert 'class="sig-head"' not in html, "세그 전용 줄이 되살아났다"
@@ -2564,28 +2560,32 @@ def test_signal_panel_has_at_most_three_always_on_blocks():
         assert dead not in html, f"죽은 코드가 남았다: {dead}"
 
 
-def test_verdict_summary_shows_progress_without_a_click():
-    """요약 줄이 폭을 다 쓰면서 `판정 보류`만 말하면 그 폭이 낭비다 — 진척을 인라인으로 올린다.
-
-    단 **백분위는 여기서도 쓰지 않는다**(요건 미달 동안 매일 보이면 그게 peeking이다).
-    """
+def test_signal_secondary_requests_wait_for_open():
+    """숨긴 화면을 CSS로만 접어 놓고 API를 미리 호출하지 않는다."""
     from pathlib import Path
 
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    # 진척을 만드는 코드는 `sumTxt` **앞**에 있다 — 요약을 조립하는 블록 전체를 본다.
-    blk = html.split("const rq = (hz && hz.requirement) || {};", 1)[1].split("if (matureOk)", 1)[0]
-    # **문구가 아니라 계약을 본다.** 2026-08-06 초보자용 재작성에서 이 검사가 문구를 리터럴로
-    # 박고 있어 깨졌다 — `test_smoke`가 브랜드 hex를 박아 팔레트를 바꿀 때마다 깨졌던 것과
-    # 같은 문제다. 지켜야 하는 것은 「진척 두 값이 클릭 없이 보이고 백분위는 안 보인다」다.
-    for field in ("rq.effective_periods", "rq.min_effective_periods",
-                  "rq.pit_dates", "rq.min_pit_dates"):
-        assert field in blk, f"{field} 진척이 요약에 없다"
-    # 대기 중일 때만 진척을 쓴다(확정·설정 변경 무효 상태에는 이전 진척을 붙이지 않는다).
-    assert "hz.status === 'pending'" in blk
-    # 요약에 백분위가 새어 나오지 않는다.
-    assert "percentile" not in blk, "요약 줄에서 백분위를 쓴다(요건 미달 동안 금지)"
-    css = html[:html.find("</style>")]
-    assert ".trust-sum-meta" in css, "참조하는 클래스가 정의되지 않았다"
+    startup = html.split("async function startApp(){", 1)[1].split("\n}", 1)[0]
+    assert "loadIndustryPulse()" not in startup
+    assert "loadMacroDetails()" in html
+    assert 'if(this.open){loadBuyWait();loadDailyChange()}' in html
+    assert "loadDailyChange();" not in html.split("async function loadRegime(){", 1)[1].split("\n}", 1)[0]
+    assert "if (_sigMarket === 'kospi' && _guruScreens === null)" in html
+    trust = html.split("async function loadScorecard(){", 1)[1].split("\n}", 1)[0]
+    before_open = trust.split("if (!el.open) return;", 1)[0]
+    assert "/api/verdict" in before_open
+    assert "/api/accuracy" not in before_open and "/api/signal-scorecard" not in before_open
+
+
+def test_verdict_summary_is_one_short_line_without_peeking():
+    """목록 위에는 검증 상태만 남긴다. 진척과 설명은 펼쳐서 읽는다."""
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    blk = html.split("const sumTxt =", 1)[1].split("if (matureOk)", 1)[0]
+    assert "시그널 검증" in blk and "hz.status === 'pending'" in blk
+    for field in ("effective_periods", "pit_dates", "percentile"):
+        assert field not in blk, f"{field}가 접힌 요약에 노출된다"
     # 문턱은 요약에서 뺐다(진척이 아니고, 접힌 한 줄에서 보정 원리를 설명할 수 없다).
     # 대신 **뜻과 함께** 범례에 있어야 한다 — 숫자만 남기면 성적으로 오독된다.
     legend = html.split('id="trust-legend"', 1)[1].split("</div>`;", 1)[0]
@@ -2621,7 +2621,7 @@ def test_toolbar_search_does_not_force_a_second_line_on_desktop():
 
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     css = html[:html.find("</style>")]
-    assert "#sig-search { order:3; flex:1 1 140px; }" in css
+    assert "#sig-search { order:2; flex:1 1 140px; }" in css
     assert "#sig-search { order:3; flex:1 1 100%; }" not in css
 
 
@@ -3187,7 +3187,7 @@ def test_promised_wait_list_actually_renders():
     assert "관심종목을 넣으면 대기 리스트가 채워집니다" in html, "약속 문구가 사라졌다"
     assert "/api/buylist" in html and "loadBuyWait" in html, "약속만 하고 렌더가 없다"
     # 상시 블록을 늘리지 않는다 — 왼쪽 패널을 3개로 줄인 직후다. 접이식 안에서 로드한다.
-    assert "if(this.open) loadBuyWait()" in html, "닫혀 있어도 호출하면 매번 낭비다"
+    assert "if(this.open){loadBuyWait();loadDailyChange()}" in html, "닫혀 있어도 호출하면 매번 낭비다"
     # 0의 이유 — 관심종목이 없어서인지 시그널이 없어서인지 가른다.
     assert "★로 등록하면" in html
 
@@ -3904,15 +3904,16 @@ def test_dart_path_costs_no_llm():
 # 판정 줄은 "아직 모른다"만 말한다. 그 다음에 "그래도 오늘 이건 달라졌다"가 있어야 습관이 된다.
 # 다만 **원인을 틀리게 말하면 오학습**이라, 인과 분류가 이 카드의 전부다.
 
-def test_daily_card_sits_right_under_the_verdict():
-    """판정 줄 **바로 아래**여야 한다 — 목록 뒤로 밀리면 매일 안 본다."""
+def test_daily_card_stays_inside_collapsed_today_before_table():
+    """어제의 변화는 오늘 상세 안에 두고, 펼치기 전에는 요청하지 않는다."""
     from pathlib import Path
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     i_verdict = html.index('id="signal-trust"')
+    i_today = html.index('id="sig-today"')
     i_card = html.index('id="daily-change"')
     i_table = html.index('class="sig-toolbar"')
-    assert i_verdict < i_card < i_table, "데일리 카드가 판정 줄 아래·툴바 위에 없다"
-    assert "loadDailyChange()" in html
+    assert i_verdict < i_today < i_card < i_table
+    assert 'if(this.open){loadBuyWait();loadDailyChange()}' in html
 
 
 def test_daily_card_shrinks_on_narrow_widths():
