@@ -98,7 +98,7 @@ def test_dart_response_issuer_code_must_match_requested_company(monkeypatch):
 
 def test_watchlist_tab_and_storage_diagnostic_are_visible():
     html = (api.WEB_DIR / "index.html").read_text(encoding="utf-8")
-    assert 'data-tab="watchlist"' in html and 'id="watchlist-briefs"' in html
+    assert 'data-mkt="watchlist"' in html and 'id="watchlist-briefs"' in html
     assert "최근 변화" in html and "아직 모르는 점" in html
     assert "마지막 수집 시도" in html and "수집 확인 기록 없음" in html
     assert "뉴스 분위기는 점수나 매매 차단에 쓰지 않습니다" in html

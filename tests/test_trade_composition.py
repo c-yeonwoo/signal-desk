@@ -152,5 +152,6 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     assert "이 비율은 수익 확률이 아닙니다" in goal and "달성 확률" not in goal
     assert "점수 강도 큼" in src and "신뢰 높음" not in src
     assert "비거래일 평가" in perf_fn
-    summary = src.split("if (matureOk)", 1)[1].split("rows.push", 1)[0]
-    assert "liftNote" in summary
+    # 정밀도는 접힌 검증 한 줄이 아니라 펼친 본문에서 기준선과 함께 표시한다.
+    detail = src.split("if (matureOk)", 1)[1].split("rows.push(sellPrecisionRow", 1)[0]
+    assert "liftNote(acc.buy_lift_pp, (acc.baseline || {}).up_pct" in detail
