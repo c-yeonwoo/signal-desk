@@ -25,6 +25,17 @@ def test_api_requires_auth(tmp_path, monkeypatch):
     assert r.status_code == 401
 
 
+def test_judy_chat_feature_is_removed(tmp_path, monkeypatch):
+    client = _fresh_client(tmp_path, monkeypatch)
+    html = client.get("/").text
+    for removed in ('id="chat-fab"', 'id="chat-panel"', 'initChat()', '/api/chat', '주디'):
+        assert removed not in html
+    chat_routes = {path for route in client.app.routes
+                   if (path := getattr(route, "path", "")).startswith("/api/chat")}
+    assert chat_routes == set()
+    assert any(getattr(route, "path", None) == "/api/my-holdings" for route in client.app.routes)
+
+
 def test_signup_login_profile_flow(tmp_path, monkeypatch):
     client = _fresh_client(tmp_path, monkeypatch)
     r = client.post("/api/auth/signup", json={"email": "a@b.com", "pw": "abcdef"})
@@ -154,9 +165,6 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert 'aria-label="종합점수 이상"' in html and 'aria-label="팩터 강도 이상"' in html
     assert "toggleSignalFilterDrawer" in html and 'id="sig-filter-fab"' in html
 
-    # FAB는 footer 위에 띄움 — footer margin-bottom으로 바닥에서 띄우지 않음
-    assert "body.chat-fab-on #chat-fab" in html
-    assert "body.chat-fab-on footer" not in html
     assert "/detail?market=" in html  # 클릭 시 상세 병렬 fetch
     assert "_ensureSignalChart" in html  # 차트 DOM 파괴 후 재생성(국내 차트 미표시 방지)
     assert "--c-ma20" in html and "--c-price" in html  # 차트 팔레트 = CSS 변수

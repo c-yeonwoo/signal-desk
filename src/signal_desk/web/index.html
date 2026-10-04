@@ -366,37 +366,6 @@
   .hero-runup.down { color:var(--sig-sell); }
   .hero-tk { margin-left:auto; color:var(--dim-2); }
   .hero-score-why { flex:1 1 100%; color:var(--txt); font-weight:600; line-height:1.45; }
-  /* 안내 에이전트(챗봇) */
-  #chat-fab { position:fixed; right:max(16px, var(--safe-right)); bottom:max(16px, var(--safe-bottom));
-    width:52px; height:52px; border-radius:50%;
-    background:var(--accent); color:#fff; font-size:21px; border:none; cursor:pointer; z-index:60;
-    box-shadow:0 4px 14px rgba(15,118,110,.35); transition:transform .1s; }
-  #chat-fab:hover { transform:scale(1.06); }
-  #chat-panel { position:fixed; right:max(12px, var(--safe-right)); bottom:max(12px, var(--safe-bottom)); width:374px; max-width:calc(100vw - 24px);
-    height:520px; max-height:calc(100vh - 40px - var(--safe-bottom)); background:var(--panel); border:1px solid var(--line);
-    border-radius:16px; box-shadow:0 10px 40px rgba(15,23,42,.22); z-index:61; display:none; flex-direction:column; overflow:hidden; }
-  /* FAB는 footer 위에 띄움 — footer에 margin/padding을 주면 바닥에서 떠 보임 */
-  body.chat-fab-on #chat-fab { bottom:calc(16px + var(--safe-bottom) + 52px); }
-  body.chat-fab-on #chat-panel { bottom:calc(12px + var(--safe-bottom) + 52px);
-    max-height:calc(100vh - 40px - var(--safe-bottom) - 52px); }
-  #chat-grip { height:9px; cursor:ns-resize; flex:0 0 auto; display:flex; align-items:center; justify-content:center; touch-action:none; }
-  #chat-grip::before { content:""; width:36px; height:3px; border-radius:3px; background:var(--line-strong); }
-  #chat-head { display:flex; align-items:center; gap:7px; padding:8px 14px 12px; border-bottom:1px solid var(--line); background:var(--bg); }
-  #chat-msgs { flex:1; overflow-y:auto; padding:12px; display:flex; flex-direction:column; gap:8px; }
-  .chat-msg { max-width:84%; padding:8px 11px; border-radius:13px; font-size:13px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
-  .chat-msg.user { align-self:flex-end; background:var(--accent); color:#fff; border-bottom-right-radius:4px; }
-  .chat-msg.bot { align-self:flex-start; background:var(--bg); border:1px solid var(--line); color:var(--txt); border-bottom-left-radius:4px; }
-  .chat-msg.bot.streaming::after { content:"▍"; color:var(--accent); animation:chatcaret 1s steps(1) infinite; }
-  @keyframes chatcaret { 50% { opacity:0; } }
-  #chat-input-row { display:flex; gap:6px; padding:10px; border-top:1px solid var(--line); align-items:flex-end; }
-  #chat-input { flex:1 1 auto; min-width:0; padding:8px 11px; border:1px solid var(--line-strong); border-radius:var(--r-md);
-    background:var(--panel); color:var(--txt); font-size:13px; font-family:inherit; line-height:1.45;
-    resize:vertical; min-height:38px; max-height:140px; overflow-y:auto; }
-  #chat-input-row .btn { flex:0 0 auto; }
-  .chat-msg.bot code { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:0 4px;
-    font-size:13px; font-variant-numeric:tabular-nums; }
-  .chat-msg.bot .li { display:block; padding-left:12px; text-indent:-8px; }
-  .chat-msg.bot .li::before { content:"· "; color:var(--dim-2); }
   table.dtable tr.selected-row { background:var(--accent-weak); }
   .fav-star { cursor:pointer; color:var(--sig-neutral); font-size:15px; user-select:none; }
   .fav-star.on { color:#f59e0b; }
@@ -731,7 +700,6 @@
     .sig-list table.dtable th:nth-child(3), .sig-list table.dtable td:nth-child(3) { display:none; }
     .sig-list table.dtable th:nth-child(4) { text-align:center; }
     .sig-list .col-resizer { display:none; }
-    #chat-fab { width:48px; height:48px; font-size:21px; }
     .market-bar #regime-detail { flex:1 1 100%; }
     .market-bar-end { flex:1 1 100%; justify-content:space-between; }
     .market-bar .tb-live { max-width:none; flex:1 1 auto; }
@@ -2396,24 +2364,6 @@
     </div>
   </div>
 </dialog>
-
-<!-- 안내 에이전트(챗봇) — 플로팅 버튼 + 패널 -->
-<button id="chat-fab" onclick="openChat()" title="안내 도우미에게 물어보기" style="display:none">🐰</button>
-<div id="chat-panel">
-  <div id="chat-grip" title="드래그로 높이 조절" onpointerdown="chatResizeStart(event)"></div>
-  <div id="chat-head">
-    <b id="chat-name">주디</b>
-    <span class="layer-badge ctx">맥락</span>
-    <span style="color:var(--dim);font-size:12px">· 안내 · 재분석·자문 없음</span>
-    <span onclick="closeChat()" style="margin-left:auto;cursor:pointer;color:var(--dim);font-size:17px">✕</span>
-  </div>
-  <div id="chat-msgs"></div>
-  <div id="chat-input-row">
-    <textarea id="chat-input" rows="1" placeholder="예: 삼성전자 시그널 왜 이래? / 매수 시그널 뭐 있어?  (Shift+Enter 줄바꿈)"
-      oninput="autoGrowChat(this)" onkeydown="chatKey(event)"></textarea>
-    <button class="btn primary" onclick="sendChat()">전송</button>
-  </div>
-</div>
 
 <script>
 const _ROUTES = ['signal','trading','cycle','admin','mypage'];
@@ -9657,7 +9607,6 @@ async function loadLlmUsage(){
     </tr>`).join('') || '<tr><td colspan="5" style="color:var(--dim-2)">봇 자문 캐시 기록 없음</td></tr>';
     // 예산 상태를 **맨 위**에 — 상한이 안 보이면 왜 LLM이 조용한지 알 수 없다(0의 이유 규칙).
     const bg = d.budget || {};
-    const rl = d.chat_rate_limit || {};
     const pct = (u, c) => (u != null && c > 0) ? Math.min(100, Math.round(u / c * 100)) : null;
     const bar = (label, u, c) => {
       const q = pct(u, c);
@@ -9670,7 +9619,6 @@ async function loadLlmUsage(){
     const budgetRow = `<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;
         padding:10px 12px;border:1px solid ${bg.ok ? 'var(--line)' : 'var(--sell)'};border-radius:10px">
       ${bar('오늘', bg.day_usd, bg.day_cap)}${bar('30일', bg.month_usd, bg.month_cap)}
-      <div style="flex:0 0 auto;font-size:12px;color:var(--dim)">대화 ${rl.limit || '–'}턴 / ${Math.round((rl.window || 0) / 60)}분</div>
     </div>`
       + (bg.ok ? '' : `<div style="font-size:13px;color:var(--sell);font-weight:700;margin-bottom:10px">LLM 차단 — ${esc(bg.reason || '')}</div>`);
     el.className = '';
@@ -10756,7 +10704,6 @@ async function startApp(){
   applyProfileHeader();
   loadRegime(); loadMacro(); loadIndustryPulse();  // 시황 리본은 전역 노출
   loadAlertBadge();
-  initChat();  // 안내 에이전트(챗봇) 플로팅 버튼 — 사용 가능 시 노출
   routeFromHash() || switchTab('signal');
   maybeShowOnboard();  // 성향·관심종목 미설정 시 미니 온보딩
 }
@@ -10875,115 +10822,6 @@ async function obFinish(dest){
     if (btnPaper) { btnPaper.disabled = false; btnPaper.textContent = '모의투자 보기'; }
     void idleLabel;
   }
-}
-
-// ===== 안내 에이전트(챗봇) — 이미 계산된 데이터를 대화로 풀어줌(재분석·자문 없음) =====
-// 대화는 서버/DB에 저장하지 않고 브라우저 localStorage에 유저별로만 유지(세션 메모리 절약).
-let _chatHistory = [], _chatName = '주디', _chatBusy = false, _chatRendered = false;
-function _chatStoreKey(){ return 'sigChat:' + (_userEmail || 'anon'); }
-function _chatSave(){ try { localStorage.setItem(_chatStoreKey(), JSON.stringify(_chatHistory)); } catch (e) {} }
-async function initChat(){
-  try {
-    const m = await (await fetch('/api/chat/meta')).json();
-    if (!m || !m.available) return;                              // 키 있을 때만 노출
-    _chatName = m.name || _chatName;
-    document.getElementById('chat-name').textContent = _chatName;
-    document.getElementById('chat-fab').style.display = ''; document.body.classList.add('chat-fab-on');
-    try { _chatHistory = JSON.parse(localStorage.getItem(_chatStoreKey()) || '[]') || []; } catch (e) { _chatHistory = []; }
-    const h = parseInt(localStorage.getItem('sigChatH') || '', 10);   // 저장된 높이 복원(클램프)
-    if (h) document.getElementById('chat-panel').style.height = _chatClampH(h) + 'px';
-  } catch (e) {}
-}
-function _renderChat(){
-  const box = document.getElementById('chat-msgs'); box.innerHTML = '';
-  if (_chatHistory.length) _chatHistory.forEach(t => appendChat(t.role === 'user' ? 'user' : 'bot', t.content));
-  else appendChat('bot', `안녕하세요, ${_chatName}예요. 시그널·종목·용어를 이미 계산된 결과로만 풀어드려요. **맥락**이지 매수·매도 신호가 아니며, 판단은 늘 본인 몫입니다.`);
-}
-function openChat(){
-  document.getElementById('chat-fab').style.display = 'none'; document.body.classList.remove('chat-fab-on');
-  document.getElementById('chat-panel').style.display = 'flex';
-  if (!_chatRendered) { _renderChat(); _chatRendered = true; }
-  document.getElementById('chat-input').focus();
-}
-function closeChat(){
-  document.getElementById('chat-panel').style.display = 'none';
-  document.getElementById('chat-fab').style.display = ''; document.body.classList.add('chat-fab-on');
-}
-// 채팅창 높이 드래그 조절(상단 그립) — 패널이 하단 고정이라 위로 끌면 커진다. 높이 기억.
-function _chatClampH(h){ return Math.max(320, Math.min(h, window.innerHeight - 40)); }
-function chatResizeStart(ev){
-  ev.preventDefault();
-  const panel = document.getElementById('chat-panel');
-  const startY = ev.clientY, startH = panel.getBoundingClientRect().height;
-  let lastH = startH;
-  const onMove = (e) => { lastH = _chatClampH(startH + (startY - e.clientY)); panel.style.height = lastH + 'px'; };
-  const onUp = () => {
-    document.removeEventListener('pointermove', onMove);
-    document.removeEventListener('pointerup', onUp);
-    try { localStorage.setItem('sigChatH', String(Math.round(lastH))); } catch (e) {}   // 의도 높이 저장(뷰포트 클램프 rect 아님)
-  };
-  document.addEventListener('pointermove', onMove);
-  document.addEventListener('pointerup', onUp);
-}
-// 최소 안전 마크다운 — HTML 이스케이프 후 **굵게**·`코드`·'- ' 불릿·줄바꿈만 변환(임의 HTML 차단).
-function chatMd(t){
-  let s = esc(t || '');
-  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');   // **굵게**
-  s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');   // `코드`
-  s = s.replace(/^[ \t]*[-*]\s+(.*)$/gm, '<span class="li">$1</span>');  // 불릿
-  return s.replace(/\n/g, '<br>');
-}
-function appendChat(role, text){
-  const box = document.getElementById('chat-msgs');
-  const m = document.createElement('div');
-  m.className = 'chat-msg ' + (role === 'user' ? 'user' : 'bot');
-  if (role === 'user') m.textContent = text;   // 사용자 입력은 그대로(이스케이프)
-  else m.innerHTML = chatMd(text);              // 봇 답변만 마크다운 렌더
-  box.appendChild(m); box.scrollTop = box.scrollHeight;
-  return m;
-}
-function autoGrowChat(el){ el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 140) + 'px'; }
-function chatKey(ev){   // Enter=전송, Shift+Enter=줄바꿈
-  if (ev.isComposing || ev.keyCode === 229) return;   // 한글 조합 중엔 무시(끝음절 남음·중복 방지)
-  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); sendChat(); }
-}
-async function sendChat(){
-  const inp = document.getElementById('chat-input');
-  const msg = (inp.value || '').trim();
-  if (!msg || _chatBusy) return;
-  inp.value = ''; inp.style.height = 'auto'; appendChat('user', msg); _chatBusy = true;
-  const bubble = appendChat('bot', '');   // 빈 말풍선 → 토큰이 들어오는 대로 채움
-  bubble.classList.add('streaming');
-  const box = document.getElementById('chat-msgs');
-  let full = '';
-  try {
-    const resp = await fetch('/api/chat/stream', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, history: _chatHistory }),
-    });
-    const reader = resp.body.getReader(), dec = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let i;
-      while ((i = buf.indexOf('\n\n')) >= 0) {
-        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 2);
-        if (!line.startsWith('data:')) continue;
-        const p = line.slice(5).trim();
-        if (p === '[DONE]') continue;
-        try { const j = JSON.parse(p); if (j.delta) { full += j.delta; bubble.innerHTML = chatMd(full); box.scrollTop = box.scrollHeight; } } catch (e) {}
-      }
-    }
-  } catch (e) { if (!full) full = '연결에 문제가 있어요. 잠시 후 다시 시도해 주세요.'; }
-  bubble.classList.remove('streaming');
-  full = full || '…';
-  bubble.innerHTML = chatMd(full);
-  _chatHistory.push({ role: 'user', content: msg }, { role: 'assistant', content: full });
-  if (_chatHistory.length > 16) _chatHistory = _chatHistory.slice(-16);
-  _chatSave();
-  _chatBusy = false; inp.focus();
 }
 
 // ===== 법적 고지(면책·약관·개인정보) =====

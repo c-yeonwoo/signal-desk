@@ -1,4 +1,4 @@
-"""토스 실계좌 보유내역 — owner 격리(다른 계정 절대 조회 불가) + 파싱 + 챗봇 도구 게이트."""
+"""토스 실계좌 보유내역 — owner 격리(다른 계정 절대 조회 불가) + 파싱."""
 
 import importlib
 from pathlib import Path
@@ -125,13 +125,3 @@ def test_heatmap_market_param_filters(tmp_path, monkeypatch):
     for res, wrong in [(kr, "AAPL"), (us, "005930")]:
         for it in res.get("items", []):
             assert it["ticker"] != wrong          # 시장 교차 오염 없음
-
-
-def test_chat_tool_owner_gate(tmp_path, monkeypatch):
-    _, api = _fresh_client(tmp_path, monkeypatch)
-    import json
-    d_guest = api._make_chat_dispatch(1, is_toss_owner=False)
-    assert "본인만" in json.loads(d_guest("get_real_holdings", {}))["error"]
-    monkeypatch.setattr(api, "_toss_holdings_summary", lambda: {"총평가_원": "7200000", "보유": []})
-    d_owner = api._make_chat_dispatch(1, is_toss_owner=True)
-    assert json.loads(d_owner("get_real_holdings", {}))["총평가_원"] == "7200000"

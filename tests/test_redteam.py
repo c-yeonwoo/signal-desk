@@ -370,18 +370,6 @@ def test_kb_hits_cannot_ship_without_a_timestamp(tmp_path, monkeypatch):
         assert "age_days" in h and "as_of" in h and "stale" in h, "소비자가 시점을 알 길이 없다"
 
 
-def test_context_docs_are_labeled_as_not_being_the_score_basis():
-    """설명이 결정과 어긋나면 신뢰가 깨진다. 점수는 8팩터로 나오고 KB 문서는 그 입력이 아닌데,
-    챗봇이 "이 기사 때문에 매수"라고 말하면 사후 합리화다. 도구 산출과 시스템 규칙 양쪽에
-    '근거 아님'이 박혀 있어야 한다(한쪽만이면 프롬프트 수정 때 조용히 사라진다)."""
-    from signal_desk import chat
-    tool = [t for t in chat.TOOLS if t["name"] == "search_kb"][0]
-    assert "점수 산출에 쓰지 말 것" in tool["description"]
-    assert "시점" in tool["description"]
-    assert "점수 근거와 배경 자료를 섞지 않는다" in chat.SYSTEM
-    assert "시점을 함께 말한다" in chat.SYSTEM
-
-
 def test_scoring_factors_are_snapshotted_and_in_factor_ic(tmp_path, monkeypatch):
     """점수에 들어가는 팩터가 PIT·factor_ic에서 빠져 있으면 그 팩터는 영원히 측정 불가.
 
@@ -1766,15 +1754,12 @@ def test_every_api_route_has_a_caller_or_a_stated_reason():
 
 
 # ── LLM 예산 게이트 ────────────────────────────────────────────────────────────
-# 2026-08-06: `/api/chat`·`/api/chat/stream`에 레이트리밋도 예산 상한도 없었다. 30일 누적은
-# $1.11로 작았지만 상한이 없으면 대화 루프·재시도 폭발이 그대로 청구서가 된다.
+# LLM 호출 예산은 기능별 라우트와 무관하게 모든 네트워크 호출에 적용한다.
 
 def test_budget_gate_covers_every_network_call_site_in_llm():
-    """상한은 라우트가 아니라 **llm 모듈**에 있어야 한다 — 호출자가 11개다.
+    """상한은 라우트가 아니라 **llm 모듈**의 모든 호출 경로에 있어야 한다.
 
-    그리고 `_post_json` 하나만 막으면 안 된다: `stream_call`은 SSE라 자기 요청을 따로 만들고,
-    그게 하필 막아야 할 `/api/chat/stream` 경로다("단일 호출 지점"이라는 전제를 확인하지 않으면
-    게이트는 있는 척만 한다).
+    `stream_call`은 `_post_json`을 거치지 않는 별도 SSE 요청이므로 별도 게이트가 필요하다.
     """
     import re
     from pathlib import Path
@@ -1840,23 +1825,6 @@ def test_budget_gate_fails_closed_when_spend_is_unreadable():
         assert llm.budget_state()["ok"] is True
     finally:
         llm.db.llm_spend_usd = orig
-
-
-def test_chat_routes_are_rate_limited_and_report_the_reason():
-    """막힐 때 **이유를 그대로** 돌려준다 — 조용한 빈 답변은 고장처럼 보인다."""
-    import importlib
-
-    from fastapi.testclient import TestClient
-
-    from signal_desk import api as api_mod
-
-    src = __import__("pathlib").Path("src/signal_desk/api.py").read_text(encoding="utf-8")
-    # 두 라우트가 모두 가드를 통과해야 한다(하나만 걸면 다른 쪽으로 새어 나간다).
-    for route in ('@app.post("/api/chat")', '@app.post("/api/chat/stream")'):
-        blk = src.split(route, 1)[1].split("\n@app.", 1)[0]
-        assert "_chat_guard(request)" in blk, f"{route}에 가드가 없다"
-    assert "_rate_limited(request, \"chat\"" in src
-    importlib.reload(api_mod)
 
 
 def test_storage_report_detects_ephemeral_and_stays_quiet_when_healthy(tmp_path, monkeypatch):
@@ -3623,10 +3591,13 @@ def test_goal_plan_labels_its_assumption_on_screen():
 
 def test_budget_exceeded_becomes_429_everywhere_not_500():
     """라우트마다 `except` 를 붙이면 새 라우트에서 또 빠진다 — **전역 핸들러 하나**로 받는다."""
+    import importlib
     from unittest import mock
     from fastapi.testclient import TestClient
     from signal_desk import api, llm
     from pathlib import Path
+    # 앞선 예산 테스트는 llm을 reload한다. FastAPI 예외 핸들러도 같은 예외 클래스로 재등록한다.
+    importlib.reload(api)
     src = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
     assert "@app.exception_handler(llm.BudgetExceeded)" in src, "전역 핸들러가 없다"
     # 인증 미들웨어가 **라우팅 전에** 401을 내므로 세션이 필요하다(401/404로 라우트 존재를
