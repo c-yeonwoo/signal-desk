@@ -3,8 +3,9 @@
 import datetime as dt
 from pathlib import Path
 from types import SimpleNamespace
+from xml.etree import ElementTree
 
-from signal_desk import api, market_brief
+from signal_desk import api, market_brief, market_brief_image
 
 
 def _bars(last="2026-10-02", count=61):
@@ -27,6 +28,8 @@ def test_fresh_market_card_uses_same_session_bars_and_dated_flow():
     assert out["price_as_of"] == "2026-10-02"
     assert out["price_count"] == 2
     assert len(out["facts"]) == 3
+    assert out["headline"] == "관찰 종목 다수의 흐름이 견조해요"
+    assert out["facts"][0]["value"] == "2/2개"
     assert out["facts"][2]["as_of"] == "2026-10-01"
     assert out["selection"]["buy_count"] == 1
     assert out["not_order_advice"] is True
@@ -51,7 +54,7 @@ def test_partial_market_card_excludes_old_symbol_and_reports_missing():
                              macro_indicators=[{"key": "NASDAQCOM", "change": 2.2,
                                                 "asof": "2026-09-29"}])
     assert out["status"] == "partial"
-    assert out["state"].startswith("평균가격 위 종목")
+    assert out["headline"] == "관찰 종목 다수의 흐름이 견조해요"
     assert out["price_count"] == 1
     assert out["selection"] is None
     assert len(out["facts"]) == 2  # old Nasdaq release is not today's reason
@@ -63,6 +66,8 @@ def test_market_card_has_one_endpoint_and_defers_source_requests():
     html = (Path(__file__).resolve().parents[1] / "src/signal_desk/web/index.html").read_text(encoding="utf-8")
     assert "'/api/market-brief?market='" in html
     assert 'id="market-brief-sources"' in html
+    assert 'id="mb-image"' in html
+    assert 'downloadMarketBriefPng()' in html
     start = html.split("async function startApp(){", 1)[1].split("// ===== 온보딩", 1)[0]
     assert "loadMacro();" not in start
     assert "loadIndustryPulse();" not in start
@@ -88,6 +93,8 @@ def test_market_brief_api_reuses_current_decisions_without_llm(monkeypatch):
     assert out["status"] == "ready"
     assert out["selection"]["buy_count"] == 1
     assert out["selection_policy"]["cutoff_score"] == 1.4
+    assert '<svg ' in out["image_svg"]
+    assert "10-02 16:00 KST" in out["image_svg"]
 
 
 def test_market_brief_api_does_not_compute_signals_when_prices_stale(monkeypatch):
@@ -101,3 +108,43 @@ def test_market_brief_api_does_not_compute_signals_when_prices_stale(monkeypatch
     out = api.market_brief_get("kr")
     assert out["status"] == "stale"
     assert out["selection"] is None
+    assert "오래된 가격" in out["image_svg"]
+    assert "매수 판정 3개" not in out["image_svg"]
+
+
+def test_weak_breadth_is_explained_without_technical_headline():
+    prices = {}
+    dates = {}
+    for n in range(112):
+        prices[str(n)] = [100.0] * 60 + ([110.0] if n < 30 else [90.0])
+        dates[str(n)] = ["2026-07-01"] * 60 + ["2026-10-02"]
+    out = market_brief.build("us", prices=prices, dates=dates,
+                             tickers=list(prices), expected="2026-10-02")
+    assert out["facts"][0]["percent"] == 26.8
+    assert out["facts"][0]["value"] == "30/112개"
+    assert out["headline"] == "관찰 종목 다수의 흐름이 약해요"
+    assert "26.8%" not in out["headline"]
+    assert "최근 60개 종가" in out["facts"][0]["technical"]
+
+
+def test_image_is_parseable_and_escapes_untrusted_text():
+    out = market_brief_image.render({
+        "market": "kr", "status": "ready", "price_as_of": "2026-10-02",
+        "headline": "관찰 종목의 흐름이 엇갈려요", "summary": "A&B <불확실>",
+        "facts": [{"label": "최근 평균보다 높은 종목", "value": "2/5개", "percent": 40},
+                  {"label": "20개 종가 전보다 오른 종목", "value": "3/5개", "percent": 60}],
+        "selection": {"buy_count": 1, "strong_buy_count": 0,
+                      "computed_at": "2026-10-02T07:00:00+00:00"}, "unknown": [],
+    })
+    ElementTree.fromstring(out)
+    assert "A&amp;B &lt;불확실&gt;" in out
+    assert "매수 판정 1개" in out
+
+
+def test_image_withholds_buy_count_without_verifiable_decision_time():
+    out = market_brief_image.render({
+        "market": "kr", "status": "ready", "headline": "관찰 종목의 흐름이 엇갈려요",
+        "facts": [], "selection": {"buy_count": 4}, "unknown": [],
+    })
+    assert "매수 판정 4개" not in out
+    assert "매수 판정 건수 보류" in out
