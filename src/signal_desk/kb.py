@@ -20,7 +20,7 @@ import time
 import unicodedata
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from signal_desk import config, db, llm
+from signal_desk import config, db, kb_attribution, llm
 from signal_desk.copy_style import PLAIN_KOREAN
 from signal_desk.ingest import dart as ingest_dart
 from signal_desk.ingest import news
@@ -482,9 +482,11 @@ def ingest_document(*, source_key: str, ticker: str, title: str, summary: str,
 
 def ingest_stock_batch(ticker: str, items: list[dict]) -> int:
     """종목 뉴스·공시 배치 — item.source(dart|naver_news|…)별 registry 게이트 후 add_many.
-    레거시 digest veto(detect_event)는 유지. Decision eligible 이벤트는 DART sync만."""
+    Decision eligible 이벤트는 확인된 DART sync만."""
     allowed, counts = [], {}
     for it in items:
+        if it.get("attribution_version") != kb_attribution.POLICY_VERSION:
+            continue  # Search hits and old entries are not issuer facts.
         raw_src = (it.get("source") or "naver_news").strip()
         sk = "dart" if raw_src == "dart" else "naver_news"
         src = db.kb_source_get(sk)
@@ -656,6 +658,8 @@ def _disclosure_items(corp_code: str | None) -> list[dict]:
     bgn = end - timedelta(days=EVENT_TTL_DAYS + 2)
     items = []
     for r in ingest_dart.disclosures(corp_code, bgn.strftime("%Y%m%d"), end.strftime("%Y%m%d")):
+        if r.get("corp_code") != corp_code:
+            continue  # No confirmed issuer ID, no company disclosure card.
         nm = r["report_nm"]
         if not any(k in nm for k in _DISC_NOTABLE):  # 분기보고서·IR 등 routine은 스킵(노이즈 방지)
             continue
@@ -663,7 +667,8 @@ def _disclosure_items(corp_code: str | None) -> list[dict]:
         published = f"{d[:4]}-{d[4:6]}-{d[6:8]}" if len(d) == 8 else ""
         items.append({"title": f"[공시] {nm}", "summary": "", "source": "dart", "published": published,
                       "url": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={r['rcept_no']}",
-                      "doc_class": "공시", "rcept_no": r.get("rcept_no") or ""})
+                      "doc_class": "공시", "rcept_no": r.get("rcept_no") or "",
+                      "corp_code": corp_code, "attribution_version": kb_attribution.POLICY_VERSION})
     return items
 
 
@@ -1047,9 +1052,10 @@ def review_candidate_event(event_id: int, action: str, *, by: str = "admin", not
         return {"ok": True, "event": out, "action": "attention", "by": by}
     if act == "confirm":
         eligible, d_action = _action_for_confirm(ev.get("severity") or "", ev.get("direction") or "")
-        if by == "auto" and d_action == "exit" and ev.get("trust_tier") != "official":
-            # 뉴스 LLM 단독으로 기존 보유분 전량 청산 금지. 신규 매수 차단까지만 자동화.
-            d_action = "buy_block"
+        if ev.get("trust_tier") != "official":
+            # General news is sourced explanation, never an order veto.  This
+            # also prevents a manual confirmation from silently opening it.
+            eligible, d_action = False, "attention"
         # confirm이어도 호재·info는 Decision 미반영(비대칭).
         out = db.kb_event_review(
             int(event_id), status="confirmed", decision_eligible=eligible,
@@ -1118,6 +1124,8 @@ def sync_candidate_events(ticker: str, items: list[dict]) -> int:
             break
         if not _current_digest_items([it], now=now):
             continue  # 날짜 없는/오래된 뉴스로 오늘의 매매 차단 사건을 만들지 않는다.
+        if it.get("attribution_version") != kb_attribution.POLICY_VERSION:
+            continue
         if (it.get("source") or "") == "dart":
             continue
         url = (it.get("url") or "").strip()
@@ -1500,6 +1508,16 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
         # 뉴스 장애가 공식 공시의 기존 위험 차단까지 막아서는 안 된다.
         sync_disclosure_events(ticker, disc)
         raise
+    verified_news = []
+    for item in news_items:
+        verdict = kb_attribution.verify_news(name, item)
+        if verdict["ok"]:
+            verified_news.append({**item, "attribution_version": kb_attribution.POLICY_VERSION})
+    source_ok, _ = _source_allows(db.kb_source_get("naver_news"), "stock")
+    news_items = verified_news if source_ok else []
+    owners = db.kb_entry_url_owners([it.get("url") for it in disc + news_items])
+    disc = [it for it in disc if not owners.get(it.get("url")) or owners[it["url"]] == ticker]
+    news_items = [it for it in news_items if not owners.get(it.get("url")) or owners[it["url"]] == ticker]
     items = disc + news_items
     if not items:
         return False
@@ -1508,19 +1526,19 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
             it["doc_class"] = classify_document(it, "news")
     # 증분 판정은 ingest 전 — INSERT 이후엔 전부 '이미 있음'이 된다
     all_urls = [it["url"] for it in items if it.get("url")]
-    already = db.kb_entry_urls_existing(all_urls)
+    already = set(owners)
     digest_items = _current_digest_items(items)
     digest_new = [it for it in digest_items if not it.get("url") or it["url"] not in already]
     new_news = [it for it in news_items if it.get("url") and it["url"] not in already]
     ingest_stock_batch(ticker, items)  # P1: source registry 게이트
     sync_disclosure_events(ticker, disc)  # P0: 구조화 이벤트 카드(공식 공시)
-    sync_candidate_events(ticker, new_news)  # P1b: 추출→자동 판정(명확 악재만 Decision)
+    sync_candidate_events(ticker, new_news)  # 일반 뉴스 후보는 설명/조사만, Decision 자격 없음
     existing = db.kb_digest_get(ticker)
     if not digest_items and not existing:
         return False
     if (not digest_new and existing and existing.get("policy_version") == db.KB_DIGEST_POLICY_VERSION) or not digest_items:
-        # 이벤트 플래그만 Decision 기준으로 동기화(요약 재생성 X)
-        event_flag, event_note = detect_event(items)
+        # 일반 뉴스의 악재 추정은 위험 알림이 아니다.
+        event_flag, event_note = False, ""
         active = _active_decision_event(ticker)
         if active:
             event_flag, event_note = True, active.get("summary") or event_note
@@ -1534,8 +1552,8 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
             )
         return False  # LLM 비용 0 · 오래된 원문으로 오늘 요약을 만들지 않음
     digest = build_digest(name, digest_items)
-    # digest 플래그는 레거시·폴백 — Decision은 active event 우선(sentiment_map)
-    event_flag, event_note = detect_event(items)
+    # 위험 알림은 확인된 공식 공시 이벤트에서만 나온다.
+    event_flag, event_note = False, ""
     active = _active_decision_event(ticker)
     if active:
         event_flag, event_note = True, active.get("summary") or event_note

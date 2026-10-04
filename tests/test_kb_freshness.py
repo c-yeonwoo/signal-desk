@@ -71,9 +71,9 @@ def test_recent_article_cannot_launder_old_article_into_current_digest(tmp_path,
     monkeypatch.setattr(db, "DB", tmp_path / "app.db")
     today = datetime.date.today()
     raw = [
-        {"title": "지난주 호재", "source": "naver_news", "published": (today - datetime.timedelta(days=5)).isoformat(),
+        {"title": "삼성전자, 지난주 호재", "source": "naver_news", "published": (today - datetime.timedelta(days=5)).isoformat(),
          "url": "https://n.example/old", "summary": "지난 사실"},
-        {"title": "오늘 실적", "source": "naver_news", "published": today.isoformat(),
+        {"title": "삼성전자, 오늘 실적", "source": "naver_news", "published": today.isoformat(),
          "url": "https://n.example/new", "summary": "새 사실"},
     ]
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: raw)
@@ -86,8 +86,8 @@ def test_recent_article_cannot_launder_old_article_into_current_digest(tmp_path,
         {"sentiment": 0.2, "summary": "오늘 실적", "points": []}
     ))
     out = kb.refresh([{"ticker": "005930", "name": "삼성전자"}])
-    assert out["updated"] == 1 and seen == ["오늘 실적"]
-    assert {d["title"] for d in db.kb_entries_recent("005930")} == {"지난주 호재", "오늘 실적"}
+    assert out["updated"] == 1 and seen == ["삼성전자, 오늘 실적"]
+    assert {d["title"] for d in db.kb_entries_recent("005930")} == {"삼성전자, 지난주 호재", "삼성전자, 오늘 실적"}
 
 
 def test_stale_news_cannot_become_new_auto_confirmed_event(tmp_path, monkeypatch):
@@ -105,7 +105,7 @@ def test_stale_news_cannot_become_new_auto_confirmed_event(tmp_path, monkeypatch
 def test_legacy_digest_is_quarantined_until_rebuilt_from_current_sources(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB", tmp_path / "app.db")
     today = datetime.date.today().isoformat()
-    item = {"title": "오늘 실적", "summary": "새 사실", "source": "naver_news",
+    item = {"title": "삼성전자, 오늘 실적", "summary": "새 사실", "source": "naver_news",
             "published": today, "url": "https://n.example/same"}
     db.kb_document_add("005930", item["title"], item["summary"], item["url"],
                        item["source"], item["published"], "뉴스")

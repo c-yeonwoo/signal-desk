@@ -76,7 +76,8 @@ def test_refresh_writes_events(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.ingest_dart, "corp_codes", lambda: {"005930": "00126380"})
     _, ymd = _today_ymd()
     monkeypatch.setattr(kb.ingest_dart, "disclosures", lambda cc, b, e: [
-        {"report_nm": "유상증자 결정", "rcept_dt": ymd, "rcept_no": f"{ymd}000111"}])
+        {"report_nm": "유상증자 결정", "rcept_dt": ymd, "rcept_no": f"{ymd}000111",
+         "corp_code": "00126380"}])
     monkeypatch.setattr(kb, "build_digest", lambda name, items: {
         "sentiment": -0.2, "summary": "s", "points": []})
     out = kb.refresh([{"ticker": "005930", "name": "삼성전자"}])

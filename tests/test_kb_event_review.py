@@ -28,15 +28,15 @@ def _seed_candidate(tmp_path, monkeypatch, *, severity="serious", direction="neg
     return eid
 
 
-def test_confirm_serious_negative_is_decision_eligible(tmp_path, monkeypatch):
+def test_confirm_serious_news_is_information_only(tmp_path, monkeypatch):
     eid = _seed_candidate(tmp_path, monkeypatch)
     out = kb.review_candidate_event(eid, "confirm")
-    assert out["ok"] and out["decision_eligible"] is True
-    assert out["decision_action"] == "buy_block"
+    assert out["ok"] and out["decision_eligible"] is False
+    assert out["decision_action"] == "attention"
     ev = db.kb_event_get(eid)
     assert ev["status"] == "confirmed"
-    assert ev["decision_eligible"] is True
-    assert db.kb_events_active("005930", decision_only=True)
+    assert ev["decision_eligible"] is False
+    assert db.kb_events_active("005930", decision_only=True) == []
 
 
 def test_confirm_positive_stays_attention_only(tmp_path, monkeypatch):
@@ -76,9 +76,9 @@ def test_auto_confirm_clear_negative(tmp_path, monkeypatch):
     out = kb.auto_review_candidate(eid)
     assert out["ok"] and out["action"] == "confirm" and out["by"] == "auto"
     ev = db.kb_event_get(eid)
-    assert ev["status"] == "confirmed" and ev["decision_eligible"] is True
-    assert "자동 Decision 반영" in (ev.get("rationale") or "")
-    assert ev["decision_action"] == "buy_block"  # 뉴스 LLM 단독으로 전량 청산 금지
+    assert ev["status"] == "confirmed" and ev["decision_eligible"] is False
+    assert "Decision 비대상" in (ev.get("rationale") or "")
+    assert ev["decision_action"] == "attention"
 
 
 def test_recrawl_cannot_resurrect_rejected_or_rewrite_first_observed(tmp_path, monkeypatch):
@@ -96,17 +96,25 @@ def test_recrawl_cannot_resurrect_rejected_or_rewrite_first_observed(tmp_path, m
     assert after["detected_at"] == first["detected_at"]
 
 
-def test_admin_can_revoke_auto_news_block_with_audited_reason(tmp_path, monkeypatch):
+def test_news_attention_cannot_be_recast_as_an_order_block(tmp_path, monkeypatch):
     eid = _seed_candidate(tmp_path, monkeypatch, severity="critical", confidence=0.95)
     assert kb.auto_review_candidate(eid)["action"] == "confirm"
-    assert db.kb_event_get(eid)["decision_action"] == "buy_block"
+    assert db.kb_event_get(eid)["decision_action"] == "attention"
     assert kb.review_candidate_event(eid, "revoke", by="auto", note="근거 원문이 다른 회사 기사로 확인됨")["ok"] is False
     assert kb.review_candidate_event(eid, "revoke", by="admin", note="짧음")["ok"] is False
     result = kb.review_candidate_event(eid, "revoke", by="admin",
                                        note="원문을 다시 대조하니 다른 회사 기사로 확인됨")
-    assert result["ok"] and db.kb_events_active("005930", decision_only=True) == []
+    assert result["ok"] is False and db.kb_events_active("005930", decision_only=True) == []
     summary = db.kb_event_review_summary()
-    assert summary["auto_confirmed"] == 1 and summary["manual_revoked"] == 1
+    assert summary["auto_confirmed"] == 1 and summary["manual_revoked"] == 0
+
+
+def test_old_news_decision_flag_is_ignored_by_official_only_reader(tmp_path, monkeypatch):
+    eid = _seed_candidate(tmp_path, monkeypatch)
+    db.kb_event_review(eid, status="confirmed", decision_eligible=True,
+                       decision_action="buy_block", reviewer="legacy", action="confirm")
+    assert db.kb_event_get(eid)["decision_eligible"] is True
+    assert db.kb_events_active("005930", decision_only=True) == []
 
 
 def test_auto_reject_ambiguous_low_confidence(tmp_path, monkeypatch):

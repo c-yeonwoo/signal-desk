@@ -10,7 +10,8 @@ from signal_desk.ingest import dart
 
 def test_dart_disclosures_parse(monkeypatch):
     monkeypatch.setattr(dart, "_get_json", lambda p, params: {"status": "000", "list": [
-        {"report_nm": "유상증자 결정", "rcept_dt": "20260708", "rcept_no": "20260708000123"},
+        {"report_nm": "유상증자 결정", "rcept_dt": "20260708", "rcept_no": "20260708000123",
+         "corp_code": "00126380"},
         {"report_nm": "  ", "rcept_dt": "20260707", "rcept_no": "z"}]})  # 빈 제목 제외
     out = dart.disclosures("00126380", "20260701", "20260708")
     assert len(out) == 1 and out[0]["report_nm"] == "유상증자 결정"
@@ -29,9 +30,9 @@ def test_dart_013_is_an_empty_disclosure_poll_not_a_warning(monkeypatch, caplog)
 
 def test_disclosure_items_filters_notable(monkeypatch):
     monkeypatch.setattr(kb.ingest_dart, "disclosures", lambda cc, b, e: [
-        {"report_nm": "유상증자 결정", "rcept_dt": "20260708", "rcept_no": "1"},
-        {"report_nm": "분기보고서", "rcept_dt": "20260707", "rcept_no": "2"},       # routine → 제외
-        {"report_nm": "단일판매·공급계약 체결", "rcept_dt": "20260706", "rcept_no": "3"}])
+        {"report_nm": "유상증자 결정", "rcept_dt": "20260708", "rcept_no": "1", "corp_code": cc},
+        {"report_nm": "분기보고서", "rcept_dt": "20260707", "rcept_no": "2", "corp_code": cc},       # routine → 제외
+        {"report_nm": "단일판매·공급계약 체결", "rcept_dt": "20260706", "rcept_no": "3", "corp_code": cc}])
     items = kb._disclosure_items("00126380")
     titles = [i["title"] for i in items]
     assert "[공시] 유상증자 결정" in titles and "[공시] 단일판매·공급계약 체결" in titles
@@ -52,7 +53,8 @@ def test_refresh_merges_disclosures(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [])          # 뉴스 없음
     monkeypatch.setattr(kb.ingest_dart, "corp_codes", lambda: {"005930": "00126380"})
     monkeypatch.setattr(kb.ingest_dart, "disclosures", lambda cc, b, e: [
-        {"report_nm": "감자 결정", "rcept_dt": datetime.date.today().strftime("%Y%m%d"), "rcept_no": "9"}])
+        {"report_nm": "감자 결정", "rcept_dt": datetime.date.today().strftime("%Y%m%d"),
+         "rcept_no": "9", "corp_code": cc}])
     monkeypatch.setattr(kb, "build_digest", lambda name, items: {"sentiment": -0.5, "summary": "s", "points": []})
     out = kb.refresh([{"ticker": "005930", "name": "삼성전자"}])
     assert out["updated"] == 1                                          # 뉴스 0이어도 공시로 갱신

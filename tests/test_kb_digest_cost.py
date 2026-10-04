@@ -2,13 +2,13 @@
 
 import datetime
 
-from signal_desk import db, kb
+from signal_desk import db, kb, kb_attribution
 
 
 def test_refresh_skips_digest_when_urls_unchanged(tmp_path, monkeypatch):
     monkeypatch.setattr(kb.db, "DB", tmp_path / "app.db")
     item = {
-        "title": "주가 상승 마감", "source": "naver_news", "published": datetime.date.today().isoformat(),
+        "title": "삼성전자, 주가 상승 마감", "source": "naver_news", "published": datetime.date.today().isoformat(),
         "url": "https://n.example/same1", "summary": "외국인 순매수",
     }
     monkeypatch.setattr(kb.news, "collect", lambda *a, **k: [item])
@@ -60,6 +60,7 @@ def test_candidate_prefilter_allows_material(tmp_path, monkeypatch):
         "title": "검찰, 압수수색", "source": "naver_news",
         "url": "https://n.example/mat", "summary": "횡령 혐의",
         "published": datetime.date.today().isoformat(),
+        "attribution_version": kb_attribution.POLICY_VERSION,
     }]) == 1
 
 
