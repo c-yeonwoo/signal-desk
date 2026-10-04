@@ -545,6 +545,31 @@ def conn() -> sqlite3.Connection:
     return c
 
 
+def storage_breakdown(max_objects: int = 12) -> dict:
+    """Read-only SQLite page inventory for explicit admin diagnosis, never cleanup."""
+    if not DB.is_file():
+        return {"available": False, "reason": "DB 파일 없음", "objects": []}
+    try:
+        c = sqlite3.connect(f"{DB.resolve().as_uri()}?mode=ro", uri=True, timeout=5)
+        try:
+            c.execute("PRAGMA query_only=ON")
+            page_size = int(c.execute("PRAGMA page_size").fetchone()[0])
+            page_count = int(c.execute("PRAGMA page_count").fetchone()[0])
+            free_pages = int(c.execute("PRAGMA freelist_count").fetchone()[0])
+            rows = c.execute(
+                "SELECT name, SUM(pgsize) FROM dbstat GROUP BY name "
+                "ORDER BY SUM(pgsize) DESC LIMIT ?", (max(1, min(max_objects, 30)),)
+            ).fetchall()
+        finally:
+            c.close()
+    except sqlite3.Error as exc:
+        return {"available": False, "reason": type(exc).__name__, "objects": []}
+    return {"available": True, "db_bytes": DB.stat().st_size,
+            "page_bytes": page_size, "allocated_pages": page_count,
+            "free_page_bytes": free_pages * page_size,
+            "objects": [{"name": name, "bytes": int(size)} for name, size in rows]}
+
+
 _REFERENCE_BOT_UIDS = (900001, 900002, 900003)  # bot.REFERENCE_BOTS와 같은 값(순환 import 회피)
 
 

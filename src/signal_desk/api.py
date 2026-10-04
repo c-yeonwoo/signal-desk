@@ -1365,7 +1365,7 @@ _ADMIN_PATHS = {
     "/api/brain/proposals", "/api/brain/proposals/refresh", "/api/engine/config/history",
     "/api/engine/llm-usage",
     "/api/data-health", "/api/egress-ip",
-    "/api/admin/evidence-audit/dart", "/api/admin/evidence-ops",
+    "/api/admin/evidence-audit/dart", "/api/admin/evidence-ops", "/api/admin/storage-breakdown",
     "/api/hypothesis/refresh",
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
     "/api/morning-digest", "/api/morning-digest/test",
@@ -4219,6 +4219,13 @@ def evidence_ops_get(request: Request):
             "note": "부팅 횟수와 첫 관측 ID는 배포 전후 비교용입니다. 원문 무결성은 별도 대조가 필요합니다.",
         },
     }
+
+
+@app.get("/api/admin/storage-breakdown")
+def storage_breakdown_get(request: Request):
+    """On-demand DB page sizes; separate from the ordinary health hot path."""
+    _admin_or_403(request)
+    return db.storage_breakdown()
 
 
 @app.get("/api/admin/evidence-audit/dart")

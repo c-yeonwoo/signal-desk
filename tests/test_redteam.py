@@ -1865,6 +1865,19 @@ def test_storage_report_detects_ephemeral_and_stays_quiet_when_healthy(tmp_path,
     importlib.reload(db_mod)
 
 
+def test_storage_breakdown_reads_db_pages_without_cleanup(tmp_path, monkeypatch):
+    from signal_desk import db as db_mod
+
+    monkeypatch.setattr(db_mod, "DB", tmp_path / "volume.db")
+    db_mod.kv_set("large-observation", "x" * 100000)
+    before = db_mod.DB.stat().st_size
+    report = db_mod.storage_breakdown()
+    assert report["available"] is True
+    assert report["db_bytes"] == before == db_mod.DB.stat().st_size
+    assert report["free_page_bytes"] >= 0
+    assert any(obj["name"] == "kv" and obj["bytes"] > 0 for obj in report["objects"])
+
+
 def test_data_health_carries_storage_and_ui_renders_it():
     """진단 값을 만들어도 화면에 안 뜨면 몇 주씩 못 본다(수집 정지와 같은 병)."""
     import inspect
