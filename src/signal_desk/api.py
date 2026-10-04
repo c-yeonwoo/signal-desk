@@ -45,7 +45,7 @@ from signal_desk.signals import (
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
     horizon, hypothesis, industry_cycle, lens_forward, lens_governance, lenses, macro, macro_release, market_regime_study, narrative, opportunity, policy_contract, priced_in, rebalance, regime,
-    pre_move, regime_zone, relative, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
+    pre_move, regime_zone, relation_graph, relation_event_study, relation_event_forward, relation_event_verdict, revision, revision_price_freeze, revision_price_forward, revision_price_verdict,
     scaling_readiness, sector_rel, target, why_now,
 )
 from signal_desk.signals.engine import (
@@ -2968,16 +2968,6 @@ def regime_zone_get():
         return {"ready": False}
     idx = [d["close"] for d in store.load_index_history()]
     return regime_zone.assess(store.load_price_series(), index_closes=idx, macro_result=_macro())
-
-
-@app.get("/api/relative-strength")
-def relative_strength_get():
-    """상대강도 리더보드 — 시장(동일가중 지수) 대비 선방 종목 감시 렌즈(매수 신호 아님)."""
-    if not store.is_ready():
-        return {"ready": False, "items": []}
-    idx = [d["close"] for d in store.load_index_history()]
-    names = {u["ticker"]: u["name"] for u in store.load_universe()}
-    return {"ready": True, "items": relative.leaderboard(store.load_price_series(), idx, names)}
 
 
 @app.get("/api/buylist")

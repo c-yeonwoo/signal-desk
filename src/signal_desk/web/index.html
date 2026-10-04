@@ -975,10 +975,6 @@
     <div id="regime-recovery" style="font-size:12px;color:var(--dim-2)"></div>
     <div style="font-size:11px;color:var(--dim-2);margin-top:4px">※ 예측이 아니라 현재 구간 감지 — 바닥·반등 시점은 맞히지 않습니다</div>
   </div>
-  <div id="relstr-card" class="pcard" style="display:none;margin:var(--space-2) var(--space-4)">
-    <div class="pcard-title">상대강도 상위 <span class="sub">시장 대비 선방 · 감시용(매수 신호 아님)</span></div>
-    <div id="relstr-body"></div>
-  </div>
 </div>
 
 <main>
@@ -3123,7 +3119,7 @@ function toggleMacro(){
   if (document.getElementById('macro-detail')?.style.display !== 'none') loadMacroDetails();
 }
 function loadMacroDetails(){
-  loadIndustryPulse(); loadRegimeZone(); loadRelativeStrength();
+  loadIndustryPulse(); loadRegimeZone();
 }
 function openHelp(){
   document.getElementById('helpDlg').showModal();
@@ -3999,23 +3995,6 @@ async function loadRegimeZone(){  // 시장 국면 체온계(ZONE 감지 — 예
   } catch(e){ card.style.display = 'none'; }
 }
 async function loadBuylist(){ /* 왼쪽 패널 상단 정리 — UI 제거, API는 유지 */ }
-async function loadRelativeStrength(){  // 상대강도 리더보드(시장 대비 선방 — 감시 렌즈, 매수 신호 아님)
-  const card = document.getElementById('relstr-card');
-  try {
-    const d = await (await fetch('/api/relative-strength')).json();
-    const items = (d && d.items) || [];
-    if (!items.length){ card.style.display = 'none'; return; }
-    card.style.display = '';
-    document.getElementById('relstr-body').innerHTML = items.map(it => {
-      const c = it.rs > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)';
-      return `<div class="relstr-row" data-ticker="${esc(it.ticker)}" style="display:flex;align-items:center;gap:8px;padding:5px 0;border-top:1px solid var(--line);cursor:pointer">
-        <span style="font-weight:600;min-width:84px">${esc(it.name)}</span>
-        <span style="font-size:13px;color:var(--dim);flex:1">시장 대비 <b style="color:${c}">${it.rs > 0 ? '+' : ''}${it.rs}%p</b><span style="color:var(--dim-2)"> (60일) · 수익 ${it.ret > 0 ? '+' : ''}${it.ret}%</span></span></div>`;
-    }).join('');
-    document.querySelectorAll('#relstr-body .relstr-row').forEach(r =>
-      r.addEventListener('click', () => selectSignalRow(r.dataset.ticker)));
-  } catch(e){ card.style.display = 'none'; }
-}
 // 화면의 '시그널순'은 원점수가 아닌 최종 판정을 따른다. 안전장치로 관망이 된
 // 고득점 종목이 실제 매수 후보보다 위에 오르지 않게 한다. 매매 엔진/API의 순서는 변경하지 않는다.
 const _SIGNAL_KIND_ORDER = { STRONG_BUY: 0, BUY: 1, HOLD: 2, SELL: 3, STRONG_SELL: 4 };
