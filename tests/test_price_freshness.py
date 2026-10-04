@@ -137,12 +137,26 @@ def test_daily_maintenance_keeps_incremental_when_history_is_short(monkeypatch, 
 
 def test_price_failure_does_not_block_the_rest_of_maintenance(monkeypatch, _quiet_maintenance):
     done: list[str] = []
+    alerts: list[str] = []
     monkeypatch.setattr(api.store, "prices_need_deep_backfill", lambda: False)
     monkeypatch.setattr(api.store, "fetch_prices",
                         lambda u, full=False: (_ for _ in ()).throw(RuntimeError("krx down")))
+    monkeypatch.setattr(api, "_check_kr_price_refresh",
+                        lambda now, *, reason: alerts.append(reason))
     monkeypatch.setattr(api.store, "fetch_short", lambda *a, **k: done.append("short"))
     api._daily_maintenance([])
     assert done == ["short"]                           # 시세가 죽어도 나머지는 계속
+    assert alerts == ["RuntimeError"]                  # 실패를 긴급 알림 점검으로 전달
+
+
+def test_silent_price_provider_failure_still_checks_last_bars(monkeypatch, _quiet_maintenance):
+    """KR 수집기는 개별 종목 실패를 삼키므로 반환 성공을 신선도로 간주하지 않는다."""
+    alerts = []
+    monkeypatch.setattr(api.store, "fetch_prices", lambda u, full=False: None)
+    monkeypatch.setattr(api, "_check_kr_price_refresh",
+                        lambda now, *, reason: alerts.append(reason))
+    api._daily_maintenance([])
+    assert alerts == ["재시도 후 최신 종가 없음"]
 
 
 def test_paper_snapshot_failure_does_not_block_other_ledgers_or_daily_completion(

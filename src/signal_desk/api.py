@@ -759,6 +759,73 @@ def _is_stale(key: str) -> bool:
         return False
 
 
+def _notify_stale_price_refresh(market: str, expected: str, tickers: list[str],
+                                last_dates: dict[str, str], reason: str,
+                                *, now: datetime.datetime) -> bool:
+    """One urgent operator alert per market/session, after a failed price refresh.
+
+    The durable outbox retries Telegram delivery; the session key prevents the
+    30-minute US loop from sending the same incident repeatedly.
+    """
+    if not expected or not tickers:
+        return False
+    label = "국내" if market == "kr" else "미국"
+    sample = ", ".join(f"{ticker}({last_dates.get(ticker) or '봉 없음'})"
+                       for ticker in tickers[:5])
+    if len(tickers) > 5:
+        sample += f" 외 {len(tickers) - 5}종목"
+    message = (f"🚨 {label} 최신 종가 미확보 · 갱신 시도 후에도 오래됨\n"
+               f"기대 종가 {expected} · 미갱신 {len(tickers)}종목\n"
+               f"{sample}\n확인: {reason}\n"
+               "최신 종가를 확인하기 전까지 해당 시장의 시그널·매매 판단에 주의하세요.")
+    at = int(now.timestamp())
+    inserted = notify.enqueue(message, dedupe_key=f"price-stale:{market}:{expected}",
+                              priority="critical", expires_at=at + 20 * 3600, now=at)
+    if inserted:
+        notify.drain(now=at)
+    return inserted
+
+
+def _check_kr_price_refresh(now: datetime.datetime, *, reason: str) -> bool:
+    """A successful function return is not proof that today's KR bars arrived."""
+    expected = market_clock.latest_completed_session("kr", now)
+    if expected != now.date().isoformat():
+        return False
+    tickers = sorted({str(item.get("ticker") or "") for item in store.load_universe()})
+    tickers = [ticker for ticker in tickers if ticker]
+    if not tickers:
+        return False
+    try:
+        last = store.kr_price_last_dates()
+    except Exception:
+        last = {}
+    stale = [ticker for ticker in tickers if last.get(ticker, "") < expected]
+    return _notify_stale_price_refresh("kr", expected, stale, last, reason, now=now)
+
+
+def _check_us_price_refresh(now: datetime.datetime, targets: list[str], *,
+                            max_trading_days: int, reason: str) -> bool:
+    """Alert only for US names actually retried and still behind afterward."""
+    if not targets:
+        return False
+    try:
+        stale = store.us_prices_stale_tickers(targets, max_trading_days=max_trading_days,
+                                               as_of=now)
+    except Exception:
+        # These names were stale before the attempted refresh; an unreadable
+        # post-refresh price file cannot establish recovery.
+        stale = targets
+    if not stale:
+        return False
+    try:
+        last = store.us_price_last_dates()
+    except Exception:
+        last = {}
+    expected = market_clock.latest_completed_session("us", now)
+    return _notify_stale_price_refresh("us", expected or store.us_expected_last_bar(now),
+                                       stale, last, reason, now=now)
+
+
 def _auto_refresh_note(key: str, label: str, reason: str | None) -> None:
     """stale 자동 갱신의 **결과**를 kv에 남긴다 — 실패가 화면에 안 뜨면 매일 실패해도 모른다.
 
@@ -880,10 +947,12 @@ def _daily_maintenance(enabled: list[str]) -> None:
 
     봇 사용자(enabled) 유무와 무관하게 돈다 — 데이터 신선도가 봇 활성화에 딸려 있으면 안 된다.
     단계별로 try를 나눠 한 소스가 죽어도 나머지는 갱신된다."""
+    price_failure = None
     try:   # 일봉 이력 갱신 — 이게 없으면 멈춘 가격으로 시그널만 계속 쌓인다(점수 동결)
         store.fetch_prices(store.prices_universe(), full=False)
         _signals.cache_clear()
     except Exception as e:
+        price_failure = type(e).__name__
         log.warning("마감후 시세 갱신 실패: %s", type(e).__name__)
     try:
         repaired = store.repair_kr_price_gaps()
@@ -892,6 +961,10 @@ def _daily_maintenance(enabled: list[str]) -> None:
             log.info("국내 누락 종가 한정 재조회 %d건 복구", repaired["filled"])
     except Exception as e:
         log.warning("국내 누락 종가 재조회 실패: %s", type(e).__name__)
+    try:
+        _check_kr_price_refresh(_kst_now(), reason=price_failure or "재시도 후 최신 종가 없음")
+    except Exception as e:
+        log.warning("국내 시세 긴급 알림 점검 실패: %s", type(e).__name__)
     try:
         if config.dart_key() and _dart_stale():
             universe = store.load_universe()
@@ -3747,7 +3820,20 @@ def _refresh_us_prices_stale(batch: int = 60, *,
     depth = max(days, need)
     if need > days:
         log.info("US 시세 공백이 깊어 %d봉을 받는다(기본 %d) — 대상 %d종목", depth, days, len(targets))
-    filled = store.fetch_us_prices(targets, days=depth)
+    try:
+        filled = store.fetch_us_prices(targets, days=depth)
+    except Exception as e:
+        try:
+            _check_us_price_refresh(_kst_now(), targets, max_trading_days=max_trading_days,
+                                    reason=type(e).__name__)
+        except Exception as alert_error:
+            log.warning("미국 시세 긴급 알림 점검 실패: %s", type(alert_error).__name__)
+        raise
+    try:
+        _check_us_price_refresh(_kst_now(), targets, max_trading_days=max_trading_days,
+                                reason="재시도 후 최신 종가 없음")
+    except Exception as e:
+        log.warning("미국 시세 긴급 알림 점검 실패: %s", type(e).__name__)
     remain = 0 if batch <= 0 else max(0, len(stale) - batch)
     return {"filled": filled, "stale": remain}
 
