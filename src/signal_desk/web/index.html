@@ -1411,18 +1411,20 @@
     <!-- /api/portfolio/latest 는 home.js 가 최신 저장 진단만 읽는다. -->
     <section id="investment-home" class="home-desk" aria-label="오늘의 투자 상태">
       <div class="home-heading"><div><span class="home-eyebrow">내 투자 데스크</span><h2>오늘의 투자 상태</h2></div><span id="home-market">국내 · 원</span></div>
-      <div class="home-status" aria-live="polite">
-        <span id="home-account">실계좌 확인 중…</span><span id="home-copy">추종 설정 확인 중…</span>
-        <span id="home-asof">진단 기준시각 확인 중…</span>
-      </div>
       <div class="home-grid">
         <div class="home-action">
           <span class="home-kicker">내 행동 · 저장된 포트폴리오 진단</span>
           <h3 id="home-action-title">내 보유 상태를 확인하는 중</h3>
           <p id="home-action-why">진단이 없으면 입력을 보완하고, 새 진단 전에는 매매를 제안하지 않습니다.</p>
           <p id="home-action-meta" class="home-small"></p>
-          <p id="home-next" class="home-next">보유종목과 가격을 확인한 뒤 다시 진단해 주세요.</p>
+          <p id="home-asof" class="home-small">진단 기준시각 확인 중…</p>
           <a class="home-link" href="#trading/rebal" onclick="document.getElementById('portfolio-intelligence-card')?.scrollIntoView({behavior:'smooth'});return false">보유 진단으로</a>
+        </div>
+        <details class="home-more" ontoggle="if(this.open &amp;&amp; window.InvestmentHome) InvestmentHome.load({market:_pfMarket === 'us' ? 'us' : 'kospi', profile:_profile})">
+          <summary>봇·실계좌 기록 따로 보기</summary>
+        <div class="home-status" aria-live="polite">
+          <span id="home-account">실계좌 확인 중…</span>
+          <span id="home-copy">추종 설정 확인 중…</span>
         </div>
         <div class="home-results">
           <span class="home-kicker">성과의 기준을 분리해서 보기</span>
@@ -1433,15 +1435,11 @@
           <div class="home-result-row home-minor"><div><b>시그널 실측</b><small>매수 판정의 사후 채점 · 계좌 수익률 아님</small></div><button type="button" class="linkish" onclick="switchTab('signal');const t=document.getElementById('signal-trust');if(t){t.open=true;t.scrollIntoView({behavior:'smooth'})}">시그널 판정 보기</button></div>
           <p id="home-performance-note" class="home-small">원화·달러는 합산하지 않습니다. 기준선이 없는 차트는 초과성과를 뜻하지 않습니다.</p>
         </div>
+        <p id="home-change" class="home-change">시장 시그널 변화 확인 중…</p>
+        </details>
       </div>
-      <p id="home-change" class="home-change">시장 시그널 변화 확인 중…</p>
     </section>
-      <div class="pcard" style="margin-bottom:10px;padding:8px 12px">
-        <div style="font-size:12px;line-height:1.5;color:var(--dim)">
-          내가 보유한 주식의 분석입니다. <b style="color:var(--txt)">봇 모의투자와 별개</b>이며 비중 조정은 제안만 합니다.
-        </div>
-      </div>
-      <!-- 국내/해외 판 전환 토글 — 아래 전체(보유·배당·히트맵·리밸런싱·시나리오)가 선택 시장 기준 -->
+      <!-- 보유·진단은 기본 동선, 목표·배당·비중 조정은 접힌 보조 도구다. -->
       <div class="seg-toggle" id="pf-market-seg" style="margin-bottom:16px">
         <button class="on" data-pfm="kr" onclick="setPfMarket('kr')">국내주식</button>
         <button data-pfm="us" onclick="setPfMarket('us')">해외주식</button>
@@ -1459,15 +1457,18 @@
       </div>
       <section id="account-performance-card" class="card" style="margin-bottom:16px;display:none" aria-label="실계좌 보유주식 관측 대시보드">
         <div class="row" style="align-items:baseline;gap:12px"><b style="font-size:14px">내 보유주식 관측</b><span id="account-performance-stamp" style="color:var(--dim);font-size:12px;margin-left:auto"></span></div>
-        <p class="page-desc" style="margin:6px 0 12px">토스 실계좌 보유주식만의 평가액·당일손익입니다. 현금·입출금·매도 후 실현손익을 포함한 계좌 전체 수익률이 아닙니다. 기록은 조회일부터 쌓입니다.</p>
         <div id="account-performance-summary" class="row" style="gap:18px;flex-wrap:wrap;font-size:13px"></div>
+        <details class="pf-settings" ontoggle="if(this.open) loadAccountPerformance(_pfMarket)">
+          <summary>평가액·당일손익 기록 보기 <span>· 실계좌 보유주식만</span></summary>
+        <p class="page-desc" style="margin:6px 0 12px">토스 실계좌 보유주식만의 평가액·당일손익입니다. 현금·입출금·매도 후 실현손익을 포함한 계좌 전체 수익률이 아닙니다. 기록은 조회일부터 쌓입니다.</p>
         <div id="account-value-chart" style="height:210px;margin-top:14px" role="img" aria-label="관측일별 보유주식 평가액"></div>
         <div id="account-daily-chart" style="height:170px;margin-top:14px" role="img" aria-label="관측일별 보유주식 당일 손익률"></div>
         <div id="account-performance-note" style="color:var(--dim);font-size:12px;line-height:1.5;margin-top:8px"></div>
+        </details>
       </section>
       <div class="card" id="manual-holdings-card" style="margin-bottom:16px">
         <b style="font-size:14px">분석용 보유종목 <span id="manual-mkt-label" style="color:var(--dim);font-weight:600;font-size:13px">· 국내</span></b>
-        <p class="page-desc" style="margin:6px 0 12px">실계좌 조회값과 별도로 저장됩니다. 종목을 직접 추가하거나 위에서 명시적으로 복사할 수 있으며, <b>현재 선택한 시장</b> 종목만 목록에 보입니다.</p>
+        <p class="page-desc" style="margin:6px 0 12px">진단할 종목을 추가하세요. 실계좌 조회값과는 따로 저장됩니다.</p>
         <div class="row" style="margin-bottom:6px">
           <div style="position:relative;flex:1 1 200px;min-width:170px">
             <input id="hd_search" type="text" placeholder="종목명·코드 검색 (국내·해외)" class="ctrl" style="width:100%"
@@ -1483,16 +1484,20 @@
         <div id="holdings-body" class="placeholder" style="padding:12px 0">위 검색창에서 종목을 찾아 보유종목을 추가하세요.</div>
       </div>
 
-      <div class="copy-output" style="margin-bottom:16px">봇 매매를 내 비율로 따라가려면 <button class="linkish" onclick="switchTradingSeg('live')">실계좌 추종 설정 →</button></div>
       <div class="card" id="portfolio-intelligence-card" style="margin-bottom:16px">
         <div class="row" style="align-items:baseline;gap:8px;flex-wrap:wrap">
-          <b style="font-size:21px">내 투자, 이렇게 보면 쉬워요</b>
-          <span style="color:var(--dim);font-weight:600;font-size:13px">· 어디에 몰려 있고, 무엇부터 확인할까요?</span>
+          <b style="font-size:21px">보유 진단</b>
         </div>
-        <p class="page-desc" style="margin:6px 0 10px">아래는 내가 지키고 싶은 투자 한도예요. 예를 들어 한 종목 15%는 주식과 현금을 합친 100만원 중 15만원까지만 담겠다는 뜻이에요. 선택한 시장의 보유·현금만 분석하며 자동 주문하지 않아요.</p>
+        <p class="page-desc" style="margin:6px 0 10px">보유종목과 현금을 기준으로 쏠림과 먼저 확인할 일을 봅니다. 분석 결과는 주문으로 이어지지 않아요.</p>
         <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
           <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">현금
             <input id="pi-cash" type="number" min="0" class="ctrl" style="max-width:135px"></label>
+          <button class="btn primary" onclick="runPortfolioIntelligence(this)">보유 진단하기</button>
+        </div>
+        <details class="pf-settings">
+          <summary>비중 한도 직접 설정 <span>· 선택</span></summary>
+          <p class="page-desc">기본값으로 진단할 수 있습니다. 직접 바꾸면 선택한 시장의 다음 진단부터 적용됩니다.</p>
+          <div class="row" style="gap:8px;flex-wrap:wrap;align-items:flex-end">
           <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">한 종목에 최대 %
             <input id="pi-single" type="number" min="0" max="100" class="ctrl" style="max-width:110px"></label>
           <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">같은 업종에 최대 %
@@ -1501,11 +1506,13 @@
             <input id="pi-cluster" type="number" min="0" max="100" class="ctrl" style="max-width:110px"></label>
           <label style="display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--dim)">현금으로 남길 최소 %
             <input id="pi-mincash" type="number" min="0" max="100" class="ctrl" style="max-width:100px"></label>
-          <button class="btn primary" onclick="runPortfolioIntelligence(this)">내 투자 쉽게 분석하기</button>
-        </div>
-        <div id="pi-profile-note" class="stat-label" style="margin:8px 0 0"></div>
+          </div>
+          <div id="pi-profile-note" class="stat-label" style="margin:8px 0 0"></div>
+        </details>
         <div id="pi-result" style="margin-top:12px"></div>
       </div>
+      <details class="pf-advanced" id="pf-evidence" ontoggle="if(this.open){loadPortfolioDecisions();loadPortfolioRecommendations()}">
+        <summary>진단 기록과 검증 결과 <span>· 필요할 때 보기</span></summary>
       <details class="card invest-detail" style="margin-bottom:16px">
         <summary>분석이 믿을 만한지 확인하기 · 검증 기록</summary>
         <div class="row" style="justify-content:space-between;gap:8px;flex-wrap:wrap">
@@ -1524,8 +1531,11 @@
         <b style="font-size:14px">개별 권고 참고 결과 <span style="color:var(--dim);font-weight:600;font-size:13px">· 포트폴리오 성과와 별개</span></b>
         <div id="pi-outcomes" class="placeholder" style="padding:12px 0">불러오는 중…</div>
       </div>
+      </details>
 
-            <!-- 목표금액 플랜 — 보유 입력 **바로 다음**이다. 배당(연료)·히트맵·리밸런싱은 이 목표를
+      <details class="pf-advanced" id="pf-tools" ontoggle="if(this.open){loadHeatmap(_pfMarket);loadHoldingsDividends(_pfMarket)}">
+        <summary>목표·배당·업종·비중 조정 도구 <span>· 선택</span></summary>
+            <!-- 목표금액 플랜 — 배당(연료)·히트맵·리밸런싱은 이 목표를
            향하는 수단이고, 목표가 없으면 각각 무엇을 위한 숫자인지 알 수 없다.
            옛 `시나리오 분석` 카드를 흡수했다 — 같은 부트스트랩·같은 성향을 쓰면서 적립·배당·목표만
            없던 것이라 한 화면에 둘 다 두면 같은 말을 두 번 하는 것이었다. -->
@@ -1577,8 +1587,7 @@
         <div style="font-size:12px;color:var(--dim);margin-top:8px"><span class="layer-badge ctx">맥락</span> 제안만 합니다 · 자동 주문 없음 · 실행은 본인 몫</div>
       </div>
       <div id="rebal-result"></div>
-
-      
+      </details>
 
     </div>
 
@@ -6299,15 +6308,20 @@ function setPfMarket(m){
   gpRestore();
   document.querySelectorAll('#pf-market-seg button').forEach(b => b.classList.toggle('on', b.dataset.pfm === m));
   const lbl = document.getElementById('manual-mkt-label'); if (lbl) lbl.textContent = m === 'us' ? '· 해외' : '· 국내';
+  if (window.InvestmentHome) InvestmentHome.load({market:m === 'us' ? 'us' : 'kospi', profile:_profile});
   refreshPortfolio();
 }
 async function refreshPortfolio(){
   await loadRealHoldings();          // 실계좌는 조회만 — 분석용 입력 교체는 명시적 선택
   loadPortfolioProfile();            // 현금·위험 한도는 시장별 입력이므로 전환 때 함께 복원
-  loadPortfolioRecommendations();    // 개별 권고 참고 결과 — OOS 입증과 구분
-  loadPortfolioDecisions();          // 동결 판단·동일 초기자산 비교 원장
-  loadHeatmap(_pfMarket);            // 섹터 히트맵(선택 시장)
-  loadHoldingsDividends(_pfMarket);  // 보유 배당(선택 시장)
+  if (document.getElementById('pf-evidence').open) {
+    loadPortfolioRecommendations();  // 접힌 검증 원장은 필요할 때만 갱신
+    loadPortfolioDecisions();
+  }
+  if (document.getElementById('pf-tools').open) {
+    loadHeatmap(_pfMarket);           // 숨긴 차트를 렌더링하지 않는다
+    loadHoldingsDividends(_pfMarket);
+  }
   const rr = document.getElementById('rebal-result'); if (rr) rr.innerHTML = '';   // 리밸런싱은 버튼으로
   // 시장·보유가 바뀌면 이전 경로는 그대로 두면 **거짓**이다 — 비운다(목표 입력은 유지).
   const gr = document.getElementById('gp-result'); if (gr) gr.innerHTML = '';
@@ -6717,8 +6731,10 @@ async function runPortfolioAudit(button, action){
 }
 async function loadPortfolioRecommendations(){
   const box = document.getElementById('pi-outcomes'); if (!box) return;
+  const market = _pfMarket;
   try {
-    const d = await (await fetch('/api/portfolio/recommendations?market=' + _pfMarket)).json();
+    const d = await (await fetch('/api/portfolio/recommendations?market=' + market)).json();
+    if (market !== _pfMarket || !document.getElementById('pf-evidence').open) return;
     if (!d.ready) { box.textContent = '아직 기록된 행동계획이 없습니다. 정밀 진단을 실행하면 이후 결과를 추적합니다.'; return; }
     const cell = (item, horizon) => {
       const o = (item.outcomes || []).find(x => x.horizon_days === horizon);
@@ -6733,7 +6749,7 @@ async function loadPortfolioRecommendations(){
     box.className = '';
     box.innerHTML = `<div style="font-size:12px;color:var(--dim);margin:8px 0">완료 ${d.coverage.completed_outcomes} · 대기 ${d.coverage.pending_outcomes} · 매수: 비용 후 수익 / 매도: 가격하락 회피(비용 미반영). 실제 체결·포트폴리오 전체 성과가 아닙니다.</div>
       <table class="dtable"><thead><tr><th>종목</th><th>제안</th><th class="num">1일</th><th class="num">5일</th><th class="num">20일</th></tr></thead><tbody>${rows}</tbody></table>`;
-  } catch (e) { box.textContent = '권고 검증 원장을 불러오지 못했습니다.'; }
+  } catch (e) { if (market === _pfMarket) box.textContent = '권고 검증 원장을 불러오지 못했습니다.'; }
 }
 async function runPortfolioIntelligence(btn){
   const before = btn.textContent; btn.disabled = true; btn.textContent = '진단 중…';
@@ -6793,12 +6809,15 @@ async function runPortfolioIntelligence(btn){
       <b style="font-size:13px;display:block;margin-top:14px">기준 가격에 따른 검토 지침</b>${guidance || '<div class="placeholder">판단할 보유종목이 없습니다.</div>'}
       ${clusters ? `<div style="font-size:12px;color:var(--dim);line-height:1.6;margin-top:12px"><b style="color:var(--txt)">고상관 묶음</b><br>${clusters}</div>` : ''}
       <div style="font-size:12px;color:var(--dim);line-height:1.5;margin-top:10px">${esc(d.disclaimer || '')}</div>`;
+    const hasDetails = (d.holdings || []).length > 0 || alloc.ready || trade.ready || candidates.ready;
+    const detailBody = `<h3 style="font-size:14px">내 종목별 금액과 비중</h3>
+      ${holdings ? `<table class="dtable"><thead><tr><th>종목</th><th class="num">전체 자산 중</th><th class="num">현재 금액</th><th>업종</th></tr></thead><tbody>${holdings}</tbody></table>` : '<p>확인된 보유종목이 없습니다.</p>'}
+      ${allocation}${tradePlan}${candidatePlan}${technical}`;
     box.innerHTML = InvestmentGuide.renderPortfolio(d)
-      + InvestmentGuide.detail('내 종목별 금액과 비중 보기', holdings ? `<table class="dtable"><thead><tr><th>종목</th><th class="num">전체 자산 중</th><th class="num">현재 금액</th><th>업종</th></tr></thead><tbody>${holdings}</tbody></table>` : '확인된 보유종목이 없습니다.')
-      + InvestmentGuide.detail('비중을 어떻게 조정할 수 있나요?', allocation + tradePlan)
-      + InvestmentGuide.detail('새로 담을 만한 후보가 있나요?', candidatePlan)
-      + InvestmentGuide.detail('분석 근거·데이터 상세 보기', technical);
-    loadPortfolioDecisions(); loadPortfolioRecommendations();
+      + (hasDetails ? InvestmentGuide.detail('상세 분석과 근거 보기', detailBody) : '');
+    if (document.getElementById('pf-evidence').open) {
+      loadPortfolioDecisions(); loadPortfolioRecommendations();
+    }
   } catch (e) { if (seq === _piAnalysisSeq && market === _pfMarket) box.innerHTML = `<div class="placeholder">${esc(e.message || '진단에 실패했습니다.')}</div>`; }
   finally { btn.disabled = false; btn.textContent = before; }
 }
@@ -6886,6 +6905,7 @@ async function loadAccountPerformance(market){
     summary.innerHTML = `<span>보유주식 평가 <b>${money(last.holdings_value)}</b></span><span>당일손익 <b>${pnlText}</b></span><span>당일손익 참고율 <b>${rateText}</b></span>`;
     document.getElementById('account-performance-stamp').textContent = '마지막 조회 ' + new Date(last.observed_at * 1000).toLocaleString('ko-KR');
     note.textContent = `${navNote}${d.note || ''} 일간 변동률은 현재 보유주식의 손익금액 ÷ (평가액−당일손익) 참고값이며, 같은 관측일의 마지막 값만 표시합니다. ${points.length}일 관측.`;
+    if (!card.querySelector('details')?.open) return;  // 접힌 차트는 펼쳤을 때 실제 너비로 그린다.
     if (!window.echarts) return;
     const valueEl = document.getElementById('account-value-chart');
     const dailyEl = document.getElementById('account-daily-chart');
@@ -7225,7 +7245,8 @@ async function loadHoldingsDividends(market){
   if (!card || !body) return;
   const cur0 = market === 'us' ? 'USD' : 'KRW';
   let d;
-  try { d = await (await fetch('/api/holdings/dividends')).json(); } catch(e) { card.style.display = 'none'; return; }
+  try { d = await (await fetch('/api/holdings/dividends')).json(); } catch(e) { if (market === _pfMarket) card.style.display = 'none'; return; }
+  if (market !== _pfMarket || !document.getElementById('pf-tools').open) return;
   const items = (d.items || []).filter(it => (it.currency || 'KRW') === cur0);   // 선택 시장 통화만
   const emptyEl = document.getElementById('holdings-div-empty');
   if (!d.ready || !items.length) {
@@ -7262,6 +7283,7 @@ async function loadHeatmap(market){
   let d;
   let res;
   try { res = await getJSON('/api/portfolio/heatmap?market=' + market); } catch (e) { return; }
+  if (market !== _pfMarket || !document.getElementById('pf-tools').open) return;
   d = res.data;
   // **비-200이면 이유를 쓴다.** 예전엔 `d.items.forEach` 에서 터져 카드가 빈 채 남았다.
   if (!res.ok || !d) {

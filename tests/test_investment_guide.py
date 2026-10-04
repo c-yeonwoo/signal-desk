@@ -52,6 +52,8 @@ const g = {kind:'concentration',name:'<script>x</script>',current_pct:40,limit_p
 const portfolio = guide.renderPortfolio({data_quality:{status:'partial'},guidance:[g],summary:{cash:0},currency:'USD'});
 assert.match(portfolio,/자료가 일부 부족/); assert.match(portfolio,/40.0%/); assert.match(portfolio,/15.0%/);
 assert.match(portfolio,/\$0.00/); assert.doesNotMatch(portfolio,/<script>/);
+assert.doesNotMatch(portfolio,/아래 비중 조정은/);
+assert.match(guide.renderPortfolio({data_quality:{status:'complete'},allocation:{ready:true}}),/주문으로 이어지지 않아요/);
 assert.match(guide.explain({kind:'correlation',tickers:['A'],current_pct:50,limit_pct:40},[{ticker:'A',name:'회사이름'}])[1],/회사이름/);
 assert.match(guide.explain({kind:'monitor'})[1],/손실 위험이 없거나/);
 assert.match(guide.explain({kind:'future',action:'새 규칙'})[0],/새 규칙/);

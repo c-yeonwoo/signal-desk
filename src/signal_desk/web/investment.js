@@ -95,7 +95,7 @@
       <div class="invest-breakdown">${amount(incomplete ? '확인된 자산' : '분석한 자산', s.total_value, d.currency, false)}${amount('그중 주식', s.invested_value, d.currency, false)}${amount('남겨둔 현금', s.cash, d.currency, false)}</div>
       ${cards.slice(0, 3).join('') || '<p>보유종목과 현금을 입력한 뒤 분석해 주세요.</p>'}
       ${cards.length > 3 ? detail(`함께 확인할 내용 ${cards.length - 3}개 더 보기`, cards.slice(3).join('')) : ''}
-      <p class="invest-muted">아래 조정안은 입력한 한도에 맞춘 계산 예시예요. 자동 주문되지 않으며, 자료가 부족한 부분은 보류합니다.</p></section>`;
+      ${d.allocation?.ready ? '<p class="invest-muted">아래 비중 조정은 입력한 한도에 맞춘 계산 예시이며, 주문으로 이어지지 않아요.</p>' : ''}</section>`;
   }
   window.InvestmentGuide = {review, renderReview, renderCosts, explain, renderPortfolio, detail};
 })();
