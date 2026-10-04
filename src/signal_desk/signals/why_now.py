@@ -156,16 +156,16 @@ def _sector_verdict(ticker_delta: float, peer_deltas: list[float]) -> dict:
     share = med / ticker_delta
     if share >= _SECTOR_SHARE:
         v, txt = "sector", (
-            f"같은 섹터 {n}종목의 중위 점수도 {med:+.2f} 움직였습니다 — "
-            f"이 종목만이 아니라 **섹터 전체**가 같이 갔습니다")
+            f"같은 업종 {n}종목의 중간 점수도 {med:+.2f} 바뀌었습니다. "
+            f"**섹터 전체**가 비슷하게 움직였습니다")
     elif share <= _IDIO_SHARE:
         v, txt = "idiosyncratic", (
-            f"같은 섹터 {n}종목의 중위 점수는 {med:+.2f}에 그쳤습니다 — "
-            f"**이 종목 고유**의 움직임입니다")
+            f"같은 업종 {n}종목의 중간 점수 변화는 {med:+.2f}입니다. "
+            f"이 종목의 변화가 더 컸습니다(**종목 고유** 변화)")
     else:
         v, txt = "mixed", (
-            f"같은 섹터 {n}종목의 중위 점수는 {med:+.2f}입니다 — "
-            f"섹터 흐름과 종목 고유 요인이 **섞여** 있습니다")
+            f"같은 업종 {n}종목의 중간 점수 변화는 {med:+.2f}입니다. "
+            f"업종과 이 종목의 변화가 **섞여** 있습니다")
     return {"verdict": v, "peers_n": n, "peer_median_delta": round(med, 2),
             "share": round(share, 2), "text": txt}
 

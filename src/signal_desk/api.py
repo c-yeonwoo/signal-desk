@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi import File as FastFile
 from fastapi import Form, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from signal_desk.jsonutil import finite_or_none, json_safe
 from signal_desk.live_routes import router as live_router
 from signal_desk.toss_manual_routes import router as toss_manual_router
@@ -3039,7 +3039,7 @@ def narrative_get(ticker: str):
         h = hashlib.md5(
             f"{sig.kind}|{round(sig.score, 1)}|{kb_summary}|{about_txt}".encode()
         ).hexdigest()[:12]
-        key = f"narrv5:{ticker}:{h}"  # v5=opus 해설+회사개요 프롬프트
+        key = f"narrv6:{ticker}:{h}"  # 문체·길이 계약 변경. 이전 해설 캐시와 구분
         cached = db.kv_get(key)
         if cached:
             return {"ok": True, "narrative": cached, "source": "llm", "cached": True}
@@ -6391,9 +6391,19 @@ def engine_config_reset():
 
 
 # ---------- SPA 서빙 ----------
-@app.get("/", response_class=HTMLResponse)
-def index():
-    return (WEB_DIR / "index.html").read_text(encoding="utf-8")
+@app.get("/")
+def index(request: Request):
+    # HTML은 배포 때 갱신돼야 하지만, 변경되지 않았으면 큰 단일 문서를 다시 받지 않는다.
+    # FileResponse의 ETag/Last-Modified를 검사해 304로 재검증한다.
+    path = WEB_DIR / "index.html"
+    response = FileResponse(path, media_type="text/html", stat_result=path.stat(),
+                            headers={"Cache-Control": "no-cache"})
+    if request.headers.get("if-none-match") == response.headers.get("etag"):
+        return Response(status_code=304, headers={
+            "Cache-Control": "no-cache", "ETag": response.headers["etag"],
+            "Last-Modified": response.headers["last-modified"],
+        })
+    return response
 
 
 @app.get("/home.js")
