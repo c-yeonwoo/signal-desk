@@ -11,7 +11,7 @@ def test_explain_with_both_components():
     text = narrative.explain(r)
     assert "MACD 골든크로스" in text
     assert "ROE 15.0% — 우수" in text
-    assert "Buy" in text
+    assert "매수" in text
     assert "+1.50" in text
     assert "0.70" in text
 
@@ -23,8 +23,8 @@ def test_explain_without_fundamental_data():
         reasons=["[기술] RSI 75.0 — 과매수"],
     )
     text = narrative.explain(r)
-    assert "재무데이터는 아직 없어" in text
-    assert "Sell" in text
+    assert "재무 자료는 아직 없습니다" in text
+    assert "매도" in text
     assert "낮은" in text
 
 
@@ -34,8 +34,8 @@ def test_explain_hold_no_reasons():
         technical_score=0.0, fundamental_score=0.0, has_fundamental=True, reasons=[],
     )
     text = narrative.explain(r)
-    assert "Hold" in text
-    assert "뚜렷한 신호는 없는" in text
+    assert "관망" in text
+    assert "뚜렷한 신호가 없습니다" in text
 
 
 def test_explain_includes_extra_factor_tags_generically():

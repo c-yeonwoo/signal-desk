@@ -21,6 +21,7 @@ import unicodedata
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from signal_desk import config, db, llm
+from signal_desk.copy_style import PLAIN_KOREAN
 from signal_desk.ingest import dart as ingest_dart
 from signal_desk.ingest import news
 
@@ -1161,7 +1162,8 @@ def _rule_digest(name: str, items: list[dict]) -> dict:
     total = pos + neg
     sentiment = round((pos - neg) / total, 2) if total else 0.0
     points = [it["title"] for it in items[:3] if it.get("title")]
-    summary = f"{name} 최근 뉴스 {len(items)}건 기준 키워드 감성 {sentiment:+.2f}(규칙기반)."
+    summary = (f"최근 {name} 뉴스 {len(items)}건을 모았습니다. "
+               "뉴스 분위기는 제목의 단어만으로 계산한 참고값입니다.")
     return {"sentiment": sentiment, "summary": summary, "points": points}
 
 
@@ -1182,19 +1184,20 @@ def build_digest(name: str, items: list[dict]) -> dict:
             "볼 것: 수요/수주, 마진·비용, 실적·가이던스, 규제·정책, 경쟁·점유율, "
             "수급(외국인/기관)·이벤트리스크. "
             "헤드라인에 없는 숫자·전망은 지어내지 마라. 매수/매도 권유·수익률 보장 금지. "
-            "잡음(인사·단순 시황 언급)은 무시하고 물질적 이슈만 남긴다."
+            "잡음(인사·단순 시황 언급)은 무시하고 물질적 이슈만 남긴다. "
+            + PLAIN_KOREAN
         )
         user = (
             f"종목: {name}\n최근 헤드라인:\n{headlines}\n\n"
             "JSON으로만 답하라:\n"
             '{"sentiment": -1.0~1.0 (물질적 뉴스 기준 투자심리),\n'
-            ' "summary": "한국어 1~2문장 — 무엇이 바뀌었고 왜 경제적으로 중요한지",\n'
-            ' "points": ["핵심 포인트 최대 3개 — 동사+대상+함의 (짧게)"]}'
+            ' "summary": "짧은 한국어 한 문장 — 확인된 변화와 투자자가 볼 이유",\n'
+            ' "points": ["확인된 사실을 짧게, 최대 2개. 같은 말 반복 금지"]}'
         )
         out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL, purpose="kb")
         if out and isinstance(out.get("sentiment"), (int, float)):
             s = max(-1.0, min(1.0, float(out["sentiment"])))
-            pts = [str(p) for p in (out.get("points") or [])][:3]
+            pts = [str(p) for p in (out.get("points") or [])][:2]
             return {"sentiment": round(s, 2), "summary": str(out.get("summary", ""))[:280], "points": pts}
         log.info("LLM 다이제스트 파싱 실패 — 규칙기반 폴백")
     return _rule_digest(name, items)
@@ -1375,7 +1378,7 @@ def collect_rss_macro(force: bool = False, limit_per_feed: int | None = None) ->
 
 
 def build_macro_digest(items: list[dict]) -> dict:
-    """시황·거시 원문 여러 건 → 현재 '시장 톤' 내러티브 {summary(1~2문장), points[≤3]}.
+    """시황·거시 원문 여러 건 → 현재 '시장 톤' 내러티브 {summary(1문장), points[≤2]}.
     최신 글을 앞에 놓아 freshness를 반영(LLM엔 최신순으로 전달). LLM 없으면 최신 제목 나열."""
     if not items:
         return {"summary": "최근 수집된 시황 코멘터리가 없습니다.", "points": []}
@@ -1384,15 +1387,15 @@ def build_macro_digest(items: list[dict]) -> dict:
                           for it in items[:10])
         system = ("너는 미국 증시 시황 데스크다. 아래는 최신순으로 정렬된 시장 해설·브리핑 모음이다. "
                   "이를 근거로 '지금 시장 톤'을 요약한다. 최신 글에 더 무게를 두고, 개별 종목 추천은 하지 마라. "
-                  "제공된 내용에 없는 사실은 지어내지 마라.")
+                  "제공된 내용에 없는 사실은 지어내지 마라. " + PLAIN_KOREAN)
         user = (f"[최신순 시황 코멘터리]\n{lines}\n\n"
-                'JSON으로만: {"summary": "한국어 1~2문장, 현재 시장 톤·핵심 이슈", '
-                '"points": ["핵심 포인트 최대 3개(한국어 짧게)"]}')
+                'JSON으로만: {"summary": "짧은 한국어 한 문장, 현재 시장 분위기와 확인된 핵심 이슈", '
+                '"points": ["근거가 되는 사실 최대 2개, 짧게"]}')
         out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_QUALITY_MODEL, purpose="kb")
         if out and out.get("summary"):
-            pts = [str(p) for p in (out.get("points") or [])][:3]
+            pts = [str(p) for p in (out.get("points") or [])][:2]
             return {"summary": str(out["summary"])[:240], "points": pts}
-    return {"summary": f"미주은 시황 코멘터리 {len(items)}건 수집(최신: {items[0].get('title', '')[:40]}).",
+    return {"summary": f"미국 시장 해설 {len(items)}건을 모았습니다. 공통된 흐름은 아직 확인하지 못했습니다.",
             "points": [it["title"] for it in items[:3] if it.get("title")]}
 
 

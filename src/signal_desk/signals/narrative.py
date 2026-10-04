@@ -9,8 +9,8 @@ BUY/SELL만 고품질 모델 호출 — HOLD는 규칙 문장만(비용·노이�
 
 from __future__ import annotations
 
-_KIND_WORD = {"STRONG_BUY": "Strong Buy", "BUY": "Buy", "HOLD": "Hold",
-              "SELL": "Sell", "STRONG_SELL": "Strong Sell"}
+_KIND_WORD = {"STRONG_BUY": "강력매수", "BUY": "매수", "HOLD": "관망",
+              "SELL": "매도", "STRONG_SELL": "강력매도"}
 
 
 def _group_by_tag(reasons: list[str]) -> dict[str, list[str]]:
@@ -34,29 +34,27 @@ def explain(result) -> str:
     tech = groups.pop("기술", [])
     fund = groups.pop("기본", [])
 
-    clauses = []
+    facts = []
     if tech:
-        clauses.append("기술적으로는 " + ", ".join(tech) + " 상황")
+        facts.append("가격 흐름: " + tech[0])
     else:
-        clauses.append("기술 지표상 뚜렷한 신호는 없는 상황")
-
+        facts.append("차트에는 뚜렷한 신호가 없습니다")
     if result.has_fundamental and fund:
-        clauses.append("기본적으로는 " + ", ".join(fund) + "인 점")
-    elif result.has_fundamental:
-        clauses.append("기본적분석은 중립 수준")
-    else:
-        clauses.append("재무데이터는 아직 없어 기술 지표 위주로 판단")
-
+        facts.append("재무: " + fund[0])
     for tag, items in groups.items():
-        clauses.append(f"{tag} 측면에서는 " + ", ".join(items))
+        if items:
+            facts.append(f"{tag}: {items[0]}")
 
-    body = ", ".join(clauses) + "이 반영됐습니다."
+    body = " · ".join(facts[:3])
+    if not result.has_fundamental:
+        body += " · 재무 자료는 아직 없습니다"
     kind_word = _KIND_WORD[result.kind]
     conf_word = "높은" if result.confidence >= 0.6 else "보통" if result.confidence >= 0.3 else "낮은"
 
     return (
-        f"{body} 종합 점수 {result.score:+.2f}로 {kind_word} 시그널이며, "
-        f"신호 강도는 {conf_word} 편입니다({result.confidence:.2f}). 적중 확률은 아닙니다."
+        f"현재 판정은 {kind_word}입니다(점수 {result.score:+.2f}). "
+        f"주요 근거: {body}. "
+        f"점수로 계산한 신호 강도는 {conf_word} 편({result.confidence:.2f})이며 적중 확률은 아닙니다."
     )
 
 
@@ -67,6 +65,7 @@ def explain_llm(name: str, ticker: str, kind: str, score: float, reasons: list[s
     근거 밖 내용은 지어내지 않도록 강제하고, 투자 권유·수익 보장 표현을 금지한다(규제).
     LLM 미설정/실패 시 None(호출측이 규칙기반 v1으로 폴백). 캐시는 호출측(api)에서 담당."""
     from signal_desk import llm
+    from signal_desk.copy_style import PLAIN_KOREAN
     if not llm.available():
         return None
     reason_lines = "\n".join(f"- {r}" for r in (reasons or [])) or "- (근거 없음)"
@@ -74,21 +73,15 @@ def explain_llm(name: str, ticker: str, kind: str, score: float, reasons: list[s
     kb_block = f"\n[최근 이슈 요약]\n{kb_summary.strip()}\n" if kb_summary and kb_summary.strip() else ""
     kind_word = _KIND_WORD.get(kind, kind)
     system = (
-        "너는 주식 초보에게 '처음 보는 종목'을 이해시키는 데스크 가이드다. "
-        "전문 애널리스트 말투(지표 나열·영어 약어 남발) 금지. 일상어로 설명한다.\n"
-        "형식(반드시):\n"
-        "1) 첫 문장: '쉽게 말하면, …'으로 지금 판정(매수권/매도권)이 나온 이유를 한 줄 요약.\n"
-        "2) 회사 개요가 있으면 그다음 문장에서 '이 회사는 …'으로 무엇을 하는 회사인지 짧게 소개"
-        "(개요에 없는 사업·실적은 지어내지 마라. 개요가 없으면 이 문장은 생략).\n"
-        "3) 가장 중요한 근거 2~3가지만 쉬운 말로. 전문용어(RSI·MACD·PER 등)는 꼭 필요할 때만 "
-        "쓰되 괄호로 풀이. 예: 'RSI(단기 과열·과매도 지표)'.\n"
-        "4) 마지막 한 줄: '참고로, 이건 매수 권유가 아니라 규칙이 찍은 관찰입니다.' 비슷한 취지로 "
-        "중립 한 문장(수익 보장·종용 금지).\n"
-        "전체 4~5문장, 문단 나눔 없이 줄글로. 없는 수치·전망·실적은 지어내지 마라."
+        "너는 처음 보는 종목을 설명하는 투자 정보 편집자다. " + PLAIN_KOREAN + "\n"
+        "첫 문장에서 현재 판정과 가장 중요한 근거를 말한다. "
+        "이어서 필요한 경우에만 회사가 하는 일과 다른 근거 한 가지를 덧붙인다. "
+        "전문용어는 꼭 필요할 때만 짧게 풀어 쓴다. "
+        "전체 2~3문장, 문장당 65자 안팎으로 쓴다. 수익이나 매매 행동을 단정하지 않는다."
     )
     user = (f"종목: {name}({ticker})\n시그널: {kind_word} ({kind}, 종합점수 {score:+.2f})\n"
             f"{about_block}[시그널 근거]\n{reason_lines}\n{kb_block}\n"
             "쉬운 한국어 해설:")
     use_model = model or llm.SIGNAL_EXPLAIN_MODEL
-    out = llm.complete(system, user, max_tokens=700, model=use_model, purpose="narrative")
+    out = llm.complete(system, user, max_tokens=320, model=use_model, purpose="narrative")
     return out.strip() if out else None
