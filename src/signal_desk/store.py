@@ -1446,8 +1446,22 @@ def us_price_last_dates() -> dict[str, str]:
     if not US_PRICES_FILE.exists():
         return {}
     df = _read_parquet(US_PRICES_FILE)
-    if df.empty or "ticker" not in df.columns or "date" not in df.columns:
+    if df.empty or not {"ticker", "date", "close"}.issubset(df.columns):
         return {}
+    close = pd.to_numeric(df["close"], errors="coerce")
+    df = df[close.map(lambda value: math.isfinite(value) and value > 0)]
+    return {str(t): str(d)[:10] for t, d in df.groupby("ticker")["date"].max().items()}
+
+
+def kr_price_last_dates() -> dict[str, str]:
+    """ticker → 마지막 국내 저장 일봉. 파일 수정시각이나 장중 호가는 신선도 증거가 아니다."""
+    if not PRICES_FILE.exists():
+        return {}
+    df = _read_parquet(PRICES_FILE)
+    if df.empty or not {"ticker", "date", "close"}.issubset(df.columns):
+        return {}
+    close = pd.to_numeric(df["close"], errors="coerce")
+    df = df[close.map(lambda value: math.isfinite(value) and value > 0)]
     return {str(t): str(d)[:10] for t, d in df.groupby("ticker")["date"].max().items()}
 
 
