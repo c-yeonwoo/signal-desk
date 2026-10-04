@@ -1930,11 +1930,11 @@
         <div class="pipe" style="margin-top:10px">
           <div class="pipe-step"><div class="ps-n">1 · 수집</div><div class="ps-t">데이터</div><div class="ps-d">시세·재무(DART)·거시(FRED)·뉴스/영상(KB)</div></div>
           <span class="pipe-arrow">→</span>
-          <div class="pipe-step"><div class="ps-n">2 · 팩터</div><div class="ps-t" title="원어: 8팩터 점수화">8가지 관점 점수화</div><div class="ps-d">차트 흐름·실적·주가가 싼가·많이 떨어졌나·누가 사고 있나·회사 체질·오르는 추세·공매도 압력 (각 −1~+1 · 뉴스 분위기는 점수에 안 넣고 악재 차단에만)</div></div>
+          <div class="pipe-step"><div class="ps-n">2 · 팩터</div><div class="ps-t" title="원어: 8팩터 점수화">8가지 관점 점수화</div><div class="ps-d">차트 흐름·실적·주가가 싼가·많이 떨어졌나·누가 사고 있나·회사 체질·오르는 추세·공매도 압력 (각 −1~+1 · 뉴스 분위기는 점수에 넣지 않음)</div></div>
           <span class="pipe-arrow">→</span>
           <div class="pipe-step"><div class="ps-n">3 · 결합</div><div class="ps-t">하나로 합침</div><div class="ps-d">관점별 비중으로 가중평균 · 볼 수 없는 관점은 빼고 남은 관점끼리 다시 나눔 → 종합점수</div></div>
           <span class="pipe-arrow">→</span>
-          <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">안전장치 → 5단계</div><div class="ps-d">시장 상황·하락추세·실적발표·악재 뉴스로 걸러낸 뒤 강력매수~강력매도</div></div>
+          <div class="pipe-step"><div class="ps-n">4 · 판정</div><div class="ps-t">안전장치 → 5단계</div><div class="ps-d">시장 상황·하락추세·실적발표·확인된 위험 공시로 걸러낸 뒤 강력매수~강력매도</div></div>
           <span class="pipe-arrow">→</span>
           <div class="pipe-step"><div class="ps-n">5 · 검증</div><div class="ps-t">돌려보기 · 실제 채점</div><div class="ps-d">과거 가격으로 돌려본 결과(시뮬) + 그날 실제로 낸 시그널을 나중에 채점한 성적(실측)</div></div>
           <span class="pipe-arrow">→</span>
@@ -2329,7 +2329,7 @@
       <div style="margin-top:10px">볼 수 없는 관점(재무 미공시 등)은 <b>빼고 남은 관점끼리 다시 나눠</b> 계산합니다 —
         그래서 자료가 적은 종목은 점수가 세게 나올 수 있고, 그런 종목은 매수 대상에서 제외합니다.</div>
       <div style="margin-top:10px">점수가 좋아도 <b>안전장치</b>가 매수를 막습니다: 하락추세, 급락 직후, 실적발표 임박,
-        악재 뉴스, 자료 부족. 막힌 자리는 다음 순위로 채우지 않고 <b>비워 둡니다</b>.</div>
+        확인된 위험 공시, 자료 부족. 막힌 자리는 다음 순위로 채우지 않고 <b>비워 둡니다</b>.</div>
       <div style="margin-top:10px;color:var(--sig-watch)">※ 점수 강도는 수익 확률이 아닙니다. 매수권·안전장치·자료 충분도가 함께 판정을 결정합니다.</div>
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);color:var(--dim);font-size:13px">
         <b>이 점수가 실제로 잘 맞는지</b>는 시그널 탭 첫 줄 <b>판정</b>에서 봅니다 — 자료가 다 모이기 전에는
@@ -3191,7 +3191,7 @@ async function fillHelpWeights(){
     _helpWeights = on.sort((a, b) => b[1] - a[1])
         .map(([ko, w]) => `${ko} <b>${Math.round(w / tot * 100)}%</b>`).join(' · ')
       + (off.length ? ` <span style="color:var(--dim-2)">(끄고 있음: ${off.map(([ko]) => ko).join(' · ')})</span>` : '')
-      + ` <span style="color:var(--dim-2)">· 뉴스 분위기는 점수에 넣지 않고 악재 차단에만 씁니다</span>`;
+      + ` <span style="color:var(--dim-2)">· 뉴스 분위기는 점수나 매매 차단에 쓰지 않습니다</span>`;
     el.innerHTML = _helpWeights;
   } catch {
     // 관리자만 설정을 읽을 수 있다 — 숫자를 지어내지 않는다.
@@ -3340,7 +3340,7 @@ function plainNote(txt) {
     .replace(/추세로 자리 공석/g, '하락추세라 자리 비움')
     .replace(/실적로 자리 공석/g, '실적발표가 임박해 자리 비움')
     .replace(/급락로 자리 공석/g, '급락 직후라 자리 비움')
-    .replace(/악재로 자리 공석/g, '악재 뉴스로 자리 비움')
+    .replace(/악재로 자리 공석/g, '확인된 위험 공시로 자리 비움')
     .replace(/데이터부족로 자리 공석/g, '자료가 부족해 자리 비움')
     .replace(/창 안 공석/g, '순위에는 들었지만 자리 비움')
     .replace(/자리 공석/g, '자리 비움')
@@ -4511,7 +4511,7 @@ const _KIND_HINT = {
 // 관망 사유 툴팁 — **매일 보는 곳**이라 여기서도 전문용어를 쓰지 않는다.
 // 판정 기준(수치)은 남긴다: 왜 걸렸는지 확인할 수 있어야 조사가 된다.
 const _HOLD_TAG_TIP = {
-  악재: '악재 뉴스·공시로 매수 후보에서 뺐습니다 — 점수와는 별개입니다',
+  악재: '확인된 위험 공시로 매수 후보에서 뺐습니다 — 점수와는 별개입니다',
   선반영: '좋은 소식이 알려지기 전에 이미 급등했습니다 — 이미 반영됐다고 보고 매수 보류',
   추격: '시그널이 뜬 뒤 많이 올라 지금 사기엔 늦었습니다 — 매수 보류',
   실적: '실적발표가 곧 있습니다 — 발표 전에는 새로 사지 않습니다',
@@ -7685,8 +7685,8 @@ function renderDataHealth(d){
     const eq = d.event_queue;
     if (eq) q('이벤트 후보 잔여', (eq.pending ?? 0) === 0, `${eq.pending ?? 0}건`,
               (eq.pending ?? 0) ? '자동 판정 대기(곧 비움)' : null,
-              '뉴스 후보는 추출 직후 자동 판정: 명확한 악재만 Decision 반영, 애매하면 기각. '
-              + '잔여가 있으면 일일 루프가 비운다. 사람 승인 큐가 아님.');
+              '뉴스 후보는 출처 달린 설명·조사에만 쓰며 매매 Decision에는 넣지 않습니다. '
+              + '잔여가 있으면 일일 루프가 검토합니다. 사람 승인 큐가 아닙니다.');
     const cr = d.consensus_readiness;
     if (cr) {
       // testable = Δ 계산 가능 + horizon(20)거래일 성숙. 스냅샷 일수와 다르다.
@@ -7996,8 +7996,8 @@ async function loadKbEvents(){
   fEl.innerHTML = chip('확정', 'eligible') + chip('후보(잔여)', 'candidate');
   const isCand = _kbEventView === 'candidate';
   document.getElementById('kb-view-desc').innerHTML = isCand
-    ? '뉴스 후보는 <b>자동 판정</b>합니다. 원문 인용을 확인한 명확한 악재만 신규 매수를 보류하며, 뉴스 모델 단독으로 전량 청산하지 않습니다. 이 목록은 처리 전 잔여입니다.'
-    : '공시·자동 확정 악재 등 <b>확정 이벤트</b>. 신규 매수 안전장치용 · 점수 가산 없음. 뉴스 오탐은 이유를 남기고 철회할 수 있습니다.';
+    ? '뉴스 후보는 자동으로 검토하지만 <b>매매 판단에는 넣지 않습니다</b>. 이 목록은 처리 전 잔여입니다.'
+    : '매매 안전장치에 쓰는 <b>확인된 공식 공시</b>입니다. 일반 뉴스는 이 목록에 없고 점수에도 더하지 않습니다.';
   try {
     const d = await (await fetch('/api/kb/events?view=' + encodeURIComponent(_kbEventView))).json();
     const items = d.items || [];
