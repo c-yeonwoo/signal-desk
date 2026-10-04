@@ -4994,7 +4994,7 @@ def _kb_lite_targets(max_tickers: int | None = None) -> list[dict]:
 
 
 def _maybe_extend_candidate_ttl() -> dict | None:
-    """잔여 뉴스 후보를 하루 1회 자동 판정으로 비운다(명확 악재 confirm · 애매 reject).
+    """잔여 뉴스 후보를 하루 1회 정보 전용으로 검토한다(매매 Decision 자격 없음).
     예전 TTL 연장은 사람 검토 대기용이었고, 자동 판정 이후엔 큐를 남기지 않는다."""
     if db.kv_get("kb_candidate_ttl_date") == _kst_today():
         return None
@@ -5393,8 +5393,8 @@ def kb_documents_get(ticker: str | None = None, doc_class: str | None = None, li
 def kb_events_get(ticker: str | None = None, limit: int = 50, active: bool = False,
                   view: str = "eligible"):
     """구조화 KB 이벤트 카드(읽기) — Decision 입력·감사. 점수 가산 아님.
-    view=eligible(기본): 활성 confirmed · view=candidate: Sonnet 후보(Decision 미반영)
-    · view=all: 최근 목록. active 쿼리는 레거시 호환(무시하고 eligible=활성 confirmed)."""
+    view=eligible(기본): 활성 공식 Decision · view=candidate: Sonnet 후보(Decision 미반영)
+    · view=all: 최근 목록. active 쿼리는 레거시 호환."""
     v = (view or "eligible").lower()
     if v == "candidate":
         items = db.kb_events_list(limit=limit, ticker=ticker, status="candidate")
@@ -5403,7 +5403,7 @@ def kb_events_get(ticker: str | None = None, limit: int = 50, active: bool = Fal
         items = db.kb_events_list(limit=limit, ticker=ticker)
         policy = "p1b"
     else:
-        items = db.kb_events_active(ticker)  # confirmed · 미만료 (active 플래그 포함)
+        items = db.kb_events_active(ticker, decision_only=True)
         policy = "p0"
     for it in items:
         it["evidence"] = db.kb_event_evidence(it["id"])

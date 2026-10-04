@@ -1,6 +1,6 @@
 """후보 이벤트 검토 — 자동 판정(명확 악재 confirm / 애매 reject) + 수동 오버라이드."""
 
-from signal_desk import db, kb
+from signal_desk import api, db, kb
 
 
 def _seed_candidate(tmp_path, monkeypatch, *, severity="serious", direction="negative",
@@ -115,6 +115,20 @@ def test_old_news_decision_flag_is_ignored_by_official_only_reader(tmp_path, mon
                        decision_action="buy_block", reviewer="legacy", action="confirm")
     assert db.kb_event_get(eid)["decision_eligible"] is True
     assert db.kb_events_active("005930", decision_only=True) == []
+
+
+def test_admin_eligible_view_matches_actual_decision_sources(tmp_path, monkeypatch):
+    eid = _seed_candidate(tmp_path, monkeypatch)
+    db.kb_event_review(eid, status="confirmed", decision_eligible=True,
+                       decision_action="buy_block", reviewer="legacy", action="confirm")
+    db.kb_event_upsert({
+        "event_key": "dart:test:001", "ticker": "005930", "event_type": "capital_raise",
+        "direction": "negative", "severity": "serious", "trust_tier": "official",
+        "status": "confirmed", "decision_eligible": True, "decision_action": "buy_block",
+        "summary": "유상증자 공시", "policy_version": "p0",
+    }, evidence={"url": "https://dart.fss.or.kr/test", "source_key": "dart"})
+    items = api.kb_events_get(view="eligible")["items"]
+    assert [item["event_key"] for item in items] == ["dart:test:001"]
 
 
 def test_auto_reject_ambiguous_low_confidence(tmp_path, monkeypatch):
