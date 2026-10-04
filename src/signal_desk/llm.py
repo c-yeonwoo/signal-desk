@@ -178,7 +178,7 @@ def messages_with_tools(system: str, messages: list, tools: list, *,
                         max_tokens: int = 1024, model: str = NARRATIVE_MODEL,
                         purpose: str | None = None) -> dict | None:
     """tool use 지원 1회 호출. messages는 Anthropic 형식(assistant tool_use / user tool_result 포함).
-    반환: {"content": [...], "stop_reason": str} 또는 None(키 없음·실패). 툴 루프는 호출측(chat.py)이 돈다."""
+    반환: {"content": [...], "stop_reason": str} 또는 None(키 없음·실패)."""
     try:
         data = _post_json({
             "model": model, "max_tokens": max_tokens, "system": system,
@@ -201,14 +201,14 @@ def stream_call(system: str, messages: list, tools: list, *,
     """tool use + 토큰 스트리밍 1회 호출(제너레이터). SSE를 파싱해:
       ('text', 델타)  — 텍스트 토큰이 생성될 때마다
       ('result', {content, stop_reason})  — 마지막에 1회(블록 재구성 완료; 실패·키없음이면 None)
-    를 yield한다. 툴 루프는 chat.answer_stream이 이 제너레이터를 소비하며 돈다."""
+    를 yield한다."""
     key = config.anthropic_key()
     if not key:
         yield ("result", None)
         return
     # **스트리밍은 `_post_json`을 지나지 않는다** — 자기 요청을 따로 만든다. 그래서 예산 게이트를
-    # `_post_json`에만 걸었을 때 `/api/chat/stream`(=막아야 할 바로 그 경로)이 통째로 우회했다.
-    # "단일 호출 지점"이라는 전제를 확인하지 않으면 게이트는 있는 척만 한다.
+    # 과거 대화 SSE 경로에서 `_post_json`의 예산 게이트를 우회한 적이 있다.
+    # 호출 지점마다 게이트를 확인해야 한다.
     st = budget_state()
     if not st["ok"]:
         log.warning("LLM 예산 게이트 차단(stream): %s", st["reason"])

@@ -449,19 +449,17 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
   실제로 들어갔는지를 동시에 알 수 있다. `/api/*`는 인증 미들웨어가 **라우팅 전에** 401을 내므로
   없는 경로도 401이다 — 라우트 존재 판독에 쓸 수 없다.
 
-- **비용 상한은 라우트가 아니라 호출 모듈에 둔다(2026-08-06).** `/api/chat`에만 걸면 `llm`을 부르는
-  나머지 10개 모듈(kb·audit·advisor·narrative·hypothesis·rebalance·bot·company·shortform·api)이
-  조용히 우회한다. `llm.budget_state()`가 **모든** 호출자에게 걸리고, 라우트는 **폭주 속도**만 본다
-  (`_chat_guard` — 상한은 총액, 레이트리밋은 한 사람이 한 번에 쏟는 양. 둘은 다른 것을 막는다).
+- **비용 상한은 라우트가 아니라 호출 모듈에 둔다(2026-08-06).** 과거 대화 라우트에만 걸었을 때
+  다른 LLM 호출자가 우회할 수 있었다. 대화 기능은 2026-10-04 제거됐지만,
+  `llm.budget_state()`는 남은 **모든** 호출자에 계속 적용한다.
   지출을 **못 읽으면 막는다** — `db.llm_spend_usd`가 0.0(안 씀)과 None(모름)을 구분하고,
   모를 때 통과시키면 fail-open이라 게이트가 없는 것과 같다.
 - **"단일 호출 지점"이라는 전제는 확인해야 한다.** 예산 게이트를 `_post_json`에 걸었더니
-  `stream_call`이 통째로 우회했다 — SSE는 자기 요청을 따로 만들고, 그게 하필 막아야 할
-  `/api/chat/stream` 경로였다. `test_budget_gate_covers_every_network_call_site_in_llm`이
+  별도 SSE 요청을 만드는 `stream_call`이 우회했다. `test_budget_gate_covers_every_network_call_site_in_llm`이
   `urlopen`을 부르는 함수마다 앞에 예산 판정이 있는지 검사한다.
 - **차단을 None으로 돌려주면 "키 없음"과 같아 보인다.** 예산 초과는 `BudgetExceeded` 예외로 올린다 —
   `llm.py`의 `except Exception` 11곳이 전부 이걸 먼저 재발생시킨다. 안 그러면 화면에서
-  "LLM 미연동"과 "예산 초과"를 가를 수 없다(0의 이유 규칙). 라우트는 429 + 이유 문장을 낸다.
+  "LLM 미연동"과 "예산 초과"를 가를 수 없다(0의 이유 규칙).
 - **저장소가 배포를 넘어 살아남는지 앱이 스스로 잡는다.** `data/cache/app.db`에 유저·레퍼런스 봇
   장부·PIT 스냅샷·판정 이력이 들어 있고, 볼륨이 없으면 **배포마다 전부 지워진다** — "리셋할 수
   있는 장부는 track record가 아니다"라고 적어 두고 리셋을 인프라가 대신 해 주는 상태다. 그리고

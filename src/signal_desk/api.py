@@ -27,15 +27,14 @@ from zoneinfo import ZoneInfo
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi import File as FastFile
 from fastapi import Form, UploadFile
-from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse, Response,
-                               StreamingResponse)
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from signal_desk.jsonutil import finite_or_none, json_safe
 from signal_desk.live_routes import router as live_router
 from signal_desk.toss_manual_routes import router as toss_manual_router
 from signal_desk.broker import execution, paper, toss_readonly
 
 from signal_desk import (
-    account_performance, auth, bot, bot_alerts, brain, brain_proposals, chat, company, config, db, digest, kb, kb_search,
+    account_performance, auth, bot, bot_alerts, brain, brain_proposals, company, config, db, digest, kb,
     llm, market_clock, notify, shortform, signalcfg, store, strategy, telegram_inbound,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
@@ -1316,7 +1315,7 @@ app.include_router(toss_manual_router)
 def _budget_exceeded_handler(request: Request, exc: llm.BudgetExceeded):
     """예산 초과를 **429 + 이유**로 낸다. 라우트마다 붙이지 않는다.
 
-    2026-08-07: `BudgetExceeded` 를 잡는 곳이 채팅 경로 **2곳뿐**이라, LLM을 부르는 나머지
+    2026-08-07: `BudgetExceeded` 를 잡는 곳이 당시 채팅 경로 **2곳뿐**이라, LLM을 부르는 나머지
     라우트(이슈 흐름·KB·감사·회사·숏폼·리밸런싱·내러티브·자문)가 전부 **HTTP 500** 이었다.
     화면은 `흐름 생성 요청 실패` 만 보여주고 **왜 실패했는지 말하지 못했다** — 예산 때문인지
     키가 없는지 서버가 죽었는지 구분이 안 됐다(0의 이유 규칙 위반).
@@ -3421,7 +3420,6 @@ def llm_usage_get(request: Request, days: int = 30):
     """
     _admin_or_403(request)
     return {"ready": True, "budget": llm.budget_state(),
-            "chat_rate_limit": dict(_CHAT_RL),
             "advisor_cache": db.advisor_prompt_summary(days=max(1, min(int(days or 30), 365))),
             **db.llm_usage_summary(days=max(1, min(int(days or 30), 365)))}
 
@@ -6074,128 +6072,6 @@ def signal_events_get(ticker: str, market: str = "kospi"):
             "dividend": dividend, "has_corp": bool(corp)}
 
 
-# ---------- 안내 에이전트(챗봇) — 도구 실행은 여기(실데이터 접근). 재분석 없이 READ만 ----------
-_CHAT_KIND_KO = {
-    "STRONG_BUY": "Strong Buy", "BUY": "Buy", "HOLD": "Hold",
-    "SELL": "Sell", "STRONG_SELL": "Strong Sell",
-}
-
-
-def _chat_resolve_ticker(query: str) -> str | None:
-    """종목명 또는 코드 → ticker(국내). 정확 코드 우선, 없으면 이름 부분일치."""
-    q = (query or "").strip()
-    names = {u["ticker"]: u["name"] for u in store.load_universe()}
-    if q in names:
-        return q
-    cand = [t for t, n in names.items() if q and (q in n or n in q)]
-    return cand[0] if cand else None
-
-
-def _chat_signal_summary(ticker: str) -> dict | None:
-    sig = next((s for s in _signals() if s.ticker == ticker), None) if store.is_ready() else None
-    if not sig:
-        return None
-    q = _quotes().get(ticker) or {}
-    f = store.load_fundamentals().get(ticker) or {}
-    c = store.load_consensus_latest().get(ticker) or {}
-    _fund = store.load_fundamentals()
-    _sec = sectors.sector_of(ticker)
-    _eff_med = target.sector_median_per(_fund, {t: sectors.sector_of(t) for t in _fund}).get(_sec) \
-        or target.median_per(_fund)
-    tg = target.compute(q.get("price"), f.get("per"), _eff_med,
-                        store.load_price_series().get(ticker),
-                        analyst_target=c.get("price_target_mean"), fwd_eps=c.get("fwd1_eps"))
-    ups = [v for v in [(tg or {}).get("value_upside_pct"), (tg or {}).get("fwd_value_upside_pct"),
-                       (tg or {}).get("analyst_upside_pct"), (tg or {}).get("resistance_upside_pct")]
-           if isinstance(v, (int, float)) and v > 0]
-    dg = db.kb_digest_get(ticker)
-    # 뉴스요약도 시점을 붙여 넘긴다 — 며칠 전 감성을 현재 사실로 말하는 걸 막는다.
-    dg_ts = (dg or {}).get("newest_ts") or (dg or {}).get("updated")
-    dg_age_h = round((time.time() - dg_ts) / 3600, 1) if dg_ts else None
-    return {"종목": sig.name, "코드": ticker, "섹터": sectors.sector_of(ticker),
-            "시그널": _CHAT_KIND_KO.get(sig.kind, sig.kind), "종합점수": round(sig.score, 2),
-            "신호강도(적중확률 아님)": sig.confidence, "팩터강약(-1~1)": sig.factor_scores,
-            "근거": sig.reasons[:6], "PER": f.get("per"), "PBR": f.get("pbr"), "ROE": f.get("roe"),
-            "현재가": q.get("price"), "등락%": q.get("change_pct"),
-            "목표가상승여력%": round(max(ups), 1) if ups else None,
-            "뉴스심리": (dg or {}).get("sentiment"), "뉴스요약": (dg or {}).get("summary"),
-            "뉴스시점": (datetime.datetime.fromtimestamp(dg_ts).strftime("%Y-%m-%d %H:%M") if dg_ts else None),
-            "뉴스경과시간": dg_age_h,
-            "뉴스신선도": (None if dg_age_h is None else
-                      "최신" if dg_age_h <= 24 else "오래됨(참고만)" if dg_age_h > 72 else "유효기간 내"),
-            "최근악재": sig.event_note if sig.event_risk else None}
-
-
-def _make_chat_dispatch(uid: int, is_toss_owner: bool = False):
-    """tool_name+input → JSON 문자열(실데이터). uid는 봇 포폴 조회용, is_toss_owner는 실계좌 조회 격리용."""
-    def _j(obj):
-        return json.dumps(obj, ensure_ascii=False, default=str)
-
-    def dispatch(name: str, inp: dict) -> str:
-        if name == "find_signal":
-            t = _chat_resolve_ticker(inp.get("query", ""))
-            if not t:
-                return _j({"error": "해당 종목을 국내 유니버스에서 찾지 못함"})
-            s = _chat_signal_summary(t)
-            return _j(s or {"error": "시그널 데이터 없음"})
-        if name == "list_signals":
-            kind, lim = inp.get("kind", "all"), min(int(inp.get("limit", 10) or 10), 20)
-            want = {"strong_buy": {"STRONG_BUY"}, "buy": {"STRONG_BUY", "BUY"}}.get(kind)
-            rows = [s for s in _signals() if (want is None or s.kind in want)]
-            rows = [s for s in rows if s.kind != "HOLD"] if kind == "all" else rows
-            out = [{"종목": s.name, "코드": s.ticker, "시그널": _CHAT_KIND_KO.get(s.kind, s.kind),
-                    "점수": round(s.score, 2), "섹터": sectors.sector_of(s.ticker)} for s in rows[:lim]]
-            return _j({"개수": len(out), "목록": out})
-        if name == "get_portfolio":
-            # 개인 페이퍼 계좌는 없다 — 트레이딩(균형형)을 보여준다.
-            st = bot.ledger_state("balanced", "kr")
-            return _j({"장부": "트레이딩(균형형) · 사용자 개인 계좌 아님",
-                       "현금": st.get("cash"), "총평가": st.get("total_eval"), "총손익률%": st.get("pnl_pct"),
-                       "보유": [{"종목": p.get("name"), "코드": p.get("ticker"), "수량": p.get("qty"),
-                                "손익률%": p.get("last_pnl_pct")} for p in (st.get("positions") or [])]})
-        if name == "get_events":
-            t = _chat_resolve_ticker(inp.get("query", ""))
-            return _j(signal_events_get(t) if t else {"error": "종목 못 찾음"})
-        if name == "market_context":
-            rg, mc = _regime(), _macro()
-            bump = regime.buy_threshold_bump(rg, mc) if hasattr(regime, "buy_threshold_bump") else {}
-            return _j({"국면": rg.get("regime"), "시장폭%": rg.get("breadth_pct"),
-                       "평균모멘텀%": rg.get("avg_momentum_pct"), "거시요약": (mc or {}).get("narrative"),
-                       "매수기준상향": bump})
-        if name == "explain_term":
-            term = (inp.get("term") or "").strip()
-            for cat in glossary.CATEGORIES:
-                for it in cat.get("items", []):
-                    if term and (term in it["term"] or it["term"] in term):
-                        return _j({"용어": it["term"], "쉬운설명": it["easy"], "왜보나": it.get("why"),
-                                   "우리시그널": it.get("in_signal")})
-            return _j({"error": f"'{term}' 용어 설명 없음 — 인사이트>학습 참고"})
-        if name == "search_kb":
-            kw = (inp.get("query") or "").strip()
-            names = {u["ticker"]: u["name"] for u in store.load_universe()}
-            docs = kb_search.retrieve(kw, k=6)   # 하이브리드 검색 + 유형별 최신성 감쇠
-            hits = [{"종목": names.get(d["ticker"], d["ticker"]), "코드": d["ticker"], "유형": d.get("doc_class"),
-                     "제목": d.get("title"), "요약": d.get("summary"),
-                     # 시점은 옵션이 아니다 — 오전에 사실이던 시황이 오후엔 아닐 수 있다.
-                     "시점": d.get("as_of") or "시점 불명",
-                     "경과": (f"{d['age_days']:.0f}일 전" if d.get("age_days") is not None else "불명"),
-                     "신선도": ("오래됨(전제가 바뀌었을 수 있음)" if d.get("stale")
-                             else "최신" if (d.get("age_days") or 99) <= 1 else "유효기간 내")}
-                    for d in docs]
-            return _j({"검색어": kw, "결과": hits or "관련 KB 문서 없음",
-                       # 결정과 설명이 어긋나는 걸 막는다 — 이 문서들은 점수를 만든 입력이 아니다.
-                       "주의": "이 문서는 배경·맥락 자료이며 시그널 점수의 근거가 아니다. "
-                             "점수 근거는 find_signal의 '근거'·'팩터강약'을 쓸 것. "
-                             "인용할 때는 반드시 '시점'을 함께 말하고, 신선도가 '오래됨'이면 그 사실을 밝힐 것."})
-        if name == "get_real_holdings":
-            if not is_toss_owner:   # 격리: 계정 소유자 본인만
-                return _j({"error": "실계좌(토스) 보유내역은 계정 소유자 본인만 조회할 수 있어요"})
-            s = _toss_holdings_summary()
-            return _j(s or {"error": "토스 실계좌 조회 실패(연동·자격증명 확인 필요)"})
-        return _j({"error": f"알 수 없는 도구: {name}"})
-    return dispatch
-
-
 def _is_toss_owner(request: Request) -> bool:
     """요청자가 토스 실계좌 소유자(단일)인지. owner 미설정이면 항상 False(안전 기본)."""
     owner = config.toss_account_owner()
@@ -6203,94 +6079,6 @@ def _is_toss_owner(request: Request) -> bool:
         return False
     u = auth.current_user(request.cookies.get(auth.COOKIE))
     return bool(u and (u.get("email") or "").lower() == owner)
-
-
-def _toss_holdings_summary() -> dict | None:
-    """토스 실보유 → 챗봇/요약용 압축(실제 원화값). owner-gated 호출부에서만 사용."""
-    from signal_desk.ingest import toss
-    res = toss.holdings(config.toss_account())
-    if not res:
-        return None
-    items = [{"종목": it.get("name"), "코드": it.get("symbol"), "국가": it.get("marketCountry"),
-              "수량": it.get("quantity"), "평단": it.get("averagePurchasePrice"), "현재가": it.get("lastPrice"),
-              "손익률%": round(float((it.get("profitLoss") or {}).get("rate", 0)) * 100, 2)}
-             for it in (res.get("items") or [])]
-    pl = res.get("profitLoss") or {}
-    return {"총평가_원": (res.get("marketValue") or {}).get("amount", {}).get("krw"),
-            "총매입_원": (res.get("totalPurchaseAmount") or {}).get("krw"),
-            "총손익률%": round(float(pl.get("rate", 0)) * 100, 2), "보유": items}
-
-
-# 대화는 유저가 직접 트리거하는 유일한 LLM 경로다 → 분당 빈도도 막는다.
-# 예산 상한(일·월)은 `llm.budget_state()`가 **모든** 호출자에게 걸고, 여기는 **폭주 속도**만 본다.
-# 둘은 다른 것을 막는다 — 상한은 총액, 레이트리밋은 한 사람이 한 번에 쏟는 양.
-_CHAT_RL = {"limit": 20, "window": 300}      # 5분에 20턴
-
-
-def _chat_guard(request: Request) -> JSONResponse | None:
-    """레이트리밋 + 예산. 막히면 **이유를 그대로** 돌려준다 — 조용한 빈 답변은 고장처럼 보인다."""
-    if _rate_limited(request, "chat", limit=_CHAT_RL["limit"], window=_CHAT_RL["window"]):
-        return JSONResponse({"ok": False, "reply": (
-            f"질문이 너무 잦습니다({_CHAT_RL['window'] // 60}분에 {_CHAT_RL['limit']}턴). "
-            f"잠시 후 다시 시도해 주세요.")}, status_code=429)
-    st = llm.budget_state()
-    if not st["ok"]:
-        return JSONResponse({"ok": False, "reply": st["reason"], "budget": st}, status_code=429)
-    return None
-
-
-@app.post("/api/chat")
-def chat_post(request: Request, data: dict = Body(...)):
-    """안내 에이전트 — 이미 계산된 시그널·KB·포폴을 도구로 조회해 대화로 풀어준다(재분석·자문 없음)."""
-    message = (data.get("message") or "").strip()
-    if not message:
-        return {"ok": False, "reply": "무엇이 궁금한지 적어 주세요."}
-    blocked = _chat_guard(request)
-    if blocked is not None:
-        return blocked
-    history = data.get("history") or []   # [{role, content}] — 프런트가 최근 몇 턴만 전달
-    try:
-        return chat.answer(message, history=history[-8:],
-                           dispatch=_make_chat_dispatch(_uid(request), _is_toss_owner(request)))
-    except llm.BudgetExceeded as e:       # 대화 중 상한에 닿은 경우
-        return JSONResponse({"ok": False, "reply": str(e)}, status_code=429)
-
-
-@app.post("/api/chat/stream")
-def chat_stream(request: Request, data: dict = Body(...)):
-    """안내 에이전트 — SSE 토큰 스트리밍. data: {"delta": "..."} 이벤트, 마지막에 [DONE]."""
-    message = (data.get("message") or "").strip()
-    history = (data.get("history") or [])[-8:]
-    uid, owner = _uid(request), _is_toss_owner(request)
-    blocked = _chat_guard(request)
-    if blocked is not None:
-        return blocked
-
-    def gen():
-        if not message:
-            yield "data: " + json.dumps({"delta": "무엇이 궁금한지 적어 주세요."}, ensure_ascii=False) + "\n\n"
-            yield "data: [DONE]\n\n"
-            return
-        dispatch = _make_chat_dispatch(uid, owner)
-        try:
-            for kind, payload in chat.answer_stream(message, history=history, dispatch=dispatch):
-                if kind == "text" and payload:
-                    yield "data: " + json.dumps({"delta": payload}, ensure_ascii=False) + "\n\n"
-        except llm.BudgetExceeded as e:
-            # 예산 차단을 "오류가 발생했어요"로 뭉개면 고장과 구분이 안 된다.
-            yield "data: " + json.dumps({"delta": "\n" + str(e)}, ensure_ascii=False) + "\n\n"
-        except Exception:
-            yield "data: " + json.dumps({"delta": "\n(오류가 발생했어요.)"}, ensure_ascii=False) + "\n\n"
-        yield "data: [DONE]\n\n"
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-
-
-@app.get("/api/chat/meta")
-def chat_meta_get():
-    """챗봇 사용 가능 여부 + 페르소나 이름(프런트 초기화용)."""
-    return {"available": chat.llm.available(), "name": chat.PERSONA_NAME}
 
 
 @app.get("/api/my-holdings")
