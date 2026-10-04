@@ -27,7 +27,7 @@ window.InvestmentHome = (() => {
     const benchSeries = aligned ? benchmark.map(p=>Number(p.total_eval) * 100) : null;
     const series = [{type:'line',name:'봇 모의투자',data:botSeries,showSymbol:false,smooth:false,
       lineStyle:{color:'#243CDB',width:2},areaStyle:{color:'#243CDB',opacity:.07}}];
-    if (benchSeries) series.push({type:'line',name:'PIT 동일가중',data:benchSeries,showSymbol:false,smooth:false,
+    if (benchSeries) series.push({type:'line',name:'당시 종목 동일비중',data:benchSeries,showSymbol:false,smooth:false,
       lineStyle:{color:'#949aa6',width:1.5,type:'dashed'}});
     chart = window.echarts.getInstanceByDom(holder) || window.echarts.init(holder);
     chart.setOption({animation:false, grid:{left:5,right:5,top:7,bottom:16},
@@ -44,11 +44,11 @@ window.InvestmentHome = (() => {
       put('home-action-why','저장된 진단이 없어 오늘의 개인별 매매 행동을 판단할 수 없습니다.');
       put('home-action-meta','주문 제안 없음 · 먼저 보유와 현금을 확인하세요.');
       put('home-asof','진단 가격 기준시각 없음');
-      put('home-next','다음 확인 조건 · 보유·현금 입력 후 진단 실행');
+      put('home-next','보유종목과 현금을 입력한 뒤 진단해 주세요.');
       return;
     }
     const g = (d.guidance || [])[0];
-    const quality = d.data_quality === 'complete' ? '자료 충족' : '자료 일부/부족';
+    const quality = d.data_quality === 'complete' ? '필요한 자료 확인됨' : '자료 일부 부족';
     const prices = d.price_asof_range;
     const priceStamp = prices ? (prices.first === prices.last ? prices.last : `${prices.first}~${prices.last}`) : '미확인';
     put('home-asof',`보유 가격 기준 ${priceStamp} · 진단 ${d.as_of || '미확인'} · ${quality}`);
@@ -63,7 +63,7 @@ window.InvestmentHome = (() => {
     const cur = g && g.current_pct != null ? `현재 ${g.current_pct}%` : '현재 비중 미확인';
     const cap = g && g.limit_pct != null ? `한도 ${g.limit_pct}%` : '제안 비중·금액 미산출';
     put('home-action-meta',`${cur} · ${cap} · ${d.as_of || '시점 미확인'} 기준 · 주문 아님`);
-    put('home-next','다음 확인 조건 · 보유·가격·제약이 바뀌면 다시 진단; 아무것도 안 하면 현재 비중 유지');
+    put('home-next','보유종목·가격·설정 한도가 바뀌면 다시 진단해 주세요.');
   }
   function updateChange(d) {
     lastChange = d;
@@ -108,10 +108,10 @@ window.InvestmentHome = (() => {
       const style = policy && label[policy.source_style] ? policy.source_style
         : label[profile['투자성향']] ? profile['투자성향'] : 'balanced';
       const transmission = policy?.order_transmission_enabled === true
-        ? '주문 전송 허용 표기(별도 사전검증 필요)' : '실주문 미가동';
+        ? '주문 전송 허용 설정(실제 주문 전 별도 검증 필요)' : '실주문 꺼짐';
       put('home-copy',policy
-        ? `KIS 추종 ${transmission} · ${label[style]} ${policy.follow_pct}% 설정${policy.configured ? '' : '(미저장)'}`
-        : `추종 설정 조회 불가 · 모의투자 ${label[style]} 보기`);
+        ? `실주문 설정(KIS) ${transmission} · ${label[style]} 봇 주문의 ${policy.follow_pct}% 따라가기${policy.configured ? '' : ' (저장 전)'}`
+        : `실주문 설정을 확인할 수 없습니다 · ${label[style]} 모의투자만 표시`);
       const paper = await read(`/api/reference-performance?market=${mkt}`);
       if (seq !== requestId) return;
       const bot = paper && (paper.bots || []).find(b=>b.style===style);
@@ -121,7 +121,7 @@ window.InvestmentHome = (() => {
       put('home-paper-return',bot ? percent(bot.return_pct) : '자료 없음');
       const comparable = plot(bot && (bot.comparison_curve || bot.curve), bot && bot.benchmark_curve);
       put('home-chart-caption',bot && (bot.curve || []).length >= 2
-        ? `${comparable ? '비교 시작일' : '기록 첫날'}=100 · 전체 기록 최대낙폭 ${percent(bot.max_drawdown_pct)} · ${comparable ? '같은 거래일 PIT 동일가중(점선, 비용 전)' : '동일기간 비교선 없음'}`
+        ? `${comparable ? '비교 시작일' : '기록 첫날'}=100 · 가장 큰 하락폭 ${percent(bot.max_drawdown_pct)} · ${comparable ? '당시 종목 동일비중 비교(점선, 비용 전)' : '비교할 기간의 자료 없음'}`
         : '기록된 자산 경로가 아직 부족합니다.');
     })());
     await Promise.all(tasks);

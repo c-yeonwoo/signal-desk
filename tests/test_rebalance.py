@@ -22,7 +22,11 @@ def test_propose_sell_trim_and_adds():
     acts = {a["ticker"]: a["action"] for a in plan["actions"]}
     assert acts["AAA"] == "매도"          # 시그널 SELL
     assert acts["BBB"] == "축소"          # 비중 과다(BBB가 총액 대부분)
+    reasons = {a["ticker"]: a["reason"] for a in plan["actions"]}
+    assert "매도 판정" in reasons["AAA"] and "SELL" not in reasons["AAA"]
+    assert "유지 범위 6.0~10.0%" in reasons["BBB"]
     assert "NEW" in [a["ticker"] for a in plan["adds"]]  # 미보유 강한 BUY 신규 편입 제안
+    assert "BUY" not in plan["adds"][0]["reason"]
 
 
 def test_propose_empty_adds_when_no_slots():

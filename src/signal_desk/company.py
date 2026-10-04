@@ -17,6 +17,7 @@ import logging
 import threading
 
 from signal_desk import db, llm
+from signal_desk.copy_style import PLAIN_KOREAN
 
 log = logging.getLogger("signal_desk.company")
 
@@ -72,13 +73,13 @@ def _generate(ticker: str, name: str, sector: str | None, market: str,
         system = ("너는 미국 주식 소개 작가다. 아래 영문 회사 설명을 초보 투자자도 이해되게 한국어 "
                   f"{'2문장(120자 내외)' if quality else '1~2문장(80자 내외)'}으로 요약한다. "
                   "무엇을 만들고 파는 회사인지 사업 중심으로 쓰고, "
-                  "투자 권유·전망·주가·수치는 절대 넣지 마라.")
+                  "투자 권유·전망·주가·수치는 절대 넣지 마라. " + PLAIN_KOREAN)
         user = (f"회사: {name}({ticker})\n영문 설명:\n{us_description[:2000]}\n\n"
                 'JSON으로만: {"about": "한국어 요약"}')
     elif market == "us":
         system = ("너는 미국 주식 소개 작가다. 이 종목이 '무엇을 하는 회사'인지 초보도 이해되게 한국어 "
                   f"{'1~2문장' if quality else '1문장(60자 내외)'}으로 설명한다. 아는 사실만 쓰고 모르면 섹터만 언급. "
-                  "투자권유·전망·주가·수치는 절대 넣지 마라.")
+                  "투자권유·전망·주가·수치는 절대 넣지 마라. " + PLAIN_KOREAN)
         user = (f"종목: {name}({ticker}), 섹터: {sector or '미상'}\n"
                 'JSON으로만: {"about": "무엇을 하는 회사인지"}')
     else:
@@ -86,7 +87,7 @@ def _generate(ticker: str, name: str, sector: str | None, market: str,
         system = ("너는 한국 주식 소개 작가다. 이 종목이 '무엇을 하는 회사'인지 초보도 이해되게 "
                   f"{'1~2문장' if quality else '1문장(45자 내외)'}으로 설명한다. "
                   "입력에 없는 주력 제품명·점유율·구체 수치는 쓰지 말고, 확신이 없으면 섹터·업태만 말한다. "
-                  "투자권유·전망·주가·수치는 절대 넣지 마라.")
+                  "투자권유·전망·주가·수치는 절대 넣지 마라. " + PLAIN_KOREAN)
         user = (f"종목: {name}({ticker}), 섹터: {sector or '미상'}\n"
                 'JSON으로만: {"about": "무엇을 하는 회사인지(근거 없으면 섹터만)"}')
     out = llm.complete_json(system, user, max_tokens=280 if quality else 200, model=use_model, purpose="company")
