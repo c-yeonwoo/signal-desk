@@ -35,7 +35,7 @@ from signal_desk.broker import execution, paper, toss_readonly
 
 from signal_desk import (
     account_performance, auth, bot, bot_alerts, brain, brain_proposals, company, config, db, digest, kb,
-    llm, market_clock, notify, shortform, signalcfg, store, strategy, telegram_inbound,
+    llm, market_brief, market_clock, notify, shortform, signalcfg, store, strategy, telegram_inbound,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
@@ -4056,6 +4056,48 @@ def regime_get():
     flow = regime.market_flow_bias(mf_raw)  # 토스 시장전체 외국인·기관 순매수 방향
     return {**_regime(), "adaptive": adapt, "market_flow": flow,
             "selection": selection_summary(_signals(), cfg)}
+
+
+@app.get("/api/market-brief")
+def market_brief_get(market: str = "kr"):
+    """One source-dated, read-only card per market; no network or LLM on page load.
+
+    Close-based breadth is isolated from the live quote overlay. Current engine
+    decisions are separately time-stamped and withheld when the close is stale.
+    """
+    if market not in {"kr", "us"}:
+        raise HTTPException(status_code=400, detail="market must be kr or us")
+    now = datetime.datetime.now(datetime.timezone.utc)
+    expected = market_clock.latest_completed_session(market, now)
+    previous = market_clock.previous_session(market, expected) if expected else None
+    prices, dates = store.load_portfolio_close_bundle(market)
+    universe = store.load_universe() if market == "kr" else store.load_us_universe()
+    tickers = [str(row["ticker"]) for row in universe]
+    flow = (regime.market_flow_bias(store.load_market_flow()) if market == "kr" else None)
+    indicators = store.load_macro() if market == "us" else ()
+    card = market_brief.build(market, prices=prices, dates=dates, tickers=tickers,
+                              expected=expected, previous=previous, flow=flow,
+                              macro_indicators=indicators, now=now)
+    if card["status"] == "ready":
+        sigs = list(_signals()) if market == "kr" else list(_us_signals().values())
+        if market == "kr":
+            cfg, adaptive = signalcfg.effective_config(_regime(), _macro(),
+                                                        flow_result=store.load_market_flow())
+            card["adaptive"] = adaptive
+        else:
+            cfg = signalcfg.get_config()
+        sel = selection_summary(sigs, cfg)
+        card["selection"] = {
+            "buy_count": sum(s.kind in {"BUY", "STRONG_BUY"} for s in sigs),
+            "strong_buy_count": sum(s.kind == "STRONG_BUY" for s in sigs),
+            "slots": sel["rank_slots"] if sel["mode"] == "rank" else None,
+            "computed_at": max((s.computed_at for s in sigs if s.computed_at), default=None),
+        }
+        card["selection_mode"] = sel["mode"]
+        card["selection_policy"] = {"mode": sel["mode"], "cutoff_score": sel["cutoff_score"],
+                                    "buy_threshold": sel["buy_threshold"],
+                                    "rank_min_score": sel["rank_min_score"]}
+    return card
 
 
 @app.get("/api/egress-ip")
