@@ -1594,18 +1594,18 @@
     <div id="trading-dividend" style="display:none">
       <div class="card" style="margin-bottom:16px">
         <b style="font-size:15px">배당 플래너 <span style="color:var(--dim);font-weight:600;font-size:13px">· 배당 현금흐름 시뮬레이션</span></b>
-        <p class="page-desc" style="margin:6px 0 10px">배당주를 <b>배당수익률·시총 순</b>으로 보고(시그널은 참고 표시), 담을 종목과 주수를 정하면 <b>예상 연/월 배당</b>을 계산합니다.
-          연배당 기준 <b>월평균(연÷12)</b> 환산. <span style="color:var(--dim-2)">참고용 · 미래 배당 보장 안 함 · 페이퍼 봇·실보유와 별개(로컬 저장).</span></p>
+        <p class="page-desc" style="margin:6px 0 10px;font-size:14px">과거 공시 배당금에 입력한 주수를 곱한 참고액입니다.
+          향후 배당액과 실제 지급 일정은 별도 확인이 필요합니다. 계획은 이 브라우저에만 저장되며, 보유내역이나 주문을 바꾸지 않습니다.</p>
         <div class="seg-toggle" id="div-market-seg" style="margin-bottom:6px">
           <button class="on" data-dmkt="us" onclick="switchDivMarket('us')">미국</button>
           <button data-dmkt="kr" onclick="switchDivMarket('kr')">국내</button>
         </div>
         <div id="div-kr-note" style="display:none;font-size:14px;color:var(--dim);margin-bottom:6px">과거 공시 배당으로 계산한 참고액입니다. 올해 배당액과 지급 일정은 별도 확인이 필요합니다.</div>
         <div class="card-row" style="margin-bottom:6px">
-          <div class="card"><div class="stat-label">예상 연 배당</div><div class="stat-value" id="div-annual">$0</div></div>
+          <div class="card"><div class="stat-label">연 배당 참고액</div><div class="stat-value" id="div-annual">$0</div></div>
           <div class="card"><div class="stat-label">월평균 환산액(연÷12)</div><div class="stat-value" id="div-monthly">$0</div></div>
           <div class="card"><div class="stat-label">담은 종목</div><div class="stat-value" id="div-count">0</div></div>
-          <div class="card"><div class="stat-label">투자금(현재가 기준)</div><div class="stat-value" id="div-cost">$0</div></div>
+          <div class="card"><div class="stat-label">참고 주가로 계산한 금액</div><div class="stat-value" id="div-cost">$0</div></div>
         </div>
         <div class="row" style="align-items:center;gap:8px;margin-top:4px;flex-wrap:wrap">
           <span class="stat-label" style="margin:0;line-height:1">월 배당 목표</span>
@@ -7019,7 +7019,7 @@ async function loadDividends(){
              value="${_divPlan[it.ticker] || ''}" placeholder="0" oninput="onDivQty(this)"></td></tr>`;
     }).join('');
     el.innerHTML = `<table class="dtable"><thead><tr>
-      <th>종목</th><th class="num">배당수익률</th><th class="num">주당배당</th><th class="num">현재가/시그널</th><th class="num">주수</th>
+      <th>종목</th><th class="num">배당수익률</th><th class="num">과거 주당배당</th><th class="num">참고 주가/시그널</th><th class="num">주수</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
     recalcDividends();
   } catch (e) {
