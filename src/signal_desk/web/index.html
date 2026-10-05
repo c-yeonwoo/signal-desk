@@ -930,10 +930,10 @@
 </dialog>
 
 <nav class="subnav" id="subnav-trading" style="display:none">
-  <button class="subtab on" data-seg="bot" onclick="switchTradingSeg('bot')">봇 모의투자</button>
-  <button class="subtab" data-seg="rebal" onclick="switchTradingSeg('rebal')">내 포트폴리오</button>
-  <button class="subtab" data-seg="live" onclick="switchTradingSeg('live')">실계좌 추종</button>
-  <button class="subtab" data-seg="dividend" onclick="switchTradingSeg('dividend')">배당 플래너</button>
+  <button class="subtab on" data-seg="rebal" onclick="switchTradingSeg('rebal')">내 투자</button>
+  <button class="subtab" data-seg="bot" onclick="switchTradingSeg('bot')">봇 성과</button>
+  <button class="subtab" data-seg="live" onclick="switchTradingSeg('live')">실계좌·주문</button>
+  <button class="subtab" data-seg="dividend" onclick="switchTradingSeg('dividend')">배당 계획</button>
 </nav>
 <nav class="subnav" id="subnav-signal" style="display:none" aria-label="종목 목록">
   <button class="subtab on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
@@ -1439,6 +1439,13 @@
         </details>
       </div>
     </section>
+      <div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="min-width:220px;flex:1">
+          <b style="font-size:14px">실계좌 연결·주문 상태</b>
+          <div class="page-desc" style="margin:4px 0 0">여기서 보는 보유 입력은 실계좌와 별도입니다. 연결 확인과 실제 주문은 아래에서 직접 진행해야 합니다.</div>
+        </div>
+        <button class="btn" type="button" onclick="switchTradingSeg('live')">실계좌 화면 열기</button>
+      </div>
       <!-- 보유·진단은 기본 동선, 목표·배당·비중 조정은 접힌 보조 도구다. -->
       <div class="seg-toggle" id="pf-market-seg" style="margin-bottom:16px">
         <button class="on" data-pfm="kr" onclick="setPfMarket('kr')">국내주식</button>
@@ -6121,7 +6128,7 @@ function switchCycleSeg(seg){
   history.replaceState(null, '', hash);
 }
 
-let _tradingSeg = 'bot';
+let _tradingSeg = 'rebal';
 function switchTradingSeg(seg){
   _tradingSeg = seg;
   document.querySelectorAll('#subnav-trading .subtab').forEach(b => b.classList.toggle('on', b.dataset.seg === seg));
