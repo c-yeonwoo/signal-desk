@@ -44,18 +44,32 @@ window.InvestmentHome = (() => {
       put('home-action-why','저장된 진단이 없어 오늘의 개인별 매매 행동을 판단할 수 없습니다.');
       put('home-action-meta','주문 제안 없음 · 먼저 보유와 현금을 확인하세요.');
       put('home-asof','진단 가격 기준시각 없음');
+      put('home-action-link','보유 진단으로');
       return;
     }
+    if (d.inputs_match !== true) {
+      put('home-action-title', d.inputs_match === false ? '진단 뒤 입력이 바뀌었어요' : '진단 당시 입력을 확인할 수 없어요');
+      put('home-action-why', d.inputs_match === false
+        ? '보유 종목·수량·평단가 또는 현금·투자 한도가 진단 뒤 달라졌습니다. 이전 결과는 현재 상태에 대한 안내가 아닙니다.'
+        : '저장된 진단에 당시 입력 비교 기록이 없습니다. 현재 보유와 한도를 다시 분석해 주세요.');
+      put('home-action-meta','현재 상태에 대한 매매 제안 없음 · 다시 진단 필요');
+      put('home-asof',`저장 진단 ${date(d.created)} · 가격 기준 ${d.price_asof_range?.first || '미확인'}${d.price_asof_range?.last && d.price_asof_range.last !== d.price_asof_range.first ? `~${d.price_asof_range.last}` : ''}`);
+      put('home-action-link','입력 확인 후 다시 진단');
+      return;
+    }
+    put('home-action-link','보유 진단으로');
     const g = (d.guidance || [])[0];
     const quality = d.data_quality === 'complete' ? '필요한 자료 확인됨' : '자료 일부 부족';
     const prices = d.price_asof_range;
     const priceStamp = prices ? (prices.first === prices.last ? prices.last : `${prices.first}~${prices.last}`) : '미확인';
-    put('home-asof',`보유 가격 기준 ${priceStamp} · 진단 ${d.as_of || '미확인'} · ${quality}`);
+    put('home-asof',`가격 기준 ${priceStamp} · 진단 저장 ${date(d.created)} · ${quality}`);
     if (!g) {
       put('home-action-title','추가 행동 판단 보류');
       put('home-action-why','저장된 진단에 행동 항목이 없습니다. 새 입력으로 다시 확인하세요.');
     } else {
-      const old = d.as_of && d.as_of < new Date(Date.now() - 4 * 86400000).toISOString().slice(0,10);
+      const old = d.created
+        ? Number(d.created) * 1000 < Date.now() - 4 * 86400000
+        : d.as_of && d.as_of < new Date(Date.now() - 4 * 86400000).toISOString().slice(0,10);
       put('home-action-title',`${old ? '지난 진단 · ' : ''}${g.action || '검토 필요'}`);
       put('home-action-why',g.reason || '상세 진단의 근거를 확인하세요.');
     }

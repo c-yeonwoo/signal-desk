@@ -1792,6 +1792,22 @@ def portfolio_profile_set(request: Request, data: dict = Body(default={})):
     return {"ok": True, "profile": db.portfolio_profile_set(_uid(request), market, values)}
 
 
+def _portfolio_input_fingerprint(holdings: list[dict], profile: dict) -> str:
+    """진단 당시 입력과 현재 입력을 금액·한도 포함해 비교하는 불투명 지문."""
+    normalized_holdings = sorted(
+        ({"ticker": str(h.get("ticker") or ""),
+          "qty": finite_or_none(h.get("qty")),
+          "avg_price": finite_or_none(h.get("avg_price"))} for h in holdings),
+        key=lambda h: h["ticker"],
+    )
+    profile_fields = ("cash", "monthly_contribution", "horizon_months", "max_drawdown_pct",
+                      "max_single_position_pct", "max_sector_pct", "max_cluster_pct", "min_cash_pct")
+    normalized_profile = {key: finite_or_none(profile.get(key)) for key in profile_fields}
+    encoded = json.dumps({"holdings": normalized_holdings, "profile": normalized_profile},
+                         ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
 def _portfolio_analysis(uid: int, market: str) -> dict:
     """실보유를 현재 시세·섹터·상관 자료와 결합한다. 가격 없는 보유는 삭제하지 않고 결손으로 남긴다."""
     holdings = _holdings_by_market(db.holdings_list(uid), market)
@@ -1848,6 +1864,10 @@ def _portfolio_analysis(uid: int, market: str) -> dict:
         signal_policy_id=_signal_policy_id(market, signal_by_ticker.values()))
     out.update(decision)
     out["audit"] = db.portfolio_artifact_add(uid, market, artifact)
+    out["diagnosed_at"] = _kst_now().isoformat(timespec="minutes")
+    price_dates = sorted({str(row["price_as_of"])[:10] for row in rows if row.get("price_as_of")})
+    out["price_asof_range"] = ({"first": price_dates[0], "last": price_dates[-1]} if price_dates else None)
+    out["inputs_fingerprint"] = _portfolio_input_fingerprint(holdings, profile)
     if not artifact["timing"]["aligned"]:
         # Keep reference analytics, but do not issue or score stale/unclosed-price plans.
         out["trade_plan"] = {"ready": False, "mode": "shadow", "instructions": [],
@@ -2014,10 +2034,20 @@ def portfolio_latest_get(request: Request, market: str = "kr"):
     if row is None:
         return {"ready": False, "market": _mkt(market), "reason": "저장된 포트폴리오 진단이 없습니다."}
     body = row["payload"]
+    market = _mkt(market)
+    current_holdings = _holdings_by_market(db.holdings_list(_uid(request)), market)
+    current_profile = db.portfolio_profile_get(_uid(request), market)
+    stored_fingerprint = body.get("inputs_fingerprint")
+    inputs_match = (_portfolio_input_fingerprint(current_holdings, current_profile) == stored_fingerprint
+                    if stored_fingerprint else None)
     price_dates = sorted({str(holding["price_as_of"])[:10] for holding in body.get("holdings") or []
                           if holding.get("price_as_of")})
     return {"ready": True, "market": _mkt(market), "as_of": row["as_of"],
             "created": row["created"], "source": row["source"],
+            "inputs_match": inputs_match,
+            "input_status": "current" if inputs_match is True else "changed" if inputs_match is False else "unverifiable",
+            "current_holdings_count": len(current_holdings),
+            "diagnosed_at": body.get("diagnosed_at"),
             "data_quality": row["data_quality"],
             "price_asof_range": {"first": price_dates[0], "last": price_dates[-1]} if price_dates else None,
             "summary": body.get("summary") or {}, "guidance": body.get("guidance") or [],
