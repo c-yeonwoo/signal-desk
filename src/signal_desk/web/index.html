@@ -394,6 +394,19 @@
   .hero-metrics b { font-variant-numeric:tabular-nums; }
   .hero-runup { color:var(--sig-buy); font-weight:700; }
   .hero-runup.down { color:var(--sig-sell); }
+  .company-review { border:1px solid var(--line); border-radius:var(--r-md); padding:12px 14px;
+    margin:4px 0 10px; background:var(--bg); font-size:14px; line-height:1.5; }
+  .company-review h3 { margin:0 0 7px; font-size:17px; }
+  .company-review-lead { color:var(--txt); font-weight:700; margin:0 0 9px; }
+  .company-review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .company-review-part { border:1px solid var(--line); border-radius:var(--r-sm); padding:8px 10px; min-width:0; }
+  .company-review-part b { display:block; margin-bottom:4px; }
+  .company-review-part p { margin:3px 0; }
+  .company-review-part a { color:var(--accent); text-decoration:underline; text-underline-offset:2px; }
+  .company-review-foot { color:var(--dim); margin:9px 0 0; font-size:13px; }
+  .company-review details { margin-top:7px; font-size:13px; color:var(--dim); }
+  .company-review summary { cursor:pointer; font-weight:600; }
+  @media(max-width:680px) { .company-review-grid { grid-template-columns:1fr; } }
   .hero-tk { color:var(--dim-2); }
   .hero-score-why { color:var(--txt); font-weight:600; line-height:1.45; }
   table.dtable tr.selected-row { background:var(--accent-weak); }
@@ -1132,6 +1145,7 @@
           </span>
         </div>
         <div id="signal-hero" style="display:none"></div>
+        <section id="signal-company-review" class="company-review" aria-label="가격과 기업 근거 함께 보기" style="display:none"></section>
         <p id="chart-mode-hint" class="page-desc" style="display:none;margin:0 0 8px;font-size:13px"></p>
         <div id="signal-chart"></div>
         <div id="signal-legend" style="display:none;font-size:12px;color:var(--dim);margin:4px 0;line-height:1.55"></div>
@@ -5317,6 +5331,62 @@ function _paintSignalDetail(ticker, item){
   buildDetailTabs();
 }
 
+function _paintSignalReview(ticker, review){
+  const el = document.getElementById('signal-company-review');
+  if (!el) return;
+  if (!review || review.ticker !== ticker) {
+    el.style.display = ticker === INDEX_TICKER ? 'none' : '';
+    el.textContent = ticker === INDEX_TICKER ? '' : '기업 근거와 내 보유를 함께 확인하는 중…';
+    return;
+  }
+  const evidence = new Map((review.evidence || []).map(e => [e.id, e]));
+  const groups = {supports:[], contradicts:[], context:[]};
+  for (const claim of review.claims || []) {
+    if (groups[claim.relation]) groups[claim.relation].push(claim);
+  }
+  const source = claim => {
+    const ev = evidence.get((claim.evidence_ids || [])[0]);
+    if (!ev) return '';
+    const intraday = ev.kind === 'price' && review.price_basis === 'intraday_quote';
+    const stamp = raw => raw ? new Date(raw).toLocaleString('ko-KR', {timeZone:'Asia/Seoul', hour12:false}) : '시각 미확인';
+    const times = ev.kind === 'price'
+      ? (intraday ? `장중 확인 ${stamp(ev.observed_at)}` : `종가 ${(review.as_of || {}).prices_through || '시각 미확인'}`)
+      : `발행 ${stamp(ev.published_at)} · 첫 수집 ${stamp(ev.observed_at)}`;
+    const label = ev.kind === 'official_filing' ? '공시 원문' : ev.kind === 'news' ? '기사 원문' : intraday ? '장중 시세' : '종가 기준';
+    const validUrl = typeof ev.url === 'string' && /^https:\/\/[^\s]+$/i.test(ev.url);
+    return ` <span style="color:var(--dim)">· ${esc(times)}</span>`
+      + (validUrl ? ` <a href="${esc(ev.url)}" target="_blank" rel="noopener noreferrer">${label} ↗</a>` : ` <span style="color:var(--dim)">${label}</span>`);
+  };
+  const lines = (items, empty) => items.length
+    ? items.slice(0,2).map(c => `<p>${esc(c.text)}${source(c)}</p>`).join('')
+    : `<p style="color:var(--dim)">${empty}</p>`;
+  const stale = review.price_status !== 'current';
+  const hasOfficialRisk = groups.contradicts.some(c => (c.evidence_ids || []).some(id => id.startsWith('event:')));
+  const lead = stale ? (hasOfficialRisk
+      ? '시세 기준을 확인할 수 없고 공식 위험도 있어요. 원문부터 확인하세요.'
+      : '시세 기준을 확인할 수 없어 현재 판정을 재확인할 수 없어요.')
+    : hasOfficialRisk
+      ? '가격 조건과 확인된 공식 위험을 함께 보세요.'
+      : review.buy_blocked ? '정량 점수가 높아도 새 매수는 차단돼 있어요.'
+      : groups.supports.length ? '가격은 매수 후보권이에요. 기업 근거는 별도로 확인하세요.'
+      : groups.contradicts.length ? '현재 가격 조건은 매도 쪽이에요.'
+      : '현재 가격 조건과 최근 기업 소식을 따로 확인하세요.';
+  const unknowns = (review.unknowns || []).slice(0,4);
+  const next = (review.next_checks || [])[0];
+  const basis = review.price_basis === 'intraday_quote'
+    ? '장중 잠정가 포함 · 확정 종가 ' : '확정 종가 ';
+  el.innerHTML = `<h3>가격과 기업 소식, 함께 보기</h3><p class="company-review-lead">${esc(lead)}</p>`
+    + `<div class="company-review-grid">`
+    + `<div class="company-review-part"><b>현재 가격 조건</b>${lines(groups.supports.concat(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:'))), groups.context.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:')))), '가격 판정을 확인하지 못했어요.')}</div>`
+    + `<div class="company-review-part"><b>확인된 기업 소식</b>${lines(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))).concat(groups.context.filter(c => !(c.evidence_ids || []).some(id => id.startsWith('price:')))), '연결할 최근 원문이 없어요.')}</div>`
+    + `</div><p class="company-review-foot">${esc(basis + ((review.as_of || {}).prices_through || '미확인'))}</p>`
+    + `<p class="company-review-foot">${esc(review.holding_text || '내 보유 정보는 확인하지 못했어요.')}</p>`
+    + (next ? `<p class="company-review-foot"><b>다음 확인</b> · ${esc(next)}</p>` : '')
+    + (unknowns.length ? `<details><summary>아직 모르는 점 ${unknowns.length}개</summary><ul>${unknowns.map(s => `<li>${esc(s)}</li>`).join('')}</ul></details>` : '')
+    + `<p class="company-review-foot">기사 분위기는 시그널 점수·주문에 반영되지 않습니다.</p>`;
+  el.style.display = '';
+}
+
 // 차트 표시 모드 — 기본 간단(가격·점수·구간). 추세(+이동평균), 자세히(+RSI·MACD·수급).
 let _chartMode = (typeof localStorage !== 'undefined' && localStorage.getItem('sig_chart_mode')) || 'simple';
 if (!['simple', 'trend', 'detail'].includes(_chartMode)) _chartMode = 'simple';
@@ -5378,6 +5448,7 @@ let _chartAbort = null;  // 빠른 종목 전환 시 이전 /chart·/detail 응�
 async function showSignalChart(ticker, item){
   // 리스트는 요약만 — 차트 먼저 그리고 상세(/detail)는 뒤에서 보강(느린 쪽이 차트 페인트을 막지 않게).
   _paintSignalDetail(ticker, item);
+  _paintSignalReview(ticker, null);
   // **비활성 탭은 탭을 눌렀을 때 받는다.** 서버 동시성이 사실상 1이라(실측: 병렬 4,430ms >
   // 순차 3,008ms) 첫 화면 호출 수가 곧 대기 시간이다. `동종`·`일정`은 기본 탭(`지표·목표가`)이
   // 아닌데도 종목을 고를 때마다 즉시 나갔고, 그중 `일정`은 **외부 DART를 친다**(콜드 실측 16.3초).
@@ -5432,6 +5503,10 @@ async function showSignalChart(ticker, item){
       _signalItems[ticker] = item;
       if (_chartCache && _chartCache.ticker === ticker) _chartCache.item = item;
       _paintSignalDetail(ticker, item);
+      _paintSignalReview(ticker, detail.review);
+    } else {
+      const reviewEl = document.getElementById('signal-company-review');
+      if (reviewEl && ticker !== INDEX_TICKER) reviewEl.textContent = '기업 근거를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.';
     }
     if (ticker !== INDEX_TICKER && item && item.kind && item.kind !== 'HOLD') {
       // LLM 해설은 사용자가 해설 탭을 열 때만 요청한다. 기본 차트의 로딩과
