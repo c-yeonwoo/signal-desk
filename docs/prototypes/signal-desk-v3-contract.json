@@ -1,0 +1,182 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://signal-desk.local/contracts/v3-read-model.json",
+  "title": "Signal Desk 3.0 화면 읽기 계약 초안",
+  "description": "화면이 서로 다른 가격·사건 시각을 현재 정보처럼 섞지 않도록 하는 제안 계약이다. 운영 API 구현이나 현재 데이터의 보증이 아니다.",
+  "oneOf": [
+    { "$ref": "#/$defs/marketSnapshot" },
+    { "$ref": "#/$defs/companyReview" },
+    { "$ref": "#/$defs/portfolioSummary" }
+  ],
+  "$defs": {
+    "marketSnapshot": {
+      "type": "object",
+      "required": ["kind", "snapshot_id", "market", "status", "as_of", "coverage", "breadth", "industries", "events", "unknowns"],
+      "properties": {
+        "kind": { "const": "market_snapshot" },
+        "snapshot_id": { "type": "string", "minLength": 1 },
+        "market": { "enum": ["kr", "us"] },
+        "status": { "enum": ["ready", "partial", "stale", "unavailable"] },
+        "as_of": { "$ref": "#/$defs/timestamps" },
+        "coverage": { "$ref": "#/$defs/coverage" },
+        "direction": {
+          "type": "object",
+          "required": ["index_change_pct", "basis"],
+          "properties": {
+            "index_change_pct": { "type": ["number", "null"] },
+            "index_name": { "type": ["string", "null"] },
+            "basis": { "enum": ["same_session_close", "intraday", "not_available"] }
+          },
+          "additionalProperties": false
+        },
+        "breadth": {
+          "type": "object",
+          "required": ["advancing", "declining", "unchanged", "excluded"],
+          "properties": {
+            "advancing": { "type": "integer", "minimum": 0 },
+            "declining": { "type": "integer", "minimum": 0 },
+            "unchanged": { "type": "integer", "minimum": 0 },
+            "excluded": { "type": "integer", "minimum": 0 },
+            "basis": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "industries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["key", "name", "members", "median_change_pct", "as_of"],
+            "properties": {
+              "key": { "type": "string" },
+              "name": { "type": "string" },
+              "members": { "type": "integer", "minimum": 0 },
+              "median_change_pct": { "type": ["number", "null"] },
+              "relative_change_pp": { "type": ["number", "null"] },
+              "as_of": { "type": "string", "format": "date" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "selection": {
+          "type": ["object", "null"],
+          "properties": {
+            "computed_at": { "type": ["string", "null"], "format": "date-time" },
+            "candidate_count": { "type": "integer", "minimum": 0 },
+            "open_slots": { "type": ["integer", "null"], "minimum": 0 },
+            "withheld_reason": { "type": ["string", "null"] }
+          },
+          "required": ["computed_at", "candidate_count", "open_slots", "withheld_reason"],
+          "additionalProperties": false
+        },
+        "events": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "unknowns": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "companyReview": {
+      "type": "object",
+      "required": ["kind", "ticker", "market", "as_of", "price_status", "signal", "claims", "unknowns"],
+      "properties": {
+        "kind": { "const": "company_review" },
+        "ticker": { "type": "string", "minLength": 1 },
+        "market": { "enum": ["kr", "us"] },
+        "as_of": { "$ref": "#/$defs/timestamps" },
+        "price_status": { "enum": ["current", "stale", "unavailable"] },
+        "signal": {
+          "type": "object",
+          "required": ["decision", "computed_at", "coverage"],
+          "properties": {
+            "decision": { "enum": ["STRONG_BUY", "BUY", "HOLD", "SELL", "STRONG_SELL", "UNAVAILABLE"] },
+            "computed_at": { "type": ["string", "null"], "format": "date-time" },
+            "coverage": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+            "candidate_position": { "type": ["integer", "null"], "minimum": 1 }
+          },
+          "additionalProperties": false
+        },
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["relation", "text", "evidence_ids"],
+            "properties": {
+              "relation": { "enum": ["supports", "contradicts", "context"] },
+              "text": { "type": "string", "minLength": 1 },
+              "evidence_ids": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+            },
+            "additionalProperties": false
+          }
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
+        "portfolio_relation": { "enum": ["held", "watching", "not_in_portfolio", "unavailable"] },
+        "next_checks": { "type": "array", "items": { "type": "string" } },
+        "unknowns": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "portfolioSummary": {
+      "type": "object",
+      "required": ["kind", "account_mode", "status", "as_of", "currency", "holdings", "unknowns"],
+      "properties": {
+        "kind": { "const": "portfolio_summary" },
+        "account_mode": { "enum": ["manual", "brokerage", "paper"] },
+        "status": { "enum": ["current", "stale", "not_connected", "partial", "unavailable"] },
+        "as_of": { "$ref": "#/$defs/timestamps" },
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "market_value": { "type": ["number", "null"], "minimum": 0 },
+        "cash": { "type": ["number", "null"], "minimum": 0 },
+        "holdings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ticker", "quantity", "market_value", "price_as_of"],
+            "properties": {
+              "ticker": { "type": "string" },
+              "quantity": { "type": "number", "minimum": 0 },
+              "market_value": { "type": ["number", "null"], "minimum": 0 },
+              "weight": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+              "price_as_of": { "type": ["string", "null"], "format": "date" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "unknowns": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "timestamps": {
+      "type": "object",
+      "required": ["exchange_session", "prices_through", "computed_at"],
+      "properties": {
+        "exchange_session": { "type": ["string", "null"], "format": "date" },
+        "prices_through": { "type": ["string", "null"], "format": "date" },
+        "computed_at": { "type": ["string", "null"], "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["included", "universe"],
+      "properties": {
+        "included": { "type": "integer", "minimum": 0 },
+        "universe": { "type": "integer", "minimum": 0 },
+        "excluded_reason": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["id", "kind", "issuer_verified", "published_at", "observed_at", "freshness", "url"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["official_filing", "company_release", "news", "macro", "price"] },
+        "issuer_verified": { "type": "boolean" },
+        "published_at": { "type": ["string", "null"], "format": "date-time" },
+        "available_at_verified": { "type": "boolean" },
+        "observed_at": { "type": ["string", "null"], "format": "date-time" },
+        "freshness": { "enum": ["current", "stale", "unknown", "future"] },
+        "url": { "type": ["string", "null"], "format": "uri" }
+      },
+      "additionalProperties": false
+    }
+  }
+}
