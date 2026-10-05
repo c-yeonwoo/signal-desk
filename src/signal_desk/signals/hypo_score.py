@@ -46,12 +46,16 @@ def score(runs: list[dict], closes_by_ticker: dict, *,
     rows: list[dict] = []
     picked: list[float] = []
     baseline: list[float] = []
-    matured = unmatured = 0
+    matured = unmatured = unscorable = 0
 
     for r in runs:
         day = str(r.get("as_of") or (r.get("built_at") or "")[:10])
         tks = [t for t in (r.get("tickers") or []) if t]
         if not day or not tks:
+            unscorable += 1
+            rows.append({"id": r.get("id"), "as_of": day, "n_tickers": len(tks),
+                         "picked_pct": None, "baseline_pct": None, "lift_pp": None,
+                         "blocked_reason": "생성 당시 날짜 또는 종목 기록이 없어 검증할 수 없습니다"})
             continue
         got: list[float] = []
         for t in tks:
@@ -74,7 +78,7 @@ def score(runs: list[dict], closes_by_ticker: dict, *,
             rows.append({"id": r.get("id"), "built_at": r.get("built_at"), "as_of": day,
                          "sectors": r.get("sectors") or [], "n_tickers": len(tks),
                          "picked_pct": None, "baseline_pct": None, "lift_pp": None,
-                         "blocked_reason": f"{horizon}거래일이 아직 안 지났습니다"})
+                         "blocked_reason": f"{horizon}거래일 관측이 부족하거나 진입·청산 가격이 없습니다"})
             continue
         matured += 1
         p = sum(got) / len(got)
@@ -87,10 +91,12 @@ def score(runs: list[dict], closes_by_ticker: dict, *,
                      "lift_pp": round(p - b, 2), "blocked_reason": None})
 
     # 판정은 `accuracy.diff_verdict` 를 **공유**한다 — 통계 구현을 두 곳에 두면 갈라진다.
-    verdict = accuracy.diff_verdict(picked, baseline, min_samples=min_runs)
+    # diff_verdict는 0.01=1% 수익률을 받고 내부에서 %로 환산한다.
+    verdict = accuracy.diff_verdict([v / 100 for v in picked], [v / 100 for v in baseline],
+                                    min_samples=min_runs)
     return {
         "horizon_days": horizon,
-        "runs_total": len(runs), "matured": matured, "unmatured": unmatured,
+        "runs_total": len(runs), "matured": matured, "unmatured": unmatured, "unscorable": unscorable,
         "min_runs": min_runs,
         "rows": rows,
         # 성숙 표본이 요건 미달이면 값을 내보내지 않는다 — 매번 보이면 그게 곧 다중검정이다.
@@ -101,7 +107,7 @@ def score(runs: list[dict], closes_by_ticker: dict, *,
         "verdict": verdict,
         "blocked_reason": None if matured >= min_runs else (
             f"성숙한 흐름 {matured}/{min_runs}건 — 판정하려면 흐름이 더 쌓이고 "
-            f"각각 {horizon}거래일이 지나야 합니다"),
+            f"각각 {horizon}거래일 가격이 필요합니다. 생성 당시 기록 부족 {unscorable}건"),
         # 조건 채점은 하지 않는다는 사실을 **밝힌다**(지어내지 않는다).
         "conditions_scored": False,
         "conditions_note": "조건(VIX·CPI 등)의 사후 충족 여부는 채점하지 않습니다 — 거시 캐시가 "
