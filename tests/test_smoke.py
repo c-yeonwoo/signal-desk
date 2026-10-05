@@ -103,7 +103,8 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 히어로 CTA 제거 — 관심종목 등록은 리스트 ★ 하나로 통일(같은 일을 두 곳에서 하지 않는다)
     assert "trackFromSignal" not in html and "관심종목에 추가하고 변동 알림 받기" not in html
     assert 'class="fav-star' in html and "toggleFav(" in html
-    assert 'data-cseg="hypo"' in html and 'id="cycle-seg-hypo"' in html
+    assert 'data-cseg="industry"' in html and 'data-industry="hypo"' in html
+    assert 'id="cycle-seg-hypo"' in html
     assert 'id="hypo-graph"' in html and "drawHypothesisTree" in html
     assert "orient: 'LR'" in html and "roam: true" in html
     assert "흐름 생성" in html and "/api/hypothesis" in html
@@ -181,7 +182,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     root = html.split(":root {", 1)[1].split("}", 1)[0]
     for alias in ("--sell:", "--warn:", "--down:", "--fg:", "--panel-2:", "--mono:"):
         assert alias in root, f"{alias} 미정의"
-    assert 'data-cseg="ref"' in html  # 인사이트 참고 서랍
+    assert 'data-cseg="study"' in html and 'id="subnav-study"' in html
     assert ">투자 관리<" in html  # 실제 계좌·개인 분석까지 포함하는 상위 메뉴
     assert ">봇 모의투자<" in html
     # 국내·해외·관심종목은 같은 깊이의 탭. 상세 조건은 접힌 별도 영역에 둔다.

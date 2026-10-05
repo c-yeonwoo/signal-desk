@@ -107,6 +107,11 @@ CREATE TABLE IF NOT EXISTS favorites(uid INTEGER, kind TEXT, key TEXT, label TEX
 CREATE TABLE IF NOT EXISTS favorite_theses(uid INTEGER NOT NULL, market TEXT NOT NULL,
     ticker TEXT NOT NULL, thesis TEXT NOT NULL, invalidates TEXT NOT NULL,
     updated INTEGER NOT NULL, PRIMARY KEY(uid,market,ticker));
+CREATE TABLE IF NOT EXISTS favorite_thesis_history(id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uid INTEGER NOT NULL, market TEXT NOT NULL, ticker TEXT NOT NULL,
+    thesis TEXT NOT NULL, invalidates TEXT NOT NULL, changed_at INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_favorite_thesis_history
+    ON favorite_thesis_history(uid,market,ticker,id DESC);
 CREATE TABLE IF NOT EXISTS kv(k TEXT PRIMARY KEY, v TEXT, ts INTEGER);
 CREATE TABLE IF NOT EXISTS user_bot(uid INTEGER PRIMARY KEY, enabled INTEGER NOT NULL DEFAULT 0,
     trading_style TEXT NOT NULL DEFAULT 'balanced', seed_cash REAL NOT NULL DEFAULT 10000000,
@@ -845,6 +850,7 @@ def fav_remove(uid: int, kind: str, key: str) -> None:
     c.execute("DELETE FROM favorites WHERE uid=? AND kind=? AND key=?", (uid, kind, key))
     if kind == "ticker":
         c.execute("DELETE FROM favorite_theses WHERE uid=? AND ticker=?", (uid, key))
+        c.execute("DELETE FROM favorite_thesis_history WHERE uid=? AND ticker=?", (uid, key))
     c.commit()
     c.close()
 
@@ -853,9 +859,16 @@ def favorite_thesis_get(uid: int, market: str, ticker: str) -> dict:
     c = conn()
     row = c.execute("SELECT thesis,invalidates,updated FROM favorite_theses "
                     "WHERE uid=? AND market=? AND ticker=?", (uid, market, ticker)).fetchone()
+    history = c.execute("SELECT thesis,invalidates,changed_at FROM favorite_thesis_history "
+                        "WHERE uid=? AND market=? AND ticker=? ORDER BY id DESC LIMIT 20",
+                        (uid, market, ticker)).fetchall()
     c.close()
-    return ({"thesis": row[0], "invalidates": row[1], "updated": row[2]}
-            if row else {"thesis": "", "invalidates": "", "updated": None})
+    return ({"thesis": row[0], "invalidates": row[1], "updated": row[2],
+             "history": [{"thesis": item[0], "invalidates": item[1], "changed_at": item[2]}
+                         for item in history]}
+            if row else {"thesis": "", "invalidates": "", "updated": None,
+                         "history": [{"thesis": item[0], "invalidates": item[1], "changed_at": item[2]}
+                                     for item in history]})
 
 
 def favorite_thesis_set(uid: int, market: str, ticker: str, thesis: str, invalidates: str) -> dict:
@@ -865,6 +878,17 @@ def favorite_thesis_set(uid: int, market: str, ticker: str, thesis: str, invalid
         raise ValueError("note too long")
     c = conn()
     try:
+        current = c.execute("SELECT thesis,invalidates FROM favorite_theses "
+                             "WHERE uid=? AND market=? AND ticker=?", (uid, market, ticker)).fetchone()
+        changed = ((current is None and bool(thesis or invalidates))
+                   or (current is not None and (current[0], current[1]) != (thesis, invalidates)))
+        if changed:
+            now = int(time.time())
+            c.execute("INSERT INTO favorite_thesis_history(uid,market,ticker,thesis,invalidates,changed_at) "
+                      "VALUES(?,?,?,?,?,?)", (uid, market, ticker, thesis, invalidates, now))
+            c.execute("DELETE FROM favorite_thesis_history WHERE id IN ("
+                      "SELECT id FROM favorite_thesis_history WHERE uid=? AND market=? AND ticker=? "
+                      "ORDER BY id DESC LIMIT -1 OFFSET 20)", (uid, market, ticker))
         if not thesis and not invalidates:
             c.execute("DELETE FROM favorite_theses WHERE uid=? AND market=? AND ticker=?",
                       (uid, market, ticker))
