@@ -4103,11 +4103,16 @@ def market_brief_get(market: str = "kr"):
     prices, dates = store.load_portfolio_close_bundle(market)
     universe = store.load_universe() if market == "kr" else store.load_us_universe()
     tickers = [str(row["ticker"]) for row in universe]
+    # KR 분류는 큐레이션 스냅샷이라 관찰 화면의 같은 날 요약에만 제한한다.
+    # 해외 구성종목 분류는 기준시점을 확인할 수 없어 현재 카드의 업종 비교에 쓰지 않는다.
+    sector_by_ticker = ({ticker: sector for ticker in tickers
+                         if (sector := sectors.sector_of(ticker))} if market == "kr" else None)
     flow = (regime.market_flow_bias(store.load_market_flow()) if market == "kr" else None)
     indicators = store.load_macro() if market == "us" else ()
     card = market_brief.build(market, prices=prices, dates=dates, tickers=tickers,
                               expected=expected, previous=previous, flow=flow,
-                              macro_indicators=indicators, now=now)
+                              macro_indicators=indicators, sector_by_ticker=sector_by_ticker,
+                              now=now)
     if card["status"] == "ready":
         sigs = list(_signals()) if market == "kr" else list(_us_signals().values())
         if market == "kr":

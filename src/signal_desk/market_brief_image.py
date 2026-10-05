@@ -45,10 +45,12 @@ def render(card: dict) -> str:
     market = "해외" if card.get("market") == "us" else "국내"
     fresh = card.get("status") in {"ready", "partial"}
     partial = card.get("status") == "partial"
-    title = str(card.get("headline") or "오늘 시장을 아직 요약할 수 없어요")
+    title = str(card.get("today_headline") or card.get("headline") or "오늘 시장을 아직 요약할 수 없어요")
     summary = str(card.get("summary") or "종가를 확인한 뒤 다시 보여드릴게요.")
-    tone = ("#F5B971" if not fresh or "약해요" in title else
-            "#6DD7A4" if "견조해요" in title else "#9BB9FF")
+    tone = ("#F5B971" if not fresh or "어려워요" in title else
+            "#6DD7A4" if "오른 종목이 더 많" in title else
+            "#F08C86" if "내린 종목이 더 많" in title else "#9BB9FF")
+    title_size = 44 if len(title) > 18 else 56
     as_of = card.get("price_as_of") or "미확인"
     date_label = f"{_e(as_of)} 종가 기준" if fresh else "종가 확인 전"
     svg = [
@@ -62,7 +64,7 @@ def render(card: dict) -> str:
         'font-family="Apple SD Gothic Neo,Noto Sans KR,sans-serif">SIGNAL DESK · 하루 시장 한눈에</text>',
         f'<text x="1136" y="72" text-anchor="end" fill="#B9C5CF" font-size="22" '
         f'font-family="Apple SD Gothic Neo,Noto Sans KR,sans-serif">{_e(market)} · {date_label}</text>',
-        f'<text x="64" y="163" fill="{tone}" font-size="56" font-weight="800" '
+        f'<text x="64" y="163" fill="{tone}" font-size="{title_size}" font-weight="800" '
         f'font-family="Apple SD Gothic Neo,Noto Sans KR,sans-serif">{_e(title)}</text>',
         '<text x="64" y="222" fill="#E4E9ED" font-size="27" '
         'font-family="Apple SD Gothic Neo,Noto Sans KR,sans-serif">'

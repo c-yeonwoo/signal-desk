@@ -3241,7 +3241,7 @@ function setMarketBriefImage(d){
   img.removeAttribute('src');
   if (!d || !d.image_svg) return;
   _marketBriefSvgUrl = URL.createObjectURL(new Blob([d.image_svg], {type:'image/svg+xml;charset=utf-8'}));
-  img.alt = `${d.market === 'us' ? '해외' : '국내'} 시장 요약. ${d.headline || ''} ${d.summary || ''} ${(d.unknown || []).join(' ')}`;
+  img.alt = `${d.market === 'us' ? '해외' : '국내'} 시장 요약. ${d.today_headline || d.headline || ''} ${d.summary || ''} ${(d.unknown || []).join(' ')}`;
   img.src = _marketBriefSvgUrl;
   figure.hidden = false;
 }
@@ -3286,12 +3286,12 @@ async function loadRegime(){
     const fresh = d.status === 'ready' || d.status === 'partial';
     setMarketBriefImage(d);
     asof.textContent = d.price_as_of ? `${d.price_as_of} 종가${fresh ? '' : ' · 갱신 지연'}` : '종가 확인 불가';
-    state.textContent = d.headline || '오늘 시장을 아직 요약할 수 없어요';
+    state.textContent = d.today_headline || d.headline || '오늘 시장을 아직 요약할 수 없어요';
     document.getElementById('mb-basis').textContent = fresh
       ? (d.summary || '관찰 종목의 흐름입니다.')
       : '오래된 가격으로 오늘의 시장 흐름을 판단하지 않아요.';
     document.getElementById('mb-source-basis').textContent = fresh
-      ? `${d.state_basis || '저장된 종가 기준'} · ${d.price_count}/${d.universe_count}종목 날짜 확인. 최근 평균은 각 종목의 마지막 60개 종가 평균이며, 이 수치는 오늘 상승종목 비율이나 내일 오를 확률이 아닙니다.`
+      ? `${d.state_basis || '저장된 종가 기준'} · ${d.price_count}/${d.universe_count}종목 날짜 확인. 오늘 등락·최근 평균 위 여부·20거래일 변화는 서로 다른 기간의 관측치이며, 어느 것도 내일 오를 확률은 아닙니다.`
       : '최신 종가가 확인되지 않아 수치를 표시하지 않습니다.';
     facts.innerHTML = fresh ? (d.facts || []).map(f => `<div class="mb-fact">
       <span class="mb-fact-label">${esc(f.label)}</span><span class="mb-fact-value">${esc(f.value)}</span>
