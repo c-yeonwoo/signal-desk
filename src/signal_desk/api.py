@@ -5590,7 +5590,9 @@ def hypothesis_get():
     try:
         data["accuracy"] = hypo_score.score(db.hypo_runs_recent(50), store.load_all_dated_closes())
     except Exception as e:                          # noqa: BLE001 — 채점 실패가 트리를 막지 않는다
-        log.warning("이슈 흐름 채점 실패: %s", type(e).__name__)
+        # 오류 종류만 기록하면 운영에서 실패한 단계와 입력 경로를 구분할 수 없다.
+        # traceback은 서버 로그에만 남기고 API 응답에는 내부 정보를 포함하지 않는다.
+        log.warning("이슈 흐름 채점 실패: %s", type(e).__name__, exc_info=True)
         data["accuracy"] = {"blocked_reason": "결과 검증을 불러오지 못했습니다. 현재 흐름의 성과는 확인할 수 없습니다.",
                             "status": "unavailable"}
     return data
