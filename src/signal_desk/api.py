@@ -34,7 +34,7 @@ from signal_desk.toss_manual_routes import router as toss_manual_router
 from signal_desk.broker import execution, paper, toss_readonly
 
 from signal_desk import (
-    account_performance, auth, bot, bot_alerts, brain, brain_proposals, company, config, db, digest, kb,
+    account_performance, auth, bot, bot_alerts, brain, brain_proposals, company, company_review, config, db, digest, kb,
     llm, market_brief, market_brief_image, market_clock, notify, shortform, signalcfg, store, strategy, telegram_inbound,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
@@ -2915,12 +2915,45 @@ def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
 
 
 @app.get("/api/signals/{ticker}/detail")
-def signal_detail_get(ticker: str, market: str = "kospi"):
+def signal_detail_get(ticker: str, request: Request, response: Response, market: str = "kospi"):
     """종목 상세 — 리스트에 없는 해설·사업개요·목표가·KB. 차트와 병렬 fetch용.
     KR은 최근 PIT 픽 요약을 `pit`로 붙인다(없으면 null) — 히어로 한 줄용, 새 탭 없음."""
+    # 개인의 분석용 보유 입력이 응답에 붙으므로 공용/브라우저 캐시에 남기지 않는다.
+    response.headers["Cache-Control"] = "private, no-store"
     item = _us_signal_detail(ticker) if market == "us" else _kr_signal_detail(ticker)
     if not item:
-        return {"ready": False, "item": None, "pit": None}
+        return {"ready": False, "item": None, "pit": None, "review": None}
+    review_market = "us" if market == "us" else "kr"
+    from signal_desk import kb_attribution
+    check = kb.digest_checks().get(ticker) or {}
+    docs = db.kb_entries_recent(ticker, 12, confirmed_only=True,
+                                attribution_version=kb_attribution.POLICY_VERSION)
+    current_news = kb._current_digest_items(docs) if check.get("status") == "ok" else []
+    official = [e for e in db.kb_events_active(ticker)
+                if e.get("policy_version") == "p0" and e.get("trust_tier") == "official"]
+    for event in official:
+        event["evidence"] = db.kb_event_evidence(event["id"])
+    uid = _uid(request)
+    holdings = db.holdings_list(uid) if uid is not None else []
+    holding = next((h for h in holdings if str(h.get("ticker", "")).upper() == ticker.upper()), None)
+    watching = any(f.get("kind") == "ticker" and str(f.get("key", "")).upper() == ticker.upper()
+                   for f in db.fav_list(uid)) if uid is not None else False
+    # LIVE_QUOTES can append a provisional bar to dates_by_ticker. A confirmed
+    # close is required before calling a verdict current in this read model.
+    bars = (store.load_us_price_history(ticker) if review_market == "us"
+            else store.load_price_history(ticker))
+    live_closes = ((store.load_us_price_series() if review_market == "us"
+                    else store.load_price_series()).get(ticker) or [])
+    provisional_at = (store.live_status().get("updated")
+                      if len(live_closes) > len(bars) else None)
+    expected = market_clock.latest_completed_session(review_market, datetime.datetime.now(datetime.timezone.utc))
+    review = company_review.build(
+        ticker=ticker, market=review_market, item=item,
+        price_date=bars[-1]["date"] if bars else None, expected_date=expected,
+        news=current_news, official=official, holding=holding, watching=watching,
+        checked_at=check.get("checked_at"), source_check_ok=check.get("status") == "ok",
+        provisional_at=provisional_at,
+    )
     pit = None
     if market != "us":
         try:
@@ -2937,7 +2970,7 @@ def signal_detail_get(ticker: str, market: str = "kospi"):
         except Exception as e:
             log.debug("detail pit attach skip: %s", type(e).__name__)
             pit = None
-    return {"ready": True, "item": item, "pit": pit}
+    return {"ready": True, "item": item, "pit": pit, "review": review}
 
 
 def _buylist(uid: int) -> list[dict]:

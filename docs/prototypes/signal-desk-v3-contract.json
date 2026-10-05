@@ -82,6 +82,8 @@
         "market": { "enum": ["kr", "us"] },
         "as_of": { "$ref": "#/$defs/timestamps" },
         "price_status": { "enum": ["current", "stale", "unavailable"] },
+        "price_basis": { "enum": ["confirmed_close", "intraday_quote"] },
+        "buy_blocked": { "type": "boolean" },
         "signal": {
           "type": "object",
           "required": ["decision", "computed_at", "coverage"],
@@ -108,6 +110,9 @@
         },
         "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence" } },
         "portfolio_relation": { "enum": ["held", "watching", "not_in_portfolio", "unavailable"] },
+        "holding_text": { "type": "string" },
+        "news_checked_at": { "type": ["string", "null"], "format": "date-time" },
+        "not_order_advice": { "type": "boolean" },
         "next_checks": { "type": "array", "items": { "type": "string" } },
         "unknowns": { "type": "array", "items": { "type": "string" } }
       },

@@ -2834,7 +2834,7 @@ def kb_class_counts() -> dict[str, int]:
 def kb_entries_recent(ticker: str, limit: int = 12, confirmed_only: bool = False,
                       attribution_version: str | None = None) -> list[dict]:
     c = conn()
-    q = "SELECT title,summary,url,source,published,fetched,attribution_checked_at FROM kb_entries WHERE ticker=? "
+    q = "SELECT id,title,summary,url,source,published,fetched,attribution_checked_at FROM kb_entries WHERE ticker=? "
     args: list = [ticker]
     if confirmed_only:  # 다이제스트(시그널 반영)는 confirmed만 — pending 문서는 제외해 오염 방지
         q += "AND status='confirmed' "
@@ -2843,9 +2843,9 @@ def kb_entries_recent(ticker: str, limit: int = 12, confirmed_only: bool = False
         args.append(attribution_version)
     rows = c.execute(q + "ORDER BY id DESC LIMIT ?", (*args, limit)).fetchall()
     c.close()
-    return [{"title": t, "summary": s, "url": u, "source": src, "published": p,
+    return [{"id": ident, "title": t, "summary": s, "url": u, "source": src, "published": p,
              "fetched": fetched, "attribution_checked_at": checked}
-            for t, s, u, src, p, fetched, checked in rows]
+            for ident, t, s, u, src, p, fetched, checked in rows]
 
 
 KB_DIGEST_POLICY_VERSION = "source-72h-issuer-role-v2"
