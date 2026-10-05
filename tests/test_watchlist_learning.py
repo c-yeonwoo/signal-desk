@@ -69,6 +69,7 @@ def test_private_thesis_is_uid_scoped_and_never_changes_shared_observation(tmp_p
         "market": "kr", "ticker": "005930", "thesis": "수요 회복",
         "invalidates": "수주 감소"})
     assert saved["personal_note"]["thesis"] == "수요 회복"
+    assert len(saved["personal_note"]["history"]) == 1
     assert db.favorite_thesis_get(8, "kr", "005930")["thesis"] == ""
     report = api.watchlist_learning_get(object(), market="kr", ticker="005930")
     assert report["status"] == "not_recorded"
@@ -80,3 +81,21 @@ def test_private_thesis_is_uid_scoped_and_never_changes_shared_observation(tmp_p
     assert exc.value.status_code == 400
     db.fav_remove(7, "ticker", "005930")
     assert db.favorite_thesis_get(7, "kr", "005930")["thesis"] == ""
+    assert db.favorite_thesis_get(7, "kr", "005930")["history"] == []
+
+
+def test_private_thesis_change_history_is_bounded_and_deduplicated(tmp_path, monkeypatch):
+    from signal_desk import db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+
+    db.favorite_thesis_set(7, "kr", "005930", "가설 1", "조건 1")
+    db.favorite_thesis_set(7, "kr", "005930", "가설 1", "조건 1")  # 같은 내용은 중복 이력 없음
+    db.favorite_thesis_set(7, "kr", "005930", "가설 2", "조건 2")
+    note = db.favorite_thesis_get(7, "kr", "005930")
+
+    assert note["thesis"] == "가설 2"
+    assert [item["thesis"] for item in note["history"]] == ["가설 2", "가설 1"]
+
+    for i in range(25):
+        db.favorite_thesis_set(7, "kr", "005930", f"가설 {i + 3}", f"조건 {i + 3}")
+    assert len(db.favorite_thesis_get(7, "kr", "005930")["history"]) == 20
