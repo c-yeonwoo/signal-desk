@@ -1249,9 +1249,9 @@ def _tree_tickers(tree: dict) -> list[str]:
     out, seen = [], set()
 
     def walk(n: dict) -> None:
-        for t in (n.get("tickers") or []):
+        for t in [*(n.get("tickers") or []), *(n.get("watch_tickers") or [])]:
             k = t.get("ticker") if isinstance(t, dict) else t
-            if k and k not in seen:
+            if isinstance(k, str) and k and k not in seen:
                 seen.add(k)
                 out.append(k)
         for c in (n.get("children") or []):

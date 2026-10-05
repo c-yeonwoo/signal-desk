@@ -1142,8 +1142,8 @@ def fetch_kr_dividends(universe: list[dict] | None = None, bsns_year: str | None
 
 def kr_dividends(prices: dict[str, list[float]] | None = None) -> dict[str, dict]:
     """KR 배당주 — {ticker: {dps(주당 연배당,원), div_yield(%), price, div_months}}. 배당 있는 종목만.
-    ⚠️ 시세가 스케일 상태면 div_yield·price는 왜곡(연배당 income=dps×주수는 DART라 정확). 지급월은 결산배당
-    익년 4월 근사([4])."""
+    시세 정합성이 없으면 div_yield·price도 신뢰할 수 없다. 과거 공시 배당이 미래 배당을
+    보장하지 않으며, 지급 일정은 별도 확인 전까지 미상으로 둔다."""
     fund = load_fundamentals()
     if not fund:
         return {}
@@ -1156,7 +1156,8 @@ def kr_dividends(prices: dict[str, list[float]] | None = None) -> dict[str, dict
         closes = prices.get(t)
         price = float(closes[-1]) if closes else None
         out[t] = {"dps": round(float(dps), 2), "price": round(price) if price else None,
-                  "div_yield": round(dps / price * 100, 2) if price else None, "div_months": [4]}
+                  "div_yield": round(dps / price * 100, 2) if price else None,
+                  "div_months": [], "payment_schedule_status": "unknown"}
     return out
 
 
@@ -1947,7 +1948,8 @@ def us_dividends(prices: dict[str, list[float]] | None = None) -> dict[str, dict
         price = float(closes[-1]) if closes else None
         out[t] = {"dps": round(float(dps), 4), "price": round(price, 2) if price else None,
                   "div_yield": round(dps / price * 100, 2) if price else None,
-                  "div_months": f.get("div_months") or []}
+                  # EDGAR 회계기간 종료월은 실제 지급월이 아니다.
+                  "div_months": [], "payment_schedule_status": "unknown"}
     return out
 
 
@@ -3145,10 +3147,10 @@ def signal_drift(pairs: int = 3) -> dict:
                      if frozen else "점수가 날마다 갱신되고 있음")}
 
 
-def load_all_dated_closes() -> dict[str, tuple[list[str], list[float]]]:
+def load_all_dated_closes() -> dict[str, tuple[list[str], list[float | None]]]:
     """ticker -> (dates[], closes[]) 오래된→최신, 국내+미국 통합. 실측 성과(accuracy) 조인용.
     각 parquet을 1회만 읽어 종목별 (날짜, 종가) 짝을 만든다(실시간 잠정봉은 제외 — 성숙 판정 왜곡 방지)."""
-    out: dict[str, tuple[list[str], list[float]]] = {}
+    out: dict[str, tuple[list[str], list[float | None]]] = {}
     for f in (PRICES_FILE, US_PRICES_FILE):
         if not f.exists():
             continue
@@ -3158,7 +3160,7 @@ def load_all_dated_closes() -> dict[str, tuple[list[str], list[float]]]:
         df = df.sort_values(["ticker", "date"])
         for t, g in df.groupby("ticker"):
             out[str(t)] = ([str(d) for d in g["date"].tolist()],
-                           [float(c) for c in g["close"].tolist()])
+                           [None if pd.isna(c) else float(c) for c in g["close"].tolist()])
     return out
 
 

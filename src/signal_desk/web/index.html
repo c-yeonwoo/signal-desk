@@ -1156,7 +1156,9 @@
       <p class="page-desc" style="margin:0 0 14px">물가·금리·나스닥으로 회복·확장·둔화·수축을 근사합니다.
         주도섹터 → 밸류체인 → 시그널로 이어집니다.</p>
       <div class="card" id="cycle-current" style="margin-bottom:16px"><div class="placeholder" style="padding:8px 0">불러오는 중…</div></div>
-      <div class="card" style="margin-bottom:16px"><div id="cycle-chart" style="height:300px"></div></div>
+      <div class="card" style="margin-bottom:16px"><b>경기 흐름을 이해하는 네 가지 상태</b>
+        <p class="page-desc">설명용 그림입니다. 실제 경제지표의 궤적이나 앞으로의 진행 순서를 보여주는 예측이 아닙니다.</p>
+        <div id="cycle-chart" style="height:220px"></div></div>
       <div class="phase-grid" id="cycle-phases"></div>
     </div>
 
@@ -1179,8 +1181,7 @@
       </h3>
       <p class="page-desc">최근 뉴스·KB에서 뽑은 <b>관심 이슈</b>를 왼쪽→오른쪽으로 이어서 읽습니다.
         <b>이렇게 이어질 때 / 다르게 갈 때</b> → 업종 파급 → <b>다시 볼 종목</b>까지.
-        %는 이슈·갈래 안 상대 관심이지, 미래 예고가 아닙니다.
-        <b>관리자 수동 생성</b> 후 DB에 저장됩니다.</p>
+        서로 다른 가능성을 비교하는 설명이며, 어느 쪽의 발생 확률도 계산하지 않습니다.</p>
       <div id="hypo-asof" style="font-size:12px;color:var(--dim-2);margin:0 0 10px"></div>
       <div id="hypo-if-bar" class="hypo-if-bar"></div>
       <div class="hypo-graph-wrap">
@@ -1189,7 +1190,7 @@
       </div>
       <div class="hypo-legend">
         <span>왼쪽→오른쪽: 이슈 → 이렇게/다르게 → 업종 파급 → 다시 볼 종목</span>
-        <span>굵은 갈래: 지금 지표와 더 가까운 쪽 · 검증·예고 아님</span>
+        <span>각 갈래는 확인할 가정입니다. 매수·매도 신호는 바뀌지 않습니다.</span>
       </div>
       <div id="hypo-detail" class="hypo-detail" style="display:none"></div>
       <p id="hypo-disc" style="margin-top:12px;font-size:12px;color:var(--dim-2);line-height:1.5"></p>
@@ -1206,16 +1207,15 @@
     <div id="cycle-seg-guru" style="display:none">
       <h3 class="page-head" style="font-size:17px;margin-top:0"><span class="layer-badge ctx">맥락</span> 거장의 포트폴리오
         <span style="color:var(--dim);font-size:13px;font-weight:600">· 벤치마크 참고 · 신호 아님</span></h3>
-      <p class="page-desc">유명 투자자들이 공개한 보유내역(미국 SEC 13F)입니다. <b>분기 공시 스냅샷이며 최대 45일 지연</b>,
-        미국 롱 포지션만 표시됩니다(현금·채권·해외주식 제외). 엔진 시그널과 별개의 참고 자료입니다.</p>
+      <p class="page-desc">공개된 과거 보유내역입니다. <b>카드마다 보유 기준일이 다르며, 지금도 보유한다는 뜻은 아닙니다.</b>
+        신고 대상 증권의 일부만 보여주므로 전체 자산 배분으로 읽지 마세요. 매수 추천이 아닌 투자 방식의 참고 자료입니다.</p>
       <div id="gurus-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
 
     <div id="cycle-seg-etf" style="display:none">
-      <h3 class="page-head" style="font-size:17px;margin-top:0"><span class="layer-badge ctx">맥락</span> ETF 구성종목
-        <span style="color:var(--dim);font-size:13px;font-weight:600">· 참고용 · 신호 아님</span></h3>
-      <p class="page-desc">유명 ETF의 상위 구성종목을 서클차트로 봅니다. <b>구성 스냅샷(근사·참고용)</b>이며 실제 비중·종목은
-        수시로 바뀝니다(정확 수치는 운용사 공시 참고). 시그널·분석 대상은 아니에요.</p>
+      <h3 class="page-head" style="font-size:17px;margin-top:0">ETF가 담는 시장</h3>
+      <p class="page-desc">어떤 시장이나 산업에 나눠 투자하는 상품인지 알아봅니다.
+        최신 구성종목·비중을 수집하지 않아 예전 비중 차트는 표시하지 않습니다. 상품을 고르기 전 운용사의 최신 자료를 확인하세요.</p>
       <div id="etf-grid" class="placeholder" style="padding:16px 0">불러오는 중…</div>
     </div>
   </div>
@@ -1597,13 +1597,13 @@
         <p class="page-desc" style="margin:6px 0 10px">배당주를 <b>배당수익률·시총 순</b>으로 보고(시그널은 참고 표시), 담을 종목과 주수를 정하면 <b>예상 연/월 배당</b>을 계산합니다.
           연배당 기준 <b>월평균(연÷12)</b> 환산. <span style="color:var(--dim-2)">참고용 · 미래 배당 보장 안 함 · 페이퍼 봇·실보유와 별개(로컬 저장).</span></p>
         <div class="seg-toggle" id="div-market-seg" style="margin-bottom:6px">
-          <button class="on" data-dmkt="us" onclick="switchDivMarket('us')">미국(월/분기)</button>
-          <button data-dmkt="kr" onclick="switchDivMarket('kr')">국내(연 결산)</button>
+          <button class="on" data-dmkt="us" onclick="switchDivMarket('us')">미국</button>
+          <button data-dmkt="kr" onclick="switchDivMarket('kr')">국내</button>
         </div>
-        <div id="div-kr-note" style="display:none;font-size:12px;color:var(--sell);margin-bottom:6px">국내는 대부분 연 1회 결산배당(익년 ~4월 지급 근사) · 배당금액은 정확하나 <b>수익률·투자금은 시세 정합 후 정확</b>.</div>
+        <div id="div-kr-note" style="display:none;font-size:14px;color:var(--dim);margin-bottom:6px">과거 공시 배당으로 계산한 참고액입니다. 올해 배당액과 지급 일정은 별도 확인이 필요합니다.</div>
         <div class="card-row" style="margin-bottom:6px">
           <div class="card"><div class="stat-label">예상 연 배당</div><div class="stat-value" id="div-annual">$0</div></div>
-          <div class="card"><div class="stat-label">예상 월 배당(평균)</div><div class="stat-value" id="div-monthly">$0</div></div>
+          <div class="card"><div class="stat-label">월평균 환산액(연÷12)</div><div class="stat-value" id="div-monthly">$0</div></div>
           <div class="card"><div class="stat-label">담은 종목</div><div class="stat-value" id="div-count">0</div></div>
           <div class="card"><div class="stat-label">투자금(현재가 기준)</div><div class="stat-value" id="div-cost">$0</div></div>
         </div>
@@ -1626,8 +1626,8 @@
         </div>
       </div>
       <div class="card" style="margin-top:16px">
-        <b style="font-size:14px">월별 배당 유입 (지급월 추정)</b>
-        <span style="color:var(--dim-2);font-size:12px"> · EDGAR 공시 기간 기준 추정 — 실제 지급일과 다를 수 있음. 배당월 겹치지 않게 조합하면 매달 현금흐름.</span>
+        <b style="font-size:15px">배당 지급 일정</b>
+        <p id="div-calendar-note" class="page-desc">실제 지급월이 확인된 자료만 달력에 표시합니다. 월평균 환산액은 매달 받는 금액이 아닙니다.</p>
         <div id="div-calendar" style="height:300px"></div>
       </div>
     </div>
@@ -2589,18 +2589,18 @@ async function loadCycle(){
   const risk = d.risk_sentiment || {};
   if (cur.ready) {
     const pend = (!cur.stable && cur.pending_phase_key)
-      ? `<span style="font-size:12px;color:var(--sell)">원시 관측 전환 대기 ${esc(String(cur.pending_days||0))}/${esc(String(cur.confirm_days||7))}일</span>`
-      : `<span style="font-size:12px;color:var(--dim-2)">확정 사이클(${esc(String(cur.confirm_days||7))}일 유지 시 전환)</span>`;
+      ? `<span style="font-size:14px;color:var(--sell)">다른 상태의 징후가 ${esc(String(cur.pending_days||0))}일째 나타났습니다. 아직 분류는 유지합니다.</span>`
+      : `<span style="font-size:14px;color:var(--dim)">같은 징후가 ${esc(String(cur.confirm_days||7))}일 이어지면 분류를 바꿉니다.</span>`;
     const riskLine = risk.vix != null
       ? ` · VIX ${fmtNum(risk.vix, 1)} (${risk.label === 'fear' ? '공포→방어 KB soft' : risk.label === 'calm' ? '안도/탐욕→확장 KB soft' : '중립'})`
       : '';
     curEl.innerHTML = `<div class="row" style="gap:12px;flex-wrap:wrap">
       <span class="layer-badge ctx">맥락</span>
-      <span class="tb-label" title="FRED 기반 다개월 경기 사이클. 시그널 탭의 '지금 시장'(오늘의 코스피 상태)과 별개입니다">경기 사이클(확정)</span>
+      <span class="tb-label" title="미국 거시지표로 분류하며 국내 단기 시장 상태와 다릅니다">현재 지표로 본 경기 상태</span>
       <span class="sig-pill" style="background:var(--accent)">${esc(cur.phase_name)}</span>
       ${pend}
       <span class="tb-detail">${(cur.reasons || []).map(esc).join(' · ')}</span>
-      <span style="font-size:12px;color:var(--dim-2);width:100%">시그널 탭 <b>지금 시장</b>(코스피 단기)과 다른 지표 · 예측 아님 · 뉴스·영상 수집은 이 확정 사이클의 주도섹터를 우선${riskLine}</span></div>`;
+      <span style="font-size:14px;color:var(--dim);width:100%">미국 물가·금리 등을 본 분류입니다. 국내 주가의 단기 방향이나 다음 경기 단계를 예측한 결과는 아닙니다.${riskLine}</span></div>`;
   } else {
     curEl.innerHTML = '<div class="placeholder" style="padding:8px 0">경기 사이클 추정에 필요한 거시(FRED) 데이터가 없습니다 — /api/refresh 후 표시됩니다.</div>';
   }
@@ -2691,17 +2691,13 @@ function _hypoDotColor(kind, selected, emphasized){
 function _hypoToEcharts(node, activeIf, parentEmphasized){
   const kind = node.kind === 'then' ? 'fork' : (node.kind || 'fork');
   const selected = kind === 'if' && node.id === activeIf;
-  const emphasized = !!(node.emphasized || parentEmphasized);
+  const emphasized = false; // 갈래 가중치는 검증된 발생 확률이 아니므로 강조하지 않는다.
   const title = String(node.label || node.id);
   let meta = '';
   if (kind === 'root') meta = '뉴스·KB 관심 이슈';
-  else if (kind === 'if') meta = `관심 ${node.support_pct ?? '–'}%`;
-  else if (kind === 'fork') {
-    const pct = node.branch_pct;
-    meta = pct != null
-      ? `이 갈래 ${pct}%${emphasized ? ' · 지금 더 가까움' : ''}`
-      : (emphasized ? '지금 더 가까움' : '');
-  } else if (kind === 'outcome') meta = emphasized ? '위 갈래가 이어질 때' : '위 갈래가 이어질 때';
+  else if (kind === 'if') meta = '함께 살펴볼 이슈';
+  else if (kind === 'fork') meta = '확인이 필요한 가정';
+  else if (kind === 'outcome') meta = '위 가정이 이어질 때';
   else if (kind === 'action') meta = '시그널에서 더 보기';
   const passEmp = (kind === 'fork' || kind === 'outcome') ? emphasized : false;
   const kids = (node.children || []).map(c => _hypoToEcharts(c, activeIf, passEmp));
@@ -2736,7 +2732,7 @@ function drawHypothesisIfBar(tree){
   bar.innerHTML = ifs.map(b =>
     `<button type="button" class="hypo-if-chip${_hypoActiveIf === b.id ? ' on' : ''}"
       data-hid="${esc(b.id)}" onclick="setHypoActiveIf('${esc(b.id)}')">
-      ${esc(b.label)}<span class="pct">${b.support_pct}%</span></button>`
+      ${esc(b.label)}</button>`
   ).join('');
 }
 function setHypoActiveIf(id){
@@ -2771,14 +2767,11 @@ function drawHypothesisTree(tree){
         const lines = [`<b style="font-size:13px">${esc(n.label)}</b>`];
         if (n.detail) lines.push(`<span style="opacity:.9">${esc(n.detail)}</span>`);
         if (n.kind === 'if') {
-          lines.push(`관심 ${n.support_pct}% · 이슈는 동시에 볼 수 있음`);
+          lines.push('함께 살펴볼 이슈');
         } else {
           const ek = _hypoEdgeKo(n);
           if (ek && (n.kind === 'fork' || n.kind === 'then' || n.kind === 'action')) {
             lines.push(esc(ek));
-          }
-          if (n.branch_pct != null) {
-            lines.push(`이 쌍에서 ${n.branch_pct}%${n.emphasized ? ' · 지금 더 가까움' : ''}`);
           }
           if (n.kind === 'action' && (n.watch_tickers || []).length) {
             lines.push((n.watch_tickers || []).slice(0, 4).map(w => w.name).join(' · '));
@@ -2872,9 +2865,7 @@ function selectHypoNode(id){
         + `</li>`).join('')}</ul>`
     : `<div style="color:var(--dim-2);font-size:13px">아직 연결된 뉴스 링크가 없습니다.</div>`;
   const ek = _hypoEdgeKo(n);
-  const titleExtra = n.kind === 'if'
-    ? ` · 관심 ${n.support_pct}%`
-    : (n.branch_pct != null ? ` · 이 갈래 ${n.branch_pct}%` : '');
+  const titleExtra = '';
   const isFork = n.kind === 'fork' || n.kind === 'then';
   const chain = _hypoChain(n.id);
   const chainLine = chain.length > 1
@@ -2882,7 +2873,6 @@ function selectHypoNode(id){
     : '';
   const branchLine = (isFork && ek)
     ? `<p style="margin:0 0 8px;font-size:13px;color:var(--dim)">이 가지는 <b style="color:var(--txt)">${esc(ek)}</b> 보는 갈래입니다.`
-      + (n.emphasized ? ' <b style="color:var(--accent)">지금 지표와 더 가까운 쪽</b>입니다.' : '')
       + `</p>`
     : '';
   const watches = (n.watch_tickers || []).map(w =>
@@ -2904,7 +2894,7 @@ function selectHypoNode(id){
     <div class="hc-sectors" style="margin:6px 0 10px">${secs || '–'}</div>
     ${watchBlock}
     <b style="font-size:13px;color:var(--dim)">근거 뉴스</b>${ev}
-    <div style="margin-top:8px;font-size:12px;color:var(--dim-2)">관심%·갈래%는 상대값 · 가설 검증·미래 예고가 아닙니다</div>`;
+    <div style="margin-top:8px;font-size:14px;color:var(--dim)">가능한 해석을 비교하는 자료입니다. 발생 확률이나 매수 추천이 아닙니다.</div>`;
 }
 async function loadHypothesis(){
   const el = document.getElementById('hypo-graph');
@@ -2970,7 +2960,7 @@ async function loadHypothesis(){
         + (ctx.regime ? ` · 국면 ${ctx.regime}` : '')
         + ' · 전체 펼침 · 줌 가능';
     }
-    if (disc) disc.textContent = d.disclaimer || '';
+    if (disc) disc.textContent = '생성 당시 자료로 정리한 설명입니다. 원문 날짜와 이후의 변화를 함께 확인하세요.';
     drawHypothesisIfBar(d.tree);
     drawHypothesisTree(d.tree);
     selectHypoNode(_hypoSelected && _hypoById[_hypoSelected] ? _hypoSelected : _hypoActiveIf);
@@ -3059,7 +3049,7 @@ async function loadValuechain(){
     const pend = (!_vcCycle.stable && _vcCycle.pending_phase_key)
       ? ` · 원시 관측 전환 대기 ${_vcCycle.pending_days||0}/${_vcCycle.confirm_days||7}일` : '';
     cb.innerHTML = `<div style="background:var(--accent-weak);border:1px solid var(--accent);border-radius:8px;padding:8px 12px;font-size:13px">`
-      + `<span class="layer-badge ctx">맥락</span> 확정 <b>${esc(_vcCycle.phase_name)}</b> 국면 — 유리 섹터 <b>${(_vcCycle.lead_sectors || []).map(esc).join(' · ')}</b>`
+      + `<span class="layer-badge ctx">맥락</span> 지표상 <b>${esc(_vcCycle.phase_name)}</b> — 이 상태에서 살펴볼 업종 <b>${(_vcCycle.lead_sectors || []).map(esc).join(' · ')}</b>`
       + `<div style="color:var(--dim);font-size:12px;margin-top:2px">${(_vcCycle.reasons || []).map(esc).join(' · ')}${esc(pend)} · ★ 체인 우선 · KB도 이 섹터 위주 수집 (참고용 · 예측 아님)</div></div>`;
   } else if (cb) { cb.innerHTML = ''; }
   try {  // 국내+해외 현재 시그널·시총(관망 제외 뱃지, 시총순 선택)
@@ -6954,7 +6944,7 @@ function _drawRealDonut(id, items){
   requestAnimationFrame(() => ch.resize());
 }
 // ===== 배당 플래너 — 배당주 리스트 + 담은 주수로 예상 연/월 배당(플랜·목표는 localStorage에 시장별 저장) =====
-let _divItems = [], _divPlan = {}, _divChart = null, _divCalChart = null, _divMarket = 'us', _divCur = 'USD';
+let _divItems = [], _divPlan = {}, _divChart = null, _divCalChart = null, _divMarket = 'us', _divCur = 'USD', _divRequest = 0;
 const _divMoney = (v, dp) => _divCur === 'USD' ? '$' + fmtNum(v, dp) : fmtKRW(v);
 // 지급월 개수 → 배당 빈도 라벨(월/분기/반기/연). div_months가 없으면 미상.
 function divFreq(ms){
@@ -6979,9 +6969,16 @@ function switchDivMarket(m){
 }
 async function loadDividends(){
   const el = document.getElementById('div-list');
+  const request = ++_divRequest, market = _divMarket;
+  _divItems = [];
+  el.textContent = '배당 자료 확인 중…';
   _loadDivPlan();  // 시장별 저장된 플랜 복원(새로고침·탭 전환에도 유지)
+  recalcDividends();
   try {
-    const d = await (await fetch('/api/dividends?market=' + _divMarket)).json();
+    const response = await fetch('/api/dividends?market=' + market);
+    if (!response.ok) throw new Error('dividend request failed');
+    const d = await response.json();
+    if (request !== _divRequest) return;
     _divCur = d.currency || 'USD';
     document.getElementById('div-goal-cur').textContent = _divCur === 'USD' ? '$/월' : '원/월';
     const gv = localStorage.getItem(_divGoalKey());
@@ -6997,6 +6994,7 @@ async function loadDividends(){
     if (!Object.keys(_divPlan).length) {
       try {
         const hd = await (await fetch('/api/holdings')).json();
+        if (request !== _divRequest) return;
         const isKR = t => /^\d+$/.test(t);
         (hd.holdings || []).forEach(h => {
           const matchMkt = _divMarket === 'us' ? !isKR(h.ticker) : isKR(h.ticker);
@@ -7010,7 +7008,7 @@ async function loadDividends(){
     const rows = _divItems.map(it => {
       const kindTag = it.kind && it.kind !== 'HOLD'
         ? ` <span class="sig-pill ${it.kind}" style="font-size:11px">${kindLabel(it.kind)}</span>` : '';
-      const fq = divFreq(it.div_months);
+      const fq = divFreq(it.payment_schedule_status === 'confirmed' ? it.payment_months : []);
       const fqTag = `<span style="color:${fq.color};font-size:11px;font-weight:600">${fq.label}</span>`;
       return `<tr>
         <td>${esc(it.name)}<div style="color:var(--dim);font-size:12px">${esc(it.ticker)}${it.sector ? ' · ' + esc(it.sector) : ''} · ${fqTag}</div></td>
@@ -7024,7 +7022,11 @@ async function loadDividends(){
       <th>종목</th><th class="num">배당수익률</th><th class="num">주당배당</th><th class="num">현재가/시그널</th><th class="num">주수</th>
     </tr></thead><tbody>${rows}</tbody></table>`;
     recalcDividends();
-  } catch (e) { el.className = 'placeholder'; el.textContent = '불러오지 못했습니다.'; }
+  } catch (e) {
+    if (request !== _divRequest) return;
+    _divItems = []; recalcDividends();
+    el.className = 'placeholder'; el.textContent = '배당 자료를 불러오지 못했습니다. 이전 금액은 표시하지 않습니다.';
+  }
 }
 function onDivQty(input){
   const t = input.dataset.divt, q = parseInt(input.value) || 0;
@@ -7037,25 +7039,46 @@ function onDivGoal(){
   if (v > 0) localStorage.setItem(_divGoalKey(), String(v)); else localStorage.removeItem(_divGoalKey());
   recalcDividends();
 }
-function recalcDividends(){
-  const by = Object.fromEntries(_divItems.map(i => [i.ticker, i]));
-  let annual = 0, cost = 0; const contrib = []; const months = new Array(12).fill(0);
-  for (const [t, q] of Object.entries(_divPlan)) {
-    const it = by[t]; if (!it) continue;
-    const a = (it.dps || 0) * q;
-    annual += a; cost += (it.price || 0) * q;
-    contrib.push({ name: it.name, value: Math.round(a * 100) / 100 });
-    // 지급월 캘린더: 연배당을 추정 지급월에 균등 분배(월 미상이면 12개월 균등)
-    const ms = (it.div_months && it.div_months.length) ? it.div_months : [1,2,3,4,5,6,7,8,9,10,11,12];
-    const per = a / ms.length;
-    ms.forEach(m => { if (m >= 1 && m <= 12) months[m - 1] += per; });
+function dividendPlanSummary(items, plan){
+  const by = Object.fromEntries(items.map(i => [i.ticker, i]));
+  let annual = 0, cost = 0, costKnown = true, unscheduledAnnual = 0;
+  const contrib = [], months = new Array(12).fill(0), missingTickers = [];
+  for (const [t, q] of Object.entries(plan)) {
+    if (!Number.isFinite(q) || q <= 0) continue;
+    const it = by[t];
+    if (!it || !Number.isFinite(it.dps) || it.dps < 0) { missingTickers.push(t); continue; }
+    const a = it.dps * q;
+    annual += a;
+    if (Number.isFinite(it.price) && it.price > 0) cost += it.price * q;
+    else costKnown = false;
+    contrib.push({name: it.name || t, value: Math.round(a * 100) / 100});
+    // 회계기간 종료월(div_months)은 지급 일정의 증거가 아니다.
+    const raw = it.payment_months;
+    const ms = it.payment_schedule_status === 'confirmed' && Array.isArray(raw) && raw.length
+      && raw.every(m => Number.isInteger(m) && m >= 1 && m <= 12) ? [...new Set(raw)] : [];
+    if (ms.length) ms.forEach(m => { months[m - 1] += a / ms.length; });
+    else unscheduledAnnual += a;
   }
-  const dp = _divCur === 'USD' ? 0 : 0;
-  document.getElementById('div-annual').textContent = _divMoney(annual, dp);
-  document.getElementById('div-monthly').textContent = _divMoney(annual / 12, dp);
+  return {annual, cost: costKnown && !missingTickers.length ? cost : null,
+          contrib, months, unscheduledAnnual, missingTickers};
+}
+function recalcDividends(){
+  const {annual, cost, contrib, months, unscheduledAnnual, missingTickers} = dividendPlanSummary(_divItems, _divPlan);
+  const dp = _divCur === 'USD' ? 2 : 0;
+  const complete = !missingTickers.length && _divItems.length > 0;
+  document.getElementById('div-annual').textContent = complete ? _divMoney(annual, dp) : '확인 필요';
+  document.getElementById('div-monthly').textContent = complete ? _divMoney(annual / 12, dp) : '확인 필요';
   document.getElementById('div-count').textContent = contrib.length;
-  document.getElementById('div-cost').textContent = _divMoney(cost, dp);
-  _renderDivGoal(annual / 12, cost);  // 🎯 목표 트래커: 현재 월배당 vs 목표
+  document.getElementById('div-cost').textContent = complete && cost != null ? _divMoney(cost, dp) : '확인 필요';
+  _renderDivGoal(complete ? annual / 12 : null);
+  const note = document.getElementById('div-calendar-note');
+  note.textContent = missingTickers.length
+    ? `배당 자료가 없는 종목 ${missingTickers.length}개가 있어 전체 금액을 계산할 수 없습니다.`
+    : unscheduledAnnual > 0
+      ? `연 배당 참고액 중 ${_divMoney(unscheduledAnnual, dp)}은 지급 일정 미확인입니다. 월별로 나누어 표시하지 않습니다.`
+      : '실제 지급월이 확인된 자료만 표시합니다. 월평균 환산액은 매달 받는 금액이 아닙니다.';
+  const cal = document.getElementById('div-calendar');
+  cal.style.display = months.some(v => v > 0) ? '' : 'none';
   const holder = document.getElementById('div-chart');
   if (!contrib.length) { if (_divChart) _divChart.clear(); if (_divCalChart) _divCalChart.clear(); return; }
   if (!_divChart) _divChart = echarts.init(holder);
@@ -7069,14 +7092,13 @@ function recalcDividends(){
   }, true);
   _divChart.resize();
   // 월별 유입 캘린더
-  const cal = document.getElementById('div-calendar');
+  if (!months.some(v => v > 0)) { if (_divCalChart) _divCalChart.clear(); return; }
   if (!_divCalChart) _divCalChart = echarts.init(cal);
-  const gap = months.filter(v => v < 0.005).length;  // 배당 없는 달
   _divCalChart.setOption({
     tooltip: { trigger: 'axis', formatter: p => `${p[0].axisValue}: ${_divMoney(p[0].value, 1)}` },
     grid: { left: 60, right: 20, top: 24, bottom: 24 },
-    title: { text: gap ? `배당 없는 달 ${gap}개 — 종목 추가로 채워보세요` : '12개월 모두 배당 유입 ✓',
-             textStyle: { fontSize: 11, color: gap ? '#D97706' : '#2F9E68', fontWeight: 600 }, left: 'center', top: 0 },
+    title: { text: '확인된 지급월에 연 배당 참고액을 균등 배분한 예시',
+             textStyle: { fontSize: 13, color: '#64748b', fontWeight: 600 }, left: 'center', top: 0 },
     xAxis: { type: 'category', data: ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'] },
     yAxis: { type: 'value' },
     series: [{ type: 'bar', data: months.map(v => Math.round(v * 100) / 100),
@@ -7084,27 +7106,23 @@ function recalcDividends(){
   }, true);
   _divCalChart.resize();
 }
-// 🎯 목표 트래커 — 현재 월배당 대비 목표 달성률 + 목표까지 추가로 필요한 투자금(현재 담은 평균 수익률 기준).
-function _renderDivGoal(monthlyNow, cost){
+// 과거 배당의 월평균 환산액과 목표를 비교한다. 추가 매수량을 권하지 않는다.
+function _renderDivGoal(monthlyNow){
   const box = document.getElementById('div-goal-progress');
   if (!box) return;
   const goal = parseFloat(localStorage.getItem(_divGoalKey()));
   if (!(goal > 0)) { box.innerHTML = ''; return; }
+  if (!Number.isFinite(monthlyNow)) { box.textContent = '배당 자료를 확인한 뒤 목표와 비교할 수 있습니다.'; return; }
   const pct = Math.min(100, Math.round(monthlyNow / goal * 100));
   const done = monthlyNow >= goal;
   const gapMonthly = Math.max(0, goal - monthlyNow);
-  // 추가 필요 투자금: 부족한 연배당(gap×12)을 현재 담은 조합의 실효 수익률로 나눔. 담은 게 없으면 안내만.
-  const eff = cost > 0 ? (monthlyNow * 12) / cost : 0;  // 담은 조합의 연 배당수익률
-  const needInvest = (gapMonthly > 0 && eff > 0) ? (gapMonthly * 12) / eff : null;
   const bar = `<div style="background:var(--line);border-radius:6px;height:10px;overflow:hidden;margin:4px 0">
       <div style="width:${pct}%;height:100%;background:${done ? 'var(--sig-buy)' : 'var(--accent)'}"></div></div>`;
   const need = done
-    ? '<span style="color:var(--sig-buy);font-weight:600">🎉 목표 달성!</span>'
-    : `부족 ${_divMoney(gapMonthly, 0)}/월`
-      + (needInvest ? ` · 현재 수익률로 <b>약 ${_divMoney(needInvest, 0)}</b> 더 투자 필요`
-                    : ' · 종목을 담으면 필요 투자금이 계산됩니다');
-  box.innerHTML = `<div style="font-size:13px;color:var(--dim)">달성률 ${pct}% (${_divMoney(monthlyNow, 0)} / ${_divMoney(goal, 0)})</div>${bar}
-      <div style="font-size:12px;color:var(--dim-2)">${need}</div>`;
+    ? '과거 배당 기준 환산액이 입력한 목표 이상입니다.'
+    : `목표와의 차이 ${_divMoney(gapMonthly, _divCur === 'USD' ? 2 : 0)}/월`;
+  box.innerHTML = `<div style="font-size:14px;color:var(--dim)">월평균 환산액 / 목표: ${pct}%</div>${bar}
+      <div style="font-size:14px;color:var(--dim)">${need} 실제 입금액이나 향후 배당을 보장하지 않습니다.</div>`;
 }
 
 // ===== 포트폴리오 파이차트(봇·내꺼·거장 공용) =====
@@ -7128,13 +7146,19 @@ function drawPie(holder, data, fmt){
 }
 
 // ===== 거장의 포트폴리오(SEC 13F 벤치마크) =====
-function _fmtUsd(v){ return v >= 1e9 ? '$' + fmtNum(v / 1e9, 1) + 'B' : v >= 1e6 ? '$' + fmtNum(v / 1e6, 0) + 'M' : '$' + fmtNum(v, 0); }
+function guruDateNote(g, today = new Date().toISOString().slice(0,10)){
+  const period = String(g.period || ''), date = Date.parse(period + 'T00:00:00Z');
+  const days = Math.floor((Date.parse(today + 'T00:00:00Z') - date) / 86400000);
+  const known = /^\d{4}-\d{2}-\d{2}$/.test(period) && Number.isFinite(days) && days >= 0;
+  return (known ? `보유 기준 ${period} (${days}일 전)` : '보유 기준일 확인 필요')
+    + ' · 현재 보유 여부 미확인 · 공시일 미확인 · 수집일 미확인';
+}
 let _gurus = [], _guruModalChart = null;
 function openGuruModal(i){
   const g = _gurus[i]; if (!g) return;
   document.getElementById('guru-modal-name').textContent = g.name;
   document.getElementById('guru-modal-meta').textContent =
-    `${g.desc} · 기준 ${g.period} · ${g.n_holdings}종목 · ${_fmtUsd(g.total_usd)}`;
+    `${g.desc} · ${guruDateNote(g)} · ${g.n_holdings}종목`;
   const shown = g.holdings.reduce((s, h) => s + h.pct, 0);
   const data = g.holdings.map(h => ({ name: h.name, value: h.pct }));
   if (shown < 99) data.push({ name: '기타', value: Math.round((100 - shown) * 10) / 10 });
@@ -7156,39 +7180,20 @@ function openGuruModal(i){
 }
 function closeGuruModal(){ document.getElementById('guruDlg').close(); }
 
-let _etfCharts = [];
 async function loadEtfs(){
   const el = document.getElementById('etf-grid');
   if (!el) return;
   let etfs;
   try { etfs = (await (await fetch('/api/etfs')).json()).etfs || []; }
   catch (e) { el.innerHTML = '<div class="placeholder">불러오지 못했습니다.</div>'; return; }
-  el.className = 'guru-grid';   // 거장 카드와 동일 그리드 레이아웃 재사용
-  el.innerHTML = etfs.map((e, i) => `
+  el.className = 'guru-grid';
+  el.innerHTML = etfs.map(e => `
     <div class="guru-card" style="cursor:default">
       <div class="guru-head"><b>${esc(e.name)}</b>
         <span style="font-size:11px;color:#fff;background:${e.market === 'us' ? 'var(--sig-sell)' : 'var(--accent)'};border-radius:6px;padding:1px 6px;margin-left:6px">${e.market === 'us' ? '해외' : '국내'}</span></div>
       <div class="guru-desc">${esc(e.desc)}</div>
-      <div id="etf-pie-${i}" class="guru-pie"></div>
+      <p style="font-size:14px;color:var(--dim)">학습용 상품 설명 · 최신 구성비는 제공하지 않습니다.</p>
     </div>`).join('');
-  _etfCharts.forEach(c => { try { c.dispose(); } catch (e) {} });
-  _etfCharts = [];
-  etfs.forEach((e, i) => {
-    const node = document.getElementById('etf-pie-' + i);
-    if (!node || !window.echarts) return;
-    const top = (e.holdings || []).map(h => ({ name: h.name, value: h.weight }));
-    const sum = top.reduce((s, h) => s + h.value, 0);
-    if (sum < 99) top.push({ name: '기타', value: Math.round((100 - sum) * 10) / 10, itemStyle: { color: '#CBD2DC' } });
-    const ch = echarts.init(node);
-    ch.setOption({
-      tooltip: { trigger: 'item', formatter: p => `${esc(p.name)}<br>${p.value}%` },
-      series: [{ type: 'pie', radius: ['42%', '70%'], data: top, minShowLabelAngle: 6,
-        label: { fontSize: 11, formatter: '{b}\n{d}%' }, labelLine: { length: 5, length2: 5 } }],
-    });
-    _etfCharts.push(ch);
-    requestAnimationFrame(() => ch.resize());
-    if (window.ResizeObserver && !node._ro) { node._ro = new ResizeObserver(() => ch.resize()); node._ro.observe(node); }
-  });
 }
 
 async function loadGurus(){
@@ -7202,7 +7207,7 @@ async function loadGurus(){
     if (!gurus.length) { el.innerHTML = '<div class="placeholder" style="padding:16px 0">거장 포트폴리오 데이터가 없습니다 — 관리자가 수집 후 표시됩니다.</div>'; return; }
     el.innerHTML = '<div class="guru-grid">' + gurus.map((g, i) => `<div class="guru-card" onclick="openGuruModal(${i})" title="클릭하면 상세 보기">
         <div class="guru-head"><b>${esc(g.name)}</b><div class="guru-desc">${esc(g.desc)}</div></div>
-        <div class="guru-meta">기준 ${esc(g.period)} · ${g.n_holdings}종목 · ${_fmtUsd(g.total_usd)}</div>
+        <div class="guru-meta" style="font-size:14px;line-height:1.6">${esc(guruDateNote(g))} · ${g.n_holdings}종목</div>
         <div class="guru-pie" id="guru-pie-${i}"></div>
         <div class="guru-sig" id="guru-sig-${i}"></div></div>`).join('') + '</div>';
     el.className = '';
@@ -7263,7 +7268,7 @@ async function loadHoldingsDividends(market){
        <div class="stat-value">${money(t.monthly, cur)}</div>
        <div style="font-size:12px;color:var(--dim)">연 ${money(t.annual, cur)} · ${t.count}종목</div></div>`).join('');
   const rows = items.map(it => {
-    const fq = divFreq(it.div_months);
+    const fq = divFreq(it.payment_schedule_status === 'confirmed' ? it.payment_months : []);
     return `<tr><td>${esc(it.name)}<div style="color:var(--dim);font-size:12px">${esc(it.ticker)} · <span style="color:${fq.color}">${fq.label}</span></div></td>
       <td class="num">${it.qty}</td>
       <td class="num">${money(it.dps, it.currency)}</td>

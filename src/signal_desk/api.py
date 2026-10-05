@@ -4125,7 +4125,7 @@ def egress_ip_get():
 @app.get("/api/dividends")
 def dividends_get(market: str = "us"):
     """배당주 리스트(배당 플래너) — 배당수익률·주당배당·현재가 + 시그널·시총·섹터. 수익률 내림차순.
-    market=us(EDGAR TTM, 월배당 가능) | kr(DART 결산배당, 연1회≈4월). 봇과 분리된 '현금흐름' 도구."""
+    market=us(EDGAR) | kr(DART). 실제 지급일은 미확인. 봇과 분리된 과거 배당 참고 도구."""
     if _mkt(market) == "us":
         divs, currency = store.us_dividends(), "USD"
         sig = _us_signals()
@@ -4148,6 +4148,7 @@ def dividends_get(market: str = "us"):
         s = sig.get(t)
         items.append({"ticker": t, "name": names.get(t, t), "price": d["price"],
                       "dps": d["dps"], "div_yield": d["div_yield"], "div_months": d.get("div_months") or [],
+                      "payment_schedule_status": d.get("payment_schedule_status", "unknown"),
                       "kind": s.kind if s else None, "score": round(s.score, 2) if s else None,
                       "mktcap": (mcaps.get(t) or {}).get("mktcap"), "sector": sec_of(t)})
     items.sort(key=lambda x: (x["div_yield"] or 0, x["mktcap"] or 0), reverse=True)
@@ -5590,7 +5591,8 @@ def hypothesis_get():
         data["accuracy"] = hypo_score.score(db.hypo_runs_recent(50), store.load_all_dated_closes())
     except Exception as e:                          # noqa: BLE001 — 채점 실패가 트리를 막지 않는다
         log.warning("이슈 흐름 채점 실패: %s", type(e).__name__)
-        data["accuracy"] = {"blocked_reason": f"채점 실패({type(e).__name__})"}
+        data["accuracy"] = {"blocked_reason": "결과 검증을 불러오지 못했습니다. 현재 흐름의 성과는 확인할 수 없습니다.",
+                            "status": "unavailable"}
     return data
 
 

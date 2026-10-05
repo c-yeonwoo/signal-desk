@@ -62,6 +62,7 @@ def test_lift_is_picked_minus_all_tickers_on_the_same_day():
     assert 0 < r["mean_baseline_pct"] < r["mean_picked_pct"]
     assert r["lift_pp"] > 0
     assert abs(r["lift_pp"] - (r["mean_picked_pct"] - r["mean_baseline_pct"])) < 0.01
+    assert r["verdict"]["delta_pct"] == r["lift_pp"]
     # 각 행이 기준선을 함께 들고 있어야 한다(행만 보고도 검증 가능해야 한다).
     for row in r["rows"]:
         if row["picked_pct"] is not None:
@@ -75,3 +76,10 @@ def test_verdict_comes_from_the_shared_implementation():
     src = Path("src/signal_desk/signals/hypo_score.py").read_text(encoding="utf-8")
     assert "accuracy.diff_verdict(" in src
     assert "accuracy._forward_returns(" in src, "채점 규약을 자체 구현하면 실측과 갈라진다"
+
+
+def test_missing_historical_picks_are_disclosed_not_reconstructed():
+    out = hs.score([{"id": 1, "as_of": "2026-09-01", "tickers": []}], {})
+    assert out["unscorable"] == 1 and out["matured"] == 0
+    assert out["lift_pp"] is None
+    assert "기록 부족 1건" in out["blocked_reason"]

@@ -87,4 +87,6 @@ def test_kr_dividends_from_fundamentals(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "load_price_series", lambda: {"005930": [70000.0, 72000.0]})
     d = store.kr_dividends()
     assert set(d) == {"005930"} and d["005930"]["dps"] == 1444.0
-    assert d["005930"]["div_yield"] == round(1444 / 72000 * 100, 2) and d["005930"]["div_months"] == [4]
+    assert d["005930"]["div_yield"] == round(1444 / 72000 * 100, 2)
+    assert d["005930"]["div_months"] == []
+    assert d["005930"]["payment_schedule_status"] == "unknown"
