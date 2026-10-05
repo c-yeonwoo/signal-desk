@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 
 from signal_desk.signals import regime
@@ -33,6 +33,7 @@ def build(
     flow: Mapping | None = None,
     macro_indicators: Sequence[Mapping] = (),
     selection: Mapping | None = None,
+    sector_by_ticker: Mapping[str, str] | None = None,
     now: dt.datetime | None = None,
 ) -> dict:
     """Produce a small, source-dated card. Missing close dates fail closed.
@@ -56,6 +57,7 @@ def build(
         "price_count": counts.get(expected, 0) if expected else 0,
         "state": None,
         "headline": "오늘 시장을 아직 요약할 수 없어요",
+        "today_headline": "오늘 시장을 아직 요약할 수 없어요",
         "summary": "종가를 확인한 뒤 관찰 종목의 흐름을 보여드릴게요.",
         "facts": [],
         "selection": None,
@@ -84,10 +86,43 @@ def build(
         ]}
 
     covered = reading["n"]
+    # 오늘 등락은 실제로 직전 거래일과 날짜가 이어지는 관측치만 사용한다.
+    # 종목마다 마지막 두 행이 서로 다른 날짜라면 같은 날의 상승·하락으로 세지 않는다.
+    daily_changes: dict[str, float] = {}
+    if previous:
+        for ticker, ps in current.items():
+            ds = dates.get(ticker) or ()
+            if len(ds) >= 2 and str(ds[-2])[:10] == previous:
+                daily_changes[ticker] = (float(ps[-1]) / float(ps[-2]) - 1) * 100
+    advances = sum(change > 0 for change in daily_changes.values())
+    declines = sum(change < 0 for change in daily_changes.values())
+    unchanged = len(daily_changes) - advances - declines
+    daily_count = len(daily_changes)
+    advance_pct = round(advances / daily_count * 100, 1) if daily_count else None
+    ordered_daily = sorted(daily_changes.values())
+    median_change = (ordered_daily[daily_count // 2] if daily_count % 2 else
+                     (ordered_daily[daily_count // 2 - 1] + ordered_daily[daily_count // 2]) / 2
+                     if daily_count else None)
+    if median_change is not None:
+        median_change = round(median_change, 2)
     above = sum(ps[-1] > sum(ps[-60:]) / 60 for ps in current.values())
     rising = sum(ps[-1] > ps[-21] for ps in current.values())
     rising_pct = round(rising / covered * 100, 1)
-    facts = [
+    facts = []
+    if daily_count:
+        facts.extend([
+            {"label": "오늘 오른 관찰 종목", "value": f"{advances}/{daily_count}개",
+             "percent": advance_pct, "detail": f"내린 {declines}개 · 보합 {unchanged}개",
+             "technical": "직전 거래일 종가와 비교", "as_of": expected,
+             "source": "저장된 종가"},
+            {"label": "관찰 종목의 오늘 중앙 변동", "value": f"{median_change:+.2f}%",
+             "detail": "관찰 종목을 절반씩 나눴을 때 가운데에 있는 등락률",
+             "technical": "시장 지수 수익률은 아님", "as_of": expected,
+             "source": "저장된 종가"},
+        ])
+    else:
+        unknown_daily = "직전 거래일과 이어지는 종가가 부족해 오늘 상승·하락 폭을 계산하지 못했습니다."
+    facts.extend([
         {"label": "최근 평균보다 높은 종목", "value": f"{above}/{covered}개",
          "percent": reading["breadth_pct"],
          "detail": "관찰 종목의 가격 흐름", "technical": f'최근 60개 종가 평균 상회 {reading["breadth_pct"]:.1f}%',
@@ -96,8 +131,12 @@ def build(
          "percent": rising_pct, "detail": "최근 가격 변화의 방향",
          "technical": f'20개 종가 간 평균 변동 {reading["avg_momentum_pct"]:+.2f}%',
          "as_of": expected, "source": "저장된 종가"},
-    ]
+    ])
     unknown = ["개별 종목 공시·뉴스의 영향과 다음 거래일 방향은 이 카드만으로 알 수 없습니다."]
+    if not daily_count:
+        unknown.append(unknown_daily)
+    elif daily_count < covered:
+        unknown.append(f"{covered}개 분석 종목 중 {covered - daily_count}개는 직전 거래일 종가가 없어 오늘 등락 계산에서 제외했습니다.")
     if covered < len(universe):
         unknown.append(f"전체 {len(universe)}종목 중 {len(universe) - covered}종목은 날짜가 다르거나 계산 이력이 부족해 제외했습니다.")
 
@@ -139,18 +178,67 @@ def build(
     if covered < len(universe):
         unknown.append("일부 종목의 종가가 빠져 매수 판정 건수는 이 카드에서 보류합니다.")
     state = reading["regime"] if market == "kr" else f'평균가격 위 종목 {reading["breadth_pct"]:.1f}%'
+    if daily_count:
+        imbalance_pct = abs(advances - declines) / daily_count * 100
+        if imbalance_pct < 15:
+            today_headline = "오늘 오른 종목과 내린 종목이 비슷해요"
+            today_interpretation = "관찰 종목의 등락이 갈려 한쪽으로 기울었다고 보기 어려워요."
+        elif advances > declines:
+            today_headline = "오늘은 오른 종목이 더 많았어요"
+            today_interpretation = f"관찰 종목 {daily_count}개 중 {advances}개가 직전 거래일보다 올랐어요."
+        else:
+            today_headline = "오늘은 내린 종목이 더 많았어요"
+            today_interpretation = f"관찰 종목 {daily_count}개 중 {declines}개가 직전 거래일보다 내렸어요."
+        trend_context = ("다만 최근 평균 아래인 종목이 더 많아요." if reading["breadth_pct"] < 40 else
+                         "최근 평균 위인 종목이 더 많아요." if reading["breadth_pct"] >= 60 else
+                         "최근 평균 위·아래 종목은 비슷해요.")
+        summary = f"{today_interpretation} {trend_context}"
+    else:
+        today_headline = "오늘 등락은 아직 확인하기 어려워요"
+        summary = "직전 거래일과 이어지는 종가가 부족해 오늘 방향을 보류했어요."
+
+    sector_summary = []
+    if sector_by_ticker and daily_changes:
+        grouped: dict[str, list[float]] = defaultdict(list)
+        for ticker, change in daily_changes.items():
+            sector = sector_by_ticker.get(ticker)
+            if sector:
+                grouped[str(sector)].append(change)
+        eligible = []
+        for sector, changes in grouped.items():
+            if len(changes) < 3:
+                continue
+            ordered = sorted(changes)
+            size = len(ordered)
+            middle = (ordered[size // 2] if size % 2 else
+                      (ordered[size // 2 - 1] + ordered[size // 2]) / 2)
+            eligible.append({"sector": sector, "count": size, "median_change_pct": round(middle, 2)})
+        sector_summary = sorted(eligible, key=lambda item: (item["median_change_pct"], item["sector"]), reverse=True)
+        if sector_summary:
+            best, weakest = sector_summary[0], sector_summary[-1]
+            best_action = "상승 폭이 컸어요" if best["median_change_pct"] > 0 else "하락 폭이 작았어요"
+            weak_action = ("상승 폭이 작았어요" if weakest["median_change_pct"] > 0 else
+                           "하락 폭이 컸어요" if weakest["median_change_pct"] < 0 else "보합이었어요")
+            summary += (f" 업종별로는 {best['sector']}({best['median_change_pct']:+.2f}%)의 {best_action}. "
+                        f"{weakest['sector']}({weakest['median_change_pct']:+.2f}%)는 {weak_action}.")
+        elif market == "kr":
+            unknown.append("업종별로 비교할 수 있는 종목이 충분하지 않습니다. 종목이 3개 이상인 업종만 표시합니다.")
+    elif market == "us":
+        unknown.append("해외 업종 분류의 기준 시점을 확인할 수 없어 업종별 비교는 보류했습니다.")
+
+    # 기존 trend-only headline은 API 소비자 호환을 위해 둔다. 사용자 화면과 그림은 today_headline을 쓴다.
     if reading["breadth_pct"] <= 40:
         headline = "관찰 종목 다수의 흐름이 약해요"
-        interpretation = "상승 흐름이 넓게 퍼졌다고 보기는 어려워요."
     elif reading["breadth_pct"] >= 60:
         headline = "관찰 종목 다수의 흐름이 견조해요"
-        interpretation = "최근 평균보다 높은 종목이 많은 편이에요."
     else:
         headline = "관찰 종목의 흐름이 엇갈려요"
-        interpretation = "강한 종목과 약한 종목이 섞여 있어요."
-    summary = f"{covered}개 중 {above}개의 가격이 각자의 최근 평균보다 높아요. {interpretation}"
-    basis = ("국내 유니버스의 최근 60개 종가 평균·20개 종가 변화" if market == "kr"
-             else "미국 유니버스 종가 관측 · 국내 국면 분류와 별개")
+    basis = ("오늘 등락은 직전 거래일 종가와 비교 · 추세는 최근 60개 종가 평균 기준 · 관찰 유니버스 한정"
+             if market == "kr" else
+             "오늘 등락은 직전 거래일 종가와 비교 · 추세는 최근 60개 종가 평균 기준 · 미국 관찰 유니버스 한정")
     return {**base, "status": "partial" if covered < len(universe) else "ready",
-            "state": state, "state_basis": basis, "headline": headline, "summary": summary,
+            "state": state, "state_basis": basis, "headline": headline,
+            "today_headline": today_headline, "summary": summary,
+            "daily_coverage": {"available": daily_count, "analyzed": covered},
+            "sector_summary": sector_summary,
             "facts": facts, "selection": current_selection, "unknown": unknown}
