@@ -3895,13 +3895,16 @@ def hypo_run_insert(row: dict) -> int:
 def hypo_runs_recent(limit: int = 50) -> list[dict]:
     """최신순 이력. `tree_json` 은 무거우니 기본으로 파싱하지 않는다(채점은 sectors만 쓴다)."""
     import json as _json
+    columns = ("id", "built_at", "as_of", "source", "model", "sectors_json", "tickers_json")
     with conn() as c:
         rows = c.execute(
             "SELECT id, built_at, as_of, source, model, sectors_json, tickers_json"
             " FROM hypo_runs ORDER BY built_at DESC LIMIT ?", (int(limit),)).fetchall()
     out = []
     for r in rows:
-        d = dict(r)
+        # `conn()` intentionally uses sqlite's default tuple rows. Do not assume
+        # sqlite3.Row here: production returns tuples, and dict(tuple) raises.
+        d = dict(zip(columns, r))
         d["sectors"] = _json.loads(d.pop("sectors_json") or "[]")
         d["tickers"] = _json.loads(d.pop("tickers_json") or "[]")
         out.append(d)
