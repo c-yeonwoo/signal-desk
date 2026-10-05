@@ -2347,8 +2347,14 @@ def _us_prices_freshness() -> dict:
     if gap:
         parts.append(f"거래일 {len(gap)}일 결손({', '.join(gap[:5])}"
                      f"{' 외' if len(gap) > 5 else ''}) — 기대 마지막 봉 {expected}")
+    # 운영 화면에서 재수집이 필요한 종목을 바로 식별할 수 있게 일부 이름을 함께 낸다.
+    # 수백 종목이 한꺼번에 밀린 경우 진단 응답과 화면이 비대해지지 않도록 10개로 제한한다.
+    stale_tickers_preview = sorted(behind)[:10]
     if behind:
-        parts.append(f"{len(behind)}/{len(last)}종목 갱신 대상")
+        names = ", ".join(stale_tickers_preview)
+        omitted = len(behind) - len(stale_tickers_preview)
+        suffix = f" 외 {omitted}종목" if omitted else ""
+        parts.append(f"{len(behind)}/{len(last)}종목 갱신 대상({names}{suffix})")
     # **시리즈 중간 구멍은 꼬리와 다른 고장이다.** 수집이 재개돼 마지막 봉이 최신이어도
     # 공백기의 구멍은 남을 수 있고(US는 "최근 N봉"만 받는다), 그러면 모멘텀·이동평균이
     # 짧은 시리즈로 조용히 계산된다. 감지되지 않는 고장은 없는 고장이다.
@@ -2370,6 +2376,8 @@ def _us_prices_freshness() -> dict:
         short = None
     entry.update(updated=newest, age_hours=age_h, rows=len(behind),
                  stale=bool(behind) or bool(holes_n), total=len(last),
+                 stale_tickers=stale_tickers_preview,
+                 stale_tickers_omitted=max(0, len(behind) - len(stale_tickers_preview)),
                  missing_trading_days=gap, expected_last_bar=expected,
                  interior_holes=holes_n,
                  note=" · ".join(parts) or None,
@@ -3115,8 +3123,9 @@ def signal_drift(pairs: int = 3) -> dict:
         "stale_bar_rows": int(((df["bar_asof"].fillna("").astype(str) != "")
                                & (df["bar_asof"].fillna("").astype(str)
                                   < df["date"].astype(str))).sum()) if "bar_asof" in df else None,
-        "source_time_unverified_rows": int((~df["source_available_at_verified"].fillna(False).astype(bool)).sum())
-        if "source_available_at_verified" in df else None,
+        "source_time_unverified_rows": int(
+            (~df["source_available_at_verified"].astype("boolean").fillna(False)).sum()
+        ) if "source_available_at_verified" in df else None,
     }
     from signal_desk import market_clock
     all_dates = sorted(df["date"].astype(str).unique())

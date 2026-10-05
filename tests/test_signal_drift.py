@@ -6,6 +6,7 @@
 """
 
 import importlib
+import warnings
 import pandas as pd
 
 from signal_desk.signals.engine import SignalResult
@@ -62,6 +63,29 @@ def test_partial_drift_below_threshold_is_frozen(tmp_path, monkeypatch):
     store.snapshot_signals([_sig(f"T{i}", 1.5 if i == 0 else 1.0) for i in range(20)],
                            date="2026-07-24")
     assert store.signal_drift()["frozen"] is True
+
+
+def test_source_time_quality_handles_missing_booleans_without_futurewarning(tmp_path, monkeypatch):
+    """누락된 검증 플래그는 미검증으로 세되 pandas의 묵시적 다운캐스팅에 기대지 않는다."""
+    store = _store(tmp_path, monkeypatch)
+    dates = ["2026-10-01", "2026-10-02"]
+    monkeypatch.setattr(store, "load_signal_history", lambda: pd.DataFrame([
+        {"date": date, "ticker": ticker, "score": score,
+         "source_available_at_verified": verified}
+        for date, scores, flags in (
+            (dates[0], [1.0, 0.5], [True, None]),
+            (dates[1], [1.1, 0.4], [False, True]),
+        )
+        for ticker, score, verified in zip(("A", "B"), scores, flags)
+    ]))
+    from signal_desk import market_clock
+    monkeypatch.setattr(market_clock, "is_session", lambda market, date: True)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        out = store.signal_drift()
+
+    assert out["quality"]["source_time_unverified_rows"] == 2
 
 
 def test_holiday_snapshot_is_preserved_but_not_counted_as_new_session(tmp_path, monkeypatch):

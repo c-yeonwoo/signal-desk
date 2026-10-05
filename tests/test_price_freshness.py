@@ -20,6 +20,27 @@ def _seed_prices(tmp_path, depth_days: int, tickers=("005930", "000660")) -> Non
     pd.DataFrame(rows).to_parquet(store.PRICES_FILE, index=False)
 
 
+def test_us_freshness_names_stale_tickers_with_a_bounded_preview(tmp_path, monkeypatch):
+    """전체 지연 수뿐 아니라 조사 대상 종목을 운영 진단에서 바로 식별한다."""
+    path = tmp_path / "us_prices.parquet"
+    path.touch()
+    monkeypatch.setattr(store, "US_PRICES_FILE", path)
+    tickers = [f"T{i:02d}" for i in range(12)]
+    monkeypatch.setattr(store, "us_price_last_dates", lambda: {t: "2026-10-02" for t in tickers})
+    monkeypatch.setattr(store, "us_prices_stale_tickers", lambda _tickers: list(reversed(tickers)))
+    monkeypatch.setattr(store, "us_expected_last_bar", lambda: "2026-10-05")
+    monkeypatch.setattr(store, "us_missing_trading_days", lambda *_args: [])
+    monkeypatch.setattr(store, "us_price_holes", lambda: {"ready": True, "holes_total": 0})
+
+    freshness = store._us_prices_freshness()
+
+    assert freshness["rows"] == 12
+    assert freshness["stale_tickers"] == [f"T{i:02d}" for i in range(10)]
+    assert freshness["stale_tickers_omitted"] == 2
+    assert "12/12종목 갱신 대상(T00, T01" in freshness["note"]
+    assert "외 2종목" in freshness["note"]
+
+
 def test_missing_cache_asks_for_a_full_backfill(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert store.prices_depth_days() == 0
