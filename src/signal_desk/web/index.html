@@ -1418,7 +1418,7 @@
           <p id="home-action-why">진단이 없으면 입력을 보완하고, 새 진단 전에는 매매를 제안하지 않습니다.</p>
           <p id="home-action-meta" class="home-small"></p>
           <p id="home-asof" class="home-small">진단 기준시각 확인 중…</p>
-          <a class="home-link" href="#trading/rebal" onclick="document.getElementById('portfolio-intelligence-card')?.scrollIntoView({behavior:'smooth'});return false">보유 진단으로</a>
+          <a id="home-action-link" class="home-link" href="#trading/rebal" onclick="document.getElementById('portfolio-intelligence-card')?.scrollIntoView({behavior:'smooth'});return false">보유 진단으로</a>
         </div>
         <details class="home-more" ontoggle="if(this.open &amp;&amp; window.InvestmentHome) InvestmentHome.load({market:_pfMarket === 'us' ? 'us' : 'kospi', profile:_profile})">
           <summary>봇·실계좌 기록 따로 보기</summary>

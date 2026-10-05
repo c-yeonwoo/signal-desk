@@ -84,6 +84,12 @@
   function renderPortfolio(d) {
     const q = d.data_quality || {}, s = d.summary || {}, holdings = d.holdings || [];
     const incomplete = q.status !== 'complete';
+    const priceRange = d.price_asof_range;
+    const priceStamp = priceRange ? (priceRange.first === priceRange.last
+      ? priceRange.first : `${priceRange.first}~${priceRange.last}`) : '확인 필요';
+    const diagnosisStamp = d.diagnosed_at
+      ? new Date(d.diagnosed_at).toLocaleString('ko-KR', {year:'numeric',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})
+      : '시각 확인 필요';
     const guidance = [...(d.guidance || [])].sort((a,b) =>
       ({blocker:0,high:1,medium:2,normal:3}[a.priority] ?? 4) - ({blocker:0,high:1,medium:2,normal:3}[b.priority] ?? 4));
     const cards = guidance.map((g, i) => {
@@ -91,7 +97,7 @@
       return `<article class="invest-guidance"><span class="invest-kicker">${i === 0 ? '먼저 확인' : '함께 확인'} ${i+1}</span><h3>${esc(title)}</h3><p>${esc(why)}</p><p class="invest-next"><b>그래서 지금은</b> ${esc(next)}</p></article>`;
     });
     return `<section class="invest-portfolio"><div class="invest-kicker">내 포트폴리오 · 쉬운 해설</div><h2>${incomplete ? '확인된 내용부터 차근차근 볼게요' : '내 돈이 어디에 모여 있는지 볼게요'}</h2>
-      <p class="invest-muted">분석 기준 ${esc(d.as_of || '날짜 확인 필요')} · ${incomplete ? '자료가 일부 부족해요. 금액·비중은 확인된 자료 기준이며 결과가 달라질 수 있어요.' : '필요한 자료가 확보됐어요. 미래 수익을 예측하는 분석은 아니에요.'}</p>
+      <p class="invest-muted">진단 저장 ${esc(diagnosisStamp)} · 가격 기준 ${esc(priceStamp)} · ${incomplete ? '자료가 일부 부족해요. 금액·비중은 확인된 자료 기준이며 결과가 달라질 수 있어요.' : '필요한 자료가 확보됐어요. 미래 수익을 예측하는 분석은 아니에요.'}</p>
       <div class="invest-breakdown">${amount(incomplete ? '확인된 자산' : '분석한 자산', s.total_value, d.currency, false)}${amount('그중 주식', s.invested_value, d.currency, false)}${amount('남겨둔 현금', s.cash, d.currency, false)}</div>
       ${cards.slice(0, 3).join('') || '<p>보유종목과 현금을 입력한 뒤 분석해 주세요.</p>'}
       ${cards.length > 3 ? detail(`함께 확인할 내용 ${cards.length - 3}개 더 보기`, cards.slice(3).join('')) : ''}
