@@ -1979,6 +1979,7 @@ def load_macro() -> list[dict]:
 # 장중 실시간 현재가 오버레이 — 무거운 refresh 없이 종가 시계열 마지막에 '잠정봉' 1개를 얹어
 # 시그널·봇·페이퍼 체결가를 현재가 기준으로 돌린다(장 마감 후엔 clear → 종가 복귀). 파일엔 안 쓴다.
 _LIVE_QUOTES: dict[str, float] = {}
+_LIVE_QUOTE_TS: dict[str, float] = {}  # 종목별 마지막 성공 갱신; 일부 종목만 합쳐도 다른 시세는 늙는다.
 _LIVE_LOCK = threading.RLock()
 _LIVE_TS: float | None = None  # 마지막 '성공' 갱신 시각(epoch)
 _LIVE_REV = 0  # SSE 구독자는 revision으로 가격 갱신·장외 초기화를 감지한다.
@@ -1998,6 +1999,8 @@ def set_live_quotes(quotes: dict[str, float]) -> None:
     global _LIVE_TS, _LIVE_REV
     with _LIVE_LOCK:
         _LIVE_QUOTES.clear()
+        _LIVE_QUOTE_TS.clear()
+        updated = datetime.datetime.now(datetime.timezone.utc).timestamp()
         for k, v in (quotes or {}).items():
             try:
                 fv = float(v)
@@ -2005,7 +2008,8 @@ def set_live_quotes(quotes: dict[str, float]) -> None:
                 continue
             if fv > 0:
                 _LIVE_QUOTES[k] = fv
-        _LIVE_TS = datetime.datetime.now(datetime.timezone.utc).timestamp() if _LIVE_QUOTES else None
+                _LIVE_QUOTE_TS[k] = updated
+        _LIVE_TS = updated if _LIVE_QUOTES else None
         _LIVE_REV += 1
 
 
@@ -2014,6 +2018,7 @@ def merge_live_quotes(quotes: dict[str, float]) -> None:
     global _LIVE_TS, _LIVE_REV
     with _LIVE_LOCK:
         added = False
+        updated = datetime.datetime.now(datetime.timezone.utc).timestamp()
         for k, v in (quotes or {}).items():
             try:
                 fv = float(v)
@@ -2021,9 +2026,10 @@ def merge_live_quotes(quotes: dict[str, float]) -> None:
                 continue
             if k and fv > 0:
                 _LIVE_QUOTES[k] = fv
+                _LIVE_QUOTE_TS[k] = updated
                 added = True
         if added:
-            _LIVE_TS = datetime.datetime.now(datetime.timezone.utc).timestamp()
+            _LIVE_TS = updated
             _LIVE_REV += 1
 
 
@@ -2031,6 +2037,7 @@ def clear_live_quotes() -> None:
     global _LIVE_TS, _LIVE_REV
     with _LIVE_LOCK:
         _LIVE_QUOTES.clear()
+        _LIVE_QUOTE_TS.clear()
         _LIVE_TS = None
         _LIVE_REV += 1
 
@@ -2038,7 +2045,14 @@ def clear_live_quotes() -> None:
 def live_quotes_snapshot() -> dict:
     """SSE 전달용 스냅샷. 화면은 서버가 가진 현재가만 받고 외부 API를 직접 호출하지 않는다."""
     with _LIVE_LOCK:
-        return {"revision": _LIVE_REV, "updated": _LIVE_TS, "quotes": dict(_LIVE_QUOTES)}
+        return {"revision": _LIVE_REV, "updated": _LIVE_TS, "quotes": dict(_LIVE_QUOTES),
+                "quote_updated": dict(_LIVE_QUOTE_TS)}
+
+
+def live_quote_updated(ticker: str) -> float | None:
+    """한 종목의 잠정가 갱신 시각. 전역 성공 시각을 종목의 시각으로 대신하지 않는다."""
+    with _LIVE_LOCK:
+        return _LIVE_QUOTE_TS.get(ticker)
 
 
 def live_status() -> dict:

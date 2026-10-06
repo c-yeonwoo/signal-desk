@@ -1,6 +1,11 @@
 """장중 실시간가 오버레이 — 종가열 끝에 잠정봉 1개 append, 종가·날짜 정합, 장외 폴백."""
 
+from pathlib import Path
+import shutil
+import subprocess
+
 import pandas as pd
+import pytest
 
 from signal_desk import store
 
@@ -127,3 +132,49 @@ def test_held_quote_merge_keeps_other_universe_prices(tmp_path, monkeypatch):
         assert q["BBB"]["price"] == 60.0
     finally:
         store.clear_live_quotes()
+
+
+def test_merge_does_not_refresh_unrelated_quote_age():
+    from signal_desk import api
+
+    store.set_live_quotes({"AAA": 121.0, "BBB": 60.0})
+    try:
+        old_bbb = store.live_quote_updated("BBB") - 900
+        store._LIVE_QUOTE_TS["BBB"] = old_bbb
+        store.merge_live_quotes({"AAA": 125.0})
+        assert store.live_quote_updated("AAA") > old_bbb
+        assert store.live_quote_updated("BBB") == old_bbb
+        assert store.live_quotes_snapshot()["quote_updated"]["BBB"] == old_bbb
+        assert store.live_status()["updated"] > old_bbb  # 전역 성공 시각은 종목별 신선도가 아니다.
+        assert api._chart_freshness(["2026-10-06"], ticker="AAA")["live_updated"] != (
+            api._chart_freshness(["2026-10-06"], ticker="BBB")["live_updated"])
+        assert api._chart_freshness(["2026-10-06"], ticker="BBB")["live_stale"] is True
+        assert api._chart_freshness(["2026-10-06"], ticker="AAA")["live_on"] is True
+        assert api._chart_freshness(["2026-10-06"])["live_on"] is False
+    finally:
+        store.clear_live_quotes()
+    assert store.live_quote_updated("BBB") is None
+
+
+def test_browser_refuses_an_old_sse_quote():
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the live quote renderer")
+    script = r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+const code=html.slice(html.indexOf('function liveQuoteFresh('),html.indexOf('// 조회 전용 비교 상태',html.indexOf('function liveQuoteFresh(')));
+const el={textContent:'',style:{}};
+const td={children:[],querySelector:()=>el};
+const tr={dataset:{ticker:'AAA'},children:[null,td]};
+const ctx=vm.createContext({Date,Number,Object,document:{querySelectorAll:()=>[tr],getElementById:()=>null},
+  _liveQuoteTimes:{AAA:Date.now()/1000-901},_liveQuotePrices:{AAA:121},_sigMarket:'kospi',fmtNum:v=>String(v)});
+vm.runInContext(code,ctx);
+ctx.paintLiveQuotePrices();
+assert.equal(el.textContent,'현재가 갱신 지연');
+ctx._liveQuoteTimes.AAA=Date.now()/1000-60;
+ctx.paintLiveQuotePrices();
+assert.equal(el.textContent,'현재가 121원');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
+                            text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr

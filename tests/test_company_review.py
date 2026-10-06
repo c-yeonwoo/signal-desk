@@ -103,6 +103,7 @@ def test_detail_review_is_private_and_uses_only_own_manual_holdings(tmp_path, mo
     monkeypatch.setattr(api, "_kr_signal_detail", lambda ticker: {
         "ticker": ticker, "name": "삼성전자", "kind": "HOLD", "data_coverage": 0.9, "rank": 10})
     monkeypatch.setattr(api.store, "load_price_history", lambda ticker: [{"date": "2026-10-06", "close": 100}])
+    monkeypatch.setattr(api.store, "load_price_series", lambda: {"005930": [100]})
     monkeypatch.setattr(api.store, "load_signal_history", lambda: pd.DataFrame())
     monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, now: "2026-10-06")
     monkeypatch.setattr(kb, "digest_checks", lambda: {"005930": {
@@ -124,6 +125,19 @@ def test_detail_review_is_private_and_uses_only_own_manual_holdings(tmp_path, mo
     assert a.json()["review"]["signal"]["decision"] == "HOLD"
     assert {e["id"] for e in a.json()["review"]["evidence"]} == {
         "price:kr:005930:2026-10-06", "kb:1"}
+
+    # 다른 종목이 방금 갱신돼 전역 시각만 새로워도 이 종목의 오래된 잠정가는 현재가가 아니다.
+    monkeypatch.setattr(api.store, "load_price_series", lambda: {"005930": [100, 101]})
+    old_quote = dt.datetime.now(dt.timezone.utc).timestamp() - 900
+    monkeypatch.setattr(api.store, "live_quote_updated", lambda ticker: old_quote)
+    monkeypatch.setattr(api.store, "live_status", lambda: {"updated": dt.datetime.now(dt.timezone.utc).timestamp()})
+    stale = first.get("/api/signals/005930/detail").json()["review"]
+    assert stale["price_status"] == "stale"
+    assert stale["signal"]["decision"] == "UNAVAILABLE"
+    monkeypatch.setattr(api.store, "live_quote_updated", lambda ticker: None)
+    missing_time = first.get("/api/signals/005930/detail").json()["review"]
+    assert missing_time["price_status"] == "stale"
+    assert missing_time["signal"]["decision"] == "UNAVAILABLE"
 
 
 def test_review_ui_escapes_sources_and_clears_previous_ticker():
