@@ -7979,6 +7979,17 @@ async function loadStorageBreakdown(){
   } catch (e) { el.textContent = 'DB 내부 크기를 불러오지 못했습니다.'; }
 }
 
+function dartAuditPeriodLabel(check) {
+  const reports = {'11013':'1분기 보고서', '11012':'반기보고서',
+    '11014':'3분기 보고서', '11011':'사업보고서'};
+  const report = reports[String(check.report || '')];
+  if (!report) return '보고기간 확인 필요';
+  const kinds = {'revenue': check.report === '11011' ? '당기 손익' : '손익 3개월',
+    'operating_income': check.report === '11011' ? '당기 손익' : '손익 3개월',
+    'operating_cash_flow':'현금흐름 보고기간', 'inventory':'재고 보고기말'};
+  return `${report} · ${kinds[check.metric] || '기간 확인 필요'}`;
+}
+
 async function loadDartCardAudit(button) {
   const box = button.parentElement.querySelector('.dart-card-audit-result');
   if (!box) return;
@@ -7999,7 +8010,7 @@ async function loadDartCardAudit(button) {
         const source = /^\d{14}$/.test(accession)
           ? ` · <a href="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${accession}" target="_blank" rel="noopener noreferrer">DART 원문</a>` : '';
         return `<div>${esc(metrics[check.metric] || check.metric)} · ${check.status === 'matched' ? '일치' : '불일치'}`
-          + ` · ${esc(check.previous_year)}→${esc(check.current_year)}`
+          + ` · ${esc(dartAuditPeriodLabel(check))} · ${esc(check.previous_year)}→${esc(check.current_year)}`
           + ` · 원문 ${esc(check.raw_previous)}→${esc(check.raw_current)} ${esc(check.unit)}`
           + (check.status === 'matched' ? '' : ` · 카드 ${esc(check.card_previous)}→${esc(check.card_current)}`)
           + `${source}</div>`;
@@ -8014,7 +8025,7 @@ async function loadDartCardAudit(button) {
     box.innerHTML = `<b>관측 ${d.observed || 0}개 · 비교 가능 선정 ${d.selected || 0}/${d.sample_size || 2}개 · 일치 ${d.matched || 0}개${d.status === 'archive_error' ? ' · 보존 오류로 중단' : ''}</b>`
       + excludedText
       + (items || `<div>아직 보존된 비교 대상이 없습니다.</div>`)
-      + `<div style="margin-top:5px;color:var(--dim-2)">보존된 API 응답과 카드 계산의 일치만 확인합니다. DART 사이트 원문·공개시각·재배포 보존은 별도 확인이 필요합니다.</div>`;
+      + `<div style="margin-top:5px;color:var(--dim-2)">손익은 3개월(사업보고서는 당기), 현금흐름은 보고기간, 재고는 보고기말 기준입니다. 실제 회계기간 날짜와 DART 사이트 원문·공개시각·재배포 보존은 별도 확인이 필요합니다.</div>`;
   } catch (error) {
     box.textContent = String(error);
   } finally {

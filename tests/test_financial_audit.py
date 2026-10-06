@@ -3,7 +3,10 @@
 import copy
 import datetime as dt
 import json
+from pathlib import Path
+import shutil
 import sqlite3
+import subprocess
 
 import pytest
 from fastapi import HTTPException
@@ -142,3 +145,27 @@ def test_existing_nonarchive_file_is_not_treated_as_empty_sample(tmp_path):
     path = tmp_path / "invalid.db"
     path.write_bytes(b"not a database")
     assert audit.sample_dart(path, as_of=NOW)["status"] == "archive_error"
+
+
+def test_admin_audit_labels_each_metric_period_without_guessing_dates():
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the audit period renderer")
+    script = r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+const start=html.indexOf('function dartAuditPeriodLabel(');
+const end=html.indexOf('async function loadDartCardAudit(',start);
+assert(start>=0 && end>start);
+const ctx=vm.createContext({String});
+vm.runInContext(html.slice(start,end),ctx);
+const label=(report,metric)=>ctx.dartAuditPeriodLabel({report,metric});
+assert.equal(label('11012','revenue'),'반기보고서 · 손익 3개월');
+assert.equal(label('11012','operating_cash_flow'),'반기보고서 · 현금흐름 보고기간');
+assert.equal(label('11012','inventory'),'반기보고서 · 재고 보고기말');
+assert.equal(label('11011','operating_income'),'사업보고서 · 당기 손익');
+assert.equal(label('unknown','revenue'),'보고기간 확인 필요');
+assert(html.includes('esc(dartAuditPeriodLabel(check))'));
+"""
+    result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
+                            text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
