@@ -104,15 +104,21 @@ def test_ownership_is_re_evaluated_every_tick_not_once_at_boot():
 
 
 def test_lease_matches_the_renewal_cadence_not_the_slow_tick():
-    """임대는 **갱신 주기**에 맞춘다 — 느린 틱에 맞추면 그 값이 곧 재배포 공백이 된다.
-
-    처음엔 90분으로 뒀는데 갱신은 빠른 틱(5분)에서 하므로, 90분은 "죽었는지"를 재는 눈금이
-    아니라 배포 후 루프가 멈춰 있는 시간이었다.
-    """
+    """임대는 가장 잦은 소유권 확인(보유 종목 가격 틱)에 맞춰 배포 후 공백을 제한한다."""
     from signal_desk import config
-    fast = config.quote_refresh_interval_minutes() * 60
+    fast = config.held_quote_refresh_interval_minutes() * 60
     assert api._LOOP_LEASE_SEC >= fast * 2, "임대가 갱신 주기에 너무 가까우면 살아 있는데 뺏긴다"
     assert api._LOOP_LEASE_SEC <= fast * 6, "임대가 너무 길면 재배포 후 그만큼 루프가 멈춘다"
+
+
+def test_minute_held_quote_refresh_does_not_run_trade_pass_or_replace_all_quotes():
+    src = inspect.getsource(api._refresh_held_live_quotes)
+    assert "_fast_trade_pass" not in src and "_quote_loop_iteration" not in src
+    assert "merge_live_quotes" in src
+    loop = inspect.getsource(api._quote_loop)
+    assert "held_quote_refresh_interval_minutes" in loop
+    assert "quote_refresh_interval_minutes" in loop
+    assert "_refresh_held_live_quotes" in loop
 
 
 def test_slow_tick_checks_ownership_without_renewing():

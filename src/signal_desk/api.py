@@ -27,7 +27,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Body, FastAPI, HTTPException, Request
 from fastapi import File as FastFile
 from fastapi import Form, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from signal_desk.jsonutil import finite_or_none, json_safe
 from signal_desk.live_routes import router as live_router
 from signal_desk.toss_manual_routes import router as toss_manual_router
@@ -232,20 +232,49 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
                 db.intraday_quotes_record("kr", {t: p for t, p in quotes.items() if t in kr_tickers}, ts=now)
             if us_tickers:
                 db.intraday_quotes_record("us", {t: p for t, p in quotes.items() if t in us_tickers}, ts=now)
-            # 각 틱마다 대량 DELETE를 하면 거래 시간에 쓰기 경합이 생긴다. KST 날짜당 한 번만 정리한다.
             prune_key = "intraday_quote_prune_date"
             if db.kv_get(prune_key) != _kst_today():
                 db.intraday_quotes_prune(older_than_ts=now - config.intraday_quote_retention_days() * 86400)
                 db.kv_set(prune_key, _kst_today())
         except Exception as e:
-            # 원장 실패가 실시간 리스크 청산 자체를 막지는 않는다. 대신 로그로 관측 가능하게 남긴다.
             log.warning("장중 가격 원장 저장 실패: %s", type(e).__name__)
         store.note_live_attempt("ok", open_markets)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
-    else:  # 토큰 실패 등으로 빈 응답 — 낡은 오버레이를 남기지 않고 종가로 복귀
+    else:
         store.clear_live_quotes()
         store.note_live_attempt("no_quotes", open_markets)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
+
+
+def _refresh_held_live_quotes(open_markets: list[str]) -> None:
+    """매분 보유 종목만 갱신한다. 전체 오버레이를 지우거나 매매 점검을 실행하지 않는다."""
+    from signal_desk.ingest import toss
+    if not open_markets or not toss.available():
+        return
+    try:
+        tickers: dict[str, set[str]] = {}
+        for market in open_markets:
+            tickers[market] = (db.bot_position_tickers_market(market)
+                               | db.holdings_tickers_market(market))
+        symbols = sorted(set().union(*tickers.values())) if tickers else []
+        if not symbols:
+            return
+        quotes = toss.prices(symbols)
+        if not quotes:
+            return
+        quotes = {ticker: price for ticker, price in quotes.items() if ticker in symbols}
+        if not quotes:
+            return
+        store.merge_live_quotes(quotes)
+        now = int(time.time())
+        for market, market_tickers in tickers.items():
+            rows = {t: p for t, p in quotes.items() if t in market_tickers}
+            if rows:
+                db.intraday_quotes_record(market, rows, ts=now)
+        _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
+    except Exception as e:
+        # 보유 종목의 보조 갱신 실패가 전체 종가/시세 오버레이를 지우거나 기존 틱을 멈추게 하지 않는다.
+        log.warning("보유 종목 실시간가 갱신 실패: %s", type(e).__name__)
 
 
 def _open_markets() -> list[str]:
@@ -1144,16 +1173,21 @@ def _daily_maintenance(enabled: list[str]) -> None:
 
 
 async def _quote_loop():
-    """장중 토스 현재가 루프(기본 10분). KR 장중이면 DART lite poll도 같은 틱에서 시도
-    (간격은 KB_DART_LITE_INTERVAL_MINUTES, 기본 15분 kv 가드)."""
-    interval = config.quote_refresh_interval_minutes() * 60
+    """전체 시세·매매 점검은 5분, 보유 종목 시세만 기본 1분 간격으로 분리한다."""
+    interval = config.held_quote_refresh_interval_minutes() * 60
+    full_interval = config.quote_refresh_interval_minutes() * 60
+    next_full_tick = 0.0
     await asyncio.sleep(5)
     while True:
         try:
-            # **매 틱 소유권을 재판정한다.** 소유 중이면 임대 갱신도 겸한다(같은 함수).
-            # 갱신이 빠른 틱에 있어야 임대(15분)가 갱신 간격(5분)보다 넉넉해진다.
+            # 매분 소유권을 재판정해 lease를 살리고, 전체 시장 조회·매매 점검은 기존 5분을 유지.
             if await asyncio.to_thread(_own_loop_tick):
-                await asyncio.to_thread(_quote_loop_iteration)
+                now = time.monotonic()
+                if now >= next_full_tick:
+                    await asyncio.to_thread(_quote_loop_iteration)
+                    next_full_tick = time.monotonic() + full_interval
+                else:
+                    await asyncio.to_thread(_refresh_held_live_quotes, _open_markets())
         except Exception as e:
             log.error("시세 갱신 루프 오류: %s", e)
         await asyncio.sleep(interval)
@@ -1162,11 +1196,10 @@ async def _quote_loop():
 _LOOP_OWNER_KEY = "loop_owner"
 # 소유권 임대. 이보다 오래 **갱신이 없으면** 죽은 프로세스로 보고 다른 워커가 가져간다.
 #
-# **갱신 주기에 맞춰야 한다 — 느린 틱이 아니라.** 처음엔 90분으로 뒀는데, 갱신은 빠른 틱(5분)에서
-# 하므로 그 값은 "죽었는지"를 재는 눈금이 아니라 **재배포 뒤 공백**이 됐다. 실측: 배포 직후 새
-# 컨테이너가 옛 주인의 임대(90분 미만)를 보고 양보해 `attempt_ts=null` — **루프가 통째로 안 돌았다.**
-# 빠른 틱 3회분(15분)이면 살아 있는 주인은 절대 못 뺏기고, 죽은 주인은 15분 안에 교체된다.
-_LOOP_LEASE_SEC = 15 * 60
+# **갱신 주기에 맞춰야 한다 — 느린 틱이 아니라.** 보유종목 확인이 기본 1분이므로 lease는
+# 기본 5분(5회)이다. 재배포 뒤 새 프로세스가 죽은 주인을 기다리는 공백을 줄이고,
+# 살아 있는 주인의 lease는 충분히 여유 있게 보호한다.
+_LOOP_LEASE_SEC = max(5 * 60, config.held_quote_refresh_interval_minutes() * 60 * 5)
 
 
 def _claim_loop_ownership() -> bool:
@@ -4869,6 +4902,24 @@ def live_status_get():
     from signal_desk.ingest import toss
     return {"toss": toss.available(), "kr_open": bot.is_market_hours(),
             "us_open": bot.is_us_market_hours(), **store.live_status()}
+
+
+@app.get("/api/live-prices/stream")
+async def live_prices_stream(request: Request):
+    """서버가 갱신한 공용 시세를 브라우저에 전달한다. 브라우저별 토스 API 호출은 만들지 않는다."""
+    async def events():
+        revision = None
+        while not await request.is_disconnected():
+            snapshot = store.live_quotes_snapshot()
+            if snapshot["revision"] != revision:
+                revision = snapshot["revision"]
+                yield "event: quotes\ndata: " + json.dumps(snapshot, separators=(",", ":")) + "\n\n"
+            else:
+                yield ": keep-alive\n\n"
+            await asyncio.sleep(5)
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 # ---------- 자동매매봇 (유저별 자체 모의계좌 · 공용 시그널 · 시장별 kr/us) ----------

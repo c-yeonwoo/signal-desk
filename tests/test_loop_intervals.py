@@ -12,8 +12,10 @@ def test_default_intervals(monkeypatch):
     """
     monkeypatch.delenv("BOT_RUN_INTERVAL_MINUTES", raising=False)
     monkeypatch.delenv("QUOTE_REFRESH_INTERVAL_MINUTES", raising=False)
+    monkeypatch.delenv("HELD_QUOTE_REFRESH_INTERVAL_MINUTES", raising=False)
     assert config.bot_run_interval_minutes() == 30
     assert config.quote_refresh_interval_minutes() == 5
+    assert config.held_quote_refresh_interval_minutes() == 1
     assert config.quote_refresh_interval_minutes() < config.bot_run_interval_minutes(), \
         "빠른 틱이 느린 틱보다 잦아야 분리한 의미가 있다"
 
@@ -23,3 +25,10 @@ def test_env_overrides(monkeypatch):
     monkeypatch.setenv("QUOTE_REFRESH_INTERVAL_MINUTES", "5")
     assert config.bot_run_interval_minutes() == 60
     assert config.quote_refresh_interval_minutes() == 5
+
+
+def test_held_quote_interval_is_bounded_and_configurable(monkeypatch):
+    monkeypatch.setenv("HELD_QUOTE_REFRESH_INTERVAL_MINUTES", "2")
+    assert config.held_quote_refresh_interval_minutes() == 2
+    monkeypatch.setenv("HELD_QUOTE_REFRESH_INTERVAL_MINUTES", "0")
+    assert config.held_quote_refresh_interval_minutes() == 1
