@@ -3928,7 +3928,7 @@ function applySignalData(d, bt){
 }
 
 async function loadSignals(opts){
-  startLivePriceStream();
+  if (typeof startLivePriceStream === 'function') startLivePriceStream();
   opts = opts || {};
   const market = _sigMarket, isUS = market === 'us';
   const el = document.getElementById('signal-body');
