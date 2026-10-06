@@ -1918,6 +1918,25 @@ def bot_position_tickers_all() -> set[str]:
     return {r[0] for r in rows}
 
 
+def bot_position_tickers_market(market: str) -> set[str]:
+    """모의계좌 보유 종목을 시장별로 반환한다(현재가 빠른 갱신 대상)."""
+    mkt = "us" if str(market).lower() == "us" else "kr"
+    c = conn()
+    rows = c.execute("SELECT DISTINCT ticker FROM bot_positions WHERE market=?", (mkt,)).fetchall()
+    c.close()
+    return {str(r[0]) for r in rows if r[0]}
+
+
+def holdings_tickers_market(market: str) -> set[str]:
+    """사용자가 입력한 실제 보유 종목을 시장별로 반환한다. holdings는 시장 컬럼이 없어 코드로 구분."""
+    mkt = "us" if str(market).lower() == "us" else "kr"
+    c = conn()
+    rows = c.execute("SELECT DISTINCT ticker FROM holdings").fetchall()
+    c.close()
+    tickers = {str(r[0]) for r in rows if r[0]}
+    return {t for t in tickers if (len(t) == 6 and t.isdigit()) == (mkt == "kr")}
+
+
 def bot_reset(uid: int) -> None:
     """유저 봇 상태 초기화(설정 유지) — 국내·해외 포지션·거래내역·예약·일일기준선 + 페이퍼 현금(시드 리셋)."""
     c = conn()

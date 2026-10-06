@@ -3763,6 +3763,41 @@ async function loadIndustryPulse(){
 
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
 let _signalRows = null, _indexReady = false, _selectedTicker = null, _sigMarket = 'kospi', _sigLoadSeq = 0;
+let _liveQuotePrices = {}, _livePriceSource = null;
+function startLivePriceStream(){
+  if (_livePriceSource || !window.EventSource) return;
+  _livePriceSource = new EventSource('/api/live-prices/stream');
+  _livePriceSource.addEventListener('quotes', ev => {
+    try {
+      const data = JSON.parse(ev.data);
+      _liveQuotePrices = data.quotes || {};
+      paintLiveQuotePrices();
+      const el = document.getElementById('live-status');
+      if (el && data.updated) {
+        el.style.color = 'var(--sig-buy)';
+        el.textContent = `🟢 현재가 ${new Date(data.updated * 1000).toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'})} 갱신 (${Object.keys(_liveQuotePrices).length}종목)`;
+      } else if (el) {
+        el.textContent = '⚪ 장중 실시간 현재가 대기';
+      }
+    } catch (e) {}
+  });
+}
+function paintLiveQuotePrices(){
+  document.querySelectorAll('#signal-body tr.clickable-row[data-ticker]').forEach(tr => {
+    const ticker = tr.dataset.ticker, td = tr.children[1];
+    if (!td) return;
+    let el = td.querySelector('.live-quote-price');
+    const price = Number(_liveQuotePrices[ticker]);
+    if (!(price > 0)) { if (el) el.remove(); return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'sig-metric live-quote-price';
+      const metric = td.querySelector('.sig-metric');
+      if (metric) metric.insertAdjacentElement('afterend', el); else td.prepend(el);
+    }
+    el.textContent = `현재가 ${_sigMarket === 'us' ? '$' + fmtNum(price, 2) : fmtNum(price, 0) + '원'}`;
+  });
+}
 // 조회 전용 비교 상태. 서버의 기본 판정이나 주문 설정으로 절대 전송하지 않는다.
 let _lensModes = { kospi: { event: 'off', entry: 'off', macro_release: 'off', industry_cycle: 'off' }, us: { event: 'off', entry: 'off', macro_release: 'off', industry_cycle: 'off' } };
 let _lensSnapshot = null;
@@ -3893,6 +3928,7 @@ function applySignalData(d, bt){
 }
 
 async function loadSignals(opts){
+  startLivePriceStream();
   opts = opts || {};
   const market = _sigMarket, isUS = market === 'us';
   const el = document.getElementById('signal-body');
@@ -4304,6 +4340,7 @@ function renderSignalList(){
   if (tbl) { applySigColWidths(tbl); bindSigColResize(tbl); }
   // 경로 ③ — 목록을 다시 그리면 드릴 행도 같이 날아간다. 선택된 종목이 있으면 다시 끼운다.
   try { _drillSync(); } catch (e) {}
+  paintLiveQuotePrices();
   return rows[0]?.ticker;
 }
 

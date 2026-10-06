@@ -110,3 +110,20 @@ def test_overlay_ignores_bad_values(tmp_path, monkeypatch):
         assert s["AAA"] == [100.0, 110.0] and s["BBB"] == [50.0, 55.0]  # 무효값 → 오버레이 없음
     finally:
         store.clear_live_quotes()
+
+
+def test_held_quote_merge_keeps_other_universe_prices(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_prices(tmp_path)
+    store.set_live_quotes({"AAA": 121.0, "BBB": 60.0})
+    try:
+        before = store.live_quotes_snapshot()["revision"]
+        store.merge_live_quotes({"AAA": 125.0})
+        snapshot = store.live_quotes_snapshot()
+        assert snapshot["revision"] == before + 1
+        assert snapshot["quotes"] == {"AAA": 125.0, "BBB": 60.0}
+        q = store.load_quotes()
+        assert q["AAA"]["price"] == 125.0
+        assert q["BBB"]["price"] == 60.0
+    finally:
+        store.clear_live_quotes()

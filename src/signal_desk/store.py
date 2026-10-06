@@ -12,6 +12,7 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -1978,7 +1979,9 @@ def load_macro() -> list[dict]:
 # 장중 실시간 현재가 오버레이 — 무거운 refresh 없이 종가 시계열 마지막에 '잠정봉' 1개를 얹어
 # 시그널·봇·페이퍼 체결가를 현재가 기준으로 돌린다(장 마감 후엔 clear → 종가 복귀). 파일엔 안 쓴다.
 _LIVE_QUOTES: dict[str, float] = {}
+_LIVE_LOCK = threading.RLock()
 _LIVE_TS: float | None = None  # 마지막 '성공' 갱신 시각(epoch)
+_LIVE_REV = 0  # SSE 구독자는 revision으로 가격 갱신·장외 초기화를 감지한다.
 _LIVE_ATTEMPT: dict = {"ts": None, "result": None, "markets": []}  # 마지막 '시도' 시각·결과(성공이든 실패든)
 
 
@@ -1992,36 +1995,66 @@ def note_live_attempt(result: str, markets: list[str] | None = None) -> None:
 
 def set_live_quotes(quotes: dict[str, float]) -> None:
     """실시간 현재가 오버레이 설정(양수만). 빈 dict면 오버레이 없음."""
-    global _LIVE_TS
-    _LIVE_QUOTES.clear()
-    for k, v in (quotes or {}).items():
-        try:
-            fv = float(v)
-        except (TypeError, ValueError):
-            continue
-        if fv > 0:
-            _LIVE_QUOTES[k] = fv
-    _LIVE_TS = datetime.datetime.now(datetime.timezone.utc).timestamp() if _LIVE_QUOTES else None
+    global _LIVE_TS, _LIVE_REV
+    with _LIVE_LOCK:
+        _LIVE_QUOTES.clear()
+        for k, v in (quotes or {}).items():
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if fv > 0:
+                _LIVE_QUOTES[k] = fv
+        _LIVE_TS = datetime.datetime.now(datetime.timezone.utc).timestamp() if _LIVE_QUOTES else None
+        _LIVE_REV += 1
+
+
+def merge_live_quotes(quotes: dict[str, float]) -> None:
+    """보유 종목 시세만 기존 전체 종목 오버레이에 합친다."""
+    global _LIVE_TS, _LIVE_REV
+    with _LIVE_LOCK:
+        added = False
+        for k, v in (quotes or {}).items():
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                continue
+            if k and fv > 0:
+                _LIVE_QUOTES[k] = fv
+                added = True
+        if added:
+            _LIVE_TS = datetime.datetime.now(datetime.timezone.utc).timestamp()
+            _LIVE_REV += 1
 
 
 def clear_live_quotes() -> None:
-    global _LIVE_TS
-    _LIVE_QUOTES.clear()
-    _LIVE_TS = None
+    global _LIVE_TS, _LIVE_REV
+    with _LIVE_LOCK:
+        _LIVE_QUOTES.clear()
+        _LIVE_TS = None
+        _LIVE_REV += 1
+
+
+def live_quotes_snapshot() -> dict:
+    """SSE 전달용 스냅샷. 화면은 서버가 가진 현재가만 받고 외부 API를 직접 호출하지 않는다."""
+    with _LIVE_LOCK:
+        return {"revision": _LIVE_REV, "updated": _LIVE_TS, "quotes": dict(_LIVE_QUOTES)}
 
 
 def live_status() -> dict:
     """실시간가 오버레이 상태 — 성공 갱신 시각 + 마지막 시도 시각·결과. 왜 안 바뀌는지 진단용."""
-    return {"on": bool(_LIVE_QUOTES), "count": len(_LIVE_QUOTES), "updated": _LIVE_TS,
-            "attempt_ts": _LIVE_ATTEMPT["ts"], "attempt_result": _LIVE_ATTEMPT["result"],
-            "attempt_markets": _LIVE_ATTEMPT["markets"]}
+    with _LIVE_LOCK:
+        return {"on": bool(_LIVE_QUOTES), "count": len(_LIVE_QUOTES), "updated": _LIVE_TS,
+                "attempt_ts": _LIVE_ATTEMPT["ts"], "attempt_result": _LIVE_ATTEMPT["result"],
+                "attempt_markets": list(_LIVE_ATTEMPT["markets"])}
 
 
 def _overlay_closes(series: dict[str, list[float]]) -> dict[str, list[float]]:
     """live 현재가가 있으면 각 종목 종가열 끝에 잠정봉 1개 append(길이 +1). 없으면 원본."""
-    if not _LIVE_QUOTES:
+    live = live_quotes_snapshot()["quotes"]
+    if not live:
         return series
-    return {t: (closes + [_LIVE_QUOTES[t]]) if (_LIVE_QUOTES.get(t) and closes) else closes
+    return {t: (closes + [live[t]]) if (live.get(t) and closes) else closes
             for t, closes in series.items()}
 
 
