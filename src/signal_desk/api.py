@@ -201,32 +201,47 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
         store.clear_live_quotes(); store.note_live_attempt("closed")
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
         return
+    kr_tickers = {u["ticker"] for u in store.load_universe()} if "kr" in open_markets else set()
+    us_tickers = {u["ticker"] for u in store.load_us_universe()} if "us" in open_markets else set()
+    now = int(time.time())
+    try:
+        last_observed = {"kr": db.intraday_quotes_latest_ts("kr", sorted(kr_tickers)),
+                         "us": db.intraday_quotes_latest_ts("us", sorted(us_tickers))}
+    except Exception as e:
+        log.warning("현재가 장애 이력 조회 실패: %s", type(e).__name__)
+        last_observed = {"kr": {}, "us": {}}
+    stale_by_market = {market: {ticker for ticker in targets
+                                if (last_observed[market].get(ticker) is not None and
+                                    now - last_observed[market][ticker] > 600)}
+                       for market, targets in (("kr", kr_tickers), ("us", us_tickers))}
     if not toss.available():
+        _track_live_quote_incident(open_markets, stale_by_market, {},
+                                   reason="토스 현재가 연결이 꺼져 있음")
         store.clear_live_quotes(); store.note_live_attempt("toss_off", open_markets)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
         return
-    syms: list[str] = []
-    if "kr" in open_markets:
-        syms += [u["ticker"] for u in store.load_universe()]
-    if "us" in open_markets:
-        syms += [u["ticker"] for u in store.load_us_universe()]
+    syms = sorted(kr_tickers | us_tickers)
     try:
         quotes = toss.price_observations(syms) if syms else {}
     except Exception as e:
         # 실패 시 오버레이를 남기면 낡은 장중가가 계속 시그널·체결가로 쓰인다(조용한 고정).
         # 종가로 되돌리고 캐시를 비워, 최소한 '오래된 종가'라는 정직한 상태가 되게 한다.
         log.warning("실시간가 조회 실패 — 종가로 복귀: %s", type(e).__name__)
+        _track_live_quote_incident(open_markets, stale_by_market, {}, reason=type(e).__name__)
         store.clear_live_quotes()
         store.note_live_attempt("no_quotes", open_markets)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
         return
+    failed_by_market = {"kr": stale_by_market["kr"] - set(quotes),
+                        "us": stale_by_market["us"] - set(quotes)}
+    _track_live_quote_incident(open_markets, failed_by_market,
+                               {"kr": kr_tickers & set(quotes), "us": us_tickers & set(quotes)},
+                               reason="오래된 가격의 갱신 응답 누락")
     if quotes:
         store.set_live_quotes(quotes)
         # 현재 실행에 쓴 장중가를 반드시 남긴다. 이 스냅샷이 없으면 5분 청산과 일봉 백테스트가
         # 서로 다른 세계를 보고, 나중에 어느 쪽이 수익률 차이를 만들었는지 검증할 수 없다.
         try:
-            kr_tickers = {u["ticker"] for u in store.load_universe()} if "kr" in open_markets else set()
-            us_tickers = {u["ticker"] for u in store.load_us_universe()} if "us" in open_markets else set()
             now = int(time.time())
             observed = store.live_quotes_snapshot().get("quote_meta", {})
             ledger_quotes = {t: {**q, **{k: observed.get(t, {}).get(k) for k in
@@ -248,6 +263,63 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
         store.clear_live_quotes()
         store.note_live_attempt("no_quotes", open_markets)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
+
+
+def _track_live_quote_incident(open_markets: list[str], missing_by_market: dict[str, set[str]],
+                               observed_by_market: dict[str, set[str]],
+                               *, reason: str) -> None:
+    """Queue one stale-price alert per market incident and a single recovery message."""
+    now = int(time.time())
+    for market in open_markets:
+        missing = sorted(missing_by_market.get(market, set()))
+        key = f"live_quote_incident:{market}"
+
+        def transition(old):
+            active = old if isinstance(old, dict) and old.get("active") else None
+            missing_for_incident = set(missing)
+            if active:
+                missing_for_incident |= set(active.get("tickers") or []) - set(observed_by_market.get(market, set()))
+            if missing_for_incident and active:
+                return None, None
+            if missing_for_incident:
+                incident_id = f"{market}:{time.time_ns()}"
+                return {"active": True, "id": incident_id, "started_at": now,
+                        "tickers": sorted(missing_for_incident),
+                        "missing_count": len(missing_for_incident)}, {"kind": "failed", "id": incident_id,
+                                                                     "tickers": sorted(missing_for_incident)}
+            if active:
+                return {"active": False, "id": active.get("id"), "resolved_at": now}, {
+                    "kind": "recovered", "id": active.get("id"),
+                    "missing_count": active.get("missing_count", 0)}
+            return None, None
+
+        try:
+            event = db.kv_transform(key, transition)
+        except Exception as e:
+            log.warning("현재가 장애 상태 저장 실패: %s", type(e).__name__)
+            continue
+        if not event:
+            continue
+        label = "국내" if market == "kr" else "미국"
+        if event["kind"] == "failed":
+            tickers = event["tickers"]
+            sample = ", ".join(tickers[:8]) + (f" 외 {len(tickers) - 8}종목" if len(tickers) > 8 else "")
+            message = (f"🚨 {label} 현재가 갱신 실패 · {len(tickers)}종목 확인 필요\n"
+                       f"{sample}\n원인: {reason}\n"
+                       "10분 넘은 현재가는 시그널에서 제외하고 종가를 기준으로 표시합니다.")
+            dedupe_key = f"live-quote-stale:{event['id']}"
+        else:
+            message = (f"✅ {label} 현재가 갱신 복구\n"
+                       f"장애 동안 확인이 지연된 종목: 최대 {event['missing_count']}개\n"
+                       "새 가격 관측이 다시 들어오기 시작했습니다.")
+            dedupe_key = f"live-quote-recovered:{event['id']}"
+        at = int(time.time())
+        try:
+            if notify.enqueue(message, dedupe_key=dedupe_key, priority="critical",
+                              expires_at=at + 12 * 3600, now=at):
+                notify.drain(now=at)
+        except Exception as e:
+            log.warning("현재가 장애 알림 적재 실패: %s", type(e).__name__)
 
 
 def _refresh_held_live_quotes(open_markets: list[str]) -> None:

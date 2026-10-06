@@ -1028,6 +1028,18 @@ def intraday_quotes_list(market: str, ticker: str, *, after_ts: int | None = Non
     return [dict(zip(keys, row)) for row in rows]
 
 
+def intraday_quotes_latest_ts(market: str, tickers: list[str]) -> dict[str, int]:
+    """Persisted server-receive time per ticker, used to distinguish a stale feed from no history."""
+    names = sorted({str(ticker) for ticker in tickers if ticker})
+    if not names:
+        return {}
+    c = conn()
+    rows = c.execute("SELECT ticker,MAX(ts) FROM intraday_quotes WHERE market=? AND ticker IN (" +
+                      ",".join("?" for _ in names) + ") GROUP BY ticker", (market, *names)).fetchall()
+    c.close()
+    return {str(ticker): int(ts) for ticker, ts in rows if ts is not None}
+
+
 def intraday_quotes_prune(*, older_than_ts: int) -> int:
     """보존 기간을 지난 장중 틱만 지운다. 일봉 원본·체결 원장은 건드리지 않는다."""
     c = conn()
