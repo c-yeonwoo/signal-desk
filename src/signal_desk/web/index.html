@@ -3779,24 +3779,37 @@ async function loadIndustryPulse(){
 
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
 let _signalRows = null, _indexReady = false, _selectedTicker = null, _sigMarket = 'kospi', _sigLoadSeq = 0;
-let _liveQuotePrices = {}, _livePriceSource = null;
+let _liveQuotePrices = {}, _liveQuoteTimes = {}, _liveQuoteUpdated = null;
+let _livePriceSource = null, _livePriceAgeTimer = null;
 function startLivePriceStream(){
   if (_livePriceSource || !window.EventSource) return;
   _livePriceSource = new EventSource('/api/live-prices/stream');
+  if (!_livePriceAgeTimer) _livePriceAgeTimer = setInterval(() => {
+    paintLiveQuotePrices(); paintLiveQuoteStatus();
+  }, 60000);
   _livePriceSource.addEventListener('quotes', ev => {
     try {
       const data = JSON.parse(ev.data);
       _liveQuotePrices = data.quotes || {};
+      _liveQuoteTimes = data.quote_updated || {};
+      _liveQuoteUpdated = data.updated || null;
       paintLiveQuotePrices();
-      const el = document.getElementById('live-status');
-      if (el && data.updated) {
-        el.style.color = 'var(--sig-buy)';
-        el.textContent = `🟢 현재가 ${new Date(data.updated * 1000).toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'})} 갱신 (${Object.keys(_liveQuotePrices).length}종목)`;
-      } else if (el) {
-        el.textContent = '⚪ 장중 실시간 현재가 대기';
-      }
+      paintLiveQuoteStatus();
     } catch (e) {}
   });
+}
+function liveQuoteFresh(ticker){
+  const age = Date.now() / 1000 - Number(_liveQuoteTimes[ticker]);
+  return Number.isFinite(age) && age >= -300 && age <= 600;
+}
+function paintLiveQuoteStatus(){
+  const el = document.getElementById('live-status');
+  if (!el) return;
+  if (!_liveQuoteUpdated) { el.textContent = '⚪ 장중 실시간 현재가 대기'; return; }
+  const count = Object.keys(_liveQuotePrices).length;
+  const recent = Object.keys(_liveQuotePrices).filter(t => liveQuoteFresh(t)).length;
+  el.style.color = recent === count ? 'var(--sig-buy)' : 'var(--sig-sell)';
+  el.textContent = `${recent === count ? '🟢' : '⚠️'} 현재가 ${new Date(_liveQuoteUpdated * 1000).toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'})} 최근 수집 · ${recent}/${count}종목 확인시각 10분 이내`;
 }
 function paintLiveQuotePrices(){
   document.querySelectorAll('#signal-body tr.clickable-row[data-ticker]').forEach(tr => {
@@ -3811,7 +3824,11 @@ function paintLiveQuotePrices(){
       const metric = td.querySelector('.sig-metric');
       if (metric) metric.insertAdjacentElement('afterend', el); else td.prepend(el);
     }
-    el.textContent = `현재가 ${_sigMarket === 'us' ? '$' + fmtNum(price, 2) : fmtNum(price, 0) + '원'}`;
+    const fresh = liveQuoteFresh(ticker);
+    el.textContent = fresh
+      ? `현재가 ${_sigMarket === 'us' ? '$' + fmtNum(price, 2) : fmtNum(price, 0) + '원'}`
+      : '현재가 갱신 지연';
+    el.style.color = fresh ? '' : 'var(--sig-sell)';
   });
 }
 // 조회 전용 비교 상태. 서버의 기본 판정이나 주문 설정으로 절대 전송하지 않는다.
@@ -5592,6 +5609,7 @@ function _paintChartAsof(d){
   if (d.prices_updated) parts.push(`시세 갱신 ${d.prices_updated}`);
   if (d.live_on && d.live_updated) parts.push(`실시간 ${d.live_updated}`);
   else if (d.live_on) parts.push('실시간 반영 중');
+  else if (d.live_stale) parts.push(`현재가 갱신 지연${d.live_updated ? ' · 마지막 ' + d.live_updated : ''}`);
   if (d.bar_count) parts.push(`${d.bar_count}봉`);
   el.textContent = parts.join(' · ');
 }
@@ -5682,6 +5700,7 @@ function _drawSignalChart(ticker, item, d){
   if (showAux) leg += ` · RSI · MACD` + (hasFlow ? ` · 수급` : '');
   if (d.actual_from) leg += ` · <b style="color:var(--txt)">${esc(d.actual_from)}~ 실측</b>`;
   if (d.live_on && d.live_updated) leg += ` · 실시간 ${esc(d.live_updated)}`;
+  else if (d.live_stale) leg += ` · <span style="color:var(--sig-sell)">현재가 갱신 지연</span>`;
   if (ticker !== INDEX_TICKER && mode !== 'simple')
     leg += ` · 점수선: 과거는 가격기반 추정, 최신은 시그널 점수`;
   if (targetShown.length) leg += ` · 참고 목표가 ${targetShown.join(' ')}`;

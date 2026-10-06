@@ -2977,8 +2977,10 @@ def signal_detail_get(ticker: str, request: Request, response: Response, market:
             else store.load_price_history(ticker))
     live_closes = ((store.load_us_price_series() if review_market == "us"
                     else store.load_price_series()).get(ticker) or [])
-    provisional_at = (store.live_status().get("updated")
-                      if len(live_closes) > len(bars) else None)
+    has_provisional = len(live_closes) > len(bars)
+    provisional_at = store.live_quote_updated(ticker) if has_provisional else None
+    if has_provisional and provisional_at is None:
+        provisional_at = 0  # 가격은 보였는데 시각을 잃은 경합: 확정 종가로 둔갑시키지 않는다.
     expected = market_clock.latest_completed_session(review_market, datetime.datetime.now(datetime.timezone.utc))
     review = company_review.build(
         ticker=ticker, market=review_market, item=item,
@@ -3633,8 +3635,8 @@ def _anchor_today_score(scores: list, ticker: str, market: str) -> list:
 _CHART_BARS = 280
 
 
-def _chart_freshness(dates: list[str], market: str = "kospi") -> dict:
-    """차트 UI용 시각 메타 — 종가 기준일 · parquet 파일 갱신 · 실시간 오버레이 시각."""
+def _chart_freshness(dates: list[str], market: str = "kospi", ticker: str | None = None) -> dict:
+    """차트 UI용 시각 메타 — 종가 기준일 · 파일 갱신 · 해당 종목의 잠정가 시각."""
     as_of = dates[-1] if dates else None
     prices_file = store.US_PRICES_FILE if market == "us" else store.PRICES_FILE
     prices_updated = None
@@ -3645,19 +3647,22 @@ def _chart_freshness(dates: list[str], market: str = "kospi") -> dict:
             ).strftime("%Y-%m-%d %H:%M")
     except OSError:
         prices_updated = None
-    live = store.live_status()
+    quote_at = store.live_quote_updated(ticker) if ticker else None
+    quote_age = time.time() - quote_at if quote_at is not None else None
+    quote_fresh = quote_age is not None and -300 <= quote_age <= 600
     live_updated = None
-    if live.get("updated"):
+    if quote_at:
         try:
             live_updated = datetime.datetime.fromtimestamp(
-                float(live["updated"]), tz=datetime.timezone.utc
+                float(quote_at), tz=datetime.timezone.utc
             ).astimezone().strftime("%Y-%m-%d %H:%M")
         except (TypeError, ValueError, OSError):
             live_updated = None
     return {
         "as_of": as_of,
         "prices_updated": prices_updated,
-        "live_on": bool(live.get("on")),
+        "live_on": quote_fresh,
+        "live_stale": quote_at is not None and not quote_fresh,
         "live_updated": live_updated,
         "bar_count": len(dates),
     }
@@ -3718,7 +3723,7 @@ def signal_chart_get(ticker: str, market: str = "kospi", flow: bool = False):
         "macd": series["macd"]["macd"],
         "macd_signal": series["macd"]["signal"],
         "macd_hist": series["macd"]["histogram"],
-        **_chart_freshness(dates, market=market),
+        **_chart_freshness(dates, market=market, ticker=ticker),
     }
 
 
