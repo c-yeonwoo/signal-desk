@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import time
+import datetime
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -259,19 +260,46 @@ def stocks(symbols: list[str]) -> dict[str, dict]:
     return out
 
 
-def prices(symbols: list[str]) -> dict[str, float]:
-    """현재가 — symbol -> lastPrice(float). 조회 실패분은 생략."""
-    out: dict[str, float] = {}
+def price_observations(symbols: list[str]) -> dict[str, dict]:
+    """현재가 관측 — 수신한 원문 시각을 보존하되 공급자 시각의 의미는 미검증으로 둔다."""
+    out: dict[str, dict] = {}
     for chunk in _batched(symbols):
         body = _get("/api/v1/prices", {"symbols": ",".join(chunk)})
         for r in _rows(body):
             sym, lp = r.get("symbol"), r.get("lastPrice")
             if sym and lp not in (None, ""):
                 try:
-                    out[sym] = float(lp)
+                    price = float(lp)
                 except (TypeError, ValueError):
-                    pass
+                    continue
+                raw_ts = r.get("timestamp")
+                parsed_ts = None
+                if isinstance(raw_ts, str) and raw_ts.strip():
+                    try:
+                        stamp = datetime.datetime.fromisoformat(raw_ts.strip().replace("Z", "+00:00"))
+                        if stamp.tzinfo is not None and stamp.utcoffset() is not None:
+                            parsed_ts = stamp.astimezone(datetime.timezone.utc).isoformat()
+                    except ValueError:
+                        pass
+                out[str(sym)] = {
+                    "price": price,
+                    "provider": "toss",
+                    "price_kind": "last",
+                    "currency": r.get("currency"),
+                    "source_timestamp": (str(raw_ts) if raw_ts is not None and
+                                         not isinstance(raw_ts, (dict, list)) else None),
+                    "source_timestamp_field": "timestamp" if raw_ts is not None else None,
+                    "source_timestamp_parsed_utc": parsed_ts,
+                    # Timestamp meaning (trade time vs quote snapshot time) has not been verified.
+                    "source_time_verified": False,
+                }
     return out
+
+
+def prices(symbols: list[str]) -> dict[str, float]:
+    """현재가 호환 API — symbol -> lastPrice(float). 조회 실패분은 생략."""
+    return {symbol: observation["price"]
+            for symbol, observation in price_observations(symbols).items()}
 
 
 def daily_closes(symbol: str, count: int = 200) -> list[float]:

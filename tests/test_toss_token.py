@@ -96,3 +96,19 @@ def test_data_401_retry_still_fails_logs_reissue_hint(monkeypatch, caplog):
     with caplog.at_level("WARNING"):
         assert toss.prices(["005930"]) == {}
     assert any("재발급 검토" in r.message for r in caplog.records)
+
+
+def test_price_observations_preserve_raw_time_without_claiming_its_semantics(monkeypatch):
+    monkeypatch.setattr(toss, "_get", lambda *args, **kwargs: {"result": [
+        {"symbol": "AAPL", "lastPrice": "200.5", "currency": "USD",
+         "timestamp": "2026-10-06T13:30:01-04:00"},
+        {"symbol": "MSFT", "lastPrice": "420", "timestamp": "2026-10-06 13:30:01"},
+    ]})
+    observed = toss.price_observations(["AAPL", "MSFT"])
+    assert observed["AAPL"]["source_timestamp"] == "2026-10-06T13:30:01-04:00"
+    assert observed["AAPL"]["source_timestamp_parsed_utc"] == "2026-10-06T17:30:01+00:00"
+    assert observed["AAPL"]["source_time_verified"] is False
+    assert observed["MSFT"]["source_timestamp"] == "2026-10-06 13:30:01"
+    assert observed["MSFT"]["source_timestamp_parsed_utc"] is None
+    assert observed["MSFT"]["source_timestamp_field"] == "timestamp"
+    assert toss.prices(["AAPL"])["AAPL"] == 200.5

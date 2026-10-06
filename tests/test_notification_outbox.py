@@ -92,6 +92,20 @@ def test_intraday_quote_and_execution_event_are_idempotent(tmp_path, monkeypatch
     assert db.intraday_quotes_record("kr", {"005930": 70000}, ts=10) == 1
     assert db.intraday_quotes_record("kr", {"005930": 70000}, ts=10) == 0
     assert db.intraday_quotes_list("kr", "005930") == [{"ts": 10, "price": 70000.0}]
+    observed = {"price": 70001, "provider": "toss", "price_kind": "last", "currency": "KRW",
+                "source_timestamp": "2026-10-06T13:00:00+09:00",
+                "source_timestamp_parsed_utc": "2026-10-06T04:00:00+00:00",
+                "source_timestamp_field": "timestamp", "source_time_verified": False}
+    assert db.intraday_quotes_record("kr", {"005930": observed}, ts=11) == 1
+    audit = db.intraday_quotes_list("kr", "005930", after_ts=11, include_metadata=True)
+    assert audit[0]["ts"] == 11 and audit[0]["price"] == 70001.0 and audit[0]["observation_id"]
+    assert {key: audit[0][key] for key in ("source_timestamp", "source_timestamp_parsed_utc",
+                                          "source_timestamp_field", "source_time_verified", "provider",
+                                          "price_kind", "currency")} == {
+                     "source_timestamp": observed["source_timestamp"],
+                     "source_timestamp_parsed_utc": observed["source_timestamp_parsed_utc"],
+                     "source_timestamp_field": "timestamp", "source_time_verified": 0,
+                     "provider": "toss", "price_kind": "last", "currency": "KRW"}
 
     assert db.execution_event_add("trade:kr:1", uid=1, market="kr", ticker="005930",
                                   event_type="filled_buy", price=70000, ts=10) is True
