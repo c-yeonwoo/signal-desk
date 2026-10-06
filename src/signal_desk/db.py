@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
+import math
 import sqlite3
 import threading
 import time
@@ -324,7 +326,10 @@ CREATE TABLE IF NOT EXISTS alerts(id INTEGER PRIMARY KEY AUTOINCREMENT, uid INTE
     name TEXT, message TEXT, ts INTEGER, read INTEGER NOT NULL DEFAULT 0);
 -- 장중 가격은 종가 파일과 분리한다. 같은 데이터로 실제 청산과 사후 재생(replay)을 돌린다.
 CREATE TABLE IF NOT EXISTS intraday_quotes(market TEXT NOT NULL, ticker TEXT NOT NULL, ts INTEGER NOT NULL,
-    price REAL NOT NULL, PRIMARY KEY(market, ticker, ts));
+    price REAL NOT NULL, observation_id TEXT, source_timestamp TEXT, source_timestamp_parsed_utc TEXT,
+    source_timestamp_field TEXT, source_time_verified INTEGER NOT NULL DEFAULT 0,
+    provider TEXT, price_kind TEXT NOT NULL DEFAULT 'last', currency TEXT,
+    PRIMARY KEY(market, ticker, ts));
 CREATE INDEX IF NOT EXISTS idx_intraday_quotes_lookup ON intraday_quotes(market, ticker, ts);
 -- 체결/판정 이벤트는 변경하지 않는 감사 원장이다. event_key가 재시작·재시도 중복을 막는다.
 CREATE TABLE IF NOT EXISTS execution_events(id INTEGER PRIMARY KEY AUTOINCREMENT, event_key TEXT NOT NULL UNIQUE,
@@ -613,6 +618,14 @@ def _migrate(c: sqlite3.Connection) -> None:
     lcols = {r[1] for r in c.execute("PRAGMA table_info(telegram_link_codes)")}
     if "claim_chat_label" not in lcols:
         c.execute("ALTER TABLE telegram_link_codes ADD COLUMN claim_chat_label TEXT")
+    qcols = {r[1] for r in c.execute("PRAGMA table_info(intraday_quotes)")}
+    for col, ddl in (("observation_id", "TEXT"), ("source_timestamp", "TEXT"), ("source_timestamp_parsed_utc", "TEXT"),
+                     ("source_timestamp_field", "TEXT"),
+                     ("source_time_verified", "INTEGER NOT NULL DEFAULT 0"),
+                     ("provider", "TEXT"), ("price_kind", "TEXT NOT NULL DEFAULT 'last'"),
+                     ("currency", "TEXT")):
+        if qcols and col not in qcols:
+            c.execute(f"ALTER TABLE intraday_quotes ADD COLUMN {col} {ddl}")
     # 구 버전의 개인 관심종목 알림은 공용 채팅으로 발송되면 안 된다.
     c.execute("UPDATE notification_outbox SET status='expired' WHERE dedupe_key LIKE 'signal:%' "
               "AND recipient_uid IS NULL AND status IN ('pending','sending')")
@@ -960,23 +973,34 @@ def alerts_mark_read(uid: int) -> None:
 
 
 # ---------- execution ledger / notification outbox ----------
-def intraday_quotes_record(market: str, quotes: dict[str, float], *, ts: int | None = None) -> int:
-    """장중 시세 배치를 원자적으로 저장한다. 같은 market/ticker/second는 멱등이다."""
+def intraday_quotes_record(market: str, quotes: dict[str, float | dict], *, ts: int | None = None) -> int:
+    """장중 시세 배치를 원자적으로 저장한다. 출처 시각은 뜻을 검증하기 전까지 미검증으로 둔다."""
     now = int(time.time()) if ts is None else int(ts)
-    rows: list[tuple[str, str, int, float]] = []
-    for ticker, price in (quotes or {}).items():
+    rows: list[tuple] = []
+    for ticker, observation in (quotes or {}).items():
         try:
-            px = float(price)
+            meta = observation if isinstance(observation, dict) else {}
+            px = float(meta.get("price") if meta else observation)
         except (TypeError, ValueError):
             continue
-        if ticker and px > 0:
-            rows.append((market, str(ticker), now, px))
+        if ticker and px > 0 and math.isfinite(px):
+            observation_id = meta.get("observation_id")
+            if not observation_id:
+                identity = json.dumps([market, str(ticker), now, px, meta], sort_keys=True,
+                                      ensure_ascii=False, separators=(",", ":"), default=str)
+                observation_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+            rows.append((market, str(ticker), now, px, str(observation_id),
+                         meta.get("source_timestamp"), meta.get("source_timestamp_parsed_utc"),
+                         meta.get("source_timestamp_field"), int(bool(meta.get("source_time_verified"))),
+                         meta.get("provider"), meta.get("price_kind") or "last", meta.get("currency")))
     if not rows:
         return 0
     c = conn()
     try:
         before = c.total_changes
-        c.executemany("INSERT OR IGNORE INTO intraday_quotes(market,ticker,ts,price) VALUES(?,?,?,?)", rows)
+        c.executemany("INSERT OR IGNORE INTO intraday_quotes(market,ticker,ts,price,observation_id,source_timestamp,"
+                       "source_timestamp_parsed_utc,source_timestamp_field,source_time_verified,provider,"
+                       "price_kind,currency) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", rows)
         c.commit()
         return c.total_changes - before
     finally:
@@ -984,7 +1008,7 @@ def intraday_quotes_record(market: str, quotes: dict[str, float], *, ts: int | N
 
 
 def intraday_quotes_list(market: str, ticker: str, *, after_ts: int | None = None,
-                         before_ts: int | None = None) -> list[dict]:
+                         before_ts: int | None = None, include_metadata: bool = False) -> list[dict]:
     """실제 청산 경로를 재생할 때 쓰는 시간순 장중 가격."""
     clauses, args = ["market=?", "ticker=?"], [market, ticker]
     if after_ts is not None:
@@ -992,10 +1016,16 @@ def intraday_quotes_list(market: str, ticker: str, *, after_ts: int | None = Non
     if before_ts is not None:
         clauses.append("ts<=?"); args.append(int(before_ts))
     c = conn()
-    rows = c.execute("SELECT ts,price FROM intraday_quotes WHERE " + " AND ".join(clauses)
+    columns = ("ts,price,observation_id,source_timestamp,source_timestamp_parsed_utc,source_timestamp_field,"
+               "source_time_verified,provider,price_kind,currency" if include_metadata else "ts,price")
+    rows = c.execute("SELECT " + columns + " FROM intraday_quotes WHERE " + " AND ".join(clauses)
                      + " ORDER BY ts", args).fetchall()
     c.close()
-    return [{"ts": ts, "price": price} for ts, price in rows]
+    if not include_metadata:
+        return [{"ts": ts, "price": price} for ts, price in rows]
+    keys = ("ts", "price", "observation_id", "source_timestamp", "source_timestamp_parsed_utc",
+            "source_timestamp_field", "source_time_verified", "provider", "price_kind", "currency")
+    return [dict(zip(keys, row)) for row in rows]
 
 
 def intraday_quotes_prune(*, older_than_ts: int) -> int:

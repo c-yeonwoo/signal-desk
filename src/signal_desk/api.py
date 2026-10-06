@@ -211,7 +211,7 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
     if "us" in open_markets:
         syms += [u["ticker"] for u in store.load_us_universe()]
     try:
-        quotes = toss.prices(syms) if syms else {}
+        quotes = toss.price_observations(syms) if syms else {}
     except Exception as e:
         # 실패 시 오버레이를 남기면 낡은 장중가가 계속 시그널·체결가로 쓰인다(조용한 고정).
         # 종가로 되돌리고 캐시를 비워, 최소한 '오래된 종가'라는 정직한 상태가 되게 한다.
@@ -228,10 +228,14 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
             kr_tickers = {u["ticker"] for u in store.load_universe()} if "kr" in open_markets else set()
             us_tickers = {u["ticker"] for u in store.load_us_universe()} if "us" in open_markets else set()
             now = int(time.time())
+            observed = store.live_quotes_snapshot().get("quote_meta", {})
+            ledger_quotes = {t: {**q, **{k: observed.get(t, {}).get(k) for k in
+                                          ("observation_id", "received_at")}}
+                             for t, q in quotes.items()}
             if kr_tickers:
-                db.intraday_quotes_record("kr", {t: p for t, p in quotes.items() if t in kr_tickers}, ts=now)
+                db.intraday_quotes_record("kr", {t: p for t, p in ledger_quotes.items() if t in kr_tickers}, ts=now)
             if us_tickers:
-                db.intraday_quotes_record("us", {t: p for t, p in quotes.items() if t in us_tickers}, ts=now)
+                db.intraday_quotes_record("us", {t: p for t, p in ledger_quotes.items() if t in us_tickers}, ts=now)
             prune_key = "intraday_quote_prune_date"
             if db.kv_get(prune_key) != _kst_today():
                 db.intraday_quotes_prune(older_than_ts=now - config.intraday_quote_retention_days() * 86400)
@@ -259,16 +263,20 @@ def _refresh_held_live_quotes(open_markets: list[str]) -> None:
         symbols = sorted(set().union(*tickers.values())) if tickers else []
         if not symbols:
             return
-        quotes = toss.prices(symbols)
+        quotes = toss.price_observations(symbols)
         if not quotes:
             return
-        quotes = {ticker: price for ticker, price in quotes.items() if ticker in symbols}
+        quotes = {ticker: quote for ticker, quote in quotes.items() if ticker in symbols}
         if not quotes:
             return
         store.merge_live_quotes(quotes)
         now = int(time.time())
+        observed = store.live_quotes_snapshot().get("quote_meta", {})
+        ledger_quotes = {t: {**q, **{k: observed.get(t, {}).get(k) for k in
+                                     ("observation_id", "received_at")}}
+                         for t, q in quotes.items()}
         for market, market_tickers in tickers.items():
-            rows = {t: p for t, p in quotes.items() if t in market_tickers}
+            rows = {t: p for t, p in ledger_quotes.items() if t in market_tickers}
             if rows:
                 db.intraday_quotes_record(market, rows, ts=now)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()

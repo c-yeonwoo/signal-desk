@@ -1723,9 +1723,10 @@ def load_us_price_series() -> dict[str, list[float]]:
 def load_us_dates_by_ticker() -> dict[str, list[str]]:
     """US ticker → 날짜 리스트(load_us_price_series와 길이 정합, 잠정봉 포함)."""
     _, _, dates = _us_prices_raw()
-    if _LIVE_QUOTES:
+    fresh_live = _fresh_live_quote_tickers()
+    if fresh_live:
         today = datetime.date.today().isoformat()
-        dates = {t: (ds + [today]) if (_LIVE_QUOTES.get(t) and ds) else ds
+        dates = {t: (ds + [today]) if (t in fresh_live and ds) else ds
                  for t, ds in dates.items()}
     return dates
 
@@ -1980,6 +1981,8 @@ def load_macro() -> list[dict]:
 # 시그널·봇·페이퍼 체결가를 현재가 기준으로 돌린다(장 마감 후엔 clear → 종가 복귀). 파일엔 안 쓴다.
 _LIVE_QUOTES: dict[str, float] = {}
 _LIVE_QUOTE_TS: dict[str, float] = {}  # 종목별 마지막 성공 갱신; 일부 종목만 합쳐도 다른 시세는 늙는다.
+_LIVE_QUOTE_META: dict[str, dict] = {}  # 공급자가 준 원문 시각/피드 메타. 수신 시각과 섞지 않는다.
+_LIVE_QUOTE_MAX_AGE_SECONDS = 600
 _LIVE_LOCK = threading.RLock()
 _LIVE_TS: float | None = None  # 마지막 '성공' 갱신 시각(epoch)
 _LIVE_REV = 0  # SSE 구독자는 revision으로 가격 갱신·장외 초기화를 감지한다.
@@ -1994,39 +1997,54 @@ def note_live_attempt(result: str, markets: list[str] | None = None) -> None:
     _LIVE_ATTEMPT["markets"] = list(markets or [])
 
 
-def set_live_quotes(quotes: dict[str, float]) -> None:
-    """실시간 현재가 오버레이 설정(양수만). 빈 dict면 오버레이 없음."""
+def _quote_parts(value) -> tuple[float | None, dict]:
+    meta = value if isinstance(value, dict) else {}
+    raw = meta.get("price") if meta else value
+    try:
+        price = float(raw)
+    except (TypeError, ValueError):
+        return None, {}
+    return (price, dict(meta)) if price > 0 and math.isfinite(price) else (None, {})
+
+
+def set_live_quotes(quotes: dict[str, float | dict]) -> None:
+    """현재가 오버레이를 설정. 공급자 원문 시각과 서버 수신 시각을 각각 보존한다."""
     global _LIVE_TS, _LIVE_REV
     with _LIVE_LOCK:
         _LIVE_QUOTES.clear()
         _LIVE_QUOTE_TS.clear()
+        _LIVE_QUOTE_META.clear()
         updated = datetime.datetime.now(datetime.timezone.utc).timestamp()
         for k, v in (quotes or {}).items():
-            try:
-                fv = float(v)
-            except (TypeError, ValueError):
-                continue
-            if fv > 0:
+            fv, meta = _quote_parts(v)
+            if fv is not None:
+                meta["received_at"] = updated
+                meta["observation_id"] = meta.get("observation_id") or hashlib.sha256(
+                    json.dumps([k, fv, updated, meta], sort_keys=True, ensure_ascii=False,
+                               separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
                 _LIVE_QUOTES[k] = fv
                 _LIVE_QUOTE_TS[k] = updated
+                _LIVE_QUOTE_META[k] = meta
         _LIVE_TS = updated if _LIVE_QUOTES else None
         _LIVE_REV += 1
 
 
-def merge_live_quotes(quotes: dict[str, float]) -> None:
+def merge_live_quotes(quotes: dict[str, float | dict]) -> None:
     """보유 종목 시세만 기존 전체 종목 오버레이에 합친다."""
     global _LIVE_TS, _LIVE_REV
     with _LIVE_LOCK:
         added = False
         updated = datetime.datetime.now(datetime.timezone.utc).timestamp()
         for k, v in (quotes or {}).items():
-            try:
-                fv = float(v)
-            except (TypeError, ValueError):
-                continue
-            if k and fv > 0:
+            fv, meta = _quote_parts(v)
+            if k and fv is not None:
+                meta["received_at"] = updated
+                meta["observation_id"] = meta.get("observation_id") or hashlib.sha256(
+                    json.dumps([k, fv, updated, meta], sort_keys=True, ensure_ascii=False,
+                               separators=(",", ":"), default=str).encode("utf-8")).hexdigest()
                 _LIVE_QUOTES[k] = fv
                 _LIVE_QUOTE_TS[k] = updated
+                _LIVE_QUOTE_META[k] = meta
                 added = True
         if added:
             _LIVE_TS = updated
@@ -2038,6 +2056,7 @@ def clear_live_quotes() -> None:
     with _LIVE_LOCK:
         _LIVE_QUOTES.clear()
         _LIVE_QUOTE_TS.clear()
+        _LIVE_QUOTE_META.clear()
         _LIVE_TS = None
         _LIVE_REV += 1
 
@@ -2046,7 +2065,8 @@ def live_quotes_snapshot() -> dict:
     """SSE 전달용 스냅샷. 화면은 서버가 가진 현재가만 받고 외부 API를 직접 호출하지 않는다."""
     with _LIVE_LOCK:
         return {"revision": _LIVE_REV, "updated": _LIVE_TS, "quotes": dict(_LIVE_QUOTES),
-                "quote_updated": dict(_LIVE_QUOTE_TS)}
+                "quote_updated": dict(_LIVE_QUOTE_TS),
+                "quote_meta": {t: dict(meta) for t, meta in _LIVE_QUOTE_META.items()}}
 
 
 def live_quote_updated(ticker: str) -> float | None:
@@ -2055,17 +2075,49 @@ def live_quote_updated(ticker: str) -> float | None:
         return _LIVE_QUOTE_TS.get(ticker)
 
 
+def live_price_evidence(ticker: str, *, max_age_seconds: int = _LIVE_QUOTE_MAX_AGE_SECONDS) -> dict:
+    """현재 관측의 출처·나이를 돌려준다. 낡은 관측은 현재가로 취급하지 않는다."""
+    with _LIVE_LOCK:
+        price = _LIVE_QUOTES.get(ticker)
+        received_at = _LIVE_QUOTE_TS.get(ticker)
+        meta = dict(_LIVE_QUOTE_META.get(ticker) or {})
+    age = time.time() - received_at if received_at is not None else None
+    fresh = bool(price and age is not None and -300 <= age <= max_age_seconds)
+    return {"price": price if fresh else None,
+            "observation_id": meta.get("observation_id") if fresh else None,
+            "provider": meta.get("provider"), "price_kind": meta.get("price_kind"),
+            "currency": meta.get("currency"), "source_timestamp": meta.get("source_timestamp"),
+            "source_timestamp_field": meta.get("source_timestamp_field"),
+            "source_time_verified": bool(meta.get("source_time_verified")),
+            "received_at": received_at, "age_seconds": round(age, 2) if age is not None else None,
+            "fresh": fresh, "max_age_seconds": max_age_seconds}
+
+
+def _fresh_live_quote_tickers() -> set[str]:
+    now = time.time()
+    snapshot = live_quotes_snapshot()
+    return {ticker for ticker in snapshot["quotes"]
+            if -300 <= now - float(snapshot["quote_updated"].get(ticker, 0)) <= _LIVE_QUOTE_MAX_AGE_SECONDS}
+
+
 def live_status() -> dict:
     """실시간가 오버레이 상태 — 성공 갱신 시각 + 마지막 시도 시각·결과. 왜 안 바뀌는지 진단용."""
+    fresh_count = len(_fresh_live_quote_tickers())
     with _LIVE_LOCK:
         return {"on": bool(_LIVE_QUOTES), "count": len(_LIVE_QUOTES), "updated": _LIVE_TS,
+                "fresh_count": fresh_count, "stale_count": max(0, len(_LIVE_QUOTES) - fresh_count),
+                "source_time_present": sum(bool(m.get("source_timestamp")) for m in _LIVE_QUOTE_META.values()),
+                "source_time_verified": sum(bool(m.get("source_time_verified")) for m in _LIVE_QUOTE_META.values()),
                 "attempt_ts": _LIVE_ATTEMPT["ts"], "attempt_result": _LIVE_ATTEMPT["result"],
                 "attempt_markets": list(_LIVE_ATTEMPT["markets"])}
 
 
 def _overlay_closes(series: dict[str, list[float]]) -> dict[str, list[float]]:
-    """live 현재가가 있으면 각 종목 종가열 끝에 잠정봉 1개 append(길이 +1). 없으면 원본."""
-    live = live_quotes_snapshot()["quotes"]
+    """신선한 live 현재가만 종가열 끝에 잠정봉 1개 append. 늙은 잠정가는 종가로 폴백."""
+    now = time.time()
+    snap = live_quotes_snapshot()
+    live = {t: price for t, price in snap["quotes"].items()
+            if -300 <= now - float(snap["quote_updated"].get(t, 0)) <= _LIVE_QUOTE_MAX_AGE_SECONDS}
     if not live:
         return series
     return {t: (closes + [live[t]]) if (live.get(t) and closes) else closes
@@ -2135,9 +2187,10 @@ def load_portfolio_close_bundle(market: str) -> tuple[dict[str, list[float]], di
 def load_dates_by_ticker() -> dict[str, list[str]]:
     """ticker -> 날짜 리스트(오래된→최신) — load_price_series()와 동일 정렬. point-in-time 백테스트용."""
     _, dates = _kr_prices_raw()
-    if _LIVE_QUOTES:  # load_price_series의 잠정봉과 길이 정합 유지(백테스트 date-close 짝 안 깨지게)
+    fresh_live = _fresh_live_quote_tickers()
+    if fresh_live:  # 잠정봉 날짜도 신선한 관측만 반영
         today = datetime.date.today().isoformat()
-        dates = {t: (ds + [today]) if (_LIVE_QUOTES.get(t) and ds) else ds for t, ds in dates.items()}
+        dates = {t: (ds + [today]) if (t in fresh_live and ds) else ds for t, ds in dates.items()}
     return dates
 
 
@@ -2196,12 +2249,13 @@ def load_quotes(vol_window: int = 20) -> dict[str, dict]:
     fundamentals = load_fundamentals()
     df = df.sort_values(["ticker", "date"])
     out: dict[str, dict] = {}
+    fresh_live = _fresh_live_quote_tickers()
     for ticker, g in df.groupby("ticker"):
         # parquet 결측이 float('nan')으로 오면 JSON 직렬화가 깨진다 — 유한값만 쓴다
         closes = [float(c) for c in g["close"].tolist() if c == c]
         if not closes:
             continue
-        live = _LIVE_QUOTES.get(ticker)
+        live = _LIVE_QUOTES.get(ticker) if ticker in fresh_live else None
         try:
             live_f = float(live) if live is not None and live == live else None
         except (TypeError, ValueError):
@@ -3267,7 +3321,8 @@ def price_sanity(tickers: list[str] | None = None, *, allow_network: bool = True
         live = toss.prices(tickers)
     else:
         recent = _LIVE_TS is not None and time.time() - _LIVE_TS <= 300
-        live = {t: _LIVE_QUOTES[t] for t in tickers if t in _LIVE_QUOTES} if recent else {}
+        fresh = _fresh_live_quote_tickers() if recent else set()
+        live = {t: _LIVE_QUOTES[t] for t in tickers if t in fresh} if fresh else {}
         if not live:
             return {"ok": False, "toss": True,
                     "reason": "최근 5분 실시간가 없음 — 시세 스케일 비교 보류",

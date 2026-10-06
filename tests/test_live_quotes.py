@@ -46,6 +46,21 @@ def test_overlay_appends_provisional_bar(tmp_path, monkeypatch):
     assert store.load_price_series()["AAA"] == [100.0, 110.0]  # 해제 시 종가 복귀
 
 
+def test_stale_live_observation_is_not_used_for_signal_or_quote(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_prices(tmp_path)
+    store.set_live_quotes({"AAA": 121.0})
+    try:
+        store._LIVE_QUOTE_TS["AAA"] -= 601
+        assert store.load_price_series()["AAA"] == [100.0, 110.0]
+        assert store.load_quotes()["AAA"]["price"] == 110.0
+        assert store.live_price_evidence("AAA")["fresh"] is False
+        store._LIVE_QUOTE_TS["AAA"] = store.time.time() + 301
+        assert store.load_price_series()["AAA"] == [100.0, 110.0]
+    finally:
+        store.clear_live_quotes()
+
+
 def test_quote_failure_falls_back_to_close(tmp_path, monkeypatch):
     """시세 조회가 실패했는데 오버레이를 남기면 낡은 장중가가 계속 시그널·체결가로 쓰인다.
     '오래된 종가'는 정직한 상태지만 '고정된 장중가'는 조용한 거짓말이다."""
@@ -58,12 +73,12 @@ def test_quote_failure_falls_back_to_close(tmp_path, monkeypatch):
     monkeypatch.setattr(api.store, "load_universe", lambda: [{"ticker": "AAA"}])
     store.set_live_quotes({"AAA": 121.0})
     try:
-        monkeypatch.setattr(toss, "prices", lambda syms: (_ for _ in ()).throw(RuntimeError("429")))
+        monkeypatch.setattr(toss, "price_observations", lambda syms: (_ for _ in ()).throw(RuntimeError("429")))
         api._refresh_live_quotes(["kr"])
         assert store.load_price_series()["AAA"] == [100.0, 110.0]   # 종가로 복귀
 
         store.set_live_quotes({"AAA": 121.0})
-        monkeypatch.setattr(toss, "prices", lambda syms: {})        # 빈 응답도 같다
+        monkeypatch.setattr(toss, "price_observations", lambda syms: {})        # 빈 응답도 같다
         api._refresh_live_quotes(["kr"])
         assert store.load_price_series()["AAA"] == [100.0, 110.0]
     finally:
@@ -109,7 +124,7 @@ def test_pit_snapshot_is_taken_on_closes(tmp_path, monkeypatch):
 def test_overlay_ignores_bad_values(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_prices(tmp_path)
-    store.set_live_quotes({"AAA": 0, "BBB": None, "CCC": "x"})  # 양수만 반영
+    store.set_live_quotes({"AAA": 0, "BBB": None, "CCC": "x", "DDD": float("inf")})  # 유한한 양수만 반영
     try:
         s = store.load_price_series()
         assert s["AAA"] == [100.0, 110.0] and s["BBB"] == [50.0, 55.0]  # 무효값 → 오버레이 없음
@@ -154,6 +169,28 @@ def test_merge_does_not_refresh_unrelated_quote_age():
     finally:
         store.clear_live_quotes()
     assert store.live_quote_updated("BBB") is None
+
+
+def test_live_quote_snapshot_keeps_source_timestamp_separate_from_receive_time():
+    source = {
+        "price": 121.0, "provider": "toss", "price_kind": "last",
+        "source_timestamp": "2026-10-06T13:00:00+09:00",
+        "source_timestamp_parsed_utc": "2026-10-06T04:00:00+00:00",
+        "source_time_verified": False,
+    }
+    store.set_live_quotes({"AAA": source})
+    try:
+        snapshot = store.live_quotes_snapshot()
+        assert snapshot["quotes"]["AAA"] == 121.0
+        assert snapshot["quote_updated"]["AAA"] == store.live_quote_updated("AAA")
+        assert all(snapshot["quote_meta"]["AAA"][key] == value for key, value in source.items())
+        assert snapshot["quote_meta"]["AAA"]["observation_id"]
+        assert snapshot["quote_meta"]["AAA"]["received_at"] == snapshot["quote_updated"]["AAA"]
+        status = store.live_status()
+        assert status["source_time_present"] == 1
+        assert status["source_time_verified"] == 0
+    finally:
+        store.clear_live_quotes()
 
 
 def test_browser_refuses_an_old_sse_quote():

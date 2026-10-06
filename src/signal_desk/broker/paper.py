@@ -151,6 +151,7 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
         payload = {"qty": qty, "reason": reason, "reference_price": reference_price,
                    "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
                    **(event_payload or {})}
+        payload["price_evidence"] = store.live_price_evidence(ticker)
         if policy_id:
             payload["execution_policy_id"] = policy_id
         if signal_policy_id:
