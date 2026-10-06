@@ -60,6 +60,45 @@ def test_partial_market_card_excludes_old_symbol_and_reports_missing():
     assert len(out["facts"]) == 2  # old Nasdaq release is not today's reason
     assert any("1종목" in item for item in out["unknown"])
     assert any("나스닥" in item for item in out["unknown"])
+    assert out["today_headline"] == "오늘 등락은 아직 확인하기 어려워요"
+
+
+def test_partial_coverage_headline_names_sample_when_most_bars_are_available():
+    prices, dates = _bars()
+    old_prices, old_dates = _bars(last="2026-10-01")
+    out = market_brief.build(
+        "us", prices={**{str(i): prices for i in range(9)}, "old": old_prices},
+        dates={**{str(i): dates for i in range(9)}, "old": old_dates},
+        tickers=[*(str(i) for i in range(9)), "old"],
+        expected="2026-10-02", previous=dates[-2],
+    )
+    assert out["status"] == "partial"
+    assert out["daily_coverage"] == {"available": 9, "analyzed": 9}
+    assert out["today_headline"] == "확인한 9개에서는 오른 종목이 더 많았어요"
+    assert out["selection"] is None
+
+
+def test_low_daily_coverage_with_complete_latest_bars_still_withholds_direction():
+    prices, dates = _bars()
+    gapped = dates[:-2] + ["2026-09-29", dates[-1]]
+    out = market_brief.build(
+        "kr", prices={"A": prices, "B": prices},
+        dates={"A": dates, "B": gapped}, tickers=["A", "B"],
+        expected="2026-10-02", previous=dates[-2],
+    )
+    assert out["status"] == "ready"  # 최근 종가의 신선도와 당일 등락의 범위는 별개다.
+    assert out["today_headline"] == "오늘 시장 방향은 자료가 부족해요"
+    assert out["daily_coverage"] == {"available": 1, "analyzed": 2}
+
+
+def test_today_route_reads_market_card_without_eager_signal_list():
+    html = (Path(__file__).resolve().parents[1] / "src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    route = html.split("function switchTab(t){", 1)[1].split("const _SEGS =", 1)[0]
+    assert 'id="view-today"' in html and 'id="subnav-today"' in html
+    assert "routeFromHash() || switchTab('today')" in html
+    assert "if (t === 'today') loadRegime();" in route
+    assert "if (t === 'signal') { loadSignals(); loadScorecard(); }" in route
+    assert "if (t === 'today') { loadSignals()" not in route
 
 
 def test_market_card_has_one_endpoint_and_defers_source_requests():

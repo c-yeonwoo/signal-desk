@@ -178,7 +178,15 @@ def build(
     if covered < len(universe):
         unknown.append("일부 종목의 종가가 빠져 매수 판정 건수는 이 카드에서 보류합니다.")
     state = reading["regime"] if market == "kr" else f'평균가격 위 종목 {reading["breadth_pct"]:.1f}%'
-    if daily_count:
+    # 화면의 대표 문장은 매매 판정이 아니라 설명이다. 일부 종목만 들어온
+    # 경우에도 전체 시장의 방향처럼 읽히지 않도록 범위를 먼저 확인한다.
+    directional_coverage = daily_count / len(universe)
+    if daily_count and directional_coverage < 0.8:
+        today_headline = "오늘 시장 방향은 자료가 부족해요"
+        summary = (f"관찰 종목 {len(universe)}개 중 {daily_count}개만 직전 거래일과 비교할 수 있어요. "
+                   f"확인한 종목은 상승 {advances}개·하락 {declines}개·보합 {unchanged}개지만 "
+                   "이 결과를 전체 관찰 종목의 흐름으로 넓혀 말하지 않겠습니다.")
+    elif daily_count:
         imbalance_pct = abs(advances - declines) / daily_count * 100
         if imbalance_pct < 15:
             today_headline = "오늘 오른 종목과 내린 종목이 비슷해요"
@@ -189,6 +197,8 @@ def build(
         else:
             today_headline = "오늘은 내린 종목이 더 많았어요"
             today_interpretation = f"관찰 종목 {daily_count}개 중 {declines}개가 직전 거래일보다 내렸어요."
+        if daily_count < len(universe):
+            today_headline = f"확인한 {daily_count}개에서는 " + today_headline.removeprefix("오늘은 ").removeprefix("오늘 ")
         trend_context = ("다만 최근 평균 아래인 종목이 더 많아요." if reading["breadth_pct"] < 40 else
                          "최근 평균 위인 종목이 더 많아요." if reading["breadth_pct"] >= 60 else
                          "최근 평균 위·아래 종목은 비슷해요.")
@@ -214,13 +224,16 @@ def build(
                       (ordered[size // 2 - 1] + ordered[size // 2]) / 2)
             eligible.append({"sector": sector, "count": size, "median_change_pct": round(middle, 2)})
         sector_summary = sorted(eligible, key=lambda item: (item["median_change_pct"], item["sector"]), reverse=True)
-        if sector_summary:
+        if sector_summary and directional_coverage >= 0.8:
             best, weakest = sector_summary[0], sector_summary[-1]
             best_action = "상승 폭이 컸어요" if best["median_change_pct"] > 0 else "하락 폭이 작았어요"
             weak_action = ("상승 폭이 작았어요" if weakest["median_change_pct"] > 0 else
                            "하락 폭이 컸어요" if weakest["median_change_pct"] < 0 else "보합이었어요")
             summary += (f" 업종별로는 {best['sector']}({best['median_change_pct']:+.2f}%)의 {best_action}. "
                         f"{weakest['sector']}({weakest['median_change_pct']:+.2f}%)는 {weak_action}.")
+        elif sector_summary:
+            sector_summary = []
+            unknown.append("당일 비교 가능한 종목이 충분하지 않아 업종별 방향도 요약하지 않습니다.")
         elif market == "kr":
             unknown.append("업종별로 비교할 수 있는 종목이 충분하지 않습니다. 종목이 3개 이상인 업종만 표시합니다.")
     elif market == "us":

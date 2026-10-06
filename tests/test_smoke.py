@@ -130,7 +130,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert 'id="market-brief-sources"' in html and "onMarketBriefSourcesToggle" in html
     # 이중 국면 라벨 **분리**가 계약이다(오늘의 코스피 상태 vs 다개월 경기 사이클).
     # 리터럴 `시장 ZONE`을 박으면 카피를 쉬운 말로 바꿀 때마다 깨진다 — 2026-08-06에 깨졌다.
-    assert "지금 시장" in html and "현재 지표로 본 경기 상태" in html
+    assert "지금 시장 · 관찰 종목 기준" in html and "현재 지표로 본 경기 상태" in html
     assert "미국 물가·금리" in html and "국내 주가의 단기 방향" in html
     assert "시장 ZONE" in html, "원어를 title 에 남겨야 정확한 말을 찾을 수 있다"
     assert "sellPrecisionRow" in html and "매도 정밀도" in html  # 숏 검토 전제 관측치

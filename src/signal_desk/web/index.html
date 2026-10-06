@@ -164,6 +164,11 @@
   .market-brief { margin:10px clamp(14px,3.5vw,44px) 2px; padding:18px 22px 13px;
     border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel);
     box-shadow:var(--shadow-sm); min-width:0; }
+  .today-next { display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:14px 18px; border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel); }
+  .today-next p { margin:3px 0 0; color:var(--dim); font-size:14px; line-height:1.5; }
+  .today-next .btn { white-space:nowrap; }
+  @media(max-width:600px){.today-next{align-items:stretch;flex-direction:column}}
   .mb-top, .mb-main, .mb-source-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .mb-eyebrow { color:var(--accent); font-size:12px; font-weight:700; letter-spacing:.06em; }
   .mb-asof { color:var(--dim); font-size:12px; font-variant-numeric:tabular-nums; }
@@ -936,6 +941,7 @@
 <header>
   <h1><span class="wm-a">Signal</span> <span class="wm-b">Desk</span></h1>
   <div class="tabs">
+    <button class="tab" data-tab="today" onclick="switchTab('today')">오늘</button>
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="봇 모의투자 · 내 포트폴리오 · 실계좌">투자 관리</button>
     <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">인사이트</button>
@@ -964,6 +970,10 @@
   <button class="subtab" data-seg="live" onclick="switchTradingSeg('live')">실계좌·주문</button>
   <button class="subtab" data-seg="dividend" onclick="switchTradingSeg('dividend')">배당 계획</button>
 </nav>
+<nav class="subnav" id="subnav-today" style="display:none" aria-label="오늘 시장">
+  <button class="subtab on" data-mkt="kospi" onclick="switchTodayMarket('kospi')">국내</button>
+  <button class="subtab" data-mkt="us" onclick="switchTodayMarket('us')">해외</button>
+</nav>
 <nav class="subnav" id="subnav-signal" style="display:none" aria-label="종목 목록">
   <button class="subtab on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
   <button class="subtab" data-mkt="us" onclick="switchSignalMarket('us')">해외</button>
@@ -987,7 +997,7 @@
 </nav>
 
 <section id="market-ribbon" class="market-brief" aria-label="하루 시장 한눈에">
-  <div class="mb-top"><span class="mb-eyebrow">지금 시장 · 한눈에</span><span id="mb-asof" class="mb-asof">종가 확인 중…</span></div>
+  <div class="mb-top"><span class="mb-eyebrow">지금 시장 · 관찰 종목 기준</span><span id="mb-asof" class="mb-asof">종가 확인 중…</span></div>
   <div class="mb-main"><div><div id="mb-market" class="mb-market">국내 시장</div>
     <h2 id="mb-state" class="mb-state">시장 자료를 확인하고 있습니다</h2>
     <p id="mb-basis" class="mb-basis">저장된 종가를 확인한 뒤 표시합니다.</p></div>
@@ -1028,6 +1038,11 @@
 </section>
 
 <main>
+  <div id="view-today" class="view-app" style="display:none">
+    <div class="today-next"><div><b>이 시장에서 종목을 살펴볼까요?</b>
+      <p>시황은 관찰한 종목의 현재 상태입니다. 어떤 종목을 살펴볼지는 매수 판정과 기업 근거를 따로 확인하세요.</p></div>
+      <button type="button" class="btn primary" onclick="switchTab('signal')">종목 보기</button></div>
+  </div>
   <div id="view-signal" class="view-app" style="display:none">
     <details id="signal-trust" ontoggle="if(this.open) loadScorecard()"><summary id="signal-trust-sum">시그널 검증</summary><div class="trust-body" id="signal-trust-body"></div></details>
     <div id="signal-explore-slot"></div>
@@ -2432,27 +2447,29 @@
 </dialog>
 
 <script>
-const _ROUTES = ['signal','watchlist','trading','cycle','admin','mypage'];
+const _ROUTES = ['today','signal','watchlist','trading','cycle','admin','mypage'];
 let _isAdmin = false;
 let _userEmail = '', _profile = {};
 
 function switchTab(t){
-  if(!_ROUTES.includes(t)) t = 'signal';
+  if(!_ROUTES.includes(t)) t = 'today';
   if (t === 'admin' && !_isAdmin) t = 'signal';  // 관리자만 접근
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === (t === 'watchlist' ? 'signal' : t)));
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
   document.getElementById('subnav-trading').style.display = (t === 'trading') ? '' : 'none';  // 페이퍼 서브내비
+  document.getElementById('subnav-today').style.display = (t === 'today') ? '' : 'none';
+  document.querySelectorAll('#subnav-today button').forEach(b => b.classList.toggle('on', b.dataset.mkt === _sigMarket));
   document.getElementById('subnav-signal').style.display = (t === 'signal' || t === 'watchlist') ? '' : 'none';
   document.querySelectorAll('#subnav-signal button').forEach(b => b.classList.toggle('on', b.dataset.mkt === (t === 'watchlist' ? 'watchlist' : _sigMarket)));
   document.getElementById('subnav-cycle').style.display = (t === 'cycle') ? '' : 'none';       // 인사이트 서브내비
   const refNav = document.getElementById('subnav-cycle-ref');
   if (refNav && t !== 'cycle') refNav.style.display = 'none';  // 참고 2단 내비는 인사이트에서만
-  const onSignal = (t === 'signal');  // 시황 전광판·코멘터리는 시그널 탭에서만
-  document.getElementById('market-ribbon').style.display = onSignal ? '' : 'none';
-  if (onSignal) applyMacroState();
+  document.getElementById('market-ribbon').style.display = (t === 'today') ? '' : 'none';
+  if (t === 'today') applyMacroState();
   // 내 투자 홈은 `trading/rebal` 안에만 있다. 시그널 화면에서 계좌·성과 API를 미리
   // 부르면 보이지 않는 카드 때문에 첫 목록 요청과 경쟁한다.
-  if (t === 'signal') { loadSignals(); loadRegime(); }
+  if (t === 'today') loadRegime();
+  if (t === 'signal') { loadSignals(); loadScorecard(); }
   if (t === 'watchlist') loadWatchlistBriefs();
   if (t === 'cycle') switchCycleSeg(_cycleSeg);   // 인사이트: 사이클/밸류체인/학습/거장 서브탭
   if (t === 'trading') switchTradingSeg(_tradingSeg);
@@ -3341,8 +3358,7 @@ async function loadRegime(){
     unknown.textContent = '오래된 화면을 최신 정보로 표시하지 않습니다.';
     unknown.classList.add('is-warning');
   }
-  loadScorecard();
-  // 어제와 달라진 내용은 접힌 「오늘」을 열었을 때만 조회한다.
+  // 상세 자료는 오늘 화면에서 사용자가 근거를 펼쳤을 때만 조회한다.
 }
 
 // ③ 신뢰 스트립 — 실측 track record(누적중 가드) + 봇 체결 성적. 백테스트 숫자는 여기 안 올림.
@@ -3884,9 +3900,16 @@ function switchSignalMarket(m){
   if (document.getElementById('view-signal').style.display === 'none') switchTab('signal');
   else {
     document.querySelectorAll('#subnav-signal button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
-    loadSignals(); loadRegime();
-    if (document.getElementById('market-brief-sources').open) loadMacroDetails();
+    loadSignals();
   }
+}
+function switchTodayMarket(m){
+  if (m !== 'kospi' && m !== 'us') return;
+  if (_sigMarket === m) return;
+  _sigMarket = m;
+  document.querySelectorAll('#subnav-today button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
+  loadRegime();
+  if (document.getElementById('market-brief-sources').open) loadMacroDetails();
 }
 
 // 시장별 응답 캐시 — 국내/해외 전환 시 재요청 없이 즉시 렌더(stale-while-revalidate).
@@ -11069,9 +11092,9 @@ async function startApp(){
   applyProfileHeader();
   // 큰 조건 폼은 목록 카드 밖에 둔다. 저장 조건 DOM과 이벤트는 그대로 유지한다.
   document.getElementById('signal-explore-slot').appendChild(document.getElementById('sig-explore'));
-  // 시황 요약은 신호 탭 진입 시, 세부 원문은 근거를 펼쳤을 때만 요청한다.
+  // 시황 요약은 오늘 탭 진입 시, 세부 원문은 근거를 펼쳤을 때만 요청한다.
   loadAlertBadge();
-  routeFromHash() || switchTab('signal');
+  routeFromHash() || switchTab('today');
   maybeShowOnboard();  // 성향·관심종목 미설정 시 미니 온보딩
 }
 
