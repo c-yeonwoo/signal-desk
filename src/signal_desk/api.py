@@ -193,6 +193,15 @@ def _maybe_refresh_decision_sources() -> None:
             _clear_us_signal_caches()
 
 
+def _live_quote_symbol_map(kr_tickers: set[str], us_tickers: set[str]) -> dict[str, str]:
+    """공급자 요청 표기를 내부 티커로 되돌린다. 충돌하면 두 번째는 누락으로 남긴다."""
+    result = {ticker: ticker for ticker in kr_tickers}
+    for provider_symbol, ticker in store.us_live_quote_symbol_map(us_tickers).items():
+        if provider_symbol not in result:
+            result[provider_symbol] = ticker
+    return result
+
+
 def _refresh_live_quotes(open_markets: list[str]) -> None:
     """열린 시장 종목의 토스 현재가를 배치 조회해 store에 실시간가 오버레이 설정 → 시그널·현재가
     캐시 무효화. 봇 run_once는 store.load_price_series()를 읽으므로 자동으로 실시간가 기준이 된다.
@@ -223,12 +232,13 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
             "toss_off", open_markets, requested_by_market=requested_by_market)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
         return
-    syms = sorted(kr_tickers | us_tickers)
+    provider_to_ticker = _live_quote_symbol_map(kr_tickers, us_tickers)
+    syms = sorted(provider_to_ticker)
     try:
-        quotes = toss.price_observations(syms) if syms else {}
+        provider_quotes = toss.price_observations(syms) if syms else {}
         # 공급자의 잘못된 심볼 응답을 공용 오버레이·원장에 섞지 않는다.
-        requested = set(syms)
-        quotes = {ticker: quote for ticker, quote in quotes.items() if ticker in requested}
+        quotes = {provider_to_ticker[symbol]: quote
+                  for symbol, quote in provider_quotes.items() if symbol in provider_to_ticker}
     except Exception as e:
         # 실패 시 오버레이를 남기면 낡은 장중가가 계속 시그널·체결가로 쓰인다(조용한 고정).
         # 종가로 되돌리고 캐시를 비워, 최소한 '오래된 종가'라는 정직한 상태가 되게 한다.
@@ -344,13 +354,16 @@ def _refresh_held_live_quotes(open_markets: list[str]) -> None:
         for market in open_markets:
             tickers[market] = (db.bot_position_tickers_market(market)
                                | db.holdings_tickers_market(market))
-        symbols = sorted(set().union(*tickers.values())) if tickers else []
+        provider_to_ticker = _live_quote_symbol_map(tickers.get("kr", set()),
+                                                    tickers.get("us", set()))
+        symbols = sorted(provider_to_ticker)
         if not symbols:
             return
-        quotes = toss.price_observations(symbols)
-        if not quotes:
+        provider_quotes = toss.price_observations(symbols)
+        if not provider_quotes:
             return
-        quotes = {ticker: quote for ticker, quote in quotes.items() if ticker in symbols}
+        quotes = {provider_to_ticker[symbol]: quote
+                  for symbol, quote in provider_quotes.items() if symbol in provider_to_ticker}
         if not quotes:
             return
         store.merge_live_quotes(quotes)
