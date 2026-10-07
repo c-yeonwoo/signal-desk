@@ -1439,6 +1439,21 @@ def decision_artifact_storage(market: str | None = None) -> list[dict]:
              "stored_bytes": stored} for m, k, n, raw, stored in rows]
 
 
+def decision_artifact_recent_outputs(limit: int = 4) -> list[dict]:
+    """관리자 수동 재생 대상의 ID·시각만 반환한다. 원문 입력은 노출하지 않는다."""
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT id,market,first_observed FROM decision_artifacts "
+            "WHERE kind='signal_output' ORDER BY first_observed DESC,rowid DESC LIMIT ?",
+            (max(1, min(int(limit), 10)),),
+        ).fetchall()
+    finally:
+        c.close()
+    return [{"id": artifact_id, "market": market, "first_observed": observed}
+            for artifact_id, market, observed in rows]
+
+
 def lens_snapshot_put(snapshot: dict) -> bool:
     """내용 해시가 처음 관측된 경우만 압축 저장한다. True면 새 원장 행."""
     if snapshot.get("mode") != "read_only" or snapshot.get("order_eligible") is not False:

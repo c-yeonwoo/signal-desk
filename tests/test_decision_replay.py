@@ -116,3 +116,46 @@ def test_failed_gate_capture_cannot_be_called_replayable(tmp_path, monkeypatch):
     else:
         raise AssertionError("failed gate was accepted")
     assert db.decision_artifact_storage() == []
+
+
+def test_admin_can_replay_recent_output_without_raw_inputs(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from signal_desk import api
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ADMIN_EMAILS", "replay-admin@example.com")
+    prices, dates, inputs, gate, results = _sample()
+    refs = decision_snapshot.persist_signal_decision(
+        "kr", prices=prices, dates=dates, quote_snapshot={}, engine_inputs=inputs,
+        gate_inputs=gate, results=results)
+    recent = db.decision_artifact_recent_outputs()
+    assert recent == [{"id": refs["signal_output_id"], "market": "kr",
+                       "first_observed": recent[0]["first_observed"]}]
+
+    params = {"market": "kr", "signal_output_id": refs["signal_output_id"]}
+    guest = TestClient(api.app)
+    assert guest.get("/api/admin/decision-replay", params=params).status_code == 401
+    guest.post("/api/auth/signup", json={"email": "reader@example.com", "pw": "abcdef12"})
+    assert guest.get("/api/admin/decision-replay", params=params).status_code == 403
+    admin = TestClient(api.app)
+    admin.post("/api/auth/signup", json={"email": "replay-admin@example.com", "pw": "abcdef12"})
+    storage = admin.get("/api/admin/storage-breakdown")
+    assert storage.status_code == 200
+    assert storage.json()["recent_decisions"] == recent
+    before = db.decision_artifact_storage()
+    response = admin.get("/api/admin/decision-replay", params=params)
+    assert response.status_code == 200
+    assert response.json()["match"] is True
+    assert "rows" not in response.json() and "prices" not in response.json()
+    assert db.decision_artifact_storage() == before
+    assert admin.get("/api/admin/decision-replay", params={**params, "market": "us"}).status_code == 404
+    assert admin.get("/api/admin/decision-replay", params={**params, "signal_output_id": "invalid"}).status_code == 400
+
+    c = db.conn()
+    try:
+        c.execute("UPDATE decision_artifacts SET payload=? WHERE id=?",
+                  (b"damaged", refs["signal_output_id"]))
+        c.commit()
+    finally:
+        c.close()
+    assert admin.get("/api/admin/decision-replay", params=params).status_code == 409

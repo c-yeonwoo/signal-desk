@@ -1480,6 +1480,7 @@ _ADMIN_PATHS = {
     "/api/engine/llm-usage",
     "/api/data-health", "/api/egress-ip",
     "/api/admin/evidence-audit/dart", "/api/admin/evidence-ops", "/api/admin/storage-breakdown",
+    "/api/admin/decision-replay",
     "/api/hypothesis/refresh",
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
     "/api/morning-digest", "/api/morning-digest/test",
@@ -4450,7 +4451,25 @@ def evidence_ops_get(request: Request):
 def storage_breakdown_get(request: Request):
     """On-demand DB page sizes; separate from the ordinary health hot path."""
     _admin_or_403(request)
-    return {**db.storage_breakdown(), "decision_artifacts": db.decision_artifact_storage()}
+    return {**db.storage_breakdown(), "decision_artifacts": db.decision_artifact_storage(),
+            "recent_decisions": db.decision_artifact_recent_outputs()}
+
+
+@app.get("/api/admin/decision-replay")
+def decision_replay_get(request: Request, market: str, signal_output_id: str):
+    """저장된 공용 판단 한 건만 재계산한다. 주문·연구 look·원문 반환은 없다."""
+    _admin_or_403(request)
+    if market not in ("kr", "us") or not re.fullmatch(r"[0-9a-f]{64}", signal_output_id):
+        raise HTTPException(400, "시장 또는 판단 ID가 올바르지 않습니다.")
+    from signal_desk.signals import decision_snapshot
+    try:
+        return decision_snapshot.replay_signal_decision(market, signal_output_id)
+    except ValueError as exc:
+        if "missing" in str(exc):
+            raise HTTPException(404, "저장된 판단을 찾지 못했습니다.") from None
+        raise HTTPException(409, "판단 입력을 연결할 수 없습니다.") from None
+    except (KeyError, TypeError, RuntimeError):
+        raise HTTPException(409, "저장된 판단의 무결성을 확인할 수 없습니다.") from None
 
 
 @app.get("/api/admin/evidence-audit/dart")

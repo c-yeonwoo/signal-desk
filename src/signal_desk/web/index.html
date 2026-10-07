@@ -7984,14 +7984,35 @@ async function loadStorageBreakdown(){
       const bytes = rows.reduce((total, row) => total + Number(row.stored_bytes || 0), 0);
       return `${market === 'kr' ? '국내' : '미국'} ${count}건 · ${artifactSize(bytes)}`;
     }).join(' / ');
+    const recent = [];
+    for (const row of data.recent_decisions || []) {
+      if (['kr', 'us'].includes(row.market) && /^[0-9a-f]{64}$/.test(row.id)
+          && !recent.some(item => item.market === row.market)) recent.push(row);
+    }
     el.innerHTML = `<div>판단 원장: ${artifactSummary}</div>`
       + `<div>압축된 내용만 센 값이며 DB 관리 공간과 Railway 볼륨 전체 사용량은 포함하지 않습니다.</div>`
+      + (recent.length ? `<div style="margin-top:5px">최근 판단 재생 검사: `
+        + recent.map(row => `<button type="button" class="btn" style="margin:3px" onclick="replayStoredDecision('${row.market}','${row.id}',this)">${row.market === 'kr' ? '국내' : '미국'} · ${esc(new Date(Number(row.first_observed) * 1000).toLocaleString('ko-KR'))}</button>`).join('')
+        + `</div>` : '')
       + (data.available
         ? `<div style="margin-top:5px">DB 파일 ${mb(data.db_bytes)} MB · 재사용 가능한 빈 페이지 ${mb(data.free_page_bytes)} MB</div>`
           + (data.objects || []).map(o => `<div>${esc(o.name)} · ${mb(o.bytes)} MB</div>`).join('')
           + `<div style="margin-top:5px">테이블·인덱스가 차지하는 페이지입니다. 삭제하거나 정리하지 않았습니다.</div>`
         : `<div style="margin-top:5px">DB 내부 크기는 확인할 수 없습니다: ${esc(data.reason || '지원되지 않음')}</div>`);
   } catch (e) { el.textContent = 'DB 내부 크기를 불러오지 못했습니다.'; }
+}
+
+async function replayStoredDecision(market, id, button){
+  button.disabled = true;
+  button.textContent = '재생 검사 중…';
+  try {
+    const query = new URLSearchParams({market, signal_output_id: id});
+    const res = await fetch('/api/admin/decision-replay?' + query);
+    if (!res.ok) throw new Error('unavailable');
+    const result = await res.json();
+    button.textContent = result.match ? '전체 후보 일치' : '불일치 · 상세 확인 필요';
+  } catch (e) { button.textContent = '검사 실패'; }
+  button.disabled = false;
 }
 
 function dartAuditPeriodLabel(check) {
