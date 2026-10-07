@@ -84,3 +84,6 @@ def test_admin_storage_breakdown_includes_decision_artifact_usage(tmp_path, monk
     assert response.status_code == 200
     assert response.json()["decision_artifacts"] == db.decision_artifact_storage()
     assert response.json()["decision_artifacts"][0]["stored_bytes"] > 0
+    assert response.json()["decision_pilot"] == []
+    assert response.json()["decision_pilot_budget"]["available"] is True
+    assert response.json()["decision_pilot_budget"]["volume_free_bytes"] > 0

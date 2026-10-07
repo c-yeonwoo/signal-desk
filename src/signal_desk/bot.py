@@ -1200,6 +1200,29 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     if not dry_run:  # 일별 자산 스냅샷(track record 자산곡선) — 같은 날 재실행 시 마지막 값으로 갱신
         db.bot_equity_record(uid, market, _today(market), final_bal["total_eval"],
                              final_bal["cash"], final_bal.get("invested") or 0.0)
+    # 주문·자산 기록 이후에 수행해 감사용 압축/재생이 체결 타이밍을 늦추지 않는다.
+    # 정규장 첫 표준 실행만 시장별로 한 번 저장하고, 실패는 주문에 전파하지 않는다.
+    if config.is_prod() and not dry_run and not sells_only:
+        try:
+            if market_clock.is_open(market, datetime.datetime.now(datetime.timezone.utc)):
+                capture = mr.get("_decision_capture")
+                missing_reason = "capture_missing"
+                if market == "us":
+                    from signal_desk import api
+                    snapshot = api._us_signals()
+                    if (snapshot.prices is prices and snapshot.price_dates is price_dates
+                            and snapshot.quote_snapshot is quote_snapshot):
+                        capture = snapshot.decision_capture
+                    else:
+                        missing_reason = "generation_changed"
+                from signal_desk.signals import decision_capture_pilot
+                if capture:
+                    decision_capture_pilot.capture_once(
+                        market, _today(market), (prices, price_dates, quote_snapshot), capture)
+                else:
+                    decision_capture_pilot.record_unavailable(market, _today(market), missing_reason)
+        except Exception as exc:  # noqa: BLE001 — 감사용 보존이 봇 실행을 중단하면 안 된다
+            log.warning("판단 자동 보존 경로 실패 (%s): %s", market, type(exc).__name__)
     return {
         "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak,
         "signal_policy_id": signal_policy_id, "execution_policy_id": execution_policy_id,
