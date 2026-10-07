@@ -116,13 +116,16 @@ def test_pilot_claim_is_atomic_and_finished_state_is_immutable(tmp_path, monkeyp
 def test_pilot_rejects_large_input_before_any_artifact(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     bundle, capture = _captured_bundle(monkeypatch)
-    capture["engine_inputs"]["universe"][0]["name"] = "A" * (pilot._MAX_RAW_INPUT + 1)
     monkeypatch.setattr(pilot.shutil, "disk_usage", lambda path: SimpleNamespace(
         total=1024 * pilot._MIB, free=500 * pilot._MIB))
+    monkeypatch.setattr(pilot.decision_snapshot, "estimate_captured_decision",
+                        lambda *_args: {"raw_bytes": pilot._MAX_RAW_INPUT + 1,
+                                        "stored_bytes": 1 * pilot._MIB})
 
     result = pilot.capture_once("kr", "2026-10-07", bundle, capture)
 
-    assert result == {"status": "skipped", "reason": "input_too_large"}
+    assert result["status"] == "skipped" and result["reason"] == "input_too_large"
+    assert result["estimated_raw_bytes"] == pilot._MAX_RAW_INPUT + 1
     assert db.decision_artifact_storage() == []
 
 
@@ -132,11 +135,41 @@ def test_pilot_stops_at_artifact_budget(tmp_path, monkeypatch):
     monkeypatch.setattr(pilot.shutil, "disk_usage", lambda path: SimpleNamespace(
         total=1024 * pilot._MIB, free=500 * pilot._MIB))
     monkeypatch.setattr(db, "decision_artifact_storage", lambda: [
-        {"stored_bytes": pilot._MAX_STORED - pilot._BATCH_RESERVE + 1}])
+        {"stored_bytes": pilot._MAX_STORED - 1}])
 
     result = pilot.capture_once("kr", "2026-10-07", bundle, capture)
 
-    assert result == {"status": "skipped", "reason": "artifact_budget_reached"}
+    assert result["status"] == "skipped" and result["reason"] == "artifact_budget_reached"
+    assert result["estimated_stored_bytes"] > 1
+
+
+def test_old_size_skip_gets_one_labelled_late_retry(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert db.decision_pilot_claim("us", "2026-10-07", "first", now=1000)
+    assert db.decision_pilot_finish("us", "2026-10-07", "first",
+                                    {"status": "skipped", "reason": "input_too_large"}, now=1001)
+    assert not db.decision_pilot_claim("us", "2026-10-07", "ordinary", now=1002)
+    assert db.decision_pilot_claim("us", "2026-10-07", "retry", now=1003,
+                                   allow_size_retry=True)
+    assert db.decision_pilot_finish("us", "2026-10-07", "retry",
+                                    {"status": "saved", "replay_match": True}, now=1004)
+    assert db.decision_pilot_recent()[0]["late_retry"] is True
+    assert not db.decision_pilot_claim("us", "2026-10-07", "again", now=1005,
+                                       allow_size_retry=True)
+
+
+def test_real_payload_above_old_raw_cap_can_fit_compressed_budget(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    bundle, capture = _captured_bundle(monkeypatch)
+    monkeypatch.setattr(pilot.shutil, "disk_usage", lambda path: SimpleNamespace(
+        total=1024 * pilot._MIB, free=500 * pilot._MIB))
+    monkeypatch.setattr(pilot.decision_snapshot, "estimate_captured_decision",
+                        lambda *_args: {"raw_bytes": 12 * pilot._MIB,
+                                        "stored_bytes": 2 * pilot._MIB})
+
+    reason, size = pilot._budget_reason("kr", bundle, capture)
+
+    assert reason is None and size["stored_bytes"] == 2 * pilot._MIB
 
 
 def test_unavailable_generation_is_visible_and_not_retried(tmp_path, monkeypatch):
@@ -148,4 +181,5 @@ def test_unavailable_generation_is_visible_and_not_retried(tmp_path, monkeypatch
         "market": "us", "session": "2026-10-07", "status": "skipped",
         "reason": "generation_changed", "signal_output_id": None, "replay_match": None,
         "at": db.decision_pilot_recent()[0]["at"], "elapsed_ms": None,
-        "artifact_bytes_added": None}]
+        "artifact_bytes_added": None, "estimated_raw_bytes": None,
+        "estimated_stored_bytes": None, "late_retry": False}]

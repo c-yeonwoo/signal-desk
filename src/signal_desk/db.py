@@ -1371,6 +1371,13 @@ def _decision_artifact_encode(market: str, kind: str, payload: dict) -> tuple[st
     return hashlib.sha256(_DECISION_ARTIFACT_DOMAIN + raw).hexdigest(), raw
 
 
+def decision_artifact_estimate(market: str, kind: str, payload: dict) -> dict:
+    """실제 쓰기와 같은 정규화·압축으로 내용 ID와 최대 추가 바이트를 계산한다."""
+    artifact_id, raw = _decision_artifact_encode(market, kind, payload)
+    return {"id": artifact_id, "raw_bytes": len(raw),
+            "stored_bytes": len(zlib.compress(raw, level=6))}
+
+
 def decision_artifact_put(market: str, kind: str, payload: dict, *,
                           observed_at: int | None = None) -> str:
     """공용 입력을 압축·중복 제거해 보존한다. 같은 ID의 다른 내용은 덮지 않는다."""
@@ -1454,7 +1461,8 @@ def decision_artifact_recent_outputs(limit: int = 4) -> list[dict]:
             for artifact_id, market, observed in rows]
 
 
-def decision_pilot_claim(market: str, session: str, owner: str, *, now: int) -> bool:
+def decision_pilot_claim(market: str, session: str, owner: str, *, now: int,
+                         allow_size_retry: bool = False) -> bool:
     """한 시장·세션에서 자동 판단 보존을 한 실행만 시작한다."""
     if market not in ("kr", "us") or not datetime.date.fromisoformat(session):
         raise ValueError("invalid pilot market or session")
@@ -1465,12 +1473,25 @@ def decision_pilot_claim(market: str, session: str, owner: str, *, now: int) -> 
         c.execute("BEGIN IMMEDIATE")
         row = c.execute("SELECT v FROM kv WHERE k=?", (key,)).fetchone()
         state = json.loads(row[0]) if row else None
-        if state and (state.get("status") != "claimed"
-                      or now - int(state.get("at") or 0) < 600):
-            c.execute("ROLLBACK")
-            return False
+        late_retry = False
+        if state:
+            if state.get("status") == "claimed":
+                if now - int(state.get("at") or 0) < 600:
+                    c.execute("ROLLBACK")
+                    return False
+                late_retry = bool(state.get("late_retry"))
+            elif (allow_size_retry and state.get("status") == "skipped"
+                  and state.get("reason") == "input_too_large"
+                  and not state.get("late_retry")):
+                # 10-07의 잘못된 중복 계산으로 건너뛴 세션은 수정 후 단 한 번만
+                # 늦게 재검증한다. 첫 정규 실행 표본으로 세지 않도록 표시를 보존한다.
+                late_retry = True
+            else:
+                c.execute("ROLLBACK")
+                return False
         c.execute("INSERT OR REPLACE INTO kv(k,v,ts) VALUES(?,?,?)",
-                  (key, json.dumps({"status": "claimed", "owner": owner, "at": now}), now))
+                  (key, json.dumps({"status": "claimed", "owner": owner, "at": now,
+                                    "late_retry": late_retry}), now))
         c.execute("COMMIT")
         return True
     except Exception:
@@ -1495,7 +1516,8 @@ def decision_pilot_finish(market: str, session: str, owner: str, state: dict, *,
             c.execute("ROLLBACK")
             return False
         c.execute("UPDATE kv SET v=?,ts=? WHERE k=?",
-                  (json.dumps({**state, "at": now}, ensure_ascii=False), now, key))
+                  (json.dumps({**state, "at": now, "late_retry": bool(current.get("late_retry"))},
+                              ensure_ascii=False), now, key))
         c.execute("COMMIT")
         return True
     except Exception:
@@ -1516,7 +1538,8 @@ def decision_pilot_recent(limit: int = 8) -> list[dict]:
     return [{"market": k.split(":")[1], "session": k.split(":")[2],
              **{field: json.loads(v).get(field) for field in
                 ("status", "reason", "signal_output_id", "replay_match", "at",
-                 "elapsed_ms", "artifact_bytes_added")}}
+                 "elapsed_ms", "artifact_bytes_added", "estimated_raw_bytes",
+                 "estimated_stored_bytes", "late_retry")}}
             for k, v in rows]
 
 

@@ -138,14 +138,10 @@ def _plain(value):
     raise ValueError(f"unsupported decision input type: {type(value).__name__}")
 
 
-def persist_signal_decision(market: str, *, prices: dict[str, list[float]],
-                            dates: dict[str, list[str]], quote_snapshot: dict,
-                            engine_inputs: dict, gate_inputs: dict, results: list,
-                            observed_at: int | None = None) -> dict:
-    """실제로 사용한 값만 묶어 보존한다. 호출자가 읽지 않은 원천을 추정해 채우지 않는다.
-
-    이 API는 오프라인/명시 호출 전용이다. 라이브 자동 적재와 주문 권한은 없다.
-    """
+def _prepare_signal_decision(market: str, *, prices: dict[str, list[float]],
+                             dates: dict[str, list[str]], quote_snapshot: dict,
+                             engine_inputs: dict, gate_inputs: dict, results: list) -> tuple:
+    """실제 저장할 다섯 조각을 쓰기 없이 만들고 압축 크기를 계산한다."""
     from signal_desk.signals import engine, execution_gate
 
     if (not isinstance(engine_inputs.get("today"), datetime.date)
@@ -182,39 +178,82 @@ def persist_signal_decision(market: str, *, prices: dict[str, list[float]],
         "universe_size": len(engine_inputs["universe"]),
         "rows": [asdict(result) for result in results],
     })
-    price_refs = persist_price_inputs(market, prices, dates, quote_snapshot,
-                                      observed_at=observed_at)
+    base, delta, issues = split_price_inputs(prices, dates, quote_snapshot)
+    prepared = []
+
+    def add(kind: str, payload: dict) -> str:
+        estimate = db.decision_artifact_estimate(market, kind, payload)
+        prepared.append((kind, payload, estimate))
+        return estimate["id"]
+
+    base_id = add("price_base", base)
+    delta_id = add("quote_delta", {"price_base_id": base_id, **delta})
+    price_refs = {"price_base_id": base_id, "quote_delta_id": delta_id,
+                  "structure_status": "verified" if not issues else "partial", "issues": issues,
+                  "strict_pit_eligible": False}
     engine_payload = {
-        "price_base_id": price_refs["price_base_id"],
-        "quote_delta_id": price_refs["quote_delta_id"],
+        "price_base_id": base_id,
+        "quote_delta_id": delta_id,
         "price_structure_status": price_refs["structure_status"],
         "price_issues": price_refs["issues"],
         **engine_core,
     }
-    engine_id = db.decision_artifact_put(market, "engine_input", engine_payload,
-                                         observed_at=observed_at)
+    engine_id = add("engine_input", engine_payload)
     gate_payload = {"engine_input_id": engine_id, **gate_core}
-    gate_id = db.decision_artifact_put(market, "gate_input", gate_payload,
-                                       observed_at=observed_at)
+    gate_id = add("gate_input", gate_payload)
     output_payload = {"gate_input_id": gate_id, **output_core}
-    output_id = db.decision_artifact_put(market, "signal_output", output_payload,
-                                         observed_at=observed_at)
-    return {**price_refs, "engine_input_id": engine_id, "gate_input_id": gate_id,
+    output_id = add("signal_output", output_payload)
+    refs = {**price_refs, "engine_input_id": engine_id, "gate_input_id": gate_id,
             "signal_output_id": output_id, "replay_attemptable": True}
+    size = {"raw_bytes": sum(row[2]["raw_bytes"] for row in prepared),
+            "stored_bytes": sum(row[2]["stored_bytes"] for row in prepared)}
+    return prepared, refs, size
 
 
-def persist_captured_decision(market: str, price_bundle: tuple[dict, dict, dict],
-                              capture: dict, *, observed_at: int | None = None) -> dict:
-    """실제 계산 경로가 남긴 인자만 저장한다. 가격 재조회나 실패 게이트의 추정은 금지."""
-    prices, dates, quote_snapshot = price_bundle
+def persist_signal_decision(market: str, *, prices: dict[str, list[float]],
+                            dates: dict[str, list[str]], quote_snapshot: dict,
+                            engine_inputs: dict, gate_inputs: dict, results: list,
+                            observed_at: int | None = None) -> dict:
+    """실제로 사용한 값만 묶어 보존한다. 호출자가 읽지 않은 원천을 추정해 채우지 않는다."""
+    prepared, refs, _size = _prepare_signal_decision(
+        market, prices=prices, dates=dates, quote_snapshot=quote_snapshot,
+        engine_inputs=engine_inputs, gate_inputs=gate_inputs, results=results)
+    for kind, payload, estimate in prepared:
+        saved_id = db.decision_artifact_put(market, kind, payload, observed_at=observed_at)
+        if saved_id != estimate["id"]:
+            raise RuntimeError("decision artifact changed between estimation and storage")
+    return refs
+
+
+def _validate_capture(price_bundle: tuple[dict, dict, dict], capture: dict) -> None:
+    prices, dates, _quote_snapshot = price_bundle
     gate = capture.get("gate_inputs") or {}
     if gate.get("status") not in ("applied", "empty"):
         raise ValueError("gate inputs were not captured successfully")
     if gate.get("closes_by") != prices or gate.get("dates_by") != dates:
         raise ValueError("gate price generation differs from engine prices")
+
+
+def estimate_captured_decision(market: str, price_bundle: tuple[dict, dict, dict],
+                               capture: dict) -> dict:
+    """복제된 게이트 가격을 빼고 실제 저장 조각의 압축 상한을 재는 읽기 전용 경로."""
+    _validate_capture(price_bundle, capture)
+    prices, dates, quote_snapshot = price_bundle
+    _prepared, _refs, size = _prepare_signal_decision(
+        market, prices=prices, dates=dates, quote_snapshot=quote_snapshot,
+        engine_inputs=capture["engine_inputs"], gate_inputs=capture["gate_inputs"],
+        results=capture["results"])
+    return size
+
+
+def persist_captured_decision(market: str, price_bundle: tuple[dict, dict, dict],
+                              capture: dict, *, observed_at: int | None = None) -> dict:
+    """실제 계산 경로가 남긴 인자만 저장한다. 가격 재조회나 실패 게이트의 추정은 금지."""
+    _validate_capture(price_bundle, capture)
+    prices, dates, quote_snapshot = price_bundle
     return persist_signal_decision(
         market, prices=prices, dates=dates, quote_snapshot=quote_snapshot,
-        engine_inputs=capture["engine_inputs"], gate_inputs=gate,
+        engine_inputs=capture["engine_inputs"], gate_inputs=capture["gate_inputs"],
         results=capture["results"], observed_at=observed_at,
     )
 
