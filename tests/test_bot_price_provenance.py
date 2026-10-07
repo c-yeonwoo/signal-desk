@@ -1,4 +1,6 @@
-from signal_desk import bot
+import time
+
+from signal_desk import bot, store
 
 
 def test_execution_price_evidence_links_matching_fresh_intraday_quote(monkeypatch):
@@ -49,3 +51,57 @@ def test_bot_uses_price_array_value_without_reloading_other_market(monkeypatch):
     monkeypatch.setattr(bot.paper, "current_price", unexpected_reload)
 
     assert bot._live_price("005930", 71000) == 71000
+
+
+def test_price_and_observation_survive_quote_change_after_capture(monkeypatch):
+    received = time.time() - 5
+    monkeypatch.setattr(store, "_kr_prices_raw", lambda: (
+        {"005930": [70000.0]}, {"005930": ["2026-10-06"]}))
+    first = {"quotes": {"005930": 71000.0}, "quote_updated": {"005930": received},
+             "quote_meta": {"005930": {"observation_id": "first"}}}
+    second = {"quotes": {"005930": 72000.0}, "quote_updated": {"005930": received + 1},
+              "quote_meta": {"005930": {"observation_id": "second"}}}
+    monkeypatch.setattr(store, "live_quotes_snapshot", lambda: first)
+
+    prices, dates, captured = store.load_engine_price_bundle("kr")
+    monkeypatch.setattr(store, "live_quotes_snapshot", lambda: second)
+    evidence = bot._execution_price_evidence("kr", "005930", prices["005930"][-1],
+                                              dates_by_ticker=dates, quote_snapshot=captured)
+
+    assert prices["005930"] == [70000.0, 71000.0]
+    assert evidence["price_observation_id"] == "first"
+    assert evidence["price_basis"] == "intraday_provisional"
+
+
+def test_stale_quote_is_not_appended_or_labeled_as_current(monkeypatch):
+    monkeypatch.setattr(store, "_kr_prices_raw", lambda: (
+        {"005930": [70000.0]}, {"005930": ["2026-10-06"]}))
+    monkeypatch.setattr(store, "live_quotes_snapshot", lambda: {
+        "quotes": {"005930": 71000.0}, "quote_updated": {"005930": time.time() - 601},
+        "quote_meta": {"005930": {"observation_id": "stale"}}})
+
+    prices, dates, captured = store.load_engine_price_bundle("kr")
+    evidence = bot._execution_price_evidence("kr", "005930", prices["005930"][-1],
+                                              dates_by_ticker=dates, quote_snapshot=captured)
+
+    assert prices["005930"] == [70000.0]
+    assert evidence["price_basis"] == "daily_close"
+    assert evidence["price_session"] == "2026-10-06"
+    assert evidence["price_observation_id"] is None
+
+
+def test_us_price_bundle_keeps_its_own_close_date_and_quote(monkeypatch):
+    monkeypatch.setattr(store, "_us_prices_raw", lambda: (
+        {"AAPL": [200.0]}, {}, {"AAPL": ["2026-10-06"]}))
+    monkeypatch.setattr(store, "live_quotes_snapshot", lambda: {
+        "quotes": {"AAPL": 201.0}, "quote_updated": {"AAPL": time.time() - 5},
+        "quote_meta": {"AAPL": {"observation_id": "us-first", "provider": "toss"}}})
+
+    prices, dates, captured = store.load_engine_price_bundle("us")
+    evidence = bot._execution_price_evidence("us", "AAPL", prices["AAPL"][-1],
+                                              dates_by_ticker=dates, quote_snapshot=captured)
+
+    assert prices["AAPL"] == [200.0, 201.0]
+    assert dates["AAPL"] == ["2026-10-06"]
+    assert evidence["price_basis"] == "intraday_provisional"
+    assert evidence["price_observation_id"] == "us-first"
