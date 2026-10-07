@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import datetime
 import math
+from dataclasses import asdict, is_dataclass
 
 from signal_desk import db
 
@@ -115,3 +117,136 @@ def load_price_inputs(market: str, price_base_id: str, quote_delta_id: str) -> t
         prices[ticker] = list(item["closes"]) + list(tail)
         dates[ticker] = list(item["dates"])
     return prices, dates
+
+
+def _plain(value):
+    """엔진 입력의 지원 타입만 명시적으로 JSON 값으로 바꾼다. 임의 객체 repr은 금지."""
+    if is_dataclass(value) and not isinstance(value, type):
+        return _plain(asdict(value))
+    if isinstance(value, dict):
+        if not all(isinstance(key, str) for key in value):
+            raise ValueError("decision input keys must be strings")
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return value.isoformat()
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float) and math.isfinite(value):
+        return value
+    raise ValueError(f"unsupported decision input type: {type(value).__name__}")
+
+
+def persist_signal_decision(market: str, *, prices: dict[str, list[float]],
+                            dates: dict[str, list[str]], quote_snapshot: dict,
+                            engine_inputs: dict, gate_inputs: dict, results: list,
+                            observed_at: int | None = None) -> dict:
+    """실제로 사용한 값만 묶어 보존한다. 호출자가 읽지 않은 원천을 추정해 채우지 않는다.
+
+    이 API는 오프라인/명시 호출 전용이다. 라이브 자동 적재와 주문 권한은 없다.
+    """
+    from signal_desk.signals import engine, execution_gate
+
+    if (not isinstance(engine_inputs.get("today"), datetime.date)
+            or isinstance(engine_inputs.get("today"), datetime.datetime)):
+        raise ValueError("engine today must be the exact date used by evaluate")
+    if not gate_inputs.get("today"):
+        raise ValueError("gate today must be explicit")
+    cfg = engine_inputs.get("config") or engine.SignalConfig()
+    gate_cfg = gate_inputs.get("config") or execution_gate.ExecutionGateConfig()
+    # 지원하지 않는 원천 타입/비유한 수치는 어떤 가격 조각도 쓰기 전에 거절한다.
+    engine_core = _plain({
+        "universe": engine_inputs["universe"],
+        "fundamentals": engine_inputs.get("fundamentals") or {},
+        "sentiment": engine_inputs.get("sentiment") or {},
+        "flows": engine_inputs.get("flows") or {},
+        "shorts": engine_inputs.get("shorts") or {},
+        "earnings_dates": engine_inputs.get("earnings_dates") or {},
+        "unavailable": engine_inputs.get("unavailable") or (),
+        "config": cfg,
+        "today": engine_inputs["today"],
+        "signal_policy_id": engine_inputs.get("signal_policy_id"),
+    })
+    gate_core = _plain({
+        "hist_by": gate_inputs.get("hist_by") or {},
+        "events_by": gate_inputs.get("events_by") or {},
+        "today": gate_inputs["today"],
+        "config": gate_cfg,
+    })
+    output_core = _plain({
+        "universe_size": len(engine_inputs["universe"]),
+        "rows": [asdict(result) for result in results],
+    })
+    price_refs = persist_price_inputs(market, prices, dates, quote_snapshot,
+                                      observed_at=observed_at)
+    engine_payload = {
+        "price_base_id": price_refs["price_base_id"],
+        "quote_delta_id": price_refs["quote_delta_id"],
+        "price_structure_status": price_refs["structure_status"],
+        "price_issues": price_refs["issues"],
+        **engine_core,
+    }
+    engine_id = db.decision_artifact_put(market, "engine_input", engine_payload,
+                                         observed_at=observed_at)
+    gate_payload = {"engine_input_id": engine_id, **gate_core}
+    gate_id = db.decision_artifact_put(market, "gate_input", gate_payload,
+                                       observed_at=observed_at)
+    output_payload = {"gate_input_id": gate_id, **output_core}
+    output_id = db.decision_artifact_put(market, "signal_output", output_payload,
+                                         observed_at=observed_at)
+    return {**price_refs, "engine_input_id": engine_id, "gate_input_id": gate_id,
+            "signal_output_id": output_id, "replay_attemptable": True}
+
+
+def replay_signal_decision(market: str, signal_output_id: str) -> dict:
+    """저장된 값으로 전체 횡단면·게이트를 다시 계산한다. 주문/연구 look은 실행하지 않는다."""
+    from signal_desk.signals import engine, execution_gate, reversion
+
+    output = db.decision_artifact_get(signal_output_id)
+    if not output or output["kind"] != "signal_output" or output["market"] != market:
+        raise ValueError("signal output missing or market mismatch")
+    expected = output["data"]
+    gate_id = expected["gate_input_id"]
+    gate = db.decision_artifact_get(gate_id)
+    if not gate or gate["kind"] != "gate_input" or gate["market"] != market:
+        raise ValueError("gate input missing or market mismatch")
+    engine_id = gate["data"]["engine_input_id"]
+    inputs = db.decision_artifact_get(engine_id)
+    if not inputs or inputs["kind"] != "engine_input" or inputs["market"] != market:
+        raise ValueError("engine input missing or market mismatch")
+    saved = inputs["data"]
+    prices, dates = load_price_inputs(market, saved["price_base_id"], saved["quote_delta_id"])
+    cfg_data = dict(saved["config"])
+    cfg_data["reversion"] = reversion.ReversionConfig(**cfg_data["reversion"])
+    cfg_data["backtest_horizons"] = tuple(cfg_data["backtest_horizons"])
+    cfg = engine.SignalConfig(**cfg_data)
+    results = engine.evaluate(
+        saved["universe"], prices, fundamentals=saved["fundamentals"], config=cfg,
+        sentiment=saved["sentiment"], flows=saved["flows"], shorts=saved["shorts"],
+        earnings_dates=saved["earnings_dates"], unavailable=tuple(saved["unavailable"]),
+        today=datetime.date.fromisoformat(saved["today"]),
+    )
+    for result in results:
+        result.signal_policy_id = saved.get("signal_policy_id")
+    gate_data = gate["data"]
+    execution_gate.apply(
+        results, hist_by=gate_data["hist_by"], dates_by=dates, closes_by=prices,
+        events_by=gate_data["events_by"], today=gate_data["today"],
+        cfg=execution_gate.ExecutionGateConfig(**gate_data["config"]),
+    )
+    actual_rows = _plain([asdict(result) for result in results])
+    expected_rows = expected["rows"]
+    mismatched = []
+    for index in range(max(len(actual_rows), len(expected_rows))):
+        actual = actual_rows[index] if index < len(actual_rows) else None
+        original = expected_rows[index] if index < len(expected_rows) else None
+        if actual != original:
+            ticker = (original or actual or {}).get("ticker")
+            mismatched.append(ticker or f"row-{index}")
+    return {"match": not mismatched and len(saved["universe"]) == expected["universe_size"],
+            "market": market, "signal_output_id": signal_output_id,
+            "universe_size": len(saved["universe"]), "expected_rows": len(expected_rows),
+            "replayed_rows": len(actual_rows), "mismatched_tickers": mismatched[:20],
+            "price_structure_status": saved["price_structure_status"],
+            "strict_pit_eligible": False}
