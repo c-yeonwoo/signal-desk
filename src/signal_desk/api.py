@@ -4450,7 +4450,7 @@ def evidence_ops_get(request: Request):
 def storage_breakdown_get(request: Request):
     """On-demand DB page sizes; separate from the ordinary health hot path."""
     _admin_or_403(request)
-    return db.storage_breakdown()
+    return {**db.storage_breakdown(), "decision_artifacts": db.decision_artifact_storage()}
 
 
 @app.get("/api/admin/evidence-audit/dart")

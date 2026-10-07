@@ -7974,11 +7974,23 @@ async function loadStorageBreakdown(){
     const res = await fetch('/api/admin/storage-breakdown');
     if (!res.ok) throw new Error('unavailable');
     const data = await res.json();
-    if (!data.available) { el.textContent = 'DB 내부 크기를 확인할 수 없습니다: ' + (data.reason || '지원되지 않음'); return; }
     const mb = bytes => (Number(bytes || 0) / 1e6).toFixed(1);
-    el.innerHTML = `<div>DB 파일 ${mb(data.db_bytes)} MB · 재사용 가능한 빈 페이지 ${mb(data.free_page_bytes)} MB</div>`
-      + (data.objects || []).map(o => `<div>${esc(o.name)} · ${mb(o.bytes)} MB</div>`).join('')
-      + `<div style="margin-top:5px">테이블·인덱스가 차지하는 페이지입니다. 삭제하거나 정리하지 않았습니다.</div>`;
+    const artifactSize = bytes => Number(bytes || 0) < 1e6
+      ? `${(Number(bytes || 0) / 1e3).toFixed(1)} KB` : `${mb(bytes)} MB`;
+    const artifacts = data.decision_artifacts || [];
+    const artifactSummary = ['kr', 'us'].map(market => {
+      const rows = artifacts.filter(row => row.market === market);
+      const count = rows.reduce((total, row) => total + Number(row.count || 0), 0);
+      const bytes = rows.reduce((total, row) => total + Number(row.stored_bytes || 0), 0);
+      return `${market === 'kr' ? '국내' : '미국'} ${count}건 · ${artifactSize(bytes)}`;
+    }).join(' / ');
+    el.innerHTML = `<div>판단 원장: ${artifactSummary}</div>`
+      + `<div>압축된 내용만 센 값이며 DB 관리 공간과 Railway 볼륨 전체 사용량은 포함하지 않습니다.</div>`
+      + (data.available
+        ? `<div style="margin-top:5px">DB 파일 ${mb(data.db_bytes)} MB · 재사용 가능한 빈 페이지 ${mb(data.free_page_bytes)} MB</div>`
+          + (data.objects || []).map(o => `<div>${esc(o.name)} · ${mb(o.bytes)} MB</div>`).join('')
+          + `<div style="margin-top:5px">테이블·인덱스가 차지하는 페이지입니다. 삭제하거나 정리하지 않았습니다.</div>`
+        : `<div style="margin-top:5px">DB 내부 크기는 확인할 수 없습니다: ${esc(data.reason || '지원되지 않음')}</div>`);
   } catch (e) { el.textContent = 'DB 내부 크기를 불러오지 못했습니다.'; }
 }
 

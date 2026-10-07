@@ -65,3 +65,22 @@ def test_artifact_storage_reports_actual_compressed_bytes(tmp_path, monkeypatch)
     row = db.decision_artifact_storage()[0]
     assert row["kind"] == "price_base" and row["count"] == 1
     assert 0 < row["stored_bytes"] < row["raw_bytes"]
+
+
+def test_admin_storage_breakdown_includes_decision_artifact_usage(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from signal_desk import api
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ADMIN_EMAILS", "storage-admin@example.com")
+    db.decision_artifact_put("kr", "price_base", {"prices": [100.0] * 1000})
+    guest = TestClient(api.app)
+    assert guest.get("/api/admin/storage-breakdown").status_code == 401
+    guest.post("/api/auth/signup", json={"email": "reader@example.com", "pw": "abcdef12"})
+    assert guest.get("/api/admin/storage-breakdown").status_code == 403
+    admin = TestClient(api.app)
+    admin.post("/api/auth/signup", json={"email": "storage-admin@example.com", "pw": "abcdef12"})
+    response = admin.get("/api/admin/storage-breakdown")
+    assert response.status_code == 200
+    assert response.json()["decision_artifacts"] == db.decision_artifact_storage()
+    assert response.json()["decision_artifacts"][0]["stored_bytes"] > 0
