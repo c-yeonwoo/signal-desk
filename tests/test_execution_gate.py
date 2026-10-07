@@ -1,5 +1,8 @@
 """실행 게이트 — late·선반영이면 BUY→HOLD (점수 유지)."""
 
+import pytest
+
+from signal_desk import db, store
 from signal_desk.signals import execution_gate as eg
 from signal_desk.signals.engine import SignalResult
 
@@ -63,3 +66,31 @@ def test_fresh_buy_untouched():
         events_by={}, today="2026-07-24",
     )
     assert r.kind == "BUY" and r.gate_blocked is False
+
+
+@pytest.mark.parametrize("market", ["kospi", "us"])
+def test_gate_uses_evaluated_price_bundle_without_reloading(market, monkeypatch):
+    def unexpected_reload():
+        raise AssertionError("gate must not reread the evaluated prices")
+
+    monkeypatch.setattr(store, "load_signal_history", lambda: [])
+    monkeypatch.setattr(db, "kb_events_active", lambda: [])
+    monkeypatch.setattr(store, "load_price_series", unexpected_reload)
+    monkeypatch.setattr(store, "load_us_price_series", unexpected_reload)
+    monkeypatch.setattr(store, "load_dates_by_ticker", unexpected_reload)
+    monkeypatch.setattr(store, "load_us_dates_by_ticker", unexpected_reload)
+    seen = {}
+
+    def capture(_ticker, *, price, dates, closes, **_kwargs):
+        seen.update(price=price, dates=dates, closes=closes)
+        return None
+
+    monkeypatch.setattr(eg.entry_quality, "compute", capture)
+    r = _buy()
+    eg.apply_from_store([r], market=market, today="2026-10-07",
+                        price_bundle=({"T": [100.0, 111.0]},
+                                      {"T": ["2026-10-06", "2026-10-07"]}))
+
+    assert seen == {"price": 111.0, "dates": ["2026-10-06", "2026-10-07"],
+                    "closes": [100.0, 111.0]}
+    assert r.kind == "BUY"

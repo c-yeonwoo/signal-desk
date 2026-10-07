@@ -533,7 +533,8 @@ def _market_signals(market: str, mr: dict):
     signal_id = policy_contract.signal_policy_id("kr", mr["eff_cfg"] or engine.SignalConfig())
     for sig in sigs:
         sig.signal_policy_id = signal_id
-    execution_gate.apply_from_store(sigs, market="kospi", today=_today("kr"))
+    execution_gate.apply_from_store(sigs, market="kospi", today=_today("kr"),
+                                    price_bundle=(prices, price_dates))
     return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}, price_dates, quote_snapshot
 
 
