@@ -105,3 +105,36 @@ def test_us_price_bundle_keeps_its_own_close_date_and_quote(monkeypatch):
     assert dates["AAPL"] == ["2026-10-06"]
     assert evidence["price_basis"] == "intraday_provisional"
     assert evidence["price_observation_id"] == "us-first"
+
+
+def test_kr_regime_engine_and_gate_share_one_price_capture(monkeypatch):
+    price_bundle = ({"005930": [70000.0, 71000.0]}, {"005930": ["2026-10-06"]},
+                    {"quotes": {"005930": 71000.0}, "quote_updated": {},
+                     "quote_meta": {"005930": {"observation_id": "first"}}})
+    calls = []
+
+    def capture(market):
+        calls.append(market)
+        if len(calls) != 1:
+            raise AssertionError("KR prices were loaded twice in one decision")
+        return price_bundle
+
+    monkeypatch.setattr(store, "load_engine_price_bundle", capture)
+    monkeypatch.setattr(bot, "_market_read", lambda prices: (
+        {"eff_cfg": None, "context": {"regime_price": prices["005930"][-1]}}))
+    monkeypatch.setattr(store, "load_universe", lambda: [{"ticker": "005930", "name": "삼성전자"}])
+    monkeypatch.setattr(store, "load_fundamentals", lambda: {})
+    monkeypatch.setattr(store, "kr_engine_inputs", lambda: {})
+    seen = {}
+    monkeypatch.setattr(bot.engine, "evaluate", lambda _universe, prices, _fundamentals, **_kwargs: (
+        seen.update(engine_prices=prices) or []))
+    monkeypatch.setattr(bot.execution_gate, "apply_from_store", lambda _signals, **kwargs: (
+        seen.update(gate_prices=kwargs["price_bundle"][0]) or []))
+
+    read = bot._market_read_for("kr")
+    _, prices, _, _, dates, observed = bot._market_signals("kr", read)
+
+    assert calls == ["kr"]
+    assert read["context"]["regime_price"] == 71000.0
+    assert seen["engine_prices"] is seen["gate_prices"] is prices
+    assert dates is price_bundle[1] and observed is price_bundle[2]

@@ -247,8 +247,11 @@ def _market_read_for(market: str) -> dict:
     국내 가격의 존재 여부가 미국 투자 한도를 바꾸지 않도록 한다.
     """
     if market == "kr":
-        prices = store.load_price_series()
-        return _market_read(prices) if prices else {"eff_cfg": None, "context": {}}
+        price_bundle = store.load_engine_price_bundle("kr")
+        prices = price_bundle[0]
+        read = _market_read(prices) if prices else {"eff_cfg": None, "context": {}}
+        # 국면의 가격과 이어지는 후보 점수·진입 게이트 가격을 한 캡처로 고정한다.
+        return {**read, "_price_bundle": price_bundle}
     if market != "us":
         raise ValueError("unsupported market")
     prices, dates = store.load_portfolio_close_bundle("us")
@@ -532,7 +535,7 @@ def _market_signals(market: str, mr: dict):
         names = {u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in us_uni}
         return us_uni, prices, sigs, names, price_dates, quote_snapshot
     universe = store.load_universe()
-    prices, price_dates, quote_snapshot = store.load_engine_price_bundle("kr")
+    prices, price_dates, quote_snapshot = mr.get("_price_bundle") or store.load_engine_price_bundle("kr")
     fundamentals = store.load_fundamentals()
     # 입력은 UI(api._signals)와 같은 한 벌을 쓴다(store.kr_engine_inputs) — 따로 나열하면
     # 한쪽에만 팩터가 빠져 화면의 '매수 후보'와 실제 매수가 갈라진다.
