@@ -94,3 +94,35 @@ def test_gate_uses_evaluated_price_bundle_without_reloading(market, monkeypatch)
     assert seen == {"price": 111.0, "dates": ["2026-10-06", "2026-10-07"],
                     "closes": [100.0, 111.0]}
     assert r.kind == "BUY"
+
+
+def test_gate_capture_records_actual_inputs_and_failure_status(monkeypatch):
+    monkeypatch.setattr(store, "load_signal_history", lambda: object())
+    monkeypatch.setattr(eg.entry_quality, "history_kinds_by_ticker",
+                        lambda _history: {"T": [("2026-10-06", "BUY")]})
+    monkeypatch.setattr(db, "kb_events_active", lambda: [{"ticker": "T", "direction": "positive"}])
+    monkeypatch.setattr(eg.priced_in, "events_by_ticker",
+                        lambda _events: {"T": [{"direction": "positive"}]})
+    prices, dates = {"T": [100.0]}, {"T": ["2026-10-06"]}
+    captured = {}
+    eg.apply_from_store([_buy()], today="2026-10-07", price_bundle=(prices, dates),
+                        capture=captured)
+    assert captured["status"] == "applied"
+    assert captured["closes_by"] is prices and captured["dates_by"] is dates
+    assert captured["hist_by"]["T"] == [("2026-10-06", "BUY")]
+    assert captured["events_by"]["T"][0]["direction"] == "positive"
+
+    monkeypatch.setattr(db, "kb_events_active", lambda: 1 / 0)
+    failed = {}
+    eg.apply_from_store([_buy()], today="2026-10-07", price_bundle=(prices, dates),
+                        capture=failed)
+    assert failed["status"] == "failed_partial" and failed["error_type"] == "ZeroDivisionError"
+
+
+def test_empty_gate_capture_has_explicit_day_and_price_bundle():
+    prices, dates = {"T": [100.0]}, {"T": ["2026-10-06"]}
+    captured = {}
+    assert eg.apply_from_store([], today="2026-10-07", price_bundle=(prices, dates),
+                               capture=captured) == []
+    assert captured["status"] == "empty" and captured["today"] == "2026-10-07"
+    assert captured["closes_by"] is prices and captured["dates_by"] is dates

@@ -138,3 +138,5 @@ def test_kr_regime_engine_and_gate_share_one_price_capture(monkeypatch):
     assert read["context"]["regime_price"] == 71000.0
     assert seen["engine_prices"] is seen["gate_prices"] is prices
     assert dates is price_bundle[1] and observed is price_bundle[2]
+    assert read["_decision_capture"]["engine_inputs"]["universe"][0]["ticker"] == "005930"
+    assert read["_decision_capture"]["engine_inputs"]["today"] is not None

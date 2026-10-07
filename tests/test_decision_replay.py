@@ -83,3 +83,36 @@ def test_replay_requires_explicit_engine_day_and_market_match(tmp_path, monkeypa
         assert "market mismatch" in str(exc)
     else:
         raise AssertionError("cross-market replay was accepted")
+
+
+def test_captured_inputs_require_the_same_gate_prices(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    prices, dates, inputs, gate, results = _sample()
+    gate = {**gate, "status": "applied", "closes_by": prices, "dates_by": dates}
+    captured = {"engine_inputs": inputs, "gate_inputs": gate, "results": results}
+    refs = decision_snapshot.persist_captured_decision("kr", (prices, dates, {}), captured)
+    assert decision_snapshot.replay_signal_decision("kr", refs["signal_output_id"])["match"]
+
+    gate["closes_by"] = {"AAA": [999.0]}
+    try:
+        decision_snapshot.persist_captured_decision("kr", (prices, dates, {}), captured)
+    except ValueError as exc:
+        assert "price generation" in str(exc)
+    else:
+        raise AssertionError("mismatched gate price was accepted")
+
+
+def test_failed_gate_capture_cannot_be_called_replayable(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    prices, dates, inputs, _gate, results = _sample()
+    captured = {"engine_inputs": inputs,
+                "gate_inputs": {"status": "failed_partial", "closes_by": prices,
+                                "dates_by": dates, "today": "2026-10-07"},
+                "results": results}
+    try:
+        decision_snapshot.persist_captured_decision("kr", (prices, dates, {}), captured)
+    except ValueError as exc:
+        assert "not captured successfully" in str(exc)
+    else:
+        raise AssertionError("failed gate was accepted")
+    assert db.decision_artifact_storage() == []
