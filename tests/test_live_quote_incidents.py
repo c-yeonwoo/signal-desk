@@ -83,3 +83,74 @@ def test_full_quote_coverage_excludes_invalid_and_unrequested_responses(monkeypa
     finally:
         store.clear_live_quotes()
         store.note_live_attempt("closed")
+
+
+def test_class_share_quote_is_requested_as_provider_symbol_but_stored_as_internal_id(
+        tmp_path, monkeypatch):
+    from signal_desk import store
+    from signal_desk.ingest import toss
+
+    symbols_file = tmp_path / "us_symbols.json"
+    symbols_file.write_text('{"toss":{"BRK-B":"BRK.B","BF-B":"BF.B"}}')
+    monkeypatch.setattr(store, "US_SYMBOLS_FILE", symbols_file)
+    monkeypatch.setattr(store, "load_universe", lambda: [])
+    monkeypatch.setattr(store, "load_us_universe", lambda: [
+        {"ticker": "BRK-B"}, {"ticker": "BF-B"}, {"ticker": "PSKY"}])
+    monkeypatch.setattr(api.db, "intraday_quotes_latest_ts", lambda market, tickers: {})
+    recorded = []
+    monkeypatch.setattr(api.db, "intraday_quotes_record",
+                        lambda market, quotes, **kwargs: recorded.append((market, quotes)))
+    monkeypatch.setattr(api.db, "kv_get", lambda key: api._kst_today())
+    monkeypatch.setattr(api, "_track_live_quote_incident", lambda *args, **kwargs: None)
+    monkeypatch.setattr(toss, "available", lambda: True)
+    requested = []
+
+    def observations(symbols):
+        requested.extend(symbols)
+        return {"BRK.B": {"price": 500.0}, "BF.B": {"price": 40.0},
+                "BRK-B": {"price": 1.0}, "UNKNOWN": {"price": 1.0}}
+
+    monkeypatch.setattr(toss, "price_observations", observations)
+    try:
+        api._refresh_live_quotes(["us"])
+        assert requested == ["BF.B", "BRK.B", "PSKY"]
+        assert store.live_quotes_snapshot()["quotes"] == {"BRK-B": 500.0, "BF-B": 40.0}
+        assert set(recorded[0][1]) == {"BRK-B", "BF-B"}
+        assert store.live_status()["coverage"]["us"] == {
+            "requested_count": 3, "received_count": 2, "missing_count": 1,
+            "missing_sample": ["PSKY"]}
+    finally:
+        store.clear_live_quotes()
+        store.note_live_attempt("closed")
+
+
+def test_held_class_share_quote_uses_same_mapping_without_changing_full_coverage(
+        tmp_path, monkeypatch):
+    from signal_desk import store
+    from signal_desk.ingest import toss
+
+    symbols_file = tmp_path / "us_symbols.json"
+    symbols_file.write_text('{"toss":{"BRK-B":"BRK.B"}}')
+    monkeypatch.setattr(store, "US_SYMBOLS_FILE", symbols_file)
+    monkeypatch.setattr(api.db, "bot_position_tickers_market",
+                        lambda market: {"BRK-B"} if market == "us" else set())
+    monkeypatch.setattr(api.db, "holdings_tickers_market", lambda market: set())
+    recorded = []
+    monkeypatch.setattr(api.db, "intraday_quotes_record",
+                        lambda market, quotes, **kwargs: recorded.append((market, quotes)))
+    monkeypatch.setattr(toss, "available", lambda: True)
+    requested = []
+    monkeypatch.setattr(toss, "price_observations",
+                        lambda symbols: (requested.extend(symbols) or {
+                            "BRK.B": {"price": 510.0}, "UNREQUESTED": {"price": 1.0}}))
+    store.note_live_attempt("ok", ["us"], requested_by_market={"us": {"BRK-B", "PSKY"}},
+                            received_by_market={"us": {"PSKY"}})
+    try:
+        api._refresh_held_live_quotes(["us"])
+        assert requested == ["BRK.B"]
+        assert store.live_quotes_snapshot()["quotes"] == {"BRK-B": 510.0}
+        assert set(recorded[0][1]) == {"BRK-B"}
+        assert store.live_status()["coverage"]["us"]["received_count"] == 1
+    finally:
+        store.clear_live_quotes()
+        store.note_live_attempt("closed")

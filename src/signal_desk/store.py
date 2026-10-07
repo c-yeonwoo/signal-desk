@@ -1389,6 +1389,25 @@ def _symbol_candidates(ticker: str, resolved: dict) -> list[str]:
     return [known] if known else us.symbol_variants(ticker)
 
 
+def us_live_quote_symbol_map(tickers: set[str]) -> dict[str, str]:
+    """토스 요청 심볼 → 내부 미국 티커. 일봉에서 확인된 표기를 우선한다.
+
+    일봉 성공 표기가 없으면 S&P 원본의 점 표기를 먼저 시도한다. 응답이 없으면
+    누락으로 남기며, 두 내부 티커가 같은 공급자 심볼을 가리키면 뒤쪽을 버린다.
+    """
+    from signal_desk.ingest import us
+    cached = _load_json_dict(US_SYMBOLS_FILE).get("toss")
+    resolved = cached if isinstance(cached, dict) else {}
+    result: dict[str, str] = {}
+    for ticker in sorted(tickers):
+        variants = us.symbol_variants(ticker)
+        known = resolved.get(ticker)
+        symbol = known if isinstance(known, str) and known in variants else variants[0]
+        if symbol not in result:
+            result[symbol] = ticker
+    return result
+
+
 def us_price_deferred(ticker: str, skip: dict | None = None) -> bool:
     """반복 실패로 자동 백필에서 유예 중인 티커인가.
 

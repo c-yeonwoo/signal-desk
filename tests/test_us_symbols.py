@@ -22,6 +22,14 @@ def test_plain_tickers_have_exactly_one_form():
         assert us.symbol_variants(t) == [t]
 
 
+def test_live_quote_symbols_use_verified_daily_alias_then_safe_first_candidate(tmp_path, monkeypatch):
+    symbols_file = tmp_path / "us_symbols.json"
+    symbols_file.write_text(json.dumps({"toss": {"BRK-B": "BRK.B", "BF-B": "not-a-variant"}}))
+    monkeypatch.setattr(store, "US_SYMBOLS_FILE", symbols_file)
+    assert store.us_live_quote_symbol_map({"BRK-B", "BF-B", "PSKY"}) == {
+        "BRK.B": "BRK-B", "BF.B": "BF-B", "PSKY": "PSKY"}
+
+
 def _stub_providers(monkeypatch, tmp_path, *, toss_ok: set[str]):
     """토스가 toss_ok에 든 표기만 받아주고 KIS는 전부 실패하는 상황."""
     (tmp_path / "data/cache").mkdir(parents=True, exist_ok=True)
