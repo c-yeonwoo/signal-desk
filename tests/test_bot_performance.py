@@ -14,6 +14,9 @@ def _setup(monkeypatch, tmp_path):
     uni = [{"ticker": "AAA", "name": "가"}]
     monkeypatch.setattr(bot.store, "load_universe", lambda: uni)
     monkeypatch.setattr(bot.store, "load_price_series", lambda: {"AAA": [100.0, 110.0]})
+    monkeypatch.setattr(bot.store, "load_engine_price_bundle", lambda market: (
+        {"AAA": [100.0, 110.0]}, {},
+        {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: {})
     monkeypatch.setattr(bot.store, "load_fundamentals", lambda: {})
     monkeypatch.setattr(bot.engine, "evaluate", lambda *a, **k: [

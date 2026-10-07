@@ -2112,16 +2112,35 @@ def live_status() -> dict:
                 "attempt_markets": list(_LIVE_ATTEMPT["markets"])}
 
 
-def _overlay_closes(series: dict[str, list[float]]) -> dict[str, list[float]]:
+def _overlay_closes(series: dict[str, list[float]], *, snapshot: dict | None = None,
+                    captured_at: float | None = None) -> dict[str, list[float]]:
     """신선한 live 현재가만 종가열 끝에 잠정봉 1개 append. 늙은 잠정가는 종가로 폴백."""
-    now = time.time()
-    snap = live_quotes_snapshot()
+    now = time.time() if captured_at is None else float(captured_at)
+    snap = live_quotes_snapshot() if snapshot is None else snapshot
     live = {t: price for t, price in snap["quotes"].items()
             if -300 <= now - float(snap["quote_updated"].get(t, 0)) <= _LIVE_QUOTE_MAX_AGE_SECONDS}
     if not live:
         return series
     return {t: (closes + [live[t]]) if (live.get(t) and closes) else closes
             for t, closes in series.items()}
+
+
+def load_engine_price_bundle(market: str) -> tuple[dict[str, list[float]], dict[str, list[str]], dict]:
+    """같은 가격 캐시 세대와 같은 장중 관측으로 봇의 가격·근거를 함께 만든다.
+
+    반환된 quote snapshot은 가격 배열에 이미 적용된 관측이다. 이후 새 시세가 와도 이
+    배열을 만든 관측 ID가 바뀌지 않는다. 원본 날짜는 잠정봉을 포함하지 않는다.
+    """
+    if market == "kr":
+        series, dates = _kr_prices_raw()
+    elif market == "us":
+        series, _, dates = _us_prices_raw()
+    else:
+        raise ValueError("unsupported market")
+    snapshot = live_quotes_snapshot()
+    captured_at = time.time()
+    snapshot["captured_at"] = captured_at
+    return _overlay_closes(series, snapshot=snapshot, captured_at=captured_at), dates, snapshot
 
 
 # KR 시세 프로세스 캐시 — 차트 클릭마다 2.7MB parquet + iterrows 하면 체감이 느리다.

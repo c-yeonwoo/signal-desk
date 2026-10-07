@@ -27,6 +27,8 @@ def _setup(monkeypatch, universe, prices, signals, mode="absolute", exposure=1.0
     기본을 "absolute"로 두고, 횡단면 분위 동작은 아래 rank 전용 테스트에서 검증한다."""
     monkeypatch.setattr(bot.store, "load_universe", lambda: universe)
     monkeypatch.setattr(bot.store, "load_price_series", lambda: prices)
+    monkeypatch.setattr(bot.store, "load_engine_price_bundle",
+                        lambda market: (prices, {}, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: {})
     monkeypatch.setattr(bot.store, "load_fundamentals", lambda: {})
     monkeypatch.setattr(bot.engine, "evaluate", lambda *a, **k: signals)

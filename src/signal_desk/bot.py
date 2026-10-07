@@ -158,7 +158,7 @@ def _execution_price_evidence(market: str, ticker: str, price: float, *,
     출처의 거래소 시각이 검증되지 않았더라도 서버 수신 관측과 혼동하지 않도록 별도 필드로 둔다.
     이 메타데이터는 체결 참조를 설명할 뿐 시그널·주문 자격을 바꾸지 않는다.
     """
-    now = time.time() if now is None else float(now)
+    now = float(quote_snapshot.get("captured_at") or time.time()) if now is None else float(now)
     quote = (quote_snapshot.get("quotes") or {}).get(ticker)
     received_at = (quote_snapshot.get("quote_updated") or {}).get(ticker)
     metadata = (quote_snapshot.get("quote_meta") or {}).get(ticker) or {}
@@ -516,15 +516,15 @@ _MAX_CHASE_PCT = 0.02  # 지정가 상한(종가 대비 +2%) — 표시·계획�
 
 
 def _market_signals(market: str, mr: dict):
-    """(universe, prices, signals, name_by_ticker) — 시장별. kr은 재무+국면게이트, us는 us_signals."""
+    """(universe, prices, signals, names, raw_dates, quote_snapshot) — 시장별 입력."""
     if market == "us":
-        prices = store.load_us_price_series()
+        prices, price_dates, quote_snapshot = store.load_engine_price_bundle("us")
         us_uni = store.load_us_universe()
         sigs = us_signals()  # engine.evaluate(us universe, us prices, sentiment) — 재무 없음
         names = {u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in us_uni}
-        return us_uni, prices, sigs, names
+        return us_uni, prices, sigs, names, price_dates, quote_snapshot
     universe = store.load_universe()
-    prices = store.load_price_series()
+    prices, price_dates, quote_snapshot = store.load_engine_price_bundle("kr")
     fundamentals = store.load_fundamentals()
     # 입력은 UI(api._signals)와 같은 한 벌을 쓴다(store.kr_engine_inputs) — 따로 나열하면
     # 한쪽에만 팩터가 빠져 화면의 '매수 후보'와 실제 매수가 갈라진다.
@@ -534,7 +534,7 @@ def _market_signals(market: str, mr: dict):
     for sig in sigs:
         sig.signal_policy_id = signal_id
     execution_gate.apply_from_store(sigs, market="kospi", today=_today("kr"))
-    return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}
+    return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}, price_dates, quote_snapshot
 
 
 def tranche_gate(pos: dict | None, tranches: int, *, today: str) -> tuple[bool, str | None]:
@@ -594,7 +594,8 @@ def recent_sold_tickers(uid: int, market: str, style: str) -> set[str]:
 def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_after,
                        cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
                        sells, buys, rotated_out, dry_run, rp, exposure,
-                       signal_policy_id=None, execution_policy_id=None):
+                       signal_policy_id=None, execution_policy_id=None,
+                       price_dates=None, quote_snapshot=None):
     """약한 보유 → 더 강한 후보 교체. rp=성향별 로테이션 정책. 갱신된 cash 반환.
     sells/buys/held_after/rotated_out 갱신."""
     warned = store.load_warned_tickers() if market == "kr" else set()
@@ -606,12 +607,9 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
     if not cand:
         return cash
 
-    _, price_dates = store.load_portfolio_close_bundle(market)
-    quote_snapshot = store.live_quotes_snapshot()
-
     def price_evidence(ticker: str, price: float) -> dict:
-        return _execution_price_evidence(market, ticker, price, dates_by_ticker=price_dates,
-                                        quote_snapshot=quote_snapshot)
+        return _execution_price_evidence(market, ticker, price, dates_by_ticker=price_dates or {},
+                                        quote_snapshot=quote_snapshot or {})
 
     today = datetime.date.fromisoformat(_today(market))
     weak = []  # (score, holding, live_price) — 교체 가능한 약한 보유
@@ -763,13 +761,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     block_new_buys = _daily_loss_breached(uid, bal, dry_run, market)
 
     mr = _market_read_for(market)
-    universe, prices, signals, name_by_ticker = _market_signals(market, mr)
+    universe, prices, signals, name_by_ticker, price_dates, quote_snapshot = _market_signals(market, mr)
     if not universe or not prices:
         return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요"}
-    # 신호/체결에 쓰인 가격 배열과 원본 일봉의 거래일·장중 관측을 감사 기록에 연결한다.
-    # 가격 배열은 잠정 현재가를 덧붙일 수 있지만, 이 bundle의 날짜는 원본 일봉만 담는다.
-    _, price_dates = store.load_portfolio_close_bundle(market)
-    quote_snapshot = store.live_quotes_snapshot()
 
     def _price_evidence(ticker: str, price: float) -> dict:
         return _execution_price_evidence(market, ticker, price, dates_by_ticker=price_dates,
@@ -1106,7 +1100,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         cash = _conviction_rotate(uid, market, signals, signal_by_ticker, bal2["holdings"], held_after,
                                   cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
                                   sells, buys, rotated_out, dry_run, rp, exposure,
-                                  signal_policy_id, execution_policy_id)
+                                  signal_policy_id, execution_policy_id,
+                                  price_dates, quote_snapshot)
 
     # ① 분할매수 후속: 보유 중이고 여전히 BUY인데 목표비중 미달인 포지션에 다음 트랜치 추가.
     # **막힌 이유를 모아 결과에 싣는다.** 안 그러면 "왜 추가가 안 됐나"가 어느 화면에도 안 뜬다
@@ -1402,7 +1397,7 @@ def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -
     """유저: 종가·거시·KB를 종합해 '다음 개장 때 살' 예약을 만든다(LLM 자문 우선). 시장별(kr|us)."""
     unit = "$" if market == "us" else "원"
     mr = _market_read_for(market)
-    universe, prices, signals, name_by_ticker = _market_signals(market, mr)
+    universe, prices, signals, name_by_ticker, _, _ = _market_signals(market, mr)
     if not universe or not prices:
         return {"ok": False, "reason": "시세 데이터 없음"}
 
@@ -1481,9 +1476,7 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
     if not dry_run and config.bot_kill_switch():
         return {"ok": False, "market": market, "executed": [], "reason": "긴급정지"}
     mr = _market_read_for(market)
-    _, prices, signals, _ = _market_signals(market, mr)
-    _, price_dates = store.load_portfolio_close_bundle(market)
-    quote_snapshot = store.live_quotes_snapshot()
+    _, prices, signals, _, price_dates, quote_snapshot = _market_signals(market, mr)
     signal_by_ticker = {s.ticker: s for s in signals}
     exposure = float(mr["context"].get("exposure", 1.0))
     cfg = _cfg(uid)

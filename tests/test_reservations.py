@@ -18,7 +18,8 @@ def _setup(monkeypatch, tmp_path, prices):
         [], store.load_us_price_series() if market == "us" else store.load_price_series(),
         [SignalResult(ticker=t, name=t, score=2.0, kind="BUY", confidence=0.5,
                       technical_score=0.0, fundamental_score=0.0, has_fundamental=False, reasons=[])
-         for t in (store.load_us_price_series() if market == "us" else store.load_price_series())], {}))
+         for t in (store.load_us_price_series() if market == "us" else store.load_price_series())],
+        {}, {}, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
     db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 100_000.0, "positions": {}}))
 
 
@@ -44,7 +45,9 @@ def test_kill_switch_blocks_pending_reservation(tmp_path, monkeypatch):
 def test_reservation_rechecks_current_signal(tmp_path, monkeypatch):
     _setup(monkeypatch, tmp_path, {"AAA": [100.0, 101.0]})
     db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
-    monkeypatch.setattr(bot, "_market_signals", lambda market, mr: ([], {"AAA": [100.0, 101.0]}, [], {}))
+    monkeypatch.setattr(bot, "_market_signals", lambda market, mr: (
+        [], {"AAA": [100.0, 101.0]}, [], {}, {},
+        {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
     out = bot.execute_reservations(UID)
     assert out["executed"][0]["status"] == "skipped_signal"
     assert db.bot_position_get(UID, "AAA") is None
