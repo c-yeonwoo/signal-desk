@@ -331,6 +331,14 @@ CREATE TABLE IF NOT EXISTS intraday_quotes(market TEXT NOT NULL, ticker TEXT NOT
     provider TEXT, price_kind TEXT NOT NULL DEFAULT 'last', currency TEXT,
     PRIMARY KEY(market, ticker, ts));
 CREATE INDEX IF NOT EXISTS idx_intraday_quotes_lookup ON intraday_quotes(market, ticker, ts);
+-- 공용 판단 입력/출력의 내용 주소 저장소. 계좌·주문 권한이나 사용자 정보는 담지 않는다.
+-- 같은 일봉 기준본/팩터 입력은 여러 판단이 재사용하며 수정 시 새 ID를 만든다.
+CREATE TABLE IF NOT EXISTS decision_artifacts(
+    id TEXT PRIMARY KEY, market TEXT NOT NULL, kind TEXT NOT NULL,
+    schema_version INTEGER NOT NULL, payload BLOB NOT NULL,
+    raw_bytes INTEGER NOT NULL, first_observed INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_decision_artifacts_kind
+    ON decision_artifacts(market,kind,first_observed DESC);
 -- 체결/판정 이벤트는 변경하지 않는 감사 원장이다. event_key가 재시작·재시도 중복을 막는다.
 CREATE TABLE IF NOT EXISTS execution_events(id INTEGER PRIMARY KEY AUTOINCREMENT, event_key TEXT NOT NULL UNIQUE,
     uid INTEGER, market TEXT NOT NULL, ticker TEXT NOT NULL, event_type TEXT NOT NULL, price REAL,
@@ -1345,6 +1353,92 @@ def telegram_links_all() -> list[dict]:
 
 
 # ---------- kv (범용 JSON 캐시) ----------
+_DECISION_ARTIFACT_KINDS = frozenset({
+    "price_base", "quote_delta", "engine_input", "gate_input", "signal_output",
+})
+_DECISION_ARTIFACT_DOMAIN = b"signal-desk:decision-artifact:v1\0"
+
+
+def _decision_artifact_encode(market: str, kind: str, payload: dict) -> tuple[str, bytes]:
+    """판단 자료의 정규 바이트와 내용 ID. 시각·삽입 순서는 ID에 들어가지 않는다."""
+    if market not in ("kr", "us") or kind not in _DECISION_ARTIFACT_KINDS:
+        raise ValueError("invalid decision artifact market or kind")
+    if not isinstance(payload, dict):
+        raise ValueError("decision artifact payload must be an object")
+    raw = json.dumps({"schema_version": 1, "market": market, "kind": kind, "data": payload},
+                     ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                     allow_nan=False).encode("utf-8")
+    return hashlib.sha256(_DECISION_ARTIFACT_DOMAIN + raw).hexdigest(), raw
+
+
+def decision_artifact_put(market: str, kind: str, payload: dict, *,
+                          observed_at: int | None = None) -> str:
+    """공용 입력을 압축·중복 제거해 보존한다. 같은 ID의 다른 내용은 덮지 않는다."""
+    artifact_id, raw = _decision_artifact_encode(market, kind, payload)
+    compressed = zlib.compress(raw, level=6)
+    c = conn()
+    try:
+        cur = c.execute(
+            "INSERT OR IGNORE INTO decision_artifacts"
+            "(id,market,kind,schema_version,payload,raw_bytes,first_observed) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (artifact_id, market, kind, 1, compressed, len(raw),
+             int(time.time() if observed_at is None else observed_at)),
+        )
+        if cur.rowcount == 0:
+            row = c.execute(
+                "SELECT market,kind,schema_version,payload,raw_bytes FROM decision_artifacts WHERE id=?",
+                (artifact_id,),
+            ).fetchone()
+            try:
+                original = zlib.decompress(row[3]) if row else None
+            except zlib.error as exc:
+                raise RuntimeError("decision artifact corrupt") from exc
+            if not row or row[:3] != (market, kind, 1) or row[4] != len(raw) or original != raw:
+                raise RuntimeError("decision artifact ID collision or corruption")
+        c.commit()
+        return artifact_id
+    finally:
+        c.close()
+
+
+def decision_artifact_get(artifact_id: str) -> dict | None:
+    """보존 바이트와 내용 ID를 다시 검증한 뒤 반환한다."""
+    c = conn()
+    try:
+        row = c.execute("SELECT payload,raw_bytes FROM decision_artifacts WHERE id=?",
+                        (artifact_id,)).fetchone()
+    finally:
+        c.close()
+    if row is None:
+        return None
+    try:
+        raw = zlib.decompress(row[0])
+    except zlib.error as exc:
+        raise RuntimeError("decision artifact corrupt") from exc
+    if len(raw) != row[1] or hashlib.sha256(_DECISION_ARTIFACT_DOMAIN + raw).hexdigest() != artifact_id:
+        raise RuntimeError("decision artifact hash mismatch")
+    return json.loads(raw)
+
+
+def decision_artifact_storage(market: str | None = None) -> list[dict]:
+    """원장 종류별 실제 압축 바이트. 운영 저장 예산을 정하기 위한 읽기 전용 계측."""
+    if market is not None and market not in ("kr", "us"):
+        raise ValueError("invalid market")
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT market,kind,COUNT(*),SUM(raw_bytes),SUM(LENGTH(payload)) "
+            "FROM decision_artifacts " + ("WHERE market=? " if market else "") +
+            "GROUP BY market,kind ORDER BY market,kind",
+            (market,) if market else (),
+        ).fetchall()
+    finally:
+        c.close()
+    return [{"market": m, "kind": k, "count": n, "raw_bytes": raw,
+             "stored_bytes": stored} for m, k, n, raw, stored in rows]
+
+
 def lens_snapshot_put(snapshot: dict) -> bool:
     """내용 해시가 처음 관측된 경우만 압축 저장한다. True면 새 원장 행."""
     if snapshot.get("mode") != "read_only" or snapshot.get("order_eligible") is not False:
