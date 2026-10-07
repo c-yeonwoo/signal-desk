@@ -1,6 +1,7 @@
 """US 시그널 메모리 최적화 — parquet 1회 캐시 · items 캐시 · bot↔api evaluate 공유."""
 
 from types import SimpleNamespace
+import time
 
 import pandas as pd
 
@@ -86,3 +87,36 @@ def test_bot_us_signals_reuses_api(monkeypatch):
     monkeypatch.setattr(api, "_us_signals", lambda: fake)
     out = bot.us_signals()
     assert [s.ticker for s in out] == ["BBB", "AAA"]  # 점수 내림차순
+
+
+def test_bot_uses_cached_us_signal_price_generation(monkeypatch):
+    first = ({"AAPL": [200.0, 201.0]}, {"AAPL": ["2026-10-06"]},
+             {"captured_at": time.time(), "quotes": {"AAPL": 201.0},
+              "quote_updated": {"AAPL": time.time() - 1},
+              "quote_meta": {"AAPL": {"observation_id": "first"}}})
+    monkeypatch.setattr(store, "load_engine_price_bundle", lambda market: first)
+    monkeypatch.setattr(store, "load_us_universe", lambda: [{"ticker": "AAPL", "name": "Apple"}])
+    monkeypatch.setattr(store, "us_marketcaps", lambda prices: {})
+    monkeypatch.setattr(store, "attach_us_quality", lambda fundamentals: None)
+    monkeypatch.setattr(store, "load_us_earnings_calendar", lambda: {})
+    monkeypatch.setattr(api.kb, "sentiment_map", lambda: {})
+    monkeypatch.setattr(api, "evaluate", lambda _universe, prices, **_kwargs: [
+        SimpleNamespace(ticker="AAPL", name="Apple", score=prices["AAPL"][-1])])
+    monkeypatch.setattr(api.execution_gate, "apply_from_store", lambda results, **_kwargs: results)
+    monkeypatch.setattr(api, "_sync_episode_state", lambda results, **_kwargs: None)
+    api._us_signals.cache_clear()
+    try:
+        cached = api._us_signals()
+
+        def unexpected_reload(_market):
+            raise AssertionError("bot must use the cached signal's price generation")
+
+        monkeypatch.setattr(store, "load_engine_price_bundle", unexpected_reload)
+        universe, prices, signals, _, dates, observed = bot._market_signals("us", {})
+        assert universe == [{"ticker": "AAPL", "name": "Apple"}]
+        assert prices == first[0] and dates == first[1]
+        assert observed["quote_meta"]["AAPL"]["observation_id"] == "first"
+        assert signals[0].score == prices["AAPL"][-1] == 201.0
+        assert cached is api._us_signals()
+    finally:
+        api._us_signals.cache_clear()

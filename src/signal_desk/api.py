@@ -6228,30 +6228,49 @@ def valuechain_get():
 US_UNAVAILABLE_FACTORS = ("flow", "short")
 
 
+class _USSignalSnapshot(dict):
+    """캐시된 시그널과 그 계산에 실제 사용한 가격 입력을 한 객체에 묶는다.
+
+    dict 인터페이스는 기존 API 호출자가 그대로 쓴다. 이 객체는 프로세스 캐시일 뿐
+    P2의 영속·불변 판단 원장이 아니다.
+    """
+
+    def __init__(self, signals, *, universe, prices, price_dates, quote_snapshot):
+        super().__init__(signals)
+        self.universe = universe
+        self.prices = prices
+        self.price_dates = price_dates
+        self.quote_snapshot = quote_snapshot
+
+
 @lru_cache(maxsize=1)
 def _us_signals():
     """미국 종목 시그널 — US 유니버스 중 시세 있는 종목. EDGAR 재무(PER/PBR)가 있으면 저평가 팩터도
     반영, 없으면 자동 제외. KB 감성(미주은 등)은 정성 팩터. 반환: {ticker: SignalResult}."""
-    prices = store.load_us_price_series()
+    prices, price_dates, quote_snapshot = store.load_engine_price_bundle("us")
     if not prices:
-        return {}
+        return _USSignalSnapshot({}, universe=[], prices=prices, price_dates=price_dates,
+                                 quote_snapshot=quote_snapshot)
+    universe = store.load_us_universe()
     fundamentals = {t: mc for t, mc in store.us_marketcaps(prices).items() if mc.get("per") or mc.get("pbr")}
     # 퀄리티(축약 F-Score)를 US 재무에도 붙인다 — 국내와 같은 함수·같은 기준.
     # 안 붙이면 가중 0.15가 **원리적으로 없는 것도 아닌데** 조용히 빠진다(실측 0/503).
     store.attach_us_quality(fundamentals)
-    results = evaluate(store.load_us_universe(), prices,
+    results = evaluate(universe, prices,
                        fundamentals=fundamentals, sentiment=kb.sentiment_map(),
                        earnings_dates=store.load_us_earnings_calendar(),
                        unavailable=US_UNAVAILABLE_FACTORS)
     policy_id = policy_contract.signal_policy_id("us", SignalConfig())
     for result in results:
         result.signal_policy_id = policy_id
-    execution_gate.apply_from_store(results, market="us", today=_kst_today())
+    execution_gate.apply_from_store(results, market="us", today=_kst_today(),
+                                    price_bundle=(prices, price_dates))
     _sync_episode_state(results, market="us")
     computed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     for result in results:
         result.computed_at = computed_at
-    return {s.ticker: s for s in results}
+    return _USSignalSnapshot({s.ticker: s for s in results}, universe=universe,
+                             prices=prices, price_dates=price_dates, quote_snapshot=quote_snapshot)
 
 
 @app.get("/api/gurus")
