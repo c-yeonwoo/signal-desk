@@ -204,6 +204,7 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
         return
     kr_tickers = {u["ticker"] for u in store.load_universe()} if "kr" in open_markets else set()
     us_tickers = {u["ticker"] for u in store.load_us_universe()} if "us" in open_markets else set()
+    requested_by_market = {"kr": kr_tickers, "us": us_tickers}
     now = int(time.time())
     try:
         last_observed = {"kr": db.intraday_quotes_latest_ts("kr", sorted(kr_tickers)),
@@ -218,36 +219,43 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
     if not toss.available():
         _track_live_quote_incident(open_markets, stale_by_market, {},
                                    reason="토스 현재가 연결이 꺼져 있음")
-        store.clear_live_quotes(); store.note_live_attempt("toss_off", open_markets)
+        store.clear_live_quotes(); store.note_live_attempt(
+            "toss_off", open_markets, requested_by_market=requested_by_market)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
         return
     syms = sorted(kr_tickers | us_tickers)
     try:
         quotes = toss.price_observations(syms) if syms else {}
+        # 공급자의 잘못된 심볼 응답을 공용 오버레이·원장에 섞지 않는다.
+        requested = set(syms)
+        quotes = {ticker: quote for ticker, quote in quotes.items() if ticker in requested}
     except Exception as e:
         # 실패 시 오버레이를 남기면 낡은 장중가가 계속 시그널·체결가로 쓰인다(조용한 고정).
         # 종가로 되돌리고 캐시를 비워, 최소한 '오래된 종가'라는 정직한 상태가 되게 한다.
         log.warning("실시간가 조회 실패 — 종가로 복귀: %s", type(e).__name__)
         _track_live_quote_incident(open_markets, stale_by_market, {}, reason=type(e).__name__)
         store.clear_live_quotes()
-        store.note_live_attempt("no_quotes", open_markets)
+        store.note_live_attempt("no_quotes", open_markets,
+                                requested_by_market=requested_by_market)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
         return
-    failed_by_market = {"kr": stale_by_market["kr"] - set(quotes),
-                        "us": stale_by_market["us"] - set(quotes)}
-    _track_live_quote_incident(open_markets, failed_by_market,
-                               {"kr": kr_tickers & set(quotes), "us": us_tickers & set(quotes)},
-                               reason="오래된 가격의 갱신 응답 누락")
     if quotes:
         store.set_live_quotes(quotes)
+    accepted = set(store.live_quotes_snapshot()["quotes"]) if quotes else set()
+    observed_by_market = {"kr": kr_tickers & accepted, "us": us_tickers & accepted}
+    failed_by_market = {market: stale_by_market[market] - observed_by_market[market]
+                        for market in ("kr", "us")}
+    _track_live_quote_incident(open_markets, failed_by_market, observed_by_market,
+                               reason="오래된 가격의 갱신 응답 누락")
+    if accepted:
         # 현재 실행에 쓴 장중가를 반드시 남긴다. 이 스냅샷이 없으면 5분 청산과 일봉 백테스트가
         # 서로 다른 세계를 보고, 나중에 어느 쪽이 수익률 차이를 만들었는지 검증할 수 없다.
         try:
             now = int(time.time())
             observed = store.live_quotes_snapshot().get("quote_meta", {})
-            ledger_quotes = {t: {**q, **{k: observed.get(t, {}).get(k) for k in
-                                          ("observation_id", "received_at")}}
-                             for t, q in quotes.items()}
+            ledger_quotes = {t: {**quotes[t], **{k: observed.get(t, {}).get(k) for k in
+                                                   ("observation_id", "received_at")}}
+                             for t in accepted}
             if kr_tickers:
                 db.intraday_quotes_record("kr", {t: p for t, p in ledger_quotes.items() if t in kr_tickers}, ts=now)
             if us_tickers:
@@ -258,11 +266,14 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
                 db.kv_set(prune_key, _kst_today())
         except Exception as e:
             log.warning("장중 가격 원장 저장 실패: %s", type(e).__name__)
-        store.note_live_attempt("ok", open_markets)
+        store.note_live_attempt(
+            "ok", open_markets, requested_by_market=requested_by_market,
+            received_by_market=observed_by_market)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
     else:
         store.clear_live_quotes()
-        store.note_live_attempt("no_quotes", open_markets)
+        store.note_live_attempt("no_quotes", open_markets,
+                                requested_by_market=requested_by_market)
         _signals.cache_clear(); _clear_us_signal_caches(); _quotes.cache_clear(); _regime.cache_clear()
 
 

@@ -54,3 +54,32 @@ def test_refresh_alert_only_covers_stale_prices_that_were_previously_observed(mo
     monkeypatch.setattr(api.db, "intraday_quotes_latest_ts", lambda market, tickers: {})
     api._refresh_live_quotes(["kr"])
     assert tracked[0][1] == {"kr": set(), "us": set()}
+
+
+def test_full_quote_coverage_excludes_invalid_and_unrequested_responses(monkeypatch):
+    from signal_desk import store
+    from signal_desk.ingest import toss
+
+    monkeypatch.setattr(api.store, "load_universe", lambda: [])
+    monkeypatch.setattr(api.store, "load_us_universe", lambda: [
+        {"ticker": "AAPL"}, {"ticker": "MSFT"}, {"ticker": "NVDA"}])
+    monkeypatch.setattr(api.db, "intraday_quotes_latest_ts", lambda market, tickers: {})
+    monkeypatch.setattr(api.db, "intraday_quotes_record", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api.db, "kv_get", lambda key: api._kst_today())
+    monkeypatch.setattr(api, "_track_live_quote_incident", lambda *args, **kwargs: None)
+    monkeypatch.setattr(toss, "available", lambda: True)
+    monkeypatch.setattr(toss, "price_observations", lambda symbols: {
+        "AAPL": {"price": 200.0}, "MSFT": {"price": float("nan")},
+        "UNKNOWN": {"price": 1.0}})
+
+    try:
+        api._refresh_live_quotes(["us"])
+        status = store.live_status()
+        assert store.live_quotes_snapshot()["quotes"] == {"AAPL": 200.0}
+        assert status["attempt_result"] == "ok"
+        assert status["coverage"]["us"] == {
+            "requested_count": 3, "received_count": 1, "missing_count": 2,
+            "missing_sample": ["MSFT", "NVDA"]}
+    finally:
+        store.clear_live_quotes()
+        store.note_live_attempt("closed")

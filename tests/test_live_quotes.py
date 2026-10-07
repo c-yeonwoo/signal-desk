@@ -215,3 +215,26 @@ assert.equal(el.textContent,'현재가 121원');
     result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
                             text=True, capture_output=True, check=False)
     assert result.returncode == 0, result.stderr
+
+
+def test_live_status_ui_does_not_call_partial_or_other_market_quotes_healthy():
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the live status renderer")
+    script = r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+const code=html.slice(html.indexOf('function liveStatusView('),html.indexOf('async function loadLiveStatus('));
+const ctx=vm.createContext({Date,Number,Object});
+vm.runInContext(code,ctx);
+const now=Date.now()/1000;
+const d={toss:true,kr_open:false,us_open:true,on:true,count:500,fresh_count:500,
+  updated:now,attempt_ts:now,attempt_result:'ok',
+  coverage:{us:{requested_count:509,received_count:500,missing_count:9,missing_sample:['AAPL']}}};
+assert.match(ctx.liveStatusView(d,'us').text,/500\/509종목 수신 · 9종목 미수신/);
+assert.match(ctx.liveStatusView(d,'kr').text,/이 시장은 장외/);
+assert.match(ctx.liveStatusView({...d,attempt_ts:now-601},'us').text,/전체 현재가 확인 지연/);
+assert.match(ctx.liveStatusView({...d,coverage:{us:{requested_count:509,received_count:509,missing_count:0,missing_sample:[]}}},'us').text,/509\/509종목 수신/);
+"""
+    result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
+                            text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
