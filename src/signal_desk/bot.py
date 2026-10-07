@@ -140,6 +140,16 @@ def us_signals() -> list:
     return sorted(api._us_signals().values(), key=lambda s: s.score, reverse=True)
 
 
+def us_signal_batch() -> tuple:
+    """미국 캐시의 시그널과 계산 당시 가격·관측을 함께 반환한다."""
+    from signal_desk import api
+    cached = api._us_signals()
+    if not isinstance(cached, api._USSignalSnapshot):
+        raise RuntimeError("미국 시그널의 가격 입력을 확인할 수 없습니다")
+    signals = sorted(cached.values(), key=lambda s: s.score, reverse=True)
+    return cached.universe, cached.prices, signals, cached.price_dates, cached.quote_snapshot
+
+
 def _live_price(ticker: str, fallback: float) -> float:
     """봇이 실제 읽은 시장 가격 배열의 마지막 값.
 
@@ -518,9 +528,7 @@ _MAX_CHASE_PCT = 0.02  # 지정가 상한(종가 대비 +2%) — 표시·계획�
 def _market_signals(market: str, mr: dict):
     """(universe, prices, signals, names, raw_dates, quote_snapshot) — 시장별 입력."""
     if market == "us":
-        prices, price_dates, quote_snapshot = store.load_engine_price_bundle("us")
-        us_uni = store.load_us_universe()
-        sigs = us_signals()  # engine.evaluate(us universe, us prices, sentiment) — 재무 없음
+        us_uni, prices, sigs, price_dates, quote_snapshot = us_signal_batch()
         names = {u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in us_uni}
         return us_uni, prices, sigs, names, price_dates, quote_snapshot
     universe = store.load_universe()

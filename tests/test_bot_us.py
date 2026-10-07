@@ -18,11 +18,11 @@ def _setup(monkeypatch, **cfg):
     us_uni = [{"ticker": "AAPL", "name": "Apple"}, {"ticker": "NVDA", "name": "Nvidia"}]
     monkeypatch.setattr(bot.store, "load_us_universe", lambda: us_uni)
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: {"AAPL": [200.0], "NVDA": [120.0]})
-    monkeypatch.setattr(bot.store, "load_engine_price_bundle", lambda market: (
-        {"AAPL": [200.0], "NVDA": [120.0]}, {},
-        {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
     monkeypatch.setattr(bot.store, "load_price_series", lambda: {})  # KR 없음(us만)
-    monkeypatch.setattr(bot, "us_signals", lambda: [_sig("AAPL", "Apple", "BUY", 2.0), _sig("NVDA", "Nvidia", "BUY", 1.8)])
+    monkeypatch.setattr(bot, "us_signal_batch", lambda: (
+        us_uni, {"AAPL": [200.0], "NVDA": [120.0]},
+        [_sig("AAPL", "Apple", "BUY", 2.0), _sig("NVDA", "Nvidia", "BUY", 1.8)],
+        {}, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
     monkeypatch.setattr(bot, "_cfg", lambda uid: {
         "enabled": True, "trading_style": "balanced", "seed_cash": 10_000_000, "seed_cash_us": 10_000,
         "max_positions": 10, "position_pct": 0.08, "min_buy_score": 1.0, "max_new_buys_per_run": 5, **cfg})
