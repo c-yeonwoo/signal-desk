@@ -5,6 +5,7 @@
 기억하지 않아 30분마다 같은 두 종목을 영원히 재시도하며 로그를 채웠다."""
 
 import datetime
+import io
 import json
 
 from signal_desk import api, store
@@ -28,6 +29,21 @@ def test_live_quote_symbols_use_verified_daily_alias_then_safe_first_candidate(t
     monkeypatch.setattr(store, "US_SYMBOLS_FILE", symbols_file)
     assert store.us_live_quote_symbol_map({"BRK-B", "BF-B", "PSKY"}) == {
         "BRK.B": "BRK-B", "BF.B": "BF-B", "PSKY": "PSKY"}
+
+
+def test_official_psky_ticker_rollover_changes_only_current_constituent(monkeypatch):
+    raw = ("Symbol,Security,GICS Sector\n"
+           "PSKY,Paramount Skydance Corporation,Communication Services\n"
+           "BRK.B,Berkshire Hathaway,Financials\n").encode()
+    monkeypatch.setattr(us.urllib.request, "urlopen",
+                        lambda *args, **kwargs: io.BytesIO(raw))
+
+    prior = us.sp500_constituents(as_of=datetime.date(2026, 10, 5))
+    current = us.sp500_constituents(as_of=datetime.date(2026, 10, 6))
+    assert prior[0]["ticker"] == "PSKY"
+    assert current[0] == {"ticker": "SKYD", "name": "Skydance Corporation",
+                          "sector": "Communication Services"}
+    assert prior[1] == current[1]  # 다른 회사나 클래스주 표기는 건드리지 않는다.
 
 
 def _stub_providers(monkeypatch, tmp_path, *, toss_ok: set[str]):
