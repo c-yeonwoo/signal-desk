@@ -11,6 +11,8 @@ UID = 6
 def _setup(monkeypatch, tmp_path, prices):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(store, "load_price_series", lambda: prices)
+    monkeypatch.setattr(store, "load_engine_price_bundle", lambda market: (
+        prices, {}, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
     monkeypatch.setattr(store, "load_us_price_series", lambda: {})
     monkeypatch.setattr(store, "load_universe", lambda: [{"ticker": "AAA", "name": "가"}])
     monkeypatch.setattr(bot, "_market_read", lambda _: {"eff_cfg": None, "context": {"exposure": 1.0}})
