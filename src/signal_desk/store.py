@@ -1986,15 +1986,32 @@ _LIVE_QUOTE_MAX_AGE_SECONDS = 600
 _LIVE_LOCK = threading.RLock()
 _LIVE_TS: float | None = None  # 마지막 '성공' 갱신 시각(epoch)
 _LIVE_REV = 0  # SSE 구독자는 revision으로 가격 갱신·장외 초기화를 감지한다.
-_LIVE_ATTEMPT: dict = {"ts": None, "result": None, "markets": []}  # 마지막 '시도' 시각·결과(성공이든 실패든)
+_LIVE_ATTEMPT: dict = {"ts": None, "result": None, "markets": [], "coverage": {}}
 
 
-def note_live_attempt(result: str, markets: list[str] | None = None) -> None:
+def note_live_attempt(result: str, markets: list[str] | None = None, *,
+                      requested_by_market: dict[str, set[str]] | None = None,
+                      received_by_market: dict[str, set[str]] | None = None) -> None:
     """실시간가 갱신 '시도'를 기록 — 성공/실패 무관하게 언제 시도했고 결과가 뭔지 남긴다.
+    전체 조회의 요청 대비 실제 사용 가능한 응답 수를 남긴다. 보유 종목 1분 갱신은 이 분모를
+    바꾸지 않는다. 미수신은 거래정지·심볼 문제·공급자 누락을 구분하기 전의 관측 상태다.
     result: ok | no_quotes(토스 응답 빔·토큰실패) | toss_off(키 없음) | closed(장외)."""
-    _LIVE_ATTEMPT["ts"] = datetime.datetime.now(datetime.timezone.utc).timestamp()
-    _LIVE_ATTEMPT["result"] = result
-    _LIVE_ATTEMPT["markets"] = list(markets or [])
+    active = list(markets or [])
+    coverage = {}
+    if requested_by_market is not None:
+        for market in active:
+            requested = set(requested_by_market.get(market) or ())
+            received = requested & set((received_by_market or {}).get(market) or ())
+            missing = sorted(requested - received)
+            coverage[market] = {"requested_count": len(requested),
+                                "received_count": len(received),
+                                "missing_count": len(missing),
+                                "missing_sample": missing[:12]}
+    with _LIVE_LOCK:
+        _LIVE_ATTEMPT["ts"] = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        _LIVE_ATTEMPT["result"] = result
+        _LIVE_ATTEMPT["markets"] = active
+        _LIVE_ATTEMPT["coverage"] = coverage
 
 
 def _quote_parts(value) -> tuple[float | None, dict]:
@@ -2109,7 +2126,9 @@ def live_status() -> dict:
                 "source_time_present": sum(bool(m.get("source_timestamp")) for m in _LIVE_QUOTE_META.values()),
                 "source_time_verified": sum(bool(m.get("source_time_verified")) for m in _LIVE_QUOTE_META.values()),
                 "attempt_ts": _LIVE_ATTEMPT["ts"], "attempt_result": _LIVE_ATTEMPT["result"],
-                "attempt_markets": list(_LIVE_ATTEMPT["markets"])}
+                "attempt_markets": list(_LIVE_ATTEMPT["markets"]),
+                "coverage": {market: {**row, "missing_sample": list(row["missing_sample"])}
+                             for market, row in _LIVE_ATTEMPT["coverage"].items()}}
 
 
 def _overlay_closes(series: dict[str, list[float]], *, snapshot: dict | None = None,
