@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import shutil
 import time
 import uuid
-from dataclasses import asdict
 
 from signal_desk import db
 from signal_desk.signals import decision_snapshot
@@ -15,10 +13,8 @@ from signal_desk.signals import decision_snapshot
 log = logging.getLogger("signal_desk.decision_capture_pilot")
 
 _MIB = 1024 * 1024
-_MAX_RAW_INPUT = 8 * _MIB
+_MAX_RAW_INPUT = 64 * _MIB
 _MAX_STORED = 32 * _MIB
-# 단일 캡처의 상한보다 큰 여유를 남긴다. WAL·다른 운영 쓰기도 같은 볼륨을 쓴다.
-_BATCH_RESERVE = 10 * _MIB
 _MIN_FREE = 128 * _MIB
 
 
@@ -31,27 +27,29 @@ def storage_budget_status() -> dict:
                 "volume_free_bytes": usage.free, "artifact_stored_bytes": stored,
                 "artifact_cap_bytes": _MAX_STORED,
                 "can_capture": (usage.free >= max(_MIN_FREE, int(usage.total * 0.20))
-                                and stored <= _MAX_STORED - _BATCH_RESERVE)}
+                                and stored < _MAX_STORED)}
     except OSError:
         return {"available": False, "can_capture": False}
 
 
-def _budget_reason(price_bundle: tuple, capture: dict) -> str | None:
+def _budget_reason(market: str, price_bundle: tuple, capture: dict) -> tuple[str | None, dict | None]:
     budget = storage_budget_status()
     if not budget["available"] or budget["volume_free_bytes"] < max(
             _MIN_FREE, int(budget["volume_total_bytes"] * 0.20)):
-        return "volume_free_low"
-    if budget["artifact_stored_bytes"] > _MAX_STORED - _BATCH_RESERVE:
-        return "artifact_budget_reached"
-    # 저장 전 입력 크기 검사. 비압축 입력을 먼저 제한해 예상 밖 대형 횡단면을 거절한다.
-    raw = json.dumps(decision_snapshot._plain({
-        "prices": price_bundle[0], "dates": price_bundle[1], "quotes": price_bundle[2],
-        "engine": capture["engine_inputs"], "gate": capture["gate_inputs"],
-        "results": [asdict(result) for result in capture["results"]],
-    }), ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
-    if len(raw) > _MAX_RAW_INPUT:
-        return "input_too_large"
-    return None
+        return "volume_free_low", None
+    if budget["artifact_stored_bytes"] >= _MAX_STORED:
+        return "artifact_budget_reached", None
+    # 게이트의 closes_by/dates_by는 이미 가격 조각에 있으므로 두 번 세지 않는다.
+    # 실제 저장과 동일한 다섯 payload를 압축해 상한을 보수적으로 계산한다.
+    size = decision_snapshot.estimate_captured_decision(market, price_bundle, capture)
+    if size["raw_bytes"] > _MAX_RAW_INPUT:
+        return "input_too_large", size
+    if budget["artifact_stored_bytes"] + size["stored_bytes"] > _MAX_STORED:
+        return "artifact_budget_reached", size
+    if budget["volume_free_bytes"] - size["stored_bytes"] < max(
+            _MIN_FREE, int(budget["volume_total_bytes"] * 0.20)):
+        return "volume_free_low", size
+    return None, size
 
 
 def capture_once(market: str, session: str, price_bundle: tuple, capture: dict) -> dict:
@@ -62,12 +60,15 @@ def capture_once(market: str, session: str, price_bundle: tuple, capture: dict) 
     """
     owner = uuid.uuid4().hex
     now = int(time.time())
-    if not db.decision_pilot_claim(market, session, owner, now=now):
+    if not db.decision_pilot_claim(market, session, owner, now=now,
+                                   allow_size_retry=True):
         return {"status": "already_claimed"}
     try:
-        reason = _budget_reason(price_bundle, capture)
+        reason, size = _budget_reason(market, price_bundle, capture)
+        size_fields = ({"estimated_raw_bytes": size["raw_bytes"],
+                        "estimated_stored_bytes": size["stored_bytes"]} if size else {})
         if reason:
-            state = {"status": "skipped", "reason": reason}
+            state = {"status": "skipped", "reason": reason, **size_fields}
         else:
             started = time.perf_counter()
             before_bytes = sum(int(row["stored_bytes"] or 0)
@@ -82,7 +83,8 @@ def capture_once(market: str, session: str, price_bundle: tuple, capture: dict) 
                      "signal_output_id": refs["signal_output_id"],
                      "replay_match": bool(replay["match"]),
                      "elapsed_ms": round((time.perf_counter() - started) * 1000),
-                     "artifact_bytes_added": max(0, after_bytes - before_bytes)}
+                     "artifact_bytes_added": max(0, after_bytes - before_bytes),
+                     **size_fields}
     except Exception as exc:  # noqa: BLE001 — 계좌 실행과 감사용 보존은 분리한다
         log.warning("판단 자동 보존 실패 (%s/%s): %s", market, session, type(exc).__name__)
         state = {"status": "failed", "reason": type(exc).__name__}

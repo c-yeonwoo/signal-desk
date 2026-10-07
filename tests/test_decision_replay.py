@@ -1,6 +1,7 @@
 """P2 오프라인 입력·전체 후보 재생. 라이브 주문이나 등록 연구 판정은 실행하지 않는다."""
 
 import datetime
+import json
 
 from signal_desk import db
 from signal_desk.signals import decision_snapshot, engine, execution_gate
@@ -100,6 +101,47 @@ def test_captured_inputs_require_the_same_gate_prices(tmp_path, monkeypatch):
         assert "price generation" in str(exc)
     else:
         raise AssertionError("mismatched gate price was accepted")
+
+
+def test_capture_estimate_matches_the_bytes_actually_written(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    prices, dates, inputs, gate, results = _sample()
+    gate = {**gate, "status": "applied", "closes_by": prices, "dates_by": dates}
+    captured = {"engine_inputs": inputs, "gate_inputs": gate, "results": results}
+
+    size = decision_snapshot.estimate_captured_decision("kr", (prices, dates, {}), captured)
+    assert db.decision_artifact_storage() == []
+    refs = decision_snapshot.persist_captured_decision("kr", (prices, dates, {}), captured)
+    rows = db.decision_artifact_storage()
+
+    assert refs["signal_output_id"]
+    assert sum(row["raw_bytes"] for row in rows) == size["raw_bytes"]
+    assert sum(row["stored_bytes"] for row in rows) == size["stored_bytes"]
+
+
+def test_estimate_does_not_count_the_same_gate_prices_twice(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    days = [(datetime.date(2024, 1, 1) + datetime.timedelta(days=i)).isoformat()
+            for i in range(600)]
+    prices = {f"T{i:04d}": [100.0 + j * 0.1 for j in range(600)] for i in range(509)}
+    dates = {ticker: days for ticker in prices}
+    captured = {
+        "engine_inputs": {"universe": [{"ticker": ticker, "name": ticker} for ticker in prices],
+                          "fundamentals": {}, "config": engine.SignalConfig(),
+                          "today": datetime.date(2026, 10, 7)},
+        "gate_inputs": {"status": "empty", "closes_by": prices, "dates_by": dates,
+                        "today": "2026-10-07", "hist_by": {}, "events_by": {}},
+        "results": [],
+    }
+    naive_bytes = len(json.dumps({"prices": prices, "dates": dates,
+                                  "gate": {"closes_by": prices, "dates_by": dates}}).encode())
+
+    size = decision_snapshot.estimate_captured_decision("us", (prices, dates, {}), captured)
+
+    assert naive_bytes > 8 * 1024 * 1024
+    assert size["raw_bytes"] < naive_bytes
+    assert size["stored_bytes"] < 32 * 1024 * 1024
+    assert db.decision_artifact_storage() == []
 
 
 def test_failed_gate_capture_cannot_be_called_replayable(tmp_path, monkeypatch):

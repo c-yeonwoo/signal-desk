@@ -7998,7 +7998,7 @@ async function loadStorageBreakdown(){
       + `<div style="margin-top:5px">자동 보존: 정규장 첫 봇 판단을 시장별 하루 1회만 저장합니다. 저장 공간이 부족하면 건너뛰며 주문에는 영향이 없습니다.</div>`
       + (budget.available ? `<div>저장 볼륨 여유 ${artifactSize(budget.volume_free_bytes)} / 전체 ${artifactSize(budget.volume_total_bytes)} · 판단 원장 상한 ${artifactSize(budget.artifact_cap_bytes)} · ${budget.can_capture ? '현재 보존 가능' : '보존 안전 한도 도달'}</div>`
         : `<div>저장 볼륨 여유를 읽지 못해 자동 보존하지 않습니다.</div>`)
-      + (pilot.length ? pilot.map(row => `<div>${row.market === 'kr' ? '국내' : '미국'} ${esc(row.session)} · ${pilotLabel(row)}${row.reason ? ` (${esc(row.reason)})` : ''}${Number.isFinite(Number(row.elapsed_ms)) && row.elapsed_ms !== null ? ` · ${Number(row.elapsed_ms)} ms / +${artifactSize(row.artifact_bytes_added)}` : ''}</div>`).join('')
+      + (pilot.length ? pilot.map(row => `<div>${row.market === 'kr' ? '국내' : '미국'} ${esc(row.session)} · ${pilotLabel(row)}${row.late_retry ? ' · 첫 실행 이후 재검증' : ''}${row.reason ? ` (${esc(row.reason)})` : ''}${row.estimated_stored_bytes != null ? ` · 저장 예상 ${artifactSize(row.estimated_stored_bytes)}` : ''}${Number.isFinite(Number(row.elapsed_ms)) && row.elapsed_ms !== null ? ` · ${Number(row.elapsed_ms)} ms / 실제 +${artifactSize(row.artifact_bytes_added)}` : ''}</div>`).join('')
         : `<div>아직 자동 보존 기록이 없습니다.</div>`)
       + (recent.length ? `<div style="margin-top:5px">최근 판단 재생 검사: `
         + recent.map(row => `<button type="button" class="btn" style="margin:3px" onclick="replayStoredDecision('${row.market}','${row.id}',this)">${row.market === 'kr' ? '국내' : '미국'} · ${esc(new Date(Number(row.first_observed) * 1000).toLocaleString('ko-KR'))}</button>`).join('')
