@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import io
 import csv
+import datetime
 import logging
 import time
 import urllib.request
+from zoneinfo import ZoneInfo
 
 from signal_desk import config
 from signal_desk.broker import kis
@@ -30,8 +32,13 @@ _PRICE_TR = "HHDFS76240000"       # 해외주식 기간별시세
 _PRICE_PATH = "/uapi/overseas-price/v1/quotations/dailyprice"
 
 
-def sp500_constituents() -> list[dict]:
-    """datahub S&P500 구성종목 → [{ticker, name, sector}]. 실패 시 []."""
+def sp500_constituents(*, as_of: datetime.date | None = None) -> list[dict]:
+    """datahub S&P500 구성종목 → 현재 거래 가능한 표기. 실패 시 [].
+
+    원본 CSV가 종목코드 변경을 늦게 반영할 때는 공식 공시로 확인된 변경만 현재 목록에
+    적용한다. PIT 구성 이력이나 과거 가격은 이 함수에서 수정하지 않는다.
+    """
+    as_of = as_of or datetime.datetime.now(ZoneInfo("America/New_York")).date()
     try:
         with urllib.request.urlopen(_SP500_CSV, timeout=_TIMEOUT) as resp:
             text = resp.read().decode("utf-8")
@@ -43,8 +50,16 @@ def sp500_constituents() -> list[dict]:
         sym = (row.get("Symbol") or "").strip()
         if not sym:
             continue
+        name = (row.get("Security") or sym).strip()
+        # 2026-10-06 회사 8-K: PSKY Class B는 NYSE로 이전하고 SKYD로 종목코드 변경.
+        # S&P DJI는 종전 PSKY를 구성종목으로 명시했고 이 거래를 편출로 발표하지 않았다.
+        # 원본 CSV가 PSKY인 동안만 현재 표기를 교정하며, 과거 PIT 기록을 되메우지 않는다.
+        # https://ir.paramount.com/node/73436/html
+        # https://press.spglobal.com/2026-10-01-Vylor-Added-to-the-S-P-500-Twilio-Set-to-Join-S-P-500-Others-to-Join-S-P-MidCap-400-and-S-P-SmallCap-600
+        if sym == "PSKY" and as_of >= datetime.date(2026, 10, 6):
+            sym, name = "SKYD", "Skydance Corporation"
         out.append({"ticker": sym.replace(".", "-"),  # BRK.B→BRK-B — 내부 ID(표기는 아래 참고)
-                    "name": (row.get("Security") or sym).strip(),
+                    "name": name,
                     "sector": (row.get("GICS Sector") or "").strip()})
     return out
 
