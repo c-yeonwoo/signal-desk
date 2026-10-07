@@ -153,6 +153,9 @@ def persist_signal_decision(market: str, *, prices: dict[str, list[float]],
         raise ValueError("engine today must be the exact date used by evaluate")
     if not gate_inputs.get("today"):
         raise ValueError("gate today must be explicit")
+    gate_status = gate_inputs.get("status", "applied")
+    if gate_status not in ("applied", "empty") or (gate_status == "empty" and results):
+        raise ValueError("failed or inconsistent gate capture cannot be replayed")
     cfg = engine_inputs.get("config") or engine.SignalConfig()
     gate_cfg = gate_inputs.get("config") or execution_gate.ExecutionGateConfig()
     # 지원하지 않는 원천 타입/비유한 수치는 어떤 가격 조각도 쓰기 전에 거절한다.
@@ -169,6 +172,7 @@ def persist_signal_decision(market: str, *, prices: dict[str, list[float]],
         "signal_policy_id": engine_inputs.get("signal_policy_id"),
     })
     gate_core = _plain({
+        "status": gate_status,
         "hist_by": gate_inputs.get("hist_by") or {},
         "events_by": gate_inputs.get("events_by") or {},
         "today": gate_inputs["today"],
@@ -197,6 +201,22 @@ def persist_signal_decision(market: str, *, prices: dict[str, list[float]],
                                          observed_at=observed_at)
     return {**price_refs, "engine_input_id": engine_id, "gate_input_id": gate_id,
             "signal_output_id": output_id, "replay_attemptable": True}
+
+
+def persist_captured_decision(market: str, price_bundle: tuple[dict, dict, dict],
+                              capture: dict, *, observed_at: int | None = None) -> dict:
+    """실제 계산 경로가 남긴 인자만 저장한다. 가격 재조회나 실패 게이트의 추정은 금지."""
+    prices, dates, quote_snapshot = price_bundle
+    gate = capture.get("gate_inputs") or {}
+    if gate.get("status") not in ("applied", "empty"):
+        raise ValueError("gate inputs were not captured successfully")
+    if gate.get("closes_by") != prices or gate.get("dates_by") != dates:
+        raise ValueError("gate price generation differs from engine prices")
+    return persist_signal_decision(
+        market, prices=prices, dates=dates, quote_snapshot=quote_snapshot,
+        engine_inputs=capture["engine_inputs"], gate_inputs=gate,
+        results=capture["results"], observed_at=observed_at,
+    )
 
 
 def replay_signal_decision(market: str, signal_output_id: str) -> dict:
@@ -230,11 +250,12 @@ def replay_signal_decision(market: str, signal_output_id: str) -> dict:
     for result in results:
         result.signal_policy_id = saved.get("signal_policy_id")
     gate_data = gate["data"]
-    execution_gate.apply(
-        results, hist_by=gate_data["hist_by"], dates_by=dates, closes_by=prices,
-        events_by=gate_data["events_by"], today=gate_data["today"],
-        cfg=execution_gate.ExecutionGateConfig(**gate_data["config"]),
-    )
+    if gate_data["status"] == "applied":
+        execution_gate.apply(
+            results, hist_by=gate_data["hist_by"], dates_by=dates, closes_by=prices,
+            events_by=gate_data["events_by"], today=gate_data["today"],
+            cfg=execution_gate.ExecutionGateConfig(**gate_data["config"]),
+        )
     actual_rows = _plain([asdict(result) for result in results])
     expected_rows = expected["rows"]
     mismatched = []

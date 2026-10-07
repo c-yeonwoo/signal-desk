@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import datetime
 import hashlib
 import json
@@ -6235,12 +6236,14 @@ class _USSignalSnapshot(dict):
     P2의 영속·불변 판단 원장이 아니다.
     """
 
-    def __init__(self, signals, *, universe, prices, price_dates, quote_snapshot):
+    def __init__(self, signals, *, universe, prices, price_dates, quote_snapshot,
+                 decision_capture=None):
         super().__init__(signals)
         self.universe = universe
         self.prices = prices
         self.price_dates = price_dates
         self.quote_snapshot = quote_snapshot
+        self.decision_capture = decision_capture
 
 
 @lru_cache(maxsize=1)
@@ -6256,21 +6259,34 @@ def _us_signals():
     # 퀄리티(축약 F-Score)를 US 재무에도 붙인다 — 국내와 같은 함수·같은 기준.
     # 안 붙이면 가중 0.15가 **원리적으로 없는 것도 아닌데** 조용히 빠진다(실측 0/503).
     store.attach_us_quality(fundamentals)
+    sentiment = kb.sentiment_map()
+    earnings_dates = store.load_us_earnings_calendar()
+    engine_today = datetime.date.today()  # evaluate 기본 날짜의 실제 값을 함께 캡처한다.
     results = evaluate(universe, prices,
-                       fundamentals=fundamentals, sentiment=kb.sentiment_map(),
-                       earnings_dates=store.load_us_earnings_calendar(),
+                       fundamentals=fundamentals, sentiment=sentiment,
+                       earnings_dates=earnings_dates, today=engine_today,
                        unavailable=US_UNAVAILABLE_FACTORS)
     policy_id = policy_contract.signal_policy_id("us", SignalConfig())
     for result in results:
         result.signal_policy_id = policy_id
+    gate_capture: dict = {}
     execution_gate.apply_from_store(results, market="us", today=_kst_today(),
-                                    price_bundle=(prices, price_dates))
+                                    price_bundle=(prices, price_dates), capture=gate_capture)
     _sync_episode_state(results, market="us")
     computed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     for result in results:
         result.computed_at = computed_at
+    decision_capture = {
+        "engine_inputs": {"universe": universe, "fundamentals": fundamentals,
+                          "sentiment": sentiment, "earnings_dates": earnings_dates,
+                          "unavailable": US_UNAVAILABLE_FACTORS, "today": engine_today,
+                          "config": SignalConfig(), "signal_policy_id": policy_id},
+        "gate_inputs": gate_capture,
+        "results": copy.deepcopy(results),
+    }
     return _USSignalSnapshot({s.ticker: s for s in results}, universe=universe,
-                             prices=prices, price_dates=price_dates, quote_snapshot=quote_snapshot)
+                             prices=prices, price_dates=price_dates, quote_snapshot=quote_snapshot,
+                             decision_capture=decision_capture)
 
 
 @app.get("/api/gurus")

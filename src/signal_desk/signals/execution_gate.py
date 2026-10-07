@@ -100,6 +100,7 @@ def apply_from_store(
     today: str | None = None,
     cfg: ExecutionGateConfig | None = None,
     price_bundle: tuple[dict[str, list[float]], dict[str, list[str]]] | None = None,
+    capture: dict | None = None,
 ) -> list[SignalResult]:
     """store/db에서 이력·이벤트를 읽어 게이트 적용.
 
@@ -107,9 +108,17 @@ def apply_from_store(
     evaluate와 게이트 사이에 갱신돼도 두 단계가 다른 가격을 사용하지 않는다.
     나머지 이력·이벤트 입력의 불변 캡처는 별도 단계다.
     """
-    if not results:
-        return results
+    if capture is not None:
+        capture.clear()
     today = today or datetime.datetime.now(_KST).date().isoformat()
+    if not results:
+        if capture is not None:
+            capture.update({"status": "empty", "today": today,
+                            "config": cfg or ExecutionGateConfig(),
+                            "closes_by": price_bundle[0] if price_bundle else {},
+                            "dates_by": price_bundle[1] if price_bundle else {},
+                            "hist_by": {}, "events_by": {}})
+        return results
     try:
         from signal_desk import db, store
         hist_by = entry_quality.history_kinds_by_ticker(store.load_signal_history())
@@ -123,10 +132,17 @@ def apply_from_store(
             dates_by = store.load_dates_by_ticker()
         events = db.kb_events_active()
         events_by = priced_in.events_by_ticker(events)
+        if capture is not None:
+            capture.update({"status": "applied", "hist_by": hist_by,
+                            "events_by": events_by, "dates_by": dates_by,
+                            "closes_by": closes_by, "today": today,
+                            "config": cfg or ExecutionGateConfig()})
         return apply(
             results, hist_by=hist_by, dates_by=dates_by, closes_by=closes_by,
             events_by=events_by, today=today, cfg=cfg,
         )
     except Exception as e:
+        if capture is not None:
+            capture.update({"status": "failed_partial", "error_type": type(e).__name__})
         log.warning("실행 게이트 스킵: %s", type(e).__name__)
         return results

@@ -10,6 +10,7 @@ bot_positions(uid)에 따로 보관한다(paper 잔고에서 매 회차 reconcil
 
 from __future__ import annotations
 
+import copy
 import datetime
 import logging
 import math
@@ -539,13 +540,23 @@ def _market_signals(market: str, mr: dict):
     fundamentals = store.load_fundamentals()
     # 입력은 UI(api._signals)와 같은 한 벌을 쓴다(store.kr_engine_inputs) — 따로 나열하면
     # 한쪽에만 팩터가 빠져 화면의 '매수 후보'와 실제 매수가 갈라진다.
+    factor_inputs = store.kr_engine_inputs()
+    engine_today = datetime.date.today()  # evaluate의 기존 기본 날짜를 명시해 재생 입력에 남긴다.
     sigs = engine.evaluate(universe, prices, fundamentals, config=mr["eff_cfg"],
-                           **store.kr_engine_inputs())
+                           today=engine_today, **factor_inputs)
     signal_id = policy_contract.signal_policy_id("kr", mr["eff_cfg"] or engine.SignalConfig())
     for sig in sigs:
         sig.signal_policy_id = signal_id
+    gate_capture: dict = {}
     execution_gate.apply_from_store(sigs, market="kospi", today=_today("kr"),
-                                    price_bundle=(prices, price_dates))
+                                    price_bundle=(prices, price_dates), capture=gate_capture)
+    mr["_decision_capture"] = {
+        "engine_inputs": {"universe": universe, "fundamentals": fundamentals,
+                          "config": mr["eff_cfg"], "today": engine_today,
+                          "signal_policy_id": signal_id, **factor_inputs},
+        "gate_inputs": gate_capture,
+        "results": copy.deepcopy(sigs),
+    }
     return universe, prices, sigs, {u["ticker"]: u["name"] for u in universe}, price_dates, quote_snapshot
 
 

@@ -118,5 +118,9 @@ def test_bot_uses_cached_us_signal_price_generation(monkeypatch):
         assert observed["quote_meta"]["AAPL"]["observation_id"] == "first"
         assert signals[0].score == prices["AAPL"][-1] == 201.0
         assert cached is api._us_signals()
+        assert cached.decision_capture["engine_inputs"]["universe"] == universe
+        assert cached.decision_capture["engine_inputs"]["today"] is not None
+        signals[0].score = 999.0
+        assert cached.decision_capture["results"][0].score == 201.0
     finally:
         api._us_signals.cache_clear()
