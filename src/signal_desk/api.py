@@ -4451,8 +4451,11 @@ def evidence_ops_get(request: Request):
 def storage_breakdown_get(request: Request):
     """On-demand DB page sizes; separate from the ordinary health hot path."""
     _admin_or_403(request)
+    from signal_desk.signals import decision_capture_pilot
     return {**db.storage_breakdown(), "decision_artifacts": db.decision_artifact_storage(),
-            "recent_decisions": db.decision_artifact_recent_outputs()}
+            "recent_decisions": db.decision_artifact_recent_outputs(),
+            "decision_pilot": db.decision_pilot_recent(),
+            "decision_pilot_budget": decision_capture_pilot.storage_budget_status()}
 
 
 @app.get("/api/admin/decision-replay")

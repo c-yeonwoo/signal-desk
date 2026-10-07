@@ -1,6 +1,7 @@
 """해외(US) 페이퍼 봇 — 시장 격리(KR/US 계좌·포지션 분리), USD 시드."""
 
 import json
+from types import SimpleNamespace
 
 from signal_desk import bot, db
 from signal_desk.broker import paper
@@ -40,6 +41,34 @@ def test_us_paper_buys_and_isolated_from_kr(tmp_path, monkeypatch):
     b_us = paper.balance(UID, "us")
     assert b_us["cash"] < 10_000                          # USD 시드에서 차감
     assert paper.balance(UID, "kr")["cash"] == 10_000_000  # KR 계좌 그대로
+
+
+def test_pilot_capture_failure_does_not_change_us_paper_orders(tmp_path, monkeypatch):
+    from signal_desk import api
+    from signal_desk.signals import decision_capture_pilot
+
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch)
+    batch = bot.us_signal_batch()
+    monkeypatch.setattr(bot, "us_signal_batch", lambda: batch)
+    snapshot = SimpleNamespace(prices=batch[1], price_dates=batch[3],
+                               quote_snapshot=batch[4], decision_capture={"captured": True})
+    monkeypatch.setattr(api, "_us_signals", lambda: snapshot)
+    monkeypatch.setattr(bot.config, "is_prod", lambda: True)
+    monkeypatch.setattr(bot.market_clock, "is_open", lambda *_args: True)
+    attempted = []
+
+    def fail_capture(market, session, bundle, capture):
+        attempted.append((market, session, bundle, capture))
+        raise RuntimeError("audit storage failed")
+
+    monkeypatch.setattr(decision_capture_pilot, "capture_once", fail_capture)
+    out = bot.run_once(UID, market="us")
+
+    assert out["ok"] and out["buys"]
+    assert len(attempted) == 1 and attempted[0][0] == "us"
+    assert attempted[0][2] == (batch[1], batch[3], batch[4])
+    assert attempted[0][3] is snapshot.decision_capture
 
 
 def test_us_state_and_reset(tmp_path, monkeypatch):

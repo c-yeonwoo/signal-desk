@@ -1454,6 +1454,72 @@ def decision_artifact_recent_outputs(limit: int = 4) -> list[dict]:
             for artifact_id, market, observed in rows]
 
 
+def decision_pilot_claim(market: str, session: str, owner: str, *, now: int) -> bool:
+    """한 시장·세션에서 자동 판단 보존을 한 실행만 시작한다."""
+    if market not in ("kr", "us") or not datetime.date.fromisoformat(session):
+        raise ValueError("invalid pilot market or session")
+    key = f"decision_pilot:{market}:{session}"
+    c = conn()
+    try:
+        c.isolation_level = None
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT v FROM kv WHERE k=?", (key,)).fetchone()
+        state = json.loads(row[0]) if row else None
+        if state and (state.get("status") != "claimed"
+                      or now - int(state.get("at") or 0) < 600):
+            c.execute("ROLLBACK")
+            return False
+        c.execute("INSERT OR REPLACE INTO kv(k,v,ts) VALUES(?,?,?)",
+                  (key, json.dumps({"status": "claimed", "owner": owner, "at": now}), now))
+        c.execute("COMMIT")
+        return True
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
+    finally:
+        c.close()
+
+
+def decision_pilot_finish(market: str, session: str, owner: str, state: dict, *, now: int) -> bool:
+    """임대 주인이 그대로일 때에만 결과를 남겨 늦은 실행의 덮어쓰기를 막는다."""
+    if state.get("status") not in ("saved", "failed", "skipped"):
+        raise ValueError("invalid pilot status")
+    key = f"decision_pilot:{market}:{session}"
+    c = conn()
+    try:
+        c.isolation_level = None
+        c.execute("BEGIN IMMEDIATE")
+        row = c.execute("SELECT v FROM kv WHERE k=?", (key,)).fetchone()
+        current = json.loads(row[0]) if row else None
+        if not current or current.get("owner") != owner or current.get("status") != "claimed":
+            c.execute("ROLLBACK")
+            return False
+        c.execute("UPDATE kv SET v=?,ts=? WHERE k=?",
+                  (json.dumps({**state, "at": now}, ensure_ascii=False), now, key))
+        c.execute("COMMIT")
+        return True
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
+    finally:
+        c.close()
+
+
+def decision_pilot_recent(limit: int = 8) -> list[dict]:
+    """계좌/원문을 제외한 자동 보존 상태만 관리자에게 노출한다."""
+    c = conn()
+    try:
+        rows = c.execute("SELECT k,v FROM kv WHERE k LIKE 'decision_pilot:%' "
+                         "ORDER BY ts DESC LIMIT ?", (max(1, min(int(limit), 30)),)).fetchall()
+    finally:
+        c.close()
+    return [{"market": k.split(":")[1], "session": k.split(":")[2],
+             **{field: json.loads(v).get(field) for field in
+                ("status", "reason", "signal_output_id", "replay_match", "at",
+                 "elapsed_ms", "artifact_bytes_added")}}
+            for k, v in rows]
+
+
 def lens_snapshot_put(snapshot: dict) -> bool:
     """내용 해시가 처음 관측된 경우만 압축 저장한다. True면 새 원장 행."""
     if snapshot.get("mode") != "read_only" or snapshot.get("order_eligible") is not False:
