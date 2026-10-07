@@ -141,9 +141,44 @@ def us_signals() -> list:
 
 
 def _live_price(ticker: str, fallback: float) -> float:
-    """현재가(가격캐시 종가). paper는 종가 기준이라 캐시가 곧 체결가. 없으면 fallback."""
-    live = paper.current_price(ticker)
-    return live if live else fallback
+    """봇이 실제 읽은 시장 가격 배열의 마지막 값.
+
+    `_market_signals`의 가격 배열에는 신선한 잠정 현재가가 이미 오버레이된다.
+    여기서 paper.current_price()를 다시 부르면 시장 구분 없이 두 가격 파일을 다시 읽고,
+    시그널 계산 입력과 주문 참조가 서로 달라질 수 있다.
+    """
+    return float(fallback)
+
+
+def _execution_price_evidence(market: str, ticker: str, price: float, *,
+                              dates_by_ticker: dict[str, list[str]], quote_snapshot: dict,
+                              now: float | None = None) -> dict:
+    """봇 주문이 참조한 가격이 일봉 종가인지 잠정 현재가인지 감사용으로 남긴다.
+
+    출처의 거래소 시각이 검증되지 않았더라도 서버 수신 관측과 혼동하지 않도록 별도 필드로 둔다.
+    이 메타데이터는 체결 참조를 설명할 뿐 시그널·주문 자격을 바꾸지 않는다.
+    """
+    now = time.time() if now is None else float(now)
+    quote = (quote_snapshot.get("quotes") or {}).get(ticker)
+    received_at = (quote_snapshot.get("quote_updated") or {}).get(ticker)
+    metadata = (quote_snapshot.get("quote_meta") or {}).get(ticker) or {}
+    try:
+        quote_price = float(quote)
+        received_at = float(received_at)
+    except (TypeError, ValueError):
+        quote_price, received_at = None, None
+    fresh = bool(quote_price and received_at is not None and -300 <= now - received_at <= 600)
+    matches = bool(fresh and abs(quote_price - float(price)) <= max(abs(float(price)) * 1e-9, 1e-6))
+    sessions = dates_by_ticker.get(ticker) or []
+    return {
+        "price_basis": "intraday_provisional" if matches else "daily_close",
+        "price_session": _today(market) if matches else (sessions[-1] if sessions else None),
+        "price_observation_id": metadata.get("observation_id") if matches else None,
+        "price_provider": metadata.get("provider") if matches else None,
+        "price_received_at": received_at if matches else None,
+        "price_source_timestamp": metadata.get("source_timestamp") if matches else None,
+        "price_source_time_verified": bool(metadata.get("source_time_verified")) if matches else None,
+    }
 
 
 def _market_read(prices: dict[str, list[float]]) -> dict:
@@ -571,6 +606,13 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
     if not cand:
         return cash
 
+    _, price_dates = store.load_portfolio_close_bundle(market)
+    quote_snapshot = store.live_quotes_snapshot()
+
+    def price_evidence(ticker: str, price: float) -> dict:
+        return _execution_price_evidence(market, ticker, price, dates_by_ticker=price_dates,
+                                        quote_snapshot=quote_snapshot)
+
     today = datetime.date.fromisoformat(_today(market))
     weak = []  # (score, holding, live_price) — 교체 가능한 약한 보유
     for h in holdings:
@@ -602,12 +644,14 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
         if best.score - weak_score < rp["min_gap"]:
             break  # 격차 부족(정렬돼 있으니 이후 후보도 부족) → 중단
         wt, wqty = wh["ticker"], wh["qty"]
+        sell_evidence = price_evidence(wt, wlive)
         pl_pct = (wlive / wh["avg_price"] - 1) * 100 if wh["avg_price"] else 0
         bname = name_by_ticker.get(best.ticker, best.name)
         blive = _live_price(best.ticker, (prices.get(best.ticker) or [0])[-1])
         if not blive:
             weak.pop(0)
             continue
+        buy_evidence = price_evidence(best.ticker, blive)
         # 팔고 나서야 한도 미달을 알게 되면 교체가 아니라 불필요한 청산이 된다.
         # 같은 페이퍼 비용 모델로 매도 후의 계좌를 먼저 예상해 매수 가능 여부를 검사한다.
         before = paper.balance(uid, market)
@@ -625,11 +669,13 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
             continue
         snote = (f"컨빅션 로테이션 — 보유 점수 {weak_score:+.2f} 약화, {bname}({best.score:+.2f})로 교체 · "
                  f"평단 {int(wh['avg_price']):,}→현재 {int(wlive):,}{unit}({pl_pct:+.1f}%) {wqty}주 청산")
-        splan = {"ticker": wt, "name": wh["name"], "qty": wqty, "reason": "ROTATE_OUT", "note": snote, "price": wlive}
+        splan = {"ticker": wt, "name": wh["name"], "qty": wqty, "reason": "ROTATE_OUT", "note": snote,
+                 "price": wlive, "price_evidence": sell_evidence}
         if not dry_run:
             sell_result = paper.place_order(uid, wt, "sell", wqty, price=wlive, name=wh["name"],
                                             market=market, reason="ROTATE_OUT", note=snote,
-                                            score=weak_score, event_payload={"replaced_by": best.ticker},
+                                            score=weak_score, event_payload={"replaced_by": best.ticker,
+                                                                             "price_evidence": sell_evidence},
                                             alert_style=REFERENCE_BOTS.get(uid),
                                             policy_id=execution_policy_id,
                                             signal_policy_id=signal_policy_id)
@@ -655,11 +701,13 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
             bnote = (f"컨빅션 로테이션 진입 — 점수 {best.score:+.2f}(교체된 보유 대비 +{best.score - weak_score:.2f}) · "
                      f"1/{tranches}트랜치(약 {int(alloc):,}{unit}) ÷ {int(blive):,}{unit} = {bqty}주")
             bplan = {"ticker": best.ticker, "name": bname, "qty": bqty, "price": blive,
-                     "reason": "ROTATE_IN", "note": bnote, "score": best.score, "ai": False}
+                     "reason": "ROTATE_IN", "note": bnote, "score": best.score, "ai": False,
+                     "price_evidence": buy_evidence}
             if not dry_run:
                 buy_result = paper.place_order(uid, best.ticker, "buy", bqty, price=blive, name=bname,
                                                market=market, reason="ROTATE_IN", note=bnote,
-                                               score=best.score, event_payload={"replaced": wt},
+                                               score=best.score, event_payload={"replaced": wt,
+                                                                                "price_evidence": buy_evidence},
                                                risk_policy=_buy_risk_policy(cfg, exposure),
                                                alert_style=REFERENCE_BOTS.get(uid),
                                                policy_id=execution_policy_id,
@@ -718,6 +766,15 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     universe, prices, signals, name_by_ticker = _market_signals(market, mr)
     if not universe or not prices:
         return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요"}
+    # 신호/체결에 쓰인 가격 배열과 원본 일봉의 거래일·장중 관측을 감사 기록에 연결한다.
+    # 가격 배열은 잠정 현재가를 덧붙일 수 있지만, 이 bundle의 날짜는 원본 일봉만 담는다.
+    _, price_dates = store.load_portfolio_close_bundle(market)
+    quote_snapshot = store.live_quotes_snapshot()
+
+    def _price_evidence(ticker: str, price: float) -> dict:
+        return _execution_price_evidence(market, ticker, price, dates_by_ticker=price_dates,
+                                        quote_snapshot=quote_snapshot)
+
     signal_by_ticker = {s.ticker: s for s in signals}
     if not dry_run and market == "kr":
         _update_decision_outcomes(prices)  # 과거 결정 사후수익 확정(공용 학습, 국내 기준)
@@ -743,6 +800,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         if not closes:
             continue  # 유니버스 밖 종목 — 봇 판단 대상 아님
         current_price = _live_price(ticker, closes[-1])
+        price_evidence = _price_evidence(ticker, current_price)
         # **종목별** 청산 폭. 종가 시계열로만 잰다(장중 오버레이가 섞이면 폭이 매 틱 흔들린다).
         pos_risk = _risk_for(closes)
         pos = db.bot_position_get(uid, ticker)
@@ -779,13 +837,15 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                 note = _sell_note(reason, sell_qty, avg_price, current_price, pl_pct,
                                   pos_risk.effective())
             plan = {"ticker": ticker, "name": name_by_ticker.get(ticker, ticker), "qty": sell_qty,
-                    "reason": reason, "note": note, "price": current_price}
+                    "reason": reason, "note": note, "price": current_price,
+                    "price_evidence": price_evidence}
             if not dry_run:
                 result = paper.place_order(
                     uid, ticker, "sell", sell_qty, price=current_price, name=plan["name"],
                     market=market, reason=reason, note=note, score=sig.score if sig else None,
                     event_payload={"peak": peak, "entry_price": avg_price,
-                                   "risk": pos_risk.effective().__dict__},
+                                   "risk": pos_risk.effective().__dict__,
+                                   "price_evidence": price_evidence},
                     alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
                     signal_policy_id=signal_policy_id)
                 if result is not None:
@@ -805,7 +865,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                  "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
                                  "risk": pos_risk.effective().__dict__,
                                  "signal_policy_id": signal_policy_id,
-                                 "execution_policy_id": execution_policy_id},
+                                 "execution_policy_id": execution_policy_id,
+                                 "price_evidence": price_evidence},
                     )
                     if reason in ("EVENT", "EVENT_TRIM") and dec:
                         db.bot_decision_log(
@@ -816,7 +877,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                              "uid": uid, "qty": sell_qty,
                              "execution_event_key": trade_event_key,
                              "signal_policy_id": signal_policy_id,
-                             "execution_policy_id": execution_policy_id},
+                             "execution_policy_id": execution_policy_id,
+                             "price_evidence": price_evidence},
                             current_price,
                         )
                     remaining = qty - sell_qty
@@ -941,6 +1003,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             if not closes:
                 continue
             live = _live_price(s.ticker, closes[-1])
+            price_evidence = _price_evidence(s.ticker, live)
             vscale = vol_sizing.scale(vol_sizing.realized_vol(closes), ref_vol)
             alloc = min(tranche_alloc * vscale, cash, room)  # ① 분할∩익스포저 · 고변동↓
             requested = int(alloc // live)
@@ -960,14 +1023,16 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             llm_reason = rationale_by.get(s.ticker)
             note = (f"[AI] {llm_reason} · {quant}") if llm_reason else quant
             plan = {"ticker": s.ticker, "name": name_by_ticker.get(s.ticker, s.name), "qty": qty, "price": live,
-                    "reason": "SIGNAL", "note": note, "score": s.score, "ai": bool(llm_reason)}
+                    "reason": "SIGNAL", "note": note, "score": s.score, "ai": bool(llm_reason),
+                    "price_evidence": price_evidence}
             if not dry_run:
                 result = paper.place_order(
                     uid, s.ticker, "buy", qty, price=live, name=s.name, market=market,
                     reason="SIGNAL", note=note, score=s.score,
                     event_payload={"rank": s.rank, "confidence": s.confidence,
                                    "style": cfg["trading_style"],
-                                   "risk": _risk_for(closes).effective().__dict__},
+                                   "risk": _risk_for(closes).effective().__dict__,
+                                   "price_evidence": price_evidence},
                     risk_policy=_buy_risk_policy(cfg, exposure),
                     alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
                     signal_policy_id=signal_policy_id)
@@ -989,6 +1054,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                  "slippage_cost": result["slippage_cost"],
                                  "signal_policy_id": signal_policy_id,
                                  "execution_policy_id": execution_policy_id,
+                                 "price_evidence": price_evidence,
                                  # 해당 진입에 실제 적용한 폭을 동결한다. 나중에 config가 바뀌어도
                                  # 과거 실행을 새 규칙으로 재생하는 룩어헤드가 생기지 않는다.
                                  "risk": _risk_for(closes).effective().__dict__},
@@ -1002,6 +1068,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                "execution_event_key": trade_event_key,
                                "signal_policy_id": signal_policy_id,
                                "execution_policy_id": execution_policy_id,
+                               "price_evidence": price_evidence,
                                "score_semantics": policy_contract.SCORE_SEMANTICS}
                     db.bot_decision_log(s.ticker, s.name, "buy", s.score, note, buy_ctx, live)
                     cash -= qty * live
@@ -1057,6 +1124,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             continue
         avg = h["avg_price"]
         live = _live_price(t, closes[-1])
+        price_evidence = _price_evidence(t, live)
         value = h["qty"] * live
         if value >= target_alloc * 0.95:       # 이미 목표비중 도달 → 추가 없음
             continue
@@ -1079,10 +1147,12 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         note = (f"분할 추가매수(목표 {int(target_alloc):,}{unit} 대비 {int(value):,}{unit}) · "
                 f"평단 {int(avg):,}·현재 {int(live):,} · {qty}주")
         plan = {"ticker": t, "name": h["name"], "qty": qty, "price": live,
-                "reason": "ADD", "note": note, "score": sig.score, "ai": False}
+                "reason": "ADD", "note": note, "score": sig.score, "ai": False,
+                "price_evidence": price_evidence}
         if not dry_run:
             result = paper.place_order(uid, t, "buy", qty, price=live, name=h["name"],
                                        market=market, reason="ADD", note=note, score=sig.score,
+                                       event_payload={"price_evidence": price_evidence},
                                        risk_policy=_buy_risk_policy(cfg, exposure),
                                        alert_style=REFERENCE_BOTS.get(uid),
                                        policy_id=execution_policy_id,
@@ -1412,6 +1482,8 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
         return {"ok": False, "market": market, "executed": [], "reason": "긴급정지"}
     mr = _market_read_for(market)
     _, prices, signals, _ = _market_signals(market, mr)
+    _, price_dates = store.load_portfolio_close_bundle(market)
+    quote_snapshot = store.live_quotes_snapshot()
     signal_by_ticker = {s.ticker: s for s in signals}
     exposure = float(mr["context"].get("exposure", 1.0))
     cfg = _cfg(uid)
@@ -1436,6 +1508,8 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
             reject("no_data", "현재 가격 없음")
             continue
         price = _live_price(r["ticker"], closes[-1])
+        price_evidence = _execution_price_evidence(
+            market, r["ticker"], price, dates_by_ticker=price_dates, quote_snapshot=quote_snapshot)
         ceiling = r["target_price"] * (1 + r["max_chase_pct"])
         if price > ceiling:
             reject("skipped_price", f"현재가 {int(price):,}{unit} > 상한 {int(ceiling):,}{unit} — 추격 안 함")
@@ -1455,7 +1529,8 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
             result = paper.place_order(
                 uid, r["ticker"], "buy", qty, price=price, name=r["name"], market=market,
                 reason="RESERVATION", note=note,
-                event_payload={"reservation_id": r["id"], "target_price": r["target_price"]},
+                event_payload={"reservation_id": r["id"], "target_price": r["target_price"],
+                               "price_evidence": price_evidence},
                 risk_policy=_buy_risk_policy(cfg, exposure),
                 alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
                 signal_policy_id=signal_policy_id)
@@ -1472,7 +1547,8 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                              "target_price": r["target_price"], "reference_price": price,
                              "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
                              "signal_policy_id": signal_policy_id,
-                             "execution_policy_id": execution_policy_id},
+                             "execution_policy_id": execution_policy_id,
+                             "price_evidence": price_evidence},
                 )
                 db.bot_position_upsert(uid, r["ticker"], r["name"], qty, basis_per_share, price, _today(market),
                                         market=market, tranches_done=1, last_buy_date=_today(market))
