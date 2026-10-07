@@ -100,6 +100,21 @@ def test_bot_fill_writes_balance_trade_and_event_together(tmp_path, monkeypatch)
     assert db.bot_trades_recent(UID)[0]["note"] == "보충"
 
 
+def test_bot_fill_preserves_price_evidence_captured_for_reference_price(tmp_path, monkeypatch):
+    _seed(monkeypatch, tmp_path, price=100.0)
+    reference_evidence = {"price_basis": "intraday_provisional", "price_session": "2026-10-07",
+                          "price_observation_id": "quote-at-sizing"}
+    monkeypatch.setattr(store, "live_price_evidence", lambda ticker: {
+        "fresh": True, "observation_id": "newer-quote-at-commit"})
+
+    result = paper.place_order(UID, "005930", "buy", 1, price=100.0, name="삼성전자",
+                               reason="SIGNAL", event_payload={"price_evidence": reference_evidence})
+
+    event = db.execution_events_for_uid(UID, "kr")[0]
+    assert result is not None
+    assert event["payload"]["price_evidence"] == reference_evidence
+
+
 def test_audit_failure_rolls_back_paper_cash_and_position(tmp_path, monkeypatch):
     _seed(monkeypatch, tmp_path, price=100.0)
     before = paper.balance(UID)

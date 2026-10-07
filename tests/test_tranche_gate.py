@@ -91,7 +91,7 @@ def test_add_records_the_tranche_and_date():
     """기록하지 않으면 다음 루프가 같은 회차를 무한히 다시 센다."""
     src = inspect.getsource(bot.run_once)
     i = src.index('"reason": "ADD"')
-    blk = src[i:i + 1600]
+    blk = src[i:i + 2600]
     assert "tranches_done=" in blk and "last_buy_date=" in blk
 
 
@@ -104,7 +104,7 @@ def test_new_entries_start_at_tranche_one():
     assert len(logs) >= 2, f"신규 매수 로그 자리를 {len(logs)}곳만 찾았다 — 패턴이 바뀌었다"
     for i in logs:
         # 체결 감사 원장이 매수 로그와 포지션 기록 사이에 추가돼도 신규 진입 회차 불변식은 같다.
-        blk = src[i:i + 1_600]
+        blk = src[i:i + 2_600]
         assert "tranches_done=1" in blk, (
             f"신규 진입이 회차를 1로 시작하지 않는다:\n    {src[i:i+240]}")
 
