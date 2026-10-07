@@ -99,15 +99,23 @@ def apply_from_store(
     market: str = "kospi",
     today: str | None = None,
     cfg: ExecutionGateConfig | None = None,
+    price_bundle: tuple[dict[str, list[float]], dict[str, list[str]]] | None = None,
 ) -> list[SignalResult]:
-    """store/db에서 시계열·이벤트를 읽어 게이트 적용. 실패해도 원본 결과 유지."""
+    """store/db에서 이력·이벤트를 읽어 게이트 적용.
+
+    엔진이 이미 가격을 캡처했다면 같은 가격·날짜 묶음을 넘긴다. 장중 시세가
+    evaluate와 게이트 사이에 갱신돼도 두 단계가 다른 가격을 사용하지 않는다.
+    나머지 이력·이벤트 입력의 불변 캡처는 별도 단계다.
+    """
     if not results:
         return results
     today = today or datetime.datetime.now(_KST).date().isoformat()
     try:
         from signal_desk import db, store
         hist_by = entry_quality.history_kinds_by_ticker(store.load_signal_history())
-        if market == "us":
+        if price_bundle is not None:
+            closes_by, dates_by = price_bundle
+        elif market == "us":
             closes_by = store.load_us_price_series()
             dates_by = store.load_us_dates_by_ticker()
         else:
