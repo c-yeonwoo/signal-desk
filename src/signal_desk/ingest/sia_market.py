@@ -243,6 +243,8 @@ def latest(path: Path, *, as_of: dt.datetime) -> dict | None:
         return None
     identifier, material, available_at = row
     envelope = json.loads(material)
+    if not isinstance(envelope, dict) or not isinstance(envelope.get("fact"), dict):
+        raise ValueError("SIA archive integrity failure")
     identity = json.dumps({"schema": SCHEMA, "fact": envelope.get("fact")}, sort_keys=True,
                           separators=(",", ":")).encode()
     if (hashlib.sha256(identity).hexdigest() != identifier or envelope.get("schema") != SCHEMA
