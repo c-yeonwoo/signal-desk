@@ -90,3 +90,16 @@ def test_api_endpoint_reads_saved_release_without_collecting(monkeypatch, tmp_pa
     result = api.industry_pulse_sia_get()
     assert result["status"] == "not_recorded"
     assert result["live_eligible"] is False
+
+
+def test_corrupt_non_object_archive_fails_closed_instead_of_raising(tmp_path):
+    path = tmp_path / "corrupt.db"
+    conn = sia._connect(path)
+    try:
+        with conn:
+            conn.execute("INSERT INTO sia_market_observations VALUES (?,?,?)",
+                         ("bad-id", NOW.isoformat(), b"[]"))
+    finally:
+        conn.close()
+    result = sia.describe(path, as_of=NOW)
+    assert result["status"] == "archive_error"
