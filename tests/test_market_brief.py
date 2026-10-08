@@ -32,6 +32,7 @@ def test_fresh_market_card_uses_same_session_bars_and_dated_flow():
     assert out["facts"][0]["value"] == "2/2개"
     assert out["facts"][2]["as_of"] == "2026-10-01"
     assert out["selection"]["buy_count"] == 1
+    assert out["scene"]["direction"] == "unknown"  # 직전 거래일 날짜가 이어지지 않음
     assert out["not_order_advice"] is True
 
 
@@ -41,6 +42,7 @@ def test_stale_market_card_withholds_claims_and_buy_count():
                              tickers=["A"], expected="2026-10-02",
                              selection={"buy_count": 3})
     assert out["status"] == "stale"
+    assert out["scene"]["direction"] == "unknown"
     assert out["state"] is None and out["facts"] == [] and out["selection"] is None
     assert "2026-10-01" in out["unknown"][0]
 
@@ -75,6 +77,7 @@ def test_partial_coverage_headline_names_sample_when_most_bars_are_available():
     assert out["status"] == "partial"
     assert out["daily_coverage"] == {"available": 9, "analyzed": 9}
     assert out["today_headline"] == "확인한 9개에서는 오른 종목이 더 많았어요"
+    assert out["scene"]["direction"] == "up"
     assert out["selection"] is None
 
 
@@ -89,6 +92,7 @@ def test_low_daily_coverage_with_complete_latest_bars_still_withholds_direction(
     assert out["status"] == "ready"  # 최근 종가의 신선도와 당일 등락의 범위는 별개다.
     assert out["today_headline"] == "오늘 시장 방향은 자료가 부족해요"
     assert out["daily_coverage"] == {"available": 1, "analyzed": 2}
+    assert out["scene"]["direction"] == "unknown"
 
 
 def test_today_route_reads_market_card_without_eager_signal_list():
@@ -106,6 +110,8 @@ def test_market_card_has_one_endpoint_and_defers_source_requests():
     assert "'/api/market-brief?market='" in html
     assert 'id="market-brief-sources"' in html
     assert 'id="mb-image"' in html
+    assert 'id="mb-image-fallback"' in html
+    assert "prefers-reduced-motion:reduce" in html
     assert 'downloadMarketBriefPng()' in html
     start = html.split("async function startApp(){", 1)[1].split("// ===== 온보딩", 1)[0]
     assert "loadMacro();" not in start
@@ -133,7 +139,7 @@ def test_market_brief_api_reuses_current_decisions_without_llm(monkeypatch):
     assert out["selection"]["buy_count"] == 1
     assert out["selection_policy"]["cutoff_score"] == 1.4
     assert '<svg ' in out["image_svg"]
-    assert "10-02 16:00 KST" in out["image_svg"]
+    assert 'data-scene="unknown"' in out["image_svg"]
 
 
 def test_market_brief_api_does_not_compute_signals_when_prices_stale(monkeypatch):
@@ -169,6 +175,8 @@ def test_weak_breadth_is_explained_without_technical_headline():
 def test_image_is_parseable_and_escapes_untrusted_text():
     out = market_brief_image.render({
         "market": "kr", "status": "ready", "price_as_of": "2026-10-02",
+        "scene": {"direction": "up", "compared": 5, "universe": 5, "up": 3, "down": 2,
+                  "flat": 0, "sectors": [{"sector": "A&B <업종>", "median_change_pct": 2.1}]},
         "headline": "관찰 종목의 흐름이 엇갈려요", "summary": "A&B <불확실>",
         "facts": [{"label": "최근 평균보다 높은 종목", "value": "2/5개", "percent": 40},
                   {"label": "20개 종가 전보다 오른 종목", "value": "3/5개", "percent": 60}],
@@ -177,7 +185,46 @@ def test_image_is_parseable_and_escapes_untrusted_text():
     })
     ElementTree.fromstring(out)
     assert "A&amp;B &lt;불확실&gt;" in out
+    assert "A&amp;B &lt;업종&gt;" in out
+    assert 'data-scene="up"' in out
     assert "매수 판정 1개" in out
+
+
+def test_illustration_follows_verified_direction_and_withholds_us_sector():
+    prices = {}
+    dates = {}
+    for n in range(10):
+        prices[str(n)] = [100.0] * 59 + [100.0, 105.0 if n < 8 else 95.0]
+        dates[str(n)] = ["2026-07-01"] * 59 + ["2026-10-01", "2026-10-02"]
+    kr = market_brief.build(
+        "kr", prices=prices, dates=dates, tickers=list(prices), expected="2026-10-02",
+        previous="2026-10-01", sector_by_ticker={str(n): "반도체" for n in range(10)},
+    )
+    assert kr["scene"]["direction"] == "up"
+    assert kr["scene"]["up"] == 8 and kr["scene"]["down"] == 2
+    svg = market_brief_image.render(kr)
+    assert 'data-scene="up"' in svg
+    assert "상승 8 · 하락 2 · 보합 0" in svg
+    assert "반도체 +5.00%" in svg
+    us = market_brief.build(
+        "us", prices=prices, dates=dates, tickers=list(prices), expected="2026-10-02",
+        previous="2026-10-01",
+    )
+    assert "반도체" not in market_brief_image.render(us)
+
+
+def test_image_fogs_low_daily_coverage_even_when_latest_close_is_fresh():
+    prices, dates = _bars()
+    card = market_brief.build(
+        "kr", prices={"A": prices, "B": prices},
+        dates={"A": dates, "B": dates[:-2] + ["2026-09-29", dates[-1]]},
+        tickers=["A", "B"], expected="2026-10-02", previous=dates[-2],
+        selection={"buy_count": 2, "computed_at": "2026-10-02T07:00:00+00:00"},
+    )
+    svg = market_brief_image.render(card)
+    assert 'data-scene="unknown"' in svg
+    assert "매수 판정 2개" not in svg
+    assert "오래된 가격이나 부족한 자료" in svg
 
 
 def test_image_withholds_buy_count_without_verifiable_decision_time():
