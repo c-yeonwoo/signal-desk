@@ -156,6 +156,9 @@ ctx._paintSignalReview('005930',{ticker:'005930',price_status:'current',price_ba
   evidence:[{id:'kb:7',kind:'news',published_at:'2026-10-06T09:00:00+09:00',url:'javascript:alert(1)'}],
   holding_text:'분석용 보유 입력에는 없음',next_checks:['다음 자료 확인'],unknowns:[]});
 assert.match(el.innerHTML,/&lt;img/);
+assert.match(el.innerHTML,/기사 제목 ·/);
+assert.match(el.innerHTML,/기사 내용의 사실 여부는 검증하지 않았어요/);
+assert.doesNotMatch(el.innerHTML,/확인된 기업 소식/);
 assert.doesNotMatch(el.innerHTML,/href="javascript:/);
 ctx._paintSignalReview('AAPL',null);
 assert.equal(el.textContent,'기업 근거와 내 보유를 함께 확인하는 중…');

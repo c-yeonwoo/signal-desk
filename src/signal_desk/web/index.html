@@ -5512,7 +5512,11 @@ function _paintSignalReview(ticker, review){
       + (validUrl ? ` <a href="${esc(ev.url)}" target="_blank" rel="noopener noreferrer">${label} ↗</a>` : ` <span style="color:var(--dim)">${label}</span>`);
   };
   const lines = (items, empty) => items.length
-    ? items.slice(0,2).map(c => `<p>${esc(c.text)}${source(c)}</p>`).join('')
+    ? items.slice(0,2).map(c => {
+        const ev = evidence.get((c.evidence_ids || [])[0]);
+        const label = ev?.kind === 'news' ? '기사 제목 · ' : '';
+        return `<p>${label}${esc(c.text)}${source(c)}</p>`;
+      }).join('')
     : `<p style="color:var(--dim)">${empty}</p>`;
   const stale = review.price_status !== 'current';
   const hasOfficialRisk = groups.contradicts.some(c => (c.evidence_ids || []).some(id => id.startsWith('event:')));
@@ -5532,12 +5536,12 @@ function _paintSignalReview(ticker, review){
   el.innerHTML = `<h3>가격과 기업 소식, 함께 보기</h3><p class="company-review-lead">${esc(lead)}</p>`
     + `<div class="company-review-grid">`
     + `<div class="company-review-part"><b>현재 가격 조건</b>${lines(groups.supports.concat(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:'))), groups.context.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:')))), '가격 판정을 확인하지 못했어요.')}</div>`
-    + `<div class="company-review-part"><b>확인된 기업 소식</b>${lines(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))).concat(groups.context.filter(c => !(c.evidence_ids || []).some(id => id.startsWith('price:')))), '연결할 최근 원문이 없어요.')}</div>`
+    + `<div class="company-review-part"><b>회사 관련 공시·기사</b>${lines(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))).concat(groups.context.filter(c => !(c.evidence_ids || []).some(id => id.startsWith('price:')))), '연결할 최근 원문이 없어요.')}</div>`
     + `</div><p class="company-review-foot">${esc(basis + ((review.as_of || {}).prices_through || '미확인'))}</p>`
     + `<p class="company-review-foot">${esc(review.holding_text || '내 보유 정보는 확인하지 못했어요.')}</p>`
     + (next ? `<p class="company-review-foot"><b>다음 확인</b> · ${esc(next)}</p>` : '')
     + (unknowns.length ? `<details><summary>아직 모르는 점 ${unknowns.length}개</summary><ul>${unknowns.map(s => `<li>${esc(s)}</li>`).join('')}</ul></details>` : '')
-    + `<p class="company-review-foot">기사 분위기는 시그널 점수·주문에 반영되지 않습니다.</p>`;
+    + `<p class="company-review-foot">기사 내용의 사실 여부는 검증하지 않았어요. 회사 연결과 시각만 확인했으며, 기사 분위기는 시그널 점수·주문에 쓰지 않습니다.</p>`;
   el.style.display = '';
 }
 
