@@ -1021,6 +1021,10 @@
         <div class="pcard-title">미국 반도체·전자부품 생산 <span class="sub">연준 월간 통계 · 매수 신호 아님</span></div>
         <div id="industry-pulse-body" class="ip-meta">공식 자료 관측 확인 중</div>
       </div>
+      <div id="industry-pulse-sia" class="pcard industry-pulse" style="display:none">
+        <div class="pcard-title">세계 반도체 매출 <span class="sub">반도체산업협회 공개 발표 · 매매 신호 아님</span></div>
+        <div id="industry-pulse-sia-body" class="ip-meta">공개 발표 관측 확인 중</div>
+      </div>
       <div id="regime-card" class="pcard" style="display:none">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <span style="font-weight:700;font-size:13px">국내 시장 체온계</span>
@@ -3199,10 +3203,12 @@ function loadMacroDetails(){
   loadMacro(); loadLiveStatus();
   const kr = _sigMarket !== 'us';
   document.getElementById('industry-pulse').style.display = kr ? 'none' : '';
+  document.getElementById('industry-pulse-sia').style.display = kr ? 'none' : '';
   document.getElementById('regime-card').style.display = 'none';
   if (kr) loadRegimeZone(); else {
     document.getElementById('industry-pulse-body').textContent = '공식 자료 관측 확인 중';
-    loadIndustryPulse();
+    document.getElementById('industry-pulse-sia-body').textContent = '공개 발표 관측 확인 중';
+    loadIndustryPulse(); loadSiaIndustryPulse();
   }
 }
 function openHelp(){
@@ -3789,6 +3795,28 @@ async function loadIndustryPulse(){
       <div class="ip-meta">${esc(d.note)} 수정 가능한 현행 통계이며 당시 발표값을 재현한 것은 아닙니다.</div>
       <a href="https://www.federalreserve.gov/releases/g17/download.htm" target="_blank" rel="noopener noreferrer">연준 원문·설명 보기 ↗</a>`;
   } catch (e) { el.textContent = '공식 산업 자료 상태를 표시할 수 없습니다.'; }
+}
+
+async function loadSiaIndustryPulse(){
+  const el = document.getElementById('industry-pulse-sia-body');
+  if (!el) return;
+  try {
+    const response = await getJSON('/api/industry-pulse/sia');
+    if (_sigMarket !== 'us') return;
+    if (!response.ok) { el.textContent = response.reason; return; }
+    const d = response.data;
+    if (!d || !['ready','stale'].includes(d.status)) {
+      el.textContent = d?.reason || '공개 발표를 아직 관측하지 않았습니다.';
+      return;
+    }
+    const pct = (v) => v == null ? '비교 자료 없음' : `${v > 0 ? '+' : ''}${fmtNum(v, 1)}%`;
+    const stale = d.status === 'stale' ? ' · 새 발표 확인 지연' : '';
+    el.innerHTML = `<div class="ip-values"><span class="ip-index">$${esc(fmtNum(d.sales_usd_billions, 1))}B</span>
+      <span>전월 대비 ${esc(pct(d.mom_pct))}</span><span>전년 대비 ${esc(pct(d.yoy_pct))}</span></div>
+      <div class="ip-meta">${esc(d.period)} 자료 · ${esc(d.measure)} · ${esc(d.published_at?.slice(0,10) || '')} 발표${stale}</div>
+      <div class="ip-meta">전 세계 출하 매출 집계로 미국 생산지수와 다른 지표입니다. 국내 특정 기업의 매출·주가를 뜻하지 않습니다.</div>
+      <a href="${esc(d.source_url)}" target="_blank" rel="noopener noreferrer">반도체산업협회 공개 발표 원문 ↗</a>`;
+  } catch (e) { el.textContent = '반도체산업협회 공개 자료 상태를 표시할 수 없습니다.'; }
 }
 
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
@@ -7675,6 +7703,7 @@ function evidenceOpsHtml(d){
     'no_dart_mapped_favorites':'국내 관심종목의 DART 법인코드 매핑 없음',
     'ok':'수집 완료', 'partial_failure':'일부 실패',
     'collection_failed':'수집 실패', 'budget_exhausted':'요청 한도 소진',
+    'no_data':'해당 응답에서 새 공개 자료를 확인하지 못함',
     'not_due':'다음 수집 대기', 'missing_real_contact':'실제 연락처 미설정',
     'no_us_favorites':'미국 관심종목 없음', 'no_mapped_favorites':'기업 식별 확인 대기'};
   const row = (label, last, totals, changedKey, changedLabel, showNoData = false) => {
@@ -7690,7 +7719,7 @@ function evidenceOpsHtml(d){
       + `${totals?.last_day ? ` · 마지막 기록 ${esc(totals.last_day)}` : ''}</div></div>`;
   };
   const continuity = d.archive_continuity || {}, archives = continuity.archives || {};
-  const archiveRows = [['dart', 'DART'], ['fed_g17', '연준 G.17'], ['sec', 'SEC']].map(([key, label]) => {
+  const archiveRows = [['dart', 'DART'], ['fed_g17', '연준 G.17'], ['sec', 'SEC'], ['sia_market', '반도체산업협회']].map(([key, label]) => {
     const item = archives[key] || {}, count = item.observations;
     const state = item.status === 'archive_error' ? '보존 파일 읽기 실패'
       : count == null ? '확인 불가' : `${Number(count)}건`;
@@ -7699,7 +7728,7 @@ function evidenceOpsHtml(d){
       + (item.first_available_at ? ` · 첫 이용 가능 ${esc(item.first_available_at)}` : '')
       + '</div>';
   }).join('');
-  const archiveSummary = [['dart', 'DART'], ['fed_g17', '연준'], ['sec', 'SEC']]
+  const archiveSummary = [['dart', 'DART'], ['fed_g17', '연준'], ['sec', 'SEC'], ['sia_market', '반도체협회']]
     .map(([key, label]) => `${label} ${archives[key]?.status === 'archive_error' ? '오류' : `${archives[key]?.observations ?? '–'}건`}`)
     .join(' · ');
   const boots = Number(continuity.app_db_boot_count);
@@ -7714,6 +7743,7 @@ function evidenceOpsHtml(d){
   const storageText = storageState[continuity.storage_preflight?.status] || '저장 경로 검사 기록이 없습니다';
   return row('국내 관심종목 재무(DART)', d.financial_evidence_refresh, src.dart, 'raw_changed', '원문 변화 관측', true)
     + row('미국 산업생산(연준)', d.fed_g17_refresh, src.fed_g17, 'revised_periods', '과거 월 수치 수정 관측')
+    + row('세계 반도체 매출(협회 공개 발표)', d.sia_market_refresh, src.sia_market, 'raw_changed', '새 공개 관측 추가')
     + `<div style="padding-top:7px;color:var(--dim)">미국 공시(SEC): ${d.sec_edgar?.contact_configured ? '연락처 설정됨 · 수집 성공은 별도 확인' : '실제 연락처 미설정 · 새 요청 중단, 기존 저장값 유지'}</div>`
     + row('미국 관심종목 재무(SEC)', d.sec_evidence_refresh, src.sec, 'raw_changed', '원문 변화 관측')
     + `<div style="color:var(--dim);margin-top:3px">SEC 이번 달 요청 예약 ${Number(d.sec_evidence_monthly_requests || 0)}/24회 · 점수/주문과 분리</div>`

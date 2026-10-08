@@ -3,7 +3,7 @@
 import datetime as dt
 
 from signal_desk import api
-from signal_desk.ingest import fed_g17
+from signal_desk.ingest import fed_g17, sia_market
 
 
 KST = dt.timezone(dt.timedelta(hours=9))
@@ -17,6 +17,7 @@ def test_official_collectors_wait_for_session_close_and_daily_snapshot(monkeypat
     monkeypatch.setattr(api, "_kst_today", lambda: "2026-10-06")
     monkeypatch.setattr(api, "_refresh_financial_evidence_daily", lambda: calls.append("dart"))
     monkeypatch.setattr(fed_g17, "refresh", lambda *a, **k: (calls.append("g17"), {"status": "not_due"})[1])
+    monkeypatch.setattr(sia_market, "refresh", lambda *a, **k: {"status": "not_due"})
     monkeypatch.setattr(api.db, "kv_transform", lambda *a, **k: calls.append("sec_gate"))
     monkeypatch.setattr(api, "_record_official_evidence_ops", lambda *a: None)
 
@@ -54,14 +55,15 @@ def test_official_collector_exceptions_are_recorded_without_blocking_peers(monke
     monkeypatch.setattr(api.db, "kv_transform", transform)
     monkeypatch.setattr(api, "_refresh_financial_evidence_daily", lambda: fail("dart"))
     monkeypatch.setattr(fed_g17, "refresh", lambda *a, **k: fail("g17"))
+    monkeypatch.setattr(sia_market, "refresh", lambda *a, **k: fail("sia"))
     monkeypatch.setattr(api, "_refresh_sec_evidence_daily", lambda at: fail("sec"))
     monkeypatch.setattr(api, "_record_official_evidence_ops",
                         lambda source, when, result: events.append((source, when, result)))
 
     api._collect_official_evidence_after_close(now)
 
-    assert calls == ["dart", "g17", "sec"]
-    assert [source for source, _, _ in events] == ["dart", "fed_g17", "sec"]
+    assert calls == ["dart", "g17", "sec", "sia"]
+    assert [source for source, _, _ in events] == ["dart", "fed_g17", "sec", "sia_market"]
     assert all(when == now and result["status"] == "collection_failed" and result["requested"] == 0
                for _, when, result in events)
     assert state["financial_evidence_refresh_date"] == day
@@ -81,6 +83,7 @@ def test_g17_no_request_poll_does_not_hide_later_same_day_request(monkeypatch):
     monkeypatch.setattr(api.db, "kv_set", lambda key, value: state.__setitem__(key, value))
     monkeypatch.setattr(api.db, "kv_transform", lambda *a: False)
     monkeypatch.setattr(fed_g17, "refresh", lambda *a, **k: next(results))
+    monkeypatch.setattr(sia_market, "refresh", lambda *a, **k: {"status": "not_due", "requested": 0})
     monkeypatch.setattr(api, "_record_official_evidence_ops",
                         lambda source, when, result: events.append((source, result)))
 

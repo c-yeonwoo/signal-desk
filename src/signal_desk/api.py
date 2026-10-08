@@ -772,6 +772,24 @@ def _collect_official_evidence_after_close(now: datetime.datetime) -> None:
                    "at": now.isoformat(), "requested": 0}
         db.kv_set("sec_evidence_refresh_last", failure)
         _record_official_evidence_ops("sec", now, failure)
+    # Public SIA release facts only; paid WSTS datasets, full release text,
+    # signals, registered research, and order decisions are deliberately out.
+    try:
+        from signal_desk.ingest import sia_market
+        result = sia_market.refresh(sia_market.DEFAULT_ARCHIVE, now=now,
+                                    state_get=db.kv_get, state_set=db.kv_set,
+                                    reserve=_reserve_sia_market_request)
+        prior = db.kv_get("sia_market_refresh_last") or {}
+        if result.get("requested") or result.get("status") != prior.get("status"):
+            db.kv_set("sia_market_refresh_last", result)
+            if result.get("status") != "not_due":
+                _record_official_evidence_ops("sia_market", now, result)
+    except Exception as e:
+        log.warning("마감후 SIA 공개 산업 자료 수집 실패: %s", type(e).__name__)
+        failure = {"status": "collection_failed", "reason": type(e).__name__,
+                   "at": now.isoformat(), "requested": 0}
+        db.kv_set("sia_market_refresh_last", failure)
+        _record_official_evidence_ops("sia_market", now, failure)
 
 
 def _maybe_refresh_us_universe(now: datetime.datetime) -> bool:
@@ -990,6 +1008,22 @@ def _reserve_fed_g17_request(key: str) -> bool:
         else:
             return None, False
         return (count + 1, True) if count < fed_g17.MAX_REQUESTS_PER_MONTH else (None, False)
+
+    return bool(db.kv_transform(key, increment))
+
+
+def _reserve_sia_market_request(key: str) -> bool:
+    """Atomically reserve one of twelve monthly public SIA release checks."""
+    from signal_desk.ingest import sia_market
+
+    def increment(old):
+        if old is None:
+            count = 0
+        elif isinstance(old, int) and not isinstance(old, bool) and 0 <= old <= sia_market.MAX_REQUESTS_PER_MONTH:
+            count = old
+        else:
+            return None, False
+        return (count + 1, True) if count < sia_market.MAX_REQUESTS_PER_MONTH else (None, False)
 
     return bool(db.kv_transform(key, increment))
 
@@ -4428,6 +4462,7 @@ def data_health_get():
             # Read-only official financial evidence; never a trading input.
             "financial_evidence_refresh": db.kv_get("financial_evidence_refresh_last") or {"status": "not_started"},
             "fed_g17_refresh": db.kv_get("fed_g17_refresh_last") or {"status": "not_started"},
+            "sia_market_refresh": db.kv_get("sia_market_refresh_last") or {"status": "not_started"},
             "sec_evidence_refresh": db.kv_get("sec_evidence_refresh_last") or {"status": "not_started"},
             "sec_evidence_monthly_requests": db.kv_get(f"sec_evidence_requests:{_kst_now():%Y-%m}") or 0,
             "sec_edgar": sec_edgar,
@@ -4457,6 +4492,7 @@ def evidence_ops_get(request: Request):
     return {
         "financial_evidence_refresh": db.kv_get("financial_evidence_refresh_last") or {"status": "not_started"},
         "fed_g17_refresh": db.kv_get("fed_g17_refresh_last") or {"status": "not_started"},
+        "sia_market_refresh": db.kv_get("sia_market_refresh_last") or {"status": "not_started"},
         "sec_evidence_refresh": db.kv_get("sec_evidence_refresh_last") or {"status": "not_started"},
         "sec_evidence_monthly_requests": db.kv_get(f"sec_evidence_requests:{now:%Y-%m}") or 0,
         "sec_edgar": {"contact_configured": edgar.available()},
@@ -6747,6 +6783,13 @@ def industry_pulse_get():
     """Read-only official US production observation; no network work on page load."""
     from signal_desk.ingest import fed_g17
     return fed_g17.describe(fed_g17.DEFAULT_ARCHIVE, as_of=_kst_now().isoformat())
+
+
+@app.get("/api/industry-pulse/sia")
+def industry_pulse_sia_get():
+    """Read-only public global semiconductor sales release; no page-load request."""
+    from signal_desk.ingest import sia_market
+    return sia_market.describe(sia_market.DEFAULT_ARCHIVE, as_of=_kst_now())
 
 
 # ---------- 시그널 엔진 설정(관리자) ----------
