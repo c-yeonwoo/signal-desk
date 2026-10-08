@@ -28,6 +28,7 @@ def test_us_freshness_names_stale_tickers_with_a_bounded_preview(tmp_path, monke
     tickers = [f"T{i:02d}" for i in range(12)]
     monkeypatch.setattr(store, "us_price_last_dates", lambda: {t: "2026-10-02" for t in tickers})
     monkeypatch.setattr(store, "us_prices_stale_tickers", lambda _tickers: list(reversed(tickers)))
+    monkeypatch.setattr(store, "us_unconfirmed_price_tickers", lambda tickers=None: [])
     monkeypatch.setattr(store, "us_expected_last_bar", lambda: "2026-10-05")
     monkeypatch.setattr(store, "us_missing_trading_days", lambda *_args: [])
     monkeypatch.setattr(store, "us_price_holes", lambda: {"ready": True, "holes_total": 0})

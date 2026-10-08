@@ -100,6 +100,7 @@ def test_stale_refresh_skips_fresh_and_respects_batch(monkeypatch):
     monkeypatch.setattr(api.store, "load_us_universe", lambda: universe)
     monkeypatch.setattr(api.store, "us_price_last_dates", lambda: last)
     monkeypatch.setattr(api.store, "us_expected_last_bar", lambda as_of=None: "2026-08-07")
+    monkeypatch.setattr(api.store, "us_unconfirmed_price_tickers", lambda tickers=None: [])
     monkeypatch.setattr(api.store, "us_price_skips", lambda: {})
     monkeypatch.setattr(api.store, "us_price_deferred", lambda t, skip=None: False)
     monkeypatch.setattr(api.store, "fetch_us_prices",
