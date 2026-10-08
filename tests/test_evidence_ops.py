@@ -92,9 +92,14 @@ def test_archive_inventory_tracks_stable_anchors_without_creating_files(tmp_path
         conn.execute("CREATE TABLE fed_g17_observations (id TEXT, available_at TEXT)")
         conn.execute("INSERT INTO fed_g17_observations VALUES (?,?)",
                      ("g17-first", "2026-10-06T07:00:00+00:00"))
-    first = ops.archive_inventory(financial_path=financial, g17_path=g17)
+    sia = tmp_path / "raw" / "sia.db"
+    with sqlite3.connect(sia) as conn:
+        conn.execute("CREATE TABLE sia_market_observations (id TEXT, available_at TEXT)")
+        conn.execute("INSERT INTO sia_market_observations VALUES (?,?)",
+                     ("sia-first", "2026-10-08T07:00:00+00:00"))
+    first = ops.archive_inventory(financial_path=financial, g17_path=g17, sia_path=sia)
     assert {key: item["first_id"] for key, item in first.items()} == {
-        "dart": "dart-first", "sec": "sec-first", "fed_g17": "g17-first"}
+        "dart": "dart-first", "sec": "sec-first", "fed_g17": "g17-first", "sia_market": "sia-first"}
     assert all(item["observations"] == 1 for item in first.values())
 
     with sqlite3.connect(financial) as conn:
@@ -123,7 +128,7 @@ def test_storage_preflight_checks_all_archive_paths_without_claiming_persistence
     financial = tmp_path / "raw/financial.db"
     g17 = tmp_path / "raw/g17.db"
     paths = {"expected_mount": mount, "app_db_path": app,
-             "financial_path": financial, "g17_path": g17}
+             "financial_path": financial, "g17_path": g17, "sia_path": tmp_path / "raw/sia.db"}
     monkeypatch.setattr(type(tmp_path), "is_mount", lambda self: self.resolve() == tmp_path.resolve())
 
     missing = ops.storage_preflight(mount_path="", **paths)
@@ -142,7 +147,7 @@ def test_storage_preflight_distinguishes_declared_directory_from_mount(tmp_path)
     result = ops.storage_preflight(
         mount_path=str(tmp_path), expected_mount=str(tmp_path),
         app_db_path=tmp_path / "cache/app.db", financial_path=tmp_path / "raw/financial.db",
-        g17_path=tmp_path / "raw/g17.db")
+        g17_path=tmp_path / "raw/g17.db", sia_path=tmp_path / "raw/sia.db")
     assert result["status"] == "mount_not_observed"
     assert result["persistence_proven"] is False
 
