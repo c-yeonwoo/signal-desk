@@ -34,6 +34,16 @@ assert.match(page, /일치만으로 원문 무결성을 증명하지 않습니�
 assert.match(page, /저장 경로의 마운트를 관측하지 못했습니다/);
 assert.match(page, /배포 후에도 원문이 남는지는 아직 별도 확인이 필요합니다/);
 assert.doesNotMatch(page, /앱 DB 부팅 0회/);
+const observedBytes = render({...base, evidence_activity:{window_days:30,sources:{
+  sia_market:{requested:1,ok:1,failed:0,response_bytes:46894,raw_changed:1}}}});
+assert.match(observedBytes, /받은 양 45\.8 KiB/);
+assert.doesNotMatch(observedBytes, /받은 양 0\.0 MiB/);
+const exactSmallBytes = render({...base, evidence_activity:{window_days:30,sources:{
+  sia_market:{requested:1,ok:1,failed:0,response_bytes:512,raw_changed:1}}}});
+assert.match(exactSmallBytes, /받은 양 512 B/);
+const largeBytes = render({...base, evidence_activity:{window_days:30,sources:{
+  sia_market:{requested:1,ok:1,failed:0,response_bytes:1363149,raw_changed:1}}}});
+assert.match(largeBytes, /받은 양 1\.3 MiB/);
 const escaped = render({...base, archive_continuity:{...base.archive_continuity,
   archives:{...base.archive_continuity.archives,
     fed_g17:{status:'recorded',observations:1,first_id:'<script>'}}}});
