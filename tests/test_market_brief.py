@@ -112,6 +112,8 @@ def test_market_card_has_one_endpoint_and_defers_source_requests():
     assert 'id="mb-image"' in html
     assert 'id="mb-image-fallback"' in html
     assert "prefers-reduced-motion:reduce" in html
+    assert "img.onerror = () => { img.hidden = true; fallback.hidden = false; save.hidden = true;" in html
+    assert "mb-figure-mobile-note" in html
     assert 'downloadMarketBriefPng()' in html
     start = html.split("async function startApp(){", 1)[1].split("// ===== 온보딩", 1)[0]
     assert "loadMacro();" not in start
@@ -225,6 +227,24 @@ def test_image_fogs_low_daily_coverage_even_when_latest_close_is_fresh():
     assert 'data-scene="unknown"' in svg
     assert "매수 판정 2개" not in svg
     assert "오래된 가격이나 부족한 자료" in svg
+
+
+def test_partial_scene_discloses_observed_sample_but_not_full_buy_count():
+    prices = {}
+    dates = {}
+    for n in range(10):
+        prices[str(n)] = [100.0] * 59 + [100.0, 104.0]
+        dates[str(n)] = ["2026-07-01"] * 59 + ["2026-10-01", "2026-10-02"]
+    dates["9"][-1] = "2026-10-01"
+    card = market_brief.build(
+        "kr", prices=prices, dates=dates, tickers=list(prices),
+        expected="2026-10-02", previous="2026-10-01",
+        selection={"buy_count": 4, "computed_at": "2026-10-02T07:00:00+00:00"},
+    )
+    svg = market_brief_image.render(card)
+    assert card["status"] == "partial" and card["scene"]["direction"] == "up"
+    assert "오늘 비교 9/10종목" in svg
+    assert "매수 판정 4개" not in svg
 
 
 def test_image_withholds_buy_count_without_verifiable_decision_time():
