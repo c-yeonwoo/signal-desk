@@ -123,6 +123,24 @@ def us_expected_last_bar(as_of: datetime.datetime | None = None) -> str:
     return base.isoformat()
 
 
+def us_confirmed_close_cutoff(as_of: datetime.datetime | None = None) -> str | None:
+    """Latest US session whose daily bar may be used as a close.
+
+    Providers can return a candle dated for the *next* New York session before
+    that session has even opened. The exchange close alone is also too early
+    for a vendor's completed daily candle, so keep the existing 08:00 KST
+    availability buffer. Unknown calendar state fails closed.
+    """
+    from signal_desk import market_clock
+
+    now = as_of or _utc_now()
+    completed = market_clock.latest_completed_session("us", now)
+    if not completed:
+        return None
+    ready = us_expected_last_bar(now.astimezone(ZoneInfo("Asia/Seoul")))
+    return min(completed, ready)
+
+
 def us_missing_trading_days(last: str | None, expected: str | None = None) -> list[str]:
     """`last` 다음부터 `expected` 까지 봉이 있어야 하는 거래일(주말 제외)을 **이름으로** 낸다.
 
@@ -1469,9 +1487,32 @@ def us_price_last_dates() -> dict[str, str]:
     df = _read_parquet(US_PRICES_FILE)
     if df.empty or not {"ticker", "date", "close"}.issubset(df.columns):
         return {}
+    cutoff = us_confirmed_close_cutoff()
+    if not cutoff:
+        return {}
+    df = df[df["date"].astype(str).str[:10] <= cutoff]
     close = pd.to_numeric(df["close"], errors="coerce")
     df = df[close.map(lambda value: math.isfinite(value) and value > 0)]
     return {str(t): str(d)[:10] for t, d in df.groupby("ticker")["date"].max().items()}
+
+
+def us_unconfirmed_price_tickers(tickers: list[str] | None = None) -> list[str]:
+    """Tickers with a stored candle beyond the latest usable US close.
+
+    These names are refresh targets while the date is not yet usable; the next
+    upsert drops the invalid cached row before accepting a completed candle.
+    """
+    if not US_PRICES_FILE.exists():
+        return []
+    cutoff = us_confirmed_close_cutoff()
+    if not cutoff:
+        return []
+    df = _read_parquet(US_PRICES_FILE)
+    if df.empty or not {"ticker", "date"}.issubset(df.columns):
+        return []
+    future = df[df["date"].astype(str).str[:10] > cutoff]
+    names = set(str(t) for t in future["ticker"].unique())
+    return sorted(names.intersection(tickers) if tickers is not None else names)
 
 
 def kr_price_last_dates() -> dict[str, str]:
@@ -1531,6 +1572,10 @@ def us_price_holes(tickers: list[str] | None = None, *, limit_tickers: int = 20)
     if df.empty or "ticker" not in df.columns or "date" not in df.columns:
         return {"ready": False, "reason": "미국 시세가 비었습니다"}
     df = df[["ticker", "date"]].astype(str)
+    cutoff = us_confirmed_close_cutoff()
+    if not cutoff:
+        return {"ready": False, "reason": "미국 완료 세션을 확인할 수 없습니다"}
+    df = df[df["date"].str[:10] <= cutoff]
     universe = set(tickers) if tickers else None
     if universe:
         df = df[df["ticker"].isin(universe)]
@@ -1569,8 +1614,12 @@ def us_prices_stale_tickers(tickers: list[str] | None = None, *,
     expected = us_expected_last_bar(as_of)
     last = us_price_last_dates()
     universe = tickers if tickers is not None else [u["ticker"] for u in load_us_universe()]
+    unconfirmed = set(us_unconfirmed_price_tickers(universe))
     out = []
     for t in universe:
+        if t in unconfirmed:
+            out.append(t)
+            continue
         d = str(last.get(t) or "")[:10]
         if not d:                                  # 봉이 아예 없으면 갱신 대상
             out.append(t)
@@ -1599,6 +1648,16 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
     deep_failed: list[str] = []                        # 심볼 문제(조사 대상)
     deep_young: list[str] = []                         # 이력이 원리적으로 짧음(정상)
     existing = _read_parquet(US_PRICES_FILE) if US_PRICES_FILE.exists() else pd.DataFrame()
+    cutoff = us_confirmed_close_cutoff()
+    if not cutoff:
+        log.warning("US 완료 세션을 확인할 수 없어 일봉 적재 보류")
+        return 0
+    # Earlier releases persisted a provider's next-session candle before that
+    # session opened. Do not carry those rows forward during the next upsert.
+    existing_count = len(existing)
+    if not existing.empty:
+        existing = existing[existing["date"].astype(str).str[:10] <= cutoff]
+    dropped_unconfirmed = existing_count - len(existing)
     rows: list[dict] = []
     ok = 0
     for t in tickers:
@@ -1635,6 +1694,10 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
             log.warning("US 시세 수집 실패, 제외: %s (표기 %s 전부 실패, 연속 %d회)",
                         t, "/".join(us.symbol_variants(t)), skip[t]["fails"])
             continue
+        bars = [bar for bar in bars if str(bar.get("date") or "")[:10] <= cutoff]
+        if not bars:
+            log.warning("US 시세가 완료 세션 %s 이후 봉만 반환해 적재 보류: %s", cutoff, t)
+            continue
         skip.pop(t, None)
         # **깊이 실패는 조용하다** — 토스가 짧은 봉이라도 주면 `bars` 가 비지 않아 위 실패 기록을
         # 비껴간다. 그래서 KIS가 못 주는 종목이 영원히 "얕음"으로 남아 30분마다 재요청됐다.
@@ -1659,9 +1722,10 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
                 deep.pop(t, None)
         rows.extend({"ticker": t, **b} for b in bars)
         ok += 1
-    if rows:
+    if rows or dropped_unconfirmed:
         new = pd.DataFrame(rows)
-        combined = pd.concat([existing, new], ignore_index=True) if not existing.empty else new
+        combined = (pd.concat([existing, new], ignore_index=True) if not existing.empty
+                    else new) if rows else existing
         combined = (combined.drop_duplicates(subset=["ticker", "date"], keep="last")
                     .sort_values(["ticker", "date"]).reset_index(drop=True)
                     [["date", "ticker", "open", "close", "volume"]])
@@ -1684,12 +1748,13 @@ def fetch_us_prices(tickers: list[str], days: int = 400) -> int:
 
 # US 시세 프로세스 캐시 — parquet을 요청마다 여러 번 읽으면(시그널+quotes+차트) Railway 저메모리에서
 # OOM spike가 난다. mtime이 같으면 파생 dict만 재사용하고, 실시간 오버레이는 호출 시점에 얹는다.
-_us_px_cache: dict = {"mtime": None, "series": {}, "quotes": {}, "dates": {}}
+_us_px_cache: dict = {"mtime": None, "cutoff": None, "series": {}, "quotes": {}, "dates": {}}
 
 
 def clear_us_price_cache() -> None:
     """테스트·강제 무효화용. 일반 경로는 파일 mtime 변경으로 자동 무효화."""
     _us_px_cache["mtime"] = None
+    _us_px_cache["cutoff"] = None
     _us_px_cache["series"] = {}
     _us_px_cache["quotes"] = {}
     _us_px_cache["dates"] = {}
@@ -1701,12 +1766,17 @@ def _us_prices_raw() -> tuple[dict[str, list[float]], dict[str, dict], dict[str,
         clear_us_price_cache()
         return {}, {}, {}
     mtime = US_PRICES_FILE.stat().st_mtime
-    if _us_px_cache["mtime"] == mtime and _us_px_cache["series"] is not None:
+    cutoff = us_confirmed_close_cutoff()
+    if _us_px_cache["mtime"] == mtime and _us_px_cache["cutoff"] == cutoff \
+            and _us_px_cache["series"] is not None:
         return _us_px_cache["series"], _us_px_cache["quotes"], _us_px_cache["dates"]
     df = _read_parquet(US_PRICES_FILE)
+    df = (df[df["date"].astype(str).str[:10] <= cutoff]
+          if cutoff and "date" in df.columns else df.iloc[0:0])
     if df.empty:
         clear_us_price_cache()
         _us_px_cache["mtime"] = mtime
+        _us_px_cache["cutoff"] = cutoff
         return {}, {}, {}
     df = df.sort_values(["ticker", "date"])
     has_vol = "volume" in df.columns
@@ -1722,6 +1792,7 @@ def _us_prices_raw() -> tuple[dict[str, list[float]], dict[str, dict], dict[str,
             quotes[key] = {"vol": vols[-1] if vols else None,
                            "vol_avg": round(sum(vols[-20:]) / len(vols[-20:])) if vols else None}
     _us_px_cache["mtime"] = mtime
+    _us_px_cache["cutoff"] = cutoff
     _us_px_cache["series"] = series
     _us_px_cache["quotes"] = quotes
     _us_px_cache["dates"] = dates
@@ -2490,7 +2561,9 @@ def _us_prices_freshness() -> dict:
     if not dates:
         return entry
     newest = dates[-1]
-    behind = us_prices_stale_tickers(list(last))
+    unconfirmed = us_unconfirmed_price_tickers()
+    known = list(dict.fromkeys([*last, *unconfirmed]))
+    behind = us_prices_stale_tickers(known)
     try:
         age_h = (datetime.date.today() - datetime.date.fromisoformat(newest)).days * 24.0
     except ValueError:
@@ -2512,7 +2585,9 @@ def _us_prices_freshness() -> dict:
         names = ", ".join(stale_tickers_preview)
         omitted = len(behind) - len(stale_tickers_preview)
         suffix = f" 외 {omitted}종목" if omitted else ""
-        parts.append(f"{len(behind)}/{len(last)}종목 갱신 대상({names}{suffix})")
+        parts.append(f"{len(behind)}/{len(known)}종목 갱신 대상({names}{suffix})")
+    if unconfirmed:
+        parts.append(f"완료 전 날짜 봉 {len(unconfirmed)}종목은 판정에서 제외·재조회 대상")
     # **시리즈 중간 구멍은 꼬리와 다른 고장이다.** 수집이 재개돼 마지막 봉이 최신이어도
     # 공백기의 구멍은 남을 수 있고(US는 "최근 N봉"만 받는다), 그러면 모멘텀·이동평균이
     # 짧은 시리즈로 조용히 계산된다. 감지되지 않는 고장은 없는 고장이다.
@@ -2529,12 +2604,14 @@ def _us_prices_freshness() -> dict:
     if gap:
         short = f"거래일 {len(gap)}일 결손({', '.join(d[5:] for d in gap[:3])})"
     elif behind:
-        short = f"{len(behind)}/{len(last)}종목 뒤처짐"
+        short = f"{len(behind)}/{len(known)}종목 뒤처짐"
     else:
         short = None
     entry.update(updated=newest, age_hours=age_h, rows=len(behind),
-                 stale=bool(behind) or bool(holes_n), total=len(last),
+                 stale=bool(behind) or bool(holes_n), total=len(known),
                  stale_tickers=stale_tickers_preview,
+                 unconfirmed_tickers=unconfirmed[:10],
+                 unconfirmed_count=len(unconfirmed),
                  stale_tickers_omitted=max(0, len(behind) - len(stale_tickers_preview)),
                  missing_trading_days=gap, expected_last_bar=expected,
                  interior_holes=holes_n,

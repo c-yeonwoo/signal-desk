@@ -36,6 +36,69 @@ def test_expected_last_bar_waits_for_the_us_close_to_land():
     assert store.us_expected_last_bar(_kst(2026, 8, 7, 3)) == "2026-08-05"   # 아직 전
 
 
+def test_us_close_cutoff_requires_exchange_close_and_vendor_ready_buffer():
+    # 10/08 KST morning is still 10/07 evening in New York. A provider's
+    # 10/08 candle cannot be a completed US daily close yet.
+    assert store.us_confirmed_close_cutoff(_kst(2026, 10, 8, 10)) == "2026-10-07"
+    assert store.us_confirmed_close_cutoff(_kst(2026, 10, 8, 3)) == "2026-10-06"
+
+
+def test_future_us_candle_is_not_an_engine_close_or_freshness_evidence(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    store.US_PRICES_FILE.parent.mkdir(parents=True)
+    pd.DataFrame([
+        {"ticker": "MSFT", "date": "2026-10-06", "open": 100, "close": 100, "volume": 1},
+        {"ticker": "MSFT", "date": "2026-10-08", "open": 101, "close": 101, "volume": 1},
+        {"ticker": "AAPL", "date": "2026-10-06", "open": 200, "close": 200, "volume": 1},
+        {"ticker": "AAPL", "date": "2026-10-07", "open": 201, "close": 201, "volume": 1},
+    ]).to_parquet(store.US_PRICES_FILE)
+    monkeypatch.setattr(store, "us_confirmed_close_cutoff", lambda as_of=None: "2026-10-07")
+    monkeypatch.setattr(store, "us_expected_last_bar", lambda as_of=None: "2026-10-07")
+    store.clear_us_price_cache()
+
+    prices, dates = store.load_portfolio_close_bundle("us")
+    assert dates == {"AAPL": ["2026-10-06", "2026-10-07"],
+                     "MSFT": ["2026-10-06"]}
+    assert prices["MSFT"] == [100]
+    assert store.load_engine_price_bundle("us")[1]["MSFT"] == ["2026-10-06"]
+    assert store.us_price_last_dates() == {"AAPL": "2026-10-07", "MSFT": "2026-10-06"}
+    assert store.us_unconfirmed_price_tickers() == ["MSFT"]
+    assert store.us_prices_stale_tickers(["AAPL", "MSFT"], max_trading_days=0) == ["MSFT"]
+
+    # Even when a valid 10/07 bar also exists, a pre-open 10/08 bar must
+    # trigger refresh so it cannot silently mature into tomorrow's close.
+    pd.DataFrame([
+        {"ticker": "AAPL", "date": "2026-10-06", "open": 200, "close": 200, "volume": 1},
+        {"ticker": "AAPL", "date": "2026-10-07", "open": 201, "close": 201, "volume": 1},
+        {"ticker": "AAPL", "date": "2026-10-08", "open": 202, "close": 202, "volume": 1},
+    ]).to_parquet(store.US_PRICES_FILE)
+    store.clear_us_price_cache()
+    assert store.us_prices_stale_tickers(["AAPL"], max_trading_days=0) == ["AAPL"]
+
+
+def test_us_fetch_discards_pre_open_candle_from_old_and_new_rows(tmp_path, monkeypatch):
+    from signal_desk.ingest import toss
+
+    monkeypatch.chdir(tmp_path)
+    store.US_PRICES_FILE.parent.mkdir(parents=True)
+    pd.DataFrame([
+        {"ticker": "MSFT", "date": "2026-10-06", "open": 100, "close": 100, "volume": 1},
+        {"ticker": "MSFT", "date": "2026-10-08", "open": 101, "close": 101, "volume": 1},
+    ]).to_parquet(store.US_PRICES_FILE)
+    monkeypatch.setattr(store, "us_confirmed_close_cutoff", lambda as_of=None: "2026-10-07")
+    monkeypatch.setattr(toss, "available", lambda: True)
+    monkeypatch.setattr(toss, "daily_ohlcv", lambda symbol, count: [
+        {"date": "2026-10-06", "open": 100, "close": 100, "volume": 1},
+        {"date": "2026-10-07", "open": 99, "close": 99, "volume": 2},
+        {"date": "2026-10-08", "open": 98, "close": 98, "volume": 3},
+    ])
+
+    assert store.fetch_us_prices(["MSFT"], days=60) == 1
+    stored = pd.read_parquet(store.US_PRICES_FILE)
+    assert stored["date"].tolist() == ["2026-10-06", "2026-10-07"]
+    assert stored["close"].tolist() == [100, 99]
+
+
 # ─────────────────────────── 빠진 거래일 ───────────────────────────
 
 def test_missing_trading_days_are_named_and_skip_weekends():
@@ -68,6 +131,7 @@ def test_friday_bar_on_monday_is_not_stale(monkeypatch):
     """
     monkeypatch.setattr(store, "us_price_last_dates", lambda: {"AAPL": "2026-08-07"})
     monkeypatch.setattr(store, "us_expected_last_bar", lambda as_of=None: "2026-08-07")
+    monkeypatch.setattr(store, "us_unconfirmed_price_tickers", lambda tickers=None: [])
     assert store.us_prices_stale_tickers(["AAPL"]) == []
 
 
@@ -78,6 +142,7 @@ def test_one_missing_trading_day_is_tolerated_as_a_possible_holiday(monkeypatch)
     """
     monkeypatch.setattr(store, "us_price_last_dates", lambda: {"AAPL": "2026-08-05"})
     monkeypatch.setattr(store, "us_expected_last_bar", lambda as_of=None: "2026-08-06")
+    monkeypatch.setattr(store, "us_unconfirmed_price_tickers", lambda tickers=None: [])
     assert store.us_prices_stale_tickers(["AAPL"]) == []
 
 
