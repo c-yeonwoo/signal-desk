@@ -3685,7 +3685,15 @@ async function loadLiveStatus(){
     const view = liveStatusView(d, _sigMarket === 'us' ? 'us' : 'kr');
     el.style.color = view.color;
     el.textContent = view.text;
-    el.title = view.detail;
+    const q = d.source_time_quality;
+    const lag = q && q.receive_lag_seconds;
+    const sourceDetail = q
+      ? `공급자 시각: 확인 가능 ${q.timestamp_parseable_count}/${q.sample_count}, 누락 ${q.timestamp_missing_count}, 해석 불가 ${q.timestamp_unparseable_count}`
+        + (lag && lag.count ? ` · 서버 수신−공급자 시각 차이 중앙값 ${lag.median_seconds}초 / 95% ${lag.p95_seconds}초` : '')
+        + (q.future_skew_over_5m_count ? ` · 서버보다 5분 넘게 미래인 시각 ${q.future_skew_over_5m_count}건` : '')
+        + ' · 공급자 데이터 시각이며 마지막 체결 시각이나 신선도 인증은 아님'
+      : '';
+    el.title = [view.detail, sourceDetail].filter(Boolean).join('\n');
   } catch (e) { el.textContent = ''; }
 }
 

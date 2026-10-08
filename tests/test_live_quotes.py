@@ -189,8 +189,33 @@ def test_live_quote_snapshot_keeps_source_timestamp_separate_from_receive_time()
         status = store.live_status()
         assert status["source_time_present"] == 1
         assert status["source_time_verified"] == 0
+        quality = status["source_time_quality"]
+        assert quality["timestamp_parseable_count"] == 1
+        assert quality["receive_lag_seconds"]["count"] == 1
+        assert "마지막 체결 시각" in quality["interpretation"]
     finally:
         store.clear_live_quotes()
+
+
+def test_live_source_time_quality_separates_missing_bad_and_future_times():
+    metadata = {
+        "AAA": {"source_timestamp": "2026-10-08T00:00:00+00:00",
+                "source_timestamp_parsed_utc": "2026-10-08T00:00:00+00:00"},
+        "BBB": {"source_timestamp": None},
+        "CCC": {"source_timestamp": "not-a-time", "source_timestamp_parsed_utc": "not-a-time"},
+        "DDD": {"source_timestamp": "2026-10-08T00:11:00+00:00",
+                "source_timestamp_parsed_utc": "2026-10-08T00:11:00+00:00"},
+    }
+    received = {"AAA": 1791417900.0, "DDD": 1791417900.0}
+    summary = store._live_source_time_quality(metadata, received, 1791417900.0)
+
+    assert summary["sample_count"] == 4
+    assert summary["timestamp_present_count"] == 3
+    assert summary["timestamp_parseable_count"] == 2
+    assert summary["timestamp_missing_count"] == 1
+    assert summary["timestamp_unparseable_count"] == 1
+    assert summary["future_skew_over_5m_count"] == 1
+    assert summary["receive_lag_seconds"]["median_seconds"] == -30.0
 
 
 def test_browser_refuses_an_old_sse_quote():
