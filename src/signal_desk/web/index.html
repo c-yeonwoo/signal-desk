@@ -196,6 +196,15 @@
   .mb-source-foot { color:var(--dim-2); font-size:11px; line-height:1.5; margin:0; }
   .mb-figure { margin:15px auto 0; max-width:900px; }
   .mb-figure img { display:block; width:100%; height:auto; border-radius:14px; border:1px solid var(--line); }
+  .mb-figure img[hidden], .mb-figure .mb-image-fallback[hidden], .mb-figure button[hidden] { display:none; }
+  .mb-figure .mb-image-fallback { border:1px solid var(--line); border-radius:14px; background:var(--bg);
+    color:var(--txt); padding:20px; font-size:15px; line-height:1.5; }
+  .mb-figure-mobile-note { display:none; }
+  @media (max-width:600px) { .mb-figure-mobile-note { display:block; margin:9px 0 0;
+    color:var(--txt); font-size:14px; line-height:1.5; font-weight:600; } }
+  .mb-figure.is-changing img { animation:mb-scene-enter .5s ease-out; }
+  @keyframes mb-scene-enter { from { opacity:.55; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  @media (prefers-reduced-motion:reduce) { .mb-figure.is-changing img { animation:none; } }
   .mb-figure figcaption { display:flex; align-items:center; justify-content:space-between; gap:10px;
     margin-top:7px; color:var(--dim); font-size:12px; }
   .mb-figure button { border:1px solid var(--line); border-radius:8px; background:var(--bg);
@@ -1004,6 +1013,8 @@
     <div id="mb-selection" class="mb-selection"></div></div>
   <figure id="mb-figure" class="mb-figure" hidden>
     <img id="mb-image" alt="시장 요약 이미지" width="1200" height="700">
+    <div id="mb-image-fallback" class="mb-image-fallback" role="status" hidden></div>
+    <p id="mb-figure-mobile-note" class="mb-figure-mobile-note"></p>
     <figcaption><span>관찰 종목의 종가로 만든 그림 · 미래 가격 예측은 아닙니다</span>
       <button type="button" onclick="downloadMarketBriefPng()">이미지 저장 (PNG)</button></figcaption>
   </figure>
@@ -3269,22 +3280,43 @@ async function fillHelpWeights(){
   }
 }
 
-let _marketBriefSeq = 0, _marketBriefSvgUrl = null;
+let _marketBriefSeq = 0, _marketBriefSvgUrl = null, _marketBriefSceneKey = null;
 function setMarketBriefImage(d){
   const figure = document.getElementById('mb-figure'), img = document.getElementById('mb-image');
+  const fallback = document.getElementById('mb-image-fallback');
+  const mobileNote = document.getElementById('mb-figure-mobile-note');
+  const save = figure.querySelector('button');
+  const sceneKey = d ? [d.market, d.price_as_of, d.status, d.scene?.direction,
+    d.scene?.up, d.scene?.down, d.scene?.flat].join(':') : null;
+  const changed = _marketBriefSceneKey && sceneKey && sceneKey !== _marketBriefSceneKey;
+  _marketBriefSceneKey = sceneKey;
+  img.onload = null; img.onerror = null;
   if (_marketBriefSvgUrl) URL.revokeObjectURL(_marketBriefSvgUrl);
   _marketBriefSvgUrl = null;
-  figure.hidden = true;
   img.removeAttribute('src');
-  if (!d || !d.image_svg) return;
+  figure.classList.toggle('is-changing', !!changed);
+  figure.hidden = !d;
+  if (!d) return;
+  const scene = d.scene || {};
+  mobileNote.textContent = ['up','down','mixed'].includes(scene.direction)
+    ? `종가 ${d.price_as_of || '미확인'} · 비교 ${scene.compared}/${scene.universe}종목 · 상승 ${scene.up} · 하락 ${scene.down} · 보합 ${scene.flat}`
+    : '당일 비교 자료가 부족하거나 오래되어 방향을 표시하지 않았어요.';
+  save.hidden = !d.image_svg;
+  fallback.textContent = `${d.market === 'us' ? '해외' : '국내'} 시장 · ${d.today_headline || d.headline || '시장 자료 확인 중'}. 그림은 지금 표시할 수 없어요. 위의 글과 ‘숫자가 뜻하는 것’에서 확인해 주세요.`;
+  fallback.hidden = !!d.image_svg;
+  img.hidden = !d.image_svg;
+  if (!d.image_svg) return;
   _marketBriefSvgUrl = URL.createObjectURL(new Blob([d.image_svg], {type:'image/svg+xml;charset=utf-8'}));
   img.alt = `${d.market === 'us' ? '해외' : '국내'} 시장 요약. ${d.today_headline || d.headline || ''} ${d.summary || ''} ${(d.unknown || []).join(' ')}`;
+  img.onload = () => { fallback.hidden = true; img.hidden = false; };
+  img.onerror = () => { img.hidden = true; fallback.hidden = false; save.hidden = true;
+    figure.classList.remove('is-changing'); };
+  img.addEventListener('animationend', () => figure.classList.remove('is-changing'), {once:true});
   img.src = _marketBriefSvgUrl;
-  figure.hidden = false;
 }
 async function downloadMarketBriefPng(){
   const img = document.getElementById('mb-image');
-  if (!img.src) return;
+  if (!img.src || img.hidden) return;
   try {
     await img.decode();
     const canvas = document.createElement('canvas');

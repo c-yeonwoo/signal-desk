@@ -62,6 +62,7 @@ def build(
         "facts": [],
         "selection": None,
         "unknown": [],
+        "scene": {"direction": "unknown", "reason": "종가 확인 전"},
         "not_order_advice": True,
     }
     if not expected or not universe or not observed:
@@ -182,6 +183,7 @@ def build(
     # 경우에도 전체 시장의 방향처럼 읽히지 않도록 범위를 먼저 확인한다.
     directional_coverage = daily_count / len(universe)
     if daily_count and directional_coverage < 0.8:
+        scene_direction = "unknown"
         today_headline = "오늘 시장 방향은 자료가 부족해요"
         summary = (f"관찰 종목 {len(universe)}개 중 {daily_count}개만 직전 거래일과 비교할 수 있어요. "
                    f"확인한 종목은 상승 {advances}개·하락 {declines}개·보합 {unchanged}개지만 "
@@ -189,12 +191,15 @@ def build(
     elif daily_count:
         imbalance_pct = abs(advances - declines) / daily_count * 100
         if imbalance_pct < 15:
+            scene_direction = "mixed"
             today_headline = "오늘 오른 종목과 내린 종목이 비슷해요"
             today_interpretation = "관찰 종목의 등락이 갈려 한쪽으로 기울었다고 보기 어려워요."
         elif advances > declines:
+            scene_direction = "up"
             today_headline = "오늘은 오른 종목이 더 많았어요"
             today_interpretation = f"관찰 종목 {daily_count}개 중 {advances}개가 직전 거래일보다 올랐어요."
         else:
+            scene_direction = "down"
             today_headline = "오늘은 내린 종목이 더 많았어요"
             today_interpretation = f"관찰 종목 {daily_count}개 중 {declines}개가 직전 거래일보다 내렸어요."
         if daily_count < len(universe):
@@ -204,6 +209,7 @@ def build(
                          "최근 평균 위·아래 종목은 비슷해요.")
         summary = f"{today_interpretation} {trend_context}"
     else:
+        scene_direction = "unknown"
         today_headline = "오늘 등락은 아직 확인하기 어려워요"
         summary = "직전 거래일과 이어지는 종가가 부족해 오늘 방향을 보류했어요."
 
@@ -249,9 +255,21 @@ def build(
     basis = ("오늘 등락은 직전 거래일 종가와 비교 · 추세는 최근 60개 종가 평균 기준 · 관찰 유니버스 한정"
              if market == "kr" else
              "오늘 등락은 직전 거래일 종가와 비교 · 추세는 최근 60개 종가 평균 기준 · 미국 관찰 유니버스 한정")
+    scene = {
+        "direction": scene_direction,
+        "reason": "직전 거래일과 이어지는 종가" if scene_direction != "unknown" else "당일 비교 자료 부족",
+        "compared": daily_count,
+        "universe": len(universe),
+        "up": advances,
+        "down": declines,
+        "flat": unchanged,
+        # 업종은 현재 요약에 포함된, 같은 날 비교 가능한 표본만 그린다.
+        "sectors": ([sector_summary[0], sector_summary[-1]] if len(sector_summary) > 1 else sector_summary),
+    }
     return {**base, "status": "partial" if covered < len(universe) else "ready",
             "state": state, "state_basis": basis, "headline": headline,
             "today_headline": today_headline, "summary": summary,
             "daily_coverage": {"available": daily_count, "analyzed": covered},
+            "scene": scene,
             "sector_summary": sector_summary,
             "facts": facts, "selection": current_selection, "unknown": unknown}
