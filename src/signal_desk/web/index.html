@@ -7706,10 +7706,17 @@ function evidenceOpsHtml(d){
     'no_data':'해당 응답에서 새 공개 자료를 확인하지 못함',
     'not_due':'다음 수집 대기', 'missing_real_contact':'실제 연락처 미설정',
     'no_us_favorites':'미국 관심종목 없음', 'no_mapped_favorites':'기업 식별 확인 대기'};
+  const formatBytes = value => {
+    if (value == null || !Number.isFinite(Number(value)) || Number(value) < 0) return '–';
+    const bytes = Number(value);
+    if (bytes < 1024) return `${Math.round(bytes)} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KiB`;
+    return `${(bytes / 1048576).toFixed(1)} MiB`;
+  };
   const row = (label, last, totals, changedKey, changedLabel, showNoData = false) => {
     const state = statusText[last?.status] || last?.status || '아직 수집 전';
     const requested = totals?.requested ?? 0, failed = totals?.failed ?? 0;
-    const bytes = totals?.response_bytes == null ? '–' : `${(totals.response_bytes / 1048576).toFixed(1)} MiB`;
+    const bytes = formatBytes(totals?.response_bytes);
     const changed = totals?.[changedKey] ?? 0;
     return `<div style="padding:7px 0;border-bottom:1px solid var(--line)"><b>${label}</b> · ${esc(state)}`
       + `<div style="color:var(--dim);margin-top:2px">최근 ${ea.window_days ?? 30}일 요청 ${requested}회 · 성공 ${totals?.ok ?? 0}회`
