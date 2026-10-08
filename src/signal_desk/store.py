@@ -2207,14 +2207,66 @@ def _fresh_live_quote_tickers() -> set[str]:
             if -300 <= now - float(snapshot["quote_updated"].get(ticker, 0)) <= _LIVE_QUOTE_MAX_AGE_SECONDS}
 
 
+def _live_source_time_quality(metadata: dict[str, dict], received_at: dict[str, float], now: float) -> dict:
+    """공급자 시각과 서버 수신 시각의 관측 차이를 요약한다. 신선도·체결 판정은 하지 않는다."""
+    present = parseable = missing = unparseable = future_skew = 0
+    lags: list[float] = []
+    ages: list[float] = []
+    for ticker, meta in metadata.items():
+        raw = meta.get("source_timestamp")
+        if not raw:
+            missing += 1
+            continue
+        present += 1
+        parsed = meta.get("source_timestamp_parsed_utc")
+        try:
+            source_dt = datetime.datetime.fromisoformat(str(parsed).replace("Z", "+00:00"))
+            if source_dt.tzinfo is None:
+                raise ValueError("timestamp has no timezone")
+            source_ts = source_dt.timestamp()
+            received = float(received_at[ticker])
+        except (TypeError, ValueError, KeyError, OverflowError, OSError):
+            unparseable += 1
+            continue
+        parseable += 1
+        lag = received - source_ts
+        lags.append(lag)
+        ages.append(now - source_ts)
+        if lag < -300:
+            future_skew += 1
+
+    def distribution(values: list[float]) -> dict:
+        if not values:
+            return {"count": 0, "min_seconds": None, "median_seconds": None,
+                    "p95_seconds": None, "max_seconds": None}
+        ordered = sorted(values)
+        middle = len(ordered) // 2
+        median = ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+        p95 = ordered[max(0, math.ceil(0.95 * len(ordered)) - 1)]
+        return {"count": len(ordered), "min_seconds": round(ordered[0], 1),
+                "median_seconds": round(median, 1),
+                "p95_seconds": round(p95, 1), "max_seconds": round(ordered[-1], 1)}
+
+    return {"sample_count": len(metadata), "timestamp_present_count": present,
+            "timestamp_parseable_count": parseable, "timestamp_missing_count": missing,
+            "timestamp_unparseable_count": unparseable, "future_skew_over_5m_count": future_skew,
+            "receive_lag_seconds": distribution(lags), "source_age_seconds": distribution(ages),
+            "interpretation": "공급자 데이터 시각과 서버 수신 시각의 차이이며, 마지막 체결 시각 또는 신선도 인증을 뜻하지 않음"}
+
+
 def live_status() -> dict:
     """실시간가 오버레이 상태 — 성공 갱신 시각 + 마지막 시도 시각·결과. 왜 안 바뀌는지 진단용."""
     fresh_count = len(_fresh_live_quote_tickers())
+    now = time.time()
     with _LIVE_LOCK:
+        source_time_quality = _live_source_time_quality(
+            {ticker: dict(meta) for ticker, meta in _LIVE_QUOTE_META.items()},
+            dict(_LIVE_QUOTE_TS), now)
         return {"on": bool(_LIVE_QUOTES), "count": len(_LIVE_QUOTES), "updated": _LIVE_TS,
                 "fresh_count": fresh_count, "stale_count": max(0, len(_LIVE_QUOTES) - fresh_count),
                 "source_time_present": sum(bool(m.get("source_timestamp")) for m in _LIVE_QUOTE_META.values()),
                 "source_time_verified": sum(bool(m.get("source_time_verified")) for m in _LIVE_QUOTE_META.values()),
+                "source_time_quality": source_time_quality,
                 "attempt_ts": _LIVE_ATTEMPT["ts"], "attempt_result": _LIVE_ATTEMPT["result"],
                 "attempt_markets": list(_LIVE_ATTEMPT["markets"]),
                 "coverage": {market: {**row, "missing_sample": list(row["missing_sample"])}
