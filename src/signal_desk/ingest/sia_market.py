@@ -133,6 +133,9 @@ def archive(path: Path, facts: list[dict], *, observed_at: dt.datetime) -> dict:
     observed = _utc(observed_at)
     inserted = 0
     ids: list[str] = []
+    # The public feed includes older releases. This card intentionally tracks
+    # only the newest release, not a retroactive historical backfill.
+    facts = sorted(facts, key=lambda item: (item["published_at"], item["post_id"]), reverse=True)[:1]
     conn = _connect(path)
     try:
         with conn:

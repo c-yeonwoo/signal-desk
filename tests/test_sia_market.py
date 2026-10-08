@@ -58,6 +58,26 @@ def test_archive_is_compact_append_only_and_readable_as_of(tmp_path):
     assert b'"strict_pit_eligible":false' in material
 
 
+def test_archive_keeps_only_newest_release_when_feed_contains_history(tmp_path):
+    older = json.loads(json.dumps(RELEASE))
+    newer = json.loads(json.dumps(RELEASE))
+    newer["id"] = 31699
+    newer["date_gmt"] = "2026-11-05T12:00:17"
+    newer["slug"] = "year-to-date-global-semiconductor-sales-through-september"
+    newer["link"] = "https://www.semiconductors.org/year-to-date-global-semiconductor-sales-through-september/"
+    newer["title"] = {"rendered": "Global Semiconductor Sales Through September"}
+    newer["content"] = {"rendered": "<p>Global semiconductor sales were $168.0 billion during the month of September 2026, "
+        "an increase of 5.2% compared to the August 2026 total of $159.7 billion and 130% more than "
+        "the September 2025 total of $73.0 billion. Monthly sales are a three-month moving average.</p>"}
+    later = dt.datetime(2026, 11, 6, tzinfo=dt.timezone.utc)
+    facts = sia.parse(json.dumps([older, newer]).encode(), observed_at=later)
+    path = tmp_path / "sia.db"
+    result = sia.archive(path, facts, observed_at=later)
+    assert result["observations_added"] == 1
+    assert sia.describe(path, as_of=later)["period"] == "2026-09"
+    assert result["ids"] == [sia.latest(path, as_of=later)["id"]]
+
+
 def test_refresh_uses_three_day_cooldown_and_atomic_monthly_budget(tmp_path):
     state, calls, budget = {}, [], []
     def reserve(key):
