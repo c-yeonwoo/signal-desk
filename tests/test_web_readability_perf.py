@@ -29,7 +29,8 @@ def test_signal_screen_does_not_load_hidden_portfolio_home():
     tab = html.split("function switchTab(t){", 1)[1].split("const _SEGS =", 1)[0]
     market = html.split("function switchSignalMarket(m){", 1)[1].split("// 시장별 응답 캐시", 1)[0]
     assert "InvestmentHome.load" not in tab + market
-    assert "if (seg === 'rebal')" in html and "InvestmentHome.load" in html
+    investment = html.split("function switchTradingSeg(seg){", 1)[1].split("\n// ── 목표금액", 1)[0]
+    assert "if (seg !== 'bot')" in investment and "InvestmentHome.load" in investment
 
 
 def test_market_detail_does_not_show_or_fetch_relative_strength_leaderboard():

@@ -3503,8 +3503,12 @@ def test_live_copy_ui_exposes_reference_bot_safety_effect():
     render = html.split("function _renderLiveCopySafety(", 1)[1].split("\nasync function ", 1)[0]
     assert "score_fallback" in render and "신규 매수 보류" in render
     assert "매도·손절은 계속 동작" in render and "실주문 전송은 잠김" in render
+    account = html.split("function loadInvestmentAccount(){", 1)[1].split("\nfunction ", 1)[0]
+    assert "loadLiveCopySafety()" in account
+    toggle = html.split("function onInvestmentAccountToggle(){", 1)[1].split("\nfunction ", 1)[0]
+    assert "loadInvestmentAccount()" in toggle
     switch = html.split("function switchTradingSeg(", 1)[1].split("\nfunction ", 1)[0]
-    assert "loadLiveCopySafety()" in switch
+    assert "if (seg === 'live' && accountWasOpen) loadInvestmentAccount()" in switch
     assert "/api/live/source-safety?style=" in html
 
 

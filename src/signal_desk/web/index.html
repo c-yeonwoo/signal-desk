@@ -955,8 +955,8 @@
   <h1><span class="wm-a">Signal</span> <span class="wm-b">Desk</span></h1>
   <div class="tabs">
     <button class="tab" data-tab="today" onclick="switchTab('today')">오늘</button>
-    <button class="tab" data-tab="signal" onclick="switchTab('signal')">시그널</button>
-    <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="봇 모의투자 · 내 포트폴리오 · 실계좌">투자 관리</button>
+    <button class="tab" data-tab="signal" onclick="switchTab('signal')">종목</button>
+    <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="내 보유 · 계좌와 주문 · 모의투자">내 투자</button>
     <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">인사이트</button>
     <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
   </div>
@@ -978,10 +978,8 @@
 </dialog>
 
 <nav class="subnav" id="subnav-trading" style="display:none">
-  <button class="subtab on" data-seg="rebal" onclick="switchTradingSeg('rebal')">내 투자</button>
-  <button class="subtab" data-seg="bot" onclick="switchTradingSeg('bot')">봇 성과</button>
-  <button class="subtab" data-seg="live" onclick="switchTradingSeg('live')">실계좌·주문</button>
-  <button class="subtab" data-seg="dividend" onclick="switchTradingSeg('dividend')">배당 계획</button>
+  <button class="subtab on" data-seg="rebal" onclick="switchTradingSeg('rebal')">내 보유와 계좌</button>
+  <button class="subtab" data-seg="bot" onclick="switchTradingSeg('bot')">모의투자</button>
 </nav>
 <nav class="subnav" id="subnav-today" style="display:none" aria-label="오늘 시장">
   <button class="subtab on" data-mkt="kospi" onclick="switchTodayMarket('kospi')">국내</button>
@@ -1512,13 +1510,11 @@
         </details>
       </div>
     </section>
-      <div class="card" style="margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <div style="min-width:220px;flex:1">
-          <b style="font-size:14px">실계좌 연결·주문 상태</b>
-          <div class="page-desc" style="margin:4px 0 0">여기서 보는 보유 입력은 실계좌와 별도입니다. 연결 확인과 실제 주문은 아래에서 직접 진행해야 합니다.</div>
-        </div>
-        <button class="btn" type="button" onclick="switchTradingSeg('live')">실계좌 화면 열기</button>
-      </div>
+      <details id="investment-account-workspace" class="card" style="margin-bottom:16px" ontoggle="onInvestmentAccountToggle()">
+        <summary style="cursor:pointer;font-weight:700;font-size:17px">내 계좌와 주문 확인 <span style="color:var(--dim);font-weight:600;font-size:13px">· 보유 조회·주문 기록·추종 한도</span></summary>
+        <p class="page-desc">실계좌 보유 조회와 분석용 입력은 별개입니다. 아래에서 연결 상태를 확인하고, 주문은 별도 사전점검과 명시적 승인 뒤에만 진행합니다.</p>
+        <div id="investment-account-mount"></div>
+      </details>
       <!-- 보유·진단은 기본 동선, 목표·배당·비중 조정은 접힌 보조 도구다. -->
       <div class="seg-toggle" id="pf-market-seg" style="margin-bottom:16px">
         <button class="on" data-pfm="kr" onclick="setPfMarket('kr')">국내주식</button>
@@ -1667,6 +1663,11 @@
         <div style="font-size:12px;color:var(--dim);margin-top:8px"><span class="layer-badge ctx">맥락</span> 제안만 합니다 · 자동 주문 없음 · 실행은 본인 몫</div>
       </div>
       <div id="rebal-result"></div>
+      </details>
+
+      <details id="investment-dividend-workspace" class="card" style="margin-bottom:16px" ontoggle="onInvestmentDividendToggle()">
+        <summary style="cursor:pointer;font-weight:700;font-size:17px">앞으로 받을 배당 확인 <span style="color:var(--dim);font-weight:600;font-size:13px">· 확정과 추정은 구분해 표시</span></summary>
+        <div id="investment-dividend-mount"></div>
       </details>
 
     </div>
@@ -6432,25 +6433,64 @@ function switchCycleSeg(seg){
 }
 
 let _tradingSeg = 'rebal';
-function switchTradingSeg(seg){
-  _tradingSeg = seg;
-  document.querySelectorAll('#subnav-trading .subtab').forEach(b => b.classList.toggle('on', b.dataset.seg === seg));
-  document.getElementById('trading-bot').style.display = seg === 'bot' ? '' : 'none';
-  document.getElementById('trading-rebal').style.display = seg === 'rebal' ? '' : 'none';
-  document.getElementById('trading-live').style.display = seg === 'live' ? '' : 'none';
-  document.getElementById('trading-dividend').style.display = seg === 'dividend' ? '' : 'none';
-  if (seg === 'bot') loadBotState();
-  if (seg === 'live') {
-    loadLiveConnectionSummary();
-    loadLiveCopySafety();
-    loadTossManualStatus();
-    if (!_liveCopyLoaded) loadLiveCopyPolicy();
+let _investmentSectionsMounted = false;
+function mountInvestmentSections(){
+  if (_investmentSectionsMounted) return;
+  document.getElementById('investment-account-mount').appendChild(document.getElementById('trading-live'));
+  document.getElementById('investment-dividend-mount').appendChild(document.getElementById('trading-dividend'));
+  _investmentSectionsMounted = true;
+}
+function loadInvestmentAccount(){
+  loadLiveConnectionSummary();
+  loadLiveCopySafety();
+  loadTossManualStatus();
+  if (!_liveCopyLoaded) loadLiveCopyPolicy();
+}
+function onInvestmentAccountToggle(){
+  const open = document.getElementById('investment-account-workspace').open;
+  document.getElementById('trading-live').style.display = open ? '' : 'none';
+  if (open) {
+    loadInvestmentAccount();
+    _tradingSeg = 'live';
+    history.replaceState(null, '', '#trading/live');
+  } else if (_tradingSeg === 'live') {
+    _tradingSeg = 'rebal';
+    history.replaceState(null, '', '#trading/rebal');
   }
-  if (seg === 'rebal') {
+}
+function onInvestmentDividendToggle(){
+  const open = document.getElementById('investment-dividend-workspace').open;
+  document.getElementById('trading-dividend').style.display = open ? '' : 'none';
+  if (open) {
+    loadDividends();
+    _tradingSeg = 'dividend';
+    history.replaceState(null, '', '#trading/dividend');
+  } else if (_tradingSeg === 'dividend') {
+    _tradingSeg = 'rebal';
+    history.replaceState(null, '', '#trading/rebal');
+  }
+}
+function switchTradingSeg(seg){
+  mountInvestmentSections();
+  _tradingSeg = seg;
+  document.querySelectorAll('#subnav-trading .subtab').forEach(b => b.classList.toggle('on', b.dataset.seg === (seg === 'bot' ? 'bot' : 'rebal')));
+  document.getElementById('trading-bot').style.display = seg === 'bot' ? '' : 'none';
+  document.getElementById('trading-rebal').style.display = seg === 'bot' ? 'none' : '';
+  const account = document.getElementById('investment-account-workspace');
+  const dividend = document.getElementById('investment-dividend-workspace');
+  const accountWasOpen = account.open;
+  const dividendWasOpen = dividend.open;
+  account.open = seg === 'live';
+  dividend.open = seg === 'dividend';
+  document.getElementById('trading-live').style.display = account.open ? '' : 'none';
+  document.getElementById('trading-dividend').style.display = dividend.open ? '' : 'none';
+  if (seg === 'bot') loadBotState();
+  if (seg !== 'bot') {
     gpRestore(); refreshPortfolio();
     if (window.InvestmentHome) InvestmentHome.load({market: _pfMarket === 'us' ? 'us' : 'kospi', profile: _profile});
   }
-  if (seg === 'dividend') loadDividends();
+  if (seg === 'live' && accountWasOpen) loadInvestmentAccount();
+  if (seg === 'dividend' && dividendWasOpen) loadDividends();
   history.replaceState(null, '', '#trading/' + seg);   // 새로고침 시 서브탭 유지
 }
 

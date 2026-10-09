@@ -193,7 +193,12 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     for alias in ("--sell:", "--warn:", "--down:", "--fg:", "--panel-2:", "--mono:"):
         assert alias in root, f"{alias} 미정의"
     assert 'data-cseg="study"' in html and 'id="subnav-study"' in html
-    assert ">투자 관리<" in html  # 실제 계좌·개인 분석까지 포함하는 상위 메뉴
+    assert ">내 투자<" in html  # 보유·실계좌·배당을 한 사용자 과업으로 묶는다
+    assert 'id="investment-account-workspace"' in html
+    assert 'id="investment-dividend-workspace"' in html
+    assert 'data-seg="live"' not in html and 'data-seg="dividend"' not in html
+    assert "trading: ['bot', 'rebal', 'live', 'dividend']" in html  # 이전 북마크 보존
+    assert "account.open = seg === 'live'" in html and "dividend.open = seg === 'dividend'" in html
     assert ">봇 모의투자<" in html
     # 국내·해외·관심종목은 같은 깊이의 탭. 상세 조건은 접힌 별도 영역에 둔다.
     assert 'id="sig-today"' in html
