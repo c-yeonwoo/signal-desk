@@ -100,3 +100,37 @@ assert.doesNotMatch(rendered, /<script>|<img/);
     out = subprocess.run([node, "-e", script], cwd=WEB.parents[3],
                          text=True, capture_output=True, check=False)
     assert out.returncode == 0, out.stderr
+
+
+def test_live_holdings_and_analysis_input_are_compared_without_importing():
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node is needed to exercise holdings comparison")
+    script = r"""
+const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+const html = fs.readFileSync('src/signal_desk/web/index.html', 'utf8');
+const code = html.slice(html.indexOf('function compareRealAndAnalysisHoldings('),
+                        html.indexOf('async function loadRealHoldings(){'));
+const ctx = vm.createContext({Number, Map});
+vm.runInContext(code,ctx);
+const real = [
+  {symbol:'005930',marketCountry:'KR',quantity:2,averagePurchasePrice:100},
+  {symbol:'0148J0',marketCountry:'KR',quantity:3,averagePurchasePrice:50},
+  {symbol:'AAPL',marketCountry:'US',quantity:1,averagePurchasePrice:200},
+];
+const manual = [
+  {ticker:'005930',qty:2,avg_price:100},
+  {ticker:'0148J0',qty:3,avg_price:50},
+  {ticker:'AAPL',qty:1,avg_price:200},
+];
+assert.equal(ctx.compareRealAndAnalysisHoldings(real,manual,'kr').same,true);
+assert.equal(ctx.compareRealAndAnalysisHoldings(real,manual,'us').same,true);
+assert.equal(ctx.compareRealAndAnalysisHoldings(real,manual.filter(h=>h.ticker!=='0148J0'),'kr').same,false);
+assert.equal(ctx.compareRealAndAnalysisHoldings(real,manual.map(h=>h.ticker==='005930'?{...h,qty:1}:h),'kr').same,false);
+assert.equal(ctx.compareRealAndAnalysisHoldings(real,manual.map(h=>h.ticker==='AAPL'?{...h,avg_price:190}:h),'us').same,false);
+assert.match(html, /id="real-holdings-compare" role="status"/);
+assert.match(html, /아래 진단은 분석용 입력 기준입니다/);
+"""
+    out = subprocess.run([node, "-e", script], cwd=WEB.parents[3],
+                         text=True, capture_output=True, check=False)
+    assert out.returncode == 0, out.stderr
