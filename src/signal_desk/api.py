@@ -4889,6 +4889,24 @@ def intraday_minute_day_get(request: Request, ticker: str, session: str):
     return {**result, "cached": False}
 
 
+@app.get("/api/admin/research/intraday-minute-replay")
+def intraday_minute_replay_get(request: Request, ticker: str, session: str):
+    """검증된 관리자 진단 캐시만 연구용으로 재생한다. 추가 KIS 요청·주문 없음."""
+    _admin_or_403(request)
+    if (not re.fullmatch(r"[0-9]{6}", ticker or "")
+            or not re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}", session or "")
+            or session >= "2026-08-04"):
+        raise HTTPException(status_code=422, detail="보호 전 국내 종목·날짜만 재생할 수 있습니다.")
+    source = db.kv_get(f"intraday_minute_day:v1:{ticker}:{session}", max_age=3600)
+    if not source or source.get("status") != "observed_day":
+        raise HTTPException(status_code=409, detail="먼저 같은 종목·날짜의 하루 원천을 검증해 주세요.")
+    from signal_desk.signals import intraday_opportunity
+    result = intraday_opportunity.historical_minute_replay(source)
+    if result["status"] != "counterfactual_only":
+        raise HTTPException(status_code=409, detail="저장된 하루 원천의 무결성을 확인할 수 없습니다.")
+    return result
+
+
 @app.get("/api/admin/research/price-baseline")
 def price_baseline_get(request: Request, market: str = "kr", limit: int = 20,
                        include_inputs: bool = False):

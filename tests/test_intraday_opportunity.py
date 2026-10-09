@@ -1,10 +1,50 @@
 import time
 import datetime as dt
+import hashlib
+import json
 from zoneinfo import ZoneInfo
 
 from signal_desk import db, intraday_opportunity_service as service
 from signal_desk.broker import kis
 from signal_desk.signals import intraday_opportunity as model
+
+
+def _verified_minute_day(*, gap: str | None = None, session: str = "2026-07-14") -> dict:
+    minutes = [dt.datetime(2026, 7, 14, 9) + dt.timedelta(minutes=i) for i in range(391)]
+    bars = [{"time": minute.strftime("%H:%M:%S"),
+             "price": 102 if i == 9 else 103 if i == 10 else 104 if i == 70 else 100,
+             "volume": 3 if 5 <= i <= 9 else 1, "date_reported": True}
+            for i, minute in enumerate(minutes) if minute.strftime("%H:%M:%S") != gap]
+    digest = hashlib.sha256(json.dumps(bars, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return {"status": "observed_day", "ticker": "005930", "session": session,
+            "bars": bars, "bar_count": len(bars), "bars_sha256": digest,
+            "date_attested_by_rows": True, "source_time_verified": False,
+            "missing_minutes_not_filled": True}
+
+
+def test_historical_minute_replay_uses_next_observed_minute_and_cost_grid():
+    result = model.historical_minute_replay(_verified_minute_day())
+    assert result["status"] == "counterfactual_only" and result["bar_count"] == 391
+    assert result["cost_bps"] == [45, 75, 120]
+    assert result["event_count"] >= 1 and not result["order_eligible"]
+    event = result["events"][0]
+    assert event["volume_ratio"] == 3
+    assert event["strategies"]["next_minute"]["entry_at"] == event["detected_at"] + 60
+    assert event["strategies"]["next_minute"]["exit_at"] == event["detected_at"] + 3660
+    assert event["strategies"]["next_minute"]["gross_pct"] == round(100 * (104 / 103 - 1), 4)
+    assert event["strategies"]["next_minute"]["net_pct_by_cost_bps"]["45"] == round(
+        100 * (104 / 103 - 1) - .45, 4)
+    assert event["no_trade_pct"] == 0
+
+
+def test_historical_minute_replay_abstains_on_unverified_or_missing_bars():
+    day = _verified_minute_day()
+    assert model.historical_minute_replay({**day, "bars_sha256": "bad"})["status"] == "unverified_input"
+    assert model.historical_minute_replay({**day, "session": "2026-08-04"})["status"] == "unverified_input"
+    missing_entry = model.historical_minute_replay(_verified_minute_day(gap="09:10:00"))
+    assert missing_entry["events"][0]["strategies"]["next_minute"]["status"] == "missing_observed_bar"
+    missing_window = model.historical_minute_replay(_verified_minute_day(gap="09:08:00"))
+    assert not missing_window["events"]
 
 
 def test_price_jump_is_not_a_buy_and_stale_volume_cannot_upgrade():
@@ -254,6 +294,33 @@ def test_historical_minute_day_pages_back_to_open_without_filling_gaps(monkeypat
     assert calls[0] == "153000" and calls == sorted(calls, reverse=True)
 
 
+def test_historical_minute_day_accepts_only_attested_previous_day_boundary(monkeypatch):
+    minutes = [dt.datetime(2026, 7, 14, 9) + dt.timedelta(minutes=i) for i in range(391)]
+    credentials = {"env": "real", "app_key": "a", "app_secret": "b", "account_no": "c", "product_cd": "01"}
+    boundary_date = "20260713"
+    def respond(path, tr_id, creds, params):
+        cursor = params["FID_INPUT_HOUR_1"]
+        current = [minute for minute in minutes if minute.strftime("%H%M%S") <= cursor][-120:]
+        rows = [{"stck_cntg_hour": minute.strftime("%H%M%S"), "stck_prpr": "100",
+                 "cntg_vol": "3", "stck_bsop_date": "20260714"} for minute in reversed(current)]
+        rows.extend({"stck_cntg_hour": (dt.datetime(2026, 7, 13, 15, 30)
+                                             - dt.timedelta(minutes=i)).strftime("%H%M%S"),
+                     "stck_prpr": "99", "cntg_vol": "3", "stck_bsop_date": boundary_date}
+                    for i in range(120 - len(rows)))
+        return {"rt_cd": "0", "output2": rows}
+    monkeypatch.setattr(kis, "_request", respond)
+    complete = kis.domestic_historical_minute_day("005930", "2026-07-14", credentials)
+    assert complete["status"] == "observed_day" and complete["bar_count"] == 391
+    assert len(complete["pages"]) == 4
+    assert complete["earlier_date_rows_excluded"] == 89
+    assert complete["pages"][-1]["earlier_date_rows_excluded"] == 89
+    boundary_date = "20260715"
+    rejected = kis.domestic_historical_minute_day("005930", "2026-07-14", credentials)
+    assert rejected["status"] == "unverified_source"
+    assert rejected["reason"] == "invalid_rows" and len(rejected["pages"]) == 3
+    assert rejected["failed_page"]["other_dates_earlier_only"] is False
+
+
 def test_historical_minute_day_rejects_missing_date_and_cursor_ignoring_provider(monkeypatch):
     credentials = {"env": "real", "app_key": "a", "app_secret": "b", "account_no": "c", "product_cd": "01"}
     def missing_date(path, tr_id, creds, params):
@@ -300,6 +367,33 @@ def test_admin_minute_day_caches_only_complete_bounded_result(tmp_path, monkeypa
     try:
         api.intraday_minute_probe_get(object(), "005930", "2026-08-04")
         assert False, "single-page probe must use the same date fence"
+    except api.HTTPException as exc:
+        assert exc.status_code == 422
+
+
+def test_admin_historical_replay_reads_only_verified_cached_day(tmp_path, monkeypatch):
+    from signal_desk import api
+    monkeypatch.setattr(db, "DB", tmp_path / "replay.db")
+    monkeypatch.setattr(api, "_admin_or_403", lambda request: None)
+    try:
+        api.intraday_minute_replay_get(object(), "005930", "2026-07-14")
+        assert False, "uncached source must not trigger a provider request"
+    except api.HTTPException as exc:
+        assert exc.status_code == 409
+    day = _verified_minute_day()
+    key = "intraday_minute_day:v1:005930:2026-07-14"
+    db.kv_set(key, day)
+    replay = api.intraday_minute_replay_get(object(), "005930", "2026-07-14")
+    assert replay["status"] == "counterfactual_only" and not replay["order_eligible"]
+    db.kv_set(key, {**day, "bars_sha256": "tampered"})
+    try:
+        api.intraday_minute_replay_get(object(), "005930", "2026-07-14")
+        assert False, "tampered source must not be replayed"
+    except api.HTTPException as exc:
+        assert exc.status_code == 409
+    try:
+        api.intraday_minute_replay_get(object(), "005930", "2026-08-04")
+        assert False, "protected date must remain closed"
     except api.HTTPException as exc:
         assert exc.status_code == 422
 
