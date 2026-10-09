@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from signal_desk.signals.historical_audit import (  # noqa: E402
-    MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots,
+    MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots, inventory_recorded_inputs,
 )
 
 
@@ -49,6 +49,8 @@ def main() -> None:
     parser.add_argument("--bundle", type=Path, help="Admin-only exported ZIP, read without extraction")
     parser.add_argument("--forensic", action="store_true",
                         help="List protected-period signal changes and fixed majors as cases only; no aggregate score")
+    parser.add_argument("--inventory-only", action="store_true",
+                        help="Input coverage and PIT limitations only; never read forward outcomes")
     parser.add_argument("--output", type=Path, help="Optional JSON artifact; existing file is never overwritten")
     args = parser.parse_args()
     started = time.perf_counter()
@@ -76,6 +78,19 @@ def main() -> None:
     elif args.market != "kr":
         frame = frame.iloc[0:0]
     protected_start = _registered_start()
+    if args.inventory_only:
+        if args.forensic:
+            parser.error("--inventory-only and --forensic cannot be combined")
+        result = inventory_recorded_inputs(frame, prices, market=args.market,
+                                           protected_start=protected_start)
+        result["inputs"] = input_hashes
+        result["elapsed_seconds"] = round(time.perf_counter() - started, 3)
+        print(json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False))
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            with args.output.open("x", encoding="utf-8") as handle:
+                json.dump(result, handle, ensure_ascii=False, indent=2, allow_nan=False)
+        return
     before = len(frame)
     protected = frame[frame["date"].astype(str) >= protected_start]
     frame = frame[frame["date"].astype(str) < protected_start]

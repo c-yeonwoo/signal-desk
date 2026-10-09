@@ -8,7 +8,9 @@ from io import BytesIO
 from zipfile import ZipFile
 
 from signal_desk import market_clock
-from signal_desk.signals.historical_audit import audit_snapshots, select_recorded_inputs
+from signal_desk.signals.historical_audit import (
+    audit_snapshots, inventory_recorded_inputs, select_recorded_inputs,
+)
 
 
 def _bars(ticker: str, dates: list[str], *, first_open: float = 100.0,
@@ -231,6 +233,51 @@ def test_export_selects_last_recorded_sessions_and_matching_prices_only():
     assert not (bars["date"] == "2026-07-10").any()
     with pytest.raises(ValueError, match="invalid market"):
         select_recorded_inputs(signals, prices, market="kr", sessions=62)
+
+
+def test_inventory_keeps_protected_period_as_metadata_without_outcomes():
+    signals = pd.DataFrame([
+        {"date": "2026-07-20", "ticker": "AAA", "score": 1.0, "kind": "BUY",
+         "observed_at": "2026-07-20T07:00:00Z"},
+        {"date": "2026-09-24", "ticker": "AAA", "score": 9.0, "kind": "STRONG_BUY",
+         "observed_at": None},
+    ])
+    prices = pd.DataFrame([
+        {"date": "2026-07-21", "ticker": "AAA", "open": 100.0, "close": 80.0},
+        {"date": "2026-09-28", "ticker": "AAA", "open": None, "close": 200.0},
+    ])
+    original = signals.copy(deep=True)
+    result = inventory_recorded_inputs(signals, prices, market="kr",
+                                       protected_start="2026-08-05")
+    assert result["development_rows"] == result["protected_rows"] == 1
+    assert result["invalid_signal_session_rows"] == 1
+    assert result["price_missing_open_rows"] == 1
+    assert result["saved_fields"]["observed_at"]["non_null_rows"] == 1
+    assert result["saved_fields"]["observed_at"]["source_time_verified"] is False
+    assert result["strict_pit_eligible"] is False
+    assert "summary" not in result and "outcomes" not in result
+    pd.testing.assert_frame_equal(signals, original)
+
+
+def test_inventory_cli_never_runs_forward_audit(tmp_path, monkeypatch, capsys):
+    from scripts.measure import historical_signal_audit as cli
+
+    signals_file = tmp_path / "signals.parquet"
+    prices_file = tmp_path / "prices.parquet"
+    pd.DataFrame([{"date": "2026-09-24", "ticker": "AAA", "score": 9.0,
+                   "kind": "STRONG_BUY"}]).to_parquet(signals_file)
+    pd.DataFrame(_bars("AAA", ["2026-09-28"])).to_parquet(prices_file)
+    monkeypatch.setattr(cli, "_registered_start", lambda: "2026-08-05")
+    monkeypatch.setattr(cli, "audit_snapshots", lambda *args, **kwargs:
+                        pytest.fail("inventory must not compute forward outcomes"))
+    monkeypatch.setattr("sys.argv", ["historical_signal_audit.py", "--market", "kr",
+                                    "--signals", str(signals_file), "--prices", str(prices_file),
+                                    "--inventory-only"])
+    cli.main()
+    result = json.loads(capsys.readouterr().out)
+    assert result["protected_rows"] == 1
+    assert result["strict_pit_eligible"] is False
+    assert "summary" not in result
 
 
 def test_admin_export_is_protected_and_has_checkable_inputs(tmp_path, monkeypatch):
