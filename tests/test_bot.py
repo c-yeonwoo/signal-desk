@@ -79,6 +79,7 @@ def test_bot_run_id_links_fill_to_explicit_capture_state(tmp_path, monkeypatch):
     assert trade["decision_capture"]["status"] == "not_requested"
     assert trade["decision_capture"]["reason"] == "outside_production"
     assert trade["decision_capture"]["signal_output_id"] is None
+    assert trade["decision_link_state"] == "run_linked_capture_unavailable"
 
 
 def test_advisor_abstention_buys_nothing(tmp_path, monkeypatch):

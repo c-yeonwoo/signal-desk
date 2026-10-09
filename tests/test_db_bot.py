@@ -121,6 +121,7 @@ def test_historical_case_paper_trades_are_bounded_and_account_scoped(tmp_path, m
     assert result["truncated"] is True
     assert [(row["side"], row["qty"]) for row in result["trades"]] == [("buy", 2)]
     assert result["trades"][0]["execution_event_state"] == "matched"
+    assert result["trades"][0]["decision_link_state"] == "legacy_run_unlinked"
     assert result["trades"][0]["notification"] == {
         "outbox_status": "sent", "outbox_sent_at": stamp("2026-09-15T09:01:00"),
         "recipient_count": 1, "recipient_sent_count": 1,
@@ -129,7 +130,66 @@ def test_historical_case_paper_trades_are_bounded_and_account_scoped(tmp_path, m
                                       stamp("2026-09-14T00:00:00"),
                                       stamp("2026-09-19T00:00:00"))
     assert all_rows["trades"][1]["execution_event_state"] == "mismatch"
+    assert all_rows["trades"][1]["decision_link_state"] == "execution_event_unverified"
     assert all_rows["trades"][1]["notification"] is None
+
+
+def test_historical_case_verifies_run_fill_links_without_inventing_capture(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db.bot_trade_log(UID, "AAA", "가", "buy", 1, 100, "SIGNAL", "ORDER")
+    c = db.conn()
+    try:
+        trade_ts = c.execute("SELECT ts FROM bot_trades WHERE order_no='ORDER'").fetchone()[0]
+    finally:
+        c.close()
+    assert db.execution_event_add(
+        f"trade:kr:{UID}:ORDER", uid=UID, market="kr", ticker="AAA",
+        event_type="filled_buy", price=100,
+        payload={"qty": 1, "run_id": "run-a", "signal_policy_id": "signal-v1",
+                 "execution_policy_id": "execution-v1"}, ts=trade_ts)
+    session = datetime.datetime.fromtimestamp(trade_ts, ZoneInfo("Asia/Seoul")).date().isoformat()
+    db.bot_run_provenance_add(
+        "run-a", uid=UID, market="kr", session=session, decision_at=trade_ts,
+        mode="regular", signal_policy_id="signal-v1", execution_policy_id="execution-v1",
+        capture={"status": "not_requested", "reason": "outside_production"})
+
+    def state():
+        return db.bot_trades_for_case(UID, "kr", "AAA", trade_ts - 1,
+                                      trade_ts + 1)["trades"][0]["decision_link_state"]
+
+    def change(sql, params):
+        c = db.conn()
+        try:
+            c.execute(sql, params)
+            c.commit()
+        finally:
+            c.close()
+
+    assert state() == "run_linked_capture_unavailable"
+    change("UPDATE bot_run_provenance SET decision_at=? WHERE run_id='run-a'", (trade_ts + 1,))
+    assert state() == "run_fill_order_inconsistent"
+    change("UPDATE bot_run_provenance SET decision_at=?,completed_at=? WHERE run_id='run-a'",
+           (trade_ts, trade_ts - 1))
+    assert state() == "run_fill_order_inconsistent"
+    change("UPDATE bot_run_provenance SET decision_at=?,session=? WHERE run_id='run-a'",
+           (trade_ts, "2000-01-01"))
+    change("UPDATE bot_run_provenance SET completed_at=? WHERE run_id='run-a'", (trade_ts,))
+    assert state() == "run_session_mismatch"
+    change("UPDATE bot_run_provenance SET session=?,signal_policy_id=? WHERE run_id='run-a'",
+           (session, "other-policy"))
+    assert state() == "run_policy_mismatch"
+    change("UPDATE bot_run_provenance SET signal_policy_id=NULL WHERE run_id='run-a'", ())
+    assert state() == "run_policy_unverified"
+    change("UPDATE bot_run_provenance SET signal_policy_id=?,capture_status='saved',"
+           "signal_output_id=? WHERE run_id='run-a'", ("signal-v1", "missing-artifact"))
+    assert state() == "capture_artifact_missing"
+    artifact_id = db.decision_artifact_put("kr", "signal_output", {"rows": []},
+                                           observed_at=trade_ts)
+    change("UPDATE bot_run_provenance SET signal_output_id=? WHERE run_id='run-a'",
+           (artifact_id,))
+    assert state() == "same_run_capture_recorded"
+    change("DELETE FROM bot_run_provenance WHERE run_id='run-a'", ())
+    assert state() == "run_record_missing"
 
 
 def test_bot_reset_scoped(tmp_path, monkeypatch):

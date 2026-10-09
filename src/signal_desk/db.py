@@ -2312,6 +2312,7 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
         }]) for row in trades if row["order_no"]]
         events = {}
         runs = {}
+        saved_outputs = set()
         if event_keys:
             marks = ",".join("?" for _ in event_keys)
             events = {key: (event_uid, event_market, event_ticker, kind, price, payload, ts)
@@ -2325,12 +2326,23 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
                 marks = ",".join("?" for _ in run_ids)
                 runs = {run_id: {"status": status, "signal_output_id": output_id,
                                  "reason": capture_reason, "decision_at": decision_at,
-                                 "mode": mode}
-                        for run_id, status, output_id, capture_reason, decision_at, mode in
+                                 "completed_at": completed_at, "session": session,
+                                 "mode": mode, "signal_policy_id": signal_policy_id,
+                                 "execution_policy_id": execution_policy_id}
+                        for (run_id, status, output_id, capture_reason, decision_at, completed_at,
+                             session, mode, signal_policy_id, execution_policy_id) in
                         c.execute(f"SELECT run_id,capture_status,signal_output_id,capture_reason,"
-                                  f"decision_at,mode FROM bot_run_provenance "
+                                  f"decision_at,completed_at,session,mode,signal_policy_id,execution_policy_id "
+                                  f"FROM bot_run_provenance "
                                   f"WHERE uid=? AND market=? AND run_id IN ({marks})",
                                   (uid, market, *run_ids)).fetchall()}
+                output_ids = sorted({run["signal_output_id"] for run in runs.values()
+                                     if run["signal_output_id"]})
+                if output_ids:
+                    marks = ",".join("?" for _ in output_ids)
+                    saved_outputs = {row[0] for row in c.execute(
+                        f"SELECT id FROM decision_artifacts WHERE market=? AND kind='signal_output' "
+                        f"AND id IN ({marks})", (market, *output_ids)).fetchall()}
         alerts = {}
         deliveries = {}
         if alert_keys:
@@ -2351,11 +2363,13 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
     for row in trades:
         order_no = row["order_no"]
         event = events.get(f"trade:{market}:{uid}:{order_no}") if order_no else None
+        event_data = {}
         if event:
             event_uid, event_market, event_ticker, kind, price, payload, event_ts = event
             event_data = _event_data(payload)
             event_qty = event_data.get("qty")
-            row["run_id"] = event_data.get("run_id")
+            run_id = event_data.get("run_id")
+            row["run_id"] = run_id if isinstance(run_id, str) and run_id else None
             row["decision_capture"] = runs.get(row["run_id"]) if row["run_id"] else None
             matches = (event_uid == uid and event_market == market and event_ticker == ticker
                        and kind == f"filled_{str(row['side']).lower()}"
@@ -2366,6 +2380,33 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
             row["execution_event_state"] = "not_recorded"
             row["run_id"] = None
             row["decision_capture"] = None
+        run = row["decision_capture"]
+        if row["execution_event_state"] != "matched":
+            row["decision_link_state"] = "execution_event_unverified"
+        elif not row["run_id"]:
+            row["decision_link_state"] = "legacy_run_unlinked"
+        elif not run:
+            row["decision_link_state"] = "run_record_missing"
+        elif (int(run["decision_at"]) > int(row["ts"])
+              or int(run["completed_at"]) < int(row["ts"])):
+            row["decision_link_state"] = "run_fill_order_inconsistent"
+        elif run["session"] != datetime.datetime.fromtimestamp(
+                int(row["ts"]), ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
+        ).date().isoformat():
+            row["decision_link_state"] = "run_session_mismatch"
+        elif any(event_data.get(key) != run[key]
+                 for key in ("signal_policy_id", "execution_policy_id")
+                 if event_data.get(key) and run[key]):
+            row["decision_link_state"] = "run_policy_mismatch"
+        elif any(not event_data.get(key) or not run[key]
+                 for key in ("signal_policy_id", "execution_policy_id")):
+            row["decision_link_state"] = "run_policy_unverified"
+        elif run["status"] == "saved" and run["signal_output_id"] in saved_outputs:
+            row["decision_link_state"] = "same_run_capture_recorded"
+        elif run["status"] == "saved":
+            row["decision_link_state"] = "capture_artifact_missing"
+        else:
+            row["decision_link_state"] = "run_linked_capture_unavailable"
         alert_key = (bot_alerts.dedupe_key(uid, market, [{
             "side": str(row["side"]).upper(), "order_no": order_no,
         }]) if order_no else None)
