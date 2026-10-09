@@ -2055,6 +2055,8 @@
       <summary style="cursor:pointer;font-weight:700">과거 신호 점검 자료 받기 <span class="trust-badge sim">관리자 전용</span></summary>
       <p class="page-desc" style="margin:8px 0">저장된 신호와 가격 기록만 받습니다. 빈 날짜는 채우지 않으며 새 수집·매매·연구 판정은 실행하지 않습니다. 자료는 탐색용이고 현재 시그널의 검증 성적으로 볼 수 없습니다.</p>
       <div class="row" style="gap:8px;flex-wrap:wrap"><a class="btn" href="/api/admin/research/historical-inputs?market=kr" download>국내 기록</a><a class="btn" href="/api/admin/research/historical-inputs?market=us" download>미국 기록</a></div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn" onclick="loadHistoricalCases('kr')">국내 사례 바로 보기</button><button class="btn" onclick="loadHistoricalCases('us')">미국 사례 바로 보기</button><label style="font-size:13px">종목 코드 <input id="historical-case-ticker" oninput="renderHistoricalCases()" placeholder="예: 267250" style="width:110px"></label><select id="historical-case-filter" onchange="renderHistoricalCases()"><option value="all">변동·주요 종목</option><option value="kind">등급 변경</option><option value="score">점수 급변</option><option value="major">주요 종목</option></select></div>
+      <div id="historical-cases" class="stat-label" style="margin-top:10px">시장을 고르면 기록된 모든 등급 변경·점수 0.5 이상 변동과 고정 주요 종목의 개별 결과를 확인합니다.</div>
     </details>
     <div class="card" id="accuracy-card" style="margin-top:0">
       <div style="font-weight:700;font-size:15px">실측 성적</div>
@@ -10719,6 +10721,59 @@ function _prPct(v) {
   // 색은 크기로 — ±0.5%p 안쪽은 무채색(부호로 칠하면 −0.02%가 빨개진다)
   const col = Math.abs(v) < 0.5 ? 'var(--dim)' : (v > 0 ? 'var(--sig-buy)' : 'var(--sig-sell)');
   return `<span style="color:${col};font-weight:700">${v > 0 ? '+' : ''}${v.toFixed(1)}%</span>`;
+}
+
+let _historicalCaseData = null;
+let _historicalCaseShown = 100;
+
+async function loadHistoricalCases(market) {
+  const body = document.getElementById('historical-cases');
+  body.textContent = '저장된 신호와 가격만 검사 중…';
+  _historicalCaseData = null;
+  try {
+    const response = await fetch('/api/admin/research/historical-cases?market=' + encodeURIComponent(market));
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '사례를 불러오지 못했습니다');
+    _historicalCaseData = data;
+    _historicalCaseShown = 100;
+    renderHistoricalCases();
+  } catch (error) {
+    body.textContent = '사례 확인 실패: ' + String(error);
+  }
+}
+
+function _historicalOutcome(row, horizon) {
+  const result = row.outcomes?.[String(horizon)];
+  if (!result) return '기록 없음';
+  if (result.state === 'matured') return `${result.net_pct > 0 ? '+' : ''}${Number(result.net_pct).toFixed(1)}%`;
+  if (result.state === 'not_matured') return '아직';
+  if (result.state === 'missing_entry_open') return '진입 시가 없음';
+  if (result.state === 'price_gap') return `가격 공백 ${esc(result.first_missing_date || '')}`;
+  return '판정 불가';
+}
+
+function renderHistoricalCases() {
+  const data = _historicalCaseData;
+  if (!data) return;
+  const body = document.getElementById('historical-cases');
+  const ticker = (document.getElementById('historical-case-ticker')?.value || '').trim().toUpperCase();
+  const filter = document.getElementById('historical-case-filter')?.value || 'all';
+  const rows = (data.case_rows || []).filter(row =>
+    (!ticker || row.ticker.toUpperCase().includes(ticker)) &&
+    (filter === 'all' || (filter === 'kind' && row.kind_change) ||
+     (filter === 'score' && row.score_change) || (filter === 'major' && row.major)));
+  const shown = rows.slice(0, _historicalCaseShown);
+  body.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>${data.market === 'kr' ? '국내' : '미국'} · 기록 ${data.recorded_signal_dates}일, ${data.recorded_signal_rows}행</b> 중 미리 정한 조건에 맞는 개별 사례 ${rows.length}건${rows.length > shown.length ? ` · ${shown.length}건 표시` : ''}. <span style="color:var(--dim)">${esc(data.warning)}</span></div>`
+    + `<div class="tscroll" style="margin-top:8px"><table style="min-width:760px;width:100%;font-size:13px"><thead><tr><th>신호일</th><th>종목</th><th>변화</th><th>판정</th><th>다음날</th><th>5일</th><th>20일</th></tr></thead><tbody>`
+    + shown.map(row => {
+      const changes = [row.kind_change ? `${row.previous_kind}→${row.kind}` : '',
+        row.score_change ? `점수 ${row.score_delta > 0 ? '+' : ''}${row.score_delta}` : '',
+        row.major ? '주요 종목' : ''].filter(Boolean).join(' · ');
+      const gap = row.snapshot_gap ? ' · 앞 신호 기록 공백' : '';
+      return `<tr><td>${esc(row.date)}</td><td><b>${esc(row.ticker)}</b></td><td>${esc(changes + gap)}</td><td>${esc(row.kind)} · ${row.score == null ? '—' : Number(row.score).toFixed(2)}</td><td>${_historicalOutcome(row, 1)}</td><td>${_historicalOutcome(row, 5)}</td><td>${_historicalOutcome(row, 20)}</td></tr>`;
+    }).join('') + `</tbody></table></div>`
+    + (shown.length < rows.length ? `<button class="btn" style="margin-top:8px" onclick="_historicalCaseShown+=100;renderHistoricalCases()">100건 더 보기</button>` : '')
+    + `<div class="stat-label" style="margin-top:8px">다음 예정 거래일 시가 진입·기간 마지막 종가, 왕복비용 0.25% 가정. 가격 공백은 채우지 않았습니다. 원천 시각과 기업행사가 확인되지 않아 실거래 성과가 아닙니다.</div>`;
 }
 
 async function loadPickReasonDates() {

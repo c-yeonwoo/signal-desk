@@ -107,9 +107,9 @@ def test_admin_export_is_protected_and_has_checkable_inputs(tmp_path, monkeypatc
     monkeypatch.setenv("ADMIN_EMAILS", "historical-admin@example.com")
     monkeypatch.setattr(api, "_rl_hits", {})  # 이 테스트의 가입 제한 횟수를 다른 API 테스트와 격리
     signal_file, price_file = tmp_path / "signals.parquet", tmp_path / "prices.parquet"
-    pd.DataFrame([{"date": "2026-07-10", "ticker": "AAA", "score": 1.0,
+    pd.DataFrame([{"date": "2026-07-10", "ticker": "267250", "score": 1.0,
                    "kind": "HOLD"}]).to_parquet(signal_file)
-    pd.DataFrame(_bars("AAA", ["2026-07-13"])).to_parquet(price_file)
+    pd.DataFrame(_bars("267250", ["2026-07-13"])).to_parquet(price_file)
     monkeypatch.setattr(store, "SIGNAL_HISTORY_FILE", signal_file)
     monkeypatch.setattr(store, "PRICES_FILE", price_file)
     url = "/api/admin/research/historical-inputs?market=kr"
@@ -129,3 +129,10 @@ def test_admin_export_is_protected_and_has_checkable_inputs(tmp_path, monkeypatc
     assert manifest["signal_rows"] == manifest["price_rows"] == 1
     assert hashlib.sha256(signal_bytes).hexdigest() == manifest["signals_sha256"]
     assert hashlib.sha256(price_bytes).hexdigest() == manifest["prices_sha256"]
+    case_url = "/api/admin/research/historical-cases?market=kr"
+    assert guest.get(case_url).status_code == 403
+    case_response = admin.get(case_url)
+    assert case_response.status_code == 200
+    assert "summary" not in case_response.json()  # 등록 기간의 조기 성적 합산을 반환하지 않는다
+    assert case_response.json()["case_rows"][0]["ticker"] == "267250"
+    assert case_response.json()["case_rows"][0]["outcomes"]["5"]["state"] == "not_matured"
