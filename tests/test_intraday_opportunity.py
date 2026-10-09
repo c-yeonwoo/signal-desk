@@ -222,6 +222,8 @@ def test_historical_minute_probe_is_bounded_and_keeps_source_date_uncertainty(mo
     result = kis.domestic_historical_minute_probe("005930", "2026-07-14", credentials)
     assert result["status"] == "observed" and len(result["bars"]) == 2
     assert result["invalid_rows"] == 2 and result["date_attested_by_rows"] is False
+    assert result["invalid_row_reasons"] == {"different_reported_date": 1, "invalid_price_or_volume": 1}
+    assert result["reported_dates"] == ["20260713", "20260714"]
     assert len(result["bars_sha256"]) == 64 and result["first_page_only"]
     assert calls[0][1] == "FHKST03010230"
     assert calls[0][2]["FID_INPUT_DATE_1"] == "20260714"
@@ -258,13 +260,19 @@ def test_historical_minute_day_rejects_missing_date_and_cursor_ignoring_provider
         return {"rt_cd": "0", "output2": [
             {"stck_cntg_hour": "153000", "stck_prpr": "100", "cntg_vol": "3"}]}
     monkeypatch.setattr(kis, "_request", missing_date)
-    assert kis.domestic_historical_minute_day("005930", "2026-07-14", credentials)["status"] == "unverified_source"
+    missing = kis.domestic_historical_minute_day("005930", "2026-07-14", credentials)
+    assert missing["status"] == "unverified_source"
+    assert missing["reason"] == "date_not_attested"
+    assert missing["failed_page"]["requested_end_hour"] == "153000"
     def ignores_cursor(path, tr_id, creds, params):
         return {"rt_cd": "0", "output2": [
             {"stck_cntg_hour": "153000", "stck_prpr": "100", "cntg_vol": "3",
              "stck_bsop_date": "20260714"}]}
     monkeypatch.setattr(kis, "_request", ignores_cursor)
-    assert kis.domestic_historical_minute_day("005930", "2026-07-14", credentials)["status"] == "unverified_source"
+    ignored = kis.domestic_historical_minute_day("005930", "2026-07-14", credentials)
+    assert ignored["status"] == "unverified_source"
+    assert ignored["reason"] == "empty_or_invalid"
+    assert ignored["failed_page"]["invalid_row_reasons"] == {"after_requested_cursor": 1}
 
 
 def test_admin_minute_day_caches_only_complete_bounded_result(tmp_path, monkeypatch):
