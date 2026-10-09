@@ -33,6 +33,20 @@ def test_signal_screen_does_not_load_hidden_portfolio_home():
     assert "if (seg !== 'bot')" in investment and "InvestmentHome.load" in investment
 
 
+def test_insight_material_is_reached_from_today_or_stocks_without_a_fourth_main_tab():
+    html = WEB.read_text(encoding="utf-8")
+    header = html.split("<header>", 1)[1].split("</header>", 1)[0]
+    today = html.split('id="view-today"', 1)[1].split('id="view-signal"', 1)[0]
+    stocks = html.split('id="view-signal"', 1)[1].split('id="view-watchlist"', 1)[0]
+    assert 'data-tab="cycle"' not in header
+    assert "openCycleContext('cycle')" in today and "openCycleContext('hypo')" in today
+    assert "openCycleContext('vc')" in stocks and "openCycleContext('learn')" in stocks
+    assert "openCycleContext('guru')" in stocks and "openCycleContext('etf')" in stocks
+    assert 'id="cycle-back-link"' in html
+    assert "_cycleSeg === 'cycle' || _cycleSeg === 'hypo' ? 'today' : 'signal'" in html
+    assert "const _SEGS = { trading: ['bot', 'rebal', 'live', 'dividend'], cycle:" in html
+
+
 def test_market_detail_does_not_show_or_fetch_relative_strength_leaderboard():
     html = WEB.read_text(encoding="utf-8")
     details = html.split('<div id="macro-detail"', 1)[1].split("</main>", 1)[0]

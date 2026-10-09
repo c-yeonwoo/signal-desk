@@ -957,7 +957,6 @@
     <button class="tab" data-tab="today" onclick="switchTab('today')">오늘</button>
     <button class="tab" data-tab="signal" onclick="switchTab('signal')">종목</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="내 보유 · 계좌와 주문 · 모의투자">내 투자</button>
-    <button class="tab" data-tab="cycle" onclick="switchTab('cycle')">인사이트</button>
     <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
   </div>
   <div class="right">
@@ -995,7 +994,7 @@
   <button class="subtab" data-cseg="industry" onclick="switchCycleSeg('industry')">산업·기업</button>
   <button class="subtab" data-cseg="study" onclick="switchCycleSeg('study')">투자 공부</button>
 </nav>
-<nav class="subnav" id="subnav-cycle-ref" style="display:none;border-top:none;padding-top:0" aria-label="인사이트 세부 메뉴">
+<nav class="subnav" id="subnav-cycle-ref" style="display:none;border-top:none;padding-top:0" aria-label="시장·종목 참고자료">
   <div id="subnav-industry" style="display:none">
     <button class="subtab on" data-industry="vc" onclick="switchCycleSeg('vc')">산업 연결고리</button>
     <button class="subtab" data-industry="hypo" onclick="switchCycleSeg('hypo')">최근 이슈 흐름</button>
@@ -1059,9 +1058,22 @@
     <div class="today-next"><div><b>이 시장에서 종목을 살펴볼까요?</b>
       <p>시황은 관찰한 종목의 현재 상태입니다. 어떤 종목을 살펴볼지는 매수 판정과 기업 근거를 따로 확인하세요.</p></div>
       <button type="button" class="btn primary" onclick="switchTab('signal')">종목 보기</button></div>
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:12px">
+      <button type="button" class="btn" onclick="openCycleContext('cycle')">몇 달 흐름 더 보기</button>
+      <button type="button" class="btn" onclick="openCycleContext('hypo')">최근 이슈 흐름 보기</button>
+    </div>
   </div>
   <div id="view-signal" class="view-app" style="display:none">
     <details id="signal-trust" ontoggle="if(this.open) loadScorecard()"><summary id="signal-trust-sum">시그널 검증</summary><div class="trust-body" id="signal-trust-body"></div></details>
+    <details class="card" id="signal-context-links" style="margin:10px 0">
+      <summary style="cursor:pointer;font-weight:700">종목을 더 이해하기 · 산업 연결과 투자 공부</summary>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button type="button" class="btn" onclick="openCycleContext('vc')">산업 연결고리</button>
+        <button type="button" class="btn" onclick="openCycleContext('learn')">지표·용어</button>
+        <button type="button" class="btn" onclick="openCycleContext('guru')">거장 포트폴리오</button>
+        <button type="button" class="btn" onclick="openCycleContext('etf')">ETF 알아보기</button>
+      </div>
+    </details>
     <details class="card" id="intraday-opportunity-public" style="margin:10px 0" ontoggle="if(this.open) loadIntradayOpportunityPublic()">
       <summary style="cursor:pointer;font-weight:700">장중 크게 움직인 종목 <span style="font-size:12px;color:var(--dim)">· 원인 확인용, 매수 추천 아님</span></summary>
       <div id="intraday-opportunity-public-body" class="placeholder" style="padding:10px 0">펼치면 최근 1시간을 확인합니다.</div>
@@ -1220,6 +1232,7 @@
 
 
   <div id="view-cycle" class="view-app" style="display:none">
+    <button id="cycle-back-link" type="button" class="btn" onclick="switchTab(_cycleSeg === 'cycle' || _cycleSeg === 'hypo' ? 'today' : 'signal')" style="margin-bottom:12px">← 오늘로 돌아가기</button>
     <div id="cycle-seg-cycle">
       <h3 class="page-head" style="font-size:17px;margin-top:0"><span class="layer-badge ctx">맥락</span> 몇 달 단위 시장 흐름
         <span style="color:var(--dim);font-size:13px;font-weight:600">· 참고 지표 · 예측 아님</span></h3>
@@ -2443,7 +2456,7 @@
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--line);color:var(--dim);font-size:13px">
         <b>이 점수가 실제로 잘 맞는지</b>는 시그널 탭 첫 줄 <b>판정</b>에서 봅니다 — 자료가 다 모이기 전에는
         일부러 성적을 숨깁니다. 각 지표의 뜻은
-        <a href="#cycle/learn" onclick="document.getElementById('helpDlg').close()" style="color:var(--accent);font-weight:600">인사이트 › 학습</a>
+        <a href="#cycle/learn" onclick="document.getElementById('helpDlg').close()" style="color:var(--accent);font-weight:600">종목 › 지표·용어</a>
         탭에 있습니다.</div>
     </div>
   </div>
@@ -2506,16 +2519,18 @@ let _userEmail = '', _profile = {};
 function switchTab(t){
   if(!_ROUTES.includes(t)) t = 'today';
   if (t === 'admin' && !_isAdmin) t = 'signal';  // 관리자만 접근
-  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === (t === 'watchlist' ? 'signal' : t)));
+  const navTab = t === 'watchlist' ? 'signal' : t === 'cycle'
+    ? (_cycleSeg === 'cycle' || _cycleSeg === 'hypo' ? 'today' : 'signal') : t;
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === navTab));
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
   document.getElementById('subnav-trading').style.display = (t === 'trading') ? '' : 'none';  // 페이퍼 서브내비
   document.getElementById('subnav-today').style.display = (t === 'today') ? '' : 'none';
   document.querySelectorAll('#subnav-today button').forEach(b => b.classList.toggle('on', b.dataset.mkt === _sigMarket));
   document.getElementById('subnav-signal').style.display = (t === 'signal' || t === 'watchlist') ? '' : 'none';
   document.querySelectorAll('#subnav-signal button').forEach(b => b.classList.toggle('on', b.dataset.mkt === (t === 'watchlist' ? 'watchlist' : _sigMarket)));
-  document.getElementById('subnav-cycle').style.display = (t === 'cycle') ? '' : 'none';       // 인사이트 서브내비
+  document.getElementById('subnav-cycle').style.display = (t === 'cycle') ? '' : 'none';
   const refNav = document.getElementById('subnav-cycle-ref');
-  if (refNav && t !== 'cycle') refNav.style.display = 'none';  // 참고 2단 내비는 인사이트에서만
+  if (refNav && t !== 'cycle') refNav.style.display = 'none';
   document.getElementById('market-ribbon').style.display = (t === 'today') ? '' : 'none';
   if (t === 'today') applyMacroState();
   // 내 투자 홈은 `trading/rebal` 안에만 있다. 시그널 화면에서 계좌·성과 API를 미리
@@ -2523,7 +2538,7 @@ function switchTab(t){
   if (t === 'today') loadRegime();
   if (t === 'signal') { loadSignals(); loadScorecard(); }
   if (t === 'watchlist') loadWatchlistBriefs();
-  if (t === 'cycle') switchCycleSeg(_cycleSeg);   // 인사이트: 사이클/밸류체인/학습/거장 서브탭
+  if (t === 'cycle') switchCycleSeg(_cycleSeg);
   if (t === 'trading') switchTradingSeg(_tradingSeg);
   if (t === 'admin') {
     const parts = decodeURIComponent(location.hash.slice(1)).split('/');
@@ -2662,7 +2677,7 @@ function reasonKo(reasons){
 // ===== 탭 간 이동(사이클 → 밸류체인 → 시그널) =====
 const INDEX_TICKER = 'KOSPI200X';  // 시그널 탭 최상단 고정 지수(근사)
 let _pendingSignalTicker = null, _vcData = null, _vcCurrent = null, _vcCycle = null;
-async function gotoValuechain(key){  // 인사이트 탭 내 '밸류체인' 서브탭으로 이동 + 해당 섹터 선택
+async function gotoValuechain(key){  // 산업 연결 자료로 이동하고 해당 섹터를 선택
   _vcCurrent = key;
   _cycleSeg = 'vc';
   history.replaceState(null, '', '#cycle/vc/' + encodeURIComponent(key));
@@ -6398,11 +6413,15 @@ function setLedgerStyle(style){
 }
 
 // ===== 트레이딩 세그먼트(자동봇 / 리밸런싱) =====
-// 인사이트는 시장 흐름 / 산업·기업 / 투자 공부 세 갈래로 묶고 세부 주제는 두 번째 줄에 둔다.
+// 시장·종목 참고자료는 기존 깊은 링크를 보존하면서 과업 화면에서 진입한다.
 let _cycleSeg = 'cycle';
 let _cycleRefSeg = 'learn';
 let _industrySeg = 'vc';
 const _CYCLE_REF = ['learn', 'guru', 'etf'];
+function openCycleContext(seg){
+  _cycleSeg = seg;
+  switchTab('cycle');
+}
 function switchCycleRef(seg){
   if (!_CYCLE_REF.includes(seg)) seg = 'learn';
   _cycleRefSeg = seg;
@@ -6412,6 +6431,12 @@ function switchCycleSeg(seg){
   if (seg === 'industry') seg = _industrySeg || 'vc';
   if (seg === 'study' || seg === 'ref') seg = _cycleRefSeg || 'learn';
   _cycleSeg = seg;
+  const backToToday = seg === 'cycle' || seg === 'hypo';
+  const backLink = document.getElementById('cycle-back-link');
+  if (backLink) backLink.textContent = backToToday ? '← 오늘로 돌아가기' : '← 종목으로 돌아가기';
+  if (document.getElementById('view-cycle').style.display !== 'none') {
+    document.querySelectorAll('.tabs .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === (backToToday ? 'today' : 'signal')));
+  }
   const group = seg === 'cycle' ? 'cycle' : (seg === 'vc' || seg === 'hypo' ? 'industry' : 'study');
   if (group === 'industry') _industrySeg = seg;
   if (group === 'study') _cycleRefSeg = seg;
