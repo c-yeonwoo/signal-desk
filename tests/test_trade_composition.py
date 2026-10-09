@@ -135,9 +135,9 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     rebal = src.split('id="trading-rebal"', 1)[1].split('id="trading-live"', 1)[0]
     assert 'id="investment-home"' not in signal
     assert 'id="investment-home"' in rebal
-    block = src.split("점수와 올린 관점을 목표가", 1)[1].split("else heroEl.style.display", 1)[0]
-    upside = block.split("hero-upside", 1)[1].split("const after", 1)[0]
-    assert "sig-buy" not in upside
+    block = src.split("목표가 가정은 아래 가격·지표", 1)[1].split("else heroEl.style.display", 1)[0]
+    assert "hero-upside" not in block  # 손실 경고 앞에 목표 여력을 내지 않는다
+    assert "lossHtml" in block
     inner = block.split("heroEl.innerHTML = ", 1)[1]
     assert inner.index("hero-metrics") < inner.index("hero-reason") < inner.index("${after}")
     assert "당시 메모" in src and "연구 순서 · 주문에 연결되어 있지 않습니다" in src
