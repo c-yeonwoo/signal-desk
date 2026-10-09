@@ -41,8 +41,8 @@ def render(card: dict) -> str:
     if (direction not in {"up", "down", "mixed"} or compared == 0
             or compared != up + down + flat or universe < compared):
         direction = "unknown"
-    title = (str(card.get("today_headline") or card.get("headline") or "오늘 시장을 아직 요약할 수 없어요")
-             if direction != "unknown" else "오늘 시장 방향은 확인 중이에요")
+    title = (str(card.get("today_headline") or card.get("headline") or "시장 자료를 아직 요약할 수 없어요")
+             if direction != "unknown" else "최근 거래일의 시장 방향은 확인 중이에요")
     sky, horizon, light, accent = {
         "up": ("#103B46", "#286F72", "#FFCF79", "#74DBC0"),
         "down": ("#27243E", "#755577", "#D9A6AE", "#F0A9A1"),
@@ -111,7 +111,7 @@ def render(card: dict) -> str:
     svg.extend([
         '<rect x="42" y="34" width="1116" height="110" rx="18" fill="#0A1D2B" opacity=".82"/>',
         f'<text x="68" y="76" fill="{accent}" font-size="19" font-weight="700" {FONT}>'
-        'SIGNAL DESK · 오늘의 시장</text>',
+        'SIGNAL DESK · 거래일 시장 요약</text>',
         f'<text x="68" y="122" fill="#FFFFFF" font-size="36" font-weight="800" {FONT}>{_e(title)}</text>',
         f'<text x="1130" y="77" text-anchor="end" fill="#D3E0E3" font-size="21" {FONT}>'
         f'{_e(market)} · {_e(date_label)}</text>',
@@ -119,7 +119,7 @@ def render(card: dict) -> str:
     ])
     if direction != "unknown":
         svg.append(f'<text x="68" y="532" fill="#F3F7F6" font-size="25" font-weight="700" {FONT}>'
-                   f'오늘 비교 {compared}/{universe}종목 · 상승 {up} · 하락 {down} · 보합 {flat}</text>')
+                   f'해당일 비교 {compared}/{universe}종목 · 상승 {up} · 하락 {down} · 보합 {flat}</text>')
     else:
         expected = card.get("expected_as_of") or "미확인"
         svg.append(f'<text x="68" y="532" fill="#F3F7F6" font-size="24" font-weight="700" {FONT}>'

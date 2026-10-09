@@ -62,7 +62,7 @@ def test_partial_market_card_excludes_old_symbol_and_reports_missing():
     assert len(out["facts"]) == 2  # old Nasdaq release is not today's reason
     assert any("1종목" in item for item in out["unknown"])
     assert any("나스닥" in item for item in out["unknown"])
-    assert out["today_headline"] == "오늘 등락은 아직 확인하기 어려워요"
+    assert out["today_headline"] == "10월 2일 등락은 아직 확인하기 어려워요"
 
 
 def test_partial_coverage_headline_names_sample_when_most_bars_are_available():
@@ -76,7 +76,7 @@ def test_partial_coverage_headline_names_sample_when_most_bars_are_available():
     )
     assert out["status"] == "partial"
     assert out["daily_coverage"] == {"available": 9, "analyzed": 9}
-    assert out["today_headline"] == "확인한 9개에서는 오른 종목이 더 많았어요"
+    assert out["today_headline"] == "10월 2일, 확인한 9개에서는 오른 종목이 더 많았어요"
     assert out["scene"]["direction"] == "up"
     assert out["selection"] is None
 
@@ -90,9 +90,24 @@ def test_low_daily_coverage_with_complete_latest_bars_still_withholds_direction(
         expected="2026-10-02", previous=dates[-2],
     )
     assert out["status"] == "ready"  # 최근 종가의 신선도와 당일 등락의 범위는 별개다.
-    assert out["today_headline"] == "오늘 시장 방향은 자료가 부족해요"
+    assert out["today_headline"] == "10월 2일 흐름은 자료가 부족해요"
     assert out["daily_coverage"] == {"available": 1, "analyzed": 2}
     assert out["scene"]["direction"] == "unknown"
+
+
+def test_holiday_market_card_names_last_session_in_text_and_image():
+    prices, dates = _bars(last="2026-10-08")
+    dates[-2] = "2026-10-07"
+    out = market_brief.build(
+        "kr", prices={"A": prices, "B": prices}, dates={"A": dates, "B": dates},
+        tickers=["A", "B"], expected="2026-10-08", previous="2026-10-07",
+        now=dt.datetime(2026, 10, 10, 2, tzinfo=dt.timezone.utc),
+    )
+    assert out["today_headline"] == "10월 8일, 오른 종목이 더 많았어요"
+    assert "오늘" not in out["today_headline"] + out["state_basis"]
+    svg = market_brief_image.render(out)
+    assert "10월 8일, 오른 종목이 더 많았어요" in svg
+    assert "오늘의 시장" not in svg and "오늘 비교" not in svg
 
 
 def test_today_route_reads_market_card_without_eager_signal_list():
@@ -243,7 +258,7 @@ def test_partial_scene_discloses_observed_sample_but_not_full_buy_count():
     )
     svg = market_brief_image.render(card)
     assert card["status"] == "partial" and card["scene"]["direction"] == "up"
-    assert "오늘 비교 9/10종목" in svg
+    assert "해당일 비교 9/10종목" in svg
     assert "매수 판정 4개" not in svg
 
 
