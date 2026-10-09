@@ -28,6 +28,7 @@ from signal_desk.signals.historical_audit import (  # noqa: E402
     MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots, inventory_recorded_inputs,
     plan_recorded_casebook, select_forensic_case_keys,
 )
+from signal_desk import market_clock  # noqa: E402
 
 
 def _registered_start() -> str:
@@ -131,6 +132,8 @@ def main() -> None:
         result["forensic"] = {
             "source_level": cases["source_level"], "selection": "kind_change_or_abs_score_delta_ge_0.5_or_fixed_major",
             "signal_rows_seen": len(protected), "selected_cases": len(selected),
+            "excluded_non_session_rows": int((~protected["date"].astype(str).map(
+                lambda day: market_clock.is_session(args.market, day))).sum()),
             "rows": selected,
             "warning": "개별 사고 조사만 허용; 사전등록 기간의 집계·튜닝·승격 근거 아님",
         }

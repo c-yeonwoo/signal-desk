@@ -4607,11 +4607,14 @@ def historical_cases_get(request: Request, market: str = "kr", sessions: int = 4
         raise HTTPException(409, str(exc)) from None
     cases = [row for row in checked["rows"] if row["date"] in target_dates]
     cases.sort(key=lambda row: (row["date"], row["ticker"]), reverse=True)
+    target_signals = signals[signals["date"].astype(str).isin(target_dates)]
     return JSONResponse({
         "market": market, "source_level": checked["source_level"],
         "selection": "all_kind_changes_or_abs_score_delta_ge_0.5_or_fixed_major",
         "recorded_signal_dates": len(target_dates),
-        "recorded_signal_rows": int(signals["date"].astype(str).isin(target_dates).sum()),
+        "recorded_signal_rows": len(target_signals),
+        "excluded_non_session_rows": int((~target_signals["date"].astype(str).map(
+            lambda day: market_clock.is_session(market, day))).sum()),
         "case_rows": cases,
         "warning": "개별 사고 조사만 가능. 사전등록 기간의 성과 합산·튜닝·주문 승격 근거 아님.",
     }, headers={"Cache-Control": "private, no-store"})
