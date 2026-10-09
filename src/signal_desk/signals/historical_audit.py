@@ -141,6 +141,10 @@ def select_forensic_case_keys(signals: pd.DataFrame, *, market: str,
     prior_by_ticker: dict[str, dict] = {}
     major_set = set(major_tickers)
     for signal in frame.sort_values(["date", "ticker"]).to_dict("records"):
+        if not market_clock.is_session(market, signal["date"]):
+            # Holiday snapshots are archived observations, not tradeable decisions
+            # or the previous regular-session decision for a later transition.
+            continue
         ticker = signal["ticker"]
         prior = prior_by_ticker.get(ticker)
         score = _number(signal["score"])
@@ -460,6 +464,8 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
     prior_by_ticker: dict[str, dict] = {}
     for signal in snapshots.sort_values(["date", "ticker"]).to_dict("records"):
         day, ticker = signal["date"], signal["ticker"]
+        if case_keys is not None and not market_clock.is_session(market, day):
+            continue
         prior = prior_by_ticker.get(ticker)
         score = _number(signal.get("score"))
         prior_score = _number(prior.get("score")) if prior else None

@@ -438,6 +438,29 @@ def test_forensic_selector_matches_full_audit_metadata_without_prices():
         select_forensic_case_keys(pd.concat([signals, signals.iloc[[0]]]), market="kr")
 
 
+def test_holiday_snapshot_neither_becomes_case_nor_hides_next_session_transition():
+    signals = pd.DataFrame([
+        {"date": "2026-09-23", "ticker": "AAA", "score": 1.0, "kind": "HOLD"},
+        {"date": "2026-09-24", "ticker": "AAA", "score": 2.0, "kind": "BUY"},
+        {"date": "2026-09-28", "ticker": "AAA", "score": 2.0, "kind": "BUY"},
+    ])
+    assert not market_clock.is_session("kr", "2026-09-24")
+    keys = select_forensic_case_keys(signals, market="kr")
+    assert keys == {("2026-09-28", "AAA")}
+    result = audit_snapshots(
+        signals, pd.DataFrame(columns=["date", "ticker", "open", "close"]),
+        market="kr", include_aggregates=False, case_keys=keys,
+    )
+    assert result["signal_rows"] == 3
+    assert result["selected_case_rows"] == 1
+    case = result["rows"][0]
+    assert case["date"] == "2026-09-28"
+    assert case["previous_date"] == "2026-09-23"
+    assert case["previous_kind"] == "HOLD"
+    assert case["kind_change"] and case["score_change"]
+    assert case["snapshot_gap"] is False
+
+
 def test_inventory_cli_never_runs_forward_audit(tmp_path, monkeypatch, capsys):
     from scripts.measure import historical_signal_audit as cli
 
@@ -526,6 +549,7 @@ def test_admin_export_is_protected_and_has_checkable_inputs(tmp_path, monkeypatc
     assert case_response.json()["case_rows"][0]["ticker"] == "267250"
     assert case_response.json()["case_rows"][0]["kind_change"] is True
     assert case_response.json()["recorded_signal_rows"] == 1
+    assert case_response.json()["excluded_non_session_rows"] == 0
     assert case_response.json()["case_rows"][0]["outcomes"]["5"]["state"] == "not_matured"
 
 
