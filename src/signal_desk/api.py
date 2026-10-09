@@ -4599,7 +4599,8 @@ def historical_cases_get(request: Request, market: str = "kr", sessions: int = 4
         signals, prices = select_recorded_inputs(
             history, store._read_parquet(price_file), market=market, sessions=sessions + 1)
         majors = MAJOR_KR_TICKERS if market == "kr" else MAJOR_US_TICKERS
-        checked = audit_snapshots(signals, prices, market=market, major_tickers=majors)
+        checked = audit_snapshots(signals, prices, market=market, major_tickers=majors,
+                                  include_aggregates=False)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from None
     cases = [row for row in checked["rows"] if row["date"] in target_dates

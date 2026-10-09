@@ -8,6 +8,7 @@ data/raw/*
 !data/raw/.gitkeep
 data/cache/*
 !data/cache/.gitkeep
+data/research/
 .idea/
 .DS_Store
 

@@ -41,11 +41,11 @@ def inventory_recorded_inputs(signals: pd.DataFrame, prices: pd.DataFrame, *,
         raise ValueError("price inventory lacks required columns")
     if not isinstance(protected_start, str) or len(protected_start) != 10:
         raise ValueError("invalid protected start")
+    # The bounded admin export has already selected the requested market and
+    # intentionally omits `market`.  Do not mistake a US-only export for KR.
     frame = signals
     if "market" in frame:
         frame = frame[frame["market"].fillna("kr").astype(str) == market]
-    elif market == "us":
-        frame = frame.iloc[0:0]
     dates = frame["date"].astype(str)
     price_dates = prices["date"].astype(str)
     invalid_dates = {day for day in dates.unique() if not market_clock.is_session(market, day)}
@@ -62,6 +62,19 @@ def inventory_recorded_inputs(signals: pd.DataFrame, prices: pd.DataFrame, *,
         {"date": day, "tickers": sorted(group["ticker"].dropna().astype(str).unique().tolist())}
         for day, group in frame.assign(date=dates).groupby("date", sort=True)
     ]
+    signal_fields_by_date = [
+        {"date": day, "rows": len(group),
+         "non_null": {name: int(group[name].notna().sum()) for name in EXPORT_SIGNAL_COLUMNS
+                      if name not in ("date", "ticker") and name in group}}
+        for day, group in frame.assign(date=dates).groupby("date", sort=True)
+    ]
+    price_fields_by_date = [
+        {"date": day, "rows": len(group),
+         "open": int(group["open"].notna().sum()),
+         "close": int(group["close"].notna().sum()),
+         "volume": int(group["volume"].notna().sum()) if "volume" in group else 0}
+        for day, group in prices.assign(date=price_dates).groupby("date", sort=True)
+    ]
 
     return {
         "market": market, "mode": "metadata_only_no_outcomes",
@@ -71,14 +84,17 @@ def inventory_recorded_inputs(signals: pd.DataFrame, prices: pd.DataFrame, *,
         "signal_tickers": int(frame["ticker"].dropna().astype(str).nunique()),
         "missing_signal_ticker_rows": int(frame["ticker"].isna().sum()),
         "observed_membership_by_date": observed_membership,
+        "signal_fields_by_date": signal_fields_by_date,
         "duplicate_signal_ticker_dates": int(frame.duplicated(["date", "ticker"]).sum()),
         "protected_start": protected_start,
         "development_rows": int((dates < protected_start).sum()),
         "protected_rows": int((dates >= protected_start).sum()),
         "invalid_signal_session_rows": int(dates.isin(invalid_dates).sum()),
+        "invalid_signal_sessions": sorted(invalid_dates),
         "saved_signal_output_fields": {name: present(name) for name in EXPORT_SIGNAL_COLUMNS
                                        if name not in ("date", "ticker")},
         "price_rows": len(prices), "price_dates": bounds(price_dates),
+        "price_fields_by_date": price_fields_by_date,
         "price_tickers": int(prices["ticker"].dropna().astype(str).nunique()),
         "price_missing_open_rows": int(prices["open"].isna().sum()),
         "price_missing_close_rows": int(prices["close"].isna().sum()),
@@ -262,7 +278,8 @@ def _recorded_sell_before_loss(*, sessions: list[str], kind: str,
 def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
                     major_tickers: tuple[str, ...] = (),
                     score_delta_threshold: float = 0.5,
-                    roundtrip_cost_pct: float = 0.25) -> dict:
+                    roundtrip_cost_pct: float = 0.25,
+                    include_aggregates: bool = True) -> dict:
     """Evaluate every observed ticker-date; report subsets without dropping the denominator.
 
     Signals are historical observations. The next *scheduled* session's open is entry,
@@ -287,8 +304,10 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
     if bars.duplicated(["date", "ticker"]).any():
         raise ValueError("duplicate price ticker-date: price version is ambiguous")
     if snapshots.empty:
-        return {"market": market, "source_level": "legacy_snapshot_unverified", "rows": [],
-                "summary": {"all": {str(h): _score_results([], h) for h in HORIZONS}}}
+        result = {"market": market, "source_level": "legacy_snapshot_unverified", "rows": []}
+        if include_aggregates:
+            result["summary"] = {"all": {str(h): _score_results([], h) for h in HORIZONS}}
+        return result
 
     bars_by_ticker = {
         ticker: {str(row["date"]): row for row in group.to_dict("records")}
@@ -392,33 +411,7 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
             "outcomes": outcomes,
         })
 
-    # The comparison universe is all recorded tickers *on the same decision day*.
-    # It is an observed-cohort benchmark, not the KOSPI/S&P 500 or a causal control.
-    grouped: dict[tuple[str, int], list[float]] = defaultdict(list)
-    for row in rows:
-        for h in HORIZONS:
-            result = row["outcomes"][str(h)]
-            if result["state"] == "matured":
-                grouped[(row["date"], h)].append(result["net_pct"])
-    comparison = {f"{day}:{h}": {"n": len(values), "mean_net_pct": round(mean(values), 4)}
-                  for (day, h), values in sorted(grouped.items())}
-    for row in rows:
-        for h in HORIZONS:
-            result = row["outcomes"][str(h)]
-            if result["state"] == "matured":
-                result["excess_pct"] = round(
-                    result["net_pct"] - comparison[f"{row['date']}:{h}"]["mean_net_pct"], 4)
-
-    cohorts = {
-        "all": rows,
-        "buy": [row for row in rows if row["kind"] in {"BUY", "STRONG_BUY"}],
-        "kind_changed": [row for row in rows if row["kind_change"]],
-        "score_changed": [row for row in rows if row["score_change"]],
-        "major": [row for row in rows if row["major"]],
-    }
-    summary = {name: {str(h): _score_results(items, h) for h in HORIZONS}
-               for name, items in cohorts.items()}
-    return {
+    result = {
         "market": market, "source_level": "legacy_snapshot_unverified",
         "method": "next_scheduled_open_to_hth_close_price_only_costed",
         "roundtrip_cost_pct": roundtrip_cost_pct,
@@ -426,9 +419,37 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
         "signal_dates": sorted(set(snapshots["date"])),
         "price_data_to": last_price_day,
         "signal_rows": len(rows), "snapshot_gap_rows": sum(row["snapshot_gap"] for row in rows),
-        "cohort_comparison": comparison, "summary": summary, "rows": rows,
+        "rows": rows,
         "caveats": ["legacy signal snapshots lack verified original-source availability",
                     "raw open/close returns exclude unverified corporate actions and dividends",
                     "same-day tickers and overlapping horizons are not independent samples",
-                    "comparison is only the observed ticker cohort on each signal day"],
+                    "when enabled, comparison is only the observed ticker cohort on each signal day"],
     }
+    if include_aggregates:
+        # Only unprotected development data may reach this branch in the CLI.
+        # The comparison universe is the observed cohort, not a causal control.
+        grouped: dict[tuple[str, int], list[float]] = defaultdict(list)
+        for row in rows:
+            for h in HORIZONS:
+                outcome = row["outcomes"][str(h)]
+                if outcome["state"] == "matured":
+                    grouped[(row["date"], h)].append(outcome["net_pct"])
+        comparison = {f"{day}:{h}": {"n": len(values), "mean_net_pct": round(mean(values), 4)}
+                      for (day, h), values in sorted(grouped.items())}
+        for row in rows:
+            for h in HORIZONS:
+                outcome = row["outcomes"][str(h)]
+                if outcome["state"] == "matured":
+                    outcome["excess_pct"] = round(
+                        outcome["net_pct"] - comparison[f"{row['date']}:{h}"]["mean_net_pct"], 4)
+        cohorts = {
+            "all": rows,
+            "buy": [row for row in rows if row["kind"] in {"BUY", "STRONG_BUY"}],
+            "kind_changed": [row for row in rows if row["kind_change"]],
+            "score_changed": [row for row in rows if row["score_change"]],
+            "major": [row for row in rows if row["major"]],
+        }
+        result["cohort_comparison"] = comparison
+        result["summary"] = {name: {str(h): _score_results(items, h) for h in HORIZONS}
+                             for name, items in cohorts.items()}
+    return result

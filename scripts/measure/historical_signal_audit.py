@@ -75,7 +75,9 @@ def main() -> None:
                         "price_sha256": hashlib.sha256(prices_path.read_bytes()).hexdigest()}
     if "market" in frame:
         frame = frame[frame["market"].fillna("kr").astype(str) == args.market]
-    elif args.market != "kr":
+    elif args.market != "kr" and not args.bundle:
+        # The default local file mixes markets; the authenticated bundle is
+        # already market-scoped and its market was verified above.
         frame = frame.iloc[0:0]
     protected_start = _registered_start()
     if args.inventory_only:
@@ -101,7 +103,8 @@ def main() -> None:
     result["inputs"] = input_hashes
     if args.forensic and not protected.empty:
         # Case-level incident audit only. Never publish protected-period pooled metrics.
-        cases = audit_snapshots(protected, prices, market=args.market, major_tickers=majors)
+        cases = audit_snapshots(protected, prices, market=args.market, major_tickers=majors,
+                                include_aggregates=False)
         selected = [row for row in cases["rows"]
                     if row["kind_change"] or row["score_change"] or row["major"]]
         result["forensic"] = {
