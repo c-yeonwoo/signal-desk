@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import math
+import hashlib
+import json
 from collections import defaultdict
 import datetime as dt
 from zoneinfo import ZoneInfo
@@ -173,6 +175,98 @@ def replay(candidate: dict, quotes: list[dict], *, hold_seconds: int = 3600,
     if result["immediate"] and result["wait_one"]:
         result["status"] = "complete"
     return result
+
+
+def historical_minute_replay(day: dict, *, cost_bps: tuple[int, ...] = (45, 75, 120)) -> dict:
+    """검증된 보호 전 국내 1분봉의 가격·거래량만으로 연구 후보를 재생한다.
+
+    당시에 이 API 자료가 실제로 수신 가능했는지, 호가에 체결됐는지는 증명하지
+    못한다. 결과는 연구용 반사실이며 현재 신호·주문·등록 검증에 넣지 않는다.
+    """
+    denied = {"status": "unverified_input", "research_only": True, "order_eligible": False,
+              "events": []}
+    if (day.get("status") != "observed_day" or day.get("date_attested_by_rows") is not True
+            or day.get("source_time_verified") is not False or not day.get("missing_minutes_not_filled")
+            or not isinstance(day.get("bars"), list) or not day.get("bars")):
+        return denied
+    bars = day["bars"]
+    digest = hashlib.sha256(json.dumps(bars, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    if digest != day.get("bars_sha256") or day.get("bar_count") != len(bars):
+        return denied
+    try:
+        session = dt.date.fromisoformat(day["session"])
+        if session >= dt.date(2026, 8, 4) or day.get("ticker") is None:
+            return denied
+        ticker = str(day["ticker"])
+        if len(ticker) != 6 or not ticker.isdigit():
+            return denied
+        points = []
+        for bar in bars:
+            stamp = dt.datetime.combine(session, dt.time.fromisoformat(bar["time"]), _ZONES["kr"])
+            price, volume = _number(bar["price"]), int(bar["volume"])
+            if (bar.get("date_reported") is not True or stamp.second != 0 or
+                    stamp.time() < dt.time(9) or stamp.time() > dt.time(15, 30) or
+                    price is None or price <= 0 or volume < 0):
+                return denied
+            points.append((int(stamp.timestamp()), price, volume))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return denied
+    if (not 10 <= len(points) <= 391 or points[0][0] != int(dt.datetime.combine(
+            session, dt.time(9), _ZONES["kr"]).timestamp())
+            or points[-1][0] != int(dt.datetime.combine(
+                session, dt.time(15, 30), _ZONES["kr"]).timestamp())
+            or any(points[i][0] <= points[i - 1][0] for i in range(1, len(points)))):
+        return denied
+    if not cost_bps or any(not isinstance(cost, int) or cost < 0 for cost in cost_bps):
+        return denied
+    by_time = {stamp: (price, volume) for stamp, price, volume in points}
+    events = []
+    last_event_at = 0
+    for i in range(9, len(points)):
+        window = points[i - 9:i + 1]
+        if any(window[j][0] - window[j - 1][0] != 60 for j in range(1, 10)):
+            continue
+        at, price, _ = points[i]
+        if at - last_event_at < 3600:
+            continue
+        previous = {"ts": points[i - 5][0], "price": points[i - 5][1]}
+        current = {"ts": at, "price": price}
+        candidate = detect_move("kr", ticker, previous, current)
+        if not candidate or candidate["direction"] != "surge":
+            continue
+        previous_volume = sum(row[2] for row in window[:5])
+        recent_volume = sum(row[2] for row in window[5:])
+        volume = {"state": "observed", "complete_bars": 10,
+                  "previous_5m_volume": previous_volume, "recent_5m_volume": recent_volume,
+                  "minute_volume_ratio": recent_volume / previous_volume if previous_volume else None}
+        decision = plan(candidate, volume, context_evidence(at=at))
+        if decision["status"] != "shadow":
+            continue
+        last_event_at = at
+        strategies = {}
+        for name, delay in (("next_minute", 60), ("wait_one_minute", 120)):
+            entry = by_time.get(at + delay)
+            exit_point = by_time.get(at + delay + 3600)
+            if entry is None or exit_point is None:
+                strategies[name] = {"status": "missing_observed_bar"}
+                continue
+            gross = 100 * (exit_point[0] / entry[0] - 1)
+            strategies[name] = {"status": "counterfactual", "entry_at": at + delay,
+                                "exit_at": at + delay + 3600,
+                                "gross_pct": round(gross, 4),
+                                "net_pct_by_cost_bps": {str(cost): round(gross - cost / 100, 4)
+                                                         for cost in cost_bps}}
+        events.append({"detected_at": at, "ticker": ticker, "session": day["session"],
+                       "move_pct": candidate["move_pct"], "volume_ratio": round(
+                           recent_volume / previous_volume, 4),
+                       "playbook": decision["playbook"], "no_trade_pct": 0.0,
+                       "strategies": strategies, "source_sha256": digest,
+                       "research_only": True, "order_eligible": False})
+    return {"status": "counterfactual_only", "ticker": ticker, "session": day["session"],
+            "source_sha256": digest, "bar_count": len(bars), "cost_bps": list(cost_bps),
+            "event_count": len(events), "events": events,
+            "research_only": True, "order_eligible": False,
+            "limitation": "과거 API 가용 시각·호가·체결은 검증되지 않았습니다."}
 
 
 def calibrate(rows: list[dict], *, min_days: int = MIN_REPLAY_DAYS,

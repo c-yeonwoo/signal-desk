@@ -367,6 +367,11 @@ def domestic_historical_minute_probe(ticker: str, session: str,
         nonlocal invalid
         invalid += 1
         invalid_reasons[reason] = invalid_reasons.get(reason, 0) + 1
+    def earlier_source_date(value: str) -> bool:
+        try:
+            return datetime.datetime.strptime(value, "%Y%m%d").date() < day
+        except ValueError:
+            return False
     for row in body["output2"][:120]:
         if not isinstance(row, dict):
             reject("non_object_row")
@@ -404,8 +409,12 @@ def domestic_historical_minute_probe(ticker: str, session: str,
             "session": session, "bars": bars, "raw_rows": len(body["output2"]),
             "invalid_rows": invalid, "invalid_row_reasons": invalid_reasons,
             "reported_dates": sorted(source_dates)[:5],
+            "other_dates_earlier_only": bool(source_dates - {day.strftime("%Y%m%d")}) and all(
+                earlier_source_date(source_date)
+                for source_date in source_dates - {day.strftime("%Y%m%d")}),
             "returned_first_hour": min(returned_hours) if returned_hours else None,
             "returned_last_hour": max(returned_hours) if returned_hours else None,
+            "selected_date_attested": bool(bars) and all(bar["date_reported"] for bar in bars),
             "date_attested_by_rows": bool(bars) and all(
                 bar["date_reported"] for bar in bars) and source_dates == {day.strftime("%Y%m%d")},
             "bars_sha256": hashlib.sha256(json.dumps(bars, sort_keys=True,
@@ -432,6 +441,7 @@ def domestic_historical_minute_day(ticker: str, session: str,
                         "invalid_rows": page.get("invalid_rows", 0),
                         "invalid_row_reasons": page.get("invalid_row_reasons", {}),
                         "reported_dates": page.get("reported_dates", []),
+                        "other_dates_earlier_only": page.get("other_dates_earlier_only", False),
                         "returned_first_hour": page.get("returned_first_hour"),
                         "returned_last_hour": page.get("returned_last_hour"),
                         "first_time": page.get("first_time"), "last_time": page.get("last_time")}
@@ -441,9 +451,18 @@ def domestic_historical_minute_day(ticker: str, session: str,
                     "ticker": ticker, "session": session, "pages": pages,
                     "failed_page": page_summary, "bar_count": len(bars), "research_only": True}
         batch = page["bars"]
-        reason = ("invalid_rows" if page["invalid_rows"] else
-                  "date_not_attested" if not page["date_attested_by_rows"] else
-                  "raw_valid_count_mismatch" if page["raw_rows"] != len(batch) else
+        # KIS의 개장 시각 경계 페이지는 이전 거래일 분봉으로 120행을 채운다.
+        # 요청일 09:00 행을 직접 확인했고, 제외한 모든 행이 더 이른 날짜로 명시된
+        # 경우에만 그 이전 날짜 행을 버린다. 그 외 누락·무효 행은 계속 기권한다.
+        boundary = (batch and batch[0]["time"] == "09:00:00"
+                    and page["selected_date_attested"]
+                    and page["other_dates_earlier_only"]
+                    and page["invalid_rows"] > 0
+                    and page["invalid_row_reasons"] == {"different_reported_date": page["invalid_rows"]}
+                    and page["raw_rows"] == len(batch) + page["invalid_rows"])
+        reason = ("invalid_rows" if page["invalid_rows"] and not boundary else
+                  "date_not_attested" if not page["date_attested_by_rows"] and not boundary else
+                  "raw_valid_count_mismatch" if page["raw_rows"] != len(batch) + (page["invalid_rows"] if boundary else 0) else
                   "empty_page" if not batch else
                   "cursor_overlap" if previous_first is not None and batch[-1]["time"] >= previous_first else
                   "duplicate_time" if any(bar["time"] in seen for bar in batch) else None)
@@ -453,6 +472,7 @@ def domestic_historical_minute_day(ticker: str, session: str,
                     "pages": pages, "bar_count": len(bars), "research_only": True}
         pages.append({"requested_end_hour": cursor, "rows": len(batch),
                       "first_time": batch[0]["time"], "last_time": batch[-1]["time"],
+                      "earlier_date_rows_excluded": page["invalid_rows"] if boundary else 0,
                       "bars_sha256": page["bars_sha256"]})
         bars.extend(batch)
         seen.update(bar["time"] for bar in batch)
@@ -463,6 +483,7 @@ def domestic_historical_minute_day(ticker: str, session: str,
                     "pages": pages, "bars": ordered, "bar_count": len(ordered),
                     "first_time": ordered[0]["time"], "last_time": ordered[-1]["time"],
                     "date_attested_by_rows": True, "missing_minutes_not_filled": True,
+                    "earlier_date_rows_excluded": sum(page["earlier_date_rows_excluded"] for page in pages),
                     "bars_sha256": hashlib.sha256(json.dumps(ordered, sort_keys=True,
                         separators=(",", ":")).encode()).hexdigest(),
                     "source_time_verified": False, "research_only": True}

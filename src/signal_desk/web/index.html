@@ -2162,7 +2162,9 @@
         <label>날짜 <input id="intraday-minute-session" type="date" value="2026-07-14" max="2026-08-03"></label>
         <button type="button" onclick="probeIntradayMinuteHistory(false)">첫 페이지 확인</button>
         <button type="button" onclick="probeIntradayMinuteHistory(true)">하루 범위 확인</button>
+        <button type="button" onclick="replayIntradayMinuteHistory()">검증된 하루 연구 재생</button>
         <div id="intraday-minute-probe-body" class="page-desc" style="margin-top:8px"></div>
+        <div id="intraday-minute-replay-body" class="page-desc" style="margin-top:8px"></div>
       </details>
     </details>
     <details class="card" id="price-baseline-study" style="margin-top:16px" ontoggle="if(this.open) loadPriceBaselineStudy()">
@@ -10587,13 +10589,29 @@ async function probeIntradayMinuteHistory(fullDay){
         ? ` 마지막 요청 ${failed.requested_end_hour || '–'}, 받은 ${Number(failed.raw_rows || 0)}행/유효 ${Number(failed.valid_rows || 0)}행, 원천 날짜 ${Array.isArray(failed.reported_dates) && failed.reported_dates.length ? failed.reported_dates.join(', ') : '미표기'}, 응답 시각 ${failed.returned_first_hour || '–'}~${failed.returned_last_hour || '–'}, 제외 사유 ${Object.entries(failed.invalid_row_reasons || {}).map(([reason, count]) => reason + ' ' + count + '건').join(', ') || '없음'}.`
         : '';
       el.textContent = data.status === 'observed_day'
-        ? `${data.session} ${data.ticker} · ${Number(data.pages?.length || 0)}페이지 · ${Number(data.bar_count || 0)}개 분봉 · ${data.first_time}~${data.last_time} · 행별 날짜 확인됨 · 빈 분은 채우지 않았습니다.${data.cached ? ' · 저장된 진단' : ''} 연구용 원천 범위 확인이며 수익 검증은 아닙니다.`
+        ? `${data.session} ${data.ticker} · ${Number(data.pages?.length || 0)}페이지 · ${Number(data.bar_count || 0)}개 분봉 · ${data.first_time}~${data.last_time} · 요청일 행별 날짜 확인됨 · 전 거래일 ${Number(data.earlier_date_rows_excluded || 0)}행 제외 · 빈 분은 채우지 않았습니다.${data.cached ? ' · 저장된 진단' : ''} 연구용 원천 범위 확인이며 수익 검증은 아닙니다.`
         : `하루 범위 검증 보류 · ${data.status || '응답 없음'}${data.reason ? ' (' + data.reason + ')' : ''} · 확인된 ${Number(data.pages?.length || 0)}페이지.${failureDetail} 부족한 봉은 채우지 않습니다.`;
       return;
     }
     if (data.status !== 'observed') { el.textContent = '원천 확인 불가 · ' + (data.status || '응답 없음'); return; }
     el.textContent = `${data.session} ${data.ticker} · 받은 행 ${Number(data.raw_rows || 0)}개 중 유효한 분봉 ${Number(data.bars?.length || 0)}개 · 첫 ${data.first_time || '–'} / 마지막 ${data.last_time || '–'} · 날짜 직접 확인 ${data.date_attested_by_rows ? '됨' : '안 됨'}${data.cached ? ' · 재조회 없이 저장된 진단' : ''}. 첫 페이지라 하루 전체는 아닙니다.`;
   } catch(e) { el.textContent = '과거 분봉을 확인하지 못했습니다 · ' + e.message; }
+}
+async function replayIntradayMinuteHistory(){
+  const el = document.getElementById('intraday-minute-replay-body');
+  const ticker = document.getElementById('intraday-minute-ticker').value.trim();
+  const session = document.getElementById('intraday-minute-session').value;
+  if (!/^\d{6}$/.test(ticker) || !/^\d{4}-\d{2}-\d{2}$/.test(session) || session > '2026-08-03') {
+    el.textContent = '보호 전 국내 종목·날짜만 확인할 수 있습니다.'; return;
+  }
+  el.textContent = '저장된 하루 원천을 읽는 중…';
+  try {
+    const response = await fetch('/api/admin/research/intraday-minute-replay?ticker=' + encodeURIComponent(ticker) + '&session=' + encodeURIComponent(session));
+    if (!response.ok) throw new Error(response.status === 409 ? '먼저 같은 날짜의 하루 원천 확인을 완료해 주세요.' : '조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    const complete = (data.events || []).filter(event => event.strategies?.next_minute?.status === 'counterfactual' && event.strategies?.wait_one_minute?.status === 'counterfactual').length;
+    el.textContent = `${data.session} ${data.ticker} · 급변·거래량 조건 ${Number(data.event_count || 0)}건 · 두 진입 비교에 필요한 분봉 확인 ${complete}건 · 총비용 45/75/120bp와 관망을 비교했습니다. 당시 API 가용 시각·호가·체결은 검증되지 않아 연구용 반사실이며, 시그널·주문·성과 판정에는 쓰지 않습니다.`;
+  } catch(e) { el.textContent = '과거 연구 재생을 진행할 수 없습니다 · ' + e.message; }
 }
 async function loadPriceBaselineStudy(){
   const el = document.getElementById('price-baseline-body');
