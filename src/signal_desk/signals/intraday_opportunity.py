@@ -269,6 +269,52 @@ def historical_minute_replay(day: dict, *, cost_bps: tuple[int, ...] = (45, 75, 
             "limitation": "과거 API 가용 시각·호가·체결은 검증되지 않았습니다."}
 
 
+def historical_minute_pilot_report(replays: list[dict], *, expected_pairs: int) -> dict:
+    """고정 표본 전체가 온전할 때만 사건과 비용 민감도를 기술한다.
+
+    종목별 사건을 독립 거래일로 세지 않고 날짜별 평균을 다시 동일 가중한다.
+    이것은 당시 이용 가능성과 체결을 증명하지 못해 우위 판정을 반환하지 않는다.
+    """
+    base = {"research_only": True, "order_eligible": False, "verdict": None,
+            "expected_pairs": expected_pairs, "observed_pairs": len(replays),
+            "cost_scenarios": []}
+    pairs = {(r.get("ticker"), r.get("session")) for r in replays}
+    if (len(replays) != expected_pairs or len(pairs) != expected_pairs
+            or any(r.get("status") != "counterfactual_only" or
+                   r.get("cost_bps") != [45, 75, 120] or
+                   not isinstance(r.get("events"), list) for r in replays)):
+        return {**base, "status": "incomplete_input", "independent_sessions": 0,
+                "event_count": 0, "paired_events": 0}
+    sessions = sorted({str(r["session"]) for r in replays})
+    events = [event for replay in replays for event in replay["events"]]
+    paired = [event for event in events
+              if all(event.get("strategies", {}).get(name, {}).get("status") == "counterfactual"
+                     for name in ("next_minute", "wait_one_minute"))]
+    by_session = {session: sum(event.get("session") == session for event in events)
+                  for session in sessions}
+    scenarios = []
+    for cost in (45, 75, 120):
+        by_strategy = {}
+        for name in ("next_minute", "wait_one_minute"):
+            daily: dict[str, list[float]] = defaultdict(list)
+            for event in paired:
+                value = _number(event["strategies"][name].get("net_pct_by_cost_bps", {}).get(str(cost)))
+                if value is None:
+                    return {**base, "status": "incomplete_input", "independent_sessions": 0,
+                            "event_count": 0, "paired_events": 0}
+                daily[str(event["session"])].append(value)
+            day_means = [sum(values) / len(values) for values in daily.values()]
+            by_strategy[name] = {"observed_days": len(day_means),
+                                 "equal_day_mean_net_pct": round(sum(day_means) / len(day_means), 4)
+                                 if day_means else None}
+        scenarios.append({"roundtrip_cost_bps": cost, "no_trade_pct": 0.0,
+                          **by_strategy})
+    return {**base, "status": "descriptive_only", "independent_sessions": len(sessions),
+            "event_count": len(events), "paired_events": len(paired),
+            "events_by_session": by_session, "cost_scenarios": scenarios,
+            "limitation": "과거 KIS 자료의 당시 입수 시각·호가·체결 미검증. 2개 날짜의 가격 반사실은 매매 우위를 증명하지 않습니다."}
+
+
 def calibrate(rows: list[dict], *, min_days: int = MIN_REPLAY_DAYS,
               min_events: int = MIN_REPLAY_EVENTS) -> dict:
     """독립 날짜·완료 가상체결이 부족하면 확률을 표시하지 않는다.

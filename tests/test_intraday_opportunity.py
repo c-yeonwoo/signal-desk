@@ -47,6 +47,26 @@ def test_historical_minute_replay_abstains_on_unverified_or_missing_bars():
     assert not missing_window["events"]
 
 
+def test_fixed_pilot_report_requires_every_pair_and_weights_dates_equally():
+    replays = [model.historical_minute_replay({**_verified_minute_day(session=session),
+                                                "ticker": ticker})
+               for session in ("2026-07-14", "2026-07-21")
+               for ticker in ("005930", "000660", "005380", "267250")]
+    report = model.historical_minute_pilot_report(replays, expected_pairs=8)
+    assert report["status"] == "descriptive_only" and report["verdict"] is None
+    assert report["independent_sessions"] == 2 and report["observed_pairs"] == 8
+    assert report["paired_events"] == report["event_count"] == 8
+    assert report["events_by_session"] == {"2026-07-14": 4, "2026-07-21": 4}
+    assert [s["roundtrip_cost_bps"] for s in report["cost_scenarios"]] == [45, 75, 120]
+    first, last = report["cost_scenarios"][0], report["cost_scenarios"][-1]
+    assert first["no_trade_pct"] == 0
+    assert first["next_minute"]["observed_days"] == 2
+    assert first["next_minute"]["equal_day_mean_net_pct"] > last["next_minute"]["equal_day_mean_net_pct"]
+    assert report["order_eligible"] is False
+    assert model.historical_minute_pilot_report(replays[:-1], expected_pairs=8)["cost_scenarios"] == []
+    assert model.historical_minute_pilot_report(replays[:-1] + [replays[0]], expected_pairs=8)["status"] == "incomplete_input"
+
+
 def test_price_jump_is_not_a_buy_and_stale_volume_cannot_upgrade():
     previous = {"ts": 1_000, "price": 100}
     current = {"ts": 1_300, "price": 102, "observation_id": "q1", "provider": "toss"}
@@ -439,6 +459,29 @@ def test_fixed_historical_day_archive_is_immutable_and_revision_conflicts_stop_r
         assert False, "different source revisions cannot be silently selected"
     except api.HTTPException as exc:
         assert exc.status_code == 409
+
+
+def test_admin_pilot_report_abstains_if_any_fixed_source_is_missing_or_revised(tmp_path, monkeypatch):
+    from signal_desk import api
+    monkeypatch.setattr(db, "DB", tmp_path / "pilot-report.db")
+    monkeypatch.setattr(api, "_admin_or_403", lambda request: None)
+    empty = api.intraday_minute_pilot_report_get(object())
+    assert empty["status"] == "incomplete_input" and empty["cost_scenarios"] == []
+    for session in ("2026-07-14", "2026-07-21"):
+        for ticker in ("005930", "000660", "005380", "267250"):
+            db.intraday_research_day_put({**_verified_minute_day(session=session), "ticker": ticker})
+    complete = api.intraday_minute_pilot_report_get(object())
+    assert complete["status"] == "descriptive_only" and complete["observed_pairs"] == 8
+    assert complete["independent_sessions"] == 2 and len(complete["source_ids"]) == 8
+    revised = {**_verified_minute_day(), "ticker": "005930"}
+    revised["bars"][10]["price"] = 107
+    revised["bars_sha256"] = hashlib.sha256(json.dumps(
+        revised["bars"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    db.intraday_research_day_put(revised)
+    halted = api.intraday_minute_pilot_report_get(object())
+    assert halted["status"] == "incomplete_input" and halted["cost_scenarios"] == []
+    assert halted["blocked_pairs"] == [{"ticker": "005930", "session": "2026-07-14",
+                                         "reason": "revision_or_corruption"}]
 
 
 def test_admin_minute_probe_caches_one_bounded_page(tmp_path, monkeypatch):
