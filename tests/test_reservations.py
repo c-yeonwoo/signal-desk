@@ -1,6 +1,7 @@
 """유저별 예약 주문 실행 — paper 계좌 기준."""
 
 import json
+import time
 
 from signal_desk import bot, db, store
 from signal_desk.signals.engine import SignalResult
@@ -30,6 +31,10 @@ def test_execute_reservation_fills_within_chase(tmp_path, monkeypatch):
     db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")  # 상한 102
     out = bot.execute_reservations(UID)
     assert out["executed"][0]["status"] == "filled"          # 101 ≤ 102 → 체결
+    assert out["run_id"]
+    case = db.bot_trades_for_case(UID, "kr", "AAA", int(time.time()) - 2, int(time.time()) + 2)
+    assert case["trades"][0]["run_id"] == out["run_id"]
+    assert case["trades"][0]["decision_capture"]["reason"] == "reservation"
     assert db.bot_reservations_pending(UID) == []
     assert db.bot_position_get(UID, "AAA")["qty"] >= 1        # paper에 반영
 

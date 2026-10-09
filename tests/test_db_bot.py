@@ -22,6 +22,21 @@ def test_user_bot_defaults_and_toggle(tmp_path, monkeypatch):
     assert c["trading_style"] == "aggressive" and c["seed_cash"] == 5_000_000
 
 
+def test_bot_run_provenance_keeps_capture_result_and_uid_scope(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    db.bot_run_provenance_add(
+        "run-a", uid=UID, market="kr", session="2026-10-09", decision_at=123,
+        mode="regular", signal_policy_id="signal-v1", execution_policy_id="execution-v1",
+        capture={"status": "saved", "replay_match": True, "signal_output_id": "artifact-a"})
+    c = db.conn()
+    try:
+        row = c.execute("SELECT capture_status,signal_output_id,decision_at FROM bot_run_provenance "
+                        "WHERE run_id=? AND uid=?", ("run-a", UID)).fetchone()
+    finally:
+        c.close()
+    assert row == ("saved", "artifact-a", 123)
+
+
 def test_bot_position_upsert_and_delete_scoped(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert db.bot_positions_all(UID) == []
