@@ -26,7 +26,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from signal_desk.signals.historical_audit import (  # noqa: E402
     MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots, inventory_recorded_inputs,
-    plan_recorded_casebook,
+    plan_recorded_casebook, select_forensic_case_keys,
 )
 
 
@@ -123,11 +123,11 @@ def main() -> None:
                             "excluded_signal_rows": before - len(frame)}
     result["inputs"] = input_hashes
     if args.forensic and not protected.empty:
-        # Case-level incident audit only. Never publish protected-period pooled metrics.
+        # Freeze incident keys from saved signals before any protected price outcome.
+        keys = select_forensic_case_keys(protected, market=args.market, major_tickers=majors)
         cases = audit_snapshots(protected, prices, market=args.market, major_tickers=majors,
-                                include_aggregates=False)
-        selected = [row for row in cases["rows"]
-                    if row["kind_change"] or row["score_change"] or row["major"]]
+                                include_aggregates=False, case_keys=keys)
+        selected = cases["rows"]
         result["forensic"] = {
             "source_level": cases["source_level"], "selection": "kind_change_or_abs_score_delta_ge_0.5_or_fixed_major",
             "signal_rows_seen": len(protected), "selected_cases": len(selected),
