@@ -100,6 +100,16 @@ def context_evidence(*, at: int, official_event: dict | None = None,
     return result
 
 
+def has_volume_support(volume: dict) -> bool:
+    """누적 거래량 증가 또는 완료된 10분봉의 최근 5분 증가만 확인한다."""
+    interval_confirmed = (_number(volume.get("interval_volume")) or 0) > 0
+    minute_confirmed = (volume.get("complete_bars") == 10
+                        and (_number(volume.get("previous_5m_volume")) or 0) > 0
+                        and (_number(volume.get("recent_5m_volume")) or 0) > 0
+                        and (_number(volume.get("minute_volume_ratio")) or 0) >= 1.5)
+    return volume.get("state") == "observed" and (interval_confirmed or minute_confirmed)
+
+
 def plan(candidate: dict, volume: dict, context: dict, *, pullback_pct: float | None = None,
          spread_bps: float | None = None) -> dict:
     """두 전략의 *관찰 계획*. 여기서 주문 승인이나 목표 수익률을 반환하지 않는다."""
@@ -114,9 +124,9 @@ def plan(candidate: dict, volume: dict, context: dict, *, pullback_pct: float | 
     if spread_bps is not None and spread_bps > 50:
         return {"playbook": "liquidity_check", "status": "avoid",
                 "reason": "매수·매도 호가 차이가 큽니다.", "order_eligible": False}
-    if volume.get("state") != "observed" or "interval_volume" not in volume:
+    if not has_volume_support(volume):
         return {"playbook": "volume_check", "status": "watch",
-                "reason": "가격 변화는 확인했지만 같은 구간의 거래량은 아직 비교할 수 없습니다.",
+                "reason": "가격 변화는 확인했지만 같은 구간의 거래량 증가 근거는 아직 부족합니다.",
                 "order_eligible": False}
     if pullback_pct is not None and 0.3 <= pullback_pct <= 2.0:
         playbook, reason = "breakout_pullback", "급등 뒤 되돌림이 이어지는지 관찰합니다."
@@ -214,3 +224,45 @@ def research_choice(history: list[dict], *, asof_session: str, regime: str) -> d
     return {"status": "shadow_candidate", "playbook": playbook, "order_eligible": False,
             "historical_days": stats["days"], "historical_events": stats["events"],
             "reason": "과거 관측 기준 연구 후보이며 미검증 라이브 정책입니다."}
+
+
+def walk_forward(rows: list[dict], *, min_oos_days: int = 10) -> dict:
+    """날짜별로 이전 세션만 학습한 선택을 다음 세션에 재생한다.
+
+    하루의 여러 종목은 독립 표본으로 세지 않는다. 비교군도 같은 날짜·장세의
+    가상 체결만 사용한다. 이 값은 라이브 주문이나 수익 보장이 아니다.
+    """
+    complete = [row for row in rows if row.get("session") and
+                row.get("replay", {}).get("status") == "complete" and
+                _number(row["replay"]["immediate"].get("net_pct")) is not None]
+    sessions = sorted({str(row["session"]) for row in complete})
+    selected: dict[str, list[float]] = defaultdict(list)
+    baseline: dict[str, list[float]] = defaultdict(list)
+    for session in sessions:
+        today = [row for row in complete if row["session"] == session]
+        past = [row for row in complete if row["session"] < session]
+        for regime in {str(row.get("regime") or "unknown") for row in today}:
+            choice = research_choice(past, asof_session=session, regime=regime)
+            if choice["status"] != "shadow_candidate":
+                continue
+            matched = [row for row in today if str(row.get("regime") or "unknown") == regime
+                       and row.get("playbook") == choice["playbook"]]
+            if not matched:
+                continue
+            selected[session].extend(float(row["replay"]["immediate"]["net_pct"])
+                                      for row in matched)
+            baseline[session].extend(float(row["replay"]["immediate"]["net_pct"])
+                                      for row in today if str(row.get("regime") or "unknown") == regime)
+    days = sorted(selected)
+    if len(days) < min_oos_days:
+        return {"status": "insufficient", "oos_days": len(days), "required_days": min_oos_days,
+                "selected_events": sum(map(len, selected.values())), "mean_net_pct": None,
+                "baseline_mean_net_pct": None, "order_eligible": False}
+    daily = [sum(selected[day]) / len(selected[day]) for day in days]
+    controls = [sum(baseline[day]) / len(baseline[day]) for day in days]
+    return {"status": "measured_shadow", "oos_days": len(days),
+            "selected_events": sum(map(len, selected.values())),
+            "mean_net_pct": round(sum(daily) / len(days), 4),
+            "baseline_mean_net_pct": round(sum(controls) / len(days), 4),
+            "excess_vs_same_day_pct_points": round(sum(a - b for a, b in zip(daily, controls)) / len(days), 4),
+            "order_eligible": False}

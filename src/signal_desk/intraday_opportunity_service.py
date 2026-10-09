@@ -142,6 +142,7 @@ def scan_market(market: str, *, now: int | None = None, max_kis_requests: int = 
             volume["previous_5m_volume"] = minute_volumes["previous_5m_volume"]
             volume["minute_volume_ratio"] = minute_volumes["ratio"]
             volume["minute_last_complete"] = minute_volumes["last_complete_minute"]
+            volume["complete_bars"] = minute_volumes["complete_bars"]
         try:
             official_event = _official_event(ticker, candidate["detected_at"])
         except Exception as exc:
@@ -180,13 +181,17 @@ def scan_market(market: str, *, now: int | None = None, max_kis_requests: int = 
     return saved
 
 
-def recent_with_replay(market: str, *, after_ts: int, limit: int = 50) -> list[dict]:
+def recent_with_replay(market: str, *, after_ts: int, limit: int = 50,
+                       sampled: bool = False) -> list[dict] | tuple[list[dict], bool]:
     """종료 가격이 아직 없으면 미성숙으로 둔다. 연구 API만 사용한다."""
-    rows = db.intraday_opportunities_recent(market, after_ts=after_ts, limit=limit)
+    if sampled:
+        rows, truncated = db.intraday_opportunities_sampled(market, after_ts=after_ts)
+    else:
+        rows = db.intraday_opportunities_recent(market, after_ts=after_ts, limit=limit)
     for row in rows:
         quotes = db.intraday_quotes_list(market, row["ticker"],
                                          after_ts=row["detected_at"],
                                          before_ts=row["detected_at"] + 3 * 3600,
                                          include_metadata=True)
         row["replay"] = model.replay(row, quotes)
-    return rows
+    return (rows, truncated) if sampled else rows
