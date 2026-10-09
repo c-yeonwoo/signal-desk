@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import datetime
+import hashlib
+import json
 import math
 from dataclasses import asdict, is_dataclass
 from zoneinfo import ZoneInfo
@@ -137,6 +139,19 @@ def _plain(value):
     if isinstance(value, float) and math.isfinite(value):
         return value
     raise ValueError(f"unsupported decision input type: {type(value).__name__}")
+
+
+def output_rows_digest(market: str, rows: list) -> str:
+    """주문 전 결과와 사후 보존 결과를 같은 직렬화 규칙으로 대조한다.
+
+    점수나 주문을 재계산하지 않는다. 행 순서까지 포함해 한 바이트라도 달라지면
+    다른 지문이며, 이 지문만으로 원천 자료의 PIT 적격성을 증명하지는 못한다.
+    """
+    if market not in ("kr", "us"):
+        raise ValueError("invalid market")
+    raw = json.dumps({"market": market, "rows": _plain(rows)}, ensure_ascii=False,
+                     sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(b"signal-desk-preorder-output-v1\0" + raw).hexdigest()
 
 
 def _prepare_signal_decision(market: str, *, prices: dict[str, list[float]],

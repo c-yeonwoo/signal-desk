@@ -801,10 +801,22 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
 
     cfg = _cfg(uid)
     signal_policy_id, execution_policy_id = _applied_policy_ids(market, cfg, mr)
-    # 계좌 실행마다 고유 ID를 먼저 발급한다. 캡처는 주문 뒤에 하므로 이 ID만이
-    # 주문 시점에 확정 가능한 출처이며, 과거 일일 캡처와 동일하다고 추정하지 않는다.
+    # 계좌 실행마다 고유 ID를 먼저 발급한다. 큰 입력 보존/재생은 주문 뒤에 두되,
+    # 결과 지문만 주문 전에 커밋해 사후 캡처가 같은 판단인지 대조한다.
     run_id = uuid.uuid4().hex if not dry_run else None
     decision_at = int(time.time())
+    if run_id and not sells_only:
+        try:
+            from signal_desk.signals import decision_snapshot
+            db.bot_decision_seal_add(
+                run_id, uid=uid, market=market, session=_today(market),
+                sealed_at_ms=time.time_ns() // 1_000_000,
+                signal_policy_id=signal_policy_id,
+                rows_sha256=decision_snapshot.output_rows_digest(market, signals),
+                row_count=len(signals),
+            )
+        except Exception as exc:  # noqa: BLE001 — 감사 기록이 주문을 막아서는 안 된다
+            log.warning("주문 전 판단 지문 기록 실패 (%s): %s", market, type(exc).__name__)
     # 청산 폭은 **종목별 변동성**으로 정한다(2026-09-06). 고정 퍼센트는 시장을 옮기면 뜻이
     # 바뀐다 — 트레일링 −4%가 미국에서 1.6σ, 국내에서 0.9σ였고 실측 성적이 그 차이를 그대로
     # 따라갔다(미국 균형 +0.24%p·공격 +3.04%p vs 국내 −10.19·−10.57%p).

@@ -353,6 +353,11 @@ CREATE TABLE IF NOT EXISTS bot_run_provenance(
     capture_status TEXT NOT NULL, signal_output_id TEXT, capture_reason TEXT);
 CREATE INDEX IF NOT EXISTS idx_bot_run_provenance_case
     ON bot_run_provenance(uid,market,decision_at);
+-- 정규 실행의 주문 이전 결과 지문. 앱은 삽입만 하며 사후 캡처와 대조한다.
+CREATE TABLE IF NOT EXISTS bot_decision_seals(
+    run_id TEXT PRIMARY KEY, uid INTEGER NOT NULL, market TEXT NOT NULL,
+    session TEXT NOT NULL, sealed_at_ms INTEGER NOT NULL,
+    signal_policy_id TEXT NOT NULL, rows_sha256 TEXT NOT NULL, row_count INTEGER NOT NULL);
 -- 외부 전송은 DB에 먼저 적재하고 성공 뒤에만 sent로 바꾼다.
 CREATE TABLE IF NOT EXISTS notification_outbox(id INTEGER PRIMARY KEY AUTOINCREMENT,
     dedupe_key TEXT NOT NULL UNIQUE, text TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal',
@@ -1082,6 +1087,26 @@ def bot_run_provenance_add(run_id: str, *, uid: int, market: str, session: str,
              signal_policy_id, execution_policy_id, capture["status"],
              (capture.get("signal_output_id") if capture["status"] == "saved"
               and capture.get("replay_match") is True else None), capture.get("reason")),
+        )
+        c.commit()
+    finally:
+        c.close()
+
+
+def bot_decision_seal_add(run_id: str, *, uid: int, market: str, session: str,
+                          sealed_at_ms: int, signal_policy_id: str, rows_sha256: str,
+                          row_count: int) -> None:
+    """주문 경로 진입 전에 결과 지문을 1회 커밋한다. 중복 실행으로 덮어쓰지 않는다."""
+    if (not run_id or market not in ("kr", "us") or not session or not signal_policy_id
+            or len(rows_sha256) != 64 or any(ch not in "0123456789abcdef" for ch in rows_sha256)
+            or row_count < 0 or sealed_at_ms <= 0):
+        raise ValueError("invalid decision seal")
+    c = conn()
+    try:
+        c.execute(
+            "INSERT INTO bot_decision_seals(run_id,uid,market,session,sealed_at_ms,"
+            "signal_policy_id,rows_sha256,row_count) VALUES(?,?,?,?,?,?,?,?)",
+            (run_id, uid, market, session, sealed_at_ms, signal_policy_id, rows_sha256, row_count),
         )
         c.commit()
     finally:
@@ -2312,6 +2337,7 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
         }]) for row in trades if row["order_no"]]
         events = {}
         runs = {}
+        seals = {}
         saved_outputs = set()
         if event_keys:
             marks = ",".join("?" for _ in event_keys)
@@ -2336,6 +2362,14 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
                                   f"FROM bot_run_provenance "
                                   f"WHERE uid=? AND market=? AND run_id IN ({marks})",
                                   (uid, market, *run_ids)).fetchall()}
+                seals = {run_id: {"session": session, "sealed_at_ms": sealed_at_ms,
+                                  "signal_policy_id": policy_id, "rows_sha256": digest,
+                                  "row_count": row_count}
+                         for run_id, session, sealed_at_ms, policy_id, digest, row_count in
+                         c.execute(f"SELECT run_id,session,sealed_at_ms,signal_policy_id,"
+                                   f"rows_sha256,row_count FROM bot_decision_seals "
+                                   f"WHERE uid=? AND market=? AND run_id IN ({marks})",
+                                   (uid, market, *run_ids)).fetchall()}
                 output_ids = sorted({run["signal_output_id"] for run in runs.values()
                                      if run["signal_output_id"]})
                 if output_ids:
@@ -2360,6 +2394,18 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
                                         f"GROUP BY outbox_id", ids).fetchall()}
     finally:
         c.close()
+    output_digests = {}
+    if any(seals.get(run_id) for run_id in runs):
+        from signal_desk.signals import decision_snapshot
+        for output_id in saved_outputs:
+            try:
+                artifact = decision_artifact_get(output_id)
+                if artifact and artifact.get("kind") == "signal_output" and artifact.get("market") == market:
+                    rows = artifact["data"]["rows"]
+                    output_digests[output_id] = (decision_snapshot.output_rows_digest(market, rows),
+                                                 len(rows))
+            except (KeyError, TypeError, ValueError, RuntimeError):
+                output_digests[output_id] = None
     for row in trades:
         order_no = row["order_no"]
         event = events.get(f"trade:{market}:{uid}:{order_no}") if order_no else None
@@ -2402,7 +2448,17 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
                  for key in ("signal_policy_id", "execution_policy_id")):
             row["decision_link_state"] = "run_policy_unverified"
         elif run["status"] == "saved" and run["signal_output_id"] in saved_outputs:
-            row["decision_link_state"] = "same_run_capture_recorded"
+            seal = seals.get(row["run_id"])
+            if not seal:
+                row["decision_link_state"] = "same_run_postorder_capture_only"
+            elif (seal["session"] != run["session"]
+                  or seal["signal_policy_id"] != run["signal_policy_id"]
+                  or not int(run["decision_at"]) * 1000 <= int(seal["sealed_at_ms"]) < (int(row["ts"]) + 1) * 1000):
+                row["decision_link_state"] = "preorder_seal_timing_or_policy_mismatch"
+            elif output_digests.get(run["signal_output_id"]) == (seal["rows_sha256"], seal["row_count"]):
+                row["decision_link_state"] = "preorder_seal_replay_matched"
+            else:
+                row["decision_link_state"] = "preorder_seal_output_mismatch"
         elif run["status"] == "saved":
             row["decision_link_state"] = "capture_artifact_missing"
         else:

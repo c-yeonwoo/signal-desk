@@ -69,6 +69,16 @@ def test_bot_run_id_links_fill_to_explicit_capture_state(tmp_path, monkeypatch):
            [_sig("AAA", "가", "BUY", 2.5)], min_buy_score=0.0)
     _seed(10_000_000.0)
     monkeypatch.setattr(bot.advisor, "advise", lambda *a, **k: None)
+    actual_place_order = paper.place_order
+    def place_order_after_seal(*args, **kwargs):
+        c = db.conn()
+        try:
+            seals = c.execute("SELECT rows_sha256,row_count FROM bot_decision_seals").fetchall()
+        finally:
+            c.close()
+        assert len(seals) == 1 and len(seals[0][0]) == 64 and seals[0][1] == 1
+        return actual_place_order(*args, **kwargs)
+    monkeypatch.setattr(paper, "place_order", place_order_after_seal)
     before = int(time.time()) - 1
     out = bot.run_once(UID)
     assert out["ok"] and out["run_id"] and out["buys"]

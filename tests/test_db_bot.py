@@ -1,6 +1,10 @@
 from signal_desk import db
+from signal_desk.signals import decision_snapshot
 import datetime
+import sqlite3
 from zoneinfo import ZoneInfo
+
+import pytest
 
 UID = 5
 
@@ -187,7 +191,21 @@ def test_historical_case_verifies_run_fill_links_without_inventing_capture(tmp_p
                                            observed_at=trade_ts)
     change("UPDATE bot_run_provenance SET signal_output_id=? WHERE run_id='run-a'",
            (artifact_id,))
-    assert state() == "same_run_capture_recorded"
+    assert state() == "same_run_postorder_capture_only"
+    digest = decision_snapshot.output_rows_digest("kr", [])
+    db.bot_decision_seal_add("run-a", uid=UID, market="kr", session=session,
+                             sealed_at_ms=trade_ts * 1000, signal_policy_id="signal-v1",
+                             rows_sha256=digest, row_count=0)
+    assert state() == "preorder_seal_replay_matched"
+    with pytest.raises(sqlite3.IntegrityError):
+        db.bot_decision_seal_add("run-a", uid=UID, market="kr", session=session,
+                                 sealed_at_ms=trade_ts * 1000, signal_policy_id="signal-v1",
+                                 rows_sha256="0" * 64, row_count=0)
+    change("UPDATE bot_decision_seals SET rows_sha256=? WHERE run_id='run-a'", ("0" * 64,))
+    assert state() == "preorder_seal_output_mismatch"
+    change("UPDATE bot_decision_seals SET rows_sha256=?,sealed_at_ms=? WHERE run_id='run-a'",
+           (digest, (trade_ts + 1) * 1000))
+    assert state() == "preorder_seal_timing_or_policy_mismatch"
     change("DELETE FROM bot_run_provenance WHERE run_id='run-a'", ())
     assert state() == "run_record_missing"
 

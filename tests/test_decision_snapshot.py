@@ -4,6 +4,23 @@ import pytest
 
 from signal_desk import db
 from signal_desk.signals import decision_snapshot
+from signal_desk.signals.engine import SignalResult
+
+
+def test_output_digest_preserves_market_order_and_result_values():
+    rows = [SignalResult(ticker=ticker, name=ticker, score=score, kind="BUY",
+                         confidence=0.5, technical_score=0.0, fundamental_score=0.0,
+                         has_fundamental=False, reasons=[])
+            for ticker, score in (("AAA", 1.0), ("BBB", 2.0))]
+    digest = decision_snapshot.output_rows_digest("kr", rows)
+    assert digest == decision_snapshot.output_rows_digest(
+        "kr", [vars(row) for row in rows])
+    assert digest != decision_snapshot.output_rows_digest("kr", list(reversed(rows)))
+    assert digest != decision_snapshot.output_rows_digest("us", rows)
+    rows[0].score = 1.1
+    assert digest != decision_snapshot.output_rows_digest("kr", rows)
+    with pytest.raises(ValueError, match="unsupported"):
+        decision_snapshot.output_rows_digest("kr", [{"score": float("nan")}])
 
 
 def _observation(price, observation_id, *, received_at=999):
