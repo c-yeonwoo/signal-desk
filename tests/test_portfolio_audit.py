@@ -7,7 +7,7 @@ import zlib
 import exchange_calendars as xcals
 import pytest
 
-from signal_desk import api, db
+from signal_desk import api, db, market_clock
 from signal_desk.signals import portfolio_audit as audit, portfolio_counterfactual as cf
 
 
@@ -16,7 +16,8 @@ def instant(value):
 
 
 def fixture_inputs():
-    days = [d.date().isoformat() for d in xcals.get_calendar('XKRX').sessions_in_range('2026-05-01', '2026-09-18')]
+    days = [d.date().isoformat() for d in xcals.get_calendar('XKRX').sessions_in_range('2026-05-01', '2026-09-18')
+            if market_clock.is_session('kr', d.date())]
     prices = [100 + i + (i % 3) for i in range(len(days))]
     profile = dict(cash=1000, min_cash_pct=10, max_single_position_pct=40,
                    max_sector_pct=50, max_cluster_pct=50)

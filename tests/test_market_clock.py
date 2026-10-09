@@ -20,6 +20,14 @@ def test_kr_holiday_is_closed_even_on_weekday():
     assert bot.is_market_hours(dt.datetime(2026, 9, 23, 10, 0, tzinfo=KST))
 
 
+def test_verified_june_election_and_july_constitution_holidays_are_not_sessions():
+    # KRX 일별 원장도 두 날짜에 봉을 주지 않는다. calendar 패키지는 세션으로 오분류한다.
+    for day in ("2026-06-03", "2026-07-17"):
+        assert not market_clock.is_session("kr", day)
+    assert market_clock.next_sessions("kr", "2026-06-02", 1) == ["2026-06-04"]
+    assert market_clock.next_sessions("kr", "2026-07-16", 1) == ["2026-07-20"]
+
+
 def test_october_2026_substitute_holiday_does_not_advance_pit_sessions():
     # 개천절 대체휴일 10/05, 한글날 10/09. 10/02 이후 여섯 번째 국내
     # 세션은 10/13이 아니라 10/14다. 휴장일을 PIT 날짜로 세면 interim을 엿본다.
