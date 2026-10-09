@@ -2051,6 +2051,11 @@
     </div><!-- /#admin-engine -->
 
     <div id="admin-verify" style="display:none">
+    <details class="card" style="margin-bottom:16px">
+      <summary style="cursor:pointer;font-weight:700">과거 신호 점검 자료 받기 <span class="trust-badge sim">관리자 전용</span></summary>
+      <p class="page-desc" style="margin:8px 0">저장된 신호와 가격 기록만 받습니다. 빈 날짜는 채우지 않으며 새 수집·매매·연구 판정은 실행하지 않습니다. 자료는 탐색용이고 현재 시그널의 검증 성적으로 볼 수 없습니다.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap"><a class="btn" href="/api/admin/research/historical-inputs?market=kr" download>국내 기록</a><a class="btn" href="/api/admin/research/historical-inputs?market=us" download>미국 기록</a></div>
+    </details>
     <div class="card" id="accuracy-card" style="margin-top:0">
       <div style="font-weight:700;font-size:15px">실측 성적</div>
       <p class="page-desc" style="margin:8px 0 4px">그날 낸 시그널을 약 20거래일 뒤 수익률로 채점합니다. 봇 체결·시뮬 백테스트와 다릅니다.</p>

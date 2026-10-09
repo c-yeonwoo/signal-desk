@@ -1,0 +1,114 @@
+"""Audit all locally recorded signals before the registered evaluation period.
+
+Example:
+  .venv/bin/python scripts/measure/historical_signal_audit.py --market kr \
+    --output data/research/historical_signal_audit_kr.json
+
+No provider calls, live decisions, orders, or registered harness runs occur here.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+import time
+import tomllib
+from io import BytesIO
+from pathlib import Path
+from zipfile import ZipFile
+
+import pandas as pd
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from signal_desk.signals.historical_audit import (  # noqa: E402
+    MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots,
+)
+
+
+def _registered_start() -> str:
+    registered = tomllib.loads((ROOT / "docs" / "preregistered.toml").read_text(encoding="utf-8"))
+    dates = [str(item["registered_at"]) for item in registered.get("looks", [])
+             if item.get("registered_at")]
+    for family in registered.get("families", []):
+        dates.extend(str(item["registered_at"]) for item in family.get("looks", [])
+                     if item.get("registered_at"))
+    if not dates:
+        raise ValueError("registered-period protection has no starting date")
+    return min(dates)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--market", choices=("kr", "us"), default="kr")
+    parser.add_argument("--signals", type=Path, default=ROOT / "data/cache/signal_history.parquet")
+    parser.add_argument("--prices", type=Path)
+    parser.add_argument("--bundle", type=Path, help="Admin-only exported ZIP, read without extraction")
+    parser.add_argument("--forensic", action="store_true",
+                        help="List protected-period signal changes and fixed majors as cases only; no aggregate score")
+    parser.add_argument("--output", type=Path, help="Optional JSON artifact; existing file is never overwritten")
+    args = parser.parse_args()
+    started = time.perf_counter()
+    prices_path = args.prices or ROOT / "data/cache" / ("prices.parquet" if args.market == "kr" else "us_prices.parquet")
+    if args.bundle:
+        with ZipFile(args.bundle) as bundle:
+            manifest = json.loads(bundle.read("manifest.json"))
+            if manifest.get("schema") != "historical-inputs-v1" or manifest.get("market") != args.market:
+                raise ValueError("bundle market or schema mismatch")
+            signal_bytes, price_bytes = bundle.read("signals.parquet"), bundle.read("prices.parquet")
+        if hashlib.sha256(signal_bytes).hexdigest() != manifest["signals_sha256"]:
+            raise ValueError("signal input digest mismatch")
+        if hashlib.sha256(price_bytes).hexdigest() != manifest["prices_sha256"]:
+            raise ValueError("price input digest mismatch")
+        frame, prices = pd.read_parquet(BytesIO(signal_bytes)), pd.read_parquet(BytesIO(price_bytes))
+        input_hashes = {"signal_sha256": manifest["signals_sha256"],
+                        "price_sha256": manifest["prices_sha256"],
+                        "bundle_sha256": hashlib.sha256(args.bundle.read_bytes()).hexdigest()}
+    else:
+        frame, prices = pd.read_parquet(args.signals), pd.read_parquet(prices_path)
+        input_hashes = {"signal_sha256": hashlib.sha256(args.signals.read_bytes()).hexdigest(),
+                        "price_sha256": hashlib.sha256(prices_path.read_bytes()).hexdigest()}
+    if "market" in frame:
+        frame = frame[frame["market"].fillna("kr").astype(str) == args.market]
+    elif args.market != "kr":
+        frame = frame.iloc[0:0]
+    protected_start = _registered_start()
+    before = len(frame)
+    protected = frame[frame["date"].astype(str) >= protected_start]
+    frame = frame[frame["date"].astype(str) < protected_start]
+    majors = MAJOR_KR_TICKERS if args.market == "kr" else MAJOR_US_TICKERS
+    result = audit_snapshots(frame, prices, market=args.market, major_tickers=majors)
+    result["protection"] = {"registered_period_from": protected_start,
+                            "excluded_signal_rows": before - len(frame)}
+    result["inputs"] = input_hashes
+    if args.forensic and not protected.empty:
+        # Case-level incident audit only. Never publish protected-period pooled metrics.
+        cases = audit_snapshots(protected, prices, market=args.market, major_tickers=majors)
+        selected = [row for row in cases["rows"]
+                    if row["kind_change"] or row["score_change"] or row["major"]]
+        result["forensic"] = {
+            "source_level": cases["source_level"], "selection": "kind_change_or_abs_score_delta_ge_0.5_or_fixed_major",
+            "signal_rows_seen": len(protected), "selected_cases": len(selected),
+            "rows": selected,
+            "warning": "개별 사고 조사만 허용; 사전등록 기간의 집계·튜닝·승격 근거 아님",
+        }
+    result["elapsed_seconds"] = round(time.perf_counter() - started, 3)
+    summary = {key: value["5"] for key, value in result["summary"].items()}
+    print(json.dumps({"market": args.market, "signal_dates": result.get("signal_dates"),
+                      "price_data_to": result.get("price_data_to"), "signal_rows": result.get("signal_rows"),
+                      "snapshot_gap_rows": result.get("snapshot_gap_rows"),
+                      "h5_summary": summary, "protection": result["protection"],
+                      "forensic_case_count": result.get("forensic", {}).get("selected_cases"),
+                      "elapsed_seconds": result["elapsed_seconds"]}, ensure_ascii=False, indent=2))
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with args.output.open("x", encoding="utf-8") as handle:
+            json.dump(result, handle, ensure_ascii=False, indent=2, allow_nan=False)
+        print(f"research artifact: {args.output}")
+
+
+if __name__ == "__main__":
+    main()

@@ -11,12 +11,14 @@ import copy
 import datetime
 import hashlib
 import json
+from io import BytesIO
 import logging
 import math
 import re
 import threading
 import time
 import zlib
+from zipfile import ZIP_DEFLATED, ZipFile
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import lru_cache
@@ -1539,6 +1541,7 @@ _ADMIN_PATHS = {
     "/api/data-health", "/api/egress-ip",
     "/api/admin/evidence-audit/dart", "/api/admin/evidence-ops", "/api/admin/storage-breakdown",
     "/api/admin/decision-replay",
+    "/api/admin/research/historical-inputs",
     "/api/hypothesis/refresh",
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
     "/api/morning-digest", "/api/morning-digest/test",
@@ -4533,6 +4536,46 @@ def decision_replay_get(request: Request, market: str, signal_output_id: str):
         raise HTTPException(409, "판단 입력을 연결할 수 없습니다.") from None
     except (KeyError, TypeError, RuntimeError):
         raise HTTPException(409, "저장된 판단의 무결성을 확인할 수 없습니다.") from None
+
+
+@app.get("/api/admin/research/historical-inputs")
+def historical_inputs_get(request: Request, market: str = "kr", sessions: int = 45):
+    """관리자 전용 읽기 내보내기. 수집·시뮬·등록 look·주문을 실행하지 않는다."""
+    _admin_or_403(request)
+    from signal_desk.signals.historical_audit import select_recorded_inputs
+    if market not in ("kr", "us") or not 1 <= sessions <= 60:
+        raise HTTPException(400, "시장 또는 기간이 올바르지 않습니다.")
+    history = store.load_signal_history(market)
+    price_file = store.PRICES_FILE if market == "kr" else store.US_PRICES_FILE
+    if history.empty or not price_file.exists():
+        raise HTTPException(404, "저장된 시그널 또는 가격 기록이 없습니다.")
+    try:
+        signals, prices = select_recorded_inputs(
+            history, store._read_parquet(price_file), market=market, sessions=sessions)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    signal_buf, price_buf = BytesIO(), BytesIO()
+    signals.to_parquet(signal_buf, index=False)
+    prices.to_parquet(price_buf, index=False)
+    signal_bytes, price_bytes = signal_buf.getvalue(), price_buf.getvalue()
+    manifest = {
+        "schema": "historical-inputs-v1", "market": market,
+        "source_level": "recorded_snapshot_unverified",
+        "selected_signal_dates": sorted(signals["date"].unique().tolist()),
+        "signal_rows": len(signals), "price_rows": len(prices),
+        "signals_sha256": hashlib.sha256(signal_bytes).hexdigest(),
+        "prices_sha256": hashlib.sha256(price_bytes).hexdigest(),
+        "warning": "기록 원문에 시점별 출처 검증이 없으면 등록 판정/실거래 성과로 사용 금지",
+    }
+    archive = BytesIO()
+    with ZipFile(archive, "w", compression=ZIP_DEFLATED) as bundle:
+        bundle.writestr("signals.parquet", signal_bytes)
+        bundle.writestr("prices.parquet", price_bytes)
+        bundle.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False))
+    filename = f"signal-desk-{market}-historical-inputs.zip"
+    return Response(archive.getvalue(), media_type="application/zip",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"',
+                             "Cache-Control": "private, no-store"})
 
 
 @app.get("/api/admin/evidence-audit/dart")
