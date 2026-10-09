@@ -186,7 +186,7 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
                               and previous_selection[key] != selection[key]]
                              if previous_selection else [])
         gate_release_reentry = bool(
-            prior and previous_selection["gate_blocked"] is True
+            prior and not gap and previous_selection["gate_blocked"] is True
             and selection["gate_blocked"] is False
             and prior.get("kind") == "HOLD"
             and signal.get("kind") in {"BUY", "STRONG_BUY"}

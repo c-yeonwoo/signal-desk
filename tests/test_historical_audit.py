@@ -123,6 +123,19 @@ def test_gate_release_reentry_is_flagged_without_claiming_return_cause():
     assert row["selection"]["gate_reason"] is None
 
 
+def test_gate_release_across_missing_sessions_is_not_called_immediate_reentry():
+    day = "2026-07-20"
+    later = market_clock.next_sessions("kr", day, 3)[-1]
+    signals = pd.DataFrame([
+        {"date": day, "ticker": "AAA", "score": 2.15, "kind": "HOLD", "gate_blocked": 1},
+        {"date": later, "ticker": "AAA", "score": 2.15, "kind": "STRONG_BUY", "gate_blocked": 0},
+    ])
+    prices = pd.DataFrame(_bars("AAA", [day, later]))
+    row = audit_snapshots(signals, prices, market="kr")["rows"][1]
+    assert row["snapshot_gap"] and "gate_blocked" in row["selection_changes"]
+    assert row["gate_release_reentry_without_score_gain"] is False
+
+
 @pytest.mark.parametrize("reason", [
     "[추세] 하락추세 확인 — 반등 전 매수 차단(관망)",
     "[실적] 2일 뒤 실적발표 예정 — 발표 전 신규 매수 보류(관망)",
