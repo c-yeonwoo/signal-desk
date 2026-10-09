@@ -10856,11 +10856,21 @@ async function loadHistoricalPaperTrades(button) {
         const when = new Date(Number(trade.ts) * 1000).toLocaleString('ko-KR', {timeZone: zone});
         const side = trade.side === 'buy' ? '매수' : trade.side === 'sell' ? '매도' : esc(trade.side);
         const price = trade.price == null ? '가격 미기록' : Number(trade.price).toLocaleString('ko-KR');
-        return `${esc(when)} ${side} ${Number(trade.qty)}주 × ${price} (${esc(trade.reason)})`;
+        const event = trade.execution_event_state === 'matched' ? '체결 감사 원장 일치'
+          : trade.execution_event_state === 'mismatch' ? '체결 원장 불일치 · 조사 필요'
+          : '체결 감사 원장 없음';
+        const alert = trade.notification;
+        const alertText = !alert ? '알림 발송 원장 없음'
+          : Number(alert.recipient_sent_count) > 0
+            ? `알림 수신처 ${Number(alert.recipient_sent_count)}곳 전송 기록`
+            : alert.outbox_status === 'sent' ? '알림 전송 처리 · 수신처 기록 없음'
+            : `알림 ${esc(alert.outbox_status)} · 확인된 전송 없음`;
+        return `${esc(when)} ${side} ${Number(trade.qty)}주 × ${price} (${esc(trade.reason)})`
+          + `<small style="display:block;color:var(--dim)">${event} · ${alertText}</small>`;
       });
       return `<div><b>${esc(labels[style] || style)}</b> · 신호일 전 장부 매수−매도 ${Number(record.prior_journal_net_qty)}주 · ${fills.length ? fills.join('<br>') : '이 기간 모의체결 기록 없음'}${record.truncated ? ' · 100건 초과, 일부만 표시' : ''}</div>`;
     });
-    box.innerHTML = `<b>${esc(ticker)} · ${esc(date)}부터 ${esc(data.window_end)}까지 레퍼런스 봇 모의체결</b>${data.window_complete ? '' : '<div>비교 기간 진행 중 · 이후 체결은 아직 기록되지 않았습니다.</div>'}${rows.join('')}<small style="display:block;color:var(--dim)">실계좌 주문이 아니며, 같은 날 체결도 이 신호보다 먼저였을 수 있습니다. 이전 순수량은 당시 보유 인증이 아닙니다.</small>`;
+    box.innerHTML = `<b>${esc(ticker)} · ${esc(date)}부터 ${esc(data.window_end)}까지 레퍼런스 봇 모의체결</b>${data.window_complete ? '' : '<div>비교 기간 진행 중 · 이후 체결은 아직 기록되지 않았습니다.</div>'}${rows.join('')}<small style="display:block;color:var(--dim)">실계좌 주문이 아니며, 같은 날 체결도 이 신호보다 먼저였을 수 있습니다. 이전 순수량은 당시 보유 인증이 아닙니다. 알림 원장에 기록이 없다는 사실만으로 실제 수신 여부를 단정할 수 없습니다.</small>`;
   } catch (error) {
     box.textContent = `모의체결 대조 실패: ${String(error)}`;
   }

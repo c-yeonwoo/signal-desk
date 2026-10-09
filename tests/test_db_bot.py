@@ -64,6 +64,8 @@ def test_bot_trade_log_and_recent_scoped(tmp_path, monkeypatch):
 
 
 def test_historical_case_paper_trades_are_bounded_and_account_scoped(tmp_path, monkeypatch):
+    from signal_desk import bot_alerts
+
     monkeypatch.chdir(tmp_path)
     zone = ZoneInfo("Asia/Seoul")
     stamp = lambda day: int(datetime.datetime.fromisoformat(day).replace(tzinfo=zone).timestamp())
@@ -81,6 +83,21 @@ def test_historical_case_paper_trades_are_bounded_and_account_scoped(tmp_path, m
         c.commit()
     finally:
         c.close()
+    db.execution_event_add("trade:kr:900002:IN", uid=900002, market="kr", ticker="267250",
+                           event_type="filled_buy", price=239500, payload={"qty": 2},
+                           ts=stamp("2026-09-15T09:00:00"))
+    db.execution_event_add("trade:kr:900002:OUT", uid=900002, market="kr", ticker="267250",
+                           event_type="filled_sell", price=210000, payload={"qty": 99},
+                           ts=stamp("2026-09-18T09:00:00"))
+    alert_key = bot_alerts.dedupe_key(900002, "kr", [{"side": "BUY", "order_no": "IN"}])
+    assert db.notification_enqueue(alert_key, "paper fill", now=stamp("2026-09-15T09:00:00"))
+    c = db.conn()
+    item_id = c.execute("SELECT id FROM notification_outbox WHERE dedupe_key=?", (alert_key,)).fetchone()[0]
+    c.close()
+    assert db.notification_delivery_pending(item_id, ["chat-A"]) == ["chat-A"]
+    db.notification_delivery_mark(item_id, "chat-A", sent=True,
+                                  now=stamp("2026-09-15T09:01:00"))
+    db.notification_outbox_sent(item_id, now=stamp("2026-09-15T09:01:00"))
     result = db.bot_trades_for_case(900002, "kr", "267250",
                                     stamp("2026-09-14T00:00:00"),
                                     stamp("2026-09-19T00:00:00"), limit=1)
@@ -88,6 +105,16 @@ def test_historical_case_paper_trades_are_bounded_and_account_scoped(tmp_path, m
     assert result["prior_journal_net_qty"] == 3
     assert result["truncated"] is True
     assert [(row["side"], row["qty"]) for row in result["trades"]] == [("buy", 2)]
+    assert result["trades"][0]["execution_event_state"] == "matched"
+    assert result["trades"][0]["notification"] == {
+        "outbox_status": "sent", "outbox_sent_at": stamp("2026-09-15T09:01:00"),
+        "recipient_count": 1, "recipient_sent_count": 1,
+    }
+    all_rows = db.bot_trades_for_case(900002, "kr", "267250",
+                                      stamp("2026-09-14T00:00:00"),
+                                      stamp("2026-09-19T00:00:00"))
+    assert all_rows["trades"][1]["execution_event_state"] == "mismatch"
+    assert all_rows["trades"][1]["notification"] is None
 
 
 def test_bot_reset_scoped(tmp_path, monkeypatch):
