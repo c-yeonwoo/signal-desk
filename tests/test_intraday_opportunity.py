@@ -65,6 +65,14 @@ def test_fixed_pilot_report_requires_every_pair_and_weights_dates_equally():
     assert report["order_eligible"] is False
     assert model.historical_minute_pilot_report(replays[:-1], expected_pairs=8)["cost_scenarios"] == []
     assert model.historical_minute_pilot_report(replays[:-1] + [replays[0]], expected_pairs=8)["status"] == "incomplete_input"
+    missing_price = [{**r, "events": [dict(event) for event in r["events"]]} for r in replays]
+    missing_price[0]["events"][0]["strategies"] = {
+        "next_minute": {"status": "missing_observed_bar"},
+        "wait_one_minute": {"status": "counterfactual"}}
+    held = model.historical_minute_pilot_report(missing_price, expected_pairs=8)
+    assert held["status"] == "incomplete_event_prices"
+    assert held["paired_events"] == held["event_count"] - 1
+    assert held["cost_scenarios"] == [] and held["verdict"] is None
 
 
 def test_price_jump_is_not_a_buy_and_stale_volume_cannot_upgrade():

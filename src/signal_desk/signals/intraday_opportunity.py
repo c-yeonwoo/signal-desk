@@ -292,6 +292,11 @@ def historical_minute_pilot_report(replays: list[dict], *, expected_pairs: int) 
                      for name in ("next_minute", "wait_one_minute"))]
     by_session = {session: sum(event.get("session") == session for event in events)
                   for session in sessions}
+    if len(paired) != len(events):
+        return {**base, "status": "incomplete_event_prices",
+                "independent_sessions": len(sessions), "event_count": len(events),
+                "paired_events": len(paired), "events_by_session": by_session,
+                "limitation": "진입·청산 가격이 빠진 사건이 있어 일부 성공 사건만의 수익을 계산하지 않습니다."}
     scenarios = []
     for cost in (45, 75, 120):
         by_strategy = {}
