@@ -26,3 +26,7 @@
 | 미국 | 4 | 5 | 5 | 5 | 5 | 4 |
 
 재현: `.venv/bin/python scripts/measure/historical_signal_audit.py --market kr --bundle <관리자 ZIP> --casebook-plan --output <새 JSON>` (미국은 `--market us`). 이 모드는 가격 파일의 해시만 검증하고 Parquet 결과를 해석하거나 `audit_snapshots`를 실행하지 않는다. 보호 구간의 사례별 가격을 읽을 때도 사전등록의 조기 집계·후보 튜닝 금지를 유지한다. 통계적 엔진 판정에는 별도 적격 PIT 역사 자료와 시간순 독립 평가가 필요하다.
+
+## 국내 60기록일 추가 내보내기
+
+기본 45일보다 넓은 인증 내보내기를 같은 규칙으로 **가격 열람 전에** 다시 선정했다. 신호 Parquet SHA-256 `c875b0c627cf272e283a8774c71db1d5dc6c8340ab22ea631327a0bb8be0d49a`, 계획 SHA-256 `ddbb972424838f2dfbea0676f03b32a415f7ed7383d83570c4787c4811826c2b`다. 총 69슬롯 중 보호 전 개발 구간 16, 등록 보호 구간 53이며, 비거래일 신호 600행을 제외했다. 계획은 로컬 `data/research/h1-kr-casebook-plan-60-2026-10-09-v1.json`에 남겼다. 최초 45일 계획을 지우거나 해시를 바꾸지 않고 **별도 범위**로 보존한다. 새로 확보한 14기록일은 원천 공개시각·원시 팩터·당시 우주를 검증하지 못해 이 계획 역시 C수준이다.
