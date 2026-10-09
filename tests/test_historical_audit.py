@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 from signal_desk import market_clock
 from signal_desk.signals.historical_audit import (
-    audit_snapshots, inventory_recorded_inputs, select_recorded_inputs,
+    audit_snapshots, inventory_recorded_inputs, plan_recorded_casebook, select_recorded_inputs,
 )
 
 
@@ -302,6 +302,68 @@ def test_inventory_accepts_market_scoped_us_export_without_market_column():
     assert result["signal_rows"] == 1
     assert result["signal_tickers"] == 1
     assert result["protected_rows"] == 1
+
+
+def test_casebook_plan_selects_weekly_entry_states_without_outcomes_or_order_bias():
+    signals = pd.DataFrame([
+        {"date": "2026-07-20", "ticker": "AAA", "kind": "HOLD"},
+        {"date": "2026-07-20", "ticker": "BBB", "kind": "HOLD"},
+        {"date": "2026-07-20", "ticker": "CCC", "kind": "BUY"},
+        {"date": "2026-07-21", "ticker": "AAA", "kind": "BUY", "technical": 0.3},
+        {"date": "2026-07-21", "ticker": "BBB", "kind": "HOLD"},
+        {"date": "2026-07-21", "ticker": "CCC", "kind": "BUY"},
+        {"date": "2026-07-22", "ticker": "AAA", "kind": "HOLD"},
+        {"date": "2026-07-22", "ticker": "BBB", "kind": "SELL"},
+        {"date": "2026-08-17", "ticker": "AAA", "kind": "BUY"},
+        {"date": "2026-08-18", "ticker": "AAA", "kind": "BUY"},
+    ])
+    original = signals.copy(deep=True)
+    result = plan_recorded_casebook(signals, market="kr", protected_start="2026-08-05",
+                                    signal_sha256="a" * 64)
+    reordered = plan_recorded_casebook(signals.sample(frac=1, random_state=17), market="kr",
+                                       protected_start="2026-08-05", signal_sha256="a" * 64)
+    assert result == reordered
+    assert result["excluded_rows"] == {"non_session": 1}
+    assert {slot["stratum"] for slot in result["slots"] if slot["period"] == "development"} == {
+        "context_gap", "new_buy", "continuing_buy", "buy_exit", "sell", "hold"}
+    new_buy = next(slot for slot in result["slots"] if slot["stratum"] == "new_buy")
+    assert (new_buy["date"], new_buy["ticker"]) == ("2026-07-21", "AAA")
+    assert "technical" not in new_buy["factor_output_missing"]
+    assert all(slot["source_level"] == "C_legacy_snapshot_unverified" for slot in result["slots"])
+    assert "outcomes" not in json.dumps(result) and "net_pct" not in json.dumps(result)
+    pd.testing.assert_frame_equal(signals, original)
+    with pytest.raises(ValueError, match="duplicate signal"):
+        plan_recorded_casebook(pd.concat([signals, signals.iloc[:1]]), market="kr",
+                               protected_start="2026-08-05", signal_sha256="a" * 64)
+
+
+def test_casebook_cli_does_not_decode_future_price_parquet(tmp_path, monkeypatch, capsys):
+    from scripts.measure import historical_signal_audit as cli
+
+    signal_buf = BytesIO()
+    pd.DataFrame([{"date": "2026-09-28", "ticker": "AAPL", "kind": "BUY"}]).to_parquet(
+        signal_buf, index=False)
+    signal_bytes, price_bytes = signal_buf.getvalue(), b"intentionally not a parquet file"
+    bundle_path, output = tmp_path / "us.zip", tmp_path / "casebook.json"
+    with ZipFile(bundle_path, "w") as bundle:
+        bundle.writestr("signals.parquet", signal_bytes)
+        bundle.writestr("prices.parquet", price_bytes)
+        bundle.writestr("manifest.json", json.dumps({
+            "schema": "historical-inputs-v1", "market": "us",
+            "signals_sha256": hashlib.sha256(signal_bytes).hexdigest(),
+            "prices_sha256": hashlib.sha256(price_bytes).hexdigest()}))
+    monkeypatch.setattr(cli, "_registered_start", lambda: "2026-08-05")
+    monkeypatch.setattr(cli, "audit_snapshots", lambda *args, **kwargs:
+                        pytest.fail("casebook planning must not calculate outcomes"))
+    monkeypatch.setattr("sys.argv", ["historical_signal_audit.py", "--market", "us",
+                                    "--bundle", str(bundle_path), "--casebook-plan",
+                                    "--output", str(output)])
+    cli.main()
+    summary = json.loads(capsys.readouterr().out)
+    planned = json.loads(output.read_text())
+    assert summary["case_slots"] == len(planned["slots"]) == 1
+    assert planned["slots"][0]["period"] == "protected"
+    assert "outcomes" not in output.read_text()
 
 
 def test_case_only_audit_never_builds_protected_aggregates(monkeypatch):
