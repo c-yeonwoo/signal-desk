@@ -10898,11 +10898,20 @@ async function loadHistoricalPaperTrades(button) {
             : alert.outbox_status === 'sent' ? '알림 전송 처리 · 수신처 기록 없음'
             : `알림 ${esc(alert.outbox_status)} · 확인된 전송 없음`;
         const capture = trade.decision_capture;
-        const sourceText = !trade.run_id ? '당시 실행 ID 없음'
-          : !capture ? '실행 ID 있음 · 실행 기록 연결 누락'
-          : capture.status === 'saved' && capture.signal_output_id
-            ? `실행 ID ${esc(trade.run_id.slice(0, 8))} · 판단 저장·재생 일치`
-            : `실행 ID ${esc(trade.run_id.slice(0, 8))} · 판단 원본 ${esc(capture.status)}${capture.reason ? ` (${esc(capture.reason)})` : ''}`;
+        const linkState = trade.decision_link_state;
+        const linkLabels = {
+          execution_event_unverified: '체결 감사 원장 연결 불확실',
+          legacy_run_unlinked: '당시 실행 ID 없음',
+          run_record_missing: '실행 기록 연결 누락',
+          run_fill_order_inconsistent: '판단·체결 시각 불일치 · 조사 필요',
+          run_session_mismatch: '실행 장 날짜 불일치 · 조사 필요',
+          run_policy_mismatch: '판단·체결 정책 불일치 · 조사 필요',
+          run_policy_unverified: '판단·체결 정책 대조 불가',
+          capture_artifact_missing: '판단 원본 파일 누락 · 조사 필요',
+          same_run_capture_recorded: '같은 실행의 판단 원본 보존 기록 있음',
+          run_linked_capture_unavailable: `판단 원본 미보존${capture?.reason ? ` (${esc(capture.reason)})` : ''}`,
+        };
+        const sourceText = `${trade.run_id ? `실행 ${esc(trade.run_id.slice(0, 8))} · ` : ''}${linkLabels[linkState] || '판단 연결 상태 미확인'}`;
         return `${esc(when)} ${side} ${Number(trade.qty)}주 × ${price} (${esc(trade.reason)})`
           + `<small style="display:block;color:var(--dim)">${event} · ${alertText} · ${sourceText}</small>`;
       });
