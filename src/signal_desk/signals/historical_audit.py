@@ -29,7 +29,7 @@ EXPORT_PRICE_COLUMNS = ("date", "ticker", "open", "close", "volume")
 def select_recorded_inputs(signals: pd.DataFrame, prices: pd.DataFrame, *,
                            market: str, sessions: int = 45) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Bounded, read-only export. Never backfill or synthesize absent rows."""
-    if market not in {"kr", "us"} or not 1 <= sessions <= 60:
+    if market not in {"kr", "us"} or not 1 <= sessions <= 61:
         raise ValueError("invalid market or session count")
     if not {"date", "ticker", "score", "kind"} <= set(signals.columns):
         raise ValueError("signal history lacks required columns")

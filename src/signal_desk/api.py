@@ -4593,20 +4593,22 @@ def historical_cases_get(request: Request, market: str = "kr", sessions: int = 4
     if history.empty or not price_file.exists():
         raise HTTPException(404, "저장된 시그널 또는 가격 기록이 없습니다.")
     try:
+        # 비교 창 첫날의 등급 변화도 빠뜨리지 않도록 바로 앞 관측일을 맥락으로만 읽는다.
+        target_dates = set(sorted(history["date"].astype(str).unique())[-sessions:])
         signals, prices = select_recorded_inputs(
-            history, store._read_parquet(price_file), market=market, sessions=sessions)
+            history, store._read_parquet(price_file), market=market, sessions=sessions + 1)
         majors = MAJOR_KR_TICKERS if market == "kr" else MAJOR_US_TICKERS
         checked = audit_snapshots(signals, prices, market=market, major_tickers=majors)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from None
-    cases = [row for row in checked["rows"]
-             if row["kind_change"] or row["score_change"] or row["major"]]
+    cases = [row for row in checked["rows"] if row["date"] in target_dates
+             and (row["kind_change"] or row["score_change"] or row["major"])]
     cases.sort(key=lambda row: (row["date"], row["ticker"]), reverse=True)
     return JSONResponse({
         "market": market, "source_level": checked["source_level"],
         "selection": "all_kind_changes_or_abs_score_delta_ge_0.5_or_fixed_major",
-        "recorded_signal_dates": len(checked["signal_dates"]),
-        "recorded_signal_rows": checked["signal_rows"],
+        "recorded_signal_dates": len(target_dates),
+        "recorded_signal_rows": sum(row["date"] in target_dates for row in checked["rows"]),
         "case_rows": cases,
         "warning": "개별 사고 조사만 가능. 사전등록 기간의 성과 합산·튜닝·주문 승격 근거 아님.",
     }, headers={"Cache-Control": "private, no-store"})
