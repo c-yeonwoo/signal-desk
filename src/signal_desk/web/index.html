@@ -2156,6 +2156,13 @@
       <p class="page-desc" style="margin:8px 0">5분 사이 크게 움직인 종목을 놓치지 않기 위한 연구입니다. 급등 자체는 매수 신호가 아닙니다. 거래량·공시·수급이 없거나 늦으면 확인되지 않았다고 표시합니다.</p>
       <label>시장 <select id="intraday-opportunity-market" onchange="loadIntradayOpportunityStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>
       <div id="intraday-opportunity-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
+      <details style="margin:12px 0"><summary>과거 국내 1분봉 원천 확인 · 보호 전 날짜만</summary>
+        <p class="page-desc">KIS 과거 자료가 실제로 남아 있는지 한 종목·하루의 첫 120행만 조회합니다. 결과를 시그널 수익률로 계산하지 않습니다.</p>
+        <label>종목코드 <input id="intraday-minute-ticker" value="005930" maxlength="6" style="width:95px"></label>
+        <label>날짜 <input id="intraday-minute-session" type="date" value="2026-07-14" max="2026-08-04"></label>
+        <button type="button" onclick="probeIntradayMinuteHistory()">원천 확인</button>
+        <div id="intraday-minute-probe-body" class="page-desc" style="margin-top:8px"></div>
+      </details>
     </details>
     <details class="card" id="price-baseline-study" style="margin-top:16px" ontoggle="if(this.open) loadPriceBaselineStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">가격 전략 대조군 <span style="color:var(--dim);font-weight:600;font-size:13px">· 3팩터와 섹터 보정 12-1 모멘텀 · 연구 전용</span></summary>
@@ -10559,6 +10566,22 @@ async function loadIntradayOpportunityStudy(){
       + rows.slice(0, 15).map(r => `<tr><td>${esc(new Date(r.detected_at*1000).toLocaleString('ko-KR'))}<br>${esc(r.ticker)}</td><td>${Number(r.move_pct) >= 0 ? '+' : ''}${fmtNum(r.move_pct, 2)}%</td><td>${esc(vol(r))}<br>${r.context?.official_event ? '공시 확인' : '원인 미확인'}</td><td>${esc(r.decision?.reason || '관찰 중')}</td><td>${esc(replay(r))}</td></tr>`).join('')
       + '</tbody></table></div><p class="page-desc">외인·기관 수치는 장중 가집계이며 확정 수급이 아닙니다. 섹터·공급망·거시 연관성도 확인 전에는 매수 근거로 사용하지 않습니다. 기존 시그널·주문은 바뀌지 않습니다.</p>';
   } catch(e) { el.textContent = '장중 관찰 기록을 표시할 수 없습니다 · ' + e.message; }
+}
+async function probeIntradayMinuteHistory(){
+  const el = document.getElementById('intraday-minute-probe-body');
+  const ticker = document.getElementById('intraday-minute-ticker').value.trim();
+  const session = document.getElementById('intraday-minute-session').value;
+  if (!/^\d{6}$/.test(ticker) || !/^\d{4}-\d{2}-\d{2}$/.test(session) || session > '2026-08-04') {
+    el.textContent = '6자리 국내 종목코드와 2026-08-04 이전 날짜를 입력해 주세요.'; return;
+  }
+  el.textContent = 'KIS 과거 1분봉 첫 페이지를 확인하는 중…';
+  try {
+    const response = await fetch('/api/admin/research/intraday-minute-probe?ticker=' + encodeURIComponent(ticker) + '&session=' + encodeURIComponent(session));
+    if (!response.ok) throw new Error(response.status === 429 ? '1분에 한 종목만 조회할 수 있습니다.' : '조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    if (data.status !== 'observed') { el.textContent = '원천 확인 불가 · ' + (data.status || '응답 없음'); return; }
+    el.textContent = `${data.session} ${data.ticker} · 받은 행 ${Number(data.raw_rows || 0)}개 중 유효한 분봉 ${Number(data.bars?.length || 0)}개 · 첫 ${data.first_time || '–'} / 마지막 ${data.last_time || '–'} · 날짜 직접 확인 ${data.date_attested_by_rows ? '됨' : '안 됨'}${data.cached ? ' · 재조회 없이 저장된 진단' : ''}. 첫 페이지라 하루 전체는 아닙니다.`;
+  } catch(e) { el.textContent = '과거 분봉을 확인하지 못했습니다 · ' + e.message; }
 }
 async function loadPriceBaselineStudy(){
   const el = document.getElementById('price-baseline-body');

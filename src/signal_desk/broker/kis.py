@@ -333,6 +333,70 @@ def domestic_rank_watchlist(creds: dict | None = None) -> dict:
             "source_time_verified": False, "research_only": True}
 
 
+def domestic_historical_minute_probe(ticker: str, session: str,
+                                     creds: dict | None = None) -> dict:
+    """과거 1분봉 첫 120행만 읽는다. 보호 구간 수익 계산·원장 역기입은 하지 않는다."""
+    if not isinstance(ticker, str) or not re.fullmatch(r"[0-9]{6}", ticker):
+        return {"status": "invalid_ticker", "bars": []}
+    try:
+        day = datetime.datetime.strptime(session, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return {"status": "invalid_session", "bars": []}
+    today = datetime.datetime.now(ZoneInfo("Asia/Seoul")).date()
+    if day > datetime.date(2026, 8, 4) or not 0 <= (today - day).days <= 365:
+        return {"status": "outside_development_window", "bars": []}
+    creds = creds or config.kis_credentials()
+    if not creds or creds.get("env") != "real":
+        return {"status": "unavailable", "bars": []}
+    body = _request("/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
+                    "FHKST03010230", creds,
+                    {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker,
+                     "FID_INPUT_HOUR_1": "153000", "FID_INPUT_DATE_1": day.strftime("%Y%m%d"),
+                     "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": ""})
+    if not body or body.get("rt_cd") != "0" or not isinstance(body.get("output2"), list):
+        return {"status": "provider_error", "bars": []}
+    bars = []
+    invalid = 0
+    source_dates = set()
+    for row in body["output2"][:120]:
+        if not isinstance(row, dict):
+            invalid += 1
+            continue
+        try:
+            hour = str(row["stck_cntg_hour"])
+            stamp = datetime.datetime.strptime(day.strftime("%Y%m%d") + hour, "%Y%m%d%H%M%S")
+            price = float(row["stck_prpr"])
+            volume = int(row["cntg_vol"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            invalid += 1
+            continue
+        reported_date = row.get("stck_bsop_date")
+        if reported_date is not None:
+            source_dates.add(str(reported_date))
+            if str(reported_date) != day.strftime("%Y%m%d"):
+                invalid += 1
+                continue
+        if not (9 <= stamp.hour <= 15) or (stamp.hour == 15 and stamp.minute > 30):
+            invalid += 1
+            continue
+        if not math.isfinite(price) or price <= 0 or volume < 0:
+            invalid += 1
+            continue
+        bars.append({"time": stamp.strftime("%H:%M:%S"), "price": price, "volume": volume,
+                     "date_reported": reported_date is not None})
+    bars = sorted({bar["time"]: bar for bar in bars}.values(), key=lambda bar: bar["time"])
+    return {"status": "observed" if bars else "empty_or_invalid", "ticker": ticker,
+            "session": session, "bars": bars, "raw_rows": len(body["output2"]),
+            "invalid_rows": invalid, "date_attested_by_rows": bool(bars) and all(
+                bar["date_reported"] for bar in bars) and source_dates == {day.strftime("%Y%m%d")},
+            "bars_sha256": hashlib.sha256(json.dumps(bars, sort_keys=True,
+                                                    separators=(",", ":")).encode()).hexdigest(),
+            "first_time": bars[0]["time"] if bars else None,
+            "last_time": bars[-1]["time"] if bars else None,
+            "first_page_only": True, "source_time_verified": False,
+            "source": "kis:inquire-time-dailychartprice", "research_only": True}
+
+
 def balance(creds: dict | None = None, retries: int = 3) -> dict | None:
     """예수금(현금)·총평가금액·보유종목. 실패 시 None. retries=1이면 fail-fast(표시용 — 매매는 3회)."""
     creds = creds or config.kis_credentials()
