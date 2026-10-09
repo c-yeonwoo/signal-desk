@@ -10792,6 +10792,25 @@ function _historicalSelection(row) {
   return `${bits.length ? esc(bits.join(' · ')) : fallback}${priorGate}${gate}${reason}`;
 }
 
+function _historicalLossWarning(row) {
+  const path = row.loss_warning_path || {};
+  if (path.state === 'not_buy_signal') return '—';
+  if (path.state === 'invalid_signal_session') return '거래일 아님';
+  if (path.state === 'missing_entry_open') return '진입 시가 없음';
+  if (path.state === 'price_gap') return `가격 공백 ${esc(path.first_missing_date || '')}`;
+  if (path.state === 'not_matured') return '아직 확인 중';
+  if (path.state === 'no_loss_in_observed_window') return '20일 안에 종가 −10% 미도달';
+  if (path.state !== 'loss_observed') return '확인 불가';
+  const loss = `종가 −10% 첫 도달 ${esc(path.first_loss_date)}`;
+  const later = path.first_sell_on_or_after_loss
+    ? ` · 그날 이후 첫 매도 판정 ${esc(path.first_sell_on_or_after_loss)}` : '';
+  if (path.prior_sell_evidence === 'recorded_before_loss')
+    return `${loss}<small style="display:block;color:var(--dim)">앞선 매도 판정 ${esc(path.first_sell_before_loss)}</small>`;
+  if (path.prior_sell_evidence === 'unknown_signal_gap')
+    return `${loss}<small style="display:block;color:var(--dim)">앞선 매도 판정 확인 불가 · 신호 기록 ${Number(path.missing_signal_sessions_before_loss)}일 공백${later}</small>`;
+  return `${loss}<small style="display:block;color:var(--warn,#b45309)">그 전에 저장된 매도 판정 없음${later}</small>`;
+}
+
 function renderHistoricalCases() {
   const data = _historicalCaseData;
   if (!data) return;
@@ -10804,16 +10823,16 @@ function renderHistoricalCases() {
      (filter === 'score' && row.score_change) || (filter === 'major' && row.major)));
   const shown = rows.slice(0, _historicalCaseShown);
   body.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>${data.market === 'kr' ? '국내' : '미국'} · 기록 ${data.recorded_signal_dates}일, ${data.recorded_signal_rows}행</b> 중 미리 정한 조건에 맞는 개별 사례 ${rows.length}건${rows.length > shown.length ? ` · ${shown.length}건 표시` : ''}. <span style="color:var(--dim)">${esc(data.warning)}</span></div>`
-    + `<div class="tscroll" style="margin-top:8px"><table style="min-width:920px;width:100%;font-size:13px"><thead><tr><th>신호일</th><th>종목</th><th>변화</th><th>판정</th><th>선정 기록 변화</th><th>다음날</th><th>5일</th><th>20일</th></tr></thead><tbody>`
+    + `<div class="tscroll" style="margin-top:8px"><table style="min-width:1120px;width:100%;font-size:13px"><thead><tr><th>신호일</th><th>종목</th><th>변화</th><th>판정</th><th>선정 기록 변화</th><th>다음날</th><th>5일</th><th>20일</th><th>하락 전 매도 판정</th></tr></thead><tbody>`
     + shown.map(row => {
       const changes = [row.kind_change ? `${row.previous_kind}→${row.kind}` : '',
         row.score_change ? `점수 ${row.score_delta > 0 ? '+' : ''}${row.score_delta}` : '',
         row.major ? '주요 종목' : ''].filter(Boolean).join(' · ');
       const gap = row.snapshot_gap ? ' · 앞 신호 기록 공백' : '';
-      return `<tr><td>${esc(row.date)}</td><td><b>${esc(row.ticker)}</b></td><td>${esc(changes + gap)}</td><td>${esc(row.kind)} · ${row.score == null ? '—' : Number(row.score).toFixed(2)}</td><td>${_historicalSelection(row)}</td><td>${_historicalOutcome(row, 1)}</td><td>${_historicalOutcome(row, 5)}</td><td>${_historicalOutcome(row, 20)}</td></tr>`;
+      return `<tr><td>${esc(row.date)}</td><td><b>${esc(row.ticker)}</b></td><td>${esc(changes + gap)}</td><td>${esc(row.kind)} · ${row.score == null ? '—' : Number(row.score).toFixed(2)}</td><td>${_historicalSelection(row)}</td><td>${_historicalOutcome(row, 1)}</td><td>${_historicalOutcome(row, 5)}</td><td>${_historicalOutcome(row, 20)}</td><td>${_historicalLossWarning(row)}</td></tr>`;
     }).join('') + `</tbody></table></div>`
     + (shown.length < rows.length ? `<button class="btn" style="margin-top:8px" onclick="_historicalCaseShown+=100;renderHistoricalCases()">100건 더 보기</button>` : '')
-    + `<div class="stat-label" style="margin-top:8px">선정 기록의 변화는 원인 후보이지 주가 하락의 원인 증명이 아닙니다. 다음 예정 거래일 시가 진입·기간 마지막 종가, 왕복비용 0.25% 가정. 가격 공백은 채우지 않았습니다. 원천 시각과 기업행사가 확인되지 않아 실거래 성과가 아닙니다.</div>`;
+    + `<div class="stat-label" style="margin-top:8px">선정 기록의 변화는 원인 후보이지 주가 하락의 원인 증명이 아닙니다. 하락 전 매도 판정은 매수 다음날 시가부터 20거래일 내 종가 −10%를 처음 넘은 날보다 앞선 저장 신호만 봅니다. 보유자 청산·실제 알림·체결 여부는 알 수 없습니다. 왕복비용 0.25%의 가격 경로 가정이며 공백을 채우지 않았습니다. 원천 시각과 기업행사가 확인되지 않아 실거래 성과가 아닙니다.</div>`;
 }
 
 async function loadPickReasonDates() {

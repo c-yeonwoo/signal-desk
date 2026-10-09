@@ -128,6 +128,59 @@ def _score_results(rows: list[dict], horizon: int) -> dict:
     }
 
 
+def _recorded_sell_before_loss(*, sessions: list[str], kind: str,
+                               ticker_bars: dict[str, dict],
+                               ticker_signals: dict[str, str],
+                               last_price_day: str) -> dict:
+    """Case-level close-path audit, not a holder exit or a trading-rule backtest.
+
+    A SELL recorded on the loss session is too late to count as a *prior* warning.
+    Missing signal sessions cannot be silently treated as HOLD.
+    """
+    if kind not in {"BUY", "STRONG_BUY"}:
+        return {"state": "not_buy_signal"}
+    if not sessions:
+        return {"state": "invalid_signal_session"}
+    if sessions[0] > last_price_day:
+        return {"state": "not_matured", "entry_date": sessions[0], "observed_sessions": 0}
+    entry = ticker_bars.get(sessions[0])
+    entry_open = _number(entry.get("open")) if entry else None
+    if entry_open is None or entry_open <= 0:
+        return {"state": "missing_entry_open", "entry_date": sessions[0]}
+    observed = []
+    first_loss = None
+    for session in sessions:
+        if session > last_price_day:
+            break
+        bar = ticker_bars.get(session)
+        close = _number(bar.get("close")) if bar else None
+        if close is None or close <= 0:
+            return {"state": "price_gap", "entry_date": sessions[0],
+                    "first_missing_date": session}
+        observed.append(session)
+        if close <= entry_open * 0.9:
+            first_loss = session
+            break
+    if first_loss is None:
+        return {"state": "no_loss_in_observed_window" if len(observed) == 20 else "not_matured",
+                "entry_date": sessions[0], "observed_sessions": len(observed)}
+    earlier = [session for session in observed if session < first_loss]
+    missing = [session for session in earlier if session not in ticker_signals]
+    sell_dates = [session for session in earlier
+                  if ticker_signals.get(session) in {"SELL", "STRONG_SELL"}]
+    later_sell_dates = [session for session in sessions
+                        if first_loss <= session <= last_price_day
+                        and ticker_signals.get(session) in {"SELL", "STRONG_SELL"}]
+    return {"state": "loss_observed", "entry_date": sessions[0],
+            "first_loss_date": first_loss, "first_sell_before_loss": sell_dates[0] if sell_dates else None,
+            "first_sell_on_or_after_loss": later_sell_dates[0] if later_sell_dates else None,
+            "missing_signal_sessions_before_loss": len(missing),
+            "first_missing_signal_date": missing[0] if missing else None,
+            "prior_sell_evidence": ("recorded_before_loss" if sell_dates else
+                                    "unknown_signal_gap" if missing else "none_recorded"),
+            "warning_scope": "sell_signal_only_not_holder_exit_or_notification"}
+
+
 def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
                     major_tickers: tuple[str, ...] = (),
                     score_delta_threshold: float = 0.5,
@@ -162,6 +215,10 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
     bars_by_ticker = {
         ticker: {str(row["date"]): row for row in group.to_dict("records")}
         for ticker, group in bars.groupby("ticker", sort=False)
+    }
+    signals_by_ticker = {
+        ticker: {str(row["date"]): str(row["kind"]) for row in group.to_dict("records")}
+        for ticker, group in snapshots.groupby("ticker", sort=False)
     }
     last_price_day = max(bars["date"]) if not bars.empty else ""
     major_set = set(major_tickers)
@@ -250,6 +307,10 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
             "selection_changes": selection_changes,
             "gate_release_reentry_without_score_gain": gate_release_reentry,
             "major": ticker in major_set, "factor_changes": factor_changes,
+            "loss_warning_path": _recorded_sell_before_loss(
+                sessions=sessions, kind=str(signal.get("kind")),
+                ticker_bars=ticker_bars, ticker_signals=signals_by_ticker.get(ticker, {}),
+                last_price_day=last_price_day),
             "outcomes": outcomes,
         })
 

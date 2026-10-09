@@ -136,6 +136,59 @@ def test_gate_release_across_missing_sessions_is_not_called_immediate_reentry():
     assert row["gate_release_reentry_without_score_gain"] is False
 
 
+def test_buy_loss_path_distinguishes_sell_before_from_no_sell_and_signal_gap():
+    day = "2026-07-20"
+    sessions = market_clock.next_sessions("kr", day, 5)
+    signals = pd.DataFrame([
+        {"date": day, "ticker": ticker, "score": 2.0, "kind": "BUY"}
+        for ticker in ("EARLY", "NONE", "GAP", "SAME")
+    ] + [
+        {"date": session, "ticker": ticker, "score": 0.0,
+         "kind": ("SELL" if (ticker == "EARLY" and session == sessions[1]) or
+                  (ticker == "SAME" and session == sessions[3]) else "HOLD")}
+        for ticker in ("EARLY", "NONE", "GAP", "SAME") for session in sessions[:4]
+        if not (ticker == "GAP" and session == sessions[1])
+    ])
+    bars = pd.DataFrame([
+        {"date": session, "ticker": ticker, "open": 100.0,
+         "close": 89.0 if session == sessions[3] else 100.0}
+        for ticker in ("EARLY", "NONE", "GAP", "SAME") for session in sessions
+    ])
+    rows = audit_snapshots(signals, bars, market="kr")["rows"]
+    by_ticker = {row["ticker"]: row["loss_warning_path"] for row in rows if row["date"] == day}
+    assert all(path["first_loss_date"] == sessions[3] for path in by_ticker.values())
+    assert by_ticker["EARLY"]["prior_sell_evidence"] == "recorded_before_loss"
+    assert by_ticker["EARLY"]["first_sell_before_loss"] == sessions[1]
+    assert by_ticker["NONE"]["prior_sell_evidence"] == "none_recorded"
+    assert by_ticker["GAP"]["prior_sell_evidence"] == "unknown_signal_gap"
+    assert by_ticker["GAP"]["first_missing_signal_date"] == sessions[1]
+    assert by_ticker["SAME"]["prior_sell_evidence"] == "none_recorded"
+    assert by_ticker["SAME"]["first_sell_on_or_after_loss"] == sessions[3]
+
+
+def test_buy_loss_path_stops_at_missing_price_and_does_not_assume_loss_from_later_bar():
+    day = "2026-07-20"
+    sessions = market_clock.next_sessions("kr", day, 5)
+    signals = pd.DataFrame([{"date": day, "ticker": "AAA", "score": 2.0, "kind": "BUY"}])
+    bars = pd.DataFrame(_bars("AAA", [sessions[0], sessions[2], sessions[3]], close=80.0))
+    bars.loc[bars["date"] == sessions[0], "close"] = 100.0
+    path = audit_snapshots(signals, bars, market="kr")["rows"][0]["loss_warning_path"]
+    assert path["state"] == "price_gap" and path["first_missing_date"] == sessions[1]
+
+
+def test_buy_loss_path_keeps_unmatured_and_nonbuy_cases_distinct():
+    day = "2026-07-20"
+    sessions = market_clock.next_sessions("kr", day, 20)
+    signals = pd.DataFrame([
+        {"date": day, "ticker": "BUY", "score": 2.0, "kind": "STRONG_BUY"},
+        {"date": day, "ticker": "HOLD", "score": 1.0, "kind": "HOLD"},
+    ])
+    bars = pd.DataFrame(_bars("BUY", sessions[:2]) + _bars("HOLD", sessions[:2]))
+    rows = {row["ticker"]: row for row in audit_snapshots(signals, bars, market="kr")["rows"]}
+    assert rows["BUY"]["loss_warning_path"]["state"] == "not_matured"
+    assert rows["HOLD"]["loss_warning_path"]["state"] == "not_buy_signal"
+
+
 @pytest.mark.parametrize("reason", [
     "[추세] 하락추세 확인 — 반등 전 매수 차단(관망)",
     "[실적] 2일 뒤 실적발표 예정 — 발표 전 신규 매수 보류(관망)",
