@@ -10823,7 +10823,7 @@ function renderHistoricalCases() {
      (filter === 'score' && row.score_change) || (filter === 'major' && row.major)));
   const shown = rows.slice(0, _historicalCaseShown);
   body.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>${data.market === 'kr' ? '국내' : '미국'} · 기록 ${data.recorded_signal_dates}일, ${data.recorded_signal_rows}행</b> 중 미리 정한 조건에 맞는 개별 사례 ${rows.length}건${rows.length > shown.length ? ` · ${shown.length}건 표시` : ''}. <span style="color:var(--dim)">${esc(data.warning)}</span></div>`
-    + `<div class="tscroll" style="margin-top:8px"><table style="min-width:1200px;width:100%;font-size:13px"><thead><tr><th>신호일</th><th>종목</th><th>변화</th><th>판정</th><th>선정 기록 변화</th><th>다음날</th><th>5일</th><th>20일</th><th>하락 전 매도 판정</th><th>봇 모의체결</th></tr></thead><tbody>`
+    + `<div class="tscroll" style="margin-top:8px"><table style="min-width:1200px;width:100%;font-size:13px"><thead><tr><th>신호일</th><th>종목</th><th>변화</th><th>판정</th><th>선정 기록 변화</th><th>다음날</th><th>5일</th><th>20일</th><th>하락 전 매도 판정</th><th>원장 대조</th></tr></thead><tbody>`
     + shown.map(row => {
       const changes = [row.kind_change ? `${row.previous_kind}→${row.kind}` : '',
         row.score_change ? `점수 ${row.score_delta > 0 ? '+' : ''}${row.score_delta}` : '',
@@ -10832,11 +10832,43 @@ function renderHistoricalCases() {
       const paperLink = row.outcomes?.['1']?.state === 'invalid_signal_session'
         ? '거래일 아님'
         : `<button class="btn" data-market="${esc(data.market)}" data-ticker="${esc(row.ticker)}" data-date="${esc(row.date)}" onclick="loadHistoricalPaperTrades(this)">대조</button>`;
-      return `<tr><td>${esc(row.date)}</td><td><b>${esc(row.ticker)}</b></td><td>${esc(changes + gap)}</td><td>${esc(row.kind)} · ${row.score == null ? '—' : Number(row.score).toFixed(2)}</td><td>${_historicalSelection(row)}</td><td>${_historicalOutcome(row, 1)}</td><td>${_historicalOutcome(row, 5)}</td><td>${_historicalOutcome(row, 20)}</td><td>${_historicalLossWarning(row)}</td><td>${paperLink}</td></tr>`;
+      const disclosureLink = data.market === 'kr' && row.outcomes?.['1']?.state !== 'invalid_signal_session'
+        ? ` <button class="btn" data-ticker="${esc(row.ticker)}" data-date="${esc(row.date)}" onclick="loadHistoricalDisclosures(this)">공시 수집</button>` : '';
+      return `<tr><td>${esc(row.date)}</td><td><b>${esc(row.ticker)}</b></td><td>${esc(changes + gap)}</td><td>${esc(row.kind)} · ${row.score == null ? '—' : Number(row.score).toFixed(2)}</td><td>${_historicalSelection(row)}</td><td>${_historicalOutcome(row, 1)}</td><td>${_historicalOutcome(row, 5)}</td><td>${_historicalOutcome(row, 20)}</td><td>${_historicalLossWarning(row)}</td><td>${paperLink}${disclosureLink}</td></tr>`;
     }).join('') + `</tbody></table></div>`
     + (shown.length < rows.length ? `<button class="btn" style="margin-top:8px" onclick="_historicalCaseShown+=100;renderHistoricalCases()">100건 더 보기</button>` : '')
     + `<div id="historical-paper-trades" class="stat-label" style="margin-top:8px"></div>`
+    + `<div id="historical-disclosure-observations" class="stat-label" style="margin-top:8px"></div>`
     + `<div class="stat-label" style="margin-top:8px">선정 기록의 변화는 원인 후보이지 주가 하락의 원인 증명이 아닙니다. 하락 전 매도 판정은 매수 다음날 시가부터 20거래일 내 종가 −10%를 처음 넘은 날보다 앞선 저장 신호만 봅니다. 보유자 청산·실제 알림·체결 여부는 알 수 없습니다. 왕복비용 0.25%의 가격 경로 가정이며 공백을 채우지 않았습니다. 원천 시각과 기업행사가 확인되지 않아 실거래 성과가 아닙니다.</div>`;
+}
+
+async function loadHistoricalDisclosures(button) {
+  const box = document.getElementById('historical-disclosure-observations');
+  if (!box) return;
+  const {ticker, date} = button.dataset;
+  box.textContent = `${ticker} · ${date} 공시 수집 기록 확인 중…`;
+  try {
+    const query = new URLSearchParams({market:'kr', ticker, signal_date:date});
+    const response = await fetch('/api/admin/research/historical-disclosure-observations?' + query);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '공시 원장을 읽지 못했습니다');
+    const timing = {before_signal_day:'신호일 이전 수집', same_day_order_unknown:'신호일 당일 · 선후 불명',
+      after_signal_day:'신호일 이후 수집'};
+    const stamp = ts => new Date(Number(ts) * 1000).toLocaleString('ko-KR', {timeZone:'Asia/Seoul'});
+    const original = (url, label) => /^https:\/\/dart\.fss\.or\.kr\//.test(url || '')
+      ? `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(label)}</a>` : esc(label);
+    const docs = (data.documents || []).map(d => `<div style="margin:6px 0">${original(d.url, d.title || '공시 원문')}`
+      + `<small style="display:block;color:var(--dim)">DART 접수일 ${esc(d.published || '미기록')} · 첫 KB 수집 ${esc(stamp(d.first_fetched_at))} · ${esc(timing[d.timing] || '순서 미확인')}</small></div>`);
+    const events = (data.events || []).map(e => `<div style="margin:6px 0">${original(e.url, e.summary || e.event_key)}`
+      + `<small style="display:block;color:var(--dim)">사건 원장 #${Number(e.id)} · 첫 생성 ${esc(stamp(e.first_created_at))} · ${esc(timing[e.timing] || '순서 미확인')}</small></div>`);
+    box.innerHTML = `<b>${esc(ticker)} · ${esc(date)} 공시 수집 시각</b>`
+      + `<div>보존된 KB 공시 ${docs.length}건${data.documents_truncated ? '+' : ''} · 사건 원장 ${events.length}건${data.events_truncated ? '+' : ''}</div>`
+      + (docs.length ? docs.join('') : '<div>이 기간 보존된 DART KB 공시 없음</div>')
+      + (events.length ? `<div style="margin-top:8px"><b>별도 사건 기록</b>${events.join('')}</div>` : '')
+      + `<small style="display:block;color:var(--dim)">${(data.limitations || []).map(esc).join(' ')}</small>`;
+  } catch (error) {
+    box.textContent = `공시 수집 대조 실패: ${String(error)}`;
+  }
 }
 
 async function loadHistoricalPaperTrades(button) {

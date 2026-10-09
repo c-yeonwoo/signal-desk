@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS kb_entries(id INTEGER PRIMARY KEY AUTOINCREMENT, tick
     summary TEXT, url TEXT UNIQUE, source TEXT, published TEXT, fetched INTEGER,
     doc_class TEXT, raw_text TEXT, status TEXT NOT NULL DEFAULT 'confirmed',
     attribution_version TEXT, attribution_checked_at INTEGER);
+CREATE INDEX IF NOT EXISTS idx_kb_entries_case ON kb_entries(ticker,source,fetched);
 CREATE TABLE IF NOT EXISTS kb_digest(ticker TEXT PRIMARY KEY, name TEXT, sentiment REAL, summary TEXT,
     points TEXT, n_sources INTEGER, updated INTEGER, newest_ts INTEGER,
     event_flag INTEGER NOT NULL DEFAULT 0, event_note TEXT, policy_version TEXT);
@@ -3029,6 +3030,39 @@ def kb_entry_add_many(ticker: str, items: list[dict]) -> int:
     c.commit()
     c.close()
     return added
+
+
+def kb_dart_case_observations(ticker: str, start_ts: int, end_ts: int,
+                              *, limit: int = 50) -> dict:
+    """보존된 공식 공시의 최초 KB/이벤트 관측만 읽는다. 과거 판단 사용 여부는 알 수 없다."""
+    if not ticker or start_ts >= end_ts or not 1 <= limit <= 100:
+        raise ValueError("invalid disclosure case scope")
+    c = conn()
+    try:
+        docs = c.execute(
+            "SELECT id,title,url,published,fetched FROM kb_entries "
+            "WHERE ticker=? AND source='dart' AND fetched>=? AND fetched<? "
+            "ORDER BY fetched,id LIMIT ?",
+            (ticker, start_ts, end_ts, limit + 1),
+        ).fetchall()
+        events = c.execute(
+            "SELECT e.id,e.event_key,e.summary,e.created,"
+            "(SELECT v.url FROM kb_event_evidence v WHERE v.event_id=e.id "
+            "AND v.source_key='dart' ORDER BY v.id LIMIT 1) "
+            "FROM kb_events e WHERE e.ticker=? AND e.event_key LIKE 'dart:%' "
+            "AND e.created>=? AND e.created<? ORDER BY e.created,e.id LIMIT ?",
+            (ticker, start_ts, end_ts, limit + 1),
+        ).fetchall()
+    finally:
+        c.close()
+    return {
+        "documents": [dict(zip(("id", "title", "url", "published", "first_fetched_at"), row))
+                      for row in docs[:limit]],
+        "events": [dict(zip(("id", "event_key", "summary", "first_created_at", "url"), row))
+                   for row in events[:limit]],
+        "documents_truncated": len(docs) > limit,
+        "events_truncated": len(events) > limit,
+    }
 
 
 def kb_embedding_upsert(entry_id: int, model: str, vec: bytes) -> None:
