@@ -10823,16 +10823,47 @@ function renderHistoricalCases() {
      (filter === 'score' && row.score_change) || (filter === 'major' && row.major)));
   const shown = rows.slice(0, _historicalCaseShown);
   body.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>${data.market === 'kr' ? '국내' : '미국'} · 기록 ${data.recorded_signal_dates}일, ${data.recorded_signal_rows}행</b> 중 미리 정한 조건에 맞는 개별 사례 ${rows.length}건${rows.length > shown.length ? ` · ${shown.length}건 표시` : ''}. <span style="color:var(--dim)">${esc(data.warning)}</span></div>`
-    + `<div class="tscroll" style="margin-top:8px"><table style="min-width:1120px;width:100%;font-size:13px"><thead><tr><th>신호일</th><th>종목</th><th>변화</th><th>판정</th><th>선정 기록 변화</th><th>다음날</th><th>5일</th><th>20일</th><th>하락 전 매도 판정</th></tr></thead><tbody>`
+    + `<div class="tscroll" style="margin-top:8px"><table style="min-width:1200px;width:100%;font-size:13px"><thead><tr><th>신호일</th><th>종목</th><th>변화</th><th>판정</th><th>선정 기록 변화</th><th>다음날</th><th>5일</th><th>20일</th><th>하락 전 매도 판정</th><th>봇 모의체결</th></tr></thead><tbody>`
     + shown.map(row => {
       const changes = [row.kind_change ? `${row.previous_kind}→${row.kind}` : '',
         row.score_change ? `점수 ${row.score_delta > 0 ? '+' : ''}${row.score_delta}` : '',
         row.major ? '주요 종목' : ''].filter(Boolean).join(' · ');
       const gap = row.snapshot_gap ? ' · 앞 신호 기록 공백' : '';
-      return `<tr><td>${esc(row.date)}</td><td><b>${esc(row.ticker)}</b></td><td>${esc(changes + gap)}</td><td>${esc(row.kind)} · ${row.score == null ? '—' : Number(row.score).toFixed(2)}</td><td>${_historicalSelection(row)}</td><td>${_historicalOutcome(row, 1)}</td><td>${_historicalOutcome(row, 5)}</td><td>${_historicalOutcome(row, 20)}</td><td>${_historicalLossWarning(row)}</td></tr>`;
+      const paperLink = row.outcomes?.['1']?.state === 'invalid_signal_session'
+        ? '거래일 아님'
+        : `<button class="btn" data-market="${esc(data.market)}" data-ticker="${esc(row.ticker)}" data-date="${esc(row.date)}" onclick="loadHistoricalPaperTrades(this)">대조</button>`;
+      return `<tr><td>${esc(row.date)}</td><td><b>${esc(row.ticker)}</b></td><td>${esc(changes + gap)}</td><td>${esc(row.kind)} · ${row.score == null ? '—' : Number(row.score).toFixed(2)}</td><td>${_historicalSelection(row)}</td><td>${_historicalOutcome(row, 1)}</td><td>${_historicalOutcome(row, 5)}</td><td>${_historicalOutcome(row, 20)}</td><td>${_historicalLossWarning(row)}</td><td>${paperLink}</td></tr>`;
     }).join('') + `</tbody></table></div>`
     + (shown.length < rows.length ? `<button class="btn" style="margin-top:8px" onclick="_historicalCaseShown+=100;renderHistoricalCases()">100건 더 보기</button>` : '')
+    + `<div id="historical-paper-trades" class="stat-label" style="margin-top:8px"></div>`
     + `<div class="stat-label" style="margin-top:8px">선정 기록의 변화는 원인 후보이지 주가 하락의 원인 증명이 아닙니다. 하락 전 매도 판정은 매수 다음날 시가부터 20거래일 내 종가 −10%를 처음 넘은 날보다 앞선 저장 신호만 봅니다. 보유자 청산·실제 알림·체결 여부는 알 수 없습니다. 왕복비용 0.25%의 가격 경로 가정이며 공백을 채우지 않았습니다. 원천 시각과 기업행사가 확인되지 않아 실거래 성과가 아닙니다.</div>`;
+}
+
+async function loadHistoricalPaperTrades(button) {
+  const box = document.getElementById('historical-paper-trades');
+  if (!box) return;
+  const {market, ticker, date} = button.dataset;
+  box.textContent = `${ticker} · ${date} 레퍼런스 봇 모의체결 확인 중…`;
+  try {
+    const query = new URLSearchParams({market, ticker, signal_date: date});
+    const response = await fetch('/api/admin/research/historical-paper-trades?' + query);
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '원장을 읽지 못했습니다');
+    const labels = {conservative:'안정형', balanced:'균형형', aggressive:'공격형'};
+    const zone = market === 'kr' ? 'Asia/Seoul' : 'America/New_York';
+    const rows = Object.entries(data.styles || {}).map(([style, record]) => {
+      const fills = (record.trades || []).map(trade => {
+        const when = new Date(Number(trade.ts) * 1000).toLocaleString('ko-KR', {timeZone: zone});
+        const side = trade.side === 'buy' ? '매수' : trade.side === 'sell' ? '매도' : esc(trade.side);
+        const price = trade.price == null ? '가격 미기록' : Number(trade.price).toLocaleString('ko-KR');
+        return `${esc(when)} ${side} ${Number(trade.qty)}주 × ${price} (${esc(trade.reason)})`;
+      });
+      return `<div><b>${esc(labels[style] || style)}</b> · 신호일 전 장부 매수−매도 ${Number(record.prior_journal_net_qty)}주 · ${fills.length ? fills.join('<br>') : '이 기간 모의체결 기록 없음'}${record.truncated ? ' · 100건 초과, 일부만 표시' : ''}</div>`;
+    });
+    box.innerHTML = `<b>${esc(ticker)} · ${esc(date)}부터 ${esc(data.window_end)}까지 레퍼런스 봇 모의체결</b>${data.window_complete ? '' : '<div>비교 기간 진행 중 · 이후 체결은 아직 기록되지 않았습니다.</div>'}${rows.join('')}<small style="display:block;color:var(--dim)">실계좌 주문이 아니며, 같은 날 체결도 이 신호보다 먼저였을 수 있습니다. 이전 순수량은 당시 보유 인증이 아닙니다.</small>`;
+  } catch (error) {
+    box.textContent = `모의체결 대조 실패: ${String(error)}`;
+  }
 }
 
 async function loadPickReasonDates() {
