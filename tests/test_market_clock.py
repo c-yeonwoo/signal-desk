@@ -3,6 +3,7 @@
 import datetime as dt
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 import pytest
 
 from signal_desk import api, bot, db, market_clock
@@ -26,6 +27,37 @@ def test_october_2026_substitute_holiday_does_not_advance_pit_sessions():
     sessions = [date.isoformat() for date in dates if market_clock.is_session("kr", date)]
     assert sessions == ["2026-10-06", "2026-10-07", "2026-10-08",
                         "2026-10-12", "2026-10-13", "2026-10-14"]
+
+
+def test_verified_kr_closure_overrides_calendar_that_wrongly_lists_october_5(monkeypatch):
+    class CalendarWithWrongHoliday:
+        def __init__(self):
+            self.days = pd.DatetimeIndex(["2026-10-02", "2026-10-05", "2026-10-06", "2026-10-07"])
+            self.first_session, self.last_session = self.days[0], self.days[-1]
+            self.schedule = pd.DataFrame({
+                "open": pd.to_datetime(["2026-10-02T00:00Z", "2026-10-05T00:00Z",
+                                        "2026-10-06T00:00Z", "2026-10-07T00:00Z"]),
+                "close": pd.to_datetime(["2026-10-02T06:30Z", "2026-10-05T06:30Z",
+                                         "2026-10-06T06:30Z", "2026-10-07T06:30Z"]),
+            }, index=self.days)
+
+        def is_session(self, day):
+            return pd.Timestamp(day) in self.days
+
+        def next_session(self, day):
+            return self.days[self.days.get_loc(pd.Timestamp(day)) + 1]
+
+        def previous_session(self, day):
+            return self.days[self.days.get_loc(pd.Timestamp(day)) - 1]
+
+    monkeypatch.setattr(market_clock, "_calendar", lambda market: CalendarWithWrongHoliday())
+    assert not market_clock.is_session("kr", "2026-10-05")
+    assert market_clock.next_sessions("kr", "2026-10-02", 2) == ["2026-10-06", "2026-10-07"]
+    assert market_clock.previous_session("kr", "2026-10-06") == "2026-10-02"
+    assert market_clock.consecutive_sessions("kr", "2026-10-02", "2026-10-06")
+    assert market_clock.latest_completed_session(
+        "kr", dt.datetime(2026, 10, 5, 7, tzinfo=dt.timezone.utc)) == "2026-10-02"
+    assert market_clock.regular_window("kr", dt.datetime(2026, 10, 5, 1, tzinfo=dt.timezone.utc)) is None
 
 
 def test_kr_auction_buffer_and_naive_time_rejected():

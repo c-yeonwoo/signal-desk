@@ -14,6 +14,14 @@ import exchange_calendars as xcals
 
 _MARKETS = {"kr": ("XKRX", "Asia/Seoul"), "us": ("XNYS", "America/New_York")}
 _KR_AUCTION_BUFFER = dt.timedelta(minutes=10)
+# KRX가 공지한 2026년 휴장. 서버의 달력 인스턴스가 일부 대체휴일을
+# 세션으로 반환해도 매매/채점에서 다시 열지 않는다.
+_KR_VERIFIED_CLOSED = frozenset({"2026-08-17", "2026-09-24", "2026-09-25",
+                                 "2026-10-05", "2026-10-09"})
+
+
+def _verified_closed(market: str, day: str) -> bool:
+    return market == "kr" and day in _KR_VERIFIED_CLOSED
 
 
 @lru_cache(maxsize=2)
@@ -25,6 +33,8 @@ def is_session(market: str, day: dt.date | str) -> bool:
     """거래소가 예정한 거래일인지 확인. 모르는 날을 평일로 추정하지 않는다."""
     try:
         date = dt.date.fromisoformat(day) if isinstance(day, str) else day
+        if _verified_closed(market, date.isoformat()):
+            return False
         cal = _calendar(market)
         if not cal.first_session.date() <= date <= cal.last_session.date():
             return False
@@ -63,15 +73,18 @@ def latest_completed_session(market: str, now: dt.datetime) -> str | None:
     if not cal.first_session.date() <= now.astimezone(ZoneInfo(_MARKETS[market][1])).date() <= cal.last_session.date():
         return None
     completed = cal.schedule[cal.schedule["close"] < now]
-    return completed.index[-1].date().isoformat() if not completed.empty else None
+    for stamp in reversed(completed.index):
+        day = stamp.date().isoformat()
+        if not _verified_closed(market, day):
+            return day
+    return None
 
 
 def consecutive_sessions(market: str, first: str, second: str) -> bool:
     """두 날짜가 연속 거래 세션인지. 누락된 평가일을 성과 0일로 이어 붙이지 않는다."""
     if not is_session(market, first) or not is_session(market, second) or first >= second:
         return False
-    sessions = _calendar(market).sessions_in_range(first, second)
-    return len(sessions) == 2
+    return next_sessions(market, first, 1) == [second]
 
 
 def previous_session(market: str, day: str) -> str | None:
@@ -79,7 +92,10 @@ def previous_session(market: str, day: str) -> str | None:
     if not is_session(market, day):
         return None
     try:
-        return _calendar(market).previous_session(day).date().isoformat()
+        previous = _calendar(market).previous_session(day)
+        while _verified_closed(market, previous.date().isoformat()):
+            previous = _calendar(market).previous_session(previous)
+        return previous.date().isoformat()
     except (KeyError, ValueError, IndexError):
         return None
 
@@ -92,9 +108,10 @@ def next_sessions(market: str, day: str, count: int) -> list[str]:
         cal = _calendar(market)
         out = []
         current = day
-        for _ in range(count):
+        while len(out) < count:
             current = cal.next_session(current).date().isoformat()
-            out.append(current)
+            if not _verified_closed(market, current):
+                out.append(current)
         return out
     except (KeyError, ValueError, IndexError):
         return []
