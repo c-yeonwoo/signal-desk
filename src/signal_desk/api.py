@@ -15,6 +15,7 @@ from io import BytesIO
 import logging
 import math
 import re
+import sqlite3
 import threading
 import time
 import uuid
@@ -4867,6 +4868,24 @@ def intraday_minute_probe_get(request: Request, ticker: str, session: str):
     return {**result, "cached": False}
 
 
+_INTRADAY_MINUTE_PILOT = frozenset(
+    (ticker, session)
+    for ticker in ("005930", "000660", "005380", "267250")
+    for session in ("2026-07-14", "2026-07-21")
+)
+
+
+def _archive_pilot_minute_day(ticker: str, session: str, result: dict) -> dict:
+    if result.get("status") != "observed_day":
+        return {"status": "unverified_not_archived"}
+    if (ticker, session) not in _INTRADAY_MINUTE_PILOT:
+        return {"status": "outside_fixed_pilot_not_archived"}
+    try:
+        return db.intraday_research_day_put(result)
+    except (ValueError, RuntimeError, sqlite3.DatabaseError) as exc:
+        return {"status": "archive_failed", "reason": type(exc).__name__}
+
+
 @app.get("/api/admin/research/intraday-minute-day")
 def intraday_minute_day_get(request: Request, ticker: str, session: str):
     """보호 전 한 종목·하루를 최대 5페이지로 읽어 연구용 범위만 확인한다."""
@@ -4878,7 +4897,8 @@ def intraday_minute_day_get(request: Request, ticker: str, session: str):
     key = f"intraday_minute_day:v1:{ticker}:{session}"
     cached = db.kv_get(key, max_age=3600)
     if cached is not None:
-        return {**cached, "cached": True}
+        return {**cached, "cached": True,
+                "archive": _archive_pilot_minute_day(ticker, session, cached)}
     if not db.lease_claim("intraday_minute_probe_global", uuid.uuid4().hex,
                           now=int(time.time()), lease_sec=60):
         raise HTTPException(status_code=429, detail="과거 분봉 진단은 1분에 한 번만 조회합니다.")
@@ -4886,7 +4906,30 @@ def intraday_minute_day_get(request: Request, ticker: str, session: str):
     result = kis.domestic_historical_minute_day(ticker, session)
     if result["status"] == "observed_day":
         db.kv_set(key, result)
-    return {**result, "cached": False}
+    return {**result, "cached": False,
+            "archive": _archive_pilot_minute_day(ticker, session, result)}
+
+
+@app.get("/api/admin/research/intraday-minute-archive")
+def intraday_minute_archive_get(request: Request):
+    """고정된 8개 보호 전 표본의 압축 보존·개정·첫 관측 ID만 확인한다."""
+    _admin_or_403(request)
+    rows = [row for row in db.intraday_research_day_manifest()
+            if (row["ticker"], row["session"]) in _INTRADAY_MINUTE_PILOT]
+    by_pair: dict[tuple[str, str], list[dict]] = {}
+    for row in rows:
+        by_pair.setdefault((row["ticker"], row["session"]), []).append(row)
+    return {"sample_rule": "4개 국내 종목코드 × 2026-07-14/07-21, 성과를 보기 전 고정",
+            "expected_pairs": len(_INTRADAY_MINUTE_PILOT),
+            "observed_pairs": sum(bool(by_pair.get(pair)) for pair in _INTRADAY_MINUTE_PILOT),
+            "stored_bytes": sum(row["stored_bytes"] for row in rows),
+            "rows": [{"ticker": ticker, "session": session,
+                      "status": "not_observed" if not by_pair.get((ticker, session)) else
+                                "revision_conflict" if len(by_pair[(ticker, session)]) > 1 else
+                                by_pair[(ticker, session)][0]["status"],
+                      "versions": by_pair.get((ticker, session), [])}
+                     for ticker, session in sorted(_INTRADAY_MINUTE_PILOT)],
+            "research_only": True, "order_eligible": False}
 
 
 @app.get("/api/admin/research/intraday-minute-replay")
@@ -4897,7 +4940,12 @@ def intraday_minute_replay_get(request: Request, ticker: str, session: str):
             or not re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}", session or "")
             or session >= "2026-08-04"):
         raise HTTPException(status_code=422, detail="보호 전 국내 종목·날짜만 재생할 수 있습니다.")
-    source = db.kv_get(f"intraday_minute_day:v1:{ticker}:{session}", max_age=3600)
+    archived_rows = [row for row in db.intraday_research_day_manifest()
+                     if row["ticker"] == ticker and row["session"] == session]
+    if len(archived_rows) > 1:
+        raise HTTPException(status_code=409, detail="원천 개정이 발견되어 연구 재생을 중단합니다.")
+    source = (db.intraday_research_day_get(ticker, session) if archived_rows else
+              db.kv_get(f"intraday_minute_day:v1:{ticker}:{session}", max_age=3600))
     if not source or source.get("status") != "observed_day":
         raise HTTPException(status_code=409, detail="먼저 같은 종목·날짜의 하루 원천을 검증해 주세요.")
     from signal_desk.signals import intraday_opportunity
