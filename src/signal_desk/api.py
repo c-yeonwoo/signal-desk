@@ -1542,6 +1542,7 @@ _ADMIN_PATHS = {
     "/api/admin/evidence-audit/dart", "/api/admin/evidence-ops", "/api/admin/storage-breakdown",
     "/api/admin/decision-replay",
     "/api/admin/research/historical-inputs",
+    "/api/admin/research/historical-cases",
     "/api/hypothesis/refresh",
     "/api/external-watch", "/api/external-watch/clear", "/api/external-watch/refresh-kb",
     "/api/morning-digest", "/api/morning-digest/test",
@@ -4576,6 +4577,41 @@ def historical_inputs_get(request: Request, market: str = "kr", sessions: int = 
     return Response(archive.getvalue(), media_type="application/zip",
                     headers={"Content-Disposition": f'attachment; filename="{filename}"',
                              "Cache-Control": "private, no-store"})
+
+
+@app.get("/api/admin/research/historical-cases")
+def historical_cases_get(request: Request, market: str = "kr", sessions: int = 45):
+    """Recorded transitions and fixed major names; case-level diagnostics, not a verdict."""
+    _admin_or_403(request)
+    from signal_desk.signals.historical_audit import (
+        MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots, select_recorded_inputs,
+    )
+    if market not in ("kr", "us") or not 1 <= sessions <= 60:
+        raise HTTPException(400, "시장 또는 기간이 올바르지 않습니다.")
+    history = store.load_signal_history(market)
+    price_file = store.PRICES_FILE if market == "kr" else store.US_PRICES_FILE
+    if history.empty or not price_file.exists():
+        raise HTTPException(404, "저장된 시그널 또는 가격 기록이 없습니다.")
+    try:
+        # 비교 창 첫날의 등급 변화도 빠뜨리지 않도록 바로 앞 관측일을 맥락으로만 읽는다.
+        target_dates = set(sorted(history["date"].astype(str).unique())[-sessions:])
+        signals, prices = select_recorded_inputs(
+            history, store._read_parquet(price_file), market=market, sessions=sessions + 1)
+        majors = MAJOR_KR_TICKERS if market == "kr" else MAJOR_US_TICKERS
+        checked = audit_snapshots(signals, prices, market=market, major_tickers=majors)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    cases = [row for row in checked["rows"] if row["date"] in target_dates
+             and (row["kind_change"] or row["score_change"] or row["major"])]
+    cases.sort(key=lambda row: (row["date"], row["ticker"]), reverse=True)
+    return JSONResponse({
+        "market": market, "source_level": checked["source_level"],
+        "selection": "all_kind_changes_or_abs_score_delta_ge_0.5_or_fixed_major",
+        "recorded_signal_dates": len(target_dates),
+        "recorded_signal_rows": sum(row["date"] in target_dates for row in checked["rows"]),
+        "case_rows": cases,
+        "warning": "개별 사고 조사만 가능. 사전등록 기간의 성과 합산·튜닝·주문 승격 근거 아님.",
+    }, headers={"Cache-Control": "private, no-store"})
 
 
 @app.get("/api/admin/evidence-audit/dart")
