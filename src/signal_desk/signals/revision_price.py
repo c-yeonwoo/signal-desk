@@ -11,8 +11,8 @@ import math
 from statistics import median
 
 import pandas as pd
-import exchange_calendars as xcals
 
+from signal_desk import market_clock
 from signal_desk.signals import portfolio_audit, revision
 
 VERSION = "revision-price-shadow-v1"
@@ -65,15 +65,13 @@ def build(*, observations: pd.DataFrame, as_of: datetime.datetime,
                   .drop_duplicates(["date", "ticker"], keep="last")
                   .drop(columns="_observed_utc"))
 
-    calendar = xcals.get_calendar("XKRX")
-    last = pd.Timestamp(session)
-    try:
-        expected = [day.date().isoformat() for day in
-                    calendar.sessions_window(last, -(PRICE_WINDOW + 1))]
-    except (ValueError, KeyError):
-        return blocked("가격 비교 거래일을 확인할 수 없습니다.", price_session=session)
-    if len(expected) != PRICE_WINDOW + 1:
-        return blocked("가격 비교 거래일이 부족합니다.", price_session=session)
+    expected = [session]
+    for _ in range(PRICE_WINDOW):
+        previous = market_clock.previous_session("kr", expected[-1])
+        if previous is None:
+            return blocked("가격 비교 거래일을 확인할 수 없습니다.", price_session=session)
+        expected.append(previous)
+    expected.reverse()
     returns: dict[str, float] = {}
     for ticker, dates in dates_by.items():
         closes = closes_by.get(ticker) or []

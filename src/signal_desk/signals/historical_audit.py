@@ -28,6 +28,59 @@ EXPORT_SIGNAL_COLUMNS = ("date", "ticker", "score", "kind", *FACTOR_COLUMNS,
 EXPORT_PRICE_COLUMNS = ("date", "ticker", "open", "close", "volume")
 
 
+def inventory_recorded_inputs(signals: pd.DataFrame, prices: pd.DataFrame, *,
+                              market: str, protected_start: str) -> dict:
+    """Describe input coverage without reading returns or opening protected outcomes.
+
+    Column presence and non-null timestamps are *not* proof that a provider published
+    that version before the decision. The export is therefore C-level only.
+    """
+    if market not in {"kr", "us"} or not {"date", "ticker"} <= set(signals.columns):
+        raise ValueError("invalid market or signal inventory columns")
+    if not {"date", "ticker", "open", "close"} <= set(prices.columns):
+        raise ValueError("price inventory lacks required columns")
+    if not isinstance(protected_start, str) or len(protected_start) != 10:
+        raise ValueError("invalid protected start")
+    frame = signals
+    if "market" in frame:
+        frame = frame[frame["market"].fillna("kr").astype(str) == market]
+    elif market == "us":
+        frame = frame.iloc[0:0]
+    dates = frame["date"].astype(str)
+    price_dates = prices["date"].astype(str)
+    invalid_dates = {day for day in dates.unique() if not market_clock.is_session(market, day)}
+
+    def bounds(values: pd.Series) -> list[str] | None:
+        return [values.min(), values.max()] if not values.empty else None
+
+    def present(name: str) -> dict:
+        return {"column_present": name in frame,
+                "non_null_rows": int(frame[name].notna().sum()) if name in frame else 0,
+                "source_time_verified": False}
+
+    return {
+        "market": market, "mode": "metadata_only_no_outcomes",
+        "source_level": "C_legacy_snapshot_unverified",
+        "signal_rows": len(frame), "signal_dates": bounds(dates),
+        "signal_sessions": int(dates.nunique()),
+        "signal_tickers": int(frame["ticker"].astype(str).nunique()),
+        "protected_start": protected_start,
+        "development_rows": int((dates < protected_start).sum()),
+        "protected_rows": int((dates >= protected_start).sum()),
+        "invalid_signal_session_rows": int(dates.isin(invalid_dates).sum()),
+        "saved_fields": {name: present(name) for name in ("observed_at", "bar_asof", "reasons_json")},
+        "price_rows": len(prices), "price_dates": bounds(price_dates),
+        "price_tickers": int(prices["ticker"].astype(str).nunique()),
+        "price_missing_open_rows": int(prices["open"].isna().sum()),
+        "price_missing_close_rows": int(prices["close"].isna().sum()),
+        "price_duplicate_ticker_dates": int(prices.duplicated(["date", "ticker"]).sum()),
+        "strict_pit_eligible": False,
+        "unverified": ["original source publication time and version",
+                       "historical full-universe membership and corporate actions",
+                       "historical fundamental, flow, short, and event input versions"],
+    }
+
+
 def select_recorded_inputs(signals: pd.DataFrame, prices: pd.DataFrame, *,
                            market: str, sessions: int = 45) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Bounded, read-only export. Never backfill or synthesize absent rows."""

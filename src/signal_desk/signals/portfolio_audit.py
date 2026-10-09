@@ -17,6 +17,7 @@ import exchange_calendars as xcals
 import numpy as np
 import pandas as pd
 
+from signal_desk import market_clock
 from signal_desk.broker import execution
 from signal_desk.jsonutil import json_safe
 from signal_desk.signals import portfolio_decision
@@ -61,15 +62,23 @@ def clock_context(market: str, now: datetime | None = None) -> dict:
         calendar = xcals.get_calendar(name)
         schedule = calendar.schedule
         before = schedule[schedule["close"] < pd.Timestamp(now)]
-        after = schedule[schedule["open"] > pd.Timestamp(now)].iloc[:HORIZON + 1]
-        if before.empty or len(after) != HORIZON + 1:
+        after = schedule[schedule["open"] > pd.Timestamp(now)]
+        completed = next((day.date().isoformat() for day in reversed(before.index)
+                          if market_clock.is_session(market, day.date().isoformat())), None)
+        upcoming = []
+        for day, row in after.iterrows():
+            if market_clock.is_session(market, day.date().isoformat()):
+                upcoming.append((day, row))
+                if len(upcoming) == HORIZON + 1:
+                    break
+        if completed is None or len(upcoming) != HORIZON + 1:
             raise ValueError("calendar horizon unavailable")
         # No weekday fallback outside the supplied calendar's coverage.
         if pd.Timestamp(now).date() < calendar.first_session.date() or pd.Timestamp(now).date() > calendar.last_session.date():
             raise ValueError("calendar date outside coverage")
-        return {**base, "ready": True, "expected_price_session": before.index[-1].date().isoformat(),
+        return {**base, "ready": True, "expected_price_session": completed,
                 "evaluation_sessions": [{"date": day.date().isoformat(), "open": row["open"].isoformat(),
-                                          "close": row["close"].isoformat()} for day, row in after.iterrows()],
+                                          "close": row["close"].isoformat()} for day, row in upcoming],
                 "entry_convention": "next_unopened_session_close"}
     except (ValueError, KeyError, IndexError):
         return {**base, "ready": False, "reason": "거래일 캘린더 범위/일정 확인 불가"}
@@ -112,8 +121,7 @@ def capture(*, rows: list[dict], universe: list[dict], signal_by_ticker: dict, p
             valid = valid and days[-1] == timing.get("expected_price_session")
             valid = valid and all(isinstance(p, (int, float)) and not isinstance(p, bool) and p > 0 for p in values)
             if valid:
-                calendar = xcals.get_calendar(timing["calendar"])
-                valid = all(calendar.is_session(d) for d in days)
+                valid = all(market_clock.is_session(market, d) for d in days)
         except (ValueError, TypeError):
             valid = False
         if not valid:
