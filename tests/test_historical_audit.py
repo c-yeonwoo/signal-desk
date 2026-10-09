@@ -82,6 +82,15 @@ def test_gap_between_recorded_signals_is_visible():
     assert result["rows"][1]["snapshot_gap"]
 
 
+def test_holiday_signal_is_recorded_but_never_given_a_forward_return():
+    signals = pd.DataFrame([{"date": "2026-09-24", "ticker": "267250",
+                             "score": 2.0, "kind": "STRONG_BUY"}])
+    bars = pd.DataFrame(_bars("267250", ["2026-09-28", "2026-09-29"]))
+    row = audit_snapshots(signals, bars, market="kr")["rows"][0]
+    assert all(row["outcomes"][str(h)]["state"] == "invalid_signal_session"
+               for h in (1, 5, 20))
+
+
 def test_export_selects_last_recorded_sessions_and_matching_prices_only():
     signals = pd.DataFrame([
         {"date": "2026-07-10", "ticker": "AAA", "score": 1.0, "kind": "HOLD", "private": "drop"},

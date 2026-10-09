@@ -10749,6 +10749,7 @@ function _historicalOutcome(row, horizon) {
   if (result.state === 'not_matured') return '아직';
   if (result.state === 'missing_entry_open') return '진입 시가 없음';
   if (result.state === 'price_gap') return `가격 공백 ${esc(result.first_missing_date || '')}`;
+  if (result.state === 'invalid_signal_session') return '거래일 아님 · 채점 제외';
   return '판정 불가';
 }
 
