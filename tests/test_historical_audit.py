@@ -162,6 +162,7 @@ def test_buy_loss_path_distinguishes_sell_before_from_no_sell_and_signal_gap():
     assert by_ticker["EARLY"]["prior_sell_evidence"] == "recorded_before_loss"
     assert by_ticker["EARLY"]["first_sell_before_loss"] == sessions[1]
     assert by_ticker["NONE"]["prior_sell_evidence"] == "none_recorded"
+    assert by_ticker["NONE"]["new_entry_block_evidence"] == "unknown_metadata"
     assert by_ticker["GAP"]["prior_sell_evidence"] == "unknown_signal_gap"
     assert by_ticker["GAP"]["first_missing_signal_date"] == sessions[1]
     assert by_ticker["SAME"]["prior_sell_evidence"] == "none_recorded"
@@ -176,6 +177,31 @@ def test_buy_loss_path_stops_at_missing_price_and_does_not_assume_loss_from_late
     bars.loc[bars["date"] == sessions[0], "close"] = 100.0
     path = audit_snapshots(signals, bars, market="kr")["rows"][0]["loss_warning_path"]
     assert path["state"] == "price_gap" and path["first_missing_date"] == sessions[1]
+
+
+def test_entry_block_before_loss_is_not_misreported_as_sell_or_holder_exit():
+    day = "2026-07-20"
+    sessions = market_clock.next_sessions("kr", day, 4)
+    signals = pd.DataFrame([
+        {"date": day, "ticker": "AAA", "score": 2.0, "kind": "BUY"},
+        {"date": sessions[0], "ticker": "AAA", "score": 1.7, "kind": "HOLD",
+         "gate_blocked": 1, "event_risk": 0},
+        {"date": sessions[1], "ticker": "AAA", "score": 1.6, "kind": "HOLD",
+         "gate_blocked": 0, "event_risk": 0},
+    ])
+    bars = pd.DataFrame([
+        {"date": session, "ticker": "AAA", "open": 100.0,
+         "close": 89.0 if session == sessions[2] else 100.0}
+        for session in sessions
+    ])
+    path = audit_snapshots(signals, bars, market="kr")["rows"][0]["loss_warning_path"]
+    assert path["first_loss_date"] == sessions[2]
+    assert path["first_new_entry_block_before_loss"] == sessions[0]
+    assert path["new_entry_block_fields"] == ["gate_blocked"]
+    assert path["new_entry_block_evidence"] == "recorded_before_loss"
+    assert path["first_sell_before_loss"] is None
+    assert path["prior_sell_evidence"] == "none_recorded"
+    assert "not_holder_exit" in path["warning_scope"]
 
 
 def test_buy_loss_path_keeps_unmatured_and_nonbuy_cases_distinct():
@@ -252,8 +278,11 @@ def test_inventory_keeps_protected_period_as_metadata_without_outcomes():
     assert result["development_rows"] == result["protected_rows"] == 1
     assert result["invalid_signal_session_rows"] == 1
     assert result["price_missing_open_rows"] == 1
-    assert result["saved_fields"]["observed_at"]["non_null_rows"] == 1
-    assert result["saved_fields"]["observed_at"]["source_time_verified"] is False
+    assert result["saved_signal_output_fields"]["observed_at"]["non_null_rows"] == 1
+    assert result["saved_signal_output_fields"]["observed_at"]["source_time_verified"] is False
+    assert result["observed_membership_by_date"] == [
+        {"date": "2026-07-20", "tickers": ["AAA"]},
+        {"date": "2026-09-24", "tickers": ["AAA"]}]
     assert result["strict_pit_eligible"] is False
     assert "summary" not in result and "outcomes" not in result
     pd.testing.assert_frame_equal(signals, original)

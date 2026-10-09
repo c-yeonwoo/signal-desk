@@ -58,21 +58,31 @@ def inventory_recorded_inputs(signals: pd.DataFrame, prices: pd.DataFrame, *,
                 "non_null_rows": int(frame[name].notna().sum()) if name in frame else 0,
                 "source_time_verified": False}
 
+    observed_membership = [
+        {"date": day, "tickers": sorted(group["ticker"].dropna().astype(str).unique().tolist())}
+        for day, group in frame.assign(date=dates).groupby("date", sort=True)
+    ]
+
     return {
         "market": market, "mode": "metadata_only_no_outcomes",
         "source_level": "C_legacy_snapshot_unverified",
         "signal_rows": len(frame), "signal_dates": bounds(dates),
         "signal_sessions": int(dates.nunique()),
-        "signal_tickers": int(frame["ticker"].astype(str).nunique()),
+        "signal_tickers": int(frame["ticker"].dropna().astype(str).nunique()),
+        "missing_signal_ticker_rows": int(frame["ticker"].isna().sum()),
+        "observed_membership_by_date": observed_membership,
+        "duplicate_signal_ticker_dates": int(frame.duplicated(["date", "ticker"]).sum()),
         "protected_start": protected_start,
         "development_rows": int((dates < protected_start).sum()),
         "protected_rows": int((dates >= protected_start).sum()),
         "invalid_signal_session_rows": int(dates.isin(invalid_dates).sum()),
-        "saved_fields": {name: present(name) for name in ("observed_at", "bar_asof", "reasons_json")},
+        "saved_signal_output_fields": {name: present(name) for name in EXPORT_SIGNAL_COLUMNS
+                                       if name not in ("date", "ticker")},
         "price_rows": len(prices), "price_dates": bounds(price_dates),
-        "price_tickers": int(prices["ticker"].astype(str).nunique()),
+        "price_tickers": int(prices["ticker"].dropna().astype(str).nunique()),
         "price_missing_open_rows": int(prices["open"].isna().sum()),
         "price_missing_close_rows": int(prices["close"].isna().sum()),
+        "price_volume_rows": int(prices["volume"].notna().sum()) if "volume" in prices else 0,
         "price_duplicate_ticker_dates": int(prices.duplicated(["date", "ticker"]).sum()),
         "strict_pit_eligible": False,
         "unverified": ["original source publication time and version",
@@ -183,7 +193,7 @@ def _score_results(rows: list[dict], horizon: int) -> dict:
 
 def _recorded_sell_before_loss(*, sessions: list[str], kind: str,
                                ticker_bars: dict[str, dict],
-                               ticker_signals: dict[str, str],
+                               ticker_signals: dict[str, dict],
                                last_price_day: str) -> dict:
     """Case-level close-path audit, not a holder exit or a trading-rule backtest.
 
@@ -220,18 +230,33 @@ def _recorded_sell_before_loss(*, sessions: list[str], kind: str,
     earlier = [session for session in observed if session < first_loss]
     missing = [session for session in earlier if session not in ticker_signals]
     sell_dates = [session for session in earlier
-                  if ticker_signals.get(session) in {"SELL", "STRONG_SELL"}]
+                  if ticker_signals.get(session, {}).get("kind") in {"SELL", "STRONG_SELL"}]
     later_sell_dates = [session for session in sessions
                         if first_loss <= session <= last_price_day
-                        and ticker_signals.get(session) in {"SELL", "STRONG_SELL"}]
+                        and ticker_signals.get(session, {}).get("kind") in {"SELL", "STRONG_SELL"}]
+    entry_block_fields = ("gate_blocked", "event_risk", "decision_blocked")
+    entry_blocks = [(session, [field for field in entry_block_fields
+                               if _flag(ticker_signals[session], field) is True])
+                    for session in earlier if session in ticker_signals]
+    entry_blocks = [(session, fields) for session, fields in entry_blocks if fields]
+    entry_metadata_incomplete = any(
+        _flag(ticker_signals[session], field) is None
+        for session in earlier if session in ticker_signals for field in entry_block_fields
+    )
     return {"state": "loss_observed", "entry_date": sessions[0],
             "first_loss_date": first_loss, "first_sell_before_loss": sell_dates[0] if sell_dates else None,
             "first_sell_on_or_after_loss": later_sell_dates[0] if later_sell_dates else None,
+            "first_new_entry_block_before_loss": entry_blocks[0][0] if entry_blocks else None,
+            "new_entry_block_fields": entry_blocks[0][1] if entry_blocks else [],
+            "new_entry_block_evidence": ("recorded_before_loss" if entry_blocks else
+                                         "unknown_signal_gap" if missing else
+                                         "unknown_metadata" if entry_metadata_incomplete else
+                                         "none_recorded"),
             "missing_signal_sessions_before_loss": len(missing),
             "first_missing_signal_date": missing[0] if missing else None,
             "prior_sell_evidence": ("recorded_before_loss" if sell_dates else
                                     "unknown_signal_gap" if missing else "none_recorded"),
-            "warning_scope": "sell_signal_only_not_holder_exit_or_notification"}
+            "warning_scope": "sell_or_new_entry_block_record_only_not_holder_exit_or_notification"}
 
 
 def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
@@ -270,7 +295,7 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
         for ticker, group in bars.groupby("ticker", sort=False)
     }
     signals_by_ticker = {
-        ticker: {str(row["date"]): str(row["kind"]) for row in group.to_dict("records")}
+        ticker: {str(row["date"]): row for row in group.to_dict("records")}
         for ticker, group in snapshots.groupby("ticker", sort=False)
     }
     last_price_day = max(bars["date"]) if not bars.empty else ""
