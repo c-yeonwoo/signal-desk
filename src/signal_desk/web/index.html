@@ -1064,6 +1064,10 @@
   </div>
   <div id="view-signal" class="view-app" style="display:none">
     <details id="signal-trust" ontoggle="if(this.open) loadScorecard()"><summary id="signal-trust-sum">시그널 검증</summary><div class="trust-body" id="signal-trust-body"></div></details>
+    <details class="card" id="intraday-opportunity-public" style="margin:10px 0" ontoggle="if(this.open) loadIntradayOpportunityPublic()">
+      <summary style="cursor:pointer;font-weight:700">장중 크게 움직인 종목 <span style="font-size:12px;color:var(--dim)">· 원인 확인용, 매수 추천 아님</span></summary>
+      <div id="intraday-opportunity-public-body" class="placeholder" style="padding:10px 0">펼치면 최근 1시간을 확인합니다.</div>
+    </details>
     <div id="signal-explore-slot"></div>
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
@@ -2146,6 +2150,12 @@
       </div>
       <div id="rotation-verdict-body" style="font-size:13px;line-height:1.7;padding:8px 0;color:var(--dim)">사전등록 판정 대기…</div>
       <div id="rotation-shadow-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
+    </details>
+    <details class="card" id="intraday-opportunity-study" style="margin-top:16px" ontoggle="if(this.open) loadIntradayOpportunityStudy()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">장중 급변 관찰 <span style="color:var(--dim);font-weight:600;font-size:13px">· 원인 확인 · 가상 진입 비교 · 주문 미연결</span></summary>
+      <p class="page-desc" style="margin:8px 0">5분 사이 크게 움직인 종목을 놓치지 않기 위한 연구입니다. 급등 자체는 매수 신호가 아닙니다. 거래량·공시·수급이 없거나 늦으면 확인되지 않았다고 표시합니다.</p>
+      <label>시장 <select id="intraday-opportunity-market" onchange="loadIntradayOpportunityStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>
+      <div id="intraday-opportunity-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
     </details>
     <details class="card" id="price-baseline-study" style="margin-top:16px" ontoggle="if(this.open) loadPriceBaselineStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">가격 전략 대조군 <span style="color:var(--dim);font-weight:600;font-size:13px">· 3팩터와 섹터 보정 12-1 모멘텀 · 연구 전용</span></summary>
@@ -4006,7 +4016,23 @@ function switchSignalMarket(m){
   else {
     document.querySelectorAll('#subnav-signal button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
     loadSignals();
+    if (document.getElementById('intraday-opportunity-public').open) loadIntradayOpportunityPublic();
   }
+}
+async function loadIntradayOpportunityPublic(){
+  const el = document.getElementById('intraday-opportunity-public-body');
+  if (!el) return;
+  el.textContent = '최근 움직임을 확인하는 중…';
+  const market = _sigMarket === 'us' ? 'us' : 'kr';
+  try {
+    const response = await fetch('/api/intraday-opportunities?market=' + market);
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    if ((_sigMarket === 'us' ? 'us' : 'kr') !== market) return;
+    if (!data.rows?.length) { el.textContent = '최근 1시간에 확인된 큰 움직임이 없습니다. 전체 시장을 탐색하는 것은 아닙니다.'; return; }
+    el.innerHTML = data.rows.map(r => `<div style="padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;line-height:1.5"><b>${esc(r.ticker)} · ${Number(r.move_pct) >= 0 ? '+' : ''}${fmtNum(r.move_pct, 2)}%</b> <span style="color:var(--dim)">${esc(r.reason)}</span><br><small style="color:var(--dim)">${r.volume_confirmed ? '거래량 구간 확인' : '거래량 비교 전'} · ${r.official_event_confirmed ? '공시 확인' : '원인 확인 전'} · ${esc(new Date(r.detected_at*1000).toLocaleTimeString('ko-KR'))}</small></div>`).join('')
+      + '<p class="page-desc">이 목록은 움직임을 놓치지 않기 위한 관찰입니다. 매수·매도 판정은 기존 종목 분석에서 따로 확인하세요. 수집 범위 밖 종목은 표시되지 않습니다.</p>';
+  } catch(e) { el.textContent = '최근 움직임을 표시할 수 없습니다 · ' + e.message; }
 }
 function switchTodayMarket(m){
   if (m !== 'kospi' && m !== 'us') return;
@@ -10503,6 +10529,25 @@ async function loadPriceQualityVerdict(market){
     const stats = d.net_delta_mean_pp == null ? '' : ` · 원래 대비 ${fmtNum(d.net_delta_mean_pp, 2)}%p · 같은 현금비중 대비 ${fmtNum(d.selection_delta_mean_pp, 2)}%p`;
     el.innerHTML = `<b>${esc(labels[d.status] || d.status)}</b> · 성숙 ${Number(d.matured_blocks || 0)}건 · 유효 ${Number(d.effective_blocks || 0)}건${stats}<br><span style="color:var(--dim)">두 대조군 모두를 넘기 전에는 선별 효과로 읽지 않습니다. 통과해도 주문 정책은 그대로입니다.</span>`;
   } catch(e) { el.textContent = '회사 체질 판정 조회 실패 · ' + e.message; }
+}
+async function loadIntradayOpportunityStudy(){
+  const el = document.getElementById('intraday-opportunity-body');
+  if (!el) return;
+  el.textContent = '장중 관찰 기록을 불러오는 중…';
+  const market = document.getElementById('intraday-opportunity-market').value;
+  try {
+    const response = await fetch('/api/admin/research/intraday-opportunity?market=' + encodeURIComponent(market));
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const data = await response.json();
+    const rows = data.rows || [];
+    if (!rows.length) { el.textContent = '최근 90일간 현재 수집 범위에서 5분 급변 후보가 없습니다. 수집하지 않는 종목은 탐지할 수 없습니다.'; return; }
+    const vol = r => r.volume?.state !== 'observed' ? '미확인' : (r.volume?.minute_volume_ratio != null ? `최근 5분 거래량 ${fmtNum(r.volume.minute_volume_ratio, 1)}배` : r.volume?.interval_volume == null ? '한 차례 관측' : '5분 증가 ' + Number(r.volume.interval_volume).toLocaleString() + '주');
+    const replay = r => r.replay?.status === 'complete' ? `가상 즉시 ${fmtNum(r.replay.immediate?.net_pct, 2)}% · 한 틱 대기 ${fmtNum(r.replay.wait_one?.net_pct, 2)}%` : '비교 가격 대기';
+    el.innerHTML = `<p class="page-desc">후보 ${Number(data.coverage?.candidates || 0)}건 · 거래량 구간 확인 ${Number(data.coverage?.volume_intervals || 0)}건 · 가상 비교 완료 ${Number(data.coverage?.matured_replays || 0)}건. 전략 선택 ${data.selector?.status === 'shadow_candidate' ? '연구 후보' : '근거 부족으로 보류'}. 수익은 다음 관측가·가정 비용으로만 계산합니다.</p>`
+      + '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>시각·종목</th><th>5분 변화</th><th>거래량·원인</th><th>관찰 판단</th><th>가상 비교</th></tr></thead><tbody>'
+      + rows.slice(0, 15).map(r => `<tr><td>${esc(new Date(r.detected_at*1000).toLocaleString('ko-KR'))}<br>${esc(r.ticker)}</td><td>${Number(r.move_pct) >= 0 ? '+' : ''}${fmtNum(r.move_pct, 2)}%</td><td>${esc(vol(r))}<br>${r.context?.official_event ? '공시 확인' : '원인 미확인'}</td><td>${esc(r.decision?.reason || '관찰 중')}</td><td>${esc(replay(r))}</td></tr>`).join('')
+      + '</tbody></table></div><p class="page-desc">외인·기관 수치는 장중 가집계이며 확정 수급이 아닙니다. 섹터·공급망·거시 연관성도 확인 전에는 매수 근거로 사용하지 않습니다. 기존 시그널·주문은 바뀌지 않습니다.</p>';
+  } catch(e) { el.textContent = '장중 관찰 기록을 표시할 수 없습니다 · ' + e.message; }
 }
 async function loadPriceBaselineStudy(){
   const el = document.getElementById('price-baseline-body');

@@ -38,7 +38,7 @@ from signal_desk.broker import execution, paper, toss_readonly
 
 from signal_desk import (
     account_performance, auth, bot, bot_alerts, brain, brain_proposals, company, company_review, config, db, digest, kb,
-    llm, market_brief, market_brief_image, market_clock, notify, shortform, signalcfg, store, strategy, telegram_inbound,
+    intraday_opportunity_service, llm, market_brief, market_brief_image, market_clock, notify, shortform, signalcfg, store, strategy, telegram_inbound,
 )
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
@@ -215,6 +215,22 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
         return
     kr_tickers = {u["ticker"] for u in store.load_universe()} if "kr" in open_markets else set()
     us_tickers = {u["ticker"] for u in store.load_us_universe()} if "us" in open_markets else set()
+    # 시장 전체를 긁는 척하지 않는다. 기존 기본 풀 밖의 관심·보유 종목을 각 시장
+    # 최대 30개만 더 관찰한다. 이 풀 밖 종목의 급변은 탐지할 수 없음을 API에 남긴다.
+    if open_markets:
+        try:
+            followed = db.fav_tickers_all()
+            for market in open_markets:
+                followed |= db.holdings_tickers_market(market)
+            kr_extra = sorted(t for t in followed if re.fullmatch(r"[0-9][0-9A-Z]{5}", t or ""))[:30]
+            us_extra = sorted(t for t in followed if re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,9}", t or "")
+                              and t not in kr_extra)[:30]
+            if "kr" in open_markets:
+                kr_tickers.update(kr_extra)
+            if "us" in open_markets:
+                us_tickers.update(us_extra)
+        except Exception as exc:
+            log.warning("관심·보유 시세 대상 집계 실패: %s", type(exc).__name__)
     requested_by_market = {"kr": kr_tickers, "us": us_tickers}
     now = int(time.time())
     try:
@@ -274,7 +290,9 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
                 db.intraday_quotes_record("us", {t: p for t, p in ledger_quotes.items() if t in us_tickers}, ts=now)
             prune_key = "intraday_quote_prune_date"
             if db.kv_get(prune_key) != _kst_today():
-                db.intraday_quotes_prune(older_than_ts=now - config.intraday_quote_retention_days() * 86400)
+                cutoff = now - config.intraday_quote_retention_days() * 86400
+                db.intraday_quotes_prune(older_than_ts=cutoff)
+                db.intraday_opportunities_prune(older_than_ts=cutoff)
                 db.kv_set(prune_key, _kst_today())
         except Exception as e:
             log.warning("장중 가격 원장 저장 실패: %s", type(e).__name__)
@@ -406,6 +424,12 @@ def _quote_loop_iteration() -> None:
         _maybe_poll_disclosures()
         _maybe_extend_candidate_ttl()
     _fast_trade_pass(open_m)
+    for market in open_m:
+        try:
+            intraday_opportunity_service.scan_market(market)
+        except Exception as exc:
+            # 연구용 탐색 장애가 가격 갱신·보유 청산·알림을 멈춰서는 안 된다.
+            log.warning("장중 기회 탐색 실패(%s): %s", market, type(exc).__name__)
     notify.drain()
 
 
@@ -3012,6 +3036,32 @@ def signals_get(request: Request, market: str = "kospi"):
     return _signal_response(market)
 
 
+@app.get("/api/intraday-opportunities")
+def intraday_opportunities_get(request: Request, market: str = "kr"):
+    """사용자용 최근 관찰 후보. 등락만으로 매수를 권하지 않는다."""
+    if market not in ("kr", "us"):
+        raise HTTPException(status_code=422, detail="market 값이 올바르지 않습니다.")
+    now = int(time.time())
+    uid = _uid(request)
+    allowed = {item["ticker"] for item in (store.load_universe() if market == "kr"
+                                               else store.load_us_universe())}
+    if uid:
+        allowed.update(item["key"] for item in db.fav_list(uid) if item["kind"] == "ticker")
+        allowed.update(item["ticker"] for item in db.holdings_list(uid))
+    # 다른 이용자만 관심 등록한 기본 풀 밖의 종목을 공개 목록에 섞지 않는다.
+    rows = [row for row in db.intraday_opportunities_recent(market, after_ts=now - 3600, limit=200)
+            if row["ticker"] in allowed][:12]
+    return {"market": market, "observed_at": now, "research_only": True,
+            "coverage": "기본 관찰 종목과 최대 30개 관심·보유 종목; 전체 시장 아님",
+            "rows": [{"ticker": row["ticker"], "detected_at": row["detected_at"],
+                      "move_pct": row["move_pct"], "direction": row["direction"],
+                      "status": row["decision"]["status"], "reason": row["decision"]["reason"],
+                      "volume_confirmed": ("interval_volume" in row.get("volume", {}) or
+                                           "minute_volume_ratio" in row.get("volume", {})),
+                      "official_event_confirmed": bool(row.get("context", {}).get("official_event")),
+                      "order_eligible": False} for row in rows]}
+
+
 def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
     """시그널 조회와 정시 연구 동결이 같은 행 조립 경로를 쓴다."""
     if market == "us":
@@ -4738,6 +4788,36 @@ def _revision_ic_status() -> dict:
         return result
     except Exception as e:
         return {"ready": False, "blocked_reason": type(e).__name__}
+
+
+@app.get("/api/admin/research/intraday-opportunity")
+def intraday_opportunity_get(request: Request, market: str = "kr", days: int = 90,
+                             limit: int = 200):
+    """장중 후보와 실제 다음 관측 기반 가상 체결. 실주문/등록 판정과 완전히 분리."""
+    _admin_or_403(request)
+    if market not in ("kr", "us") or not 1 <= days <= 180 or not 1 <= limit <= 200:
+        raise HTTPException(status_code=422, detail="market/days/limit 값이 올바르지 않습니다.")
+    rows = intraday_opportunity_service.recent_with_replay(
+        market, after_ts=int(time.time()) - days * 86400, limit=limit)
+    from signal_desk.signals import intraday_opportunity
+    calibration_rows = [{"playbook": row["decision"]["playbook"], "regime": row.get("regime"),
+                         "session": row.get("session"), "replay": row["replay"]} for row in rows]
+    calibrations = intraday_opportunity.calibrate(calibration_rows)
+    today = datetime.datetime.now(ZoneInfo("Asia/Seoul" if market == "kr"
+                                          else "America/New_York")).date().isoformat()
+    regime = rows[0]["regime"] if rows else "unknown"
+    selector = intraday_opportunity.research_choice(calibration_rows, asof_session=today,
+                                                    regime=regime)
+    return {"market": market, "research_only": True, "live_order_enabled": False,
+            "scope": "현재 시세 원장에 포함된 종목만; 미수집 종목 탐색 불가",
+            "coverage": {"candidates": len(rows),
+                         "volume_intervals": sum("interval_volume" in row.get("volume", {}) or
+                                                 "minute_volume_ratio" in row.get("volume", {})
+                                                 for row in rows),
+                         "matured_replays": sum(row["replay"]["status"] == "complete" for row in rows)},
+            "calibrations": [{"playbook": key[0], "regime": key[1], **value}
+                             for key, value in calibrations.items()],
+            "selector": {"regime": regime, **selector}, "rows": rows}
 
 
 @app.get("/api/admin/research/price-baseline")

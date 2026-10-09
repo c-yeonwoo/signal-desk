@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import os
+import re
 import tempfile
 import threading
 import time
@@ -177,6 +178,108 @@ def _read_all(path: str, tr_id: str, creds: dict, params: dict) -> dict | None:
         params.update(CTX_AREA_FK100=cursor[0], CTX_AREA_NK100=cursor[1])
         continuation = "N"
     return None
+
+
+def domestic_market_snapshot(ticker: str, creds: dict | None = None) -> dict | None:
+    """조회 전용 국내 현재가·누적 거래량. 체결시각/호가로 오인하지 않는다.
+
+    KIS 공식 주식현재가 시세 FHKST01010100. 공급자 응답 시각의 의미가
+    확인되지 않았으므로 서버 수신시각만 기록하고 주문 근거로 사용하지 않는다.
+    """
+    if not isinstance(ticker, str) or not re.fullmatch(r"[0-9][0-9A-Z]{5}", ticker):
+        return None
+    creds = creds or config.kis_credentials()
+    if not creds or creds.get("env") != "real":
+        return None
+    body = _request("/uapi/domestic-stock/v1/quotations/inquire-price", "FHKST01010100", creds,
+                    {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker})
+    if not body or body.get("rt_cd") != "0" or not isinstance(body.get("output"), dict):
+        return None
+    row = body["output"]
+    try:
+        price, volume = float(row["stck_prpr"]), int(row["acml_vol"])
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(price) or price <= 0 or volume < 0:
+        return None
+    try:
+        day_high = float(row.get("stck_hgpr"))
+        if not math.isfinite(day_high) or day_high < price:
+            day_high = None
+    except (TypeError, ValueError, OverflowError):
+        day_high = None
+    return {"price": price, "cumulative_volume": volume, "received_at": int(time.time()),
+            "day_high": day_high, "provider": "kis", "source_time_verified": False}
+
+
+def domestic_investor_estimate(ticker: str, creds: dict | None = None) -> dict | None:
+    """KIS 외인·기관 *가집계*. 발표 슬롯이 드물고 확정 수급이 아니므로 설명 전용."""
+    if not isinstance(ticker, str) or not re.fullmatch(r"[0-9][0-9A-Z]{5}", ticker):
+        return None
+    creds = creds or config.kis_credentials()
+    if not creds or creds.get("env") != "real":
+        return None
+    body = _request("/uapi/domestic-stock/v1/quotations/investor-trend-estimate",
+                    "HHPTJ04160200", creds, {"MKSC_SHRN_ISCD": ticker})
+    if not body or body.get("rt_cd") != "0" or not isinstance(body.get("output2"), list):
+        return None
+    for row in body["output2"]:
+        if not isinstance(row, dict):
+            continue
+        try:
+            foreign = int(row["frgn_fake_ntby_qty"])
+            institution = int(row["orgn_fake_ntby_qty"])
+        except (KeyError, ValueError, TypeError, OverflowError):
+            continue
+        return {"foreign_estimate_qty": foreign, "institution_estimate_qty": institution,
+                "provider_slot": row.get("bsop_hour_gb"), "received_at": int(time.time()),
+                "source_verified": False, "estimate_only": True, "provider": "kis"}
+    return None
+
+
+def domestic_completed_minute_volumes(ticker: str, creds: dict | None = None,
+                                      *, now: datetime.datetime | None = None) -> dict | None:
+    """오늘 완료된 연속 10개 분봉의 앞/뒤 5분 거래량. 누락 분봉은 0으로 채우지 않는다."""
+    if not isinstance(ticker, str) or not re.fullmatch(r"[0-9][0-9A-Z]{5}", ticker):
+        return None
+    creds = creds or config.kis_credentials()
+    if not creds or creds.get("env") != "real":
+        return None
+    if now is not None and (now.tzinfo is None or now.utcoffset() is None):
+        return None
+    observed = (now or datetime.datetime.now(ZoneInfo("Asia/Seoul"))).astimezone(ZoneInfo("Asia/Seoul"))
+    body = _request("/uapi/domestic-stock/v1/quotations/inquire-time-itemchartprice",
+                    "FHKST03010200", creds,
+                    {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker,
+                     "FID_INPUT_HOUR_1": observed.strftime("%H%M%S"),
+                     "FID_PW_DATA_INCU_YN": "N", "FID_ETC_CLS_CODE": ""})
+    if not body or body.get("rt_cd") != "0" or not isinstance(body.get("output2"), list):
+        return None
+    day = observed.strftime("%Y%m%d")
+    bars: dict[datetime.datetime, int] = {}
+    for row in body["output2"]:
+        if not isinstance(row, dict):
+            continue
+        try:
+            stamp = datetime.datetime.strptime(day + str(row["stck_cntg_hour"]),
+                                               "%Y%m%d%H%M%S").replace(tzinfo=ZoneInfo("Asia/Seoul"))
+            volume = int(row["cntg_vol"])
+        except (KeyError, ValueError, TypeError, OverflowError):
+            continue
+        if stamp.second == 0 and volume >= 0 and stamp < observed.replace(second=0, microsecond=0):
+            bars[stamp] = volume
+    ordered = sorted(bars.items())[-10:]
+    if len(ordered) != 10 or (observed - ordered[-1][0]).total_seconds() > 150:
+        return None
+    if any(int((ordered[i][0] - ordered[i-1][0]).total_seconds()) != 60 for i in range(1, 10)):
+        return None
+    prior = sum(volume for _, volume in ordered[:5])
+    recent = sum(volume for _, volume in ordered[5:])
+    return {"previous_5m_volume": prior, "recent_5m_volume": recent,
+            "ratio": round(recent / prior, 4) if prior > 0 else None,
+            "last_complete_minute": ordered[-1][0].isoformat(),
+            "received_at": int(time.time()) if now is None else int(observed.timestamp()), "provider": "kis",
+            "source_time_verified": False, "complete_bars": 10}
 
 
 def balance(creds: dict | None = None, retries: int = 3) -> dict | None:
