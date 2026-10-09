@@ -599,3 +599,47 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
         result["summary"] = {name: {str(h): _score_results(items, h) for h in HORIZONS}
                              for name, items in cohorts.items()}
     return result
+
+
+def audit_planned_casebook(signals: pd.DataFrame, prices: pd.DataFrame, *,
+                           plan: dict, market: str, signal_sha256: str,
+                           protected_start: str) -> dict:
+    """Replay only cases frozen by the exact signal-only plan and input digest.
+
+    Never calculates protected-period aggregate performance. A changed calendar,
+    signal archive, selection rule, or plan must be reviewed, not silently updated.
+    """
+    if not isinstance(plan, dict) or plan.get("protected_start") != protected_start:
+        raise ValueError("casebook registration boundary mismatch")
+    expected_plan = plan_recorded_casebook(
+        signals, market=market, protected_start=protected_start,
+        signal_sha256=signal_sha256,
+    )
+    if plan != expected_plan:
+        raise ValueError("casebook plan or signal input digest mismatch")
+    keys = {(slot["date"], slot["ticker"]) for slot in plan["slots"]}
+    if len(keys) != len(plan["slots"]):
+        raise ValueError("duplicate planned case")
+    majors = MAJOR_KR_TICKERS if market == "kr" else MAJOR_US_TICKERS
+    checked = audit_snapshots(
+        signals, prices, market=market, major_tickers=majors,
+        include_aggregates=False, case_keys=keys,
+    )
+    by_key = {(row["date"], row["ticker"]): row for row in checked["rows"]}
+    if set(by_key) != keys:
+        raise ValueError("planned case missing from recorded signals")
+    return {
+        "schema": "recorded-signal-casebook-audit-v1",
+        "market": market,
+        "source_level": checked["source_level"],
+        "signal_sha256": signal_sha256,
+        "plan_sha256": plan["plan_sha256"],
+        "protected_start": protected_start,
+        "signal_rows_seen": checked["signal_rows"],
+        "case_count": len(keys),
+        "cases": [{"period": slot["period"], "week": slot["week"],
+                   "stratum": slot["stratum"], "selection_sha256": slot["selection_sha256"],
+                   "recorded_case": by_key[(slot["date"], slot["ticker"])]}
+                  for slot in plan["slots"]],
+        "warning": "개별 C수준 사례 진단만 허용; 보호 구간 합산·튜닝·승격 근거 아님",
+    }
