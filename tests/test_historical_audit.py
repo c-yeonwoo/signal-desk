@@ -123,6 +123,37 @@ def test_gate_release_reentry_is_flagged_without_claiming_return_cause():
     assert row["selection"]["gate_reason"] is None
 
 
+def test_gate_release_across_missing_sessions_is_not_called_immediate_reentry():
+    day = "2026-07-20"
+    later = market_clock.next_sessions("kr", day, 3)[-1]
+    signals = pd.DataFrame([
+        {"date": day, "ticker": "AAA", "score": 2.15, "kind": "HOLD", "gate_blocked": 1},
+        {"date": later, "ticker": "AAA", "score": 2.15, "kind": "STRONG_BUY", "gate_blocked": 0},
+    ])
+    prices = pd.DataFrame(_bars("AAA", [day, later]))
+    row = audit_snapshots(signals, prices, market="kr")["rows"][1]
+    assert row["snapshot_gap"] and "gate_blocked" in row["selection_changes"]
+    assert row["gate_release_reentry_without_score_gain"] is False
+
+
+@pytest.mark.parametrize("reason", [
+    "[추세] 하락추세 확인 — 반등 전 매수 차단(관망)",
+    "[실적] 2일 뒤 실적발표 예정 — 발표 전 신규 매수 보류(관망)",
+    "[급락] 1일 -8.0% — 단기 급락으로 신규 매수 보류(관망)",
+    "[악재] 주요 공시 — 신규 매수 보류(관망)",
+    "[선반영] 호재 전 사전상승 11.2% — 신규 매수 보류",
+    "[추격] 진입 늦음 — 신규 매수 보류",
+])
+def test_every_blocking_gate_reason_survives_case_audit(reason):
+    day = "2026-07-20"
+    signals = pd.DataFrame([{"date": day, "ticker": "AAA", "score": 2.0,
+                             "kind": "HOLD", "gate_blocked": 1,
+                             "reasons_json": json.dumps([reason, "[추세] 하락추세지만 게이트 완화 조건 충족"])}])
+    prices = pd.DataFrame(_bars("AAA", [day]))
+    row = audit_snapshots(signals, prices, market="kr")["rows"][0]
+    assert row["selection"]["gate_reason"] == reason
+
+
 def test_holiday_signal_is_recorded_but_never_given_a_forward_return():
     signals = pd.DataFrame([{"date": "2026-09-24", "ticker": "267250",
                              "score": 2.0, "kind": "STRONG_BUY"}])

@@ -87,7 +87,11 @@ def _selection_evidence(row: dict) -> dict:
 
     reasons = parse_reasons_json(row.get("reasons_json"))
     selection_reasons = [reason for reason in reasons if reason.startswith("[선정]")]
-    gate_reasons = [reason for reason in reasons if reason.startswith(("[선반영]", "[추격]"))]
+    # Engine trend/earnings/crash/event gates and the post-engine execution gate
+    # share gate_blocked. A relaxed trend reason is not itself a blocking cause.
+    gate_reasons = [reason for reason in reasons
+                    if reason.startswith(("[추세]", "[실적]", "[급락]", "[악재]", "[선반영]", "[추격]"))
+                    and ("매수 차단" in reason or "매수 보류" in reason)]
     return {
         "rank": _number(row.get("rank")),
         "rank_eligible": _flag(row, "rank_eligible"),
@@ -182,7 +186,7 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
                               and previous_selection[key] != selection[key]]
                              if previous_selection else [])
         gate_release_reentry = bool(
-            prior and previous_selection["gate_blocked"] is True
+            prior and not gap and previous_selection["gate_blocked"] is True
             and selection["gate_blocked"] is False
             and prior.get("kind") == "HOLD"
             and signal.get("kind") in {"BUY", "STRONG_BUY"}
