@@ -282,6 +282,57 @@ def domestic_completed_minute_volumes(ticker: str, creds: dict | None = None,
             "source_time_verified": False, "complete_bars": 10}
 
 
+def domestic_rank_watchlist(creds: dict | None = None) -> dict:
+    """공식 KIS 순위 첫 페이지만 조회한다. 거래 시각·전수 시장·주문 근거가 아니다.
+
+    등락률/거래량 증가 순위가 반환한 종목코드만 다음 시세 주기에 관찰한다.
+    응답 원문 시각을 확인할 수 없으므로 서버 수신 시각을 별도로 남긴다.
+    """
+    creds = creds or config.kis_credentials()
+    if not creds or creds.get("env") != "real":
+        return {"status": "unavailable", "candidates": [], "sources": {}}
+    queries = (
+        ("price_rank", "/uapi/domestic-stock/v1/ranking/fluctuation", "FHPST01700000", {
+            "FID_COND_MRKT_DIV_CODE": "J", "FID_COND_SCR_DIV_CODE": "20170",
+            "FID_INPUT_ISCD": "0000", "FID_RANK_SORT_CLS_CODE": "0000", "FID_INPUT_CNT_1": "30",
+            "FID_PRC_CLS_CODE": "0", "FID_INPUT_PRICE_1": "0", "FID_INPUT_PRICE_2": "1000000",
+            "FID_VOL_CNT": "0", "FID_TRGT_CLS_CODE": "0", "FID_TRGT_EXLS_CLS_CODE": "0",
+            "FID_DIV_CLS_CODE": "1", "FID_RSFL_RATE1": "0", "FID_RSFL_RATE2": "30"}),
+        ("volume_rank", "/uapi/domestic-stock/v1/quotations/volume-rank", "FHPST01710000", {
+            "FID_COND_MRKT_DIV_CODE": "J", "FID_COND_SCR_DIV_CODE": "20171",
+            "FID_INPUT_ISCD": "0000", "FID_DIV_CLS_CODE": "1", "FID_BLNG_CLS_CODE": "1",
+            "FID_TRGT_CLS_CODE": "111111111", "FID_TRGT_EXLS_CLS_CODE": "0000000000",
+            "FID_INPUT_PRICE_1": "0", "FID_INPUT_PRICE_2": "1000000",
+            "FID_VOL_CNT": "0", "FID_INPUT_DATE_1": ""}),
+    )
+    candidates: list[str] = []
+    sources: dict[str, dict] = {}
+    for name, path, tr_id, params in queries:
+        body = _request(path, tr_id, creds, params)
+        if not body or body.get("rt_cd") != "0" or not isinstance(body.get("output"), list):
+            sources[name] = {"status": "failed", "rows": 0}
+            continue
+        rows = body["output"]
+        count = 0
+        selected = 0
+        for row in rows[:30]:
+            if not isinstance(row, dict):
+                continue
+            ticker = row.get("stck_shrn_iscd") or row.get("mksc_shrn_iscd")
+            if not isinstance(ticker, str) or not re.fullmatch(r"[0-9]{6}", ticker):
+                continue
+            count += 1
+            if ticker not in candidates and selected < 10:
+                candidates.append(ticker)
+                selected += 1
+        sources[name] = {"status": "first_page_only" if body.get("_tr_cont") in ("M", "F") else "ok",
+                         "rows": len(rows), "valid_codes": count, "selected": selected}
+    successes = sum(value["status"] != "failed" for value in sources.values())
+    return {"status": "observed" if successes == 2 else "partial" if successes else "failed",
+            "candidates": candidates, "sources": sources, "received_at": int(time.time()),
+            "source_time_verified": False, "research_only": True}
+
+
 def balance(creds: dict | None = None, retries: int = 3) -> dict | None:
     """예수금(현금)·총평가금액·보유종목. 실패 시 None. retries=1이면 fail-fast(표시용 — 매매는 3회)."""
     creds = creds or config.kis_credentials()
