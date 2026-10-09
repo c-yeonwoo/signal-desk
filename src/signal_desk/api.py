@@ -4585,7 +4585,8 @@ def historical_cases_get(request: Request, market: str = "kr", sessions: int = 4
     """Recorded transitions and fixed major names; case-level diagnostics, not a verdict."""
     _admin_or_403(request)
     from signal_desk.signals.historical_audit import (
-        MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots, select_recorded_inputs,
+        MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots, select_forensic_case_keys,
+        select_recorded_inputs,
     )
     if market not in ("kr", "us") or not 1 <= sessions <= 60:
         raise HTTPException(400, "시장 또는 기간이 올바르지 않습니다.")
@@ -4599,18 +4600,18 @@ def historical_cases_get(request: Request, market: str = "kr", sessions: int = 4
         signals, prices = select_recorded_inputs(
             history, store._read_parquet(price_file), market=market, sessions=sessions + 1)
         majors = MAJOR_KR_TICKERS if market == "kr" else MAJOR_US_TICKERS
+        keys = select_forensic_case_keys(signals, market=market, major_tickers=majors)
         checked = audit_snapshots(signals, prices, market=market, major_tickers=majors,
-                                  include_aggregates=False)
+                                  include_aggregates=False, case_keys=keys)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from None
-    cases = [row for row in checked["rows"] if row["date"] in target_dates
-             and (row["kind_change"] or row["score_change"] or row["major"])]
+    cases = [row for row in checked["rows"] if row["date"] in target_dates]
     cases.sort(key=lambda row: (row["date"], row["ticker"]), reverse=True)
     return JSONResponse({
         "market": market, "source_level": checked["source_level"],
         "selection": "all_kind_changes_or_abs_score_delta_ge_0.5_or_fixed_major",
         "recorded_signal_dates": len(target_dates),
-        "recorded_signal_rows": sum(row["date"] in target_dates for row in checked["rows"]),
+        "recorded_signal_rows": int(signals["date"].astype(str).isin(target_dates).sum()),
         "case_rows": cases,
         "warning": "개별 사고 조사만 가능. 사전등록 기간의 성과 합산·튜닝·주문 승격 근거 아님.",
     }, headers={"Cache-Control": "private, no-store"})

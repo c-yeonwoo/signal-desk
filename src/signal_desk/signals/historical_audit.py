@@ -124,6 +124,36 @@ def plan_recorded_casebook(signals: pd.DataFrame, *, market: str,
     return result
 
 
+def select_forensic_case_keys(signals: pd.DataFrame, *, market: str,
+                              major_tickers: tuple[str, ...] = (),
+                              score_delta_threshold: float = 0.5) -> set[tuple[str, str]]:
+    """Choose recorded incidents using signal metadata only, before reading outcomes."""
+    if market not in {"kr", "us"} or score_delta_threshold < 0:
+        raise ValueError("invalid market or score threshold")
+    if not {"date", "ticker", "score", "kind"} <= set(signals.columns):
+        raise ValueError("signal history lacks required columns")
+    frame = signals[["date", "ticker", "score", "kind"]].copy()
+    frame["date"] = frame["date"].astype(str)
+    frame["ticker"] = frame["ticker"].astype(str)
+    if frame.duplicated(["date", "ticker"]).any():
+        raise ValueError("duplicate signal ticker-date: select one archived observation first")
+    keys: set[tuple[str, str]] = set()
+    prior_by_ticker: dict[str, dict] = {}
+    major_set = set(major_tickers)
+    for signal in frame.sort_values(["date", "ticker"]).to_dict("records"):
+        ticker = signal["ticker"]
+        prior = prior_by_ticker.get(ticker)
+        score = _number(signal["score"])
+        prior_score = _number(prior["score"]) if prior else None
+        kind_change = prior is not None and signal["kind"] != prior["kind"]
+        score_change = (score is not None and prior_score is not None
+                        and abs(round(score - prior_score, 4)) >= score_delta_threshold)
+        if kind_change or score_change or ticker in major_set:
+            keys.add((signal["date"], ticker))
+        prior_by_ticker[ticker] = signal
+    return keys
+
+
 def inventory_recorded_inputs(signals: pd.DataFrame, prices: pd.DataFrame, *,
                               market: str, protected_start: str) -> dict:
     """Describe input coverage without reading returns or opening protected outcomes.
@@ -375,17 +405,20 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
                     major_tickers: tuple[str, ...] = (),
                     score_delta_threshold: float = 0.5,
                     roundtrip_cost_pct: float = 0.25,
-                    include_aggregates: bool = True) -> dict:
-    """Evaluate every observed ticker-date; report subsets without dropping the denominator.
+                    include_aggregates: bool = True,
+                    case_keys: set[tuple[str, str]] | None = None) -> dict:
+    """Evaluate every observed ticker-date, or only preselected diagnostic cases.
 
     Signals are historical observations. The next *scheduled* session's open is entry,
     and its h-th session's close is exit. A missing intermediate bar stays missing.
-    All rows and reasons are returned; callers decide where to store research output.
+    A case subset cannot produce an aggregate score or a complete denominator.
     """
     if market not in {"kr", "us"}:
         raise ValueError("market must be kr or us")
     if score_delta_threshold < 0 or roundtrip_cost_pct < 0:
         raise ValueError("negative threshold or cost")
+    if case_keys is not None and include_aggregates:
+        raise ValueError("case subset cannot produce aggregate results")
     if not {"date", "ticker", "score", "kind"} <= set(signals.columns):
         raise ValueError("signal history lacks required columns")
     if not {"date", "ticker", "open", "close"} <= set(prices.columns):
@@ -401,10 +434,15 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
         raise ValueError("duplicate price ticker-date: price version is ambiguous")
     if snapshots.empty:
         result = {"market": market, "source_level": "legacy_snapshot_unverified", "rows": []}
+        if case_keys is not None:
+            result["signal_rows"] = result["selected_case_rows"] = 0
         if include_aggregates:
             result["summary"] = {"all": {str(h): _score_results([], h) for h in HORIZONS}}
         return result
 
+    selected_tickers = {ticker for _, ticker in case_keys} if case_keys is not None else None
+    if selected_tickers is not None:
+        bars = bars[bars["ticker"].isin(selected_tickers)]
     bars_by_ticker = {
         ticker: {str(row["date"]): row for row in group.to_dict("records")}
         for ticker, group in bars.groupby("ticker", sort=False)
@@ -413,7 +451,9 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
         ticker: {str(row["date"]): row for row in group.to_dict("records")}
         for ticker, group in snapshots.groupby("ticker", sort=False)
     }
-    last_price_day = max(bars["date"]) if not bars.empty else ""
+    # Maturity is based on the complete archive's latest bar, not the chosen
+    # names; otherwise a missing case ticker could look merely "not matured".
+    last_price_day = max(prices["date"].astype(str)) if not prices.empty else ""
     major_set = set(major_tickers)
     expected: dict[str, list[str]] = {}
     rows: list[dict] = []
@@ -443,6 +483,8 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
             and score is not None and prior_score is not None and score <= prior_score
         )
         prior_by_ticker[ticker] = signal
+        if case_keys is not None and (day, ticker) not in case_keys:
+            continue
         factor_changes = {}
         if prior:
             for name in FACTOR_COLUMNS:
@@ -514,13 +556,15 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
         "score_delta_threshold": score_delta_threshold,
         "signal_dates": sorted(set(snapshots["date"])),
         "price_data_to": last_price_day,
-        "signal_rows": len(rows), "snapshot_gap_rows": sum(row["snapshot_gap"] for row in rows),
+        "signal_rows": len(snapshots), "snapshot_gap_rows": sum(row["snapshot_gap"] for row in rows),
         "rows": rows,
         "caveats": ["legacy signal snapshots lack verified original-source availability",
                     "raw open/close returns exclude unverified corporate actions and dividends",
                     "same-day tickers and overlapping horizons are not independent samples",
                     "when enabled, comparison is only the observed ticker cohort on each signal day"],
     }
+    if case_keys is not None:
+        result["selected_case_rows"] = len(rows)
     if include_aggregates:
         # Only unprotected development data may reach this branch in the CLI.
         # The comparison universe is the observed cohort, not a causal control.

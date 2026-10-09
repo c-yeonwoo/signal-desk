@@ -9,7 +9,8 @@ from zipfile import ZipFile
 
 from signal_desk import market_clock
 from signal_desk.signals.historical_audit import (
-    audit_snapshots, inventory_recorded_inputs, plan_recorded_casebook, select_recorded_inputs,
+    audit_snapshots, inventory_recorded_inputs, plan_recorded_casebook,
+    select_forensic_case_keys, select_recorded_inputs,
 )
 
 
@@ -381,6 +382,60 @@ def test_case_only_audit_never_builds_protected_aggregates(monkeypatch):
     assert "summary" not in result
     assert "cohort_comparison" not in result
     assert result["rows"][0]["outcomes"]["5"]["excess_pct"] is None
+
+
+def test_forensic_cases_are_selected_before_unselected_price_outcomes(monkeypatch):
+    from signal_desk.signals import historical_audit
+
+    first, second = "2026-09-28", "2026-09-29"
+    signals = pd.DataFrame([
+        {"date": first, "ticker": "AAA", "score": 1.0, "kind": "HOLD"},
+        {"date": first, "ticker": "BBB", "score": 1.0, "kind": "HOLD"},
+        {"date": first, "ticker": "CCC", "score": 1.0, "kind": "HOLD"},
+        {"date": second, "ticker": "AAA", "score": 1.0, "kind": "BUY"},
+        {"date": second, "ticker": "BBB", "score": 1.1, "kind": "HOLD"},
+        {"date": second, "ticker": "CCC", "score": 1.5, "kind": "HOLD"},
+    ])
+    keys = select_forensic_case_keys(signals, market="kr", major_tickers=("AAA",))
+    assert keys == {(first, "AAA"), (second, "AAA"), (second, "CCC")}
+    prices = pd.DataFrame(_bars("AAA", [second, "2026-09-30", "2026-10-01"])
+                          + _bars("CCC", [second, "2026-09-30", "2026-10-01"]))
+    seen = []
+    original = historical_audit._recorded_sell_before_loss
+
+    def checked_loss_path(**kwargs):
+        seen.append(kwargs["ticker_bars"])
+        return original(**kwargs)
+
+    monkeypatch.setattr(historical_audit, "_recorded_sell_before_loss", checked_loss_path)
+    result = audit_snapshots(signals, prices, market="kr", major_tickers=("AAA",),
+                             include_aggregates=False, case_keys=keys)
+    assert result["signal_rows"] == 6
+    assert result["selected_case_rows"] == len(result["rows"]) == len(seen) == 3
+    assert {(row["date"], row["ticker"]) for row in result["rows"]} == keys
+    assert result["rows"][1]["previous_date"] == first
+    assert "summary" not in result and "cohort_comparison" not in result
+    with pytest.raises(ValueError, match="case subset"):
+        audit_snapshots(signals, prices, market="kr", case_keys=keys)
+
+
+def test_forensic_selector_matches_full_audit_metadata_without_prices():
+    first, second = "2026-09-28", "2026-09-29"
+    signals = pd.DataFrame([
+        {"date": first, "ticker": "AAA", "score": 1.0, "kind": "HOLD"},
+        {"date": second, "ticker": "AAA", "score": 1.5, "kind": "HOLD"},
+        {"date": first, "ticker": "BBB", "score": 1.0, "kind": "HOLD"},
+        {"date": second, "ticker": "BBB", "score": 1.0, "kind": "SELL"},
+        {"date": first, "ticker": "CCC", "score": 1.0, "kind": "HOLD"},
+        {"date": second, "ticker": "CCC", "score": 1.2, "kind": "HOLD"},
+    ])
+    keys = select_forensic_case_keys(signals, market="kr", major_tickers=("CCC",))
+    full = audit_snapshots(signals, pd.DataFrame(columns=["date", "ticker", "open", "close"]),
+                           market="kr", major_tickers=("CCC",), include_aggregates=False)
+    assert keys == {(row["date"], row["ticker"]) for row in full["rows"]
+                    if row["kind_change"] or row["score_change"] or row["major"]}
+    with pytest.raises(ValueError, match="duplicate signal"):
+        select_forensic_case_keys(pd.concat([signals, signals.iloc[[0]]]), market="kr")
 
 
 def test_inventory_cli_never_runs_forward_audit(tmp_path, monkeypatch, capsys):
