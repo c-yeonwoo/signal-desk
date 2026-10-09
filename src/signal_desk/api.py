@@ -429,6 +429,12 @@ def _quote_loop_iteration() -> None:
             intraday_opportunity_service.scan_market(market)
         except Exception as exc:
             # 연구용 탐색 장애가 가격 갱신·보유 청산·알림을 멈춰서는 안 된다.
+            try:
+                db.intraday_opportunity_scan_record(
+                    market, ts=int(time.time()),
+                    payload={"status": "scan_error", "error_type": type(exc).__name__})
+            except Exception:
+                pass  # 연구용 오류 기록 실패도 주문 경로에 전파하지 않는다.
             log.warning("장중 기회 탐색 실패(%s): %s", market, type(exc).__name__)
     notify.drain()
 
@@ -4797,6 +4803,8 @@ def intraday_opportunity_get(request: Request, market: str = "kr", days: int = 9
     _admin_or_403(request)
     if market not in ("kr", "us") or not 1 <= days <= 180 or not 1 <= limit <= 200:
         raise HTTPException(status_code=422, detail="market/days/limit 값이 올바르지 않습니다.")
+    scanned = db.intraday_opportunity_scans_recent(market, after_ts=int(time.time()) - 7 * 86400,
+                                                   limit=20)
     rows = intraday_opportunity_service.recent_with_replay(
         market, after_ts=int(time.time()) - days * 86400, limit=limit)
     sample, sample_truncated = intraday_opportunity_service.recent_with_replay(
@@ -4816,6 +4824,9 @@ def intraday_opportunity_get(request: Request, market: str = "kr", days: int = 9
                     {"status": "incomplete_sample", "order_eligible": False})
     return {"market": market, "research_only": True, "live_order_enabled": False,
             "scope": "현재 시세 원장에 포함된 종목만; 미수집 종목 탐색 불가",
+            "scan_latest": scanned[0] if scanned else None,
+            "scan_age_seconds": max(0, int(time.time()) - scanned[0]["ts"]) if scanned else None,
+            "scan_recent": scanned,
             "coverage": {"candidates": len(rows),
                          "sampled_events": len(sample), "sampled_sessions": len({row.get("session") for row in sample}),
                          "sample_truncated": sample_truncated,

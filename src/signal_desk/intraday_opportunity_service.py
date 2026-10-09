@@ -73,22 +73,33 @@ def scan_market(market: str, *, now: int | None = None, max_kis_requests: int = 
     by_ticker: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         by_ticker[row["ticker"]].append(row)
+    audit = {"quote_tickers": len(by_ticker), "fresh_tickers": 0, "paired_tickers": 0,
+             "price_candidates": 0, "evaluated_candidates": 0, "saved_candidates": 0,
+             "kis_snapshot_requests": 0, "kis_snapshot_success": 0,
+             "kis_minute_requests": 0, "kis_minute_success": 0,
+             "kis_flow_requests": 0, "kis_flow_success": 0,
+             "volume_supported": 0, "status": "observed"}
     candidates = []
     observed_moves: dict[str, float] = {}
     for ticker, history in by_ticker.items():
         current = history[-1]
         if at - int(current["ts"]) > model.MAX_QUOTE_AGE_SEC:
             continue
+        audit["fresh_tickers"] += 1
         older = [row for row in history[:-1] if 240 <= int(current["ts"]) - int(row["ts"]) <= 900]
         if not older:
             continue
         previous = min(older, key=lambda row: abs(int(current["ts"]) - int(row["ts"]) - 300))
+        if int(current["ts"]) - int(previous["ts"]) <= 420:
+            audit["paired_tickers"] += 1
         if previous["price"] and previous["price"] > 0:
             observed_moves[ticker] = 100 * (current["price"] / previous["price"] - 1)
         candidate = model.detect_move(market, ticker, previous, current)
         if candidate:
             candidates.append(candidate)
     candidates.sort(key=lambda item: abs(item["move_pct"]), reverse=True)
+    audit["price_candidates"] = len(candidates)
+    audit["evaluated_candidates"] = min(len(candidates), 20)
     try:
         recent_macro = db.macro_release_recent(5) if candidates else []
     except Exception as exc:
@@ -107,17 +118,25 @@ def scan_market(market: str, *, now: int | None = None, max_kis_requests: int = 
         minute_volumes = None
         flow_estimate = None
         if market == "kr" and index < max(0, min(max_kis_requests, 3)):
+            audit["kis_snapshot_requests"] += 1
             try:
                 observation = kis.domestic_market_snapshot(ticker)
                 if observation:
+                    audit["kis_snapshot_success"] += 1
                     db.intraday_opportunity_volume_record(market, ticker, observation)
                     current_volume = {**observation, "ts": observation["received_at"]}
+                    audit["kis_minute_requests"] += 1
                     minute_volumes = kis.domestic_completed_minute_volumes(ticker)
+                    if minute_volumes:
+                        audit["kis_minute_success"] += 1
             except Exception as exc:
                 log.warning("장중 거래량 조회 실패(%s): %s", ticker, type(exc).__name__)
         if market == "kr" and index == 0 and current_volume:
+            audit["kis_flow_requests"] += 1
             try:
                 flow_estimate = kis.domestic_investor_estimate(ticker)
+                if flow_estimate:
+                    audit["kis_flow_success"] += 1
             except Exception as exc:
                 log.warning("장중 수급 가집계 조회 실패(%s): %s", ticker, type(exc).__name__)
         if current_volume:
@@ -170,6 +189,8 @@ def scan_market(market: str, *, now: int | None = None, max_kis_requests: int = 
                         if day_high and current_volume["price"] > 0
                         and volume.get("state") == "observed" else None)
         decision = model.plan(candidate, volume, context, pullback_pct=pullback_pct)
+        if model.has_volume_support(volume):
+            audit["volume_supported"] += 1
         payload = {**candidate, "volume": volume, "context": context, "decision": decision,
                    "intraday_high_pullback_pct": (round(pullback_pct, 4) if pullback_pct is not None else None),
                    "regime": tape_regime, "regime_basis": "5min_observed_breadth",
@@ -178,6 +199,14 @@ def scan_market(market: str, *, now: int | None = None, max_kis_requests: int = 
         event_id = hashlib.sha256(identity.encode()).hexdigest()
         if db.intraday_opportunity_record(event_id, payload):
             saved.append({"id": event_id, **payload})
+    audit["saved_candidates"] = len(saved)
+    if not by_ticker:
+        audit["status"] = "no_quote_rows"
+    elif not audit["paired_tickers"]:
+        audit["status"] = "no_comparable_prices"
+    elif not candidates:
+        audit["status"] = "no_price_candidates"
+    db.intraday_opportunity_scan_record(market, ts=at, payload=audit)
     return saved
 
 

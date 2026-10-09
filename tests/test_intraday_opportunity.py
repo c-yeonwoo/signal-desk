@@ -132,6 +132,10 @@ def test_scan_persists_price_only_when_kis_missing(tmp_path, monkeypatch):
     assert len(rows) == 1
     assert rows[0]["decision"]["status"] == "watch"
     assert rows[0]["volume"]["state"] == "unavailable"
+    scan = db.intraday_opportunity_scans_recent("kr", after_ts=now - 1)[0]
+    assert scan["quote_tickers"] == 1 and scan["paired_tickers"] == 1
+    assert scan["price_candidates"] == 1 and scan["saved_candidates"] == 1
+    assert scan["kis_snapshot_requests"] == 1 and scan["kis_snapshot_success"] == 0
     assert service.scan_market("kr", now=now) == []  # 관측 ID가 같은 재실행은 멱등
     assert service.recent_with_replay("kr", after_ts=now - 3600)[0]["replay"]["status"] == "immature"
 
@@ -192,6 +196,20 @@ def test_first_kis_snapshot_with_completed_bars_is_not_stuck_on_watch(tmp_path, 
     assert event["volume"]["complete_bars"] == 10
     assert event["decision"]["status"] == "shadow"
     assert event["decision"]["order_eligible"] is False
+    scan = db.intraday_opportunity_scans_recent("kr", after_ts=now - 1)[0]
+    assert scan["kis_snapshot_success"] == 1 and scan["kis_minute_success"] == 1
+    assert scan["volume_supported"] == 1
+
+
+def test_empty_scan_explains_missing_prices(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "empty-scan.db")
+    now = int(time.time())
+    assert service.scan_market("us", now=now) == []
+    scan = db.intraday_opportunity_scans_recent("us", after_ts=now - 1)[0]
+    assert scan["status"] == "no_quote_rows" and scan["price_candidates"] == 0
+    assert db.intraday_opportunity_scans_recent("kr", after_ts=now - 1) == []
+    db.intraday_opportunities_prune(older_than_ts=now + 1)
+    assert db.intraday_opportunity_scans_recent("us", after_ts=now - 1) == []
 
 
 def test_public_list_does_not_reveal_other_users_extra_followed_ticker(monkeypatch):
