@@ -32,10 +32,13 @@ def test_disclosure_items_filters_notable(monkeypatch):
     monkeypatch.setattr(kb.ingest_dart, "disclosures", lambda cc, b, e: [
         {"report_nm": "유상증자 결정", "rcept_dt": "20260708", "rcept_no": "1", "corp_code": cc},
         {"report_nm": "분기보고서", "rcept_dt": "20260707", "rcept_no": "2", "corp_code": cc},       # routine → 제외
-        {"report_nm": "단일판매·공급계약 체결", "rcept_dt": "20260706", "rcept_no": "3", "corp_code": cc}])
+        {"report_nm": "단일판매·공급계약 체결", "rcept_dt": "20260706", "rcept_no": "3", "corp_code": cc},
+        {"report_nm": "타법인주식및출자증권취득결정(자회사의 주요경영사항)",
+         "rcept_dt": "20260705", "rcept_no": "4", "corp_code": cc}])
     items = kb._disclosure_items("00126380")
     titles = [i["title"] for i in items]
     assert "[공시] 유상증자 결정" in titles and "[공시] 단일판매·공급계약 체결" in titles
+    assert any("타법인주식및출자증권취득결정" in title for title in titles)
     assert all("분기보고서" not in t for t in titles)                                 # routine 스킵
     assert all(i["source"] == "dart" and i["url"].startswith("https://dart.fss.or.kr") for i in items)
     assert kb._disclosure_items(None) == []                                          # 코드 없으면 []

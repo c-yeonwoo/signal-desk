@@ -120,7 +120,9 @@ _DISC_SERIOUS = ["유상증자", "전환사채", "신주인수권부사채", "�
 # 호재/주목 공시(veto 아님, KB 근거로 적재) — 자기주식·무상증자·수주·흑자전환 등
 _DISC_GOOD = ["자기주식 취득", "자기주식취득", "무상증자", "공급계약 체결", "공급계약체결",
               "수주", "흑자전환", "자산재평가", "현금·현물배당", "주식배당", "자기주식취득 신탁"]
-_DISC_NOTABLE = _DISC_CRITICAL + _DISC_SERIOUS + _DISC_GOOD
+# 주체·상대·취득금액을 제목에서 알 수 없다. 누락 없이 보존하되 매매 게이트에는 연결하지 않는다.
+_DISC_REVIEW = ["타법인주식및출자증권취득결정", "타법인 주식 및 출자증권 취득결정"]
+_DISC_NOTABLE = _DISC_CRITICAL + _DISC_SERIOUS + _DISC_GOOD + _DISC_REVIEW
 
 
 def event_severity(note: str) -> str:
@@ -684,6 +686,15 @@ def _classify_disclosure(report_nm: str) -> dict | None:
                 "direction": "negative", "severity": "critical",
                 "decision_eligible": True, "decision_action": "exit",
             }
+    # 자회사의 출자 공시는 본문에 '유상증자 참여'가 있어도 상장사 자신의
+    # 증자라고 추정해 매매를 막으면 안 된다. 공시 제목의 취득 유형을 먼저 분리한다.
+    for term in _DISC_REVIEW:
+        if term in nm:
+            return {
+                "event_type": "disclosure_review", "matched": term,
+                "direction": "unknown", "severity": "info",
+                "decision_eligible": False, "decision_action": "attention",
+            }
     for term in _DISC_SERIOUS:
         if term in nm:
             return {
@@ -753,8 +764,12 @@ def sync_disclosure_events(ticker: str, items: list[dict]) -> int:
                 "detected_at": detected,
                 "effective_at": effective,
                 "expires_at": (effective or now) + ttl,
-                "summary": f"{meta['matched']} — {title[:80]}",
-                "rationale": "DART 공식 공시 키워드 매칭(P0)",
+                "summary": (f"취득 주체·금액 원문 확인 필요 — {title[:80]}"
+                            if meta["event_type"] == "disclosure_review"
+                            else f"{meta['matched']} — {title[:80]}"),
+                "rationale": ("제목만 확인됨. 취득 주체·상대·금액 검증 전 위험판정 금지"
+                              if meta["event_type"] == "disclosure_review"
+                              else "DART 공식 공시 키워드 매칭(P0)"),
                 "extractor_model": "rule:dart_p0",
                 "policy_version": "p0",
             },
