@@ -443,6 +443,8 @@ def test_historical_paper_trade_context_is_admin_only_and_not_real_execution(tmp
     assert set(body["styles"]) == {"conservative", "balanced", "aggressive"}
     assert len(body["styles"]["balanced"]["trades"]) == 1
     assert body["styles"]["balanced"]["trades"][0]["price"] == 239500.0
+    assert body["styles"]["balanced"]["trades"][0]["execution_event_state"] == "not_recorded"
+    assert body["styles"]["balanced"]["trades"][0]["notification"] is None
     assert not body["styles"]["conservative"]["trades"]
     assert "실계좌" in body["limitations"][0]
     assert result.headers["cache-control"] == "private, no-store"

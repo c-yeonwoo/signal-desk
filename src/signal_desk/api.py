@@ -4653,6 +4653,7 @@ def historical_paper_trades_get(request: Request, market: str, ticker: str,
             "신호일 하루 안의 체결은 원래 신호보다 먼저였을 수 있습니다. 판단 ID 연결이 없습니다.",
             "이전 장부 순수량은 보존된 매수-매도 합계이며 당시 보유 수량 인증이 아닙니다.",
             "원장에 거래가 없어도 실제 사용자 주문·텔레그램 알림 부재는 증명되지 않습니다.",
+            "알림 전송 원장은 발송 처리 기록이며 실제 사람이 읽었다는 증거가 아닙니다.",
         ],
     }, headers={"Cache-Control": "private, no-store"})
 

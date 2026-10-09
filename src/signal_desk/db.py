@@ -2248,6 +2248,8 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
     """
     if market not in ("kr", "us") or not ticker or start_ts >= end_ts or not 1 <= limit <= 100:
         raise ValueError("invalid paper trade audit scope")
+    from signal_desk import bot_alerts
+
     c = conn()
     try:
         prior_count, prior_net = c.execute(
@@ -2262,13 +2264,70 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
             "ORDER BY ts,id LIMIT ?",
             (uid, market, ticker, start_ts, end_ts, limit + 1),
         ).fetchall()
+        keys = ("id", "side", "qty", "price", "reason", "order_no", "ts", "score",
+                "reference_price", "fees", "slippage_cost")
+        trades = [dict(zip(keys, row)) for row in rows[:limit]]
+        # The paper broker writes the fill, execution event and optional alert
+        # outbox atomically. Read their exact keys, never guess by nearby time.
+        event_keys = [f"trade:{market}:{uid}:{row['order_no']}" for row in trades
+                      if row["order_no"]]
+        alert_keys = [bot_alerts.dedupe_key(uid, market, [{
+            "side": str(row["side"]).upper(), "order_no": row["order_no"],
+        }]) for row in trades if row["order_no"]]
+        events = {}
+        if event_keys:
+            marks = ",".join("?" for _ in event_keys)
+            events = {key: (event_uid, event_market, event_ticker, kind, price, payload, ts)
+                      for key, event_uid, event_market, event_ticker, kind, price, payload, ts in
+                      c.execute(f"SELECT event_key,uid,market,ticker,event_type,price,payload,ts FROM execution_events "
+                                f"WHERE event_key IN ({marks})", event_keys).fetchall()}
+        alerts = {}
+        deliveries = {}
+        if alert_keys:
+            marks = ",".join("?" for _ in alert_keys)
+            alerts = {key: (item_id, status, sent_at) for key, item_id, status, sent_at in
+                      c.execute(f"SELECT dedupe_key,id,status,sent_at FROM notification_outbox "
+                                f"WHERE dedupe_key IN ({marks})", alert_keys).fetchall()}
+            ids = [item_id for item_id, _, _ in alerts.values()]
+            if ids:
+                marks = ",".join("?" for _ in ids)
+                deliveries = {item_id: (total, sent) for item_id, total, sent in
+                              c.execute(f"SELECT outbox_id,COUNT(*),"
+                                        f"SUM(CASE WHEN status='sent' THEN 1 ELSE 0 END) "
+                                        f"FROM notification_deliveries WHERE outbox_id IN ({marks}) "
+                                        f"GROUP BY outbox_id", ids).fetchall()}
     finally:
         c.close()
-    keys = ("id", "side", "qty", "price", "reason", "order_no", "ts", "score",
-            "reference_price", "fees", "slippage_cost")
+    for row in trades:
+        order_no = row["order_no"]
+        event = events.get(f"trade:{market}:{uid}:{order_no}") if order_no else None
+        if event:
+            event_uid, event_market, event_ticker, kind, price, payload, event_ts = event
+            try:
+                event_qty = json.loads(payload).get("qty")
+            except (TypeError, ValueError):
+                event_qty = None
+            matches = (event_uid == uid and event_market == market and event_ticker == ticker
+                       and kind == f"filled_{str(row['side']).lower()}"
+                       and price == row["price"] and event_qty == row["qty"]
+                       and event_ts == row["ts"])
+            row["execution_event_state"] = "matched" if matches else "mismatch"
+        else:
+            row["execution_event_state"] = "not_recorded"
+        alert_key = (bot_alerts.dedupe_key(uid, market, [{
+            "side": str(row["side"]).upper(), "order_no": order_no,
+        }]) if order_no else None)
+        alert = alerts.get(alert_key) if alert_key else None
+        if alert:
+            item_id, status, sent_at = alert
+            total, sent = deliveries.get(item_id, (0, 0))
+            row["notification"] = {"outbox_status": status, "outbox_sent_at": sent_at,
+                                   "recipient_count": total, "recipient_sent_count": sent}
+        else:
+            row["notification"] = None
     return {"prior_trade_rows": prior_count, "prior_journal_net_qty": prior_net,
             "truncated": len(rows) > limit,
-            "trades": [dict(zip(keys, row)) for row in rows[:limit]]}
+            "trades": trades}
 
 
 def rotation_shadow_add_once(uid: int, market: str, session: str, payload: dict) -> bool:
