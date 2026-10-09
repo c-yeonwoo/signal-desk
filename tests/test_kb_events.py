@@ -18,7 +18,30 @@ def test_classify_disclosure_severity():
     assert s["severity"] == "serious" and s["direction"] == "unknown"
     g = kb._classify_disclosure("단일판매·공급계약 체결")
     assert g["direction"] == "positive" and g["decision_eligible"] is False
+    review = kb._classify_disclosure("타법인주식및출자증권취득결정(자회사의 주요경영사항)")
+    assert review["event_type"] == "disclosure_review"
+    assert review["direction"] == "unknown" and review["decision_eligible"] is False
+    assert review["decision_action"] == "attention"
+    assert kb._classify_disclosure(
+        "타법인주식및출자증권취득결정(자회사의 유상증자 참여)"
+    )["decision_eligible"] is False
     assert kb._classify_disclosure("분기보고서") is None
+
+
+def test_stake_acquisition_filing_is_visible_but_never_an_automatic_sell(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    pub, ymd = _today_ymd()
+    items = [{"title": "[공시] 타법인주식및출자증권취득결정(자회사의 주요경영사항)",
+              "source": "dart", "published": pub,
+              "url": f"https://dart.fss.or.kr/dsaf001/main.do?rcpNo={ymd}000888",
+              "rcept_no": f"{ymd}000888", "doc_class": "공시"}]
+    assert kb.sync_disclosure_events("267250", items) == 1
+    events = db.kb_events_active("267250")
+    assert len(events) == 1
+    assert events[0]["event_type"] == "disclosure_review"
+    assert "원문 확인" in events[0]["summary"]
+    assert not events[0]["decision_eligible"]
+    assert db.kb_events_active("267250", decision_only=True) == []
 
 
 def test_sync_disclosure_events_and_sentiment(tmp_path, monkeypatch):
