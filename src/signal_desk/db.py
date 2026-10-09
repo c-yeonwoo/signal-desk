@@ -344,6 +344,14 @@ CREATE TABLE IF NOT EXISTS execution_events(id INTEGER PRIMARY KEY AUTOINCREMENT
     uid INTEGER, market TEXT NOT NULL, ticker TEXT NOT NULL, event_type TEXT NOT NULL, price REAL,
     payload TEXT NOT NULL DEFAULT '{}', ts INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_execution_events_lookup ON execution_events(market, ticker, ts);
+-- 한 봇 실행의 주문 시점과 사후 판단 캡처 결과를 연결한다. 캡처가 없으면 ID를 꾸며내지 않는다.
+CREATE TABLE IF NOT EXISTS bot_run_provenance(
+    run_id TEXT PRIMARY KEY, uid INTEGER NOT NULL, market TEXT NOT NULL,
+    session TEXT NOT NULL, decision_at INTEGER NOT NULL, completed_at INTEGER NOT NULL,
+    mode TEXT NOT NULL, signal_policy_id TEXT, execution_policy_id TEXT,
+    capture_status TEXT NOT NULL, signal_output_id TEXT, capture_reason TEXT);
+CREATE INDEX IF NOT EXISTS idx_bot_run_provenance_case
+    ON bot_run_provenance(uid,market,decision_at);
 -- 외부 전송은 DB에 먼저 적재하고 성공 뒤에만 sent로 바꾼다.
 CREATE TABLE IF NOT EXISTS notification_outbox(id INTEGER PRIMARY KEY AUTOINCREMENT,
     dedupe_key TEXT NOT NULL UNIQUE, text TEXT NOT NULL, priority TEXT NOT NULL DEFAULT 'normal',
@@ -1055,6 +1063,26 @@ def intraday_quotes_prune(*, older_than_ts: int) -> int:
         cur = c.execute("DELETE FROM intraday_quotes WHERE ts<?", (int(older_than_ts),))
         c.commit()
         return cur.rowcount
+    finally:
+        c.close()
+
+
+def bot_run_provenance_add(run_id: str, *, uid: int, market: str, session: str,
+                           decision_at: int, mode: str, signal_policy_id: str | None,
+                           execution_policy_id: str | None, capture: dict) -> None:
+    """주문 후 실행 출처를 보존한다. 캡처 실패/미실행도 명시적으로 기록한다."""
+    c = conn()
+    try:
+        c.execute(
+            "INSERT INTO bot_run_provenance(run_id,uid,market,session,decision_at,completed_at,"
+            "mode,signal_policy_id,execution_policy_id,capture_status,signal_output_id,capture_reason) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (run_id, uid, market, session, decision_at, int(time.time()), mode,
+             signal_policy_id, execution_policy_id, capture["status"],
+             (capture.get("signal_output_id") if capture["status"] == "saved"
+              and capture.get("replay_match") is True else None), capture.get("reason")),
+        )
+        c.commit()
     finally:
         c.close()
 
@@ -2250,6 +2278,13 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
         raise ValueError("invalid paper trade audit scope")
     from signal_desk import bot_alerts
 
+    def _event_data(raw: str) -> dict:
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+
     c = conn()
     try:
         prior_count, prior_net = c.execute(
@@ -2275,12 +2310,26 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
             "side": str(row["side"]).upper(), "order_no": row["order_no"],
         }]) for row in trades if row["order_no"]]
         events = {}
+        runs = {}
         if event_keys:
             marks = ",".join("?" for _ in event_keys)
             events = {key: (event_uid, event_market, event_ticker, kind, price, payload, ts)
                       for key, event_uid, event_market, event_ticker, kind, price, payload, ts in
                       c.execute(f"SELECT event_key,uid,market,ticker,event_type,price,payload,ts FROM execution_events "
                                 f"WHERE event_key IN ({marks})", event_keys).fetchall()}
+            run_ids = sorted({run_id for event in events.values()
+                              if (run_id := _event_data(event[5]).get("run_id"))
+                              and isinstance(run_id, str)})
+            if run_ids:
+                marks = ",".join("?" for _ in run_ids)
+                runs = {run_id: {"status": status, "signal_output_id": output_id,
+                                 "reason": capture_reason, "decision_at": decision_at,
+                                 "mode": mode}
+                        for run_id, status, output_id, capture_reason, decision_at, mode in
+                        c.execute(f"SELECT run_id,capture_status,signal_output_id,capture_reason,"
+                                  f"decision_at,mode FROM bot_run_provenance "
+                                  f"WHERE uid=? AND market=? AND run_id IN ({marks})",
+                                  (uid, market, *run_ids)).fetchall()}
         alerts = {}
         deliveries = {}
         if alert_keys:
@@ -2303,10 +2352,10 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
         event = events.get(f"trade:{market}:{uid}:{order_no}") if order_no else None
         if event:
             event_uid, event_market, event_ticker, kind, price, payload, event_ts = event
-            try:
-                event_qty = json.loads(payload).get("qty")
-            except (TypeError, ValueError):
-                event_qty = None
+            event_data = _event_data(payload)
+            event_qty = event_data.get("qty")
+            row["run_id"] = event_data.get("run_id")
+            row["decision_capture"] = runs.get(row["run_id"]) if row["run_id"] else None
             matches = (event_uid == uid and event_market == market and event_ticker == ticker
                        and kind == f"filled_{str(row['side']).lower()}"
                        and price == row["price"] and event_qty == row["qty"]
@@ -2314,6 +2363,8 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
             row["execution_event_state"] = "matched" if matches else "mismatch"
         else:
             row["execution_event_state"] = "not_recorded"
+            row["run_id"] = None
+            row["decision_capture"] = None
         alert_key = (bot_alerts.dedupe_key(uid, market, [{
             "side": str(row["side"]).upper(), "order_no": order_no,
         }]) if order_no else None)

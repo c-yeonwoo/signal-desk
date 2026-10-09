@@ -15,6 +15,7 @@ import datetime
 import logging
 import math
 import time
+import uuid
 from zoneinfo import ZoneInfo
 
 from signal_desk import config, db, kb, llm, market_clock, signalcfg, store, strategy
@@ -618,7 +619,7 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                        cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
                        sells, buys, rotated_out, dry_run, rp, exposure,
                        signal_policy_id=None, execution_policy_id=None,
-                       price_dates=None, quote_snapshot=None):
+                       price_dates=None, quote_snapshot=None, run_id=None):
     """약한 보유 → 더 강한 후보 교체. rp=성향별 로테이션 정책. 갱신된 cash 반환.
     sells/buys/held_after/rotated_out 갱신."""
     warned = store.load_warned_tickers() if market == "kr" else set()
@@ -696,6 +697,7 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
             sell_result = paper.place_order(uid, wt, "sell", wqty, price=wlive, name=wh["name"],
                                             market=market, reason="ROTATE_OUT", note=snote,
                                             score=weak_score, event_payload={"replaced_by": best.ticker,
+                                                                             "run_id": run_id,
                                                                              "price_evidence": sell_evidence},
                                             alert_style=REFERENCE_BOTS.get(uid),
                                             policy_id=execution_policy_id,
@@ -728,6 +730,7 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                 buy_result = paper.place_order(uid, best.ticker, "buy", bqty, price=blive, name=bname,
                                                market=market, reason="ROTATE_IN", note=bnote,
                                                score=best.score, event_payload={"replaced": wt,
+                                                                                "run_id": run_id,
                                                                                 "price_evidence": buy_evidence},
                                                risk_policy=_buy_risk_policy(cfg, exposure),
                                                alert_style=REFERENCE_BOTS.get(uid),
@@ -798,6 +801,10 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
 
     cfg = _cfg(uid)
     signal_policy_id, execution_policy_id = _applied_policy_ids(market, cfg, mr)
+    # 계좌 실행마다 고유 ID를 먼저 발급한다. 캡처는 주문 뒤에 하므로 이 ID만이
+    # 주문 시점에 확정 가능한 출처이며, 과거 일일 캡처와 동일하다고 추정하지 않는다.
+    run_id = uuid.uuid4().hex if not dry_run else None
+    decision_at = int(time.time())
     # 청산 폭은 **종목별 변동성**으로 정한다(2026-09-06). 고정 퍼센트는 시장을 옮기면 뜻이
     # 바뀐다 — 트레일링 −4%가 미국에서 1.6σ, 국내에서 0.9σ였고 실측 성적이 그 차이를 그대로
     # 따라갔다(미국 균형 +0.24%p·공격 +3.04%p vs 국내 −10.19·−10.57%p).
@@ -861,6 +868,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                     uid, ticker, "sell", sell_qty, price=current_price, name=plan["name"],
                     market=market, reason=reason, note=note, score=sig.score if sig else None,
                     event_payload={"peak": peak, "entry_price": avg_price,
+                                   "run_id": run_id,
                                    "risk": pos_risk.effective().__dict__,
                                    "price_evidence": price_evidence},
                     alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
@@ -878,6 +886,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                         trade_event_key, uid=uid, market=market, ticker=ticker,
                         event_type="filled_sell", price=filled,
                         payload={"qty": sell_qty, "reason": reason, "peak": peak,
+                                 "run_id": run_id,
                                  "entry_price": avg_price, "reference_price": current_price,
                                  "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
                                  "risk": pos_risk.effective().__dict__,
@@ -892,6 +901,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                             {"event_id": dec.event_id, "policy_version": dec.policy_version,
                              "holding_action": dec.holding_action, "severity": dec.severity,
                              "uid": uid, "qty": sell_qty,
+                             "run_id": run_id,
                              "execution_event_key": trade_event_key,
                              "signal_policy_id": signal_policy_id,
                              "execution_policy_id": execution_policy_id,
@@ -1047,6 +1057,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                     uid, s.ticker, "buy", qty, price=live, name=s.name, market=market,
                     reason="SIGNAL", note=note, score=s.score,
                     event_payload={"rank": s.rank, "confidence": s.confidence,
+                                   "run_id": run_id,
                                    "style": cfg["trading_style"],
                                    "risk": _risk_for(closes).effective().__dict__,
                                    "price_evidence": price_evidence},
@@ -1066,6 +1077,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                         trade_event_key, uid=uid, market=market, ticker=s.ticker,
                         event_type="filled_buy", price=filled,
                         payload={"qty": qty, "reason": "SIGNAL", "score": s.score,
+                                 "run_id": run_id,
                                  "rank": s.rank, "confidence": s.confidence, "style": cfg["trading_style"],
                                  "reference_price": live, "fees": result["total_fees"],
                                  "slippage_cost": result["slippage_cost"],
@@ -1082,6 +1094,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                     from signal_desk.signals import pick_reason as _pr
                     buy_ctx = {**(context or {}), "pick": _pr.from_signal(s),
                                "uid": uid, "qty": qty, "market": market,
+                               "run_id": run_id,
                                "execution_event_key": trade_event_key,
                                "signal_policy_id": signal_policy_id,
                                "execution_policy_id": execution_policy_id,
@@ -1109,6 +1122,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             f"(여유 {int(room):,}) · 슬롯 {slots}",
             {**(context or {}), "advisor_used": advisor_used, "skipped_weak": skipped_weak,
              "buy_signals": n_buy, "slots": slots, "exposure": exposure, "room": round(room),
+             "run_id": run_id,
              "signal_policy_id": signal_policy_id,
              "execution_policy_id": execution_policy_id},
             0.0,
@@ -1124,7 +1138,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                   cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
                                   sells, buys, rotated_out, dry_run, rp, exposure,
                                   signal_policy_id, execution_policy_id,
-                                  price_dates, quote_snapshot)
+                                  price_dates, quote_snapshot, run_id)
 
     # ① 분할매수 후속: 보유 중이고 여전히 BUY인데 목표비중 미달인 포지션에 다음 트랜치 추가.
     # **막힌 이유를 모아 결과에 싣는다.** 안 그러면 "왜 추가가 안 됐나"가 어느 화면에도 안 뜬다
@@ -1170,7 +1184,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         if not dry_run:
             result = paper.place_order(uid, t, "buy", qty, price=live, name=h["name"],
                                        market=market, reason="ADD", note=note, score=sig.score,
-                                       event_payload={"price_evidence": price_evidence},
+                                       event_payload={"price_evidence": price_evidence, "run_id": run_id},
                                        risk_policy=_buy_risk_policy(cfg, exposure),
                                        alert_style=REFERENCE_BOTS.get(uid),
                                        policy_id=execution_policy_id,
@@ -1202,6 +1216,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                              final_bal["cash"], final_bal.get("invested") or 0.0)
     # 주문·자산 기록 이후에 수행해 감사용 압축/재생이 체결 타이밍을 늦추지 않는다.
     # 정규장 첫 표준 실행만 시장별로 한 번 저장하고, 실패는 주문에 전파하지 않는다.
+    capture_result = {"status": "not_requested", "reason": "dry_run" if dry_run else
+                      "sells_only" if sells_only else "outside_production"}
     if config.is_prod() and not dry_run and not sells_only:
         try:
             if market_clock.is_open(market, datetime.datetime.now(datetime.timezone.utc)):
@@ -1217,14 +1233,28 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                         missing_reason = "generation_changed"
                 from signal_desk.signals import decision_capture_pilot
                 if capture:
-                    decision_capture_pilot.capture_once(
+                    capture_result = decision_capture_pilot.capture_once(
                         market, _today(market), (prices, price_dates, quote_snapshot), capture)
                 else:
                     decision_capture_pilot.record_unavailable(market, _today(market), missing_reason)
+                    capture_result = {"status": "unavailable", "reason": missing_reason}
+            else:
+                capture_result = {"status": "not_requested", "reason": "market_closed"}
         except Exception as exc:  # noqa: BLE001 — 감사용 보존이 봇 실행을 중단하면 안 된다
             log.warning("판단 자동 보존 경로 실패 (%s): %s", market, type(exc).__name__)
+            capture_result = {"status": "failed", "reason": type(exc).__name__}
+    if run_id:
+        try:
+            db.bot_run_provenance_add(
+                run_id, uid=uid, market=market, session=_today(market),
+                decision_at=decision_at, mode="sells_only" if sells_only else "regular",
+                signal_policy_id=signal_policy_id, execution_policy_id=execution_policy_id,
+                capture=capture_result)
+        except Exception as exc:  # noqa: BLE001 — 감사 기록 실패가 이미 완료된 주문을 뒤집지 않는다
+            log.warning("봇 실행 출처 기록 실패 (%s): %s", market, type(exc).__name__)
     return {
         "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak,
+        "run_id": run_id,
         "signal_policy_id": signal_policy_id, "execution_policy_id": execution_policy_id,
         "score_semantics": policy_contract.SCORE_SEMANTICS,
         "skipped_gap_buys": 0, "advisor_used": advisor_used,
@@ -1527,6 +1557,8 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
     exposure = float(mr["context"].get("exposure", 1.0))
     cfg = _cfg(uid)
     signal_policy_id, execution_policy_id = _applied_policy_ids(market, cfg, mr)
+    run_id = uuid.uuid4().hex if not dry_run else None
+    decision_at = int(time.time())
     executed = []
     for r in pending:
         def reject(status: str, note: str) -> None:
@@ -1569,6 +1601,7 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                 uid, r["ticker"], "buy", qty, price=price, name=r["name"], market=market,
                 reason="RESERVATION", note=note,
                 event_payload={"reservation_id": r["id"], "target_price": r["target_price"],
+                               "run_id": run_id,
                                "price_evidence": price_evidence},
                 risk_policy=_buy_risk_policy(cfg, exposure),
                 alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
@@ -1583,6 +1616,7 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                     f"trade:{market}:{uid}:{result['order_no']}", uid=uid, market=market, ticker=r["ticker"],
                     event_type="filled_buy", price=filled,
                     payload={"qty": qty, "reason": "RESERVATION", "reservation_id": r["id"],
+                             "run_id": run_id,
                              "target_price": r["target_price"], "reference_price": price,
                              "fees": result["total_fees"], "slippage_cost": result["slippage_cost"],
                              "signal_policy_id": signal_policy_id,
@@ -1600,7 +1634,17 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                 executed.append({"ticker": r["ticker"], "name": r["name"], "status": "order_failed"})
         else:
             executed.append({"ticker": r["ticker"], "name": r["name"], "status": "would_fill", "qty": qty, "note": note})
+    if run_id:
+        try:
+            db.bot_run_provenance_add(
+                run_id, uid=uid, market=market, session=_today(market),
+                decision_at=decision_at, mode="reservation",
+                signal_policy_id=signal_policy_id, execution_policy_id=execution_policy_id,
+                capture={"status": "not_requested", "reason": "reservation"})
+        except Exception as exc:  # noqa: BLE001 — 감사 기록 실패가 이미 완료된 주문을 뒤집지 않는다
+            log.warning("예약 실행 출처 기록 실패 (%s): %s", market, type(exc).__name__)
     return {"ok": True, "dry_run": dry_run, "market": market, "executed": executed,
+            "run_id": run_id,
             "signal_policy_id": signal_policy_id, "execution_policy_id": execution_policy_id,
             "score_semantics": policy_contract.SCORE_SEMANTICS}
 

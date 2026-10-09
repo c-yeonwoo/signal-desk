@@ -1,6 +1,7 @@
 """자동매매봇 — 유저별 페이퍼 계좌 + 공용 시그널. 실제 paper 브로커로 검증."""
 
 import json
+import time
 
 from signal_desk import bot, db
 from signal_desk.broker import paper
@@ -59,6 +60,25 @@ def test_dry_run_places_no_orders(tmp_path, monkeypatch):
     out = bot.run_once(UID, dry_run=True)
     assert out["ok"] and out["dry_run"] and [b["ticker"] for b in out["buys"]] == ["AAA"]
     assert db.bot_positions_all(UID) == [] and paper.balance(UID)["cash"] == 10_000.0  # 계좌 미변경
+    assert out["run_id"] is None
+
+
+def test_bot_run_id_links_fill_to_explicit_capture_state(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0]},
+           [_sig("AAA", "가", "BUY", 2.5)], min_buy_score=0.0)
+    _seed(10_000_000.0)
+    monkeypatch.setattr(bot.advisor, "advise", lambda *a, **k: None)
+    before = int(time.time()) - 1
+    out = bot.run_once(UID)
+    assert out["ok"] and out["run_id"] and out["buys"]
+    case = db.bot_trades_for_case(UID, "kr", "AAA", before, int(time.time()) + 2)
+    trade = case["trades"][0]
+    assert trade["run_id"] == out["run_id"]
+    assert trade["execution_event_state"] == "matched"
+    assert trade["decision_capture"]["status"] == "not_requested"
+    assert trade["decision_capture"]["reason"] == "outside_production"
+    assert trade["decision_capture"]["signal_output_id"] is None
 
 
 def test_advisor_abstention_buys_nothing(tmp_path, monkeypatch):
