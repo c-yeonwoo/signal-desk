@@ -1,4 +1,6 @@
 from signal_desk import db
+import datetime
+from zoneinfo import ZoneInfo
 
 UID = 5
 
@@ -59,6 +61,33 @@ def test_bot_trade_log_and_recent_scoped(tmp_path, monkeypatch):
     recent = db.bot_trades_recent(UID, limit=10)
     assert [r["ticker"] for r in recent] == ["000660", "005930"]  # 최신순, UID 것만
     assert recent[0]["reason"] == "STOP_LOSS"
+
+
+def test_historical_case_paper_trades_are_bounded_and_account_scoped(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    zone = ZoneInfo("Asia/Seoul")
+    stamp = lambda day: int(datetime.datetime.fromisoformat(day).replace(tzinfo=zone).timestamp())
+    db.bot_trade_log(900002, "267250", "HD현대", "buy", 3, 250000, "SIGNAL", "PRE")
+    db.bot_trade_log(900002, "267250", "HD현대", "buy", 2, 239500, "ADD", "IN")
+    db.bot_trade_log(900002, "267250", "HD현대", "sell", 4, 210000, "STOP_LOSS", "OUT")
+    db.bot_trade_log(900001, "267250", "HD현대", "buy", 9, 239500, "SIGNAL", "OTHER")
+    db.bot_trade_log(900002, "267250", "HD현대", "buy", 8, 239500, "SIGNAL", "US", market="us")
+    c = db.conn()
+    try:
+        for order_no, day in (("PRE", "2026-09-13T12:00:00"),
+                              ("IN", "2026-09-15T09:00:00"),
+                              ("OUT", "2026-09-18T09:00:00")):
+            c.execute("UPDATE bot_trades SET ts=? WHERE order_no=?", (stamp(day), order_no))
+        c.commit()
+    finally:
+        c.close()
+    result = db.bot_trades_for_case(900002, "kr", "267250",
+                                    stamp("2026-09-14T00:00:00"),
+                                    stamp("2026-09-19T00:00:00"), limit=1)
+    assert result["prior_trade_rows"] == 1
+    assert result["prior_journal_net_qty"] == 3
+    assert result["truncated"] is True
+    assert [(row["side"], row["qty"]) for row in result["trades"]] == [("buy", 2)]
 
 
 def test_bot_reset_scoped(tmp_path, monkeypatch):

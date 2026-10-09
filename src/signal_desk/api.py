@@ -4616,6 +4616,47 @@ def historical_cases_get(request: Request, market: str = "kr", sessions: int = 4
     }, headers={"Cache-Control": "private, no-store"})
 
 
+@app.get("/api/admin/research/historical-paper-trades")
+def historical_paper_trades_get(request: Request, market: str, ticker: str,
+                                signal_date: str):
+    """One case's reference-paper fills; never infer real-account execution."""
+    _admin_or_403(request)
+    ticker = ticker.upper().strip()
+    valid_ticker = (re.fullmatch(r"[0-9A-Z]{6}", ticker) if market == "kr"
+                    else re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,11}", ticker) if market == "us"
+                    else None)
+    try:
+        day = datetime.date.fromisoformat(signal_date)
+    except ValueError:
+        raise HTTPException(400, "신호 날짜가 올바르지 않습니다.") from None
+    if not valid_ticker or day.isoformat() != signal_date or not market_clock.is_session(market, signal_date):
+        raise HTTPException(400, "시장·종목·거래일을 확인해 주세요.")
+    sessions = market_clock.next_sessions(market, signal_date, 20)
+    if len(sessions) != 20:
+        raise HTTPException(409, "비교할 거래일을 계산하지 못했습니다.")
+    zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
+    start_ts = int(datetime.datetime.combine(day, datetime.time.min, zone).timestamp())
+    end_day = datetime.date.fromisoformat(sessions[-1]) + datetime.timedelta(days=1)
+    end_ts = int(datetime.datetime.combine(end_day, datetime.time.min, zone).timestamp())
+    styles = {
+        style: db.bot_trades_for_case(uid, market, ticker, start_ts, end_ts)
+        for uid, style in bot.REFERENCE_BOTS.items()
+    }
+    return JSONResponse({
+        "market": market, "ticker": ticker, "signal_date": signal_date,
+        "window_end": sessions[-1],
+        "window_complete": datetime.date.fromisoformat(sessions[-1]) < datetime.datetime.now(zone).date(),
+        "source": "reference_paper_bot_journal_only",
+        "styles": styles,
+        "limitations": [
+            "모의 체결 원장입니다. 사용자 실계좌 체결이 아닙니다.",
+            "신호일 하루 안의 체결은 원래 신호보다 먼저였을 수 있습니다. 판단 ID 연결이 없습니다.",
+            "이전 장부 순수량은 보존된 매수-매도 합계이며 당시 보유 수량 인증이 아닙니다.",
+            "원장에 거래가 없어도 실제 사용자 주문·텔레그램 알림 부재는 증명되지 않습니다.",
+        ],
+    }, headers={"Cache-Control": "private, no-store"})
+
+
 @app.get("/api/admin/evidence-audit/dart")
 def dart_card_raw_audit_get(request: Request):
     """Read-only, deterministic two-issuer sample from persisted DART bytes."""

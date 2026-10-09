@@ -410,3 +410,40 @@ def test_admin_export_is_protected_and_has_checkable_inputs(tmp_path, monkeypatc
     assert case_response.json()["case_rows"][0]["kind_change"] is True
     assert case_response.json()["recorded_signal_rows"] == 1
     assert case_response.json()["case_rows"][0]["outcomes"]["5"]["state"] == "not_matured"
+
+
+def test_historical_paper_trade_context_is_admin_only_and_not_real_execution(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from signal_desk import api, db
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ADMIN_EMAILS", "paper-admin@example.com")
+    monkeypatch.setattr(api, "_rl_hits", {})
+    url = "/api/admin/research/historical-paper-trades?market=kr&ticker=267250&signal_date=2026-09-14"
+    guest = TestClient(api.app)
+    assert guest.get(url).status_code == 401
+    guest.post("/api/auth/signup", json={"email": "paper-guest@example.com", "pw": "abcdef12"})
+    assert guest.get(url).status_code == 403
+    admin = TestClient(api.app)
+    admin.post("/api/auth/signup", json={"email": "paper-admin@example.com", "pw": "abcdef12"})
+    db.bot_trade_log(900002, "267250", "HD현대", "buy", 2, 239500.0,
+                     "SIGNAL", "PAPER-CASE", market="kr")
+    c = db.conn()
+    try:
+        c.execute("UPDATE bot_trades SET ts=? WHERE order_no=?",
+                  (int(pd.Timestamp("2026-09-15T09:01:00", tz="Asia/Seoul").timestamp()),
+                   "PAPER-CASE"))
+        c.commit()
+    finally:
+        c.close()
+    result = admin.get(url)
+    assert result.status_code == 200
+    body = result.json()
+    assert body["source"] == "reference_paper_bot_journal_only"
+    assert set(body["styles"]) == {"conservative", "balanced", "aggressive"}
+    assert len(body["styles"]["balanced"]["trades"]) == 1
+    assert body["styles"]["balanced"]["trades"][0]["price"] == 239500.0
+    assert not body["styles"]["conservative"]["trades"]
+    assert "실계좌" in body["limitations"][0]
+    assert result.headers["cache-control"] == "private, no-store"
+    assert admin.get(url.replace("2026-09-14", "2026-09-25")).status_code == 400

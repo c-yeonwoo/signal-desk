@@ -2239,6 +2239,38 @@ def bot_trades_recent(uid: int, limit: int = 20, market: str = "kr") -> list[dic
             for i, t, n, s, q, p, r, o, ts, sc, nt, rp, fees, slip, cash in rows]
 
 
+def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
+                        end_ts: int, *, limit: int = 100) -> dict:
+    """Bounded, read-only reference-paper ledger slice for one historical case.
+
+    Prior net quantity is only the journal's buys minus sells; it is not a
+    verified position snapshot or evidence that a signal caused an order.
+    """
+    if market not in ("kr", "us") or not ticker or start_ts >= end_ts or not 1 <= limit <= 100:
+        raise ValueError("invalid paper trade audit scope")
+    c = conn()
+    try:
+        prior_count, prior_net = c.execute(
+            "SELECT COUNT(*),COALESCE(SUM(CASE WHEN lower(side)='buy' THEN qty "
+            "WHEN lower(side)='sell' THEN -qty ELSE 0 END),0) FROM bot_trades "
+            "WHERE uid=? AND market=? AND ticker=? AND ts<?",
+            (uid, market, ticker, start_ts),
+        ).fetchone()
+        rows = c.execute(
+            "SELECT id,side,qty,price,reason,order_no,ts,score,reference_price,fees,slippage_cost "
+            "FROM bot_trades WHERE uid=? AND market=? AND ticker=? AND ts>=? AND ts<? "
+            "ORDER BY ts,id LIMIT ?",
+            (uid, market, ticker, start_ts, end_ts, limit + 1),
+        ).fetchall()
+    finally:
+        c.close()
+    keys = ("id", "side", "qty", "price", "reason", "order_no", "ts", "score",
+            "reference_price", "fees", "slippage_cost")
+    return {"prior_trade_rows": prior_count, "prior_journal_net_qty": prior_net,
+            "truncated": len(rows) > limit,
+            "trades": [dict(zip(keys, row)) for row in rows[:limit]]}
+
+
 def rotation_shadow_add_once(uid: int, market: str, session: str, payload: dict) -> bool:
     """PIT 입력/두 정책 결정을 최초 1회만 보존한다. 재배포·재실행으로 과거 결정을 덮지 않는다."""
     c = conn()
