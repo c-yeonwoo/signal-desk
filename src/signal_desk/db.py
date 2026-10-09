@@ -342,6 +342,9 @@ CREATE TABLE IF NOT EXISTS intraday_opportunities(
     detected_at INTEGER NOT NULL, payload TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_intraday_opportunities_recent
     ON intraday_opportunities(market,detected_at DESC);
+CREATE TABLE IF NOT EXISTS intraday_opportunity_scans(
+    market TEXT NOT NULL, ts INTEGER NOT NULL, payload TEXT NOT NULL,
+    PRIMARY KEY(market,ts));
 -- 공용 판단 입력/출력의 내용 주소 저장소. 계좌·주문 권한이나 사용자 정보는 담지 않는다.
 -- 같은 일봉 기준본/팩터 입력은 여러 판단이 재사용하며 수정 시 새 ID를 만든다.
 CREATE TABLE IF NOT EXISTS decision_artifacts(
@@ -1166,6 +1169,28 @@ def intraday_opportunities_sampled(market: str, *, after_ts: int,
         c.close()
 
 
+def intraday_opportunity_scan_record(market: str, *, ts: int, payload: dict) -> None:
+    """한 번의 탐색에서 실제 관측한 범위·공급자 응답만 저장한다."""
+    c = conn()
+    try:
+        c.execute("INSERT OR REPLACE INTO intraday_opportunity_scans(market,ts,payload) VALUES(?,?,?)",
+                  (market, int(ts), json.dumps(payload, ensure_ascii=False, sort_keys=True)))
+        c.commit()
+    finally:
+        c.close()
+
+
+def intraday_opportunity_scans_recent(market: str, *, after_ts: int, limit: int = 50) -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT ts,payload FROM intraday_opportunity_scans "
+                         "WHERE market=? AND ts>=? ORDER BY ts DESC LIMIT ?",
+                         (market, int(after_ts), max(1, min(limit, 200)))).fetchall()
+        return [{"ts": ts, **json.loads(payload)} for ts, payload in rows]
+    finally:
+        c.close()
+
+
 def intraday_opportunities_prune(*, older_than_ts: int) -> tuple[int, int]:
     """가격 원장과 같은 보존 기간만 유지한다. 등록 연구·체결 원장은 건드리지 않는다."""
     c = conn()
@@ -1174,6 +1199,7 @@ def intraday_opportunities_prune(*, older_than_ts: int) -> tuple[int, int]:
                            (int(older_than_ts),)).rowcount
         volumes = c.execute("DELETE FROM intraday_opportunity_volumes WHERE ts<?",
                             (int(older_than_ts),)).rowcount
+        c.execute("DELETE FROM intraday_opportunity_scans WHERE ts<?", (int(older_than_ts),))
         c.commit()
         return events, volumes
     finally:
