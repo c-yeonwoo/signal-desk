@@ -395,6 +395,11 @@
     border-color:rgba(14,122,79,.28);
     background:linear-gradient(135deg, rgba(14,122,79,.10) 0%, rgba(14,122,79,.04) 52%, #f3faf6 100%);
   }
+  .hero-card.BUY.buy-with-loss, .hero-card.STRONG_BUY.buy-with-loss {
+    border-left-color:var(--sig-watch); border-color:rgba(180,83,9,.35); background:var(--panel);
+  }
+  .hero-loss-note { margin:8px 0 2px; padding:8px 10px; border-radius:var(--r-sm);
+    background:rgba(180,83,9,.08); color:#854d0e; font-size:13px; line-height:1.45; font-weight:600; }
   .hero-card.SELL, .hero-card.STRONG_SELL { border-left-color:var(--sig-sell); }
   .hero-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .hero-value { display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; min-width:0; }
@@ -403,7 +408,6 @@
   .hero-reason { font-size:13px; color:var(--dim); margin:5px 0 0; line-height:1.45; font-weight:600; }
   .hero-reason:empty { display:none; }
   .hero-after { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:6px; font-size:13px; color:var(--dim); font-weight:600; }
-  .hero-upside b { color:var(--txt); font-weight:700; }
   .hero-metrics { display:flex; flex-direction:column; align-items:flex-start; gap:2px; font-size:13px; color:var(--dim); }
   .hero-metrics b { font-variant-numeric:tabular-nums; }
   .hero-runup { color:var(--sig-buy); font-weight:700; }
@@ -4755,12 +4759,11 @@ function entryTip(r){
     ? ('$' + fmtNum(e.fire_price, e.fire_price < 100 ? 2 : 0))
     : (fmtNum(e.fire_price, 0) + '원'));
   const up = (e.run_up_pct > 0 ? '+' : '') + fmtNum(e.run_up_pct, 1) + '%';
-  const age = e.age_days === 0 ? '오늘 발동' : (e.age_days + '일 전 발동');
-  let s = ` · 진입 ${e.quality_ko}(${age}`;
+  const age = e.age_days === 0 ? '오늘 첫 발동' : `매수권 기록 ${Number(e.age_days) + 1}회`;
+  const status = Number(e.run_up_pct) < 0 ? '첫 매수권 뒤 하락' : `진입 ${e.quality_ko}`;
+  let s = ` · ${status}(${age}`;
   if (px) s += ` · ${px}→지금 ${up}`;
   s += ')';
-  if (e.remain_upside_pct != null)
-    s += ` · 목표가 여력 +${fmtNum(e.remain_upside_pct, 1)}%`;
   return s;
 }
 // 선반영 의심 — 호재 이벤트 전 사전 상승 관측. 뱃지 옆 칩 없이 호버만.
@@ -5246,14 +5249,6 @@ function heroReason(item){
   const rs = (item.reasons || []).map(r => r.replace(/^\[[^\]]+\]\s*/, '').trim()).filter(Boolean);
   return rs.slice(0, 2).join(' · ') || kindLabel(item.kind);
 }
-// 히어로에 보여줄 대표 상승여력 — 목표가(밸류/저항) 중 양(+)의 최대치
-function bestUpside(item){
-  const t = item && item.target; if (!t) return null;
-  const vals = [t.value_upside_pct, t.fwd_value_upside_pct, t.analyst_upside_pct, t.resistance_upside_pct]
-    .filter(v => typeof v === 'number' && v > 0);
-  return vals.length ? Math.max(...vals) : null;
-}
-
 let _signalChart = null;
 function _disposeSignalChart(){
   if (!_signalChart) return;
@@ -5308,31 +5303,32 @@ function _paintSignalDetail(ticker, item){
     const chg = item.change_pct;
     const chgC = chg > 0 ? 'var(--sig-buy)' : chg < 0 ? 'var(--sig-sell)' : 'var(--dim)';
     const priceStr = item.price != null ? (isUS ? '$' + fmtNum(item.price, 2) : fmtNum(item.price, 0) + '원') : '';
-    const up = bestUpside(item);
     const scoreC = item.score > 0 ? 'var(--sig-buy)' : item.score < 0 ? 'var(--sig-sell)' : 'var(--txt)';
     // Buy+만: 연속 매수권 에피소드 발동가 대비 현재 수익률(entry.run_up_pct)
     let runUpHtml = '';
+    let lossHtml = '';
     const ent = item.entry;
     if (_isBuy(item.kind) && ent && ent.run_up_pct != null) {
       const ru = Number(ent.run_up_pct);
       const ruCls = ru < 0 ? 'hero-runup down' : 'hero-runup';
       const ruTxt = (ru > 0 ? '+' : '') + fmtNum(ru, 1) + '%';
-      const age = ent.age_days === 0 ? '오늘 발동' : (ent.age_days + '거래일 유지');
+      const age = ent.age_days === 0 ? '오늘 첫 발동' : `매수권 기록 ${Number(ent.age_days) + 1}회`;
+      const fireDate = ent.fire_date ? ` · 첫 발동 ${esc(ent.fire_date)}` : '';
       const firePx = ent.fire_price == null ? '' : (isUS
         ? ('$' + fmtNum(ent.fire_price, ent.fire_price < 100 ? 2 : 0))
         : (fmtNum(ent.fire_price, 0) + '원'));
-      const tip = '연속 Buy 구간이 시작된 날의 종가(또는 당일 첫 매수권 가격) 대비. 중간에 Hold로 끊기면 새 에피소드.';
+      const tip = '매수권 기록의 첫 가격과 현재 가격의 차이입니다. 실제 체결 손익이 아니며, 기록이 없는 날의 판정은 확인할 수 없습니다.';
       runUpHtml = `<span class="${ruCls}" title="${esc(tip)}">발동 후 <b>${ruTxt}</b>`
         + (firePx ? ` <span style="font-weight:600;color:var(--dim)">(${esc(firePx)}→)</span>` : '')
-        + ` <span style="font-weight:600;color:var(--dim)">· ${esc(age)}</span></span>`;
+        + ` <span style="font-weight:600;color:var(--dim)">${fireDate} · ${esc(age)}</span></span>`;
+      if (ru < 0) lossHtml = `<div class="hero-loss-note" role="note">첫 매수권 뒤 ${fmtNum(Math.abs(ru), 1)}% 하락했습니다. 현재 등급은 신규 매수 후보 순위이며, 보유분의 유지·추가매수·매도를 판정한 결과는 아닙니다.</div>`;
     }
-    // 점수와 올린 관점을 목표가 여력보다 앞에 둔다. 여력은 추정이고 초록으로 칠하지 않는다.
+    // 목표가 가정은 아래 가격·지표 상세에 둔다. 발동 뒤 하락한 종목의 첫 카드에서
+    // 현재가 대비 목표 여력을 크게 띄우면 손실 경고와 반대 메시지가 된다.
     heroEl.style.display = '';
     const beside = scoreBeside(item) ? `<span class="hero-score-why">${esc(scoreBeside(item))}</span>` : '';
-    const upside = up != null
-      ? `<span class="hero-upside">참고 목표가 여력 <b>${up > 0 ? '+' : ''}${fmtNum(up, 1)}%</b></span>` : '';
-    const after = (runUpHtml || upside) ? `<div class="hero-after">${runUpHtml}${upside}</div>` : '';
-    heroEl.innerHTML = `<div class="hero-card ${item.kind}">
+    const after = runUpHtml ? `<div class="hero-after">${runUpHtml}</div>` : '';
+    heroEl.innerHTML = `<div class="hero-card ${item.kind}${lossHtml ? ' buy-with-loss' : ''}">
         <div class="hero-top">
           <div class="hero-value">
             ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
@@ -5340,6 +5336,7 @@ function _paintSignalDetail(ticker, item){
           </div>
           <span class="sig-pill hero-signal ${item.kind}" title="${esc(sigPillTitle(item))}">${kindLabel(item.kind)}</span>
         </div>
+        ${lossHtml}
         <div class="hero-metrics">
           <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
           + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b>`
