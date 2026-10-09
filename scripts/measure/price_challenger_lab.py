@@ -36,7 +36,7 @@ HOLDOUT_ARCHIVES = (
     "krx-daily-2023-q1-v1.zip", "krx-daily-2023-q2-v1.zip",
     "krx-daily-2023-q3-v1.zip", "krx-daily-2023-q4-v1.zip",
     "krx-daily-2024-q1-v1.zip", "krx-daily-2024-q2-v1.zip",
-    "krx-daily-2024-q3-v1.zip",
+    "krx-daily-2024-q3-v1.zip", "krx-daily-2024-10-12-v1.zip",
 )
 HOLDOUT_WINDOWS = (
     ("2024-apr-may", "2024-04-01", "2024-05-31"),
@@ -70,11 +70,11 @@ class PricePanel:
         index = self.index.get(day)
         if index is None or index + 1 < length:
             return None
-        values = [self.bars.get((session, ticker), (None, None))[1]
-                  for session in self.sessions[index - length + 1:index + 1]]
-        if any(value is None or value <= 0 for value in values):
+        bars = [self.bar(session, ticker)
+                for session in self.sessions[index - length + 1:index + 1]]
+        if any(bar is None for bar in bars):
             return None
-        return values
+        return [bar[1] for bar in bars]
 
     def trend_features(self, day: str, ticker: str) -> tuple[float, float, float] | None:
         key = day, ticker
@@ -135,7 +135,9 @@ def _risk_exit(panel: PricePanel, episode: dict) -> dict:
         return {"state": "calendar_missing"}
     # The historical h20 baseline itself must agree with the frozen raw close.
     final = panel.bar(exit_day, ticker)
-    if final is None or abs(final[1] - float(outcome["exit_close"])) > 1e-6:
+    if final is None:
+        return {"state": "baseline_exit_untradeable"}
+    if abs(final[1] - float(outcome["exit_close"])) > 1e-6:
         return {"state": "baseline_price_mismatch"}
     first_loss_day = None
     for i in range(start, end + 1):
@@ -149,7 +151,7 @@ def _risk_exit(panel: PricePanel, episode: dict) -> dict:
         day, next_day = panel.sessions[i:i + 2]
         closes = panel.closes(day, ticker, 20)
         if closes is None:
-            return {"state": "intervening_price_gap"}
+            return {"state": "untradeable_price_window"}
         if closes[-1] < entry_open * 0.95 and closes[-1] < statistics.mean(closes):
             next_bar = panel.bar(next_day, ticker)
             if next_bar is None:

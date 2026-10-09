@@ -33,6 +33,7 @@ def test_trend_uses_only_observed_closes_up_to_decision_day():
     before = panel.trend_features(day, "005930")
     for future in panel.sessions[71:]:
         panel.bars[future, "005930"] = (1.0, 1.0)
+    panel._features.clear()
     assert panel.trend_features(day, "005930") == before
     assert panel.closes(panel.sessions[59], "005930", 61) is None
 
@@ -52,6 +53,15 @@ def test_missing_next_open_cannot_be_called_a_fill():
     panel = _panel(missing_next_open=True)
     assert lab._risk_exit(panel, _episode(panel)) == {
         "state": "trigger_without_next_open", "trigger_date": panel.sessions[75]}
+
+
+def test_stale_close_on_zero_open_is_not_a_tradable_horizon():
+    panel = _panel()
+    day = panel.sessions[89]
+    panel.bars[day, "005930"] = (0.0, 80.0)
+    assert panel.closes(panel.sessions[90], "005930", 20) is None
+    panel.bars[panel.sessions[90], "005930"] = (0.0, 80.0)
+    assert lab._risk_exit(panel, _episode(panel))["state"] == "baseline_exit_untradeable"
 
 
 def test_registered_window_is_rejected_before_scoring():
