@@ -63,7 +63,11 @@ def load_krx_archives(paths: list[Path]) -> tuple[dict[str, list[dict]], list[di
                 session = entry["session"]
                 body = json.loads(raw)
                 rows = body.get("OutBlock_1")
-                if (session in days or not isinstance(rows, list) or len(rows) != entry["rows"]
+                if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+                    raise ValueError(f"{path.name}: malformed daily rows")
+                codes = [str(row.get("ISU_CD") or "") for row in rows]
+                if (session in days or len(rows) != entry["rows"]
+                        or len(set(codes)) != len(codes) or any(not code for code in codes)
                         or any(row.get("BAS_DD") != session.replace("-", "") for row in rows)):
                     raise ValueError(f"{path.name}: duplicate or malformed daily rows")
                 days[session] = rows
@@ -80,10 +84,99 @@ def load_krx_archives(paths: list[Path]) -> tuple[dict[str, list[dict]], list[di
     return days, sources
 
 
+def _buy_episodes(audit_rows: list[dict], shares: dict[str, dict[str, int | None]],
+                  ordered: list[str]) -> dict:
+    """Count consecutive buy *episodes*, not overlapping daily labels as trades.
+
+    Listed-share stability only flags a visible discontinuity; it never verifies
+    dividends, adjustments, or the absence of other corporate actions.
+    """
+    by_ticker: dict[str, list[dict]] = defaultdict(list)
+    for row in audit_rows:
+        by_ticker[row["ticker"]].append(row)
+    episodes = []
+    for ticker, ticker_rows in sorted(by_ticker.items()):
+        previous_row = None
+        current_episode = None
+        for row_index, row in enumerate(ticker_rows):
+            continuous = bool(previous_row and market_clock.consecutive_sessions(
+                "kr", previous_row["date"], row["date"]))
+            if row["kind"] not in {"BUY", "STRONG_BUY"}:
+                if current_episode is not None and not continuous:
+                    current_episode["right_censored"] = True
+                current_episode = None
+                previous_row = row
+                continue
+            if current_episode is not None and continuous:
+                current_episode["last_buy_date"] = row["date"]
+                current_episode["buy_label_days"] += 1
+            else:
+                if current_episode is not None:
+                    current_episode["right_censored"] = True
+                outcomes = row["outcomes"]
+                episode = {"ticker": ticker, "first_buy_date": row["date"],
+                           "last_buy_date": row["date"], "buy_label_days": 1,
+                           "left_censored": row_index == 0 or not continuous,
+                           "right_censored": False,
+                           "first_price_only_label": row["kind"],
+                           "first_entry_loss_warning": row.get("loss_warning_path")
+                           or {"state": "unavailable"},
+                           "h5": outcomes["5"], "h20": outcomes["20"],
+                           "historical_8factor_or_order_eligible": False}
+                for horizon in ("5", "20"):
+                    outcome = outcomes[horizon]
+                    status = "not_matured_or_price_gap"
+                    changed_on = None
+                    if outcome["state"] == "matured":
+                        path = [day for day in ordered if row["date"] <= day <= outcome["exit_date"]]
+                        share_counts = [shares.get(ticker, {}).get(day) for day in path]
+                        if not path or any(value is None for value in share_counts):
+                            status = "listed_shares_missing"
+                        else:
+                            status = "listed_shares_unchanged_actions_unverified"
+                            for i in range(1, len(share_counts)):
+                                if share_counts[i] != share_counts[i - 1]:
+                                    status = "listed_shares_changed"
+                                    changed_on = path[i]
+                                    break
+                    episode[f"h{horizon}_share_status"] = status
+                    episode[f"h{horizon}_first_share_change"] = changed_on
+                episodes.append(episode)
+                current_episode = episode
+            previous_row = row
+        if current_episode is not None:
+            current_episode["right_censored"] = True
+    episodes.sort(key=lambda item: (item["first_buy_date"], item["ticker"]))
+    counts = {h: {status: sum(item[f"h{h}_share_status"] == status for item in episodes)
+                  for status in ("listed_shares_changed", "listed_shares_missing",
+                                 "listed_shares_unchanged_actions_unverified",
+                                 "not_matured_or_price_gap")}
+              for h in (5, 20)}
+    observed_losses = [item["first_entry_loss_warning"] for item in episodes
+                       if item["first_entry_loss_warning"]["state"] == "loss_observed"]
+    complete_losses = [path for path in observed_losses
+                       if path.get("missing_signal_sessions_before_loss") == 0]
+    return {"count": len(episodes), "distinct_tickers": len({e["ticker"] for e in episodes}),
+            "share_status_counts": counts, "episodes": episodes,
+            "first_entry_loss_diagnostic": {
+                "loss_observed": len(observed_losses),
+                "signal_sessions_complete_before_loss": len(complete_losses),
+                "price_only_sell_before_loss": sum(
+                    path.get("first_sell_before_loss") is not None for path in complete_losses),
+                "signal_gap_before_loss": len(observed_losses) - len(complete_losses),
+                "scope": "price_only_labels_not_holder_exit_or_notification",
+            },
+            "warning": "Window-censored buy runs, not independent fills. Stable listed shares do not verify total returns or corporate actions."}
+
+
 def run_pilot(days: dict[str, list[dict]], *, start: str, end: str) -> dict:
     if start > end or end >= _registered_start():
         raise ValueError("replay decisions must end before the registered period")
+    if not days:
+        raise ValueError("at least one frozen daily session is required")
     ordered = sorted(days)
+    if start < ordered[0] or end > ordered[-1]:
+        raise ValueError("requested replay window is not fully covered by frozen archives")
     decisions = [day for day in ordered if start <= day <= end]
     if not decisions or len(decisions) > 60:
         raise ValueError("pilot needs 1–60 covered decision sessions")
@@ -92,6 +185,7 @@ def run_pilot(days: dict[str, list[dict]], *, start: str, end: str) -> dict:
     index = {day: i for i, day in enumerate(ordered)}
     bars = []
     histories: dict[str, list[tuple[str, float]]] = defaultdict(list)
+    shares: dict[str, dict[str, int | None]] = defaultdict(dict)
     invalid_price_rows = 0
     for day in ordered:
         for row in days[day]:
@@ -100,6 +194,9 @@ def run_pilot(days: dict[str, list[dict]], *, start: str, end: str) -> dict:
             if len(ticker) != 6:
                 continue
             bars.append({"date": day, "ticker": ticker, "open": open_px, "close": close_px})
+            raw_shares = _number(row.get("LIST_SHRS"))
+            shares[ticker][day] = (int(raw_shares) if raw_shares is not None
+                                   and raw_shares > 0 and raw_shares.is_integer() else None)
             if close_px is not None and close_px > 0:
                 histories[ticker].append((day, close_px))
             else:
@@ -136,6 +233,8 @@ def run_pilot(days: dict[str, list[dict]], *, start: str, end: str) -> dict:
             config=cfg)
         for reason in replay["excluded_tickers"].values():
             reasons[reason] += 1
+        # These are *price-only* ranks/coverage, not historical 8-factor
+        # eligibility. Do not put them into the normal decision fields.
         output_rows.extend({"date": day, "ticker": row["ticker"],
                             "score": row["score"], "kind": row["kind"]}
                            for row in replay["rows"])
@@ -147,6 +246,9 @@ def run_pilot(days: dict[str, list[dict]], *, start: str, end: str) -> dict:
     audit["strict_pit_eligible"] = False
     audit["registered_verdict"] = False
     audit["live_eligible"] = False
+    audit["buy_scope"] = "price_only_rank_label_not_historical_8factor_or_order"
+    audit["historical_full_engine_eligibility_verified"] = False
+    audit["buy_episodes"] = _buy_episodes(audit["rows"], shares, ordered)
     audit["diagnostic"] = {"decision_start": start, "decision_end": end,
                            "decision_sessions": len(decisions), "warmup_sessions": warmup,
                            "candidate_slots": 200 * len(decisions),
