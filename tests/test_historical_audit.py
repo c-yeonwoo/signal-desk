@@ -449,3 +449,53 @@ def test_historical_paper_trade_context_is_admin_only_and_not_real_execution(tmp
     assert "실계좌" in body["limitations"][0]
     assert result.headers["cache-control"] == "private, no-store"
     assert admin.get(url.replace("2026-09-14", "2026-09-25")).status_code == 400
+
+
+def test_historical_dart_observations_preserve_first_fetch_and_uncertain_same_day(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from signal_desk import api, db
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ADMIN_EMAILS", "source-admin@example.com")
+    monkeypatch.setattr(api, "_rl_hits", {})
+    url = ("/api/admin/research/historical-disclosure-observations"
+           "?market=kr&ticker=267250&signal_date=2026-09-14")
+    guest = TestClient(api.app)
+    assert guest.get(url).status_code == 401
+    admin = TestClient(api.app)
+    admin.post("/api/auth/signup", json={"email": "source-admin@example.com", "pw": "abcdef12"})
+    entries = [
+        {"title": "타법인주식및출자증권취득결정", "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=1",
+         "source": "dart", "published": "2026-09-10"},
+        {"title": "당일 공시", "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=2",
+         "source": "dart", "published": "2026-09-14"},
+        {"title": "다른 종목 공시", "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=3",
+         "source": "dart", "published": "2026-09-10"},
+    ]
+    assert db.kb_entry_add_many("267250", entries[:2]) == 2
+    assert db.kb_entry_add_many("005380", entries[2:]) == 1
+    db.kb_event_upsert({"event_key": "dart:1", "ticker": "267250",
+                        "event_type": "disclosure_review"},
+                       {"url": entries[0]["url"], "source_key": "dart"})
+    c = db.conn()
+    try:
+        before = int(pd.Timestamp("2026-09-10T17:00:00", tz="Asia/Seoul").timestamp())
+        same = int(pd.Timestamp("2026-09-14T10:00:00", tz="Asia/Seoul").timestamp())
+        c.execute("UPDATE kb_entries SET fetched=? WHERE url=?", (before, entries[0]["url"]))
+        c.execute("UPDATE kb_entries SET fetched=? WHERE url=?", (same, entries[1]["url"]))
+        c.execute("UPDATE kb_events SET created=? WHERE event_key='dart:1'", (before,))
+        c.commit()
+    finally:
+        c.close()
+    response = admin.get(url)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source"] == "retained_dart_kb_rows_only"
+    assert [row["timing"] for row in body["documents"]] == [
+        "before_signal_day", "same_day_order_unknown"]
+    assert body["events"][0]["timing"] == "before_signal_day"
+    assert body["events"][0]["url"] == entries[0]["url"]
+    assert "원천 공개시각" in body["limitations"][1]
+    assert admin.get(url.replace("267250", "005380")).json()["documents"] == []
+    assert admin.get(url.replace("market=kr", "market=us")).status_code == 400
+    assert admin.get(url.replace("2026-09-14", "2026-09-25")).status_code == 400

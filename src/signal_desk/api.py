@@ -4658,6 +4658,49 @@ def historical_paper_trades_get(request: Request, market: str, ticker: str,
     }, headers={"Cache-Control": "private, no-store"})
 
 
+@app.get("/api/admin/research/historical-disclosure-observations")
+def historical_disclosure_observations_get(request: Request, market: str, ticker: str,
+                                           signal_date: str):
+    """첫 수집 원장만 대조한다. 공개시각·당시 엔진 입력을 소급 추정하지 않는다."""
+    _admin_or_403(request)
+    ticker = ticker.strip()
+    try:
+        day = datetime.date.fromisoformat(signal_date)
+    except ValueError:
+        raise HTTPException(400, "신호 날짜가 올바르지 않습니다.") from None
+    if (market != "kr" or not re.fullmatch(r"[0-9]{6}", ticker)
+            or day.isoformat() != signal_date
+            or not market_clock.is_session("kr", signal_date)):
+        raise HTTPException(400, "국내 시장·종목·거래일을 확인해 주세요.")
+    zone = ZoneInfo("Asia/Seoul")
+    midnight = lambda d: int(datetime.datetime.combine(d, datetime.time.min, zone).timestamp())
+    prior_cutoff = midnight(day)
+    next_cutoff = midnight(day + datetime.timedelta(days=1))
+    records = db.kb_dart_case_observations(
+        ticker, midnight(day - datetime.timedelta(days=30)),
+        midnight(day + datetime.timedelta(days=8)))
+
+    def timing(ts: int) -> str:
+        return "before_signal_day" if ts < prior_cutoff else (
+            "same_day_order_unknown" if ts < next_cutoff else "after_signal_day")
+
+    for row in records["documents"]:
+        row["timing"] = timing(int(row["first_fetched_at"]))
+    for row in records["events"]:
+        row["timing"] = timing(int(row["first_created_at"]))
+    return JSONResponse({
+        "market": market, "ticker": ticker, "signal_date": signal_date,
+        "window": {"before_days": 30, "after_days": 7},
+        "source": "retained_dart_kb_rows_only", **records,
+        "limitations": [
+            "기록 없음은 공시가 없거나 엔진이 못 봤다는 증거가 아닙니다.",
+            "KB 최초 수집·이벤트 생성 시각은 원천 공개시각이나 신호 계산시각이 아닙니다.",
+            "신호일 당일의 선후관계는 계산시각과 당시 원문 버전이 없으면 알 수 없습니다.",
+            "현재 보존된 행만 조회하며, 삭제된 문서나 나중에 바뀐 분류의 당시 상태는 복원하지 않습니다.",
+        ],
+    }, headers={"Cache-Control": "private, no-store"})
+
+
 @app.get("/api/admin/evidence-audit/dart")
 def dart_card_raw_audit_get(request: Request):
     """Read-only, deterministic two-issuer sample from persisted DART bytes."""
