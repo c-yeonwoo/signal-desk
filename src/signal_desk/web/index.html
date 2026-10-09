@@ -8110,7 +8110,19 @@ async function replayStoredDecision(market, id, button){
     const res = await fetch('/api/admin/decision-replay?' + query);
     if (!res.ok) throw new Error('unavailable');
     const result = await res.json();
-    button.textContent = result.match ? '전체 후보 일치' : '불일치 · 상세 확인 필요';
+    const timing = result.timing_audit;
+    const timingLabel = !timing ? '입력 날짜 검사 없음' :
+      (timing.structural_timing_clear ? '저장 날짜 이상 없음' : '입력 날짜 점검 필요');
+    button.textContent = `${result.match ? '현재 코드 전체 후보 일치' : '현재 코드 재생 불일치'} · ${timingLabel} · 원천시각 미확인`;
+    const issueNames = {engine_gate_day_mismatch:'점수 계산일과 안전장치 판단일이 다름',
+      future_dated_bars:'판단일 뒤 일봉 포함', future_received_quotes:'판단일 뒤 받은 시세 포함',
+      undated_price_tails:'날짜가 없는 가격 포함', dates_not_unique_sorted:'가격 날짜 순서 확인 필요',
+      price_missing_for_date:'날짜에 대응하는 가격 없음',
+      undated_price_not_matching_quote:'장중 시세와 맞지 않는 날짜 없는 가격',
+      observation_id_missing:'시세 관측 ID 없음'};
+    button.title = timing?.structural_timing_issues?.length
+      ? `저장 입력 점검: ${timing.structural_timing_issues.map(x => issueNames[x] || x).join(', ')}. 원천 공개시각은 별도 검증이 필요합니다.`
+      : '동일 저장 입력을 현재 코드로 재생했습니다. 원천이 판단 당시에 실제 공개됐는지는 별도 검증이 필요합니다.';
   } catch (e) { button.textContent = '검사 실패'; }
   button.disabled = false;
 }
