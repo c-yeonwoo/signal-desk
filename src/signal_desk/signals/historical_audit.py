@@ -7,6 +7,9 @@ registered harness, and its output is never a trading or promotion verdict.
 from __future__ import annotations
 
 import math
+import hashlib
+import json
+from datetime import date
 from collections import defaultdict
 from statistics import mean, median
 
@@ -26,6 +29,99 @@ EXPORT_SIGNAL_COLUMNS = ("date", "ticker", "score", "kind", *FACTOR_COLUMNS,
                          "event_risk", "low_coverage", "data_coverage",
                          "decision_blocked", "reasons_json", "observed_at", "bar_asof")
 EXPORT_PRICE_COLUMNS = ("date", "ticker", "open", "close", "volume")
+CASEBOOK_PLAN_VERSION = "recorded-signal-casebook-v1"
+
+
+def plan_recorded_casebook(signals: pd.DataFrame, *, market: str,
+                           protected_start: str, signal_sha256: str) -> dict:
+    """Freeze outcome-blind cases from saved signals, never inspecting price bars.
+
+    Select one hash-minimum ticker-date in each market/week/period/entry-state
+    stratum. This is a diagnostic casebook, not an independent performance sample.
+    """
+    if market not in {"kr", "us"} or not {"date", "ticker", "kind"} <= set(signals.columns):
+        raise ValueError("invalid market or signal casebook columns")
+    try:
+        first_protected = date.fromisoformat(protected_start)
+    except (TypeError, ValueError):
+        raise ValueError("invalid protected start") from None
+    if len(signal_sha256) != 64 or any(c not in "0123456789abcdef" for c in signal_sha256):
+        raise ValueError("invalid signal SHA-256")
+    frame = signals.copy()
+    if "market" in frame:
+        frame = frame[frame["market"].fillna("kr").astype(str) == market]
+    frame["date"] = frame["date"].astype(str)
+    frame["ticker"] = frame["ticker"].astype(str)
+    if frame.duplicated(["date", "ticker"]).any():
+        raise ValueError("duplicate signal ticker-date")
+
+    candidate_counts: dict[tuple[str, str, str], int] = defaultdict(int)
+    chosen: dict[tuple[str, str, str], tuple[str, dict]] = {}
+    exclusions: dict[str, int] = defaultdict(int)
+    prior_by_ticker: dict[str, dict] = {}
+    buy_kinds = {"BUY", "STRONG_BUY"}
+    for row in frame.sort_values(["date", "ticker"]).to_dict("records"):
+        day, ticker, kind = str(row["date"]), str(row["ticker"]), str(row["kind"])
+        try:
+            parsed = date.fromisoformat(day)
+        except ValueError:
+            exclusions["invalid_date"] += 1
+            continue
+        if not market_clock.is_session(market, day):
+            exclusions["non_session"] += 1
+            continue
+        if not ticker or ticker in {"nan", "None"} or kind not in {
+                "STRONG_BUY", "BUY", "HOLD", "SELL", "STRONG_SELL"}:
+            exclusions["invalid_ticker_or_kind"] += 1
+            continue
+        prior = prior_by_ticker.get(ticker)
+        continuous = bool(prior and market_clock.consecutive_sessions(market, prior["date"], day))
+        if not continuous:
+            stratum = "context_gap"
+        elif kind in buy_kinds and prior["kind"] not in buy_kinds:
+            stratum = "new_buy"
+        elif kind in buy_kinds:
+            stratum = "continuing_buy"
+        elif prior["kind"] in buy_kinds:
+            stratum = "buy_exit"
+        elif kind in {"SELL", "STRONG_SELL"}:
+            stratum = "sell"
+        else:
+            stratum = "hold"
+        prior_by_ticker[ticker] = {"date": day, "kind": kind}
+        period = "protected" if parsed >= first_protected else "development"
+        week = f"{parsed.isocalendar().year}-W{parsed.isocalendar().week:02d}"
+        key = (period, week, stratum)
+        candidate_counts[key] += 1
+        digest = hashlib.sha256(
+            f"{CASEBOOK_PLAN_VERSION}|{market}|{period}|{week}|{stratum}|{day}|{ticker}".encode()
+        ).hexdigest()
+        sample = {"date": day, "ticker": ticker, "kind": kind,
+                  "source_level": "C_legacy_snapshot_unverified",
+                  "observed_at_present": bool(pd.notna(row.get("observed_at"))),
+                  "bar_asof_present": bool(pd.notna(row.get("bar_asof"))),
+                  "factor_output_missing": [name for name in FACTOR_COLUMNS
+                                            if name not in row or pd.isna(row[name])],
+                  "raw_factor_inputs_verified": False,
+                  "source_publication_time_verified": False}
+        if key not in chosen or digest < chosen[key][0]:
+            chosen[key] = (digest, sample)
+    slots = [{"period": period, "week": week, "stratum": stratum,
+              "eligible_signal_rows": candidate_counts[(period, week, stratum)],
+              "selection_sha256": chosen[(period, week, stratum)][0],
+              **chosen[(period, week, stratum)][1]}
+             for period, week, stratum in sorted(chosen)]
+    result = {"schema": CASEBOOK_PLAN_VERSION, "market": market,
+              "signal_sha256": signal_sha256, "protected_start": protected_start,
+              "selection": "one_sha256_min_per_period_iso_week_entry_state_no_price_access",
+              "signal_rows_seen": len(frame), "excluded_rows": dict(sorted(exclusions.items())),
+              "slots": slots,
+              "limitations": ["가격·미래 수익·기업행사·뉴스 원문을 열지 않고 선정한 진단 사례집입니다.",
+                              "보호 구간 사례의 성과를 합산하거나 가중치·주문 규칙을 바꾸는 근거가 아닙니다.",
+                              "저장 신호에는 당시 원시 팩터와 원천 공개시각 검증이 없습니다."]}
+    canonical = json.dumps(result, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    result["plan_sha256"] = hashlib.sha256(canonical.encode()).hexdigest()
+    return result
 
 
 def inventory_recorded_inputs(signals: pd.DataFrame, prices: pd.DataFrame, *,

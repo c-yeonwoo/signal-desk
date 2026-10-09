@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from signal_desk.signals.historical_audit import (  # noqa: E402
     MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots, inventory_recorded_inputs,
+    plan_recorded_casebook,
 )
 
 
@@ -51,8 +52,12 @@ def main() -> None:
                         help="List protected-period signal changes and fixed majors as cases only; no aggregate score")
     parser.add_argument("--inventory-only", action="store_true",
                         help="Input coverage and PIT limitations only; never read forward outcomes")
+    parser.add_argument("--casebook-plan", action="store_true",
+                        help="Freeze outcome-blind weekly cases from signal metadata only")
     parser.add_argument("--output", type=Path, help="Optional JSON artifact; existing file is never overwritten")
     args = parser.parse_args()
+    if args.casebook_plan and (args.inventory_only or args.forensic):
+        parser.error("--casebook-plan cannot be combined with --inventory-only or --forensic")
     started = time.perf_counter()
     prices_path = args.prices or ROOT / "data/cache" / ("prices.parquet" if args.market == "kr" else "us_prices.parquet")
     if args.bundle:
@@ -65,12 +70,14 @@ def main() -> None:
             raise ValueError("signal input digest mismatch")
         if hashlib.sha256(price_bytes).hexdigest() != manifest["prices_sha256"]:
             raise ValueError("price input digest mismatch")
-        frame, prices = pd.read_parquet(BytesIO(signal_bytes)), pd.read_parquet(BytesIO(price_bytes))
+        frame = pd.read_parquet(BytesIO(signal_bytes))
+        prices = None if args.casebook_plan else pd.read_parquet(BytesIO(price_bytes))
         input_hashes = {"signal_sha256": manifest["signals_sha256"],
                         "price_sha256": manifest["prices_sha256"],
                         "bundle_sha256": hashlib.sha256(args.bundle.read_bytes()).hexdigest()}
     else:
-        frame, prices = pd.read_parquet(args.signals), pd.read_parquet(prices_path)
+        frame = pd.read_parquet(args.signals)
+        prices = None if args.casebook_plan else pd.read_parquet(prices_path)
         input_hashes = {"signal_sha256": hashlib.sha256(args.signals.read_bytes()).hexdigest(),
                         "price_sha256": hashlib.sha256(prices_path.read_bytes()).hexdigest()}
     if "market" in frame:
@@ -80,6 +87,20 @@ def main() -> None:
         # already market-scoped and its market was verified above.
         frame = frame.iloc[0:0]
     protected_start = _registered_start()
+    if args.casebook_plan:
+        result = plan_recorded_casebook(frame, market=args.market,
+                                        protected_start=protected_start,
+                                        signal_sha256=input_hashes["signal_sha256"])
+        print(json.dumps({"market": args.market, "plan_sha256": result["plan_sha256"],
+                          "signal_rows_seen": result["signal_rows_seen"],
+                          "excluded_rows": result["excluded_rows"],
+                          "case_slots": len(result["slots"]),
+                          "warning": result["limitations"][1]}, ensure_ascii=False, indent=2))
+        if args.output:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            with args.output.open("x", encoding="utf-8") as handle:
+                json.dump(result, handle, ensure_ascii=False, indent=2, allow_nan=False)
+        return
     if args.inventory_only:
         if args.forensic:
             parser.error("--inventory-only and --forensic cannot be combined")
