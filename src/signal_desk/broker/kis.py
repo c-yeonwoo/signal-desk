@@ -334,8 +334,8 @@ def domestic_rank_watchlist(creds: dict | None = None) -> dict:
 
 
 def domestic_historical_minute_probe(ticker: str, session: str,
-                                     creds: dict | None = None) -> dict:
-    """과거 1분봉 첫 120행만 읽는다. 보호 구간 수익 계산·원장 역기입은 하지 않는다."""
+                                     creds: dict | None = None, *, end_hour: str = "153000") -> dict:
+    """과거 1분봉 최대 120행을 읽는다. 보호 구간 수익 계산·원장 역기입은 하지 않는다."""
     if not isinstance(ticker, str) or not re.fullmatch(r"[0-9]{6}", ticker):
         return {"status": "invalid_ticker", "bars": []}
     try:
@@ -343,15 +343,18 @@ def domestic_historical_minute_probe(ticker: str, session: str,
     except (TypeError, ValueError):
         return {"status": "invalid_session", "bars": []}
     today = datetime.datetime.now(ZoneInfo("Asia/Seoul")).date()
-    if day > datetime.date(2026, 8, 4) or not 0 <= (today - day).days <= 365:
+    # 2026-08-04부터는 사전등록 보호 구간이다. 개발 표본과 섞지 않는다.
+    if day >= datetime.date(2026, 8, 4) or not 0 <= (today - day).days <= 365:
         return {"status": "outside_development_window", "bars": []}
+    if not re.fullmatch(r"[0-9]{6}", end_hour) or not "090000" <= end_hour <= "153000" or end_hour[4:] != "00":
+        return {"status": "invalid_end_hour", "bars": []}
     creds = creds or config.kis_credentials()
     if not creds or creds.get("env") != "real":
         return {"status": "unavailable", "bars": []}
     body = _request("/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
                     "FHKST03010230", creds,
                     {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker,
-                     "FID_INPUT_HOUR_1": "153000", "FID_INPUT_DATE_1": day.strftime("%Y%m%d"),
+                     "FID_INPUT_HOUR_1": end_hour, "FID_INPUT_DATE_1": day.strftime("%Y%m%d"),
                      "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": ""})
     if not body or body.get("rt_cd") != "0" or not isinstance(body.get("output2"), list):
         return {"status": "provider_error", "bars": []}
@@ -364,6 +367,8 @@ def domestic_historical_minute_probe(ticker: str, session: str,
             continue
         try:
             hour = str(row["stck_cntg_hour"])
+            if not re.fullmatch(r"[0-9]{6}", hour):
+                raise ValueError("minute timestamp must be HHMMSS")
             stamp = datetime.datetime.strptime(day.strftime("%Y%m%d") + hour, "%Y%m%d%H%M%S")
             price = float(row["stck_prpr"])
             volume = int(row["cntg_vol"])
@@ -377,6 +382,9 @@ def domestic_historical_minute_probe(ticker: str, session: str,
                 invalid += 1
                 continue
         if not (9 <= stamp.hour <= 15) or (stamp.hour == 15 and stamp.minute > 30):
+            invalid += 1
+            continue
+        if hour > end_hour:
             invalid += 1
             continue
         if not math.isfinite(price) or price <= 0 or volume < 0:
@@ -393,8 +401,55 @@ def domestic_historical_minute_probe(ticker: str, session: str,
                                                     separators=(",", ":")).encode()).hexdigest(),
             "first_time": bars[0]["time"] if bars else None,
             "last_time": bars[-1]["time"] if bars else None,
-            "first_page_only": True, "source_time_verified": False,
+            "requested_end_hour": end_hour, "first_page_only": end_hour == "153000",
+            "source_time_verified": False,
             "source": "kis:inquire-time-dailychartprice", "research_only": True}
+
+
+def domestic_historical_minute_day(ticker: str, session: str,
+                                   creds: dict | None = None) -> dict:
+    """관리자 연구용 하루 분봉 범위 점검. 최대 5페이지, 원장/주문 경로와 분리."""
+    pages = []
+    bars = []
+    cursor = "153000"
+    previous_first = None
+    seen = set()
+    for _ in range(5):
+        page = domestic_historical_minute_probe(ticker, session, creds, end_hour=cursor)
+        if page["status"] != "observed":
+            return {"status": "unverified_source" if page.get("invalid_rows") else "incomplete_source",
+                    "reason": page["status"],
+                    "ticker": ticker, "session": session, "pages": pages,
+                    "bar_count": len(bars), "research_only": True}
+        batch = page["bars"]
+        if (page["invalid_rows"] or not page["date_attested_by_rows"]
+                or page["raw_rows"] != len(batch) or not batch
+                or (previous_first is not None and batch[-1]["time"] >= previous_first)
+                or any(bar["time"] in seen for bar in batch)):
+            return {"status": "unverified_source", "ticker": ticker, "session": session,
+                    "pages": pages, "bar_count": len(bars), "research_only": True}
+        pages.append({"requested_end_hour": cursor, "rows": len(batch),
+                      "first_time": batch[0]["time"], "last_time": batch[-1]["time"],
+                      "bars_sha256": page["bars_sha256"]})
+        bars.extend(batch)
+        seen.update(bar["time"] for bar in batch)
+        first = batch[0]["time"]
+        if first == "09:00:00":
+            ordered = sorted(bars, key=lambda bar: bar["time"])
+            return {"status": "observed_day", "ticker": ticker, "session": session,
+                    "pages": pages, "bars": ordered, "bar_count": len(ordered),
+                    "first_time": ordered[0]["time"], "last_time": ordered[-1]["time"],
+                    "date_attested_by_rows": True, "missing_minutes_not_filled": True,
+                    "bars_sha256": hashlib.sha256(json.dumps(ordered, sort_keys=True,
+                        separators=(",", ":")).encode()).hexdigest(),
+                    "source_time_verified": False, "research_only": True}
+        previous_first = first
+        stamp = datetime.datetime.strptime(first, "%H:%M:%S") - datetime.timedelta(minutes=1)
+        if stamp.hour < 9:
+            break
+        cursor = stamp.strftime("%H%M%S")
+    return {"status": "incomplete_page_limit", "ticker": ticker, "session": session,
+            "pages": pages, "bar_count": len(bars), "research_only": True}
 
 
 def balance(creds: dict | None = None, retries: int = 3) -> dict | None:

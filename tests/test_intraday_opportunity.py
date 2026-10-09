@@ -225,8 +225,75 @@ def test_historical_minute_probe_is_bounded_and_keeps_source_date_uncertainty(mo
     assert len(result["bars_sha256"]) == 64 and result["first_page_only"]
     assert calls[0][1] == "FHKST03010230"
     assert calls[0][2]["FID_INPUT_DATE_1"] == "20260714"
+    assert kis.domestic_historical_minute_probe("005930", "2026-08-04", credentials)["status"] == "outside_development_window"
     assert kis.domestic_historical_minute_probe("005930", "2026-09-01", credentials)["status"] == "outside_development_window"
     assert len(calls) == 1
+
+
+def test_historical_minute_day_pages_back_to_open_without_filling_gaps(monkeypatch):
+    minutes = [dt.datetime(2026, 7, 14, 9, 0) + dt.timedelta(minutes=i) for i in range(391)]
+    minutes = [minute for minute in minutes if minute.strftime("%H:%M:%S") != "10:17:00"]
+    calls = []
+    def respond(path, tr_id, creds, params):
+        cursor = params["FID_INPUT_HOUR_1"]
+        calls.append(cursor)
+        rows = [minute for minute in minutes if minute.strftime("%H%M%S") <= cursor][-120:]
+        return {"rt_cd": "0", "output2": [
+            {"stck_cntg_hour": minute.strftime("%H%M%S"), "stck_prpr": "100",
+             "cntg_vol": "3", "stck_bsop_date": "20260714"} for minute in reversed(rows)]}
+    monkeypatch.setattr(kis, "_request", respond)
+    credentials = {"env": "real", "app_key": "a", "app_secret": "b", "account_no": "c", "product_cd": "01"}
+    result = kis.domestic_historical_minute_day("005930", "2026-07-14", credentials)
+    assert result["status"] == "observed_day"
+    assert result["bar_count"] == 390 and len(result["pages"]) == 4
+    assert result["first_time"] == "09:00:00" and result["last_time"] == "15:30:00"
+    assert "10:17:00" not in {bar["time"] for bar in result["bars"]}
+    assert result["missing_minutes_not_filled"] is True
+    assert calls[0] == "153000" and calls == sorted(calls, reverse=True)
+
+
+def test_historical_minute_day_rejects_missing_date_and_cursor_ignoring_provider(monkeypatch):
+    credentials = {"env": "real", "app_key": "a", "app_secret": "b", "account_no": "c", "product_cd": "01"}
+    def missing_date(path, tr_id, creds, params):
+        return {"rt_cd": "0", "output2": [
+            {"stck_cntg_hour": "153000", "stck_prpr": "100", "cntg_vol": "3"}]}
+    monkeypatch.setattr(kis, "_request", missing_date)
+    assert kis.domestic_historical_minute_day("005930", "2026-07-14", credentials)["status"] == "unverified_source"
+    def ignores_cursor(path, tr_id, creds, params):
+        return {"rt_cd": "0", "output2": [
+            {"stck_cntg_hour": "153000", "stck_prpr": "100", "cntg_vol": "3",
+             "stck_bsop_date": "20260714"}]}
+    monkeypatch.setattr(kis, "_request", ignores_cursor)
+    assert kis.domestic_historical_minute_day("005930", "2026-07-14", credentials)["status"] == "unverified_source"
+
+
+def test_admin_minute_day_caches_only_complete_bounded_result(tmp_path, monkeypatch):
+    from signal_desk import api
+    monkeypatch.setattr(db, "DB", tmp_path / "day.db")
+    monkeypatch.setattr(api, "_admin_or_403", lambda request: None)
+    calls = []
+    def fake_day(ticker, session):
+        calls.append((ticker, session))
+        return {"status": "observed_day", "bar_count": 1, "bars": [{"time": "09:00:00"}]}
+    monkeypatch.setattr(kis, "domestic_historical_minute_day", fake_day)
+    assert api.intraday_minute_day_get(object(), "005930", "2026-07-14")["cached"] is False
+    assert api.intraday_minute_day_get(object(), "005930", "2026-07-14")["cached"] is True
+    assert calls == [("005930", "2026-07-14")]
+    try:
+        api.intraday_minute_day_get(object(), "000660", "2026-07-14")
+        assert False, "uncached day must share global throttle with probe"
+    except api.HTTPException as exc:
+        assert exc.status_code == 429
+    try:
+        api.intraday_minute_day_get(object(), "005930", "2026-08-04")
+        assert False, "protected date must be rejected before cache lookup"
+    except api.HTTPException as exc:
+        assert exc.status_code == 422
+    try:
+        api.intraday_minute_probe_get(object(), "005930", "2026-08-04")
+        assert False, "single-page probe must use the same date fence"
+    except api.HTTPException as exc:
+        assert exc.status_code == 422
 
 
 def test_admin_minute_probe_caches_one_bounded_page(tmp_path, monkeypatch):
