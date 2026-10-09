@@ -17,6 +17,7 @@ import math
 import re
 import threading
 import time
+import uuid
 import zlib
 from zipfile import ZIP_DEFLATED, ZipFile
 from contextlib import asynccontextmanager
@@ -4842,6 +4843,26 @@ def intraday_opportunity_get(request: Request, market: str = "kr", days: int = 9
             "calibrations": [{"playbook": key[0], "regime": key[1], **value}
                              for key, value in calibrations.items()],
             "selector": {"regime": regime, **selector}, "walk_forward": walk_forward, "rows": rows}
+
+
+@app.get("/api/admin/research/intraday-minute-probe")
+def intraday_minute_probe_get(request: Request, ticker: str, session: str):
+    """운영 KIS의 보호 전 개발구간 과거 분봉을 한 페이지만 점검한다. 저장·집계 없음."""
+    _admin_or_403(request)
+    if not re.fullmatch(r"[0-9]{6}", ticker or "") or not re.fullmatch(r"20[0-9]{2}-[0-9]{2}-[0-9]{2}", session or ""):
+        raise HTTPException(status_code=422, detail="6자리 국내 종목코드와 YYYY-MM-DD 날짜가 필요합니다.")
+    key = f"intraday_minute_probe:v1:{ticker}:{session}"
+    cached = db.kv_get(key, max_age=3600)
+    if cached is not None:
+        return {**cached, "cached": True}
+    if not db.lease_claim("intraday_minute_probe_global", uuid.uuid4().hex,
+                          now=int(time.time()), lease_sec=60):
+        raise HTTPException(status_code=429, detail="과거 분봉 진단은 1분에 한 종목·날짜만 조회합니다.")
+    from signal_desk.broker import kis
+    result = kis.domestic_historical_minute_probe(ticker, session)
+    if result["status"] == "observed":
+        db.kv_set(key, result)
+    return {**result, "cached": False}
 
 
 @app.get("/api/admin/research/price-baseline")

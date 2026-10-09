@@ -204,6 +204,50 @@ def test_rank_watchlist_requires_flag_and_expires(tmp_path, monkeypatch):
     assert len(calls) == 2
 
 
+def test_historical_minute_probe_is_bounded_and_keeps_source_date_uncertainty(monkeypatch):
+    calls = []
+    def respond(path, tr_id, creds, params):
+        calls.append((path, tr_id, params))
+        return {"rt_cd": "0", "output2": [
+            {"stck_cntg_hour": "145900", "stck_prpr": "100", "cntg_vol": "100",
+             "stck_bsop_date": "20260714"},
+            {"stck_cntg_hour": "150000", "stck_prpr": "101", "cntg_vol": "200",
+             "stck_bsop_date": "20260714"},
+            {"stck_cntg_hour": "150100", "stck_prpr": "102", "cntg_vol": "300",
+             "stck_bsop_date": "20260713"},
+            {"stck_cntg_hour": "150200", "stck_prpr": "103", "cntg_vol": "-1"},
+        ]}
+    monkeypatch.setattr(kis, "_request", respond)
+    credentials = {"env": "real", "app_key": "a", "app_secret": "b", "account_no": "c", "product_cd": "01"}
+    result = kis.domestic_historical_minute_probe("005930", "2026-07-14", credentials)
+    assert result["status"] == "observed" and len(result["bars"]) == 2
+    assert result["invalid_rows"] == 2 and result["date_attested_by_rows"] is False
+    assert len(result["bars_sha256"]) == 64 and result["first_page_only"]
+    assert calls[0][1] == "FHKST03010230"
+    assert calls[0][2]["FID_INPUT_DATE_1"] == "20260714"
+    assert kis.domestic_historical_minute_probe("005930", "2026-09-01", credentials)["status"] == "outside_development_window"
+    assert len(calls) == 1
+
+
+def test_admin_minute_probe_caches_one_bounded_page(tmp_path, monkeypatch):
+    from signal_desk import api
+    monkeypatch.setattr(db, "DB", tmp_path / "probe.db")
+    monkeypatch.setattr(api, "_admin_or_403", lambda request: None)
+    calls = []
+    def fake_probe(ticker, session):
+        calls.append((ticker, session))
+        return {"status": "observed", "bars": [{"time": "15:00:00", "price": 100, "volume": 1}]}
+    monkeypatch.setattr(kis, "domestic_historical_minute_probe", fake_probe)
+    assert api.intraday_minute_probe_get(object(), "005930", "2026-07-14")["cached"] is False
+    assert api.intraday_minute_probe_get(object(), "005930", "2026-07-14")["cached"] is True
+    assert calls == [("005930", "2026-07-14")]
+    try:
+        api.intraday_minute_probe_get(object(), "000660", "2026-07-14")
+        assert False, "uncached probe should be throttled"
+    except api.HTTPException as exc:
+        assert exc.status_code == 429
+
+
 def test_volume_confirmed_scan_still_has_no_order(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB", tmp_path / "confirmed.db")
     now = int(time.time())
