@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import logging
+import os
+import re
 import time
 from collections import defaultdict
 from zoneinfo import ZoneInfo
@@ -16,6 +18,45 @@ from signal_desk.signals import intraday_opportunity as model, macro_release, re
 
 log = logging.getLogger("signal_desk.intraday_opportunity")
 _SESSION_ZONE = {"kr": ZoneInfo("Asia/Seoul"), "us": ZoneInfo("America/New_York")}
+_RANK_KEY = "intraday_rank_watchlist"
+
+
+def ranked_tickers(*, now: int | None = None) -> set[str]:
+    """최근 20분 이내 순위 관찰 코드만 토스 배치 시세에 더한다. 주문 우주와 무관."""
+    if os.getenv("INTRADAY_RANK_RADAR") != "1":
+        return set()
+    at = int(time.time()) if now is None else int(now)
+    state = db.kv_get(_RANK_KEY) or {}
+    if state.get("status") not in ("observed", "partial"):
+        return set()
+    observed_at = int(state.get("received_at") or 0)
+    if not 0 <= at - observed_at <= 1200:
+        return set()
+    candidates = state.get("candidates")
+    if not isinstance(candidates, list):
+        return set()
+    return {ticker for ticker in candidates[:20]
+            if isinstance(ticker, str) and re.fullmatch(r"[0-9]{6}", ticker)}
+
+
+def refresh_rank_watchlist(*, now: int | None = None) -> dict:
+    """최대 15분에 한 번 두 순위 첫 페이지만 조회. 실패한 결과를 성공으로 재사용하지 않는다."""
+    if os.getenv("INTRADAY_RANK_RADAR") != "1":
+        return {"status": "off", "candidates": []}
+    at = int(time.time()) if now is None else int(now)
+    previous = db.kv_get(_RANK_KEY) or {}
+    if 0 <= at - int(previous.get("received_at") or 0) < 900:
+        return previous
+    try:
+        result = kis.domestic_rank_watchlist()
+    except Exception as exc:
+        log.warning("국내 순위 레이더 조회 실패: %s", type(exc).__name__)
+        result = {"status": "failed", "candidates": [], "sources": {}}
+    if not isinstance(result, dict) or not isinstance(result.get("candidates"), list):
+        result = {"status": "failed", "candidates": [], "sources": {}}
+    state = {**result, "received_at": at}
+    db.kv_set(_RANK_KEY, state)
+    return state
 
 
 def _official_event(ticker: str, at: int) -> dict | None:
@@ -69,6 +110,7 @@ def scan_market(market: str, *, now: int | None = None, max_kis_requests: int = 
     if market not in _SESSION_ZONE:
         raise ValueError("unsupported market")
     at = int(time.time()) if now is None else int(now)
+    rank_state = refresh_rank_watchlist(now=at) if market == "kr" else {"status": "not_applicable", "candidates": []}
     rows = db.intraday_opportunity_quote_window(market, after_ts=at - 900, before_ts=at)
     by_ticker: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
@@ -78,7 +120,8 @@ def scan_market(market: str, *, now: int | None = None, max_kis_requests: int = 
              "kis_snapshot_requests": 0, "kis_snapshot_success": 0,
              "kis_minute_requests": 0, "kis_minute_success": 0,
              "kis_flow_requests": 0, "kis_flow_success": 0,
-             "volume_supported": 0, "status": "observed"}
+             "volume_supported": 0, "rank_status": rank_state.get("status"),
+             "rank_followed": len(rank_state.get("candidates") or []), "status": "observed"}
     candidates = []
     observed_moves: dict[str, float] = {}
     for ticker, history in by_ticker.items():

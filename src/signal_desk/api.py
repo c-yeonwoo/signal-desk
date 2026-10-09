@@ -231,6 +231,11 @@ def _refresh_live_quotes(open_markets: list[str]) -> None:
                 us_tickers.update(us_extra)
         except Exception as exc:
             log.warning("관심·보유 시세 대상 집계 실패: %s", type(exc).__name__)
+    if "kr" in open_markets:
+        try:
+            kr_tickers.update(intraday_opportunity_service.ranked_tickers())
+        except Exception as exc:
+            log.warning("순위 관찰 시세 대상 집계 실패: %s", type(exc).__name__)
     requested_by_market = {"kr": kr_tickers, "us": us_tickers}
     now = int(time.time())
     try:

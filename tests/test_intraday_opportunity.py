@@ -162,6 +162,48 @@ def test_kis_readonly_snapshot_and_unverified_flow(monkeypatch):
     assert kis.domestic_completed_minute_volumes("005930", credentials, now=now) is None
 
 
+def test_official_rank_first_pages_are_only_watchlist_codes(monkeypatch):
+    calls = []
+    def respond(path, tr_id, creds, params):
+        calls.append((path, tr_id, params))
+        if "fluctuation" in path:
+            return {"rt_cd": "0", "output": [{"stck_shrn_iscd": "005930"},
+                                              {"stck_shrn_iscd": "bad"}], "_tr_cont": "M"}
+        return {"rt_cd": "0", "output": [{"mksc_shrn_iscd": "005930"},
+                                         {"mksc_shrn_iscd": "000660"}]}
+    monkeypatch.setattr(kis, "_request", respond)
+    credentials = {"env": "real", "app_key": "a", "app_secret": "b", "account_no": "c", "product_cd": "01"}
+    result = kis.domestic_rank_watchlist(credentials)
+    assert result["candidates"] == ["005930", "000660"]
+    assert result["status"] == "observed" and result["source_time_verified"] is False
+    assert result["sources"]["price_rank"]["status"] == "first_page_only"
+    assert [call[1] for call in calls] == ["FHPST01700000", "FHPST01710000"]
+    monkeypatch.setattr(kis, "_request", lambda *args, **kwargs: None)
+    assert kis.domestic_rank_watchlist(credentials)["status"] == "failed"
+
+
+def test_rank_watchlist_requires_flag_and_expires(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "rank.db")
+    monkeypatch.delenv("INTRADAY_RANK_RADAR", raising=False)
+    monkeypatch.setattr(service.kis, "domestic_rank_watchlist", lambda: (_ for _ in ()).throw(
+        AssertionError("flag off must not request KIS")))
+    assert service.refresh_rank_watchlist(now=1_000)["status"] == "off"
+    assert service.ranked_tickers(now=1_000) == set()
+    monkeypatch.setenv("INTRADAY_RANK_RADAR", "1")
+    calls = []
+    def ranked():
+        calls.append(1)
+        return {"status": "observed", "candidates": ["005930", "000660", "bad"], "sources": {}}
+    monkeypatch.setattr(service.kis, "domestic_rank_watchlist", ranked)
+    assert service.refresh_rank_watchlist(now=1_000)["status"] == "observed"
+    assert service.refresh_rank_watchlist(now=1_600)["status"] == "observed"
+    assert len(calls) == 1
+    assert service.ranked_tickers(now=1_600) == {"005930", "000660"}
+    assert service.ranked_tickers(now=2_201) == set()
+    assert service.refresh_rank_watchlist(now=2_201)["status"] == "observed"
+    assert len(calls) == 2
+
+
 def test_volume_confirmed_scan_still_has_no_order(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB", tmp_path / "confirmed.db")
     now = int(time.time())
