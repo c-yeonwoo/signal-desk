@@ -10753,6 +10753,33 @@ function _historicalOutcome(row, horizon) {
   return '판정 불가';
 }
 
+function _historicalSelection(row) {
+  const current = row.selection || {};
+  const before = row.previous_selection || {};
+  const bits = [];
+  if (before.rank != null && current.rank != null && before.rank !== current.rank)
+    bits.push(`순위 ${before.rank}→${current.rank}`);
+  if (before.rank_eligible != null && current.rank_eligible != null && before.rank_eligible !== current.rank_eligible)
+    bits.push(`매수권 ${before.rank_eligible ? '안' : '밖'}→${current.rank_eligible ? '안' : '밖'}`);
+  if (before.gate_blocked != null && current.gate_blocked != null && before.gate_blocked !== current.gate_blocked)
+    bits.push(`안전 조건 ${before.gate_blocked ? '차단' : '통과'}→${current.gate_blocked ? '차단' : '통과'}`);
+  if (before.low_coverage != null && current.low_coverage != null && before.low_coverage !== current.low_coverage)
+    bits.push(`자료 부족 ${before.low_coverage ? '예' : '아니오'}→${current.low_coverage ? '예' : '아니오'}`);
+  if (before.event_risk != null && current.event_risk != null && before.event_risk !== current.event_risk)
+    bits.push(`사건 위험 ${before.event_risk ? '있음' : '없음'}→${current.event_risk ? '있음' : '없음'}`);
+  if (before.decision_blocked != null && current.decision_blocked != null && before.decision_blocked !== current.decision_blocked)
+    bits.push(`원문 위험 ${before.decision_blocked ? '차단' : '통과'}→${current.decision_blocked ? '차단' : '통과'}`);
+  if (row.gate_release_reentry_without_score_gain) bits.unshift('점수 개선 없이 차단 해제 뒤 재진입');
+  const priorGate = before.gate_reason && before.gate_blocked && !current.gate_blocked
+    ? `<small style="display:block;color:var(--dim)">이전: ${esc(before.gate_reason)}</small>` : '';
+  const gate = current.gate_reason ? `<small style="display:block;color:var(--dim)">${esc(current.gate_reason)}</small>` : '';
+  const reason = current.selection_reason ? `<small style="display:block;color:var(--dim)">${esc(current.selection_reason)}</small>` : '';
+  const fallback = !row.previous_selection ? '비교할 이전 기록 없음' :
+    (before.rank != null && current.rank != null && before.rank_eligible != null && current.rank_eligible != null
+      ? '선정 기록 변화 없음' : '기록 부족 · 변화 확인 불가');
+  return `${bits.length ? esc(bits.join(' · ')) : fallback}${priorGate}${gate}${reason}`;
+}
+
 function renderHistoricalCases() {
   const data = _historicalCaseData;
   if (!data) return;
@@ -10765,16 +10792,16 @@ function renderHistoricalCases() {
      (filter === 'score' && row.score_change) || (filter === 'major' && row.major)));
   const shown = rows.slice(0, _historicalCaseShown);
   body.innerHTML = `<div style="font-size:13px;line-height:1.6"><b>${data.market === 'kr' ? '국내' : '미국'} · 기록 ${data.recorded_signal_dates}일, ${data.recorded_signal_rows}행</b> 중 미리 정한 조건에 맞는 개별 사례 ${rows.length}건${rows.length > shown.length ? ` · ${shown.length}건 표시` : ''}. <span style="color:var(--dim)">${esc(data.warning)}</span></div>`
-    + `<div class="tscroll" style="margin-top:8px"><table style="min-width:760px;width:100%;font-size:13px"><thead><tr><th>신호일</th><th>종목</th><th>변화</th><th>판정</th><th>다음날</th><th>5일</th><th>20일</th></tr></thead><tbody>`
+    + `<div class="tscroll" style="margin-top:8px"><table style="min-width:920px;width:100%;font-size:13px"><thead><tr><th>신호일</th><th>종목</th><th>변화</th><th>판정</th><th>선정 기록 변화</th><th>다음날</th><th>5일</th><th>20일</th></tr></thead><tbody>`
     + shown.map(row => {
       const changes = [row.kind_change ? `${row.previous_kind}→${row.kind}` : '',
         row.score_change ? `점수 ${row.score_delta > 0 ? '+' : ''}${row.score_delta}` : '',
         row.major ? '주요 종목' : ''].filter(Boolean).join(' · ');
       const gap = row.snapshot_gap ? ' · 앞 신호 기록 공백' : '';
-      return `<tr><td>${esc(row.date)}</td><td><b>${esc(row.ticker)}</b></td><td>${esc(changes + gap)}</td><td>${esc(row.kind)} · ${row.score == null ? '—' : Number(row.score).toFixed(2)}</td><td>${_historicalOutcome(row, 1)}</td><td>${_historicalOutcome(row, 5)}</td><td>${_historicalOutcome(row, 20)}</td></tr>`;
+      return `<tr><td>${esc(row.date)}</td><td><b>${esc(row.ticker)}</b></td><td>${esc(changes + gap)}</td><td>${esc(row.kind)} · ${row.score == null ? '—' : Number(row.score).toFixed(2)}</td><td>${_historicalSelection(row)}</td><td>${_historicalOutcome(row, 1)}</td><td>${_historicalOutcome(row, 5)}</td><td>${_historicalOutcome(row, 20)}</td></tr>`;
     }).join('') + `</tbody></table></div>`
     + (shown.length < rows.length ? `<button class="btn" style="margin-top:8px" onclick="_historicalCaseShown+=100;renderHistoricalCases()">100건 더 보기</button>` : '')
-    + `<div class="stat-label" style="margin-top:8px">다음 예정 거래일 시가 진입·기간 마지막 종가, 왕복비용 0.25% 가정. 가격 공백은 채우지 않았습니다. 원천 시각과 기업행사가 확인되지 않아 실거래 성과가 아닙니다.</div>`;
+    + `<div class="stat-label" style="margin-top:8px">선정 기록의 변화는 원인 후보이지 주가 하락의 원인 증명이 아닙니다. 다음 예정 거래일 시가 진입·기간 마지막 종가, 왕복비용 0.25% 가정. 가격 공백은 채우지 않았습니다. 원천 시각과 기업행사가 확인되지 않아 실거래 성과가 아닙니다.</div>`;
 }
 
 async function loadPickReasonDates() {

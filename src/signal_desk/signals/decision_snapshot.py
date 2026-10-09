@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import math
 from dataclasses import asdict, is_dataclass
+from zoneinfo import ZoneInfo
 
 from signal_desk import db
 
@@ -310,3 +311,63 @@ def replay_signal_decision(market: str, signal_output_id: str) -> dict:
             "replayed_rows": len(actual_rows), "mismatched_tickers": mismatched[:20],
             "price_structure_status": saved["price_structure_status"],
             "strict_pit_eligible": False}
+
+
+def audit_replay_timing(market: str, signal_output_id: str) -> dict:
+    """Read-only check of the recorded input boundary, not source-availability proof.
+
+    An exact current-code replay can still contain future bars. Keep these claims apart.
+    """
+    output = db.decision_artifact_get(signal_output_id)
+    if not output or output["market"] != market or output["kind"] != "signal_output":
+        raise ValueError("signal output missing or market mismatch")
+    gate = db.decision_artifact_get(output["data"]["gate_input_id"])
+    if not gate or gate["market"] != market or gate["kind"] != "gate_input":
+        raise ValueError("gate input missing or market mismatch")
+    engine_input = db.decision_artifact_get(gate["data"]["engine_input_id"])
+    if not engine_input or engine_input["market"] != market or engine_input["kind"] != "engine_input":
+        raise ValueError("engine input missing or market mismatch")
+    saved = engine_input["data"]
+    base = db.decision_artifact_get(saved["price_base_id"])
+    delta = db.decision_artifact_get(saved["quote_delta_id"])
+    if not base or not delta or base["market"] != market or delta["market"] != market:
+        raise ValueError("price artifact missing or market mismatch")
+    if base["kind"] != "price_base" or delta["kind"] != "quote_delta":
+        raise ValueError("price artifact kind mismatch")
+    if delta["data"].get("price_base_id") != saved["price_base_id"]:
+        raise ValueError("quote delta references another price base")
+    day = datetime.date.fromisoformat(saved["today"])
+    bad_dates = []
+    for ticker, series in base["data"]["series"].items():
+        if any(datetime.date.fromisoformat(value) > day for value in series["dates"]):
+            bad_dates.append(ticker)
+    zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
+    late_quotes = []
+    for ticker, quote in delta["data"].get("quotes", {}).items():
+        received_day = datetime.datetime.fromtimestamp(float(quote["received_at"]), zone).date()
+        if received_day > day:
+            late_quotes.append(ticker)
+    undated = sorted(delta["data"].get("unclassified", {}))
+    gate_day = str(gate["data"]["today"])[:10]
+    issues = []
+    if gate_day != day.isoformat():
+        issues.append("engine_gate_day_mismatch")
+    if bad_dates:
+        issues.append("future_dated_bars")
+    if late_quotes:
+        issues.append("future_received_quotes")
+    if undated:
+        issues.append("undated_price_tails")
+    issues.extend(str(item.get("reason")) for item in saved.get("price_issues", []))
+    return {
+        "engine_day": day.isoformat(), "gate_day": gate_day,
+        "universe_size": len(saved["universe"]),
+        "priced_tickers": len(base["data"]["series"]),
+        "future_dated_bar_tickers": sorted(bad_dates),
+        "future_received_quote_tickers": sorted(late_quotes),
+        "undated_price_tickers": undated,
+        "structural_timing_issues": sorted(set(issues)),
+        "structural_timing_clear": not issues,
+        "source_available_at_verified": False,
+        "strict_pit_eligible": False,
+    }

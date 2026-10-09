@@ -48,6 +48,25 @@ def test_full_universe_inputs_and_gate_replay_exactly(tmp_path, monkeypatch):
     replay = decision_snapshot.replay_signal_decision("kr", refs["signal_output_id"])
     assert replay["match"] and replay["mismatched_tickers"] == []
     assert replay["universe_size"] == 2 and replay["replayed_rows"] == 1
+    timing = decision_snapshot.audit_replay_timing("kr", refs["signal_output_id"])
+    assert timing["structural_timing_clear"]
+    assert timing["source_available_at_verified"] is False
+    assert timing["strict_pit_eligible"] is False
+
+
+def test_exact_replay_does_not_hide_future_dated_input(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    prices, dates, inputs, gate, results = _sample()
+    # This is intentionally an invalid historical bundle: exact replay alone is insufficient.
+    dates["AAA"][-1] = "2026-10-08"
+    refs = decision_snapshot.persist_signal_decision(
+        "kr", prices=prices, dates=dates, quote_snapshot={}, engine_inputs=inputs,
+        gate_inputs=gate, results=results)
+    assert decision_snapshot.replay_signal_decision("kr", refs["signal_output_id"])["match"]
+    timing = decision_snapshot.audit_replay_timing("kr", refs["signal_output_id"])
+    assert not timing["structural_timing_clear"]
+    assert timing["future_dated_bar_tickers"] == ["AAA"]
+    assert "future_dated_bars" in timing["structural_timing_issues"]
 
 
 def test_replay_reports_difference_without_rewriting_original(tmp_path, monkeypatch):
@@ -188,6 +207,7 @@ def test_admin_can_replay_recent_output_without_raw_inputs(tmp_path, monkeypatch
     response = admin.get("/api/admin/decision-replay", params=params)
     assert response.status_code == 200
     assert response.json()["match"] is True
+    assert response.json()["timing_audit"]["strict_pit_eligible"] is False
     assert "rows" not in response.json() and "prices" not in response.json()
     assert db.decision_artifact_storage() == before
     assert admin.get("/api/admin/decision-replay", params={**params, "market": "us"}).status_code == 404
