@@ -16,7 +16,8 @@ _MARKETS = {"kr": ("XKRX", "Asia/Seoul"), "us": ("XNYS", "America/New_York")}
 _KR_AUCTION_BUFFER = dt.timedelta(minutes=10)
 # KRX가 공지한 2026년 휴장. 서버의 달력 인스턴스가 일부 대체휴일을
 # 세션으로 반환해도 매매/채점에서 다시 열지 않는다.
-_KR_VERIFIED_CLOSED = frozenset({"2026-08-17", "2026-09-24", "2026-09-25",
+_KR_VERIFIED_CLOSED = frozenset({"2026-06-03", "2026-07-17",
+                                 "2026-08-17", "2026-09-24", "2026-09-25",
                                  "2026-10-05", "2026-10-09"})
 
 

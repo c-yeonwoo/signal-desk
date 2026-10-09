@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import exchange_calendars as xcals
 
 from fastapi.testclient import TestClient
+from signal_desk import market_clock
 
 
 def _fresh_client(tmp_path, monkeypatch):
@@ -26,7 +27,8 @@ def test_profile_and_analysis_are_user_market_scoped(tmp_path, monkeypatch):
     })
     assert saved.status_code == 200 and saved.json()["profile"]["cash"] == 500
     client.post("/api/holdings", json={"ticker": "005930", "qty": 10, "avg_price": 90})
-    dates = [d.date().isoformat() for d in xcals.get_calendar('XKRX').sessions_in_range('2026-01-01', '2026-09-18')][-61:]
+    dates = [d.date().isoformat() for d in xcals.get_calendar('XKRX').sessions_in_range('2026-01-01', '2026-09-18')
+             if market_clock.is_session('kr', d.date())][-61:]
     monkeypatch.setattr(api.portfolio_audit, 'utc_now', lambda: datetime(2026, 9, 19, tzinfo=timezone.utc))
     monkeypatch.setattr(api.store, 'load_universe', lambda: [{"ticker": "005930", "name": "삼성전자", "sector": "전자"}])
     monkeypatch.setattr(api.store, 'load_price_series', lambda: {"005930": [100 + i for i in range(61)]})
