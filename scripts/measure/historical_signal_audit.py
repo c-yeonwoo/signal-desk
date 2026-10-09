@@ -25,7 +25,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from signal_desk.signals.historical_audit import (  # noqa: E402
-    MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_snapshots, inventory_recorded_inputs,
+    MAJOR_KR_TICKERS, MAJOR_US_TICKERS, audit_planned_casebook, audit_snapshots,
+    inventory_recorded_inputs,
     plan_recorded_casebook, select_forensic_case_keys,
 )
 from signal_desk import market_clock  # noqa: E402
@@ -55,10 +56,17 @@ def main() -> None:
                         help="Input coverage and PIT limitations only; never read forward outcomes")
     parser.add_argument("--casebook-plan", action="store_true",
                         help="Freeze outcome-blind weekly cases from signal metadata only")
+    parser.add_argument("--casebook-audit", type=Path,
+                        help="Replay only the cases in an exact frozen casebook plan")
     parser.add_argument("--output", type=Path, help="Optional JSON artifact; existing file is never overwritten")
     args = parser.parse_args()
-    if args.casebook_plan and (args.inventory_only or args.forensic):
-        parser.error("--casebook-plan cannot be combined with --inventory-only or --forensic")
+    if sum((args.casebook_plan, args.inventory_only, args.forensic,
+            args.casebook_audit is not None)) > 1:
+        parser.error("choose only one audit mode")
+    if args.casebook_audit and not args.output:
+        parser.error("--casebook-audit requires --output for a local case-level artifact")
+    if args.casebook_audit and args.output.exists():
+        parser.error("--output already exists; casebook audit never overwrites an artifact")
     started = time.perf_counter()
     prices_path = args.prices or ROOT / "data/cache" / ("prices.parquet" if args.market == "kr" else "us_prices.parquet")
     if args.bundle:
@@ -88,6 +96,22 @@ def main() -> None:
         # already market-scoped and its market was verified above.
         frame = frame.iloc[0:0]
     protected_start = _registered_start()
+    if args.casebook_audit:
+        plan = json.loads(args.casebook_audit.read_text(encoding="utf-8"))
+        result = audit_planned_casebook(
+            frame, prices, plan=plan, market=args.market,
+            signal_sha256=input_hashes["signal_sha256"],
+            protected_start=protected_start,
+        )
+        result["inputs"] = input_hashes
+        result["elapsed_seconds"] = round(time.perf_counter() - started, 3)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        with args.output.open("x", encoding="utf-8") as handle:
+            json.dump(result, handle, ensure_ascii=False, indent=2, allow_nan=False)
+        print(json.dumps({"market": args.market, "plan_sha256": result["plan_sha256"],
+                          "case_count": result["case_count"], "source_level": result["source_level"],
+                          "warning": result["warning"], "output": str(args.output)}, ensure_ascii=False))
+        return
     if args.casebook_plan:
         result = plan_recorded_casebook(frame, market=args.market,
                                         protected_start=protected_start,

@@ -9,7 +9,7 @@ from zipfile import ZipFile
 
 from signal_desk import market_clock
 from signal_desk.signals.historical_audit import (
-    audit_snapshots, inventory_recorded_inputs, plan_recorded_casebook,
+    audit_planned_casebook, audit_snapshots, inventory_recorded_inputs, plan_recorded_casebook,
     select_forensic_case_keys, select_recorded_inputs,
 )
 
@@ -365,6 +365,80 @@ def test_casebook_cli_does_not_decode_future_price_parquet(tmp_path, monkeypatch
     assert summary["case_slots"] == len(planned["slots"]) == 1
     assert planned["slots"][0]["period"] == "protected"
     assert "outcomes" not in output.read_text()
+
+
+def test_planned_casebook_replays_only_exact_frozen_cases_without_aggregates(monkeypatch):
+    from signal_desk.signals import historical_audit
+
+    signals = pd.DataFrame([
+        {"date": "2026-09-28", "ticker": "AAA", "score": 1.0, "kind": "HOLD"},
+        {"date": "2026-09-28", "ticker": "BBB", "score": 1.0, "kind": "HOLD"},
+        {"date": "2026-09-29", "ticker": "AAA", "score": 1.5, "kind": "BUY"},
+        {"date": "2026-09-29", "ticker": "BBB", "score": 1.0, "kind": "HOLD"},
+    ])
+    signal_sha = "a" * 64
+    plan = plan_recorded_casebook(signals, market="kr", protected_start="2026-08-05",
+                                  signal_sha256=signal_sha)
+    prices = pd.DataFrame(_bars("AAA", ["2026-09-29", "2026-09-30"]))
+    monkeypatch.setattr(historical_audit, "_score_results", lambda *_:
+                        pytest.fail("planned cases must not be pooled"))
+    result = audit_planned_casebook(signals, prices, plan=plan, market="kr",
+                                    signal_sha256=signal_sha, protected_start="2026-08-05")
+    assert result["plan_sha256"] == plan["plan_sha256"]
+    assert result["case_count"] == len(plan["slots"]) == 3
+    assert result["signal_rows_seen"] == 4
+    assert {(case["recorded_case"]["date"], case["recorded_case"]["ticker"])
+            for case in result["cases"]} == {
+                (slot["date"], slot["ticker"]) for slot in plan["slots"]}
+    assert "summary" not in result and "cohort_comparison" not in result
+    with pytest.raises(ValueError, match="digest mismatch"):
+        audit_planned_casebook(signals, prices, plan=plan, market="kr",
+                               signal_sha256="b" * 64, protected_start="2026-08-05")
+    with pytest.raises(ValueError, match="boundary mismatch"):
+        audit_planned_casebook(signals, prices, plan=plan, market="kr",
+                               signal_sha256=signal_sha, protected_start="2026-09-01")
+    tampered = {**plan, "slots": [{**plan["slots"][0], "ticker": "ZZZ"}, *plan["slots"][1:]]}
+    with pytest.raises(ValueError, match="plan or signal input digest mismatch"):
+        audit_planned_casebook(signals, prices, plan=tampered, market="kr",
+                               signal_sha256=signal_sha, protected_start="2026-08-05")
+
+
+def test_casebook_audit_cli_requires_exact_bundle_and_never_overwrites(tmp_path, monkeypatch, capsys):
+    from scripts.measure import historical_signal_audit as cli
+
+    signals = pd.DataFrame([
+        {"date": "2026-09-28", "ticker": "AAPL", "score": 1.0, "kind": "HOLD"},
+        {"date": "2026-09-29", "ticker": "AAPL", "score": 1.5, "kind": "BUY"},
+    ])
+    prices = pd.DataFrame(_bars("AAPL", ["2026-09-29", "2026-09-30"]))
+    signal_buf, price_buf = BytesIO(), BytesIO()
+    signals.to_parquet(signal_buf, index=False)
+    prices.to_parquet(price_buf, index=False)
+    signal_bytes, price_bytes = signal_buf.getvalue(), price_buf.getvalue()
+    signal_sha = hashlib.sha256(signal_bytes).hexdigest()
+    plan = plan_recorded_casebook(signals, market="us", protected_start="2026-08-05",
+                                  signal_sha256=signal_sha)
+    bundle_path, plan_path, output = tmp_path / "us.zip", tmp_path / "plan.json", tmp_path / "audit.json"
+    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+    with ZipFile(bundle_path, "w") as bundle:
+        bundle.writestr("signals.parquet", signal_bytes)
+        bundle.writestr("prices.parquet", price_bytes)
+        bundle.writestr("manifest.json", json.dumps({
+            "schema": "historical-inputs-v1", "market": "us",
+            "signals_sha256": signal_sha,
+            "prices_sha256": hashlib.sha256(price_bytes).hexdigest()}))
+    monkeypatch.setattr(cli, "_registered_start", lambda: "2026-08-05")
+    monkeypatch.setattr("sys.argv", ["historical_signal_audit.py", "--market", "us",
+                                    "--bundle", str(bundle_path), "--casebook-audit",
+                                    str(plan_path), "--output", str(output)])
+    cli.main()
+    printed = json.loads(capsys.readouterr().out)
+    saved = json.loads(output.read_text())
+    assert printed["case_count"] == saved["case_count"] == len(plan["slots"])
+    assert "cases" not in printed and "summary" not in saved
+    with pytest.raises(SystemExit, match="2"):
+        cli.main()
+    assert saved == json.loads(output.read_text())
 
 
 def test_case_only_audit_never_builds_protected_aggregates(monkeypatch):
