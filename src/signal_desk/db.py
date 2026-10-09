@@ -332,6 +332,16 @@ CREATE TABLE IF NOT EXISTS intraday_quotes(market TEXT NOT NULL, ticker TEXT NOT
     provider TEXT, price_kind TEXT NOT NULL DEFAULT 'last', currency TEXT,
     PRIMARY KEY(market, ticker, ts));
 CREATE INDEX IF NOT EXISTS idx_intraday_quotes_lookup ON intraday_quotes(market, ticker, ts);
+-- 장중 탐색은 기존 매매 판단과 분리된 관찰 원장이다. 누적 거래량은 KIS가 실제 응답한 값만 쓴다.
+CREATE TABLE IF NOT EXISTS intraday_opportunity_volumes(
+    market TEXT NOT NULL, ticker TEXT NOT NULL, ts INTEGER NOT NULL,
+    price REAL NOT NULL, cumulative_volume INTEGER NOT NULL, provider TEXT NOT NULL,
+    PRIMARY KEY(market,ticker,ts));
+CREATE TABLE IF NOT EXISTS intraday_opportunities(
+    id TEXT PRIMARY KEY, market TEXT NOT NULL, ticker TEXT NOT NULL,
+    detected_at INTEGER NOT NULL, payload TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_intraday_opportunities_recent
+    ON intraday_opportunities(market,detected_at DESC);
 -- 공용 판단 입력/출력의 내용 주소 저장소. 계좌·주문 권한이나 사용자 정보는 담지 않는다.
 -- 같은 일봉 기준본/팩터 입력은 여러 판단이 재사용하며 수정 시 새 ID를 만든다.
 CREATE TABLE IF NOT EXISTS decision_artifacts(
@@ -1069,6 +1079,80 @@ def intraday_quotes_prune(*, older_than_ts: int) -> int:
         cur = c.execute("DELETE FROM intraday_quotes WHERE ts<?", (int(older_than_ts),))
         c.commit()
         return cur.rowcount
+    finally:
+        c.close()
+
+
+def intraday_opportunity_quote_window(market: str, *, after_ts: int, before_ts: int) -> list[dict]:
+    """탐색 시점 이전에 저장된 가격만 반환한다. 미래/타 시장 행은 포함하지 않는다."""
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT ticker,ts,price,observation_id,provider FROM intraday_quotes "
+            "WHERE market=? AND ts>=? AND ts<=? ORDER BY ticker,ts",
+            (market, int(after_ts), int(before_ts))).fetchall()
+        return [dict(zip(("ticker", "ts", "price", "observation_id", "provider"), row)) for row in rows]
+    finally:
+        c.close()
+
+
+def intraday_opportunity_volume_record(market: str, ticker: str, observation: dict) -> None:
+    c = conn()
+    try:
+        c.execute("INSERT OR IGNORE INTO intraday_opportunity_volumes "
+                  "(market,ticker,ts,price,cumulative_volume,provider) VALUES(?,?,?,?,?,?)",
+                  (market, ticker, int(observation["received_at"]), float(observation["price"]),
+                   int(observation["cumulative_volume"]), str(observation["provider"])))
+        c.commit()
+    finally:
+        c.close()
+
+
+def intraday_opportunity_volumes(market: str, ticker: str, *, before_ts: int,
+                                 after_ts: int) -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT ts,price,cumulative_volume,provider FROM intraday_opportunity_volumes "
+                         "WHERE market=? AND ticker=? AND ts>=? AND ts<=? ORDER BY ts",
+                         (market, ticker, int(after_ts), int(before_ts))).fetchall()
+        return [dict(zip(("ts", "price", "cumulative_volume", "provider"), row)) for row in rows]
+    finally:
+        c.close()
+
+
+def intraday_opportunity_record(event_id: str, payload: dict) -> bool:
+    c = conn()
+    try:
+        cur = c.execute("INSERT OR IGNORE INTO intraday_opportunities "
+                        "(id,market,ticker,detected_at,payload) VALUES(?,?,?,?,?)",
+                        (event_id, payload["market"], payload["ticker"], int(payload["detected_at"]),
+                         json.dumps(payload, ensure_ascii=False, sort_keys=True)))
+        c.commit()
+        return cur.rowcount > 0
+    finally:
+        c.close()
+
+
+def intraday_opportunities_recent(market: str, *, after_ts: int, limit: int = 50) -> list[dict]:
+    c = conn()
+    try:
+        rows = c.execute("SELECT id,payload FROM intraday_opportunities WHERE market=? AND detected_at>=? "
+                         "ORDER BY detected_at DESC LIMIT ?", (market, int(after_ts), max(1, min(limit, 200)))).fetchall()
+        return [{"id": event_id, **json.loads(payload)} for event_id, payload in rows]
+    finally:
+        c.close()
+
+
+def intraday_opportunities_prune(*, older_than_ts: int) -> tuple[int, int]:
+    """가격 원장과 같은 보존 기간만 유지한다. 등록 연구·체결 원장은 건드리지 않는다."""
+    c = conn()
+    try:
+        events = c.execute("DELETE FROM intraday_opportunities WHERE detected_at<?",
+                           (int(older_than_ts),)).rowcount
+        volumes = c.execute("DELETE FROM intraday_opportunity_volumes WHERE ts<?",
+                            (int(older_than_ts),)).rowcount
+        c.commit()
+        return events, volumes
     finally:
         c.close()
 
