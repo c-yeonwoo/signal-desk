@@ -22,7 +22,9 @@ MAJOR_KR_TICKERS = ("005930", "000660", "005380", "000270", "035420",
 MAJOR_US_TICKERS = ("AAPL", "MSFT", "NVDA", "AMZN", "GOOGL",
                     "META", "TSLA", "JPM", "AVGO", "WMT")
 EXPORT_SIGNAL_COLUMNS = ("date", "ticker", "score", "kind", *FACTOR_COLUMNS,
-                         "qualitative", "rank", "observed_at", "bar_asof")
+                         "qualitative", "rank", "rank_eligible", "gate_blocked",
+                         "event_risk", "low_coverage", "data_coverage",
+                         "decision_blocked", "reasons_json", "observed_at", "bar_asof")
 EXPORT_PRICE_COLUMNS = ("date", "ticker", "open", "close", "volume")
 
 
@@ -66,6 +68,37 @@ def _number(value) -> float | None:
     except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
+
+
+def _flag(row: dict, name: str) -> bool | None:
+    value = row.get(name)
+    if value is None or pd.isna(value):
+        return None
+    if value in (True, 1, "1"):
+        return True
+    if value in (False, 0, "0"):
+        return False
+    return None
+
+
+def _selection_evidence(row: dict) -> dict:
+    """Saved metadata only; a changed eligibility bit is not a proven root cause."""
+    from signal_desk.signals.pick_reason import parse_reasons_json
+
+    reasons = parse_reasons_json(row.get("reasons_json"))
+    selection_reasons = [reason for reason in reasons if reason.startswith("[선정]")]
+    gate_reasons = [reason for reason in reasons if reason.startswith(("[선반영]", "[추격]"))]
+    return {
+        "rank": _number(row.get("rank")),
+        "rank_eligible": _flag(row, "rank_eligible"),
+        "gate_blocked": _flag(row, "gate_blocked"),
+        "event_risk": _flag(row, "event_risk"),
+        "low_coverage": _flag(row, "low_coverage"),
+        "data_coverage": _number(row.get("data_coverage")),
+        "decision_blocked": _flag(row, "decision_blocked"),
+        "selection_reason": selection_reasons[-1] if selection_reasons else None,
+        "gate_reason": gate_reasons[-1] if gate_reasons else None,
+    }
 
 
 def _score_results(rows: list[dict], horizon: int) -> dict:
@@ -141,6 +174,20 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
         kind_change = prior is not None and signal.get("kind") != prior.get("kind")
         score_change = delta is not None and abs(delta) >= score_delta_threshold
         gap = bool(prior and not market_clock.consecutive_sessions(market, prior["date"], day))
+        selection = _selection_evidence(signal)
+        previous_selection = _selection_evidence(prior) if prior else None
+        selection_changes = ([key for key in ("rank", "rank_eligible", "gate_blocked",
+                                             "event_risk", "low_coverage", "decision_blocked")
+                              if previous_selection[key] is not None and selection[key] is not None
+                              and previous_selection[key] != selection[key]]
+                             if previous_selection else [])
+        gate_release_reentry = bool(
+            prior and previous_selection["gate_blocked"] is True
+            and selection["gate_blocked"] is False
+            and prior.get("kind") == "HOLD"
+            and signal.get("kind") in {"BUY", "STRONG_BUY"}
+            and score is not None and prior_score is not None and score <= prior_score
+        )
         prior_by_ticker[ticker] = signal
         factor_changes = {}
         if prior:
@@ -195,6 +242,9 @@ def audit_snapshots(signals: pd.DataFrame, prices: pd.DataFrame, *, market: str,
             "previous_kind": str(prior.get("kind")) if prior else None,
             "score_delta": delta, "kind_change": kind_change,
             "score_change": score_change, "snapshot_gap": gap,
+            "selection": selection, "previous_selection": previous_selection,
+            "selection_changes": selection_changes,
+            "gate_release_reentry_without_score_gain": gate_release_reentry,
             "major": ticker in major_set, "factor_changes": factor_changes,
             "outcomes": outcomes,
         })

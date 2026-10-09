@@ -82,6 +82,47 @@ def test_gap_between_recorded_signals_is_visible():
     assert result["rows"][1]["snapshot_gap"]
 
 
+def test_same_score_kind_flip_keeps_saved_selection_evidence_and_unknowns():
+    day = "2026-07-20"
+    next_day = market_clock.next_sessions("kr", day, 1)[0]
+    signals = pd.DataFrame([
+        {"date": day, "ticker": "AAA", "score": 2.15, "kind": "STRONG_BUY",
+         "rank": 2, "rank_eligible": 1, "gate_blocked": 0,
+         "reasons_json": '["[선정] 시장 200종목 중 2위"]'},
+        {"date": next_day, "ticker": "AAA", "score": 2.15, "kind": "HOLD",
+         "rank": 8, "rank_eligible": 0, "gate_blocked": 0,
+         "reasons_json": '["[선정] 시장 200종목 중 8위 — 매수권 밖"]'},
+    ])
+    prices = pd.DataFrame(_bars("AAA", [day, next_day]))
+    selected, _ = select_recorded_inputs(signals, prices, market="kr", sessions=2)
+    assert {"rank_eligible", "gate_blocked", "reasons_json"} <= set(selected.columns)
+    row = audit_snapshots(selected, prices, market="kr")["rows"][1]
+    assert row["kind_change"] and row["score_delta"] == 0
+    assert row["selection_changes"] == ["rank", "rank_eligible"]
+    assert row["previous_selection"]["rank"] == 2
+    assert row["selection"]["rank"] == 8
+    assert row["selection"]["selection_reason"].endswith("매수권 밖")
+    assert row["selection"]["event_risk"] is None
+
+
+def test_gate_release_reentry_is_flagged_without_claiming_return_cause():
+    day = "2026-07-20"
+    next_day = market_clock.next_sessions("kr", day, 1)[0]
+    signals = pd.DataFrame([
+        {"date": day, "ticker": "AAA", "score": 2.15, "kind": "HOLD",
+         "rank": 2, "rank_eligible": 0, "gate_blocked": 1,
+         "reasons_json": '["[선반영] 호재 전 사전상승 11.2% — 신규 매수 보류"]'},
+        {"date": next_day, "ticker": "AAA", "score": 2.15, "kind": "STRONG_BUY",
+         "rank": 2, "rank_eligible": 1, "gate_blocked": 0,
+         "reasons_json": '["[선정] 시장 200종목 중 2위"]'},
+    ])
+    prices = pd.DataFrame(_bars("AAA", [day, next_day]))
+    row = audit_snapshots(signals, prices, market="kr")["rows"][1]
+    assert row["gate_release_reentry_without_score_gain"]
+    assert "11.2%" in row["previous_selection"]["gate_reason"]
+    assert row["selection"]["gate_reason"] is None
+
+
 def test_holiday_signal_is_recorded_but_never_given_a_forward_return():
     signals = pd.DataFrame([{"date": "2026-09-24", "ticker": "267250",
                              "score": 2.0, "kind": "STRONG_BUY"}])

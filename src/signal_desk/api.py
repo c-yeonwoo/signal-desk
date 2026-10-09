@@ -4530,7 +4530,8 @@ def decision_replay_get(request: Request, market: str, signal_output_id: str):
         raise HTTPException(400, "시장 또는 판단 ID가 올바르지 않습니다.")
     from signal_desk.signals import decision_snapshot
     try:
-        return decision_snapshot.replay_signal_decision(market, signal_output_id)
+        replay = decision_snapshot.replay_signal_decision(market, signal_output_id)
+        return {**replay, "timing_audit": decision_snapshot.audit_replay_timing(market, signal_output_id)}
     except ValueError as exc:
         if "missing" in str(exc):
             raise HTTPException(404, "저장된 판단을 찾지 못했습니다.") from None
