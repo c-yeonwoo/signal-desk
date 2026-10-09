@@ -361,41 +361,52 @@ def domestic_historical_minute_probe(ticker: str, session: str,
     bars = []
     invalid = 0
     source_dates = set()
+    invalid_reasons: dict[str, int] = {}
+    returned_hours = []
+    def reject(reason: str) -> None:
+        nonlocal invalid
+        invalid += 1
+        invalid_reasons[reason] = invalid_reasons.get(reason, 0) + 1
     for row in body["output2"][:120]:
         if not isinstance(row, dict):
-            invalid += 1
+            reject("non_object_row")
             continue
         try:
             hour = str(row["stck_cntg_hour"])
             if not re.fullmatch(r"[0-9]{6}", hour):
                 raise ValueError("minute timestamp must be HHMMSS")
+            returned_hours.append(hour)
             stamp = datetime.datetime.strptime(day.strftime("%Y%m%d") + hour, "%Y%m%d%H%M%S")
             price = float(row["stck_prpr"])
             volume = int(row["cntg_vol"])
         except (KeyError, TypeError, ValueError, OverflowError):
-            invalid += 1
+            reject("invalid_bar_fields")
             continue
         reported_date = row.get("stck_bsop_date")
         if reported_date is not None:
             source_dates.add(str(reported_date))
             if str(reported_date) != day.strftime("%Y%m%d"):
-                invalid += 1
+                reject("different_reported_date")
                 continue
         if not (9 <= stamp.hour <= 15) or (stamp.hour == 15 and stamp.minute > 30):
-            invalid += 1
+            reject("outside_regular_session")
             continue
         if hour > end_hour:
-            invalid += 1
+            reject("after_requested_cursor")
             continue
         if not math.isfinite(price) or price <= 0 or volume < 0:
-            invalid += 1
+            reject("invalid_price_or_volume")
             continue
         bars.append({"time": stamp.strftime("%H:%M:%S"), "price": price, "volume": volume,
                      "date_reported": reported_date is not None})
     bars = sorted({bar["time"]: bar for bar in bars}.values(), key=lambda bar: bar["time"])
     return {"status": "observed" if bars else "empty_or_invalid", "ticker": ticker,
             "session": session, "bars": bars, "raw_rows": len(body["output2"]),
-            "invalid_rows": invalid, "date_attested_by_rows": bool(bars) and all(
+            "invalid_rows": invalid, "invalid_row_reasons": invalid_reasons,
+            "reported_dates": sorted(source_dates)[:5],
+            "returned_first_hour": min(returned_hours) if returned_hours else None,
+            "returned_last_hour": max(returned_hours) if returned_hours else None,
+            "date_attested_by_rows": bool(bars) and all(
                 bar["date_reported"] for bar in bars) and source_dates == {day.strftime("%Y%m%d")},
             "bars_sha256": hashlib.sha256(json.dumps(bars, sort_keys=True,
                                                     separators=(",", ":")).encode()).hexdigest(),
@@ -416,17 +427,29 @@ def domestic_historical_minute_day(ticker: str, session: str,
     seen = set()
     for _ in range(5):
         page = domestic_historical_minute_probe(ticker, session, creds, end_hour=cursor)
+        page_summary = {"requested_end_hour": cursor, "status": page["status"],
+                        "raw_rows": page.get("raw_rows", 0), "valid_rows": len(page.get("bars", [])),
+                        "invalid_rows": page.get("invalid_rows", 0),
+                        "invalid_row_reasons": page.get("invalid_row_reasons", {}),
+                        "reported_dates": page.get("reported_dates", []),
+                        "returned_first_hour": page.get("returned_first_hour"),
+                        "returned_last_hour": page.get("returned_last_hour"),
+                        "first_time": page.get("first_time"), "last_time": page.get("last_time")}
         if page["status"] != "observed":
             return {"status": "unverified_source" if page.get("invalid_rows") else "incomplete_source",
                     "reason": page["status"],
                     "ticker": ticker, "session": session, "pages": pages,
-                    "bar_count": len(bars), "research_only": True}
+                    "failed_page": page_summary, "bar_count": len(bars), "research_only": True}
         batch = page["bars"]
-        if (page["invalid_rows"] or not page["date_attested_by_rows"]
-                or page["raw_rows"] != len(batch) or not batch
-                or (previous_first is not None and batch[-1]["time"] >= previous_first)
-                or any(bar["time"] in seen for bar in batch)):
+        reason = ("invalid_rows" if page["invalid_rows"] else
+                  "date_not_attested" if not page["date_attested_by_rows"] else
+                  "raw_valid_count_mismatch" if page["raw_rows"] != len(batch) else
+                  "empty_page" if not batch else
+                  "cursor_overlap" if previous_first is not None and batch[-1]["time"] >= previous_first else
+                  "duplicate_time" if any(bar["time"] in seen for bar in batch) else None)
+        if reason:
             return {"status": "unverified_source", "ticker": ticker, "session": session,
+                    "reason": reason, "failed_page": page_summary,
                     "pages": pages, "bar_count": len(bars), "research_only": True}
         pages.append({"requested_end_hour": cursor, "rows": len(batch),
                       "first_time": batch[0]["time"], "last_time": batch[-1]["time"],
