@@ -4955,6 +4955,37 @@ def intraday_minute_replay_get(request: Request, ticker: str, session: str):
     return result
 
 
+@app.get("/api/admin/research/intraday-minute-pilot-report")
+def intraday_minute_pilot_report_get(request: Request):
+    """고정된 8쌍만 압축 원장에서 재생한다. 새 제공자 요청·주문 없음."""
+    _admin_or_403(request)
+    from signal_desk.signals import intraday_opportunity
+    manifest = db.intraday_research_day_manifest()
+    by_pair: dict[tuple[str, str], list[dict]] = {}
+    for row in manifest:
+        if (row["ticker"], row["session"]) in _INTRADAY_MINUTE_PILOT:
+            by_pair.setdefault((row["ticker"], row["session"]), []).append(row)
+    replays, blockers, source_ids = [], [], []
+    for ticker, session in sorted(_INTRADAY_MINUTE_PILOT):
+        versions = by_pair.get((ticker, session), [])
+        if len(versions) != 1 or versions[0]["status"] != "preserved":
+            blockers.append({"ticker": ticker, "session": session,
+                             "reason": "not_observed" if not versions else "revision_or_corruption"})
+            continue
+        source = db.intraday_research_day_get(ticker, session)
+        replay = intraday_opportunity.historical_minute_replay(source or {})
+        if replay["status"] != "counterfactual_only":
+            blockers.append({"ticker": ticker, "session": session, "reason": "replay_unverified"})
+            continue
+        replays.append(replay)
+        source_ids.append(versions[0]["id"])
+    report = intraday_opportunity.historical_minute_pilot_report(
+        replays, expected_pairs=len(_INTRADAY_MINUTE_PILOT))
+    return {**report, "blocked_pairs": blockers, "source_ids": source_ids,
+            "sample_rule": "4개 국내 종목 × 2026-07-14/07-21, 원천·성과를 보기 전 고정",
+            "note": "관리자 연구용 기술 통계. 시그널, 페이퍼 성과, 주문 판단에는 반영하지 않습니다."}
+
+
 @app.get("/api/admin/research/price-baseline")
 def price_baseline_get(request: Request, market: str = "kr", limit: int = 20,
                        include_inputs: bool = False):
