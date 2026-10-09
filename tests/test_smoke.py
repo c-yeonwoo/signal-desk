@@ -215,6 +215,10 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert 'id="admin-todo"' in html and "오늘 할 일" in html
     assert "enterAdmin" in html and "renderAdminTodo" in html
     assert 'data-aseg="ops"' in html and "운영 상태" in html and "enterAdmin(" in html
+    expert_nav = html.split('id="admin-expert-nav"', 1)[1].split('</details>', 1)[0]
+    assert 'data-aseg="content"' in expert_nav and "기존 콘텐츠 도구" in expert_nav
+    assert "seg === 'content'" in html  # 예전 #admin/content 북마크를 열 때 고급 메뉴도 보인다.
+    assert "내 투자 → 내 계좌와 주문 확인" in html
     assert "trust-paper-muted" in html  # 페이퍼 승률 ≠ 실측 헤드라인
     # 2026-08-05(N4): "매수 0 · 고장 아님" 하드코딩을 없앴다. 원인이 rank창인지 게이트인지
     # 수집 정지인지 가리지 않고 전부 정상이라 변호하면 고장 조사를 막는다. 이제 점검 결과를 쓴다.

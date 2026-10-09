@@ -1770,7 +1770,7 @@
       </div>
       <div id="tg-feedback" role="status" style="font-size:13px;margin-top:10px"></div>
     </div>
-    <p class="page-desc">관리자 메뉴는 서비스 점검과 연구 기록용입니다. 실제 계좌의 추종 비중·한도는 <b>투자 관리 → 실계좌</b>에서 설정합니다.</p>
+    <p class="page-desc">관리자 메뉴는 서비스 점검과 연구 기록용입니다. 실제 계좌의 추종 비중·한도는 <b>내 투자 → 내 계좌와 주문 확인</b>에서 설정합니다.</p>
   </div>
 
   <div id="view-admin" class="view-doc" style="display:none">
@@ -1787,13 +1787,13 @@
       <div class="seg-toggle" id="admin-seg">
         <button class="on" data-aseg="ops" onclick="switchAdminSeg('ops')">운영 상태 <span id="admin-ops-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
         <button data-aseg="kb" onclick="switchAdminSeg('kb')">뉴스 관리 <span id="admin-kb-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
-        <button data-aseg="content" onclick="switchAdminSeg('content')">콘텐츠 발행</button>
       </div>
       <details class="admin-expert-nav" id="admin-expert-nav">
-        <summary>고급 연구·엔진 설정 · 평소엔 열지 않아도 됩니다</summary>
+        <summary>고급 연구·보관 기능 · 평소엔 열지 않아도 됩니다</summary>
         <div class="seg-toggle">
           <button data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 설정 <span id="admin-engine-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
           <button data-aseg="verify" onclick="switchAdminSeg('verify')">연구 성적 <span id="admin-verify-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--accent);color:#fff;font-size:11px;font-weight:700"></span></button>
+          <button data-aseg="content" onclick="switchAdminSeg('content')">기존 콘텐츠 도구</button>
         </div>
       </details>
     </div>
@@ -8872,7 +8872,7 @@ function switchAdminSeg(seg, { pin = true } = {}){
   _adminSeg = seg;
   if (pin) _adminEntered = true;
   const expert = document.getElementById('admin-expert-nav');
-  if (expert && (seg === 'engine' || seg === 'verify')) expert.open = true;
+  if (expert && (seg === 'engine' || seg === 'verify' || seg === 'content')) expert.open = true;
   document.querySelectorAll('#admin-nav button[data-aseg]').forEach(b => b.classList.toggle('on', b.dataset.aseg === seg));
   Object.entries(_ADMIN_PANELS).forEach(([s, id]) => {
     const el = document.getElementById(id);
