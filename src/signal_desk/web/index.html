@@ -10908,7 +10908,11 @@ async function loadHistoricalPaperTrades(button) {
           run_policy_mismatch: '판단·체결 정책 불일치 · 조사 필요',
           run_policy_unverified: '판단·체결 정책 대조 불가',
           capture_artifact_missing: '판단 원본 파일 누락 · 조사 필요',
-          same_run_capture_recorded: '같은 실행의 판단 원본 보존 기록 있음',
+          same_run_capture_recorded: '같은 실행의 사후 판단 원본 보존 기록 있음',
+          same_run_postorder_capture_only: '사후 판단 원본만 보존 · 주문 전 지문 없음',
+          preorder_seal_replay_matched: '주문 전 판단 지문과 사후 재생 원본 일치',
+          preorder_seal_timing_or_policy_mismatch: '주문 전 지문 시각·정책 불일치 · 조사 필요',
+          preorder_seal_output_mismatch: '주문 전 지문과 사후 원본 불일치 · 조사 필요',
           run_linked_capture_unavailable: `판단 원본 미보존${capture?.reason ? ` (${esc(capture.reason)})` : ''}`,
         };
         const sourceText = `${trade.run_id ? `실행 ${esc(trade.run_id.slice(0, 8))} · ` : ''}${linkLabels[linkState] || '판단 연결 상태 미확인'}`;
