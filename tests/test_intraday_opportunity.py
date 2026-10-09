@@ -40,6 +40,18 @@ def test_two_playbooks_and_negative_official_event_veto():
     assert not model.plan(candidate, volume, positive)["order_eligible"]
 
 
+def test_first_completed_minute_bars_can_support_shadow_but_not_order():
+    candidate = model.detect_move("kr", "005930", {"ts": 1_000, "price": 100},
+                                  {"ts": 1_300, "price": 102})
+    volume = {"state": "observed", "complete_bars": 10, "previous_5m_volume": 1_000,
+              "recent_5m_volume": 2_000, "minute_volume_ratio": 2.0}
+    decision = model.plan(candidate, volume, model.context_evidence(at=1_300))
+    assert decision["status"] == "shadow" and decision["order_eligible"] is False
+    assert model.plan(candidate, {**volume, "complete_bars": 9}, {})["status"] == "watch"
+    assert model.plan(candidate, {**volume, "minute_volume_ratio": 1.1}, {})["status"] == "watch"
+    assert model.plan(candidate, {**volume, "state": "stale_or_mismatched"}, {})["status"] == "watch"
+
+
 def test_replay_uses_next_quote_and_costs_not_signal_price():
     candidate = {"detected_at": 1_000, "price": 100}
     quotes = [
@@ -75,6 +87,39 @@ def test_calibration_hides_small_sample_and_no_future_context():
     assert model.research_choice(history, asof_session="2026-09-01", regime="unknown")["status"] == "abstain"
     assert model.research_choice(history, asof_session="2026-10-02", regime="unknown")["status"] == "shadow_candidate"
     assert model.research_choice([sample], asof_session="2026-10-10", regime="unknown")["status"] == "abstain"
+    assert model.walk_forward(history)["status"] == "insufficient"
+
+
+def test_walk_forward_uses_past_only_and_same_day_control():
+    def row(day, net, playbook="event_continuation"):
+        return {"session": (dt.date(2026, 8, 1) + dt.timedelta(days=day)).isoformat(),
+                "playbook": playbook, "regime": "mixed",
+                "replay": {"status": "complete", "immediate": {"net_pct": net},
+                           "wait_one": {"net_pct": net}}}
+    training = [row(day, 1.0) for day in range(30)]
+    evaluation = [row(day, 0.5) for day in range(30, 40)]
+    evaluation += [row(day, -0.5, "unexplained_surge") for day in range(30, 40)]
+    assert model.walk_forward(training + evaluation, min_oos_days=10)["status"] == "measured_shadow"
+    outcome = model.walk_forward(training + evaluation, min_oos_days=10)
+    assert outcome["oos_days"] == 10 and outcome["mean_net_pct"] == 0.5
+    assert outcome["baseline_mean_net_pct"] == 0.0
+    assert outcome["order_eligible"] is False
+    assert model.walk_forward(training + evaluation[:9], min_oos_days=10)["status"] == "insufficient"
+
+
+def test_calibration_sampling_spans_days_not_just_recent_events(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "sample.db")
+    for day in range(31):
+        for item in range(5):
+            db.intraday_opportunity_record(f"{day:02d}-{item}", {
+                "market": "kr", "ticker": "005930", "detected_at": 1000 + day * 86400 + item,
+                "session": (dt.date(2026, 8, 1) + dt.timedelta(days=day)).isoformat(),
+                "decision": {"playbook": "event_continuation"}})
+    sample, truncated = db.intraday_opportunities_sampled("kr", after_ts=0)
+    assert len(sample) == 93 and not truncated
+    assert len({row["session"] for row in sample}) == 31
+    limited, truncated = db.intraday_opportunities_sampled("kr", after_ts=0, limit=20)
+    assert len(limited) == 20 and truncated
 
 
 def test_scan_persists_price_only_when_kis_missing(tmp_path, monkeypatch):
@@ -128,6 +173,24 @@ def test_volume_confirmed_scan_still_has_no_order(tmp_path, monkeypatch):
     event = service.scan_market("kr", now=now)[0]
     assert event["volume"]["interval_volume"] == 1_000
     assert event["decision"]["playbook"] == "breakout_pullback"
+    assert event["decision"]["order_eligible"] is False
+
+
+def test_first_kis_snapshot_with_completed_bars_is_not_stuck_on_watch(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "minute.db")
+    now = int(time.time())
+    db.intraday_quotes_record("kr", {"005930": {"price": 100}}, ts=now - 300)
+    db.intraday_quotes_record("kr", {"005930": {"price": 102}}, ts=now)
+    monkeypatch.setattr(service.kis, "domestic_market_snapshot", lambda ticker: {
+        "received_at": now, "price": 102, "cumulative_volume": 20_000,
+        "day_high": 103, "provider": "kis"})
+    monkeypatch.setattr(service.kis, "domestic_investor_estimate", lambda ticker: None)
+    monkeypatch.setattr(service.kis, "domestic_completed_minute_volumes", lambda ticker: {
+        "received_at": now, "previous_5m_volume": 1_000, "recent_5m_volume": 2_000,
+        "ratio": 2.0, "complete_bars": 10, "last_complete_minute": "observed"})
+    event = service.scan_market("kr", now=now)[0]
+    assert event["volume"]["complete_bars"] == 10
+    assert event["decision"]["status"] == "shadow"
     assert event["decision"]["order_eligible"] is False
 
 

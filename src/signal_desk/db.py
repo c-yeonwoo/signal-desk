@@ -1143,6 +1143,29 @@ def intraday_opportunities_recent(market: str, *, after_ts: int, limit: int = 50
         c.close()
 
 
+def intraday_opportunities_sampled(market: str, *, after_ts: int,
+                                   per_playbook_day: int = 3, limit: int = 4000) -> tuple[list[dict], bool]:
+    """고정된 ID 순서로 날짜·전략별 표본을 뽑는다. 최근 N건 편향을 피한다.
+
+    상한에 걸리면 표본이 불완전하므로 호출자가 판정을 중단해야 한다.
+    """
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT id,payload FROM (SELECT id,payload,detected_at,"
+            "ROW_NUMBER() OVER (PARTITION BY json_extract(payload,'$.session'),"
+            "json_extract(payload,'$.decision.playbook') ORDER BY id) AS day_rank "
+            "FROM intraday_opportunities WHERE market=? AND detected_at>=?) "
+            "WHERE day_rank<=? ORDER BY detected_at,id LIMIT ?",
+            (market, int(after_ts), max(1, min(per_playbook_day, 10)), max(1, min(limit, 4000)) + 1),
+        ).fetchall()
+        truncated = len(rows) > limit
+        return ([{"id": event_id, **json.loads(payload)} for event_id, payload in rows[:limit]],
+                truncated)
+    finally:
+        c.close()
+
+
 def intraday_opportunities_prune(*, older_than_ts: int) -> tuple[int, int]:
     """가격 원장과 같은 보존 기간만 유지한다. 등록 연구·체결 원장은 건드리지 않는다."""
     c = conn()

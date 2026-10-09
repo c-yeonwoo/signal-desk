@@ -3056,8 +3056,8 @@ def intraday_opportunities_get(request: Request, market: str = "kr"):
             "rows": [{"ticker": row["ticker"], "detected_at": row["detected_at"],
                       "move_pct": row["move_pct"], "direction": row["direction"],
                       "status": row["decision"]["status"], "reason": row["decision"]["reason"],
-                      "volume_confirmed": ("interval_volume" in row.get("volume", {}) or
-                                           "minute_volume_ratio" in row.get("volume", {})),
+                      "volume_confirmed": intraday_opportunity_service.model.has_volume_support(
+                          row.get("volume", {})),
                       "official_event_confirmed": bool(row.get("context", {}).get("official_event")),
                       "order_eligible": False} for row in rows]}
 
@@ -4799,25 +4799,33 @@ def intraday_opportunity_get(request: Request, market: str = "kr", days: int = 9
         raise HTTPException(status_code=422, detail="market/days/limit 값이 올바르지 않습니다.")
     rows = intraday_opportunity_service.recent_with_replay(
         market, after_ts=int(time.time()) - days * 86400, limit=limit)
+    sample, sample_truncated = intraday_opportunity_service.recent_with_replay(
+        market, after_ts=int(time.time()) - days * 86400, sampled=True)
     from signal_desk.signals import intraday_opportunity
     calibration_rows = [{"playbook": row["decision"]["playbook"], "regime": row.get("regime"),
-                         "session": row.get("session"), "replay": row["replay"]} for row in rows]
-    calibrations = intraday_opportunity.calibrate(calibration_rows)
+                         "session": row.get("session"), "replay": row["replay"]} for row in sample]
+    calibrations = intraday_opportunity.calibrate(calibration_rows) if not sample_truncated else {}
     today = datetime.datetime.now(ZoneInfo("Asia/Seoul" if market == "kr"
                                           else "America/New_York")).date().isoformat()
     regime = rows[0]["regime"] if rows else "unknown"
-    selector = intraday_opportunity.research_choice(calibration_rows, asof_session=today,
-                                                    regime=regime)
+    selector = (intraday_opportunity.research_choice(calibration_rows, asof_session=today,
+                                                    regime=regime) if not sample_truncated else
+                {"status": "abstain", "order_eligible": False,
+                 "reason": "연구 표본 상한에 걸려 전체 날짜를 평가하지 못했습니다."})
+    walk_forward = (intraday_opportunity.walk_forward(calibration_rows) if not sample_truncated else
+                    {"status": "incomplete_sample", "order_eligible": False})
     return {"market": market, "research_only": True, "live_order_enabled": False,
             "scope": "현재 시세 원장에 포함된 종목만; 미수집 종목 탐색 불가",
             "coverage": {"candidates": len(rows),
-                         "volume_intervals": sum("interval_volume" in row.get("volume", {}) or
-                                                 "minute_volume_ratio" in row.get("volume", {})
+                         "sampled_events": len(sample), "sampled_sessions": len({row.get("session") for row in sample}),
+                         "sample_truncated": sample_truncated,
+                         "sample_rule": "날짜·전략별 ID 정렬 첫 3건, 최대 4000건",
+                         "volume_intervals": sum(intraday_opportunity.has_volume_support(row.get("volume", {}))
                                                  for row in rows),
                          "matured_replays": sum(row["replay"]["status"] == "complete" for row in rows)},
             "calibrations": [{"playbook": key[0], "regime": key[1], **value}
                              for key, value in calibrations.items()],
-            "selector": {"regime": regime, **selector}, "rows": rows}
+            "selector": {"regime": regime, **selector}, "walk_forward": walk_forward, "rows": rows}
 
 
 @app.get("/api/admin/research/price-baseline")

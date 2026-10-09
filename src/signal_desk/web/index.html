@@ -10543,7 +10543,12 @@ async function loadIntradayOpportunityStudy(){
     if (!rows.length) { el.textContent = '최근 90일간 현재 수집 범위에서 5분 급변 후보가 없습니다. 수집하지 않는 종목은 탐지할 수 없습니다.'; return; }
     const vol = r => r.volume?.state !== 'observed' ? '미확인' : (r.volume?.minute_volume_ratio != null ? `최근 5분 거래량 ${fmtNum(r.volume.minute_volume_ratio, 1)}배` : r.volume?.interval_volume == null ? '한 차례 관측' : '5분 증가 ' + Number(r.volume.interval_volume).toLocaleString() + '주');
     const replay = r => r.replay?.status === 'complete' ? `가상 즉시 ${fmtNum(r.replay.immediate?.net_pct, 2)}% · 한 틱 대기 ${fmtNum(r.replay.wait_one?.net_pct, 2)}%` : '비교 가격 대기';
-    el.innerHTML = `<p class="page-desc">후보 ${Number(data.coverage?.candidates || 0)}건 · 거래량 구간 확인 ${Number(data.coverage?.volume_intervals || 0)}건 · 가상 비교 완료 ${Number(data.coverage?.matured_replays || 0)}건. 전략 선택 ${data.selector?.status === 'shadow_candidate' ? '연구 후보' : '근거 부족으로 보류'}. 수익은 다음 관측가·가정 비용으로만 계산합니다.</p>`
+    const wf = data.walk_forward || {};
+    const sample = data.coverage || {};
+    const forwardText = wf.status === 'measured_shadow'
+      ? `지난 날짜만 보고 고른 뒤 다음 날짜에 시험한 결과: ${Number(wf.oos_days)}일 · 후보 평균 ${fmtNum(wf.mean_net_pct, 2)}% · 같은 날짜 관찰 후보 평균 ${fmtNum(wf.baseline_mean_net_pct, 2)}% (가정 비용 후). 실체결·시장 대비 수익은 아닙니다.`
+      : `전진 검증 보류: 독립 날짜 ${Number(wf.oos_days || 0)}/${Number(wf.required_days || 10)}일. 검증 전에는 전략 우위나 수익률을 주장하지 않습니다.`;
+    el.innerHTML = `<p class="page-desc">최근 후보 ${Number(sample.candidates || 0)}건 · 거래량 증가 근거 ${Number(sample.volume_intervals || 0)}건 · 가상 비교 완료 ${Number(sample.matured_replays || 0)}건. 연구 표본은 ${Number(sample.sampled_sessions || 0)}일 ${Number(sample.sampled_events || 0)}건${sample.sample_truncated ? ' (상한 초과, 판정 중단)' : ''}. ${esc(forwardText)} 매매 주문에는 사용하지 않습니다.</p>`
       + '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>시각·종목</th><th>5분 변화</th><th>거래량·원인</th><th>관찰 판단</th><th>가상 비교</th></tr></thead><tbody>'
       + rows.slice(0, 15).map(r => `<tr><td>${esc(new Date(r.detected_at*1000).toLocaleString('ko-KR'))}<br>${esc(r.ticker)}</td><td>${Number(r.move_pct) >= 0 ? '+' : ''}${fmtNum(r.move_pct, 2)}%</td><td>${esc(vol(r))}<br>${r.context?.official_event ? '공시 확인' : '원인 미확인'}</td><td>${esc(r.decision?.reason || '관찰 중')}</td><td>${esc(replay(r))}</td></tr>`).join('')
       + '</tbody></table></div><p class="page-desc">외인·기관 수치는 장중 가집계이며 확정 수급이 아닙니다. 섹터·공급망·거시 연관성도 확인 전에는 매수 근거로 사용하지 않습니다. 기존 시그널·주문은 바뀌지 않습니다.</p>';
