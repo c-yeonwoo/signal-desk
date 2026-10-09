@@ -380,6 +380,11 @@ def test_admin_historical_replay_reads_only_verified_cached_day(tmp_path, monkey
         assert False, "uncached source must not trigger a provider request"
     except api.HTTPException as exc:
         assert exc.status_code == 409
+    try:
+        api.intraday_minute_replay_get(object(), "005930", "2026-08-04")
+        assert False, "protected date must remain closed"
+    except api.HTTPException as exc:
+        assert exc.status_code == 422
     day = _verified_minute_day()
     key = "intraday_minute_day:v1:005930:2026-07-14"
     db.kv_set(key, day)
@@ -391,11 +396,49 @@ def test_admin_historical_replay_reads_only_verified_cached_day(tmp_path, monkey
         assert False, "tampered source must not be replayed"
     except api.HTTPException as exc:
         assert exc.status_code == 409
+
+
+def test_historical_archive_marks_corrupt_compressed_source(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "corrupt.db")
+    other = db.intraday_research_day_put({**_verified_minute_day(), "ticker": "000660"})
+    c = db.conn()
+    c.execute("UPDATE intraday_research_minute_days SET payload=? WHERE id=?", (b"corrupt", other["id"]))
+    c.commit(); c.close()
+    assert db.intraday_research_day_get("000660", "2026-07-14") is None
+    corrupt = next(row for row in db.intraday_research_day_manifest() if row["ticker"] == "000660")
+    assert corrupt["status"] == "corrupt"
+
+
+def test_fixed_historical_day_archive_is_immutable_and_revision_conflicts_stop_replay(tmp_path, monkeypatch):
+    from signal_desk import api
+    monkeypatch.setattr(db, "DB", tmp_path / "archive.db")
+    monkeypatch.setattr(api, "_admin_or_403", lambda request: None)
+    from signal_desk.broker import kis as broker
+    day = _verified_minute_day()
+    monkeypatch.setattr(broker, "domestic_historical_minute_day", lambda ticker, session: day)
+    first = api.intraday_minute_day_get(object(), "005930", "2026-07-14")
+    assert first["archive"]["status"] == "preserved"
+    assert first["archive"]["stored_bytes"] < first["archive"]["raw_bytes"]
+    repeated = api.intraday_minute_day_get(object(), "005930", "2026-07-14")
+    assert repeated["cached"] is True and repeated["archive"]["id"] == first["archive"]["id"]
+    assert repeated["archive"]["first_observed"] == first["archive"]["first_observed"]
+    assert db.intraday_research_day_get("005930", "2026-07-14") == day
+    manifest = api.intraday_minute_archive_get(object())
+    assert manifest["observed_pairs"] == 1 and manifest["expected_pairs"] == 8
+    assert manifest["stored_bytes"] == first["archive"]["stored_bytes"]
+    assert api.intraday_minute_replay_get(object(), "005930", "2026-07-14")["status"] == "counterfactual_only"
+    revised = _verified_minute_day()
+    revised["bars"][10]["price"] = 107
+    revised["bars_sha256"] = hashlib.sha256(json.dumps(
+        revised["bars"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    second = db.intraday_research_day_put(revised)
+    assert second["status"] == "revision_conflict" and second["id"] != first["archive"]["id"]
+    assert db.intraday_research_day_get("005930", "2026-07-14") is None
     try:
-        api.intraday_minute_replay_get(object(), "005930", "2026-08-04")
-        assert False, "protected date must remain closed"
+        api.intraday_minute_replay_get(object(), "005930", "2026-07-14")
+        assert False, "different source revisions cannot be silently selected"
     except api.HTTPException as exc:
-        assert exc.status_code == 422
+        assert exc.status_code == 409
 
 
 def test_admin_minute_probe_caches_one_bounded_page(tmp_path, monkeypatch):

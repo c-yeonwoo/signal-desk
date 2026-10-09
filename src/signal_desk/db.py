@@ -345,6 +345,16 @@ CREATE INDEX IF NOT EXISTS idx_intraday_opportunities_recent
 CREATE TABLE IF NOT EXISTS intraday_opportunity_scans(
     market TEXT NOT NULL, ts INTEGER NOT NULL, payload TEXT NOT NULL,
     PRIMARY KEY(market,ts));
+-- 사전 고정된 보호 전 연구 표본만 보존한다. 가격·봇·실주문 원장과 독립,
+-- 같은 원천 재조회는 첫 바이트를 유지하고 서로 다른 개정은 별도 행으로 남긴다.
+CREATE TABLE IF NOT EXISTS intraday_research_minute_days(
+    id TEXT PRIMARY KEY, ticker TEXT NOT NULL, session TEXT NOT NULL,
+    source_sha256 TEXT NOT NULL, payload BLOB NOT NULL,
+    raw_bytes INTEGER NOT NULL, stored_bytes INTEGER NOT NULL,
+    first_observed INTEGER NOT NULL,
+    UNIQUE(ticker,session,source_sha256));
+CREATE INDEX IF NOT EXISTS idx_intraday_research_minute_days_pair
+    ON intraday_research_minute_days(ticker,session,first_observed);
 -- 공용 판단 입력/출력의 내용 주소 저장소. 계좌·주문 권한이나 사용자 정보는 담지 않는다.
 -- 같은 일봉 기준본/팩터 입력은 여러 판단이 재사용하며 수정 시 새 ID를 만든다.
 CREATE TABLE IF NOT EXISTS decision_artifacts(
@@ -1187,6 +1197,102 @@ def intraday_opportunity_scans_recent(market: str, *, after_ts: int, limit: int 
                          "WHERE market=? AND ts>=? ORDER BY ts DESC LIMIT ?",
                          (market, int(after_ts), max(1, min(limit, 200)))).fetchall()
         return [{"ts": ts, **json.loads(payload)} for ts, payload in rows]
+    finally:
+        c.close()
+
+
+def intraday_research_day_put(day: dict) -> dict:
+    """검증된 하루 원천의 첫 관측을 압축해 보존한다. 갱신·삭제하지 않는다."""
+    if (day.get("status") != "observed_day" or day.get("date_attested_by_rows") is not True
+            or not isinstance(day.get("bars"), list) or not day["bars"]):
+        raise ValueError("unverified minute day")
+    ticker, session, source_sha = day.get("ticker"), day.get("session"), day.get("bars_sha256")
+    bar_raw = json.dumps(day["bars"], sort_keys=True, separators=(",", ":")).encode()
+    if not isinstance(source_sha, str) or hashlib.sha256(bar_raw).hexdigest() != source_sha:
+        raise ValueError("minute day digest mismatch")
+    if not isinstance(ticker, str) or not isinstance(session, str):
+        raise ValueError("invalid minute day identity")
+    archive_id = hashlib.sha256(f"signal-desk:intraday-research-day:v1:{ticker}:{session}:{source_sha}".encode()).hexdigest()
+    raw = json.dumps(day, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+                     allow_nan=False).encode()
+    compressed = zlib.compress(raw, level=6)
+    if len(day["bars"]) > 391 or len(raw) > 1_000_000 or len(compressed) > 131_072:
+        raise ValueError("minute day exceeds bounded archive size")
+    now = int(time.time())
+    c = conn()
+    try:
+        c.isolation_level = None
+        c.execute("BEGIN IMMEDIATE")
+        prior = c.execute("SELECT COUNT(*) FROM intraday_research_minute_days "
+                          "WHERE ticker=? AND session=?", (ticker, session)).fetchone()[0]
+        existing = c.execute("SELECT 1 FROM intraday_research_minute_days "
+                             "WHERE ticker=? AND session=? AND source_sha256=?",
+                             (ticker, session, source_sha)).fetchone()
+        if prior >= 3 and not existing:
+            c.execute("ROLLBACK")
+            raise ValueError("minute day revision archive limit")
+        c.execute("INSERT OR IGNORE INTO intraday_research_minute_days"
+                  "(id,ticker,session,source_sha256,payload,raw_bytes,stored_bytes,first_observed)"
+                  " VALUES(?,?,?,?,?,?,?,?)",
+                  (archive_id, ticker, session, source_sha, compressed, len(raw), len(compressed), now))
+        c.execute("COMMIT")
+        row = c.execute("SELECT id,raw_bytes,stored_bytes,first_observed FROM intraday_research_minute_days "
+                        "WHERE ticker=? AND session=? AND source_sha256=?",
+                        (ticker, session, source_sha)).fetchone()
+        revisions = c.execute("SELECT COUNT(*) FROM intraday_research_minute_days "
+                              "WHERE ticker=? AND session=?", (ticker, session)).fetchone()[0]
+        return {"id": row[0], "ticker": ticker, "session": session, "source_sha256": source_sha,
+                "raw_bytes": row[1], "stored_bytes": row[2], "first_observed": row[3],
+                "revisions": revisions, "status": "revision_conflict" if revisions > 1 else
+                            "preserved" if intraday_research_day_get(ticker, session) else "corrupt"}
+    finally:
+        c.close()
+
+
+def intraday_research_day_get(ticker: str, session: str) -> dict | None:
+    """한 버전만 있을 때 원문·압축·내용 해시를 재검증해 반환한다."""
+    c = conn()
+    try:
+        rows = c.execute("SELECT id,payload,raw_bytes,source_sha256 FROM intraday_research_minute_days "
+                         "WHERE ticker=? AND session=?", (ticker, session)).fetchall()
+    finally:
+        c.close()
+    if len(rows) != 1:
+        return None
+    archive_id, payload, raw_bytes, source_sha = rows[0]
+    try:
+        raw = zlib.decompress(payload)
+        if len(raw) != raw_bytes:
+            return None
+        day = json.loads(raw)
+        bars = json.dumps(day["bars"], sort_keys=True, separators=(",", ":")).encode()
+    except (zlib.error, ValueError, TypeError, KeyError):
+        return None
+    if (day.get("ticker") != ticker or day.get("session") != session
+            or day.get("bars_sha256") != source_sha
+            or archive_id != hashlib.sha256(
+                f"signal-desk:intraday-research-day:v1:{ticker}:{session}:{source_sha}".encode()).hexdigest()
+            or hashlib.sha256(bars).hexdigest() != source_sha):
+        return None
+    return day
+
+
+def intraday_research_day_manifest() -> list[dict]:
+    """연구 분봉 보존 목록. 가격·성과는 돌려주지 않는다."""
+    c = conn()
+    try:
+        rows = c.execute("SELECT id,ticker,session,source_sha256,raw_bytes,stored_bytes,first_observed "
+                         "FROM intraday_research_minute_days ORDER BY session,ticker,first_observed,id").fetchall()
+        counts = {}
+        for row in rows:
+            pair = (row[1], row[2])
+            counts[pair] = counts.get(pair, 0) + 1
+        return [{"id": row[0], "ticker": row[1], "session": row[2], "source_sha256": row[3],
+                 "raw_bytes": row[4], "stored_bytes": row[5], "first_observed": row[6],
+                 "revisions": counts[(row[1], row[2])],
+                 "status": "revision_conflict" if counts[(row[1], row[2])] > 1 else
+                           "preserved" if intraday_research_day_get(row[1], row[2]) else "corrupt"}
+                for row in rows]
     finally:
         c.close()
 
