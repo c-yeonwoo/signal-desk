@@ -65,6 +65,31 @@ def test_partial_market_card_excludes_old_symbol_and_reports_missing():
     assert out["today_headline"] == "10월 2일 등락은 아직 확인하기 어려워요"
 
 
+def test_us_market_card_never_compares_previous_session_nasdaq_with_today_breadth():
+    prices, dates = _bars(last="2026-10-09")
+    dates[-2] = "2026-10-08"
+    inputs = dict(
+        prices={"A": prices}, dates={"A": dates}, tickers=["A"],
+        expected="2026-10-09", previous="2026-10-08",
+    )
+    previous_index = market_brief.build(
+        "us", **inputs,
+        macro_indicators=[{"key": "NASDAQCOM", "change": -1.25,
+                           "asof": "2026-10-08", "source_url": "https://fred.stlouisfed.org/series/NASDAQCOM"}],
+    )
+    assert previous_index["today_headline"] == "10월 9일, 오른 종목이 더 많았어요"
+    assert not any(fact["label"] == "나스닥 지수 변화" for fact in previous_index["facts"])
+    assert any("나스닥 지수의 해당 거래일" in item for item in previous_index["unknown"])
+
+    same_day_index = market_brief.build(
+        "us", **inputs,
+        macro_indicators=[{"key": "NASDAQCOM", "change": 0.5,
+                           "asof": "2026-10-09", "source_url": "https://fred.stlouisfed.org/series/NASDAQCOM"}],
+    )
+    assert next(fact for fact in same_day_index["facts"]
+                if fact["label"] == "나스닥 지수 변화")["value"] == "+0.50%"
+
+
 def test_partial_coverage_headline_names_sample_when_most_bars_are_available():
     prices, dates = _bars()
     old_prices, old_dates = _bars(last="2026-10-01")

@@ -161,14 +161,16 @@ def build(
         nasdaq = next((i for i in macro_indicators if i.get("key") == "NASDAQCOM"), None)
         nas_day = str((nasdaq or {}).get("asof") or "")[:10]
         change = (nasdaq or {}).get("change")
-        if (_nearby_session(nas_day, expected, previous) and isinstance(change, (int, float))
+        # A previous-session index move beside today's breadth reads as a
+        # contradictory same-day comparison even when the source date is shown.
+        if (nas_day == expected and isinstance(change, (int, float))
                 and not isinstance(change, bool) and math.isfinite(change)):
             facts.append({"label": "나스닥 지수 변화", "value": f"{change:+.2f}%",
                           "detail": "미국 시장 참고 지표", "technical": "관찰 종목 전체의 수익률은 아님",
                           "as_of": nas_day,
                           "source": "FRED", "source_url": (nasdaq or {}).get("source_url")})
         else:
-            unknown.append("나스닥 참고 지표는 해당 거래일 근처의 관측을 확인하지 못했습니다.")
+            unknown.append("나스닥 지수의 해당 거래일 관측을 확인하지 못해 시장 요약에서 제외했습니다.")
 
     # The selection is a separately time-stamped *current* engine reading. It
     # never changes the historical close-based market state above.
