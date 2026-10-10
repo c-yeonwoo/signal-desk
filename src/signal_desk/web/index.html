@@ -151,6 +151,10 @@
   .admin-expert-nav .seg-toggle { margin-top:10px; }
   .admin-todo-group + .admin-todo-group { border-top:1px solid var(--line); margin-top:10px; padding-top:10px; }
   .admin-todo-title { font-weight:700; color:var(--fg); margin-bottom:5px; }
+  .admin-quick-nav { display:flex; flex-wrap:wrap; gap:7px; margin:10px 0 4px; }
+  .admin-incident { border-top:1px solid var(--line); padding:10px 0; font-size:14px; line-height:1.5; }
+  .admin-incident-label { display:inline-block; margin-right:6px; color:var(--dim); font-size:12px; font-weight:700; }
+  .admin-incident-detail { margin:3px 0; color:var(--dim); overflow-wrap:anywhere; }
   /* ===== 시그널만 뷰포트 채움(다른 탭 셸은 건드리지 않음) ===== */
   #view-signal.view-app { flex:1 1 auto; min-height:calc(100dvh - 168px); display:flex; flex-direction:column; gap:12px; }
   #view-signal .sig-workspace { flex:1 1 auto; min-height:480px; height:auto; }
@@ -1795,6 +1799,12 @@
           <p class="page-desc">평소엔 문제 여부만 확인하면 됩니다. 연구 수치나 엔진 가중치는 직접 바꾸지 않아도 됩니다.</p></div>
         <button type="button" class="btn" onclick="openAdminTradingSettings()">내 실계좌 한도·비중 설정</button>
       </div>
+      <nav class="admin-quick-nav" aria-label="관리자 확인 위치">
+        <button type="button" class="btn" onclick="adminTodoGo('ops')">서비스 상태</button>
+        <button type="button" class="btn" onclick="adminTodoGo('data')">데이터</button>
+        <button type="button" class="btn" onclick="adminTodoGo('connection')">연결·비용</button>
+        <button type="button" class="btn" onclick="adminTodoGo('verify')">연구</button>
+      </nav>
       <div id="admin-todo-body" style="font-size:13px;color:var(--dim)">점검 중…</div>
     </div>
     <div class="admin-nav" id="admin-nav">
@@ -8074,27 +8084,48 @@ function _adminOpsIncidents(d){
   if (!d) return [];
   const items = [];
   if (d.storage && d.storage.ephemeral_suspected)
-    items.push({ id: 'storage', seg: 'ops', text: '저장 자료가 배포 후 사라질 수 있음' });
+    items.push({ id: 'storage', seg: 'ops', group: '서비스', text: '저장 자료가 배포 후 사라질 수 있음',
+      impact: '누적 성과와 원문 보존을 확인하기 어렵습니다.', next: '볼륨 마운트와 배포 전후 같은 원문 ID를 확인하세요.' });
   const autoBlocked = Object.keys(d.auto_refresh_blocked || {});
-  if (autoBlocked.length)
-    items.push({ id: 'auto-refresh', seg: 'ops', text: `자동 자료 갱신이 거부된 소스 ${autoBlocked.length}건` });
+  for (const key of autoBlocked) {
+    const fault = d.auto_refresh_blocked[key] || {};
+    items.push({ id: 'auto-refresh', seg: 'connection', group: '연결',
+      text: `${fault.label || key} · ${fault.reason || '자동 갱신 실패'}`,
+      impact: '해당 원천 자료가 새 판단에 반영되지 않을 수 있습니다.',
+      observed: fault.at ? `마지막 실패 ${fault.at}` : '마지막 실패 시각 미기록',
+      next: '제공자 설정과 최근 요청 결과를 확인하세요. 다시 점검만 눌러서는 해결되지 않습니다.' });
+  }
   if (d.scaled_suspect)
-    items.push({ id: 'price-scale', seg: 'ops', text: '종가와 실시간 가격의 크기가 크게 다름' });
+    items.push({ id: 'price-scale', seg: 'data', group: '자료', text: '종가와 실시간 가격의 크기가 크게 다름',
+      impact: '해당 종목의 가격 기준 시그널을 매매 근거로 사용하기 어렵습니다.',
+      next: '상세 진단의 원시 종가·현재가와 단위를 대조하세요.' });
   // 브리핑의 stall_line은 여러 원인을 한 문장으로 압축한다. 관리자 할 일은
   // 구조화된 원천별 상태를 사용해 가격·거시·PIT를 서로 다른 문제로 안내한다.
   const stall = d.stall || null;
   const staleByKey = new Map();
-  for (const f of (stall && stall.stale) || []) if (f && f.key) staleByKey.set(f.key, f);
-  for (const f of d.freshness || []) if (f && f.stale && f.key && !staleByKey.has(f.key)) staleByKey.set(f.key, f);
+  for (const f of d.freshness || []) if (f && f.stale && f.key) staleByKey.set(f.key, f);
+  for (const f of (stall && stall.stale) || []) if (f && f.key)
+    staleByKey.set(f.key, {...(staleByKey.get(f.key) || {}), ...f});
   for (const [key, f] of staleByKey) {
     // 같은 원천의 갱신 거부·KB 수집 실패는 이미 별도 원인으로 표시한다.
     if (autoBlocked.includes(key) || (key === 'kb' && d.kb_refresh && d.kb_refresh.blocked_reason)) continue;
     const note = f.stall_note || f.note || (f.age_hours == null ? '마지막 확인 시각 없음' : `마지막 갱신 ${Math.floor(f.age_hours / 24)}일 전`);
+    const isPrice = key === 'prices' || key === 'us_prices';
+    const laggingBars = key === 'us_prices' ? Object.entries(f.stale_last_dates || {}).slice(0, 3)
+      .map(([ticker, day]) => `${ticker} ${day}`).join(' · ') : '';
     items.push({ id: key === 'prices' || key === 'us_prices' ? 'price-stale' : 'stale',
-      seg: 'ops', text: `${f.label || key} · ${note}` });
+      seg: 'data', group: '자료', text: `${f.label || key} · ${note}`,
+      impact: isPrice ? '뒤처진 종목의 판단에는 최신 종가라고 단정할 수 없습니다.'
+        : key === 'macro' || key === 'macro_kr' ? '시황 설명과 거시 관점 판정의 원천 날짜를 확인해야 합니다. 파일 저장 시각과 다릅니다.'
+        : '해당 자료를 쓰는 설명·검증의 기준일을 확인해야 합니다.',
+      observed: laggingBars ? `뒤처진 종목 마지막 봉 ${laggingBars}`
+        : f.updated ? `${key === 'us_prices' ? '시장 전체 최신 봉' : '캐시 저장'} ${f.updated} · 원천별 성공시각 기록 없음` : '마지막 확인 시각 미기록',
+      retry: key === 'us_prices' ? '자동 재조회: 30분 루프·마감 후' : key === 'macro' || key === 'macro_kr' ? '자동 재조회: 설정 간격' : '자동 갱신 상태는 상세 진단에서 확인',
+      next: isPrice ? '대상 종목의 마지막 봉과 재조회 결과를 확인하세요.' : '원천 관측일과 수집 결과를 대조하세요.' });
   }
   if (stall && stall.pit && stall.pit.missing_n)
-    items.push({ id: 'pit-gap', seg: 'ops', text: `시그널 기록 ${stall.pit.missing_n}거래일 누락 · ${(stall.pit.missing || []).slice(0, 3).join(', ')}` });
+    items.push({ id: 'pit-gap', seg: 'data', group: '자료', text: `시그널 기록 ${stall.pit.missing_n}거래일 누락 · ${(stall.pit.missing || []).slice(0, 3).join(', ')}`,
+      impact: '빠진 거래일은 성과 검증의 실측 표본으로 쓸 수 없습니다.', next: 'PIT 스냅샷 수집 기록을 확인하세요. 과거 날짜를 추정해 채우지 마세요.' });
   // 오래된 판별력 검사는 자동 연구 일정이지 사용자가 지금 고칠 운영 장애는 아니다.
   if (!stall && d.stall_line && !staleByKey.size)
     items.push({ id: 'stall', seg: 'ops', text: String(d.stall_line).replace(/^🔧\s*/, '') });
@@ -8105,7 +8136,12 @@ function _adminOpsIncidents(d){
   ['warnings_veto', 'kb_retrieval', 'kb_refresh'].forEach(k => {
     const st = d[k];
     if (!st || !st.blocked_reason || notTodo.has(st.blocked_kind)) return;
-    items.push({ id: k, seg: 'ops', text: st.blocked_reason });
+    if (k === 'kb_refresh' && autoBlocked.includes('kb')) return;
+    items.push({ id: k, seg: k.startsWith('kb') ? 'kb' : 'data', group: '자료',
+      text: st.blocked_reason,
+      impact: k.startsWith('kb') ? '최신 회사 기사 설명은 확인된 원문만 사용합니다.'
+        : '매수 안전자료를 확인하기 전에는 해당 판단을 신뢰하기 어렵습니다.',
+      observed: st.last_run ? `마지막 시도 ${st.last_run}` : '마지막 성공 시각 미기록' });
   });
   const seen = new Set();
   return items.filter(it => { const key = `${it.id}:${it.text}`; if (seen.has(key)) return false; seen.add(key); return true; });
@@ -9058,15 +9094,21 @@ function renderAdminTodo(){
   const ver = _badgeActive('admin-verify-badge');
   if (ver) observation.push('새 연구 성적이 있음 · 실주문에 자동 반영되지 않음');
   const seen = new Set();
-  const uniq = actionable.filter(it => { if (seen.has(it.text)) return false; seen.add(it.text); return true; });
+  const uniq = actionable.filter(it => { const key = `${it.id}:${it.text}`; if (seen.has(key)) return false; seen.add(key); return true; });
+  const incidentCard = it => {
+    const guide = _ADMIN_ISSUE_GUIDE[it.id] || ['운영 자료를 확인해야 합니다', '상세 진단에서 오류 원인을 확인하세요.'];
+    const detail = label => it[label] ? `<div class="admin-incident-detail">${label === 'impact' ? '영향' : label === 'observed' ? '확인 시각' : label === 'retry' ? '재확인' : '다음 확인'} · ${esc(it[label])}</div>` : '';
+    return `<div class="admin-incident"><span class="admin-incident-label">${esc(it.group || '서비스')}</span>`
+      + `<b style="color:var(--sell)">${esc(guide[0])}</b>`
+      + `<div class="admin-incident-detail">${esc(it.text)}</div>`
+      + detail('impact') + detail('observed') + detail('retry')
+      + detail('next')
+      + (!it.next ? `<div class="admin-incident-detail">다음 확인 · ${esc(guide[1])}</div>` : '')
+      + `<button type="button" class="btn" onclick="adminTodoGo('${it.seg}')">${it.seg === 'data' ? '자료 상태 보기' : it.seg === 'connection' ? '연결 상태 보기' : '상세 원인 보기'}</button></div>`;
+  };
   const actionHtml = uniq.length
-    ? uniq.slice(0, 5).map(it => {
-        const guide = _ADMIN_ISSUE_GUIDE[it.id] || ['운영 자료를 확인해야 합니다', '상세 진단에서 오류 원인을 확인하세요.'];
-        return `<div style="padding:8px 0;border-top:1px solid var(--line)"><b style="color:var(--sell)">${esc(guide[0])}</b>`
-          + `<div style="color:var(--dim);margin:3px 0">${esc(guide[1])}</div>`
-          + `<div style="color:var(--dim-2);font-size:12px;margin-bottom:5px">${esc(it.text)}</div>`
-          + `<button type="button" class="btn" onclick="adminTodoGo('${it.seg}')">상세 원인 보기</button></div>`;
-      }).join('') + (uniq.length > 5 ? `<div style="margin-top:6px;color:var(--sell)">그 밖에 ${uniq.length - 5}건 · 상세 데이터 진단에서 확인</div>` : '')
+    ? uniq.slice(0, 5).map(incidentCard).join('')
+      + (uniq.length > 5 ? `<details><summary>다른 문제 ${uniq.length - 5}건 보기</summary>${uniq.slice(5).map(incidentCard).join('')}</details>` : '')
     : '<span style="color:var(--sig-buy)">지금 직접 조치할 일 없음</span>';
   const info = [...new Set(observation)];
   el.innerHTML = `<div class="admin-todo-group"><div class="admin-todo-title">직접 확인할 문제</div>${actionHtml}</div>`
@@ -9074,10 +9116,14 @@ function renderAdminTodo(){
       + info.slice(0, 5).map(line => `<div style="margin:3px 0">· ${esc(line)}</div>`).join('') + '</div>' : '');
 }
 function adminTodoGo(seg){
-  switchAdminSeg(seg);
-  if (seg === 'ops') {
+  switchAdminSeg(seg === 'data' || seg === 'connection' ? 'ops' : seg);
+  if (seg === 'ops' || seg === 'data' || seg === 'connection') {
     const details = document.getElementById('admin-health-details');
     if (details) details.open = true;
+  }
+  if (seg === 'connection') {
+    const costs = document.getElementById('ops-metrics-details');
+    if (costs) costs.open = true;
   }
 }
 async function _adminPrefetchJson(url){

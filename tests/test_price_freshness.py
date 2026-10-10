@@ -37,6 +37,7 @@ def test_us_freshness_names_stale_tickers_with_a_bounded_preview(tmp_path, monke
 
     assert freshness["rows"] == 12
     assert freshness["stale_tickers"] == [f"T{i:02d}" for i in range(10)]
+    assert freshness["stale_last_dates"] == {f"T{i:02d}": "2026-10-02" for i in range(10)}
     assert freshness["stale_tickers_omitted"] == 2
     assert "12/12종목 갱신 대상(T00, T01" in freshness["note"]
     assert "외 2종목" in freshness["note"]

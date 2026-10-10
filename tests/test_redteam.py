@@ -3488,7 +3488,8 @@ const d={stall_line:'🔧 갱신 멈춤 미국 시세 / 거시 / 판별력 검�
     {key:'macro',label:'거시(FRED)',stall_note:'원천 지연'},
     {key:'kb',label:'뉴스',stall_note:'갱신 실패'}],
     pit:{missing_n:1,missing:['2026-10-08']},harness_days:16},
-  freshness:[{key:'us_prices',label:'미국 시세',stale:true},
+  freshness:[{key:'us_prices',label:'미국 시세',stale:true,
+    stale_last_dates:{AVB:'2026-10-02'},updated:'2026-10-09'},
     {key:'macro',label:'거시(FRED)',stale:true},
     {key:'kb',label:'뉴스',stale:true}],
   kb_refresh:{blocked_reason:'수집 실패',blocked_kind:'fault'}};
@@ -3499,12 +3500,66 @@ assert.equal(incidents.filter(x=>x.id==='pit-gap').length,1);
 assert.equal(incidents.filter(x=>x.id==='kb_refresh').length,1);
 assert(!incidents.some(x=>x.id==='stall'||x.text.includes('판별력 검사')));
 assert.equal(incidents.find(x=>x.text.includes('미국 시세')).id,'price-stale');
+assert.equal(incidents.find(x=>x.text.includes('미국 시세')).group,'자료');
+assert(incidents.find(x=>x.text.includes('미국 시세')).observed.includes('AVB 2026-10-02'));
 const blocked=Array.from(ctx._adminOpsIncidents({...d,auto_refresh_blocked:{macro:{reason:'키 없음'}}}));
 assert.equal(blocked.filter(x=>x.text.includes('거시(FRED)')).length,0);
 assert.equal(blocked.filter(x=>x.id==='auto-refresh').length,1);
 const legacy=Array.from(ctx._adminOpsIncidents({stall_line:'🔧 예전 응답'}));
 assert.equal(legacy.length,1);
 assert.equal(legacy[0].id,'stall');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=".", text=True,
+                            capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+
+
+def test_admin_incident_cards_show_impact_timestamp_next_step_and_navigation():
+    """관리자 첫 화면에서 한 문제의 영향·관측·다음 확인과 자료/연결/연구 동선을 찾는다."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the admin incident renderer")
+    script = r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+const start=html.indexOf('function renderAdminTodo(');
+const end=html.indexOf('async function _adminPrefetchJson(',start);
+const guideStart=html.indexOf('const _ADMIN_ISSUE_GUIDE =');
+const guideEnd=html.indexOf('function renderAdminTodo(',guideStart);
+const box={innerHTML:'',textContent:''};
+const health={open:false},costs={open:false},calls=[];
+const ctx=vm.createContext({
+  document:{getElementById:id=>({'admin-todo-body':box,'admin-health-details':health,
+    'ops-metrics-details':costs})[id]||null},
+  _dhState:'ready',_dhCache:{},_dhError:'',
+  _adminOpsIncidents:()=>[
+    {id:'price-stale',seg:'data',group:'자료',text:'미국 시세 · 7/512종목 뒤처짐',
+      impact:'최신 종가 확인 필요',observed:'시장 전체 최신 봉 2026-10-09',
+      retry:'자동 재조회: 30분 루프·마감 후',next:'대상 종목의 마지막 봉 확인'},
+    {id:'auto-refresh',seg:'connection',group:'연결',text:'FRED · 요청 실패',
+      impact:'원천 갱신 안 됨',observed:'마지막 실패 2026-10-10',next:'제공자 키 확인'}],
+  _badgeN:()=>0,_badgeActive:()=>false,esc:x=>String(x),Set,
+  switchAdminSeg:seg=>calls.push(seg)});
+vm.runInContext(html.slice(guideStart,guideEnd)+html.slice(start,end),ctx);
+ctx.renderAdminTodo();
+for(const marker of ['미국 시세 · 7/512종목 뒤처짐','영향 · 최신 종가 확인 필요',
+  '확인 시각 · 시장 전체 최신 봉 2026-10-09','재확인 · 자동 재조회: 30분 루프·마감 후',
+  '다음 확인 · 대상 종목의 마지막 봉 확인','자료 상태 보기','연결 상태 보기'])
+assert(box.innerHTML.includes(marker),marker);
+ctx._adminOpsIncidents=()=>Array.from({length:6},(_,i)=>({id:'stale',seg:'data',
+  text:`원천 ${i}`,next:`${i}번 확인`}));
+ctx.renderAdminTodo();
+assert(box.innerHTML.includes('다른 문제 1건 보기'));
+assert(box.innerHTML.includes('원천 5'));
+ctx.adminTodoGo('connection');
+assert.equal(calls.at(-1),'ops');
+assert(health.open && costs.open);
+ctx.adminTodoGo('verify');
+assert.equal(calls.at(-1),'verify');
+assert(html.includes("adminTodoGo('data')") && html.includes("adminTodoGo('connection')")
+  && html.includes("adminTodoGo('verify')"));
 """
     result = subprocess.run(["node", "-e", script], cwd=".", text=True,
                             capture_output=True, check=False)

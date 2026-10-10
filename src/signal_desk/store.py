@@ -2633,6 +2633,8 @@ def _us_prices_freshness() -> dict:
     # 운영 화면에서 재수집이 필요한 종목을 바로 식별할 수 있게 일부 이름을 함께 낸다.
     # 수백 종목이 한꺼번에 밀린 경우 진단 응답과 화면이 비대해지지 않도록 10개로 제한한다.
     stale_tickers_preview = sorted(behind)[:10]
+    stale_last_dates = {ticker: str(last.get(ticker) or '없음')[:10]
+                        for ticker in stale_tickers_preview}
     if behind:
         names = ", ".join(stale_tickers_preview)
         omitted = len(behind) - len(stale_tickers_preview)
@@ -2662,6 +2664,7 @@ def _us_prices_freshness() -> dict:
     entry.update(updated=newest, age_hours=age_h, rows=len(behind),
                  stale=bool(behind) or bool(holes_n), total=len(known),
                  stale_tickers=stale_tickers_preview,
+                 stale_last_dates=stale_last_dates,
                  unconfirmed_tickers=unconfirmed[:10],
                  unconfirmed_count=len(unconfirmed),
                  stale_tickers_omitted=max(0, len(behind) - len(stale_tickers_preview)),
