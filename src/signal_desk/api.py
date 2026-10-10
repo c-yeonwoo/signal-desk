@@ -2006,6 +2006,36 @@ def portfolio_profile_set(request: Request, data: dict = Body(default={})):
     return {"ok": True, "profile": db.portfolio_profile_set(_uid(request), market, values)}
 
 
+@app.post("/api/portfolio/weight-preview")
+def portfolio_weight_preview_post(request: Request, response: Response, data: dict = Body(default={})):
+    """User-entered spend vs manual holdings, at one completed close; never an order preview."""
+    from signal_desk import portfolio_weight_preview
+
+    response.headers["Cache-Control"] = "private, no-store"
+    market = data.get("market")
+    if market not in ("kr", "us"):
+        raise HTTPException(400, "국내·해외 시장을 선택하세요.")
+    uid = _uid(request)
+    holdings = _holdings_by_market(db.holdings_list(uid), market)
+    profile = db.portfolio_profile_get(uid, market)
+    prices, dates = store.load_portfolio_close_bundle(market)
+    universe = store.load_us_universe() if market == "us" else store.load_universe()
+    sector_by = {str(asset["ticker"]): asset.get("sector") for asset in universe if asset.get("ticker")}
+    rows = []
+    for holding in holdings:
+        ticker = str(holding["ticker"])
+        closes, sessions = prices.get(ticker) or [], dates.get(ticker) or []
+        rows.append({"ticker": ticker, "qty": holding.get("qty"),
+                     "close": closes[-1] if closes else None,
+                     "close_date": str(sessions[-1])[:10] if sessions else None,
+                     "sector": sector_by.get(ticker) or sectors.sector_of(ticker)})
+    return portfolio_weight_preview.preview(
+        ticker=str(data.get("ticker") or "").strip().upper(), amount=data.get("amount"),
+        cash=profile["cash"], rows=rows,
+        expected_session=market_clock.latest_completed_session(market, datetime.datetime.now(datetime.timezone.utc)),
+        profile=profile, market=market)
+
+
 def _portfolio_input_fingerprint(holdings: list[dict], profile: dict) -> str:
     """진단 당시 입력과 현재 입력을 금액·한도 포함해 비교하는 불투명 지문."""
     normalized_holdings = sorted(
