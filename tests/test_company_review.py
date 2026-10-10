@@ -75,6 +75,20 @@ def test_blocked_buy_is_not_shown_as_positive_candidate_claim():
     assert "차단" in review["claims"][0]["text"]
 
 
+def test_manual_holding_loss_is_a_close_based_comparison_not_a_sell_or_add_signal():
+    holding = {"ticker": "005930", "qty": 3, "avg_price": 100}
+    review = _review(holding=holding, confirmed_close=76)
+    assert review["signal"]["decision"] == "STRONG_BUY"
+    assert review["holding_context"] == {
+        "source": "manual_analysis", "quantity": 3.0, "average_price": 100.0,
+        "confirmed_close": 76.0, "close_date": "2026-10-06", "price_change_pct": -24.0,
+    }
+    assert "더 사거나 계속 보유하라는 판정이 아닙니다" in review["holding_text"]
+    assert review["not_order_advice"] is True
+    assert _review(holding=holding, confirmed_close=76, price_date="2026-10-02")["holding_context"]["price_change_pct"] is None
+    assert _review(holding={**holding, "avg_price": float("nan")}, confirmed_close=76)["holding_context"] is None
+
+
 def test_news_context_deduplicates_reprints_and_rejects_unsafe_or_expired_sources():
     current = {"id": 3, "title": "삼성전자, 실적 발표", "url": "https://news.example/3",
                "published": "2026-10-06T09:00:00+09:00", "attribution_checked_at": int(NOW.timestamp())}
@@ -121,7 +135,9 @@ def test_detail_review_is_private_and_uses_only_own_manual_holdings(tmp_path, mo
     b = second.get("/api/signals/005930/detail")
     assert a.headers["cache-control"] == b.headers["cache-control"] == "private, no-store"
     assert a.json()["review"]["portfolio_relation"] == "held"
+    assert a.json()["review"]["holding_context"]["price_change_pct"] == 0.0
     assert b.json()["review"]["portfolio_relation"] == "not_in_portfolio"
+    assert b.json()["review"]["holding_context"] is None
     assert a.json()["review"]["signal"]["decision"] == "HOLD"
     assert {e["id"] for e in a.json()["review"]["evidence"]} == {
         "price:kr:005930:2026-10-06", "kb:1"}
@@ -149,6 +165,7 @@ const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
 const code=html.slice(html.indexOf('function _paintSignalReview('),html.indexOf('// 차트 표시 모드',html.indexOf('function _paintSignalReview(')));
 const el={style:{},innerHTML:'',textContent:''};
 const ctx=vm.createContext({document:{getElementById:()=>el},INDEX_TICKER:'INDEX',Map,Date,
+  _piMoney:(v,c)=>c==='USD'?'$'+v:v+'원',fmtNum:(v)=>String(v),
   esc:s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))});
 vm.runInContext(code,ctx);
 ctx._paintSignalReview('005930',{ticker:'005930',price_status:'current',price_basis:'confirmed_close',
@@ -160,6 +177,14 @@ assert.match(el.innerHTML,/기사 제목 ·/);
 assert.match(el.innerHTML,/기사 내용의 사실 여부는 검증하지 않았어요/);
 assert.doesNotMatch(el.innerHTML,/확인된 기업 소식/);
 assert.doesNotMatch(el.innerHTML,/href="javascript:/);
+ctx._paintSignalReview('005930',{ticker:'005930',market:'kr',portfolio_relation:'held',price_status:'current',price_basis:'confirmed_close',
+  as_of:{prices_through:'2026-10-06'},signal:{decision:'STRONG_BUY'},claims:[],evidence:[],
+  holding_text:'분석용 보유 입력',holding_context:{source:'manual_analysis',average_price:100,confirmed_close:76,close_date:'2026-10-06',price_change_pct:-24},
+  unknowns:[]});
+assert.match(el.innerHTML,/새 매수 후보권과 내 보유 판단은 달라요/);
+assert.match(el.innerHTML,/단순 가격 변화/);
+assert.match(el.innerHTML,/-24%/);
+assert.match(el.innerHTML,/내 보유 진단에서 비중 확인/);
 ctx._paintSignalReview('AAPL',null);
 assert.equal(el.textContent,'기업 근거와 내 보유를 함께 확인하는 중…');
 """

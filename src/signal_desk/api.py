@@ -3194,7 +3194,7 @@ def signal_detail_get(ticker: str, request: Request, response: Response, market:
         price_date=bars[-1]["date"] if bars else None, expected_date=expected,
         news=current_news, official=official, holding=holding, watching=watching,
         checked_at=check.get("checked_at"), source_check_ok=check.get("status") == "ok",
-        provisional_at=provisional_at,
+        provisional_at=provisional_at, confirmed_close=bars[-1].get("close") if bars else None,
     )
     pit = None
     if market != "us":

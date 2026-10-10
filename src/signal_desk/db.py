@@ -4194,7 +4194,7 @@ def bot_reservations_clear_pending(uid: int, market: str = "kr") -> None:
     c.close()
 
 
-# ---------- holdings (유저 실제 보유종목 — 리밸런싱 대상) ----------
+# ---------- holdings (사용자 분석용 입력 — 실계좌 조회값과 별개) ----------
 def holdings_list(uid: int) -> list[dict]:
     c = conn()
     rows = c.execute("SELECT ticker,qty,avg_price FROM holdings WHERE uid=? ORDER BY ts DESC", (uid,)).fetchall()
