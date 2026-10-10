@@ -8075,20 +8075,29 @@ function _adminOpsIncidents(d){
   const items = [];
   if (d.storage && d.storage.ephemeral_suspected)
     items.push({ id: 'storage', seg: 'ops', text: '저장 자료가 배포 후 사라질 수 있음' });
-  if (d.stall_line)
-    items.push({ id: 'stall', seg: 'ops', text: String(d.stall_line).replace(/^🔧\s*/, '') });
   const autoBlocked = Object.keys(d.auto_refresh_blocked || {});
   if (autoBlocked.length)
     items.push({ id: 'auto-refresh', seg: 'ops', text: `자동 자료 갱신이 거부된 소스 ${autoBlocked.length}건` });
   if (d.scaled_suspect)
     items.push({ id: 'price-scale', seg: 'ops', text: '종가와 실시간 가격의 크기가 크게 다름' });
-  // KB refresh 실패는 아래의 구조화된 fault 하나로 세고, 같은 원인으로
-  // stale된 KB 행을 두 번째 incident로 세지 않는다.
-  const stale = (d.freshness || []).filter(f => f.stale && !autoBlocked.includes(f.key)
-    && !(f.key === 'kb' && d.kb_refresh && d.kb_refresh.blocked_reason));
-  // 서버의 stall_line이 이미 지연을 요약했다면 같은 원인을 두 카드로 세지 않는다.
-  // 별도 소스의 상세 신선도는 펼친 진단표에서 그대로 확인할 수 있다.
-  if (stale.length && !d.stall_line) items.push({ id: 'stale', seg: 'ops', text: `오래된 데이터 ${stale.length}건 — 점검` });
+  // 브리핑의 stall_line은 여러 원인을 한 문장으로 압축한다. 관리자 할 일은
+  // 구조화된 원천별 상태를 사용해 가격·거시·PIT를 서로 다른 문제로 안내한다.
+  const stall = d.stall || null;
+  const staleByKey = new Map();
+  for (const f of (stall && stall.stale) || []) if (f && f.key) staleByKey.set(f.key, f);
+  for (const f of d.freshness || []) if (f && f.stale && f.key && !staleByKey.has(f.key)) staleByKey.set(f.key, f);
+  for (const [key, f] of staleByKey) {
+    // 같은 원천의 갱신 거부·KB 수집 실패는 이미 별도 원인으로 표시한다.
+    if (autoBlocked.includes(key) || (key === 'kb' && d.kb_refresh && d.kb_refresh.blocked_reason)) continue;
+    const note = f.stall_note || f.note || (f.age_hours == null ? '마지막 확인 시각 없음' : `마지막 갱신 ${Math.floor(f.age_hours / 24)}일 전`);
+    items.push({ id: key === 'prices' || key === 'us_prices' ? 'price-stale' : 'stale',
+      seg: 'ops', text: `${f.label || key} · ${note}` });
+  }
+  if (stall && stall.pit && stall.pit.missing_n)
+    items.push({ id: 'pit-gap', seg: 'ops', text: `시그널 기록 ${stall.pit.missing_n}거래일 누락 · ${(stall.pit.missing || []).slice(0, 3).join(', ')}` });
+  // 오래된 판별력 검사는 자동 연구 일정이지 사용자가 지금 고칠 운영 장애는 아니다.
+  if (!stall && d.stall_line && !staleByKey.size)
+    items.push({ id: 'stall', seg: 'ops', text: String(d.stall_line).replace(/^🔧\s*/, '') });
   if (d.signal_drift && d.signal_drift.frozen) items.push({ id: 'drift', seg: 'ops', text: '점수 동결 의심 — 점검' });
   if (d.crowding && d.crowding.warn) items.push({ id: 'crowding', seg: 'ops', text: `편중 경고 · ${d.crowding.note || '매수권 섹터 쏠림'}` });
   else if (d.crowding && d.crowding.data_quality) items.push({ id: 'sector-map', seg: 'ops', text: `섹터맵 공백 · ${d.crowding.note || '미분류'}` });
@@ -8373,9 +8382,12 @@ async function loadDartCardAudit(button) {
       'operating_cash_flow':'영업현금흐름', 'inventory':'재고자산'};
     const items = (d.items || []).map(item => {
       const checks = (item.checks || []).map(check => {
-        const accession = String(check.current_accession || '');
-        const source = /^\d{14}$/.test(accession)
-          ? ` · <a href="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${accession}" target="_blank" rel="noopener noreferrer">DART 원문</a>` : '';
+        const source = [['previous_accession', '전년 원문'], ['current_accession', '당년 원문']]
+          .map(([key, label]) => {
+            const accession = String(check[key] || '');
+            return /^\d{14}$/.test(accession)
+              ? ` · <a href="https://dart.fss.or.kr/dsaf001/main.do?rcpNo=${accession}" target="_blank" rel="noopener noreferrer">${label}</a>` : '';
+          }).join('');
         return `<div>${esc(metrics[check.metric] || check.metric)} · ${check.status === 'matched' ? '일치' : '불일치'}`
           + ` · ${esc(dartAuditPeriodLabel(check))} · ${esc(check.previous_year)}→${esc(check.current_year)}`
           + ` · 원문 ${esc(check.raw_previous)}→${esc(check.raw_current)} ${esc(check.unit)}`
@@ -9004,9 +9016,11 @@ function _badgeActive(id){
 const _ADMIN_ISSUE_GUIDE = {
   storage: ['기록 보존을 확인해야 합니다', '배포 후 장부가 사라질 수 있습니다. 저장소 설정을 확인하기 전에는 누적 성과를 신뢰하지 마세요.'],
   stall: ['일부 자동 갱신이 지연 중입니다', '어떤 자료가 늦는지 상세 진단에서 확인하세요. 다른 오래된 자료도 함께 표시됩니다.'],
+  'price-stale': ['시세 갱신을 확인해야 합니다', '뒤처진 종목은 최신 가격으로 판단했다고 볼 수 없습니다. 종목별 마지막 봉과 재조회 결과를 확인하세요.'],
+  'pit-gap': ['시그널 기록이 비어 있습니다', '누락된 거래일을 확인하세요. 그 기간의 성적을 임의로 채우거나 검증에 사용하지 마세요.'],
   'auto-refresh': ['자동 자료 갱신이 막혔습니다', '막힌 원천과 이유를 확인하세요. 앱의 다시 점검 버튼만으로 원인이 해결되지는 않습니다.'],
   'price-scale': ['주가 데이터가 맞지 않을 수 있습니다', '원시 종가와 현재가 차이를 확인하기 전에는 해당 시그널을 매매 근거로 삼지 마세요.'],
-  stale: ['자료 갱신이 늦습니다', '어떤 자료가 오래됐는지 확인하세요. 그 자료를 쓰는 판단은 갱신 전까지 주의가 필요합니다.'],
+  stale: ['자료 갱신을 확인해야 합니다', '원천 관측일과 수집 시각을 따로 확인하세요. 파일이 최근에 저장됐어도 원천 자료는 오래됐을 수 있습니다.'],
   drift: ['시그널 계산이 멈췄을 수 있습니다', '가격 갱신 상태를 확인하기 전에는 같은 시그널이 반복돼도 새 판단으로 보지 마세요.'],
   warnings_veto: ['매수 안전자료를 확인해야 합니다', '투자경고·거래정지 자료가 비면 매수 안전장치가 충분한지 판단할 수 없습니다.'],
   kb_retrieval: ['뉴스 검색 자료를 확인해야 합니다', '뉴스 근거 검색이 제대로 작동하는지 상세 진단에서 원인을 보세요.'],
@@ -9037,6 +9051,8 @@ function renderAdminTodo(){
   const actionable = items.filter(it => it.id !== 'crowding' && it.id !== 'sector-map');
   if (d.event_queue && (d.event_queue.pending || 0) > 0)
     observation.push(`뉴스 이벤트 ${d.event_queue.pending}건은 자동 판정 대기 중`);
+  if (d.stall && d.stall.harness_days != null && d.stall.harness_days >= 7)
+    observation.push(`판별력 검사는 ${d.stall.harness_days}일 전 실행됨 · 등록된 표본 요건과 다음 검사일 확인`);
   const eng = _badgeN('admin-engine-badge');
   if (eng) observation.push(`엔진 변경 제안 ${eng}건은 미적용 · 승인 의무 없음`);
   const ver = _badgeActive('admin-verify-badge');
