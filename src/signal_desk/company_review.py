@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 from urllib.parse import urlsplit
 
@@ -38,11 +39,20 @@ def _safe_url(value: str | None) -> str | None:
         return None
 
 
+def _positive_number(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
 def build(
     *, ticker: str, market: str, item: dict, price_date: str | None,
     expected_date: str | None, news: list[dict], official: list[dict],
     holding: dict | None, watching: bool, checked_at: int | None,
     source_check_ok: bool, provisional_at: int | float | None = None,
+    confirmed_close: float | None = None,
     now: dt.datetime | None = None,
 ) -> dict:
     """Join existing verdict with verified evidence without synthesizing a new verdict.
@@ -163,9 +173,20 @@ def build(
     if market == "us":
         unknowns.append("미국 공식 공시의 기업별 원문 대조는 아직 제공하지 않습니다.")
 
+    holding_context = None
     if holding:
         portfolio_relation = "held"
-        holding_text = "분석용 보유 입력에 있는 종목입니다. 실계좌 보유·비중은 여기서 확인하지 않았습니다."
+        holding_text = "분석용 보유 입력에 있는 종목입니다. 현재 매수 순위는 이 보유분을 더 사거나 계속 보유하라는 판정이 아닙니다. 실계좌 보유·비중은 여기서 확인하지 않았습니다."
+        qty, average = _positive_number(holding.get("qty")), _positive_number(holding.get("avg_price"))
+        close = _positive_number(confirmed_close)
+        if qty is not None and average is not None:
+            holding_context = {"source": "manual_analysis", "quantity": qty,
+                               "average_price": average, "confirmed_close": None,
+                               "close_date": None, "price_change_pct": None}
+            if close is not None and price_status == "current":
+                holding_context.update(confirmed_close=close, close_date=price_date,
+                                       price_change_pct=round((close / average - 1) * 100, 2))
+        checks.insert(0, "분석용 평단·수량과 실제 보유가 같은지 확인한 뒤 보유 진단에서 비중·위험을 보세요.")
     elif watching:
         portfolio_relation = "watching"
         holding_text = "관심종목입니다. 분석용 보유 입력에는 없으며 실계좌는 확인하지 않았습니다."
@@ -184,6 +205,7 @@ def build(
                    "coverage": item.get("data_coverage"), "candidate_position": item.get("rank")},
         "claims": claims, "evidence": evidence,
         "portfolio_relation": portfolio_relation, "holding_text": holding_text,
+        "holding_context": holding_context,
         "next_checks": checks, "unknowns": unknowns,
         "news_checked_at": _iso(checked_at),
         "not_order_advice": True,
