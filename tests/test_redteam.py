@@ -3468,6 +3468,20 @@ def test_admin_operator_view_does_not_turn_research_into_a_required_action():
     assert "일부 자동 갱신이 지연 중입니다" in html
 
 
+def test_admin_quick_routes_do_not_duplicate_the_advanced_navigation():
+    """운영 기본 화면은 한 줄 동선만 보이고, 구 북마크는 접힌 메뉴를 연다."""
+    from pathlib import Path
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    nav = html.split('id="admin-tools-nav"', 1)[1].split('</details>\n\n    <div id="admin-ops"', 1)[0]
+    switch = html.split("function switchAdminSeg(", 1)[1].split("\nfunction ", 1)[0]
+    quick = html.split("function adminTodoGo(", 1)[1].split("\nasync function ", 1)[0]
+    assert '<summary>뉴스 관리·고급 설정</summary>' in html
+    assert 'id="admin-nav"' in nav and 'data-aseg="kb"' in nav
+    assert "seg !== 'ops'" in switch and "toolsNav.open = true" in switch
+    assert "toolsNav.open = false" in quick
+    assert html.count('id="admin-ops-badge"') == 1
+
+
 def test_admin_incidents_separate_price_macro_and_research_without_double_count():
     """운영의 한 줄 배너가 서로 다른 원인과 연구 대기를 한 가지 고장으로 만들지 않는다."""
     import shutil
