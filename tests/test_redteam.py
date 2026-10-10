@@ -3431,7 +3431,7 @@ def test_admin_badges_and_todo_share_the_same_incidents():
     assert "_adminOpsIncidents(_dhCache)" in todo
     assert "_badgeActive('admin-verify-badge')" in todo
     incidents = html.split("function _adminOpsIncidents(", 1)[1].split("\nfunction ", 1)[0]
-    assert "f.key === 'kb'" in incidents and "d.kb_refresh" in incidents, \
+    assert "key === 'kb'" in incidents and "d.kb_refresh" in incidents, \
         "KB refresh 오류를 freshness와 상태 오류로 이중 계산한다"
 
 
@@ -3464,8 +3464,51 @@ def test_admin_operator_view_does_not_turn_research_into_a_required_action():
     incidents = html.split("function _adminOpsIncidents(", 1)[1].split("\nfunction ", 1)[0]
     for critical in ("ephemeral_suspected", "stall_line", "auto_refresh_blocked", "scaled_suspect"):
         assert critical in incidents, f"상세 진단을 접으면 {critical} 위험이 숨는다"
-    assert "stale.length && !d.stall_line" in incidents, "같은 갱신 지연을 두 할 일로 세지 않는다"
+    assert "staleByKey" in incidents and "autoBlocked.includes(key)" in incidents, "같은 원천 지연을 두 할 일로 세지 않는다"
     assert "일부 자동 갱신이 지연 중입니다" in html
+
+
+def test_admin_incidents_separate_price_macro_and_research_without_double_count():
+    """운영의 한 줄 배너가 서로 다른 원인과 연구 대기를 한 가지 고장으로 만들지 않는다."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the admin incident renderer")
+    script = r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+const start=html.indexOf('function _adminOpsIncidents(');
+const end=html.indexOf('function _setAdminOpsBadge(',start);
+const ctx=vm.createContext({Map,Set,String,Object});
+vm.runInContext(html.slice(start,end),ctx);
+const d={stall_line:'🔧 갱신 멈춤 미국 시세 / 거시 / 판별력 검사 16일 경과',
+  stall:{stale:[
+    {key:'us_prices',label:'미국 시세',stall_note:'7/512종목 뒤처짐'},
+    {key:'macro',label:'거시(FRED)',stall_note:'원천 지연'},
+    {key:'kb',label:'뉴스',stall_note:'갱신 실패'}],
+    pit:{missing_n:1,missing:['2026-10-08']},harness_days:16},
+  freshness:[{key:'us_prices',label:'미국 시세',stale:true},
+    {key:'macro',label:'거시(FRED)',stale:true},
+    {key:'kb',label:'뉴스',stale:true}],
+  kb_refresh:{blocked_reason:'수집 실패',blocked_kind:'fault'}};
+const incidents=Array.from(ctx._adminOpsIncidents(d));
+assert.equal(incidents.filter(x=>x.text.includes('미국 시세')).length,1);
+assert.equal(incidents.filter(x=>x.text.includes('거시(FRED)')).length,1);
+assert.equal(incidents.filter(x=>x.id==='pit-gap').length,1);
+assert.equal(incidents.filter(x=>x.id==='kb_refresh').length,1);
+assert(!incidents.some(x=>x.id==='stall'||x.text.includes('판별력 검사')));
+assert.equal(incidents.find(x=>x.text.includes('미국 시세')).id,'price-stale');
+const blocked=Array.from(ctx._adminOpsIncidents({...d,auto_refresh_blocked:{macro:{reason:'키 없음'}}}));
+assert.equal(blocked.filter(x=>x.text.includes('거시(FRED)')).length,0);
+assert.equal(blocked.filter(x=>x.id==='auto-refresh').length,1);
+const legacy=Array.from(ctx._adminOpsIncidents({stall_line:'🔧 예전 응답'}));
+assert.equal(legacy.length,1);
+assert.equal(legacy[0].id,'stall');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=".", text=True,
+                            capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
 
 
 def test_derived_freshness_is_rendered_as_computed_not_missing():

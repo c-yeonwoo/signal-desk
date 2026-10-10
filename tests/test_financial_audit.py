@@ -169,3 +169,34 @@ assert(html.includes('esc(dartAuditPeriodLabel(check))'));
     result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
                             text=True, capture_output=True, check=False)
     assert result.returncode == 0, result.stderr
+
+
+def test_admin_audit_links_previous_and_current_raw_reports_separately():
+    """전년 재고를 클릭해 당년 반기보고서로 보내면 원문 대조를 할 수 없다."""
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the audit renderer")
+    script = r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+const start=html.indexOf('async function loadDartCardAudit(');
+const end=html.indexOf('async function pitUniverseBackfill(',start);
+const box={textContent:'',innerHTML:''};
+const button={disabled:false,parentElement:{querySelector:()=>box}};
+const ctx=vm.createContext({
+  fetch:async()=>({ok:true,json:async()=>({observed:1,selected:1,sample_size:2,matched:1,
+    items:[{issuer:'00126380',status:'matched',checks:[{metric:'inventory',status:'matched',
+      report:'11012',previous_year:2025,current_year:2026,raw_previous:51,raw_current:71,
+      unit:'백만원',previous_accession:'20250814000001',current_accession:'20260814000002'}]}]})}),
+  esc:x=>String(x),dartAuditPeriodLabel:()=> '반기보고서 · 재고 보고기말',String});
+vm.runInContext(html.slice(start,end),ctx);
+ctx.loadDartCardAudit(button).then(()=>{
+  assert(box.innerHTML.includes('rcpNo=20250814000001'));
+  assert(box.innerHTML.includes('rcpNo=20260814000002'));
+  assert(box.innerHTML.includes('>전년 원문</a>'));
+  assert(box.innerHTML.includes('>당년 원문</a>'));
+  assert.equal(button.disabled,false);
+}).catch(e=>{console.error(e);process.exitCode=1});
+"""
+    result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
+                            text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
