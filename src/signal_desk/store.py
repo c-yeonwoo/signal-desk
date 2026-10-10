@@ -2723,6 +2723,14 @@ def _weekday_age_days(mtime: float) -> float:
     return float(n)
 
 
+def _macro_monthly_expired(key: str, source_date: datetime.date, today: datetime.date) -> bool:
+    """월간 관측월 첫날을 발표일로 오인하지 않는 신선도 유예(공식 일정의 대체물은 아님)."""
+    # 미국 CPI는 통상 다음 달 중순, FEDFUNDS 월평균은 다음 달 초에 나온다.
+    # 발표 후 확인 여유를 두되 원천 달력이 없으므로 정확한 공개시각은 단정하지 않는다.
+    grace_days = {"CPIAUCSL": 75, "FEDFUNDS": 65}.get(key, 45)
+    return source_date > today or (today - source_date).days > grace_days
+
+
 def data_freshness() -> list[dict]:
     """데이터 소스별 최종 갱신 시각·경과·행수·stale 여부(캐시 파일 mtime 기준). 관리자 신선도 대시보드용.
     stale_days 초과면 stale=True(소스별 갱신 주기에 맞춘 임계)."""
@@ -2817,9 +2825,14 @@ def data_freshness() -> list[dict]:
                           for i in range(1, max(0, (datetime.date.today() - source_date).days) + 1))
                 expired = age > 3
             else:
-                expired = (datetime.date.today() - source_date).days > 45
+                # 관측월 첫날은 발표일이 아니다. 2026-10-10의 8월 CPI는
+                # 9월 CPI(10-14 발표) 전의 최신값인데 일괄 45일이면 장애로 오인한다.
+                # 다음 발표 일정 자체를 검증한 것은 아니므로 보수적 유예일 뿐이며,
+                # 기준을 넘겨도 '수집 실패'가 아닌 원천 날짜 확인 대상으로 표시한다.
+                expired = _macro_monthly_expired(str(x.get("key")), source_date,
+                                                 datetime.date.today())
             if expired:
-                lagging.append(str(x.get("label") or x.get("key") or "미상"))
+                lagging.append(f"{x.get('label') or x.get('key') or '미상'}({asof})")
         if lagging or missing:
             out["stale"] = True
         parts = []
@@ -2831,6 +2844,15 @@ def data_freshness() -> list[dict]:
             parts.append("원천 누락: " + ", ".join(sorted(missing)))
         if parts:
             out["note"] = " / ".join(parts)
+        if lagging or missing:
+            short = []
+            if lagging:
+                short.append("원천 관측일 확인: " + ", ".join(lagging[:3])
+                             + (f" 외 {len(lagging) - 3}개" if len(lagging) > 3 else ""))
+            if missing:
+                short.append("원천 누락: " + ", ".join(sorted(missing)[:3])
+                             + (f" 외 {len(missing) - 3}개" if len(missing) > 3 else ""))
+            out["stall_note"] = " · ".join(short)
         return out
 
     return [
