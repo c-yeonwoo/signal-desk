@@ -3,7 +3,7 @@
 import datetime
 import time
 
-from signal_desk import api, kb, store
+from signal_desk import api, digest, kb, store
 from signal_desk.ingest import alphavantage, dart, edgar, fred, krx_open_api
 
 
@@ -70,6 +70,26 @@ def test_macro_freshness_uses_source_date_not_file_write_time(tmp_path, monkeypa
     assert entry["age_hours"] < 1 and entry["stale"] is True
     assert "원천 지연: VIX" in entry["note"]
     assert entry["source_coverage"] == "1/6" and "원천 누락" in entry["note"]
+    assert "VIX(2020-01-01)" in entry["stall_note"]
+
+
+def test_monthly_macro_waits_for_its_release_cycle_not_file_age():
+    """10/10에는 8월 CPI가 최신이며, 미발표 9월 값을 요구하면 오경보다."""
+    day = datetime.date
+    assert not store._macro_monthly_expired("CPIAUCSL", day(2026, 8, 1), day(2026, 10, 10))
+    assert store._macro_monthly_expired("CPIAUCSL", day(2026, 8, 1), day(2026, 10, 17))
+    assert not store._macro_monthly_expired("FEDFUNDS", day(2026, 9, 1), day(2026, 10, 20))
+    assert store._macro_monthly_expired("FEDFUNDS", day(2026, 8, 1), day(2026, 10, 10))
+
+
+def test_macro_stall_uses_source_date_note_not_recent_file_age():
+    line = digest.stall_line({"ok": False, "pit": {"missing_n": 0}, "stale": [
+        {"key": "macro", "label": "거시(FRED)", "updated": "2026-10-10 01:00",
+         "age_hours": 1, "stall_note": "원천 관측일 확인: 원/달러(2026-10-02)"},
+    ]})
+    assert "자료 시각 확인" in line
+    assert "원/달러(2026-10-02)" in line
+    assert "거시(FRED)(0일)" not in line
 
 
 def test_edgar_failed_retry_preserves_values(tmp_path, monkeypatch):

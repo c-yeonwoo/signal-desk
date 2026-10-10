@@ -174,7 +174,9 @@ def stall_line(stall: dict | None) -> str | None:
             if e.get("age_hours") is not None:
                 return f"{e['label']}({e['age_hours'] / 24:.0f}일)"
             return str(e["label"])
-        bits.append("갱신 멈춤 " + " · ".join(_one(e) for e in stale[:_STALL_NAMES])
+        # 낡은 관측값이 공급자 발표 대기인지 우리 수집 실패인지는 이 목록만으로
+        # 구분할 수 없다. 원인을 확인하기 전부터 '갱신 멈춤'이라고 단정하지 않는다.
+        bits.append("자료 시각 확인 " + " · ".join(_one(e) for e in stale[:_STALL_NAMES])
                     + (f" 외 {len(stale) - _STALL_NAMES}개" if len(stale) > _STALL_NAMES else ""))
     pit = stall.get("pit") or {}
     if pit.get("missing_n"):
