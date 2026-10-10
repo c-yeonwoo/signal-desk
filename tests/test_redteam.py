@@ -3708,6 +3708,9 @@ def test_coverage_is_shown_next_to_the_score():
     assert "low_coverage ? ' low' : ''" in hero, \
         "히어로 배지가 강조를 잃었다 — 경고 블록을 뺀 뒤로 이게 유일한 전달자다"
     assert "title=" in hero, "히어로 배지에 설명 툴팁이 없다"
+    assert "점수 자료 ${pct}%" in html
+    assert "점수 자료 ${Math.round(c * 100)}%" in hero
+    assert "기업 공시·기사 원문의 검증률이 아닙니다" in hero
 
 
 def test_glossary_says_the_score_does_not_decide_the_verdict():

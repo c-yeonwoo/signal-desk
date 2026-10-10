@@ -128,7 +128,7 @@ def test_coverage_badge_shows_the_weighted_ratio_not_a_pseudo_count():
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     body = "\n".join(ln for ln in html.split("\n") if not ln.strip().startswith("//"))
     assert "Math.round(c * 8)" not in body, "가중치를 개수로 환산해 보여준다"
-    assert "근거 ${pct}%" in body, "비중 비율을 퍼센트로 보여주지 않는다"
+    assert "점수 자료 ${pct}%" in body, "비중 비율을 퍼센트로 보여주지 않는다"
     # 문턱은 서버가 준 값을 쓴다 — 화면에 상수로 박으면 관리자가 바꿔도 툴팁이 옛 값을 말한다.
     assert "covMinRequired" in body and "coverage.min_required" in body
 
