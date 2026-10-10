@@ -146,6 +146,9 @@
   .admin-nav { display:flex; align-items:flex-start; gap:8px 14px; flex-wrap:wrap; margin-bottom:14px; }
   .admin-nav .seg-toggle { margin-bottom:0; max-width:100%; overflow-x:auto; }
   .admin-nav .seg-toggle button { white-space:nowrap; padding:8px 12px; }
+  .admin-tools-nav { margin-bottom:14px; }
+  .admin-tools-nav > summary { cursor:pointer; color:var(--dim); font-size:13px; font-weight:600; }
+  .admin-tools-nav[open] > summary { margin-bottom:10px; }
   .admin-expert-nav { border:1px solid var(--line); border-radius:var(--r-md); padding:7px 10px; background:var(--panel); }
   .admin-expert-nav summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--dim); }
   .admin-expert-nav .seg-toggle { margin-top:10px; }
@@ -1800,27 +1803,30 @@
         <button type="button" class="btn" onclick="openAdminTradingSettings()">내 실계좌 한도·비중 설정</button>
       </div>
       <nav class="admin-quick-nav" aria-label="관리자 확인 위치">
-        <button type="button" class="btn" onclick="adminTodoGo('ops')">서비스 상태</button>
+        <button type="button" class="btn" onclick="adminTodoGo('ops')">서비스 상태 <span id="admin-ops-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
         <button type="button" class="btn" onclick="adminTodoGo('data')">데이터</button>
         <button type="button" class="btn" onclick="adminTodoGo('connection')">연결·비용</button>
         <button type="button" class="btn" onclick="adminTodoGo('verify')">연구</button>
       </nav>
       <div id="admin-todo-body" style="font-size:13px;color:var(--dim)">점검 중…</div>
     </div>
-    <div class="admin-nav" id="admin-nav">
-      <div class="seg-toggle" id="admin-seg">
-        <button class="on" data-aseg="ops" onclick="switchAdminSeg('ops')">운영 상태 <span id="admin-ops-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
-        <button data-aseg="kb" onclick="switchAdminSeg('kb')">뉴스 관리 <span id="admin-kb-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
-      </div>
-      <details class="admin-expert-nav" id="admin-expert-nav">
-        <summary>고급 연구·보관 기능 · 평소엔 열지 않아도 됩니다</summary>
-        <div class="seg-toggle">
-          <button data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 설정 <span id="admin-engine-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
-          <button data-aseg="verify" onclick="switchAdminSeg('verify')">연구 성적 <span id="admin-verify-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--accent);color:#fff;font-size:11px;font-weight:700"></span></button>
-          <button data-aseg="content" onclick="switchAdminSeg('content')">기존 콘텐츠 도구</button>
+    <details class="admin-tools-nav" id="admin-tools-nav">
+      <summary>뉴스 관리·고급 설정</summary>
+      <div class="admin-nav" id="admin-nav">
+        <div class="seg-toggle" id="admin-seg">
+          <button class="on" data-aseg="ops" onclick="switchAdminSeg('ops')">운영 상태</button>
+          <button data-aseg="kb" onclick="switchAdminSeg('kb')">뉴스 관리 <span id="admin-kb-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
         </div>
-      </details>
-    </div>
+        <details class="admin-expert-nav" id="admin-expert-nav">
+          <summary>고급 연구·보관 기능 · 평소엔 열지 않아도 됩니다</summary>
+          <div class="seg-toggle">
+            <button data-aseg="engine" onclick="switchAdminSeg('engine')">엔진 설정 <span id="admin-engine-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--sell);color:#fff;font-size:11px;font-weight:700"></span></button>
+            <button data-aseg="verify" onclick="switchAdminSeg('verify')">연구 성적 <span id="admin-verify-badge" style="display:none;margin-left:4px;padding:1px 6px;border-radius:8px;background:var(--accent);color:#fff;font-size:11px;font-weight:700"></span></button>
+            <button data-aseg="content" onclick="switchAdminSeg('content')">기존 콘텐츠 도구</button>
+          </div>
+        </details>
+      </div>
+    </details>
 
     <div id="admin-ops" style="display:none">
     <div class="card" style="margin-top:0">
@@ -9009,6 +9015,8 @@ function switchAdminSeg(seg, { pin = true } = {}){
   if (pin) _adminEntered = true;
   const expert = document.getElementById('admin-expert-nav');
   if (expert && (seg === 'engine' || seg === 'verify' || seg === 'content')) expert.open = true;
+  const toolsNav = document.getElementById('admin-tools-nav');
+  if (toolsNav && seg !== 'ops') toolsNav.open = true;
   document.querySelectorAll('#admin-nav button[data-aseg]').forEach(b => b.classList.toggle('on', b.dataset.aseg === seg));
   Object.entries(_ADMIN_PANELS).forEach(([s, id]) => {
     const el = document.getElementById(id);
@@ -9117,6 +9125,8 @@ function renderAdminTodo(){
 }
 function adminTodoGo(seg){
   switchAdminSeg(seg === 'data' || seg === 'connection' ? 'ops' : seg);
+  const toolsNav = document.getElementById('admin-tools-nav');
+  if (toolsNav) toolsNav.open = false;  // 상단 확인 동선은 추가 메뉴를 펼치지 않는다.
   if (seg === 'ops' || seg === 'data' || seg === 'connection') {
     const details = document.getElementById('admin-health-details');
     if (details) details.open = true;
