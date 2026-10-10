@@ -3458,7 +3458,7 @@ async function loadRegime(){
         }).join('') : '';
     const sel = d.selection;
     document.getElementById('mb-selection').innerHTML = fresh && sel
-      ? `<b>매수 판정 ${sel.buy_count}개</b><small>강력매수 ${sel.strong_buy_count}개${sel.slots != null ? ' · 매수 창 ' + sel.slots + '자리' : ''}</small><small>현재 판정 · ${esc(sel.computed_at ? new Date(sel.computed_at).toLocaleString('ko-KR') : '시각 미확인')}</small>`
+      ? `<b>매수 판정 ${sel.buy_count}개</b><small>강력매수 ${sel.strong_buy_count}개${sel.slots != null ? ' · 매수 창 ' + sel.slots + '자리' : ''}</small><small>판정 계산 ${esc(sel.computed_at ? new Date(sel.computed_at).toLocaleString('ko-KR') : '시각 미확인')}</small><small>가격 기준 ${esc(d.price_as_of)} 종가</small>`
       : '<b>판정 건수 보류</b><small>종가 누락 · 개별 시그널은 목록에서 확인</small>';
     unknown.textContent = (d.unknown || []).length ? `이 카드가 모르는 점: ${d.unknown.join(' ')}` : '';
     unknown.classList.toggle('is-warning', !fresh);

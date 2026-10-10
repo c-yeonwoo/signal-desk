@@ -36,6 +36,14 @@ def test_fresh_market_card_uses_same_session_bars_and_dated_flow():
     assert out["not_order_advice"] is True
 
 
+def test_buy_count_shows_the_price_date_beside_the_compute_time():
+    """휴장일 재계산 시각을 그날 새 가격으로 읽지 않게 한다."""
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    selection = html.split("const sel = d.selection;", 1)[1].split("unknown.textContent", 1)[0]
+    assert "판정 계산" in selection and "가격 기준 ${esc(d.price_as_of)} 종가" in selection
+    assert "현재 판정" not in selection
+
+
 def test_stale_market_card_withholds_claims_and_buy_count():
     prices, dates = _bars(last="2026-10-01")
     out = market_brief.build("kr", prices={"A": prices}, dates={"A": dates},
