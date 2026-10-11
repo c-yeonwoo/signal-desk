@@ -5,7 +5,7 @@
   "input": "docs/research-action-input-readiness-2026-10-12.json",
   "input_sha256": "e4151ba90dc3c7fa7446bdbe100400ead6b70a1a6f433a014fd532bc9743f90b",
   "scope": "The 17 first-price gaps not covered by the earlier three-document review",
-  "source_preservation": "URLs checked against KRX KIND; these 17 web pages are not byte-archived or PIT timestamps",
+  "source_preservation": "Nine external HTML originals separately byte-archived locally; eight KIND listing-history pages are URL-only; none establish historical PIT availability",
   "records": [
     {"ticker":"031210","name":"서울보증보험","first_close":"2025-03-14","event":"new_listing","source":"https://kind.krx.co.kr/external/2025/03/13/001171/20250313002833/99364.htm"},
     {"ticker":"062040","name":"산일전기","first_close":"2024-07-29","event":"new_listing","source":"https://kind.krx.co.kr/external/2024/07/25/000747/20240725001545/68152.htm"},

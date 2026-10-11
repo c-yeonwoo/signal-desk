@@ -34,3 +34,12 @@ def test_wrong_first_date_is_rejected(tmp_path):
     changed.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match="invalid source or KRX identity"):
         census.check(census_path=changed)
+
+
+def test_original_archive_plan_cannot_silently_drop_a_source(tmp_path):
+    plan = json.loads(census.KIND_PLAN.read_text(encoding="utf-8"))
+    plan["documents"].pop()
+    changed = tmp_path / "plan.json"
+    changed.write_text(json.dumps(plan), encoding="utf-8")
+    with pytest.raises(ValueError, match="archive plan"):
+        census.check(plan_path=changed)

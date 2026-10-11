@@ -15,12 +15,14 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 READINESS = ROOT / "docs/research-action-input-readiness-2026-10-12.json"
 CENSUS = ROOT / "docs/research-action-listing-census-2026-10-12.json"
+KIND_PLAN = ROOT / "docs/research-action-listing-census-kind-plan-2026-10-12.json"
 ALREADY_REVIEWED = frozenset({"022100", "034230", "0126Z0"})
 EVENTS = frozenset({"new_listing", "new_listing_infrastructure_company",
                     "kosdaq_to_kospi", "demerger_relisting"})
 
 
-def check(readiness_path: Path = READINESS, census_path: Path = CENSUS) -> dict:
+def check(readiness_path: Path = READINESS, census_path: Path = CENSUS,
+          plan_path: Path = KIND_PLAN) -> dict:
     raw = readiness_path.read_bytes()
     census = json.loads(census_path.read_text(encoding="utf-8"))
     if (census.get("schema") != "research-action-listing-census-v1"
@@ -39,7 +41,7 @@ def check(readiness_path: Path = READINESS, census_path: Path = CENSUS) -> dict:
                 raise ValueError(f"listing census: conflicting KRX first close for {ticker}")
             observed[ticker] = identity
     expected = set(observed) - ALREADY_REVIEWED
-    seen, sources, counts = set(), set(), Counter()
+    seen, sources, counts, external = set(), set(), Counter(), set()
     for record in census["records"]:
         ticker, source = record["ticker"], record["source"]
         url = urlsplit(source)
@@ -52,13 +54,20 @@ def check(readiness_path: Path = READINESS, census_path: Path = CENSUS) -> dict:
             raise ValueError(f"listing census: invalid source or KRX identity for {ticker}")
         seen.add(ticker)
         sources.add(source)
+        if url.path.startswith("/external/"):
+            external.add(source)
         counts[record["event"]] += 1
     if seen != expected or len(observed) != 20:
         raise ValueError(f"listing census: missing or extra first-price gaps {sorted(expected - seen)}")
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    archived = [item["url"] for item in plan["documents"]]
+    if (plan.get("schema") != "research-kind-review-plan-v1" or len(archived) != 9
+            or set(archived) != external or len(sources - external) != 8):
+        raise ValueError("listing census: archive plan and source references differ")
     return {"schema": census["schema"], "research_only": True,
             "classified_remaining": len(seen), "classified_total_with_prior": len(observed),
             "by_event": dict(sorted(counts.items())),
-            "source_preservation": "references_only_not_byte_archived",
+            "source_preservation": "nine_originals_archived_eight_url_only",
             "action_coverage": "partial", "verified_total_return": False,
             "strict_pit_eligible": False}
 
