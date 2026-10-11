@@ -126,20 +126,29 @@ def _fetch_dart_document(receipt: str, key: str) -> bytes:
     try:
         with ZipFile(io.BytesIO(raw)) as archive:
             names = archive.namelist()
-            if (len(names) != 1 or names[0] != f"{receipt}.xml"
+            if (not 1 <= len(names) <= 20 or len(names) != len(set(names))
+                    or any(not re.fullmatch(
+                        rf"{re.escape(receipt)}(?:_[0-9]{{5}})?\.xml", name)
+                        for name in names)
                     or sum(item.file_size for item in archive.infolist()) > 15_000_000):
                 raise SourceError("DART document: invalid archive members")
             for name in names:
                 if not archive.read(name):
                     raise SourceError("DART document: empty archive member")
-    except (BadZipFile, OSError, ValueError, EOFError):
+    except BadZipFile:
+        code = re.search(rb"<status>([0-9]{3})</status>", raw[:1000])
+        if code:
+            raise SourceError(f"DART document: response code {code[1].decode('ascii')}") from None
+        raise SourceError("DART document: invalid ZIP") from None
+    except (OSError, ValueError, EOFError):
         raise SourceError("DART document: invalid ZIP") from None
     return raw
 
 
 def acquire_dart_actions(corp_code: str, start: str, end: str, *,
                          max_list_pages: int = 20, max_docs: int = 60,
-                         gap_seconds: float = REQUEST_GAP_SECONDS) -> tuple[dict[str, bytes], dict]:
+                         gap_seconds: float = REQUEST_GAP_SECONDS,
+                         list_only: bool = False) -> tuple[dict[str, bytes], dict]:
     """All filing categories for one issuer and receipt window, including corrections.
 
     An exhaustive *filing* archive is not an exhaustive effective-date action
@@ -206,6 +215,15 @@ def acquire_dart_actions(corp_code: str, start: str, end: str, *,
         time.sleep(gap_seconds)
     if len(receipts) != total_count:
         raise SourceError("DART actions: receipt count disagrees with total")
+    if list_only:
+        return files, {"schema": "historical-action-source-v1", "source": "OpenDART",
+                       "endpoint": "list.json", "market": "kr", "corp_code": corp_code,
+                       "start": start, "end": end, "query_date_basis": "receipt",
+                       "query": params, "request_count": total_pages,
+                       "total_filings": total_count,
+                       "source_state": "filing_list_only_not_action_complete",
+                       "entries": entries, "strict_pit_eligible": False,
+                       "total_return_coverage": False}
     for index, receipt in enumerate(sorted(receipts)):
         if index:
             time.sleep(gap_seconds)
@@ -431,6 +449,7 @@ def source_window_from_archive(path: Path) -> SourceWindow:
     observed = max(dt.datetime.fromisoformat(entry["retrieved_at_utc"])
                    for entry in entries.values())
     state = ("source_empty" if manifest["source_state"] == "source_empty_not_action_free"
+             else "partial" if manifest["source_state"] == "filing_list_only_not_action_complete"
              else "complete_for_source")
     return SourceWindow(
         "kr", (f"corp:{manifest['corp_code']}" if is_dart else
@@ -794,6 +813,8 @@ def main() -> None:
     parser.add_argument("--source-plan", type=Path, help="fixed KIND original-document review plan")
     parser.add_argument("--max-requests", type=int, default=60)
     parser.add_argument("--max-docs", type=int, default=60)
+    parser.add_argument("--list-only", action="store_true",
+                        help="archive DART filing-list evidence without claiming original documents")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.max_requests < 1 or args.max_requests > 100:
@@ -844,6 +865,8 @@ def main() -> None:
         parser.error("--detail is required for DART")
     if args.source == "dart-actions" and not args.corp_code:
         parser.error("--corp-code is required for DART actions")
+    if args.list_only and args.source != "dart-actions":
+        parser.error("--list-only is only valid for dart-actions")
     if args.source.startswith("kis-") and not args.ticker:
         parser.error("--ticker is required for KIS schedules")
     if args.output.exists():
@@ -857,7 +880,8 @@ def main() -> None:
     elif args.source == "dart-actions":
         files, manifest = acquire_dart_actions(args.corp_code, args.start, args.end,
                                                max_list_pages=args.max_requests,
-                                               max_docs=args.max_docs)
+                                               max_docs=args.max_docs,
+                                               list_only=args.list_only)
     elif args.source == "kind-reviewed":
         files, manifest = acquire_kind_reviewed(args.source_plan,
                                                 max_requests=min(args.max_requests, 12))
