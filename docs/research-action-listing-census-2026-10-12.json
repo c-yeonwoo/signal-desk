@@ -1,0 +1,28 @@
+{
+  "schema": "research-action-listing-census-v1",
+  "research_only": true,
+  "as_of": "2026-10-12",
+  "input": "docs/research-action-input-readiness-2026-10-12.json",
+  "input_sha256": "e4151ba90dc3c7fa7446bdbe100400ead6b70a1a6f433a014fd532bc9743f90b",
+  "scope": "The 17 first-price gaps not covered by the earlier three-document review",
+  "source_preservation": "Nine external HTML originals separately byte-archived locally; eight KIND listing-history pages are URL-only; none establish historical PIT availability",
+  "records": [
+    {"ticker":"031210","name":"서울보증보험","first_close":"2025-03-14","event":"new_listing","source":"https://kind.krx.co.kr/external/2025/03/13/001171/20250313002833/99364.htm"},
+    {"ticker":"062040","name":"산일전기","first_close":"2024-07-29","event":"new_listing","source":"https://kind.krx.co.kr/external/2024/07/25/000747/20240725001545/68152.htm"},
+    {"ticker":"064400","name":"LG씨엔에스","first_close":"2025-02-05","event":"new_listing","source":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20240726000244&method=searchListInvstgCorpDetail"},
+    {"ticker":"066970","name":"엘앤에프","first_close":"2024-01-29","event":"kosdaq_to_kospi","source":"https://kind.krx.co.kr/external/2024/01/26/000543/20240126001612/99343.htm"},
+    {"ticker":"278470","name":"에이피알","first_close":"2024-02-27","event":"new_listing","source":"https://kind.krx.co.kr/external/2024/02/23/001109/20240223002474/68152.htm"},
+    {"ticker":"279570","name":"케이뱅크","first_close":"2026-03-05","event":"new_listing","source":"https://kind.krx.co.kr/listinvstg/pubofrprogcomdetail.do?bzProcsNo=20250728000549&method=searchProgComDetailMain"},
+    {"ticker":"317450","name":"명인제약","first_close":"2025-10-01","event":"new_listing","source":"https://kind.krx.co.kr/external/2025/09/29/000672/20250929001498/68152.htm"},
+    {"ticker":"415640","name":"KB발해인프라","first_close":"2024-11-29","event":"new_listing_infrastructure_company","source":"https://kind.krx.co.kr/external/2024/11/27/000797/20241127001822/68152.htm"},
+    {"ticker":"439260","name":"대한조선","first_close":"2025-08-01","event":"new_listing","source":"https://kind.krx.co.kr/listinvstg/pubofrprogcomdetail.do?bzProcsNo=20250109000190&method=searchProgComDetailMain"},
+    {"ticker":"443060","name":"HD현대마린솔루션","first_close":"2024-05-08","event":"new_listing","source":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20230920000083&method=searchListInvstgCorpDetail"},
+    {"ticker":"450080","name":"에코프로머티","first_close":"2023-11-17","event":"new_listing","source":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20230131000252&method=searchListInvstgCorpDetail"},
+    {"ticker":"454910","name":"두산로보틱스","first_close":"2023-10-05","event":"new_listing","source":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20230320000249&method=searchListInvstgCorpDetail"},
+    {"ticker":"457190","name":"이수스페셜티케미컬","first_close":"2023-05-31","event":"demerger_relisting","source":"https://kind.krx.co.kr/external/2023/11/14/003230/20231114007243/11013.htm"},
+    {"ticker":"462870","name":"시프트업","first_close":"2024-07-11","event":"new_listing","source":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20231121000148&method=searchListInvstgCorpDetail"},
+    {"ticker":"483650","name":"달바글로벌","first_close":"2025-05-22","event":"new_listing","source":"https://kind.krx.co.kr/external/2025/05/20/000533/20250520001324/68152.htm"},
+    {"ticker":"484870","name":"엠앤씨솔루션","first_close":"2024-12-16","event":"new_listing","source":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20240531000078&method=searchListInvstgCorpDetail"},
+    {"ticker":"489790","name":"한화인더스트리얼솔루션즈","first_close":"2024-09-27","event":"demerger_relisting","source":"https://kind.krx.co.kr/external/2025/03/17/001075/20250317004519/11011.htm"}
+  ]
+}
