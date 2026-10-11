@@ -272,6 +272,59 @@ def test_dart_action_archive_retains_every_filing_and_original(tmp_path, monkeyp
         acquisition.acquire_dart_actions("00126380", "2024-04-30", "2024-04-30",
                                          max_docs=1)
 
+    monkeypatch.setattr(acquisition, "_fetch_json", listing)
+    monkeypatch.setattr(acquisition, "_fetch_dart_document",
+                        lambda receipt, key: pytest.fail("list-only fetched a document"))
+    listed, listing_manifest = acquisition.acquire_dart_actions(
+        "00126380", "2024-04-30", "2024-04-30", list_only=True)
+    assert set(listed) == {"raw/list/page-001.json"}
+    assert listing_manifest["source_state"] == "filing_list_only_not_action_complete"
+    assert listing_manifest["request_count"] == 1
+    listing_output = tmp_path / "list-only.zip"
+    acquisition.write_archive(listing_output, listed, listing_manifest)
+    assert acquisition.source_window_from_archive(listing_output).state == "partial"
+
+
+@pytest.mark.parametrize("members", [
+    ["20260318000313.xml"],
+    ["20260318000313_00760.xml"],
+    ["20260318000313.xml", "20260318000313_00760.xml",
+     "20260318000313_00761.xml"],
+])
+def test_dart_original_accepts_only_receipt_bound_main_or_attachment_xml(monkeypatch, members):
+    payload = io.BytesIO()
+    with ZipFile(payload, "w") as archive:
+        for member in members:
+            archive.writestr(member, b"<document>original</document>")
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen",
+                        lambda request, timeout: io.BytesIO(payload.getvalue()))
+    assert acquisition._fetch_dart_document("20260318000313", "secret") == payload.getvalue()
+
+
+@pytest.mark.parametrize("members", [
+    ["20260318000314_00760.xml"],
+    ["20260318000313_0076.xml"],
+    ["../20260318000313.xml"],
+    [f"20260318000313_{index:05d}.xml" for index in range(21)],
+])
+def test_dart_original_rejects_wrong_or_excessive_attachment_xml(monkeypatch, members):
+    payload = io.BytesIO()
+    with ZipFile(payload, "w") as archive:
+        for name in members:
+            archive.writestr(name, b"<document>original</document>")
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen",
+                        lambda request, timeout: io.BytesIO(payload.getvalue()))
+    with pytest.raises(acquisition.SourceError, match="invalid archive members"):
+        acquisition._fetch_dart_document("20260318000313", "secret")
+
+
+def test_dart_document_014_is_not_an_empty_original(monkeypatch):
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen",
+                        lambda request, timeout: io.BytesIO(
+                            b"<result><status>014</status></result>"))
+    with pytest.raises(acquisition.SourceError, match="response code 014"):
+        acquisition._fetch_dart_document("20260319000350", "secret")
+
 
 def test_dart_013_is_preserved_but_does_not_claim_action_free(tmp_path, monkeypatch):
     monkeypatch.setattr(acquisition.config, "dart_key", lambda: "test-secret")
