@@ -1,0 +1,11 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "purpose": "One official KRX change-listing original for a share-count delta in frozen price-only h20 windows; not a complete action feed",
+  "documents": [
+    {
+      "id": "sksquare-cancellation-listing-20251212",
+      "url": "https://kind.krx.co.kr/external/2025/12/12/000236/20251212000553/68155.htm",
+      "expected_text": "SK스퀘어"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "purpose": "Three remaining official KRX change-listing originals for the seven prioritized share-count sessions; not full action or entitlement coverage",
+  "documents": [
+    {
+      "id": "kb-cancellation-listing-20260202",
+      "url": "https://kind.krx.co.kr/external/2026/02/02/000360/20260202001056/68155.htm",
+      "expected_text": "KB금융지주"
+    },
+    {
+      "id": "kb-cancellation-listing-20260604",
+      "url": "https://kind.krx.co.kr/external/2026/06/04/000185/20260604000398/68155.htm",
+      "expected_text": "KB금융지주"
+    },
+    {
+      "id": "sksquare-cancellation-listing-20260413",
+      "url": "https://kind.krx.co.kr/external/2026/04/13/000127/20260413000351/68155.htm",
+      "expected_text": "SK스퀘어"
+    }
+  ]
+}
