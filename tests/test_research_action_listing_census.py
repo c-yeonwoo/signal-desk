@@ -16,6 +16,8 @@ def test_fixed_census_matches_all_remaining_first_price_gaps():
         "new_listing": 13, "new_listing_infrastructure_company": 1}
     assert result["action_coverage"] == "partial"
     assert result["verified_total_return"] is False
+    assert result["archived_originals"] == 15
+    assert result["url_only"] == 2
 
 
 def test_frozen_input_identity_cannot_be_substituted(tmp_path):

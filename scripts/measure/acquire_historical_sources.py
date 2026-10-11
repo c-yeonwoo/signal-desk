@@ -54,6 +54,10 @@ KIS_SCHEDULES = {
 KIND_DOCUMENT_URL = re.compile(
     r"https://kind\.krx\.co\.kr/external/(20\d{2})/(\d{2})/(\d{2})/"
     r"\d{6}/(\d{14})/[A-Za-z0-9]+\.htm\Z")
+KIND_LISTING_URL = re.compile(
+    r"https://kind\.krx\.co\.kr/listinvstg/(?:"
+    r"listinvstgcom\.do\?bizProcNo=\d{14}&method=searchListInvstgCorpDetail|"
+    r"pubofrprogcomdetail\.do\?bzProcsNo=\d{14}&method=searchProgComDetailMain)\Z")
 
 
 class SourceError(RuntimeError):
@@ -395,6 +399,71 @@ def acquire_kind_reviewed(plan: Path, *, max_requests: int = 12,
                    "strict_pit_eligible": False, "total_return_coverage": False}
 
 
+def acquire_kind_listing_reviewed(plan: Path, *, max_requests: int = 8,
+                                  gap_seconds: float = REQUEST_GAP_SECONDS) -> tuple[dict[str, bytes], dict]:
+    """Archive a fixed set of current KIND listing-history pages, not an action feed.
+
+    The page may be rendered differently later; retrieval time is not the old
+    listing publication time and cannot make a historical decision PIT-safe.
+    """
+    specification = json.loads(plan.read_text(encoding="utf-8"))
+    documents = specification.get("documents")
+    if (specification.get("schema") != "research-kind-listing-plan-v1"
+            or not isinstance(documents, list) or not 1 <= len(documents) <= max_requests <= 8):
+        raise ValueError("KIND listing review: invalid plan or request cap")
+    files, entries, seen_ids, seen_urls = {}, {}, set(), set()
+    for index, item in enumerate(documents):
+        if not isinstance(item, dict):
+            raise ValueError("KIND listing review: invalid document")
+        identifier, url = item.get("id"), item.get("url")
+        name, listing = item.get("expected_text"), item.get("expected_listing_date")
+        if (not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9-]{3,64}", identifier)
+                or identifier in seen_ids or url in seen_urls
+                or not isinstance(url, str) or not KIND_LISTING_URL.fullmatch(url)
+                or not isinstance(name, str) or len(name) < 3
+                or not isinstance(listing, str) or not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", listing)
+                or listing >= _registered_start()):
+            raise ValueError("KIND listing review: invalid or duplicate id, URL, date or identity")
+        try:
+            dt.date.fromisoformat(listing)
+        except ValueError:
+            raise ValueError("KIND listing review: invalid calendar date") from None
+        seen_ids.add(identifier)
+        seen_urls.add(url)
+        request = urllib.request.Request(url, headers={"User-Agent": "signal-desk-research/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if response.geturl() != url or "text/html" not in response.headers.get("Content-Type", ""):
+                    raise SourceError("KIND listing review: redirected or non-HTML response")
+                raw = response.read(1_000_001)
+        except urllib.error.HTTPError as exc:
+            raise SourceError(f"KIND listing review: HTTP {exc.code}") from None
+        except SourceError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — no partial archive or unsafe URL exposure
+            raise SourceError(f"KIND listing review: {type(exc).__name__}") from None
+        if len(raw) > 1_000_000:
+            raise SourceError("KIND listing review: response size limit")
+        try:
+            decoded = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise SourceError("KIND listing review: not UTF-8") from None
+        if ("<html" not in decoded.lower() or name not in decoded
+                or listing not in decoded or "신규상장" not in decoded):
+            raise SourceError("KIND listing review: identity, date or listing type differs")
+        path = f"raw/{identifier}.html"
+        files[path] = raw
+        entries[path] = {**_entry(raw, rows=1), "url": url, "document_id": identifier,
+                         "expected_listing_date": listing, "expected_text": name}
+        if index + 1 < len(documents):
+            time.sleep(gap_seconds)
+    return files, {"schema": "historical-action-source-v1", "source": "KRX KIND originals",
+                   "endpoint": "selected /listinvstg/ current HTML pages", "market": "kr",
+                   "request_count": len(documents), "source_state":
+                   "selected_listing_pages_not_action_complete", "entries": entries,
+                   "strict_pit_eligible": False, "total_return_coverage": False}
+
+
 def verify_action_archive(path: Path) -> dict:
     """Replay a local original-byte bundle without contacting a provider."""
     with ZipFile(path) as archive:
@@ -419,11 +488,20 @@ def verify_action_archive(path: Path) -> dict:
                     or len(raw) != entry.get("bytes")):
                 raise SourceError(f"action archive: source hash/length mismatch at {name}")
             if manifest.get("source") == "KRX KIND originals":
-                match = KIND_DOCUMENT_URL.fullmatch(entry.get("url", ""))
-                if (not match or name != f"raw/{entry.get('document_id')}.htm"
-                        or match[4][:8] != f"{match[1]}{match[2]}{match[3]}"
-                        or entry.get("source_filing_date") != f"{match[1]}-{match[2]}-{match[3]}"):
-                    raise SourceError(f"action archive: KIND identity mismatch at {name}")
+                if manifest.get("endpoint") == "selected /listinvstg/ current HTML pages":
+                    listing = entry.get("expected_listing_date")
+                    if (not KIND_LISTING_URL.fullmatch(entry.get("url", ""))
+                            or name != f"raw/{entry.get('document_id')}.html"
+                            or not isinstance(listing, str)
+                            or not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", listing)
+                            or listing >= _registered_start()):
+                        raise SourceError(f"action archive: KIND listing identity mismatch at {name}")
+                else:
+                    match = KIND_DOCUMENT_URL.fullmatch(entry.get("url", ""))
+                    if (not match or name != f"raw/{entry.get('document_id')}.htm"
+                            or match[4][:8] != f"{match[1]}{match[2]}{match[3]}"
+                            or entry.get("source_filing_date") != f"{match[1]}-{match[2]}-{match[3]}"):
+                        raise SourceError(f"action archive: KIND identity mismatch at {name}")
                 try:
                     decoded = raw.decode("utf-8")
                 except UnicodeDecodeError:
@@ -432,6 +510,9 @@ def verify_action_archive(path: Path) -> dict:
                 if (not isinstance(marker, str) or len(marker) < 3
                         or marker not in decoded or "<html" not in decoded.lower()):
                     raise SourceError(f"action archive: KIND issuer or HTML mismatch at {name}")
+                if (manifest.get("endpoint") == "selected /listinvstg/ current HTML pages"
+                        and (listing not in decoded or "신규상장" not in decoded)):
+                    raise SourceError(f"action archive: KIND listing date or type mismatch at {name}")
         return {"source": manifest["source"], "source_state": manifest["source_state"],
                 "raw_members": len(entries), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                 "strict_pit_eligible": False, "total_return_coverage": False}
@@ -800,7 +881,7 @@ def write_archive(output: Path, files: dict[str, bytes], manifest: dict) -> None
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", choices=("krx-daily", "dart-filings", "dart-actions",
-                                           "kind-reviewed", "verify-kind",
+                                           "kind-reviewed", "kind-listing-reviewed", "verify-kind",
                                            "kis-dividend", "kis-rev-split", "verify-actions",
                                            "inspect-dividend", "inspect-kis", "compare-dividend"))
     parser.add_argument("--start")
@@ -857,9 +938,9 @@ def main() -> None:
         print(json.dumps(compare_dart_kis_dividend(dart, args.output),
                          ensure_ascii=False, sort_keys=True, allow_nan=False))
         return
-    if args.source != "kind-reviewed" and (not args.start or not args.end):
+    if args.source not in {"kind-reviewed", "kind-listing-reviewed"} and (not args.start or not args.end):
         parser.error("--start and --end are required for acquisition")
-    if args.source == "kind-reviewed" and not args.source_plan:
+    if args.source in {"kind-reviewed", "kind-listing-reviewed"} and not args.source_plan:
         parser.error("--source-plan is required for KIND originals")
     if args.source == "dart-filings" and not args.detail:
         parser.error("--detail is required for DART")
@@ -885,6 +966,9 @@ def main() -> None:
     elif args.source == "kind-reviewed":
         files, manifest = acquire_kind_reviewed(args.source_plan,
                                                 max_requests=min(args.max_requests, 12))
+    elif args.source == "kind-listing-reviewed":
+        files, manifest = acquire_kind_listing_reviewed(args.source_plan,
+                                                        max_requests=min(args.max_requests, 8))
     else:
         kind = "dividend" if args.source == "kis-dividend" else "rev-split"
         files, manifest = acquire_kis_schedule(kind, args.ticker, args.start, args.end,
