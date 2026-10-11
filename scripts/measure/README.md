@@ -64,6 +64,8 @@
 
 `research_action_input_readiness.py`는 위 보존 JSONL과 KRX 원문 두 패널의 해시·일별 후보를 다시 맞춘 뒤, 종목별 253개 **연속 유효 종가**가 없어서 파일럿이 제외한 후보일을 계산한다. 2025 Q4~2026-06 네 창은 동결한 파일럿의 제외 수와 비교한다. [검수 해석](../../docs/RESEARCH-ACTION-INPUT-READINESS-2026-10-12.md)과 [결과 JSON](../../docs/research-action-input-readiness-2026-10-12.json)은 기업행사 커버리지나 총수익 인증이 아니다. 재현 출력은 새 경로를 지정한다.
 
+남은 17종목의 첫 가격 전 공백 유형은 [KIND 대조표](../../docs/RESEARCH-ACTION-LISTING-CENSUS-2026-10-12.md)와 `research_action_listing_census.py`로 확인한다. 스크립트는 동결 KRX 종목명·첫 종가일과 참조 URL의 완전성을 검사하지만, 사이트의 현재 내용이나 기업행사 권리 정산을 인증하지 않는다. 9개 KIND 원문은 별도 ZIP으로 선택 보존한다.
+
 ```bash
 .venv/bin/python -m scripts.measure.research_action_input_readiness \
   --output data/research/action-input-readiness-repeat.json
