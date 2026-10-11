@@ -14,6 +14,30 @@
 
 `--sensitivity`를 더하면 같은 개발 입력에 비용 25/75/120bp, 불리한 시가 체결, 부분체결·미체결 시나리오를 적용한다. 손익이 없거나 더 좋아지는 시나리오도 숨기지 않는다. 이는 **가격만 사용한 가상 계산**이며 KRX 일별 원본은 기업행사·배당의 완전한 원천이 아니다. 검증된 총수익, 독립 표본 성과, 실제 주문 체결로 읽지 않는다.
 
+### 과거 기업행사 원문 보존·검수
+
+`acquire_historical_sources.py`의 `dart-actions`는 한 발행사의 최대 32일 접수 목록과 모든 원문 ZIP을, `kis-dividend`/`kis-rev-split`은 한 종목의 최대 32일 과거 일정 응답을 요청 상한 내에서 읽기 전용으로 보존한다. 새 ZIP을 `data/research/`에 저장하며, 기존 파일을 덮어쓰지 않는다. `--end`는 등록 보호 시작 전이어야 한다. 실제 키는 로컬 환경 설정에서 읽고 출력하지 않는다.
+
+```bash
+.venv/bin/python scripts/measure/acquire_historical_sources.py dart-actions \
+  --corp-code 00126380 --start 2024-04-30 --end 2024-04-30 \
+  --output data/research/dart-actions-00126380-2024-04-30-v1.zip
+.venv/bin/python scripts/measure/acquire_historical_sources.py kis-dividend \
+  --ticker 005930 --start 2024-03-01 --end 2024-03-31 \
+  --output data/research/kis-dividend-005930-2024-03-v1.zip
+.venv/bin/python scripts/measure/acquire_historical_sources.py verify-actions \
+  --output data/research/dart-actions-00126380-2024-04-30-v1.zip
+.venv/bin/python scripts/measure/acquire_historical_sources.py inspect-dividend \
+  --receipt 20240430800061 \
+  --output data/research/dart-actions-00126380-2024-04-30-v1.zip
+.venv/bin/python scripts/measure/acquire_historical_sources.py compare-dividend \
+  --dart-archive data/research/dart-actions-00126380-2024-04-30-v1.zip \
+  --receipt 20240430800061 \
+  --output data/research/kis-dividend-005930-2024-03-v1.zip
+```
+
+`inspect-kis --output <KIS ZIP>`은 보존한 일정의 정규화 사실을 출력한다. 조회일 의미·정확한 배당락/효력일·당시 공개시각·실제 지급이 확인되지 않은 사실은 반드시 미확인으로 남긴다. 해시 일치나 두 일정의 필드 일치는 행사 전수 보장·총수익 적격을 뜻하지 않는다. 세부 범위와 실제 대조표는 [원천 완전성 판단](../../docs/RESEARCH-SOURCE-COMPLETENESS-2026-10-11.md)에 기록했다.
+
 ## 왜 `pit6.py` 가 있나 (먼저 읽을 것)
 
 `store.pit_fund_scores` 는 `fundamentals.json` 에 시가총액이 없으면 **발행주식수 근사에서
