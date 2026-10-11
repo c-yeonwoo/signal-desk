@@ -165,6 +165,10 @@ def test_execution_stress_reduces_claimed_price_only_return_or_leaves_it_unmatur
 
 
 def test_frozen_krx_price_archive_cannot_claim_verified_total_return():
+    # data/research is intentionally gitignored; CI verifies the same guard
+    # with synthetic rows above, while a local archive enables this extra audit.
+    if not (ROOT / "data/research/krx-price-only-development-2026q2early-v5.json").exists():
+        pytest.skip("optional local KRX archive is not part of the repository")
     report = run_development(ROOT / "data/research", window="2026q2early-v5", horizon=5,
                              sensitivity=True)
     assert report["legacy_replay_parity"] is True
