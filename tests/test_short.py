@@ -76,6 +76,8 @@ def test_store_fetch_short_join(tmp_path, monkeypatch):
     # 매칭된 2일만 사용: 400/2000 = 0.2
     assert out["005930"]["short_ratio"] == 0.2
     assert out["005930"]["days"] == 2 and out["005930"]["short_vol"] == 400
+    assert out["005930"]["as_of"] == "2026-07-03"
+    assert out["005930"]["observed_at"]
 
 
 def test_evaluate_attaches_short_and_penalizes():

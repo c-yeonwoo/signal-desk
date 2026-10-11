@@ -77,7 +77,37 @@ def test_data_health_includes_freshness(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB", tmp_path / "app.db")
     out = api.data_health_get()
     assert isinstance(out.get("freshness"), list) and out["freshness"]
+    assert "factor_source_status" in out
     assert out["evidence_activity"]["sources"]["dart"]["failed_pct"] is None
+
+
+def test_factor_source_status_does_not_treat_legacy_cache_as_fresh(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "FLOWS_FILE", tmp_path / "flows.json")
+    monkeypatch.setattr(store, "SHORT_FILE", tmp_path / "short.json")
+    store._write_json(store.FLOWS_FILE, {
+        "legacy": {"intensity": 0.2},
+        "old": {"intensity": -0.1, "as_of": "2020-01-02"},
+    })
+    store._write_json(store.SHORT_FILE, {
+        "future": {"short_ratio": 0.2, "as_of": "2099-01-01"},
+    })
+    result = store.factor_source_status()
+    assert result["flows"]["rows"] == 2
+    assert result["flows"]["unknown"] == 1
+    assert result["flows"]["lagging"] == 1
+    assert result["flows"]["status"] == "unverified"
+    assert result["short"]["unknown"] == 1
+    assert result["short"]["status"] == "unverified"
+    assert result["flows"]["score_input_unchanged"] is True
+
+
+def test_factor_source_status_does_not_break_health_on_corrupt_cache(tmp_path, monkeypatch):
+    monkeypatch.setattr(store, "FLOWS_FILE", tmp_path / "flows.json")
+    monkeypatch.setattr(store, "SHORT_FILE", tmp_path / "short.json")
+    store.FLOWS_FILE.write_text("{broken", encoding="utf-8")
+    result = store.factor_source_status()
+    assert result["flows"]["status"] == "unavailable"
+    assert result["short"]["status"] == "empty"
 
 
 def test_evidence_ops_is_admin_only_and_independent_of_full_health(monkeypatch):

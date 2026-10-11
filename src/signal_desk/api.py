@@ -2507,12 +2507,14 @@ def portfolio_heatmap(request: Request, market: str = ""):
 @lru_cache(maxsize=1)
 def _signals():
     cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())  # 약세·비우호·외인기관 순매도면 매수 기준 상향
-    results = evaluate(store.load_universe(), store.load_price_series(), store.load_fundamentals(),
+    prices, price_dates, _quote_snapshot = store.load_engine_price_bundle("kr")
+    results = evaluate(store.load_universe(), prices, store.load_fundamentals(),
                        config=cfg, **store.kr_engine_inputs())  # 입력 한 벌은 봇과 공유
     policy_id = policy_contract.signal_policy_id("kr", cfg)
     for result in results:
         result.signal_policy_id = policy_id
-    execution_gate.apply_from_store(results, market="kospi", today=_kst_today())
+    execution_gate.apply_from_store(results, market="kospi", today=_kst_today(),
+                                    price_bundle=(prices, price_dates))
     _sync_episode_state(results, market="kospi")
     computed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
     for result in results:
@@ -2619,13 +2621,16 @@ def _hold_tag(r, *, buy_blocked: bool) -> str | None:
         return None
     if buy_blocked or getattr(r, "event_risk", False):
         return "악재"
+    gates = set(getattr(r, "gates", None) or ())
+    for key, label in execution_gate.EXECUTION_GATE_LABELS.items():
+        if key in gates:
+            return label
     reasons = " ".join(getattr(r, "reasons", None) or [])
-    # 선반영·추격은 게이트가 아니라 실행 품질(execution_gate) 판정이라 문구로 남아 있다.
+    # 옛 판단 기록에는 실행 차단 키가 없어서 표시용 폴백만 유지한다.
     if "[선반영]" in reasons:
         return "선반영"
     if "[추격]" in reasons:
         return "추격"
-    gates = set(getattr(r, "gates", None) or ())
     if getattr(r, "low_coverage", False):
         gates.add("coverage")
     for key in _GATE_TAG_ORDER:
@@ -4550,6 +4555,9 @@ def data_health_get():
         # 자동 갱신이 거부된 소스 — 이름과 이유. 비어 있으면 전부 정상이다.
         "auto_refresh_blocked": auto_refresh,
         **store.price_sanity(allow_network=False), "freshness": fresh, "signal_drift": store.signal_drift(),
+            # 파일 mtime과 원천 관측일은 다르다. 레거시/낡은 팩터가 점수에
+            # 섞이는 문제는 제거 효과를 비교하기 전까지 진단만 하고 판정은 유지한다.
+            "factor_source_status": store.factor_source_status(),
             # veto·검색이 조용히 비어 있는 경우를 이유와 함께 드러낸다(0은 정상일 수도, 고장일 수도).
             "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),
             # 종목 KB 수집이 멈췄는지 — 실패 종목 이름까지. 조용히 빠진 종목도 조용한 0이다.

@@ -4,8 +4,9 @@
 추격가 1700원은 진입 품질이 다르다. 이 모듈은 PIT `signal_history`로 연속 매수권
 구간(에피소드)의 최초 발동일·발동가를 찾고, 현재가 대비 추격도를 등급화한다.
 
-- kind를 바꾸지 않는다(게이트 관망과 혼동 금지).
-- 봇 미반영 — UI 툴팁·추후 shadow용. 임계값은 여기 Config에만.
+- 이 계산은 kind를 바꾸지 않는다. 실행 게이트는 계산된 `late`를 사용해
+  신규 매수를 보류할 수 있으므로 표시 전용 지표로 오해하면 안 된다.
+- 임계값은 여기 Config에만 둔다.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 from signal_desk.signals.engine import is_buy
 
 _QUALITY_KO = {
+    "below_fire": "발동 뒤 하락",
     "fresh": "신선",
     "ok": "여유",
     "extended": "추격",
@@ -24,7 +26,7 @@ _QUALITY_KO = {
 
 @dataclass(frozen=True)
 class EntryQualityConfig:
-    """진입 품질 임계 — 하드코딩 분산 금지. 봇 반영 전 shadow로 캘리브레이션."""
+    """진입 품질 임계 — 하드코딩 분산 금지."""
     fresh_run_up_pct: float = 5.0       # 발동 대비 +N% 이하면 신선
     fresh_age_days: int = 2             # 또는 발동 후 N거래일 이내
     ok_run_up_pct: float = 12.0
@@ -33,11 +35,13 @@ class EntryQualityConfig:
 
 
 def _price_on(dates: list[str], closes: list[float], day: str) -> float | None:
-    if not dates or not closes or len(dates) != len(closes):
+    # 장중 현재가는 날짜가 없는 잠정 관측으로 끝에 한 개 더 붙는다.
+    # 발동일 가격을 찾을 때는 날짜가 있는 확정봉만 짝지어 읽는다.
+    if not dates or not closes or len(closes) not in (len(dates), len(dates) + 1):
         return None
     # 날짜 키가 짧을 수 있음(YYYY-MM-DD)
     day = str(day)[:10]
-    for d, c in zip(dates, closes):
+    for d, c in zip(dates, closes[:len(dates)]):
         if str(d)[:10] == day:
             try:
                 v = float(c)
@@ -64,6 +68,8 @@ def classify_quality(run_up_pct: float, age_days: int,
                      remain_upside_pct: float | None = None,
                      cfg: EntryQualityConfig | None = None) -> str:
     cfg = cfg or EntryQualityConfig()
+    if run_up_pct < 0:
+        return "below_fire"
     if remain_upside_pct is not None and remain_upside_pct <= cfg.late_remain_upside_pct:
         return "late"
     if age_days <= cfg.fresh_age_days or run_up_pct <= cfg.fresh_run_up_pct:

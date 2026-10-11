@@ -540,7 +540,8 @@ def fetch_flows(universe: list[dict] | None = None, days: int = 20, time_budget:
         intensity = max(-1.0, min(1.0, net / tot)) if tot else 0.0
         out[ticker] = {"foreign_net": sum(row["foreign_net"] for row in rows),
                        "inst_net": sum(row["inst_net"] for row in rows),
-                       "intensity": round(intensity, 4)}
+                       "intensity": round(intensity, 4),
+                       "as_of": max(valid), "observed_at": observed_at}
     if observed:
         _append_flow_observations(observed)
     if out:
@@ -660,13 +661,15 @@ def fetch_short(universe: list[dict] | None = None, days: int = 20, time_budget:
         consec = 0
         got += 1
         vmap = vol_by.get(ticker, {})
-        matched = [(sv[d], vmap[d]) for d in sv if d in vmap and vmap[d]]
-        svol = sum(s for s, _ in matched)
-        tvol = sum(v for _, v in matched)
+        matched = [(d, sv[d], vmap[d]) for d in sv if d in vmap and vmap[d]]
+        svol = sum(s for _, s, _ in matched)
+        tvol = sum(v for _, _, v in matched)
         if not matched or not tvol:
             continue
         out[ticker] = {"short_ratio": round(svol / tvol, 4),
-                       "short_vol": round(svol), "total_vol": round(tvol), "days": len(matched)}
+                       "short_vol": round(svol), "total_vol": round(tvol), "days": len(matched),
+                       "as_of": max(d for d, _, _ in matched),
+                       "observed_at": _utc_now().isoformat()}
     if out:
         _write_json(SHORT_FILE, out)
     return out
@@ -676,6 +679,49 @@ def load_short() -> dict[str, dict]:
     if not SHORT_FILE.exists():
         return {}
     return json.loads(SHORT_FILE.read_text(encoding="utf-8"))
+
+
+def factor_source_status() -> dict[str, dict]:
+    """수급·공매도 캐시의 *원천 날짜* 진단. 점수 입력은 바꾸지 않는다.
+
+    파일을 방금 다시 써도 일부 종목은 오래된 값을 유지할 수 있다. 레거시 캐시의
+    원천 날짜가 없으면 최신으로 추정하지 않고 `unknown`으로 센다.
+    """
+    today = _kst_now().date()
+    out = {}
+    for key, loader in (("flows", load_flows), ("short", load_short)):
+        try:
+            rows = loader()
+            if not isinstance(rows, dict):
+                raise ValueError("factor cache is not a ticker map")
+        except (OSError, ValueError, TypeError):
+            out[key] = {"rows": None, "dated": 0, "unknown": None, "lagging": None,
+                        "oldest_as_of": None, "latest_as_of": None,
+                        "status": "unavailable", "score_input_unchanged": True}
+            continue
+        known: list[str] = []
+        unknown = lagging = 0
+        for row in rows.values():
+            raw = row.get("as_of") if isinstance(row, dict) else None
+            try:
+                day = datetime.date.fromisoformat(str(raw))
+            except (TypeError, ValueError):
+                unknown += 1
+                continue
+            if day > today:
+                unknown += 1
+                continue
+            known.append(day.isoformat())
+            # 관측일 자체와 파일 저장일은 다르다. 기존 신선도와 같은 2평일 기준.
+            seen = datetime.datetime.combine(day, datetime.time(16), ZoneInfo("Asia/Seoul"))
+            lagging += _weekday_age_days(seen.timestamp()) > 2
+        out[key] = {"rows": len(rows), "dated": len(known), "unknown": unknown,
+                    "lagging": lagging, "oldest_as_of": min(known, default=None),
+                    "latest_as_of": max(known, default=None),
+                    "status": ("empty" if not rows else "unverified" if unknown
+                               else "lagging" if lagging else "current"),
+                    "score_input_unchanged": True}
+    return out
 
 
 def _consensus_row(ticker: str, date: str, c: dict) -> dict:

@@ -52,6 +52,15 @@ def test_late_when_remain_upside_thin():
     assert eq.classify_quality(3.0, 0, remain_upside_pct=10.0) == "fresh"
 
 
+def test_decline_after_fire_is_not_fresh_entry():
+    out = eq.compute("T", kind="BUY", price=74.0,
+                     hist_days=[("2026-07-01", "BUY")],
+                     dates=["2026-07-01"], closes=[100.0, 74.0], today="2026-07-02")
+    assert out["run_up_pct"] == -26.0
+    assert out["quality"] == "below_fire"
+    assert out["quality_ko"] == "발동 뒤 하락"
+
+
 def test_hold_has_no_entry():
     assert eq.compute(
         "T", kind="HOLD", price=100.0, hist_days=[("2026-07-24", "HOLD")],
