@@ -1,0 +1,46 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "purpose": "Selected original documents for three delisting cases; not an exhaustive action feed",
+  "documents": [
+    {
+      "id": "ssangyong-exchange-decision-20240423",
+      "url": "https://kind.krx.co.kr/external/2024/04/23/000145/20240423000439/11347.htm",
+      "expected_text": "쌍용씨앤이"
+    },
+    {
+      "id": "ssangyong-exchange-close-20240625",
+      "url": "https://kind.krx.co.kr/external/2024/06/25/000570/20240625001567/12000.htm",
+      "expected_text": "쌍용씨앤이"
+    },
+    {
+      "id": "ssangyong-delisting-20240702",
+      "url": "https://kind.krx.co.kr/external/2024/07/02/000332/20240702000854/68051.htm",
+      "expected_text": "쌍용씨앤이"
+    },
+    {
+      "id": "mipo-merger-terms-20251002",
+      "url": "https://kind.krx.co.kr/external/2025/10/02/000341/20251002000893/00591.htm",
+      "expected_text": "HD현대미포"
+    },
+    {
+      "id": "mipo-merger-close-20251201",
+      "url": "https://kind.krx.co.kr/external/2025/12/01/000492/20251201001014/10810.htm",
+      "expected_text": "HD현대미포"
+    },
+    {
+      "id": "infracore-merger-terms-20250722",
+      "url": "https://kind.krx.co.kr/external/2025/07/22/000242/20250722000820/10081.htm",
+      "expected_text": "HD현대인프라코어"
+    },
+    {
+      "id": "infracore-merger-close-20260102",
+      "url": "https://kind.krx.co.kr/external/2026/01/02/000439/20260102001108/10810.htm",
+      "expected_text": "인프라코어"
+    },
+    {
+      "id": "infracore-successor-report-20260602",
+      "url": "https://kind.krx.co.kr/external/2026/06/02/000761/20260602001735/11013.htm",
+      "expected_text": "HD현대인프라코어"
+    }
+  ]
+}

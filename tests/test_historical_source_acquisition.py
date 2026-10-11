@@ -85,6 +85,81 @@ def test_source_error_never_prints_credential_url(monkeypatch):
     assert "secret query" not in str(error.value)
 
 
+def test_kind_review_preserves_selected_originals_without_claiming_completeness(tmp_path, monkeypatch):
+    url = "https://kind.krx.co.kr/external/2024/06/25/000570/20240625001567/12000.htm"
+    plan = tmp_path / "plan.json"
+    plan.write_text(json.dumps({"schema": "research-kind-review-plan-v1", "documents": [
+        {"id": "ssangyong-close", "url": url, "expected_text": "쌍용씨앤이"}]}), encoding="utf-8")
+    raw = "<HTML>쌍용씨앤이 주식교환 종료보고서</HTML>".encode()
+
+    class Response:
+        headers = {"Content-Type": "text/html; charset=UTF-8"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def geturl(self):
+            return url
+
+        def read(self, count):
+            assert count == 10_000_001
+            return raw
+
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen", lambda request, timeout: Response())
+    files, manifest = acquisition.acquire_kind_reviewed(plan)
+    assert manifest["source_state"] == "selected_originals_not_action_complete"
+    assert manifest["strict_pit_eligible"] is False
+    output = tmp_path / "kind.zip"
+    acquisition.write_archive(output, files, manifest)
+    checked = acquisition.verify_action_archive(output)
+    assert checked["raw_members"] == 1 and checked["total_return_coverage"] is False
+    with pytest.raises(FileExistsError):
+        acquisition.write_archive(output, files, manifest)
+
+
+def test_kind_review_rejects_wrong_identity_redirect_and_protected_date(tmp_path, monkeypatch):
+    url = "https://kind.krx.co.kr/external/2024/06/25/000570/20240625001567/12000.htm"
+    plan = tmp_path / "plan.json"
+    item = {"id": "ssangyong-close", "url": url, "expected_text": "쌍용씨앤이"}
+    plan.write_text(json.dumps({"schema": "research-kind-review-plan-v1",
+                                "documents": [item]}), encoding="utf-8")
+
+    class Response:
+        headers = {"Content-Type": "text/html"}
+
+        def __init__(self, final_url, raw):
+            self.final_url, self.raw = final_url, raw
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def geturl(self):
+            return self.final_url
+
+        def read(self, count):
+            return self.raw
+
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen", lambda request, timeout:
+                        Response(url, b"<HTML>different issuer</HTML>"))
+    with pytest.raises(acquisition.SourceError, match="identity"):
+        acquisition.acquire_kind_reviewed(plan)
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen", lambda request, timeout:
+                        Response("https://elsewhere.example/", b"<HTML>different issuer</HTML>"))
+    with pytest.raises(acquisition.SourceError, match="redirected"):
+        acquisition.acquire_kind_reviewed(plan)
+    item["url"] = "https://kind.krx.co.kr/external/2026/08/05/000570/20260805001567/12000.htm"
+    plan.write_text(json.dumps({"schema": "research-kind-review-plan-v1",
+                                "documents": [item]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="date"):
+        acquisition.acquire_kind_reviewed(plan)
+
+
 def test_transient_invalid_json_is_retried_without_archiving_it(monkeypatch):
     calls = []
 

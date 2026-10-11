@@ -38,6 +38,18 @@
 
 `inspect-kis --output <KIS ZIP>`은 보존한 일정의 정규화 사실을 출력한다. 조회일 의미·정확한 배당락/효력일·당시 공개시각·실제 지급이 확인되지 않은 사실은 반드시 미확인으로 남긴다. 해시 일치나 두 일정의 필드 일치는 행사 전수 보장·총수익 적격을 뜻하지 않는다. 세부 범위와 실제 대조표는 [원천 완전성 판단](../../docs/RESEARCH-SOURCE-COMPLETENESS-2026-10-11.md)에 기록했다.
 
+세 상장폐지/합병의 **선별 KIND 원문 8건**은 [고정 목록](../../docs/research-action-kind-review-plan-2026-10-11.json)에서 읽기 전용으로 수집한다. HTTPS KIND 공식 경로·발행사 문자열·응답 크기를 검사하고 ZIP 원문 해시를 보존한다. 이것은 KIND 공시 전수 조회가 아니며 기존 결손표의 `partial` 상태를 바꾸지 않는다.
+
+```bash
+.venv/bin/python scripts/measure/acquire_historical_sources.py kind-reviewed \
+  --source-plan docs/research-action-kind-review-plan-2026-10-11.json \
+  --output data/research/kind-action-review-2026-10-11-v1.zip
+.venv/bin/python scripts/measure/acquire_historical_sources.py verify-kind \
+  --output data/research/kind-action-review-2026-10-11-v1.zip
+```
+
+재수집은 새 출력명으로만 가능하다. 기존 ZIP은 덮어쓰지 않으며, 후일 웹 원문이 정정되어 바이트가 바뀌면 해시가 달라진 **새 관측**으로 기록해야 한다. 사례별 근거와 아직 확인하지 못한 정산은 [후속 검수](../../docs/RESEARCH-ACTION-GAP-AUDIT-2026-10-11.md#2026-10-11-후속-원문-검수--위-초기-조사표의-보완)에 있다.
+
 `research_action_gap_ledger.py`는 기존 7개 개발 창의 시가총액 상위 200 **후보 전체**를 대상으로 종목별 기업행사 결손표를 재생한다. 코드에 새 전략 수익률이나 매매 규칙은 없다. 원문 ZIP 네 개가 로컬에 있는 경우 재현 명령은 다음과 같다. 출력은 새 파일만 허용하며 저장소의 [보존 결과(JSON Lines)](../../docs/research-action-gap-ledger-2026-10-11.jsonl)와 [해석](../../docs/RESEARCH-ACTION-GAP-AUDIT-2026-10-11.md)을 비교할 수 있다. Git에 들어 있는 JSONL은 원문 ZIP의 대체가 아니며 이 명령은 키나 네트워크를 사용하지 않는다.
 
 ```bash
