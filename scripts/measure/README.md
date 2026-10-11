@@ -12,6 +12,8 @@
 
 `.venv/bin/python -m scripts.measure.research_daily_foundation --window 2026q2early-v5 --horizon 5`는 보존된 KRX 원문과 가격 전용 판단 기록을 연구용 판단·현금 재생에 연결한다. `--window`는 이미 열람한 2024년 세 구간과 2025~2026년 네 구간, `--horizon`은 5·20만 받는다. 각 조합에서 기존 `holding_horizon_portfolio_lab`의 체결 순서·가격·수량과 비용 후 결과가 일치하는지 `legacy_replay_parity`로 보고한다. 당시 순위와 공급자 도착 시각이 없는 입력은 가정으로 표시한다. 이 보고서는 등록 판정·운영 주문·새 전략 수익 증거가 아니다. 세부 계약과 남은 조건은 [엔진 재설계](../../docs/ENGINE-REBUILD-BLUEPRINT-2026-10-11.md)에 있다.
 
+`--sensitivity`를 더하면 같은 개발 입력에 비용 25/75/120bp, 불리한 시가 체결, 부분체결·미체결 시나리오를 적용한다. 손익이 없거나 더 좋아지는 시나리오도 숨기지 않는다. 이는 **가격만 사용한 가상 계산**이며 KRX 일별 원본은 기업행사·배당의 완전한 원천이 아니다. 검증된 총수익, 독립 표본 성과, 실제 주문 체결로 읽지 않는다.
+
 ## 왜 `pit6.py` 가 있나 (먼저 읽을 것)
 
 `store.pit_fund_scores` 는 `fundamentals.json` 에 시가총액이 없으면 **발행주식수 근사에서

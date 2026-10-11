@@ -25,7 +25,9 @@ from scripts.measure.price_challenger_lab import (
     ARCHIVES, HOLDOUT_ARCHIVES, HOLDOUT_WINDOWS, PILOTS, PricePanel,
 )
 from signal_desk import market_clock
-from signal_desk.signals.research_daily_simulator import DailyCostModel, simulate_daily
+from signal_desk.signals.research_daily_simulator import (
+    DailyCostModel, DailyExecutionScenario, simulate_daily,
+)
 from signal_desk.signals.research_decision import (
     Candidate, CompletedDailyBar, DailyPolicy, DailySnapshot,
 )
@@ -141,8 +143,38 @@ def build_snapshots(pilot: dict, days: dict, source_by_day: dict[str, str], *,
     return snapshots
 
 
+def _execution_sensitivity(snapshots: list[DailySnapshot], policy: DailyPolicy) -> list[dict]:
+    """Same inputs, declared assumptions; no ex-post scenario selection."""
+    assumptions = (
+        ("legacy_25bp_full_fill", 0.00125, DailyExecutionScenario()),
+        ("cost_75bp_full_fill", 0.00375, DailyExecutionScenario("cost-75bp-full")),
+        ("cost_120bp_full_fill", 0.006, DailyExecutionScenario("cost-120bp-full")),
+        ("slip_25bp_each_full_fill", 0.00125,
+         DailyExecutionScenario("slip-25bp-each", 25, 25)),
+        ("slip_25bp_each_half_fill", 0.00125,
+         DailyExecutionScenario("slip-25bp-each-half", 25, 25, 0.5)),
+        ("no_fill", 0.00125, DailyExecutionScenario("no-fill", 0, 0, 0)),
+    )
+    rows = []
+    for label, side_cost, execution in assumptions:
+        result = simulate_daily(snapshots, policy=policy,
+                                costs=DailyCostModel(buy_fraction=side_cost,
+                                                     sell_fraction=side_cost),
+                                execution=execution)
+        rows.append({"scenario": label, "state": result["state"],
+                     "roundtrip_cost_bps": side_cost * 20_000,
+                     "buy_slippage_bps": execution.buy_adverse_slippage_bps,
+                     "sell_slippage_bps": execution.sell_adverse_slippage_bps,
+                     "assumed_fill_fraction": execution.assumed_fill_fraction,
+                     "net_return_pct": result["net_return_pct"],
+                     "fills": len(result["fills"]),
+                     "full_fill_assumptions": result.get("full_fill_assumptions"),
+                     "return_quality": result.get("return_quality", "not_matured_or_incomplete")})
+    return rows
+
+
 def run_development(data_dir: Path, *, window: str = "2026q2early-v5",
-                    horizon: int = 5) -> dict:
+                    horizon: int = 5, sensitivity: bool = False) -> dict:
     if horizon not in (5, 20):
         raise ValueError("only the frozen h5/h20 development horizons are supported")
     pilot, days, source_by_day, pilot_hash, start, end = _frozen_inputs(data_dir, window)
@@ -151,6 +183,13 @@ def run_development(data_dir: Path, *, window: str = "2026q2early-v5",
     policy = DailyPolicy(max_positions=6, hold_sessions=horizon)
     result = simulate_daily(snapshots, policy=policy, costs=DailyCostModel(
         buy_fraction=SIDE_COST, sell_fraction=SIDE_COST))
+    # The archived KRX bars do not certify a complete issuer-action feed.
+    # This must remain a separate, explicitly blocked total-return path.
+    verified_attempt = simulate_daily(
+        snapshots, policy=policy,
+        costs=DailyCostModel(buy_fraction=SIDE_COST, sell_fraction=SIDE_COST),
+        require_event_coverage=True,
+    )
     old_share_counts = None
     if window not in PILOTS:
         old_share_counts = {}
@@ -173,7 +212,7 @@ def run_development(data_dir: Path, *, window: str = "2026q2early-v5",
     source_ids = sorted(result["source_ids"])
     source_digest = hashlib.sha256("\n".join(source_ids).encode()).hexdigest()
     old_fills = old.get("fills")
-    return {"schema": "research-daily-foundation-development-v1", "market": "kr",
+    report = {"schema": "research-daily-foundation-development-v1", "market": "kr",
             "window": window, "horizon": horizon, "source_level": "C_price_only_rank_proxy",
             "registered_verdict": False, "live_order_eligible": False,
             "pilot_sha256": pilot_hash, "raw_source_count": len(source_ids),
@@ -184,6 +223,8 @@ def run_development(data_dir: Path, *, window: str = "2026q2early-v5",
             "legacy_replay_parity": parity,
             "cash_baseline_pct": 0.0,
             "new_fills": len(result["fills"]),
+            "verified_total_return_state": verified_attempt["state"],
+            "verified_total_return_pct": verified_attempt["net_return_pct"],
             "old_fills": old_fills if isinstance(old_fills, int) else len(old_fills or []),
             "new_full_fill_assumptions": result.get("full_fill_assumptions"),
             "research_kernel_sha256": hashlib.sha256(b"".join(
@@ -198,6 +239,11 @@ def run_development(data_dir: Path, *, window: str = "2026q2early-v5",
                 "Score/ticker tie-break is a rank proxy; actual rank was not preserved in the audit export.",
                 "Completed daily prices do not prove opening auction fills or corporate-action-free total return.",
             ]}
+    if sensitivity:
+        report["execution_sensitivity"] = _execution_sensitivity(snapshots, policy)
+        report["limitations"].append(
+            "Execution sensitivity is assumed price-only arithmetic, not observed liquidity or verified total return.")
+    return report
 
 
 def main() -> None:
@@ -206,8 +252,11 @@ def main() -> None:
     parser.add_argument("--window", choices=(*PILOTS, *(name for name, _, _ in HOLDOUT_WINDOWS)),
                         default="2026q2early-v5")
     parser.add_argument("--horizon", type=int, default=5, choices=(5, 20))
+    parser.add_argument("--sensitivity", action="store_true",
+                        help="compare declared costs, slippage, partial-fill and no-fill assumptions")
     args = parser.parse_args()
-    print(json.dumps(run_development(args.data_dir, window=args.window, horizon=args.horizon),
+    print(json.dumps(run_development(args.data_dir, window=args.window, horizon=args.horizon,
+                                     sensitivity=args.sensitivity),
                      ensure_ascii=False, sort_keys=True, allow_nan=False))
 
 
