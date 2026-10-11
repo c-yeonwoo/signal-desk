@@ -1,0 +1,229 @@
+{
+  "distinct_issuer_sessions": 7,
+  "events": [
+    {
+      "cash_or_share_entitlement": "unverified",
+      "correction_chain": "unverified",
+      "effective_date": null,
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-02-03",
+          "left_censored": false,
+          "window": "2026q1-v5"
+        }
+      ],
+      "event_type": "unverified",
+      "krx_change_session": "2026-02-23",
+      "listed_shares_after": 712702365,
+      "listed_shares_before": 728002365,
+      "listed_shares_delta": -15300000,
+      "name": "SK하이닉스",
+      "previous_session": "2026-02-20",
+      "ticker": "000660"
+    },
+    {
+      "cash_or_share_entitlement": "unverified",
+      "correction_chain": "unverified",
+      "effective_date": null,
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-04-01",
+          "left_censored": true,
+          "window": "2026q2early-v5"
+        }
+      ],
+      "event_type": "unverified",
+      "krx_change_session": "2026-04-14",
+      "listed_shares_after": 5846278608,
+      "listed_shares_before": 5919637922,
+      "listed_shares_delta": -73359314,
+      "name": "삼성전자",
+      "previous_session": "2026-04-13",
+      "ticker": "005930"
+    },
+    {
+      "cash_or_share_entitlement": "unverified",
+      "correction_chain": "unverified",
+      "effective_date": null,
+      "episode_refs": [
+        {
+          "first_buy_date": "2025-10-30",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        }
+      ],
+      "event_type": "unverified",
+      "krx_change_session": "2025-11-14",
+      "listed_shares_after": 442384158,
+      "listed_shares_before": 442318138,
+      "listed_shares_delta": 66020,
+      "name": "카카오",
+      "previous_session": "2025-11-13",
+      "ticker": "035720"
+    },
+    {
+      "cash_or_share_entitlement": "unverified",
+      "correction_chain": "unverified",
+      "effective_date": null,
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-01-08",
+          "left_censored": false,
+          "window": "2026q1-v5"
+        },
+        {
+          "first_buy_date": "2026-01-15",
+          "left_censored": false,
+          "window": "2026q1-v5"
+        }
+      ],
+      "event_type": "unverified",
+      "krx_change_session": "2026-02-05",
+      "listed_shares_after": 372850455,
+      "listed_shares_before": 381462103,
+      "listed_shares_delta": -8611648,
+      "name": "KB금융",
+      "previous_session": "2026-02-04",
+      "ticker": "105560"
+    },
+    {
+      "cash_or_share_entitlement": "unverified",
+      "correction_chain": "unverified",
+      "effective_date": null,
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-06-02",
+          "left_censored": false,
+          "window": "2026jun-expanded-v5"
+        },
+        {
+          "first_buy_date": "2026-05-12",
+          "left_censored": false,
+          "window": "2026q2early-v5"
+        }
+      ],
+      "event_type": "unverified",
+      "krx_change_session": "2026-06-09",
+      "listed_shares_after": 354687734,
+      "listed_shares_before": 372850455,
+      "listed_shares_delta": -18162721,
+      "name": "KB금융",
+      "previous_session": "2026-06-08",
+      "ticker": "105560"
+    },
+    {
+      "cash_or_share_entitlement": "unverified",
+      "correction_chain": "unverified",
+      "effective_date": null,
+      "episode_refs": [
+        {
+          "first_buy_date": "2025-11-20",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        },
+        {
+          "first_buy_date": "2025-11-27",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        },
+        {
+          "first_buy_date": "2025-12-04",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        },
+        {
+          "first_buy_date": "2025-12-10",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        }
+      ],
+      "event_type": "unverified",
+      "krx_change_session": "2025-12-17",
+      "listed_shares_after": 132087115,
+      "listed_shares_before": 132540858,
+      "listed_shares_delta": -453743,
+      "name": "SK스퀘어",
+      "previous_session": "2025-12-16",
+      "ticker": "402340"
+    },
+    {
+      "cash_or_share_entitlement": "unverified",
+      "correction_chain": "unverified",
+      "effective_date": null,
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-03-24",
+          "left_censored": false,
+          "window": "2026q1-v5"
+        },
+        {
+          "first_buy_date": "2026-04-01",
+          "left_censored": true,
+          "window": "2026q2early-v5"
+        }
+      ],
+      "event_type": "unverified",
+      "krx_change_session": "2026-04-16",
+      "listed_shares_after": 131958386,
+      "listed_shares_before": 132087115,
+      "listed_shares_delta": -128729,
+      "name": "SK스퀘어",
+      "previous_session": "2026-04-15",
+      "ticker": "402340"
+    }
+  ],
+  "frozen_pilot_sha256": {
+    "2025q4-v5": "f649016afc4e29c827621639be96ff9ccf9c27dddb73872ac45278841011e66a",
+    "2026jun-expanded-v5": "68614fd3eb88457607efef6fdc97e40fc8e2bed5beaa387fb5bb141844b58888",
+    "2026q1-v5": "70886b4a221b38675f5a8e2ea3d883e98c8b39f676163d6a4341e87a0463c27a",
+    "2026q2early-v5": "930ac4b9cc547c579a188c18082662434bcaa1fa7b82557e2363d290e336da47"
+  },
+  "gap_ledger_sha256": "7c3daa5edb5a1f891854cc5aa2e9f8c1635f4c21a16e2e808cbcac7fba9abfef",
+  "krx_sources": [
+    {
+      "archive": "krx-daily-2024-10-12-v1.zip",
+      "sessions": 61,
+      "sha256": "e48e8e8601ab7c9de23b5de6f9b331cff6784600b0e3694e8cf4d6a4b69afd02"
+    },
+    {
+      "archive": "krx-daily-2025-01-04-v1.zip",
+      "sessions": 80,
+      "sha256": "0f8ba69f3d8cecc3cd3a85e59925dc76920380cf1b565bfb96d6f1ab823cf419"
+    },
+    {
+      "archive": "krx-daily-2025-05-08-v1.zip",
+      "sessions": 81,
+      "sha256": "57dd14660cdf87b2ff1cf1f454b6c79f41e6654b6a83ad4d1bc75f77563557da"
+    },
+    {
+      "archive": "krx-daily-2025-09-12-v1.zip",
+      "sessions": 81,
+      "sha256": "e21a3df2065aa43853b827a3f72281d59bcad5d22b28d7a6066658bbd6a77f01"
+    },
+    {
+      "archive": "krx-daily-2026-01-05-v1.zip",
+      "sessions": 99,
+      "sha256": "cc413764abe56573d93c1bf8fce62b38deaceb45b0f354bd914afc1bd7603ef6"
+    },
+    {
+      "archive": "krx-daily-2026-06-07-v1.zip",
+      "sessions": 43,
+      "sha256": "ce595d2bf8b7b43dbe3266fdb19615987b8945e517ccaba500db46c76a31c15d"
+    }
+  ],
+  "left_censored_overlap_refs": 2,
+  "limitations": [
+    "Share-count delta is not a corporate-action classification or entitlement",
+    "Four price-only pilot windows only; earlier three windows have no BUY episodes in this queue",
+    "A simulated h20 episode is not an actual account position",
+    "Repeated episodes are not independent observations",
+    "All 1,488 ticker-window rows retain partial action coverage"
+  ],
+  "overlap_episode_refs": 13,
+  "price_only_episodes": 172,
+  "registered_verdict": false,
+  "research_only": true,
+  "schema": "research-held-share-change-priority-v1",
+  "strict_pit_eligible": false,
+  "verified_total_return": false
+}

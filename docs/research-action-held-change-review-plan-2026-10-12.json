@@ -1,0 +1,21 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "purpose": "Selected original-source checks for share-count changes overlapping frozen price-only h20 episodes; not a complete action feed or entitlement proof",
+  "documents": [
+    {
+      "id": "samsung-cancellation-listing-20260409",
+      "url": "https://kind.krx.co.kr/external/2026/04/09/000375/20260409000536/68155.htm",
+      "expected_text": "삼성전자"
+    },
+    {
+      "id": "kakao-option-listing-20251111",
+      "url": "https://kind.krx.co.kr/external/2025/11/11/000153/20251111000553/68154.htm",
+      "expected_text": "카카오"
+    },
+    {
+      "id": "sksquare-quarterly-post-event-20260514",
+      "url": "https://kind.krx.co.kr/external/2026/05/14/001535/20260514003345/11013.htm",
+      "expected_text": "SK스퀘어"
+    }
+  ]
+}
