@@ -155,6 +155,11 @@ def _entry(row: dict, market: str, as_of: str | None) -> dict:
                      reason="호재 전 상승으로 선반영 의심 — 추격 전 확인 필요",
                      evidence_ids=evidence, source_quality="price_observation", affects=["timing"])
     quality = entry.get("quality")
+    run_up = _finite(entry.get("run_up_pct"))
+    if quality == "below_fire" or (run_up is not None and run_up < 0):
+        return _base("entry", row, market, as_of, verdict="hold",
+                     reason="첫 매수권 뒤 주가 하락 — 하락 이유와 보유 판단을 다시 확인",
+                     evidence_ids=evidence, source_quality="price_observation", affects=["timing"])
     if quality in ("fresh", "ok"):
         return _base("entry", row, market, as_of, verdict="pass",
                      reason="발동가 대비 진입 품질이 신선·여유 구간(성과 검증 전)",

@@ -1,7 +1,8 @@
 """호재 선반영 의심 — 이벤트 전 사전 상승만 관측한다(단정 금지).
 
 정성 호재(KB confirmed · direction=positive)의 앵커일 직전 N거래일 수익률이
-문턱 이상이면 '선반영 의심'. kind·점수·봇은 건드리지 않는다 — UI 툴팁 전용.
+문턱 이상이면 '선반영 의심'. 이 계산은 kind·점수를 바꾸지 않지만,
+실행 게이트는 승인된 공식 사건에 한해서 신규 매수를 보류할 수 있다.
 
 완전 인과 판정은 불가하므로 flag=True여도 '이미 반영됐다'가 아니라
 '공시/이벤트 전에 이미 많이 올랐다'는 관측만 말한다.
@@ -43,8 +44,9 @@ def pre_event_return_pct(
     dates: list[str], closes: list[float], event_date: str, window: int
 ) -> float | None:
     """이벤트일 직전 `window`거래일 수익률(%). 이벤트 당일 봉은 제외(당일 반영과 구분)."""
-    if window <= 0 or not dates or not closes or len(dates) != len(closes):
+    if window <= 0 or not dates or not closes or len(closes) not in (len(dates), len(dates) + 1):
         return None
+    closes = closes[:len(dates)]  # 날짜 없는 장중 잠정가는 이벤트 전 확정봉에 포함하지 않는다.
     event_date = str(event_date)[:10]
     end = None  # 이벤트 직전 거래일 인덱스
     for i, d in enumerate(dates):

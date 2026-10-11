@@ -56,6 +56,8 @@ def test_fetch_flows_from_naver(monkeypatch, tmp_path):
                                              "inst_net": 1e6, "volume": 20e6}])
     out = store.fetch_flows([{"ticker": "005930", "name": "삼성전자"}])
     assert out["005930"]["intensity"] == 0.2  # (3+1)/20
+    assert out["005930"]["as_of"] == "2026-07-14"
+    assert out["005930"]["observed_at"]
     assert store.FLOWS_FILE.exists()
 
 

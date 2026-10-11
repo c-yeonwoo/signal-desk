@@ -28,6 +28,7 @@ def test_late_demotes_buy():
     assert r.kind == "HOLD" and r.gate_blocked and r.rank_eligible is False
     assert r.score == 2.0
     assert any("[추격]" in x for x in r.reasons)
+    assert "현재 판정은 관망" in r.narrative
 
 
 def test_priced_in_demotes_buy():
@@ -48,12 +49,52 @@ def test_priced_in_demotes_buy():
         closes.append(120.0 + i)
     events = {"T": [{
         "direction": "positive", "summary": "수주", "effective_at": ed,
+        "status": "confirmed", "trust_tier": "official", "decision_eligible": True,
     }]}
     eg.apply(
         [r], hist_by={}, dates_by={"T": dates}, closes_by={"T": closes},
         events_by=events, today="2026-07-24",
     )
     assert r.kind == "HOLD" and any("[선반영]" in x for x in r.reasons)
+    assert "execution_priced_in" in r.gates
+
+
+def test_unapproved_news_is_only_an_observation():
+    r = _buy()
+    dates = ["2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17",
+             "2026-07-18", "2026-07-19", "2026-07-20"]
+    closes = [100.0, 102.0, 104.0, 106.0, 108.0, 110.0, 120.0]
+    news = {"direction": "positive", "summary": "수주", "effective_at": "2026-07-20",
+            "status": "confirmed", "trust_tier": "news", "decision_eligible": False}
+    eg.apply([r], hist_by={}, dates_by={"T": dates}, closes_by={"T": closes},
+             events_by={"T": [news]}, today="2026-07-21")
+    assert r.kind == "BUY" and not r.gate_blocked
+
+
+def test_live_overlay_preserves_late_and_official_event_checks():
+    r = _buy()
+    hist = {"T": [("2026-07-01", "BUY"), ("2026-07-02", "BUY"),
+                  ("2026-07-03", "BUY")]}
+    dates = {"T": ["2026-07-01", "2026-07-02", "2026-07-03", "2026-07-10"]}
+    # 마지막 141원은 날짜 없는 현재가다. 발동가는 확정봉의 100원이어야 한다.
+    closes = {"T": [100.0, 105.0, 110.0, 140.0, 141.0]}
+    eg.apply([r], hist_by=hist, dates_by=dates, closes_by=closes,
+             events_by={}, today="2026-07-11")
+    assert r.kind == "HOLD" and "execution_late" in r.gates
+
+
+def test_multiple_undated_prices_block_new_buy():
+    r = _buy()
+    eg.apply([r], hist_by={}, dates_by={"T": ["2026-07-10"]},
+             closes_by={"T": [100.0, 110.0, 120.0]}, events_by={}, today="2026-07-11")
+    assert r.kind == "HOLD" and "execution_price_mismatch" in r.gates
+
+
+def test_missing_price_date_blocks_new_buy():
+    r = _buy()
+    eg.apply([r], hist_by={}, dates_by={}, closes_by={"T": [100.0]},
+             events_by={}, today="2026-07-11")
+    assert r.kind == "HOLD" and "execution_price_mismatch" in r.gates
 
 
 def test_fresh_buy_untouched():
@@ -114,9 +155,11 @@ def test_gate_capture_records_actual_inputs_and_failure_status(monkeypatch):
 
     monkeypatch.setattr(db, "kb_events_active", lambda: 1 / 0)
     failed = {}
-    eg.apply_from_store([_buy()], today="2026-10-07", price_bundle=(prices, dates),
+    failed_buy = _buy()
+    eg.apply_from_store([failed_buy], today="2026-10-07", price_bundle=(prices, dates),
                         capture=failed)
     assert failed["status"] == "failed_partial" and failed["error_type"] == "ZeroDivisionError"
+    assert failed_buy.kind == "HOLD" and "execution_input_unavailable" in failed_buy.gates
 
 
 def test_empty_gate_capture_has_explicit_day_and_price_bundle():

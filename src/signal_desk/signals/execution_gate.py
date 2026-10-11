@@ -12,11 +12,14 @@ import logging
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
 
-from signal_desk.signals import entry_quality, priced_in
+from signal_desk.signals import entry_quality, narrative, priced_in
 from signal_desk.signals.engine import HOLD, BUY_KINDS, SignalResult, is_buy
 
 log = logging.getLogger("signal_desk.execution_gate")
 _KST = ZoneInfo("Asia/Seoul")
+EXECUTION_GATE_LABELS = {"execution_late": "추격", "execution_priced_in": "선반영",
+                         "execution_price_mismatch": "시세확인",
+                         "execution_input_unavailable": "근거확인"}
 
 
 @dataclass(frozen=True)
@@ -27,14 +30,19 @@ class ExecutionGateConfig:
     block_extended: bool = False
 
 
-def _demote(r: SignalResult, tag: str, detail: str) -> None:
+def _demote(r: SignalResult, tag: str, detail: str, *, key: str | None = None) -> None:
     if r.kind in BUY_KINDS:
         r.kind = HOLD
     r.gate_blocked = True
     r.rank_eligible = False
+    key = key or ("execution_late" if tag == "추격" else "execution_priced_in")
+    if key not in r.gates:
+        r.gates.append(key)
     reason = f"[{tag}] {detail}"
     if reason not in (r.reasons or []):
         r.reasons = [*(r.reasons or []), reason]
+    # engine.evaluate가 이미 만든 설명은 강등 전 BUY일 수 있다.
+    r.narrative = narrative.explain(r)
 
 
 def apply(
@@ -55,6 +63,12 @@ def apply(
             continue
         closes = closes_by.get(r.ticker) or []
         dates = dates_by.get(r.ticker) or []
+        # 정상적인 잠정가는 확정봉보다 한 개 길다. 그 외의 불일치는 날짜를
+        # 추측해 맞추지 않는다. 매수권만 보류하고 원천 확인을 요구한다.
+        if not dates or not closes or len(closes) not in (len(dates), len(dates) + 1):
+            _demote(r, "시세확인", "가격과 기준일의 짝이 맞지 않아 신규 매수 보류",
+                    key="execution_price_mismatch")
+            continue
         try:
             price = float(closes[-1]) if closes else None
         except (TypeError, ValueError, IndexError):
@@ -80,8 +94,14 @@ def apply(
                 )
                 continue
         if cfg.block_priced_in:
+            # UI의 선반영 관측은 일반 뉴스도 보여주지만, 주문 차단에는
+            # 공식 원문이며 투자 판단에 사용 승인된 사건만 허용한다.
+            approved = [ev for ev in events_by.get(r.ticker) or []
+                        if ev.get("status") == "confirmed"
+                        and ev.get("trust_tier") == "official"
+                        and ev.get("decision_eligible") is True]
             pi = priced_in.compute(
-                events_by.get(r.ticker) or [],
+                approved,
                 dates, closes, today=today,
             )
             if pi and pi.get("flag"):
@@ -144,5 +164,9 @@ def apply_from_store(
     except Exception as e:
         if capture is not None:
             capture.update({"status": "failed_partial", "error_type": type(e).__name__})
-        log.warning("실행 게이트 스킵: %s", type(e).__name__)
+        log.warning("실행 게이트 근거 확인 실패 — 신규 매수 보류: %s", type(e).__name__)
+        for r in results:
+            if is_buy(r.kind):
+                _demote(r, "근거확인", "실행 게이트 입력을 확인하지 못해 신규 매수 보류",
+                        key="execution_input_unavailable")
         return results

@@ -81,6 +81,16 @@ def test_no_price_asof_means_unknown_even_if_score_is_high():
     assert rows[0]["lens_results"]["entry"]["verdict"] == "unavailable"
 
 
+def test_decline_after_fire_does_not_pass_entry_lens():
+    rows = [_row(entry={"quality": "below_fire", "fire_date": "2026-09-28",
+                        "run_up_pct": -26.1})]
+    lenses.build_snapshot(rows, market="kr", signal_policy_id="p",
+                          dates_by={"AAA": ["2026-09-29"]})
+    entry = rows[0]["lens_results"]["entry"]
+    assert entry["verdict"] == "hold"
+    assert "하락" in entry["reason"]
+
+
 def test_snapshot_ledger_is_immutable_and_deduplicated(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     original = lenses.build_snapshot([_row()], market="kr", signal_policy_id="p",

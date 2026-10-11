@@ -1,5 +1,6 @@
 """자동매매봇 — 유저별 페이퍼 계좌 + 공용 시그널. 실제 paper 브로커로 검증."""
 
+import datetime
 import json
 import time
 
@@ -28,8 +29,12 @@ def _setup(monkeypatch, universe, prices, signals, mode="absolute", exposure=1.0
     기본을 "absolute"로 두고, 횡단면 분위 동작은 아래 rank 전용 테스트에서 검증한다."""
     monkeypatch.setattr(bot.store, "load_universe", lambda: universe)
     monkeypatch.setattr(bot.store, "load_price_series", lambda: prices)
+    price_dates = {ticker: [(datetime.date(2026, 7, 1) + datetime.timedelta(days=i)).isoformat()
+                            for i in range(len(closes))]
+                   for ticker, closes in prices.items()}
     monkeypatch.setattr(bot.store, "load_engine_price_bundle",
-                        lambda market: (prices, {}, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
+                        lambda market: (prices, price_dates,
+                                        {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: {})
     monkeypatch.setattr(bot.store, "load_fundamentals", lambda: {})
     monkeypatch.setattr(bot.engine, "evaluate", lambda *a, **k: signals)
