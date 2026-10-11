@@ -102,6 +102,15 @@
 
 ## 왜 `pit6.py` 가 있나 (먼저 읽을 것)
 
+동결된 가격 전용 첫 BUY 파일럿의 h20 구간에 겹친 KRX 상장주식수 변화는 [연구 전용 우선순위](../../docs/RESEARCH-ACTION-HELD-CHANGE-PRIORITY-2026-10-12.md)로 재생한다. 이 큐는 실제 보유·권리·총수익의 증명이 아니다. 기존 동결 ZIP·파일럿·결손표의 SHA가 달라지면 실패한다. 결과를 새 출력명으로 생성한다.
+
+```bash
+.venv/bin/python -m scripts.measure.research_action_holding_change_priority \
+  --output data/research/holding-change-priority-repeat.json
+.venv/bin/python scripts/measure/acquire_historical_sources.py verify-kind \
+  --output data/research/kind-held-change-review-2026-10-12-v1.zip
+```
+
 `store.pit_fund_scores` 는 `fundamentals.json` 에 시가총액이 없으면 **발행주식수 근사에서
 막힌다**(`"시가총액·현재가가 없어 발행주식수를 근사할 수 없다"`). 로컬 캐시가 낡으면 6팩터
 PIT 하네스를 **아예 못 돌린다** — KRX 인증이 필요한 수집을 먼저 해야 한다.
