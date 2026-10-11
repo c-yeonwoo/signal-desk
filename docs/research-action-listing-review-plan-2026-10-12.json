@@ -1,0 +1,21 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "purpose": "Three selected KOSPI archive first-price gaps: transfer listing versus demerger relisting; not a full listing or action feed",
+  "documents": [
+    {
+      "id": "poscodx-transfer-report-20240516",
+      "url": "https://kind.krx.co.kr/external/2024/05/16/001527/20240516003592/11013.htm",
+      "expected_text": "포스코디엑스"
+    },
+    {
+      "id": "paradise-kosdaq-delisting-20240619",
+      "url": "https://kind.krx.co.kr/external/2024/06/19/000841/20240619001773/70769.htm",
+      "expected_text": "파라다이스"
+    },
+    {
+      "id": "samsung-epis-relisting-20251120",
+      "url": "https://kind.krx.co.kr/external/2025/11/20/000725/20251120002094/68156.htm",
+      "expected_text": "삼성에피스홀딩스"
+    }
+  ]
+}

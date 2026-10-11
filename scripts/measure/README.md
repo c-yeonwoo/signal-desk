@@ -62,6 +62,23 @@
   --output data/research/action-gap-ledger-repeat.jsonl
 ```
 
+`research_action_input_readiness.py`는 위 보존 JSONL과 KRX 원문 두 패널의 해시·일별 후보를 다시 맞춘 뒤, 종목별 253개 **연속 유효 종가**가 없어서 파일럿이 제외한 후보일을 계산한다. 2025 Q4~2026-06 네 창은 동결한 파일럿의 제외 수와 비교한다. [검수 해석](../../docs/RESEARCH-ACTION-INPUT-READINESS-2026-10-12.md)과 [결과 JSON](../../docs/research-action-input-readiness-2026-10-12.json)은 기업행사 커버리지나 총수익 인증이 아니다. 재현 출력은 새 경로를 지정한다.
+
+```bash
+.venv/bin/python -m scripts.measure.research_action_input_readiness \
+  --output data/research/action-input-readiness-repeat.json
+```
+
+선별한 이전상장·재상장 공시 원문 3건의 수집/검증은 다음처럼 따로 수행한다. 반환 상태는 `selected_originals_not_action_complete`다.
+
+```bash
+.venv/bin/python scripts/measure/acquire_historical_sources.py kind-reviewed \
+  --source-plan docs/research-action-listing-review-plan-2026-10-12.json \
+  --output data/research/kind-listing-review-2026-10-12-v1.zip
+.venv/bin/python scripts/measure/acquire_historical_sources.py verify-kind \
+  --output data/research/kind-listing-review-2026-10-12-v1.zip
+```
+
 ## 왜 `pit6.py` 가 있나 (먼저 읽을 것)
 
 `store.pit_fund_scores` 는 `fundamentals.json` 에 시가총액이 없으면 **발행주식수 근사에서
