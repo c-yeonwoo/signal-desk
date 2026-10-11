@@ -1,0 +1,12 @@
+{
+  "schema": "research-kind-listing-plan-v1",
+  "purpose": "Six directly retrievable KRX KIND listing-history pages; K-bank and Daehan pages returned only an empty HTML shell and are excluded from byte-archive claims",
+  "documents": [
+    {"id":"lgcns-20250205","url":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20240726000244&method=searchListInvstgCorpDetail","expected_text":"LG씨엔에스","expected_listing_date":"2025-02-05"},
+    {"id":"hdmarine-20240508","url":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20230920000083&method=searchListInvstgCorpDetail","expected_text":"HD현대마린솔루션","expected_listing_date":"2024-05-08"},
+    {"id":"ecomat-20231117","url":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20230131000252&method=searchListInvstgCorpDetail","expected_text":"에코프로머티","expected_listing_date":"2023-11-17"},
+    {"id":"doosanrobotics-20231005","url":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20230320000249&method=searchListInvstgCorpDetail","expected_text":"두산로보틱스","expected_listing_date":"2023-10-05"},
+    {"id":"shiftup-20240711","url":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20231121000148&method=searchListInvstgCorpDetail","expected_text":"시프트업","expected_listing_date":"2024-07-11"},
+    {"id":"mnc-20241216","url":"https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20240531000078&method=searchListInvstgCorpDetail","expected_text":"엠앤씨솔루션","expected_listing_date":"2024-12-16"}
+  ]
+}

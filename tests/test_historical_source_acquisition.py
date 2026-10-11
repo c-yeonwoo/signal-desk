@@ -167,6 +167,53 @@ def test_kind_review_rejects_wrong_identity_redirect_and_protected_date(tmp_path
         acquisition.acquire_kind_reviewed(plan)
 
 
+def test_kind_listing_history_archives_only_page_with_identity_date_and_type(tmp_path, monkeypatch):
+    url = ("https://kind.krx.co.kr/listinvstg/listinvstgcom.do?"
+           "bizProcNo=20240726000244&method=searchListInvstgCorpDetail")
+    plan = tmp_path / "listing-plan.json"
+    item = {"id": "lgcns-20250205", "url": url, "expected_text": "LG씨엔에스",
+            "expected_listing_date": "2025-02-05"}
+    plan.write_text(json.dumps({"schema": "research-kind-listing-plan-v1",
+                                "documents": [item]}), encoding="utf-8")
+
+    class Response:
+        headers = {"Content-Type": "text/html; charset=UTF-8"}
+
+        def __init__(self, body):
+            self.body = body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def geturl(self):
+            return url
+
+        def read(self, count):
+            assert count == 1_000_001
+            return self.body
+
+    good = "<html>LG씨엔에스 신규상장 2025-02-05</html>".encode()
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen", lambda request, timeout: Response(good))
+    files, manifest = acquisition.acquire_kind_listing_reviewed(plan)
+    output = tmp_path / "listing.zip"
+    acquisition.write_archive(output, files, manifest)
+    assert acquisition.verify_action_archive(output)["raw_members"] == 1
+    assert manifest["strict_pit_eligible"] is False
+
+    monkeypatch.setattr(acquisition.urllib.request, "urlopen", lambda request, timeout:
+                        Response(b"<html>JavaScript loading shell</html>"))
+    with pytest.raises(acquisition.SourceError, match="identity, date or listing type"):
+        acquisition.acquire_kind_listing_reviewed(plan)
+    item["url"] = "https://kind.krx.co.kr/listinvstg/listinvstgcom.do?bizProcNo=20240726000244&method=unsafe"
+    plan.write_text(json.dumps({"schema": "research-kind-listing-plan-v1",
+                                "documents": [item]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="invalid or duplicate"):
+        acquisition.acquire_kind_listing_reviewed(plan)
+
+
 def test_transient_invalid_json_is_retried_without_archiving_it(monkeypatch):
     calls = []
 
