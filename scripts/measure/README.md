@@ -109,6 +109,8 @@
   --output data/research/holding-change-priority-repeat.json
 .venv/bin/python scripts/measure/acquire_historical_sources.py verify-kind \
   --output data/research/kind-held-change-review-2026-10-12-v1.zip
+.venv/bin/python scripts/measure/acquire_historical_sources.py verify-kind \
+  --output data/research/kind-held-change-followup-2026-10-12-v1.zip
 ```
 
 `store.pit_fund_scores` 는 `fundamentals.json` 에 시가총액이 없으면 **발행주식수 근사에서

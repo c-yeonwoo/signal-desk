@@ -1,0 +1,21 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "purpose": "Selected official follow-up for a price-only h20 share-change queue; distinguish completed listing from treasury-acquisition decision, not full correction or entitlement coverage",
+  "documents": [
+    {
+      "id": "skhynix-cancellation-listing-20260213",
+      "url": "https://kind.krx.co.kr/external/2026/02/13/000951/20260213002414/68155.htm",
+      "expected_text": "에스케이하이닉스"
+    },
+    {
+      "id": "kb-treasury-acquisition-20260205",
+      "url": "https://kind.krx.co.kr/external/2026/02/05/000540/20260205001712/11332.htm",
+      "expected_text": "KB금융지주"
+    },
+    {
+      "id": "kb-treasury-acquisition-20260423",
+      "url": "https://kind.krx.co.kr/external/2026/04/23/000504/20260423001397/11332.htm",
+      "expected_text": "KB금융지주"
+    }
+  ]
+}
