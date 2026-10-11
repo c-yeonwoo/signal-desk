@@ -51,6 +51,9 @@ KIS_SCHEDULES = {
     "dividend": ("/uapi/domestic-stock/v1/ksdinfo/dividend", "HHKDB669102C0"),
     "rev-split": ("/uapi/domestic-stock/v1/ksdinfo/rev-split", "HHKDB669105C0"),
 }
+KIND_DOCUMENT_URL = re.compile(
+    r"https://kind\.krx\.co\.kr/external/(20\d{2})/(\d{2})/(\d{2})/"
+    r"\d{6}/(\d{14})/[A-Za-z0-9]+\.htm\Z")
 
 
 class SourceError(RuntimeError):
@@ -316,6 +319,64 @@ def acquire_kis_schedule(kind: str, ticker: str, start: str, end: str, *,
                    "total_return_coverage": False}
 
 
+def acquire_kind_reviewed(plan: Path, *, max_requests: int = 12,
+                          gap_seconds: float = REQUEST_GAP_SECONDS) -> tuple[dict[str, bytes], dict]:
+    """Archive an explicit, bounded set of KIND originals, not a complete filing feed."""
+    specification = json.loads(plan.read_text(encoding="utf-8"))
+    documents = specification.get("documents")
+    if (specification.get("schema") != "research-kind-review-plan-v1"
+            or not isinstance(documents, list) or not 1 <= len(documents) <= max_requests <= 12):
+        raise ValueError("KIND review: invalid plan or request cap")
+    files, entries, seen_ids, seen_urls = {}, {}, set(), set()
+    for index, item in enumerate(documents):
+        if not isinstance(item, dict):
+            raise ValueError("KIND review: invalid document")
+        identifier, url, marker = (item.get("id"), item.get("url"),
+                                   item.get("expected_text"))
+        match = KIND_DOCUMENT_URL.fullmatch(url) if isinstance(url, str) else None
+        if (not isinstance(identifier, str) or not re.fullmatch(r"[a-z0-9-]{3,64}", identifier)
+                or identifier in seen_ids or url in seen_urls or not match
+                or match[4][:8] != f"{match[1]}{match[2]}{match[3]}"
+                or f"{match[1]}-{match[2]}-{match[3]}" >= _registered_start()
+                or not isinstance(marker, str) or len(marker) < 3):
+            raise ValueError("KIND review: invalid or duplicate id, URL, date or identity marker")
+        seen_ids.add(identifier)
+        seen_urls.add(url)
+        request = urllib.request.Request(url, headers={"User-Agent": "signal-desk-research/1.0"})
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                if response.geturl() != url or "text/html" not in response.headers.get("Content-Type", ""):
+                    raise SourceError("KIND review: redirected or non-HTML response")
+                raw = response.read(10_000_001)
+        except urllib.error.HTTPError as exc:
+            raise SourceError(f"KIND review: HTTP {exc.code}") from None
+        except SourceError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — avoid writing partial evidence
+            raise SourceError(f"KIND review: {type(exc).__name__}") from None
+        if len(raw) > 10_000_000:
+            raise SourceError("KIND review: response size limit")
+        try:
+            decoded = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise SourceError("KIND review: original is not UTF-8") from None
+        if marker not in decoded or "<html" not in decoded.lower():
+            raise SourceError("KIND review: issuer identity or HTML structure differs")
+        name = f"raw/{identifier}.htm"
+        files[name] = raw
+        entries[name] = {**_entry(raw, rows=1), "url": url,
+                         "document_id": identifier, "source_filing_date":
+                         f"{match[1]}-{match[2]}-{match[3]}",
+                         "expected_text": marker}
+        if index + 1 < len(documents):
+            time.sleep(gap_seconds)
+    return files, {"schema": "historical-action-source-v1", "source": "KRX KIND originals",
+                   "endpoint": "selected /external/ HTML documents", "market": "kr",
+                   "request_count": len(documents), "source_state":
+                   "selected_originals_not_action_complete", "entries": entries,
+                   "strict_pit_eligible": False, "total_return_coverage": False}
+
+
 def verify_action_archive(path: Path) -> dict:
     """Replay a local original-byte bundle without contacting a provider."""
     with ZipFile(path) as archive:
@@ -330,11 +391,29 @@ def verify_action_archive(path: Path) -> dict:
                 or manifest.get("strict_pit_eligible") is not False
                 or manifest.get("total_return_coverage") is not False):
             raise SourceError("action archive: invalid manifest or coverage claim")
+        if manifest.get("source") == "KRX KIND originals" and (
+                not 1 <= len(entries) <= 12
+                or any(archive.getinfo(name).file_size > 10_000_000 for name in entries)):
+            raise SourceError("action archive: KIND member count or size limit")
         for name, entry in entries.items():
             raw = archive.read(name)
             if (not name.startswith("raw/") or hashlib.sha256(raw).hexdigest() != entry.get("sha256")
                     or len(raw) != entry.get("bytes")):
                 raise SourceError(f"action archive: source hash/length mismatch at {name}")
+            if manifest.get("source") == "KRX KIND originals":
+                match = KIND_DOCUMENT_URL.fullmatch(entry.get("url", ""))
+                if (not match or name != f"raw/{entry.get('document_id')}.htm"
+                        or match[4][:8] != f"{match[1]}{match[2]}{match[3]}"
+                        or entry.get("source_filing_date") != f"{match[1]}-{match[2]}-{match[3]}"):
+                    raise SourceError(f"action archive: KIND identity mismatch at {name}")
+                try:
+                    decoded = raw.decode("utf-8")
+                except UnicodeDecodeError:
+                    raise SourceError(f"action archive: KIND encoding mismatch at {name}") from None
+                marker = entry.get("expected_text")
+                if (not isinstance(marker, str) or len(marker) < 3
+                        or marker not in decoded or "<html" not in decoded.lower()):
+                    raise SourceError(f"action archive: KIND issuer or HTML mismatch at {name}")
         return {"source": manifest["source"], "source_state": manifest["source_state"],
                 "raw_members": len(entries), "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                 "strict_pit_eligible": False, "total_return_coverage": False}
@@ -702,6 +781,7 @@ def write_archive(output: Path, files: dict[str, bytes], manifest: dict) -> None
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", choices=("krx-daily", "dart-filings", "dart-actions",
+                                           "kind-reviewed", "verify-kind",
                                            "kis-dividend", "kis-rev-split", "verify-actions",
                                            "inspect-dividend", "inspect-kis", "compare-dividend"))
     parser.add_argument("--start")
@@ -711,6 +791,7 @@ def main() -> None:
     parser.add_argument("--ticker", help="KIS six-digit listed security")
     parser.add_argument("--receipt", help="DART filing receipt to inspect from a saved archive")
     parser.add_argument("--dart-archive", type=Path, help="saved DART action ZIP for comparison")
+    parser.add_argument("--source-plan", type=Path, help="fixed KIND original-document review plan")
     parser.add_argument("--max-requests", type=int, default=60)
     parser.add_argument("--max-docs", type=int, default=60)
     parser.add_argument("--output", type=Path, required=True)
@@ -731,6 +812,12 @@ def main() -> None:
                           "security_id": source_window.security_id,
                           "query_date_basis": source_window.date_basis}, ensure_ascii=False))
         return
+    if args.source == "verify-kind":
+        checked = verify_action_archive(args.output)
+        if checked["source"] != "KRX KIND originals":
+            raise SourceError("KIND review: wrong archive family")
+        print(json.dumps(checked, ensure_ascii=False))
+        return
     if args.source == "inspect-dividend":
         if not args.receipt or len(args.receipt) != 14 or not args.receipt.isdigit():
             parser.error("--receipt must be a fourteen-digit DART receipt")
@@ -749,8 +836,10 @@ def main() -> None:
         print(json.dumps(compare_dart_kis_dividend(dart, args.output),
                          ensure_ascii=False, sort_keys=True, allow_nan=False))
         return
-    if not args.start or not args.end:
+    if args.source != "kind-reviewed" and (not args.start or not args.end):
         parser.error("--start and --end are required for acquisition")
+    if args.source == "kind-reviewed" and not args.source_plan:
+        parser.error("--source-plan is required for KIND originals")
     if args.source == "dart-filings" and not args.detail:
         parser.error("--detail is required for DART")
     if args.source == "dart-actions" and not args.corp_code:
@@ -769,6 +858,9 @@ def main() -> None:
         files, manifest = acquire_dart_actions(args.corp_code, args.start, args.end,
                                                max_list_pages=args.max_requests,
                                                max_docs=args.max_docs)
+    elif args.source == "kind-reviewed":
+        files, manifest = acquire_kind_reviewed(args.source_plan,
+                                                max_requests=min(args.max_requests, 12))
     else:
         kind = "dividend" if args.source == "kis-dividend" else "rev-split"
         files, manifest = acquire_kis_schedule(kind, args.ticker, args.start, args.end,
