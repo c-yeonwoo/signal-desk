@@ -38,6 +38,18 @@
 
 `inspect-kis --output <KIS ZIP>`은 보존한 일정의 정규화 사실을 출력한다. 조회일 의미·정확한 배당락/효력일·당시 공개시각·실제 지급이 확인되지 않은 사실은 반드시 미확인으로 남긴다. 해시 일치나 두 일정의 필드 일치는 행사 전수 보장·총수익 적격을 뜻하지 않는다. 세부 범위와 실제 대조표는 [원천 완전성 판단](../../docs/RESEARCH-SOURCE-COMPLETENESS-2026-10-11.md)에 기록했다.
 
+`research_action_gap_ledger.py`는 기존 7개 개발 창의 시가총액 상위 200 **후보 전체**를 대상으로 종목별 기업행사 결손표를 재생한다. 코드에 새 전략 수익률이나 매매 규칙은 없다. 원문 ZIP 네 개가 로컬에 있는 경우 재현 명령은 다음과 같다. 출력은 새 파일만 허용하며 저장소의 [보존 결과(JSON Lines)](../../docs/research-action-gap-ledger-2026-10-11.jsonl)와 [해석](../../docs/RESEARCH-ACTION-GAP-AUDIT-2026-10-11.md)을 비교할 수 있다. Git에 들어 있는 JSONL은 원문 ZIP의 대체가 아니며 이 명령은 키나 네트워크를 사용하지 않는다.
+
+```bash
+.venv/bin/python -m scripts.measure.research_action_gap_ledger \
+  --action-archive data/research/dart-actions-00126380-2024-04-30-v1.zip \
+  --action-archive data/research/dart-actions-00126380-2024-05-v1.zip \
+  --action-archive data/research/kis-dividend-005930-2024-03-v1.zip \
+  --action-archive data/research/kis-rev-split-042700-2022-04-v1.zip \
+  --reviewed-cases docs/research-action-reviewed-cases-2026-10-11.json \
+  --output data/research/action-gap-ledger-repeat.jsonl
+```
+
 ## 왜 `pit6.py` 가 있나 (먼저 읽을 것)
 
 `store.pit_fund_scores` 는 `fundamentals.json` 에 시가총액이 없으면 **발행주식수 근사에서
