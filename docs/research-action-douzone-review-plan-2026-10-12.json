@@ -1,0 +1,16 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "purpose": "Selected Douzone stock-exchange and suspension originals for the 2026-07 KRX price disappearance; not an exhaustive correction or payment feed",
+  "documents": [
+    {
+      "id": "douzone-exchange-terms-20260519",
+      "url": "https://kind.krx.co.kr/external/2026/05/19/000570/20260519001358/11347.htm",
+      "expected_text": "더존비즈온"
+    },
+    {
+      "id": "douzone-suspension-20260619",
+      "url": "https://kind.krx.co.kr/external/2026/06/19/000356/20260619000461/68060.htm",
+      "expected_text": "더존비즈온"
+    }
+  ]
+}

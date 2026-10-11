@@ -79,6 +79,17 @@
   --output data/research/kind-listing-review-2026-10-12-v1.zip
 ```
 
+더존비즈온 `012510`의 2026-07 가격 소멸은 [매매정지·주식교환 계보](../../docs/RESEARCH-ACTION-DOUZONE-DELISTING-2026-10-12.md)로 따로 검수한다. 아래 두 KIND 원문을 고정 보존하고 KRX 원본과 함께 재생한다. **실제 교부금 수령은 확인하지 않는다.**
+
+```bash
+.venv/bin/python scripts/measure/acquire_historical_sources.py kind-reviewed \
+  --source-plan docs/research-action-douzone-review-plan-2026-10-12.json \
+  --output data/research/kind-douzone-review-2026-10-12-v1.zip
+.venv/bin/python scripts/measure/acquire_historical_sources.py verify-kind \
+  --output data/research/kind-douzone-review-2026-10-12-v1.zip
+.venv/bin/python -m scripts.measure.research_action_douzone_lineage
+```
+
 ## 왜 `pit6.py` 가 있나 (먼저 읽을 것)
 
 `store.pit_fund_scores` 는 `fundamentals.json` 에 시가총액이 없으면 **발행주식수 근사에서
