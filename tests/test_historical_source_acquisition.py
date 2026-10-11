@@ -40,6 +40,13 @@ def test_krx_acquisition_preserves_raw_sessions_and_fails_closed(tmp_path, monke
     assert requested == ["20260730", "20260731"]
 
 
+def test_registered_boundary_compares_dates_not_input_string_format():
+    assert acquisition._range("20251221", "20260120") == (
+        dt.date(2025, 12, 21), dt.date(2026, 1, 20))
+    with pytest.raises(ValueError, match="registered period"):
+        acquisition._range("20260804", "20260805")
+
+
 def test_dart_acquisition_retains_corrections_and_checks_all_pages(monkeypatch):
     monkeypatch.setattr(acquisition.config, "dart_key", lambda: "test-secret")
     monkeypatch.setattr(acquisition.time, "sleep", lambda seconds: None)

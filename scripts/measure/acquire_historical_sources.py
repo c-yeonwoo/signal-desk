@@ -74,7 +74,7 @@ def _registered_start() -> str:
 
 def _range(start: str, end: str) -> tuple[dt.date, dt.date]:
     first, last = dt.date.fromisoformat(start), dt.date.fromisoformat(end)
-    if first > last or end >= _registered_start():
+    if first > last or last >= dt.date.fromisoformat(_registered_start()):
         raise ValueError("research range must end before the registered period")
     return first, last
 
