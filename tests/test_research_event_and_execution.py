@@ -190,6 +190,80 @@ def test_verified_dividend_is_receivable_until_payment_not_entry_cash():
     assert result["unpaid_dividend_receivables"] == 1
 
 
+def test_v2_final_right_marks_wealth_without_spending_scheduled_cash():
+    days = _days(4)
+    series = _path(days)
+    ledger = {(day, "005930"): _proof(day) for day in days[1:]}
+    right = SettlementEvent("cash_dividend", cash_per_share=2,
+                            payment_date="2024-05-01", event_id="issuer:dividend-1",
+                            cash_amount_status="final", payment_status="scheduled")
+    ledger[(days[2], "005930")] = _proof(days[2], events=(right,))
+    marked = _replay(series, event_evidence=ledger, require_event_coverage=True,
+                     return_contract="settlement_v2")
+    assert marked["state"] == "unmatured"
+    assert marked["cash_available_end"] == 11952.775
+    assert marked["known_receivable_end"] == 198
+    assert marked["economic_mark_return_pct"] == 21.5078
+    assert marked["simulated_liquidated_return_pct"] is None
+    assert marked["account_realized_return_pct"] is None
+    assert marked["dividend_cash_paid"] == 0
+    assert marked["strict_pit_eligible"] is False
+
+    scheduled = replace(right, cash_amount_status="scheduled")
+    ledger[(days[2], "005930")] = _proof(days[2], events=(scheduled,))
+    unknown = _replay(series, event_evidence=ledger, require_event_coverage=True,
+                      return_contract="settlement_v2")
+    assert unknown["economic_mark_return_pct"] is None
+    assert unknown["equity_curve"][-1]["equity"] is None
+    assert unknown["unknown_receivable_count"] == 1
+
+    confirmed = replace(right, payment_date=days[3], payment_status="confirmed",
+                        payment_source_id="issuer:payment-confirmation",
+                        payment_source_sha256="a" * 64,
+                        payment_observed_at=dt.datetime(2024, 4, 5,
+                                                        tzinfo=dt.timezone.utc))
+    ledger[(days[2], "005930")] = _proof(days[2], events=(confirmed,))
+    paid = _replay(series, event_evidence=ledger, require_event_coverage=True,
+                   return_contract="settlement_v2")
+    assert paid["state"] == "complete"
+    assert paid["cash_available_end"] == 12150.775
+    assert paid["simulated_liquidated_return_pct"] == 21.5078
+    with pytest.raises(ValueError, match="invalid dividend evidence status"):
+        replace(confirmed, payment_observed_at=dt.datetime(2024, 4, 1,
+                                                           tzinfo=dt.timezone.utc))
+
+
+def test_v2_ex_date_entry_has_no_right_and_duplicate_id_fails_closed():
+    days = _days(4)
+    series = _path(days)
+    ledger = {(day, "005930"): _proof(day) for day in days[1:]}
+    right = SettlementEvent("cash_dividend", cash_per_share=2,
+                            payment_date="2024-05-01", event_id="dividend-1",
+                            cash_amount_status="final", payment_status="scheduled")
+    ledger[(days[1], "005930")] = _proof(days[1], events=(right,))
+    entry_day = _replay(series, event_evidence=ledger, require_event_coverage=True,
+                        return_contract="settlement_v2")
+    assert entry_day["state"] == "complete"
+    assert entry_day["known_receivable_end"] == 0
+
+    ledger[(days[2], "005930")] = _proof(days[2], events=(right,))
+    duplicate = _replay(series, event_evidence=ledger, require_event_coverage=True,
+                        return_contract="settlement_v2")
+    assert duplicate["state"] == "incomplete_duplicate_entitlement"
+    assert duplicate["net_return_pct"] is None
+
+    with pytest.raises(ValueError, match="duplicate dividend entitlement"):
+        _proof(days[2], events=(right, right))
+
+    ledger[(days[1], "005930")] = _proof(days[1])
+    ledger[(days[2], "005930")] = _proof(days[2])
+    ledger[(days[3], "005930")] = _proof(days[3], events=(right,))
+    exit_morning = _replay(series, event_evidence=ledger, require_event_coverage=True,
+                           return_contract="settlement_v2")
+    assert exit_morning["state"] == "unmatured"
+    assert exit_morning["known_receivable_end"] == 198
+
+
 def test_unresolved_halt_or_delisting_never_receives_a_fictional_recovery():
     days = _days(4)
     for kind in ("halt", "delisting"):

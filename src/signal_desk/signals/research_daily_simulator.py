@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from typing import Mapping, Sequence
+from typing import Literal, Mapping, Sequence
 
 from signal_desk import market_clock
 from signal_desk.signals.research_decision import (
@@ -80,7 +80,8 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                    execution: DailyExecutionScenario | None = None,
                    event_evidence: Mapping[tuple[str, str], DailyEventEvidence] | None = None,
                    require_event_coverage: bool = False,
-                   reviewed_share_changes: Mapping[tuple[str, str], ReviewedShareCountChange] | None = None) -> dict:
+                   reviewed_share_changes: Mapping[tuple[str, str], ReviewedShareCountChange] | None = None,
+                   return_contract: Literal["legacy", "settlement_v2"] = "legacy") -> dict:
     """Decision at completed close t, order at next regular open, then mark close.
 
     Calls :func:`decide` once per snapshot. The observed next open is the fill
@@ -92,6 +93,8 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
             or isinstance(starting_cash, bool) or not isinstance(starting_cash, (int, float))
             or not math.isfinite(starting_cash) or starting_cash <= 0):
         raise ValueError("invalid research simulation inputs")
+    if return_contract not in ("legacy", "settlement_v2"):
+        raise ValueError("invalid research return contract")
     execution = execution or DailyExecutionScenario()
     if not isinstance(execution, DailyExecutionScenario):
         raise ValueError("invalid execution scenario")
@@ -116,8 +119,10 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
     event_source_ids: set[str] = set()
     skips: dict[str, int] = {}
     full_fill_assumptions = 0
-    receivables: list[tuple[str, float]] = []
+    # payment_date, amount, amount_status, payment_status, event_id.
+    receivables: list[tuple[str, float, str | None, str | None, str | None]] = []
     dividend_cash_paid = 0.0
+    seen_dividend_ids: set[tuple[str, str]] = set()
     applied_issuer_facts: set[str] = set()
 
     def evidence_for(snapshot: DailySnapshot, ticker: str) -> DailyEventEvidence | None:
@@ -145,6 +150,20 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                                decisions=decisions, equity_curve=equity_curve, source_ids=source_ids)
         bars = {bar.ticker: bar for bar in snapshot.bars}
         source_ids.update(bar.source_id for bar in snapshot.bars)
+        if return_contract == "settlement_v2":
+            for ticker in bars:
+                day_proof = evidence_for(snapshot, ticker)
+                if day_proof is None or day_proof.coverage != "verified_complete":
+                    continue
+                for day_event in day_proof.events:
+                    if day_event.kind != "cash_dividend" or day_event.event_id is None:
+                        continue
+                    event_key = ticker, day_event.event_id
+                    if event_key in seen_dividend_ids:
+                        return _incomplete("incomplete_duplicate_entitlement", snapshot,
+                                           ticker=ticker, fills=fills, decisions=decisions,
+                                           equity_curve=equity_curve, source_ids=source_ids)
+                    seen_dividend_ids.add(event_key)
         day_changes = {ticker: fact for (day, ticker), fact in
                        (reviewed_share_changes or {}).items() if day == snapshot.session}
         for ticker, fact in day_changes.items():
@@ -205,8 +224,16 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                                        listed_shares=bar.listed_shares)
                     positions[ticker] = position
                 elif event.kind == "cash_dividend":
+                    if (return_contract == "settlement_v2"
+                            and (event.event_id is None or event.cash_amount_status is None
+                                 or event.payment_status is None)):
+                        return _incomplete("incomplete_dividend_terms", snapshot, ticker=ticker,
+                                           fills=fills, decisions=decisions, equity_curve=equity_curve,
+                                           source_ids=source_ids)
                     receivables.append((event.payment_date,
-                                        position.shares * event.cash_per_share))
+                                        position.shares * event.cash_per_share,
+                                        event.cash_amount_status, event.payment_status,
+                                        event.event_id))
 
         # The next day's open is read for the previous close's orders only.
         for order in (item for item in pending if item.action == "EXIT"):
@@ -297,14 +324,18 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                           "partial": quantity < desired_quantity})
 
         # Payouts are not purchasing power at the open without an intraday time.
-        due = [item for item in receivables if item[0] <= snapshot.session]
+        due = [item for item in receivables if item[0] <= snapshot.session
+               and (return_contract == "legacy" or item[3] == "confirmed")]
         if due:
-            dividend_cash_paid += sum(amount for _, amount in due)
-            cash += sum(amount for _, amount in due)
-            receivables = [item for item in receivables if item[0] > snapshot.session]
+            dividend_cash_paid += sum(item[1] for item in due)
+            cash += sum(item[1] for item in due)
+            receivables = [item for item in receivables if item not in due]
 
         # Current close is only accessed after every opening fill has been settled.
-        equity = cash + sum(amount for _, amount in receivables)
+        unknown_rights = (return_contract == "settlement_v2"
+                          and any(item[2] != "final" for item in receivables))
+        equity = cash + sum(item[1] for item in receivables
+                            if return_contract == "legacy" or item[2] == "final")
         for position in positions.values():
             bar = bars.get(position.ticker)
             if bar is None or bar.close is None or bar.status != "trading":
@@ -317,7 +348,8 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                                    fills=fills, decisions=decisions, equity_curve=equity_curve,
                                    source_ids=source_ids)
             equity += position.shares * bar.close
-        equity_curve.append({"session": snapshot.session, "equity": round(equity, 6)})
+        equity_curve.append({"session": snapshot.session,
+                             "equity": None if unknown_rights else round(equity, 6)})
         state = PortfolioState(market, cash, tuple(positions.values()), frozenset(used_theses))
         next_day = market_clock.next_sessions(market, snapshot.session, 1)
         if not next_day:
@@ -338,6 +370,25 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                 "registered_verdict": False}
         if reviewed_share_changes is not None:
             result["applied_issuer_facts"] = sorted(applied_issuer_facts)
+        if return_contract == "settlement_v2":
+            final_mark = equity_curve[-1]["equity"]
+            result.update({"economic_mark_return_pct": (
+                round((final_mark / starting_cash - 1) * 100, 4)
+                if require_event_coverage and final_mark is not None else None),
+                "simulated_liquidated_return_pct": None,
+                "account_realized_return_pct": None,
+                "cash_available_end": round(cash, 6),
+                "known_receivable_end": round(sum(item[1] for item in receivables
+                                                   if item[2] == "final"), 6),
+                "unknown_receivable_count": sum(item[2] != "final" for item in receivables),
+                "dividend_cash_paid": round(dividend_cash_paid, 6),
+                "cash_settlement_state": (
+                    "unconfirmed_or_future_receivable" if receivables else "no_receivable"),
+                "valuation_state": "unknown_right_amount" if final_mark is None else
+                "ex_post_known_rights_mark", "decision_basis": "daily_snapshot_replay",
+                "execution_basis": execution.scenario_id,
+                "coverage_state": "verified_for_traded_paths_only" if require_event_coverage
+                else "unverified_price_only"})
         return result
     peak = float(starting_cash)
     max_drawdown = 0.0
@@ -374,4 +425,20 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
             "registered_verdict": False}
     if reviewed_share_changes is not None:
         result["applied_issuer_facts"] = sorted(applied_issuer_facts)
+    if return_contract == "settlement_v2":
+        result.update({"economic_mark_return_pct": (
+            round((equity_curve[-1]["equity"] / starting_cash - 1) * 100, 4)
+            if require_event_coverage else None),
+            "simulated_liquidated_return_pct": result["net_return_pct"]
+            if require_event_coverage else None,
+            "account_realized_return_pct": None,
+            "cash_available_end": round(cash, 6),
+            "known_receivable_end": 0.0,
+            "unknown_receivable_count": 0,
+            "cash_settlement_state": "confirmed_or_no_receivable",
+            "valuation_state": "ex_post_known_rights_mark",
+            "decision_basis": "daily_snapshot_replay",
+            "execution_basis": execution.scenario_id,
+            "coverage_state": "verified_for_traded_paths_only" if require_event_coverage
+            else "unverified_price_only"})
     return result
