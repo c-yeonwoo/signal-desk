@@ -1,0 +1,51 @@
+{
+  "action_coverage_state": "partial",
+  "archive_sha256": "b73b2c2c6bf91155e841891aff924a01aab004cac4da4502ec494d1ffc6d39a9",
+  "economic_return_pct": null,
+  "effect": {
+    "cash_payment_confirmed": false,
+    "delisting_on": "2024-07-09",
+    "effect_status": "confirmed_by_later_KRX_delisting_notice",
+    "effective_on": "2024-06-25"
+  },
+  "feed_eligible": false,
+  "holder_entitlement_verified": false,
+  "live_order_eligible": false,
+  "missing": [
+    "final cash consideration/correction chain",
+    "payment date and actual payment confirmation",
+    "whole-period action coverage and historical holder eligibility"
+  ],
+  "payment_completion_verified": false,
+  "plan_sha256": "89551a68f846c1ceb0227857767e4dc50999c5e00f0b0edc3dba62fc530c8c23",
+  "registered_verdict": false,
+  "research_only": true,
+  "schema": "research-cash-exchange-source-audit-v1",
+  "simulated_liquidated_return_pct": null,
+  "sources": {
+    "ssangyong-exchange-effect-20240702": {
+      "filing_date": "2024-07-02",
+      "observed_at_utc": "2026-10-12T02:32:11.722955+00:00",
+      "raw_sha256": "dda55b7e02e30f2ec57cfe5ebedcaad99fbfbf91d1ae14965f861f5fd1f0106d",
+      "url": "https://kind.krx.co.kr/external/2024/07/02/000332/20240702000854/68051.htm"
+    },
+    "ssangyong-exchange-terms-20240423": {
+      "filing_date": "2024-04-23",
+      "observed_at_utc": "2026-10-12T02:32:10.839678+00:00",
+      "raw_sha256": "c33c696666d691980f76a38a048b2627d4057c8aa5d663ff87773a8e17ae8030",
+      "url": "https://kind.krx.co.kr/external/2024/04/23/000145/20240423000439/11347.htm"
+    }
+  },
+  "strict_pit_eligible": false,
+  "terms": {
+    "amount_status": "scheduled",
+    "payer": "한앤코시멘트홀딩스(주)",
+    "payment_date": null,
+    "payment_status": "not_confirmed_by_selected_originals",
+    "planned_effective_on": "2024-06-25",
+    "scheduled_gross_krw_per_share": 7000,
+    "share_class": "ordinary_common",
+    "ticker": "003410"
+  },
+  "ticker": "003410"
+}

@@ -1,0 +1,15 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "documents": [
+    {
+      "id": "ssangyong-exchange-terms-20240423",
+      "url": "https://kind.krx.co.kr/external/2024/04/23/000145/20240423000439/11347.htm",
+      "expected_text": "쌍용씨앤이"
+    },
+    {
+      "id": "ssangyong-exchange-effect-20240702",
+      "url": "https://kind.krx.co.kr/external/2024/07/02/000332/20240702000854/68051.htm",
+      "expected_text": "쌍용씨앤이"
+    }
+  ]
+}
