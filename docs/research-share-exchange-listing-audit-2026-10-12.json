@@ -1,0 +1,52 @@
+{
+  "action_coverage_state": "partial",
+  "cases": {
+    "010620": {
+      "aggregate_issuance_retrospectively_confirmed": true,
+      "individual_share_delivery_confirmed": false,
+      "merger_issued_common_shares": 16188109,
+      "new_share_listing_session_confirmed": false,
+      "ticker": "329180"
+    },
+    "042670": {
+      "exchange_notice_published_on": "2026-01-21",
+      "individual_share_delivery_confirmed": false,
+      "isin": "KR7267270007",
+      "merger_issued_common_shares": 30616505,
+      "new_share_listing_notice_confirmed": true,
+      "notice_listing_on": "2026-01-26",
+      "ticker": "267270"
+    }
+  },
+  "economic_return_pct": null,
+  "feed_eligible": false,
+  "fractional_cash_payment_verified": false,
+  "holder_entitlement_verified": false,
+  "kind_archive_sha256": "fd495120a826e94a5b63472f64ef5381212b598502011c187dbed6d29da8c859",
+  "kind_plan_sha256": "68710d356a0e95cf36d37f184c5938eb6799d5fd5a0e04eb5af0e140e27dc3a3",
+  "live_order_eligible": false,
+  "missing": [
+    "HD현대중공업 merger-share batch's KRX listing notice/date",
+    "actual holder share delivery, ratio precision/rounding and fractional cash payment",
+    "complete correction and corporate-action coverage"
+  ],
+  "registered_verdict": false,
+  "research_only": true,
+  "schema": "research-share-exchange-listing-audit-v1",
+  "sources": {
+    "hce-additional-listing-20260121": {
+      "filing_date": "2026-01-21",
+      "observed_at_utc": "2026-10-12T09:37:49.702474+00:00",
+      "raw_sha256": "aefa0c14a45012410380ae003c7ad4ed8adbe4699ec7d421e5d81fab8f77e33e",
+      "url": "https://kind.krx.co.kr/external/2026/01/21/000125/20260121000220/68151.htm"
+    },
+    "hhi-issued-shares-annual-20260320": {
+      "filing_date": "2026-03-20",
+      "observed_at_utc": "2026-10-12T09:37:49.134409+00:00",
+      "raw_sha256": "dbb77e22d8b45b4473238aadcaa3ed005790f3fe05a9355b5669387af390ea81",
+      "url": "https://kind.krx.co.kr/external/2026/03/20/001094/20260320004139/11011.htm"
+    }
+  },
+  "strict_pit_eligible": false,
+  "underlying_terms_report_sha256": "4cad8e9b37c9cff3b443e2edb2b7f0654a81627fec8b390325b6fd2617e3fd5f"
+}
