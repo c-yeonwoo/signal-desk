@@ -21,6 +21,54 @@ CollectionState = Literal["complete_for_source", "source_empty", "partial", "sou
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
 
 
+@dataclass(frozen=True)
+class ReviewedShareCountChange:
+    """One issuer-share fact; it cannot assert an action-free holding window."""
+
+    ticker: str
+    security_id: str
+    share_class: Literal["ordinary_common"]
+    kind: Literal["treasury_cancellation", "option_exercise_issuance"]
+    effective_on: str
+    listing_session: str
+    previous_session: str
+    listed_shares_before: int
+    listed_shares_after: int
+    source_url: str
+    source_sha256: str
+    source_filing_date: str
+    source_observed_at: dt.datetime
+    source_span: str
+    holder_quantity_effect: Literal["unchanged"] = "unchanged"
+    coverage_state: Literal["partial"] = "partial"
+
+    def __post_init__(self) -> None:
+        if (not re.fullmatch(r"[0-9A-Z]{6}", self.ticker)
+                or not re.fullmatch(r"KR[0-9A-Z]{10}", self.security_id)
+                or self.share_class != "ordinary_common"
+                or self.kind not in ("treasury_cancellation", "option_exercise_issuance")
+                or not market_clock.is_session("kr", self.listing_session)
+                or not market_clock.is_session("kr", self.previous_session)
+                or self.previous_session >= self.listing_session
+                or _date(self.effective_on) > _date(self.listing_session)
+                or _date(self.source_filing_date) > _date(self.listing_session)
+                or not _aware(self.source_observed_at)
+                or self.source_filing_date > self.source_observed_at.date().isoformat()
+                or not isinstance(self.listed_shares_before, int)
+                or isinstance(self.listed_shares_before, bool)
+                or not isinstance(self.listed_shares_after, int)
+                or isinstance(self.listed_shares_after, bool)
+                or self.listed_shares_before <= 0 or self.listed_shares_after <= 0
+                or ((self.listed_shares_after < self.listed_shares_before)
+                    != (self.kind == "treasury_cancellation"))
+                or not self.source_url.startswith("https://kind.krx.co.kr/external/")
+                or not _SHA.fullmatch(self.source_sha256)
+                or not self.source_span.strip()
+                or self.holder_quantity_effect != "unchanged"
+                or self.coverage_state != "partial"):
+            raise ValueError("invalid reviewed share-count change")
+
+
 def _date(value: str) -> dt.date:
     if not isinstance(value, str) or dt.date.fromisoformat(value).isoformat() != value:
         raise ValueError("date must be ISO YYYY-MM-DD")

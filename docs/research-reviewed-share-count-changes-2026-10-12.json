@@ -1,0 +1,247 @@
+{
+  "archives_sha256": {
+    "kind-final-held-change-2026-10-12-v1.zip": "4ee0bb01484224b74b97432fe8b1a47b2dd976a59f9f67795b07155c72fbfb79",
+    "kind-held-change-followup-2026-10-12-v1.zip": "29c95e11e733a5cb67e76eca505e16b38cfb0077959c315f04700b6cb6f9a2ba",
+    "kind-held-change-review-2026-10-12-v1.zip": "e343d6a41f869f1a23fc51f51759439255ff1ae568f10d3c92adc0e6540d0f2e",
+    "kind-sksquare-change-2026-10-12-v1.zip": "d4a91cb60d52f9493446b76db5a1650bab5fab0deeac1c5cd43c5eb38561d5c1"
+  },
+  "coverage_state": "partial",
+  "distinct_issuer_sessions": 7,
+  "economic_return_pct": null,
+  "facts": [
+    {
+      "correction_scope": "selected_completed_listing_only",
+      "coverage_state": "partial",
+      "effective_on": "2026-02-09",
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-02-03",
+          "left_censored": false,
+          "window": "2026q1-v5"
+        }
+      ],
+      "event_ref": "000660:2026-02-23",
+      "holder_quantity_effect": "unchanged",
+      "kind": "treasury_cancellation",
+      "listed_shares_after": 712702365,
+      "listed_shares_before": 728002365,
+      "listing_session": "2026-02-23",
+      "previous_session": "2026-02-20",
+      "security_id": "KR7000660001",
+      "share_class": "ordinary_common",
+      "source_availability": "retrospective_observation",
+      "source_filing_date": "2026-02-13",
+      "source_observed_at": "2026-10-11T17:26:01.253655+00:00",
+      "source_sha256": "8d5010e83a7cd8ad5822ed8cafc23395677c682386a2f449f9a710ae22faedcf",
+      "source_span": "기명식 보통주, 발행일(소각일), 변경상장일, 변경사유, 코드",
+      "source_url": "https://kind.krx.co.kr/external/2026/02/13/000951/20260213002414/68155.htm",
+      "ticker": "000660"
+    },
+    {
+      "correction_scope": "selected_completed_listing_only",
+      "coverage_state": "partial",
+      "effective_on": "2026-04-02",
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-04-01",
+          "left_censored": true,
+          "window": "2026q2early-v5"
+        }
+      ],
+      "event_ref": "005930:2026-04-14",
+      "holder_quantity_effect": "unchanged",
+      "kind": "treasury_cancellation",
+      "listed_shares_after": 5846278608,
+      "listed_shares_before": 5919637922,
+      "listing_session": "2026-04-14",
+      "previous_session": "2026-04-13",
+      "security_id": "KR7005930003",
+      "share_class": "ordinary_common",
+      "source_availability": "retrospective_observation",
+      "source_filing_date": "2026-04-09",
+      "source_observed_at": "2026-10-11T17:17:05.496106+00:00",
+      "source_sha256": "917880a2c7dd64d0ebf5ee642c8da111a9f2b9c20bc88f950520df40794bf05b",
+      "source_span": "기명식 보통주, 발행일(소각일), 변경상장일, 변경사유, 코드",
+      "source_url": "https://kind.krx.co.kr/external/2026/04/09/000375/20260409000536/68155.htm",
+      "ticker": "005930"
+    },
+    {
+      "correction_scope": "selected_completed_listing_only",
+      "coverage_state": "partial",
+      "effective_on": "2025-10-27",
+      "episode_refs": [
+        {
+          "first_buy_date": "2025-10-30",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        }
+      ],
+      "event_ref": "035720:2025-11-14",
+      "holder_quantity_effect": "unchanged",
+      "kind": "option_exercise_issuance",
+      "listed_shares_after": 442384158,
+      "listed_shares_before": 442318138,
+      "listing_session": "2025-11-14",
+      "previous_session": "2025-11-13",
+      "security_id": "KR7035720002",
+      "share_class": "ordinary_common",
+      "source_availability": "retrospective_observation",
+      "source_filing_date": "2025-11-11",
+      "source_observed_at": "2026-10-11T17:17:06.196527+00:00",
+      "source_sha256": "48454bde45901f0512143e0920dc0aaafb439e557f08df8288a2a787d207fd94",
+      "source_span": "기명식 보통주, 발행일, 상장일, 증자방법, 코드",
+      "source_url": "https://kind.krx.co.kr/external/2025/11/11/000153/20251111000553/68154.htm",
+      "ticker": "035720"
+    },
+    {
+      "correction_scope": "selected_completed_listing_only",
+      "coverage_state": "partial",
+      "effective_on": "2026-01-15",
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-01-08",
+          "left_censored": false,
+          "window": "2026q1-v5"
+        },
+        {
+          "first_buy_date": "2026-01-15",
+          "left_censored": false,
+          "window": "2026q1-v5"
+        }
+      ],
+      "event_ref": "105560:2026-02-05",
+      "holder_quantity_effect": "unchanged",
+      "kind": "treasury_cancellation",
+      "listed_shares_after": 372850455,
+      "listed_shares_before": 381462103,
+      "listing_session": "2026-02-05",
+      "previous_session": "2026-02-04",
+      "security_id": "KR7105560007",
+      "share_class": "ordinary_common",
+      "source_availability": "retrospective_observation",
+      "source_filing_date": "2026-02-02",
+      "source_observed_at": "2026-10-11T17:32:16.912290+00:00",
+      "source_sha256": "cbdf6ac669ecd148f946e8e980baf41edb669bf75d29e1097d40033227ba9963",
+      "source_span": "기명식 보통주, 발행일(소각일), 변경상장일, 변경사유, 코드",
+      "source_url": "https://kind.krx.co.kr/external/2026/02/02/000360/20260202001056/68155.htm",
+      "ticker": "105560"
+    },
+    {
+      "correction_scope": "selected_completed_listing_only",
+      "coverage_state": "partial",
+      "effective_on": "2026-05-15",
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-06-02",
+          "left_censored": false,
+          "window": "2026jun-expanded-v5"
+        },
+        {
+          "first_buy_date": "2026-05-12",
+          "left_censored": false,
+          "window": "2026q2early-v5"
+        }
+      ],
+      "event_ref": "105560:2026-06-09",
+      "holder_quantity_effect": "unchanged",
+      "kind": "treasury_cancellation",
+      "listed_shares_after": 354687734,
+      "listed_shares_before": 372850455,
+      "listing_session": "2026-06-09",
+      "previous_session": "2026-06-08",
+      "security_id": "KR7105560007",
+      "share_class": "ordinary_common",
+      "source_availability": "retrospective_observation",
+      "source_filing_date": "2026-06-04",
+      "source_observed_at": "2026-10-11T17:32:17.522507+00:00",
+      "source_sha256": "1c2a46bc206dbab321ac4242ac0eda4ed612c4f617d8b1ff9982a6e24263a710",
+      "source_span": "기명식 보통주, 발행일(소각일), 변경상장일, 변경사유, 코드",
+      "source_url": "https://kind.krx.co.kr/external/2026/06/04/000185/20260604000398/68155.htm",
+      "ticker": "105560"
+    },
+    {
+      "correction_scope": "selected_completed_listing_only",
+      "coverage_state": "partial",
+      "effective_on": "2025-11-24",
+      "episode_refs": [
+        {
+          "first_buy_date": "2025-11-20",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        },
+        {
+          "first_buy_date": "2025-11-27",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        },
+        {
+          "first_buy_date": "2025-12-04",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        },
+        {
+          "first_buy_date": "2025-12-10",
+          "left_censored": false,
+          "window": "2025q4-v5"
+        }
+      ],
+      "event_ref": "402340:2025-12-17",
+      "holder_quantity_effect": "unchanged",
+      "kind": "treasury_cancellation",
+      "listed_shares_after": 132087115,
+      "listed_shares_before": 132540858,
+      "listing_session": "2025-12-17",
+      "previous_session": "2025-12-16",
+      "security_id": "KR7402340004",
+      "share_class": "ordinary_common",
+      "source_availability": "retrospective_observation",
+      "source_filing_date": "2025-12-12",
+      "source_observed_at": "2026-10-11T17:29:13.824816+00:00",
+      "source_sha256": "2f2969b7c1fef0ba566bfc075a078c44d3bac8d5c79ffbb159d10540bdc839af",
+      "source_span": "기명식 보통주, 발행일(소각일), 변경상장일, 변경사유, 코드",
+      "source_url": "https://kind.krx.co.kr/external/2025/12/12/000236/20251212000553/68155.htm",
+      "ticker": "402340"
+    },
+    {
+      "correction_scope": "selected_completed_listing_only",
+      "coverage_state": "partial",
+      "effective_on": "2026-04-01",
+      "episode_refs": [
+        {
+          "first_buy_date": "2026-03-24",
+          "left_censored": false,
+          "window": "2026q1-v5"
+        },
+        {
+          "first_buy_date": "2026-04-01",
+          "left_censored": true,
+          "window": "2026q2early-v5"
+        }
+      ],
+      "event_ref": "402340:2026-04-16",
+      "holder_quantity_effect": "unchanged",
+      "kind": "treasury_cancellation",
+      "listed_shares_after": 131958386,
+      "listed_shares_before": 132087115,
+      "listing_session": "2026-04-16",
+      "previous_session": "2026-04-15",
+      "security_id": "KR7402340004",
+      "share_class": "ordinary_common",
+      "source_availability": "retrospective_observation",
+      "source_filing_date": "2026-04-13",
+      "source_observed_at": "2026-10-11T17:32:18.124307+00:00",
+      "source_sha256": "9b3d4e798a8d179ec1b5df3db83dfcaefe45aebb4801c3c2cf08d4447817ebb3",
+      "source_span": "기명식 보통주, 발행일(소각일), 변경상장일, 변경사유, 코드",
+      "source_url": "https://kind.krx.co.kr/external/2026/04/13/000127/20260413000351/68155.htm",
+      "ticker": "402340"
+    }
+  ],
+  "left_censored_overlap_refs": 2,
+  "live_order_eligible": false,
+  "overlap_episode_refs": 13,
+  "registered_verdict": false,
+  "research_only": true,
+  "schema": "research-reviewed-share-count-change-v1",
+  "source_queue_sha256": "1d1b75dca321215ac0be4dbb4a076dff1d533bc5d87168efb3933246cc9541f4",
+  "strict_pit_eligible": false
+}
