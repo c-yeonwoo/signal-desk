@@ -39,6 +39,7 @@ class CompletedDailyBar:
     # A source-verified action is still an explicit stop in the first daily kernel.
     corporate_action: str | None = None
     open_fill_cap_shares: int | None = None
+    security_id: str | None = None
 
     def __post_init__(self) -> None:
         if (self.market not in ("kr", "us") or not market_clock.is_session(self.market, self.session)
@@ -57,6 +58,9 @@ class CompletedDailyBar:
         if self.open_fill_cap_shares is not None and (
                 isinstance(self.open_fill_cap_shares, bool) or self.open_fill_cap_shares < 0):
             raise ValueError("invalid opening fill capacity")
+        if self.security_id is not None and (not isinstance(self.security_id, str)
+                                             or not self.security_id.strip()):
+            raise ValueError("invalid security identity")
 
 
 @dataclass(frozen=True)

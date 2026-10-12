@@ -17,9 +17,12 @@ from signal_desk.signals.research_decision import (
     ResearchClock, ResearchDecision, decide,
 )
 from signal_desk.signals.research_event_evidence import DailyEventEvidence
-from signal_desk.signals.research_action_coverage import ReviewedShareCountChange
+from signal_desk.signals.research_action_coverage import (
+    ACTION_KINDS, CoverageCertificate, ReviewedShareCountChange,
+)
 
 PROTECTED_START = "2026-08-05"
+SETTLEMENT_REQUIRED_KINDS = ACTION_KINDS - {"unsupported"}
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,7 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                    event_evidence: Mapping[tuple[str, str], DailyEventEvidence] | None = None,
                    require_event_coverage: bool = False,
                    reviewed_share_changes: Mapping[tuple[str, str], ReviewedShareCountChange] | None = None,
+                   coverage_certificates: Mapping[str, CoverageCertificate] | None = None,
                    return_contract: Literal["legacy", "settlement_v2"] = "legacy") -> dict:
     """Decision at completed close t, order at next regular open, then mark close.
 
@@ -107,6 +111,44 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                 or not isinstance(fact, ReviewedShareCountChange)
                 or market != "kr" or key != (fact.listing_session, fact.ticker)):
             raise ValueError("reviewed share-change key or market mismatch")
+    for ticker, certificate in (coverage_certificates or {}).items():
+        if (not isinstance(ticker, str) or not ticker
+                or not isinstance(certificate, CoverageCertificate)
+                or certificate.market != market):
+            raise ValueError("coverage certificate key or market mismatch")
+
+    def certified_traded_scope(filled_tickers: set[str]) -> bool:
+        if not require_event_coverage or not filled_tickers:
+            return False
+        for ticker in filled_tickers:
+            certificate = (coverage_certificates or {}).get(ticker)
+            if (certificate is None or certificate.state != "complete_for_scope"
+                    or not SETTLEMENT_REQUIRED_KINDS <= certificate.required_kinds
+                    or certificate.start > snapshots[0].session
+                    or certificate.end < snapshots[-1].session):
+                return False
+            path_bars = [bar for snapshot in snapshots for bar in snapshot.bars
+                         if bar.ticker == ticker]
+            if (not path_bars or any(bar.security_id != certificate.security_id
+                                     for bar in path_bars)):
+                return False
+            bought = [fill["session"] for fill in fills
+                      if fill["ticker"] == ticker and fill["side"] == "buy"]
+            sold = [fill["session"] for fill in fills
+                    if fill["ticker"] == ticker and fill["side"] == "sell"]
+            last_held = (snapshots[-1].session if ticker in positions
+                         else max(sold, default=snapshots[-1].session))
+            if not bought:
+                return False
+            for snapshot in snapshots:
+                if not min(bought) <= snapshot.session <= last_held:
+                    continue
+                proof = (event_evidence or {}).get((snapshot.session, ticker))
+                if (proof is None or proof.coverage != "verified_complete"
+                        or proof.scope_reconciliation_sha256
+                        != certificate.reconciliation_sha256):
+                    return False
+        return True
 
     cash = float(starting_cash)
     positions: dict[str, Position] = {}
@@ -372,9 +414,10 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
             result["applied_issuer_facts"] = sorted(applied_issuer_facts)
         if return_contract == "settlement_v2":
             final_mark = equity_curve[-1]["equity"]
+            certified = certified_traded_scope({fill["ticker"] for fill in fills})
             result.update({"economic_mark_return_pct": (
                 round((final_mark / starting_cash - 1) * 100, 4)
-                if require_event_coverage and final_mark is not None else None),
+                if certified and final_mark is not None else None),
                 "simulated_liquidated_return_pct": None,
                 "account_realized_return_pct": None,
                 "cash_available_end": round(cash, 6),
@@ -385,10 +428,11 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                 "cash_settlement_state": (
                     "unconfirmed_or_future_receivable" if receivables else "no_receivable"),
                 "valuation_state": "unknown_right_amount" if final_mark is None else
-                "ex_post_known_rights_mark", "decision_basis": "daily_snapshot_replay",
+                "ex_post_known_rights_mark" if certified else "uncertified_action_scope",
+                "decision_basis": "daily_snapshot_replay",
                 "execution_basis": execution.scenario_id,
-                "coverage_state": "verified_for_traded_paths_only" if require_event_coverage
-                else "unverified_price_only"})
+                "coverage_state": "certified_for_traded_paths_only" if certified
+                else "certificate_missing_or_partial"})
         return result
     peak = float(starting_cash)
     max_drawdown = 0.0
@@ -426,19 +470,26 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
     if reviewed_share_changes is not None:
         result["applied_issuer_facts"] = sorted(applied_issuer_facts)
     if return_contract == "settlement_v2":
+        certified = certified_traded_scope({fill["ticker"] for fill in fills})
         result.update({"economic_mark_return_pct": (
             round((equity_curve[-1]["equity"] / starting_cash - 1) * 100, 4)
-            if require_event_coverage else None),
+            if certified else None),
             "simulated_liquidated_return_pct": result["net_return_pct"]
-            if require_event_coverage else None,
+            if certified else None,
             "account_realized_return_pct": None,
             "cash_available_end": round(cash, 6),
             "known_receivable_end": 0.0,
             "unknown_receivable_count": 0,
             "cash_settlement_state": "confirmed_or_no_receivable",
-            "valuation_state": "ex_post_known_rights_mark",
+            "valuation_state": "ex_post_known_rights_mark" if certified
+            else "uncertified_action_scope",
             "decision_basis": "daily_snapshot_replay",
             "execution_basis": execution.scenario_id,
-            "coverage_state": "verified_for_traded_paths_only" if require_event_coverage
-            else "unverified_price_only"})
+            "coverage_state": "certified_for_traded_paths_only" if certified
+            else "certificate_missing_or_partial"})
+        if not certified:
+            result["net_return_pct"] = None
+            result["max_drawdown_pct"] = None
+            result["corporate_action_coverage"] = "certificate_missing_or_partial"
+            result["return_quality"] = "uncertified_action_scope"
     return result

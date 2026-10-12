@@ -16,7 +16,12 @@ from signal_desk.signals.research_decision import (
     Candidate, CompletedDailyBar, DailyPolicy, DailySnapshot,
 )
 from signal_desk.signals.research_event_evidence import DailyEventEvidence, SettlementEvent
-from signal_desk.signals.research_action_coverage import ReviewedShareCountChange
+from signal_desk.signals.research_action_coverage import (
+    CoverageCertificate, ReviewedShareCountChange, SourceWindow,
+)
+from signal_desk.signals.research_daily_simulator import SETTLEMENT_REQUIRED_KINDS
+
+SECURITY_ID = "KR7005930003"
 
 
 def _days(count=5):
@@ -26,7 +31,8 @@ def _days(count=5):
 def _snapshot(day, *, opened=100, closed=100, shares=1_000_000, candidate=False):
     as_of = dt.datetime.fromisoformat(f"{day}T16:30:00").replace(tzinfo=ZoneInfo("Asia/Seoul"))
     bar = CompletedDailyBar("kr", day, "005930", opened, closed, as_of,
-                            f"price:{day}", listed_shares=shares)
+                            f"price:{day}", listed_shares=shares,
+                            security_id=SECURITY_ID)
     chosen = (Candidate("005930", 1, 1.0, True, "episode"),) if candidate else ()
     return DailySnapshot("kr", day, as_of, f"decision:{day}", (bar,), chosen)
 
@@ -36,7 +42,8 @@ def _proof(day, *, events=()):
         tzinfo=ZoneInfo("Asia/Seoul"))
     return DailyEventEvidence("kr", "005930", day, "verified_complete", tuple(events),
                               f"complete-event-feed:{day}", published,
-                              published + dt.timedelta(minutes=1))
+                              published + dt.timedelta(minutes=1),
+                              scope_reconciliation_sha256="c" * 64)
 
 
 def _path(days, *, split=False):
@@ -52,6 +59,19 @@ def _path(days, *, split=False):
 def _replay(series, **kwargs):
     return simulate_daily(series, policy=DailyPolicy(max_positions=1, hold_sessions=2),
                           costs=DailyCostModel(), starting_cash=10_000, **kwargs)
+
+
+def _synthetic_certificate(days):
+    observed = dt.datetime(2026, 10, 12, tzinfo=dt.timezone.utc)
+    windows = tuple(SourceWindow(
+        "kr", SECURITY_ID, f"synthetic-source:{family}", family,
+        days[0], days[-1], "effective", SETTLEMENT_REQUIRED_KINDS,
+        "complete_for_source", (letter * 64,), observed,
+        historical_range_confirmed=True)
+        for family, letter in (("A", "a"), ("B", "b")))
+    return CoverageCertificate("kr", SECURITY_ID, days[0], days[-1],
+                               SETTLEMENT_REQUIRED_KINDS, windows,
+                               reconciliation_sha256="c" * 64)
 
 
 def test_verified_empty_day_needs_explicit_source_and_two_times():
@@ -193,13 +213,14 @@ def test_verified_dividend_is_receivable_until_payment_not_entry_cash():
 def test_v2_final_right_marks_wealth_without_spending_scheduled_cash():
     days = _days(4)
     series = _path(days)
+    certificates = {"005930": _synthetic_certificate(days)}
     ledger = {(day, "005930"): _proof(day) for day in days[1:]}
     right = SettlementEvent("cash_dividend", cash_per_share=2,
                             payment_date="2024-05-01", event_id="issuer:dividend-1",
                             cash_amount_status="final", payment_status="scheduled")
     ledger[(days[2], "005930")] = _proof(days[2], events=(right,))
     marked = _replay(series, event_evidence=ledger, require_event_coverage=True,
-                     return_contract="settlement_v2")
+                     coverage_certificates=certificates, return_contract="settlement_v2")
     assert marked["state"] == "unmatured"
     assert marked["cash_available_end"] == 11952.775
     assert marked["known_receivable_end"] == 198
@@ -212,7 +233,7 @@ def test_v2_final_right_marks_wealth_without_spending_scheduled_cash():
     scheduled = replace(right, cash_amount_status="scheduled")
     ledger[(days[2], "005930")] = _proof(days[2], events=(scheduled,))
     unknown = _replay(series, event_evidence=ledger, require_event_coverage=True,
-                      return_contract="settlement_v2")
+                      coverage_certificates=certificates, return_contract="settlement_v2")
     assert unknown["economic_mark_return_pct"] is None
     assert unknown["equity_curve"][-1]["equity"] is None
     assert unknown["unknown_receivable_count"] == 1
@@ -224,7 +245,7 @@ def test_v2_final_right_marks_wealth_without_spending_scheduled_cash():
                                                         tzinfo=dt.timezone.utc))
     ledger[(days[2], "005930")] = _proof(days[2], events=(confirmed,))
     paid = _replay(series, event_evidence=ledger, require_event_coverage=True,
-                   return_contract="settlement_v2")
+                   coverage_certificates=certificates, return_contract="settlement_v2")
     assert paid["state"] == "complete"
     assert paid["cash_available_end"] == 12150.775
     assert paid["simulated_liquidated_return_pct"] == 21.5078
@@ -262,6 +283,46 @@ def test_v2_ex_date_entry_has_no_right_and_duplicate_id_fails_closed():
                            return_contract="settlement_v2")
     assert exit_morning["state"] == "unmatured"
     assert exit_morning["known_receivable_end"] == 198
+
+
+def test_v2_return_requires_action_scope_certificate_and_bound_security_identity():
+    days = _days(4)
+    series = _path(days)
+    ledger = {(day, "005930"): _proof(day) for day in days[1:]}
+    uncertified = _replay(series, event_evidence=ledger, require_event_coverage=True,
+                          return_contract="settlement_v2")
+    assert uncertified["state"] == "complete"
+    assert uncertified["net_return_pct"] is None
+    assert uncertified["economic_mark_return_pct"] is None
+    assert uncertified["simulated_liquidated_return_pct"] is None
+    assert uncertified["coverage_state"] == "certificate_missing_or_partial"
+
+    certificate = _synthetic_certificate(days)
+    partial = replace(certificate, required_kinds=frozenset({"cash_dividend"}))
+    for proof in (partial, replace(certificate, end=days[-2]),
+                  replace(certificate, unresolved_event_ids=("unknown",))):
+        result = _replay(series, event_evidence=ledger, require_event_coverage=True,
+                         coverage_certificates={"005930": proof},
+                         return_contract="settlement_v2")
+        assert result["net_return_pct"] is None
+        assert result["economic_mark_return_pct"] is None
+
+    foreign_security = replace(certificate, security_id="KR7000059300")
+    assert _replay(series, event_evidence=ledger, require_event_coverage=True,
+                   coverage_certificates={"005930": foreign_security},
+                   return_contract="settlement_v2")["net_return_pct"] is None
+    wrong_reconciliation = dict(ledger)
+    wrong_reconciliation[(days[2], "005930")] = replace(
+        ledger[(days[2], "005930")], scope_reconciliation_sha256="d" * 64)
+    assert _replay(series, event_evidence=wrong_reconciliation,
+                   require_event_coverage=True,
+                   coverage_certificates={"005930": certificate},
+                   return_contract="settlement_v2")["net_return_pct"] is None
+    certified = _replay(series, event_evidence=ledger, require_event_coverage=True,
+                        coverage_certificates={"005930": certificate},
+                        return_contract="settlement_v2")
+    assert certified["net_return_pct"] is not None
+    assert certified["coverage_state"] == "certified_for_traded_paths_only"
 
 
 def test_unresolved_halt_or_delisting_never_receives_a_fictional_recovery():
