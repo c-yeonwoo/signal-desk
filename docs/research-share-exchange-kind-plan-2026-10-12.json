@@ -1,0 +1,15 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "documents": [
+    {
+      "id": "hhi-issued-shares-annual-20260320",
+      "url": "https://kind.krx.co.kr/external/2026/03/20/001094/20260320004139/11011.htm",
+      "expected_text": "HD현대중공업"
+    },
+    {
+      "id": "hce-additional-listing-20260121",
+      "url": "https://kind.krx.co.kr/external/2026/01/21/000125/20260121000220/68151.htm",
+      "expected_text": "에이치디현대건설기계"
+    }
+  ]
+}
