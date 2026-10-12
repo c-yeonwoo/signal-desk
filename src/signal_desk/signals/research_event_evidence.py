@@ -102,13 +102,17 @@ class DailyEventEvidence:
     source_observed_at: dt.datetime | None = None
     # Retrospective evidence is valid for settlement, never for the old signal.
     availability_kind: Literal["observed", "retrospective"] = "retrospective"
+    scope_reconciliation_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if (self.market not in ("kr", "us") or not market_clock.is_session(self.market, self.session)
                 or not self.ticker or self.coverage not in ("verified_complete", "unknown")
                 or not isinstance(self.events, tuple)
                 or any(not isinstance(event, SettlementEvent) for event in self.events)
-                or self.availability_kind not in ("observed", "retrospective")):
+                or self.availability_kind not in ("observed", "retrospective")
+                or (self.scope_reconciliation_sha256 is not None and
+                    (not isinstance(self.scope_reconciliation_sha256, str) or
+                     not re.fullmatch(r"[0-9a-f]{64}", self.scope_reconciliation_sha256)))):
             raise ValueError("invalid daily corporate-action evidence")
         if self.coverage == "unknown":
             if self.events:
