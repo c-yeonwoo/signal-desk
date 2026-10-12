@@ -42,7 +42,7 @@ def _proof(day, *, events=()):
         tzinfo=ZoneInfo("Asia/Seoul"))
     return DailyEventEvidence("kr", "005930", day, "verified_complete", tuple(events),
                               f"complete-event-feed:{day}", published,
-                              published + dt.timedelta(minutes=1),
+                              dt.datetime(2026, 10, 12, tzinfo=dt.timezone.utc),
                               scope_reconciliation_sha256="c" * 64)
 
 
@@ -249,7 +249,7 @@ def test_v2_final_right_marks_wealth_without_spending_scheduled_cash():
     assert paid["state"] == "complete"
     assert paid["cash_available_end"] == 12150.775
     assert paid["simulated_liquidated_return_pct"] == 21.5078
-    with pytest.raises(ValueError, match="invalid dividend evidence status"):
+    with pytest.raises(ValueError, match="invalid cash entitlement evidence status"):
         replace(confirmed, payment_observed_at=dt.datetime(2024, 4, 1,
                                                            tzinfo=dt.timezone.utc))
 
@@ -273,7 +273,7 @@ def test_v2_ex_date_entry_has_no_right_and_duplicate_id_fails_closed():
     assert duplicate["state"] == "incomplete_duplicate_entitlement"
     assert duplicate["net_return_pct"] is None
 
-    with pytest.raises(ValueError, match="duplicate dividend entitlement"):
+    with pytest.raises(ValueError, match="duplicate cash entitlement"):
         _proof(days[2], events=(right, right))
 
     ledger[(days[1], "005930")] = _proof(days[1])
@@ -333,6 +333,153 @@ def test_unresolved_halt_or_delisting_never_receives_a_fictional_recovery():
         result = _replay(_path(days), require_event_coverage=True, event_evidence=ledger)
         assert result["state"] == "incomplete_untradable_event"
         assert result["net_return_pct"] is None
+
+
+def _cash_exchange_path(days):
+    series = [_snapshot(days[0], candidate=True), _snapshot(days[1])]
+    series.extend(replace(_snapshot(day), bars=()) for day in days[2:])
+    return series
+
+
+def _cash_exchange_replay(series, *, ledger, certificates=None):
+    return simulate_daily(series, policy=DailyPolicy(max_positions=1, hold_sessions=10),
+                          costs=DailyCostModel(), starting_cash=10_000,
+                          event_evidence=ledger, require_event_coverage=True,
+                          coverage_certificates=certificates,
+                          return_contract="settlement_v2")
+
+
+def _exchange_event(*, cash_per_share, event_id, payment_date=None,
+                    amount_status="scheduled", payment_status="scheduled",
+                    payment_source_id=None, payment_source_sha256=None,
+                    payment_observed_at=None):
+    return SettlementEvent(
+        "cash_exchange", cash_per_share=cash_per_share, payment_date=payment_date,
+        event_id=event_id, cash_amount_status=amount_status,
+        payment_status=payment_status, payment_source_id=payment_source_id,
+        payment_source_sha256=payment_source_sha256,
+        payment_observed_at=payment_observed_at,
+        effective_source_id="KRX:exchange-effective",
+        effective_source_sha256="e" * 64,
+        effective_observed_at=dt.datetime(2026, 10, 12, tzinfo=dt.timezone.utc))
+
+
+def test_v2_cash_exchange_without_payment_day_keeps_unknown_right_not_cash():
+    days = _days(4)
+    series = _cash_exchange_path(days)
+    right = _exchange_event(cash_per_share=7_000,
+                            event_id="exchange:003410:2024-06-25")
+    ledger = {(days[1], "005930"): _proof(days[1]),
+              (days[2], "005930"): _proof(days[2], events=(right,))}
+    result = _cash_exchange_replay(series, ledger=ledger,
+                                   certificates={"005930": _synthetic_certificate(days)})
+    assert result["state"] == "unmatured"
+    assert result["positions"] == 0
+    assert result["pending"] == 0
+    assert result["unpaid_cash_exchange_receivables"] == 1
+    assert result["unpaid_dividend_receivables"] == 0
+    assert result["exchange_cash_paid"] == 0
+    assert result["known_receivable_end"] == 0
+    assert result["unknown_receivable_count"] == 1
+    assert result["economic_mark_return_pct"] is None
+    assert result["simulated_liquidated_return_pct"] is None
+    assert result["cash_available_end"] < 10_000
+    assert result["equity_curve"][-1]["equity"] is None
+    assert result["event_source_ids"] == [
+        "KRX:exchange-effective", f"complete-event-feed:{days[1]}",
+        f"complete-event-feed:{days[2]}"]
+    assert result["cash_exchange_profile"] == "general_holder_no_election_gross_pre_tax"
+
+    final_amount = replace(right, cash_amount_status="final")
+    ledger[(days[2], "005930")] = _proof(days[2], events=(final_amount,))
+    marked = _cash_exchange_replay(series, ledger=ledger,
+                                   certificates={"005930": _synthetic_certificate(days)})
+    assert marked["economic_mark_return_pct"] is not None
+    assert marked["known_receivable_end"] > 0
+    assert marked["cash_available_end"] == result["cash_available_end"]
+    assert marked["simulated_liquidated_return_pct"] is None
+    ledger[(days[2], "005930")] = _proof(days[2], events=(replace(
+        final_amount, payment_date=days[3]),))
+    scheduled_date = _cash_exchange_replay(
+        series, ledger=ledger, certificates={"005930": _synthetic_certificate(days)})
+    assert scheduled_date["state"] == "unmatured"
+    assert scheduled_date["cash_available_end"] == result["cash_available_end"]
+    assert scheduled_date["exchange_cash_paid"] == 0
+
+
+def test_v2_cash_exchange_payment_requires_confirmed_source_and_no_double_credit():
+    days = _days(4)
+    series = _cash_exchange_path(days)
+    paid = _exchange_event(cash_per_share=120, payment_date=days[3],
+                           event_id="cash-exchange-1", amount_status="final",
+                           payment_status="confirmed", payment_source_id="issuer:paid",
+                           payment_source_sha256="d" * 64,
+                           payment_observed_at=dt.datetime(2024, 4, 5,
+                                                           tzinfo=dt.timezone.utc))
+    ledger = {(days[1], "005930"): _proof(days[1]),
+              (days[2], "005930"): _proof(days[2], events=(paid,))}
+    result = _cash_exchange_replay(series, ledger=ledger,
+                                   certificates={"005930": _synthetic_certificate(days)})
+    assert result["state"] == "complete"
+    assert result["exchange_cash_paid"] == 99 * 120
+    assert result["dividend_cash_paid"] == 0
+    assert result["unpaid_cash_exchange_receivables"] == 0
+    assert result["simulated_liquidated_return_pct"] is not None
+    assert result["account_realized_return_pct"] is None
+    assert "issuer:paid" in result["event_source_ids"]
+    assert len(result["fills"]) == 1 and result["fills"][0]["side"] == "buy"
+
+    duplicate = dict(ledger)
+    duplicate[(days[3], "005930")] = _proof(days[3], events=(paid,))
+    assert _cash_exchange_replay(series, ledger=duplicate)["state"] == (
+        "incomplete_duplicate_entitlement")
+    with pytest.raises(ValueError, match="invalid cash entitlement evidence status"):
+        replace(paid, payment_date=None)
+    with pytest.raises(ValueError, match="invalid cash entitlement evidence status"):
+        replace(paid, payment_source_sha256=None)
+
+
+def test_cash_exchange_does_not_rescue_unfillable_exit_or_legacy_path():
+    days = _days(5)
+    right = _exchange_event(cash_per_share=120, event_id="exchange-1")
+    series = _cash_exchange_path(days)
+    series[2] = _snapshot(days[2])
+    ledger = {(days[1], "005930"): _proof(days[1]),
+              (days[2], "005930"): _proof(days[2]),
+              (days[3], "005930"): _proof(days[3], events=(right,))}
+    pending_exit = simulate_daily(series, policy=DailyPolicy(max_positions=1,
+                                                              hold_sessions=2),
+                                  costs=DailyCostModel(), starting_cash=10_000,
+                                  event_evidence=ledger, require_event_coverage=True,
+                                  return_contract="settlement_v2")
+    assert pending_exit["state"] == "incomplete_cash_exchange_path"
+    legacy = simulate_daily(series, policy=DailyPolicy(max_positions=1,
+                                                        hold_sessions=10),
+                            costs=DailyCostModel(), starting_cash=10_000,
+                            event_evidence=ledger, require_event_coverage=True)
+    assert legacy["state"] == "incomplete_cash_exchange_path"
+    contradictory = list(series)
+    contradictory[3] = _snapshot(days[3])
+    assert _cash_exchange_replay(contradictory, ledger=ledger)["state"] == (
+        "incomplete_cash_exchange_path")
+    with pytest.raises(ValueError, match="invalid cash entitlement evidence status"):
+        SettlementEvent("cash_exchange", cash_per_share=120,
+                        cash_amount_status="scheduled", payment_status="scheduled")
+    with pytest.raises(ValueError, match="invalid cash entitlement evidence status"):
+        replace(right, effective_source_sha256=None)
+    with pytest.raises(ValueError, match="retrospective confirmation"):
+        _proof(days[3], events=(replace(
+            right, effective_observed_at=dt.datetime(2024, 4, 1,
+                                                   tzinfo=dt.timezone.utc)),))
+    with pytest.raises(ValueError, match="observed after daily proof"):
+        replace(_proof(days[3], events=(right,)),
+                source_observed_at=dt.datetime(2024, 4, 5,
+                                               tzinfo=dt.timezone.utc))
+    with pytest.raises(ValueError, match="isolated Korean"):
+        DailyEventEvidence("us", "AAPL", "2024-04-03", "verified_complete",
+                           (right,), "foreign", dt.datetime(2024, 4, 3,
+                                                              tzinfo=dt.timezone.utc),
+                           dt.datetime(2026, 10, 12, tzinfo=dt.timezone.utc))
 
 
 def test_execution_stress_reduces_claimed_price_only_return_or_leaves_it_unmatured():

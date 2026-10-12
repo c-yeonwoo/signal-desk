@@ -137,7 +137,8 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
             sold = [fill["session"] for fill in fills
                     if fill["ticker"] == ticker and fill["side"] == "sell"]
             last_held = (snapshots[-1].session if ticker in positions
-                         else max(sold, default=snapshots[-1].session))
+                         else max(sold, default=exchanged_tickers.get(
+                             ticker, snapshots[-1].session)))
             if not bought:
                 return False
             for snapshot in snapshots:
@@ -161,10 +162,13 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
     event_source_ids: set[str] = set()
     skips: dict[str, int] = {}
     full_fill_assumptions = 0
-    # payment_date, amount, amount_status, payment_status, event_id.
-    receivables: list[tuple[str, float, str | None, str | None, str | None]] = []
+    # payment_date, amount, amount_status, payment_status, event_id, kind, paid source.
+    receivables: list[tuple[str | None, float, str | None, str | None,
+                            str | None, str, str | None]] = []
     dividend_cash_paid = 0.0
-    seen_dividend_ids: set[tuple[str, str]] = set()
+    exchange_cash_paid = 0.0
+    seen_cash_right_ids: set[tuple[str, str]] = set()
+    exchanged_tickers: dict[str, str] = {}
     applied_issuer_facts: set[str] = set()
 
     def evidence_for(snapshot: DailySnapshot, ticker: str) -> DailyEventEvidence | None:
@@ -193,19 +197,22 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
         bars = {bar.ticker: bar for bar in snapshot.bars}
         source_ids.update(bar.source_id for bar in snapshot.bars)
         if return_contract == "settlement_v2":
-            for ticker in bars:
+            day_tickers = set(bars) | {ticker for day, ticker in (event_evidence or {})
+                                       if day == snapshot.session}
+            for ticker in day_tickers:
                 day_proof = evidence_for(snapshot, ticker)
                 if day_proof is None or day_proof.coverage != "verified_complete":
                     continue
                 for day_event in day_proof.events:
-                    if day_event.kind != "cash_dividend" or day_event.event_id is None:
+                    if (day_event.kind not in ("cash_dividend", "cash_exchange")
+                            or day_event.event_id is None):
                         continue
                     event_key = ticker, day_event.event_id
-                    if event_key in seen_dividend_ids:
+                    if event_key in seen_cash_right_ids:
                         return _incomplete("incomplete_duplicate_entitlement", snapshot,
                                            ticker=ticker, fills=fills, decisions=decisions,
                                            equity_curve=equity_curve, source_ids=source_ids)
-                    seen_dividend_ids.add(event_key)
+                    seen_cash_right_ids.add(event_key)
         day_changes = {ticker: fact for (day, ticker), fact in
                        (reviewed_share_changes or {}).items() if day == snapshot.session}
         for ticker, fact in day_changes.items():
@@ -252,6 +259,25 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                     return _incomplete("incomplete_untradable_event", snapshot, ticker=ticker,
                                        fills=fills, decisions=decisions, equity_curve=equity_curve,
                                        source_ids=source_ids)
+                if event.kind == "cash_exchange":
+                    if (return_contract != "settlement_v2"
+                            or any(order.ticker == ticker and order.action == "EXIT"
+                                   for order in pending)
+                            or (bar is not None and
+                                (bar.status == "trading" or bar.open is not None))
+                            or ticker in exchanged_tickers):
+                        return _incomplete("incomplete_cash_exchange_path", snapshot,
+                                           ticker=ticker, fills=fills, decisions=decisions,
+                                           equity_curve=equity_curve, source_ids=source_ids)
+                    receivables.append((event.payment_date,
+                                        position.shares * event.cash_per_share,
+                                        event.cash_amount_status, event.payment_status,
+                                        event.event_id, "cash_exchange",
+                                        event.payment_source_id))
+                    event_source_ids.add(event.effective_source_id)
+                    exchanged_tickers[ticker] = snapshot.session
+                    del positions[ticker]
+                    break
                 if event.kind == "split":
                     num, den = event.split_numerator, event.split_denominator
                     if (bar is None or position.listed_shares is None or bar.listed_shares is None
@@ -275,7 +301,8 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                     receivables.append((event.payment_date,
                                         position.shares * event.cash_per_share,
                                         event.cash_amount_status, event.payment_status,
-                                        event.event_id))
+                                        event.event_id, "cash_dividend",
+                                        event.payment_source_id))
 
         # The next day's open is read for the previous close's orders only.
         for order in (item for item in pending if item.action == "EXIT"):
@@ -312,6 +339,10 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                 del positions[order.ticker]
 
         for order in (item for item in pending if item.action == "ENTER"):
+            if order.ticker in exchanged_tickers:
+                return _incomplete("incomplete_untradable_entry_after_exchange", snapshot,
+                                   ticker=order.ticker, fills=fills, decisions=decisions,
+                                   equity_curve=equity_curve, source_ids=source_ids)
             if order.thesis_id is None or order.thesis_id in used_theses or order.ticker in positions:
                 skips["already_held_or_used_thesis"] = skips.get("already_held_or_used_thesis", 0) + 1
                 continue
@@ -350,7 +381,8 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                                    source_ids=source_ids)
             if proof is not None and proof.coverage == "verified_complete":
                 event_source_ids.add(proof.source_id)
-                if any(event.kind in ("halt", "delisting") for event in proof.events):
+                if any(event.kind in ("halt", "delisting", "cash_exchange")
+                       for event in proof.events):
                     return _incomplete("incomplete_untradable_event", snapshot, ticker=order.ticker,
                                        fills=fills, decisions=decisions, equity_curve=equity_curve,
                                        source_ids=source_ids)
@@ -366,10 +398,13 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                           "partial": quantity < desired_quantity})
 
         # Payouts are not purchasing power at the open without an intraday time.
-        due = [item for item in receivables if item[0] <= snapshot.session
+        due = [item for item in receivables if item[0] is not None
+               and item[0] <= snapshot.session
                and (return_contract == "legacy" or item[3] == "confirmed")]
         if due:
-            dividend_cash_paid += sum(item[1] for item in due)
+            dividend_cash_paid += sum(item[1] for item in due if item[5] == "cash_dividend")
+            exchange_cash_paid += sum(item[1] for item in due if item[5] == "cash_exchange")
+            event_source_ids.update(item[6] for item in due if item[6] is not None)
             cash += sum(item[1] for item in due)
             receivables = [item for item in receivables if item not in due]
 
@@ -407,7 +442,8 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                 "positions": len(positions), "pending": len(pending), "fills": fills,
                 "decisions": decisions, "equity_curve": equity_curve,
                 "source_ids": sorted(source_ids), "net_return_pct": None,
-                "unpaid_dividend_receivables": len(receivables),
+                "unpaid_dividend_receivables": sum(item[5] == "cash_dividend"
+                                                   for item in receivables),
                 "strict_pit_eligible": False, "live_order_eligible": False,
                 "registered_verdict": False}
         if reviewed_share_changes is not None:
@@ -425,6 +461,13 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                                                    if item[2] == "final"), 6),
                 "unknown_receivable_count": sum(item[2] != "final" for item in receivables),
                 "dividend_cash_paid": round(dividend_cash_paid, 6),
+                "exchange_cash_paid": round(exchange_cash_paid, 6),
+                "unpaid_cash_exchange_receivables": sum(
+                    item[5] == "cash_exchange" for item in receivables),
+                "event_source_ids": sorted(event_source_ids),
+                "cash_exchange_profile": "general_holder_no_election_gross_pre_tax"
+                if exchanged_tickers else None,
+                "cash_exchange_effective_sessions": dict(sorted(exchanged_tickers.items())),
                 "cash_settlement_state": (
                     "unconfirmed_or_future_receivable" if receivables else "no_receivable"),
                 "valuation_state": "unknown_right_amount" if final_mark is None else
@@ -480,6 +523,11 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
             "cash_available_end": round(cash, 6),
             "known_receivable_end": 0.0,
             "unknown_receivable_count": 0,
+            "exchange_cash_paid": round(exchange_cash_paid, 6),
+            "unpaid_cash_exchange_receivables": 0,
+            "cash_exchange_profile": "general_holder_no_election_gross_pre_tax"
+            if exchanged_tickers else None,
+            "cash_exchange_effective_sessions": dict(sorted(exchanged_tickers.items())),
             "cash_settlement_state": "confirmed_or_no_receivable",
             "valuation_state": "ex_post_known_rights_mark" if certified
             else "uncertified_action_scope",
