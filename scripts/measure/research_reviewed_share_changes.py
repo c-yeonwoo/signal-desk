@@ -11,7 +11,7 @@ import datetime as dt
 import hashlib
 import json
 import re
-from dataclasses import asdict
+from dataclasses import asdict, fields
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -195,6 +195,23 @@ def _listing_in_source(raw: bytes) -> str:
     text = raw.decode("utf-8")
     pattern = _LISTING_CANCEL if "변경상장(주식소각)" in text else _LISTING_ISSUE
     return _date(_one(pattern, text, "listing date"))
+
+
+def replay_facts(data_dir: Path) -> dict[tuple[str, str], ReviewedShareCountChange]:
+    """Return only facts rechecked against local originals for research replay."""
+    report = review(data_dir)
+    names = {field.name for field in fields(ReviewedShareCountChange)}
+    result = {}
+    for row in report["facts"]:
+        values = {key: row[key] for key in names if key in row}
+        values["source_observed_at"] = dt.datetime.fromisoformat(
+            values["source_observed_at"])
+        fact = ReviewedShareCountChange(**values)
+        key = fact.listing_session, fact.ticker
+        if key in result:
+            raise ValueError("share fact: duplicate replay event")
+        result[key] = fact
+    return result
 
 
 def main() -> None:

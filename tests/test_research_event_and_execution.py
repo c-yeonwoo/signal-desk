@@ -16,6 +16,7 @@ from signal_desk.signals.research_decision import (
     Candidate, CompletedDailyBar, DailyPolicy, DailySnapshot,
 )
 from signal_desk.signals.research_event_evidence import DailyEventEvidence, SettlementEvent
+from signal_desk.signals.research_action_coverage import ReviewedShareCountChange
 
 
 def _days(count=5):
@@ -113,6 +114,61 @@ def test_verified_split_changes_owned_quantity_before_exit_and_checks_issuer_cou
                        event_evidence=malformed)
     assert rejected["state"] == "incomplete_corporate_action"
     assert rejected["net_return_pct"] is None
+
+
+def test_reviewed_treasury_cancellation_keeps_holder_quantity_and_cash():
+    days = _days(4)
+    plain = _path(days)
+    baseline = _replay(plain)
+    changed = _path(days)
+    for index in (2, 3):
+        changed[index] = replace(changed[index], bars=(replace(
+            changed[index].bars[0], listed_shares=900_000,
+            corporate_action="treasury_cancellation" if index == 2 else None),))
+    fact = ReviewedShareCountChange(
+        ticker="005930", security_id="KR7005930003", share_class="ordinary_common",
+        kind="treasury_cancellation", effective_on=days[1], listing_session=days[2],
+        previous_session=days[1], listed_shares_before=1_000_000,
+        listed_shares_after=900_000,
+        source_url="https://kind.krx.co.kr/external/2024/04/02/000001/20240402000001/68155.htm",
+        source_sha256="a" * 64, source_filing_date=days[1],
+        source_observed_at=dt.datetime(2026, 10, 12, tzinfo=dt.timezone.utc),
+        source_span="기명식 보통주, 소각일, 변경상장일, 코드")
+    events = {(days[2], "005930"): fact}
+    result = _replay(changed, reviewed_share_changes=events)
+    assert result["state"] == "complete"
+    assert result["net_return_pct"] == baseline["net_return_pct"]
+    assert [(item["side"], item["shares"]) for item in result["fills"]] == [
+        (item["side"], item["shares"]) for item in baseline["fills"]]
+    assert result["applied_issuer_facts"] == [f"005930:{days[2]}:{'a' * 64}"]
+    assert result["return_quality"] == "price_only_unverified_actions"
+    assert result["strict_pit_eligible"] is False
+
+    assert _replay(changed)["state"] == "incomplete_corporate_action"
+    invalid = dict(events)
+    invalid[(days[2], "005930")] = replace(fact, listed_shares_after=899_999)
+    assert _replay(changed, reviewed_share_changes=invalid)["state"] == (
+        "incomplete_issuer_share_change")
+
+    full_coverage = {(day, "005930"): _proof(day) for day in days[1:]}
+    full_coverage[(days[2], "005930")] = _proof(days[2], events=(
+        SettlementEvent("treasury_cancellation"),))
+    confirmed = _replay(changed, reviewed_share_changes=events,
+                        event_evidence=full_coverage, require_event_coverage=True)
+    assert confirmed["state"] == "complete"
+    full_coverage[(days[2], "005930")] = _proof(days[2])
+    assert _replay(changed, reviewed_share_changes=events,
+                   event_evidence=full_coverage, require_event_coverage=True)["state"] == (
+        "incomplete_issuer_share_change")
+
+    issuance = replace(fact, kind="option_exercise_issuance",
+                       listed_shares_after=1_100_000)
+    issued = _path(days)
+    for index in (2, 3):
+        issued[index] = replace(issued[index], bars=(replace(
+            issued[index].bars[0], listed_shares=1_100_000),))
+    assert _replay(issued, reviewed_share_changes={(days[2], "005930"): issuance})[
+        "net_return_pct"] == baseline["net_return_pct"]
 
 
 def test_verified_dividend_is_receivable_until_payment_not_entry_cash():

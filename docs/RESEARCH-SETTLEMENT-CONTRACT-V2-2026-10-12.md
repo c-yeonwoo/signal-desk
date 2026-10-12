@@ -133,7 +133,9 @@ v2 인증은 `(증권·주식종류, 기간, 행사종류, 사용목적)`별이�
 | S3 | 평가·사용가능 현금·미수권리 원장 및 v2 결과 DTO | 배당락 후 매도해도 권리 유지, 배당락 당일 매수는 일반 배당 권리 없음. 예정/확인 지급 구분, 금액 사후 확정의 주문 비오염. 지급 전 평가수익 가능/현금수익 null. 합병 권리·단주·취소·정정 중복지급 방지 |
 | S4 | 종류별 인증 검사 및 고정 7창 보고 CLI | 배당 대조만으로 분할 인증 불가. 공식 목록 경로도 범위 근거 없으면 partial. 후보/보유/대조군 범위 검사. 전체 분모 보존, 결손 수익 0 금지. 데이터/정책/정산/비용 버전과 해시로 재현 |
 
-**2026-10-12 S1 구현:** [검수 결과 JSON](research-reviewed-share-count-changes-2026-10-12.json)은 선별한 KIND 변경상장/추가상장 7개 원문의 고정 ZIP 해시·원문 수량/날짜/증권코드와 기존 KRX 우선순위 7건을 대조해 만든다. 원문 ZIP은 `data/research` 로컬 보존이며 Git에는 넣지 않는다. `python -m scripts.measure.research_reviewed_share_changes --output <새 파일>`로 동일 원천에서 재현한다. 결과의 `source_availability=retrospective_observation`, `coverage_state=partial`은 사후 확인 사실과 전체 기간 미검증을 나타낸다. S2~S4와 총수익 검증은 아직 구현 전이다.
+**2026-10-12 S1 구현:** [검수 결과 JSON](research-reviewed-share-count-changes-2026-10-12.json)은 선별한 KIND 변경상장/추가상장 7개 원문의 고정 ZIP 해시·원문 수량/날짜/증권코드와 기존 KRX 우선순위 7건을 대조해 만든다. 원문 ZIP은 `data/research` 로컬 보존이며 Git에는 넣지 않는다. `python -m scripts.measure.research_reviewed_share_changes --output <새 파일>`로 동일 원천에서 재현한다. 결과의 `source_availability=retrospective_observation`, `coverage_state=partial`은 사후 확인 사실과 전체 기간 미검증을 나타낸다.
+
+**2026-10-12 S2 구현:** 연구용 `simulate_daily(..., reviewed_share_changes=...)`가 원문 검수 객체와 전후 KRX 발행주식수를 같은 관측일에 대조한다. 일반 보유자의 수량·원가·현금은 그대로 두고, 미지 변화나 일별 행사 증거와의 충돌은 중단한다. 별도 전수 행사 증거가 없으면 결과 품질은 계속 `price_only_unverified_actions`이며, 운영 엔진이 이 객체를 호출하지 않는다. S3~S4와 총수익 검증은 아직 구현 전이다.
 
 추가 필수 불변시험: 원문 추가 수집으로 이미 고정한 옛 주문 ID/수량이 바뀌지 않는다. 향후 액면분할을 과거 지표에 적용하지 않는다. 보유가격이나 권리를 두 번 세지 않는다. 현금 입금 이벤트만으로 총자산이 이중 증가하지 않는다. 평가액이 알려져도 거래정지 중 매도 체결은 만들지 않는다. 연구 모듈은 운영 주문/API 경로에서 import하지 않는다.
 

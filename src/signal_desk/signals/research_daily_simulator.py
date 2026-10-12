@@ -17,6 +17,7 @@ from signal_desk.signals.research_decision import (
     ResearchClock, ResearchDecision, decide,
 )
 from signal_desk.signals.research_event_evidence import DailyEventEvidence
+from signal_desk.signals.research_action_coverage import ReviewedShareCountChange
 
 PROTECTED_START = "2026-08-05"
 
@@ -78,7 +79,8 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                    costs: DailyCostModel, starting_cash: float = 10_000_000,
                    execution: DailyExecutionScenario | None = None,
                    event_evidence: Mapping[tuple[str, str], DailyEventEvidence] | None = None,
-                   require_event_coverage: bool = False) -> dict:
+                   require_event_coverage: bool = False,
+                   reviewed_share_changes: Mapping[tuple[str, str], ReviewedShareCountChange] | None = None) -> dict:
     """Decision at completed close t, order at next regular open, then mark close.
 
     Calls :func:`decide` once per snapshot. The observed next open is the fill
@@ -97,6 +99,11 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
     if any(not isinstance(item, DailySnapshot) or item.market != market
            or item.session >= PROTECTED_START for item in snapshots):
         raise ValueError("mixed market or registered period in development replay")
+    for key, fact in (reviewed_share_changes or {}).items():
+        if (not isinstance(key, tuple) or len(key) != 2
+                or not isinstance(fact, ReviewedShareCountChange)
+                or market != "kr" or key != (fact.listing_session, fact.ticker)):
+            raise ValueError("reviewed share-change key or market mismatch")
 
     cash = float(starting_cash)
     positions: dict[str, Position] = {}
@@ -111,6 +118,7 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
     full_fill_assumptions = 0
     receivables: list[tuple[str, float]] = []
     dividend_cash_paid = 0.0
+    applied_issuer_facts: set[str] = set()
 
     def evidence_for(snapshot: DailySnapshot, ticker: str) -> DailyEventEvidence | None:
         row = (event_evidence or {}).get((snapshot.session, ticker))
@@ -124,6 +132,10 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
         if not bar.corporate_action:
             return False
         proof = evidence_for(snapshot, bar.ticker)
+        fact = (reviewed_share_changes or {}).get((snapshot.session, bar.ticker))
+        if (fact is not None and bar.corporate_action == fact.kind
+                and bar.listed_shares == fact.listed_shares_after):
+            return False
         return (proof is None or proof.coverage != "verified_complete"
                 or not any(event.kind == bar.corporate_action for event in proof.events))
 
@@ -133,15 +145,43 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                                decisions=decisions, equity_curve=equity_curve, source_ids=source_ids)
         bars = {bar.ticker: bar for bar in snapshot.bars}
         source_ids.update(bar.source_id for bar in snapshot.bars)
+        day_changes = {ticker: fact for (day, ticker), fact in
+                       (reviewed_share_changes or {}).items() if day == snapshot.session}
+        for ticker, fact in day_changes.items():
+            prior_bars = ({bar.ticker: bar for bar in snapshots[index - 1].bars}
+                          if index else {})
+            prior, current = prior_bars.get(ticker), bars.get(ticker)
+            if (prior is None or current is None
+                    or snapshots[index - 1].session != fact.previous_session
+                    or prior.listed_shares != fact.listed_shares_before
+                    or current.listed_shares != fact.listed_shares_after):
+                return _incomplete("incomplete_issuer_share_change", snapshot, ticker=ticker,
+                                   fills=fills, decisions=decisions, equity_curve=equity_curve,
+                                   source_ids=source_ids)
+            proof = evidence_for(snapshot, ticker)
+            if (proof is not None and proof.coverage == "verified_complete"
+                    and (sum(event.kind == fact.kind for event in proof.events) != 1
+                         or any(event.kind == "split" for event in proof.events))):
+                return _incomplete("incomplete_issuer_share_change", snapshot, ticker=ticker,
+                                   fills=fills, decisions=decisions, equity_curve=equity_curve,
+                                   source_ids=source_ids)
 
         # Ex-date actions apply to positions held before this open. An empty
         # verified record is a source assertion; absent coverage is not one.
         for ticker, position in list(positions.items()):
             proof = evidence_for(snapshot, ticker)
+            fact = day_changes.get(ticker)
             if require_event_coverage and (proof is None or proof.coverage != "verified_complete"):
                 return _incomplete("incomplete_action_coverage", snapshot, ticker=ticker,
                                    fills=fills, decisions=decisions, equity_curve=equity_curve,
                                    source_ids=source_ids)
+            if fact is not None:
+                if position.listed_shares != fact.listed_shares_before:
+                    return _incomplete("incomplete_issuer_share_change", snapshot, ticker=ticker,
+                                       fills=fills, decisions=decisions, equity_curve=equity_curve,
+                                       source_ids=source_ids)
+                positions[ticker] = replace(position, listed_shares=fact.listed_shares_after)
+                applied_issuer_facts.add(f"{ticker}:{snapshot.session}:{fact.source_sha256}")
             if proof is None or proof.coverage != "verified_complete":
                 continue
             event_source_ids.add(proof.source_id)
@@ -289,19 +329,22 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
         pending = tuple(item for item in today if item.action in ("EXIT", "ENTER"))
 
     if positions or pending or receivables:
-        return {"state": "unmatured", "last_session": snapshots[-1].session,
+        result = {"state": "unmatured", "last_session": snapshots[-1].session,
                 "positions": len(positions), "pending": len(pending), "fills": fills,
                 "decisions": decisions, "equity_curve": equity_curve,
                 "source_ids": sorted(source_ids), "net_return_pct": None,
                 "unpaid_dividend_receivables": len(receivables),
                 "strict_pit_eligible": False, "live_order_eligible": False,
                 "registered_verdict": False}
+        if reviewed_share_changes is not None:
+            result["applied_issuer_facts"] = sorted(applied_issuer_facts)
+        return result
     peak = float(starting_cash)
     max_drawdown = 0.0
     for mark in equity_curve:
         peak = max(peak, mark["equity"])
         max_drawdown = min(max_drawdown, mark["equity"] / peak - 1)
-    return {"state": "complete", "market": market, "policy_id": policy.policy_id,
+    result = {"state": "complete", "market": market, "policy_id": policy.policy_id,
             "cost_model_id": costs.model_id, "start_session": snapshots[0].session,
             "end_session": snapshots[-1].session,
             "net_return_pct": round((cash / starting_cash - 1) * 100, 4),
@@ -329,3 +372,6 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                 "price_only_unverified_actions"),
             "strict_pit_eligible": False, "live_order_eligible": False,
             "registered_verdict": False}
+    if reviewed_share_changes is not None:
+        result["applied_issuer_facts"] = sorted(applied_issuer_facts)
+    return result
