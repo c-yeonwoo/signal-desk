@@ -22,7 +22,8 @@ def _aware(value: dt.datetime | None) -> bool:
 
 @dataclass(frozen=True)
 class SettlementEvent:
-    kind: Literal["split", "cash_dividend", "halt", "delisting"]
+    kind: Literal["split", "cash_dividend", "halt", "delisting",
+                  "treasury_cancellation", "option_exercise_issuance"]
     split_numerator: int | None = None
     split_denominator: int | None = None
     cash_per_share: float | None = None
@@ -47,11 +48,12 @@ class SettlementEvent:
                 dt.date.fromisoformat(self.payment_date)
             except ValueError as exc:
                 raise ValueError("invalid dividend payment date") from exc
-        elif self.kind in ("halt", "delisting"):
+        elif self.kind in ("halt", "delisting", "treasury_cancellation",
+                           "option_exercise_issuance"):
             if any(value is not None for value in (
                     self.split_numerator, self.split_denominator,
                     self.cash_per_share, self.payment_date)):
-                raise ValueError("halt or delisting has no settlement terms")
+                raise ValueError("non-proportional event has no settlement terms")
         else:
             raise ValueError("unknown settlement event")
 

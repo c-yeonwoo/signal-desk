@@ -79,6 +79,9 @@ def test_committed_review_keeps_all_original_episode_refs_and_no_return():
     local_sources = path.parents[1] / "data/research"
     if all((local_sources / row[0]).is_file() for row in reviewed.SOURCES):
         assert reviewed.review(local_sources) == report
+        replay = reviewed.replay_facts(local_sources)
+        assert len(replay) == 7
+        assert replay[("2025-11-14", "035720")].kind == "option_exercise_issuance"
 
 
 def test_changed_frozen_queue_cannot_be_reclassified(tmp_path):
