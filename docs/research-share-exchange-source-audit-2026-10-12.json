@@ -1,0 +1,115 @@
+{
+  "cases": [
+    {
+      "account_share_delivery_verified": false,
+      "action_coverage_state": "partial",
+      "dart_archive_sha256": "cd0ce52bc5543a11fae58968423eab6cb9520eab149de80d1947ae76340f6376",
+      "dart_original_sha256": "1b173266d4824b9473c2ad519c12a11a0fa780ccccf4be4a08bb3637888707a2",
+      "dart_receipt": "20251201000400",
+      "dart_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20251201000400",
+      "economic_return_pct": null,
+      "feed_eligible": false,
+      "first_observed_successor_trade": {
+        "close_krw": 551000,
+        "session": "2025-12-15",
+        "volume": 155699
+      },
+      "fractional_cash_payment_verified": false,
+      "fractional_cash_rounded_amount_krw": null,
+      "holder_record_date_eligibility_verified": false,
+      "issuer_effect_source": "post_merger_report",
+      "krx_price_archives_sha256": {
+        "krx-daily-2025-09-12-v1.zip": "e21a3df2065aa43853b827a3f72281d59bcad5d22b28d7a6066658bbd6a77f01"
+      },
+      "listing_completion_verified": false,
+      "old_last_traded": {
+        "close_krw": 223000,
+        "session": "2025-11-26",
+        "volume": 798792
+      },
+      "old_zero_volume_carry": {
+        "carried_close_krw": 223000,
+        "end": "2025-12-12",
+        "sessions": 12,
+        "start": "2025-11-27"
+      },
+      "successor_ticker": "329180",
+      "terms": {
+        "company_issued_common_shares": 16188109,
+        "fractional_cash_price_rule": "new_listing_session_KRX_close",
+        "fractional_cash_status": "planned_not_confirmed_paid",
+        "holder_record_date": "2025-11-28",
+        "merger_effective_on": "2025-12-01",
+        "old_issuer": "HD현대미포",
+        "old_ticker": "010620",
+        "planned_new_listing_on": "2025-12-15",
+        "reported_ratio_precision": "filing_displayed_7_decimal_places",
+        "reported_shares_per_old_share": "0.4059146",
+        "share_class": "ordinary_common",
+        "successor_issuer": "HD현대중공업"
+      }
+    },
+    {
+      "account_share_delivery_verified": false,
+      "action_coverage_state": "partial",
+      "dart_archive_sha256": "b5abb975dc126aa68ace4285db33547f31738aac92947067ba92d2d2b8f7a2b6",
+      "dart_original_sha256": "5d408ebd443f7563d665ad72f2970f5b75aac035a681fa0c130754de6d85f803",
+      "dart_receipt": "20260102000224",
+      "dart_url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=20260102000224",
+      "economic_return_pct": null,
+      "feed_eligible": false,
+      "first_observed_successor_trade": {
+        "close_krw": 117800,
+        "session": "2026-01-26",
+        "volume": 926299
+      },
+      "fractional_cash_payment_verified": false,
+      "fractional_cash_rounded_amount_krw": null,
+      "holder_record_date_eligibility_verified": false,
+      "issuer_effect_source": "post_merger_report",
+      "krx_price_archives_sha256": {
+        "krx-daily-2025-09-12-v1.zip": "e21a3df2065aa43853b827a3f72281d59bcad5d22b28d7a6066658bbd6a77f01",
+        "krx-daily-2026-01-05-v1.zip": "cc413764abe56573d93c1bf8fce62b38deaceb45b0f354bd914afc1bd7603ef6"
+      },
+      "listing_completion_verified": false,
+      "old_last_traded": {
+        "close_krw": 13800,
+        "session": "2025-12-26",
+        "volume": 5894502
+      },
+      "old_zero_volume_carry": {
+        "carried_close_krw": 13800,
+        "end": "2026-01-23",
+        "sessions": 18,
+        "start": "2025-12-29"
+      },
+      "successor_ticker": "267270",
+      "terms": {
+        "company_issued_common_shares": 30616505,
+        "fractional_cash_price_rule": "new_listing_session_KRX_close",
+        "fractional_cash_status": "planned_not_confirmed_paid",
+        "holder_record_date": "2025-12-31",
+        "merger_effective_on": "2026-01-01",
+        "old_issuer": "에이치디현대인프라코어",
+        "old_ticker": "042670",
+        "planned_new_listing_on": "2026-01-26",
+        "reported_ratio_precision": "filing_explicitly_says_displayed_7_decimal_places_only",
+        "reported_shares_per_old_share": "0.1621707",
+        "share_class": "ordinary_common",
+        "successor_issuer": "에이치디현대건설기계"
+      }
+    }
+  ],
+  "limitations": [
+    "The later merger report confirms terms and effect but lists the new listing as planned",
+    "A successor close is not proof of actual issuance or individual account delivery",
+    "A completed appraisal-right buyback payment is not fractional-share cash payment",
+    "Displayed exchange ratios and unrounded formula values are not actual rounded credits",
+    "Selected filings are not a complete correction or corporate-action feed"
+  ],
+  "live_order_eligible": false,
+  "registered_verdict": false,
+  "research_only": true,
+  "schema": "research-share-exchange-source-audit-v1",
+  "strict_pit_eligible": false
+}
