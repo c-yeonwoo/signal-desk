@@ -1,0 +1,172 @@
+{
+  "coverage_complete_rows": 0,
+  "coverage_partial_rows": 1488,
+  "gaps_by_code": {
+    "all_action_kinds_unverified": 1488,
+    "correction_chain_unverified": 1488,
+    "effective_date_catalog_unverified": 1488,
+    "known_dividend_ex_date_and_payment_unverified": 3,
+    "post_last_price_cause_unverified": 5,
+    "pre_first_price_listing_or_transfer_unverified": 49,
+    "share_count_change_type_unverified": 602
+  },
+  "ledger_sha256": "7c3daa5edb5a1f891854cc5aa2e9f8c1635f4c21a16e2e808cbcac7fba9abfef",
+  "limitations": [
+    "Selected share-count events do not enumerate all actions in any holding window",
+    "Historical eight-factor inputs and decision-time availability remain unreconstructed",
+    "No ticker-window was excluded from the frozen denominator"
+  ],
+  "live_order_eligible": false,
+  "policy_comparison_ready": false,
+  "registered_verdict": false,
+  "required_action_kinds": [
+    "cash_dividend",
+    "split",
+    "stock_dividend",
+    "rights",
+    "capital_reduction",
+    "spin_off",
+    "merger_exchange",
+    "halt",
+    "delisting",
+    "symbol_change",
+    "share_count_change"
+  ],
+  "research_only": true,
+  "rows_with_selected_reviewed_share_change": 17,
+  "schema": "research-action-scope-audit-v2",
+  "selected_event_episode_refs": 13,
+  "selected_facts_sha256": "9e28289ab11567de02f73cca2640ca768d50870bc8d2e1e5b73337beeb2ecea6",
+  "selected_issuer_events": 7,
+  "strict_pit_eligible": false,
+  "ticker_window_denominator": 1488,
+  "verified_economic_return_pct": null,
+  "windows": [
+    {
+      "action_coverage_complete": 0,
+      "action_coverage_partial": 206,
+      "decision_end": "2024-05-31",
+      "decision_start": "2024-04-01",
+      "gaps_by_code": {
+        "all_action_kinds_unverified": 206,
+        "correction_chain_unverified": 206,
+        "effective_date_catalog_unverified": 206,
+        "known_dividend_ex_date_and_payment_unverified": 1,
+        "pre_first_price_listing_or_transfer_unverified": 7,
+        "share_count_change_type_unverified": 69
+      },
+      "rows_with_raw_price_gap": 7,
+      "rows_with_selected_reviewed_share_change": 0,
+      "ticker_window_rows": 206,
+      "window": "2024-apr-may"
+    },
+    {
+      "action_coverage_complete": 0,
+      "action_coverage_partial": 213,
+      "decision_end": "2024-07-31",
+      "decision_start": "2024-06-03",
+      "gaps_by_code": {
+        "all_action_kinds_unverified": 213,
+        "correction_chain_unverified": 213,
+        "effective_date_catalog_unverified": 213,
+        "known_dividend_ex_date_and_payment_unverified": 1,
+        "post_last_price_cause_unverified": 1,
+        "pre_first_price_listing_or_transfer_unverified": 10,
+        "share_count_change_type_unverified": 69
+      },
+      "rows_with_raw_price_gap": 11,
+      "rows_with_selected_reviewed_share_change": 0,
+      "ticker_window_rows": 213,
+      "window": "2024-jun-jul"
+    },
+    {
+      "action_coverage_complete": 0,
+      "action_coverage_partial": 214,
+      "decision_end": "2024-09-30",
+      "decision_start": "2024-08-01",
+      "gaps_by_code": {
+        "all_action_kinds_unverified": 214,
+        "correction_chain_unverified": 214,
+        "effective_date_catalog_unverified": 214,
+        "known_dividend_ex_date_and_payment_unverified": 1,
+        "pre_first_price_listing_or_transfer_unverified": 10,
+        "share_count_change_type_unverified": 69
+      },
+      "rows_with_raw_price_gap": 10,
+      "rows_with_selected_reviewed_share_change": 0,
+      "ticker_window_rows": 214,
+      "window": "2024-aug-sep"
+    },
+    {
+      "action_coverage_complete": 0,
+      "action_coverage_partial": 215,
+      "decision_end": "2025-12-30",
+      "decision_start": "2025-10-20",
+      "gaps_by_code": {
+        "all_action_kinds_unverified": 215,
+        "correction_chain_unverified": 215,
+        "effective_date_catalog_unverified": 215,
+        "post_last_price_cause_unverified": 2,
+        "pre_first_price_listing_or_transfer_unverified": 8,
+        "share_count_change_type_unverified": 90
+      },
+      "rows_with_raw_price_gap": 10,
+      "rows_with_selected_reviewed_share_change": 2,
+      "ticker_window_rows": 215,
+      "window": "2025q4-v5"
+    },
+    {
+      "action_coverage_complete": 0,
+      "action_coverage_partial": 216,
+      "decision_end": "2026-03-31",
+      "decision_start": "2026-01-02",
+      "gaps_by_code": {
+        "all_action_kinds_unverified": 216,
+        "correction_chain_unverified": 216,
+        "effective_date_catalog_unverified": 216,
+        "post_last_price_cause_unverified": 1,
+        "pre_first_price_listing_or_transfer_unverified": 6,
+        "share_count_change_type_unverified": 102
+      },
+      "rows_with_raw_price_gap": 7,
+      "rows_with_selected_reviewed_share_change": 5,
+      "ticker_window_rows": 216,
+      "window": "2026q1-v5"
+    },
+    {
+      "action_coverage_complete": 0,
+      "action_coverage_partial": 213,
+      "decision_end": "2026-05-29",
+      "decision_start": "2026-04-01",
+      "gaps_by_code": {
+        "all_action_kinds_unverified": 213,
+        "correction_chain_unverified": 213,
+        "effective_date_catalog_unverified": 213,
+        "pre_first_price_listing_or_transfer_unverified": 4,
+        "share_count_change_type_unverified": 101
+      },
+      "rows_with_raw_price_gap": 4,
+      "rows_with_selected_reviewed_share_change": 5,
+      "ticker_window_rows": 213,
+      "window": "2026q2early-v5"
+    },
+    {
+      "action_coverage_complete": 0,
+      "action_coverage_partial": 211,
+      "decision_end": "2026-06-30",
+      "decision_start": "2026-06-01",
+      "gaps_by_code": {
+        "all_action_kinds_unverified": 211,
+        "correction_chain_unverified": 211,
+        "effective_date_catalog_unverified": 211,
+        "post_last_price_cause_unverified": 1,
+        "pre_first_price_listing_or_transfer_unverified": 4,
+        "share_count_change_type_unverified": 102
+      },
+      "rows_with_raw_price_gap": 5,
+      "rows_with_selected_reviewed_share_change": 5,
+      "ticker_window_rows": 211,
+      "window": "2026jun-expanded-v5"
+    }
+  ]
+}

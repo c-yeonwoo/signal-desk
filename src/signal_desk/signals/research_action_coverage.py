@@ -16,9 +16,15 @@ from zoneinfo import ZoneInfo
 
 from signal_desk import market_clock
 
-ActionKind = Literal["cash_dividend", "split", "halt", "delisting", "unsupported"]
+ActionKind = Literal["cash_dividend", "split", "halt", "delisting", "unsupported",
+                     "stock_dividend", "rights", "capital_reduction", "spin_off",
+                     "merger_exchange", "symbol_change", "share_count_change"]
 CollectionState = Literal["complete_for_source", "source_empty", "partial", "source_error"]
 _SHA = re.compile(r"[0-9a-f]{64}\Z")
+ACTION_KINDS = frozenset({"cash_dividend", "split", "halt", "delisting",
+                          "unsupported", "stock_dividend", "rights",
+                          "capital_reduction", "spin_off", "merger_exchange",
+                          "symbol_change", "share_count_change"})
 
 
 @dataclass(frozen=True)
@@ -99,8 +105,7 @@ class SourceWindow:
         if (self.market not in ("kr", "us") or not self.security_id or not self.source_id
                 or not self.upstream_family or _date(self.start) > _date(self.end)
                 or self.date_basis not in ("receipt", "record", "effective", "unknown")
-                or not self.event_kinds or not self.event_kinds <= {
-                    "cash_dividend", "split", "halt", "delisting", "unsupported"}
+                or not self.event_kinds or not self.event_kinds <= ACTION_KINDS
                 or self.state not in ("complete_for_source", "source_empty", "partial", "source_error")
                 or not isinstance(self.page_hashes, tuple)
                 or any(not _SHA.fullmatch(value) for value in self.page_hashes)
@@ -172,7 +177,7 @@ class ActionRecord:
 
     def __post_init__(self) -> None:
         if (self.market not in ("kr", "us") or not self.security_id or not self.event_id
-                or self.kind not in ("cash_dividend", "split", "halt", "delisting", "unsupported")
+                or self.kind not in ACTION_KINDS
                 or self.status not in ("announced", "scheduled", "effective", "paid", "cancelled", "unresolved")
                 or not self.source_id or not _SHA.fullmatch(self.raw_sha256)
                 or not isinstance(self.availability, AvailabilityEvidence)
@@ -209,6 +214,40 @@ class ActionRecord:
 
 
 @dataclass(frozen=True)
+class OfficialKindScope:
+    """Reviewed assertion that one official catalogue enumerates one kind."""
+
+    kind: ActionKind
+    window: SourceWindow
+    source_scope_sha256: str
+    corrections_review_sha256: str
+    event_reconciliation_sha256: str
+    unresolved_event_ids: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if (self.kind not in ACTION_KINDS or not isinstance(self.window, SourceWindow)
+                or any(not _SHA.fullmatch(value) for value in (
+                    self.source_scope_sha256, self.corrections_review_sha256,
+                    self.event_reconciliation_sha256))
+                or len(set(self.unresolved_event_ids)) != len(self.unresolved_event_ids)):
+            raise ValueError("invalid official kind scope")
+
+
+def _covers_range(windows: list[SourceWindow], start: str, end: str) -> bool:
+    """An effective-date catalogue may arrive in adjacent bounded pages."""
+    cursor = _date(start)
+    last = _date(end)
+    for window in sorted(windows, key=lambda item: item.start):
+        first = _date(window.start)
+        if first > cursor:
+            return False
+        cursor = max(cursor, _date(window.end) + dt.timedelta(days=1))
+        if cursor > last:
+            return True
+    return False
+
+
+@dataclass(frozen=True)
 class CoverageCertificate:
     """A reviewed *scope*, not an assertion of universal provider completeness."""
 
@@ -220,14 +259,16 @@ class CoverageCertificate:
     windows: tuple[SourceWindow, ...]
     reconciliation_sha256: str | None = None
     unresolved_event_ids: tuple[str, ...] = ()
+    official_scopes: tuple[OfficialKindScope, ...] = ()
 
     def __post_init__(self) -> None:
         if (self.market not in ("kr", "us") or not self.security_id
                 or _date(self.start) > _date(self.end)
-                or not self.required_kinds or not self.required_kinds <= {
-                    "cash_dividend", "split", "halt", "delisting", "unsupported"}
+                or not self.required_kinds or not self.required_kinds <= ACTION_KINDS
                 or not isinstance(self.windows, tuple)
                 or any(not isinstance(row, SourceWindow) for row in self.windows)
+                or not isinstance(self.official_scopes, tuple)
+                or any(not isinstance(row, OfficialKindScope) for row in self.official_scopes)
                 or (self.reconciliation_sha256 is not None and
                     not _SHA.fullmatch(self.reconciliation_sha256))
                 or len(set(self.unresolved_event_ids)) != len(self.unresolved_event_ids)):
@@ -235,18 +276,36 @@ class CoverageCertificate:
 
     @property
     def state(self) -> Literal["complete_for_scope", "partial", "source_error", "unknown"]:
-        if any(row.state == "source_error" for row in self.windows):
+        relevant = [row for row in self.windows if row.market == self.market
+                    and row.security_id == self.security_id
+                    and row.start <= self.end and row.end >= self.start
+                    and bool(row.event_kinds & self.required_kinds)]
+        if any(row.state == "source_error" for row in relevant):
             return "source_error"
-        if not self.windows:
+        if not relevant and not self.official_scopes:
             return "unknown"
-        eligible = [row for row in self.windows if (
-            row.market == self.market and row.security_id == self.security_id
-            and row.start <= self.start and row.end >= self.end
-            and row.date_basis == "effective" and row.historical_range_confirmed
+        eligible = [row for row in relevant if (
+            row.date_basis == "effective" and row.historical_range_confirmed
             and row.state in ("complete_for_source", "source_empty"))]
-        covered = frozenset().union(*(row.event_kinds for row in eligible))
-        families = {row.upstream_family for row in eligible}
+        covered = set()
+        for kind in self.required_kinds:
+            by_family = {family: [row for row in eligible
+                                  if row.upstream_family == family and kind in row.event_kinds]
+                         for family in {row.upstream_family for row in eligible}}
+            if sum(_covers_range(rows, self.start, self.end)
+                   for rows in by_family.values()) >= 2:
+                covered.add(kind)
+            for reviewed in self.official_scopes:
+                row = reviewed.window
+                if (reviewed.kind == kind and not reviewed.unresolved_event_ids
+                        and row in self.windows
+                        and row.market == self.market and row.security_id == self.security_id
+                        and row.date_basis == "effective" and row.historical_range_confirmed
+                        and row.state in ("complete_for_source", "source_empty")
+                        and kind in row.event_kinds
+                        and _covers_range([row], self.start, self.end)):
+                    covered.add(kind)
         if (self.reconciliation_sha256 and not self.unresolved_event_ids
-                and self.required_kinds <= covered and len(families) >= 2):
+                and self.required_kinds <= covered):
             return "complete_for_scope"
         return "partial"

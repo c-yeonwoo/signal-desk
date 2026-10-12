@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from signal_desk.signals.research_action_coverage import (
-    ActionRecord, AvailabilityEvidence, CoverageCertificate, SourceWindow,
+    ActionRecord, AvailabilityEvidence, CoverageCertificate, OfficialKindScope,
+    SourceWindow,
 )
 
 OBSERVED = dt.datetime(2026, 10, 11, 17, 30, tzinfo=ZoneInfo("Asia/Seoul"))
@@ -29,15 +30,39 @@ def _cert(*windows, unresolved=()):
 def test_scope_needs_effective_date_all_types_independent_family_and_reconciliation():
     registry = _window(kinds=frozenset({"cash_dividend", "split"}))
     filing = _window(family="DART", kinds=frozenset({"cash_dividend"}))
-    assert _cert(registry, filing).state == "complete_for_scope"
+    assert _cert(registry, filing).state == "partial"
+    filing_all = replace(filing, event_kinds=frozenset({"cash_dividend", "split"}))
+    assert _cert(registry, filing_all).state == "complete_for_scope"
     assert _cert(registry, replace(filing, upstream_family="KSD")).state == "partial"
     assert _cert(registry, replace(filing, date_basis="receipt")).state == "partial"
     assert _cert(_window(), filing).state == "partial"
-    assert _cert(registry, filing, unresolved=("unknown-merger",)).state == "partial"
-    assert replace(_cert(registry, filing), reconciliation_sha256=None).state == "partial"
+    assert _cert(registry, filing_all, unresolved=("unknown-merger",)).state == "partial"
+    assert replace(_cert(registry, filing_all), reconciliation_sha256=None).state == "partial"
     assert _cert(replace(registry, historical_range_confirmed=False), filing).state == "partial"
     assert _cert(replace(registry, state="source_error"), filing).state == "source_error"
     assert _cert().state == "unknown"
+
+
+def test_kind_specific_adjacent_sources_and_official_scope():
+    first = replace(_window(kinds=frozenset({"cash_dividend", "split"})),
+                    end="2024-04-15")
+    second = replace(first, start="2024-04-16", end="2024-04-30")
+    independent = _window(family="DART", kinds=frozenset({"cash_dividend", "split"}))
+    assert _cert(first, second, independent).state == "complete_for_scope"
+    assert _cert(first, replace(second, start="2024-04-17"), independent).state == "partial"
+    unrelated_error = replace(independent, market="us", state="source_error")
+    assert _cert(first, second, independent, unrelated_error).state == "complete_for_scope"
+
+    official = OfficialKindScope("split", _window(family="KRX_CA", kinds=frozenset({"split"})),
+                                 HASH, HASH, HASH)
+    only_dividend = _cert(_window(), _window(family="DART"))
+    assert replace(only_dividend, official_scopes=(official,)).state == "partial"
+    bound = replace(only_dividend, windows=(*only_dividend.windows, official.window))
+    assert replace(bound, official_scopes=(official,)).state == "complete_for_scope"
+    assert replace(bound, official_scopes=(
+        replace(official, unresolved_event_ids=("unresolved-split",)),)).state == "partial"
+    assert replace(bound, official_scopes=(
+        replace(official, window=replace(official.window, date_basis="receipt")),)).state == "partial"
 
 
 def test_source_empty_and_partial_records_do_not_forge_complete_scope():
