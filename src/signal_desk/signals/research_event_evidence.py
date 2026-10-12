@@ -12,6 +12,7 @@ import math
 import re
 from dataclasses import dataclass
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from signal_desk import market_clock
 
@@ -24,7 +25,8 @@ def _aware(value: dt.datetime | None) -> bool:
 @dataclass(frozen=True)
 class SettlementEvent:
     kind: Literal["split", "cash_dividend", "halt", "delisting",
-                  "treasury_cancellation", "option_exercise_issuance"]
+                  "treasury_cancellation", "option_exercise_issuance",
+                  "cash_exchange"]
     split_numerator: int | None = None
     split_denominator: int | None = None
     cash_per_share: float | None = None
@@ -35,6 +37,9 @@ class SettlementEvent:
     payment_source_id: str | None = None
     payment_source_sha256: str | None = None
     payment_observed_at: dt.datetime | None = None
+    effective_source_id: str | None = None
+    effective_source_sha256: str | None = None
+    effective_observed_at: dt.datetime | None = None
 
     def __post_init__(self) -> None:
         if self.kind == "split":
@@ -46,21 +51,43 @@ class SettlementEvent:
                     or self.event_id is not None or self.cash_amount_status is not None
                     or self.payment_status is not None or self.payment_source_id is not None
                     or self.payment_source_sha256 is not None
-                    or self.payment_observed_at is not None):
+                    or self.payment_observed_at is not None
+                    or self.effective_source_id is not None
+                    or self.effective_source_sha256 is not None
+                    or self.effective_observed_at is not None):
                 raise ValueError("invalid verified split terms")
-        elif self.kind == "cash_dividend":
+        elif self.kind in ("cash_dividend", "cash_exchange"):
+            exchange = self.kind == "cash_exchange"
             if (self.split_numerator is not None or self.split_denominator is not None
                     or not isinstance(self.cash_per_share, (int, float))
                     or isinstance(self.cash_per_share, bool)
                     or not math.isfinite(self.cash_per_share) or self.cash_per_share < 0
-                    or not self.payment_date):
-                raise ValueError("invalid verified dividend terms")
+                    or (exchange and self.cash_per_share == 0)
+                    or (not exchange and not self.payment_date)):
+                raise ValueError("invalid cash entitlement terms")
+            if self.payment_date is not None:
+                try:
+                    dt.date.fromisoformat(self.payment_date)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("invalid cash entitlement payment date") from exc
             if ((self.event_id is not None and
                  (not isinstance(self.event_id, str) or not self.event_id.strip()))
+                    or (exchange and (self.event_id is None
+                                      or self.cash_amount_status is None
+                                      or self.payment_status is None
+                                      or not isinstance(self.effective_source_id, str)
+                                      or not self.effective_source_id.strip()
+                                      or not isinstance(self.effective_source_sha256, str)
+                                      or not re.fullmatch(r"[0-9a-f]{64}",
+                                                          self.effective_source_sha256)
+                                      or not _aware(self.effective_observed_at)))
+                    or (not exchange and any(value is not None for value in (
+                        self.effective_source_id, self.effective_source_sha256,
+                        self.effective_observed_at)))
                     or self.cash_amount_status not in (None, "scheduled", "final")
                     or self.payment_status not in (None, "scheduled", "confirmed")
                     or (self.payment_status == "confirmed"
-                        and (self.cash_amount_status != "final"
+                        and (self.cash_amount_status != "final" or self.payment_date is None
                              or not isinstance(self.payment_source_id, str)
                              or not self.payment_source_id.strip()
                              or not isinstance(self.payment_source_sha256, str)
@@ -72,11 +99,7 @@ class SettlementEvent:
                         and any(value is not None for value in (
                             self.payment_source_id, self.payment_source_sha256,
                             self.payment_observed_at)))):
-                raise ValueError("invalid dividend evidence status")
-            try:
-                dt.date.fromisoformat(self.payment_date)
-            except ValueError as exc:
-                raise ValueError("invalid dividend payment date") from exc
+                raise ValueError("invalid cash entitlement evidence status")
         elif self.kind in ("halt", "delisting", "treasury_cancellation",
                            "option_exercise_issuance"):
             if any(value is not None for value in (
@@ -84,7 +107,8 @@ class SettlementEvent:
                     self.cash_per_share, self.payment_date, self.event_id,
                     self.cash_amount_status, self.payment_status,
                     self.payment_source_id, self.payment_source_sha256,
-                    self.payment_observed_at)):
+                    self.payment_observed_at, self.effective_source_id,
+                    self.effective_source_sha256, self.effective_observed_at)):
                 raise ValueError("non-proportional event has no settlement terms")
         else:
             raise ValueError("unknown settlement event")
@@ -122,15 +146,30 @@ class DailyEventEvidence:
                 or not _aware(self.source_observed_at)
                 or self.source_observed_at < self.source_published_at):
             raise ValueError("verified coverage needs source and publication/observation times")
-        if any(event.kind == "cash_dividend" and event.payment_date < self.session
+        if any((event.effective_observed_at is not None
+                and event.effective_observed_at > self.source_observed_at)
+               or (event.payment_observed_at is not None
+                   and event.payment_observed_at > self.source_observed_at)
                for event in self.events):
-            raise ValueError("dividend payment precedes ex date")
+            raise ValueError("event evidence observed after daily proof")
+        if any(event.kind in ("cash_dividend", "cash_exchange")
+               and event.payment_date is not None and event.payment_date < self.session
+               for event in self.events):
+            raise ValueError("cash payment precedes entitlement date")
+        if any(event.kind == "cash_exchange" for event in self.events) and (
+                self.market != "kr" or len(self.events) != 1):
+            raise ValueError("cash exchange requires isolated Korean terms")
+        if any(event.kind == "cash_exchange" and
+               event.effective_observed_at.astimezone(ZoneInfo("Asia/Seoul")).date()
+               < dt.date.fromisoformat(self.session) for event in self.events):
+            raise ValueError("cash exchange effect needs retrospective confirmation")
         if sum(event.kind == "split" for event in self.events) > 1:
             raise ValueError("ambiguous same-day split sequence")
-        dividend_ids = [event.event_id for event in self.events
-                        if event.kind == "cash_dividend" and event.event_id is not None]
-        if len(dividend_ids) != len(set(dividend_ids)):
-            raise ValueError("duplicate dividend entitlement")
+        cash_ids = [event.event_id for event in self.events
+                    if event.kind in ("cash_dividend", "cash_exchange")
+                    and event.event_id is not None]
+        if len(cash_ids) != len(set(cash_ids)):
+            raise ValueError("duplicate cash entitlement")
         if any(event.kind == "split" for event in self.events) and any(
                 event.kind == "cash_dividend" for event in self.events):
             raise ValueError("split/dividend same-day share basis is unverified")
