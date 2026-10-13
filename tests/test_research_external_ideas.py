@@ -34,6 +34,7 @@ def test_revisions_are_append_only_and_duplicate_is_idempotent(tmp_path, monkeyp
     assert latest["live_order_eligible"] is False
     assert latest["registered_verdict"] is False
     assert latest["source_stance_verified"] is False
+    assert latest["source_publication_verified"] is False
     assert latest["original_post_edit_verified"] is False
 
 

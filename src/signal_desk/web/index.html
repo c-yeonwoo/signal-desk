@@ -9340,7 +9340,7 @@ async function loadExternalIdeas(){
     body.innerHTML = data.items.map(it => `<div class="ew-card">
       <div>
         <div class="nm">${esc(it.ticker)} · ${esc(it.author)} <span class="ew-pill kb-wait">외부 의견 · 검증 중</span></div>
-        <div class="meta">${esc(it.market)} · ${esc(it.claim_key)} · 처음 확인 ${esc(it.first_observed_at)} · 공개 ${esc(it.source_published_at || '시각 모름')} · 내 기록 ${esc(it.revision)}회차</div>
+        <div class="meta">${esc(it.market)} · ${esc(it.claim_key)} · 처음 확인 ${esc(it.first_observed_at)} · 입력된 공개 시각 ${esc(it.source_published_at || '모름')} · 내 기록 ${esc(it.revision)}회차</div>
         <div class="note">${esc(it.thesis)}${it.invalidation ? '<br>확인할 위험: ' + esc(it.invalidation) : ''}</div>
         <div class="meta">${esc(it.horizon)} · ${esc(it.stance)} · 근거 ${it.evidence_url ? '링크만 등록, 대조 전' : '미등록'}</div>
         <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:6px">

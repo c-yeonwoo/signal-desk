@@ -237,6 +237,7 @@ def _present(row: sqlite3.Row) -> dict:
     out["historical_reconstruction_eligible"] = False
     out["forward_available_at"] = out["revision_observed_at"]
     out["source_stance_verified"] = False
+    out["source_publication_verified"] = False
     out["stance_attribution"] = "user_interpretation"
     out["original_post_edit_verified"] = False
     out["evidence_status"] = "linked_unreviewed" if out["evidence_url"] else "none"
