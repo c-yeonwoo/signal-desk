@@ -26,7 +26,7 @@ def _aware(value: dt.datetime | None) -> bool:
 class SettlementEvent:
     kind: Literal["split", "cash_dividend", "halt", "delisting",
                   "treasury_cancellation", "option_exercise_issuance",
-                  "cash_exchange"]
+                  "cash_exchange", "share_exchange"]
     split_numerator: int | None = None
     split_denominator: int | None = None
     cash_per_share: float | None = None
@@ -101,7 +101,7 @@ class SettlementEvent:
                             self.payment_observed_at)))):
                 raise ValueError("invalid cash entitlement evidence status")
         elif self.kind in ("halt", "delisting", "treasury_cancellation",
-                           "option_exercise_issuance"):
+                           "option_exercise_issuance", "share_exchange"):
             if any(value is not None for value in (
                     self.split_numerator, self.split_denominator,
                     self.cash_per_share, self.payment_date, self.event_id,
@@ -159,6 +159,9 @@ class DailyEventEvidence:
         if any(event.kind == "cash_exchange" for event in self.events) and (
                 self.market != "kr" or len(self.events) != 1):
             raise ValueError("cash exchange requires isolated Korean terms")
+        if any(event.kind == "share_exchange" for event in self.events) and (
+                self.market != "kr" or len(self.events) != 1):
+            raise ValueError("share exchange requires isolated Korean terms")
         if any(event.kind == "cash_exchange" and
                event.effective_observed_at.astimezone(ZoneInfo("Asia/Seoul")).date()
                < dt.date.fromisoformat(self.session) for event in self.events):

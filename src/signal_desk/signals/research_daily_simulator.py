@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from typing import Literal, Mapping, Sequence
 
 from signal_desk import market_clock
@@ -17,6 +18,9 @@ from signal_desk.signals.research_decision import (
     ResearchClock, ResearchDecision, decide,
 )
 from signal_desk.signals.research_event_evidence import DailyEventEvidence
+from signal_desk.signals.research_share_exchange_settlement import (
+    ShareExchangeTerms, value_exchange,
+)
 from signal_desk.signals.research_action_coverage import (
     ACTION_KINDS, CoverageCertificate, ReviewedShareCountChange,
 )
@@ -84,6 +88,7 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                    event_evidence: Mapping[tuple[str, str], DailyEventEvidence] | None = None,
                    require_event_coverage: bool = False,
                    reviewed_share_changes: Mapping[tuple[str, str], ReviewedShareCountChange] | None = None,
+                   share_exchange_terms: Mapping[tuple[str, str], ShareExchangeTerms] | None = None,
                    coverage_certificates: Mapping[str, CoverageCertificate] | None = None,
                    return_contract: Literal["legacy", "settlement_v2"] = "legacy") -> dict:
     """Decision at completed close t, order at next regular open, then mark close.
@@ -116,8 +121,26 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                 or not isinstance(certificate, CoverageCertificate)
                 or certificate.market != market):
             raise ValueError("coverage certificate key or market mismatch")
+    if share_exchange_terms and (market != "kr" or return_contract != "settlement_v2"):
+        raise ValueError("share exchange needs Korean settlement_v2 replay")
+    for key, terms in (share_exchange_terms or {}).items():
+        if (not isinstance(key, tuple) or len(key) != 2
+                or not isinstance(terms, ShareExchangeTerms)
+                or key != (terms.effective_session, terms.old_ticker)
+                or terms.effective_session < snapshots[0].session
+                or terms.first_tradable_session > snapshots[-1].session):
+            raise ValueError("share exchange key or scope mismatch")
+    term_rows = tuple((share_exchange_terms or {}).values())
+    if (len({row.event_id for row in term_rows}) != len(term_rows)
+            or len({row.successor_ticker for row in term_rows}) != len(term_rows)):
+        raise ValueError("duplicate share exchange event or successor")
 
     def certified_traded_scope(filled_tickers: set[str]) -> bool:
+        # The old-security coverage certificate does not prove the successor's
+        # entire holding path or fractional-payment chain. Keep the new path
+        # uncertified until a joined two-security certificate is implemented.
+        if share_exchanged_tickers:
+            return False
         if not require_event_coverage or not filled_tickers:
             return False
         for ticker in filled_tickers:
@@ -169,6 +192,11 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
     exchange_cash_paid = 0.0
     seen_cash_right_ids: set[tuple[str, str]] = set()
     exchanged_tickers: dict[str, str] = {}
+    share_exchanged_tickers: dict[str, str] = {}
+    pending_share_rights: dict[str, tuple[Position, ShareExchangeTerms]] = {}
+    unresolved_fractional_rights: list[dict] = []
+    simulated_share_deliveries: list[dict] = []
+    reported_share_scenarios: list[dict] = []
     applied_issuer_facts: set[str] = set()
 
     def evidence_for(snapshot: DailySnapshot, ticker: str) -> DailyEventEvidence | None:
@@ -278,6 +306,24 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                     exchanged_tickers[ticker] = snapshot.session
                     del positions[ticker]
                     break
+                if event.kind == "share_exchange":
+                    terms = (share_exchange_terms or {}).get((snapshot.session, ticker))
+                    if (return_contract != "settlement_v2" or terms is None
+                            or terms.old_security_id != (bar.security_id if bar else None)
+                            or any(order.ticker == ticker and order.action == "EXIT"
+                                   for order in pending)
+                            or (bar is not None and
+                                (bar.status == "trading" or bar.open is not None))
+                            or ticker in share_exchanged_tickers
+                            or terms.successor_ticker in positions):
+                        return _incomplete("incomplete_share_exchange_path", snapshot,
+                                           ticker=ticker, fills=fills, decisions=decisions,
+                                           equity_curve=equity_curve, source_ids=source_ids)
+                    pending_share_rights[ticker] = position, terms
+                    share_exchanged_tickers[ticker] = snapshot.session
+                    event_source_ids.add(terms.source_id)
+                    del positions[ticker]
+                    break
                 if event.kind == "split":
                     num, den = event.split_numerator, event.split_denominator
                     if (bar is None or position.listed_shares is None or bar.listed_shares is None
@@ -303,6 +349,60 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                                         event.cash_amount_status, event.payment_status,
                                         event.event_id, "cash_dividend",
                                         event.payment_source_id))
+
+        # Share delivery is not an opening auction fill. The first tradable
+        # successor bar must exist on its documented session, with its own ID.
+        # No future successor close is used during the earlier rights gap.
+        for old_ticker, (old_position, terms) in list(pending_share_rights.items()):
+            if snapshot.session < terms.first_tradable_session:
+                continue
+            if snapshot.session > terms.first_tradable_session:
+                continue  # Unknown precision stays an unpriced, untradeable right.
+            successor = bars.get(terms.successor_ticker)
+            if (successor is None or successor.security_id != terms.successor_security_id
+                    or successor.status != "trading" or successor.open is None
+                    or successor.close is None or terms.successor_ticker in positions
+                    or unresolved_bar_action(snapshot, successor)):
+                return _incomplete("incomplete_successor_listing", snapshot,
+                                   ticker=terms.successor_ticker, fills=fills,
+                                   decisions=decisions, equity_curve=equity_curve,
+                                   source_ids=source_ids)
+            successor_proof = evidence_for(snapshot, terms.successor_ticker)
+            if require_event_coverage and (successor_proof is None
+                                            or successor_proof.coverage != "verified_complete"):
+                return _incomplete("incomplete_action_coverage", snapshot,
+                                   ticker=terms.successor_ticker, fills=fills,
+                                   decisions=decisions, equity_curve=equity_curve,
+                                   source_ids=source_ids)
+            if successor_proof is not None and successor_proof.coverage == "verified_complete":
+                event_source_ids.add(successor_proof.source_id)
+            valuation = value_exchange(
+                old_shares=old_position.shares, ratio=terms.ratio,
+                fractional_listing_price_krw=str(successor.close),
+                successor_mark_price_krw=str(successor.close))
+            reported_share_scenarios.append({"event_id": terms.event_id,
+                "session": snapshot.session, "old_ticker": old_ticker,
+                "successor_ticker": terms.successor_ticker, "valuation": valuation})
+            if valuation["exact_value"] is None:
+                continue
+            quantity = int(valuation["exact_value"]["whole_new_shares"])
+            fraction = Decimal(valuation["exact_value"]["fractional_new_share"])
+            if quantity:
+                positions[terms.successor_ticker] = replace(old_position,
+                    ticker=terms.successor_ticker, shares=quantity,
+                    entry_price=old_position.entry_price * old_position.shares / quantity,
+                    listed_shares=successor.listed_shares)
+                simulated_share_deliveries.append({"event_id": terms.event_id,
+                    "session": snapshot.session, "old_ticker": old_ticker,
+                    "successor_ticker": terms.successor_ticker,
+                    "whole_new_shares": quantity, "source_id": terms.source_id,
+                    "account_delivery_verified": False})
+            if fraction:
+                unresolved_fractional_rights.append({"event_id": terms.event_id,
+                    "old_ticker": old_ticker,
+                    "unrounded_cash_krw": str(fraction * Decimal(str(successor.close))),
+                    "state": "payment_amount_and_date_unconfirmed"})
+            del pending_share_rights[old_ticker]
 
         # The next day's open is read for the previous close's orders only.
         for order in (item for item in pending if item.action == "EXIT"):
@@ -339,14 +439,14 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                 del positions[order.ticker]
 
         for order in (item for item in pending if item.action == "ENTER"):
-            if order.ticker in exchanged_tickers:
+            if order.ticker in exchanged_tickers or order.ticker in share_exchanged_tickers:
                 return _incomplete("incomplete_untradable_entry_after_exchange", snapshot,
                                    ticker=order.ticker, fills=fills, decisions=decisions,
                                    equity_curve=equity_curve, source_ids=source_ids)
             if order.thesis_id is None or order.thesis_id in used_theses or order.ticker in positions:
                 skips["already_held_or_used_thesis"] = skips.get("already_held_or_used_thesis", 0) + 1
                 continue
-            if len(positions) >= policy.max_positions:
+            if len(positions) + len(pending_share_rights) >= policy.max_positions:
                 skips["full_slots"] = skips.get("full_slots", 0) + 1
                 continue
             bar = bars.get(order.ticker)
@@ -381,7 +481,7 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                                    source_ids=source_ids)
             if proof is not None and proof.coverage == "verified_complete":
                 event_source_ids.add(proof.source_id)
-                if any(event.kind in ("halt", "delisting", "cash_exchange")
+                if any(event.kind in ("halt", "delisting", "cash_exchange", "share_exchange")
                        for event in proof.events):
                     return _incomplete("incomplete_untradable_event", snapshot, ticker=order.ticker,
                                        fills=fills, decisions=decisions, equity_curve=equity_curve,
@@ -410,7 +510,8 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
 
         # Current close is only accessed after every opening fill has been settled.
         unknown_rights = (return_contract == "settlement_v2"
-                          and any(item[2] != "final" for item in receivables))
+                          and (any(item[2] != "final" for item in receivables)
+                               or bool(pending_share_rights) or bool(unresolved_fractional_rights)))
         equity = cash + sum(item[1] for item in receivables
                             if return_contract == "legacy" or item[2] == "final")
         for position in positions.values():
@@ -437,7 +538,7 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
         decisions.extend(today)
         pending = tuple(item for item in today if item.action in ("EXIT", "ENTER"))
 
-    if positions or pending or receivables:
+    if positions or pending or receivables or pending_share_rights or unresolved_fractional_rights:
         result = {"state": "unmatured", "last_session": snapshots[-1].session,
                 "positions": len(positions), "pending": len(pending), "fills": fills,
                 "decisions": decisions, "equity_curve": equity_curve,
@@ -468,9 +569,16 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
                 "cash_exchange_profile": "general_holder_no_election_gross_pre_tax"
                 if exchanged_tickers else None,
                 "cash_exchange_effective_sessions": dict(sorted(exchanged_tickers.items())),
+                "share_exchange_effective_sessions": dict(sorted(share_exchanged_tickers.items())),
+                "pending_share_rights": sorted(pending_share_rights),
+                "simulated_share_deliveries": simulated_share_deliveries,
+                "unresolved_fractional_rights": unresolved_fractional_rights,
+                "reported_share_scenarios": reported_share_scenarios,
                 "cash_settlement_state": (
                     "unconfirmed_or_future_receivable" if receivables else "no_receivable"),
-                "valuation_state": "unknown_right_amount" if final_mark is None else
+                "valuation_state": "unknown_share_exchange_right" if pending_share_rights
+                else "unknown_fractional_cash" if unresolved_fractional_rights
+                else "unknown_right_amount" if final_mark is None else
                 "ex_post_known_rights_mark" if certified else "uncertified_action_scope",
                 "decision_basis": "daily_snapshot_replay",
                 "execution_basis": execution.scenario_id,
@@ -479,14 +587,18 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
         return result
     peak = float(starting_cash)
     max_drawdown = 0.0
+    mark_gap = False
     for mark in equity_curve:
+        if mark["equity"] is None:
+            mark_gap = True
+            continue
         peak = max(peak, mark["equity"])
         max_drawdown = min(max_drawdown, mark["equity"] / peak - 1)
     result = {"state": "complete", "market": market, "policy_id": policy.policy_id,
             "cost_model_id": costs.model_id, "start_session": snapshots[0].session,
             "end_session": snapshots[-1].session,
             "net_return_pct": round((cash / starting_cash - 1) * 100, 4),
-            "max_drawdown_pct": round(max_drawdown * 100, 4),
+            "max_drawdown_pct": None if mark_gap else round(max_drawdown * 100, 4),
             "cash_end": round(cash, 6), "fills": fills, "decisions": decisions,
             "equity_curve": equity_curve, "skips": dict(sorted(skips.items())),
             "source_ids": sorted(source_ids),
@@ -528,6 +640,11 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
             "cash_exchange_profile": "general_holder_no_election_gross_pre_tax"
             if exchanged_tickers else None,
             "cash_exchange_effective_sessions": dict(sorted(exchanged_tickers.items())),
+            "share_exchange_effective_sessions": dict(sorted(share_exchanged_tickers.items())),
+            "pending_share_rights": [],
+            "simulated_share_deliveries": simulated_share_deliveries,
+            "unresolved_fractional_rights": [],
+            "reported_share_scenarios": reported_share_scenarios,
             "cash_settlement_state": "confirmed_or_no_receivable",
             "valuation_state": "ex_post_known_rights_mark" if certified
             else "uncertified_action_scope",

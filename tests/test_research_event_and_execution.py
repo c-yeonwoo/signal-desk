@@ -16,6 +16,7 @@ from signal_desk.signals.research_decision import (
     Candidate, CompletedDailyBar, DailyPolicy, DailySnapshot,
 )
 from signal_desk.signals.research_event_evidence import DailyEventEvidence, SettlementEvent
+from signal_desk.signals.research_share_exchange_settlement import RatioEvidence, ShareExchangeTerms
 from signal_desk.signals.research_action_coverage import (
     CoverageCertificate, ReviewedShareCountChange, SourceWindow,
 )
@@ -88,6 +89,108 @@ def test_verified_empty_day_needs_explicit_source_and_two_times():
                                           split_denominator=1),
                             SettlementEvent("cash_dividend", cash_per_share=2,
                                             payment_date=day)))
+
+
+def _share_exchange_path(days, *, successor=True):
+    rows = [_snapshot(days[0], candidate=True), _snapshot(days[1])]
+    old = replace(_snapshot(days[2]).bars[0], open=None, close=None,
+                  status="delisted", corporate_action="share_exchange")
+    rows.append(replace(_snapshot(days[2]), bars=(old,)))
+    for day in days[3:]:
+        template = _snapshot(day)
+        new = replace(template.bars[0], ticker="111111", security_id="KR7111110001",
+                      open=200, close=220)
+        rows.append(replace(template, bars=(new,)))
+    return rows if successor else [*rows[:3], replace(rows[3], bars=()), *rows[4:]]
+
+
+def _share_exchange_terms(days, precision="exact_contractual_decimal", ratio="2"):
+    return ShareExchangeTerms("synthetic:exchange-1", "005930", SECURITY_ID,
+                              "111111", "KR7111110001", days[2], days[3],
+                              RatioEvidence(ratio, precision, "synthetic:ratio"),
+                              "synthetic:issuer-terms")
+
+
+def _share_exchange_replay(days, *, precision="exact_contractual_decimal", ratio="2",
+                           successor=True):
+    rows = _share_exchange_path(days, successor=successor)
+    ledger = {(days[1], "005930"): _proof(days[1]),
+              (days[2], "005930"): _proof(days[2], events=(SettlementEvent("share_exchange"),))}
+    for day in days[3:]:
+        ledger[(day, "111111")] = replace(_proof(day), ticker="111111")
+    terms = _share_exchange_terms(days, precision, ratio)
+    return simulate_daily(rows, policy=DailyPolicy(max_positions=1, hold_sessions=2),
+                          costs=DailyCostModel(), starting_cash=10_000,
+                          event_evidence=ledger, require_event_coverage=True,
+                          share_exchange_terms={(days[2], "005930"): terms},
+                          return_contract="settlement_v2")
+
+
+def test_share_exchange_delivers_only_at_successor_listing_without_cash_double_count():
+    days = _days(5)
+    result = _share_exchange_replay(days)
+    assert result["state"] == "complete"
+    assert [(row["side"], row["ticker"], row["shares"]) for row in result["fills"]] == [
+        ("buy", "005930", 99), ("sell", "111111", 198)]
+    assert result["equity_curve"][2]["equity"] is None
+    assert result["equity_curve"][3]["equity"] is not None
+    assert result["simulated_share_deliveries"][0]["session"] == days[3]
+    assert result["simulated_share_deliveries"][0]["account_delivery_verified"] is False
+    assert result["cash_available_end"] > 10_000
+    assert result["exchange_cash_paid"] == 0
+    assert result["net_return_pct"] is None  # No complete action certificate.
+    assert result["account_realized_return_pct"] is None
+    assert result["live_order_eligible"] is False
+
+
+def test_share_exchange_unknown_precision_or_missing_listing_abstains():
+    days = _days(5)
+    unknown = _share_exchange_replay(days, precision="displayed_precision_unknown")
+    assert unknown["state"] == "unmatured"
+    assert unknown["valuation_state"] == "unknown_share_exchange_right"
+    assert unknown["economic_mark_return_pct"] is None
+    assert unknown["reported_share_scenarios"][0]["valuation"]["exact_value"] is None
+    assert all(row["equity"] is None for row in unknown["equity_curve"][2:])
+    missing = _share_exchange_replay(days, successor=False)
+    assert missing["state"] == "incomplete_successor_listing"
+    assert missing["net_return_pct"] is None
+
+
+def test_share_exchange_fractional_cash_is_not_spendable_without_payment_terms():
+    days = _days(5)
+    result = _share_exchange_replay(days, ratio="0.5")
+    assert result["state"] == "unmatured"
+    assert result["unresolved_fractional_rights"][0]["state"] == (
+        "payment_amount_and_date_unconfirmed")
+    assert result["cash_available_end"] < 10_000
+    assert result["economic_mark_return_pct"] is None
+    assert result["account_realized_return_pct"] is None
+
+
+def test_share_exchange_terms_cannot_enter_legacy_or_mismatched_security_path():
+    days = _days(5)
+    rows = _share_exchange_path(days)
+    terms = _share_exchange_terms(days)
+    with pytest.raises(ValueError, match="settlement_v2"):
+        simulate_daily(rows, policy=DailyPolicy(max_positions=1, hold_sessions=2),
+                       costs=DailyCostModel(), starting_cash=10_000,
+                       share_exchange_terms={(days[2], "005930"): terms})
+    with pytest.raises(ValueError, match="key or scope"):
+        simulate_daily(rows, policy=DailyPolicy(max_positions=1, hold_sessions=2),
+                       costs=DailyCostModel(), starting_cash=10_000,
+                       return_contract="settlement_v2",
+                       share_exchange_terms={(days[1], "005930"): terms})
+    mismatched = replace(rows[3], bars=(replace(rows[3].bars[0],
+                                                 security_id="KR7999990001"),))
+    result = simulate_daily([*rows[:3], mismatched, rows[4]],
+        policy=DailyPolicy(max_positions=1, hold_sessions=2),
+        costs=DailyCostModel(), starting_cash=10_000,
+        return_contract="settlement_v2",
+        event_evidence={(days[1], "005930"): _proof(days[1]),
+            (days[2], "005930"): _proof(days[2], events=(SettlementEvent("share_exchange"),))},
+        share_exchange_terms={(days[2], "005930"): terms})
+    assert result["state"] == "incomplete_successor_listing"
+    assert result["net_return_pct"] is None
 
 
 def test_strict_settlement_abstains_when_event_feed_is_missing_or_unknown():

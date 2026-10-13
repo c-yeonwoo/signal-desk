@@ -2338,6 +2338,7 @@
               <label>언급 상품 <select id="ei-instrument" class="ctrl"><option value="unknown">모름</option><option value="stock">주식</option><option value="options">옵션</option></select></label>
             </div>
             <label style="display:block;margin-top:8px">왜 주목했나 <input id="ei-thesis" class="ctrl" style="width:100%" placeholder="원문의 주장과 내 해석을 짧게 기록" required></label>
+            <label style="display:block;margin-top:8px">원문에서 확인한 짧은 구절 <input id="ei-excerpt" class="ctrl" style="width:100%" placeholder="나중에 공식 자료와 대조할 구절 (선택)"></label>
             <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
               <label style="flex:1 1 160px">논점 이름 <input id="ei-claim-key" class="ctrl" style="width:100%" placeholder="같은 글의 여러 주장을 구분할 때만"></label>
               <label style="flex:1 1 230px">틀렸다고 볼 조건 <input id="ei-invalidation" class="ctrl" style="width:100%" placeholder="확인할 위험이나 반대 근거"></label>
@@ -9343,13 +9344,16 @@ async function loadExternalIdeas(){
         <div class="meta">${esc(it.market)} · ${esc(it.claim_key)} · 처음 확인 ${esc(it.first_observed_at)} · 입력된 공개 시각 ${esc(it.source_published_at || '모름')} · 내 기록 ${esc(it.revision)}회차</div>
         <div class="note">${esc(it.thesis)}${it.invalidation ? '<br>확인할 위험: ' + esc(it.invalidation) : ''}</div>
         <div class="meta">${esc(it.horizon)} · ${esc(it.stance)} · 근거 ${it.evidence_url ? '링크만 등록, 대조 전' : '미등록'}</div>
+        ${it.source_excerpt ? `<div class="note">원문 기록: ${esc(it.source_excerpt)}</div>` : ''}
         <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:6px">
           <a href="${esc(it.source_url)}" target="_blank" rel="noopener noreferrer">원문</a>
           ${it.aggregator_url ? `<a href="${esc(it.aggregator_url)}" target="_blank" rel="noopener noreferrer">집계</a>` : ''}
           ${it.evidence_url ? `<a href="${esc(it.evidence_url)}" target="_blank" rel="noopener noreferrer">근거 후보</a>` : ''}
           <button class="btn" style="padding:3px 8px" onclick="showExternalIdeaRevisions('${it.source_key}')">기록 이력</button>
+          ${it.source_excerpt ? `<button class="btn" style="padding:3px 8px" onclick="showExternalIdeaReviews('${it.source_key}')">공식 근거 대조</button>` : ''}
         </div>
         <div id="ei-revisions-${it.source_key}" class="meta"></div>
+        <div id="ei-reviews-${it.source_key}" class="meta"></div>
       </div>
     </div>`).join('');
   } catch(e) { body.textContent = e.message || '연구 기록을 읽지 못했습니다.'; }
@@ -9368,7 +9372,7 @@ async function addExternalIdea(){
     ticker:get('ei-ticker'), source_published_at:publishedDate ? publishedDate.toISOString() : null,
     claim_key:get('ei-claim-key'), claim_kind:get('ei-claim-kind'),
     stance:get('ei-stance'), horizon:get('ei-horizon'), instrument_kind:get('ei-instrument'),
-    thesis:get('ei-thesis'), invalidation:get('ei-invalidation'),
+    thesis:get('ei-thesis'), source_excerpt:get('ei-excerpt'), invalidation:get('ei-invalidation'),
     evidence_url:get('ei-evidence'), aggregator_url:get('ei-aggregator')
   };
   if (!payload.source_url || !payload.author || !payload.ticker || !payload.thesis) {
@@ -9394,6 +9398,48 @@ async function showExternalIdeaRevisions(sourceKey){
     if (!response.ok) throw new Error(data.detail || '수정 이력을 읽지 못했습니다.');
     body.innerHTML = (data.items || []).map(it => `<div>${esc(it.revision)}회차 · ${esc(it.revision_observed_at)} · ${esc(it.thesis || '삭제됨')}</div>`).join('');
   } catch(e) { body.textContent = e.message || '수정 이력을 읽지 못했습니다.'; }
+}
+async function showExternalIdeaReviews(sourceKey){
+  const body = document.getElementById('ei-reviews-' + sourceKey);
+  if (!body) return;
+  try {
+    const response = await fetch('/api/research/external-ideas/' + sourceKey + '/reviews');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '대조 기록을 읽지 못했습니다.');
+    const rows = (data.items || []).map(it => `<div class="note" style="margin:8px 0">
+      수기 대조 · ${esc(it.finding)} · ${esc(it.compared_at)}<br>
+      ${esc(it.official_issuer)}: ${esc(it.official_excerpt)}<br>
+      남은 의문: ${esc(it.limitation)} · <a href="${esc(it.official_url)}" target="_blank" rel="noopener noreferrer">공식 자료</a>
+    </div>`).join('');
+    body.innerHTML = `${rows || '<div>아직 대조 기록이 없습니다.</div>'}
+      <div style="margin-top:8px">공식 자료를 직접 읽고 입력하세요. 수기 대조는 원문 보존·과거 시각·매매 적격 인증이 아닙니다.</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px">
+        <input id="ei-review-issuer-${sourceKey}" class="ctrl" placeholder="공식 발행 회사" aria-label="공식 발행 회사">
+        <input id="ei-review-url-${sourceKey}" class="ctrl" type="url" placeholder="회사 발표 또는 공시 URL" aria-label="공식 자료 URL" style="min-width:230px">
+        <select id="ei-review-finding-${sourceKey}" class="ctrl" aria-label="대조 결과"><option value="unresolved">판단 유보</option><option value="supports">뒷받침</option><option value="contradicts">반대 근거</option><option value="mixed">양면</option></select>
+      </div>
+      <input id="ei-review-excerpt-${sourceKey}" class="ctrl" style="width:100%;margin-top:6px" placeholder="공식 자료의 짧은 구절" aria-label="공식 자료 구절">
+      <input id="ei-review-limit-${sourceKey}" class="ctrl" style="width:100%;margin-top:6px" placeholder="아직 확인되지 않은 점" aria-label="대조 한계">
+      <button class="btn" style="margin-top:6px" onclick="saveExternalIdeaReview('${sourceKey}')">수기 대조 저장</button>
+      <span id="ei-review-result-${sourceKey}" role="status"></span>`;
+  } catch(e) { body.textContent = e.message || '대조 기록을 읽지 못했습니다.'; }
+}
+async function saveExternalIdeaReview(sourceKey){
+  const get = part => (document.getElementById('ei-review-' + part + '-' + sourceKey)?.value || '').trim();
+  const result = document.getElementById('ei-review-result-' + sourceKey);
+  const item = (await (await fetch('/api/research/external-ideas')).json()).items?.find(it => it.source_key === sourceKey);
+  if (!item || !item.source_excerpt) { result.textContent = '원문 구절이 먼저 필요합니다.'; return; }
+  const payload = {original_excerpt:item.source_excerpt, official_issuer:get('issuer'),
+    official_url:get('url'), official_excerpt:get('excerpt'), finding:get('finding'),
+    limitation:get('limit')};
+  try {
+    const response = await fetch('/api/research/external-ideas/' + sourceKey + '/reviews', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '저장 실패');
+    await showExternalIdeaReviews(sourceKey);
+  } catch(e) { result.textContent = e.message || '저장 실패'; }
 }
 
 // ===== 숏폼 콘텐츠(관리자) — 생성 → 검수 큐 → 승인/반려 =====

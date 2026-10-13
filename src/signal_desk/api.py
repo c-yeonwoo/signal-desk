@@ -6738,6 +6738,29 @@ def research_external_ideas_revisions(request: Request, source_key: str):
         raise HTTPException(400, str(exc)) from exc
 
 
+@app.get("/api/research/external-ideas/{source_key}/reviews")
+def research_external_ideas_reviews(request: Request, source_key: str):
+    _admin_or_403(request)
+    from fastapi import HTTPException
+    from signal_desk import research_external_ideas
+    try:
+        return {"items": research_external_ideas.claim_reviews(source_key)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/research/external-ideas/{source_key}/reviews")
+def research_external_ideas_review_add(request: Request, source_key: str,
+                                       data: dict = Body(...)):
+    _admin_or_403(request)
+    from fastapi import HTTPException
+    from signal_desk import research_external_ideas
+    try:
+        return research_external_ideas.add_claim_review(source_key, data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @app.post("/api/research/external-ideas/{source_key}/redact")
 def research_external_ideas_redact(request: Request, source_key: str):
     _admin_or_403(request)
