@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, localcontext
 from typing import Literal
 
+from signal_desk import market_clock
+
 
 Precision = Literal["exact_contractual_decimal", "derived_exact_rational",
                     "displayed_with_documented_rounding", "displayed_precision_unknown"]
@@ -65,6 +67,33 @@ class RatioEvidence:
         elif any((self.lower is not None, self.upper is not None,
                   self.rounding_rule_source_id is not None)):
             raise ValueError("undocumented ratio bounds are forbidden")
+
+
+@dataclass(frozen=True)
+class ShareExchangeTerms:
+    """Reviewed simulation terms, never evidence of a personal account credit."""
+
+    event_id: str
+    old_ticker: str
+    old_security_id: str
+    successor_ticker: str
+    successor_security_id: str
+    effective_session: str
+    first_tradable_session: str
+    ratio: RatioEvidence
+    source_id: str
+
+    def __post_init__(self) -> None:
+        if (not all(isinstance(value, str) and value.strip() for value in (
+                self.event_id, self.old_ticker, self.old_security_id,
+                self.successor_ticker, self.successor_security_id, self.source_id))
+                or self.old_ticker == self.successor_ticker
+                or self.old_security_id == self.successor_security_id
+                or not market_clock.is_session("kr", self.effective_session)
+                or not market_clock.is_session("kr", self.first_tradable_session)
+                or self.first_tradable_session < self.effective_session
+                or not isinstance(self.ratio, RatioEvidence)):
+            raise ValueError("invalid share exchange terms")
 
 
 def _integer(value: Decimal) -> int:

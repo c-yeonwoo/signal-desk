@@ -47,6 +47,21 @@ CREATE TABLE IF NOT EXISTS idea_versions (
     UNIQUE(source_key, record_sha256)
 );
 CREATE INDEX IF NOT EXISTS idea_versions_recent ON idea_versions(id DESC);
+CREATE TABLE IF NOT EXISTS claim_reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_key TEXT NOT NULL,
+    idea_revision INTEGER NOT NULL,
+    original_excerpt TEXT NOT NULL,
+    official_url TEXT NOT NULL,
+    official_issuer TEXT NOT NULL,
+    official_excerpt TEXT NOT NULL,
+    official_published_at TEXT,
+    finding TEXT NOT NULL,
+    limitation TEXT NOT NULL,
+    compared_at TEXT NOT NULL,
+    review_sha256 TEXT NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS claim_reviews_source ON claim_reviews(source_key, id DESC);
 """
 
 
@@ -116,6 +131,16 @@ def _published_at(value: str | None, now: dt.datetime) -> str | None:
     if parsed.tzinfo is None or parsed.utcoffset() is None or parsed > now:
         raise ValueError("publication time must be observed, timezone-aware and not future")
     return parsed.astimezone(dt.timezone.utc).isoformat()
+
+
+def _official_url(value: str | None) -> str:
+    url = _url(value, required=True)
+    host = urlsplit(url).hostname or ""
+    if host in ("x.com", "twitter.com", "reddit.com", "capafy.ai") or any(
+            host.endswith("." + root) for root in
+            ("x.com", "twitter.com", "reddit.com", "capafy.ai")):
+        raise ValueError("a social or aggregator URL cannot be an official source")
+    return url
 
 
 def add_manual(data: dict) -> dict:
@@ -218,6 +243,72 @@ def revisions(source_key: str) -> list[dict]:
     return [_present(row) for row in rows]
 
 
+def add_claim_review(source_key: str, data: dict) -> dict:
+    """Record a bounded human comparison; never certify the publisher or PIT time."""
+    if not isinstance(source_key, str) or not re.fullmatch(r"[0-9a-f]{64}", source_key):
+        raise ValueError("invalid source key")
+    if not isinstance(data, dict):
+        raise ValueError("review must be an object")
+    now = _now()
+    finding = _text(data.get("finding"), 20, required=True)
+    if finding not in ("supports", "contradicts", "mixed", "unresolved"):
+        raise ValueError("invalid review finding")
+    fields = {
+        "source_key": source_key,
+        "original_excerpt": _text(data.get("original_excerpt"), 240, required=True),
+        "official_url": _official_url(data.get("official_url")),
+        "official_issuer": _text(data.get("official_issuer"), 100, required=True),
+        "official_excerpt": _text(data.get("official_excerpt"), 240, required=True),
+        "official_published_at": _published_at(data.get("official_published_at"), now),
+        "finding": finding,
+        "limitation": _text(data.get("limitation"), 300, required=True),
+    }
+    # No URL fetching here: reviewer-supplied excerpts are not raw-source hashes
+    # or proof that a historical reader saw this version of the post.
+    with _conn() as con:
+        con.execute("BEGIN IMMEDIATE")
+        idea = con.execute("SELECT * FROM idea_versions WHERE source_key=? ORDER BY revision DESC LIMIT 1",
+                           (source_key,)).fetchone()
+        if idea is None or idea["redacted"]:
+            raise ValueError("idea is missing or redacted")
+        if fields["original_excerpt"] != idea["source_excerpt"]:
+            raise ValueError("review excerpt must match the latest recorded original excerpt")
+        if fields["official_issuer"].casefold() in (idea["author"].casefold(), "unknown"):
+            raise ValueError("official issuer identity must be independently named")
+        fields["idea_revision"] = idea["revision"]
+        review_sha = hashlib.sha256(json.dumps(fields, sort_keys=True,
+            ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+        previous = con.execute("SELECT id FROM claim_reviews WHERE review_sha256=?",
+                               (review_sha,)).fetchone()
+        if previous:
+            return {"id": previous["id"], "added": False}
+        con.execute("""INSERT INTO claim_reviews
+            (source_key, idea_revision, original_excerpt, official_url, official_issuer,
+             official_excerpt, official_published_at, finding, limitation, compared_at,
+             review_sha256) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (source_key, idea["revision"], fields["original_excerpt"], fields["official_url"],
+             fields["official_issuer"], fields["official_excerpt"],
+             fields["official_published_at"], finding, fields["limitation"],
+             now.isoformat(), review_sha))
+        return {"id": con.execute("SELECT last_insert_rowid()").fetchone()[0], "added": True}
+
+
+def claim_reviews(source_key: str) -> list[dict]:
+    if not isinstance(source_key, str) or not re.fullmatch(r"[0-9a-f]{64}", source_key):
+        raise ValueError("invalid source key")
+    with _conn() as con:
+        idea = con.execute("SELECT redacted FROM idea_versions WHERE source_key=? LIMIT 1",
+                           (source_key,)).fetchone()
+        if idea is None or idea["redacted"]:
+            return []
+        rows = con.execute("SELECT * FROM claim_reviews WHERE source_key=? ORDER BY id DESC",
+                           (source_key,)).fetchall()
+    return [{**dict(row), "research_only": True, "source_verified": False,
+             "historical_reconstruction_eligible": False, "live_order_eligible": False,
+             "registered_verdict": False, "review_status": "manual_comparison"}
+            for row in rows]
+
+
 def redact(source_key: str) -> int:
     """Erase limited copied text if retention rights require removal."""
     if not isinstance(source_key, str) or not re.fullmatch(r"[0-9a-f]{64}", source_key):
@@ -227,6 +318,9 @@ def redact(source_key: str) -> int:
         changed = con.execute("""UPDATE idea_versions
             SET source_excerpt='', thesis='', invalidation='', redacted=1
             WHERE source_key=? AND redacted=0""", (source_key,)).rowcount
+        # Review quotations are also limited copies of third-party content.
+        con.execute("""UPDATE claim_reviews SET original_excerpt='', official_excerpt='',
+            limitation='' WHERE source_key=?""", (source_key,))
     return changed
 
 

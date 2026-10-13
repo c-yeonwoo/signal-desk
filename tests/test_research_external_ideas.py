@@ -88,6 +88,51 @@ def test_publication_time_does_not_backdate_first_observation(tmp_path, monkeypa
     assert row["historical_reconstruction_eligible"] is False
 
 
+def test_manual_claim_review_is_separate_idempotent_and_never_a_trade_fact(tmp_path, monkeypatch):
+    monkeypatch.setattr(ideas, "DB", tmp_path / "external_ideas.db")
+    saved = ideas.add_manual(_sample(source_excerpt="China export controls are a risk"))
+    review = {
+        "original_excerpt": "China export controls are a risk",
+        "official_url": "https://investors.axt.com/Investors/news/example",
+        "official_issuer": "AXT, Inc.",
+        "official_excerpt": "Export licenses delayed shipments",
+        "finding": "supports", "limitation": "The size of future permits is unknown",
+    }
+    first = ideas.add_claim_review(saved["source_key"], review)
+    assert first["added"] is True
+    assert ideas.add_claim_review(saved["source_key"], review) == {
+        "id": first["id"], "added": False}
+    row = ideas.claim_reviews(saved["source_key"])[0]
+    assert row["idea_revision"] == 1
+    assert row["review_status"] == "manual_comparison"
+    assert row["source_verified"] is False
+    assert row["historical_reconstruction_eligible"] is False
+    assert row["live_order_eligible"] is False
+    assert row["registered_verdict"] is False
+    with pytest.raises(ValueError, match="latest recorded"):
+        ideas.add_claim_review(saved["source_key"], {**review, "original_excerpt": "different"})
+    ideas.add_manual(_sample(source_excerpt="Revised post text"))
+    with pytest.raises(ValueError, match="latest recorded"):
+        ideas.add_claim_review(saved["source_key"], review)
+    assert ideas.redact(saved["source_key"]) == 2
+    assert ideas.claim_reviews(saved["source_key"]) == []
+
+
+def test_manual_review_rejects_ambiguous_issuer_and_future_time(tmp_path, monkeypatch):
+    monkeypatch.setattr(ideas, "DB", tmp_path / "external_ideas.db")
+    saved = ideas.add_manual(_sample(source_excerpt="Original claim"))
+    review = {"original_excerpt": "Original claim", "official_issuer": "AXT, Inc.",
+              "official_url": "https://investors.axt.com/news", "official_excerpt": "Fact",
+              "finding": "mixed", "limitation": "Scope unknown"}
+    for change in ({"official_issuer": "unknown"},
+                   {"official_published_at": "2999-01-01T00:00:00Z"},
+                   {"official_url": "http://example.com"},
+                   {"official_url": "https://capafy.ai/summary"},
+                   {"official_url": "https://reddit.com/r/investing"}):
+        with pytest.raises(ValueError):
+            ideas.add_claim_review(saved["source_key"], {**review, **change})
+
+
 def test_admin_api_gate_and_handler(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ADMIN_EMAILS", "idea-admin@example.com")
@@ -108,6 +153,16 @@ def test_admin_api_gate_and_handler(tmp_path, monkeypatch):
     assert client.get("/api/research/external-ideas").json()["items"][0]["ticker"] == "AXTI"
     key = saved.json()["source_key"]
     assert len(client.get(f"/api/research/external-ideas/{key}/revisions").json()["items"]) == 1
+    assert member.get(f"/api/research/external-ideas/{key}/reviews").status_code == 403
+    assert client.get(f"/api/research/external-ideas/{key}/reviews").json()["items"] == []
+    review = {"original_excerpt": "sample provided by owner",
+              "official_issuer": "AXT, Inc.",
+              "official_url": "https://investors.axt.com/Investors/news",
+              "official_excerpt": "Confirmed supplier agreement",
+              "finding": "mixed", "limitation": "Not proof of shipments"}
+    assert member.post(f"/api/research/external-ideas/{key}/reviews", json=review).status_code == 403
+    assert client.post(f"/api/research/external-ideas/{key}/reviews", json=review).status_code == 200
+    assert len(client.get(f"/api/research/external-ideas/{key}/reviews").json()["items"]) == 1
     assert client.post(f"/api/research/external-ideas/{key}/redact").json()["redacted"] == 1
     page = client.get("/").text
     assert 'id="external-idea-research"' in page
