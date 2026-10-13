@@ -157,6 +157,8 @@ def add_manual(data: dict) -> dict:
         "horizon": horizon, "evidence_url": _url(data.get("evidence_url")),
     }
     domain = urlsplit(source_url).hostname or ""
+    if domain in ("capafy.ai", "www.capafy.ai"):
+        raise ValueError("original post URL is required; Capafy belongs in aggregator_url")
     fields["source_platform"] = "x" if domain == "x.com" else (
         "reddit" if domain == "reddit.com" or domain.endswith(".reddit.com") else "other")
     post_key = hashlib.sha256(source_url.encode()).hexdigest()
@@ -237,6 +239,7 @@ def _present(row: sqlite3.Row) -> dict:
     out["historical_reconstruction_eligible"] = False
     out["forward_available_at"] = out["revision_observed_at"]
     out["source_stance_verified"] = False
+    out["source_author_verified"] = False
     out["source_publication_verified"] = False
     out["stance_attribution"] = "user_interpretation"
     out["original_post_edit_verified"] = False

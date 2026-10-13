@@ -34,6 +34,7 @@ def test_revisions_are_append_only_and_duplicate_is_idempotent(tmp_path, monkeyp
     assert latest["live_order_eligible"] is False
     assert latest["registered_verdict"] is False
     assert latest["source_stance_verified"] is False
+    assert latest["source_author_verified"] is False
     assert latest["source_publication_verified"] is False
     assert latest["original_post_edit_verified"] is False
 
@@ -65,6 +66,7 @@ def test_evidence_link_is_not_fact_verification_and_redaction_removes_copied_tex
     {"source_url": "http://x.com/a/status/1"},
     {"source_url": "javascript:alert(1)"},
     {"source_url": "https://u:p@x.com/a/status/1"},
+    {"source_url": "https://capafy.ai/agent/serenity-stock-tracker/2521387714"},
     {"ticker": "NOT-KR", "market": "KR"},
     {"source_published_at": "2025-05-01"},
     {"source_published_at": "2999-01-01T00:00:00+00:00"},
