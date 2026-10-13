@@ -1,0 +1,16 @@
+{
+  "schema": "research-kind-review-plan-v1",
+  "purpose": "Selected official dividend decision and ex-date originals on a filled 2025q4 h20 research holding path; not full action or cash-settlement coverage",
+  "documents": [
+    {
+      "id": "skhynix-dividend-decision-20251029",
+      "url": "https://kind.krx.co.kr/external/2025/10/29/000739/20251029002319/61500.htm",
+      "expected_text": "에스케이하이닉스(주)"
+    },
+    {
+      "id": "skhynix-dividend-exdate-20251126",
+      "url": "https://kind.krx.co.kr/external/2025/11/26/000457/20251126001153/99335.htm",
+      "expected_text": "SK하이닉스"
+    }
+  ]
+}

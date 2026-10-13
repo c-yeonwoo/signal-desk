@@ -152,7 +152,8 @@ def _fetch_dart_document(receipt: str, key: str) -> bytes:
 def acquire_dart_actions(corp_code: str, start: str, end: str, *,
                          max_list_pages: int = 20, max_docs: int = 60,
                          gap_seconds: float = REQUEST_GAP_SECONDS,
-                         list_only: bool = False) -> tuple[dict[str, bytes], dict]:
+                         list_only: bool = False,
+                         selected_receipts: tuple[str, ...] | None = None) -> tuple[dict[str, bytes], dict]:
     """All filing categories for one issuer and receipt window, including corrections.
 
     An exhaustive *filing* archive is not an exhaustive effective-date action
@@ -163,6 +164,12 @@ def acquire_dart_actions(corp_code: str, start: str, end: str, *,
         raise ValueError("DART actions need an eight-digit issuer and at most 32 calendar days")
     if max_list_pages < 1 or max_docs < 1:
         raise ValueError("DART caps must be positive")
+    if selected_receipts is not None and (list_only or not selected_receipts
+            or len(selected_receipts) > max_docs
+            or len(set(selected_receipts)) != len(selected_receipts)
+            or any(len(receipt) != 14 or not receipt.isdigit()
+                   for receipt in selected_receipts)):
+        raise ValueError("invalid selected DART receipts")
     key = config.dart_key()
     if not key:
         raise SourceError("DART API key unavailable")
@@ -178,6 +185,8 @@ def acquire_dart_actions(corp_code: str, start: str, end: str, *,
                                           "crtfc_key": key}, {}, "DART actions")
         status = body.get("status")
         if status == "013" and page == 1:
+            if selected_receipts is not None:
+                raise SourceError("DART actions: selected receipt absent from complete list")
             path = "raw/list/page-001.json"
             files[path] = raw
             entries[path] = {**_entry(raw, rows=0), "page": 1}
@@ -195,7 +204,8 @@ def acquire_dart_actions(corp_code: str, start: str, end: str, *,
         except (KeyError, ValueError, TypeError):
             raise SourceError("DART actions: missing pagination metadata") from None
         expected_rows = min(100, count - 100 * (page - 1))
-        if (count < 1 or count > max_docs or pages != (count + 99) // 100
+        if (count < 1 or (not list_only and selected_receipts is None and count > max_docs)
+                or pages != (count + 99) // 100
                 or pages > max_list_pages or not isinstance(rows, list)
                 or len(rows) != expected_rows
                 or (total_count is not None and (count, pages) != (total_count, total_pages))):
@@ -228,7 +238,11 @@ def acquire_dart_actions(corp_code: str, start: str, end: str, *,
                        "source_state": "filing_list_only_not_action_complete",
                        "entries": entries, "strict_pit_eligible": False,
                        "total_return_coverage": False}
-    for index, receipt in enumerate(sorted(receipts)):
+    targets = (sorted(selected_receipts) if selected_receipts is not None
+               else sorted(receipts))
+    if selected_receipts is not None and not set(selected_receipts) <= receipts:
+        raise SourceError("DART actions: selected receipt absent from complete list")
+    for index, receipt in enumerate(targets):
         if index:
             time.sleep(gap_seconds)
         raw = _fetch_dart_document(receipt, key)
@@ -238,8 +252,12 @@ def acquire_dart_actions(corp_code: str, start: str, end: str, *,
     return files, {"schema": "historical-action-source-v1", "source": "OpenDART",
                    "endpoint": "list.json + document.xml", "market": "kr", "corp_code": corp_code,
                    "start": start, "end": end, "query_date_basis": "receipt",
-                   "query": params, "request_count": total_pages + total_count,
-                   "total_filings": total_count, "source_state": "filings_archived_not_action_complete",
+                   "query": params, "request_count": total_pages + len(targets),
+                   "total_filings": total_count,
+                   "selected_receipts": targets if selected_receipts is not None else None,
+                   "source_state": ("selected_originals_not_action_complete"
+                                    if selected_receipts is not None else
+                                    "filings_archived_not_action_complete"),
                    "entries": entries, "strict_pit_eligible": False,
                    "total_return_coverage": False}
 
@@ -530,7 +548,9 @@ def source_window_from_archive(path: Path) -> SourceWindow:
     observed = max(dt.datetime.fromisoformat(entry["retrieved_at_utc"])
                    for entry in entries.values())
     state = ("source_empty" if manifest["source_state"] == "source_empty_not_action_free"
-             else "partial" if manifest["source_state"] == "filing_list_only_not_action_complete"
+             else "partial" if manifest["source_state"] in (
+                 "filing_list_only_not_action_complete",
+                 "selected_originals_not_action_complete")
              else "complete_for_source")
     return SourceWindow(
         "kr", (f"corp:{manifest['corp_code']}" if is_dart else
@@ -890,6 +910,8 @@ def main() -> None:
     parser.add_argument("--corp-code", help="OpenDART eight-digit issuer identity")
     parser.add_argument("--ticker", help="KIS six-digit listed security")
     parser.add_argument("--receipt", help="DART filing receipt to inspect from a saved archive")
+    parser.add_argument("--selected-receipts", nargs="+",
+                        help="download only these receipts after checking the complete DART list")
     parser.add_argument("--dart-archive", type=Path, help="saved DART action ZIP for comparison")
     parser.add_argument("--source-plan", type=Path, help="fixed KIND original-document review plan")
     parser.add_argument("--max-requests", type=int, default=60)
@@ -948,6 +970,8 @@ def main() -> None:
         parser.error("--corp-code is required for DART actions")
     if args.list_only and args.source != "dart-actions":
         parser.error("--list-only is only valid for dart-actions")
+    if args.selected_receipts and (args.source != "dart-actions" or args.list_only):
+        parser.error("--selected-receipts requires dart-actions without --list-only")
     if args.source.startswith("kis-") and not args.ticker:
         parser.error("--ticker is required for KIS schedules")
     if args.output.exists():
@@ -962,7 +986,9 @@ def main() -> None:
         files, manifest = acquire_dart_actions(args.corp_code, args.start, args.end,
                                                max_list_pages=args.max_requests,
                                                max_docs=args.max_docs,
-                                               list_only=args.list_only)
+                                               list_only=args.list_only,
+                                               selected_receipts=(tuple(args.selected_receipts)
+                                                                  if args.selected_receipts else None))
     elif args.source == "kind-reviewed":
         files, manifest = acquire_kind_reviewed(args.source_plan,
                                                 max_requests=min(args.max_requests, 12))
