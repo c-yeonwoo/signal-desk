@@ -323,13 +323,27 @@ def test_dart_action_archive_retains_every_filing_and_original(tmp_path, monkeyp
     monkeypatch.setattr(acquisition, "_fetch_dart_document",
                         lambda receipt, key: pytest.fail("list-only fetched a document"))
     listed, listing_manifest = acquisition.acquire_dart_actions(
-        "00126380", "2024-04-30", "2024-04-30", list_only=True)
+        "00126380", "2024-04-30", "2024-04-30", list_only=True, max_docs=1)
     assert set(listed) == {"raw/list/page-001.json"}
     assert listing_manifest["source_state"] == "filing_list_only_not_action_complete"
     assert listing_manifest["request_count"] == 1
     listing_output = tmp_path / "list-only.zip"
     acquisition.write_archive(listing_output, listed, listing_manifest)
     assert acquisition.source_window_from_archive(listing_output).state == "partial"
+
+    monkeypatch.setattr(acquisition, "_fetch_dart_document", original)
+    selected, selected_manifest = acquisition.acquire_dart_actions(
+        "00126380", "2024-04-30", "2024-04-30", max_docs=1,
+        selected_receipts=(receipts[1],))
+    assert set(selected) == {"raw/list/page-001.json", f"raw/doc/{receipts[1]}.zip"}
+    assert selected_manifest["total_filings"] == 2
+    assert selected_manifest["source_state"] == "selected_originals_not_action_complete"
+    selected_output = tmp_path / "selected.zip"
+    acquisition.write_archive(selected_output, selected, selected_manifest)
+    assert acquisition.source_window_from_archive(selected_output).state == "partial"
+    with pytest.raises(acquisition.SourceError, match="selected receipt absent"):
+        acquisition.acquire_dart_actions("00126380", "2024-04-30", "2024-04-30",
+                                         selected_receipts=("20240430809999",))
 
 
 @pytest.mark.parametrize("members", [
@@ -387,6 +401,10 @@ def test_dart_013_is_preserved_but_does_not_claim_action_free(tmp_path, monkeypa
     output = tmp_path / "empty.zip"
     acquisition.write_archive(output, files, manifest)
     assert acquisition.verify_action_archive(output)["source_state"] == "source_empty_not_action_free"
+    with pytest.raises(acquisition.SourceError, match="selected receipt absent"):
+        acquisition.acquire_dart_actions(
+            "00126380", "2024-03-10", "2024-03-10",
+            selected_receipts=("20240310800001",))
 
 
 def test_kis_schedule_continuation_and_errors_are_not_empty_success(tmp_path, monkeypatch):
