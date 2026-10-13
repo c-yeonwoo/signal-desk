@@ -6708,6 +6708,47 @@ def external_watch_refresh_kb(request: Request):
     return kb_refresh()
 
 
+@app.get("/api/research/external-ideas")
+def research_external_ideas_get(request: Request):
+    """수동 등록한 외부 글의 연구 원장. KB/매매 경로에서 읽지 않는다."""
+    _admin_or_403(request)
+    from signal_desk import research_external_ideas
+    return {"items": research_external_ideas.list_latest()}
+
+
+@app.post("/api/research/external-ideas")
+def research_external_ideas_add(request: Request, data: dict = Body(...)):
+    _admin_or_403(request)
+    from fastapi import HTTPException
+    from signal_desk import research_external_ideas
+    try:
+        return research_external_ideas.add_manual(data)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/research/external-ideas/{source_key}/revisions")
+def research_external_ideas_revisions(request: Request, source_key: str):
+    _admin_or_403(request)
+    from fastapi import HTTPException
+    from signal_desk import research_external_ideas
+    try:
+        return {"items": research_external_ideas.revisions(source_key)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/research/external-ideas/{source_key}/redact")
+def research_external_ideas_redact(request: Request, source_key: str):
+    _admin_or_403(request)
+    from fastapi import HTTPException
+    from signal_desk import research_external_ideas
+    try:
+        return {"redacted": research_external_ideas.redact(source_key)}
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @app.get("/api/cycle")
 def cycle_get():
     """경기 사이클 4국면 + 국면별 주도섹터, 현재 위치(FRED 거시 + 7일 히스테리시스 확정).

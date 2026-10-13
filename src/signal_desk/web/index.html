@@ -2320,6 +2320,37 @@
           <button class="btn" style="padding:4px 10px;font-size:13px" onclick="clearExternalWatch()">전체 비우기</button>
         </div>
         <div id="ew-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
+        <details id="external-idea-research" style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+          <summary style="cursor:pointer;font-size:15px;font-weight:700" onclick="loadExternalIdeas()">외부 글 연구 기록</summary>
+          <p class="page-desc" style="margin:10px 0">원문을 보고 직접 기록한 가설입니다. 게시글의 방향은 입력한 사람의 해석이며, 시그널 점수나 주문에는 쓰이지 않습니다. 공개 시각을 모르면 비워두세요.</p>
+          <div class="ew-composer">
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <label>원문 링크 <input id="ei-url" class="ctrl" type="url" placeholder="https://x.com/..." style="min-width:230px" required></label>
+              <label>작성자 <input id="ei-author" class="ctrl" placeholder="@계정" style="width:130px" required></label>
+              <label>시장 <select id="ei-market" class="ctrl"><option value="US">미국</option><option value="KR">국내</option></select></label>
+              <label>종목코드 <input id="ei-ticker" class="ctrl" placeholder="AXTI" style="width:105px" required></label>
+            </div>
+            <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+              <label>원문 공개 시각 <input id="ei-published" class="ctrl" type="datetime-local"></label>
+              <label>글의 성격 <select id="ei-claim-kind" class="ctrl"><option value="unknown">모름</option><option value="mention">언급</option><option value="thesis">주장</option><option value="intent">매수 의향</option><option value="holding">보유 공개</option></select></label>
+              <label>관점 <select id="ei-stance" class="ctrl"><option value="unclear">불명확</option><option value="bullish">긍정</option><option value="bearish">부정</option></select></label>
+              <label>기간 <select id="ei-horizon" class="ctrl"><option value="unknown">모름</option><option value="intraday">당일</option><option value="days">며칠</option><option value="months">몇 달</option></select></label>
+              <label>언급 상품 <select id="ei-instrument" class="ctrl"><option value="unknown">모름</option><option value="stock">주식</option><option value="options">옵션</option></select></label>
+            </div>
+            <label style="display:block;margin-top:8px">왜 주목했나 <input id="ei-thesis" class="ctrl" style="width:100%" placeholder="원문의 주장과 내 해석을 짧게 기록" required></label>
+            <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px">
+              <label style="flex:1 1 160px">논점 이름 <input id="ei-claim-key" class="ctrl" style="width:100%" placeholder="같은 글의 여러 주장을 구분할 때만"></label>
+              <label style="flex:1 1 230px">틀렸다고 볼 조건 <input id="ei-invalidation" class="ctrl" style="width:100%" placeholder="확인할 위험이나 반대 근거"></label>
+              <label style="flex:1 1 230px">근거 링크 <input id="ei-evidence" class="ctrl" type="url" style="width:100%" placeholder="공시·기업 발표 등 (선택)"></label>
+              <label style="flex:1 1 230px">집계 페이지 <input id="ei-aggregator" class="ctrl" type="url" style="width:100%" placeholder="Capafy 등 (선택)"></label>
+            </div>
+            <div class="row" style="align-items:center;gap:10px;margin-top:10px">
+              <button class="btn primary" onclick="addExternalIdea()">연구 기록에 추가</button>
+              <span id="ei-result" class="stat-label" role="status"></span>
+            </div>
+          </div>
+          <div id="ei-body" class="placeholder" style="padding:14px 0">열면 불러옵니다.</div>
+        </details>
       </div>
     </div>
     </div><!-- /#admin-kb -->
@@ -9292,6 +9323,77 @@ async function refreshExternalWatchKb(){
     loadExternalWatch();
   } catch (e) { if (res) res.textContent = 'KB 수집 실패'; }
   finally { if (btn) { btn.disabled = false; btn.textContent = 'KB 우선 수집'; } }
+}
+
+// ===== 외부 의견 연구 원장 — 글·수정 이력, 시그널/주문과 분리 =====
+async function loadExternalIdeas(){
+  const body = document.getElementById('ei-body');
+  if (!body) return;
+  try {
+    const response = await fetch('/api/research/external-ideas');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '연구 기록을 읽지 못했습니다.');
+    if (!(data.items || []).length) {
+      body.textContent = '아직 등록한 글이 없습니다.';
+      return;
+    }
+    body.innerHTML = data.items.map(it => `<div class="ew-card">
+      <div>
+        <div class="nm">${esc(it.ticker)} · ${esc(it.author)} <span class="ew-pill kb-wait">외부 의견 · 검증 중</span></div>
+        <div class="meta">${esc(it.market)} · ${esc(it.claim_key)} · 처음 확인 ${esc(it.first_observed_at)} · 공개 ${esc(it.source_published_at || '시각 모름')} · 내 기록 ${esc(it.revision)}회차</div>
+        <div class="note">${esc(it.thesis)}${it.invalidation ? '<br>확인할 위험: ' + esc(it.invalidation) : ''}</div>
+        <div class="meta">${esc(it.horizon)} · ${esc(it.stance)} · 근거 ${it.evidence_url ? '링크만 등록, 대조 전' : '미등록'}</div>
+        <div class="row" style="gap:10px;flex-wrap:wrap;margin-top:6px">
+          <a href="${esc(it.source_url)}" target="_blank" rel="noopener noreferrer">원문</a>
+          ${it.aggregator_url ? `<a href="${esc(it.aggregator_url)}" target="_blank" rel="noopener noreferrer">집계</a>` : ''}
+          ${it.evidence_url ? `<a href="${esc(it.evidence_url)}" target="_blank" rel="noopener noreferrer">근거 후보</a>` : ''}
+          <button class="btn" style="padding:3px 8px" onclick="showExternalIdeaRevisions('${it.source_key}')">기록 이력</button>
+        </div>
+        <div id="ei-revisions-${it.source_key}" class="meta"></div>
+      </div>
+    </div>`).join('');
+  } catch(e) { body.textContent = e.message || '연구 기록을 읽지 못했습니다.'; }
+}
+async function addExternalIdea(){
+  const get = id => (document.getElementById(id)?.value || '').trim();
+  const result = document.getElementById('ei-result');
+  const published = get('ei-published');
+  const publishedDate = published ? new Date(published) : null;
+  if (publishedDate && !Number.isFinite(publishedDate.getTime())) {
+    result.textContent = '공개 시각을 다시 확인하세요.';
+    return;
+  }
+  const payload = {
+    source_url:get('ei-url'), author:get('ei-author'), market:get('ei-market'),
+    ticker:get('ei-ticker'), source_published_at:publishedDate ? publishedDate.toISOString() : null,
+    claim_key:get('ei-claim-key'), claim_kind:get('ei-claim-kind'),
+    stance:get('ei-stance'), horizon:get('ei-horizon'), instrument_kind:get('ei-instrument'),
+    thesis:get('ei-thesis'), invalidation:get('ei-invalidation'),
+    evidence_url:get('ei-evidence'), aggregator_url:get('ei-aggregator')
+  };
+  if (!payload.source_url || !payload.author || !payload.ticker || !payload.thesis) {
+    result.textContent = '원문·작성자·종목코드·가설을 입력하세요.';
+    return;
+  }
+  try {
+    const response = await fetch('/api/research/external-ideas', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '저장에 실패했습니다.');
+    result.textContent = data.added ? '연구 기록에 저장했습니다.' : '이미 같은 내용이 저장돼 있습니다.';
+    await loadExternalIdeas();
+  } catch(e) { result.textContent = e.message || '저장에 실패했습니다.'; }
+}
+async function showExternalIdeaRevisions(sourceKey){
+  const body = document.getElementById('ei-revisions-' + sourceKey);
+  if (!body) return;
+  try {
+    const response = await fetch('/api/research/external-ideas/' + sourceKey + '/revisions');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.detail || '수정 이력을 읽지 못했습니다.');
+    body.innerHTML = (data.items || []).map(it => `<div>${esc(it.revision)}회차 · ${esc(it.revision_observed_at)} · ${esc(it.thesis || '삭제됨')}</div>`).join('');
+  } catch(e) { body.textContent = e.message || '수정 이력을 읽지 못했습니다.'; }
 }
 
 // ===== 숏폼 콘텐츠(관리자) — 생성 → 검수 큐 → 승인/반려 =====
