@@ -59,6 +59,29 @@ def test_recent_event_page_keeps_order_and_exposes_truncated_basis(tmp_path, mon
                                event_type="filled_buy", price=100, payload={"qty": 1}, ts=i)
     events = db.execution_events_for_uid(77, "kr", limit=2)
     assert [e["event_key"] for e in events] == ["3", "4"]
+    assert db.execution_events_count_for_uid(77, "kr") == 5
+
+
+def test_closed_trade_groups_use_booked_cash_and_report_partial_lots():
+    buy = _event("b", "ABC", "filled_buy", 10, 100, 101, 2)
+    buy["payload"]["reason"] = "SIGNAL"
+    buy["ts"] = 1000
+    first = _event("s1", "ABC", "filled_sell", 4, 110, 109, 1)
+    first["payload"]["reason"] = "STOP_LOSS"
+    first["ts"] = 1000 + 86400
+    second = _event("s2", "ABC", "filled_sell", 6, 90, 89, 1.5)
+    second["payload"]["reason"] = "TRAILING"
+    second["ts"] = 1000 + 2 * 86400
+    out = execution_cost_shadow.analyze([buy, first, second])
+    assert out["closed_fragments"] == 2
+    assert out["net_booked_pnl"] == -44.5
+    assert out["by_entry_reason"][0]["key"] == "SIGNAL"
+    assert out["by_entry_reason"][0]["distinct_buy_orders"] == 1
+    assert out["by_entry_reason"][0]["distinct_sell_orders"] == 2
+    assert out["by_entry_reason"][0]["median_holding_days"] == 1.5
+    assert [r["key"] for r in out["by_exit_reason"]] == ["TRAILING", "STOP_LOSS"]
+    assert out["by_exit_reason"][0]["net_booked_pnl"] == -74.7
+    assert out["by_ticker"][0]["key"] == "ABC"
 
 
 def test_admin_api_only_exposes_shadow_costs(tmp_path, monkeypatch):
@@ -75,3 +98,4 @@ def test_admin_api_only_exposes_shadow_costs(tmp_path, monkeypatch):
     response = admin.get("/api/admin/research/execution-cost")
     assert response.status_code == 200
     assert response.json()["live_eligible"] is False
+    assert response.json()["full_event_history"] is True

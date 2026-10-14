@@ -1395,6 +1395,16 @@ def execution_events_for_uid(uid: int, market: str, *, limit: int = 500) -> list
             for key, ticker, typ, price, payload, ts in reversed(rows)]
 
 
+def execution_events_count_for_uid(uid: int, market: str) -> int:
+    """Coverage denominator for bounded, read-only execution analysis."""
+    c = conn()
+    try:
+        return int(c.execute("SELECT COUNT(*) FROM execution_events WHERE uid=? AND market=?",
+                             (uid, market)).fetchone()[0])
+    finally:
+        c.close()
+
+
 def notification_enqueue(dedupe_key: str, text: str, *, priority: str = "normal",
                          expires_at: int | None = None, now: int | None = None,
                          recipient_uid: int | None = None,

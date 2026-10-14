@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import math
+import statistics
 
 VERSION = "observed-fill-cost-v1"
 
@@ -59,7 +60,9 @@ def analyze(events: list[dict]) -> dict:
                     blocked_tickers.add(ticker)
                 continue
             lots[ticker].append({"remaining": fields[0], "fields": fields,
-                                 "event_key": event.get("event_key")})
+                                 "event_key": event.get("event_key"),
+                                 "reason": (event.get("payload") or {}).get("reason"),
+                                 "ts": event.get("ts")})
             continue
         if fields is None:
             skipped["incomplete_sell"] += 1
@@ -102,6 +105,9 @@ def analyze(events: list[dict]) -> dict:
                 rows.append({"ticker": ticker, "quantity": used,
                              "buy_event_key": lot.get("event_key"),
                              "sell_event_key": event.get("event_key"),
+                             "entry_reason": lot.get("reason") or "사유 미기록",
+                             "exit_reason": (event.get("payload") or {}).get("reason") or "사유 미기록",
+                             "entry_ts": lot.get("ts"), "exit_ts": event.get("ts"),
                              "gross_reference_pnl": round(gross, 8),
                              "net_booked_pnl": round(net, 8),
                              "observed_cost_drag": round(drag, 8),
@@ -116,6 +122,36 @@ def analyze(events: list[dict]) -> dict:
     drag = gross - net
     stress = sum(r["two_x_cost_pnl"] for r in rows)
     basis = sum(r["reference_buy_notional"] for r in rows)
+
+    def grouped(key: str) -> list[dict]:
+        buckets: dict[str, list[dict]] = defaultdict(list)
+        for row in rows:
+            buckets[str(row[key])].append(row)
+        result = []
+        for label, members in buckets.items():
+            bucket_basis = sum(row["reference_buy_notional"] for row in members)
+            bucket_net = sum(row["net_booked_pnl"] for row in members)
+            holds = []
+            for row in members:
+                try:
+                    duration = (int(row["exit_ts"]) - int(row["entry_ts"])) / 86400
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if duration >= 0:
+                    holds.append(duration)
+            result.append({"key": label, "closed_fragments": len(members),
+                           "distinct_buy_orders": len({row["buy_event_key"] for row in members
+                                                       if row["buy_event_key"]}),
+                           "distinct_sell_orders": len({row["sell_event_key"] for row in members
+                                                        if row["sell_event_key"]}),
+                           "loss_fragments": sum(row["net_booked_pnl"] < 0 for row in members),
+                           "net_booked_pnl": round(bucket_net, 8),
+                           "reference_buy_notional": round(bucket_basis, 8),
+                           "net_booked_return_pct": round(bucket_net / bucket_basis * 100, 4)
+                           if bucket_basis else None,
+                           "median_holding_days": round(statistics.median(holds), 2) if holds else None})
+        return sorted(result, key=lambda row: (row["net_booked_pnl"], row["key"]))
+
     return {"version": VERSION, "mode": "shadow", "live_eligible": False,
             "closed_fragments": len(rows), "open_lots": sum(len(v) for v in lots.values()),
             "blocked_tickers": sorted(blocked_tickers), "coverage_gaps": dict(skipped),
@@ -124,5 +160,8 @@ def analyze(events: list[dict]) -> dict:
             "gross_reference_return_pct": round(gross / basis * 100, 4) if basis else None,
             "net_booked_return_pct": round(net / basis * 100, 4) if basis else None,
             "two_x_cost_return_pct": round(stress / basis * 100, 4) if basis else None,
+            "by_entry_reason": grouped("entry_reason"),
+            "by_exit_reason": grouped("exit_reason"),
+            "by_ticker": grouped("ticker"),
             "note": "2배 비용은 양(+)의 관측 차액만 증폭한 민감도 계산입니다. 호가/시장충격·실주문 체결 가능성은 검증하지 않았습니다.",
             "items": rows[-100:]}
