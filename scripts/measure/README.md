@@ -14,6 +14,8 @@
 
 `--sensitivity`를 더하면 같은 개발 입력에 비용 25/75/120bp, 불리한 시가 체결, 부분체결·미체결 시나리오를 적용한다. 손익이 없거나 더 좋아지는 시나리오도 숨기지 않는다. 이는 **가격만 사용한 가상 계산**이며 KRX 일별 원본은 기업행사·배당의 완전한 원천이 아니다. 검증된 총수익, 독립 표본 성과, 실제 주문 체결로 읽지 않는다.
 
+`.venv/bin/python -m scripts.measure.research_entry_edge_audit --output data/research/<새 파일>.json`은 같은 동결 7개 창에서 **반복 BUY 날짜**와 **첫 매수 회차**를 분리해 h1·h5의 같은 날 후보군 대비 결과를 보고한다. KRX 원문·파일럿·결손 장부 SHA를 검사하고 누락 날짜가 있으면 중단한다. 원본을 덮어쓰지 않으며 실전 8팩터 판정이나 주문 성과를 뜻하지 않는다. [2026-10-14 결과](../../docs/RESEARCH-ENTRY-EDGE-2026-10-14.md)를 참조한다.
+
 ### 과거 기업행사 원문 보존·검수
 
 `acquire_historical_sources.py`의 `dart-actions`는 한 발행사의 최대 32일 접수 목록과 모든 원문 ZIP을 보존한다. `kis-dividend`/`kis-rev-split`과 `kis-bonus-issue`/`kis-cap-dcrs`/`kis-merger-split`/`kis-paidin-capin`/`kis-list-info`는 한 종목의 최대 32일 과거 KSD 계열 일정 응답을 요청 상한 내에서 읽기 전용으로 보존한다. 새 ZIP을 `data/research/`에 저장하며, 기존 파일을 덮어쓰지 않는다. `--end`는 등록 보호 시작 전이어야 한다. 실제 키는 로컬 환경 설정에서 읽고 출력하지 않는다. 새 다섯 유형은 **원문 일정 보존만** 지원한다. `inspect-kis`의 정산 사실 추출은 기존 배당·액면교체에 한정되며 합병 비율·효력일·지급일을 이 일정에서 확정하지 않는다.
