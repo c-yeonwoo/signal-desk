@@ -297,8 +297,32 @@ def test_dart_action_archive_retains_every_filing_and_original(tmp_path, monkeyp
     acquisition.write_archive(amended_output, amended_files, amended_manifest)
     fact = acquisition.extract_dart_common_dividend(amended_output, receipts[0])
     assert fact.cash_per_share == 361 and fact.record_date == "2024-03-31"
+    assert fact.scheduled_payment_date == "2024-05-20"
     assert fact.effective_session is None and fact.actual_payment_date is None
     assert fact.availability.availability_kind == "retrospective"
+
+    blank_payment_files = dict(amended_files)
+    blank_original = io.BytesIO()
+    with ZipFile(blank_original, "w") as blank_zip:
+        blank_zip.writestr(receipts[0] + ".xml", (
+            "<body>3. 1주당 배당금(원) 보통주식 361 종류주식 - "
+            "6. 배당기준일 2024-03-31 "
+            "7. 배당금지급 예정일자 - 8. 주주총회 개최여부 미개최 "
+            "10. 이사회결의일(결정일) 2024-04-30</body>"
+        ).encode())
+    blank_name = f"raw/doc/{receipts[0]}.zip"
+    blank_payment_files[blank_name] = blank_original.getvalue()
+    blank_payment_manifest = dict(amended_manifest)
+    blank_payment_manifest["entries"] = dict(amended_manifest["entries"])
+    blank_payment_manifest["entries"][blank_name] = acquisition._entry(
+        blank_payment_files[blank_name], rows=1)
+    blank_payment_output = tmp_path / "blank-payment.zip"
+    acquisition.write_archive(blank_payment_output, blank_payment_files,
+                              blank_payment_manifest)
+    blank_fact = acquisition.extract_dart_common_dividend(
+        blank_payment_output, receipts[0])
+    assert blank_fact.scheduled_payment_date is None
+    assert blank_fact.actual_payment_date is None
 
     tampered_files = dict(amended_files)
     tampered_files["raw/list/page-001.json"] = new_raw + b" "

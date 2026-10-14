@@ -635,7 +635,9 @@ def extract_dart_common_dividend(path: Path, receipt: str) -> ActionRecord:
 
     amount = int(field(r"3\.\s*1주당 배당금\(원\)\s*보통주식\s*([0-9,]+)").replace(",", ""))
     record_date = field(r"6\.\s*배당기준일\s*(\d{4}-\d{2}-\d{2})")
-    scheduled_payment = field(r"7\.\s*배당금지급 예정일자\s*(\d{4}-\d{2}-\d{2})")
+    scheduled_payment_raw = field(
+        r"7\.\s*배당금지급 예정일자\s*(\d{4}-\d{2}-\d{2}|-)(?=\s+(?:8|10)\.)")
+    scheduled_payment = None if scheduled_payment_raw == "-" else scheduled_payment_raw
     decision_date = field(r"10\.\s*이사회결의일\(결정일\)\s*(\d{4}-\d{2}-\d{2})")
     received = dt.datetime.strptime(row["rcept_dt"], "%Y%m%d").date().isoformat()
     if decision_date > received:
