@@ -16,7 +16,7 @@
 
 ### 과거 기업행사 원문 보존·검수
 
-`acquire_historical_sources.py`의 `dart-actions`는 한 발행사의 최대 32일 접수 목록과 모든 원문 ZIP을, `kis-dividend`/`kis-rev-split`은 한 종목의 최대 32일 과거 일정 응답을 요청 상한 내에서 읽기 전용으로 보존한다. 새 ZIP을 `data/research/`에 저장하며, 기존 파일을 덮어쓰지 않는다. `--end`는 등록 보호 시작 전이어야 한다. 실제 키는 로컬 환경 설정에서 읽고 출력하지 않는다.
+`acquire_historical_sources.py`의 `dart-actions`는 한 발행사의 최대 32일 접수 목록과 모든 원문 ZIP을 보존한다. `kis-dividend`/`kis-rev-split`과 `kis-bonus-issue`/`kis-cap-dcrs`/`kis-merger-split`/`kis-paidin-capin`/`kis-list-info`는 한 종목의 최대 32일 과거 KSD 계열 일정 응답을 요청 상한 내에서 읽기 전용으로 보존한다. 새 ZIP을 `data/research/`에 저장하며, 기존 파일을 덮어쓰지 않는다. `--end`는 등록 보호 시작 전이어야 한다. 실제 키는 로컬 환경 설정에서 읽고 출력하지 않는다. 새 다섯 유형은 **원문 일정 보존만** 지원한다. `inspect-kis`의 정산 사실 추출은 기존 배당·액면교체에 한정되며 합병 비율·효력일·지급일을 이 일정에서 확정하지 않는다.
 
 ```bash
 .venv/bin/python scripts/measure/acquire_historical_sources.py dart-actions \
@@ -37,6 +37,8 @@
 ```
 
 `inspect-kis --output <KIS ZIP>`은 보존한 일정의 정규화 사실을 출력한다. 조회일 의미·정확한 배당락/효력일·당시 공개시각·실제 지급이 확인되지 않은 사실은 반드시 미확인으로 남긴다. 해시 일치나 두 일정의 필드 일치는 행사 전수 보장·총수익 적격을 뜻하지 않는다. 세부 범위와 실제 대조표는 [원천 완전성 판단](../../docs/RESEARCH-SOURCE-COMPLETENESS-2026-10-11.md)에 기록했다.
+
+합병·분할 일정의 실제 두 양성 대조와 비율 정밀도 경고는 [KIS 일정 교차 검수](../../docs/RESEARCH-KIS-MERGER-SCHEDULE-2026-10-14.md)에 있다. 예정 단주 지급일은 실제 지급일이 아니며 KIS와 SEIBRO/예탁원 공공 API는 독립 원천 셋으로 세지 않는다.
 
 세 상장폐지/합병의 **선별 KIND 원문 8건**은 [고정 목록](../../docs/research-action-kind-review-plan-2026-10-11.json)에서 읽기 전용으로 수집한다. HTTPS KIND 공식 경로·발행사 문자열·응답 크기를 검사하고 ZIP 원문 해시를 보존한다. 이것은 KIND 공시 전수 조회가 아니며 기존 결손표의 `partial` 상태를 바꾸지 않는다.
 
