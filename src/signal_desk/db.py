@@ -1422,6 +1422,51 @@ def bot_fill_coverage_counts(uid: int, market: str) -> dict:
         c.close()
 
 
+def bot_trade_audit_snapshot(uid: int, market: str, *, event_limit: int = 10_000) -> dict:
+    """Read the complete paper journal and account book from one SQLite snapshot.
+
+    The paper writer commits the account and trade together. Reading them in
+    separate transactions can manufacture a reconciliation gap mid-fill.
+    """
+    if market not in {"kr", "us"} or not 1 <= event_limit <= 10_000:
+        raise ValueError("unsupported market")
+    c = conn()
+    try:
+        c.execute("BEGIN")
+        cols = ("id", "ticker", "side", "qty", "price", "reason", "ts",
+                "reference_price", "fees", "slippage_cost", "cash_change")
+        rows = c.execute(
+            f"SELECT {','.join(cols)} FROM bot_trades WHERE uid=? AND market=? ORDER BY id",
+            (uid, market),
+        ).fetchall()
+        event_rows = c.execute(
+            "SELECT event_key,ticker,event_type,price,payload,ts FROM execution_events "
+            "WHERE uid=? AND market=? ORDER BY id DESC LIMIT ?",
+            (uid, market, event_limit),
+        ).fetchall()
+        event_total, filled_total = c.execute(
+            "SELECT COUNT(*),SUM(CASE WHEN event_type IN ('filled_buy','filled_sell') THEN 1 ELSE 0 END) "
+            "FROM execution_events WHERE uid=? AND market=?", (uid, market),
+        ).fetchone()
+        seed_row = c.execute("SELECT seed_cash,seed_cash_us FROM user_bot WHERE uid=?", (uid,)).fetchone()
+        key = f"paper_account:{uid}" if market == "kr" else f"paper_account:{uid}:us"
+        account_row = c.execute("SELECT v FROM kv WHERE k=?", (key,)).fetchone()
+        c.execute("COMMIT")
+    except Exception:
+        c.execute("ROLLBACK")
+        raise
+    finally:
+        c.close()
+    seed = float(seed_row[1 if market == "us" else 0]) if seed_row else (10_000.0 if market == "us" else 10_000_000.0)
+    account = json.loads(account_row[0]) if account_row else {"cash": seed, "positions": {}}
+    return {"trades": [dict(zip(cols, row)) for row in rows], "seed_cash": seed,
+            "account": account, "last_trade_id": rows[-1][0] if rows else None,
+            "events": [{"event_key": key, "ticker": ticker, "event_type": kind,
+                        "price": price, "payload": json.loads(payload), "ts": ts}
+                       for key, ticker, kind, price, payload, ts in reversed(event_rows)],
+            "event_total": int(event_total), "filled_event_total": int(filled_total or 0)}
+
+
 def notification_enqueue(dedupe_key: str, text: str, *, priority: str = "normal",
                          expires_at: int | None = None, now: int | None = None,
                          recipient_uid: int | None = None,
