@@ -1,7 +1,5 @@
 """Complete paper history is not silently reduced to the new execution ledger."""
 
-import json
-
 from signal_desk.signals import full_trade_attribution as audit
 
 
@@ -70,11 +68,10 @@ def test_snapshot_reads_all_trades_and_account_without_event_limit(tmp_path, mon
             "INSERT INTO bot_trades(uid,market,ticker,side,qty,price,reason,ts) VALUES(77,'kr','ABC',?,?,?,?,?)",
             [("buy", 1, 100, "SIGNAL", 1), ("sell", 1, 90, "STOP_LOSS", 2)],
         )
-        c.execute("INSERT INTO kv(k,v,ts) VALUES(?,?,0)",
-                  ("paper_account:77", json.dumps({"cash": 9999990, "positions": {}})))
         c.commit()
     finally:
         c.close()
+    db.kv_set("paper_account:77", '{"cash": 9999990, "positions": {}}')
     snapshot = db.bot_trade_audit_snapshot(77, "kr")
     assert len(snapshot["trades"]) == 2
     assert snapshot["last_trade_id"] == snapshot["trades"][-1]["id"]
@@ -95,11 +92,10 @@ def test_admin_endpoint_reports_full_journal_separately_from_recent_cost_slice(t
             [(uid, "buy", 1, 100, "SIGNAL", 1),
              (uid, "sell", 1, 90, "STOP_LOSS", 2)],
         )
-        c.execute("INSERT INTO kv(k,v,ts) VALUES(?,?,0)",
-                  (f"paper_account:{uid}", json.dumps({"cash": 9999990, "positions": {}})))
         c.commit()
     finally:
         c.close()
+    db.kv_set(f"paper_account:{uid}", '{"cash": 9999990, "positions": {}}')
     admin = TestClient(api.app)
     token, error = auth.signup("journal-admin@example.com", "abcdef12")
     assert error is None
