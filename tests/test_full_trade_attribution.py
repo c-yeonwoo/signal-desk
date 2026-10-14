@@ -83,7 +83,7 @@ def test_snapshot_reads_all_trades_and_account_without_event_limit(tmp_path, mon
 
 def test_admin_endpoint_reports_full_journal_separately_from_recent_cost_slice(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
-    from signal_desk import api, bot, db
+    from signal_desk import api, auth, bot, db
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ADMIN_EMAILS", "journal-admin@example.com")
     uid = next(uid for uid, style in bot.REFERENCE_BOTS.items() if style == "balanced")
@@ -101,7 +101,9 @@ def test_admin_endpoint_reports_full_journal_separately_from_recent_cost_slice(t
     finally:
         c.close()
     admin = TestClient(api.app)
-    admin.post("/api/auth/signup", json={"email": "journal-admin@example.com", "pw": "abcdef12"})
+    token, error = auth.signup("journal-admin@example.com", "abcdef12")
+    assert error is None
+    admin.cookies.set(auth.COOKIE, token)
     response = admin.get("/api/admin/research/execution-cost")
     assert response.status_code == 200
     report = response.json()
