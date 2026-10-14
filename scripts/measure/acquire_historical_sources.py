@@ -50,6 +50,17 @@ REQUEST_GAP_SECONDS = 0.5
 KIS_SCHEDULES = {
     "dividend": ("/uapi/domestic-stock/v1/ksdinfo/dividend", "HHKDB669102C0"),
     "rev-split": ("/uapi/domestic-stock/v1/ksdinfo/rev-split", "HHKDB669105C0"),
+    "bonus-issue": ("/uapi/domestic-stock/v1/ksdinfo/bonus-issue", "HHKDB669101C0"),
+    "cap-dcrs": ("/uapi/domestic-stock/v1/ksdinfo/cap-dcrs", "HHKDB669106C0"),
+    "merger-split": ("/uapi/domestic-stock/v1/ksdinfo/merger-split", "HHKDB669104C0"),
+    "paidin-capin": ("/uapi/domestic-stock/v1/ksdinfo/paidin-capin", "HHKDB669100C0"),
+    "list-info": ("/uapi/domestic-stock/v1/ksdinfo/list-info", "HHKDB669107C0"),
+}
+KIS_SCHEDULE_KINDS = {
+    "dividend": "cash_dividend", "rev-split": "split",
+    "bonus-issue": "rights", "cap-dcrs": "capital_reduction",
+    "merger-split": "merger_exchange", "paidin-capin": "rights",
+    "list-info": "unsupported",  # Listing schedule does not identify an action by itself.
 }
 KIND_DOCUMENT_URL = re.compile(
     r"https://kind\.krx\.co\.kr/external/(20\d{2})/(\d{2})/(\d{2})/"
@@ -307,11 +318,15 @@ def acquire_kis_schedule(kind: str, ticker: str, start: str, end: str, *,
     if not creds:
         raise SourceError("KIS schedule: credentials unavailable")
     path, tr_id = KIS_SCHEDULES[kind]
-    params = ({"CTS": "", "GB1": "0", "F_DT": start.replace("-", ""),
-               "T_DT": end.replace("-", ""), "SHT_CD": ticker, "HIGH_GB": ""}
-              if kind == "dividend" else
-              {"SHT_CD": ticker, "CTS": "", "F_DT": start.replace("-", ""),
-               "T_DT": end.replace("-", ""), "MARKET_GB": "0"})
+    dates = {"F_DT": start.replace("-", ""), "T_DT": end.replace("-", "")}
+    if kind == "dividend":
+        params = {"CTS": "", "GB1": "0", **dates, "SHT_CD": ticker, "HIGH_GB": ""}
+    elif kind == "rev-split":
+        params = {"SHT_CD": ticker, "CTS": "", **dates, "MARKET_GB": "0"}
+    else:
+        params = {"CTS": "", **dates, "SHT_CD": ticker}
+        if kind == "paidin-capin":
+            params["GB1"] = "2"  # Official example: record-date search, not subscription-date search.
     files, entries, seen_hashes = {}, {}, set()
     page = 1
     while True:
@@ -544,6 +559,12 @@ def source_window_from_archive(path: Path) -> SourceWindow:
     is_dart = manifest["source"] == "OpenDART"
     if not is_dart and manifest["source"] != "KIS KSD schedule":
         raise SourceError("action archive: unknown upstream family")
+    schedule_kind = None
+    if not is_dart:
+        schedule_kind = next((kind for kind, (endpoint, _) in KIS_SCHEDULES.items()
+                              if endpoint == manifest.get("endpoint")), None)
+        if schedule_kind is None:
+            raise SourceError("action archive: unknown KIS schedule endpoint")
     entries = manifest["entries"]
     observed = max(dt.datetime.fromisoformat(entry["retrieved_at_utc"])
                    for entry in entries.values())
@@ -557,8 +578,7 @@ def source_window_from_archive(path: Path) -> SourceWindow:
                f"ticker:{manifest['ticker']}"), checked["sha256"],
         "DART" if is_dart else "KSD", manifest["start"], manifest["end"],
         "receipt" if is_dart else "unknown",
-        frozenset({"unsupported"} if is_dart else
-                  {"cash_dividend" if manifest["endpoint"].endswith("/dividend") else "split"}),
+        frozenset({"unsupported"} if is_dart else {KIS_SCHEDULE_KINDS[schedule_kind]}),
         state, tuple(entry["sha256"] for _, entry in sorted(entries.items())), observed,
         historical_range_confirmed=False)
 
@@ -904,7 +924,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", choices=("krx-daily", "dart-filings", "dart-actions",
                                            "kind-reviewed", "kind-listing-reviewed", "verify-kind",
-                                           "kis-dividend", "kis-rev-split", "verify-actions",
+                                           *(f"kis-{kind}" for kind in KIS_SCHEDULES), "verify-actions",
                                            "inspect-dividend", "inspect-kis", "compare-dividend"))
     parser.add_argument("--start")
     parser.add_argument("--end")
@@ -998,7 +1018,7 @@ def main() -> None:
         files, manifest = acquire_kind_listing_reviewed(args.source_plan,
                                                         max_requests=min(args.max_requests, 8))
     else:
-        kind = "dividend" if args.source == "kis-dividend" else "rev-split"
+        kind = args.source.removeprefix("kis-")
         files, manifest = acquire_kis_schedule(kind, args.ticker, args.start, args.end,
                                                max_requests=args.max_requests)
     write_archive(args.output, files, manifest)

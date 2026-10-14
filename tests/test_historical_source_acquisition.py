@@ -505,6 +505,43 @@ def test_kis_schedule_continuation_and_errors_are_not_empty_success(tmp_path, mo
         acquisition.acquire_kis_schedule("dividend", "005930", "2024-03-01", "2024-03-31")
 
 
+@pytest.mark.parametrize("kind,expected_path,expected_tr,expected_event", [
+    ("bonus-issue", "bonus-issue", "HHKDB669101C0", "rights"),
+    ("cap-dcrs", "cap-dcrs", "HHKDB669106C0", "capital_reduction"),
+    ("merger-split", "merger-split", "HHKDB669104C0", "merger_exchange"),
+    ("paidin-capin", "paidin-capin", "HHKDB669100C0", "rights"),
+    ("list-info", "list-info", "HHKDB669107C0", "unsupported"),
+])
+def test_additional_kis_schedules_remain_partial_research_sources(
+        tmp_path, monkeypatch, kind, expected_path, expected_tr, expected_event):
+    monkeypatch.setattr(acquisition.config, "kis_credentials", lambda: {"env": "demo"})
+    calls = []
+
+    def page(path, tr_id, params, creds, tr_cont):
+        calls.append((path, tr_id, params, tr_cont))
+        body = {"rt_cd": "0", "output1": []}
+        return json.dumps(body).encode(), body, ""
+
+    monkeypatch.setattr(acquisition, "_fetch_kis_schedule_page", page)
+    files, manifest = acquisition.acquire_kis_schedule(
+        kind, "000660", "2024-06-01", "2024-06-30")
+    assert len(calls) == 1
+    path, tr_id, params, tr_cont = calls[0]
+    assert path.endswith("/" + expected_path) and tr_id == expected_tr and tr_cont == ""
+    assert params["SHT_CD"] == "000660"
+    assert params["F_DT"] == "20240601" and params["T_DT"] == "20240630"
+    assert (params.get("GB1") == "2") == (kind == "paidin-capin")
+    assert manifest["source_state"] == "source_empty_not_action_free"
+    output = tmp_path / f"{kind}.zip"
+    acquisition.write_archive(output, files, manifest)
+    source = acquisition.source_window_from_archive(output)
+    assert source.event_kinds == frozenset({expected_event})
+    assert source.state == "source_empty"
+    assert source.date_basis == "unknown" and not source.historical_range_confirmed
+    with pytest.raises(acquisition.SourceError, match="unsupported schedule endpoint"):
+        acquisition.extract_kis_schedule_facts(output)
+
+
 def test_kis_split_listing_is_not_assumed_to_be_effective_session(tmp_path):
     raw = json.dumps({"rt_cd": "0", "output1": [{
         "sht_cd": "042700", "isin_name": "한미반도체", "record_date": "20220404",
