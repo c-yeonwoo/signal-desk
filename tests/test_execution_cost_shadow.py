@@ -60,6 +60,7 @@ def test_recent_event_page_keeps_order_and_exposes_truncated_basis(tmp_path, mon
     events = db.execution_events_for_uid(77, "kr", limit=2)
     assert [e["event_key"] for e in events] == ["3", "4"]
     assert db.execution_events_count_for_uid(77, "kr") == 5
+    assert db.bot_fill_coverage_counts(77, "kr") == {"paper_trade_rows": 0, "filled_event_rows": 5}
 
 
 def test_closed_trade_groups_use_booked_cash_and_report_partial_lots():
@@ -99,3 +100,4 @@ def test_admin_api_only_exposes_shadow_costs(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert response.json()["live_eligible"] is False
     assert response.json()["full_event_history"] is True
+    assert response.json()["trade_coverage"]["row_counts_match"] is True

@@ -5600,8 +5600,11 @@ def execution_cost_research_get(request: Request, style: str = "balanced", marke
     limit = 10_000
     total = db.execution_events_count_for_uid(uid, mkt)
     events = db.execution_events_for_uid(uid, mkt, limit=limit)
+    coverage = db.bot_fill_coverage_counts(uid, mkt)
     return {"style": style, "market": mkt, "source_events_total": total,
             "source_events_analyzed": len(events), "full_event_history": total == len(events),
+            "trade_coverage": {**coverage,
+                               "row_counts_match": coverage["paper_trade_rows"] == coverage["filled_event_rows"]},
             **execution_cost_shadow.analyze(events)}
 
 

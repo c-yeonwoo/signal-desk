@@ -10934,6 +10934,7 @@ async function loadExecutionCostStudy(){
       + bucket(d.by_entry_reason, '진입 사유별 · 순손익 낮은 순', 5)
       + bucket((d.by_ticker || []).filter(r => Number(r.net_booked_pnl) < 0), '손실이 난 종목', 5)
       + `<p class="page-desc" style="margin:10px 0 0">원장 ${Number(d.source_events_analyzed)}/${Number(d.source_events_total)}건${d.full_event_history ? '' : ' · 오래된 기록은 범위 밖'} · 닫힌 수량 조각 ${Number(d.closed_fragments)}건 · 열린 묶음 ${Number(d.open_lots)}건 · 결손 ${esc(gaps || '없음')}</p>`
+      + `<p class="page-desc" style="margin:4px 0 0">체결 기록 대조 ${Number(d.trade_coverage?.filled_event_rows || 0)}/${Number(d.trade_coverage?.paper_trade_rows || 0)}건${d.trade_coverage?.row_counts_match ? ' · 건수 일치(개별 대응 미확인)' : ' · 일부 옛 거래가 이 분석에서 빠졌을 수 있음'}</p>`
       + '<p class="page-desc" style="margin:4px 0 0">현재 보유 평가손익과 배당·분할·합병은 제외됩니다. 같은 주문이 여러 조각으로 나뉠 수 있어 조각 수는 거래 횟수가 아닙니다. 모의 체결 결과이며 실계좌 예상 수익이나 원인·전략 우위를 증명하지 않습니다.</p>'
       + '</div>';
   } catch(e) { el.textContent = '체결비용 분석을 표시할 수 없습니다 · ' + e.message; }
