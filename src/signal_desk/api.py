@@ -45,7 +45,7 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate,
+    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate, full_trade_attribution,
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
@@ -5597,14 +5597,18 @@ def execution_cost_research_get(request: Request, style: str = "balanced", marke
     uid = next((uid for uid, name in bot.REFERENCE_BOTS.items() if name == style), None)
     if uid is None:
         raise HTTPException(status_code=422, detail="unknown style")
-    limit = 10_000
-    total = db.execution_events_count_for_uid(uid, mkt)
-    events = db.execution_events_for_uid(uid, mkt, limit=limit)
-    coverage = db.bot_fill_coverage_counts(uid, mkt)
+    journal = db.bot_trade_audit_snapshot(uid, mkt)
+    events = journal["events"]
+    total = journal["event_total"]
+    coverage = {"paper_trade_rows": len(journal["trades"]),
+                "filled_event_rows": journal["filled_event_total"]}
     return {"style": style, "market": mkt, "source_events_total": total,
             "source_events_analyzed": len(events), "full_event_history": total == len(events),
             "trade_coverage": {**coverage,
                                "row_counts_match": coverage["paper_trade_rows"] == coverage["filled_event_rows"]},
+            "full_trade_attribution": full_trade_attribution.analyze(
+                journal["trades"], seed_cash=journal["seed_cash"], account=journal["account"]),
+            "last_trade_id": journal["last_trade_id"],
             **execution_cost_shadow.analyze(events)}
 
 
