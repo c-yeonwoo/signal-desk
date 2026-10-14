@@ -10901,9 +10901,11 @@ function renderAudit(d){
   el.innerHTML = head + (items.length ? items.map(auditItem).join('')
     : '<div style="padding:14px 0;color:var(--dim-2);font-size:13px">아직 없습니다. “가설 생성”을 누르면 현재 계측 스냅샷을 감사합니다.</div>');
 }
+let executionCostRequestSeq = 0;
 async function loadExecutionCostStudy(){
   const el = document.getElementById('execution-cost-body');
   if (!el) return;
+  const requestSeq = ++executionCostRequestSeq;
   el.textContent = '기록된 체결 원장을 분석 중…';
   const style = document.getElementById('execution-cost-style').value;
   const market = document.getElementById('execution-cost-market').value;
@@ -10912,6 +10914,7 @@ async function loadExecutionCostStudy(){
       + '&market=' + encodeURIComponent(market));
     if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
     const d = await response.json();
+    if (requestSeq !== executionCostRequestSeq || d.style !== style || d.market !== market) return;
     const full = d.full_trade_attribution || {};
     const pct = x => x == null ? '—' : fmtNum(x, 2) + '%';
     const unit = market === 'us' ? '$' : '원';
@@ -10944,7 +10947,9 @@ async function loadExecutionCostStudy(){
       + `<p class="page-desc" style="margin:4px 0 0">체결 원장 대조 ${Number(d.trade_coverage?.filled_event_rows || 0)}/${Number(d.trade_coverage?.paper_trade_rows || 0)}건${d.trade_coverage?.row_counts_match ? ' · 건수 일치(개별 대응 미확인)' : ' · 이전 거래는 비용 분석에서 제외'}</p>`
       + '<p class="page-desc" style="margin:4px 0 0">현재 보유 평가손익과 배당·분할·합병은 제외됩니다. 모의 체결 결과이며 실계좌 예상 수익이나 전략 우위를 증명하지 않습니다.</p>'
       + '</div>';
-  } catch(e) { el.textContent = '체결비용 분석을 표시할 수 없습니다 · ' + e.message; }
+  } catch(e) {
+    if (requestSeq === executionCostRequestSeq) el.textContent = '체결비용 분석을 표시할 수 없습니다 · ' + e.message;
+  }
 }
 async function loadPriceQualityStudy(){
   const el = document.getElementById('price-quality-body');
