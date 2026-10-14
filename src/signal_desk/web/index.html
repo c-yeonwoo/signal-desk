@@ -2162,7 +2162,7 @@
     </details>
     <details class="card" id="execution-cost-study" style="margin-top:16px" ontoggle="if(this.open) loadExecutionCostStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">봇 손실은 어디서 났나 <span style="color:var(--dim);font-weight:600;font-size:13px">· 체결 원장 · 연구 전용</span></summary>
-      <p class="page-desc" style="margin:8px 0">실제 모의 체결을 선입선출로 짝지어 진입·청산 사유와 비용을 나눠 봅니다. 손실이 몰린 곳을 찾는 진단이지, 해당 사유가 손실의 원인이라는 뜻은 아닙니다.</p>
+      <p class="page-desc" style="margin:8px 0">전체 봇 거래는 계좌와 같은 평균매입가로, 최근 비용 기록은 선입선출로 나눠 봅니다. 과거 비용이 비어 있어 두 금액을 합칠 수 없고, 손실이 몰린 사유가 곧 원인은 아닙니다.</p>
       <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
         <label>성향 <select id="execution-cost-style" onchange="loadExecutionCostStudy()"><option value="balanced">균형형</option><option value="conservative">안정형</option><option value="aggressive">공격형</option></select></label>
         <label>시장 <select id="execution-cost-market" onchange="loadExecutionCostStudy()"><option value="kr">한국</option><option value="us">미국</option></select></label>

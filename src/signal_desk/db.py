@@ -1458,7 +1458,11 @@ def bot_trade_audit_snapshot(uid: int, market: str, *, event_limit: int = 10_000
     finally:
         c.close()
     seed = float(seed_row[1 if market == "us" else 0]) if seed_row else (10_000.0 if market == "us" else 10_000_000.0)
+    # kv_set JSON-serializes its value; paper._save passes a JSON string. The
+    # stored cell is therefore a JSON string wrapping the account JSON.
     account = json.loads(account_row[0]) if account_row else {"cash": seed, "positions": {}}
+    if isinstance(account, str):
+        account = json.loads(account)
     return {"trades": [dict(zip(cols, row)) for row in rows], "seed_cash": seed,
             "account": account, "last_trade_id": rows[-1][0] if rows else None,
             "events": [{"event_key": key, "ticker": ticker, "event_type": kind,
