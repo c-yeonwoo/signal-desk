@@ -1395,6 +1395,33 @@ def execution_events_for_uid(uid: int, market: str, *, limit: int = 500) -> list
             for key, ticker, typ, price, payload, ts in reversed(rows)]
 
 
+def execution_events_count_for_uid(uid: int, market: str) -> int:
+    """Coverage denominator for bounded, read-only execution analysis."""
+    c = conn()
+    try:
+        return int(c.execute("SELECT COUNT(*) FROM execution_events WHERE uid=? AND market=?",
+                             (uid, market)).fetchone()[0])
+    finally:
+        c.close()
+
+
+def bot_fill_coverage_counts(uid: int, market: str) -> dict:
+    """Compare retained paper trades with retained filled execution events.
+
+    Equal counts are only a coverage check, not proof that every pair matches.
+    """
+    c = conn()
+    try:
+        trades = c.execute("SELECT COUNT(*) FROM bot_trades WHERE uid=? AND market=?",
+                           (uid, market)).fetchone()[0]
+        fills = c.execute("SELECT COUNT(*) FROM execution_events WHERE uid=? AND market=? "
+                          "AND event_type IN ('filled_buy','filled_sell')",
+                          (uid, market)).fetchone()[0]
+        return {"paper_trade_rows": int(trades), "filled_event_rows": int(fills)}
+    finally:
+        c.close()
+
+
 def notification_enqueue(dedupe_key: str, text: str, *, priority: str = "normal",
                          expires_at: int | None = None, now: int | None = None,
                          recipient_uid: int | None = None,

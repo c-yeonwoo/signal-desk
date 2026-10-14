@@ -5591,14 +5591,21 @@ def execution_audit_get(style: str = "balanced", market: str = "kr"):
 
 @app.get("/api/admin/research/execution-cost")
 def execution_cost_research_get(request: Request, style: str = "balanced", market: str = "kr"):
-    """관리자 전용 관측 체결비용 분해. 결과는 주문·시그널에 연결하지 않는다."""
+    """관리자 전용 실제 봇 체결 손익·비용 분해. 주문·시그널에는 연결하지 않는다."""
     _admin_or_403(request)
     mkt = _mkt(market)
     uid = next((uid for uid, name in bot.REFERENCE_BOTS.items() if name == style), None)
     if uid is None:
         raise HTTPException(status_code=422, detail="unknown style")
-    return {"style": style, "market": mkt,
-            **execution_cost_shadow.analyze(db.execution_events_for_uid(uid, mkt))}
+    limit = 10_000
+    total = db.execution_events_count_for_uid(uid, mkt)
+    events = db.execution_events_for_uid(uid, mkt, limit=limit)
+    coverage = db.bot_fill_coverage_counts(uid, mkt)
+    return {"style": style, "market": mkt, "source_events_total": total,
+            "source_events_analyzed": len(events), "full_event_history": total == len(events),
+            "trade_coverage": {**coverage,
+                               "row_counts_match": coverage["paper_trade_rows"] == coverage["filled_event_rows"]},
+            **execution_cost_shadow.analyze(events)}
 
 
 @app.get("/api/admin/research/reference-allocation")
