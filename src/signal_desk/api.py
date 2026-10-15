@@ -45,7 +45,7 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate, full_trade_attribution, paper_policy_counterfactual,
+    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate, full_trade_attribution, paper_cash_replay, paper_policy_counterfactual,
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
@@ -5623,11 +5623,72 @@ def paper_policy_sensitivity_get(request: Request, style: str = "balanced", mark
     if uid is None:
         raise HTTPException(status_code=422, detail="unknown style")
     journal = db.bot_trade_audit_snapshot(uid, mkt)
-    tickers = {str(row["ticker"]) for row in journal["trades"] if row.get("ticker")}
+    try:
+        development_trades = _paper_development_trades(journal["trades"], mkt)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return {"style": style, "market": mkt, "state": "blocked",
+                "reason": "invalid_journal_timestamp", "live_eligible": False}
+    tickers = {str(row["ticker"]) for row in development_trades if row.get("ticker")}
     closes = {ticker: panel for ticker, panel in store.load_market_dated_closes(mkt).items()
               if ticker in tickers}
+    zone = ZoneInfo("Asia/Seoul" if mkt == "kr" else "America/New_York")
+    study_now = datetime.datetime.fromisoformat(
+        paper_cash_replay.DEVELOPMENT_END + "T23:59:59").replace(tzinfo=zone)
     return {"style": style, "market": mkt, "last_trade_id": journal["last_trade_id"],
-            **paper_policy_counterfactual.analyze(journal["trades"], closes, market=mkt)}
+            "study_window_end": paper_cash_replay.DEVELOPMENT_END,
+            "excluded_protected_trade_rows": len(journal["trades"]) - len(development_trades),
+            **paper_policy_counterfactual.analyze(development_trades, closes,
+                                                  market=mkt, now=study_now)}
+
+
+def _paper_development_trades(trades: list[dict], market: str) -> list[dict]:
+    """Keep registered post-2026-08-04 rows out of exploratory policy comparisons."""
+    zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
+    return [row for row in trades
+            if datetime.datetime.fromtimestamp(float(row["ts"]), zone)
+            .date().isoformat() <= paper_cash_replay.DEVELOPMENT_END]
+
+
+@app.get("/api/admin/research/paper-cash-replay")
+def paper_cash_replay_get(request: Request, style: str = "balanced", market: str = "kr"):
+    """Same-seed cash/position shadow; uncertified legacy prices stay price-only."""
+    _admin_or_403(request)
+    if market not in {"kr", "us"}:
+        raise HTTPException(status_code=422, detail="unknown market")
+    uid = next((uid for uid, name in bot.REFERENCE_BOTS.items() if name == style), None)
+    if uid is None:
+        raise HTTPException(status_code=422, detail="unknown style")
+    journal = db.bot_trade_audit_snapshot(uid, market)
+    book = full_trade_attribution.analyze(
+        journal["trades"], seed_cash=journal["seed_cash"], account=journal["account"])
+    if not book["account_reconciled"]:
+        return {"style": style, "market": market, "last_trade_id": journal["last_trade_id"],
+                "state": "blocked", "reason": "paper_account_not_reconciled",
+                "position_mismatches": book["position_mismatches"],
+                "account_minus_proxy": book["account_minus_proxy"],
+                "verified_total_return": None, "arms": {}}
+    try:
+        development_trades = _paper_development_trades(journal["trades"], market)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return {"style": style, "market": market, "state": "blocked",
+                "reason": "invalid_journal_timestamp", "verified_total_return": None,
+                "arms": {}}
+    tickers = {str(row["ticker"]) for row in development_trades if row.get("ticker")}
+    closes = {ticker: panel for ticker, panel in store.load_market_dated_closes(market).items()
+              if ticker in tickers}
+    now = datetime.datetime.now(datetime.timezone.utc)
+    as_of = market_clock.latest_completed_session(market, now)
+    study_as_of = min(as_of, paper_cash_replay.DEVELOPMENT_END) if as_of else None
+    result = (paper_cash_replay.replay(development_trades, closes, market=market,
+                                      seed_cash=journal["seed_cash"], as_of=study_as_of or "",
+                                      now=now)
+              if study_as_of else {"state": "blocked", "reason": "no_completed_session",
+                                   "verified_total_return": None, "arms": {}})
+    return {"style": style, "market": market, "last_trade_id": journal["last_trade_id"],
+            "paper_account_reconciled": True,
+            "study_window_end": paper_cash_replay.DEVELOPMENT_END,
+            "excluded_protected_trade_rows": len(journal["trades"]) - len(development_trades),
+            **result}
 
 
 @app.get("/api/admin/research/reference-allocation")
