@@ -2169,6 +2169,15 @@
       </div>
       <div id="execution-cost-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
     </details>
+    <details class="card" id="paper-policy-sensitivity" style="margin-top:16px" ontoggle="if(this.open) loadPaperPolicySensitivity()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">같은 첫 매수, 다른 경로였다면 <span style="color:var(--dim);font-weight:600;font-size:13px">· 과거 가격 민감도 · 연구 전용</span></summary>
+      <p class="page-desc" style="margin:8px 0">실제 추가매수를 뺀 경로와 첫 매수 뒤 5·20거래일 종가를 나란히 봅니다. 옛날로 돌아가 주문한 결과나 더 좋은 전략의 증거는 아닙니다.</p>
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin:8px 0">
+        <label>성향 <select id="paper-policy-style" onchange="loadPaperPolicySensitivity()"><option value="balanced">균형형</option><option value="conservative">안정형</option><option value="aggressive">공격형</option></select></label>
+        <label>시장 <select id="paper-policy-market" onchange="loadPaperPolicySensitivity()"><option value="kr">한국</option><option value="us">미국</option></select></label>
+      </div>
+      <div id="paper-policy-body" class="placeholder" style="padding:8px 0">펼치면 불러옵니다…</div>
+    </details>
     <details class="card" id="market-regime-study" style="margin-top:16px" ontoggle="if(this.open) loadMarketRegimeStudy()">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">시장별 투자 비중 검증 <span style="color:var(--dim);font-weight:600;font-size:13px">· 국내/미국 분리 · 연구 전용</span></summary>
       <p class="page-desc" style="margin:8px 0">국내 주가로 미국 투자 비중을 정하지 않습니다. 각 시장의 국면 판단이 다음 거래일에 도움이 됐는지 같은 평균 투자 비중의 고정 전략과 비교합니다. 아직 수익률 향상이나 실주문 승격의 증거가 아닙니다.</p>
@@ -10949,6 +10958,38 @@ async function loadExecutionCostStudy(){
       + '</div>';
   } catch(e) {
     if (requestSeq === executionCostRequestSeq) el.textContent = '체결비용 분석을 표시할 수 없습니다 · ' + e.message;
+  }
+}
+let paperPolicyRequestSeq = 0;
+async function loadPaperPolicySensitivity(){
+  const el = document.getElementById('paper-policy-body');
+  if (!el) return;
+  const requestSeq = ++paperPolicyRequestSeq;
+  const style = document.getElementById('paper-policy-style').value;
+  const market = document.getElementById('paper-policy-market').value;
+  el.textContent = '같은 첫 매수의 가상 경로를 비교 중…';
+  try {
+    const response = await fetch('/api/admin/research/paper-policy-sensitivity?style=' + encodeURIComponent(style)
+      + '&market=' + encodeURIComponent(market));
+    if (!response.ok) throw new Error('조회 실패 (' + response.status + ')');
+    const d = await response.json();
+    if (requestSeq !== paperPolicyRequestSeq || d.style !== style || d.market !== market) return;
+    const keys = [['actual_net_25bps_pct', '실제 매도 시각'], ['no_add_net_25bps_pct', '추가매수 없이 같은 비율로 매도'],
+      ['h5_net_25bps_pct', '첫 매수 뒤 5거래일 종가'], ['h20_net_25bps_pct', '첫 매수 뒤 20거래일 종가']];
+    const percent = x => x == null ? '—' : (Number(x) >= 0 ? '+' : '') + fmtNum(Number(x), 2) + '%';
+    const cell = (row, key) => row[key] == null ? esc(row[key.replace('_net_25bps_pct', '_status')] === 'pending' ? '관측 대기' : '가격 결손') : percent(row[key]);
+    const gaps = Object.entries(d.coverage_gaps || {}).map(([key, value]) => esc(key) + ' ' + Number(value)).join(' · ');
+    el.innerHTML = `<div style="font-size:14px;line-height:1.6">전체 ${Number(d.journal_rows)}체결 · 닫힌 매매 ${Number(d.closed_episodes)}회차 · 아직 보유 ${Number(d.open_episodes)}회차</div>`
+      + '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>비교 경로</th><th>계산 가능</th><th>회차 평균¹</th><th>같은 회차의 실제 대비²</th><th>25bp 가정 후 양수</th></tr></thead><tbody>'
+      + keys.map(([key, label]) => { const s = d.summary?.[key] || {}; return `<tr><td>${esc(label)}</td><td>${Number(s.eligible || 0)}/${Number(d.closed_episodes)}회차</td><td>${percent(s.mean_net_25bps_pct)}</td><td>${percent(s.mean_delta_vs_actual_same_episodes_pp)}</td><td>${Number(s.positive_after_cost || 0)}회차</td></tr>`; }).join('')
+      + '</tbody></table></div>'
+      + '<details style="margin-top:12px"><summary style="cursor:pointer">종목별 계산 근거 보기</summary><div style="overflow:auto;max-height:420px"><table class="data-table" style="width:100%"><thead><tr><th>종목 · 첫 매수</th><th>추가</th><th>실제 매도</th><th>추가 없음</th><th>5일 종가</th><th>20일 종가</th></tr></thead><tbody>'
+      + (d.episodes || []).map(r => `<tr><td>${esc(r.ticker)} · ${esc(r.entry_day)}</td><td>${Number(r.add_count)}회</td><td>${percent(r.actual_net_25bps_pct)}</td><td>${percent(r.no_add_net_25bps_pct)}</td><td>${cell(r, 'h5_net_25bps_pct')}</td><td>${cell(r, 'h20_net_25bps_pct')}</td></tr>`).join('')
+      + '</tbody></table></div></details>'
+      + `<p class="page-desc" style="margin:10px 0 0">¹ 계산 가능한 회차만 같은 비중으로 평균합니다. ² 실제 대비는 각 경로와 실제값이 모두 있는 같은 회차만 대조합니다. 모든 경로에 왕복비용 ${Number(d.round_trip_cost_assumption_bps)}bp를 가정했습니다. 누락 ${esc(gaps || '없음')} · 기준 종가 ${esc(d.completed_session || '미확인')}</p>`
+      + '<p class="page-desc" style="margin:4px 0 0">추가매수를 하지 않았다면 매도 수량·시점도 달라졌을 수 있습니다. 5·20일 종가는 실제 체결가가 아니며 과거 비용, 배당·분할·합병, 현금 재투자와 미체결을 검증하지 않았습니다. 서로 다른 투자금액의 평균을 계좌 수익률이나 개선 효과로 읽지 마세요. 매매 규칙은 그대로입니다.</p>';
+  } catch(e) {
+    if (requestSeq === paperPolicyRequestSeq) el.textContent = '가상 경로 비교를 표시할 수 없습니다 · ' + e.message;
   }
 }
 async function loadPriceQualityStudy(){

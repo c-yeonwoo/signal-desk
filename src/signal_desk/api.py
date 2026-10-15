@@ -45,7 +45,7 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate, full_trade_attribution,
+    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate, full_trade_attribution, paper_policy_counterfactual,
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
@@ -5610,6 +5610,24 @@ def execution_cost_research_get(request: Request, style: str = "balanced", marke
                 journal["trades"], seed_cash=journal["seed_cash"], account=journal["account"]),
             "last_trade_id": journal["last_trade_id"],
             **execution_cost_shadow.analyze(events)}
+
+
+@app.get("/api/admin/research/paper-policy-sensitivity")
+def paper_policy_sensitivity_get(request: Request, style: str = "balanced", market: str = "kr"):
+    """Read-only paper fill sensitivity; not a policy verdict or order input."""
+    _admin_or_403(request)
+    if market not in {"kr", "us"}:
+        raise HTTPException(status_code=422, detail="unknown market")
+    mkt = _mkt(market)
+    uid = next((uid for uid, name in bot.REFERENCE_BOTS.items() if name == style), None)
+    if uid is None:
+        raise HTTPException(status_code=422, detail="unknown style")
+    journal = db.bot_trade_audit_snapshot(uid, mkt)
+    tickers = {str(row["ticker"]) for row in journal["trades"] if row.get("ticker")}
+    closes = {ticker: panel for ticker, panel in store.load_market_dated_closes(mkt).items()
+              if ticker in tickers}
+    return {"style": style, "market": mkt, "last_trade_id": journal["last_trade_id"],
+            **paper_policy_counterfactual.analyze(journal["trades"], closes, market=mkt)}
 
 
 @app.get("/api/admin/research/reference-allocation")
