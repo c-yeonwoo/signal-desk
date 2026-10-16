@@ -1464,12 +1464,12 @@
     </div>
 
     <div id="trading-rebal" style="display:none">
-    <!-- /api/portfolio/latest 는 home.js 가 최신 저장 진단만 읽는다. -->
-    <section id="investment-home" class="home-desk" aria-label="오늘의 투자 상태">
-      <div class="home-heading"><div><span class="home-eyebrow">내 투자 데스크</span><h2>오늘의 투자 상태</h2></div><span id="home-market">국내 · 원</span></div>
+    <!-- InvestmentHome in home.js reads GET /api/portfolio/latest; saved diagnoses follow current holdings. -->
+    <section id="investment-home" class="home-desk" aria-label="지난 진단과 투자 기록">
+      <div class="home-heading"><div><span class="home-eyebrow">지난 기록</span><h2>저장된 진단과 성과</h2></div><span id="home-market">국내 · 원</span></div>
       <div class="home-grid">
         <div class="home-action">
-          <span class="home-kicker">내 행동 · 저장된 포트폴리오 진단</span>
+          <span class="home-kicker">분석용 입력 기준 · 저장된 진단</span>
           <h3 id="home-action-title">내 보유 상태를 확인하는 중</h3>
           <p id="home-action-why">진단이 없으면 입력을 보완하고, 새 진단 전에는 매매를 제안하지 않습니다.</p>
           <p id="home-action-meta" class="home-small"></p>
@@ -1510,11 +1510,12 @@
         <div class="row" style="align-items:baseline">
           <b style="font-size:14px">내 보유종목 <span style="color:var(--dim);font-weight:600;font-size:13px">· 토스 실계좌 조회 전용</span></b>
           <span id="real-holdings-sum" style="margin-left:auto;font-size:13px"></span>
+          <span id="real-holdings-stamp" style="color:var(--dim);font-size:12px"></span>
         </div>
         <div id="real-holdings-note" style="display:none;font-size:12px;color:var(--dim);margin:4px 0 8px">이 표는 현재 실계좌 조회값입니다. 아래 정밀 진단은 별도 분석용 입력을 사용하며, 직접 복사하면 국내·해외 분석용 입력 전체를 교체합니다.</div>
         <div id="real-holdings-compare" role="status" style="display:none;margin:8px 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);font-size:14px;line-height:1.5"></div>
         <div id="real-holdings-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
-        <button id="real-holdings-import" class="btn" style="display:none;margin-top:10px" onclick="importRealHoldings()">실계좌 보유내역을 분석용으로 복사</button>
+        <button id="real-holdings-import" class="btn" style="display:none;margin-top:10px" onclick="importRealHoldings()">국내·해외 분석용 보유 바꾸기</button>
         <div id="real-holdings-import-status" style="font-size:12px;color:var(--dim);margin-top:5px"></div>
       </div>
       <section id="account-performance-card" class="card" style="margin-bottom:16px;display:none" aria-label="실계좌 보유주식 관측 대시보드">
@@ -7345,20 +7346,27 @@ async function runPortfolioIntelligence(btn){
 
 // 토스 실계좌 보유내역 — 본인(owner)만. 403이면 카드 숨김(다른 계정은 존재조차 안 보임).
 let _realHoldingsImportFingerprint = null;
-function compareRealAndAnalysisHoldings(realItems, manualRows, market){
-  const isKR = ticker => /^(?=.*\d)[0-9A-Z]{6}$/.test(String(ticker || ''));
-  const inMarket = ticker => market === 'us' ? !isKR(ticker) : isKR(ticker);
-  const real = new Map((realItems || []).filter(it => market === 'us' ? it.marketCountry === 'US' : it.marketCountry !== 'US').map(it =>
-    [String(it.symbol), {qty:Number(it.quantity), avg:Number(it.averagePurchasePrice)}]));
-  const manual = new Map((manualRows || []).filter(it => inMarket(it.ticker)).map(it =>
-    [String(it.ticker), {qty:Number(it.qty), avg:Number(it.avg_price)}]));
-  const same = real.size === manual.size && [...real].every(([ticker, row]) => {
+let _realHoldingsImportDiff = null;
+function compareRealAndAnalysisHoldings(realItems, manualRows){
+  const real = new Map((realItems || []).map(it =>
+    [String(it.symbol), {qty:Number(it.quantity), avg:Number(it.averagePurchasePrice), label:it.name || it.symbol}]));
+  const manual = new Map((manualRows || []).map(it =>
+    [String(it.ticker), {qty:Number(it.qty), avg:Number(it.avg_price), label:it.label || it.name || it.ticker}]));
+  const added = [...real].filter(([ticker]) => !manual.has(ticker));
+  const removed = [...manual].filter(([ticker]) => !real.has(ticker));
+  const changed = [...real].filter(([ticker, row]) => {
     const other = manual.get(ticker);
-    return other && Number.isFinite(row.qty) && Number.isFinite(row.avg)
-      && Number.isFinite(other.qty) && Number.isFinite(other.avg)
-      && Math.abs(row.qty - other.qty) < 0.000001 && Math.abs(row.avg - other.avg) < 0.01;
+    return other && (!Number.isFinite(row.qty) || !Number.isFinite(row.avg)
+      || !Number.isFinite(other.qty) || !Number.isFinite(other.avg)
+      || Math.abs(row.qty - other.qty) >= 0.000001 || Math.abs(row.avg - other.avg) >= 0.01);
   });
-  return {same, realCount:real.size, manualCount:manual.size};
+  return {same:!added.length && !removed.length && !changed.length, realCount:real.size, manualCount:manual.size, added, removed, changed};
+}
+function describeHoldingsDiff(diff){
+  if (!diff) return '차이 미리보기를 불러오지 못했습니다.';
+  if (diff.same) return '실계좌와 분석용 입력이 같습니다.';
+  const names = rows => rows.slice(0,3).map(([,v])=>v.label).join(', ') + (rows.length > 3 ? ` 외 ${rows.length - 3}종목` : '');
+  return `전체 교체 미리보기 · 추가 ${diff.added.length}${diff.added.length ? ` (${names(diff.added)})` : ''} · 제외 ${diff.removed.length}${diff.removed.length ? ` (${names(diff.removed)})` : ''} · 수량/평단 변경 ${diff.changed.length}${diff.changed.length ? ` (${names(diff.changed)})` : ''}`;
 }
 async function loadRealHoldings(){
   const card = document.getElementById('real-holdings-card');
@@ -7368,43 +7376,63 @@ async function loadRealHoldings(){
   const performanceCard = document.getElementById('account-performance-card');
   const showManual = (on) => { if (manual) manual.style.display = on ? '' : 'none'; };
   if (!card) return;
+  const parent = document.getElementById('trading-rebal');
+  const history = document.getElementById('investment-home');
+  const accountWorkspace = document.getElementById('investment-account-workspace');
+  const currentHoldingsEnd = performanceCard || card;
+  if (parent && manual && history && currentHoldingsEnd.nextSibling) {
+    parent.insertBefore(history, currentHoldingsEnd.nextSibling);
+    if (accountWorkspace) parent.insertBefore(accountWorkspace, history.nextSibling);
+  }
   _realHoldingsImportFingerprint = null;
   if (importBtn) importBtn.style.display = 'none';
   if (compare) compare.style.display = 'none';
   if (performanceCard) performanceCard.style.display = 'none';
+  _realHoldingsImportDiff = null;
+  card.style.display = '';
+  document.getElementById('real-holdings-sum').textContent = '';
+  document.getElementById('real-holdings-body').textContent = '토스 실계좌를 확인하고 있어요…';
+  document.getElementById('real-holdings-stamp').textContent = '조회 중';
   const m = _pfMarket, cur = m === 'us' ? '$' : '';
   let d;
   try {
     const r = await fetch('/api/my-holdings');
     if (r.status === 403) { card.style.display = 'none'; showManual(true); await loadHoldings(); return; }  // 비소유자 → 수동만
     d = await r.json();
-  } catch (e) { card.style.display = 'none'; showManual(true); await loadHoldings(); return; }
-  card.style.display = '';
+  } catch (e) {
+    document.getElementById('real-holdings-stamp').textContent = '조회 실패';
+    document.getElementById('real-holdings-body').textContent = '실계좌를 확인하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요.';
+    showManual(true); await loadHoldings(); return;
+  }
   if (!d || !d.ready) {
+    document.getElementById('real-holdings-stamp').textContent = '조회 실패';
     document.getElementById('real-holdings-sum').textContent = '';
     document.getElementById('real-holdings-body').innerHTML =
-      `<div class="placeholder" style="padding:10px 0">${esc((d && d.reason) || '조회할 수 없습니다.')}</div>`;
+      `<div class="placeholder" style="padding:10px 0">실계좌를 확인하지 못했어요. ${esc((d && d.reason) || '연결 상태를 확인한 뒤 다시 시도해 주세요.')}</div>`;
     showManual(true); await loadHoldings(); return;
   }
   const all = d.items || [];
+  document.getElementById('real-holdings-stamp').textContent = '화면 조회 ' + new Date().toLocaleString('ko-KR', {month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
   if (performanceCard) { performanceCard.style.display = ''; loadAccountPerformance(m); }
-  if (!all.length) {   // 실계좌 비어있음 → 수동 폴백
+  if (!all.length) {   // 조회 성공·실계좌 비어있음
+    if (importBtn) importBtn.style.display = 'none';
     document.getElementById('real-holdings-sum').textContent = '';
-    document.getElementById('real-holdings-body').innerHTML = '<div class="placeholder" style="padding:10px 0">토스 실계좌에 보유 종목이 없어요.</div>';
+    document.getElementById('real-holdings-body').innerHTML = '<div class="placeholder" style="padding:10px 0">조회한 토스 실계좌에 보유 종목이 없어요.</div>';
     showManual(true); await loadHoldings(); return;
   }
   _realHoldingsImportFingerprint = d.import_fingerprint || null;
   if (importBtn && _realHoldingsImportFingerprint) importBtn.style.display = '';
   showManual(true);
   const manualRows = await loadHoldings();
+  _realHoldingsImportDiff = compareRealAndAnalysisHoldings(all, manualRows);
   const note = document.getElementById('real-holdings-note');
   if (note) note.style.display = '';
   const items = all.filter(it => m === 'us' ? it.marketCountry === 'US' : it.marketCountry !== 'US');
   if (compare) {
-    const state = compareRealAndAnalysisHoldings(all, manualRows, m);
+    const state = _realHoldingsImportDiff;
     compare.textContent = state.same
       ? '마지막 실계좌 조회와 분석용 입력이 같습니다. 저장된 진단은 당시 입력 기준이므로 새로 진단해야 현재 상태에 반영됩니다.'
-      : `실계좌 ${state.realCount}종목과 분석용 입력 ${state.manualCount}종목이 다릅니다. 아래 진단은 분석용 입력 기준입니다. 현재 계좌를 진단하려면 실계좌 내역을 복사한 뒤 다시 진단하세요.`;
+      : `국내·해외 전체 기준: 실계좌 ${state.realCount}종목 · 분석용 입력 ${state.manualCount}종목. ${describeHoldingsDiff(state)} 아래 진단은 분석용 입력 기준입니다.`;
     compare.style.display = '';
   }
   const sub = items.reduce((s, it) => s + (+((it.marketValue || {}).amount) || 0), 0);
@@ -7470,7 +7498,8 @@ async function loadAccountPerformance(market){
 async function importRealHoldings(){
   const fingerprint = _realHoldingsImportFingerprint;
   if (!fingerprint) return;
-  if (!confirm('국내·해외 분석용 수동 보유내역 전체를 현재 토스 실계좌 보유내역으로 교체합니다. 계속할까요?')) return;
+  const preview = describeHoldingsDiff(_realHoldingsImportDiff);
+  if (!confirm(`국내·해외 분석용 입력 전체를 토스 실계좌 내역으로 교체합니다.\n${preview}\n저장된 진단은 자동 갱신되지 않습니다. 계속할까요?`)) return;
   const btn = document.getElementById('real-holdings-import');
   const status = document.getElementById('real-holdings-import-status');
   btn.disabled = true; status.textContent = '분석용 보유내역에 복사 중…';
