@@ -765,6 +765,23 @@ def _bot_loop_iteration() -> None:
     _collect_official_evidence_after_close(now)
 
 
+def _run_fed_g17_refresh(now: datetime.datetime, *, release_catchup: bool = False) -> dict:
+    """Record a bounded official observation without touching signals or orders."""
+    from signal_desk.ingest import fed_g17
+
+    result = fed_g17.refresh(fed_g17.DEFAULT_ARCHIVE, now=now,
+                             state_get=db.kv_get, state_set=db.kv_set,
+                             reserve=_reserve_fed_g17_request,
+                             release_catchup=release_catchup)
+    prior = db.kv_get("fed_g17_refresh_last") or {}
+    if result.get("requested") or result.get("status") != prior.get("status"):
+        db.kv_set("fed_g17_refresh_last", result)
+        # A no-request poll may precede an actual weekly request later today.
+        if result.get("status") != "not_due":
+            _record_official_evidence_ops("fed_g17", now, result)
+    return result
+
+
 def _collect_official_evidence_after_close(now: datetime.datetime) -> None:
     """Independent, low-priority collectors after a completed KR daily snapshot."""
     if not (market_clock.is_session("kr", now.date()) and now.time() >= datetime.time(15, 40)
@@ -784,17 +801,7 @@ def _collect_official_evidence_after_close(now: datetime.datetime) -> None:
     # A separate, weekly-bounded official US industry observation. It is never
     # supplied to the signal/risk/order pipeline or to registered research.
     try:
-        from signal_desk.ingest import fed_g17
-        result = fed_g17.refresh(fed_g17.DEFAULT_ARCHIVE, now=now,
-                                 state_get=db.kv_get, state_set=db.kv_set,
-                                 reserve=_reserve_fed_g17_request)
-        prior = db.kv_get("fed_g17_refresh_last") or {}
-        if result.get("requested") or result.get("status") != prior.get("status"):
-            db.kv_set("fed_g17_refresh_last", result)
-            # A no-request poll may precede an actual weekly request later
-            # today. Keep the first daily resource record for that request.
-            if result.get("status") != "not_due":
-                _record_official_evidence_ops("fed_g17", now, result)
+        _run_fed_g17_refresh(now)
     except Exception as e:
         log.warning("마감후 연준 산업 자료 수집 실패: %s", type(e).__name__)
         failure = {"status": "collection_failed", "reason": type(e).__name__,
@@ -4686,6 +4693,48 @@ def evidence_ops_get(request: Request):
             "note": "부팅 횟수와 첫 관측 ID는 배포 전후 비교용입니다. 원문 무결성은 별도 대조가 필요합니다.",
         },
     }
+
+
+@app.post("/api/admin/evidence-ops/fed-g17-refresh")
+def fed_g17_release_refresh_post(request: Request, data: dict = Body(...)):
+    """One admin-confirmed release catch-up; the weekly and monthly caps remain."""
+    _admin_or_403(request)
+    if request.headers.get("x-signal-desk-evidence") != "confirmed-release":
+        raise HTTPException(403, "공식 발표일을 확인한 관리자 요청만 허용합니다.")
+    origin = request.headers.get("origin")
+    if origin:
+        parsed = urlparse(origin)
+        if parsed.netloc != request.headers.get("host") or (config.is_prod() and parsed.scheme != "https"):
+            raise HTTPException(403, "요청 출처가 현재 앱과 일치하지 않습니다.")
+    if data.get("source_confirmed") is not True:
+        raise HTTPException(422, "연준 공식 발표일 확인이 필요합니다.")
+    try:
+        release_date = datetime.date.fromisoformat(str(data.get("release_date") or ""))
+    except ValueError:
+        raise HTTPException(422, "공식 발표일 형식이 올바르지 않습니다.") from None
+    now = _kst_now()
+    if (release_date.year != now.year or release_date.month != now.month
+            or not 0 <= (now.date() - release_date).days <= 7):
+        raise HTTPException(422, "이번 달 최근 7일 안의 공식 발표만 확인할 수 있습니다.")
+    from signal_desk.ingest import fed_g17
+
+    expected_period = (release_date.replace(day=1) - datetime.timedelta(days=1)).strftime("%Y-%m")
+    try:
+        stored = fed_g17.latest(fed_g17.DEFAULT_ARCHIVE, as_of=now.isoformat())
+        stored_period = stored["months"][-1]["period"] if stored else None
+    except (OSError, sqlite3.Error, ValueError, KeyError, TypeError, IndexError):
+        raise HTTPException(409, "기존 연준 원문의 무결성을 확인할 수 없습니다.") from None
+    if stored_period and stored_period >= expected_period:
+        return {"status": "already_current", "requested": 0,
+                "expected_period": expected_period, "stored_period": stored_period}
+    if not db.lease_claim("fed_g17_release_catchup", uuid.uuid4().hex,
+                          now=int(time.time()), lease_sec=60):
+        raise HTTPException(429, "연준 새 발표 확인이 이미 진행 중입니다.")
+    result = _run_fed_g17_refresh(now, release_catchup=True)
+    observed_period = result.get("latest_period") or stored_period
+    return {**result, "expected_period": expected_period,
+            "stored_period": observed_period,
+            "release_caught_up": bool(observed_period and observed_period >= expected_period)}
 
 
 @app.get("/api/admin/storage-breakdown")

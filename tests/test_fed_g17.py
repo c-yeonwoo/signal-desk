@@ -2,6 +2,7 @@
 
 import datetime as dt
 import sqlite3
+from types import SimpleNamespace
 
 import pytest
 
@@ -117,6 +118,62 @@ def test_success_waits_seven_days_and_bad_budget_fails_closed(tmp_path):
     assert g17.refresh(tmp_path / "industry.db", now=NOW + dt.timedelta(days=3), **opts)["status"] == "not_due"
     state["fed_g17_requests:2026-10"] = "broken"
     assert g17.refresh(tmp_path / "industry.db", now=NOW + dt.timedelta(days=8), **opts)["status"] == "budget_exhausted"
+
+
+def test_confirmed_release_catchup_is_once_per_month_and_still_budgeted(tmp_path):
+    state, reserve = _state()
+    calls = []
+
+    def collector(_path):
+        calls.append(1)
+        return {"status": "ok", "latest_period": "2026-09", "response_bytes": 25}
+
+    opts = dict(state_get=state.get, state_set=state.__setitem__,
+                reserve=reserve, collector=collector)
+    path = tmp_path / "industry.db"
+    first = dt.datetime(2026, 10, 13, 7, tzinfo=dt.timezone.utc)
+    assert g17.refresh(path, now=first, **opts)["requested"] == 1
+    assert g17.refresh(path, now=first + dt.timedelta(hours=12),
+                       release_catchup=True, **opts)["status"] == "not_due"
+    catchup = g17.refresh(path, now=first + dt.timedelta(days=4),
+                          release_catchup=True, **opts)
+    assert catchup["requested"] == 1
+    assert state["fed_g17_requests:2026-10"] == 2
+    assert g17.refresh(path, now=first + dt.timedelta(days=6),
+                       release_catchup=True, **opts)["status"] == "release_catchup_used"
+    assert g17.refresh(path, now=first + dt.timedelta(days=6), **opts)["status"] == "not_due"
+    assert len(calls) == 2
+
+
+def test_admin_release_refresh_requires_source_confirmation_and_skips_current(monkeypatch):
+    from signal_desk import api
+
+    now = dt.datetime(2026, 10, 17, 1, tzinfo=dt.timezone(dt.timedelta(hours=9)))
+    request = SimpleNamespace(headers={"host": "signal.example",
+                                       "origin": "https://signal.example",
+                                       "x-signal-desk-evidence": "confirmed-release"})
+    called = []
+    monkeypatch.setattr(api, "_admin_or_403", lambda _request: None)
+    monkeypatch.setattr(api, "_kst_now", lambda: now)
+    monkeypatch.setattr(g17, "latest", lambda *_a, **_k: {"months": [{"period": "2026-08"}]})
+    monkeypatch.setattr(api.db, "lease_claim", lambda *_a, **_k: True)
+    monkeypatch.setattr(api, "_run_fed_g17_refresh", lambda *_a, **_k: (
+        called.append("refresh"), {"status": "ok", "requested": 1, "latest_period": "2026-09"})[1])
+
+    with pytest.raises(api.HTTPException) as invalid:
+        api.fed_g17_release_refresh_post(request, {"release_date": "2026-10-16"})
+    assert invalid.value.status_code == 422 and not called
+    result = api.fed_g17_release_refresh_post(
+        request, {"release_date": "2026-10-16", "source_confirmed": True})
+    assert result["release_caught_up"] is True and result["expected_period"] == "2026-09"
+    assert called == ["refresh"]
+
+    monkeypatch.setattr(g17, "latest", lambda *_a, **_k: {"months": [{"period": "2026-09"}]})
+    result = api.fed_g17_release_refresh_post(
+        request, {"release_date": "2026-10-16", "source_confirmed": True})
+    assert result == {"status": "already_current", "requested": 0,
+                      "expected_period": "2026-09", "stored_period": "2026-09"}
+    assert called == ["refresh"]
 
 
 @pytest.mark.parametrize("step", ["reserve", "started", "completed"])
