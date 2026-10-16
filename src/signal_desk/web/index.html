@@ -1792,13 +1792,12 @@
     </details>
 
     <div id="admin-ops" style="display:none">
-    <div class="card" style="margin-top:0">
-      <div class="row" style="align-items:baseline">
-        <b style="font-size:15px">공식 근거 수집 · 점수/주문과 분리</b>
-        <button class="btn" onclick="loadEvidenceOps(true)" style="margin-left:auto">기록 새로고침</button>
-      </div>
-      <div id="evidence-ops" style="margin-top:8px;font-size:13px">수집 기록 확인 중…</div>
-    </div>
+    <details class="card" id="evidence-ops-details" style="margin-top:0" ontoggle="if(this.open) loadEvidenceOps()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">공식 공시·자료 수집 기록 <span style="color:var(--dim);font-weight:600;font-size:13px">· 원문과 요청 결과 확인</span></summary>
+      <p class="page-desc" style="margin:8px 0">공시·공식 자료가 실제로 수집됐는지 확인할 때만 여세요. 이 기록은 시그널 점수나 주문을 바꾸지 않습니다.</p>
+      <div class="row"><button class="btn" onclick="loadEvidenceOps(true)">기록 새로고침</button></div>
+      <div id="evidence-ops" style="margin-top:8px;font-size:13px">펼치면 수집 기록을 확인합니다.</div>
+    </details>
     <div class="card" style="margin-top:16px">
       <div class="row" style="align-items:baseline">
         <b style="font-size:15px">자동 점검 결과</b>
@@ -9161,7 +9160,6 @@ function switchAdminSeg(seg, { pin = true } = {}){
     if (el) el.style.display = s === seg ? '' : 'none';
   });
   loadDataHealth({ render: seg === 'ops' }).then(() => renderAdminTodo());
-  if (seg === 'ops') loadEvidenceOps();
   // 비용·D7·엔진그래프·관측/감사는 접이식 — 펼칠 때 로드
   if (seg === 'engine') {
     loadProofOs();
