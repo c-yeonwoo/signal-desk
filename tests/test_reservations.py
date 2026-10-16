@@ -17,12 +17,16 @@ def _setup(monkeypatch, tmp_path, prices):
     monkeypatch.setattr(store, "load_us_price_series", lambda: {})
     monkeypatch.setattr(store, "load_universe", lambda: [{"ticker": "AAA", "name": "가"}])
     monkeypatch.setattr(bot, "_market_read", lambda _: {"eff_cfg": None, "context": {"exposure": 1.0}})
-    monkeypatch.setattr(bot, "_market_signals", lambda market, mr: (
-        [], store.load_us_price_series() if market == "us" else store.load_price_series(),
-        [SignalResult(ticker=t, name=t, score=2.0, kind="BUY", confidence=0.5,
-                      technical_score=0.0, fundamental_score=0.0, has_fundamental=False, reasons=[])
-         for t in (store.load_us_price_series() if market == "us" else store.load_price_series())],
-        {}, {}, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
+    def signals(market, mr):
+        rows = store.load_us_price_series() if market == "us" else store.load_price_series()
+        snapshot = {"quotes": {t: closes[-1] for t, closes in rows.items() if closes},
+                    "quote_updated": {t: time.time() for t in rows},
+                    "quote_meta": {t: {"observation_id": f"test-{t}"} for t in rows}}
+        sigs = [SignalResult(ticker=t, name=t, score=2.0, kind="BUY", confidence=0.5,
+                             technical_score=0.0, fundamental_score=0.0,
+                             has_fundamental=False, reasons=[]) for t in rows]
+        return [], rows, sigs, {}, {}, snapshot
+    monkeypatch.setattr(bot, "_market_signals", signals)
     db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 100_000.0, "positions": {}}))
 
 
@@ -37,6 +41,25 @@ def test_execute_reservation_fills_within_chase(tmp_path, monkeypatch):
     assert case["trades"][0]["decision_capture"]["reason"] == "reservation"
     assert db.bot_reservations_pending(UID) == []
     assert db.bot_position_get(UID, "AAA")["qty"] >= 1        # paper에 반영
+
+
+def test_reservation_waits_for_fresh_quote_without_consuming_pending(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path, {"AAA": [100.0, 101.0]})
+    db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
+    fresh_signals = bot._market_signals
+    def without_quote(market, mr):
+        uni, prices, sigs, names, dates, _ = fresh_signals(market, mr)
+        return uni, prices, sigs, names, dates, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}
+    monkeypatch.setattr(bot, "_market_signals", without_quote)
+
+    out = bot.execute_reservations(UID)
+    assert out["executed"][0]["status"] == "deferred_stale_quote"
+    assert len(db.bot_reservations_pending(UID)) == 1
+    assert db.bot_position_get(UID, "AAA") is None
+    assert db.notification_outbox_due(now=int(time.time()))
+
+    monkeypatch.setattr(bot, "_market_signals", fresh_signals)
+    assert bot.execute_reservations(UID)["executed"][0]["status"] == "filled"
 
 
 def test_kill_switch_blocks_pending_reservation(tmp_path, monkeypatch):

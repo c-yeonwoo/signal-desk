@@ -34,7 +34,9 @@ def _setup(monkeypatch, universe, prices, signals, mode="absolute", exposure=1.0
                    for ticker, closes in prices.items()}
     monkeypatch.setattr(bot.store, "load_engine_price_bundle",
                         lambda market: (prices, price_dates,
-                                        {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
+                                        {"quotes": {t: closes[-1] for t, closes in prices.items() if closes},
+                                         "quote_updated": {t: time.time() for t in prices},
+                                         "quote_meta": {t: {"observation_id": f"test-{t}"} for t in prices}}))
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: {})
     monkeypatch.setattr(bot.store, "load_fundamentals", lambda: {})
     monkeypatch.setattr(bot.engine, "evaluate", lambda *a, **k: signals)
@@ -392,6 +394,27 @@ def test_conviction_rotation_swaps_weak_for_strong(tmp_path, monkeypatch):
     assert any(b["reason"] == "ROTATE_IN" and b["ticker"] == "STRONG" for b in out["buys"])
     tickers = {p["ticker"] for p in db.bot_positions_all(UID, "kr")}
     assert "WEAK" not in tickers and "STRONG" in tickers  # 교체 완료
+
+
+def test_rotation_keeps_holding_if_replacement_quote_is_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "WEAK", "name": "약"}, {"ticker": "STRONG", "name": "강"}],
+           {"WEAK": [100.0, 100.0], "STRONG": [50.0, 50.0]},
+           [_sig("WEAK", "약", "HOLD", 0.2), _sig("STRONG", "강", "BUY", 2.0)],
+           max_positions=1, min_buy_score=1.0)
+    prices, dates, _ = bot.store.load_engine_price_bundle("kr")
+    monkeypatch.setattr(bot.store, "load_engine_price_bundle", lambda market: (
+        prices, dates, {"quotes": {"WEAK": 100.0}, "quote_updated": {"WEAK": time.time()},
+                     "quote_meta": {"WEAK": {"observation_id": "weak-quote"}}}))
+    _seed(0.0, {"WEAK": {"name": "약", "qty": 100, "avg_price": 100.0}})
+    db.bot_position_upsert(UID, "WEAK", "약", 100, 100.0, 100.0, "2020-01-01")
+
+    out = bot.run_once(UID)
+    assert not any(s["reason"] == "ROTATE_OUT" for s in out["sells"])
+    assert not any(b["reason"] == "ROTATE_IN" for b in out["buys"])
+    assert {p["ticker"] for p in db.bot_positions_all(UID, "kr")} == {"WEAK"}
+    assert any(e["event_type"] == "deferred_stale_quote"
+               for e in db.execution_events_for_uid(UID, "kr"))
 
 
 def test_sells_only_cannot_rotate_position(tmp_path, monkeypatch):

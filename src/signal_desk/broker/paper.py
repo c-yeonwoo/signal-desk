@@ -1,4 +1,4 @@
-"""자체 모의계좌(paper) 브로커 — 유저별 격리. 외부 연결 없이 가격캐시(종가) 기준으로 가상 체결·
+"""자체 모의계좌(paper) 브로커 — 유저별 격리. 수동 거래는 캐시 가격을 쓸 수 있으나 봇은 신선한 장중 가격으로만 체결·
 현금·포지션을 유저마다 내부 관리한다. 시그널(판단)은 공용, 계좌·실행은 유저별.
 
 계좌 상태는 db.kv('paper_account:{uid}')에 JSON(현금+포지션). 초기 현금은 유저별 시드(user_bot.seed_cash).
@@ -12,8 +12,10 @@ import logging
 import math
 import time
 import uuid
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
-from signal_desk import db, store
+from signal_desk import config, db, notify, store
 from signal_desk.broker import execution
 
 log = logging.getLogger("signal_desk.broker.paper")
@@ -75,17 +77,70 @@ def balance(uid: int, market: str = "kr") -> dict:
     }
 
 
+def bot_order_quote_ready(market: str, evidence: dict | None, *, now: float | None = None) -> bool:
+    """봇 가상 체결의 최소 가격 증거. 서버 수신 10분 한도를 주문 직전 다시 검사한다."""
+    if market not in ("kr", "us") or not isinstance(evidence, dict):
+        return False
+    at = time.time() if now is None else float(now)
+    zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
+    session = datetime.fromtimestamp(at, zone).date().isoformat()
+    try:
+        received_at = float(evidence.get("price_received_at"))
+    except (TypeError, ValueError):
+        return False
+    return (evidence.get("price_basis") == "intraday_provisional"
+            and evidence.get("price_session") == session
+            and bool(evidence.get("price_observation_id"))
+            and math.isfinite(received_at)
+            and -300 <= at - received_at <= 600)
+
+
+def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: str,
+                    price: float | None, evidence: dict | None, name: str = "") -> None:
+    """체결 없이 보류를 감사 기록과 재시도 가능한 Telegram 아웃박스에 남긴다."""
+    at = int(time.time())
+    zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
+    session = datetime.fromtimestamp(at, zone).date().isoformat()
+    key = f"paper-price-hold:{market}:{session}:{uid}:{side}:{ticker}"
+    alert_key = f"paper-price-hold:{market}:{session}:{side}:{ticker}"
+    action = "매도" if side == "sell" else "매수"
+    text = (f"⚠️ 가상 {action} 보류 · {name or ticker}({ticker}) · {market.upper()}\n"
+            f"장중 현재가를 확인하지 못해 종가로 대신 체결하지 않았습니다. "
+            f"사유: {reason}. 가격 수집 상태를 확인해 주세요. "
+            f"{'손절·위험 청산도 실행되지 않았습니다.' if side == 'sell' else '다음 실행에서 다시 판단합니다.'}")
+    notify.enqueue(text, dedupe_key=alert_key, priority="critical" if side == "sell" else "high",
+                   expires_at=at + 12 * 3600, now=at)
+    link = db.telegram_link_get(uid)
+    if link and link["chat_id"] not in config.telegram_chat_ids():
+        notify.enqueue_user(uid, text, dedupe_key=key, market=market, alert_type="paper_fill",
+                            priority="critical" if side == "sell" else "high",
+                            expires_at=at + 12 * 3600, now=at)
+    db.execution_event_add(
+        key, uid=uid, market=market, ticker=ticker, event_type="deferred_stale_quote",
+        price=price, ts=at,
+        payload={"side": side, "reason": reason, "price_evidence": evidence or {},
+                 "detail": "fresh_intraday_quote_required"},
+    )
+
+
 def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None = None,
                 name: str = "", market: str = "kr", *, reason: str | None = None,
                 note: str | None = None, score: float | None = None,
                 event_payload: dict | None = None, risk_policy: dict | None = None,
                 alert_style: str | None = None, policy_id: str | None = None,
-                signal_policy_id: str | None = None) -> dict | None:
+                signal_policy_id: str | None = None,
+                enforce_fresh_quote: bool = False) -> dict | None:
     """유저 계좌 가상 체결. 봇 주문이면 잔고·체결·감사 이벤트를 한 트랜잭션으로 기록."""
     if side not in ("buy", "sell"):
         raise ValueError("side must be 'buy' or 'sell'")
     if qty <= 0:
         return None
+    if enforce_fresh_quote:
+        evidence = (event_payload or {}).get("price_evidence")
+        if not bot_order_quote_ready(market, evidence):
+            defer_bot_order(uid, ticker, side, market=market, reason=reason or "BOT",
+                            price=price, evidence=evidence, name=name)
+            return None
     reference_price = float(price) if price else current_price(ticker)
     if not reference_price or reference_price <= 0:
         return None

@@ -674,6 +674,19 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
             weak.pop(0)
             continue
         buy_evidence = price_evidence(best.ticker, blive)
+        # 교체는 두 다리가 모두 실제 장중 관측을 갖춰야 한다. 팔기만 하고 살 수 없는
+        # 상태를 만들지 않도록 주문 전 두 가격을 함께 확인한다.
+        if not dry_run and (not paper.bot_order_quote_ready(market, sell_evidence)
+                            or not paper.bot_order_quote_ready(market, buy_evidence)):
+            for ticker, side, quote, evidence, name in (
+                (wt, "sell", wlive, sell_evidence, wh["name"]),
+                (best.ticker, "buy", blive, buy_evidence, bname),
+            ):
+                if not paper.bot_order_quote_ready(market, evidence):
+                    paper.defer_bot_order(uid, ticker, side, market=market, reason="ROTATE",
+                                          price=quote, evidence=evidence, name=name)
+            weak.pop(0)
+            continue
         # 팔고 나서야 한도 미달을 알게 되면 교체가 아니라 불필요한 청산이 된다.
         # 같은 페이퍼 비용 모델로 매도 후의 계좌를 먼저 예상해 매수 가능 여부를 검사한다.
         before = paper.balance(uid, market)
@@ -701,7 +714,8 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                                                                              "price_evidence": sell_evidence},
                                             alert_style=REFERENCE_BOTS.get(uid),
                                             policy_id=execution_policy_id,
-                                            signal_policy_id=signal_policy_id)
+                                            signal_policy_id=signal_policy_id,
+                                            enforce_fresh_quote=True)
             if sell_result is None:
                 weak.pop(0)
                 continue
@@ -735,7 +749,8 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                                                risk_policy=_buy_risk_policy(cfg, exposure),
                                                alert_style=REFERENCE_BOTS.get(uid),
                                                policy_id=execution_policy_id,
-                                               signal_policy_id=signal_policy_id)
+                                               signal_policy_id=signal_policy_id,
+                                               enforce_fresh_quote=True)
                 if buy_result is not None:
                     basis_per_share = -buy_result["cash_change"] / bqty
                     db.bot_trade_log(uid, best.ticker, bname, "buy", bqty, buy_result["fill_price"], "ROTATE_IN", buy_result["order_no"],
@@ -884,7 +899,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                    "risk": pos_risk.effective().__dict__,
                                    "price_evidence": price_evidence},
                     alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
-                    signal_policy_id=signal_policy_id)
+                    signal_policy_id=signal_policy_id, enforce_fresh_quote=True)
                 if result is not None:
                     filled = result["fill_price"]
                     db.bot_trade_log(uid, ticker, plan["name"], "sell", sell_qty, filled, reason,
@@ -1075,7 +1090,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                    "price_evidence": price_evidence},
                     risk_policy=_buy_risk_policy(cfg, exposure),
                     alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
-                    signal_policy_id=signal_policy_id)
+                    signal_policy_id=signal_policy_id, enforce_fresh_quote=True)
                 if result is not None:
                     filled = result["fill_price"]
                     basis_per_share = -result["cash_change"] / qty
@@ -1200,7 +1215,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                        risk_policy=_buy_risk_policy(cfg, exposure),
                                        alert_style=REFERENCE_BOTS.get(uid),
                                        policy_id=execution_policy_id,
-                                       signal_policy_id=signal_policy_id)
+                                       signal_policy_id=signal_policy_id,
+                                       enforce_fresh_quote=True)
             if result is not None:
                 new_qty = h["qty"] + qty
                 new_avg = round((h["qty"] * avg - result["cash_change"]) / new_qty, 2)
@@ -1593,6 +1609,14 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
         price = _live_price(r["ticker"], closes[-1])
         price_evidence = _execution_price_evidence(
             market, r["ticker"], price, dates_by_ticker=price_dates, quote_snapshot=quote_snapshot)
+        if not dry_run and not paper.bot_order_quote_ready(market, price_evidence):
+            paper.defer_bot_order(uid, r["ticker"], "buy", market=market,
+                                  reason="RESERVATION", price=price,
+                                  evidence=price_evidence, name=r["name"])
+            executed.append({"ticker": r["ticker"], "name": r["name"],
+                             "status": "deferred_stale_quote",
+                             "note": "장중 현재가 확인 후 재시도"})
+            continue  # 예약을 종료하지 않는다.
         ceiling = r["target_price"] * (1 + r["max_chase_pct"])
         if price > ceiling:
             reject("skipped_price", f"현재가 {int(price):,}{unit} > 상한 {int(ceiling):,}{unit} — 추격 안 함")
@@ -1617,7 +1641,7 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                                "price_evidence": price_evidence},
                 risk_policy=_buy_risk_policy(cfg, exposure),
                 alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
-                signal_policy_id=signal_policy_id)
+                signal_policy_id=signal_policy_id, enforce_fresh_quote=True)
             if result is not None:
                 filled = result["fill_price"]
                 basis_per_share = -result["cash_change"] / qty
@@ -1642,8 +1666,13 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                                  "note": note, "order_no": result["order_no"],
                                  "fill_price": filled, "target_price": r["target_price"]})
             else:
-                db.bot_reservation_resolve(r["id"], "order_failed")
-                executed.append({"ticker": r["ticker"], "name": r["name"], "status": "order_failed"})
+                if not paper.bot_order_quote_ready(market, price_evidence):
+                    executed.append({"ticker": r["ticker"], "name": r["name"],
+                                     "status": "deferred_stale_quote",
+                                     "note": "장중 현재가 확인 후 재시도"})
+                else:
+                    db.bot_reservation_resolve(r["id"], "order_failed")
+                    executed.append({"ticker": r["ticker"], "name": r["name"], "status": "order_failed"})
         else:
             executed.append({"ticker": r["ticker"], "name": r["name"], "status": "would_fill", "qty": qty, "note": note})
     if run_id:

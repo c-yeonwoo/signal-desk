@@ -1,8 +1,10 @@
 """자체 모의계좌(paper) 브로커 — 유저별 가상 체결·현금·포지션 정합성."""
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 import sqlite3
 import time
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -34,6 +36,59 @@ def test_paper_buy_sell_cash_and_positions(tmp_path, monkeypatch):
     b = paper.balance(UID)
     assert b["cash"] == 598_750.27                     # 매도 슬리피지·수수료·거래세 차감
     assert b["holdings"][0]["qty"] == 6
+
+
+def _fresh_evidence(market="kr"):
+    zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
+    return {"price_basis": "intraday_provisional",
+            "price_session": datetime.now(zone).date().isoformat(),
+            "price_observation_id": "quote-1", "price_received_at": time.time() - 5}
+
+
+def test_bot_order_without_fresh_quote_defers_buy_and_sell_with_alert(tmp_path, monkeypatch):
+    _seed(monkeypatch, tmp_path, price=100.0)
+    before = paper.balance(UID)
+    stale = {"price_basis": "daily_close", "price_session": "2026-07-02"}
+    assert paper.place_order(UID, "005930", "buy", 1, price=100.0, name="삼성전자",
+                             reason="SIGNAL", event_payload={"price_evidence": stale},
+                             enforce_fresh_quote=True) is None
+    assert paper.balance(UID) == before
+    assert db.bot_trades_recent(UID) == []
+    events = db.execution_events_for_uid(UID, "kr")
+    assert len(events) == 1 and events[0]["event_type"] == "deferred_stale_quote"
+    due = db.notification_outbox_due(now=int(time.time()))
+    assert len(due) == 1 and "종가로 대신 체결하지 않았습니다" in due[0]["text"]
+    # 한 종목의 반복 루프는 같은 날 같은 방향의 경보를 중복 전송하지 않는다.
+    assert paper.place_order(UID, "005930", "buy", 1, price=100.0, name="삼성전자",
+                             reason="SIGNAL", event_payload={"price_evidence": stale},
+                             enforce_fresh_quote=True) is None
+    assert len(db.notification_outbox_due(now=int(time.time()))) == 1
+
+    paper.place_order(UID, "005930", "buy", 1, price=100.0)  # 수동 주문은 기존 계약 유지
+    assert paper.place_order(UID, "005930", "sell", 1, price=100.0, name="삼성전자",
+                             reason="STOP_LOSS", event_payload={"price_evidence": stale},
+                             enforce_fresh_quote=True) is None
+    assert paper.balance(UID)["holdings"][0]["qty"] == 1
+    due = db.notification_outbox_due(now=int(time.time()))
+    assert len(due) == 2
+    assert any("손절·위험 청산도 실행되지 않았습니다" in item["text"]
+               and item["priority"] == "critical" for item in due)
+
+
+def test_bot_order_requires_same_session_and_fresh_receipt(tmp_path, monkeypatch):
+    _seed(monkeypatch, tmp_path, price=100.0)
+    fresh = _fresh_evidence()
+    assert paper.place_order(UID, "005930", "buy", 1, price=100.0, reason="SIGNAL",
+                             event_payload={"price_evidence": fresh},
+                             enforce_fresh_quote=True) is not None
+    assert len(db.bot_trades_recent(UID)) == 1
+    late = {**fresh, "price_received_at": time.time() - 601}
+    assert paper.place_order(UID, "005930", "sell", 1, price=100.0, reason="STOP_LOSS",
+                             event_payload={"price_evidence": late},
+                             enforce_fresh_quote=True) is None
+    assert paper.balance(UID)["holdings"][0]["qty"] == 1
+    assert not paper.bot_order_quote_ready("kr", {**fresh, "price_session": "2026-07-02"})
+    assert not paper.bot_order_quote_ready("kr", {**fresh, "price_observation_id": None})
 
 
 def test_paper_isolated_per_uid(tmp_path, monkeypatch):
