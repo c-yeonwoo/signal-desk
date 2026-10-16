@@ -4,6 +4,8 @@ import datetime
 import json
 import time
 
+import pytest
+
 from signal_desk import bot, db
 from signal_desk.broker import paper
 from signal_desk.signals.engine import SignalConfig, SignalResult
@@ -188,6 +190,52 @@ def test_holds_and_tracks_peak(tmp_path, monkeypatch):
            [_sig("005930", "삼성전자", "HOLD")])
     bot.run_once(UID)
     assert db.bot_position_get(UID, "005930")["peak_price"] == 108.0
+
+
+@pytest.mark.parametrize("invalid_quote", ["missing", "stale_receipt", "stale_source", "closed"])
+def test_rejected_quote_cannot_raise_peak_and_trigger_later_trailing(tmp_path, monkeypatch, invalid_quote):
+    monkeypatch.chdir(tmp_path)
+    universe = [{"ticker": "005930", "name": "삼성전자"}]
+    signals = [_sig("005930", "삼성전자", "HOLD")]
+    _setup(monkeypatch, universe, {"005930": [108.0]}, signals)
+    _seed(0.0, {"005930": {"name": "삼성전자", "qty": 10, "avg_price": 100.0}})
+    db.bot_position_upsert(UID, "005930", "삼성전자", 10, 100.0, 100.0, "2026-07-01")
+    prices, dates, quotes = bot.store.load_engine_price_bundle("kr")
+    if invalid_quote == "missing":
+        quotes = {}
+    elif invalid_quote == "stale_receipt":
+        quotes["quote_updated"]["005930"] = time.time() - 1200
+    elif invalid_quote == "stale_source":
+        quotes["quote_meta"]["005930"].update(
+            source_timestamp=datetime.datetime.fromtimestamp(
+                time.time() - 1200, datetime.timezone.utc).isoformat(),
+            source_timestamp_field="timestamp")
+    else:
+        monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: False)
+    monkeypatch.setattr(bot.store, "load_engine_price_bundle", lambda market: (prices, dates, quotes))
+
+    bot.run_once(UID, sells_only=True)
+    assert db.bot_position_get(UID, "005930")["peak_price"] == 100.0
+
+    # 108 -> 102 would trigger the existing 5% trailing rule if the rejected
+    # high had leaked into state. A new valid quote must start from the old peak.
+    _setup(monkeypatch, universe, {"005930": [102.0]}, signals)
+    out = bot.run_once(UID, sells_only=True)
+    assert out["sells"] == []
+    assert db.bot_position_get(UID, "005930")["peak_price"] == 102.0
+    assert paper.balance(UID)["holdings"][0]["qty"] == 10
+
+
+def test_balance_snapshot_cannot_raise_trailing_peak(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "005930", "name": "삼성전자"}], {"005930": [140.0]}, [])
+    _seed(0.0, {"005930": {"name": "삼성전자", "qty": 10, "avg_price": 100.0}})
+    db.bot_position_upsert(UID, "005930", "삼성전자", 10, 100.0, 105.0, "2026-07-01")
+
+    bot.snapshot_positions(UID)
+    pos = db.bot_position_get(UID, "005930")
+    assert pos["peak_price"] == 105.0
+    assert pos["last_price"] == 140.0  # Display mark still updates independently.
 
 
 def test_reconciles_stale_position(tmp_path, monkeypatch):

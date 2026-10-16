@@ -399,7 +399,9 @@ def reconcile_positions(uid: int, bal: dict, market: str = "kr") -> None:
     for t, h in ph.items():
         pos = db.bot_position_get(uid, t)
         price = h.get("price") or 0.0
-        peak = max(pos["peak_price"] if pos else h["avg_price"], h["avg_price"], price)
+        # Balance marks have no quote evidence and may be a stale close or an
+        # expired overlay. Only the checked bot quote path may advance a peak.
+        peak = max(pos["peak_price"] if pos else h["avg_price"], h["avg_price"])
         entry = pos["entry_date"] if pos else _today(market)
         db.bot_position_upsert(uid, t, h["name"], h["qty"], h["avg_price"], peak, entry,
                                last_price=price or None, last_pnl_pct=h.get("pnl_pct"), market=market)
@@ -946,7 +948,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                 else:
                     plan["ok"] = False
             sells.append(plan)
-        elif not dry_run:
+        elif not dry_run and paper.bot_order_quote_ready(market, price_evidence):
+            # A rejected high must not become tomorrow's trailing-stop anchor,
+            # even when it did not trigger an order on this run.
             db.bot_position_upsert(uid, ticker, name_by_ticker.get(ticker, ticker), qty, avg_price,
                                     peak, pos["entry_date"] if pos else _today(market), market=market)
 
