@@ -579,9 +579,10 @@ def _bot_loop_iteration() -> None:
         log.warning("US 시세 자동 백필 실패(무시): %s", type(e).__name__)
     try:  # 이미 있는 종목도 며칠째 안 움직이면 증분 갱신(백필 no-op만으론 7/2에 영구 고정됨)
         rf = _refresh_us_prices_stale(25, max_trading_days=_us_price_stale_slack())
-        if rf["filled"]:
+        if rf.get("received"):
             _clear_us_signal_caches()
-            log.info("US 시세 자동 갱신 %d종목(잔여 stale %s)", rf["filled"], rf["stale"])
+            log.info("US 시세 자동 갱신 %d종목(제공자 응답 %d, 잔여 stale %s)",
+                     rf["filled"], rf["received"], rf["stale"])
     except Exception as e:
         log.warning("US 시세 자동 갱신 실패(무시): %s", type(e).__name__)
     try:  # 재무 파생값(퀄리티)이 비어 있으면 채운다 — 위 US 갱신과 **같은 이유로 여기 둔다.**
@@ -1218,9 +1219,9 @@ def _daily_maintenance(enabled: list[str]) -> None:
         # 공식 XNYS 완료 세션이 예상일과 같을 때에만 한 거래일 결손까지 재시도한다.
         # 기존 전역 1일 유예는 휴장 오탐 방지용이므로 여기서만 좁게 무시한다.
         rf = _refresh_us_prices_stale(batch=0, max_trading_days=_us_price_stale_slack())
-        if rf["filled"]:
+        if rf.get("received"):
             _clear_us_signal_caches()
-            log.info("마감후 US 시세 갱신 %d종목", rf["filled"])
+            log.info("마감후 US 시세 갱신 %d종목(제공자 응답 %d)", rf["filled"], rf["received"])
     except Exception as e:
         log.warning("마감후 US 시세 갱신 실패: %s", type(e).__name__)
     try:   # 자동 백필에서 빠진 US 종목을 하루 한 번 드러낸다(유예는 조용한 0이니 이름을 붙인다)
@@ -4204,12 +4205,12 @@ def _refresh_us_prices_stale(batch: int = 60, *,
     거래일 2일이 비어 있었다(2026-08-07 실측)."""
     universe = _us_refresh_tickers()
     if not universe:
-        return {"filled": 0, "stale": 0}
+        return {"filled": 0, "stale": 0, "received": 0}
     skip = store.us_price_skips()
-    stale = [t for t in store.us_prices_stale_tickers(universe, max_trading_days=max_trading_days)
-             if not store.us_price_deferred(t, skip)]
+    stale_all = store.us_prices_stale_tickers(universe, max_trading_days=max_trading_days)
+    stale = [t for t in stale_all if not store.us_price_deferred(t, skip)]
     if not stale:
-        return {"filled": 0, "stale": 0}
+        return {"filled": 0, "stale": len(stale_all), "received": 0}
     targets = stale if batch <= 0 else stale[:batch]
     # **필요한 깊이를 데이터에서 계산한다.** US 수집은 KR과 달리 "최근 N봉"을 받으므로
     # (마지막 저장일을 안 본다) 고정 60봉이면 **공백이 60거래일을 넘는 순간 구멍이 영구히
@@ -4219,7 +4220,7 @@ def _refresh_us_prices_stale(batch: int = 60, *,
     if need > days:
         log.info("US 시세 공백이 깊어 %d봉을 받는다(기본 %d) — 대상 %d종목", depth, days, len(targets))
     try:
-        filled = store.fetch_us_prices(targets, days=depth)
+        received = store.fetch_us_prices(targets, days=depth)
     except Exception as e:
         try:
             _check_us_price_refresh(_kst_now(), targets, max_trading_days=max_trading_days,
@@ -4232,8 +4233,11 @@ def _refresh_us_prices_stale(batch: int = 60, *,
                                 reason="재시도 후 최신 종가 없음")
     except Exception as e:
         log.warning("미국 시세 긴급 알림 점검 실패: %s", type(e).__name__)
-    remain = 0 if batch <= 0 else max(0, len(stale) - batch)
-    return {"filled": filled, "stale": remain}
+    # 제공자가 오래된 봉만 돌려줘도 fetch_us_prices는 '성공 종목'으로 센다.
+    # 저장 후 마지막 봉으로 다시 판정해야 관리자 화면과 로그가 실제 복구를 말한다.
+    still_stale = set(store.us_prices_stale_tickers(universe, max_trading_days=max_trading_days))
+    return {"filled": len(set(targets) - still_stale), "stale": len(still_stale),
+            "received": received}
 
 
 def _about_targets_kr() -> list[dict]:
@@ -4322,7 +4326,8 @@ def _refresh_us(data: dict) -> dict:
         log.info("US 시세 증분 백필 %d종목(잔여 %s)", us_prices["filled"], us_prices["missing"])
         # 이미 채워진 종목의 stale 일봉도 같이 당긴다 — 백필만 하면 '다 있음'인데 날짜는 멈춘다.
         us_refresh = _refresh_us_prices_stale(int(data.get("us_price_refresh_batch") or 120))
-        log.info("US 시세 stale 갱신 %d종목(잔여 %s)", us_refresh["filled"], us_refresh["stale"])
+        log.info("US 시세 stale 갱신 %d종목(제공자 응답 %d, 잔여 %s)",
+                 us_refresh["filled"], us_refresh["received"], us_refresh["stale"])
         us_prices = {**us_prices, "refreshed": us_refresh["filled"],
                      "stale_remaining": us_refresh["stale"]}
         idx = gurus_ref.build_name_index(us_uni)  # 거장 보유종목(비 S&P500 포함) → 시세 수집(뱃지용, 스로틀)

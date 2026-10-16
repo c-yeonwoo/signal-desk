@@ -103,12 +103,16 @@ def test_stale_refresh_skips_fresh_and_respects_batch(monkeypatch):
     monkeypatch.setattr(api.store, "us_unconfirmed_price_tickers", lambda tickers=None: [])
     monkeypatch.setattr(api.store, "us_price_skips", lambda: {})
     monkeypatch.setattr(api.store, "us_price_deferred", lambda t, skip=None: False)
-    monkeypatch.setattr(api.store, "fetch_us_prices",
-                        lambda ts, days=60: (requested.append(list(ts)), len(ts))[1])
+    def fake_fetch(ts, days=60):
+        requested.append(list(ts))
+        last.update({t: "2026-08-07" for t in ts})
+        return len(ts)
+
+    monkeypatch.setattr(api.store, "fetch_us_prices", fake_fetch)
 
     out = api._refresh_us_prices_stale(batch=1)
     assert requested == [["MSFT"]]          # stale 중 앞에서 1개만
-    assert out == {"filled": 1, "stale": 1}  # GOOG 남음
+    assert out == {"filled": 1, "stale": 1, "received": 1}  # GOOG 남음
 
 
 def test_stale_refresh_noop_when_fresh(monkeypatch):
@@ -118,8 +122,19 @@ def test_stale_refresh_noop_when_fresh(monkeypatch):
     called = {"n": 0}
     monkeypatch.setattr(api.store, "fetch_us_prices",
                         lambda *a, **k: called.__setitem__("n", called["n"] + 1) or 0)
-    assert api._refresh_us_prices_stale(batch=50) == {"filled": 0, "stale": 0}
+    assert api._refresh_us_prices_stale(batch=50) == {"filled": 0, "stale": 0, "received": 0}
     assert called["n"] == 0
+
+
+def test_stale_refresh_reports_deferred_tickers_as_still_stale(monkeypatch):
+    monkeypatch.setattr(api, "_us_refresh_tickers", lambda: ["ZZTEST"])
+    monkeypatch.setattr(api.store, "us_prices_stale_tickers", lambda *a, **k: ["ZZTEST"])
+    monkeypatch.setattr(api.store, "us_price_skips", lambda: {"ZZTEST": {"fails": 3}})
+    monkeypatch.setattr(api.store, "us_price_deferred", lambda *a, **k: True)
+    monkeypatch.setattr(api.store, "fetch_us_prices", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("유예 중인 종목은 재요청하지 않는다")))
+
+    assert api._refresh_us_prices_stale() == {"filled": 0, "stale": 1, "received": 0}
 
 
 def test_fetch_us_prices_short_window_keeps_old_history(tmp_path, monkeypatch):
@@ -155,5 +170,5 @@ def test_stale_us_refresh_includes_a_holding_that_left_the_index(monkeypatch):
     monkeypatch.setattr(api.store, "us_prices_stale_tickers",
                         lambda tickers, **k: seen.append(list(tickers)) or [])
     monkeypatch.setattr(api.store, "us_price_skips", lambda: {})
-    assert api._refresh_us_prices_stale() == {"filled": 0, "stale": 0}
+    assert api._refresh_us_prices_stale() == {"filled": 0, "stale": 0, "received": 0}
     assert seen and seen[0] == ["AAA", "LEFT"]
