@@ -1848,6 +1848,13 @@
       </details>
     </div>
 
+    <details class="card" id="paper-order-gates" style="margin-top:16px" ontoggle="if(this.open) loadPaperOrderGates()">
+      <summary style="cursor:pointer;font-weight:700;font-size:15px">모의주문 가격 확인 <span style="color:var(--dim);font-weight:600;font-size:13px">· 최근 48시간의 체결·보류 기록</span></summary>
+      <p class="page-desc" style="margin:8px 0">장중 가격의 수신·원문 시각을 주문 직전에 확인한 기록입니다. 체결이 없거나 기록이 없으면 안전장치가 검증됐다는 뜻이 아닙니다.</p>
+      <button type="button" class="btn" onclick="loadPaperOrderGates()">기록 새로고침</button>
+      <div id="paper-order-gates-body" style="margin-top:8px;font-size:13px;line-height:1.6">펼치면 불러옵니다…</div>
+    </details>
+
     <details class="card" id="ops-collect-details" style="margin-top:16px">
       <summary style="cursor:pointer;font-weight:700;font-size:15px">고급 수동 데이터 작업 <span style="color:var(--dim);font-weight:600;font-size:13px">· 평소엔 자동 · 문제 확인 후에만</span></summary>
       <p class="page-desc" style="margin:10px 0 0">시세·재무·거시·유니버스를 한 번에 받습니다. 평소 자동 루프가 돌므로 거의 누르지 않습니다.</p>
@@ -8015,6 +8022,41 @@ async function loadEvidenceOps(force = false){
     }
   })();
   return _evidenceOpsPromise;
+}
+
+async function loadPaperOrderGates(){
+  const box = document.getElementById('paper-order-gates-body');
+  if (!box) return;
+  box.textContent = '최근 기록을 확인하는 중…';
+  try {
+    const res = await fetch('/api/admin/paper-order-gates');
+    if (!res.ok) throw new Error('조회 실패 (' + res.status + ')');
+    const data = await res.json();
+    const rows = ['kr', 'us'].map(market => {
+      const row = data.markets?.[market] || {};
+      const holds = row.holds || {};
+      const reasons = row.source_time_reasons || {};
+      const last = row.last_event;
+      const when = last?.ts ? new Date(Number(last.ts) * 1000).toLocaleString('ko-KR') : '기록 없음';
+      const reasonNames = {stale:'오래된 시각', different_session:'다른 거래일',
+        future:'미래 시각', unparseable:'시각 형식 오류', unknown:'이유 미기록'};
+      const sourceReasons = Object.entries(reasons).map(([key, count]) =>
+        `${esc(reasonNames[key] || key)} ${Number(count)}건`).join(' · ');
+      return `<div style="padding:8px 0;border-top:1px solid var(--line)"><b>${market === 'kr' ? '국내' : '미국'}</b> · 검사 기록이 있는 체결 ${Number(row.checked_fills || 0)}건`
+        + ` (수신 시각만 ${Number(row.receipt_only_fills || 0)} · 원문 시각도 확인 ${Number(row.source_time_observed_fills || 0)})`
+        + ` · 이전 방식 체결 ${Number(row.legacy_fills || 0)}건`
+        + `<br>가격 지연 보류 ${Number(holds.deferred_stale_quote || 0)} · 원문 시각 보류 ${Number(holds.deferred_source_time || 0)}`
+        + ` · 장 종료 보류 ${Number(holds.deferred_market_closed || 0)}`
+        + (sourceReasons ? `<br>원문 시각 보류 이유 · ${sourceReasons}` : '')
+        + `<br>마지막 기록 ${esc(when)}${last ? ` · 원장 #${Number(last.id)}` : ''}</div>`;
+    }).join('');
+    box.innerHTML = `<div>최근 ${Number(data.window_hours || 48)}시간 · 원장 ${Number(data.sampled_events || 0)}건`
+      + (data.truncated ? ' · 조회 상한에 도달해 건수는 일부입니다' : '')
+      + '</div>' + rows
+      + '<p class="page-desc" style="margin:6px 0 0">원문 시각을 읽었다고 실제 체결가격이 인증된 것은 아닙니다. 보류 뒤 재시도·Telegram 수신은 각 실행/전달 기록을 별도로 확인해야 합니다.</p>';
+  } catch (error) {
+    box.textContent = '가격 검사 기록을 읽지 못했습니다 · ' + error.message;
+  }
 }
 
 function evidenceOpsHtml(d){
