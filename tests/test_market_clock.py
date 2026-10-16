@@ -1,6 +1,9 @@
 """거래소 일정이 페이퍼 주문 루프의 단일 시간 게이트인지 검증."""
 
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Lock
+from time import sleep
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -10,6 +13,39 @@ from signal_desk import api, bot, db, market_clock
 
 KST = ZoneInfo("Asia/Seoul")
 NY = ZoneInfo("America/New_York")
+
+
+def test_first_calendar_build_is_serialized_across_requests(monkeypatch):
+    market_clock._calendar.cache_clear()
+    start = Barrier(2)
+    state_lock = Lock()
+    active = maximum = 0
+    calls = []
+
+    def build(name):
+        nonlocal active, maximum
+        with state_lock:
+            active += 1
+            maximum = max(maximum, active)
+        sleep(0.02)
+        with state_lock:
+            active -= 1
+            calls.append(name)
+        return name
+
+    monkeypatch.setattr(market_clock.xcals, "get_calendar", build)
+    try:
+        def request(name):
+            start.wait()
+            return market_clock._calendar(name)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(request, market) for market in ("kr", "us")]
+            assert [future.result() for future in futures] == ["XKRX", "XNYS"]
+        assert sorted(calls) == ["XKRX", "XNYS"]
+        assert maximum == 1
+    finally:
+        market_clock._calendar.cache_clear()
 
 
 def test_kr_holiday_is_closed_even_on_weekday():
