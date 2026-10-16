@@ -80,13 +80,15 @@ def symbol_variants(ticker: str) -> list[str]:
     return [f"{base}.{cls}", ticker, f"{base}{cls}", f"{base}/{cls}"]
 
 
-def _fetch_page(ticker: str, excd: str, creds: dict, bymd: str, retries: int = 3) -> list[dict] | None:
+def _fetch_page(ticker: str, excd: str, creds: dict, bymd: str, retries: int = 3,
+                *, adjusted: bool = True) -> list[dict] | None:
     """단일 페이지(≤100영업일) 조회. bymd='' 면 최신부터. 응답 output2 원자료 반환(None=오류).
 
     KIS 해외 시세는 간헐적 HTTP 500을 냄(실측 ~1/3 확률) — 짧은 백오프로 재시도한다."""
     for attempt in range(retries):
         body = kis._request(_PRICE_PATH, _PRICE_TR, creds,
-                            {"AUTH": "", "EXCD": excd, "SYMB": ticker, "GUBN": "0", "BYMD": bymd, "MODP": "1"})
+                            {"AUTH": "", "EXCD": excd, "SYMB": ticker, "GUBN": "0", "BYMD": bymd,
+                             "MODP": "1" if adjusted else "0"})
         if body and body.get("rt_cd") == "0":
             return body.get("output2") or []
         if body is None:  # HTTP 오류(500 등) — 재시도
