@@ -4448,6 +4448,7 @@ def market_brief_get(market: str = "kr"):
                                     "buy_threshold": sel["buy_threshold"],
                                     "rank_min_score": sel["rank_min_score"]}
     card["image_svg"] = market_brief_image.render(card)
+    card["image_scene_svg"] = market_brief_image.render(card, include_copy=False)
     return card
 
 
