@@ -625,6 +625,9 @@ def _bot_loop_iteration() -> None:
                 # (아침 브리핑은 나갔으므로 설정 문제가 아니었다). 이 레포가 반복해서 밟은
                 # "수집 코드가 있다고 갱신되는 건 아니다 — 아무도 안 부른 것"의 알림 판본이다.
                 _push_trades(mkt, result, uid)
+    # 체결이 0건이면 _push_trades는 곧바로 반환한다. 가격 부족으로 보류만 생긴
+    # 주기에도 알림함을 여기서 비워 다음 시세 루프까지 경고가 묶이지 않게 한다.
+    notify.drain()
     # 관심종목 시그널 변동 알림은 봇과 무관한 기능이다 — 대상은 '관심종목이 있는 유저'다.
     for uid in db.uids_with_ticker_favorites():
         try:
