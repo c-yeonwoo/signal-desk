@@ -79,7 +79,7 @@ def test_us_refresh_checks_failed_attempt_immediately(monkeypatch):
     monkeypatch.setattr(api, "_check_us_price_refresh",
                         lambda now, targets, **kwargs: checked.append((targets, kwargs)))
 
-    assert api._refresh_us_prices_stale(batch=1, max_trading_days=0) == {"filled": 0, "stale": 0}
+    assert api._refresh_us_prices_stale(batch=1, max_trading_days=0) == {"filled": 0, "stale": 1, "received": 0}
     assert checked == [(["AAPL"], {"max_trading_days": 0, "reason": "재시도 후 최신 종가 없음"})]
 
 
@@ -103,7 +103,9 @@ def test_us_refresh_alerts_even_when_provider_returns_old_bars(monkeypatch):
     monkeypatch.setattr(api.store, "fetch_us_prices", lambda tickers, days: 1)
     monkeypatch.setattr(api, "_check_us_price_refresh",
                         lambda now, targets, **kwargs: checked.append(targets))
-    assert api._refresh_us_prices_stale(batch=1, max_trading_days=0)["filled"] == 1
+    assert api._refresh_us_prices_stale(batch=1, max_trading_days=0) == {
+        "filled": 0, "stale": 1, "received": 1,
+    }
     assert checked == [["AAPL"]]
 
 
