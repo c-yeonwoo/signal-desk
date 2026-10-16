@@ -41,7 +41,8 @@ def _summary(episodes: list[dict], key: str) -> dict:
 
 
 def analyze(trades: list[dict], closes: dict[str, tuple[list[str], list[float | None]]],
-            *, market: str, now: dt.datetime | None = None) -> dict:
+            *, market: str, now: dt.datetime | None = None,
+            close_basis_verified: bool = False) -> dict:
     """Compare closed paper episodes without silently dropping price gaps.
 
     Mean returns are equal-weighted *episodes*, not a portfolio NAV. All arms
@@ -126,7 +127,11 @@ def analyze(trades: list[dict], closes: dict[str, tuple[list[str], list[float | 
                "h5_net_25bps_pct": None, "h20_net_25bps_pct": None,
                "h5_status": "unavailable", "h20_status": "unavailable"}
         series = closes.get(ticker)
-        if not series or len(series) != 2 or len(series[0]) != len(series[1]):
+        if not close_basis_verified:
+            for horizon in HORIZONS:
+                row[f"h{horizon}_status"] = "price_basis_unverified"
+                gaps[f"price_basis_unverified_h{horizon}"] += 1
+        elif not series or len(series) != 2 or len(series[0]) != len(series[1]):
             gaps["missing_or_misaligned_closes"] += 1
         elif series[0] != sorted(set(series[0])):
             gaps["invalid_close_dates"] += 1

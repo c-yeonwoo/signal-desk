@@ -98,6 +98,8 @@ def replay(trades: list[dict], closes: dict[str, tuple[list[str], list[float | N
         return _blocked("as_of_not_completed", latest_completed_session=latest)
     if as_of > DEVELOPMENT_END:
         return _blocked("protected_research_period", study_window_end=DEVELOPMENT_END)
+    if price_basis not in {"unadjusted_verified", "synthetic_unadjusted"}:
+        return _blocked("price_fill_basis_unverified", price_basis=price_basis)
     zone = ZoneInfo(_ZONES[market])
     ordered: list[dict] = []
     last_id, last_ts = -1, -1.0

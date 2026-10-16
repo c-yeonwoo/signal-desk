@@ -4,7 +4,7 @@ import datetime as dt
 from zoneinfo import ZoneInfo
 
 from signal_desk import market_clock
-from signal_desk.signals.paper_cash_replay import replay
+from signal_desk.signals.paper_cash_replay import replay as _engine_replay
 from signal_desk.signals.research_action_coverage import CoverageCertificate, SourceWindow
 from signal_desk.signals.research_daily_simulator import SETTLEMENT_REQUIRED_KINDS
 from signal_desk.signals.research_event_evidence import DailyEventEvidence, SettlementEvent
@@ -13,6 +13,11 @@ ZONE = ZoneInfo("Asia/Seoul")
 OBSERVED = dt.datetime(2026, 10, 15, tzinfo=dt.timezone.utc)
 HASH = "c" * 64
 SECURITY = "KR7005930003"
+
+
+def replay(*args, **kwargs):
+    kwargs.setdefault("price_basis", "synthetic_unadjusted")
+    return _engine_replay(*args, **kwargs)
 
 
 def _trade(id, side, qty, price, day="2026-07-14"):
@@ -183,6 +188,13 @@ def test_protected_registered_rows_cannot_enter_pure_development_replay():
                   as_of="2026-08-04", now=_now())["reason"] == "protected_research_period"
 
 
+def test_unknown_price_basis_blocks_cash_numbers_even_with_complete_closes():
+    out = _engine_replay([_trade(1, "buy", 1, 100)], _panel(), market="kr",
+                         seed_cash=1000, as_of="2026-07-14", now=_now())
+    assert out["reason"] == "price_fill_basis_unverified"
+    assert out["arms"] == {}
+
+
 def test_us_local_session_and_us_costs_are_separate_from_kr():
     first = "2026-07-14"
     second = market_clock.next_sessions("us", first, 1)[0]
@@ -235,10 +247,11 @@ def test_admin_replay_is_read_only_and_does_not_claim_certified_return(tmp_path,
     result = client.get("/api/admin/research/paper-cash-replay")
     assert result.status_code == 200
     body = result.json()
-    assert body["state"] == "complete"
-    assert body["arms"]["cash"]["nav"] == body["seed_cash"]
+    assert body["state"] == "blocked"
+    assert body["reason"] == "price_fill_basis_unverified"
+    assert body["arms"] == {}
     assert body["verified_total_return"] is None
-    assert body["action_certified"] is False
+    assert body["paper_account_reconciled"] is True
     assert body["study_window_end"] == "2026-08-04"
     assert body["excluded_protected_trade_rows"] == 0
     assert client.get("/api/admin/research/paper-cash-replay?market=bad").status_code == 422
@@ -281,7 +294,11 @@ def test_admin_policy_studies_exclude_registered_evaluation_rows(tmp_path, monke
         assert body["excluded_protected_trade_rows"] == 2
         assert body["study_window_end"] == "2026-08-04"
         if endpoint == "paper-cash-replay":
-            assert body["state"] == "complete"
-            assert body["journal_rows_used"] == 2
+            assert body["state"] == "blocked"
+            assert body["reason"] == "price_fill_basis_unverified"
+            assert body["development_journal_rows"] == 2
         else:
             assert body["journal_rows"] == 2
+            assert body["close_basis_state"] == "unverified_adjustment_provenance"
+            assert body["episodes"][0]["h5_net_25bps_pct"] is None
+            assert body["episodes"][0]["h20_net_25bps_pct"] is None
