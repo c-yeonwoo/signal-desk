@@ -28,10 +28,13 @@ def test_us_freshness_names_stale_tickers_with_a_bounded_preview(tmp_path, monke
     tickers = [f"T{i:02d}" for i in range(12)]
     monkeypatch.setattr(store, "us_price_last_dates", lambda: {t: "2026-10-02" for t in tickers})
     monkeypatch.setattr(store, "us_prices_stale_tickers", lambda _tickers: list(reversed(tickers)))
+    monkeypatch.setattr(store, "us_price_monitor_tickers", lambda: tickers)
     monkeypatch.setattr(store, "us_unconfirmed_price_tickers", lambda tickers=None: [])
     monkeypatch.setattr(store, "us_expected_last_bar", lambda: "2026-10-05")
     monkeypatch.setattr(store, "us_missing_trading_days", lambda *_args: [])
-    monkeypatch.setattr(store, "us_price_holes", lambda: {"ready": True, "holes_total": 0})
+    hole_targets = []
+    monkeypatch.setattr(store, "us_price_holes", lambda **kwargs: (
+        hole_targets.append(kwargs.get("tickers")), {"ready": True, "holes_total": 0})[1])
 
     freshness = store._us_prices_freshness()
 
@@ -41,6 +44,65 @@ def test_us_freshness_names_stale_tickers_with_a_bounded_preview(tmp_path, monke
     assert freshness["stale_tickers_omitted"] == 2
     assert "12/12종목 갱신 대상(T00, T01" in freshness["note"]
     assert "외 2종목" in freshness["note"]
+    assert hole_targets == [tickers]
+
+
+def test_us_freshness_ignores_old_index_exits_but_keeps_their_price_history(tmp_path, monkeypatch):
+    """편출 전 봉은 PIT용으로 남겨도 현재 가격 장애 분모에 넣지 않는다."""
+    path = tmp_path / "us_prices.parquet"
+    path.touch()
+    monkeypatch.setattr(store, "US_PRICES_FILE", path)
+    monkeypatch.setattr(store, "us_price_monitor_tickers", lambda: ["AAPL", "HELD"])
+    monkeypatch.setattr(store, "us_price_last_dates", lambda: {
+        "AAPL": "2026-10-15", "HELD": "2026-10-15", "OLD": "2026-09-18"})
+    monkeypatch.setattr(store, "us_unconfirmed_price_tickers", lambda tickers=None: [])
+    monkeypatch.setattr(store, "us_expected_last_bar", lambda: "2026-10-15")
+    monkeypatch.setattr(store, "us_price_holes", lambda **kwargs: {"ready": True, "holes_total": 0})
+    monkeypatch.setattr(store, "us_prices_stale_tickers", lambda tickers: [t for t in tickers if t == "OLD"])
+
+    freshness = store._us_prices_freshness()
+
+    assert freshness["stale"] is False and freshness["rows"] == 0
+    assert freshness["total"] == 2
+    assert freshness["historical_only_price_series"] == 1
+    assert "보존·지연 경고에서 제외" in freshness["note"]
+    assert path.exists(), "과거 봉 파일은 삭제하지 않는다"
+
+
+def test_us_freshness_keeps_an_ex_index_holding_in_the_alert(monkeypatch, tmp_path):
+    path = tmp_path / "us_prices.parquet"
+    path.touch()
+    monkeypatch.setattr(store, "US_PRICES_FILE", path)
+    monkeypatch.setattr(store, "load_us_universe", lambda: [{"ticker": "AAPL"}])
+    monkeypatch.setattr(api.db, "bot_positions_all", lambda uid, market: (
+        [{"ticker": "HELD"}] if uid == 900001 and market == "us" else []))
+    monkeypatch.setattr(store, "us_price_last_dates", lambda: {
+        "AAPL": "2026-10-15", "HELD": "2026-10-08", "OLD": "2026-09-18"})
+    monkeypatch.setattr(store, "us_unconfirmed_price_tickers", lambda tickers=None: [])
+    monkeypatch.setattr(store, "us_expected_last_bar", lambda: "2026-10-15")
+    monkeypatch.setattr(store, "us_price_holes", lambda **kwargs: {"ready": True, "holes_total": 0})
+    monkeypatch.setattr(store, "us_prices_stale_tickers", lambda tickers: [t for t in tickers if t != "AAPL"])
+
+    freshness = store._us_prices_freshness()
+
+    assert store.us_price_monitor_tickers() == ["AAPL", "HELD"]
+    assert api._us_refresh_tickers() == ["AAPL", "HELD"]
+    assert freshness["stale"] is True
+    assert freshness["stale_tickers"] == ["HELD"]
+    assert freshness["historical_only_price_series"] == 1
+
+
+def test_us_freshness_does_not_call_historical_prices_healthy_without_a_current_pool(monkeypatch, tmp_path):
+    path = tmp_path / "us_prices.parquet"
+    path.touch()
+    monkeypatch.setattr(store, "US_PRICES_FILE", path)
+    monkeypatch.setattr(store, "us_price_last_dates", lambda: {"OLD": "2026-10-15"})
+    monkeypatch.setattr(store, "us_price_monitor_tickers", lambda: [])
+
+    freshness = store._us_prices_freshness()
+
+    assert freshness["stale"] is True
+    assert "구성·레퍼런스 보유 목록" in freshness["note"]
 
 
 def test_missing_cache_asks_for_a_full_backfill(tmp_path, monkeypatch):
