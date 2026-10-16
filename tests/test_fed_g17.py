@@ -86,8 +86,22 @@ def test_read_only_card_separates_index_change_from_stock_advice(tmp_path, monke
     assert not card["strict_pit_eligible"] and not card["live_eligible"]
     assert "미국" in card["scope"] and "개별 종목" in card["note"]
     assert g17.describe(path, as_of="2026-10-02T00:00:00Z")["status"] == "not_recorded"
-    stale = g17.describe(path, as_of="2026-12-20T00:00:00Z")
+    stale = g17.describe(path, as_of="2026-11-23T00:00:00Z")
     assert stale["status"] == "stale" and stale["index"] == card["index"]
+    review = g17.describe(path, as_of="2026-12-20T00:00:00Z")
+    assert review["status"] == "unit_unverified" and "index" not in review
+
+
+def test_post_rebase_observation_hides_unverified_unit_and_numbers(tmp_path, monkeypatch):
+    path = tmp_path / "industry.db"
+    after_revision = dt.datetime(2026, 11, 25, 12, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(g17, "_now", lambda: after_revision.isoformat())
+    g17.archive(path, raw(), observed_at=after_revision.isoformat())
+    card = g17.describe(path, as_of=after_revision.isoformat())
+    assert card["status"] == "unit_unverified"
+    assert card["unit"] == "기준 연도 확인 전"
+    assert "index" not in card and "mom_pct" not in card and "yoy_pct" not in card
+    assert card["raw_sha256"]
 
 
 def test_weekly_retry_and_monthly_budget_survive_restart(tmp_path):
