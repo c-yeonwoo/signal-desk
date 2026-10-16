@@ -78,6 +78,7 @@ def test_signup_login_profile_flow(tmp_path, monkeypatch):
 def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     client = _fresh_client(tmp_path, monkeypatch)
     html = client.get("/").text
+    design_tokens = client.get("/design-tokens.css").text
     assert 'id="signal-trust"' in html
     assert "trust-badge" in html
     assert 'id="onboardDlg"' in html
@@ -186,10 +187,10 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     # 브랜드 hex를 리터럴로 못 박으면 팔레트를 바꿀 때마다 이 검사가 깨진다 — 값이 아니라
     # **규약**을 본다: 브랜드 스케일이 있고, 브랜드와 매수 semantic이 서로 다른 색이어야 한다
     # (2026-08-06 개편 전에는 H174 vs H156으로 18°밖에 안 떨어져 매수 신호가 브랜드에 묻혔다).
-    assert "--brand-500:" in html and "--brand-600:" in html
+    assert "--brand-500:" in design_tokens and "--brand-600:" in design_tokens
     assert "#4f46e5" not in html  # 구 인디고 잔재 금지
     # 참조되는데 정의가 없으면 색이 조용히 안 먹는다 — 별칭은 :root에 있어야 한다
-    root = html.split(":root {", 1)[1].split("}", 1)[0]
+    root = design_tokens.split(":root {", 1)[1].split("}", 1)[0]
     for alias in ("--sell:", "--warn:", "--down:", "--fg:", "--panel-2:", "--mono:"):
         assert alias in root, f"{alias} 미정의"
     assert 'data-cseg="study"' in html and 'id="subnav-study"' in html
