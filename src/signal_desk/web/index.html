@@ -3978,7 +3978,7 @@ async function loadIndustryPulse(){
     const stale = d.status === 'stale' ? ' · 자료 갱신 지연' : '';
     el.innerHTML = `<div class="ip-values"><span class="ip-index">${esc(fmtNum(d.index, 1))}</span>
       <span>전월 대비 ${esc(pct(d.mom_pct))}</span><span>전년 동월 대비 ${esc(pct(d.yoy_pct))}</span></div>
-      <div class="ip-meta">${esc(d.period)} · 2017=100 계절조정 · 미국 내 생산${stale} · ${esc(d.observed_at?.slice(0,10) || '')} 확인</div>
+      <div class="ip-meta">${esc(d.period)} · ${esc(d.unit)} · 미국 내 생산${stale} · ${esc(d.observed_at?.slice(0,10) || '')} 확인</div>
       <div class="ip-meta">${esc(d.note)} 수정 가능한 현행 통계이며 당시 발표값을 재현한 것은 아닙니다.</div>
       <a href="https://www.federalreserve.gov/releases/g17/download.htm" target="_blank" rel="noopener noreferrer">연준 원문·설명 보기 ↗</a>`;
   } catch (e) { el.textContent = '공식 산업 자료 상태를 표시할 수 없습니다.'; }

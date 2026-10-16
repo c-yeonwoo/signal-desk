@@ -26,6 +26,10 @@ SCHEMA = "fed-g17-g3344-v1"
 DEFAULT_ARCHIVE = Path("data/raw/fed-g17.db")
 MAX_BYTES = 5 * 1024 * 1024
 MAX_REQUESTS_PER_MONTH = 4
+# The Fed announced a 2022-base annual revision for this date. Until the
+# downloaded series' new unit is verified, do not render a numeric card on or
+# after the scheduled revision date as 2017=100, even from an older snapshot.
+UNIT_REVIEW_FROM = dt.date(2026, 11, 24)
 
 
 def _utc(value: str) -> dt.datetime:
@@ -160,6 +164,12 @@ def describe(path: Path, *, as_of: str) -> dict:
         return {**base, "status": "archive_error", "reason": "보존 기록을 검증할 수 없습니다."}
     if not item:
         return {**base, "status": "not_recorded", "reason": "아직 공식 생산지수 관측이 없습니다."}
+    if _utc(as_of).date() >= UNIT_REVIEW_FROM:
+        return {**base, "status": "unit_unverified", "unit": "기준 연도 확인 전",
+                "reason": "연준 기준 연도 변경 후 지수 단위를 확인하고 있습니다. 수치는 잠시 표시하지 않습니다.",
+                "observed_at": item["observed_at"], "available_at": item["available_at"],
+                "source_last_modified": item["source_last_modified"],
+                "source_published_at": None, "raw_sha256": item["raw_sha256"]}
     values = {row["period"]: float(row["value"]) for row in item["months"]}
     period = item["months"][-1]["period"]
     year, month = map(int, period.split("-"))
