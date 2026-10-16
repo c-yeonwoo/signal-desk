@@ -74,7 +74,7 @@ vm.runInContext(code,context);
   releaseKr();
   await Promise.all([first,second]);
   assert.equal(els['home-market'].textContent,'해외 · USD');
-  assert.equal(els['home-action-title'].textContent,'내 보유 입력·진단부터');
+  assert.equal(els['home-action-title'].textContent,'저장된 진단이 없습니다');
   assert.equal(els['home-paper-return'].textContent,'-3.00%');
   assert.equal(els['home-real-return'].textContent,'관측 없음');
   context.window.InvestmentHome.updateChange({ready:true,changes_total:3});
