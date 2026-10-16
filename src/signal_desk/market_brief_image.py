@@ -88,7 +88,7 @@ def render(card: dict, *, include_copy: bool = True) -> str:
         '<path d="M0 510 Q250 472 462 505 T900 493 T1200 508 V700H0Z" fill="url(#ground)"/>',
         '<path d="M0 545 Q260 515 505 550 T990 540 T1200 548" fill="none" stroke="#78A4A0" '
         'stroke-width="3" opacity=".28"/>',
-    ]
+    ])
     if direction == "up":
         svg.extend([
             '<path d="M95 415 Q260 385 420 405 M625 330 Q740 290 830 316" fill="none" '
