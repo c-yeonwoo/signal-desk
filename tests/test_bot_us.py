@@ -1,6 +1,7 @@
 """해외(US) 페이퍼 봇 — 시장 격리(KR/US 계좌·포지션 분리), USD 시드."""
 
 import json
+import time
 from types import SimpleNamespace
 
 from signal_desk import bot, db
@@ -23,7 +24,10 @@ def _setup(monkeypatch, **cfg):
     monkeypatch.setattr(bot, "us_signal_batch", lambda: (
         us_uni, {"AAPL": [200.0], "NVDA": [120.0]},
         [_sig("AAPL", "Apple", "BUY", 2.0), _sig("NVDA", "Nvidia", "BUY", 1.8)],
-        {}, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
+        {}, {"quotes": {"AAPL": 200.0, "NVDA": 120.0},
+             "quote_updated": {"AAPL": time.time(), "NVDA": time.time()},
+             "quote_meta": {"AAPL": {"observation_id": "test-AAPL"},
+                            "NVDA": {"observation_id": "test-NVDA"}}}))
     monkeypatch.setattr(bot, "_cfg", lambda uid: {
         "enabled": True, "trading_style": "balanced", "seed_cash": 10_000_000, "seed_cash_us": 10_000,
         "max_positions": 10, "position_pct": 0.08, "min_buy_score": 1.0, "max_new_buys_per_run": 5, **cfg})
