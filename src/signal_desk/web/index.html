@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<link rel="stylesheet" href="./design-tokens.css" />
 <title>Signal Desk</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 72 72'%3E%3Crect width='72' height='72' rx='14' fill='%230B1220'/%3E%3Crect x='16' y='42' width='11' height='18' rx='2' fill='%23F3F1EC'/%3E%3Crect x='30' y='30' width='11' height='30' rx='2' fill='%23F3F1EC'/%3E%3Crect x='44' y='20' width='11' height='40' rx='2' fill='%23F3F1EC'/%3E%3Cpolyline points='11,46 30,36 46,26 60,14' fill='none' stroke='%230B8F5A' stroke-width='4'/%3E%3Ccircle cx='60' cy='14' r='6' fill='%230B8F5A'/%3E%3C/svg%3E" />
 <!-- 홈 화면 아이콘(PWA). 앱은 이미 모바일 브라우저로 열리고, 여기 있는 건 껍데기뿐이다 —
@@ -21,60 +22,11 @@
 <link rel="stylesheet" href="./investment.css" />
 <script src="./investment.js"></script>
 <style>
-  :root {
-    /* ── Signal Desk — Neutral Desk + Signal Teal (2026-08-06 개편) ──
-       개편 전 진단(수치): 유채색이 전부 극단 명도(브랜드·매수 L16~31%, 배경·라인 L81~95%)라
-       중간 명도에 색이 없었고, 브랜드(H174)와 매수(H156)가 18°밖에 안 떨어져 매수 신호가
-       브랜드에 묻혔다. 배경은 웜 베이지(H40)인데 브랜드는 쿨 청록(H174) — 거의 보색이라
-       서로를 탁하게 만들었다. 그래서 "대비는 있는데 색이 없는" 화면이었다.
-       고친 방향: 배경을 중성 회청(H210)으로, 브랜드를 진수 청록(H190 L34%)으로 밝히고,
-       매수(H156)와 34° 벌린다. 의미 색(매수 녹·매도 적)은 유지한다. */
-    /* Brand (CTA·선택만). 매수/매도 semantic과 분리 */
-    /* 인디고 램프(2026-08-06). 청록 #0E8C9E(L34)는 `--accent`(버튼 배경 26곳)와 텍스트를
-     **겸업**하면서 흰 글자 대비가 3.98로 이미 미달이었다 — 밝히면 더 깨지고 어둡게 두면 칙칙해서
-     빠져나갈 수 없었다. 인디고는 **같은 명도에서 휘도가 낮아** L50·S72에서도 흰 글자 7.65다.
-     값을 바꿀 때는 하드코딩된 옛 값도 같이 옮긴다(이 파일 JS 리터럴 13곳). */
-  --brand-50:#ECEEFE; --brand-100:#D5DAFB; --brand-500:#243CDB; --brand-600:#1F34BD; --brand-700:#1B2B98;
-    --accent:var(--brand-500); --accent-hover:var(--brand-600); --accent-ink:#fff;
-    --accent-weak:var(--brand-50); --ring:rgba(36,60,219,.26);
-    /* Neutrals — 중성 회청. 웜 베이지를 버려 브랜드와 밑도 충돌을 없앤다 */
-    --bg:#F7F8FA; --panel:#ffffff; --line:#E3E7ED; --line-strong:#CBD2DC;
-    --txt:#151A22; --dim:#5f6775; --dim-2:#949aa6;
-    /* Semantic — 매매 방향. 매도는 L46→50%로 살짝 밝혀 검정 느낌을 뺀다 */
-    /* 초록은 휘도가 높아 **L27을 넘으면 텍스트·흰글자 대비 둘 다 실패**한다(L30에서 4.22/4.48).
-     그래서 "매수를 밝게"는 WCAG AA 안에서 불가능하다 — L은 그대로 두고 **채도만** 올려
-     선명하게 한다(S78→88, 대비 4.98→4.63으로 여전히 통과). 매도도 S54→66.
-     빨강은 휘도가 낮아 L48에서도 4.97이라 밝게 둘 수 있다 — 이 비대칭은 물리다. */
-  --sig-buy:#088151; --sig-sell:#CB2F2A; --sig-neutral:#949aa6;
-  /* 강한 단계 — 배지는 흰 글자 배경이라 대비 4.5 필수. 4단계를 명도로 가른다(20/27 · 33/48). */
-  --sig-buy-strong:#04623C; --sig-sell-strong:#911C18;
-    /* **자기 참조였다**(`--sig-watch:var(--sig-watch)`) — CSS 순환 참조는 무효값이 되어
-       이 토큰과 이걸 쓰는 `--warn`·`--c-ma60`이 전부 무색으로 렌더됐다. 실제 값을 준다. */
-    --sig-watch:#D97706;
-    --sig-strong:#0B6B45;
-    /* alias — 예전 이름으로 참조하는 곳이 많다. 미정의로 두면 색이 조용히 안 먹는다 */
-    --sell:var(--sig-sell); --buy:var(--sig-buy); --warn:var(--sig-watch); --down:var(--sig-sell);
-    --fg:var(--txt); --panel-2:var(--bg);
-    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
-    /* Chart — 좌=점수 · 우=가격. 브랜드 톤 안에서 서로 구분되게(기본 팔레트를 쓰지 않는다) */
-    --c-price:#1a2233; --c-ma20:#243CDB; --c-ma60:var(--sig-watch); --c-ma120:#CB2F2A;
-    --c-rsi:#8a93a3; --c-score:#088151;
-    /* Type — 최소 11px. 10px 이하는 '정보가 많아 보이는' 착시일 뿐 읽히지 않는다 */
-    --fs-2xs:11px; --fs-xs:12px; --fs-sm:13px; --fs-base:14px; --fs-md:15px; --fs-lg:17px; --fs-xl:21px; --fs-2xl:27px;
-    --lh-tight:1.35; --lh:1.55;
-    --r-sm:6px; --r-md:8px; --r-lg:12px; --r-pill:999px;
-    --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px; --space-6:32px;
-    /* 테두리로 이미 면을 나눴으면 그림자는 거의 없어도 된다 — 둘 다 세면 싸구려로 보인다 */
-    --shadow-sm:0 1px 1px rgba(21,26,34,.03);
-    --shadow:0 6px 18px rgba(21,26,34,.07);
-    --safe-bottom:env(safe-area-inset-bottom, 0px);
-    --safe-right:env(safe-area-inset-right, 0px);
-  }
   * { box-sizing:border-box; }
   /* sticky footer 셸: body는 최소 뷰포트, 콘텐츠 길면 늘어남. height:100% 고정 금지(관리자 긴 문서에서 footer 깨짐). */
   html { height:100%; overflow-x:clip; }
   body { margin:0; min-height:100%; min-height:100vh; height:auto;
-         font:15px/1.55 "Pretendard",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;
+         font:16px/1.6 "Pretendard",-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo",sans-serif;
          background:var(--bg); color:var(--txt); display:flex; flex-direction:column;
          overflow-x:clip; -webkit-font-smoothing:antialiased; }
   select, input[type=number], input[type=text], input[type=email], input[type=password], .ctrl {
@@ -250,7 +202,7 @@
   .ew-step { display:flex; align-items:center; gap:8px; padding:7px 11px; border-radius:999px;
     background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); font-size:13px; font-weight:600; }
   .ew-step .n { width:18px; height:18px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
-    background:#088151; color:#fff; font-size:11px; font-weight:700; }
+    background:var(--sig-buy); color:#fff; font-size:11px; font-weight:700; }
   .ew-step.muted { opacity:.55; }
   .ew-disc { margin:0 0 14px; padding:10px 12px; border-radius:var(--r-md); border:1px solid #fed7aa;
     background:#fff7ed; color:#9a3412; font-size:13px; line-height:1.5; }
@@ -704,6 +656,9 @@
   .sig-explore { margin:0 12px 10px; border:1px solid var(--line); border-radius:var(--r-md); }
   .sig-explore > summary { padding:9px 11px; cursor:pointer; color:var(--accent); font-size:13px; font-weight:700; }
   .sig-explore-body { padding:0 10px 10px; }
+  .sig-extra { border-top:1px solid var(--line); padding:9px 2px; }
+  .sig-extra > summary { min-height:36px; display:flex; align-items:center; cursor:pointer; color:var(--dim); font-size:14px; font-weight:650; }
+  .sig-extra[open] > summary { color:var(--txt); margin-bottom:6px; }
   .alert-bell-ico { display:inline-flex; align-items:center; line-height:0; }
 
   /* 반응형: 좁은 화면에서 워크스페이스를 세로로 쌓음 */
@@ -1075,19 +1030,6 @@
   </div>
   <div id="view-signal" class="view-app" style="display:none">
     <details id="signal-trust" ontoggle="if(this.open) loadScorecard()"><summary id="signal-trust-sum">시그널 검증</summary><div class="trust-body" id="signal-trust-body"></div></details>
-    <details class="card" id="signal-context-links" style="margin:10px 0">
-      <summary style="cursor:pointer;font-weight:700">종목을 더 이해하기 · 산업 연결과 투자 공부</summary>
-      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
-        <button type="button" class="btn" onclick="openCycleContext('vc')">산업 연결고리</button>
-        <button type="button" class="btn" onclick="openCycleContext('learn')">지표·용어</button>
-        <button type="button" class="btn" onclick="openCycleContext('guru')">거장 포트폴리오</button>
-        <button type="button" class="btn" onclick="openCycleContext('etf')">ETF 알아보기</button>
-      </div>
-    </details>
-    <details class="card" id="intraday-opportunity-public" style="margin:10px 0" ontoggle="if(this.open) loadIntradayOpportunityPublic()">
-      <summary style="cursor:pointer;font-weight:700">장중 크게 움직인 종목 <span style="font-size:12px;color:var(--dim)">· 원인 확인용, 매수 추천 아님</span></summary>
-      <div id="intraday-opportunity-public-body" class="placeholder" style="padding:10px 0">펼치면 최근 1시간을 확인합니다.</div>
-    </details>
     <div id="signal-explore-slot"></div>
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
@@ -1110,6 +1052,20 @@
         <details id="sig-explore" class="sig-explore" ontoggle="if(this.open) openSignalExplore()">
           <summary>상세 탐색 <span id="screen-count" style="color:var(--dim);font-weight:600"></span></summary>
           <div class="sig-explore-body">
+        <details id="signal-context-links" class="sig-extra">
+          <summary>산업·투자 공부</summary>
+          <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
+            <button type="button" class="btn" onclick="openCycleContext('vc')">산업 연결고리</button>
+            <button type="button" class="btn" onclick="openCycleContext('learn')">지표·용어</button>
+            <button type="button" class="btn" onclick="openCycleContext('guru')">거장 포트폴리오</button>
+            <button type="button" class="btn" onclick="openCycleContext('etf')">ETF 알아보기</button>
+          </div>
+        </details>
+        <details class="sig-extra" id="intraday-opportunity-public" ontoggle="if(this.open) loadIntradayOpportunityPublic()">
+          <summary>장중 크게 움직인 종목 · 관찰용</summary>
+          <p class="page-desc">움직임을 확인하기 위한 목록이며 매수 추천이 아닙니다.</p>
+          <div id="intraday-opportunity-public-body" class="placeholder" style="padding:10px 0">펼치면 최근 1시간을 확인합니다.</div>
+        </details>
         <details id="sig-screener" open>
           <summary>조건 검색 · 저장한 조건</summary>
           <div class="screen-body">
@@ -4859,7 +4815,7 @@ function selectSignalRow(ticker){
 // (L40. 초록은 휘도가 높아 L27을 넘으면 흰 글자가 안 읽힌다 — `--sig-buy` 주석 참고).
 const _ZONE_TOKEN = { STRONG_BUY: '--sig-buy-strong', BUY: '--sig-buy',
                       SELL: '--sig-sell', STRONG_SELL: '--sig-sell-strong' };
-const _ZONE_FALLBACK = { STRONG_BUY: '#04623C', BUY: '#088151',
+const _ZONE_FALLBACK = { STRONG_BUY: '#04623C', BUY: '#0B7655',
                          SELL: '#CB2F2A', STRONG_SELL: '#911C18' };
 let _zoneColorCache = null;
 function zoneColor(kind) {
