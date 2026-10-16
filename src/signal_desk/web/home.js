@@ -40,19 +40,19 @@ window.InvestmentHome = (() => {
   }
   function action(d) {
     if (!d || !d.ready) {
-      put('home-action-title','내 보유 입력·진단부터');
-      put('home-action-why','저장된 진단이 없어 오늘의 개인별 매매 행동을 판단할 수 없습니다.');
-      put('home-action-meta','주문 제안 없음 · 먼저 보유와 현금을 확인하세요.');
+      put('home-action-title','저장된 진단이 없습니다');
+      put('home-action-why','이 기록은 과거 분석 결과를 보여줍니다. 현재 계좌 판단은 위의 실계좌 보유와 분석용 입력을 확인하세요.');
+      put('home-action-meta','과거 기록 · 현재 매매 제안 아님');
       put('home-asof','진단 가격 기준시각 없음');
       put('home-action-link','보유 진단으로');
       return;
     }
     if (d.inputs_match !== true) {
-      put('home-action-title', d.inputs_match === false ? '진단 뒤 입력이 바뀌었어요' : '진단 당시 입력을 확인할 수 없어요');
+      put('home-action-title', d.inputs_match === false ? '지난 진단은 현재 입력과 달라요' : '지난 진단은 현재 보유와 비교할 수 없어요');
       put('home-action-why', d.inputs_match === false
-        ? '보유 종목·수량·평단가 또는 현금·투자 한도가 진단 뒤 달라졌습니다. 이전 결과는 현재 상태에 대한 안내가 아닙니다.'
-        : '저장된 진단에 당시 입력 비교 기록이 없습니다. 현재 보유와 한도를 다시 분석해 주세요.');
-      put('home-action-meta','현재 상태에 대한 매매 제안 없음 · 다시 진단 필요');
+        ? '보유 종목·수량·평단가나 현금·한도가 진단 뒤 바뀌었습니다. 이 결과를 현재 계좌 판단에 사용하지 마세요.'
+        : '저장 당시 입력 기록이 없어 지금 보유와 대조할 수 없습니다. 현재 보유를 확인한 뒤 새로 진단해 주세요.');
+      put('home-action-meta','과거 분석 결과 · 현재 매매 제안 아님');
       put('home-asof',`저장 진단 ${date(d.created)} · 가격 기준 ${d.price_asof_range?.first || '미확인'}${d.price_asof_range?.last && d.price_asof_range.last !== d.price_asof_range.first ? `~${d.price_asof_range.last}` : ''}`);
       put('home-action-link','입력 확인 후 다시 진단');
       return;
@@ -64,7 +64,7 @@ window.InvestmentHome = (() => {
     const priceStamp = prices ? (prices.first === prices.last ? prices.last : `${prices.first}~${prices.last}`) : '미확인';
     put('home-asof',`가격 기준 ${priceStamp} · 진단 저장 ${date(d.created)} · ${quality}`);
     if (!g) {
-      put('home-action-title','추가 행동 판단 보류');
+      put('home-action-title','지난 진단에 확인할 항목이 없어요');
       put('home-action-why','저장된 진단에 행동 항목이 없습니다. 새 입력으로 다시 확인하세요.');
     } else {
       const old = d.created
