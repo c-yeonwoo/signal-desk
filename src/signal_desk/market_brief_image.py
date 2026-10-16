@@ -30,8 +30,8 @@ def _count(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
-def render(card: dict) -> str:
-    """Render observed direction as atmosphere, with no prediction or model call."""
+def render(card: dict, *, include_copy: bool = True) -> str:
+    """Render one observed market snapshot as a share poster or a quiet page scene."""
     market = "해외" if card.get("market") == "us" else "국내"
     fresh = card.get("status") in {"ready", "partial"}
     scene = card.get("scene") or {}
@@ -59,10 +59,17 @@ def render(card: dict) -> str:
                       "매수 판정 건수 보류 · 가격 또는 판정 시각 확인 전")
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" '
-        f'viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-labelledby="title desc" data-scene="{direction}">',
-        f'<title id="title">{_e(market)} 시장 한 장 요약: {_e(title)}</title>',
-        f'<desc id="desc">{_e(date_label)}로 확인한 관찰 종목의 장면입니다. '
-        f'{_e(card.get("summary"))} 다음 가격 예측이 아닙니다.</desc>',
+        f'viewBox="0 0 {WIDTH} {HEIGHT}" data-scene="{direction}" '
+        + ('role="img" aria-labelledby="title desc">' if include_copy
+           else 'aria-hidden="true" focusable="false">'),
+    ]
+    if include_copy:
+        svg.extend([
+            f'<title id="title">{_e(market)} 시장 한 장 요약: {_e(title)}</title>',
+            f'<desc id="desc">{_e(date_label)}로 확인한 관찰 종목의 장면입니다. '
+            f'{_e(card.get("summary"))} 다음 가격 예측이 아닙니다.</desc>',
+        ])
+    svg.extend([
         '<defs>',
         f'<linearGradient id="sky" x2="0" y2="1"><stop stop-color="{sky}"/>'
         f'<stop offset="1" stop-color="{horizon}"/></linearGradient>',
@@ -108,42 +115,41 @@ def render(card: dict) -> str:
             '<path d="M0 310 Q150 263 300 316 T620 308 T900 315 T1200 300" fill="none" '
             'stroke="#E2E8E8" stroke-width="38" opacity=".30"/>',
         ])
-    svg.extend([
-        '<rect x="42" y="34" width="1116" height="110" rx="18" fill="#0A1D2B" opacity=".82"/>',
-        f'<text x="68" y="76" fill="{accent}" font-size="19" font-weight="700" {FONT}>'
-        'SIGNAL DESK · 거래일 시장 요약</text>',
-        f'<text x="68" y="122" fill="#FFFFFF" font-size="36" font-weight="800" {FONT}>{_e(title)}</text>',
-        f'<text x="1130" y="77" text-anchor="end" fill="#D3E0E3" font-size="21" {FONT}>'
-        f'{_e(market)} · {_e(date_label)}</text>',
-        '<rect x="42" y="488" width="1116" height="168" rx="20" fill="#0A1D2B" opacity=".91"/>',
-    ])
-    if direction != "unknown":
-        svg.append(f'<text x="68" y="532" fill="#F3F7F6" font-size="25" font-weight="700" {FONT}>'
-                   f'해당일 비교 {compared}/{universe}종목 · 상승 {up} · 하락 {down} · 보합 {flat}</text>')
-    else:
-        expected = card.get("expected_as_of") or "미확인"
-        svg.append(f'<text x="68" y="532" fill="#F3F7F6" font-size="24" font-weight="700" {FONT}>'
-                   f'오래된 가격이나 부족한 자료로 시장 상태를 판단하지 않아요 · 최근 완료 {_e(expected)}</text>')
-    sectors = scene.get("sectors") if direction != "unknown" and card.get("market") == "kr" else None
-    labels = []
-    if isinstance(sectors, list):
-        for sector in sectors[:2]:
-            if not isinstance(sector, dict):
-                continue
-            change = sector.get("median_change_pct")
-            if (not isinstance(change, (int, float)) or isinstance(change, bool)
-                    or not math.isfinite(change)):
-                continue
-            label = str(sector.get("sector") or "")
-            label = label if len(label) <= 12 else label[:11] + "…"
-            labels.append(f"{label} {change:+.2f}%")
-    svg.append(f'<text x="68" y="574" fill="#C9DBDE" font-size="21" {FONT}>'
-               f'{_e(" · ".join(labels) if labels else "업종별 비교는 아직 확인 중")}</text>')
-    svg.append(f'<text x="68" y="617" fill="{accent}" font-size="20" font-weight="700" {FONT}>'
-               f'{_e(selection_text)}</text>')
-    svg.extend([
-        f'<text x="44" y="685" fill="#D7E3E4" font-size="17" {FONT}>'
-        '관찰 종목 기준 · 종가로 확인한 과거만 표현 · 다음 가격 예측 아님</text>',
-        '</g></svg>',
-    ])
+    if include_copy:
+        svg.extend([
+            '<rect x="42" y="34" width="1116" height="110" rx="18" fill="#0A1D2B" opacity=".82"/>',
+            f'<text x="68" y="76" fill="{accent}" font-size="19" font-weight="700" {FONT}>'
+            'SIGNAL DESK · 거래일 시장 요약</text>',
+            f'<text x="68" y="122" fill="#FFFFFF" font-size="36" font-weight="800" {FONT}>{_e(title)}</text>',
+            f'<text x="1130" y="77" text-anchor="end" fill="#D3E0E3" font-size="21" {FONT}>'
+            f'{_e(market)} · {_e(date_label)}</text>',
+            '<rect x="42" y="488" width="1116" height="168" rx="20" fill="#0A1D2B" opacity=".91"/>',
+        ])
+        if direction != "unknown":
+            svg.append(f'<text x="68" y="532" fill="#F3F7F6" font-size="25" font-weight="700" {FONT}>'
+                       f'해당일 비교 {compared}/{universe}종목 · 상승 {up} · 하락 {down} · 보합 {flat}</text>')
+        else:
+            expected = card.get("expected_as_of") or "미확인"
+            svg.append(f'<text x="68" y="532" fill="#F3F7F6" font-size="24" font-weight="700" {FONT}>'
+                       f'오래된 가격이나 부족한 자료로 시장 상태를 판단하지 않아요 · 최근 완료 {_e(expected)}</text>')
+        sectors = scene.get("sectors") if direction != "unknown" and card.get("market") == "kr" else None
+        labels = []
+        if isinstance(sectors, list):
+            for sector in sectors[:2]:
+                if not isinstance(sector, dict):
+                    continue
+                change = sector.get("median_change_pct")
+                if (not isinstance(change, (int, float)) or isinstance(change, bool)
+                        or not math.isfinite(change)):
+                    continue
+                label = str(sector.get("sector") or "")
+                label = label if len(label) <= 12 else label[:11] + "…"
+                labels.append(f"{label} {change:+.2f}%")
+        svg.append(f'<text x="68" y="574" fill="#C9DBDE" font-size="21" {FONT}>'
+                   f'{_e(" · ".join(labels) if labels else "업종별 비교는 아직 확인 중")}</text>')
+        svg.append(f'<text x="68" y="617" fill="{accent}" font-size="20" font-weight="700" {FONT}>'
+                   f'{_e(selection_text)}</text>')
+        svg.append(f'<text x="44" y="685" fill="#D7E3E4" font-size="17" {FONT}>'
+                   '관찰 종목 기준 · 종가로 확인한 과거만 표현 · 다음 가격 예측 아님</text>')
+    svg.extend(['</g></svg>'])
     return "".join(svg)
