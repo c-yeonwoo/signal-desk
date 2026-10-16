@@ -17,6 +17,8 @@ def _sig(t, n, kind, score=0.0):
 
 
 def _setup(monkeypatch, **cfg):
+    # Account-isolation tests exercise an open US session regardless of CI wall time.
+    monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: True)
     us_uni = [{"ticker": "AAPL", "name": "Apple"}, {"ticker": "NVDA", "name": "Nvidia"}]
     monkeypatch.setattr(bot.store, "load_us_universe", lambda: us_uni)
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: {"AAPL": [200.0], "NVDA": [120.0]})
