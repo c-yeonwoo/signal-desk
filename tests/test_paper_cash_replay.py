@@ -252,6 +252,8 @@ def test_admin_replay_is_read_only_and_does_not_claim_certified_return(tmp_path,
     assert body["arms"] == {}
     assert body["verified_total_return"] is None
     assert body["paper_account_reconciled"] is True
+    assert body["fill_price_provenance"]["state"] == "no_fills"
+    assert body["fill_price_provenance"]["price_basis_verified"] is False
     assert body["study_window_end"] == "2026-08-04"
     assert body["excluded_protected_trade_rows"] == 0
     assert client.get("/api/admin/research/paper-cash-replay?market=bad").status_code == 422
@@ -259,6 +261,7 @@ def test_admin_replay_is_read_only_and_does_not_claim_certified_return(tmp_path,
     blocked = client.get("/api/admin/research/paper-cash-replay").json()
     assert blocked["reason"] == "paper_account_not_reconciled"
     assert blocked["arms"] == {}
+    assert blocked["fill_price_provenance"]["state"] == "no_fills"
 
 
 def test_admin_policy_studies_exclude_registered_evaluation_rows(tmp_path, monkeypatch):

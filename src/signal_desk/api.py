@@ -45,7 +45,7 @@ from signal_desk import (
 from signal_desk.reference import (cycle, etfs as etfs_ref, glossary, guru_screens, gurus as gurus_ref,
                                     quant_methods, sectors, us_ko, valuechain)
 from signal_desk.signals import (
-    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate, full_trade_attribution, paper_cash_replay, paper_policy_counterfactual,
+    accuracy, climate, crowding, desk_report, entry_quality, episode_state, execution_audit, execution_cost_shadow, execution_gate, execution_price_provenance, full_trade_attribution, paper_cash_replay, paper_policy_counterfactual,
     portfolio_candidates, portfolio_audit, portfolio_counterfactual, portfolio_reference_shadow, rotation_shadow, rotation_verdict, price_baseline_shadow, price_baseline_verdict, price_quality_shadow, price_quality_verdict,
     meta_entry, portfolio_construction, portfolio_decision, portfolio_intelligence, portfolio_outcomes, portfolio_risk, portfolio_trade_plan,
     daily_change, flow_shock_study, goal_plan, hypo_score,
@@ -5664,6 +5664,8 @@ def paper_cash_replay_get(request: Request, style: str = "balanced", market: str
     if uid is None:
         raise HTTPException(status_code=422, detail="unknown style")
     journal = db.bot_trade_audit_snapshot(uid, market)
+    provenance = execution_price_provenance.summarize(
+        journal["events"], filled_events_total=journal["filled_event_total"])
     book = full_trade_attribution.analyze(
         journal["trades"], seed_cash=journal["seed_cash"], account=journal["account"])
     if not book["account_reconciled"]:
@@ -5671,13 +5673,13 @@ def paper_cash_replay_get(request: Request, style: str = "balanced", market: str
                 "state": "blocked", "reason": "paper_account_not_reconciled",
                 "position_mismatches": book["position_mismatches"],
                 "account_minus_proxy": book["account_minus_proxy"],
-                "verified_total_return": None, "arms": {}}
+                "verified_total_return": None, "arms": {}, "fill_price_provenance": provenance}
     try:
         development_trades = _paper_development_trades(journal["trades"], market)
     except (TypeError, ValueError, OverflowError, OSError):
         return {"style": style, "market": market, "state": "blocked",
                 "reason": "invalid_journal_timestamp", "verified_total_return": None,
-                "arms": {}}
+                "arms": {}, "fill_price_provenance": provenance}
     # Never mix actual fill prices with the legacy daily cache. The cache has
     # no row-level adjustment/source evidence and may contain adjusted bars.
     # The pure replayer stays available for explicitly proven research input.
@@ -5689,6 +5691,7 @@ def paper_cash_replay_get(request: Request, style: str = "balanced", market: str
             "paper_account_reconciled": True,
             "study_window_end": paper_cash_replay.DEVELOPMENT_END,
             "excluded_protected_trade_rows": len(journal["trades"]) - len(development_trades),
+            "fill_price_provenance": provenance,
             **result}
 
 
