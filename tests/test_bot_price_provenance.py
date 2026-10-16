@@ -14,6 +14,7 @@ def test_execution_price_evidence_links_matching_fresh_intraday_quote(monkeypatc
             "quote_meta": {"005930": {
                 "observation_id": "quote-1", "provider": "toss",
                 "source_timestamp": "2026-10-07T09:01:00+09:00",
+                "source_timestamp_field": "timestamp",
                 "source_time_verified": False,
             }},
         },
@@ -27,6 +28,7 @@ def test_execution_price_evidence_links_matching_fresh_intraday_quote(monkeypatc
         "price_provider": "toss",
         "price_received_at": 1000.0,
         "price_source_timestamp": "2026-10-07T09:01:00+09:00",
+        "price_source_timestamp_field": "timestamp",
         "price_source_time_verified": False,
     }
 

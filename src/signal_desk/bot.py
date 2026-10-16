@@ -168,7 +168,7 @@ def _execution_price_evidence(market: str, ticker: str, price: float, *,
     """봇 주문이 참조한 가격이 일봉 종가인지 잠정 현재가인지 감사용으로 남긴다.
 
     출처의 거래소 시각이 검증되지 않았더라도 서버 수신 관측과 혼동하지 않도록 별도 필드로 둔다.
-    이 메타데이터는 체결 참조를 설명할 뿐 시그널·주문 자격을 바꾸지 않는다.
+    모의 주문은 이 원문 시각과 서버 수신 시각을 주문 직전 재검사한다.
     """
     now = float(quote_snapshot.get("captured_at") or time.time()) if now is None else float(now)
     quote = (quote_snapshot.get("quotes") or {}).get(ticker)
@@ -189,6 +189,7 @@ def _execution_price_evidence(market: str, ticker: str, price: float, *,
         "price_provider": metadata.get("provider") if matches else None,
         "price_received_at": received_at if matches else None,
         "price_source_timestamp": metadata.get("source_timestamp") if matches else None,
+        "price_source_timestamp_field": metadata.get("source_timestamp_field") if matches else None,
         "price_source_time_verified": bool(metadata.get("source_time_verified")) if matches else None,
     }
 
@@ -1613,7 +1614,7 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
             paper.defer_bot_order(uid, r["ticker"], "buy", market=market,
                                   reason="RESERVATION", price=price,
                                   evidence=price_evidence, name=r["name"])
-            hold_status = paper.bot_order_hold_status(market)
+            hold_status = paper.bot_order_hold_status(market, price_evidence)
             executed.append({"ticker": r["ticker"], "name": r["name"],
                              "status": hold_status,
                              "note": "다음 정규장에 재시도" if hold_status == "deferred_market_closed"
@@ -1669,7 +1670,7 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                                  "fill_price": filled, "target_price": r["target_price"]})
             else:
                 if not paper.bot_order_quote_ready(market, price_evidence):
-                    hold_status = paper.bot_order_hold_status(market)
+                    hold_status = paper.bot_order_hold_status(market, price_evidence)
                     executed.append({"ticker": r["ticker"], "name": r["name"],
                                      "status": hold_status,
                                      "note": "다음 정규장에 재시도" if hold_status == "deferred_market_closed"

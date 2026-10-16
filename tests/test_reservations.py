@@ -79,6 +79,23 @@ def test_reservation_waits_if_session_closes_after_quote(tmp_path, monkeypatch):
     assert db.execution_events_for_uid(UID, "kr")[0]["event_type"] == "deferred_market_closed"
 
 
+def test_reservation_preserves_pending_when_fresh_response_contains_old_source_time(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path, {"AAA": [100.0, 101.0]})
+    db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
+    original = bot._market_signals
+    def old_source(market, mr):
+        batch = original(market, mr)
+        batch[-1]["quote_meta"]["AAA"]["source_timestamp"] = "2020-01-01T10:00:00+09:00"
+        return batch
+    monkeypatch.setattr(bot, "_market_signals", old_source)
+
+    out = bot.execute_reservations(UID)
+
+    assert out["executed"][0]["status"] == "deferred_source_time"
+    assert len(db.bot_reservations_pending(UID)) == 1
+    assert db.bot_trades_recent(UID) == []
+
+
 def test_kill_switch_blocks_pending_reservation(tmp_path, monkeypatch):
     _setup(monkeypatch, tmp_path, {"AAA": [100.0, 101.0]})
     db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")

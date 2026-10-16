@@ -77,45 +77,88 @@ def balance(uid: int, market: str = "kr") -> dict:
     }
 
 
-def bot_order_quote_ready(market: str, evidence: dict | None, *, now: float | None = None) -> bool:
-    """봇 가상 체결의 최소 가격 증거와 주문 시점의 정규장 여부를 다시 검사한다."""
+def bot_order_quote_check(market: str, evidence: dict | None, *, now: float | None = None) -> dict:
+    """모의 주문의 가격 증거 검사. 공급자 시각의 파싱 성공은 체결시각 인증이 아니다."""
+    result = {"version": 1, "eligible": False, "status": "deferred_stale_quote",
+              "source_time_state": "not_checked", "source_time_verified": False}
     if market not in ("kr", "us") or not isinstance(evidence, dict):
-        return False
-    at = time.time() if now is None else float(now)
-    if not math.isfinite(at) or not market_clock.is_open(market, datetime.fromtimestamp(at, timezone.utc)):
-        return False
+        return result
+    try:
+        at = time.time() if now is None else float(now)
+        instant = datetime.fromtimestamp(at, timezone.utc)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return result
+    if not market_clock.is_open(market, instant):
+        return {**result, "status": "deferred_market_closed"}
     zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
     session = datetime.fromtimestamp(at, zone).date().isoformat()
     try:
         received_at = float(evidence.get("price_received_at"))
     except (TypeError, ValueError):
-        return False
-    return (evidence.get("price_basis") == "intraday_provisional"
+        return result
+    receipt_ready = (evidence.get("price_basis") == "intraday_provisional"
             and evidence.get("price_session") == session
             and bool(evidence.get("price_observation_id"))
             and math.isfinite(received_at)
             and -300 <= at - received_at <= 600)
+    if not receipt_ready:
+        return result
+    result["receipt_age_seconds"] = round(at - received_at, 3)
+    raw_source_time = evidence.get("price_source_timestamp")
+    if raw_source_time is None and not evidence.get("price_source_timestamp_field"):
+        # Existing paper-only compatibility. Missing source time never becomes verified.
+        return {**result, "eligible": True, "status": "ready_receipt_only",
+                "source_time_state": "missing"}
+    try:
+        source_dt = datetime.fromisoformat(str(raw_source_time).strip().replace("Z", "+00:00"))
+        if source_dt.tzinfo is None or source_dt.utcoffset() is None:
+            raise ValueError("source timezone missing")
+        source_at = source_dt.timestamp()
+        source_session = source_dt.astimezone(zone).date().isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        return {**result, "status": "deferred_source_time", "source_time_state": "unparseable"}
+    # Check both order time and receipt time; a future provider clock at receipt
+    # must not become trustworthy merely because the bot ran a few minutes later.
+    if source_at - min(at, received_at) > 300:
+        state = "future"
+    elif source_session != session:
+        state = "different_session"
+    elif at - source_at > 600:
+        state = "stale"
+    else:
+        state = "within_window"
+    return {**result, "eligible": state == "within_window",
+            "status": "ready_source_time_observed" if state == "within_window" else "deferred_source_time",
+            "source_time_state": state,
+            "source_age_seconds": round(at - source_at, 3),
+            "source_time_verified": evidence.get("price_source_time_verified") is True}
 
 
-def bot_order_hold_status(market: str) -> str:
-    """구조화된 보류 사유를 시세 지연과 장 종료로 구분한다."""
-    return ("deferred_stale_quote" if market_clock.is_open(market, datetime.now(timezone.utc))
-            else "deferred_market_closed")
+def bot_order_quote_ready(market: str, evidence: dict | None, *, now: float | None = None) -> bool:
+    return bot_order_quote_check(market, evidence, now=now)["eligible"]
+
+
+def bot_order_hold_status(market: str, evidence: dict | None = None) -> str:
+    return bot_order_quote_check(market, evidence or {})["status"]
 
 
 def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: str,
                     price: float | None, evidence: dict | None, name: str = "") -> None:
     """체결 없이 보류를 감사 기록과 재시도 가능한 Telegram 아웃박스에 남긴다."""
-    at = int(time.time())
+    checked_at = time.time()
+    at = int(checked_at)
     zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
     session = datetime.fromtimestamp(at, zone).date().isoformat()
-    market_open = market_clock.is_open(market, datetime.fromtimestamp(at, timezone.utc))
-    hold_status = "deferred_stale_quote" if market_open else "deferred_market_closed"
+    check = bot_order_quote_check(market, evidence or {}, now=checked_at)
+    hold_status = check["status"]
+    market_open = hold_status != "deferred_market_closed"
     key = f"paper-price-hold:{hold_status}:{market}:{session}:{uid}:{side}:{ticker}"
     alert_key = f"paper-price-hold:{hold_status}:{market}:{session}:{side}:{ticker}"
     action = "매도" if side == "sell" else "매수"
     cause = ("장중 현재가를 확인하지 못해 종가로 대신 체결하지 않았습니다."
              if market_open else "정규장이 닫혀 가상 체결하지 않았습니다.")
+    if hold_status == "deferred_source_time":
+        cause = "받은 가격의 원문 시각이 오래됐거나 해석할 수 없어 가상 체결을 보류했습니다."
     text = (f"⚠️ 가상 {action} 보류 · {name or ticker}({ticker}) · {market.upper()}\n"
             f"{cause} 사유: {reason}. "
             f"{'가격 수집 상태를 확인해 주세요. ' if market_open else '다음 정규장에 다시 확인해 주세요. '}"
@@ -131,7 +174,9 @@ def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: st
         key, uid=uid, market=market, ticker=ticker, event_type=hold_status,
         price=price, ts=at,
         payload={"side": side, "reason": reason, "price_evidence": evidence or {},
-                 "detail": "fresh_intraday_quote_required" if market_open else "market_session_closed"},
+                 "paper_quote_check": check,
+                 "detail": ("source_time_inconsistent" if hold_status == "deferred_source_time"
+                            else "fresh_intraday_quote_required" if market_open else "market_session_closed")},
     )
 
 
@@ -149,10 +194,12 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
         return None
     if enforce_fresh_quote:
         evidence = (event_payload or {}).get("price_evidence")
-        if not bot_order_quote_ready(market, evidence):
+        check = bot_order_quote_check(market, evidence)
+        if not check["eligible"]:
             defer_bot_order(uid, ticker, side, market=market, reason=reason or "BOT",
                             price=price, evidence=evidence, name=name)
             return None
+        event_payload = {**(event_payload or {}), "paper_quote_check": check}
     reference_price = float(price) if price else current_price(ticker)
     if not reference_price or reference_price <= 0:
         return None
@@ -161,8 +208,16 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
     position_name = name or (_name_map(market).get(ticker, ticker) if side == "buy" else ticker)
     series = (store.load_us_price_series() if market == "us" else store.load_price_series()) if risk_policy else {}
     marks = {t: float(px[-1]) for t, px in series.items() if px}
+    deferred_after_lock = False
 
     def update(old):
+        nonlocal deferred_after_lock, event_payload
+        if enforce_fresh_quote:
+            final_check = bot_order_quote_check(market, (event_payload or {}).get("price_evidence"))
+            if not final_check["eligible"]:
+                deferred_after_lock = True
+                return None, None
+            event_payload = {**(event_payload or {}), "paper_quote_check": final_check}
         acct = json.loads(old) if isinstance(old, str) else (old or {"cash": seed, "positions": {}})
         acct.setdefault("cash", seed)
         acct.setdefault("positions", {})
@@ -245,4 +300,9 @@ def place_order(uid: int, ticker: str, side: str, qty: int, price: float | None 
                           (bot_alerts.dedupe_key(uid, market, [row]),
                            bot_alerts.render(alert_style, market, [row]), at, at + 12 * 3600, at))
 
-    return db.kv_transform(_key(uid, market), update, on_commit=write_audit)
+    result = db.kv_transform(_key(uid, market), update, on_commit=write_audit)
+    if deferred_after_lock:
+        # Alert persistence opens its own transaction, so it must follow rollback.
+        defer_bot_order(uid, ticker, side, market=market, reason=reason or "BOT",
+                        price=price, evidence=(event_payload or {}).get("price_evidence"), name=name)
+    return result
