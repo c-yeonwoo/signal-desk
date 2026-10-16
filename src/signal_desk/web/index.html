@@ -312,6 +312,9 @@
   .sig-about .sa-label { color:var(--dim-2); font-size:12px; font-weight:700; margin-right:6px; }
   .sig-about .sa-text { color:var(--txt); }
   .sig-chart-pane { overflow-y:auto; }
+  .sig-chart-pane.is-empty > :not(.pane-head):not(#signal-selection-empty) { display:none !important; }
+  .sig-chart-pane.is-empty #chart-mode-seg { display:none; }
+  #signal-selection-empty { padding:34px 18px; color:var(--dim); text-align:center; font-size:16px; }
   #signal-chart { flex:0 0 auto; height:560px; width:100%; position:relative; }  /* 고정 높이 — flex 성장이면 긴 리스트/stretch에 끌려 차트가 폭발(10000px+)했음. 하단 지표패널 px 고정이라 560이면 종가 패널도 넉넉 */
   #signal-chart.is-loading { opacity:0.45; pointer-events:none; transition:opacity .12s ease; }
   /* 차트 아래 상세는 서브탭으로 하나씩 — 차트를 밀어내지 않도록 높이 제한 */
@@ -1147,7 +1150,7 @@
         </details>
         <div id="signal-body" class="placeholder" style="padding:32px 0">불러오는 중…</div>
       </div>
-      <div class="sig-chart-pane card">
+      <div class="sig-chart-pane card is-empty">
         <div class="pane-head">
           <div class="pane-title-block">
             <span id="signal-chart-title">종목을 선택하세요</span>
@@ -1160,6 +1163,7 @@
             <button type="button" data-cm="detail" onclick="setChartMode('detail')">자세히</button>
           </span>
         </div>
+        <div id="signal-selection-empty" role="status">목록에서 종목을 선택하세요.</div>
         <div id="signal-hero" style="display:none"></div>
         <section id="signal-company-review" class="company-review" aria-label="가격과 기업 근거 함께 보기" style="display:none"></section>
         <p id="chart-mode-hint" class="page-desc" style="display:none;margin:0 0 8px;font-size:13px"></p>
@@ -3947,6 +3951,7 @@ async function loadSiaIndustryPulse(){
 
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
 let _signalRows = null, _indexReady = false, _selectedTicker = null, _sigMarket = 'kospi', _sigLoadSeq = 0;
+let _signalFilterContext = null;
 let _liveQuotePrices = {}, _liveQuoteTimes = {}, _liveQuoteMeta = {}, _liveQuoteUpdated = null;
 let _livePriceSource = null, _livePriceAgeTimer = null;
 function startLivePriceStream(){
@@ -4078,6 +4083,7 @@ function switchSignalMarket(m){
   if (m !== 'kospi' && m !== 'us') return;
   const changed = _sigMarket !== m;
   if (!changed && document.getElementById('view-signal').style.display !== 'none') return;
+  if (changed) clearSignalSelection('새 시장의 종목 목록에서 종목을 선택하세요.');
   _sigMarket = m;
   if (changed) {
     clearScreenInputs();   // 시장 전환 시 국내 조건이 해외 목록에 남지 않게 한다.
@@ -4110,6 +4116,7 @@ async function loadIntradayOpportunityPublic(){
 function switchTodayMarket(m){
   if (m !== 'kospi' && m !== 'us') return;
   if (_sigMarket === m) return;
+  clearSignalSelection('새 시장의 종목 목록에서 종목을 선택하세요.');
   _sigMarket = m;
   document.querySelectorAll('#subnav-today button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
   loadRegime();
@@ -4135,6 +4142,9 @@ function applySignalData(d, bt){
     selection: (d && d.selection) || null,
   };
   if (!d.ready || !d.items.length) {
+    _signalItems = {};
+    _signalRows = [];
+    clearSignalSelection('종목 자료를 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
     _lensSnapshot = null;
     renderSignalLensPanel(0, 0);
     el.textContent = d.message || (d.ready ? '시그널 데이터가 없습니다.' : '아직 수집된 데이터가 없습니다 — /api/refresh를 먼저 호출하세요.');
@@ -4178,7 +4188,10 @@ async function loadSignals(opts){
     _sigCache[market] = { d, ts: Date.now() };
     applySignalData(d, isUS ? null : _backtestCache);
   } catch (e) {
-    if (!cached) el.textContent = '불러오지 못했습니다.';  // 캐시로 이미 표시 중이면 조용히 실패
+    if (!cached) {
+      el.textContent = '불러오지 못했습니다.';  // 캐시로 이미 표시 중이면 조용히 실패
+      clearSignalSelection('종목 목록을 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+    }
   }
 }
 
@@ -4428,6 +4441,11 @@ function renderSignalList(){
   if (sort === 'mktcap') rows = [...rows].sort((a, b) => nn(capKrw(b)) - nn(capKrw(a)));
   else if (sort === 'volume') rows = [...rows].sort((a, b) => nn(b.vol_avg) - nn(a.vol_avg));
   else rows = sortSignalRows(rows, sort);
+  const filterContext = `${_sigMarket}|${q}`;
+  const filterChanged = _signalFilterContext !== null && _signalFilterContext !== filterContext;
+  _signalFilterContext = filterContext;
+  if (filterChanged && _selectedTicker && !rows.some(r => r.ticker === _selectedTicker))
+    clearSignalSelection(q ? '검색 결과에서 종목을 선택하세요.' : '목록에서 종목을 선택하세요.');
   const metric = (r) => sort === 'mktcap' ? fmtCap(r)
     : sort === 'volume' ? '평균 ' + fmtVol(r.vol_avg)
     : '점수 ' + (r.score > 0 ? '+' : '') + fmtNum(r.score, 2);
@@ -4794,6 +4812,29 @@ function _drillInsert(ticker){
   requestAnimationFrame(() => row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
 }
 
+function clearSignalSelection(message='목록에서 종목을 선택하세요.'){
+  _selectedTicker = null;
+  document.querySelectorAll('#signal-body tr.clickable-row.selected-row').forEach(row => row.classList.remove('selected-row'));
+  if (_chartAbort) { try { _chartAbort.abort(); } catch (e) {} }
+  _chartCache = null;
+  _disposeSignalChart();
+  _drillRestore();
+  const pane = document.querySelector('.sig-chart-pane');
+  if (pane) pane.classList.add('is-empty');
+  document.getElementById('signal-chart-title').textContent = '종목을 선택하세요';
+  document.getElementById('chart-asof').textContent = '';
+  const about = document.getElementById('signal-about');
+  about.classList.remove('is-on'); about.textContent = '';
+  const empty = document.getElementById('signal-selection-empty');
+  empty.textContent = message; empty.hidden = false;
+  const hero = document.getElementById('signal-hero');
+  hero.style.display = 'none'; hero.replaceChildren();
+  const review = document.getElementById('signal-company-review');
+  review.style.display = 'none'; review.replaceChildren();
+  const chart = document.getElementById('signal-chart');
+  chart.classList.remove('is-loading'); chart.replaceChildren();
+  renderSelectedLensDetail(null);
+}
 function selectSignalRow(ticker){
   // 같은 행을 다시 누르면 접는다(모바일만) — 목록으로 빨리 돌아갈 경로가 필요하다.
   if (_sigStacked() && _selectedTicker === ticker && document.querySelector('tr.drill-row')) {
@@ -4801,6 +4842,8 @@ function selectSignalRow(ticker){
     return;
   }
   _selectedTicker = ticker;
+  document.querySelector('.sig-chart-pane')?.classList.remove('is-empty');
+  document.getElementById('signal-selection-empty').hidden = true;
   renderSelectedLensDetail(ticker);
   document.querySelectorAll('#signal-body tr.clickable-row').forEach(tr => {
     tr.classList.toggle('selected-row', tr.dataset.ticker === ticker);
