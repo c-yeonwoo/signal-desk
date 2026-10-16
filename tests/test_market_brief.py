@@ -40,7 +40,8 @@ def test_buy_count_shows_the_price_date_beside_the_compute_time():
     """휴장일 재계산 시각을 그날 새 가격으로 읽지 않게 한다."""
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     selection = html.split("const sel = d.selection;", 1)[1].split("unknown.textContent", 1)[0]
-    assert "판정 계산" in selection and "가격 기준 ${esc(d.price_as_of)} 종가" in selection
+    assert "판정 계산" in selection and "가격 기준 ${d.price_as_of} 종가" in selection
+    assert 'id="mb-selection-timing"' in html  # 시각은 접힌 근거에 남긴다.
     assert "현재 판정" not in selection
 
 
@@ -163,11 +164,11 @@ def test_market_card_has_one_endpoint_and_defers_source_requests():
     assert '<script defer src="./home.js"></script>' in html
     assert '<script defer src="./investment.js"></script>' in html
     assert '<figure id="mb-figure" class="mb-figure">' in html
-    assert '시장 장면을 준비하고 있습니다.' in html
+    assert '종목과 공시를 확인하고 있습니다.' in html
     assert "prefers-reduced-motion:reduce" in html
     assert "img.onerror = () => { img.hidden = true; fallback.hidden = false; save.hidden = true;" in html
     assert "mb-figure-mobile-note" in html
-    assert "min-height:1.5em" in html
+    assert "min-height:3em" in html
     assert 'downloadMarketBriefPng()' in html
     start = html.split("async function startApp(){", 1)[1].split("// ===== 온보딩", 1)[0]
     assert "loadMacro();" not in start
@@ -209,7 +210,7 @@ def test_market_brief_api_does_not_compute_signals_when_prices_stale(monkeypatch
     out = api.market_brief_get("kr")
     assert out["status"] == "stale"
     assert out["selection"] is None
-    assert "오래된 가격" in out["image_svg"]
+    assert "이전 자료로 종목 순위를 만들지 않겠습니다." in out["image_svg"]
     assert "매수 판정 3개" not in out["image_svg"]
 
 
@@ -234,14 +235,18 @@ def test_image_is_parseable_and_escapes_untrusted_text():
         "scene": {"direction": "up", "compared": 5, "universe": 5, "up": 3, "down": 2,
                   "flat": 0, "sectors": [{"sector": "A&B <업종>", "median_change_pct": 2.1}]},
         "headline": "관찰 종목의 흐름이 엇갈려요", "summary": "A&B <불확실>",
+        "movers": [{"ticker": "A", "name": "A&B <회사>", "change_pct": 2.1,
+                    "sector": "A&B <업종>"}],
+        "brief_news": [{"name": "A&B <회사>", "title": "계약 <원문>"}],
         "facts": [{"label": "최근 평균보다 높은 종목", "value": "2/5개", "percent": 40},
                   {"label": "20개 종가 전보다 오른 종목", "value": "3/5개", "percent": 60}],
         "selection": {"buy_count": 1, "strong_buy_count": 0,
                       "computed_at": "2026-10-02T07:00:00+00:00"}, "unknown": [],
     })
     ElementTree.fromstring(out)
-    assert "A&amp;B &lt;불확실&gt;" in out
+    assert "A&amp;B &lt;회사&gt;" in out
     assert "A&amp;B &lt;업종&gt;" in out
+    assert "계약 &lt;원문&gt;" in out
     assert 'data-scene="up"' in out
     assert "매수 판정 1개" in out
 
@@ -260,8 +265,8 @@ def test_illustration_follows_verified_direction_and_withholds_us_sector():
     assert kr["scene"]["up"] == 8 and kr["scene"]["down"] == 2
     svg = market_brief_image.render(kr)
     assert 'data-scene="up"' in svg
-    assert "상승 8 · 하락 2 · 보합 0" in svg
-    assert "반도체 +5.00%" in svg
+    assert "상승 8  하락 2" in svg
+    assert "반도체" in svg
     us = market_brief.build(
         "us", prices=prices, dates=dates, tickers=list(prices), expected="2026-10-02",
         previous="2026-10-01",
@@ -280,7 +285,7 @@ def test_image_fogs_low_daily_coverage_even_when_latest_close_is_fresh():
     svg = market_brief_image.render(card)
     assert 'data-scene="unknown"' in svg
     assert "매수 판정 2개" not in svg
-    assert "오래된 가격이나 부족한 자료" in svg
+    assert "가격을 더 확인해야 해요" in svg
 
 
 def test_partial_scene_discloses_observed_sample_but_not_full_buy_count():
@@ -297,7 +302,7 @@ def test_partial_scene_discloses_observed_sample_but_not_full_buy_count():
     )
     svg = market_brief_image.render(card)
     assert card["status"] == "partial" and card["scene"]["direction"] == "up"
-    assert "해당일 비교 9/10종목" in svg
+    assert "비교 9/10개" in svg
     assert "매수 판정 4개" not in svg
 
 
@@ -308,3 +313,86 @@ def test_image_withholds_buy_count_without_verifiable_decision_time():
     })
     assert "매수 판정 4개" not in out
     assert "매수 판정 건수 보류" in out
+
+
+def test_daily_poster_names_observed_movers_without_recommending_them():
+    prices = {"AAA": [100.0] * 59 + [100.0, 112.0],
+              "BBB": [100.0] * 59 + [100.0, 96.0]}
+    dates = {ticker: ["2026-07-01"] * 59 + ["2026-10-01", "2026-10-02"]
+             for ticker in prices}
+    card = market_brief.build(
+        "kr", prices=prices, dates=dates, tickers=list(prices),
+        expected="2026-10-02", previous="2026-10-01",
+        name_by_ticker={"AAA": "첫 회사", "BBB": "둘째 회사"},
+    )
+    assert card["movers"] == [
+        {"ticker": "AAA", "name": "첫 회사", "change_pct": 12.0, "sector": ""},
+        {"ticker": "BBB", "name": "둘째 회사", "change_pct": -4.0, "sector": ""},
+    ]
+    poster = market_brief_image.render(card)
+    assert "첫 회사" in poster and "둘째 회사" in poster
+    assert "+12.00%" in poster and "-4.00%" in poster
+    assert "매수 추천이 아닙니다" in poster
+
+
+def test_market_brief_only_links_same_day_dart_original(monkeypatch):
+    prices, dates = _bars()
+    dates[-2] = "2026-10-01"
+    monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, now: "2026-10-02")
+    monkeypatch.setattr(api.market_clock, "previous_session", lambda market, day: "2026-10-01")
+    monkeypatch.setattr(api.store, "load_portfolio_close_bundle", lambda market: ({"A": prices}, {"A": dates}))
+    monkeypatch.setattr(api.store, "load_universe", lambda: [{"ticker": "A", "name": "검증 회사"}])
+    monkeypatch.setattr(api.store, "load_market_flow", lambda: {})
+    monkeypatch.setattr(api.db, "kb_events_active", lambda ticker: [
+        {"id": 1, "ticker": "A", "trust_tier": "official"},
+        {"id": 2, "ticker": "A", "trust_tier": "official"},
+    ])
+    monkeypatch.setattr(api.db, "kb_event_evidence", lambda event_id: [
+        {"source_key": "dart", "published": "2026-10-02T10:00:00+09:00",
+         "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=123", "evidence_text": "공급 계약 체결"}
+        if event_id == 1 else
+        {"source_key": "dart", "published": "2026-10-01T10:00:00+09:00",
+         "url": "https://dart.fss.or.kr/dsaf001/main.do?rcpNo=122", "evidence_text": "어제 공시"}
+    ])
+    monkeypatch.setattr(api, "_signals", lambda: [])
+    monkeypatch.setattr(api, "_regime", lambda: {})
+    monkeypatch.setattr(api, "_macro", lambda: {})
+    monkeypatch.setattr(api.signalcfg, "effective_config", lambda *args, **kwargs: (object(), {}))
+    monkeypatch.setattr(api, "selection_summary", lambda *args: {
+        "mode": "rank", "rank_slots": 1, "cutoff_score": 1.4,
+        "buy_threshold": 1.2, "rank_min_score": 0.0,
+    })
+    result = api.market_brief_get("kr")
+    assert [item["title"] for item in result["brief_news"]] == ["공급 계약 체결"]
+    assert "공급 계약 체결" in result["image_svg"]
+    assert "어제 공시" not in result["image_svg"]
+
+
+def test_market_brief_uses_only_same_day_issuer_verified_news_when_no_disclosure(monkeypatch):
+    prices, dates = _bars()
+    dates[-2] = "2026-10-01"
+    monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, now: "2026-10-02")
+    monkeypatch.setattr(api.market_clock, "previous_session", lambda market, day: "2026-10-01")
+    monkeypatch.setattr(api.store, "load_portfolio_close_bundle", lambda market: ({"A": prices}, {"A": dates}))
+    monkeypatch.setattr(api.store, "load_universe", lambda: [{"ticker": "A", "name": "검증 회사"}])
+    monkeypatch.setattr(api.store, "load_market_flow", lambda: {})
+    monkeypatch.setattr(api.db, "kb_events_active", lambda ticker: [])
+    monkeypatch.setattr(api.kb, "digest_checks", lambda: {"A": {"status": "ok"}})
+    monkeypatch.setattr(api.db, "kb_entries_recent", lambda *args, **kwargs: [
+        {"source": "naver", "published": "2026-10-01T18:00:00+09:00",
+         "url": "https://news.example.com/old", "title": "오래된 기사", "attribution_checked_at": 1},
+        {"source": "naver", "published": "2026-10-02T10:00:00+09:00",
+         "url": "https://news.example.com/current", "title": "검증 회사, 실적 발표",
+         "attribution_checked_at": 1},
+    ])
+    monkeypatch.setattr(api, "_signals", lambda: [])
+    monkeypatch.setattr(api, "_regime", lambda: {})
+    monkeypatch.setattr(api, "_macro", lambda: {})
+    monkeypatch.setattr(api.signalcfg, "effective_config", lambda *args, **kwargs: (object(), {}))
+    monkeypatch.setattr(api, "selection_summary", lambda *args: {
+        "mode": "rank", "rank_slots": 1, "cutoff_score": 1.4,
+        "buy_threshold": 1.2, "rank_min_score": 0.0,
+    })
+    result = api.market_brief_get("kr")
+    assert [item["title"] for item in result["brief_news"]] == ["검증 회사, 실적 발표"]
+    assert "오래된 기사" not in result["image_svg"]

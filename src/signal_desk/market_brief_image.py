@@ -1,4 +1,8 @@
-"""Deterministic, self-contained market landscape from dated close observations."""
+"""Source-dated editorial market card; no image model or inferred news causality.
+
+The composition makes *observed companies and a verified disclosure* the image,
+not an abstract weather metaphor. It never feeds the trading engine.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +20,11 @@ def _e(value: object) -> str:
     return escape(str(value if value is not None else ""), quote=True)
 
 
+def _short(value: object, limit: int) -> str:
+    value = str(value or "").strip()
+    return value if len(value) <= limit else value[: limit - 1] + "…"
+
+
 def _kst_time(value: object) -> str | None:
     try:
         stamp = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
@@ -30,33 +39,77 @@ def _count(value: object) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
 
 
+def _move(value: object) -> float | None:
+    return (float(value) if isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) else None)
+
+
+def _text(x: int, y: int, value: object, *, size: int, color: str,
+          weight: int = 600, extra: str = "") -> str:
+    return (f'<text x="{x}" y="{y}" fill="{color}" font-size="{size}" '
+            f'font-weight="{weight}" {extra} {FONT}>{_e(value)}</text>')
+
+
+def _sector_motif(sector: object) -> str:
+    """A small, sector-specific illustration, never a claim about the company."""
+    label = str(sector or "").lower()
+    if any(word in label for word in ("반도체", "전자", "chip", "semiconductor")):
+        return ('<g data-motif="semiconductor" fill="none" stroke="#9AE0BE" stroke-width="11" '
+                'opacity=".31" stroke-linecap="round" stroke-linejoin="round">'
+                '<rect x="505" y="258" width="124" height="124" rx="13"/>'
+                '<rect x="531" y="284" width="72" height="72" rx="5"/>'
+                '<path d="M526 236v22m40-22v22m40-22v22m-80 124v22m40-22v22m40-22v22'
+                'M483 279h22m-22 41h22m-22 41h22m124-82h22m-22 41h22m-22 41h22"/></g>')
+    if any(word in label for word in ("자동차", "완성차", "auto", "vehicle")):
+        return ('<g data-motif="automobile" fill="none" stroke="#9AE0BE" stroke-width="12" '
+                'opacity=".32" stroke-linecap="round" stroke-linejoin="round">'
+                '<path d="M474 343l25-54h127l35 54v42H472v-42zM503 343h131M507 289l23-37h73l24 37"/>'
+                '<circle cx="510" cy="388" r="15"/><circle cx="628" cy="388" r="15"/></g>')
+    if any(word in label for word in ("조선", "해운", "ship", "marine")):
+        return ('<g data-motif="ship" fill="none" stroke="#9AE0BE" stroke-width="11" '
+                'opacity=".32" stroke-linecap="round" stroke-linejoin="round">'
+                '<path d="M465 353h203l-29 55H500l-35-55zM517 352v-70h112v70M558 282v-38h45v38'
+                'M462 428q28 17 55 0 27 17 54 0 27 17 54 0 27 17 54 0"/></g>')
+    if any(word in label for word in ("에너지", "전력", "배터리", "energy", "utility")):
+        return ('<g data-motif="energy" fill="none" stroke="#9AE0BE" stroke-width="11" '
+                'opacity=".32" stroke-linecap="round" stroke-linejoin="round">'
+                '<path d="M558 237l-66 96h64l-21 101 113-128h-67l38-69z"/></g>')
+    if any(word in label for word in ("금융", "은행", "bank", "financial")):
+        return ('<g data-motif="finance" fill="none" stroke="#9AE0BE" stroke-width="10" '
+                'opacity=".32" stroke-linecap="round" stroke-linejoin="round">'
+                '<path d="M475 296l98-52 98 52H475zM489 405h168M480 427h186'
+                'M509 311v89m43-89v89m43-89v89m43-89v89"/></g>')
+    if any(word in label for word in ("바이오", "제약", "의약", "bio", "pharma")):
+        return ('<g data-motif="biotech" fill="none" stroke="#9AE0BE" stroke-width="10" '
+                'opacity=".32" stroke-linecap="round">'
+                '<path d="M515 245q107 60 0 166m113-166q-107 60 0 166M529 271h85m-102 39h119'
+                'M512 352h119m-101 39h83"/></g>')
+    return ""
+
+
 def render(card: dict, *, include_copy: bool = True) -> str:
-    """Render one observed market snapshot as a share poster or a quiet page scene."""
+    """Render a dated market snapshot; withhold movers/news when coverage is poor."""
     market = "해외" if card.get("market") == "us" else "국내"
-    fresh = card.get("status") in {"ready", "partial"}
     scene = card.get("scene") or {}
+    fresh = card.get("status") in {"ready", "partial"}
     compared, universe = _count(scene.get("compared")), _count(scene.get("universe"))
     up, down, flat = (_count(scene.get(key)) for key in ("up", "down", "flat"))
     direction = scene.get("direction") if fresh else "unknown"
     if (direction not in {"up", "down", "mixed"} or compared == 0
             or compared != up + down + flat or universe < compared):
         direction = "unknown"
-    title = (str(card.get("today_headline") or card.get("headline") or "시장 자료를 아직 요약할 수 없어요")
-             if direction != "unknown" else "최근 거래일의 시장 방향은 확인 중이에요")
-    sky, horizon, light, accent = {
-        "up": ("#103B46", "#286F72", "#FFCF79", "#74DBC0"),
-        "down": ("#27243E", "#755577", "#D9A6AE", "#F0A9A1"),
-        "mixed": ("#193650", "#537E99", "#F4C88E", "#B0C8F6"),
-        "unknown": ("#283543", "#687783", "#BAC5C9", "#C8D4D7"),
-    }[direction]
+    movers = card.get("movers") if direction != "unknown" else None
+    movers = [row for row in movers if isinstance(row, dict) and _move(row.get("change_pct")) is not None][:3] if isinstance(movers, list) else []
+    news = card.get("brief_news") if direction != "unknown" else None
+    news = [row for row in news if isinstance(row, dict) and row.get("title")][:1] if isinstance(news, list) else []
+    accent = {"up": "#187257", "down": "#AF3A35", "mixed": "#335CAB", "unknown": "#596577"}[direction]
     as_of = str(card.get("price_as_of") or "미확인")
-    date_label = f"{as_of} 종가" if fresh else "종가 확인 전"
-    selection = card.get("selection") if fresh and card.get("status") != "partial" else None
+    title = (str(card.get("today_headline") or card.get("headline") or "시장 자료 확인 중")
+             if direction != "unknown" else "시장 자료를 확인하고 있어요")
+    selection = card.get("selection") if direction != "unknown" and card.get("status") == "ready" else None
     selection_time = _kst_time(selection.get("computed_at")) if isinstance(selection, dict) else None
-    selection_text = (f"매수 판정 {_count(selection.get('buy_count'))}개 · "
-                      f"강력매수 {_count(selection.get('strong_buy_count'))}개 · {selection_time}"
-                      if selection_time and direction != "unknown" else
-                      "매수 판정 건수 보류 · 가격 또는 판정 시각 확인 전")
+    selection_text = (f"매수 판정 {_count(selection.get('buy_count'))}개 · {selection_time}"
+                      if selection_time else "매수 판정 건수 보류 · 가격 또는 판정 시각 확인 전")
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" '
         f'viewBox="0 0 {WIDTH} {HEIGHT}" data-scene="{direction}" '
@@ -64,92 +117,95 @@ def render(card: dict, *, include_copy: bool = True) -> str:
            else 'aria-hidden="true" focusable="false">'),
     ]
     if include_copy:
+        names = ", ".join(str(row.get("name") or row.get("ticker")) for row in movers)
         svg.extend([
-            f'<title id="title">{_e(market)} 시장 한 장 요약: {_e(title)}</title>',
-            f'<desc id="desc">{_e(date_label)}로 확인한 관찰 종목의 장면입니다. '
-            f'{_e(card.get("summary"))} 다음 가격 예측이 아닙니다.</desc>',
+            f'<title id="title">{_e(market)} 시장 요약: {_e(title)}</title>',
+            f'<desc id="desc">{_e(as_of)} 종가 기준. 등락 폭 큰 종목: {_e(names or "확인 전")}. '
+            '공시는 등락의 원인으로 단정하지 않으며 매수 추천이 아닙니다.</desc>',
         ])
     svg.extend([
-        '<defs>',
-        f'<linearGradient id="sky" x2="0" y2="1"><stop stop-color="{sky}"/>'
-        f'<stop offset="1" stop-color="{horizon}"/></linearGradient>',
-        '<linearGradient id="ground" x2="0" y2="1"><stop stop-color="#183547"/>'
-        '<stop offset="1" stop-color="#0B1D2C"/></linearGradient>',
-        '<clipPath id="frame"><rect width="1200" height="700" rx="26"/></clipPath>',
-        '</defs><g clip-path="url(#frame)">',
-        '<rect width="1200" height="700" fill="url(#sky)"/>',
-        '<path d="M0 345 Q140 310 300 350 T610 338 T930 355 T1200 330 V700 H0Z" '
-        'fill="#1C4350" opacity=".42"/>',
-        f'<circle cx="952" cy="235" r="88" fill="{light}" opacity=".14"/>',
-        f'<circle cx="952" cy="235" r="51" fill="{light}" opacity=".84"/>',
-        '<path d="M0 468H125V377H188V468H232V325H298V468H345V394H410V468H460V347H537V468'
-        'H587V407H653V468H716V361H787V468H836V398H898V468H941V337H1003V468H1049V380H1122'
-        'V468H1200V700H0Z" fill="#173B4D" opacity=".75"/>',
-        '<path d="M0 510 Q250 472 462 505 T900 493 T1200 508 V700H0Z" fill="url(#ground)"/>',
-        '<path d="M0 545 Q260 515 505 550 T990 540 T1200 548" fill="none" stroke="#78A4A0" '
-        'stroke-width="3" opacity=".28"/>',
+        '<rect width="1200" height="700" rx="26" fill="#F5F7F5"/>',
+        '<rect x="1" y="1" width="1198" height="698" rx="25" fill="none" stroke="#CAD5D1" stroke-width="2"/>',
+        '<rect x="32" y="32" width="1136" height="636" rx="20" fill="#FFFFFF"/>',
+        '<rect x="32" y="32" width="9" height="636" rx="4" fill="' + accent + '"/>',
+        '<path d="M72 122 H1128" stroke="#DCE4E0" stroke-width="2"/>',
+        _text(72, 79, "시그널 데스크  ·  종가 기록", size=27, color=accent, weight=800),
+        _text(1127, 80, f"{market}  ·  {as_of} 종가", size=27, color="#45534E",
+              extra='text-anchor="end"'),
     ])
-    if direction == "up":
+    if direction == "unknown":
         svg.extend([
-            '<path d="M95 415 Q260 385 420 405 M625 330 Q740 290 830 316" fill="none" '
-            'stroke="#9BE2D1" stroke-width="7" opacity=".55" stroke-linecap="round"/>',
-            '<path d="M71 430 Q86 370 105 430 M112 438 Q136 355 158 438 M1021 448 Q1042 375 1065 448" '
-            'fill="none" stroke="#92D8A8" stroke-width="8" stroke-linecap="round"/>',
-        ])
-    elif direction == "down":
-        svg.extend([
-            '<path d="M0 272 Q112 216 226 272 Q338 213 454 270 Q588 207 714 273 Q859 219 1038 272 '
-            'Q1120 241 1200 276 V335 H0Z" fill="#A895B3" opacity=".56"/>',
-            '<path d="M240 318l-20 35 M370 300l-20 35 M652 322l-20 35 M804 305l-20 35 '
-            'M1055 315l-20 35" stroke="#CEB8D2" stroke-width="5" opacity=".66"/>',
-        ])
-    elif direction == "mixed":
-        svg.extend([
-            '<path d="M30 288 Q150 225 280 285 Q405 239 514 285 V318H30Z" fill="#B0C3D0" opacity=".46"/>',
-            '<path d="M130 414 Q240 389 330 414 M694 338 Q795 309 858 329" fill="none" '
-            'stroke="#A7D4D1" stroke-width="5" opacity=".5"/>',
+            _text(75, 240, "가격을 더 확인해야 해요", size=58, color="#1B2825", weight=800),
+            _text(75, 315, "종가가 늦거나 비교할 종목이 부족합니다.", size=31, color="#4B5A55"),
+            _text(75, 390, "이전 자료로 종목 순위를 만들지 않겠습니다.", size=30, color="#4B5A55"),
+            '<rect x="75" y="492" width="1045" height="90" rx="16" fill="#EDF1F0"/>',
+            _text(105, 547, "확인 전  ·  종목과 공시 요약을 잠시 보류", size=29, color="#4B5A55"),
         ])
     else:
         svg.extend([
-            '<rect y="210" width="1200" height="365" fill="#C7D3D6" opacity=".27"/>',
-            '<path d="M0 310 Q150 263 300 316 T620 308 T900 315 T1200 300" fill="none" '
-            'stroke="#E2E8E8" stroke-width="38" opacity=".30"/>',
+            _text(75, 175, "이날 크게 움직인 종목", size=34, color="#263630", weight=800),
+            _text(1127, 175, f"비교 {compared}/{universe}개  ·  상승 {up}  하락 {down}",
+                  size=25, color="#52615B", extra='text-anchor="end"'),
         ])
+        if movers:
+            lead = movers[0]
+            value = _move(lead.get("change_pct")) or 0.0
+            change = f"{value:+.2f}%"
+            svg.extend([
+                '<rect x="73" y="198" width="650" height="299" rx="24" fill="#162A27"/>',
+                _sector_motif(lead.get("sector")),
+                _text(106, 251, "종가 등락 폭  ·  관찰 종목", size=26, color="#A6C6BA"),
+                _text(106, 333, _short(lead.get("name") or lead.get("ticker"), 12),
+                      size=61 if len(str(lead.get("name") or lead.get("ticker") or "")) <= 8 else 48,
+                      color="#FFFFFF", weight=800),
+                _text(106, 433, change, size=82, color="#9AE0BE" if value >= 0 else "#F5B2A9", weight=800),
+                _text(106, 469, _short(lead.get("sector") or lead.get("ticker"), 22),
+                      size=24, color="#C6D7CF"),
+            ])
+            for index, row in enumerate(movers[1:3]):
+                y = 198 + 151 * index
+                pct = _move(row.get("change_pct")) or 0.0
+                color = "#187257" if pct >= 0 else "#AF3A35"
+                svg.extend([
+                    f'<rect x="742" y="{y}" width="384" height="138" rx="20" fill="#F0F4F1"/>',
+                    _text(769, y + 38, f"{index + 2:02d}  ·  {_short(row.get('sector') or '관찰 종목', 12)}",
+                          size=22, color="#52615B"),
+                    _text(769, y + 85, _short(row.get("name") or row.get("ticker"), 10),
+                          size=31, color="#1B2825", weight=800),
+                    _text(1101, y + 119, f"{pct:+.2f}%", size=30, color=color,
+                          weight=800, extra='text-anchor="end"'),
+                ])
+            if len(movers) == 1:
+                svg.extend([_text(765, 273, "다른 종목은", size=31, color="#52615B"),
+                            _text(765, 317, "확인 중", size=34, color="#1B2825", weight=800)])
+        else:
+            svg.extend([_text(75, 303, "비교한 종목의 종가 변동 없음", size=43,
+                              color="#263630", weight=800),
+                        _text(75, 378, "종가만으로 다음 움직임을 알 수는 없습니다.",
+                              size=29, color="#52615B")])
+        news_source = "DART 공시" if news and news[0].get("source") == "DART" else "확인된 기사"
+        svg.extend([
+            '<path d="M73 523 H1126" stroke="#DCE4E0" stroke-width="2"/>',
+            _text(75, 561, f"같은 날 {news_source}" if news else "같은 날 기업 소식", size=24,
+                  color=accent, weight=800),
+        ])
+        if news:
+            item = news[0]
+            svg.extend([
+                _text(75, 610, f"{_short(item.get('name'), 10)}  ·  {_short(item.get('title'), 22)}",
+                      size=30, color="#1B2825", weight=700),
+                _text(75, 646, f"{news[0].get('source')} 원문 기준 · 주가 변동의 원인으로 단정하지 않음", size=21,
+                      color="#52615B"),
+            ])
+        else:
+            message = (card.get("brief_news_error") or
+                       "이 카드에 연결된 당일 기업 소식 없음 · 등락 이유를 추정하지 않음")
+            svg.append(_text(75, 614, _short(message, 55), size=29, color="#52615B"))
     if include_copy:
         svg.extend([
-            '<rect x="42" y="34" width="1116" height="110" rx="18" fill="#0A1D2B" opacity=".82"/>',
-            f'<text x="68" y="76" fill="{accent}" font-size="19" font-weight="700" {FONT}>'
-            'SIGNAL DESK · 거래일 시장 요약</text>',
-            f'<text x="68" y="122" fill="#FFFFFF" font-size="36" font-weight="800" {FONT}>{_e(title)}</text>',
-            f'<text x="1130" y="77" text-anchor="end" fill="#D3E0E3" font-size="21" {FONT}>'
-            f'{_e(market)} · {_e(date_label)}</text>',
-            '<rect x="42" y="488" width="1116" height="168" rx="20" fill="#0A1D2B" opacity=".91"/>',
+            _text(72, 684, _short(title, 20), size=19, color="#4B5A55"),
+            _text(1128, 684, selection_text, size=19, color="#4B5A55",
+                  extra='text-anchor="end"'),
         ])
-        if direction != "unknown":
-            svg.append(f'<text x="68" y="532" fill="#F3F7F6" font-size="25" font-weight="700" {FONT}>'
-                       f'해당일 비교 {compared}/{universe}종목 · 상승 {up} · 하락 {down} · 보합 {flat}</text>')
-        else:
-            expected = card.get("expected_as_of") or "미확인"
-            svg.append(f'<text x="68" y="532" fill="#F3F7F6" font-size="24" font-weight="700" {FONT}>'
-                       f'오래된 가격이나 부족한 자료로 시장 상태를 판단하지 않아요 · 최근 완료 {_e(expected)}</text>')
-        sectors = scene.get("sectors") if direction != "unknown" and card.get("market") == "kr" else None
-        labels = []
-        if isinstance(sectors, list):
-            for sector in sectors[:2]:
-                if not isinstance(sector, dict):
-                    continue
-                change = sector.get("median_change_pct")
-                if (not isinstance(change, (int, float)) or isinstance(change, bool)
-                        or not math.isfinite(change)):
-                    continue
-                label = str(sector.get("sector") or "")
-                label = label if len(label) <= 12 else label[:11] + "…"
-                labels.append(f"{label} {change:+.2f}%")
-        svg.append(f'<text x="68" y="574" fill="#C9DBDE" font-size="21" {FONT}>'
-                   f'{_e(" · ".join(labels) if labels else "업종별 비교는 아직 확인 중")}</text>')
-        svg.append(f'<text x="68" y="617" fill="{accent}" font-size="20" font-weight="700" {FONT}>'
-                   f'{_e(selection_text)}</text>')
-        svg.append(f'<text x="44" y="685" fill="#D7E3E4" font-size="17" {FONT}>'
-                   '관찰 종목 기준 · 종가로 확인한 과거만 표현 · 다음 가격 예측 아님</text>')
-    svg.extend(['</g></svg>'])
+    svg.append('</svg>')
     return "".join(svg)

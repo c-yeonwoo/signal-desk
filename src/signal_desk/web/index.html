@@ -125,40 +125,40 @@
   .sig-topbar .tb-sep { width:1px; align-self:stretch; background:var(--line); margin:2px 0; }
   .sig-topbar .tb-detail { font-size:13px; color:var(--dim); }
   .macro-chips { display:flex; gap:7px; flex-wrap:wrap; }
-  .market-brief { margin:10px clamp(14px,3.5vw,44px) 2px; padding:18px 22px 13px;
+  .market-brief { margin:16px clamp(14px,3.5vw,44px) 8px; padding:24px 28px 20px;
     border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel);
     box-shadow:var(--shadow-sm); min-width:0; }
   .today-links { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 clamp(14px,3.5vw,44px) 12px; }
   .today-links-label { color:var(--dim); font-size:13px; }
   .mb-top, .mb-main, .mb-source-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-  .mb-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(250px,.68fr); align-items:center; gap:clamp(16px,3vw,34px); }
+  .mb-layout { display:grid; grid-template-columns:minmax(0,.85fr) minmax(360px,1.15fr); align-items:center; gap:clamp(24px,3.5vw,48px); }
   .mb-copy { min-width:0; }
-  .mb-eyebrow { color:var(--accent); font-size:12px; font-weight:700; letter-spacing:.06em; }
-  .mb-asof { color:var(--dim); font-size:12px; font-variant-numeric:tabular-nums; }
-  .mb-main { align-items:flex-start; flex-direction:column; margin-top:8px; }
+  .mb-eyebrow { color:var(--accent); font-size:13px; font-weight:700; letter-spacing:.04em; }
+  .mb-asof { color:var(--dim); font-size:14px; font-variant-numeric:tabular-nums; }
+  .mb-main { align-items:flex-start; flex-direction:column; margin-top:20px; }
   .mb-market { color:var(--dim); font-size:13px; font-weight:600; }
-  .mb-state { font-size:clamp(21px,2.2vw,27px); line-height:1.25; margin:2px 0 4px; letter-spacing:-.035em; }
-  .mb-basis { color:var(--dim); font-size:13px; line-height:1.45; margin:0; }
+  .mb-state { font-size:clamp(25px,2.5vw,34px); line-height:1.3; margin:6px 0 14px; letter-spacing:-.035em; }
+  .mb-basis { color:var(--dim); font-size:16px; line-height:1.55; margin:0; }
   .mb-selection { flex:0 0 auto; background:var(--bg); border:1px solid var(--line);
-    border-radius:var(--r-md); padding:9px 12px; min-width:142px; text-align:left; }
+    border-radius:var(--r-md); padding:12px 16px; min-width:142px; text-align:left; margin-top:22px; }
   .mb-selection b { display:block; font-size:17px; line-height:1.2; font-variant-numeric:tabular-nums; }
-  .mb-selection small { display:block; color:var(--dim); font-size:11px; margin-top:3px; }
+  .mb-selection small { display:block; color:var(--dim); font-size:13px; margin-top:7px; }
   .mb-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-top:16px; }
   .mb-fact { border:1px solid var(--line); border-radius:var(--r-md); padding:10px 12px; min-width:0; }
-  .mb-fact-label { display:block; color:var(--dim); font-size:12px; }
+  .mb-fact-label { display:block; color:var(--dim); font-size:13px; }
   .mb-fact-value { display:block; font-size:17px; font-weight:700; font-variant-numeric:tabular-nums; line-height:1.35; }
-  .mb-fact-detail { display:block; color:var(--dim); font-size:11px; line-height:1.4; }
+  .mb-fact-detail { display:block; color:var(--dim); font-size:13px; line-height:1.5; }
   .mb-meter { width:100%; height:7px; margin:5px 0 2px; accent-color:var(--accent); }
-  .mb-unknown { color:var(--dim); font-size:12px; line-height:1.5; margin:11px 0 0; }
+  .mb-unknown { color:var(--dim); font-size:14px; line-height:1.55; margin:18px 0 0; }
   .mb-unknown.is-warning { color:var(--sig-sell); font-weight:600; }
-  .mb-sources { border-top:1px solid var(--line); margin-top:13px; padding-top:9px; }
-  .mb-sources > summary { cursor:pointer; color:var(--accent); font-size:13px; font-weight:700; }
-  #macro-detail { padding:13px 0 3px; display:grid; gap:10px; }
+  .mb-sources { border-top:1px solid var(--line); margin-top:24px; padding-top:16px; }
+  .mb-sources > summary { cursor:pointer; color:var(--accent); font-size:15px; font-weight:700; }
+  #macro-detail { padding:20px 0 4px; display:grid; gap:18px; }
   #macro-detail .pcard { margin:0; }
-  .mb-source-head b { font-size:13px; }
-  .mb-source-foot { color:var(--dim-2); font-size:11px; line-height:1.5; margin:0; }
+  .mb-source-head b { font-size:15px; }
+  .mb-source-foot { color:var(--dim-2); font-size:13px; line-height:1.55; margin:0; }
   .mb-figure { margin:0; min-width:0; }
-  .mb-visual { position:relative; width:100%; aspect-ratio:12/7; max-height:260px; overflow:hidden;
+  .mb-visual { position:relative; width:100%; aspect-ratio:12/7; max-height:360px; overflow:hidden;
     border:1px solid var(--line); border-radius:14px; background:var(--bg); }
   .mb-figure img { display:block; width:100%; height:100%; object-fit:cover; }
   .mb-figure img[hidden], .mb-figure .mb-image-fallback[hidden], .mb-figure button[hidden] { display:none; }
@@ -166,21 +166,23 @@
     color:var(--txt); padding:20px; font-size:15px; line-height:1.5; text-align:center; }
   .mb-figure-mobile-note { display:none; }
   @media (max-width:600px) { .mb-figure-mobile-note { display:block; margin:9px 0 0;
-    min-height:1.5em; color:var(--txt); font-size:14px; line-height:1.5; font-weight:600; } }
+    min-height:3em; color:var(--txt); font-size:14px; line-height:1.5; font-weight:600; } }
   .mb-figure.is-changing img { animation:mb-scene-enter .5s ease-out; }
   @keyframes mb-scene-enter { from { opacity:.55; transform:translateY(6px); } to { opacity:1; transform:none; } }
   @media (prefers-reduced-motion:reduce) { .mb-figure.is-changing img { animation:none; } }
   .mb-figure figcaption { display:flex; align-items:center; justify-content:space-between; gap:10px;
-    margin-top:7px; color:var(--dim); font-size:12px; }
+    margin-top:11px; color:var(--dim); font-size:13px; line-height:1.5; }
+  .mb-news-link { display:block; margin-top:9px; font-size:14px; color:var(--accent); font-weight:700; }
+  .mb-news-link[hidden] { display:none; }
   .mb-figure button { border:1px solid var(--line); border-radius:8px; background:var(--bg);
     color:var(--txt); font:inherit; font-weight:700; padding:7px 10px; cursor:pointer; white-space:nowrap; }
   .mb-figure button:hover { border-color:var(--accent); }
   .macro-chip { display:flex; flex-direction:column; gap:1px; border:1px solid var(--line);
     border-radius:9px; padding:5px 10px; background:var(--bg); min-width:76px; }
-  .macro-chip .mc-label { font-size:11px; color:var(--dim); }
+  .macro-chip .mc-label { font-size:13px; color:var(--dim); }
   .macro-chip .mc-label a { color:inherit; text-decoration:underline dotted; text-underline-offset:2px; }
   .macro-chip .mc-value { font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
-  .macro-chip .mc-chg { font-size:11px; font-variant-numeric:tabular-nums; }
+  .macro-chip .mc-chg { font-size:13px; font-variant-numeric:tabular-nums; }
   .industry-pulse .ip-values { display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin:6px 0; }
   .industry-pulse .ip-index { font-size:21px; font-weight:700; font-variant-numeric:tabular-nums; }
   .industry-pulse .ip-meta { font-size:12px; color:var(--dim); line-height:1.5; }
@@ -357,7 +359,7 @@
      총 스크롤 = 브라우저 스크롤 + 차트 카드 스크롤 2개만. */
   /* 히어로 결론 카드 — 시그널 색으로 좌측 강조, 결론·이유·핵심지표 */
   .hero-card { border:1px solid var(--line); border-left:4px solid var(--sig-neutral); border-radius:var(--r-md);
-    background:var(--bg); padding:9px 12px; margin:2px 0 8px; }
+    background:var(--bg); padding:16px 18px; margin:6px 0 16px; }
   .hero-card.BUY, .hero-card.STRONG_BUY {
     border-left-color:var(--sig-buy);
     border-color:rgba(14,122,79,.28);
@@ -366,27 +368,27 @@
   .hero-card.BUY.buy-with-loss, .hero-card.STRONG_BUY.buy-with-loss {
     border-left-color:var(--sig-watch); border-color:rgba(180,83,9,.35); background:var(--panel);
   }
-  .hero-loss-note { margin:8px 0 2px; padding:8px 10px; border-radius:var(--r-sm);
-    background:rgba(180,83,9,.08); color:#854d0e; font-size:13px; line-height:1.45; font-weight:600; }
+  .hero-loss-note { margin:14px 0 6px; padding:12px 14px; border-radius:var(--r-sm);
+    background:rgba(180,83,9,.08); color:#854d0e; font-size:14px; line-height:1.5; font-weight:600; }
   .hero-card.SELL, .hero-card.STRONG_SELL { border-left-color:var(--sig-sell); }
   .hero-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .hero-value { display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; min-width:0; }
   .hero-signal { flex:0 0 auto; white-space:nowrap; }
   .hero-price { font-size:21px; font-weight:700; color:var(--txt); }
-  .hero-reason { font-size:13px; color:var(--dim); margin:5px 0 0; line-height:1.45; font-weight:600; }
+  .hero-reason { font-size:14px; color:var(--dim); margin:14px 0 0; line-height:1.5; font-weight:600; }
   .hero-reason:empty { display:none; }
-  .hero-after { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:6px; font-size:13px; color:var(--dim); font-weight:600; }
-  .hero-metrics { display:flex; flex-direction:column; align-items:flex-start; gap:2px; font-size:13px; color:var(--dim); }
+  .hero-after { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:13px; font-size:14px; color:var(--dim); font-weight:600; }
+  .hero-metrics { display:flex; flex-direction:column; align-items:flex-start; gap:6px; margin-top:14px; font-size:13px; color:var(--dim); }
   .hero-metrics b { font-variant-numeric:tabular-nums; }
   .hero-runup { color:var(--sig-buy); font-weight:700; }
   .hero-runup.down { color:var(--sig-sell); }
-  .company-review { border:1px solid var(--line); border-radius:var(--r-md); padding:12px 14px;
-    margin:4px 0 10px; background:var(--bg); font-size:14px; line-height:1.5; }
-  .company-review h3 { margin:0 0 7px; font-size:17px; }
-  .company-review-lead { color:var(--txt); font-weight:700; margin:0 0 9px; }
-  .company-review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-  .company-review-part { border:1px solid var(--line); border-radius:var(--r-sm); padding:8px 10px; min-width:0; }
-  .company-review-part b { display:block; margin-bottom:4px; }
+  .company-review { border:1px solid var(--line); border-radius:var(--r-md); padding:18px 20px;
+    margin:12px 0 18px; background:var(--bg); font-size:14px; line-height:1.55; }
+  .company-review h3 { margin:0 0 14px; font-size:18px; }
+  .company-review-lead { color:var(--txt); font-weight:700; margin:0 0 14px; }
+  .company-review-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+  .company-review-part { border:1px solid var(--line); border-radius:var(--r-sm); padding:12px 14px; min-width:0; }
+  .company-review-part b { display:block; margin-bottom:9px; }
   .company-review-part p { margin:3px 0; }
   .company-review-part a { color:var(--accent); text-decoration:underline; text-underline-offset:2px; }
   .company-review-foot { color:var(--dim); margin:9px 0 0; font-size:13px; }
@@ -509,13 +511,13 @@
   /* 패널 서브카드 — 준비 데스크·시황 밴드 등 컬럼/밴드 안의 소형 카드(카드 크롬 표준화) */
   .pcard { border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel);
     padding:var(--space-3) var(--space-4); }
-  .pcard-title { font-weight:700; font-size:var(--fs-base); margin-bottom:var(--space-1); }
+  .pcard-title { font-weight:700; font-size:var(--fs-base); margin-bottom:var(--space-3); line-height:1.4; }
   .pcard-title .sub { color:var(--dim); font-weight:600; font-size:var(--fs-xs); }
   .placeholder { color:var(--dim); font-size:var(--fs-base); padding:32px 0; text-align:center; }
   .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
   .field { display:flex; flex-direction:column; gap:4px; font-size:var(--fs-base); color:var(--dim); }
   .field input, .field select { min-width:160px; }
-  h2.page-head { font-size:var(--fs-xl); margin:0 0 4px; letter-spacing:-.01em; }
+  h2.page-head { font-size:var(--fs-xl); margin:0 0 10px; letter-spacing:-.01em; }
   .page-desc { color:var(--dim); font-size:var(--fs-sm); margin:0 0 20px; line-height:1.6; max-width:78ch; }
   ul.watchlist { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
   ul.watchlist li { display:flex; justify-content:space-between; align-items:center;
@@ -559,7 +561,7 @@
   #bot-trades-body .trade-note summary { cursor:pointer; color:var(--dim-2); font-weight:600; }
   #bot-perf-summary[hidden] { display:none; }
   #bot-perf-summary { margin-bottom:14px; font-size:var(--fs-sm); line-height:1.55; }
-  #signal-factors .fct-title { font-size:13px; font-weight:700; margin-bottom:6px; }
+  #signal-factors .fct-title { font-size:15px; font-weight:700; margin-bottom:12px; }
   .fct-row { display:flex; align-items:center; gap:8px; margin:3px 0; }
   .fct-label { flex:0 0 52px; font-size:13px; color:var(--dim); text-align:right; }
   .fct-track { position:relative; flex:1 1 auto; height:12px; background:var(--bg); border:1px solid var(--line); border-radius:6px; overflow:hidden; }
@@ -667,7 +669,7 @@
   .sig-explore-body { padding:0 10px 10px; }
   .sig-extra { border-top:1px solid var(--line); padding:9px 2px; }
   .sig-extra > summary { min-height:36px; display:flex; align-items:center; cursor:pointer; color:var(--dim); font-size:14px; font-weight:600; }
-  .sig-extra[open] > summary { color:var(--txt); margin-bottom:6px; }
+  .sig-extra[open] > summary { color:var(--txt); margin-bottom:14px; }
   .alert-bell-ico { display:inline-flex; align-items:center; line-height:0; }
 
   /* 반응형: 좁은 화면에서 워크스페이스를 세로로 쌓음 */
@@ -692,10 +694,11 @@
   #data-health table.dtable th:nth-child(1), #data-health table.dtable td:nth-child(1) { width:36%; }
   #data-health table.dtable th:nth-child(2), #data-health table.dtable td:nth-child(2) { width:16%; }
   @media (max-width:640px){
-    .market-brief { margin:8px 14px 0; padding:15px 14px 11px; }
-    .mb-layout { grid-template-columns:1fr; gap:12px; }
+    .market-brief { margin:12px 14px 0; padding:20px 16px; }
+    .mb-layout { grid-template-columns:1fr; gap:22px; }
     .mb-figure { grid-row:2; }
-    .mb-visual { max-height:210px; }
+    .mb-visual { aspect-ratio:1/1; max-height:none; }
+    .mb-figure img { object-fit:cover; object-position:left center; }
     .mb-selection { min-width:0; }
     .today-links { margin:0 14px 10px; }
     .mb-facts { grid-template-columns:1fr; }
@@ -995,20 +998,23 @@
     </div>
     <figure id="mb-figure" class="mb-figure">
       <div class="mb-visual">
-        <img id="mb-image" alt="" aria-hidden="true" width="1200" height="700" hidden>
-        <div id="mb-image-fallback" class="mb-image-fallback" role="status">시장 장면을 준비하고 있습니다.</div>
+        <img id="mb-image" alt="" width="1200" height="700" hidden>
+        <div id="mb-image-fallback" class="mb-image-fallback" role="status">종목과 공시를 확인하고 있습니다.</div>
       </div>
       <p id="mb-figure-mobile-note" class="mb-figure-mobile-note"></p>
-      <figcaption><span>관찰 종목의 종가로 만든 장면 · 예측 아님</span>
+      <figcaption><span>등락 폭 큰 관찰 종목 · 매수 추천 아님</span>
         <button type="button" onclick="downloadMarketBriefPng()">공유 이미지 저장</button></figcaption>
+      <a id="mb-news-link" class="mb-news-link" href="#" target="_blank" rel="noopener noreferrer" hidden></a>
     </figure>
   </div>
   <details id="market-brief-sources" class="mb-sources" ontoggle="onMarketBriefSourcesToggle()">
-    <summary>숫자가 뜻하는 것 · 원문 보기</summary>
+    <summary>기준과 근거 자세히 보기</summary>
     <div id="macro-detail">
       <p id="mb-source-basis" class="mb-source-foot" title="원어: 시장 ZONE · 관찰 종목의 종가 흐름을 분류한 값"></p>
       <div id="mb-facts" class="mb-facts" aria-label="수치 설명"></div>
       <div id="mb-fact-sources" class="mb-source-foot"></div>
+      <div id="mb-selection-timing" class="mb-source-foot"></div>
+      <div id="mb-unknown-details" class="mb-source-foot"></div>
       <div class="mb-source-head"><b id="mb-macro-title">국내 시장 참고 지표</b><span id="macro-bias" class="sig-pill" style="display:none">-</span></div>
       <div class="macro-chips" id="macro-chips"></div>
       <div class="macro-callout" id="macro-narrative" style="display:none"></div>
@@ -3392,7 +3398,8 @@ function setMarketBriefImage(d){
   const mobileNote = document.getElementById('mb-figure-mobile-note');
   const save = figure.querySelector('button');
   const sceneKey = d ? [d.market, d.price_as_of, d.status, d.scene?.direction,
-    d.scene?.up, d.scene?.down, d.scene?.flat].join(':') : null;
+    d.scene?.up, d.scene?.down, d.scene?.flat,
+    (d.movers || []).map(x => x.ticker).join(','), (d.brief_news || []).map(x => x.title).join(',')].join(':') : null;
   const changed = _marketBriefSceneKey && sceneKey && sceneKey !== _marketBriefSceneKey;
   _marketBriefSceneKey = sceneKey;
   img.onload = null; img.onerror = null;
@@ -3404,16 +3411,23 @@ function setMarketBriefImage(d){
   figure.classList.toggle('is-changing', !!changed);
   figure.hidden = false;
   if (!d) {
-    fallback.textContent = '시장 장면을 준비하고 있습니다.';
+    fallback.textContent = '종목과 공시를 확인하고 있습니다.';
     fallback.hidden = false;
     img.hidden = true;
+    img.alt = '';
+    mobileNote.textContent = '종목과 공시를 확인하고 있습니다.';
     return;
   }
-  const scene = d.scene || {};
-  mobileNote.textContent = '종가로 만든 장면입니다. 숫자와 근거는 아래에서 확인하세요.';
+  const movers = (d.movers || []).slice(0, 3).map(x => `${x.name} ${Number(x.change_pct) >= 0 ? '+' : ''}${x.change_pct}%`);
+  mobileNote.textContent = movers.length
+    ? `등락 폭 큰 종목: ${movers.join(' · ')}`
+    : '비교할 종가가 부족해 종목 요약을 보류했습니다.';
+  img.alt = movers.length
+    ? `${d.price_as_of} 종가 기준 등락 폭 큰 관찰 종목: ${movers.join(', ')}. ${d.brief_news?.length ? `같은 날 확인된 ${d.brief_news[0].source}: ${d.brief_news[0].name}, ${d.brief_news[0].title}. 주가 변동 원인으로 단정하지 않습니다.` : '이 카드에 연결된 당일 기업 소식은 없습니다.'}`
+    : '종가가 늦거나 비교 자료가 부족해 종목·공시 그림을 보류했습니다.';
   save.hidden = !d.image_svg;
   const sceneSvg = d.image_scene_svg || d.image_svg;
-  fallback.textContent = `${d.market === 'us' ? '해외' : '국내'} 시장 · ${d.today_headline || d.headline || '시장 자료 확인 중'}. 그림은 지금 표시할 수 없어요. 위의 설명과 ‘숫자가 뜻하는 것’에서 확인해 주세요.`;
+  fallback.textContent = `${d.market === 'us' ? '해외' : '국내'} 시장 · ${d.today_headline || d.headline || '시장 자료 확인 중'}. 그림은 표시하지 못했지만 위의 요약과 ‘기준과 근거’에서 내용을 확인할 수 있습니다.`;
   fallback.hidden = false;
   img.hidden = !sceneSvg;
   if (!sceneSvg) return;
@@ -3456,6 +3470,11 @@ async function loadRegime(){
   document.getElementById('mb-selection').textContent = '판정 현황 확인 중…';
   document.getElementById('mb-source-basis').textContent = '';
   document.getElementById('mb-fact-sources').replaceChildren();
+  document.getElementById('mb-selection-timing').textContent = '';
+  document.getElementById('mb-unknown-details').textContent = '';
+  const newsLink = document.getElementById('mb-news-link');
+  newsLink.hidden = true;
+  newsLink.removeAttribute('href');
   unknown.textContent = '';
   facts.replaceChildren();
   setMarketBriefImage(null);
@@ -3468,8 +3487,11 @@ async function loadRegime(){
     setMarketBriefImage(d);
     asof.textContent = d.price_as_of ? `${d.price_as_of} 종가${fresh ? '' : ' · 갱신 지연'}` : '종가 확인 불가';
     state.textContent = d.today_headline || d.headline || '시장 자료를 아직 요약할 수 없어요';
+    const best = (d.sector_summary || [])[0];
     document.getElementById('mb-basis').textContent = fresh
-      ? (d.summary || '관찰 종목의 흐름입니다.')
+      ? (best && d.scene?.direction !== 'unknown'
+          ? `${best.sector} 종목이 ${best.median_change_pct > 0 ? '상대적으로 강했어요' : '상대적으로 덜 약했어요'}. 오른쪽은 실제 등락과 확인된 소식입니다.`
+          : '확인된 종가를 기준으로, 오늘 움직임을 짧게 정리했습니다.')
       : '오래된 가격으로 최근 거래일의 시장 흐름을 판단하지 않아요.';
     document.getElementById('mb-source-basis').textContent = fresh
       ? `${d.state_basis || '저장된 종가 기준'} · ${d.price_count}/${d.universe_count}종목 날짜 확인. 해당일 등락·최근 평균 위 여부·20거래일 변화는 서로 다른 기간의 관측치이며, 어느 것도 다음 거래일에 오를 확률은 아닙니다.`
@@ -3486,11 +3508,24 @@ async function loadRegime(){
             : esc(f.source || '저장된 자료');
           return `<div>· ${esc(f.label)}: ${linked} · 관측 ${esc(f.as_of || '미확인')}</div>`;
         }).join('') : '';
+    document.getElementById('mb-unknown-details').textContent = (d.unknown || []).join(' ');
+    const news = (d.brief_news || [])[0];
+    if (news && /^https:\/\/[^\s@/]+\//.test(news.url || '')) {
+      newsLink.href = news.url;
+      newsLink.textContent = `${news.source || '원문'} · ${news.name}: ${news.title} ↗`;
+      newsLink.hidden = false;
+    }
     const sel = d.selection;
+    document.getElementById('mb-selection-timing').textContent = sel
+      ? `매수 판정 계산 ${sel.computed_at ? new Date(sel.computed_at).toLocaleString('ko-KR') : '시각 미확인'} · 가격 기준 ${d.price_as_of} 종가`
+      : '매수 판정 시각 또는 기준 가격을 확인하지 못했습니다.';
     document.getElementById('mb-selection').innerHTML = fresh && sel
-      ? `<b>매수 판정 ${sel.buy_count}개</b><small>강력매수 ${sel.strong_buy_count}개${sel.slots != null ? ' · 매수 창 ' + sel.slots + '자리' : ''}</small><small>판정 계산 ${esc(sel.computed_at ? new Date(sel.computed_at).toLocaleString('ko-KR') : '시각 미확인')}</small><small>가격 기준 ${esc(d.price_as_of)} 종가</small>`
+      ? `<b>매수 판정 ${sel.buy_count}개</b><small>강력매수 ${sel.strong_buy_count}개 · ${esc(d.price_as_of)} 종가 기준</small>`
       : '<b>판정 건수 보류</b><small>종가 누락 · 개별 시그널은 목록에서 확인</small>';
-    unknown.textContent = (d.unknown || []).length ? `이 카드가 모르는 점: ${d.unknown.join(' ')}` : '';
+    unknown.textContent = !fresh ? (d.unknown || [])[0] || '가격을 다시 확인해야 합니다.'
+      : d.status === 'partial' ? '일부 종가가 빠져 매수 판정 건수를 보여주지 않습니다.'
+      : d.brief_news_error ? d.brief_news_error
+      : '종목이 움직인 이유는 이 카드만으로 확정할 수 없습니다.';
     unknown.classList.toggle('is-warning', !fresh);
     const policy = d.selection_policy || {}, ad = d.adaptive || {};
     if (fresh) {
@@ -5486,7 +5521,7 @@ function _paintSignalDetail(ticker, item){
       runUpHtml = `<span class="${ruCls}" title="${esc(tip)}">발동 후 <b>${ruTxt}</b>`
         + (firePx ? ` <span style="font-weight:600;color:var(--dim)">(${esc(firePx)}→)</span>` : '')
         + ` <span style="font-weight:600;color:var(--dim)">${fireDate} · ${esc(age)}</span></span>`;
-      if (ru < 0) lossHtml = `<div class="hero-loss-note" role="note">첫 매수권 뒤 ${fmtNum(Math.abs(ru), 1)}% 하락했습니다. 현재 등급은 신규 매수 후보 순위이며, 보유분의 유지·추가매수·매도를 판정한 결과는 아닙니다.</div>`;
+      if (ru < 0) lossHtml = `<div class="hero-loss-note" role="note">첫 매수권 이후 ${fmtNum(Math.abs(ru), 1)}% 내렸습니다. 지금 등급은 새 매수 후보 평가일 뿐, 이미 산 주식을 더 사거나 팔라는 뜻은 아닙니다.</div>`;
     }
     // 목표가 가정은 아래 가격·지표 상세에 둔다. 발동 뒤 하락한 종목의 첫 카드에서
     // 현재가 대비 목표 여력을 크게 띄우면 손실 경고와 반대 메시지가 된다.

@@ -21,8 +21,8 @@ def test_index_served(tmp_path, monkeypatch):
 
 def test_buy_detail_does_not_disguise_post_signal_loss(tmp_path, monkeypatch):
     html = _fresh_client(tmp_path, monkeypatch).get("/").text
-    assert "첫 매수권 뒤" in html
-    assert "보유분의 유지·추가매수·매도를 판정한 결과는 아닙니다" in html
+    assert "첫 매수권 이후" in html
+    assert "이미 산 주식을 더 사거나 팔라는 뜻은 아닙니다" in html
     assert "실제 체결 손익이 아니며" in html
     assert "매수권 기록" in html
     assert "참고 목표가 여력 <b>" not in html
