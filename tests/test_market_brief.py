@@ -167,6 +167,7 @@ def test_market_card_has_one_endpoint_and_defers_source_requests():
     assert "prefers-reduced-motion:reduce" in html
     assert "img.onerror = () => { img.hidden = true; fallback.hidden = false; save.hidden = true;" in html
     assert "mb-figure-mobile-note" in html
+    assert "min-height:1.5em" in html
     assert 'downloadMarketBriefPng()' in html
     start = html.split("async function startApp(){", 1)[1].split("// ===== 온보딩", 1)[0]
     assert "loadMacro();" not in start
