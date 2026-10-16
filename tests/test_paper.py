@@ -122,6 +122,78 @@ def test_closed_session_paper_hold_explains_market_hours(tmp_path, monkeypatch):
     assert db.execution_events_for_uid(UID, "kr")[0]["event_type"] == "deferred_market_closed"
 
 
+@pytest.mark.parametrize("market,zone", [("kr", "Asia/Seoul"), ("us", "America/New_York")])
+def test_paper_source_time_checks_do_not_confuse_receipt_with_trade_time(market, zone):
+    at = datetime(2026, 7, 13, 10, tzinfo=ZoneInfo(zone)).timestamp()
+    base = {"price_basis": "intraday_provisional", "price_session": "2026-07-13",
+            "price_observation_id": "quote-1", "price_received_at": at - 5}
+    missing = paper.bot_order_quote_check(market, base, now=at)
+    assert missing["eligible"] and missing["status"] == "ready_receipt_only"
+    assert missing["source_time_verified"] is False
+    for delta, state in ((-5, "within_window"), (-601, "stale"), (-86400, "different_session"),
+                         (301, "future")):
+        evidence = {**base, "price_source_timestamp": datetime.fromtimestamp(
+            at + delta, ZoneInfo(zone)).isoformat(), "price_source_time_verified": False}
+        check = paper.bot_order_quote_check(market, evidence, now=at)
+        assert check["source_time_state"] == state
+        assert check["eligible"] == (state == "within_window")
+        assert check["source_time_verified"] is False
+    for stamp in ("2026-07-13T10:00:00", "garbled", "", 1790000000):
+        check = paper.bot_order_quote_check(market, {**base, "price_source_timestamp": stamp}, now=at)
+        assert not check["eligible"] and check["source_time_state"] == "unparseable"
+    malformed = paper.bot_order_quote_check(market, {**base, "price_source_timestamp": None,
+        "price_source_timestamp_field": "timestamp"}, now=at)
+    assert not malformed["eligible"]
+    # A current source timestamp does not override a missing or expired server observation.
+    stamp = datetime.fromtimestamp(at, ZoneInfo(zone)).isoformat()
+    assert not paper.bot_order_quote_ready(market, {**base, "price_received_at": at - 601,
+        "price_source_timestamp": stamp}, now=at)
+
+
+def test_stale_provider_response_holds_both_sides_and_persists_gate(tmp_path, monkeypatch):
+    _seed(monkeypatch, tmp_path, price=100.0)
+    at = datetime(2026, 7, 13, 10, tzinfo=ZoneInfo("Asia/Seoul")).timestamp()
+    monkeypatch.setattr(paper.time, "time", lambda: at)
+    base = {"price_basis": "intraday_provisional", "price_session": "2026-07-13",
+            "price_observation_id": "quote-1", "price_received_at": at - 5}
+    good = paper.place_order(UID, "005930", "buy", 1, price=100.0, reason="SIGNAL",
+                            event_payload={"price_evidence": base}, enforce_fresh_quote=True)
+    assert good is not None
+    event = db.execution_events_for_uid(UID, "kr")[0]
+    assert event["payload"]["paper_quote_check"]["status"] == "ready_receipt_only"
+    before = paper.balance(UID)
+    stale = {**base, "price_source_timestamp": "2026-07-13T09:40:00+09:00"}
+    for side in ("buy", "sell"):
+        assert paper.place_order(UID, "005930", side, 1, price=100.0, reason="STOP_LOSS",
+            event_payload={"price_evidence": stale}, enforce_fresh_quote=True) is None
+    assert paper.balance(UID) == before
+    assert len(db.bot_trades_recent(UID)) == 1
+    held = [e for e in db.execution_events_for_uid(UID, "kr")
+            if e["event_type"] == "deferred_source_time"]
+    assert len(held) == 2
+    assert all(e["payload"]["paper_quote_check"]["source_time_state"] == "stale" for e in held)
+    assert any("손절·위험 청산도 실행되지 않았습니다" in item["text"]
+               for item in db.notification_outbox_due(now=int(at)))
+
+
+def test_quote_expiring_while_waiting_for_account_lock_cannot_fill(tmp_path, monkeypatch):
+    _seed(monkeypatch, tmp_path, price=100.0)
+    clock = [datetime(2026, 7, 13, 10, tzinfo=ZoneInfo("Asia/Seoul")).timestamp()]
+    monkeypatch.setattr(paper.time, "time", lambda: clock[0])
+    evidence = {"price_basis": "intraday_provisional", "price_session": "2026-07-13",
+                "price_observation_id": "quote-1", "price_received_at": clock[0] - 599}
+    before = paper.balance(UID)
+    original = db.kv_transform
+    def delayed_lock(*args, **kwargs):
+        clock[0] += 3
+        return original(*args, **kwargs)
+    monkeypatch.setattr(db, "kv_transform", delayed_lock)
+    assert paper.place_order(UID, "005930", "buy", 1, price=100.0, reason="SIGNAL",
+        event_payload={"price_evidence": evidence}, enforce_fresh_quote=True) is None
+    assert paper.balance(UID) == before and db.bot_trades_recent(UID) == []
+    assert db.execution_events_for_uid(UID, "kr")[0]["event_type"] == "deferred_stale_quote"
+
+
 def test_paper_isolated_per_uid(tmp_path, monkeypatch):
     _seed(monkeypatch, tmp_path)
     db.user_bot_set_seed(9, 1_000_000.0)
