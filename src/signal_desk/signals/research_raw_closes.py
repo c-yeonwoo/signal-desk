@@ -8,8 +8,10 @@ archive never writes the signal price caches or supplies the live order path.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import hashlib
+import io
 import json
 import math
 import os
@@ -56,10 +58,13 @@ def _validate_scope(market: str, ticker: str, start: str, end: str, exchange: st
 
 
 def _fetch_kr(ticker: str, start: str, end: str, exchange: str | None) -> list[dict]:
-    from pykrx import stock
+    # pykrx/KRX authentication prints the login identifier to stdout. It is
+    # irrelevant to price evidence and must not leak into CLI logs.
+    with contextlib.redirect_stdout(io.StringIO()):
+        from pykrx import stock
 
-    frame = stock.get_market_ohlcv_by_date(start.replace("-", ""), end.replace("-", ""),
-                                           ticker, adjusted=False)
+        frame = stock.get_market_ohlcv_by_date(start.replace("-", ""), end.replace("-", ""),
+                                               ticker, adjusted=False)
     if frame is None or frame.empty:
         raise ValueError("KR provider returned no raw bars; check KRX access")
     rows = []
@@ -189,6 +194,25 @@ def audit_fill_range(trades: list[dict], observation_paths: list[Path], *, marke
     zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
     bars: dict[tuple[str, str], dict] = {}
     conflicts: set[tuple[str, str]] = set()
+    historical_closes: dict[tuple[str, str], float] = {}
+    historical_conflicts: set[tuple[str, str]] = set()
+
+    def remember_close(ticker: str, day: str, raw_close: object) -> None:
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or day > DEVELOPMENT_END:
+            return
+        try:
+            close = float(raw_close)
+        except (TypeError, ValueError, OverflowError):
+            return
+        if not math.isfinite(close) or close <= 0:
+            return
+        key = (ticker, day)
+        if key in historical_closes and not math.isclose(historical_closes[key], close,
+                                                         rel_tol=1e-9, abs_tol=1e-6):
+            historical_conflicts.add(key)
+        else:
+            historical_closes[key] = close
+
     for path in observation_paths:
         item = verify(path)
         if item["market"] != market:
@@ -199,9 +223,22 @@ def audit_fill_range(trades: list[dict], observation_paths: list[Path], *, marke
                 conflicts.add(key)
             else:
                 bars[key] = row["source_row"]
+            remember_close(item["ticker"], row["date"], row["close"])
+        # US KIS returns up to 100 older bars on the same retained page. They
+        # are prior-close comparison evidence, not validated coverage of the
+        # requested range and never an input to the signal/backtest engine.
+        if market == "us":
+            for source in item["source_response_rows"]:
+                raw_day = str(source.get("xymd") or "")
+                if re.fullmatch(r"\d{8}", raw_day):
+                    remember_close(item["ticker"],
+                                   f"{raw_day[:4]}-{raw_day[4:6]}-{raw_day[6:]}",
+                                   source.get("clos"))
     counts = {"trades": 0, "within_daily_range": 0, "outside_daily_range": 0,
               "missing_bar": 0, "conflicting_bar": 0, "invalid_bar_or_trade": 0,
-              "excluded_protected_trades": 0}
+              "excluded_protected_trades": 0,
+              "outside_prior_close_match": 0, "outside_prior_close_unmatched": 0,
+              "outside_prior_close_unknown": 0}
     examples = []
     for trade in trades:
         try:
@@ -236,10 +273,24 @@ def audit_fill_range(trades: list[dict], observation_paths: list[Path], *, marke
         else:
             counts["outside_daily_range"] += 1
             gap_bps = 10_000 * ((low - price) / low if price < low else (price - high) / high)
+            prior = [(past_day, past_close) for (past_ticker, past_day), past_close in historical_closes.items()
+                     if past_ticker == ticker and past_day < day]
+            if not prior or any(past_ticker == ticker and past_day < day
+                                for past_ticker, past_day in historical_conflicts):
+                prior_status, matched_day = "unknown", None
+                counts["outside_prior_close_unknown"] += 1
+            else:
+                matched = [past_day for past_day, past_close in prior
+                           if math.isclose(price, past_close, rel_tol=1e-8, abs_tol=1e-6)]
+                matched_day = max(matched) if matched else None
+                prior_status = "match" if matched_day else "unmatched"
+                counts["outside_prior_close_match" if matched_day else
+                       "outside_prior_close_unmatched"] += 1
             if len(examples) < 20:
                 examples.append({"trade_id": trade.get("id"), "ticker": ticker, "session": day,
                                  "fill_price": price, "daily_low": low, "daily_high": high,
-                                 "gap_bps": round(gap_bps, 2)})
+                                 "gap_bps": round(gap_bps, 2), "prior_close_status": prior_status,
+                                 "matched_prior_close_session": matched_day})
     return {"schema": "research-fill-range-audit-v1", "market": market,
             "mode": "research_only", "live_eligible": False,
             "price_basis_verified": False, "verified_total_return": None,
@@ -250,6 +301,10 @@ def audit_fill_range(trades: list[dict], observation_paths: list[Path], *, marke
 
 
 def main() -> None:
+    # Unlike the API/CLI entrypoints, `python -m ...research_raw_closes` does
+    # not load .env automatically. Keep credentials in the local environment;
+    # never include them in the archived request or printed result.
+    config.load_env()
     parser = argparse.ArgumentParser(description="Capture bounded research-only unadjusted close evidence")
     parser.add_argument("--market", choices=("kr", "us"), required=True)
     parser.add_argument("--ticker", required=True)
