@@ -210,8 +210,13 @@ def collect(path: Path) -> dict:
 def refresh(path: Path, *, now: dt.datetime,
             state_get: Callable[[str], object], state_set: Callable[[str, object], None],
             reserve: Callable[[str], bool],
-            collector: Callable[[Path], dict] = collect) -> dict:
-    """Weekly-gated attempt; atomic four-request monthly ceiling across workers."""
+            collector: Callable[[Path], dict] = collect,
+            release_catchup: bool = False) -> dict:
+    """Weekly attempt, or one bounded early retry after a confirmed new release.
+
+    The early retry is operator-triggered, never inferred from the mutable data
+    file. Both paths share the atomic four-request monthly ceiling.
+    """
     if now.tzinfo is None or now.utcoffset() is None:
         raise ValueError("timezone required")
     key = "fed_g17_attempt"
@@ -224,8 +229,15 @@ def refresh(path: Path, *, now: dt.datetime,
             age = now.timestamp() - float(prior["at"])
         except (TypeError, ValueError):
             return {"status": "invalid_attempt_state", "requested": 0}
-        if age < 7 * 86400:
+        if age < (24 * 3600 if release_catchup else 7 * 86400):
             return {"status": "not_due", "requested": 0}
+    catchup_key = f"fed_g17_release_catchup:{now.strftime('%Y-%m')}"
+    if release_catchup:
+        try:
+            if state_get(catchup_key) is not None:
+                return {"status": "release_catchup_used", "requested": 0}
+        except Exception:
+            return {"status": "state_failure", "requested": 0}
     budget_key = f"fed_g17_requests:{now.strftime('%Y-%m')}"
     try:
         allowed = reserve(budget_key)
@@ -235,6 +247,10 @@ def refresh(path: Path, *, now: dt.datetime,
         return {"status": "budget_exhausted", "requested": 0}
     stamp = {"at": int(now.timestamp()), "status": "started"}
     try:
+        if release_catchup:
+            # Claim before I/O. A crash may underuse the allowance, never
+            # launch repeated release catch-ups on the next loop.
+            state_set(catchup_key, {"at": stamp["at"], "status": "started"})
         state_set(key, stamp)
     except Exception:
         return {"status": "state_failure", "requested": 0}

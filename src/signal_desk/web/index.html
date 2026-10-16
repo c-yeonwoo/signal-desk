@@ -8209,6 +8209,11 @@ function evidenceOpsHtml(d){
   const storageText = storageState[continuity.storage_preflight?.status] || '저장 경로 검사 기록이 없습니다';
   return row('국내 관심종목 재무(DART)', d.financial_evidence_refresh, src.dart, 'raw_changed', '원문 변화 관측', true)
     + row('미국 산업생산(연준)', d.fed_g17_refresh, src.fed_g17, 'revised_periods', '과거 월 수치 수정 관측')
+    + `<details style="margin:6px 0 10px"><summary style="cursor:pointer">연준 새 발표를 확인했을 때만 수동 재조회</summary>`
+    + `<p class="page-desc" style="margin:6px 0"><a href="https://www.federalreserve.gov/releases/g17/current/default.htm" target="_blank" rel="noopener noreferrer">연준 공식 발표 ↗</a>의 발표일을 확인하세요. 월 최대 4회 제한과 24시간 간격은 그대로입니다. 시그널·주문은 바뀌지 않습니다.</p>`
+    + `<div class="row"><label>공식 발표일 <input id="fed-g17-release-date" type="date"></label>`
+    + `<button type="button" class="btn" onclick="refreshFedG17Release(this)">새 발표 수집</button></div>`
+    + `<div id="fed-g17-release-result" style="margin-top:5px;color:var(--dim)" role="status"></div></details>`
     + row('세계 반도체 매출(협회 공개 발표)', d.sia_market_refresh, src.sia_market, 'raw_changed', '새 공개 관측 추가')
     + `<div style="padding-top:7px;color:var(--dim)">미국 공시(SEC): ${d.sec_edgar?.contact_configured ? '연락처 설정됨 · 수집 성공은 별도 확인' : '실제 연락처 미설정 · 새 요청 중단, 기존 저장값 유지'}</div>`
     + row('미국 관심종목 재무(SEC)', d.sec_evidence_refresh, src.sec, 'raw_changed', '원문 변화 관측')
@@ -8222,6 +8227,34 @@ function evidenceOpsHtml(d){
     + `<button type="button" class="btn" style="margin-top:8px" onclick="loadDartCardAudit(this)">국내 재무 카드·보존 원문 대조</button>`
     + `<div class="dart-card-audit-result" style="margin-top:6px;color:var(--dim)">법인코드 순서대로 비교 카드가 성립하는 첫 2개를 금액 확인 전에 선정합니다. 비교 불가 법인과 이유도 표시합니다. 외부 요청은 하지 않습니다.</div>`
     + `<div style="color:var(--dim-2);margin-top:5px">요청 횟수·받은 양은 비용 단서일 뿐 실제 금액이 아닙니다. 원문 변화는 회계 정정이 확인됐다는 뜻이 아닙니다.</div>`;
+}
+
+async function refreshFedG17Release(btn){
+  const date = document.getElementById('fed-g17-release-date')?.value;
+  const result = document.getElementById('fed-g17-release-result');
+  if (!result) return;
+  if (!date || !confirm(`연준 원문에서 ${date} 발표일을 직접 확인했나요?`)) return;
+  btn.disabled = true;
+  result.textContent = '연준 새 발표 자료를 확인하는 중…';
+  try {
+    const res = await fetch('/api/admin/evidence-ops/fed-g17-refresh', {
+      method:'POST', headers:{'Content-Type':'application/json', 'X-Signal-Desk-Evidence':'confirmed-release'},
+      body:JSON.stringify({release_date:date, source_confirmed:true})});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+    const message = data.release_caught_up
+      ? `새 자료 ${data.stored_period} 보존 완료 · 요청 ${data.requested}회. 원문 수치 대조와 배포 뒤 보존은 별도로 확인하세요.`
+      : data.status === 'already_current'
+        ? `${data.stored_period} 자료가 이미 보존돼 있습니다. 새 요청은 하지 않았습니다.`
+        : `새 자료 확인 보류 · ${data.status || '상태 확인 필요'} · 요청 ${data.requested || 0}회. 다음 확인 전까지 이전 자료를 최신으로 보지 마세요.`;
+    await loadEvidenceOps(true);
+    const refreshed = document.getElementById('fed-g17-release-result');
+    if (refreshed) refreshed.textContent = message;
+  } catch (error) {
+    result.textContent = `새 자료 확인 실패 · ${error.message}`;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function loadDataHealth({ render = true, force = false } = {}){
