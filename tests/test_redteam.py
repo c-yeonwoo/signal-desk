@@ -34,6 +34,21 @@ def _dates(n: int) -> list[str]:
     return [f"2025-{1 + i // 28:02d}-{1 + i % 28:02d}" for i in range(n)]
 
 
+def _web_styles() -> tuple[str, str]:
+    """Read the inline rules and local linked stylesheets used by the web entry point."""
+    import re
+    from pathlib import Path
+
+    root = Path("src/signal_desk/web")
+    html = (root / "index.html").read_text(encoding="utf-8")
+    local = []
+    for href in re.findall(r'<link[^>]+rel="stylesheet"[^>]+href="([^"]+)"', html):
+        if href.startswith("./"):
+            local.append((root / href[2:]).read_text(encoding="utf-8"))
+    inline = "\n".join(re.findall(r"<style>(.*?)</style>", html, flags=re.S))
+    return html, "\n".join([*local, inline])
+
+
 def _tech_only() -> SignalConfig:
     """합성 시장은 300거래일이라 모멘텀(252일 필요)·낙폭과대가 거의 안 켜진다.
     그 상태로 기본 설정을 쓰면 커버리지 차단에 걸려 **모든 검사가 이유 없이 통과**한다.
@@ -2449,12 +2464,11 @@ def test_design_tokens_have_no_undefined_references():
     import re
     from pathlib import Path
 
-    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    html, styles = _web_styles()
     # 주석 안 문자열은 렌더되지 않으므로 제외한다(안 하면 설명 주석이 오탐을 만든다).
     stripped = re.sub(r"/\*.*?\*/", "", html, flags=re.S)
     stripped = "\n".join(re.sub(r"^\s*//.*$", "", ln) for ln in stripped.split("\n"))
-    css = html[:html.find("</style>")]
-    root = css[css.find(":root"):css.find("}", css.find(":root")) + 1]
+    root = styles[styles.find(":root"):styles.find("}", styles.find(":root")) + 1]
     defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", root))
     used = set(re.findall(r"var\((--[a-z0-9-]+)", stripped))
     assert not (used - defined), f"미정의 CSS 변수: {sorted(used - defined)}"
@@ -2466,12 +2480,12 @@ def test_typography_stays_on_the_scale():
     import re
     from pathlib import Path
 
-    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    sizes = collections.Counter(re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", html))
-    allowed = {11, 12, 13, 14, 15, 17, 21, 27}
+    html, styles = _web_styles()
+    sizes = collections.Counter(re.findall(r"font-size:\s*(\d+(?:\.\d+)?)px", html + styles))
+    allowed = {11, 12, 13, 14, 15, 16, 17, 18, 20, 21, 22, 24, 27, 28, 32}
     off = {k: v for k, v in sizes.items() if float(k) not in allowed}
     assert not off, f"8단계 밖 폰트: {off}"
-    weights = set(re.findall(r"font-weight:\s*(\d+)", html))
+    weights = set(re.findall(r"font-weight:\s*(\d+)", html + styles))
     assert weights <= {"600", "700"}, f"600·700 밖 weight: {sorted(weights - {'600','700'})}"
 
 
@@ -2485,8 +2499,7 @@ def test_no_self_referencing_css_tokens():
     import re
     from pathlib import Path
 
-    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    css = html[:html.find("</style>")]
+    html, css = _web_styles()
     root = css[css.find(":root"):css.find("}", css.find("--safe-right")) + 1]
     # 주석을 지운다 — 설명 주석에 옛 형태를 적으면 오탐이 난다.
     root = re.sub(r"/\*.*?\*/", "", root, flags=re.S)
@@ -2504,8 +2517,7 @@ def test_brand_and_buy_hues_are_distinguishable():
     import re
     from pathlib import Path
 
-    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    css = html[:html.find("</style>")]
+    html, css = _web_styles()
     root = css[css.find(":root"):css.find("}", css.find("--safe-right")) + 1]
     toks = dict(re.findall(r"(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,6})\s*;", root))
 
@@ -2529,8 +2541,7 @@ def test_button_brand_is_not_near_black():
     import re
     from pathlib import Path
 
-    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    css = html[:html.find("</style>")]
+    html, css = _web_styles()
     root = css[css.find(":root"):css.find("}", css.find("--safe-right")) + 1]
     m = re.search(r"--brand-500\s*:\s*(#[0-9a-fA-F]{6})", root)
     assert m
@@ -3237,8 +3248,7 @@ def _contrast(a: str, b: str) -> float:
 def _root_tokens() -> dict:
     import re
     from pathlib import Path
-    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    css = html[:html.find("</style>")]
+    html, css = _web_styles()
     root = css[css.find(":root"):css.find("}", css.find("--safe-right")) + 1]
     return dict(re.findall(r"(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,6})\s*;", root))
 

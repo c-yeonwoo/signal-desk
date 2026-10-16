@@ -1,7 +1,7 @@
 .home-desk { border:1px solid var(--line-strong); border-radius:var(--r-lg); background:var(--panel);
   box-shadow:var(--shadow-sm); padding:18px 20px 14px; }
 .home-heading { display:flex; justify-content:space-between; align-items:flex-end; gap:10px; }
-.home-eyebrow,.home-kicker { color:var(--accent); font-size:var(--fs-xs); font-weight:800; letter-spacing:.05em; }
+.home-eyebrow,.home-kicker { color:var(--accent); font-size:var(--fs-xs); font-weight:700; letter-spacing:.05em; }
 .home-heading h2 { margin:1px 0 0; font-size:var(--fs-xl); letter-spacing:-.035em; line-height:1.2; }
 #home-market { color:var(--dim); font-size:var(--fs-sm); font-weight:700; white-space:nowrap; }
 .home-status { display:flex; flex-wrap:wrap; gap:6px 14px; margin:11px 0 14px; padding:8px 10px;

@@ -1,0 +1,35 @@
+/* Shared visual contract for the existing single-page Signal Desk UI. */
+:root {
+  --brand-50:#ECEEFE; --brand-100:#D5DAFB; --brand-500:#243CDB; --brand-600:#1F34BD; --brand-700:#1B2B98;
+  --accent:var(--brand-500); --accent-hover:var(--brand-600); --accent-ink:#fff;
+  --accent-weak:var(--brand-50); --ring:rgba(36,60,219,.26);
+  --bg:#F6F7F9; --panel:#FDFDFC; --line:#CBD2DC; --line-strong:#929EAE;
+  --txt:#151A22; --dim:#526071; --dim-2:#637083;
+  --sig-buy:#0B7655; --sig-sell:#CB2F2A; --sig-neutral:#637083;
+  --sig-buy-strong:#04623C; --sig-sell-strong:#911C18;
+  --sig-watch:#8A5700; --sig-strong:#0B7655;
+  --sell:var(--sig-sell); --buy:var(--sig-buy); --warn:var(--sig-watch); --down:var(--sig-sell);
+  --fg:var(--txt); --panel-2:var(--bg);
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  --c-price:#1a2233; --c-ma20:#243CDB; --c-ma60:var(--sig-watch); --c-ma120:#CB2F2A;
+  --c-rsi:#637083; --c-score:#0B7655;
+  --fs-2xs:13px; --fs-xs:13px; --fs-sm:14px; --fs-base:16px; --fs-md:16px; --fs-lg:18px; --fs-xl:22px; --fs-2xl:28px;
+  --lh-tight:1.35; --lh:1.6;
+  --r-sm:6px; --r-md:8px; --r-lg:16px; --r-pill:999px;
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:24px; --space-6:32px;
+  --shadow-sm:0 1px 1px rgba(21,26,34,.03);
+  --shadow:0 6px 18px rgba(21,26,34,.07);
+  --safe-bottom:env(safe-area-inset-bottom, 0px);
+  --safe-right:env(safe-area-inset-right, 0px);
+}
+
+html { -webkit-tap-highlight-color:transparent; }
+button, [role="button"], select, input, summary, a { touch-action:manipulation; }
+
+@media (hover:hover) and (pointer:fine) {
+  button:hover, a:hover, summary:hover { transition:color .14s ease,background-color .14s ease,border-color .14s ease; }
+}
+
+@media (pointer:coarse) {
+  input, textarea, select { font-size:16px; }
+}
