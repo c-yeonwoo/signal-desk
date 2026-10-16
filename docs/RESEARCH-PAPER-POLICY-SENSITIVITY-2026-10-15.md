@@ -66,6 +66,8 @@
 
 현재 토스 어댑터는 `timestamp` 원문을 받지만 그것이 마지막 체결 시각인지 응답 생성 시각인지는 인증하지 못했다. [IBKR의 데이터 가용성 구분](https://ibkrcampus.com/docs/web-api/v1/endpoints/market-data/market-data-availability)은 실시간·지연·장 종료 고정 데이터를 구분하며, [Alpaca의 데이터 모델](https://alpaca.markets/sdks/python/api_reference/data/models.html)은 체결과 호가를 별도로 제공한다. 이 구분을 참고하되 다른 공급자의 계약을 토스 필드에 대입하지 않는다.
 
+2026-10-16 [토스 공식 OpenAPI 명세](https://openapi.tossinvest.com/openapi-docs/latest/openapi.json) v1.2.24의 `PriceResponse`를 대조했다. `timestamp`는 선택적 `string|null`, `date-time`이며 체결 미발생 등의 경우 null을 허용한다. 현행 시간대 포함 ISO 파싱과 충돌하지 않지만, 이 설명만으로 마지막 체결 시각과 응답 생성 시각의 차이·실시간 권한을 인증하지는 않는다. 어댑터는 null을 시각 미제공으로 보존하므로 아래의 호환 경로에 해당한다. 따라서 `ready_receipt_only`는 최근 체결을 확인했다는 뜻이 아니며 실제 주문이나 검증된 체결 증거로 승격할 수 없다.
+
 모의 주문의 추가 검사는 다음으로 고정한다. 모두 기존 관측 ID·같은 현지 거래일·서버 수신 10분 이내·정규장 검사를 먼저 통과해야 한다.
 
 | 공급자 원문 시각 | 모의 매수·매도 | 감사 기록 |
