@@ -5592,6 +5592,47 @@ def execution_audit_get(style: str = "balanced", market: str = "kr"):
     return {"style": style, "market": mkt, **execution_audit.summary(rows)}
 
 
+@app.get("/api/admin/paper-order-gates")
+def paper_order_gates_get(request: Request):
+    """최근 모의 주문의 가격 검사 결과. 원문 가격과 개인 알림 내용은 반환하지 않는다."""
+    _admin_or_403(request)
+    now = int(time.time())
+    since = now - 48 * 3600
+    sample = db.paper_order_gate_events(since, tuple(bot.REFERENCE_BOTS))
+    by_market = {market: {"checked_fills": 0, "receipt_only_fills": 0,
+                          "source_time_observed_fills": 0, "legacy_fills": 0,
+                          "holds": {status: 0 for status in
+                                    ("deferred_stale_quote", "deferred_market_closed", "deferred_source_time")},
+                          "source_time_reasons": {}, "last_event": None}
+                 for market in ("kr", "us")}
+    for event in sample["events"]:
+        row = by_market.get(event["market"])
+        if row is None:
+            continue
+        if row["last_event"] is None:
+            row["last_event"] = {"id": event["id"], "ts": event["ts"],
+                                 "type": event["event_type"]}
+        kind = event["event_type"]
+        check = (event["payload"] or {}).get("paper_quote_check") or {}
+        if kind in ("filled_buy", "filled_sell"):
+            if not check:
+                row["legacy_fills"] += 1
+            else:
+                row["checked_fills"] += 1
+                if check.get("status") == "ready_receipt_only":
+                    row["receipt_only_fills"] += 1
+                elif check.get("status") == "ready_source_time_observed":
+                    row["source_time_observed_fills"] += 1
+        elif kind in row["holds"]:
+            row["holds"][kind] += 1
+            if kind == "deferred_source_time":
+                reason = check.get("source_time_state") or "unknown"
+                row["source_time_reasons"][reason] = row["source_time_reasons"].get(reason, 0) + 1
+    return {"window_hours": 48, "since_ts": since, "observed_at": now,
+            "sampled_events": len(sample["events"]), "truncated": sample["truncated"],
+            "markets": by_market}
+
+
 @app.get("/api/admin/research/execution-cost")
 def execution_cost_research_get(request: Request, style: str = "balanced", market: str = "kr"):
     """관리자 전용 실제 봇 체결 손익·비용 분해. 주문·시그널에는 연결하지 않는다."""

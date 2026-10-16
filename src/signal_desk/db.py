@@ -1395,6 +1395,27 @@ def execution_events_for_uid(uid: int, market: str, *, limit: int = 500) -> list
             for key, ticker, typ, price, payload, ts in reversed(rows)]
 
 
+def paper_order_gate_events(since_ts: int, uids: tuple[int, ...], *, limit: int = 1000) -> dict:
+    """관리자용 최근 가격 검사 원장. 상한 초과 여부를 함께 반환해 일부를 전체로 오인하지 않는다."""
+    if not uids or limit < 1 or limit > 10_000:
+        raise ValueError("invalid paper gate query")
+    placeholders = ",".join("?" for _ in uids)
+    c = conn()
+    try:
+        rows = c.execute(
+            "SELECT id,uid,market,ticker,event_type,payload,ts FROM execution_events "
+            f"WHERE uid IN ({placeholders}) AND market IN ('kr','us') AND ts>=? "
+            "AND event_type IN ('filled_buy','filled_sell','deferred_stale_quote',"
+            "'deferred_market_closed','deferred_source_time') "
+            "ORDER BY id DESC LIMIT ?", (*uids, int(since_ts), limit + 1),
+        ).fetchall()
+    finally:
+        c.close()
+    return {"truncated": len(rows) > limit,
+            "events": [dict(zip(("id", "uid", "market", "ticker", "event_type", "payload", "ts"),
+                                (*row[:5], json.loads(row[5]), row[6]))) for row in rows[:limit]]}
+
+
 def execution_events_count_for_uid(uid: int, market: str) -> int:
     """Coverage denominator for bounded, read-only execution analysis."""
     c = conn()
