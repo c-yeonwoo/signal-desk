@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="description" content="시장 흐름과 종목 시그널, 근거와 검증 결과를 함께 확인하는 투자 판단 데스크입니다." />
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+<link rel="preload" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2/Pretendard-Regular.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2/Pretendard-SemiBold.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/packages/pretendard/dist/web/static/woff2/Pretendard-Bold.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
 <link rel="stylesheet" href="./design-tokens.css" />
 <title>Signal Desk</title>
@@ -16,11 +21,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Signal" />
-<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <link rel="stylesheet" href="./home.css" />
-<script src="./home.js"></script>
+<script defer src="./home.js"></script>
 <link rel="stylesheet" href="./investment.css" />
-<script src="./investment.js"></script>
+<script defer src="./investment.js"></script>
 <style>
   * { box-sizing:border-box; }
   /* sticky footer 셸: body는 최소 뷰포트, 콘텐츠 길면 늘어남. height:100% 고정 금지(관리자 긴 문서에서 footer 깨짐). */
@@ -153,10 +158,12 @@
   .mb-source-head b { font-size:13px; }
   .mb-source-foot { color:var(--dim-2); font-size:11px; line-height:1.5; margin:0; }
   .mb-figure { margin:0; min-width:0; }
-  .mb-figure img { display:block; width:100%; aspect-ratio:12/7; object-fit:cover; height:auto; max-height:260px; border-radius:14px; border:1px solid var(--line); }
+  .mb-visual { position:relative; width:100%; aspect-ratio:12/7; max-height:260px; overflow:hidden;
+    border:1px solid var(--line); border-radius:14px; background:var(--bg); }
+  .mb-figure img { display:block; width:100%; height:100%; object-fit:cover; }
   .mb-figure img[hidden], .mb-figure .mb-image-fallback[hidden], .mb-figure button[hidden] { display:none; }
-  .mb-figure .mb-image-fallback { border:1px solid var(--line); border-radius:14px; background:var(--bg);
-    color:var(--txt); padding:20px; font-size:15px; line-height:1.5; }
+  .mb-figure .mb-image-fallback { position:absolute; inset:0; display:grid; place-items:center;
+    color:var(--txt); padding:20px; font-size:15px; line-height:1.5; text-align:center; }
   .mb-figure-mobile-note { display:none; }
   @media (max-width:600px) { .mb-figure-mobile-note { display:block; margin:9px 0 0;
     color:var(--txt); font-size:14px; line-height:1.5; font-weight:600; } }
@@ -688,7 +695,7 @@
     .market-brief { margin:8px 14px 0; padding:15px 14px 11px; }
     .mb-layout { grid-template-columns:1fr; gap:12px; }
     .mb-figure { grid-row:2; }
-    .mb-figure img { max-height:210px; }
+    .mb-visual { max-height:210px; }
     .mb-selection { min-width:0; }
     .today-links { margin:0 14px 10px; }
     .mb-facts { grid-template-columns:1fr; }
@@ -986,9 +993,11 @@
         <div id="mb-selection" class="mb-selection"></div></div>
       <p id="mb-unknown" class="mb-unknown"></p>
     </div>
-    <figure id="mb-figure" class="mb-figure" hidden>
-      <img id="mb-image" alt="" aria-hidden="true" width="1200" height="700">
-      <div id="mb-image-fallback" class="mb-image-fallback" role="status" hidden></div>
+    <figure id="mb-figure" class="mb-figure">
+      <div class="mb-visual">
+        <img id="mb-image" alt="" aria-hidden="true" width="1200" height="700" hidden>
+        <div id="mb-image-fallback" class="mb-image-fallback" role="status">시장 장면을 준비하고 있습니다.</div>
+      </div>
       <p id="mb-figure-mobile-note" class="mb-figure-mobile-note"></p>
       <figcaption><span>관찰 종목의 종가로 만든 장면 · 예측 아님</span>
         <button type="button" onclick="downloadMarketBriefPng()">공유 이미지 저장</button></figcaption>
@@ -3393,14 +3402,19 @@ function setMarketBriefImage(d){
   _marketBriefPosterUrl = null;
   img.removeAttribute('src');
   figure.classList.toggle('is-changing', !!changed);
-  figure.hidden = !d;
-  if (!d) return;
+  figure.hidden = false;
+  if (!d) {
+    fallback.textContent = '시장 장면을 준비하고 있습니다.';
+    fallback.hidden = false;
+    img.hidden = true;
+    return;
+  }
   const scene = d.scene || {};
   mobileNote.textContent = '종가로 만든 장면입니다. 숫자와 근거는 아래에서 확인하세요.';
   save.hidden = !d.image_svg;
   const sceneSvg = d.image_scene_svg || d.image_svg;
   fallback.textContent = `${d.market === 'us' ? '해외' : '국내'} 시장 · ${d.today_headline || d.headline || '시장 자료 확인 중'}. 그림은 지금 표시할 수 없어요. 위의 설명과 ‘숫자가 뜻하는 것’에서 확인해 주세요.`;
-  fallback.hidden = !!sceneSvg;
+  fallback.hidden = false;
   img.hidden = !sceneSvg;
   if (!sceneSvg) return;
   _marketBriefSvgUrl = URL.createObjectURL(new Blob([sceneSvg], {type:'image/svg+xml;charset=utf-8'}));
@@ -12413,6 +12427,10 @@ if ('serviceWorker' in navigator) {
     const r = await fetch('/api/auth/me');
     if (!r.ok) { showAuthGate(); return; }
     const me = await r.json();
+    // Head의 defer 스크립트(ECharts 포함)가 모두 준비된 뒤 앱 로직을 시작한다.
+    if (document.readyState === 'loading') {
+      await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, {once:true}));
+    }
     _userEmail = me.email; _profile = me.profile || {}; applyAdmin(me.is_admin);
     await startApp();
   } catch (e) { showAuthGate(); }

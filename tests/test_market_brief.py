@@ -159,6 +159,11 @@ def test_market_card_has_one_endpoint_and_defers_source_requests():
     assert 'id="market-brief-sources"' in html
     assert 'id="mb-image"' in html
     assert 'id="mb-image-fallback"' in html
+    assert '<script defer src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>' in html
+    assert '<script defer src="./home.js"></script>' in html
+    assert '<script defer src="./investment.js"></script>' in html
+    assert '<figure id="mb-figure" class="mb-figure">' in html
+    assert '시장 장면을 준비하고 있습니다.' in html
     assert "prefers-reduced-motion:reduce" in html
     assert "img.onerror = () => { img.hidden = true; fallback.hidden = false; save.hidden = true;" in html
     assert "mb-figure-mobile-note" in html
