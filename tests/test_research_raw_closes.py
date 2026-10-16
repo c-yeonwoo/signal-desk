@@ -2,6 +2,7 @@
 
 import datetime as dt
 from pathlib import Path
+import sys
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -56,12 +57,14 @@ def test_duplicate_and_invalid_close_fail_closed_before_archive(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_kr_adapter_explicitly_requests_unadjusted(monkeypatch):
+def test_kr_adapter_explicitly_requests_unadjusted(monkeypatch, capsys):
     from pykrx import stock
+    capsys.readouterr()  # Ignore any import-time output before invoking the adapter.
 
     captured = {}
 
     def fake(start, end, ticker, *, adjusted):
+        print("provider login identifier must not enter audit logs")
         captured.update(start=start, end=end, ticker=ticker, adjusted=adjusted)
         return pd.DataFrame({"시가": [99], "종가": [100], "거래량": [123]},
                             index=pd.to_datetime(["2026-07-13"]))
@@ -70,6 +73,7 @@ def test_kr_adapter_explicitly_requests_unadjusted(monkeypatch):
     rows = raw._fetch_kr("005930", "2026-07-13", "2026-07-15", None)
     assert captured == {"start": "20260713", "end": "20260715", "ticker": "005930", "adjusted": False}
     assert rows[0]["source_row"]["종가"] == 100
+    assert capsys.readouterr().out == ""
 
 
 def test_us_adapter_requests_modp_zero_while_normal_signal_path_keeps_one(monkeypatch):
@@ -119,6 +123,61 @@ def test_fill_range_audit_flags_outside_price_and_does_not_certify_basis(tmp_pat
     assert result["examples"][0]["trade_id"] == 2
     assert result["price_basis_verified"] is False
     assert result["verified_total_return"] is None
+
+
+def test_outside_fill_matches_older_close_only_as_retrospective_clue(tmp_path):
+    rows = [{"date": "2026-07-13", "close": "100",
+             "source_row": {"xymd": "20260713", "clos": "100", "low": "95", "high": "105"}},
+            {"date": "2026-07-02", "close": "90",
+             "source_row": {"xymd": "20260702", "clos": "90", "low": "88", "high": "93"}}]
+    out = raw.capture(market="us", ticker="AAPL", exchange="NAS", start="2026-07-13",
+                      end="2026-07-13", root=tmp_path, fetch=lambda *_: rows)
+    ts = dt.datetime(2026, 7, 13, 10, tzinfo=ZoneInfo("America/New_York")).timestamp()
+    future = dt.datetime(2026, 8, 5, 10, tzinfo=ZoneInfo("America/New_York")).timestamp()
+    result = raw.audit_fill_range([
+        {"id": 1, "ticker": "AAPL", "ts": ts, "price": 90},
+        {"id": 2, "ticker": "AAPL", "ts": ts, "price": 110},
+        {"id": 3, "ticker": "AAPL", "ts": future, "price": 90},
+    ], [Path(out["path"])], market="us")
+    assert result["outside_daily_range"] == 2
+    assert (result["outside_prior_close_match"], result["outside_prior_close_unmatched"],
+            result["outside_prior_close_unknown"]) == (1, 1, 0)
+    assert result["examples"][0]["matched_prior_close_session"] == "2026-07-02"
+    assert result["excluded_protected_trades"] == 1
+    assert result["price_basis_verified"] is False and result["verified_total_return"] is None
+
+
+def test_conflicting_older_closes_cannot_be_used_to_label_a_fill(tmp_path):
+    at = dt.datetime(2026, 10, 16, tzinfo=dt.timezone.utc)
+    current = {"date": "2026-07-13", "close": "100",
+               "source_row": {"xymd": "20260713", "clos": "100", "low": "95", "high": "105"}}
+    paths = []
+    for close in ("90", "91"):
+        older = {"date": "2026-07-02", "close": close,
+                 "source_row": {"xymd": "20260702", "clos": close}}
+        out = raw.capture(market="us", ticker="AAPL", exchange="NAS", start="2026-07-13",
+                          end="2026-07-13", root=tmp_path, observed_at=at,
+                          fetch=lambda *_, older=older: [current, older])
+        paths.append(Path(out["path"]))
+    ts = dt.datetime(2026, 7, 13, 10, tzinfo=ZoneInfo("America/New_York")).timestamp()
+    result = raw.audit_fill_range([{"id": 1, "ticker": "AAPL", "ts": ts, "price": 90}],
+                                  paths, market="us")
+    assert result["outside_daily_range"] == result["outside_prior_close_unknown"] == 1
+    assert result["outside_prior_close_match"] == 0
+
+
+def test_module_cli_loads_local_env_before_provider_call(monkeypatch, tmp_path, capsys):
+    calls = []
+    monkeypatch.setattr(raw.config, "load_env", lambda: calls.append("env"))
+    monkeypatch.setattr(raw, "capture", lambda **kwargs: (
+        calls.append("capture") or {"path": str(tmp_path / "observation.json")}))
+    monkeypatch.setattr(raw, "verify", lambda path: calls.append("verify"))
+    monkeypatch.setattr(sys, "argv", ["research_raw_closes", "--market", "kr",
+                                  "--ticker", "005930", "--start", "2026-07-13",
+                                  "--end", "2026-07-15", "--root", str(tmp_path)])
+    raw.main()
+    assert calls == ["env", "capture", "verify"]
+    assert "observation.json" in capsys.readouterr().out
 
 
 def test_conflicting_raw_observations_are_not_silently_chosen(tmp_path):
