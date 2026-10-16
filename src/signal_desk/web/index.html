@@ -703,6 +703,7 @@
     .mb-layout { grid-template-columns:1fr; gap:22px; }
     .mb-figure { grid-row:2; }
     /* 정사각형 cover는 포스터 하단의 원문·기준일을 잘라 숨긴다. */
+    .mb-state { font-size:24px; word-break:keep-all; }
     .mb-visual { aspect-ratio:12/7; }
     .mb-figure img { object-fit:contain; }
     .mb-selection { min-width:0; }
@@ -3497,7 +3498,7 @@ async function loadRegime(){
     const best = (d.sector_summary || [])[0];
     document.getElementById('mb-basis').textContent = fresh
       ? (best && d.scene?.direction !== 'unknown'
-          ? `${best.sector} 종목이 ${best.median_change_pct > 0 ? '상대적으로 강했어요' : '상대적으로 덜 약했어요'}. 오른쪽은 실제 등락과 확인된 소식입니다.`
+          ? `${best.sector} 종목이 ${best.median_change_pct > 0 ? '상대적으로 강했어요' : '상대적으로 덜 내렸어요'}. 실제 등락을 그렸고, 확인된 소식만 함께 표시해요.`
           : '확인된 종가를 기준으로, 오늘 움직임을 짧게 정리했습니다.')
       : '오래된 가격으로 최근 거래일의 시장 흐름을 판단하지 않아요.';
     document.getElementById('mb-source-basis').textContent = fresh
