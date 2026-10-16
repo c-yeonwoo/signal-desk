@@ -78,10 +78,11 @@ def test_biggest_riser_outside_the_buy_window_is_named_and_not_an_order():
     assert "267250" not in out["outside_note"]
 
 
-def test_today_card_prints_the_server_sentence():
+def test_today_card_keeps_server_sentence_in_details_without_order_implication():
     html = open("src/signal_desk/web/index.html", encoding="utf-8").read()
-    assert "rep.outside_note" in html
-    assert "이 문장은 주문을 바꾸지 않는다" in html
+    card = html.split("function renderTodayCard()", 1)[1].split("\nfunction ", 1)[0]
+    assert "rep.outside_note" in card
+    assert "매수 판단과 별개" in card
 
 
 def test_crowding_real_sector_still_warns():

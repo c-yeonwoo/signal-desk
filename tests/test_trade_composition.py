@@ -125,6 +125,11 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     assert "연구 수익률은 여기에 싣지 않습니다" in src
     assert "function scoreBeside(" in src
     assert "올린 관점" in src and "빠진 관점" in src and "매수 차단" in src
+    assert ".mb-visual { aspect-ratio:1/1" not in src  # 모바일에서 원문 부분을 자르지 않는다
+    assert ".mb-figure img { object-fit:cover" not in src
+    summary = src.split("let line = buyN === 0", 1)[1].split("lineEl.innerHTML = line", 1)[0]
+    assert "매수 후보 ${buyN}개" in summary
+    assert "rep.outside_note" not in summary  # 지난 상승 종목은 기본 목록보다 상세에서 읽는다
     assert "처음 매수 — 그날 시그널로 샀습니다" in src
     assert "추가 매수 — 이미 가진 종목을 더 샀습니다" in src
     assert "따라가기 닫힘" in src
@@ -139,7 +144,8 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     assert "hero-upside" not in block  # 손실 경고 앞에 목표 여력을 내지 않는다
     assert "lossHtml" in block
     inner = block.split("heroEl.innerHTML = ", 1)[1]
-    assert inner.index("hero-metrics") < inner.index("hero-reason") < inner.index("${after}")
+    assert inner.index("${lossHtml}") < inner.index("hero-reason") < inner.index("${after}")
+    assert inner.index("${after}") < inner.index("hero-tech") < inner.index("hero-metrics")
     assert "당시 메모" in src and "연구 순서 · 주문에 연결되어 있지 않습니다" in src
     perf_fn = src.split("function loadBotPerformance", 1)[1].split("\nfunction ", 1)[0]
     assert "ex != null && (d.excluded_non_sessions" in perf_fn

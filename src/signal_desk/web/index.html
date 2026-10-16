@@ -125,13 +125,14 @@
   .sig-topbar .tb-sep { width:1px; align-self:stretch; background:var(--line); margin:2px 0; }
   .sig-topbar .tb-detail { font-size:13px; color:var(--dim); }
   .macro-chips { display:flex; gap:7px; flex-wrap:wrap; }
-  .market-brief { margin:16px clamp(14px,3.5vw,44px) 8px; padding:24px 28px 20px;
+  .market-brief { width:calc(100% - 28px); max-width:1400px; margin:16px auto 8px; padding:24px 28px 20px;
     border:1px solid var(--line); border-radius:var(--r-lg); background:var(--panel);
     box-shadow:var(--shadow-sm); min-width:0; }
-  .today-links { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:0 clamp(14px,3.5vw,44px) 12px; }
+  .today-links { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+    width:calc(100% - 28px); max-width:1400px; margin:0 auto 12px; }
   .today-links-label { color:var(--dim); font-size:13px; }
   .mb-top, .mb-main, .mb-source-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-  .mb-layout { display:grid; grid-template-columns:minmax(0,.85fr) minmax(360px,1.15fr); align-items:center; gap:clamp(24px,3.5vw,48px); }
+  .mb-layout { display:grid; grid-template-columns:minmax(0,.85fr) minmax(360px,1.15fr); align-items:start; gap:clamp(24px,3.5vw,48px); }
   .mb-copy { min-width:0; }
   .mb-eyebrow { color:var(--accent); font-size:13px; font-weight:700; letter-spacing:.04em; }
   .mb-asof { color:var(--dim); font-size:14px; font-variant-numeric:tabular-nums; }
@@ -158,9 +159,9 @@
   .mb-source-head b { font-size:15px; }
   .mb-source-foot { color:var(--dim-2); font-size:13px; line-height:1.55; margin:0; }
   .mb-figure { margin:0; min-width:0; }
-  .mb-visual { position:relative; width:100%; aspect-ratio:12/7; max-height:360px; overflow:hidden;
+  .mb-visual { position:relative; width:100%; aspect-ratio:12/7; overflow:hidden;
     border:1px solid var(--line); border-radius:14px; background:var(--bg); }
-  .mb-figure img { display:block; width:100%; height:100%; object-fit:cover; }
+  .mb-figure img { display:block; width:100%; height:100%; object-fit:contain; }
   .mb-figure img[hidden], .mb-figure .mb-image-fallback[hidden], .mb-figure button[hidden] { display:none; }
   .mb-figure .mb-image-fallback { position:absolute; inset:0; display:grid; place-items:center;
     color:var(--txt); padding:20px; font-size:15px; line-height:1.5; text-align:center; }
@@ -311,12 +312,12 @@
   .sig-chart-pane { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; max-height:calc(100dvh - 200px); }
   /* 왼쪽: 종목명+개요 한 덩어리 / 오른쪽: 차트 모드 — 버튼 높이 때문에 개요가 아래로 밀려 보이지 않게 */
   .sig-chart-pane .pane-head { display:flex; align-items:flex-start; gap:10px 14px; flex-wrap:nowrap;
-    margin-bottom:3px; }  /* 히어로를 ~5px 위로 */
-  .sig-chart-pane .pane-title-block { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:2px; }
-  .sig-chart-pane .pane-title-block #signal-chart-title { font-weight:700; font-size:17px; line-height:1.25; }
-  .sig-chart-pane .pane-title-block .chart-asof { font-size:12px; color:var(--dim); line-height:1.35; margin-top:2px; }
+    margin-bottom:16px; }
+  .sig-chart-pane .pane-title-block { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; gap:8px; }
+  .sig-chart-pane .pane-title-block #signal-chart-title { font-weight:700; font-size:20px; line-height:1.3; }
+  .sig-chart-pane .pane-title-block .chart-asof { font-size:14px; color:var(--dim); line-height:1.45; }
   .sig-chart-pane .pane-head #chart-mode-seg { flex:0 0 auto; margin-left:auto; margin-top:1px; font-size:13px; }
-  .sig-about { display:none; margin:0; font-size:13px; color:var(--dim); line-height:1.4; }
+  .sig-about { display:none; margin:0; font-size:14px; color:var(--dim); line-height:1.5; }
   .sig-about.is-on { display:block; }
   .sig-about .sa-label { color:var(--dim-2); font-size:12px; font-weight:700; margin-right:6px; }
   .sig-about .sa-text { color:var(--txt); }
@@ -375,11 +376,15 @@
   .hero-value { display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; min-width:0; }
   .hero-signal { flex:0 0 auto; white-space:nowrap; }
   .hero-price { font-size:21px; font-weight:700; color:var(--txt); }
-  .hero-reason { font-size:14px; color:var(--dim); margin:14px 0 0; line-height:1.5; font-weight:600; }
+  .hero-reason { font-size:15px; color:var(--txt); margin:16px 0 0; line-height:1.55; font-weight:600; }
   .hero-reason:empty { display:none; }
   .hero-after { display:flex; flex-wrap:wrap; gap:8px 14px; margin-top:13px; font-size:14px; color:var(--dim); font-weight:600; }
-  .hero-metrics { display:flex; flex-direction:column; align-items:flex-start; gap:6px; margin-top:14px; font-size:13px; color:var(--dim); }
+  .hero-metrics { display:flex; flex-direction:column; align-items:flex-start; gap:8px; margin-top:12px; font-size:14px; color:var(--dim); }
   .hero-metrics b { font-variant-numeric:tabular-nums; }
+  .hero-tech { border-top:1px solid var(--line); margin-top:18px; padding-top:12px; }
+  .hero-tech summary { width:max-content; max-width:100%; color:var(--accent); cursor:pointer;
+    font-size:14px; font-weight:700; }
+  .hero-tech .hero-indicators { margin:12px 0 0; color:var(--dim); font-size:14px; line-height:1.55; }
   .hero-runup { color:var(--sig-buy); font-weight:700; }
   .hero-runup.down { color:var(--sig-sell); }
   .company-review { border:1px solid var(--line); border-radius:var(--r-md); padding:18px 20px;
@@ -697,10 +702,11 @@
     .market-brief { margin:12px 14px 0; padding:20px 16px; }
     .mb-layout { grid-template-columns:1fr; gap:22px; }
     .mb-figure { grid-row:2; }
-    .mb-visual { aspect-ratio:1/1; max-height:none; }
-    .mb-figure img { object-fit:cover; object-position:left center; }
+    /* 정사각형 cover는 포스터 하단의 원문·기준일을 잘라 숨긴다. */
+    .mb-visual { aspect-ratio:12/7; }
+    .mb-figure img { object-fit:contain; }
     .mb-selection { min-width:0; }
-    .today-links { margin:0 14px 10px; }
+    .today-links { margin:0 auto 10px; }
     .mb-facts { grid-template-columns:1fr; }
     header { padding:10px 14px; gap:8px 6px; align-items:center; }
     header h1 { font-size:17px; flex:1 1 auto; min-width:0; }
@@ -3421,6 +3427,7 @@ function setMarketBriefImage(d){
   const movers = (d.movers || []).slice(0, 3).map(x => `${x.name} ${Number(x.change_pct) >= 0 ? '+' : ''}${x.change_pct}%`);
   mobileNote.textContent = movers.length
     ? `등락 폭 큰 종목: ${movers.join(' · ')}`
+      + (d.brief_news?.length ? ` · 같은 날 확인한 소식: ${d.brief_news[0].name}, ${d.brief_news[0].title}` : '')
     : '비교할 종가가 부족해 종목 요약을 보류했습니다.';
   img.alt = movers.length
     ? `${d.price_as_of} 종가 기준 등락 폭 큰 관찰 종목: ${movers.join(', ')}. ${d.brief_news?.length ? `같은 날 확인된 ${d.brief_news[0].source}: ${d.brief_news[0].name}, ${d.brief_news[0].title}. 주가 변동 원인으로 단정하지 않습니다.` : '이 카드에 연결된 당일 기업 소식은 없습니다.'}`
@@ -5136,21 +5143,13 @@ function renderTodayCard(){
   })();
   let line = buyN === 0
     ? `<span class="st-n">매수 0</span>` + zeroWhy
-    : `<span class="st-n">매수 ${buyN}</span>`
-      + (nearN ? ` <span class="st-c">근접 ${nearN}</span>` : '')
-      + (sellN ? ` <span class="st-c">매도 ${sellN}</span>` : '');
-  if (slots != null) line += ` <span class="st-c" title="뽑을 수 있는 자리 중 실제로 뽑은 수 (원어: 선정)">· 뽑음 ${eligible ?? 0}/${slots}</span>`;
-  else line += ` <span class="st-c" title="오늘 매수로 인정되는 최저 점수 (원어: 매수 문턱)">· 매수 기준 +${fmtNum(thr, 1)}</span>`;
-  if (rep.outside_note) {
-    line += ` <span class="st-c" title="장중 상승은 점수 순위와 다른 질문이다. 이 문장은 주문을 바꾸지 않는다.">· ${esc(rep.outside_note)}</span>`;
-  }
+    : `<span class="st-n">매수 후보 ${buyN}개</span>`
+      + (sellN ? ` <span class="st-c">· 매도 신호 ${sellN}개</span>` : '');
   lineEl.innerHTML = line;
 
   const chips = [];
-  if (crowd.warn) chips.push(`<span class="st-chip warn" title="${esc(crowd.note || '')}">편중</span>`);
-  else if (crowd.data_quality) chips.push(`<span class="st-chip dq" title="${esc(crowd.note || '')}">맵공백</span>`);
-  const vacN = (rep.vacancies || []).length;
-  if (vacN) chips.push(`<span class="st-chip" title="순위 안에 들었지만 점수·안전장치로 못 뽑은 자리 (원어: 창 안 공석)">빈자리 ${vacN}</span>`);
+  if (crowd.warn) chips.push(`<span class="st-chip warn" title="${esc(crowd.note || '')}">후보 쏠림</span>`);
+  else if (crowd.data_quality) chips.push(`<span class="st-chip dq" title="${esc(crowd.note || '')}">업종 확인 필요</span>`);
   chipsEl.innerHTML = chips.join('');
 
   const whyThr = _adaptBump > 0
@@ -5182,7 +5181,11 @@ function renderTodayCard(){
       + `</div>`;
   } else {
     if (buys) detail += `<div><b>매수</b> ${buys}</div>`;
+    detail += `<div class="stat-label" style="margin-top:8px">가까운 후보 ${nearN}개`
+      + (slots != null ? ` · 매수 가능 자리 ${eligible ?? 0}/${slots}` : ` · 매수 기준 +${fmtNum(thr, 1)}`)
+      + `</div>`;
     if (vac) detail += `<div style="margin-top:4px"><b>빈자리</b>${vac}</div>`;
+    if (rep.outside_note) detail += `<div class="stat-label" style="margin-top:8px">${esc(rep.outside_note)} · 매수 판단과 별개</div>`;
     // 약속한 대기 리스트 — 펼칠 때 로드한다(닫혀 있는 동안 호출하지 않는다).
     detail += `<div id="buywait-block" style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line)">`
       + `<div style="font-weight:700;font-size:13px;margin-bottom:2px">관심종목 대기</div>`
@@ -5442,7 +5445,11 @@ async function renderEvents(ticker){
 function heroReason(item){
   if (!item) return '';
   if (item.kind === 'HOLD') {
+    if ((item.gates || []).includes('event')) return '확인된 악재가 있어 매수를 보류했어요.';
+    if (item.low_coverage) return '점수 계산 자료가 부족해 매수를 보류했어요.';
     if ((item.reasons || []).some(r => r.includes('추세') && r.includes('차단'))) return '내려가는 추세라 매수 보류 — 돌아설 때까지 관망';
+    const blocks = (item.gates || []).map(k => _GATE_SHORT[k]).filter(Boolean);
+    if (blocks.length) return `${blocks.join('·')} 때문에 매수를 보류했어요.`;
     if (item.score >= 1.2) return '점수는 상위권이지만 오늘 매수 기준에 못 미쳐 관망';
     return '뚜렷한 매매 신호 없음 — 관망';
   }
@@ -5528,6 +5535,10 @@ function _paintSignalDetail(ticker, item){
     heroEl.style.display = '';
     const beside = scoreBeside(item) ? `<span class="hero-score-why">${esc(scoreBeside(item))}</span>` : '';
     const after = runUpHtml ? `<div class="hero-after">${runUpHtml}</div>` : '';
+    const plainReason = _isBuy(item.kind)
+      ? '새 매수 후보입니다. 아래에서 가격 조건과 기업 소식을 함께 확인하세요.'
+      : _isSell(item.kind) ? '매도 판정입니다. 보유 중이라면 근거를 확인하세요.' : heroReason(item);
+    const indicators = !_isBuy(item.kind) && !_isSell(item.kind) ? '' : heroReason(item);
     heroEl.innerHTML = `<div class="hero-card ${item.kind}${lossHtml ? ' buy-with-loss' : ''}">
         <div class="hero-top">
           <div class="hero-value">
@@ -5537,15 +5548,18 @@ function _paintSignalDetail(ticker, item){
           <span class="sig-pill hero-signal ${item.kind}" title="${esc(sigPillTitle(item))}">${kindLabel(item.kind)}</span>
         </div>
         ${lossHtml}
-        <div class="hero-metrics">
-          <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
-          + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b>`
-          + _heroCov(item) + `</span>`
-          + beside
-          + `${_pitHeroLine(item._pit)}
-        </div>
-        <div class="hero-reason">${esc(heroReason(item))}</div>
+        <div class="hero-reason">${esc(plainReason)}</div>
         ${after}
+        <details class="hero-tech"><summary>점수·기술지표 자세히</summary>
+          <div class="hero-metrics">
+            <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
+            + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b>`
+            + _heroCov(item) + `</span>`
+            + beside
+            + `${_pitHeroLine(item._pit)}
+          </div>
+          ${indicators ? `<p class="hero-indicators">${esc(indicators)}</p>` : ''}
+        </details>
       </div>`;
   } else heroEl.style.display = 'none';
   const qEl = document.getElementById('signal-quote');
