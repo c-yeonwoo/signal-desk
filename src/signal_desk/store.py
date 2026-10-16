@@ -1362,6 +1362,21 @@ def load_us_universe() -> list[dict]:
     return json.loads(US_UNIVERSE_FILE.read_text(encoding="utf-8"))
 
 
+def us_price_monitor_tickers() -> list[str]:
+    """현행 US 유니버스와 레퍼런스 봇의 실제 보유만 일봉 갱신·경고 대상으로 본다.
+
+    가격 파일에는 PIT 연구를 위해 편출·개명 전 티커의 봉도 남는다. 그 이력은 지우지
+    않지만 현재 가격으로 갱신할 수 없는 과거 티커를 상시 장애로 세면 경고가 무뎌진다.
+    지수에서 빠져도 봇이 보유 중이면 계속 감시한다.
+    """
+    from signal_desk import bot, db
+
+    tickers = [str(item.get("ticker") or "") for item in load_us_universe()]
+    for uid in bot.REFERENCE_BOTS:
+        tickers.extend(str(row.get("ticker") or "") for row in db.bot_positions_all(uid, "us"))
+    return list(dict.fromkeys(ticker for ticker in tickers if ticker))
+
+
 def _valid_us_universe(items: list[dict]) -> bool:
     tickers = [str(item.get("ticker") or "") for item in items if isinstance(item, dict)]
     return (len(tickers) == len(items) and len(tickers) >= US_MIN_UNIVERSE_SIZE and
@@ -2643,9 +2658,10 @@ def mark_boot() -> dict:
 
 
 def _us_prices_freshness() -> dict:
-    """미국 시세 신선도 — **종목별 마지막 봉 날짜** 기준(파일 mtime 아님).
+    """미국 시세 신선도 — **현행 수집 대상의 마지막 봉 날짜** 기준(파일 mtime 아님).
 
-    `rows`는 뒤처진 종목 수다. 0이면 정상, 전 종목이면 수집이 멈춘 것이다.
+    편출·개명 전 봉은 PIT 연구용으로 보존하되 현재 유니버스/레퍼런스 보유의
+    분모·지연 경고에 넣지 않는다. `rows`는 실제 감시 대상 중 뒤처진 종목 수다.
     """
     entry = {"key": "us_prices", "label": "미국 시세(마지막 봉)", "updated": None,
              "age_hours": None, "rows": None, "stale": True}
@@ -2653,15 +2669,21 @@ def _us_prices_freshness() -> dict:
         return entry
     try:
         last = us_price_last_dates()
-    except Exception:                              # noqa: BLE001 — 못 읽으면 stale(막는 쪽)
+        monitored = us_price_monitor_tickers()
+    except Exception as e:                         # noqa: BLE001 — 못 읽으면 stale(막는 쪽)
+        entry["note"] = f"현행 미국 가격 감시 대상 확인 실패({type(e).__name__})"
         return entry
-    dates = sorted(str(v)[:10] for v in last.values() if v)
+    if not monitored:
+        entry["note"] = "현행 미국 구성·레퍼런스 보유 목록을 확인할 수 없습니다"
+        return entry
+    dates = sorted(str(last.get(ticker) or "")[:10] for ticker in monitored if last.get(ticker))
     if not dates:
+        entry.update(rows=len(monitored), total=len(monitored),
+                     note="현행 미국 수집 대상의 종가가 없습니다")
         return entry
     newest = dates[-1]
-    unconfirmed = us_unconfirmed_price_tickers()
-    known = list(dict.fromkeys([*last, *unconfirmed]))
-    behind = us_prices_stale_tickers(known)
+    unconfirmed = us_unconfirmed_price_tickers(monitored)
+    behind = us_prices_stale_tickers(monitored)
     try:
         age_h = (datetime.date.today() - datetime.date.fromisoformat(newest)).days * 24.0
     except ValueError:
@@ -2671,6 +2693,7 @@ def _us_prices_freshness() -> dict:
     # 다른 고장이므로 따로 낸다: 전자는 그 종목 조회 실패, 후자는 갱신 루프 자체가 멈춘 것이다.
     expected = us_expected_last_bar()
     gap = us_missing_trading_days(newest, expected)
+    historical_only = sorted(set(last) - set(monitored))
     # `rows`는 다른 소스에서 "행 수"인데 여기서는 **뒤처진 종목 수**다 — 뜻이 다르면 밝힌다.
     parts = []
     if gap:
@@ -2685,14 +2708,16 @@ def _us_prices_freshness() -> dict:
         names = ", ".join(stale_tickers_preview)
         omitted = len(behind) - len(stale_tickers_preview)
         suffix = f" 외 {omitted}종목" if omitted else ""
-        parts.append(f"{len(behind)}/{len(known)}종목 갱신 대상({names}{suffix})")
+        parts.append(f"{len(behind)}/{len(monitored)}종목 갱신 대상({names}{suffix})")
+    if historical_only:
+        parts.append(f"현행 수집 대상 밖 가격 이력 {len(historical_only)}종목은 보존·지연 경고에서 제외")
     if unconfirmed:
         parts.append(f"완료 전 날짜 봉 {len(unconfirmed)}종목은 판정에서 제외·재조회 대상")
     # **시리즈 중간 구멍은 꼬리와 다른 고장이다.** 수집이 재개돼 마지막 봉이 최신이어도
     # 공백기의 구멍은 남을 수 있고(US는 "최근 N봉"만 받는다), 그러면 모멘텀·이동평균이
     # 짧은 시리즈로 조용히 계산된다. 감지되지 않는 고장은 없는 고장이다.
     try:
-        h = us_price_holes()
+        h = us_price_holes(tickers=monitored)
         holes_n = h.get("holes_total", 0) if h.get("ready") else 0
         if holes_n:
             parts.append(f"중간 구멍 {holes_n}봉 · {h['tickers_with_holes']}종목")
@@ -2704,11 +2729,12 @@ def _us_prices_freshness() -> dict:
     if gap:
         short = f"거래일 {len(gap)}일 결손({', '.join(d[5:] for d in gap[:3])})"
     elif behind:
-        short = f"{len(behind)}/{len(known)}종목 뒤처짐"
+        short = f"{len(behind)}/{len(monitored)}종목 뒤처짐"
     else:
         short = None
     entry.update(updated=newest, age_hours=age_h, rows=len(behind),
-                 stale=bool(behind) or bool(holes_n), total=len(known),
+                 stale=bool(behind) or bool(holes_n), total=len(monitored),
+                 historical_only_price_series=len(historical_only),
                  stale_tickers=stale_tickers_preview,
                  stale_last_dates=stale_last_dates,
                  unconfirmed_tickers=unconfirmed[:10],

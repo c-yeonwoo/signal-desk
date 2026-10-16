@@ -4179,17 +4179,7 @@ def _us_refresh_tickers() -> list[str]:
     지수에서 빠진 보유를 갱신 목록에서 빼면 그 종가 날짜가 마감 세션과 달라지고,
     그 계좌의 회전 관측이 통째로 거절된다.
     """
-    seen: list[str] = []
-    for item in store.load_us_universe():
-        ticker = str(item.get("ticker") or "")
-        if ticker and ticker not in seen:
-            seen.append(ticker)
-    for uid in bot.REFERENCE_BOTS:
-        for row in db.bot_positions_all(uid, "us"):
-            ticker = str(row.get("ticker") or "")
-            if ticker and ticker not in seen:
-                seen.append(ticker)
-    return seen
+    return store.us_price_monitor_tickers()
 
 
 def _refresh_us_prices_stale(batch: int = 60, *,
