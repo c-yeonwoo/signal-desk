@@ -47,6 +47,7 @@ def _fresh_evidence(market="kr"):
 
 def test_bot_order_without_fresh_quote_defers_buy_and_sell_with_alert(tmp_path, monkeypatch):
     _seed(monkeypatch, tmp_path, price=100.0)
+    monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: True)
     before = paper.balance(UID)
     stale = {"price_basis": "daily_close", "price_session": "2026-07-02"}
     assert paper.place_order(UID, "005930", "buy", 1, price=100.0, name="삼성전자",
@@ -77,6 +78,7 @@ def test_bot_order_without_fresh_quote_defers_buy_and_sell_with_alert(tmp_path, 
 
 def test_bot_order_requires_same_session_and_fresh_receipt(tmp_path, monkeypatch):
     _seed(monkeypatch, tmp_path, price=100.0)
+    monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: True)
     fresh = _fresh_evidence()
     assert paper.place_order(UID, "005930", "buy", 1, price=100.0, reason="SIGNAL",
                              event_payload={"price_evidence": fresh},
@@ -89,6 +91,35 @@ def test_bot_order_requires_same_session_and_fresh_receipt(tmp_path, monkeypatch
     assert paper.balance(UID)["holdings"][0]["qty"] == 1
     assert not paper.bot_order_quote_ready("kr", {**fresh, "price_session": "2026-07-02"})
     assert not paper.bot_order_quote_ready("kr", {**fresh, "price_observation_id": None})
+
+
+@pytest.mark.parametrize("market,zone,open_hour,closed_hour", [
+    ("kr", "Asia/Seoul", 14, 16),
+    ("us", "America/New_York", 15, 17),
+])
+def test_bot_order_refuses_fresh_quote_after_regular_session(
+    market, zone, open_hour, closed_hour,
+):
+    open_at = datetime(2026, 7, 13, open_hour, tzinfo=ZoneInfo(zone)).timestamp()
+    closed_at = datetime(2026, 7, 13, closed_hour, tzinfo=ZoneInfo(zone)).timestamp()
+    evidence = {"price_basis": "intraday_provisional", "price_session": "2026-07-13",
+                "price_observation_id": "quote-1", "price_received_at": open_at - 5}
+    assert paper.bot_order_quote_ready(market, evidence, now=open_at)
+    # Even a newly received quote cannot turn an ended session into an executable paper fill.
+    assert not paper.bot_order_quote_ready(
+        market, {**evidence, "price_received_at": closed_at - 5}, now=closed_at)
+
+
+def test_closed_session_paper_hold_explains_market_hours(tmp_path, monkeypatch):
+    _seed(monkeypatch, tmp_path, price=100.0)
+    monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: False)
+    paper.defer_bot_order(UID, "005930", "sell", market="kr", reason="STOP_LOSS",
+                          price=100.0, evidence=_fresh_evidence(), name="삼성전자")
+    due = db.notification_outbox_due(now=int(time.time()))
+    assert len(due) == 1
+    assert "정규장이 닫혀 가상 체결하지 않았습니다" in due[0]["text"]
+    assert "손절·위험 청산도 실행되지 않았습니다" in due[0]["text"]
+    assert db.execution_events_for_uid(UID, "kr")[0]["event_type"] == "deferred_market_closed"
 
 
 def test_paper_isolated_per_uid(tmp_path, monkeypatch):

@@ -27,6 +27,7 @@ def _setup(monkeypatch, universe, prices, signals, mode="absolute", exposure=1.0
            rank_top_pct=3.0, **cfg):
     """mode: 매수권 선정 방식. 기존 테스트는 절대문턱(min_buy_score) 기준으로 쓰였으므로
     기본을 "absolute"로 두고, 횡단면 분위 동작은 아래 rank 전용 테스트에서 검증한다."""
+    monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: True)
     monkeypatch.setattr(bot.store, "load_universe", lambda: universe)
     monkeypatch.setattr(bot.store, "load_price_series", lambda: prices)
     price_dates = {ticker: [(datetime.date(2026, 7, 1) + datetime.timedelta(days=i)).isoformat()

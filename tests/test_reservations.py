@@ -4,6 +4,7 @@ import json
 import time
 
 from signal_desk import bot, db, store
+from signal_desk.broker import paper
 from signal_desk.signals.engine import SignalResult
 
 UID = 6
@@ -11,6 +12,8 @@ UID = 6
 
 def _setup(monkeypatch, tmp_path, prices):
     monkeypatch.chdir(tmp_path)
+    # These cases test reservation semantics independently of wall-clock session hours.
+    monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: True)
     monkeypatch.setattr(store, "load_price_series", lambda: prices)
     monkeypatch.setattr(store, "load_engine_price_bundle", lambda market: (
         prices, {}, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
@@ -60,6 +63,20 @@ def test_reservation_waits_for_fresh_quote_without_consuming_pending(tmp_path, m
 
     monkeypatch.setattr(bot, "_market_signals", fresh_signals)
     assert bot.execute_reservations(UID)["executed"][0]["status"] == "filled"
+
+
+def test_reservation_waits_if_session_closes_after_quote(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path, {"AAA": [100.0, 101.0]})
+    db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
+    monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: False)
+
+    out = bot.execute_reservations(UID)
+
+    assert out["executed"][0]["status"] == "deferred_market_closed"
+    assert len(db.bot_reservations_pending(UID)) == 1
+    assert db.bot_position_get(UID, "AAA") is None
+    assert "정규장이 닫혀" in db.notification_outbox_due(now=int(time.time()))[0]["text"]
+    assert db.execution_events_for_uid(UID, "kr")[0]["event_type"] == "deferred_market_closed"
 
 
 def test_kill_switch_blocks_pending_reservation(tmp_path, monkeypatch):

@@ -1613,9 +1613,11 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
             paper.defer_bot_order(uid, r["ticker"], "buy", market=market,
                                   reason="RESERVATION", price=price,
                                   evidence=price_evidence, name=r["name"])
+            hold_status = paper.bot_order_hold_status(market)
             executed.append({"ticker": r["ticker"], "name": r["name"],
-                             "status": "deferred_stale_quote",
-                             "note": "장중 현재가 확인 후 재시도"})
+                             "status": hold_status,
+                             "note": "다음 정규장에 재시도" if hold_status == "deferred_market_closed"
+                                     else "장중 현재가 확인 후 재시도"})
             continue  # 예약을 종료하지 않는다.
         ceiling = r["target_price"] * (1 + r["max_chase_pct"])
         if price > ceiling:
@@ -1667,9 +1669,11 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                                  "fill_price": filled, "target_price": r["target_price"]})
             else:
                 if not paper.bot_order_quote_ready(market, price_evidence):
+                    hold_status = paper.bot_order_hold_status(market)
                     executed.append({"ticker": r["ticker"], "name": r["name"],
-                                     "status": "deferred_stale_quote",
-                                     "note": "장중 현재가 확인 후 재시도"})
+                                     "status": hold_status,
+                                     "note": "다음 정규장에 재시도" if hold_status == "deferred_market_closed"
+                                             else "장중 현재가 확인 후 재시도"})
                 else:
                     db.bot_reservation_resolve(r["id"], "order_failed")
                     executed.append({"ticker": r["ticker"], "name": r["name"], "status": "order_failed"})

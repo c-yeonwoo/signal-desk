@@ -12,10 +12,10 @@ import logging
 import math
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from signal_desk import config, db, notify, store
+from signal_desk import config, db, market_clock, notify, store
 from signal_desk.broker import execution
 
 log = logging.getLogger("signal_desk.broker.paper")
@@ -78,10 +78,12 @@ def balance(uid: int, market: str = "kr") -> dict:
 
 
 def bot_order_quote_ready(market: str, evidence: dict | None, *, now: float | None = None) -> bool:
-    """봇 가상 체결의 최소 가격 증거. 서버 수신 10분 한도를 주문 직전 다시 검사한다."""
+    """봇 가상 체결의 최소 가격 증거와 주문 시점의 정규장 여부를 다시 검사한다."""
     if market not in ("kr", "us") or not isinstance(evidence, dict):
         return False
     at = time.time() if now is None else float(now)
+    if not math.isfinite(at) or not market_clock.is_open(market, datetime.fromtimestamp(at, timezone.utc)):
+        return False
     zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
     session = datetime.fromtimestamp(at, zone).date().isoformat()
     try:
@@ -95,18 +97,28 @@ def bot_order_quote_ready(market: str, evidence: dict | None, *, now: float | No
             and -300 <= at - received_at <= 600)
 
 
+def bot_order_hold_status(market: str) -> str:
+    """구조화된 보류 사유를 시세 지연과 장 종료로 구분한다."""
+    return ("deferred_stale_quote" if market_clock.is_open(market, datetime.now(timezone.utc))
+            else "deferred_market_closed")
+
+
 def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: str,
                     price: float | None, evidence: dict | None, name: str = "") -> None:
     """체결 없이 보류를 감사 기록과 재시도 가능한 Telegram 아웃박스에 남긴다."""
     at = int(time.time())
     zone = ZoneInfo("Asia/Seoul" if market == "kr" else "America/New_York")
     session = datetime.fromtimestamp(at, zone).date().isoformat()
-    key = f"paper-price-hold:{market}:{session}:{uid}:{side}:{ticker}"
-    alert_key = f"paper-price-hold:{market}:{session}:{side}:{ticker}"
+    market_open = market_clock.is_open(market, datetime.fromtimestamp(at, timezone.utc))
+    hold_status = "deferred_stale_quote" if market_open else "deferred_market_closed"
+    key = f"paper-price-hold:{hold_status}:{market}:{session}:{uid}:{side}:{ticker}"
+    alert_key = f"paper-price-hold:{hold_status}:{market}:{session}:{side}:{ticker}"
     action = "매도" if side == "sell" else "매수"
+    cause = ("장중 현재가를 확인하지 못해 종가로 대신 체결하지 않았습니다."
+             if market_open else "정규장이 닫혀 가상 체결하지 않았습니다.")
     text = (f"⚠️ 가상 {action} 보류 · {name or ticker}({ticker}) · {market.upper()}\n"
-            f"장중 현재가를 확인하지 못해 종가로 대신 체결하지 않았습니다. "
-            f"사유: {reason}. 가격 수집 상태를 확인해 주세요. "
+            f"{cause} 사유: {reason}. "
+            f"{'가격 수집 상태를 확인해 주세요. ' if market_open else '다음 정규장에 다시 확인해 주세요. '}"
             f"{'손절·위험 청산도 실행되지 않았습니다.' if side == 'sell' else '다음 실행에서 다시 판단합니다.'}")
     notify.enqueue(text, dedupe_key=alert_key, priority="critical" if side == "sell" else "high",
                    expires_at=at + 12 * 3600, now=at)
@@ -116,10 +128,10 @@ def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: st
                             priority="critical" if side == "sell" else "high",
                             expires_at=at + 12 * 3600, now=at)
     db.execution_event_add(
-        key, uid=uid, market=market, ticker=ticker, event_type="deferred_stale_quote",
+        key, uid=uid, market=market, ticker=ticker, event_type=hold_status,
         price=price, ts=at,
         payload={"side": side, "reason": reason, "price_evidence": evidence or {},
-                 "detail": "fresh_intraday_quote_required"},
+                 "detail": "fresh_intraday_quote_required" if market_open else "market_session_closed"},
     )
 
 
