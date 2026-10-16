@@ -5628,17 +5628,22 @@ def paper_policy_sensitivity_get(request: Request, style: str = "balanced", mark
     except (TypeError, ValueError, OverflowError, OSError):
         return {"style": style, "market": mkt, "state": "blocked",
                 "reason": "invalid_journal_timestamp", "live_eligible": False}
-    tickers = {str(row["ticker"]) for row in development_trades if row.get("ticker")}
-    closes = {ticker: panel for ticker, panel in store.load_market_dated_closes(mkt).items()
-              if ticker in tickers}
+    # Legacy parquet stores no per-row provider/adjustment provenance. KR
+    # currently asks pykrx for adjusted prices; US may combine Toss adjusted
+    # bars with KIS MODP=1. Neither is proven compatible with raw paper fills.
+    # Fill-only diagnostics remain useful, but the h5/h20 close arms must wait
+    # for a separately verified unadjusted research series.
+    closes = {}
     zone = ZoneInfo("Asia/Seoul" if mkt == "kr" else "America/New_York")
     study_now = datetime.datetime.fromisoformat(
         paper_cash_replay.DEVELOPMENT_END + "T23:59:59").replace(tzinfo=zone)
     return {"style": style, "market": mkt, "last_trade_id": journal["last_trade_id"],
             "study_window_end": paper_cash_replay.DEVELOPMENT_END,
+            "close_basis_state": "unverified_adjustment_provenance",
             "excluded_protected_trade_rows": len(journal["trades"]) - len(development_trades),
             **paper_policy_counterfactual.analyze(development_trades, closes,
-                                                  market=mkt, now=study_now)}
+                                                  market=mkt, now=study_now,
+                                                  close_basis_verified=False)}
 
 
 def _paper_development_trades(trades: list[dict], market: str) -> list[dict]:
@@ -5673,17 +5678,13 @@ def paper_cash_replay_get(request: Request, style: str = "balanced", market: str
         return {"style": style, "market": market, "state": "blocked",
                 "reason": "invalid_journal_timestamp", "verified_total_return": None,
                 "arms": {}}
-    tickers = {str(row["ticker"]) for row in development_trades if row.get("ticker")}
-    closes = {ticker: panel for ticker, panel in store.load_market_dated_closes(market).items()
-              if ticker in tickers}
-    now = datetime.datetime.now(datetime.timezone.utc)
-    as_of = market_clock.latest_completed_session(market, now)
-    study_as_of = min(as_of, paper_cash_replay.DEVELOPMENT_END) if as_of else None
-    result = (paper_cash_replay.replay(development_trades, closes, market=market,
-                                      seed_cash=journal["seed_cash"], as_of=study_as_of or "",
-                                      now=now)
-              if study_as_of else {"state": "blocked", "reason": "no_completed_session",
-                                   "verified_total_return": None, "arms": {}})
+    # Never mix actual fill prices with the legacy daily cache. The cache has
+    # no row-level adjustment/source evidence and may contain adjusted bars.
+    # The pure replayer stays available for explicitly proven research input.
+    result = {"state": "blocked", "reason": "price_fill_basis_unverified",
+              "price_basis": "legacy_cache_unverified",
+              "development_journal_rows": len(development_trades),
+              "verified_total_return": None, "arms": {}, "live_eligible": False}
     return {"style": style, "market": market, "last_trade_id": journal["last_trade_id"],
             "paper_account_reconciled": True,
             "study_window_end": paper_cash_replay.DEVELOPMENT_END,

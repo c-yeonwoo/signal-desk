@@ -25,7 +25,7 @@ def test_no_add_and_fixed_exits_use_same_first_entry_but_not_same_notional():
     trades = [_trade(1, "buy", 10, 100), _trade(2, "buy", 10, 80, reason="ADD"),
               _trade(3, "sell", 5, 90, day="2026-07-15"),
               _trade(4, "sell", 15, 110, day="2026-07-16")]
-    out = study.analyze(trades, _panel(), market="kr",
+    out = study.analyze(trades, _panel(), market="kr", close_basis_verified=True,
                         now=dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
     row = out["episodes"][0]
     assert row["actual_net_25bps_pct"] == 16.417
@@ -46,7 +46,8 @@ def test_missing_intermediate_close_blocks_both_horizons_without_compression():
     panel["ABC"] = (days[:2] + days[3:], prices[:2] + prices[3:])
     out = study.analyze([_trade(1, "buy", 1, 100),
                          _trade(2, "sell", 1, 90, day="2026-07-15")], panel,
-                        market="kr", now=dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
+                        market="kr", close_basis_verified=True,
+                        now=dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
     row = out["episodes"][0]
     assert row["h5_status"] == "missing_close"
     assert row["h20_status"] == "missing_close"
@@ -60,15 +61,26 @@ def test_missing_entry_close_blocks_horizon_even_if_future_prices_exist():
     panel["ABC"] = (days[1:], prices[1:])
     out = study.analyze([_trade(1, "buy", 1, 100),
                          _trade(2, "sell", 1, 90, day="2026-07-15")], panel,
-                        market="kr", now=dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
+                        market="kr", close_basis_verified=True,
+                        now=dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
     assert out["episodes"][0]["h5_status"] == "missing_entry_close"
     assert out["episodes"][0]["h20_net_25bps_pct"] is None
+
+
+def test_unverified_close_basis_blocks_numeric_exit_arms_by_default():
+    out = study.analyze([_trade(1, "buy", 1, 100),
+                         _trade(2, "sell", 1, 90, day="2026-07-15")],
+                        _panel(), market="kr",
+                        now=dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
+    assert out["episodes"][0]["actual_net_25bps_pct"] == -10.25
+    assert out["episodes"][0]["h5_status"] == "price_basis_unverified"
+    assert out["summary"]["h5_net_25bps_pct"]["eligible"] == 0
 
 
 def test_unmatured_close_stays_pending_and_later_episode_does_not_disappear():
     trades = [_trade(1, "buy", 1, 100), _trade(2, "sell", 1, 90, day="2026-07-15"),
               _trade(3, "buy", 2, 80, day="2026-07-16")]
-    out = study.analyze(trades, _panel(), market="kr",
+    out = study.analyze(trades, _panel(), market="kr", close_basis_verified=True,
                         now=dt.datetime(2026, 7, 16, 0, 0, tzinfo=dt.timezone.utc))
     assert out["closed_episodes"] == 1
     assert out["open_episodes"] == 1
@@ -79,7 +91,7 @@ def test_unmatured_close_stays_pending_and_later_episode_does_not_disappear():
 def test_invalid_or_unmatched_trade_blocks_ticker_instead_of_making_a_winner():
     trades = [_trade(1, "buy", 1, 100), _trade(2, "sell", 2, 120),
               _trade(3, "buy", 1, 80)]
-    out = study.analyze(trades, _panel(), market="kr",
+    out = study.analyze(trades, _panel(), market="kr", close_basis_verified=True,
                         now=dt.datetime(2026, 9, 1, tzinfo=dt.timezone.utc))
     assert out["closed_episodes"] == 0
     assert out["blocked_tickers"] == ["ABC"]
@@ -117,5 +129,8 @@ def test_admin_endpoint_is_read_only_and_restricts_market_style(tmp_path, monkey
     assert response.status_code == 200
     assert response.json()["closed_episodes"] == 1
     assert response.json()["episodes"][0]["actual_net_25bps_pct"] == -10.25
+    assert response.json()["episodes"][0]["h5_net_25bps_pct"] is None
+    assert response.json()["episodes"][0]["h5_status"] == "price_basis_unverified"
+    assert response.json()["close_basis_state"] == "unverified_adjustment_provenance"
     assert client.get("/api/admin/research/paper-policy-sensitivity?style=invalid").status_code == 422
     assert client.get("/api/admin/research/paper-policy-sensitivity?market=other").status_code == 422
