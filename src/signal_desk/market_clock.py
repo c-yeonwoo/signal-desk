@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import datetime as dt
 from functools import lru_cache
+from threading import Lock
 from zoneinfo import ZoneInfo
 
 import exchange_calendars as xcals
 
 _MARKETS = {"kr": ("XKRX", "Asia/Seoul"), "us": ("XNYS", "America/New_York")}
+_CALENDAR_BUILD_LOCK = Lock()
 _KR_AUCTION_BUFFER = dt.timedelta(minutes=10)
 # KRX가 공지한 2026년 휴장. 서버의 달력 인스턴스가 일부 대체휴일을
 # 세션으로 반환해도 매매/채점에서 다시 열지 않는다.
@@ -27,7 +29,10 @@ def _verified_closed(market: str, day: str) -> bool:
 
 @lru_cache(maxsize=2)
 def _calendar(market: str):
-    return xcals.get_calendar(_MARKETS[market][0])
+    # exchange_calendars builds KRX holidays in a shared mutable pandas Series.
+    # lru_cache alone can run the first cache miss in multiple FastAPI workers.
+    with _CALENDAR_BUILD_LOCK:
+        return xcals.get_calendar(_MARKETS[market][0])
 
 
 def is_session(market: str, day: dt.date | str) -> bool:
