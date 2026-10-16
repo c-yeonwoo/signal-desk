@@ -97,10 +97,10 @@ def bot_order_quote_check(market: str, evidence: dict | None, *, now: float | No
     except (TypeError, ValueError):
         return result
     receipt_ready = (evidence.get("price_basis") == "intraday_provisional"
-            and evidence.get("price_session") == session
-            and bool(evidence.get("price_observation_id"))
-            and math.isfinite(received_at)
-            and -300 <= at - received_at <= 600)
+                     and evidence.get("price_session") == session
+                     and bool(evidence.get("price_observation_id"))
+                     and math.isfinite(received_at)
+                     and -300 <= at - received_at <= 600)
     if not receipt_ready:
         return result
     result["receipt_age_seconds"] = round(at - received_at, 3)
@@ -158,7 +158,11 @@ def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: st
     cause = ("장중 현재가를 확인하지 못해 종가로 대신 체결하지 않았습니다."
              if market_open else "정규장이 닫혀 가상 체결하지 않았습니다.")
     if hold_status == "deferred_source_time":
-        cause = "받은 가격의 원문 시각이 오래됐거나 해석할 수 없어 가상 체결을 보류했습니다."
+        source_reason = {"stale": "가격 원문의 시각이 10분 넘게 지났습니다",
+                         "different_session": "가격 원문의 날짜가 오늘 거래일과 다릅니다",
+                         "future": "가격 원문의 시각이 수신·주문 시각보다 앞서 있습니다",
+                         "unparseable": "가격 원문의 시각이나 시간대를 읽을 수 없습니다"}
+        cause = f"{source_reason[check['source_time_state']]}. 가상 체결을 보류했습니다."
     text = (f"⚠️ 가상 {action} 보류 · {name or ticker}({ticker}) · {market.upper()}\n"
             f"{cause} 사유: {reason}. "
             f"{'가격 수집 상태를 확인해 주세요. ' if market_open else '다음 정규장에 다시 확인해 주세요. '}"
