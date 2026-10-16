@@ -10,7 +10,7 @@
 .invest-breakdown strong {font-size:clamp(17px,2vw,24px);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 .invest-breakdown strong.neg {color:var(--sig-sell)}.invest-breakdown strong.pos {color:var(--sig-buy)}
 .invest-recovery {display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:16px 18px;background:#fff6e7;border-radius:12px;color:#714b12}
-.invest-recovery strong {font-size:23px}.invest-recovery span {font-size:12px;flex-basis:100%;line-height:1.6}
+.invest-recovery strong {font-size:22px}.invest-recovery span {font-size:12px;flex-basis:100%;line-height:1.6}
 .invest-review h3 {font-size:16px;margin:24px 0 12px}
 .invest-plan {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;list-style:none;counter-reset:step;padding:0;margin:0}
 .invest-plan li {counter-increment:step;padding:18px 0;border-top:2px solid var(--line);font-size:14px}

@@ -7519,6 +7519,12 @@ def home_styles():
                         headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/design-tokens.css")
+def design_tokens_styles():
+    return FileResponse(WEB_DIR / "design-tokens.css", media_type="text/css",
+                        headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/investment.js")
 def investment_script():
     return FileResponse(WEB_DIR / "investment.js", media_type="text/javascript",
