@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Signal Desk · Quiet Desk 디자인 참고</title>
+<style>
+:root{--ink:#151A22;--brand:#243CDB;--brand-soft:#ECEEFE;--text-secondary:#526071;--positive:#0B7655;--line:#CBD2DC;--canvas:#F6F7F9;--surface:#FDFDFC;--text-muted:#637083;--negative:#B73333;--caution:#8A5700}
+*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font:1rem/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{max-width:1200px;margin:auto;padding:40px 24px 80px}header{border-bottom:1px solid var(--line);padding-bottom:28px;margin-bottom:32px}h1{font-size:2.5rem;letter-spacing:-.045em;line-height:1.15;margin:8px 0 16px}h2{font-size:1.5rem;letter-spacing:-.025em;line-height:1.35;margin:0 0 16px}h3{font-size:1rem;margin:0 0 8px}p{margin:0 0 16px;max-width:68ch}.kicker{color:var(--brand);font-weight:700}.muted,small{color:var(--text-muted)}small{font-size:.8125rem;line-height:1.5}.intro{color:var(--text-secondary)}section{margin-top:40px}.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:24px}.hero{display:grid;grid-template-columns:1.4fr 1fr;gap:32px;align-items:center}.hero h2{font-size:1.75rem;max-width:18ch;margin:12px 0 16px}.facts{display:flex;gap:24px;margin:24px 0}.facts strong{display:block;font-size:1.5rem;font-variant-numeric:tabular-nums}.facts span{color:var(--text-secondary);font-size:.875rem}.caution{color:var(--caution)}.positive{color:var(--positive)}.negative{color:var(--negative)}.example-label{font-size:.875rem;color:var(--caution);font-weight:650;margin-bottom:12px}.action-example{display:inline-flex;align-items:center;min-height:44px;padding:8px 16px;border-radius:8px;background:var(--brand);color:var(--surface);font-size:.875rem;font-weight:650}.scene{width:100%;height:240px;border-radius:12px;background:var(--brand-soft)}.preview-caption{margin:12px 0 0;font-size:.875rem;color:var(--text-secondary)}.stock-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}.stock-title{display:flex;align-items:start;justify-content:space-between;gap:16px}.tag{display:inline-block;background:var(--brand-soft);color:var(--brand);font-size:.875rem;padding:4px 10px;border-radius:6px}.price{font-size:2rem;line-height:1.2;letter-spacing:-.025em;font-variant-numeric:tabular-nums;margin:16px 0 8px}.change{font-size:1rem;white-space:nowrap}.time{font-size:.875rem;color:var(--text-secondary)}.divider{border-top:1px solid var(--line);margin:20px 0}.evidence{display:grid;grid-template-columns:1fr 1fr;gap:24px}.evidence p{font-size:.875rem;color:var(--text-secondary);margin:0}.note{border-left:3px solid var(--caution);padding-left:12px;font-size:.875rem}.chips{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}.chip{width:40px;height:40px;border-radius:50%;border:1px solid var(--line)}.swatches{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.swatch{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}.paint{height:112px;padding:16px;display:flex;align-items:flex-end;font-weight:700}.swatch-info{padding:16px}.swatch-info p{font-size:.875rem;color:var(--text-secondary);margin:8px 0 0}.codes{font-size:.8125rem;color:var(--text-muted);font-variant-numeric:tabular-nums}.pairings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.pair{border:1px solid var(--line);border-radius:12px;overflow:hidden}.pair-demo{padding:20px;font-size:1rem}.pair-meta{background:var(--surface);padding:12px 20px;color:var(--text-secondary);font-size:.875rem}.failed{color:var(--negative)}.group{margin-top:24px}.guide{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px}.guide p{font-size:.875rem;color:var(--text-secondary)}footer{margin-top:48px;padding-top:24px;border-top:1px solid var(--line);font-size:.875rem;color:var(--text-secondary)}a{color:var(--brand);text-underline-offset:3px}a:focus-visible{outline:2px solid var(--brand);outline-offset:4px}code{font-size:.875em;overflow-wrap:anywhere}@media(max-width:720px){main{padding:24px 16px 48px}h1{font-size:2rem}.hero,.stock-grid,.guide{grid-template-columns:1fr}.hero{gap:20px}.scene{height:160px}.panel{padding:20px}.swatches,.pairings{grid-template-columns:1fr 1fr}.evidence{gap:16px}.facts{gap:20px}.stock-title{flex-wrap:wrap}}@media(max-width:420px){.swatches,.pairings,.evidence{grid-template-columns:1fr}.price{font-size:1.75rem}}@media print{*{print-color-adjust:exact;-webkit-print-color-adjust:exact}body{background:var(--surface)}main{padding:0}.panel,.swatch,.pair{break-inside:avoid}section{margin-top:24px}a{color:var(--ink)}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="kicker">SIGNAL DESK / DESIGN REFERENCE / 2026.10.16</div>
+<h1>Quiet Desk<br>읽는 순서가 분명한 투자 화면.</h1>
+<p class="intro">기존 인디고를 중심으로, 밝은 중립 표면과 선명한 글자를 사용합니다. 행동은 인디고, 수치의 변화는 녹색·적색, 확인이 필요한 조건은 황토색으로 구분합니다.</p>
+<p class="example-label">설계용 정적 시안 · 아래 종목·수치·시각은 합성 예시입니다. 운영 데이터나 주문 기능이 아닙니다.</p>
+<a href="../SIGNAL-DESK-WEB-DESIGN-REVIEW-2026-10-16.md">화면별 개선안과 구현 순서 읽기</a>
+</header>
+<section aria-labelledby="today-title">
+<p class="kicker" id="today-title">01 / 오늘 · 진단은 한 번, 그림은 보조</p>
+<div class="panel hero">
+<div>
+<span class="time">국내 · 예시 거래일 종가 · 확인한 200종목</span>
+<h2>오른 종목이<br>더 많았어요.</h2>
+<p class="intro">확인한 종목의 3분의 2가 올랐어요.<br>최근 추세는 종목마다 차이가 있어요.</p>
+<div class="facts"><div><strong>132 / 200</strong><span>전일보다 오른 종목</span></div><div><strong>종가 기준</strong><span>장중 변화와 구분해요</span></div></div>
+<p class="note caution">일부 자료 누락으로 후보 건수는 표시하지 않아요.</p>
+<span class="action-example">종목 보기 · 버튼 모양 예시</span>
+</div>
+<div>
+<svg class="scene" viewBox="0 0 440 260" aria-hidden="true" preserveAspectRatio="xMidYMid slice">
+<rect width="440" height="260" fill="var(--brand-soft)"/>
+<circle cx="337" cy="69" r="30" fill="var(--surface)"/>
+<path d="M0 212 Q90 140 178 176 T440 157 V260 H0Z" fill="var(--line)"/>
+<path d="M0 236 Q90 180 197 210 T440 188 V260 H0Z" fill="var(--text-secondary)"/>
+<g fill="var(--ink)"><rect x="65" y="143" width="27" height="85" rx="3"/><rect x="103" y="109" width="43" height="119" rx="3"/><rect x="158" y="130" width="31" height="98" rx="3"/><rect x="205" y="86" width="40" height="143" rx="3"/><rect x="257" y="133" width="24" height="96" rx="3"/></g>
+<g fill="var(--surface)"><rect x="115" y="122" width="6" height="10"/><rect x="130" y="122" width="6" height="10"/><rect x="217" y="102" width="6" height="10"/><rect x="229" y="102" width="6" height="10"/></g>
+</svg>
+<p class="preview-caption">관찰한 시장을 표현하는 장면입니다. 미래 가격 예측이나 상승 차트가 아닙니다.</p>
+</div>
+</div>
+</section>
+<section aria-labelledby="stock-title">
+<p class="kicker" id="stock-title">02 / 종목 · 가격과 후보 등급을 분리</p>
+<div class="stock-grid">
+<article class="panel">
+<div class="stock-title"><div><h2>예시 산업</h2><span class="time">가상 종목 · 산업재</span></div><span class="tag">매수 후보</span></div>
+<div class="price">128,500원 <span class="change positive">▲ +2.4%</span></div>
+<p class="time">확정 종가 · 예시 거래일<br>후보 평가도 같은 거래일 종가 기준</p>
+<p class="intro">등급: 강력매수 · 내 보유에 대한 매수 지시는 아니에요.</p>
+<div class="divider"></div>
+<div class="evidence"><div><h3>긍정 근거</h3><p>수익성이 개선됐어요.<br>최근 가격 흐름도 양호해요.</p></div><div><h3>확인할 점</h3><p>최근 회사 관련 원문을 확인하지 못했어요.</p></div></div>
+</article>
+<article class="panel">
+<h2>내 보유와 비교하기</h2>
+<p class="intro">현재 보는 자료가 무엇인지 먼저 알려줍니다. 이 시안에는 실제 계좌를 연결하지 않았습니다.</p>
+<div class="divider"></div>
+<p class="note caution">분석용 입력과 실계좌가 다르면, 차이를 확인한 뒤 다시 진단하도록 안내합니다.</p>
+<h3>시안의 원칙</h3>
+<p class="intro">과거 진단은 기록에 남기고, 현재 보유를 먼저 보여줍니다. 가격이 내렸다는 이유만으로 매도 결론을 만들지 않습니다.</p>
+</article>
+</div>
+</section>
+<section aria-labelledby="palette-title">
+<h2 id="palette-title">03 / 팔레트 · 11가지 역할</h2>
+<p class="intro">인디고와 청회색의 가까운 색상 관계를 바탕으로, 녹색·적색·황토색을 필요한 상태에만 제한합니다. 배경과 표면이 대부분을 차지하고 강조색은 작은 영역에 씁니다.</p>
+<div class="chips" id="harmony" aria-label="전체 팔레트 색상"></div>
+<div id="palette"></div>
+<noscript><p>색상 값은 이 파일의 :root와 연결된 설계 문서에서도 확인할 수 있습니다. 동적 색상표를 보려면 JavaScript를 켜세요.</p></noscript>
+</section>
+<section aria-labelledby="pair-title">
+<h2 id="pair-title">04 / 글자 조합과 대비</h2>
+<p class="intro">아래 AA 표시는 해당 색 조합의 일반 텍스트 대비 4.5:1에 대한 판정입니다. 페이지 전체의 접근성 인증을 뜻하지 않습니다. 대비는 반올림 전 값으로 판정합니다.</p>
+<div class="pairings" id="pairings"></div>
+</section>
+<section aria-labelledby="rules-title">
+<h2 id="rules-title">05 / 반복해서 적용할 규칙</h2>
+<div class="guide"><div><h3>글자를 먼저</h3><p>본문 16px, 설명 14px, 시각 13px. 위험과 제약을 흐린 작은 글자에 숨기지 않습니다.</p></div><div><h3>카드는 큰 묶음에만</h3><p>카드 안에 카드를 쌓지 않습니다. 근거는 간격과 구분선으로 묶고 중요한 상태는 가까이 둡니다.</p></div><div><h3>빈도 높은 동작은 조용하게</h3><p>시세·순위에 장식 애니메이션을 넣지 않습니다. 색만으로 등락이나 위험을 전달하지 않습니다.</p></div></div>
+</section>
+<footer>정적 디자인 참고 · 외부 폰트·라이브러리·API 없음 · 실제 서비스 변경 없음<br>기준: Emil design engineering / Color palette generator / WCAG 2.2 대비 공식</footer>
+</main>
+<script>
+'use strict';
+const palette=[
+ ['Primary','ink','Desk Ink','#151A22','제목·본문'],
+ ['Primary','brand','Signal Indigo','#243CDB','선택·주요 행동·포커스'],
+ ['Primary','brand-soft','Indigo Mist','#ECEEFE','선택 배경'],
+ ['Secondary','text-secondary','Slate Text','#526071','설명 문장'],
+ ['Secondary','positive','Measured Green','#0B7655','양의 수치 변화'],
+ ['Secondary','line','Quiet Edge','#CBD2DC','장식 구분선 · 중요한 입력 경계의 유일한 표시로 사용 금지'],
+ ['Neutral','canvas','Morning Paper','#F6F7F9','페이지 바탕'],
+ ['Neutral','surface','Porcelain','#FDFDFC','콘텐츠 표면'],
+ ['Neutral','text-muted','Readable Grey','#637083','기준시각·메타'],
+ ['Accent','negative','Measured Red','#B73333','음의 수치 변화·오류'],
+ ['Accent','caution','Amber Note','#8A5700','확인 필요']
+];
+const rgb=hex=>hex.slice(1).match(/../g).map(n=>parseInt(n,16));
+function luminance(hex){const c=rgb(hex).map(v=>v/255).map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4);return c[0]*.2126+c[1]*.7152+c[2]*.0722;}
+function contrast(a,b){const x=luminance(a),y=luminance(b);return (Math.max(x,y)+.05)/(Math.min(x,y)+.05);}
+function hsl(hex){const [r,g,b]=rgb(hex).map(v=>v/255),max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min,l=(max+min)/2;let h=0,s=0;if(d){s=d/(1-Math.abs(2*l-1));if(max===r)h=((g-b)/d)%6;else if(max===g)h=(b-r)/d+2;else h=(r-g)/d+4;h=(h*60+360)%360;}return `${Math.round(h)}°, ${Math.round(s*100)}%, ${Math.round(l*100)}%`;}
+function el(tag,cls,text){const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
+for(const group of ['Primary','Secondary','Neutral','Accent']){
+ const section=el('div','group');section.append(el('h3','',group));const grid=el('div','swatches');
+ for(const [,token,name,hex,use] of palette.filter(c=>c[0]===group)){
+  const chip=el('span','chip');chip.style.background=hex;chip.title=`${name} ${hex}`;chip.setAttribute('role','img');chip.setAttribute('aria-label',chip.title);document.getElementById('harmony').append(chip);
+  const card=el('article','swatch'),paint=el('div','paint',name);paint.style.background=hex;paint.style.color=contrast(hex,'#151A22')>=contrast(hex,'#FDFDFC')?'var(--ink)':'var(--surface)';
+  const info=el('div','swatch-info');info.append(el('strong','',hex),el('div','codes',`RGB ${rgb(hex).join(', ')}`),el('div','codes',`HSL ${hsl(hex)}`),el('code','',`--${token}`),el('p','',use));card.append(paint,info);grid.append(card);
+ }
+ section.append(grid);document.getElementById('palette').append(section);
+}
+const pairs=[
+ ['#151A22','#F6F7F9','본문 · 중요한 정보는 선명하게'],
+ ['#526071','#FDFDFC','설명 · 이유는 짧고 구체적으로'],
+ ['#637083','#FDFDFC','메타 · 종가 기준과 확인 시각'],
+ ['#FDFDFC','#243CDB','주요 행동 · 종목 보기'],
+ ['#243CDB','#ECEEFE','선택 상태 · 매수 후보'],
+ ['#0B7655','#FDFDFC','양의 변화 · ▲ +2.4%'],
+ ['#B73333','#FDFDFC','음의 변화 · ▼ −1.8%'],
+ ['#8A5700','#FDFDFC','주의 · 시세 갱신 지연'],
+ ['#949aa6','#FFFFFF','기존 메타색 · 비교용, 새 팔레트에서 제외']
+];
+for(const [fg,bg,label] of pairs){const ratio=contrast(fg,bg),box=el('div','pair'),demo=el('div','pair-demo',label);demo.style.color=fg;demo.style.background=bg;const meta=el('div',`pair-meta${ratio<4.5?' failed':''}`,`${fg} / ${bg} · ${ratio.toFixed(2)}:1 · ${ratio>=4.5?'AA 통과':'AA 미달 → #637083 권장'}`);box.append(demo,meta);document.getElementById('pairings').append(box);}
+</script>
+</body>
+</html>
