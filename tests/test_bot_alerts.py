@@ -3,6 +3,8 @@
 import datetime
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from signal_desk import api, bot_alerts, config
 
 
@@ -36,6 +38,32 @@ def test_unselected_bots_and_failed_plans_never_queue(monkeypatch):
     assert "70,000원" in message and "140,000원" in message
     assert "실패" not in message and "실제 계좌 주문 아님" in message
     assert options["expires_at"] and options["dedupe_key"].startswith("paper-fill:900002:kr:")
+
+
+def test_bot_loop_drains_price_hold_even_when_no_trade_filled(monkeypatch):
+    pending, drained = [], []
+    monkeypatch.setattr(api.notify, "drain", lambda: drained.append(list(pending)) or pending.clear())
+    monkeypatch.setattr(api, "_maybe_refresh_decision_sources", lambda: None)
+    monkeypatch.setattr(api, "_daily_kb_collect", lambda: None)
+    monkeypatch.setattr(api, "_morning_digest", lambda: None)
+    monkeypatch.setattr(api.db, "user_bots_enabled", lambda: [900002])
+    monkeypatch.setattr(api, "_open_markets", lambda: ["kr"])
+    monkeypatch.setattr(api, "_backfill_us_prices_batch", lambda n: {"filled": 0})
+    monkeypatch.setattr(api, "_refresh_us_prices_stale", lambda *a, **k: {"filled": 0})
+    monkeypatch.setattr(api, "_ensure_quality_attached", lambda: None)
+    monkeypatch.setattr(api.market_clock, "is_session", lambda *a: False)
+    monkeypatch.setattr(api.bot, "execute_reservations", lambda *a, **k: {"executed": []})
+    monkeypatch.setattr(api, "_push_reservations", lambda *a: None)
+    monkeypatch.setattr(api.bot, "run_once", lambda *a, **k: (
+        pending.append("가상 매수 보류") or {"ok": True, "buys": [], "sells": []}))
+    monkeypatch.setattr(api, "_push_trades", lambda *a: None)
+    def after_orders():
+        raise RuntimeError("stop after order notifications")
+    monkeypatch.setattr(api.db, "uids_with_ticker_favorites", after_orders)
+
+    with pytest.raises(RuntimeError, match="stop after order notifications"):
+        api._bot_loop_iteration()
+    assert drained == [[], ["가상 매수 보류"]]
 
 
 def test_trade_message_reason_value_and_dedupe(monkeypatch):
