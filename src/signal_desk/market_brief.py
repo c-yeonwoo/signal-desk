@@ -34,6 +34,7 @@ def build(
     macro_indicators: Sequence[Mapping] = (),
     selection: Mapping | None = None,
     sector_by_ticker: Mapping[str, str] | None = None,
+    name_by_ticker: Mapping[str, str] | None = None,
     now: dt.datetime | None = None,
 ) -> dict:
     """Produce a small, source-dated card. Missing close dates fail closed.
@@ -273,10 +274,22 @@ def build(
         # 업종은 현재 요약에 포함된, 같은 날 비교 가능한 표본만 그린다.
         "sectors": ([sector_summary[0], sector_summary[-1]] if len(sector_summary) > 1 else sector_summary),
     }
+    # 이 목록은 '추천'이 아니다. 같은 두 거래일의 종가가 확인된 관찰 종목 중
+    # 등락 폭을 보여 줄 뿐이며, 거래량·기업행사·뉴스의 원인은 추정하지 않는다.
+    movers = []
+    if scene_direction != "unknown":
+        ranked = sorted(((ticker, change) for ticker, change in daily_changes.items()
+                         if abs(change) > 0.001), key=lambda row: (-abs(row[1]), row[0]))
+        for ticker, change in ranked[:3]:
+            movers.append({"ticker": ticker,
+                           "name": str((name_by_ticker or {}).get(ticker) or ticker),
+                           "change_pct": round(change, 2),
+                           "sector": str((sector_by_ticker or {}).get(ticker) or "")})
     return {**base, "status": "partial" if covered < len(universe) else "ready",
             "state": state, "state_basis": basis, "headline": headline,
             "today_headline": today_headline, "summary": summary,
             "daily_coverage": {"available": daily_count, "analyzed": covered},
             "scene": scene,
+            "movers": movers,
             "sector_summary": sector_summary,
             "facts": facts, "selection": current_selection, "unknown": unknown}

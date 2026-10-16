@@ -4414,6 +4414,9 @@ def market_brief_get(market: str = "kr"):
     prices, dates = store.load_portfolio_close_bundle(market)
     universe = store.load_universe() if market == "kr" else store.load_us_universe()
     tickers = [str(row["ticker"]) for row in universe]
+    names = {str(row["ticker"]): (str(row.get("name") or row["ticker"]) if market == "kr"
+              else us_ko.name_ko(str(row["ticker"]), str(row.get("name") or row["ticker"])))
+             for row in universe}
     # KR 분류는 큐레이션 스냅샷이라 관찰 화면의 같은 날 요약에만 제한한다.
     # 해외 구성종목 분류는 기준시점을 확인할 수 없어 현재 카드의 업종 비교에 쓰지 않는다.
     sector_by_ticker = ({ticker: sector for ticker in tickers
@@ -4423,7 +4426,81 @@ def market_brief_get(market: str = "kr"):
     card = market_brief.build(market, prices=prices, dates=dates, tickers=tickers,
                               expected=expected, previous=previous, flow=flow,
                               macro_indicators=indicators, sector_by_ticker=sector_by_ticker,
+                              name_by_ticker=names,
                               now=now)
+    # 그림에 쓰는 소식은 같은 기준일의 검증된 원문 제목만 사용한다.
+    # 소식이 그날의 등락을 *일으켰다*고 추론하거나 매매 점수에 반영하지 않는다.
+    card["brief_news"] = []
+    if market == "kr" and card["scene"]["direction"] != "unknown":
+        try:
+            for mover in card.get("movers", []):
+                ticker = mover["ticker"]
+                for event in db.kb_events_active(ticker):
+                    if event.get("trust_tier") != "official":
+                        continue
+                    for proof in db.kb_event_evidence(event["id"]):
+                        url = str(proof.get("url") or "")
+                        try:
+                            parsed = urlparse(url)
+                        except ValueError:
+                            continue
+                        if (proof.get("source_key") != "dart"
+                                or str(proof.get("published") or "")[:10] != expected
+                                or parsed.scheme != "https"
+                                or parsed.hostname not in {"dart.fss.or.kr", "m.dart.fss.or.kr"}):
+                            continue
+                        title = str(proof.get("evidence_text") or "").strip()
+                        if title:
+                            card["brief_news"].append({"ticker": ticker, "name": names[ticker],
+                                                       "title": title, "url": url,
+                                                       "published": expected, "source": "DART"})
+                            break
+                    if card["brief_news"]:
+                        break
+                if card["brief_news"]:
+                    break
+        except (sqlite3.Error, OSError):
+            # 가격 요약은 유지하되 원문 조회 실패를 '오늘 공시 없음'으로 표현하지 않는다.
+            card["brief_news_error"] = "공시 원문을 확인하지 못했습니다."
+        if not card["brief_news"] and not card.get("brief_news_error"):
+            # 수집 범위를 전체 언론으로 부풀리지 않는다. 등락 폭 상위 종목의
+            # 회사·역할 검증을 통과한 당일 기사 제목만 설명용으로 사용한다.
+            try:
+                from signal_desk import kb_attribution
+                from signal_desk.ingest import news
+
+                checks = kb.digest_checks()
+                for mover in card.get("movers", []):
+                    ticker = mover["ticker"]
+                    if (checks.get(ticker) or {}).get("status") != "ok":
+                        continue
+                    docs = db.kb_entries_recent(ticker, 8, confirmed_only=True,
+                                                attribution_version=kb_attribution.POLICY_VERSION)
+                    for doc in docs:
+                        if doc.get("source") == "dart" or not doc.get("attribution_checked_at"):
+                            continue
+                        published = news._parse_dt(doc.get("published") or "")
+                        if (published is None or published.tzinfo is None
+                                or published.astimezone(ZoneInfo("Asia/Seoul")).date().isoformat() != expected):
+                            continue
+                        url = str(doc.get("url") or "")
+                        try:
+                            parsed = urlparse(url)
+                        except ValueError:
+                            continue
+                        if parsed.scheme != "https" or not parsed.hostname:
+                            continue
+                        title = str(doc.get("title") or "").strip()
+                        if title:
+                            card["brief_news"].append({"ticker": ticker, "name": names[ticker],
+                                                       "title": title, "url": url,
+                                                       "published": expected,
+                                                       "source": "출처 확인 기사"})
+                            break
+                    if card["brief_news"]:
+                        break
+            except (sqlite3.Error, OSError):
+                card["brief_news_error"] = "기사 원문을 확인하지 못했습니다."
     if card["status"] == "ready":
         sigs = list(_signals()) if market == "kr" else list(_us_signals().values())
         if market == "kr":
