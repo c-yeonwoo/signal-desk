@@ -67,6 +67,26 @@ def test_intraday_quote_is_not_disguised_as_confirmed_close_and_expires():
     assert stale["signal"]["decision"] == "UNAVAILABLE"
 
 
+def test_captured_price_context_overrides_newer_detail_quote():
+    # 새 현재가가 들어와도, 옛 점수에 붙는 회사 카드가 새 매수 근거를 만들지 않는다.
+    item = {"kind": "STRONG_BUY", "signal_price_basis": "intraday_quote",
+            "signal_computed_at": "2026-10-06T06:00:00+00:00"}
+    stale = _review(item=item, signal_price_status="stale_quote",
+                    provisional_at=NOW.timestamp() - 900)
+    assert stale["price_status"] == "stale"
+    assert stale["price_basis"] == "intraday_quote"
+    assert stale["signal"]["decision"] == "UNAVAILABLE"
+    assert stale["signal"]["computed_at"] == item["signal_computed_at"]
+    assert not any(c["relation"] == "supports" for c in stale["claims"])
+    close_only = _review(signal_price_status="close_only")
+    assert close_only["price_status"] == "close_only"
+    assert close_only["signal"]["decision"] == "UNAVAILABLE"
+    assert any("장중 현재가" in reason for reason in close_only["unknowns"])
+    inconsistent = _review(item=item, signal_price_status="current_quote",
+                           provisional_at=NOW.timestamp() - 900)
+    assert inconsistent["signal"]["decision"] == "UNAVAILABLE"
+
+
 def test_blocked_buy_is_not_shown_as_positive_candidate_claim():
     review = _review(item={"kind": "STRONG_BUY", "decision": {"buy_blocked": True}})
     assert review["signal"]["decision"] == "STRONG_BUY"
@@ -114,8 +134,12 @@ def test_expired_or_unreviewed_disclosure_cannot_be_presented_as_current_risk():
 
 def test_detail_review_is_private_and_uses_only_own_manual_holdings(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DB", tmp_path / "app.db")
-    monkeypatch.setattr(api, "_kr_signal_detail", lambda ticker: {
-        "ticker": ticker, "name": "삼성전자", "kind": "HOLD", "data_coverage": 0.9, "rank": 10})
+    detail_item = {"ticker": "005930", "name": "삼성전자", "kind": "HOLD",
+                   "data_coverage": 0.9, "rank": 10,
+                   "signal_price_basis": "stored_close", "signal_close_date": "2026-10-06",
+                   "signal_computed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                   "signal_confirmed_close": 100}
+    monkeypatch.setattr(api, "_kr_signal_detail", lambda ticker: dict(detail_item))
     monkeypatch.setattr(api.store, "load_price_history", lambda ticker: [{"date": "2026-10-06", "close": 100}])
     monkeypatch.setattr(api.store, "load_price_series", lambda: {"005930": [100]})
     monkeypatch.setattr(api.store, "load_signal_history", lambda: pd.DataFrame())
@@ -142,11 +166,12 @@ def test_detail_review_is_private_and_uses_only_own_manual_holdings(tmp_path, mo
     assert {e["id"] for e in a.json()["review"]["evidence"]} == {
         "price:kr:005930:2026-10-06", "kb:1"}
 
-    # 다른 종목이 방금 갱신돼 전역 시각만 새로워도 이 종목의 오래된 잠정가는 현재가가 아니다.
+    # 현재가가 새로 와도, 점수에 쓴 가격 세대가 옛 장중가라면 현재 판정으로 세탁하지 않는다.
     monkeypatch.setattr(api.store, "load_price_series", lambda: {"005930": [100, 101]})
     old_quote = dt.datetime.now(dt.timezone.utc).timestamp() - 900
     monkeypatch.setattr(api.store, "live_quote_updated", lambda ticker: old_quote)
     monkeypatch.setattr(api.store, "live_status", lambda: {"updated": dt.datetime.now(dt.timezone.utc).timestamp()})
+    detail_item.update(signal_price_basis="intraday_quote", signal_quote_received_at=old_quote)
     stale = first.get("/api/signals/005930/detail").json()["review"]
     assert stale["price_status"] == "stale"
     assert stale["signal"]["decision"] == "UNAVAILABLE"
@@ -154,6 +179,12 @@ def test_detail_review_is_private_and_uses_only_own_manual_holdings(tmp_path, mo
     missing_time = first.get("/api/signals/005930/detail").json()["review"]
     assert missing_time["price_status"] == "stale"
     assert missing_time["signal"]["decision"] == "UNAVAILABLE"
+    detail_item.update(signal_price_basis="stored_close", signal_close_date="2026-10-05",
+                       signal_quote_received_at=None)
+    new_bar_old_signal = first.get("/api/signals/005930/detail").json()["review"]
+    assert new_bar_old_signal["price_status"] == "stale"
+    assert new_bar_old_signal["as_of"]["prices_through"] == "2026-10-05"
+    assert new_bar_old_signal["signal"]["decision"] == "UNAVAILABLE"
 
 
 def test_review_ui_escapes_sources_and_clears_previous_ticker():
@@ -185,6 +216,12 @@ assert.match(el.innerHTML,/새 매수 후보권과 내 보유 판단은 달라�
 assert.match(el.innerHTML,/단순 가격 변화/);
 assert.match(el.innerHTML,/-24%/);
 assert.match(el.innerHTML,/내 보유 진단에서 비중 확인/);
+ctx._paintSignalReview('005930',{ticker:'005930',market:'kr',price_status:'close_only',price_basis:'confirmed_close',
+  as_of:{prices_through:'2026-10-06'},signal:{decision:'UNAVAILABLE'},claims:[],evidence:[],
+  holding_text:'분석용 보유 입력에는 없음',unknowns:['장중 현재가가 판정에 반영되지 않음']});
+assert.match(el.innerHTML,/직전 종가 기준입니다/);
+assert.match(el.innerHTML,/가격 기준 확인 필요/);
+assert.doesNotMatch(el.innerHTML,/현재 가격 조건/);
 ctx._paintSignalReview('AAPL',null);
 assert.equal(el.textContent,'기업 근거와 내 보유를 함께 확인하는 중…');
 """

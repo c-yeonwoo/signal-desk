@@ -53,6 +53,7 @@ def build(
     holding: dict | None, watching: bool, checked_at: int | None,
     source_check_ok: bool, provisional_at: int | float | None = None,
     confirmed_close: float | None = None,
+    signal_price_status: str | None = None,
     now: dt.datetime | None = None,
 ) -> dict:
     """Join existing verdict with verified evidence without synthesizing a new verdict.
@@ -69,10 +70,20 @@ def build(
     except (TypeError, ValueError, OverflowError):
         quote_age = None
     quote_fresh = quote_age is not None and -300 <= quote_age <= 600
-    price_status = ("unavailable" if not price_date or not expected_date else
-                    "stale" if provisional_at is not None and not quote_fresh else
-                    "current" if price_date == expected_date else "stale")
-    price_basis = "intraday_quote" if provisional_at is not None else "confirmed_close"
+    if signal_price_status is not None:
+        price_status = ({"current_close": "current", "current_quote": "current",
+                         "close_only": "close_only", "stale_close": "stale",
+                         "stale_quote": "stale"}.get(signal_price_status, "unavailable"))
+        if price_status == "current" and (not price_date or price_date != expected_date
+                                          or (signal_price_status == "current_quote" and not quote_fresh)
+                                          or (signal_price_status == "current_close" and provisional_at is not None)):
+            price_status = "stale"
+    else:
+        price_status = ("unavailable" if not price_date or not expected_date else
+                        "stale" if provisional_at is not None and not quote_fresh else
+                        "current" if price_date == expected_date else "stale")
+    price_basis = ("intraday_quote" if item.get("signal_price_basis") == "intraday_quote"
+                   or provisional_at is not None else "confirmed_close")
     verdict = item.get("kind") if price_status == "current" else "UNAVAILABLE"
     if verdict not in BUY_KINDS | SELL_KINDS | {"HOLD"}:
         verdict = "UNAVAILABLE"
@@ -81,7 +92,11 @@ def build(
     evidence = []
     claims = []
     if price_status != "current":
-        if not price_date:
+        if signal_price_status == "close_only":
+            unknowns.append("직전 종가로 계산했으며 장중 현재가는 이 판정에 반영되지 않았습니다.")
+        elif signal_price_status == "stale_quote":
+            unknowns.append("판정에 사용한 장중 시세의 갱신 시각이 오래됐거나 확인되지 않았습니다.")
+        elif not price_date:
             unknowns.append("이 종목의 확정 종가가 없어 현재 매수·매도 판정을 재확인할 수 없습니다.")
         elif not expected_date:
             unknowns.append("거래일 기준을 확인하지 못해 종가의 최신 여부를 판단할 수 없습니다.")
@@ -201,7 +216,7 @@ def build(
         "price_status": price_status,
         "price_basis": price_basis,
         "buy_blocked": bool((item.get("decision") or {}).get("buy_blocked")),
-        "signal": {"decision": verdict, "computed_at": None,
+        "signal": {"decision": verdict, "computed_at": item.get("signal_computed_at"),
                    "coverage": item.get("data_coverage"), "candidate_position": item.get("rank")},
         "claims": claims, "evidence": evidence,
         "portfolio_relation": portfolio_relation, "holding_text": holding_text,

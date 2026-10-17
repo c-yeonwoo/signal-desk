@@ -52,9 +52,11 @@ def test_signal_price_context_uses_captured_bundle_not_newer_quote():
     assert intraday.signal_quote_received_at == 1791259200.0
     assert intraday.signal_close_date == "2026-10-06"
     assert api._signal_display_price(intraday, 130.0, 18.0) == (121.0, 10.0)
+    assert api._signal_price_fields(intraday)["signal_confirmed_close"] == 110.0
     assert close_only.signal_price_basis == "stored_close"
     assert close_only.signal_quote_received_at is None
     assert api._signal_display_price(close_only, 60.0, 9.0) == (55.0, 10.0)
+    assert api._signal_price_fields(close_only)["signal_confirmed_close"] == 55.0
     assert intraday.computed_at == close_only.computed_at
 
 

@@ -5802,7 +5802,9 @@ function _paintSignalReview(ticker, review){
   const stale = review.price_status !== 'current';
   const hasOfficialRisk = groups.contradicts.some(c => (c.evidence_ids || []).some(id => id.startsWith('event:')));
   const held = review.portfolio_relation === 'held';
-  const lead = stale ? (hasOfficialRisk
+  const lead = review.price_status === 'close_only'
+    ? '직전 종가 기준입니다. 장중 현재가는 아직 판정에 반영되지 않았어요.'
+    : stale ? (hasOfficialRisk
       ? '시세 기준을 확인할 수 없고 공식 위험도 있어요. 원문부터 확인하세요.'
       : '시세 기준을 확인할 수 없어 현재 판정을 재확인할 수 없어요.')
     : hasOfficialRisk
@@ -5829,7 +5831,7 @@ function _paintSignalReview(ticker, review){
     + `<button type="button" class="btn" onclick="_openHoldingReview('${market}')">내 보유 진단에서 비중 확인</button></div>` : '';
   el.innerHTML = `<h3>가격과 기업 소식, 함께 보기</h3><p class="company-review-lead">${esc(lead)}</p>`
     + `<div class="company-review-grid">`
-    + `<div class="company-review-part"><b>현재 가격 조건</b>${lines(groups.supports.concat(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:'))), groups.context.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:')))), '가격 판정을 확인하지 못했어요.')}</div>`
+    + `<div class="company-review-part"><b>${stale ? '가격 기준 확인 필요' : '현재 가격 조건'}</b>${lines(groups.supports.concat(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:'))), groups.context.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:')))), '가격 판정을 확인하지 못했어요.')}</div>`
     + `<div class="company-review-part"><b>회사 관련 공시·기사</b>${lines(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))).concat(groups.context.filter(c => !(c.evidence_ids || []).some(id => id.startsWith('price:')))), '연결할 최근 원문이 없어요.')}</div>`
     + `</div><p class="company-review-foot">${esc(basis + ((review.as_of || {}).prices_through || '미확인'))}</p>`
     + (holdingDetail || `<p class="company-review-foot">${esc(review.holding_text || '내 보유 정보는 확인하지 못했어요.')}</p>`)

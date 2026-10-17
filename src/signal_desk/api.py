@@ -2720,11 +2720,15 @@ def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct
 
 def _signal_price_fields(r) -> dict:
     """리스트와 상세가 같은 캐시된 판정의 시각·가격 기준을 설명한다."""
+    basis = getattr(r, "signal_price_basis", None)
+    confirmed = (getattr(r, "signal_previous_close", None) if basis == "intraday_quote"
+                 else getattr(r, "signal_input_price", None) if basis == "stored_close" else None)
     return {
         "signal_computed_at": getattr(r, "computed_at", None),
-        "signal_price_basis": getattr(r, "signal_price_basis", None),
+        "signal_price_basis": basis,
         "signal_close_date": getattr(r, "signal_close_date", None),
         "signal_quote_received_at": getattr(r, "signal_quote_received_at", None),
+        "signal_confirmed_close": finite_or_none(confirmed),
     }
 
 
@@ -3299,7 +3303,8 @@ def signal_detail_get(ticker: str, request: Request, response: Response, market:
     if not item:
         return {"ready": False, "item": None, "pit": None, "review": None}
     review_market = "us" if market == "us" else "kr"
-    _annotate_signal_price_status([item], review_market)
+    read_at = datetime.datetime.now(datetime.timezone.utc)
+    _annotate_signal_price_status([item], review_market, read_at)
     from signal_desk import kb_attribution
     check = kb.digest_checks().get(ticker) or {}
     docs = db.kb_entries_recent(ticker, 12, confirmed_only=True,
@@ -3314,23 +3319,17 @@ def signal_detail_get(ticker: str, request: Request, response: Response, market:
     holding = next((h for h in holdings if str(h.get("ticker", "")).upper() == ticker.upper()), None)
     watching = any(f.get("kind") == "ticker" and str(f.get("key", "")).upper() == ticker.upper()
                    for f in db.fav_list(uid)) if uid is not None else False
-    # LIVE_QUOTES can append a provisional bar to dates_by_ticker. A confirmed
-    # close is required before calling a verdict current in this read model.
-    bars = (store.load_us_price_history(ticker) if review_market == "us"
-            else store.load_price_history(ticker))
-    live_closes = ((store.load_us_price_series() if review_market == "us"
-                    else store.load_price_series()).get(ticker) or [])
-    has_provisional = len(live_closes) > len(bars)
-    provisional_at = store.live_quote_updated(ticker) if has_provisional else None
-    if has_provisional and provisional_at is None:
-        provisional_at = 0  # 가격은 보였는데 시각을 잃은 경합: 확정 종가로 둔갑시키지 않는다.
-    expected = market_clock.latest_completed_session(review_market, datetime.datetime.now(datetime.timezone.utc))
+    # 해설 카드도 점수를 만든 가격 세대만 읽는다. 지금 새로 들어온 종가/현재가를
+    # 캐시된 옛 등급과 합치면, 목록은 '지난 판정'인데 상세는 '현재 매수'가 된다.
+    provisional_at = (item.get("signal_quote_received_at")
+                      if item.get("signal_price_basis") == "intraday_quote" else None)
     review = company_review.build(
         ticker=ticker, market=review_market, item=item,
-        price_date=bars[-1]["date"] if bars else None, expected_date=expected,
+        price_date=item.get("signal_close_date"), expected_date=item.get("signal_expected_close_date"),
         news=current_news, official=official, holding=holding, watching=watching,
         checked_at=check.get("checked_at"), source_check_ok=check.get("status") == "ok",
-        provisional_at=provisional_at, confirmed_close=bars[-1].get("close") if bars else None,
+        provisional_at=provisional_at, confirmed_close=item.get("signal_confirmed_close"),
+        signal_price_status=item.get("signal_price_status"), now=read_at,
     )
     pit = None
     if market != "us":
