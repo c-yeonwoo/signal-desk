@@ -51,6 +51,13 @@ def test_actual_sip_bytes_and_hash_are_preserved_without_authentication(monkeypa
     assert "private-alpaca" not in json.dumps(result)
 
 
+def test_explicit_null_empty_quotes_preserve_raw_without_inventing_a_fill(monkeypatch):
+    raw, _ = _setup(monkeypatch, {"symbol": "AAPL", "quotes": None, "next_page_token": None})
+    result = source.quote_window("AAPL", START, END)
+    assert result["status"] == "empty" and result["quote_count"] == 0
+    assert base64.b64decode(result["raw_b64"]) == raw
+
+
 def test_missing_or_rejected_credentials_do_not_trigger_iex_fallback_or_leak_body(monkeypatch):
     _, calls = _setup(monkeypatch)
     monkeypatch.delenv("APCA_API_KEY_ID")
