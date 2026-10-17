@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import datetime as dt
 import re
+import io
+import xml.etree.ElementTree as ET
+from decimal import Decimal
+from zipfile import ZipFile
 
 from signal_desk import market_clock
 from signal_desk.ingest import dart
@@ -55,7 +59,81 @@ def normalize_annual(rows: list[dict], *, ticker: str, corp_code: str, year: int
             "original_document_matched": False}
 
 
-def metrics_asof(records: list[dict], day: str, caps: dict[str, float]) -> tuple[dict, dict]:
+def original_annual(raw: bytes, *, ticker: str, corp_code: str, year: int, receipt: str) -> dict:
+    """Narrow receipt-specific XBRL totals; no segmented/custom-account guesses."""
+    ns = {"x": "http://www.xbrl.org/2003/instance", "d": "http://xbrl.org/2006/xbrldi"}
+    with ZipFile(io.BytesIO(raw)) as archive:
+        names = [i for i in archive.infolist() if i.filename.endswith(".xbrl")]
+        if len(names) != 1 or names[0].file_size > 32_000_000:
+            raise ValueError("original XBRL scope differs")
+        root = ET.fromstring(archive.read(names[0]))
+    contexts = {e.get("id"): e for e in root.findall("x:context", ns)}
+    units = {u.get("id"): u.findtext("x:measure", namespaces=ns) for u in root.findall("x:unit", ns)}
+    # Never fall back to OFS merely because a CFS concept is missing.
+    consolidated = any(e.text == "ifrs-full:ConsolidatedMember"
+                       for c in contexts.values() for e in c.findall(".//d:explicitMember", ns))
+    basis = "CFS" if consolidated else "OFS"
+    member = "ConsolidatedMember" if consolidated else "SeparateMember"
+    values = {}
+    for e in root:
+        concept = e.tag.rsplit("}", 1)[-1]
+        if concept not in ("Equity", "Liabilities", "ProfitLoss", "Revenue") or "ifrs-full}" not in e.tag:
+            continue
+        c = contexts.get(e.get("contextRef"))
+        if c is None:
+            continue
+        dims = [(d.get("dimension"), d.text) for d in c.findall(".//d:explicitMember", ns)]
+        if (dims != [("ifrs-full:ConsolidatedAndSeparateFinancialStatementsAxis", f"ifrs-full:{member}")]
+                or c.findall(".//d:typedMember", ns)
+                or c.findtext("x:entity/x:identifier", namespaces=ns) != corp_code
+                or units.get(e.get("unitRef")) != "iso4217:KRW"):
+            continue
+        instant = c.findtext("x:period/x:instant", namespaces=ns)
+        end = instant or c.findtext("x:period/x:endDate", namespaces=ns)
+        start = c.findtext("x:period/x:startDate", namespaces=ns)
+        if (not end or end[:4] not in (str(year), str(year - 1)) or end[4:] != "-12-31"
+                or (concept in ("Equity", "Liabilities") and not instant)
+                or (concept in ("ProfitLoss", "Revenue") and (instant or start != end[:4] + "-01-01"))):
+            continue
+        if e.text is None:  # nil is unavailable, not zero.
+            continue
+        value = Decimal(e.text)
+        key = concept, int(end[:4])
+        if not value.is_finite() or key in values and values[key] != value:
+            raise ValueError("conflicting original XBRL totals")
+        values[key] = value
+    required = [(k, year) for k in ("Equity", "Liabilities", "ProfitLoss")]
+    if any(k not in values for k in required):
+        raise ValueError("standard whole-statement KRW totals unavailable")
+    rows = [{"stock_code": ticker, "corp_code": corp_code, "bsns_year": str(year),
+             "reprt_code": "11011", "rcept_no": receipt, "currency": "KRW", "fs_div": basis,
+             "account_nm": name, "thstrm_dt": f"{year}.12.31", "thstrm_amount": str(values[k, year]),
+             "frmtrm_amount": str(values.get((k, year - 1), ""))}
+            for k, name in (("Equity", "자본총계"), ("Liabilities", "부채총계"),
+                            ("ProfitLoss", "당기순이익"), ("Revenue", "매출액")) if (k, year) in values]
+    return {**normalize_annual(rows, ticker=ticker, corp_code=corp_code, year=year),
+            "original_document_matched": True}
+
+
+def financial_versions_asof(base: dict, day: str, versions: dict) -> dict:
+    """Use the last dated version, including failures; do not carry through a correction."""
+    if not versions["start"] <= day <= versions["end"]:
+        return base
+    result = dict(base)
+    for ticker in versions["tickers"]:
+        available = [r for r in versions["records"] if r["ticker"] == ticker
+                     and r["usable_from_session_assumption"] <= day]
+        if not available:
+            result[ticker, 2025] = {"status": "original_not_available_at_decision"}
+            continue
+        latest = max(r["filing_date"] for r in available)
+        same_day = [r for r in available if r["filing_date"] == latest]
+        facts = {(r["status"], r.get("fs_div"), tuple(sorted(r.get("metrics", {}).items()))) for r in same_day}
+        result[ticker, 2025] = (same_day[0] if len(facts) == 1 else {"status": "same_day_version_order_unverified"})
+    return result
+
+
+def metrics_asof(records: list[dict], day: str, caps: dict[str, float], *, versions: dict | None = None) -> tuple[dict, dict]:
     """Research sensitivity: April FY convention plus an actual receipt-date guard."""
     if not market_clock.is_session("kr", day) or day >= "2026-08-05":
         raise ValueError("financial replay is outside domestic development sessions")
@@ -63,6 +141,8 @@ def metrics_asof(records: list[dict], day: str, caps: dict[str, float]) -> tuple
     by_key = {(r["ticker"], r["year"]): r for r in records}
     if len(by_key) != len(records):
         raise ValueError("duplicate financial ticker-year")
+    if versions is not None:
+        by_key = financial_versions_asof(by_key, day, versions)
     out, excluded = {}, {}
     for ticker, cap in caps.items():
         current = by_key.get((ticker, year), {})
