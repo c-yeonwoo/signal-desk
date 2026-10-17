@@ -289,10 +289,13 @@ def collect_events(output: Path, reuse_source: Path | None = None) -> dict:
     return {key: manifest[key] for key in ("request_count", "census_count", "selected_by_month")}
 
 
-def collect_minutes(event_archive: Path, output: Path, reuse_source: Path | None = None) -> dict:
+def collect_minutes(event_archive: Path, output: Path, reuse_source: Path | None = None,
+                    *, event_schema: str = "contract-event-filings-v1") -> dict:
     from signal_desk import config
     from signal_desk.broker import kis
-    manifest, _ = load_archive(event_archive, "contract-event-filings-v1")
+    if event_schema not in ("contract-event-filings-v1", "earnings-guidance-events-v1"):
+        raise ValueError("unsupported frozen event schema")
+    manifest, _ = load_archive(event_archive, event_schema)
     config.load_env()
     credentials = config.kis_credentials()
     if not credentials:
@@ -311,7 +314,7 @@ def collect_minutes(event_archive: Path, output: Path, reuse_source: Path | None
             raise ValueError("retry source event pairs missing or duplicated")
     files, observations, requests, reused = {}, [], 0, 0
     for event in manifest["events"]:
-        stamp = dt.datetime.fromisoformat(event["published_at"])
+        stamp = dt.datetime.fromisoformat(event.get("trade_anchor_at", event["published_at"]))
         end = (stamp + dt.timedelta(minutes=90)).strftime("%H%M%S")
         for ticker in (event["ticker"], "069500"):
             params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker,
