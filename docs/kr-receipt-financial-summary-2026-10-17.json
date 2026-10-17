@@ -1,5 +1,77 @@
 {
   "schema": "kr-receipt-financial-summary-v1",
+  "original_recovery": {
+    "source_path": "data/research/kr-original-financial-versions-2026-10-17-v1.zip",
+    "source_sha256": "eec040523329401b48859727808bc1e6d9fa5d837cb6d590f6fcab55b9576979",
+    "source_bytes": 52196827,
+    "march_listing_sha256": "ac8852766ddd0f419b2d39a33babbaa999cd68e4012b1bbc115c77f029838423",
+    "frozen_target_sha256": "a850b95281ca0b622baec0b4816a08bc0269481d012fd86ae56ebf82297109dd",
+    "selection_rule": "FY2025 returned receipt date >= 2026-06-01 and an exact-issuer March FY2025 annual filing in the frozen listing",
+    "companies": 20,
+    "receipt_versions": 45,
+    "parsed_versions": 43,
+    "parsed_companies": 20,
+    "parsed_versions_missing_standard_revenue_growth": 8,
+    "normalizer_version": 2,
+    "initial_acquisition_parsed_versions": 33,
+    "initial_limit_note": "Raw data unchanged; bounded XBRL reader limit raised from 20MB to 32MB for actual 20-22MB statements, and missing standard revenue remains missing rather than rejecting all other verified totals",
+    "listing_logical_requests": 11,
+    "xbrl_http_attempts": 45,
+    "new_logical_requests": 56,
+    "listing_filings_april_july": 988,
+    "recovery_start": "2026-03-01",
+    "recovery_end": "2026-07-31",
+    "unavailable_versions": [
+      {"ticker": "375500", "receipt": "20260317000901", "dart_status": "014"},
+      {"ticker": "066970", "receipt": "20260423000699", "dart_status": "014"}
+    ],
+    "unavailable_policy": "Do not infer unchanged accounts from attachment-correction titles; failed versions or same-day conflicts withhold earlier facts until a later unambiguous version",
+    "exact_receipt_api_comparisons": 11,
+    "shared_metric_mismatches_at_exact_receipt": 0,
+    "result_path": "data/research/kr-original-financial-sensitivity-2026-10-17-v3.json",
+    "result_sha256": "579cf23032a4c8fe12be91ab797fa85c040253fd93c402c3ad3fc34df25a0ab6",
+    "baseline_result_sha256": "8f1d95fb36de71037c33d993053b676f5197a666fa915f0773962e3b6d8432f9",
+    "all_price_only_daily_results_unchanged": true,
+    "earlier_five_windows_unchanged": true,
+    "financial_buy_sets_changed_dates": 29,
+    "comparison": {
+      "2026q2early-v5": {
+        "days": 40,
+        "buy_set_changed_dates": 17,
+        "no_buy_dates_before_after": [24, 9],
+        "financial_name_range_before": [171, 178],
+        "financial_name_range_after": [185, 192],
+        "paired_comparable_dates": 16,
+        "paired_h5_mean_net_pct_before": -3.77006875,
+        "paired_h5_mean_net_pct_after": -4.105775,
+        "full_window_mean_before": null,
+        "full_window_mean_after": null
+      },
+      "2026jun-expanded-v5": {
+        "days": 21,
+        "buy_set_changed_dates": 12,
+        "no_buy_dates_before_after": [15, 4],
+        "financial_name_range_before": [178, 184],
+        "financial_name_range_after": [192, 193],
+        "paired_comparable_dates": 6,
+        "paired_h5_mean_net_pct_before": 5.76285,
+        "paired_h5_mean_net_pct_after": 4.4594916666666675,
+        "full_window_mean_before": null,
+        "full_window_mean_after": null
+      }
+    },
+    "paired_interpretation": "Overlapping next-open h5 labels after assumed 25bp costs, only dates comparable in both arms; descriptive development subsets, not full-window or portfolio returns and not independent OOS",
+    "adoption": "research_source_path_only_no_trading_policy_promotion",
+    "strict_pit_eligible": false,
+    "live_order_eligible": false,
+    "code_sha256": {
+      "scripts/measure/kr_receipt_financial_lab.py": "25e736482793e75aaedec8a5c8ba9f79ee3a080f1da25a276e3949703962e6a2",
+      "scripts/measure/kr_financial_input_sources.py": "7af3bde934a017303bf625d2875566c615054db618f55b83dd292980ce00424e",
+      "src/signal_desk/signals/research_financial_inputs.py": "d9a3e20d0413e807e9a67c5204a04abdafd4fa5812215df14f05e9a2f9276148",
+      "src/signal_desk/signals/engine.py": "1d5ecfd102d5dc89c3635e91da0a45bc3ac772d89612cbc5deaf6288fa569447",
+      "scripts/measure/kr_original_financial_sources.py": "adbe0208ac952e1864cf463af275b7ad96584760b049040488d3a61d29ed1a71"
+    }
+  },
   "financial_archive_sha256": "bdab1956d2f1055a31a012fc8c3e5ecbb442de21c95c574beeb37aaf7c7d085c",
   "scope_sha256": "8b98fbf085b9b610ffe23afaf5ba84faa0da1d6de223ec42021c8eba923705f6",
   "financial_status_counts": {
