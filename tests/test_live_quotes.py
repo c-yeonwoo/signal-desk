@@ -243,6 +243,35 @@ assert.equal(el.textContent,'현재가 121원');
     assert result.returncode == 0, result.stderr
 
 
+def test_signal_label_marks_delayed_price_without_changing_decision():
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the signal price label")
+    script = r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+const start=html.indexOf('function signalPriceView(');
+const code=html.slice(start,html.indexOf('function renderSignalList(',start));
+const ctx=vm.createContext({Date,Number}); vm.runInContext(code,ctx);
+const item={kind:'STRONG_BUY',signal_price_status:'close_only'};
+const close=ctx.signalPriceView(item);
+assert.equal(close.label,'종가 기준');
+assert.equal(close.warning,true);
+item.signal_price_status='stale_close';
+const old=ctx.signalPriceView(item);
+assert.equal(old.label,'종가 지연');
+assert.equal(old.stale,true);
+assert.equal(item.kind,'STRONG_BUY');
+item.signal_price_status='current_quote';
+item.signal_quote_received_at=Date.now()/1000-601;
+assert.equal(ctx.signalPriceView(item).status,'stale_quote');
+item.signal_quote_received_at=Date.now()/1000-60;
+assert.equal(ctx.signalPriceView(item).status,'current_quote');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
+                            text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+
+
 def test_chart_header_separates_close_signal_and_stream_time():
     if not shutil.which("node"):
         pytest.skip("Node is needed for the chart header renderer")
