@@ -242,9 +242,9 @@ def test_transient_invalid_json_is_retried_without_archiving_it(monkeypatch):
 
 def test_dart_action_archive_retains_every_filing_and_original(tmp_path, monkeypatch):
     monkeypatch.setattr(acquisition.config, "dart_key", lambda: "test-secret")
-    monkeypatch.setattr(acquisition.time, "sleep", lambda seconds: None)
     receipts = ("20240430800061", "20240430800062")
     seen = []
+    monkeypatch.setattr(acquisition.time, "sleep", lambda seconds: seen.append(("gap", seconds)))
 
     def listing(url, params, headers, source):
         assert source == "DART actions" and params["corp_code"] == "00126380"
@@ -272,8 +272,8 @@ def test_dart_action_archive_retains_every_filing_and_original(tmp_path, monkeyp
 
     monkeypatch.setattr(acquisition, "_fetch_json", listing)
     monkeypatch.setattr(acquisition, "_fetch_dart_document", original)
-    files, manifest = acquisition.acquire_dart_actions("00126380", "2024-04-30", "2024-04-30")
-    assert seen == [("list", "1"), *( ("doc", r) for r in receipts)]
+    files, manifest = acquisition.acquire_dart_actions("00126380", "2024-04-30", "2024-04-30", gap_seconds=1)
+    assert seen == [("list", "1"), ("gap", 1), ("doc", receipts[0]), ("gap", 1), ("doc", receipts[1])]
     assert manifest["source_state"] == "filings_archived_not_action_complete"
     assert manifest["total_return_coverage"] is False and len(files) == 3
     output = tmp_path / "dart-actions.zip"
