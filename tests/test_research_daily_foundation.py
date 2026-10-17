@@ -29,6 +29,18 @@ def _snapshot(day, *, opened=100, closed=100, candidate=None, status="trading",
                          (candidate,) if candidate else ())
 
 
+def test_unfilled_order_does_not_require_an_unheld_corporate_action():
+    from signal_desk.signals.research_daily_simulator import DailyExecutionScenario
+    days = _sessions(3)
+    snapshots = [_snapshot(days[0], candidate=Candidate("005930", 1, 2, True, "event")),
+                 _snapshot(days[1], shares=900_000, action="unsupported"),
+                 _snapshot(days[2], shares=900_000)]
+    result = simulate_daily(snapshots, policy=DailyPolicy(), costs=DailyCostModel(), starting_cash=10000,
+                            execution=DailyExecutionScenario("none", assumed_fill_fraction=0))
+    assert result["state"] == "complete"
+    assert result["fills"] == [] and result["cash_end"] == 10000
+
+
 def test_closed_bar_contract_rejects_future_and_provisional_prices():
     first = _sessions()[0]
     snapshot = _snapshot(first)

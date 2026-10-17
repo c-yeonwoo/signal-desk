@@ -453,10 +453,6 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
             if bar is None or bar.open is None or bar.status != "trading":
                 skips["missing_or_untradable_entry_open"] = skips.get("missing_or_untradable_entry_open", 0) + 1
                 continue
-            if unresolved_bar_action(snapshot, bar):
-                return _incomplete("incomplete_corporate_action", snapshot, ticker=order.ticker,
-                                   fills=fills, decisions=decisions, equity_curve=equity_curve,
-                                   source_ids=source_ids)
             open_equity = cash
             for held in positions.values():
                 held_bar = bars.get(held.ticker)
@@ -474,6 +470,12 @@ def simulate_daily(snapshots: Sequence[DailySnapshot], *, policy: DailyPolicy,
             if quantity < 1:
                 skips["no_cash_or_open_capacity"] = skips.get("no_cash_or_open_capacity", 0) + 1
                 continue
+            # A zero-fill order creates no position or entitlement. Source
+            # uncertainty must not turn the no-trade cash control into a gap.
+            if unresolved_bar_action(snapshot, bar):
+                return _incomplete("incomplete_corporate_action", snapshot, ticker=order.ticker,
+                                   fills=fills, decisions=decisions, equity_curve=equity_curve,
+                                   source_ids=source_ids)
             proof = evidence_for(snapshot, order.ticker)
             if require_event_coverage and (proof is None or proof.coverage != "verified_complete"):
                 return _incomplete("incomplete_action_coverage", snapshot, ticker=order.ticker,
