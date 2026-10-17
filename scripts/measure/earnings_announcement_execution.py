@@ -366,10 +366,10 @@ def gaps(inputs: dict, index: dict) -> list[dict]:
 
 
 def simulate(inputs: dict, index: dict, year: str, path: str, policy: str,
-             fee_bp: int = 10, fill: float = 1, delay: int = 0) -> dict:
+             fee_bp: int = 10, fill: float = 1, delay: int = 0, size_scale: int = 1) -> dict:
     if (year not in ("2022", "2023") or path not in ("immediate", "opening")
             or policy not in ("eps", "all_reports", "market", "cash")
-            or fee_bp not in (10, 25, 50) or fill not in (0, .5, 1) or delay not in (0, 60)):
+            or fee_bp not in (10, 25, 50) or fill not in (0, .5, 1) or delay not in (0, 60) or size_scale not in (1, 100)):
         raise ValueError("outside frozen experiment")
     selected = [e for e in choices(inputs, path, policy, delay) if e["reported_date"].startswith(year)]
     cash, peak, drawdown, rate = 10_000., 10_000., 0., fee_bp / 10_000
@@ -391,7 +391,7 @@ def simulate(inputs: dict, index: dict, year: str, path: str, policy: str,
             stopped = True
             continue
         limit = float(ref["ap"]) * 1.003
-        quantity = math.floor(min(cash / 6 / (limit * (1 + rate)), float(ref["as"])) * fill)
+        quantity = math.floor(min(cash / 6 / (limit * (1 + rate)), float(ref["as"]) * size_scale) * fill)
         if not quantity:
             rows.append({**row, "status": "no_affordable_whole_share", "net_pnl": 0.})
             continue
@@ -404,12 +404,12 @@ def simulate(inputs: dict, index: dict, year: str, path: str, policy: str,
         if float(entry["ap"]) > limit:
             rows.append({**row, "status": "limit_not_marketable", "net_pnl": 0.})
             continue
-        quantity = min(quantity, int(entry["as"]))
+        quantity = min(quantity, int(entry["as"]) * size_scale)
         cost = quantity * float(entry["ap"]) * (1 + rate)
         if cost > cash + 1e-8:
             raise ValueError("cash constraint broken")
         exit_ns = entry["ns"] + 3600 * SECOND
-        exit_quote = first_quote(index, query(symbol, exit_ns), exit_ns, "bp", quantity)
+        exit_quote = first_quote(index, query(symbol, exit_ns), exit_ns, "bp", math.ceil(quantity / size_scale))
         if exit_quote is None:
             rows.append({**row, "status": "exit_missing_position_unresolved", "net_pnl": None,
                          "quantity": quantity, "entry_ns": entry["ns"]})
@@ -443,6 +443,7 @@ def simulate(inputs: dict, index: dict, year: str, path: str, policy: str,
     trades = [r for r in rows if r["status"] == "closed"]
     complete = not missing_events and not unresolved
     return {"year": year, "path": path, "policy": policy, "fee_bp_each_side_assumed": fee_bp,
+            "shares_per_raw_size_unit_assumed": size_scale,
             "fill_fraction": fill, "extra_delay_seconds": delay, "complete": complete,
             "missing_input_events": missing_events, "unresolved_executions": unresolved,
             "selected_events": len(selected), "closed_trades": len(trades),
@@ -460,18 +461,21 @@ def simulate(inputs: dict, index: dict, year: str, path: str, policy: str,
             "closed_subset_pnl": sum(r["net_pnl"] for r in trades),
             "closed_subset_positive_fraction": sum(r["net_pnl"] > 0 for r in trades) / len(trades) if trades else None,
             "closed_subset_mean_trade_net_pct": sum(r["trade_net_return_pct"] for r in trades) / len(trades) if trades else None,
+            "max_reference_lag_seconds": max((r["reference_lag_seconds"] for r in trades), default=None),
+            "max_entry_after_reference_seconds": max((r["entry_after_reference_seconds"] for r in trades), default=None),
+            "max_exit_after_target_seconds": max((r["exit_after_target_seconds"] for r in trades), default=None),
             "realized_close_only_drawdown_pct": drawdown * 100 if complete else None,
             "rows": rows}
 
 
-def report(inputs: dict, index: dict) -> dict:
+def report(inputs: dict, index: dict, size_scale: int = 1) -> dict:
     results = []
     for year in ("2022", "2023"):
         for path in ("immediate", "opening"):
             for policy in ("eps", "all_reports", "market", "cash"):
-                results.append(simulate(inputs, index, year, path, policy))
+                results.append(simulate(inputs, index, year, path, policy, size_scale=size_scale))
             for fee, fill, delay in ((25, 1, 0), (50, 1, 0), (10, .5, 0), (10, 0, 0), (10, 1, 60)):
-                results.append(simulate(inputs, index, year, path, "eps", fee, fill, delay))
+                results.append(simulate(inputs, index, year, path, "eps", fee, fill, delay, size_scale))
     verdicts = []
     for path in ("immediate", "opening"):
         rows = [r for r in results if r["year"] == "2023" and r["path"] == path]
@@ -491,11 +495,13 @@ def report(inputs: dict, index: dict) -> dict:
                 ("incomplete_sources" if not checks["all_sources_complete"] else "rejected_performance"),
             "adoption": "not_adopted", "live_order_eligible": False})
     return {"schema": "earnings-announcement-execution-report-v1", "cohort": inputs["cohort"],
+            "shares_per_raw_size_unit_assumed": size_scale,
             "input_statuses": dict(Counter(e["status"] for e in inputs["events"])),
             "event_ledger": inputs["events"], "quote_windows": len(index), "results": results,
             "verdicts": verdicts, "strict_pit_eligible": False, "live_order_eligible": False,
             "limitations": ["historical_API_arrival_unverified", "headline_original_version_and_EPS_basis_unverified",
-                "historical_account_settlement_costs_unverified", "historical_size_unit_conservative_raw_share_cap",
+                "historical_account_settlement_costs_unverified",
+                "historical_size_unit_conservative_raw_share_cap" if size_scale == 1 else "historical_size_unit_round_lot100_interpretation",
                 "quote_does_not_guarantee_fill", "fixed_survivor_panel_not_market_universe",
                 "drawdown_excludes_intraholding_mark_to_market"]}
 
@@ -506,8 +512,12 @@ def main():
     parser.add_argument("--source", type=Path)
     parser.add_argument("--input", type=Path)
     parser.add_argument("--sources", nargs="*", type=Path, default=[])
+    parser.add_argument("--size-scale", type=int, choices=(1, 100), default=1,
+                        help="Report-only size interpretation; 100 is not independent confirmation")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
+    if args.size_scale != 1 and args.command != "report":
+        parser.error("size interpretation applies only to offline report")
     if args.command == "cohort":
         result = cohort(args.source)
     elif args.command == "inputs":
@@ -516,7 +526,7 @@ def main():
         inputs = json.loads(args.input.read_bytes())
         index = quote_index(observations(args.sources, "quote-window"))
         if args.command == "report":
-            result = report(inputs, index)
+            result = report(inputs, index, args.size_scale)
         elif args.command == "gaps":
             result = {"stage": "gaps", "requests": gaps(inputs, index)}
         else:

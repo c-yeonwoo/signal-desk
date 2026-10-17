@@ -28,6 +28,25 @@
 
 미국은 `python -m scripts.measure.us_earnings_backtest eps --output <새 EPS ZIP>` → `prices --eps-archive <EPS ZIP> --output <새 일봉 ZIP>` → `run --eps-archive <EPS ZIP> --price-archive <일봉 ZIP> --output <새 JSON>` 순서다. EPS 원천과 표본을 먼저 동결하고 `MODP=0`·과거 기준일만 조회한다. 키는 기존 환경에서 읽고 기록하지 않는다. [보존 요약](../../docs/us-eps-backtest-2026-10-17.json)과 문서의 파일명으로 재현하며 재조회는 새 관측이다. 예상치의 당시 공급 버전·정확한 최초 공개 시각·실체결을 인증한 것이 아니므로 등록 판정·실주문은 항상 false다. 현재 분기 예상치나 실제 시가로 과거 EPS/주문 수량을 채우지 않는다.
 
+## 2026-10-17 실적 기사 시각 → SIP 호가 진입·청산
+
+[고정 계획](../../docs/EARNINGS-ANNOUNCEMENT-EXECUTION-2026-10-17.md)은 8회사·2022 개발/2023 확인의 64발표를 유지한다. 기사 `created_at`과 `updated_at` 중 늦은 시각+처리30초, 당시 ask로 정한 주문 한도와 최소1초 뒤 체결 모델, 실제 진입+60분 뒤 bid 청산을 연결한다. 현재 vendor 예상치를 과거에 붙이거나 분봉 종가로 호가를 대신하지 않는다. 최초 공개/과거 실정산 인증과 **피드 한정 조건부 재구성**을 분리한다.
+
+`earnings_announcement_execution cohort` → `inputs` → `reference`/`entry`/`exit`/`gaps` → `report` 순서다. 수집 요청은 운영 관리자 전용 Alpaca GET 경로로 수행하며 키를 로컬로 옮기지 않는다. 원문 JSON·해시·빈 구간·부분 페이지와 실패 시도는 로컬 `data/research/`에 남긴다. `gaps`는 완전히 관측된 구간만 이어 보고 부분 페이지는 좁혀 확인한다. 조회 상한 때문에 못 찾은 호가는 미체결 0%가 아니라 결손이다.
+
+```bash
+# 기존 보존 자료만 재생한다. 새 출력명만 허용한다. 네트워크·주문·운영 DB 접근 없음.
+.venv/bin/python -m scripts.measure.earnings_announcement_execution report \
+  --input data/research/earnings-announcement-inputs-2026-10-17-v3.json \
+  --sources data/research/alpaca-reference-2026-10-17-[0-9]*.json \
+    data/research/alpaca-entry-2026-10-17-[0-9]*.json \
+    data/research/alpaca-exit-2026-10-17-[0-9]*.json \
+    data/research/alpaca-gaps-2026-10-17-r*-b*.json \
+  --output data/research/earnings-announcement-replay-NEW.json
+```
+
+`earnings_announcement_delivery --output <새 JSON> --archive <새 ZIP> --public <새 요약 JSON>`은 동일 계산에 원문 묶음과 원문 대조·해시·응답량을 더한다. 기존 ZIP은 모든 보존 바이트가 일치할 때만 검증 후 재사용한다. 공개 요약에는 개별 호가 원문·가격을 넣지 않는다. `report --size-scale 100`은 공식 제공자의 과거 round-lot 단위를 참고한 **추가 해석**으로 새 독립 확인이나 실전 승격 근거가 아니다. 두 실행의 `event_ledger/results/verdicts`를 비교하며, 메타데이터가 더해진 전체 JSON의 해시가 같다고 주장하지 않는다. [최종 결과](../../docs/EARNINGS-ANNOUNCEMENT-RESULT-2026-10-17.md)에서 두 경로는 현재 실전 불채택으로 닫았다. 당시 실제 API 수신·정산 비용·역사 잔량의 소급 변환과 실제 체결은 인증하지 않아 실주문 적격은 false다. 기록된 응답 건수는 보존된 호출의 수이며 청구서나 보존하지 않은 진단/중단 요청의 합계가 아니다.
+
 ## 2026-10-11 일봉 판단 재생 기반
 
 `.venv/bin/python -m scripts.measure.research_daily_foundation --window 2026q2early-v5 --horizon 5`는 보존된 KRX 원문과 가격 전용 판단 기록을 연구용 판단·현금 재생에 연결한다. `--window`는 이미 열람한 2024년 세 구간과 2025~2026년 네 구간, `--horizon`은 5·20만 받는다. 각 조합에서 기존 `holding_horizon_portfolio_lab`의 체결 순서·가격·수량과 비용 후 결과가 일치하는지 `legacy_replay_parity`로 보고한다. 당시 순위와 공급자 도착 시각이 없는 입력은 가정으로 표시한다. 이 보고서는 등록 판정·운영 주문·새 전략 수익 증거가 아니다. 세부 계약과 남은 조건은 [엔진 재설계](../../docs/ENGINE-REBUILD-BLUEPRINT-2026-10-11.md)에 있다.
