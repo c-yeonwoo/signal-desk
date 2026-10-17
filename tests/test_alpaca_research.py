@@ -18,8 +18,10 @@ def test_window_is_fixed_panel_timezone_aware_and_outside_protected_data():
     assert params["feed"] == "sip" and params["asof"] == "2023-02-03"
     assert source.parameters("FB", "2022-06-09T00:01:00Z", "2022-06-09T00:01:05Z")["asof"] == "2022-06-08"
     assert source.parameters("AAPL", START, "2023-02-03T14:36:30Z")["limit"] == "1000"
+    assert source.parameters("AAPL", "2020-01-01T00:00:00Z", "2020-01-01T00:00:05Z")["feed"] == "sip"
     for symbol, start, end in (("AAPL/../../orders", START, END), ("AAPL", START, "2023-02-03T14:36:31Z"),
                               ("AAPL", "2026-10-17T14:31:30Z", "2026-10-17T14:31:35Z"),
+                              ("AAPL", "2019-12-31T23:59:59Z", "2020-01-01T00:00:01Z"),
                               ("AAPL", "2023-02-03T14:31:30", END)):
         with pytest.raises(ValueError):
             source.parameters(symbol, start, end)
@@ -118,7 +120,9 @@ def test_historical_news_keeps_revision_clock_and_exact_bytes(monkeypatch):
     assert base64.b64decode(result["raw_b64"]) == raw
     assert calls[0].full_url.startswith("https://data.alpaca.markets/v1beta1/news?")
     assert "include_content=false" in calls[0].full_url and not result["strict_pit_eligible"]
+    assert source.news_parameters("FB", "2020-01-29")["start"].startswith("2020-01-29")
     for symbol, session, token in (("TSLA", "2023-01-01", ""), ("META", "2026-10-17", ""),
+                                   ("FB", "2019-12-31", ""),
                                    ("META", "2023-04-26", "x&symbols=TSLA")):
         with pytest.raises(ValueError):
             source.news_parameters(symbol, session, token)
