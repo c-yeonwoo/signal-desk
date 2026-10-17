@@ -375,6 +375,14 @@
   }
   .hero-loss-note { margin:14px 0 6px; padding:12px 14px; border-radius:var(--r-sm);
     background:rgba(180,83,9,.08); color:#854d0e; font-size:14px; line-height:1.5; font-weight:600; }
+  .signal-price-note { display:block; margin-top:5px; color:var(--dim); font-size:12px; line-height:1.35; }
+  .signal-price-note.is-warning { color:#854d0e; }
+  .signal-price-note.is-stale { color:var(--sig-sell); font-weight:700; }
+  .hero-price-note { margin:12px 0 0; padding:10px 12px; border-radius:var(--r-sm);
+    background:rgba(180,83,9,.08); color:#854d0e; font-size:14px; line-height:1.45; font-weight:600; }
+  .hero-price-note.is-stale { background:rgba(176,44,44,.08); color:var(--sig-sell); }
+  .hero-card.price-unverified { border-left-color:var(--sig-watch); background:var(--panel); }
+  .sig-pill.price-unverified { background:transparent; border:1px solid var(--line-strong); color:var(--dim); }
   .hero-card.SELL, .hero-card.STRONG_SELL { border-left-color:var(--sig-sell); }
   .hero-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
   .hero-value { display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; min-width:0; }
@@ -4023,7 +4031,7 @@ function startLivePriceStream(){
   if (_livePriceSource || !window.EventSource) return;
   _livePriceSource = new EventSource('/api/live-prices/stream');
   if (!_livePriceAgeTimer) _livePriceAgeTimer = setInterval(() => {
-    paintLiveQuotePrices(); paintLiveQuoteStatus();
+    paintLiveQuotePrices(); paintLiveQuoteStatus(); expireSignalPriceContexts();
   }, 60000);
   _livePriceSource.addEventListener('quotes', ev => {
     try {
@@ -4041,6 +4049,20 @@ function startLivePriceStream(){
 function liveQuoteFresh(ticker){
   const age = Date.now() / 1000 - Number(_liveQuoteTimes[ticker]);
   return Number.isFinite(age) && age >= -300 && age <= 600;
+}
+function expireSignalPriceContexts(){
+  if (!_signalRows) return;
+  let changed = false;
+  for (const row of _signalRows) {
+    if (row.signal_price_status !== 'current_quote' || signalPriceView(row).status !== 'stale_quote') continue;
+    row.signal_price_status = 'stale_quote';
+    if (_signalItems[row.ticker]) _signalItems[row.ticker].signal_price_status = 'stale_quote';
+    changed = true;
+  }
+  if (!changed) return;
+  renderSignalList();
+  if (_selectedTicker && _signalItems[_selectedTicker])
+    _paintSignalDetail(_selectedTicker, _signalItems[_selectedTicker]);
 }
 function paintLiveQuoteStatus(){
   const el = document.getElementById('live-status');
@@ -4478,6 +4500,25 @@ function sortSignalRows(rows, sort){
       || String(a.ticker).localeCompare(String(b.ticker));
   });
 }
+function signalPriceView(item){
+  let status = item.signal_price_status || 'unknown';
+  // 응답을 받은 뒤 시간이 지나도 옛 장중가를 현재 판정처럼 유지하지 않는다.
+  if (status === 'current_quote') {
+    const age = Date.now() / 1000 - Number(item.signal_quote_received_at);
+    if (!Number.isFinite(age) || age < -300 || age > 600) status = 'stale_quote';
+  }
+  if (status === 'current_close') return { status, warning:false, stale:false, label:'', message:'' };
+  if (status === 'current_quote') return { status, warning:false, stale:false,
+    label:'장중 잠정', message:'장중 잠정가로 계산했습니다. 확정 종가나 실제 체결가는 아닙니다.' };
+  if (status === 'close_only') return { status, warning:true, stale:false,
+    label:'종가 기준', message:'직전 종가로 계산했습니다. 장중 현재가는 이 판정에 반영되지 않았습니다.' };
+  if (status === 'stale_close') return { status, warning:true, stale:true,
+    label:'종가 지연', message:'최신 마감 종가가 판정에 반영되지 않았습니다. 현재 매수·매도 판단으로 쓰지 마세요.' };
+  if (status === 'stale_quote') return { status, warning:true, stale:true,
+    label:'현재가 지연', message:'판정에 쓴 장중가가 10분 넘게 갱신되지 않았습니다. 현재 매수·매도 판단으로 쓰지 마세요.' };
+  return { status:'unknown', warning:true, stale:true,
+    label:'가격 기준 미확인', message:'판정에 쓴 가격의 날짜나 시각을 확인하지 못했습니다. 현재 매수·매도 판단으로 쓰지 마세요.' };
+}
 function renderSignalList(){
   const el = document.getElementById('signal-body');
   if (!_signalRows) return;
@@ -4597,12 +4638,16 @@ function renderSignalList(){
     const tip = _HOLD_TAG_TIP[r.hold_tag] || r.hold_tag;
     return `<span class="hold-tag" title="${esc(tip)}">${esc(r.hold_tag)}</span>`;
   };
-  const body = rows.map(r => `<tr class="clickable-row" data-ticker="${esc(r.ticker)}" title="${r.sector ? esc(r.sector) : ''}">
+  const body = rows.map(r => {
+    const priceView = signalPriceView(r);
+    const priceNote = priceView.label ? `<span class="signal-price-note${priceView.stale ? ' is-stale' : priceView.warning ? ' is-warning' : ''}" title="${esc(priceView.message)}">${esc(priceView.label)}</span>` : '';
+    return `<tr class="clickable-row" data-ticker="${esc(r.ticker)}" title="${r.sector ? esc(r.sector) : ''}">
       <td>${star(r.ticker)}</td>
       <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}${sort === 'signal' || sort === 'score' ? covBadge(r) : ''}</div>${badges(r)}</td>
       <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}</td>
-      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}" title="${esc(sigPillTitle(r))}">${kindLabel(r.kind)}</span>${holdNote(r)}</div></td>
-    </tr>`).join('');
+      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}${priceView.warning ? ' price-unverified' : ''}" title="${esc(sigPillTitle(r))}">${priceView.stale ? '지난 ' : ''}${kindLabel(r.kind)}</span>${holdNote(r)}${priceNote}</div></td>
+    </tr>`;
+  }).join('');
     el.innerHTML = rows.length
     ? `<table class="dtable sig-table"><colgroup>
          <col class="col-star"><col class="col-name"><col class="col-sector"><col class="col-sig">
@@ -5518,6 +5563,7 @@ function _paintSignalDetail(ticker, item){
   if (asofEl && (!_chartCache || _chartCache.ticker !== ticker)) asofEl.textContent = '';
   const heroEl = document.getElementById('signal-hero');
   if (item) {
+    const priceView = signalPriceView(item);
     const isUS = _sigMarket === 'us';
     const chg = item.change_pct;
     const chgC = chg > 0 ? 'var(--sig-buy)' : chg < 0 ? 'var(--sig-sell)' : 'var(--dim)';
@@ -5547,18 +5593,23 @@ function _paintSignalDetail(ticker, item){
     heroEl.style.display = '';
     const beside = scoreBeside(item) ? `<span class="hero-score-why">${esc(scoreBeside(item))}</span>` : '';
     const after = runUpHtml ? `<div class="hero-after">${runUpHtml}</div>` : '';
-    const plainReason = _isBuy(item.kind)
-      ? '새 매수 후보입니다. 아래에서 가격 조건과 기업 소식을 함께 확인하세요.'
-      : _isSell(item.kind) ? '매도 판정입니다. 보유 중이라면 근거를 확인하세요.' : heroReason(item);
+    const plainReason = priceView.stale
+      ? '마지막 계산 결과입니다. 가격을 다시 확인할 때까지 지금의 매매 근거로 삼지 마세요.'
+      : priceView.status === 'close_only'
+        ? '직전 종가의 판정입니다. 장중 가격을 확인한 뒤 판단하세요.'
+        : _isBuy(item.kind)
+          ? '새 매수 후보입니다. 아래에서 가격 조건과 기업 소식을 함께 확인하세요.'
+          : _isSell(item.kind) ? '매도 판정입니다. 보유 중이라면 근거를 확인하세요.' : heroReason(item);
     const indicators = !_isBuy(item.kind) && !_isSell(item.kind) ? '' : heroReason(item);
-    heroEl.innerHTML = `<div class="hero-card ${item.kind}${lossHtml ? ' buy-with-loss' : ''}">
+    heroEl.innerHTML = `<div class="hero-card ${item.kind}${lossHtml ? ' buy-with-loss' : ''}${priceView.warning ? ' price-unverified' : ''}">
         <div class="hero-top">
           <div class="hero-value">
             ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
             ${chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
           </div>
-          <span class="sig-pill hero-signal ${item.kind}" title="${esc(sigPillTitle(item))}">${kindLabel(item.kind)}</span>
+          <span class="sig-pill hero-signal ${item.kind}${priceView.warning ? ' price-unverified' : ''}" title="${esc(sigPillTitle(item))}">${priceView.stale ? '지난 ' : ''}${kindLabel(item.kind)}</span>
         </div>
+        ${priceView.message ? `<div class="hero-price-note${priceView.stale ? ' is-stale' : ''}" role="note">${esc(priceView.message)}</div>` : ''}
         ${lossHtml}
         <div class="hero-reason">${esc(plainReason)}</div>
         ${after}

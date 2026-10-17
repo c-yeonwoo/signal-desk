@@ -2728,6 +2728,47 @@ def _signal_price_fields(r) -> dict:
     }
 
 
+def _annotate_signal_price_status(items: list[dict], market: str,
+                                  now: datetime.datetime | None = None) -> None:
+    """현재 조회 시각에 캡처된 판정 가격이 얼마나 유효한지 표시한다(판정/주문은 불변).
+
+    새 현재가를 옛 점수에 붙이지 않는다. 시장별 마감 세션과 판정 입력에 고정된
+    종가 날짜·장중가 수신시각만 대조한다. 캘린더를 모르면 최신이라고 추정하지 않는다.
+    """
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    expected = market_clock.latest_completed_session(market, now)
+    open_now = market_clock.is_open(market, now)
+    window = market_clock.regular_window(market, now) if open_now else None
+    for item in items:
+        basis = item.get("signal_price_basis")
+        close_date = item.get("signal_close_date")
+        quote_at = item.get("signal_quote_received_at")
+        status = "unknown"
+        if expected and close_date == expected and item.get("signal_computed_at"):
+            if open_now:
+                if basis == "stored_close":
+                    status = "close_only"
+                elif basis == "intraday_quote":
+                    try:
+                        age = now.timestamp() - float(quote_at)
+                        in_session = window is not None and float(quote_at) >= window[0].timestamp()
+                        status = "current_quote" if in_session and -300 <= age <= 600 else "stale_quote"
+                    except (TypeError, ValueError, OverflowError):
+                        status = "stale_quote"
+            elif basis == "stored_close":
+                status = "current_close"
+            elif basis == "intraday_quote":
+                status = "stale_quote"
+        elif expected and close_date and close_date < expected:
+            status = "stale_close"
+        elif expected and basis == "intraday_quote":
+            # 마감 뒤 오늘 종가가 아직 없으면 장중 잠정가를 확정 종가처럼 읽지 않는다.
+            status = "stale_close"
+        item["signal_price_status"] = status
+        item["signal_expected_close_date"] = expected
+        item["signal_price_checked_at"] = now.isoformat()
+
+
 def _signal_display_price(r, fallback_price=None, fallback_change=None) -> tuple:
     """목록·상세 가격을 점수 계산에 쓴 관측으로 맞춘다. 새 SSE 현재가는 별도로 표시."""
     price = getattr(r, "signal_input_price", None)
@@ -3176,6 +3217,9 @@ def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
         items = _annotate_priced_in(items, market="us")
         items = _annotate_episode(items, market="us")
         items = _annotate_trader_layers(items, market="us")
+        _annotate_signal_price_status(
+            items, "us", datetime.datetime.fromtimestamp(observed_at, datetime.timezone.utc)
+            if observed_at is not None else None)
         us_sigs = list((_us_signals() or {}).values())
         cfg = signalcfg.get_config()
         sel = selection_summary(us_sigs, cfg)
@@ -3221,6 +3265,9 @@ def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
     items = _annotate_priced_in(items, market="kospi")
     items = _annotate_episode(items, market="kospi")
     items = _annotate_trader_layers(items, market="kospi")
+    _annotate_signal_price_status(
+        items, "kr", datetime.datetime.fromtimestamp(observed_at, datetime.timezone.utc)
+        if observed_at is not None else None)
     cfg, adapt = signalcfg.effective_config(
         _regime(), _macro(), flow_result=store.load_market_flow())
     sel = selection_summary(sigs, cfg)
@@ -3252,6 +3299,7 @@ def signal_detail_get(ticker: str, request: Request, response: Response, market:
     if not item:
         return {"ready": False, "item": None, "pit": None, "review": None}
     review_market = "us" if market == "us" else "kr"
+    _annotate_signal_price_status([item], review_market)
     from signal_desk import kb_attribution
     check = kb.digest_checks().get(ticker) or {}
     docs = db.kb_entries_recent(ticker, 12, confirmed_only=True,

@@ -1,5 +1,6 @@
 """저장된 종가 차트에 현재 장중 판정을 과거 날짜로 덮어쓰지 않는다."""
 
+import datetime as dt
 from types import SimpleNamespace
 
 from signal_desk import api
@@ -55,3 +56,49 @@ def test_signal_price_context_uses_captured_bundle_not_newer_quote():
     assert close_only.signal_quote_received_at is None
     assert api._signal_display_price(close_only, 60.0, 9.0) == (55.0, 10.0)
     assert intraday.computed_at == close_only.computed_at
+
+
+def test_signal_price_status_distinguishes_close_only_fresh_quote_and_delay(monkeypatch):
+    now = dt.datetime(2026, 10, 8, 1, 0, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, at: "2026-10-07")
+    monkeypatch.setattr(api.market_clock, "is_open", lambda market, at: True)
+    monkeypatch.setattr(api.market_clock, "regular_window", lambda market, at: (now - dt.timedelta(hours=1), now))
+    def item(basis, quote_at=None, close="2026-10-07"):
+        return {"kind": "STRONG_BUY", "signal_price_basis": basis,
+                "signal_close_date": close, "signal_computed_at": now.isoformat(),
+                "signal_quote_received_at": quote_at}
+
+    rows = [item("stored_close"), item("intraday_quote", now.timestamp() - 60),
+            item("intraday_quote", now.timestamp() - 601),
+            item("intraday_quote", now.timestamp() - 60, close="2026-10-06"),
+            item("intraday_quote", None)]
+    api._annotate_signal_price_status(rows, "kr", now)
+    assert [row["signal_price_status"] for row in rows] == [
+        "close_only", "current_quote", "stale_quote", "stale_close", "stale_quote"]
+    assert all(row["kind"] == "STRONG_BUY" for row in rows)
+    assert all(row["signal_expected_close_date"] == "2026-10-07" for row in rows)
+
+
+def test_signal_price_status_after_close_requires_confirmed_latest_bar(monkeypatch):
+    now = dt.datetime(2026, 10, 8, 7, 0, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, at: "2026-10-08")
+    monkeypatch.setattr(api.market_clock, "is_open", lambda market, at: False)
+    rows = [{"signal_price_basis": "stored_close", "signal_close_date": "2026-10-08",
+             "signal_computed_at": now.isoformat()},
+            {"signal_price_basis": "stored_close", "signal_close_date": "2026-10-07",
+             "signal_computed_at": now.isoformat()},
+            {"signal_price_basis": "intraday_quote", "signal_close_date": "2026-10-07",
+             "signal_computed_at": now.isoformat(), "signal_quote_received_at": now.timestamp()}]
+    api._annotate_signal_price_status(rows, "us", now)
+    assert [row["signal_price_status"] for row in rows] == [
+        "current_close", "stale_close", "stale_close"]
+
+
+def test_signal_price_status_unknown_calendar_fails_closed(monkeypatch):
+    now = dt.datetime(2026, 10, 8, 7, 0, tzinfo=dt.timezone.utc)
+    monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, at: None)
+    monkeypatch.setattr(api.market_clock, "is_open", lambda market, at: False)
+    row = {"signal_price_basis": "stored_close", "signal_close_date": "2026-10-08",
+           "signal_computed_at": now.isoformat()}
+    api._annotate_signal_price_status([row], "kr", now)
+    assert row["signal_price_status"] == "unknown"
