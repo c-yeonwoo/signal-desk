@@ -2515,10 +2515,30 @@ def portfolio_heatmap(request: Request, market: str = ""):
 
 
 # ---------- 시그널 (실데이터, store 캐시 기반) ----------
+def _stamp_signal_price_context(results, prices: dict, dates: dict, quote_snapshot: dict) -> None:
+    """판정에 실제 들어간 가격 세대의 기준을 결과와 함께 고정한다.
+
+    조회 시점의 최신 quote를 다시 읽으면 캐시된 점수와 다른 관측을 붙이게 된다.
+    """
+    computed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    observed = quote_snapshot.get("quote_updated") or {}
+    for result in results:
+        ticker = result.ticker
+        close_dates = dates.get(ticker) or []
+        input_prices = prices.get(ticker) or []
+        provisional = len(input_prices) > len(close_dates)
+        result.computed_at = computed_at
+        result.signal_close_date = close_dates[-1] if close_dates else None
+        result.signal_price_basis = "intraday_quote" if provisional else "stored_close"
+        result.signal_quote_received_at = observed.get(ticker) if provisional else None
+        result.signal_input_price = input_prices[-1] if input_prices else None
+        result.signal_previous_close = input_prices[-2] if len(input_prices) > 1 else None
+
+
 @lru_cache(maxsize=1)
 def _signals():
     cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())  # 약세·비우호·외인기관 순매도면 매수 기준 상향
-    prices, price_dates, _quote_snapshot = store.load_engine_price_bundle("kr")
+    prices, price_dates, quote_snapshot = store.load_engine_price_bundle("kr")
     results = evaluate(store.load_universe(), prices, store.load_fundamentals(),
                        config=cfg, **store.kr_engine_inputs())  # 입력 한 벌은 봇과 공유
     policy_id = policy_contract.signal_policy_id("kr", cfg)
@@ -2527,9 +2547,7 @@ def _signals():
     execution_gate.apply_from_store(results, market="kospi", today=_kst_today(),
                                     price_bundle=(prices, price_dates))
     _sync_episode_state(results, market="kospi")
-    computed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    for result in results:
-        result.computed_at = computed_at
+    _stamp_signal_price_context(results, prices, price_dates, quote_snapshot)
     return results
 
 
@@ -2672,6 +2690,7 @@ def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct
         "score_strength": conf if conf is not None else 0.0,
         "score_semantics": policy_contract.SCORE_SEMANTICS,
         "signal_policy_id": getattr(r, "signal_policy_id", None),
+        **_signal_price_fields(r),
         "factor_scores": factors,
         "event_risk": buy_blocked,
         "decision_buy_blocked": buy_blocked,
@@ -2699,6 +2718,26 @@ def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct
     }
 
 
+def _signal_price_fields(r) -> dict:
+    """리스트와 상세가 같은 캐시된 판정의 시각·가격 기준을 설명한다."""
+    return {
+        "signal_computed_at": getattr(r, "computed_at", None),
+        "signal_price_basis": getattr(r, "signal_price_basis", None),
+        "signal_close_date": getattr(r, "signal_close_date", None),
+        "signal_quote_received_at": getattr(r, "signal_quote_received_at", None),
+    }
+
+
+def _signal_display_price(r, fallback_price=None, fallback_change=None) -> tuple:
+    """목록·상세 가격을 점수 계산에 쓴 관측으로 맞춘다. 새 SSE 현재가는 별도로 표시."""
+    price = getattr(r, "signal_input_price", None)
+    previous = getattr(r, "signal_previous_close", None)
+    if price is None:
+        return fallback_price, fallback_change
+    change = round((price / previous - 1) * 100, 2) if previous and previous > 0 else None
+    return price, change
+
+
 @lru_cache(maxsize=1)
 def _us_signal_items() -> list[dict]:
     """미국(S&P500) 시그널 **리스트 요약** — 스크리너·정렬에 필요한 필드만.
@@ -2717,10 +2756,11 @@ def _us_signal_items() -> list[dict]:
         q = quotes.get(r.ticker) or {}
         mc = mcaps.get(r.ticker) or {}
         sector = us_ko.sector_ko(sector_of.get(r.ticker))
+        display_price, display_change = _signal_display_price(
+            r, price, round((price / prev - 1) * 100, 2) if (price and prev) else None)
         items.append(_list_row_from_signal(
             r, name=us_ko.name_ko(r.ticker, r.name), sector=sector,
-            price=price,
-            change_pct=round((price / prev - 1) * 100, 2) if (price and prev) else None,
+            price=display_price, change_pct=display_change,
             mktcap=mc.get("mktcap"), vol=q.get("vol"), vol_avg=q.get("vol_avg"),
             per=mc.get("per"), pbr=mc.get("pbr")))
     items.sort(key=lambda x: x["score"], reverse=True)
@@ -2748,9 +2788,10 @@ def _us_signal_detail(ticker: str) -> dict | None:
     sector = us_ko.sector_ko(sector_of.get(ticker))
     name = us_ko.name_ko(ticker, r.name)
     d = asdict(r)
+    d.update(_signal_price_fields(r))
     d["name"] = name
-    d["price"] = price
-    d["change_pct"] = round((price / prev - 1) * 100, 2) if (price and prev) else None
+    d["price"], d["change_pct"] = _signal_display_price(
+        r, price, round((price / prev - 1) * 100, 2) if (price and prev) else None)
     d["vol"] = q.get("vol"); d["vol_avg"] = q.get("vol_avg")
     d["mktcap"] = mc.get("mktcap"); d["per"] = mc.get("per"); d["pbr"] = mc.get("pbr")
     # 리스트와 **같은 환산**을 상세에도 싣는다 — 한쪽만 원화면 같은 종목이 두 축으로 보인다.
@@ -2767,7 +2808,7 @@ def _us_signal_detail(ticker: str) -> dict | None:
     )
     d["moves"] = company.recent_moves(ticker, name)
     d["kb"] = None
-    d["target"] = target.compute(price, mc.get("per"), us_med_per, closes)
+    d["target"] = target.compute(d["price"], mc.get("per"), us_med_per, closes)
     d["remain_upside_pct"] = _remain_upside(d["target"])
     d["opp_tags"] = opportunity.classify(r)
     d["decision"] = _decision_payload(r)
@@ -2797,7 +2838,8 @@ def _kr_signal_detail(ticker: str) -> dict | None:
     c = (store.load_consensus_latest().get(ticker) or {})
     pos = valuechain.company_position(ticker)
     d = asdict(r)
-    d["price"] = q.get("price"); d["change_pct"] = q.get("change_pct")
+    d.update(_signal_price_fields(r))
+    d["price"], d["change_pct"] = _signal_display_price(r, q.get("price"), q.get("change_pct"))
     d["mktcap"] = q.get("mktcap"); d["vol"] = q.get("vol"); d["vol_avg"] = q.get("vol_avg")
     d["per"] = f.get("per"); d["pbr"] = f.get("pbr"); d["roe"] = f.get("roe")
     d["debt_ratio"] = f.get("debt_ratio"); d["revenue_growth"] = f.get("revenue_growth")
@@ -3166,11 +3208,11 @@ def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
     for r in sigs:
         q = quotes.get(r.ticker) or {}
         f = fundamentals.get(r.ticker) or {}
-        px = q.get("price")
+        px, change_pct = _signal_display_price(r, q.get("price"), q.get("change_pct"))
         dps = f.get("dps")
         items.append(_list_row_from_signal(
             r, name=r.name, sector=sectors.sector_of(r.ticker),
-            price=px, change_pct=q.get("change_pct"), mktcap=q.get("mktcap"),
+            price=px, change_pct=change_pct, mktcap=q.get("mktcap"),
             vol=q.get("vol"), vol_avg=q.get("vol_avg"),
             per=f.get("per"), pbr=f.get("pbr"), roe=f.get("roe"),
             div_yield=round(dps / px * 100, 2) if (dps and px) else None))
@@ -3856,34 +3898,6 @@ def qualitative_promotion_set(request: Request, data: dict = Body(...)):
     return {"ok": True, **_qualitative_promotion_payload()}
 
 
-def _anchor_today_score(scores: list, ticker: str, market: str) -> list:
-    """차트 점수 시계열의 '오늘'(마지막 점)을 현재 시그널 점수(전 팩터)로 맞춘다.
-    과거 점은 시점별 재무·수급 스냅샷이 없어 가격기반(기술·낙폭·모멘텀) 재현이라 리스트 점수와
-    다를 수 있는데, 최신 점만이라도 시그널 리스트와 일치시켜 혼동을 줄인다.
-
-    시그널 캐시가 비어 있으면(장중 quote 루프가 10분마다 비움) 전 종목 evaluate를 차트 경로에서
-    돌리지 않는다 — cold 호출이 300~500ms라 클릭 체감이 끊긴다. 리스트를 이미 본 뒤에는
-    캐시가 따뜻해 거의 공짜다."""
-    if not scores:
-        return scores
-    cache = _us_signals if market == "us" else _signals
-    info = getattr(cache, "cache_info", None)
-    # lru_cache가 아니면(테스트 stub) 그대로 조회. cold(currsize=0)일 때만 스킵.
-    if callable(info) and info().currsize == 0:
-        return scores
-    try:
-        if market == "us":
-            s = _us_signals().get(ticker)
-            cur = round(s.score, 4) if s else None
-        else:
-            cur = next((round(s.score, 4) for s in _signals() if s.ticker == ticker), None)
-    except Exception:
-        cur = None
-    if cur is not None:
-        scores[-1] = cur
-    return scores
-
-
 # 프론트 차트 표시 상한(~1년) + MA120 여유. 전체 400일을 점수/zones 재현하면 클릭마다 느림.
 _CHART_BARS = 280
 
@@ -3908,7 +3922,7 @@ def _chart_freshness(dates: list[str], market: str = "kospi", ticker: str | None
         try:
             live_updated = datetime.datetime.fromtimestamp(
                 float(quote_at), tz=datetime.timezone.utc
-            ).astimezone().strftime("%Y-%m-%d %H:%M")
+            ).astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
         except (TypeError, ValueError, OSError):
             live_updated = None
     return {
@@ -3937,7 +3951,7 @@ def signal_chart_get(ticker: str, market: str = "kospi", flow: bool = False):
     stored = store.signal_history_for(ticker) if market != "us" else {}  # 실측 시그널(PIT) 우선
     actual_dates = [d for d in dates if d in stored]
     scores, zones = chart_scores_and_zones(dates, closes, stored=stored)
-    scores = _anchor_today_score(scores, ticker, market)
+    # 차트는 저장된 일봉 종가만 그린다. 현재 장중 점수를 마지막 일봉 날짜에 덮어쓰지 않는다.
     # 일별 수급(KR·flow=1만) — 차트 dates에 정렬. 없으면 null 배열(패널은 비움).
     # 주의: flow_foreign = flow_inst = [...] 는 같은 리스트를 공유하므로 절대 쓰지 말 것.
     n = len(dates)
@@ -3972,7 +3986,8 @@ def signal_chart_get(ticker: str, market: str = "kospi", flow: bool = False):
         "flow_foreign": flow_foreign,
         "flow_inst": flow_inst,
         "flow_loaded": flow_loaded,
-        "actual_from": actual_dates[0] if actual_dates else None,  # 이 날짜 이후는 실측(그 전은 재현)
+        "actual_from": actual_dates[0] if actual_dates else None,  # 첫 실측일; 이후에도 날짜별 결손 가능
+        "actual_dates": actual_dates,
         "macd": series["macd"]["macd"],
         "macd_signal": series["macd"]["signal"],
         "macd_hist": series["macd"]["histogram"],
@@ -7133,9 +7148,7 @@ def _us_signals():
     execution_gate.apply_from_store(results, market="us", today=_kst_today(),
                                     price_bundle=(prices, price_dates), capture=gate_capture)
     _sync_episode_state(results, market="us")
-    computed_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    for result in results:
-        result.computed_at = computed_at
+    _stamp_signal_price_context(results, prices, price_dates, quote_snapshot)
     decision_capture = {
         "engine_inputs": {"universe": universe, "fundamentals": fundamentals,
                           "sentiment": sentiment, "earnings_dates": earnings_dates,

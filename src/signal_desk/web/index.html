@@ -4017,6 +4017,7 @@ let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
 let _signalRows = null, _indexReady = false, _selectedTicker = null, _sigMarket = 'kospi', _sigLoadSeq = 0;
 let _signalFilterContext = null;
 let _liveQuotePrices = {}, _liveQuoteTimes = {}, _liveQuoteMeta = {}, _liveQuoteUpdated = null;
+let _liveQuoteSeen = false;
 let _livePriceSource = null, _livePriceAgeTimer = null;
 function startLivePriceStream(){
   if (_livePriceSource || !window.EventSource) return;
@@ -4031,6 +4032,7 @@ function startLivePriceStream(){
       _liveQuoteTimes = data.quote_updated || {};
       _liveQuoteMeta = data.quote_meta || {};
       _liveQuoteUpdated = data.updated || null;
+      _liveQuoteSeen = true;
       paintLiveQuotePrices();
       paintLiveQuoteStatus();
     } catch (e) {}
@@ -4070,6 +4072,8 @@ function paintLiveQuotePrices(){
       : '현재가 갱신 지연';
     el.style.color = fresh ? '' : 'var(--sig-sell)';
   });
+  if (_chartCache && _chartCache.ticker === _selectedTicker)
+    _paintChartAsof(_chartCache.d, _chartCache.item);
 }
 // 조회 전용 비교 상태. 서버의 기본 판정이나 주문 설정으로 절대 전송하지 않는다.
 let _lensModes = { kospi: { event: 'off', entry: 'off', macro_release: 'off', industry_cycle: 'off' }, us: { event: 'off', entry: 'off', macro_release: 'off', industry_cycle: 'off' } };
@@ -5877,7 +5881,7 @@ async function showSignalChart(ticker, item){
       holder.textContent = '차트 데이터가 없습니다.';
     } else {
       _chartCache = { ticker, item, d };
-      _paintChartAsof(d);
+      _paintChartAsof(d, item);
       _drawSignalChart(ticker, item, d);
       if (_chartMode === 'detail' && !d.flow_loaded) _ensureChartFlow(ticker);
     }
@@ -5919,18 +5923,35 @@ async function showSignalChart(ticker, item){
   } catch (e) { /* 상세 실패는 차트와 무관 */ }
 }
 
-/** 차트 가격 기준일 · 시세 파일/실시간 갱신 시각 */
-function _paintChartAsof(d){
+/** 종가 차트, 현재 판정, 별도 수신한 현재가의 시각을 섞지 않고 표시한다. */
+function _paintChartAsof(d, item){
   const el = document.getElementById('chart-asof');
   if (!el) return;
   if (!d || !d.ready) { el.textContent = ''; return; }
-  const parts = [];
-  if (d.as_of) parts.push(`종가 기준 ${d.as_of}`);
-  if (d.prices_updated) parts.push(`시세 갱신 ${d.prices_updated}`);
-  if (d.live_on && d.live_updated) parts.push(`실시간 ${d.live_updated}`);
-  else if (d.live_on) parts.push('실시간 반영 중');
-  else if (d.live_stale) parts.push(`현재가 갱신 지연${d.live_updated ? ' · 마지막 ' + d.live_updated : ''}`);
-  if (d.bar_count) parts.push(`${d.bar_count}봉`);
+  const stamp = value => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null
+      : date.toLocaleString('ko-KR', {timeZone:'Asia/Seoul', month:'numeric', day:'numeric',
+          hour:'2-digit', minute:'2-digit', hour12:false});
+  };
+  const parts = [`차트 ${d.as_of || '날짜 미확인'} 저장된 종가`];
+  if (item && item.signal_computed_at) {
+    const calculated = stamp(item.signal_computed_at) || '시각 미확인';
+    const basis = item.signal_price_basis === 'intraday_quote'
+      ? `${item.signal_close_date || '날짜 미확인'} 종가 + 장중 잠정가${item.signal_quote_received_at ? ' (서버 수신 ' + stamp(Number(item.signal_quote_received_at) * 1000) + ')' : ''}`
+      : `${item.signal_close_date || '날짜 미확인'} 종가`;
+    parts.push(`판정 ${calculated} (한국시간) · 가격 기준 ${basis}`);
+  }
+  const ticker = item && item.ticker;
+  const streamAt = ticker && Number(_liveQuoteTimes[ticker]);
+  if (_liveQuoteSeen) {
+    if (streamAt > 0 && liveQuoteFresh(ticker))
+      parts.push(`현재가 별도 수신 ${stamp(streamAt * 1000)}`);
+    else if (streamAt > 0)
+      parts.push(`현재가 갱신 지연 · 마지막 수신 ${stamp(streamAt * 1000)}`);
+    else if (d.live_on) parts.push('현재가 별도 수신 끊김');
+  } else if (d.live_on && d.live_updated) parts.push(`현재가 별도 수신 ${d.live_updated}`);
+  else if (d.live_stale) parts.push(`현재가 갱신 지연${d.live_updated ? ' · 마지막 수신 ' + d.live_updated : ''}`);
   el.textContent = parts.join(' · ');
 }
 
@@ -5977,14 +5998,6 @@ function _drawSignalChart(ticker, item, d){
       symbol: 'circle', symbolSize: strong ? 19 : 16, symbolOffset: buy ? [0, 22] : [0, -22],
       itemStyle: { color: _ZONE_COLOR[z.kind] } };
   }).filter(Boolean);
-  if (item && (_isBuy(item.kind) || _isSell(item.kind))) {
-    const li = dates.length - 1, buy = _isBuy(item.kind), whyNow = reasonKo(item.reasons);
-    const strong = item.kind === 'STRONG_BUY' || item.kind === 'STRONG_SELL';
-    mkPts.push({ coord: [dates[li], close[li]], mk: (buy ? 'B' : 'S') + (strong ? '+' : ''),
-      tip: '현재 · ' + kindLabel(item.kind) + ' (점수 ' + (item.score > 0 ? '+' : '') + fmtNum(item.score, 2) + ')' + (whyNow ? ' — ' + whyNow : ''),
-      symbol: 'pin', symbolSize: 46, symbolOffset: [0, -6],
-      itemStyle: { color: _ZONE_COLOR[item.kind] || '#1a2233', borderColor: '#fff', borderWidth: 2 } });
-  }
   const markPoint = mkPts.length ? {
     label: { show: true, color: '#fff', fontSize: 10, fontWeight: 700, formatter: (p) => p.data.mk },
     tooltip: { show: true, trigger: 'item', formatter: (p) => p.data.tip },
@@ -6013,16 +6026,13 @@ function _drawSignalChart(ticker, item, d){
   // 여기 남길 것은 그 둘이 설명하지 못하는 마커·배경뿐이다.
   let leg = `<span style="color:var(--sig-buy);font-weight:700">● B</span> 매수`
     + ` · <span style="color:var(--sig-sell);font-weight:700">● S</span> 매도`
-    + ` · <b>진한 배경</b>=실측 · <b>옅은 배경</b>=재현 · 📍=현재`;
+    + ` · <b>진한 배경</b>=당시 기록 · <b>옅은 배경</b>=가격 재현`;
   // MA 3선은 **ECharts 내장 범례가 이미 보여준다**(`legendData`에 단기·중기·장기가 들어간다).
   // 여기 또 쓰면 같은 말을 한 화면에서 두 번 하는 것이고, 게다가 내장 범례는 클릭으로 계열을
   // 켜고 끌 수 있는데 이 텍스트는 못 한다 — 기능이 있는 쪽을 남긴다.
   if (showAux) leg += ` · RSI · MACD` + (hasFlow ? ` · 수급` : '');
-  if (d.actual_from) leg += ` · <b style="color:var(--txt)">${esc(d.actual_from)}~ 실측</b>`;
-  if (d.live_on && d.live_updated) leg += ` · 실시간 ${esc(d.live_updated)}`;
-  else if (d.live_stale) leg += ` · <span style="color:var(--sig-sell)">현재가 갱신 지연</span>`;
   if (ticker !== INDEX_TICKER && mode !== 'simple')
-    leg += ` · 점수선: 과거는 가격기반 추정, 최신은 시그널 점수`;
+    leg += ` · 점수선은 당시 기록 또는 가격 재현 · 현재 판정은 위 카드`;
   if (targetShown.length) leg += ` · 참고 목표가 ${targetShown.join(' ')}`;
   legEl.innerHTML = leg;
   _syncChartModeButtons();
@@ -6085,7 +6095,8 @@ function _drawSignalChart(ticker, item, d){
         params.forEach(p => { by[p.seriesName] = p.data; });
         const sc = by['시그널 점수'];
         const scTxt = sc == null ? '–' : ((sc > 0 ? '+' : '') + Number(sc).toFixed(2));
-        let html = `<b>${esc(dt)}</b><br/>가격 <b>${fmtPx(by['가격'])}</b><br/>시그널 점수 <b style="color:${C.score}">${scTxt}</b>`;
+        const source = (d.actual_dates || []).includes(dt) ? '당시 저장한 판정' : '가격만으로 재현';
+        let html = `<b>${esc(dt)}</b><br/>종가 <b>${fmtPx(by['가격'])}</b><br/>차트 점수 <b style="color:${C.score}">${scTxt}</b> · ${source}`;
         if (mode === 'simple') {
           html += `<br/><span style="color:#94a3b8;font-size:12px">배경색=매수/매도 구간 · 숫자보다 B/S·점수만 보면 됩니다</span>`;
         } else {

@@ -18,17 +18,24 @@ def _sig(**kw):
 
 
 def test_list_row_omits_heavy_fields():
-    r = _sig()
+    r = _sig(computed_at="2026-10-07T00:03:00+00:00",
+             signal_price_basis="intraday_quote", signal_close_date="2026-10-06",
+             signal_quote_received_at=1791331380.0)
     row = api._list_row_from_signal(
         r, name="에이", sector="기술", price=10.0, change_pct=1.0,
         mktcap=1e9, vol=100, vol_avg=90, per=12.0, pbr=1.2)
     assert row["ticker"] == "AAA" and row["score"] == 1.5 and row["opp_tags"] is not None
+    assert row["signal_price_basis"] == "intraday_quote"
+    assert row["signal_close_date"] == "2026-10-06"
+    assert row["signal_quote_received_at"] == 1791331380.0
+    assert row["signal_computed_at"] == "2026-10-07T00:03:00+00:00"
     for k in ("reasons", "narrative", "about", "moves", "target", "kb", "intro"):
         assert k not in row
 
 
 def test_us_list_is_slim(monkeypatch):
-    r = _sig(ticker="AAPL", name="Apple")
+    r = _sig(ticker="AAPL", name="Apple", signal_input_price=110.0,
+             signal_previous_close=100.0)
     monkeypatch.setattr(api, "_us_signals", lambda: {"AAPL": r})
     monkeypatch.setattr(api.store, "load_us_universe",
                         lambda: [{"ticker": "AAPL", "name": "Apple", "sector": "Tech"}])
@@ -38,6 +45,7 @@ def test_us_list_is_slim(monkeypatch):
     api._us_signal_items.cache_clear()
     items = api._us_signal_items()
     assert len(items) == 1
+    assert items[0]["price"] == 110.0 and items[0]["change_pct"] == 10.0
     assert "about" not in items[0] and "target" not in items[0] and "reasons" not in items[0]
 
 

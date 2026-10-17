@@ -229,13 +229,45 @@ const el={textContent:'',style:{}};
 const td={children:[],querySelector:()=>el};
 const tr={dataset:{ticker:'AAA'},children:[null,td]};
 const ctx=vm.createContext({Date,Number,Object,document:{querySelectorAll:()=>[tr],getElementById:()=>null},
-  _liveQuoteTimes:{AAA:Date.now()/1000-901},_liveQuotePrices:{AAA:121},_sigMarket:'kospi',fmtNum:v=>String(v)});
+  _liveQuoteTimes:{AAA:Date.now()/1000-901},_liveQuotePrices:{AAA:121},_sigMarket:'kospi',
+  _chartCache:null,_selectedTicker:null,fmtNum:v=>String(v)});
 vm.runInContext(code,ctx);
 ctx.paintLiveQuotePrices();
 assert.equal(el.textContent,'현재가 갱신 지연');
 ctx._liveQuoteTimes.AAA=Date.now()/1000-60;
 ctx.paintLiveQuotePrices();
 assert.equal(el.textContent,'현재가 121원');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
+                            text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
+
+
+def test_chart_header_separates_close_signal_and_stream_time():
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the chart header renderer")
+    script = r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+const start=html.indexOf('function _paintChartAsof(');
+const code=html.slice(start,html.indexOf('function _drawSignalChart(',start));
+const el={textContent:''};
+const ctx=vm.createContext({Date,Number,document:{getElementById:()=>el},
+  _liveQuoteSeen:false,_liveQuoteTimes:{},liveQuoteFresh:()=>false});
+vm.runInContext(code,ctx);
+const d={ready:true,as_of:'2026-10-06',live_on:true,live_updated:'2026-10-07 09:03'};
+const item={ticker:'AAA',signal_computed_at:'2026-10-07T00:04:00+00:00',
+  signal_price_basis:'intraday_quote',signal_close_date:'2026-10-06',
+  signal_quote_received_at:1791331380};
+ctx._paintChartAsof(d,item);
+assert.match(el.textContent,/차트 2026-10-06 저장된 종가/);
+assert.match(el.textContent,/판정 .*장중 잠정가/);
+assert.match(el.textContent,/현재가 별도 수신/);
+ctx._liveQuoteSeen=true;
+ctx._liveQuoteTimes.AAA=Date.now()/1000-901;
+ctx._paintChartAsof(d,item);
+assert.match(el.textContent,/현재가 갱신 지연/);
+assert.doesNotMatch(el.textContent,/실시간 반영 중/);
 """
     result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
                             text=True, capture_output=True, check=False)

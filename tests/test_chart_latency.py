@@ -5,36 +5,6 @@ import pandas as pd
 from signal_desk import api, store
 
 
-def test_anchor_skips_cold_signal_evaluate(monkeypatch):
-    """시그널 캐시가 비어 있으면 차트 앵커가 전 종목 evaluate를 돌리지 않는다."""
-    api._signals.cache_clear()
-    api._us_signals.cache_clear()
-    called = {"n": 0}
-
-    def boom():
-        called["n"] += 1
-        raise AssertionError("cold evaluate must not run on chart path")
-
-    boom.cache_info = lambda: type("I", (), {"currsize": 0})()
-    monkeypatch.setattr(api, "_signals", boom)
-    out = api._anchor_today_score([0.1, 0.2], "005930", "kospi")
-    assert out == [0.1, 0.2]
-    assert called["n"] == 0
-
-
-def test_anchor_uses_warm_cache(monkeypatch):
-    api._signals.cache_clear()
-    sig = type("S", (), {"ticker": "005930", "score": 1.2345})()
-
-    def warm():
-        return [sig]
-
-    warm.cache_info = lambda: type("I", (), {"currsize": 1})()
-    monkeypatch.setattr(api, "_signals", warm)
-    out = api._anchor_today_score([0.1, 0.2], "005930", "kospi")
-    assert out[-1] == 1.2345
-
-
 def test_kr_price_history_uses_mtime_cache(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "data/cache").mkdir(parents=True)
@@ -79,7 +49,6 @@ def test_chart_response_omits_quote_lookup(monkeypatch):
         return {}
 
     monkeypatch.setattr(api, "_quotes", boom)
-    monkeypatch.setattr(api, "_anchor_today_score", lambda scores, t, m: scores)
     d = api.signal_chart_get("005930", market="kospi", flow=False)
     assert d["ready"] is True
     assert "quote" not in d
