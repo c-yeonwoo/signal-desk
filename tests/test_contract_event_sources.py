@@ -1,5 +1,8 @@
 """The filing clock and amount must come from source rows, never later prices."""
 
+import hashlib
+import json
+
 import pytest
 
 from scripts.measure.contract_event_sources import original_document, parse_contract, parse_index
@@ -73,3 +76,50 @@ def test_subsidiary_header_does_not_get_reported_as_issuer_direct_contract():
     source = "<table><tr><td>종속회사인 다른 회사의 주요경영사항신고</td></tr></table>" + _contract()
     with pytest.raises(ValueError, match="subsidiary"):
         parse_contract(source)
+
+
+def test_minute_retry_preserves_successful_bytes_and_only_retries_failed_pair(tmp_path, monkeypatch):
+    from scripts.measure import contract_event_sources as source
+    from signal_desk import config
+    from signal_desk.broker import kis
+
+    event = {"receipt": "20260603000123", "ticker": "005930",
+             "published_at": "2026-06-03T10:00:00+09:00"}
+    filings, first, second = (tmp_path / name for name in ("events.zip", "first.zip", "second.zip"))
+    source._save(filings, {}, {"schema": "contract-event-filings-v1", "events": [event]})
+    monkeypatch.setattr(config, "load_env", lambda: None)
+    monkeypatch.setattr(config, "kis_credentials", lambda: {"env": "demo"})
+    monkeypatch.setattr(source.time, "sleep", lambda _: None)
+    calls = []
+
+    def request(path, tr, credentials, params):
+        calls.append(params["FID_INPUT_ISCD"])
+        assert credentials["env"] == "real"
+        return {"rt_cd": "0", "output2": []} if len(calls) != 2 else None
+
+    monkeypatch.setattr(kis, "_request", request)
+    source.collect_minutes(filings, first)
+    result = source.collect_minutes(filings, second, first)
+    assert calls == ["005930", "069500", "069500"]
+    assert result["request_count"] == result["reused_observations"] == 1
+    original, original_files = source.load_archive(first, "contract-event-minutes-v1")
+    retried, retried_files = source.load_archive(second, "contract-event-minutes-v1")
+    assert original["observations"][0] == retried["observations"][0]
+    member = original["observations"][0]["source_file"]
+    assert original_files[member] == retried_files[member]
+    assert retried["parent_source_sha256"] == hashlib.sha256(first.read_bytes()).hexdigest()
+    assert json.loads(retried_files[retried["observations"][1]["source_file"]])["rt_cd"] == "0"
+
+
+def test_frozen_plan_hash_includes_protocol_not_only_similarly_named_first_heading(tmp_path, monkeypatch):
+    from scripts.measure import contract_event_backtest as replay
+
+    plan = tmp_path / "plan.md"
+    monkeypatch.setattr(replay, "PLAN", plan)
+    frozen = "# 연구\n\n## 결과 열람 전 고정\n\n왕복 75bp\n"
+    plan.write_text(frozen + "\n## 결과\n\n미실행\n")
+    digest = replay.plan_digest()
+    plan.write_text(frozen + "\n## 결과\n\n기각\n")
+    assert replay.plan_digest() == digest == hashlib.sha256(frozen.encode()).hexdigest()
+    plan.write_text(frozen.replace("75bp", "45bp") + "\n## 결과\n\n기각\n")
+    assert replay.plan_digest() != digest

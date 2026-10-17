@@ -289,7 +289,7 @@ def collect_events(output: Path, reuse_source: Path | None = None) -> dict:
     return {key: manifest[key] for key in ("request_count", "census_count", "selected_by_month")}
 
 
-def collect_minutes(event_archive: Path, output: Path) -> dict:
+def collect_minutes(event_archive: Path, output: Path, reuse_source: Path | None = None) -> dict:
     from signal_desk import config
     from signal_desk.broker import kis
     manifest, _ = load_archive(event_archive, "contract-event-filings-v1")
@@ -298,7 +298,18 @@ def collect_minutes(event_archive: Path, output: Path) -> dict:
     if not credentials:
         raise ValueError("KIS read credentials are missing")
     credentials = {**credentials, "env": "real"}
-    files, observations = {}, []
+    event_hash = hashlib.sha256(event_archive.read_bytes()).hexdigest()
+    cached, cached_files = {}, {}
+    if reuse_source:
+        previous, cached_files = load_archive(reuse_source, "contract-event-minutes-v1")
+        if previous["event_archive_sha256"] != event_hash:
+            raise ValueError("retry source belongs to another frozen event cohort")
+        cached = {(row["receipt"], row["ticker"]): row for row in previous["observations"]}
+        expected = {(event["receipt"], ticker) for event in manifest["events"]
+                    for ticker in (event["ticker"], "069500")}
+        if set(cached) != expected or len(cached) != len(previous["observations"]):
+            raise ValueError("retry source event pairs missing or duplicated")
+    files, observations, requests, reused = {}, [], 0, 0
     for event in manifest["events"]:
         stamp = dt.datetime.fromisoformat(event["published_at"])
         end = (stamp + dt.timedelta(minutes=90)).strftime("%H%M%S")
@@ -306,6 +317,18 @@ def collect_minutes(event_archive: Path, output: Path) -> dict:
             params = {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker,
                       "FID_INPUT_HOUR_1": end, "FID_INPUT_DATE_1": stamp.strftime("%Y%m%d"),
                       "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": ""}
+            prior = cached.get((event["receipt"], ticker))
+            if prior:
+                if prior["request"] != params:
+                    raise ValueError("retry source request differs")
+                raw = cached_files[prior["source_file"]]
+                body = json.loads(raw)
+                if prior["status"] == "observed" and isinstance(body, dict) and body.get("rt_cd") == "0":
+                    files[prior["source_file"]] = raw
+                    observations.append(prior)
+                    reused += 1
+                    continue
+            requests += 1
             body = kis._request("/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
                                 "FHKST03010230", credentials, params)
             name = f"raw/{event['receipt']}-{ticker}.json"
@@ -316,10 +339,13 @@ def collect_minutes(event_archive: Path, output: Path) -> dict:
                                  "status": "observed" if isinstance(body, dict) and body.get("rt_cd") == "0" else "provider_failed"})
             time.sleep(0.3)
     _save(output, files, {"schema": "contract-event-minutes-v1", "observations": observations,
-                          "event_archive_sha256": hashlib.sha256(event_archive.read_bytes()).hexdigest(),
-                          "request_count": len(observations), "source_time_verified": False,
+                          "event_archive_sha256": event_hash,
+                          "request_count": requests, "reused_observations": reused,
+                          "parent_source_sha256": hashlib.sha256(reuse_source.read_bytes()).hexdigest() if reuse_source else None,
+                          "source_time_verified": False,
                           "strict_pit_eligible": False, "live_order_eligible": False})
-    return {"request_count": len(observations), "statuses": dict(Counter(row["status"] for row in observations))}
+    return {"request_count": requests, "reused_observations": reused,
+            "statuses": dict(Counter(row["status"] for row in observations))}
 
 
 def main():
@@ -333,7 +359,8 @@ def main():
         parser.error("existing source archives cannot be overwritten")
     if args.phase == "minutes" and not args.event_archive:
         parser.error("a frozen event archive is required")
-    result = collect_events(args.output, args.reuse_source) if args.phase == "filings" else collect_minutes(args.event_archive, args.output)
+    result = (collect_events(args.output, args.reuse_source) if args.phase == "filings"
+              else collect_minutes(args.event_archive, args.output, args.reuse_source))
     print(json.dumps({"output": str(args.output), **result}, ensure_ascii=False))
 
 

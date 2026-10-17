@@ -16,6 +16,14 @@ from signal_desk.signals.contract_event import POLICIES, adoption, decode_minute
 PLAN = ROOT / "docs/CONTRACT-EVENT-BACKTEST-2026-10-17.md"
 
 
+def plan_digest() -> str:
+    text = PLAN.read_text()
+    marker = "\n## 결과\n"
+    if text.count(marker) != 1:
+        raise ValueError("frozen plan/result boundary missing or ambiguous")
+    return hashlib.sha256(text.split(marker, 1)[0].encode()).hexdigest()
+
+
 def verified_events(path: Path) -> list[dict]:
     manifest, files = load_archive(path, "contract-event-filings-v1")
     rows = []
@@ -94,6 +102,8 @@ def run(event_archive: Path, minute_archive: Path, data_dir: Path) -> dict:
                         or params["FID_FAKE_TICK_INCU_YN"] != ""):
                     raise ValueError("minute request identity/date mismatch")
                 body = json.loads(files[observation["source_file"]])
+                if observation["status"] != "observed" or not isinstance(body, dict) or body.get("rt_cd") != "0":
+                    raise ValueError("provider_failed")
                 if key == "stock":
                     source_name = (body.get("output1") or {}).get("hts_kor_isnm") if isinstance(body, dict) else None
                     if not source_name or "".join(source_name.split()) != "".join(event["issuer"].split()):
@@ -126,7 +136,7 @@ def run(event_archive: Path, minute_archive: Path, data_dir: Path) -> dict:
             "source_archives_sha256": {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
                                        for path in (event_archive, minute_archive)},
             "identity_sources_sha256": identity_sources,
-            "plan_sha256": hashlib.sha256(PLAN.read_text().split("\n## 결과", 1)[0].encode()).hexdigest(),
+            "plan_sha256": plan_digest(),
             "code_sha256": {relative: hashlib.sha256((ROOT / relative).read_bytes()).hexdigest()
                             for relative in ("src/signal_desk/signals/contract_event.py",
                                              "scripts/measure/contract_event_sources.py",

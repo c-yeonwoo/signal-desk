@@ -93,3 +93,18 @@ def test_one_positive_trade_cannot_adopt_an_underpowered_event_policy():
     assert verdict["adoption"] == "rejected" and verdict["live_order_eligible"] is False
     assert verdict["checks"]["at_least_12_source_days"] is False
     assert verdict["checks"]["at_least_8_trades_and_3_per_month"] is False
+
+
+def test_missing_control_does_not_hide_a_complete_losing_strategy():
+    _, event, bars = _case()
+    losing = {**run_path([{"event": event, "stock": bars, "control": bars}], "confirmed"),
+              "net_return_pct": -1}
+    scenarios = {key: {policy: losing for policy in ("confirmed", "immediate", "market_control")}
+                 for key in ("75bp_full_delay0", "120bp_full_delay0", "75bp_full_delay2")}
+    scenarios["75bp_full_delay0"]["immediate"] = {"state": "incomplete_exit", "net_return_pct": None}
+    verdict = adoption({"2026-06": scenarios, "2026-07": scenarios})
+    assert verdict["adoption"] == "rejected"
+    assert verdict["checks"]["all_required_paths_complete"] is False
+    assert verdict["checks"]["both_months_net_positive_75bp"] is False
+    assert verdict["checks"]["120bp_full_delay0_mean_positive"] is False
+    assert verdict["checks"]["mean_excess_over_immediate"] is None

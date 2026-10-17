@@ -175,22 +175,28 @@ def run_path(records: list[dict], policy: str, *, cost_bps: int = 75,
 def adoption(months: dict) -> dict:
     if set(months) != {"2026-06", "2026-07"}:
         return {"adoption": "rejected", "evidence_status": "insufficient_months", "live_order_eligible": False}
+    primary = [month["75bp_full_delay0"]["confirmed"] for month in months.values()]
+    if any(row["state"] != "complete" for row in primary):
+        return {"adoption": "rejected", "evidence_status": "incomplete_paths", "live_order_eligible": False}
     compared = [month["75bp_full_delay0"][policy] for month in months.values()
-                for policy in ("confirmed", "immediate", "market_control")]
+                for policy in ("immediate", "market_control")]
     stresses = [month[scenario]["confirmed"] for month in months.values()
                 for scenario in ("120bp_full_delay0", "75bp_full_delay2")]
-    if any(row["state"] != "complete" for row in compared + stresses):
-        return {"adoption": "rejected", "evidence_status": "incomplete_paths", "live_order_eligible": False}
-    primary = [month["75bp_full_delay0"]["confirmed"] for month in months.values()]
-    checks = {"at_least_12_source_days": sum(row["events"] for row in primary) >= 12,
+    incomplete = any(row["state"] != "complete" for row in compared + stresses)
+    checks = {"all_required_paths_complete": not incomplete,
+              "at_least_12_source_days": sum(row["events"] for row in primary) >= 12,
               "at_least_8_trades_and_3_per_month": sum(row["trade_count"] for row in primary) >= 8
               and min(row["trade_count"] for row in primary) >= 3,
               "both_months_net_positive_75bp": all(row["net_return_pct"] > 0 for row in primary)}
     for scenario in ("120bp_full_delay0", "75bp_full_delay2"):
-        checks[scenario + "_mean_positive"] = statistics.mean(
-            month[scenario]["confirmed"]["net_return_pct"] for month in months.values()) > 0
+        paths = [month[scenario]["confirmed"] for month in months.values()]
+        checks[scenario + "_mean_positive"] = (statistics.mean(row["net_return_pct"] for row in paths) > 0
+                                                if all(row["state"] == "complete" for row in paths) else None)
     impact = defaultdict(float)
     for control in ("immediate", "market_control"):
+        if any(month["75bp_full_delay0"][control]["state"] != "complete" for month in months.values()):
+            checks["mean_excess_over_" + control] = None
+            continue
         checks["mean_excess_over_" + control] = statistics.mean(
             month["75bp_full_delay0"]["confirmed"]["net_return_pct"]
             - month["75bp_full_delay0"][control]["net_return_pct"] for month in months.values()) > 0
@@ -201,8 +207,9 @@ def adoption(months: dict) -> dict:
                     impact[row["ticker"]] += row["net_pnl"] - original[row["receipt"]]["net_pnl"]
     denominator = sum(abs(value) for value in impact.values())
     concentration = max((abs(value) / denominator for value in impact.values()), default=0) if denominator else None
-    checks["improvement_not_concentrated_in_one_ticker"] = concentration is not None and concentration <= 0.5
+    checks["improvement_not_concentrated_in_one_ticker"] = concentration <= 0.5 if concentration is not None else None
     return {"adoption": "shadow_candidate" if all(checks.values()) else "rejected",
-            "evidence_status": "fixed_screen_passed" if all(checks.values()) else "fixed_screen_failed",
+            "evidence_status": ("fixed_screen_failed_with_incomplete_paths" if incomplete
+                                else "fixed_screen_passed" if all(checks.values()) else "fixed_screen_failed"),
             "checks": checks, "largest_absolute_improvement_ticker_share": concentration,
             "live_order_eligible": False}
