@@ -91,6 +91,8 @@ def quote_window(symbol: str, start: str, end: str) -> dict:
     try:
         body = json.loads(raw)
         rows = body.get("quotes") if isinstance(body, dict) else None
+        if isinstance(body, dict) and "quotes" in body and rows is None and not body.get("next_page_token"):
+            rows = []  # Alpaca can represent an observed empty interval as null.
         if (not isinstance(rows, list) or body.get("symbol") != symbol or len(rows) > 1000):
             raise ValueError("symbol/schema mismatch")
         bounds = [clock_ns(params[name]) for name in ("start", "end")]

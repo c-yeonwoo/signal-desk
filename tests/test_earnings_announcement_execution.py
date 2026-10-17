@@ -84,6 +84,8 @@ def test_revision_not_creation_is_feature_time_and_conflicts_abstain():
     assert row["eligible"] and row["ready_ns"] == replay.clock_ns("2023-02-02T21:02:30Z")
     page["body"]["news"].append({**article, "id": 2, "headline": "Apple Q1 EPS $1.90 Beats $1.80 Estimate"})
     assert replay.input_events(frozen, [page])["events"][0]["status"] == "eps_headline_conflict"
+    page["body"]["news"][1]["updated_at"] = "2023-02-02T21:03:00Z"
+    assert replay.input_events(frozen, [page])["events"][0]["actual_eps"] == 2.0
     page["body"]["news"] = [{**article, "updated_at": "2023-02-03T21:02:00Z"}]
     assert replay.input_events(frozen, [page])["events"][0]["status"] == "eps_headline_missing"
     page["body"]["news"] = [{**article, "headline": "Apple Q1 EPS $2.00 vs $1.80 Est."}]

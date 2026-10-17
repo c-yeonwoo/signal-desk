@@ -127,19 +127,25 @@ def input_events(frozen: dict, sources: list[dict]) -> dict:
                 candidates[article["id"]] = {**observation,
                     "actual_eps": actual, "expected_eps": expected,
                     "eps_basis": "adjusted" if re.search(r"Adj\.?|Adjusted|Excluding Significant Items", headline, re.I) else "unspecified"}
-        pairs = {(r["actual_eps"], r["expected_eps"]) for r in candidates.values()}
+        # Later corrections cannot retrospectively cancel an earlier decision.
+        earliest = min((r["ready_ns"] for r in candidates.values()), default=None)
+        available = [r for r in candidates.values() if r["ready_ns"] == earliest]
+        pairs = {(r["actual_eps"], r["expected_eps"]) for r in available}
+        report_ready = min((r["ready_ns"] for r in reports.values()), default=None)
         if not pairs and reports:
             selected = min(reports.values(), key=lambda r: (r["ready_ns"], r["news_id"]))
             events.append({**row, **selected, "status": "ready", "eligible": False,
+                           "report_ready_ns": report_ready,
                            "eligibility_reason": "comparison_unavailable_abstain"})
             continue
         if len(pairs) != 1:
             events.append({**row, "status": "eps_headline_conflict" if pairs else "eps_headline_missing"})
             continue
-        selected = min(candidates.values(), key=lambda r: (r["ready_ns"], r["news_id"]))
+        selected = min(available, key=lambda r: (r["ready_ns"], r["news_id"]))
         actual, expected = selected["actual_eps"], selected["expected_eps"]
         surprise = (actual / expected - 1) * 100 if expected > 0 else None
         events.append({**row, **selected, "status": "ready", "surprise_pct": surprise,
+                       "report_ready_ns": report_ready,
                        "eligibility_reason": "direct_headline_comparison",
                        "eligible": bool(actual > 0 and expected > 0 and surprise >= 5 - 1e-10)})
     return {"schema": "earnings-announcement-inputs-v1", "cohort": frozen, "events": events,
@@ -173,7 +179,8 @@ def choices(inputs: dict, path: str, policy: str, delay: int = 0) -> list[dict]:
     for event in inputs["events"]:
         if event["status"] != "ready" or (policy != "all_reports" and not event["eligible"]):
             continue
-        stamp = decision(event, path, delay)
+        timing = {**event, "ready_ns": event.get("report_ready_ns", event["ready_ns"])} if policy == "all_reports" else event
+        stamp = decision(timing, path, delay)
         if stamp is not None:
             candidates.append({**event, "decision_ns": stamp})
     selected = {}
@@ -214,7 +221,7 @@ def first_quote(index: dict, request: dict, lower_ns: int, side: str = "ap", qua
     source = index.get(key(request))
     if not source or source["body"] is None:
         return None
-    rows = source["body"]["quotes"]
+    rows = source["body"]["quotes"] or []
     first, last = (clock_ns(request[x]) for x in ("start", "end"))
     clocks = [clock_ns(r["t"]) for r in rows]
     if source["body"].get("symbol") != request["symbol"] or clocks != sorted(clocks):
