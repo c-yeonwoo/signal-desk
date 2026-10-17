@@ -5105,6 +5105,23 @@ def intraday_opportunity_get(request: Request, market: str = "kr", days: int = 9
             "selector": {"regime": regime, **selector}, "walk_forward": walk_forward, "rows": rows}
 
 
+@app.get("/api/admin/research/alpaca-quotes")
+def alpaca_research_quotes_get(request: Request, symbol: str = "", start: str = "", end: str = ""):
+    """관리자 전용 고정 미국 패널의 보호 전 5초 호가. 서버 키는 응답하지 않는다."""
+    _admin_or_403(request)
+    from signal_desk.ingest import alpaca_research
+    if not any((symbol, start, end)):
+        return alpaca_research.availability()
+    try:
+        alpaca_research.parameters(symbol, start, end)
+    except ValueError:
+        raise HTTPException(422, "고정 연구 종목과 2022~2025년의 시간대가 있는 5초 이하 구간만 조회합니다.") from None
+    if not db.lease_claim("alpaca_historical_quotes_global", uuid.uuid4().hex,
+                          now=int(time.time()), lease_sec=1):
+        raise HTTPException(429, "과거 호가는 초당 한 구간만 조회합니다.")
+    return alpaca_research.quote_window(symbol, start, end)
+
+
 @app.get("/api/admin/research/intraday-minute-probe")
 def intraday_minute_probe_get(request: Request, ticker: str, session: str):
     """운영 KIS의 보호 전 개발구간 과거 분봉을 한 페이지만 점검한다. 저장·집계 없음."""
