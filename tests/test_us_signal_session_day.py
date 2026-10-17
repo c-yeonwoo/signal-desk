@@ -51,19 +51,41 @@ def test_episode_only_records_open_market_in_exchange_date(monkeypatch):
     seen = []
     monkeypatch.setattr(api.market_clock, "is_open", lambda market: market == "us")
     monkeypatch.setattr(api, "_signal_session_day", lambda market: "2026-10-16")
-    monkeypatch.setattr(store, "load_us_quotes", lambda: {})
+    monkeypatch.setattr(store, "load_us_quotes", lambda: (_ for _ in ()).throw(
+        AssertionError("발동가는 판정과 다른 시세를 재조회하면 안 됩니다")))
     monkeypatch.setattr(api.episode_state, "observe_rows",
                         lambda rows, **kwargs: seen.append((rows, kwargs)))
     monkeypatch.setattr(api, "_decision_payload", lambda result: {"buy_blocked": False})
     monkeypatch.setattr(api, "_hold_tag", lambda result, **kwargs: None)
-    result = SimpleNamespace(ticker="AAPL", kind="BUY", reasons=[])
+    result = SimpleNamespace(ticker="AAPL", kind="BUY", reasons=[],
+                             signal_price_basis="intraday_quote", signal_input_price=105.0)
     api._sync_episode_state([result], market="us")
     assert seen[0][1] == {"market": "us", "today": "2026-10-16"}
+    assert seen[0][0][0]["price"] == 105.0
 
     seen.clear()
     monkeypatch.setattr(api.market_clock, "is_open", lambda market: False)
     api._sync_episode_state([result], market="us")
     assert seen == []
+
+
+def test_episode_does_not_invent_intraday_fire_from_previous_close(monkeypatch):
+    seen = []
+    monkeypatch.setattr(api.market_clock, "is_open", lambda market: True)
+    monkeypatch.setattr(api.episode_state, "observe_rows",
+                        lambda rows, **kwargs: seen.append(rows))
+    monkeypatch.setattr(api, "_decision_payload", lambda result: {"buy_blocked": False})
+    monkeypatch.setattr(api, "_hold_tag", lambda result, **kwargs: None)
+    rows = [SimpleNamespace(ticker="AAPL", kind="BUY", reasons=[],
+                            signal_price_basis="stored_close", signal_input_price=100.0),
+            SimpleNamespace(ticker="MSFT", kind="BUY", reasons=[],
+                            signal_price_basis="intraday_quote", signal_input_price=200.0)]
+    monkeypatch.setattr(api, "_signal_session_day", lambda market: "2026-10-16")
+
+    api._sync_episode_state(rows, market="us")
+
+    assert [[row["ticker"] for row in batch] for batch in seen] == [["MSFT"]]
+    assert seen[0][0]["price"] == 200.0
 
 
 def test_us_priced_in_ages_event_by_us_session_not_kst(monkeypatch):
