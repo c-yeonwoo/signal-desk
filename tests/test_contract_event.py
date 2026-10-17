@@ -108,3 +108,31 @@ def test_missing_control_does_not_hide_a_complete_losing_strategy():
     assert verdict["checks"]["both_months_net_positive_75bp"] is False
     assert verdict["checks"]["120bp_full_delay0_mean_positive"] is False
     assert verdict["checks"]["mean_excess_over_immediate"] is None
+
+
+def test_positive_control_can_pass_the_frozen_gate_without_live_order_eligibility():
+    p, event, bars = _case()
+    months = {}
+    for month, days in (("2026-06", (1, 2, 4, 5, 8, 9, 10, 11)),
+                        ("2026-07", (1, 2, 6, 7, 8, 10, 13, 14))):
+        records = []
+        for i, day in enumerate(days):
+            stamp = dt.datetime.fromisoformat(f"{month}-{day:02d}T10:00:00+09:00")
+            offset = int(stamp.timestamp()) - p
+            stock = {label + offset: replace(bar, label=label + offset) for label, bar in bars.items()}
+            stock[p + offset + 4260] = replace(stock[p + offset + 4260], close=103)
+            control = {label: replace(bar, open=100, high=100, low=100, close=100)
+                       for label, bar in stock.items()}
+            records.append({"event": {**event, "receipt": month + str(i), "ticker": str(100000 + i),
+                                      "session": stamp.date().isoformat(), "published_at": stamp.isoformat()},
+                            "stock": stock, "control": control})
+        months[month] = {scenario: {policy: run_path(records, policy, cost_bps=cost,
+                                                   additional_delay_minutes=delay)
+                                   for policy in ("confirmed", "immediate", "market_control")}
+                         for scenario, cost, delay in (("75bp_full_delay0", 75, 0),
+                                                       ("120bp_full_delay0", 120, 0),
+                                                       ("75bp_full_delay2", 75, 2))}
+    verdict = adoption(months)
+    assert all(verdict["checks"].values())
+    assert verdict["adoption"] == "shadow_candidate"
+    assert verdict["live_order_eligible"] is False
