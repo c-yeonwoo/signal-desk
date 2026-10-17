@@ -82,6 +82,8 @@ def parse_index(source: str) -> tuple[int, list[dict]]:
                 or not receipt[1].startswith(published.strftime("%Y%m%d"))):
             raise ValueError("KIND returned a filing outside the requested period")
         events.append({"receipt": receipt[1], "ticker": code[1] + "0", "issuer": cells[2],
+                       "market_segment": "kospi" if re.search(r"alt=['\"]유가증권['\"]", raw)
+                       else "kosdaq" if re.search(r"alt=['\"]코스닥['\"]", raw) else "other",
                        "title": cells[3], "published_at": published.isoformat(),
                        "publication_precision": "minute", "session": published.date().isoformat()})
     return int(total[1].replace(",", "")), events
@@ -168,7 +170,7 @@ def collect_events(output: Path) -> dict:
     def get(url, name, data=None):
         nonlocal requests
         requests += 1
-        if requests > 300:
+        if requests > 600:
             raise ValueError("contract source request budget exceeded")
         req = urllib.request.Request(url, data, headers={"Referer": SEARCH,
                                                         "User-Agent": "signal-desk-research/1.0"})
@@ -186,15 +188,15 @@ def collect_events(output: Path) -> dict:
     form.feed(get(SEARCH + "?method=searchDetailsMain", "raw/search-form.htm"))
     fields = {**form.fields, "method": "searchDetailsSub", "forward": "details_sub",
               "currentPageSize": "100", "fromDate": START, "toDate": END,
-              "reportNm": "단일판매", "reportNmTemp": "단일판매", "marketType": "1",
+              "reportNm": "단일판매", "reportNmTemp": "단일판매", "marketType": "",
               "orderMode": "0", "orderStat": "D"}
     events, expected = [], None
-    for page in range(1, 11):
+    for page in range(1, 21):
         source = get(SEARCH, f"raw/index-{page}.htm", urllib.parse.urlencode(
             {**fields, "pageIndex": str(page)}).encode())
         total, rows = parse_index(source)
         expected = total if expected is None else expected
-        if total != expected or total > 1000:
+        if total != expected or total > 2000:
             raise ValueError("KIND pagination count changed or exceeds cap")
         events.extend(rows)
         if len(events) >= expected:
@@ -205,7 +207,9 @@ def collect_events(output: Path) -> dict:
     for event in sorted(events, key=lambda row: (row["published_at"], row["receipt"])):
         title, session = event["title"], event["session"]
         clock = event["published_at"][11:16]
-        if any(marker in title for marker in ("정정", "해지", "자회사")) or "체결" not in title:
+        if event["market_segment"] not in ("kospi", "kosdaq"):
+            reason = "outside_kospi_kosdaq"
+        elif any(marker in title for marker in ("정정", "해지", "자회사")) or "체결" not in title:
             reason = "not_initial_direct_contract"
         elif not market_clock.is_session("kr", session):
             reason = "not_regular_market_session"
