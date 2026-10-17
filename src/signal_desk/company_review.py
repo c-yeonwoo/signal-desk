@@ -114,16 +114,26 @@ def build(
         if verdict in BUY_KINDS and (item.get("decision") or {}).get("buy_blocked"):
             relation, sentence = "context", "정량 점수는 매수권이지만 기존 안전장치가 새 매수를 차단했습니다."
         elif verdict in BUY_KINDS:
-            relation, sentence = "supports", "가격·정량 조건은 현재 매수 후보권입니다. 상승을 보장하지는 않습니다."
+            relation, sentence = "supports", (
+                "마지막 확정 종가에서는 매수 후보권이었습니다. 다음 장중 가격은 아직 반영되지 않았습니다."
+                if signal_price_status == "current_close" else
+                "가격·정량 조건은 현재 매수 후보권입니다. 상승을 보장하지는 않습니다.")
         elif verdict in SELL_KINDS:
-            relation, sentence = "contradicts", "가격·정량 조건은 현재 매도 판정입니다. 보유 상황을 함께 확인하세요."
+            relation, sentence = "contradicts", (
+                "마지막 확정 종가에서는 매도 판정이었습니다. 보유 상황과 다음 장중 가격을 확인하세요."
+                if signal_price_status == "current_close" else
+                "가격·정량 조건은 현재 매도 판정입니다. 보유 상황을 함께 확인하세요.")
         elif verdict == "HOLD":
-            relation, sentence = "context", "가격·정량 조건은 현재 관망입니다."
+            relation, sentence = "context", (
+                "마지막 확정 종가에서는 관망이었습니다. 다음 장중 가격은 아직 반영되지 않았습니다."
+                if signal_price_status == "current_close" else "가격·정량 조건은 현재 관망입니다.")
         else:
             relation, sentence = "context", "현재 시그널 판정을 확인하지 못했습니다."
         claims.append({"relation": relation, "text": sentence, "evidence_ids": [eid]})
         if provisional_at is not None:
             checks.append("장중 잠정가를 포함한 판정입니다. 확정 종가로 다시 확인하세요.")
+        elif signal_price_status == "current_close":
+            checks.append("다음 거래일 장중 가격이 들어오면 판정을 다시 확인하세요.")
 
     seen_events = set()
     for event in official:

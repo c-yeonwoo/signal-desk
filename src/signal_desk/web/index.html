@@ -4507,7 +4507,8 @@ function signalPriceView(item){
     const age = Date.now() / 1000 - Number(item.signal_quote_received_at);
     if (!Number.isFinite(age) || age < -300 || age > 600) status = 'stale_quote';
   }
-  if (status === 'current_close') return { status, warning:false, stale:false, label:'', message:'' };
+  if (status === 'current_close') return { status, warning:false, stale:false,
+    label:'종가 기준', message:'마지막 확정 종가로 계산했습니다. 다음 장중 가격은 아직 반영되지 않았습니다.' };
   if (status === 'current_quote') return { status, warning:false, stale:false,
     label:'장중 잠정', message:'장중 잠정가로 계산했습니다. 확정 종가나 실제 체결가는 아닙니다.' };
   if (status === 'close_only') return { status, warning:true, stale:false,
@@ -5597,6 +5598,8 @@ function _paintSignalDetail(ticker, item){
       ? '마지막 계산 결과입니다. 가격을 다시 확인할 때까지 지금의 매매 근거로 삼지 마세요.'
       : priceView.status === 'close_only'
         ? '직전 종가의 판정입니다. 장중 가격을 확인한 뒤 판단하세요.'
+        : priceView.status === 'current_close'
+          ? '마지막 종가의 판정입니다. 다음 장중 가격을 확인한 뒤 판단하세요.'
         : _isBuy(item.kind)
           ? '새 매수 후보입니다. 아래에서 가격 조건과 기업 소식을 함께 확인하세요.'
           : _isSell(item.kind) ? '매도 판정입니다. 보유 중이라면 근거를 확인하세요.' : heroReason(item);
@@ -5800,6 +5803,7 @@ function _paintSignalReview(ticker, review){
       }).join('')
     : `<p style="color:var(--dim)">${empty}</p>`;
   const stale = review.price_status !== 'current';
+  const closeBasis = !stale && review.price_basis === 'confirmed_close';
   const hasOfficialRisk = groups.contradicts.some(c => (c.evidence_ids || []).some(id => id.startsWith('event:')));
   const held = review.portfolio_relation === 'held';
   const lead = review.price_status === 'close_only'
@@ -5811,7 +5815,8 @@ function _paintSignalReview(ticker, review){
       ? '가격 조건과 확인된 공식 위험을 함께 보세요.'
       : review.buy_blocked ? '정량 점수가 높아도 새 매수는 차단돼 있어요. 보유분은 따로 확인하세요.'
       : held && ['BUY','STRONG_BUY'].includes(review.signal?.decision)
-      ? '새 매수 후보권과 내 보유 판단은 달라요. 평단·비중·새 위험을 다시 확인하세요.'
+      ? `새 매수 후보권과 내 보유 판단은 달라요. ${closeBasis ? '마지막 종가 기준이니 다음 장중 가격도 확인하세요.' : '평단·비중·새 위험을 다시 확인하세요.'}`
+      : closeBasis ? '마지막 종가의 판정입니다. 다음 장중 가격은 아직 반영되지 않았어요.'
       : groups.supports.length ? '가격은 매수 후보권이에요. 기업 근거는 별도로 확인하세요.'
       : groups.contradicts.length ? '현재 가격 조건은 매도 쪽이에요.'
       : '현재 가격 조건과 최근 기업 소식을 따로 확인하세요.';
@@ -5831,7 +5836,7 @@ function _paintSignalReview(ticker, review){
     + `<button type="button" class="btn" onclick="_openHoldingReview('${market}')">내 보유 진단에서 비중 확인</button></div>` : '';
   el.innerHTML = `<h3>가격과 기업 소식, 함께 보기</h3><p class="company-review-lead">${esc(lead)}</p>`
     + `<div class="company-review-grid">`
-    + `<div class="company-review-part"><b>${stale ? '가격 기준 확인 필요' : '현재 가격 조건'}</b>${lines(groups.supports.concat(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:'))), groups.context.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:')))), '가격 판정을 확인하지 못했어요.')}</div>`
+    + `<div class="company-review-part"><b>${stale ? '가격 기준 확인 필요' : closeBasis ? '마지막 종가의 판정' : '현재 가격 조건'}</b>${lines(groups.supports.concat(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:'))), groups.context.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:')))), '가격 판정을 확인하지 못했어요.')}</div>`
     + `<div class="company-review-part"><b>회사 관련 공시·기사</b>${lines(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))).concat(groups.context.filter(c => !(c.evidence_ids || []).some(id => id.startsWith('price:')))), '연결할 최근 원문이 없어요.')}</div>`
     + `</div><p class="company-review-foot">${esc(basis + ((review.as_of || {}).prices_through || '미확인'))}</p>`
     + (holdingDetail || `<p class="company-review-foot">${esc(review.holding_text || '내 보유 정보는 확인하지 못했어요.')}</p>`)
