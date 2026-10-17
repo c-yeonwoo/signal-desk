@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 SYMBOLS = frozenset({"AAPL", "MSFT", "GOOGL", "AMZN", "META", "FB", "NVDA", "JPM", "XOM", "SPY"})
 MAX_BYTES = 512_000
+MAX_WINDOW_SECONDS = 300  # Same 1,000-row/byte/time cap for sparse historical intervals.
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -55,10 +56,10 @@ def parameters(symbol: str, start: str, end: str) -> dict:
         if not (dt.datetime(2022, 1, 1, tzinfo=dt.timezone.utc) <= first < last
                 < dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)):
             raise ValueError("only 2022–2025 historical research dates")
-        if last - first > dt.timedelta(seconds=5):
-            raise ValueError("one historical window must be at most five seconds")
+        if last - first > dt.timedelta(seconds=MAX_WINDOW_SECONDS):
+            raise ValueError("one historical window must be at most five minutes")
     except (ValueError, TypeError, AttributeError):
-        raise ValueError("valid timezone-aware 2022–2025 window of at most five seconds required") from None
+        raise ValueError("valid timezone-aware 2022–2025 window of at most five minutes required") from None
     return {"start": first.isoformat(), "end": last.isoformat(), "feed": "sip", "currency": "USD",
             "asof": first.astimezone(ZoneInfo("America/New_York")).date().isoformat(), "limit": "1000", "sort": "asc"}
 

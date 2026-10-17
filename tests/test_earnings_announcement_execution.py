@@ -36,6 +36,7 @@ def test_side_prices_fees_cash_and_nanosecond_hold():
     assert trade["entry_ask"] == 100 and trade["exit_bid"] == 102
     assert trade["exit_ns"] - trade["entry_ns"] == 3600 * replay.SECOND
     assert trade["net_pnl"] == pytest.approx(trade["gross_pnl"] - trade["fees"])
+    assert trade["gross_pnl"] == pytest.approx(trade["mid_price_pnl"] - trade["spread_drag"])
     assert trade["quantity"] * trade["entry_ask"] * 1.001 <= 10_000 / 6
     assert report["actual_historical_net_return_pct"] is None
 
@@ -119,3 +120,39 @@ def test_locked_quotes_cannot_be_used_and_limit_cannot_be_retroactively_raised()
     index[replay.key(replay.query("AAPL", event()["ready_ns"] + replay.SECOND))]["body"]["quotes"][0]["ap"] = 105
     result = replay.simulate({"events": [event()]}, index, "2023", "immediate", "eps")
     assert result["rows"][0]["status"] == "limit_not_marketable" and result["closed_trades"] == 0
+
+
+def test_empty_interval_continues_only_with_observed_adjacent_source_and_partial_never_skips():
+    ns = event()["ready_ns"]
+    req = replay.query("AAPL", ns)
+    index = {replay.key(req): {"body": {"symbol": "AAPL", "quotes": None}, "raw_sha256": "empty"}}
+    found, need = replay.quote_or_need(index, req, ns)
+    assert found is None and need == replay.query("AAPL", ns + 5 * replay.SECOND)
+    k, value = source("AAPL", ns + 5 * replay.SECOND, 99, 100)
+    index[k] = value
+    assert replay.first_quote(index, req, ns)["ns"] == ns + 5 * replay.SECOND
+    index[replay.key(req)]["has_next_page"] = True
+    found, need = replay.quote_or_need(index, req, ns)
+    assert found is None and need == replay.query("AAPL", ns, 1)
+
+
+def test_later_out_of_window_quote_invalidates_whole_source():
+    ns = event()["ready_ns"]
+    index = fixture_sources()
+    req = replay.query("AAPL", ns)
+    rows = index[replay.key(req)]["body"]["quotes"]
+    rows.append({**rows[0], "t": replay.as_dt(ns + 6 * replay.SECOND).isoformat()})
+    with pytest.raises(ValueError, match="beyond requested"):
+        replay.first_quote(index, req, ns)
+
+
+def test_wide_preserved_interval_can_supply_first_quote_without_skipping_partial_suffix():
+    ns = event()["ready_ns"]
+    k, value = source("AAPL", ns + 90 * replay.SECOND, 99, 100)
+    wide = replay.query("AAPL", ns, 300)
+    index = {replay.key(wide): value}
+    assert replay.first_quote(index, replay.query("AAPL", ns), ns)["ns"] == ns + 90 * replay.SECOND
+    value["has_next_page"] = True
+    # Earlier partial data does not certify the unseen time after its last quote.
+    _, need = replay.quote_or_need(index, replay.query("AAPL", ns + 95 * replay.SECOND), ns + 95 * replay.SECOND)
+    assert need is not None

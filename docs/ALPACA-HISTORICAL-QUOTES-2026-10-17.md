@@ -2,7 +2,7 @@
 
 키는 운영 서버 환경변수 `APCA_API_KEY_ID`·`APCA_API_SECRET_KEY`에만 둔다. 관리자 API는 설정 여부만 알려 주며 키·토큰·계좌를 응답하지 않는다. 로컬 `.env`로 운영 비밀을 옮기지 않는다.
 
-`GET /api/admin/research/alpaca-quotes`는 설정 여부를 확인한다. `symbol/start/end`를 지정하면 고정 패널 AAPL/MSFT/GOOGL/AMZN/META(이전명 FB)/NVDA/JPM/XOM/SPY, 2022~2025년, 5초 이하 구간의 SIP 호가만 조회한다. [Alpaca 역사 호가 명세](https://docs.alpaca.markets/us/reference/stockquotesingle-1)의 `feed=sip`, `currency=USD`, 과거 `asof`, 오름차순을 명시한다. IEX로 조용히 대체하지 않는다.
+`GET /api/admin/research/alpaca-quotes`는 설정 여부를 확인한다. `symbol/start/end`를 지정하면 고정 패널 AAPL/MSFT/GOOGL/AMZN/META(이전명 FB)/NVDA/JPM/XOM/SPY, 2022~2025년, 5분 이하 구간의 SIP 호가만 조회한다. 최초에는 5초로 제한했으나 희소 구간의 반복 요청을 줄이기 위해 조회 시간 범위만 넓혔다. 1,000행·512,000바이트·15초 응답 상한은 유지한다. [Alpaca 역사 호가 명세](https://docs.alpaca.markets/us/reference/stockquotesingle-1)의 `feed=sip`, `currency=USD`, 과거 `asof`, 오름차순을 명시한다. IEX로 조용히 대체하지 않는다.
 
 한 번에 최대 1,000개·512,000바이트·15초, 관리자 전체 초당 한 구간으로 제한한다. 외부 재지정 URL로 인증을 전달하지 않는다. HTTP 실패와 빈 응답·부분 페이지를 구별하고, 성공 원문의 SHA·바이트·base64와 요청 시작/응답 관측 시각을 함께 반환한다. 실패 본문이나 인증값이 섞인 성공 본문은 내보내지 않는다. 원문은 로컬 연구 ZIP에 보존하며 운영 DB/볼륨에는 대량 호가를 쌓지 않는다.
 
