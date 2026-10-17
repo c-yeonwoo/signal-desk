@@ -56,6 +56,8 @@ def test_conflicting_simultaneous_numbers_and_incomplete_pages_are_not_fills():
                  article(3,"NVIDIA Sees Q2 Revenue $4B Vs $5B Est")]
     row=inputs(news)["events"][0]
     assert row["guidance_conflict"] and not row["eligible"]
+    news=base();news[0]["symbols"].append("FB")
+    assert inputs(news)["events"][0]["status"]=="direct_report_missing"
 
 
 def add_quote(index,ns,bid,ask,size=100):
@@ -95,3 +97,43 @@ def test_plan_hash_mutation_fails_before_result():
     data=inputs(base());data["cohort"]["plan_sha256"]="changed"
     with pytest.raises(ValueError,match="frozen plan changed"):
         g.report(data,{})
+
+
+def test_lookup_cache_preserves_side_size_and_does_not_repeat_source_scans(monkeypatch):
+    calls=[]
+    def original(index,request,ns,side,qty):
+        calls.append((side,qty))
+        return None,request
+    monkeypatch.setattr(old,"quote_or_need",original)
+    lookup=g.cached_lookup({});ns=clock_ns("2021-05-26T20:10:00Z")
+    assert lookup("NVDA",ns)==lookup("NVDA",ns)
+    lookup("NVDA",ns,"bp",1);lookup("NVDA",ns,"bp",2)
+    assert calls==[("ap",1),("bp",1),("bp",2)]
+
+
+def test_public_summary_never_exposes_individual_quote_prices_or_requests():
+    from scripts.measure.earnings_guidance_delivery import public_summary
+    r={"results":[{"complete":True,"rows":[{"entry_ask":123}],"needed_requests":[{}]}],
+       "leave_one_issuer_out":[{"rows":[{"exit_bid":124}],"needed_requests":[]}],"needed_requests":[{}]}
+    assert public_summary(r)=={"results":[{"complete":True}],"leave_one_issuer_out":[{}]}
+
+
+def test_unknown_historical_condition_is_blocker_not_zero_return_or_requery_loop(monkeypatch):
+    data=inputs(base());ns=data["events"][0]["ready_ns"]
+    import hashlib
+    monkeypatch.setattr(g,"COHORT_SHA256",hashlib.sha256(g._json(data["cohort"])).hexdigest())
+    index={};add_quote(index,ns,99,100)
+    index[next(iter(index))]["body"]["quotes"][0]["c"]=["?"]
+    quality=g.source_quality(index)
+    assert quality["blocked"] and quality["response_row_conditions_including_overlap"]["2021"]["?"]==1
+    assert g.requests(data,index)==[]
+    result=g.report(data,index)
+    assert result["verdict"]=="blocked_source_quality" and result["adoption"]=="not_adopted"
+    assert not result["performance_gates_evaluated"] and result["checks"]["minimum_trades"] is None
+    assert result["results"][9]["conditional_account_return_pct"] is None
+
+
+def test_frozen_64_report_cohort_cannot_be_replaced_by_a_convenient_small_sample():
+    import pytest
+    with pytest.raises(ValueError,match="64-report cohort changed"):
+        g.report(inputs(base()),{})

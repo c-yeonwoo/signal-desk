@@ -199,3 +199,28 @@ PIT 하네스를 **아예 못 돌린다** — KRX 인증이 필요한 수집을 
 - **모두 탐색 실행이다.** 보드 정본이 아니고 사전등록 look이 아니다.
 - 로컬 캐시 기준(국내 시세 ~2026-08-14 · 미국 ~2026-07-24)이라 프로덕션과 다르다.
 - `panel.pkl` 같은 중간 캐시는 커밋하지 않는다.
+
+## 2026-10-17 매출·가이던스 독립 표본과 호가 조건 차단
+
+[고정 계획](../../docs/EARNINGS-GUIDANCE-VALIDATION-2026-10-17.md)과 [원문 대조·결과](../../docs/EARNINGS-GUIDANCE-RESULT-2026-10-17.md). 기존2022/2023 EPS 정책의 손실12건·NVDA 이익3건을 대조한 뒤, 아직 가격 결과를 검사하지 않은2020개발/2021확인64발표를 고정했다. 10분 뒤 EPS/매출 확인·알려진 하향 전망 회피, 같은 시점 EPS-only/SPY/현금·비용·지연·수량·회사 제외 재선택을 구현했다. **신규 수익성은 과거 `?` 호가 조건으로 차단**됐으며, 정상 `R`로 바꾸거나 손실0/수익0으로 계산하지 않는다. 이 문제는 더 많은 인접초 요청으로 풀지 않는다.
+
+```bash
+# 로컬에 보존한 실제 원문·고정 코드가 있어야 재생 가능. 새 출력명 사용.
+.venv/bin/python -m scripts.measure.earnings_guidance_delivery replay \
+  --archive data/research/earnings-guidance-source-bundle-2026-10-17-v3.zip \
+  --report data/research/earnings-guidance-repeat.json
+
+# 같은64기사 입력·SIP 원문으로 데이터 추가 필요 여부 검사.
+# 현재는 source_quality.blocked=true, requests=[]로 불필요 수집을 멈춘다.
+.venv/bin/python -m scripts.measure.earnings_guidance_validation needs \
+  --input data/research/earnings-guidance-inputs-2026-10-17-v4.json \
+  --sources data/research/earnings-guidance-quotes-2026-10-17-*.json \
+  --output data/research/earnings-guidance-needs-repeat.json
+
+# 기존 실험 손익 분해: 원래 결과를 덮어쓰지 않는다.
+.venv/bin/python -m scripts.measure.earnings_guidance_audit attribution \
+  --source data/research/earnings-announcement-report-2026-10-17-v3.json \
+  --output data/research/earnings-guidance-attribution-repeat.json
+```
+
+재생은 ZIP의 원문/입력/코드·계획 해시를 검증한다. 이전 보고서와 `event_ledger/results/leave_one_issuer_out/checks/verdict/source_quality`를 대조한다. 현재2020/2021 원문의 조건을 복원하거나 정상 조건이 보존된 동기간 NBBO를 확보하기 전 수익성 완료·채택을 주장하지 않는다. 공개 요약에는 거래별 실제 호가 가격을 내보내지 않는다. 실제 API 도착·원본 기사 버전·계좌 정산 비용은 별도 제한이고 운영 주문/점수/등록 잠금은 바꾸지 않는다.
