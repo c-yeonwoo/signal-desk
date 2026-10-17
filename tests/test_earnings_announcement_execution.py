@@ -156,3 +156,26 @@ def test_wide_preserved_interval_can_supply_first_quote_without_skipping_partial
     # Earlier partial data does not certify the unseen time after its last quote.
     _, need = replay.quote_or_need(index, replay.query("AAPL", ns + 95 * replay.SECOND), ns + 95 * replay.SECOND)
     assert need is not None and replay.clock_ns(need["end"]) - replay.clock_ns(need["start"]) == replay.SECOND
+
+
+def test_public_delivery_summary_excludes_raw_quote_prices_but_keeps_missing_return():
+    from scripts.measure.earnings_announcement_delivery import summary
+    result = summary({"results": [{"conditional_account_return_pct": None,
+                                   "rows": [{"entry_ask": 123.45}]}], "live_order_eligible": False})
+    assert result["results"] == [{"conditional_account_return_pct": None}]
+    assert not result["live_order_eligible"]
+    nested = summary({"results": [], "round_lot_interpretation_sensitivity": {
+        "results": [{"rows": [{"entry_ask": 123.45}]}]}})
+    assert "entry_ask" not in json.dumps(nested)
+
+
+def test_round_lot_sensitivity_never_changes_default_conservative_size_policy():
+    ns = event()["ready_ns"]
+    index = dict([source("AAPL", ns, 99, 100, size=1), source("AAPL", ns + replay.SECOND, 99, 100, size=1),
+                  source("AAPL", ns + 3601 * replay.SECOND, 102, 103, size=1)])
+    inputs = {"events": [event()]}
+    conservative = replay.simulate(inputs, index, "2023", "immediate", "eps")
+    lots = replay.simulate(inputs, index, "2023", "immediate", "eps", size_scale=100)
+    assert conservative["rows"][0]["quantity"] == 1
+    assert lots["rows"][0]["quantity"] == 16 and lots["complete"]
+    assert lots["actual_historical_net_return_pct"] is None
