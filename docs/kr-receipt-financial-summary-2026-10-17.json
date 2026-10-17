@@ -1,0 +1,293 @@
+{
+  "schema": "kr-receipt-financial-summary-v1",
+  "financial_archive_sha256": "bdab1956d2f1055a31a012fc8c3e5ecbb442de21c95c574beeb37aaf7c7d085c",
+  "scope_sha256": "8b98fbf085b9b610ffe23afaf5ba84faa0da1d6de223ec42021c8eba923705f6",
+  "financial_status_counts": {
+    "receipt_dated_candidate": 958,
+    "missing_accounts": 57,
+    "non_december_or_unverified_period": 4,
+    "ambiguous_accounts": 5
+  },
+  "registered_verdict": false,
+  "strict_pit_eligible": false,
+  "live_order_eligible": false,
+  "adoption": "not_adopted_receipt_date_sensitivity_only",
+  "code_sha256": {
+    "scripts/measure/kr_receipt_financial_lab.py": "e5ed0cfe37c6354107f4547f8023d0072a0352ccdd7178dadf656d225bb4dc7b",
+    "scripts/measure/kr_financial_input_sources.py": "7af3bde934a017303bf625d2875566c615054db618f55b83dd292980ce00424e",
+    "src/signal_desk/signals/research_financial_inputs.py": "ad255a88921f718ef94b3168443c989789a712e8ef275aa544fed0b6a15f6bc7",
+    "src/signal_desk/signals/engine.py": "1d5ecfd102d5dc89c3635e91da0a45bc3ac772d89612cbc5deaf6288fa569447"
+  },
+  "limits": [
+    "Same frozen 293 development dates, not independent OOS",
+    "Annual April FY convention with receipt-next-session delay is an assumption",
+    "Original XBRL and full correction chain not verified; no historic as-run input claim",
+    "Current sector mapping unverified historically; flow/short/events/dividend yield absent",
+    "Overlapping h5 next-open-to-close labels with assumed 25bp costs, not portfolio returns",
+    "Missing selected outcomes or empty buy dates block a full-window mean",
+    "Corporate-action total return and real execution remain unverified"
+  ],
+  "raw_financial_path": "data/research/kr-receipt-financial-inputs-2026-10-17-v1.zip",
+  "raw_financial_bytes": 4755492,
+  "logical_requests": 13,
+  "ticker_years": 1024,
+  "complete_five_metric_records": 875,
+  "unmapped_tickers": [],
+  "original_samples_path": "data/research/kr-annual-originals-fy2025-2026-10-17-v1.zip",
+  "original_samples_sha256": "18672cceb1d6b0e691ae982e63c7e0c412eda481aebc313fc174bbeabe11de2e",
+  "original_sample_matches": [
+    {
+      "ticker": "005930",
+      "receipt": "20260310002820",
+      "year": 2025,
+      "matched_metrics": {
+        "equity": 436320337000000,
+        "net_income": 45206805000000,
+        "roe": 10.36,
+        "debt_ratio": 29.94,
+        "revenue_growth": 10.88
+      },
+      "raw_sha256": "946ed3c81628c5cb69e460217a1e3f656d857b64c9dde15fdac981c2d68323d1",
+      "fs_div": "CFS",
+      "currency": "KRW",
+      "full_correction_chain_verified": false
+    },
+    {
+      "ticker": "000660",
+      "receipt": "20260317000635",
+      "year": 2025,
+      "matched_metrics": {
+        "equity": 120666751000000,
+        "net_income": 42947902000000,
+        "roe": 35.59,
+        "debt_ratio": 45.95,
+        "revenue_growth": 46.76
+      },
+      "raw_sha256": "e0cb4cb07edac6cdf2da80db40df415bea63dcce93eecba2c18d12f38a2367fd",
+      "fs_div": "CFS",
+      "currency": "KRW",
+      "full_correction_chain_verified": false
+    }
+  ],
+  "result_path": "data/research/kr-receipt-financial-sensitivity-2026-10-17-v2.json",
+  "result_sha256": "8f1d95fb36de71037c33d993053b676f5197a666fa915f0773962e3b6d8432f9",
+  "windows": {
+    "2024-apr-may": {
+      "price_only": {
+        "days": 41,
+        "comparable_all_dates": true,
+        "no_buy_dates": 0,
+        "buy_labels": 232,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": 0.528799837398374,
+        "equal_day_h5_excess_pp": 0.4394196801861133
+      },
+      "annual_financial": {
+        "days": 41,
+        "comparable_all_dates": false,
+        "no_buy_dates": 17,
+        "buy_labels": 80,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": null,
+        "equal_day_h5_excess_pp": null
+      },
+      "changed_buy_dates": 41,
+      "financial_missing_ticker_days": {
+        "returned_filing_not_available_at_decision": 675,
+        "ambiguous_accounts": 41,
+        "missing_accounts": 63
+      },
+      "zero_buy_dates_blocked_rank_slots": {
+        "coverage": 101,
+        "trend": 6,
+        "crash": 1
+      },
+      "minimum_financial_names": 161
+    },
+    "2024-jun-jul": {
+      "price_only": {
+        "days": 42,
+        "comparable_all_dates": true,
+        "no_buy_dates": 0,
+        "buy_labels": 232,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": -0.11979988095238092,
+        "equal_day_h5_excess_pp": 0.6961557238588658
+      },
+      "annual_financial": {
+        "days": 42,
+        "comparable_all_dates": true,
+        "no_buy_dates": 0,
+        "buy_labels": 210,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": 0.15255472222222222,
+        "equal_day_h5_excess_pp": 0.9685103270334688
+      },
+      "changed_buy_dates": 42,
+      "financial_missing_ticker_days": {
+        "returned_filing_not_available_at_decision": 225,
+        "ambiguous_accounts": 42,
+        "missing_accounts": 84,
+        "non_december_or_unverified_period": 4
+      },
+      "zero_buy_dates_blocked_rank_slots": {},
+      "minimum_financial_names": 181
+    },
+    "2024-aug-sep": {
+      "price_only": {
+        "days": 39,
+        "comparable_all_dates": false,
+        "no_buy_dates": 0,
+        "buy_labels": 194,
+        "missing_selected_outcomes": 2,
+        "equal_day_h5_mean_net_pct": null,
+        "equal_day_h5_excess_pp": null
+      },
+      "annual_financial": {
+        "days": 39,
+        "comparable_all_dates": false,
+        "no_buy_dates": 1,
+        "buy_labels": 107,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": null,
+        "equal_day_h5_excess_pp": null
+      },
+      "changed_buy_dates": 39,
+      "financial_missing_ticker_days": {
+        "non_december_or_unverified_period": 39,
+        "returned_filing_not_available_at_decision": 233,
+        "ambiguous_accounts": 39,
+        "missing_accounts": 78
+      },
+      "zero_buy_dates_blocked_rank_slots": {
+        "coverage": 1,
+        "trend": 3,
+        "crash": 6
+      },
+      "minimum_financial_names": 180
+    },
+    "2025q4-v5": {
+      "price_only": {
+        "days": 51,
+        "comparable_all_dates": true,
+        "no_buy_dates": 0,
+        "buy_labels": 273,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": 0.700867614379085,
+        "equal_day_h5_excess_pp": 0.6978610414639902
+      },
+      "annual_financial": {
+        "days": 51,
+        "comparable_all_dates": true,
+        "no_buy_dates": 0,
+        "buy_labels": 154,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": -0.9218254901960785,
+        "equal_day_h5_excess_pp": -0.9248320631111732
+      },
+      "changed_buy_dates": 51,
+      "financial_missing_ticker_days": {
+        "returned_filing_not_available_at_decision": 286,
+        "ambiguous_accounts": 102,
+        "missing_accounts": 51
+      },
+      "zero_buy_dates_blocked_rank_slots": {},
+      "minimum_financial_names": 185
+    },
+    "2026q1-v5": {
+      "price_only": {
+        "days": 59,
+        "comparable_all_dates": true,
+        "no_buy_dates": 0,
+        "buy_labels": 322,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": 1.3663924576271187,
+        "equal_day_h5_excess_pp": 0.3012434216601735
+      },
+      "annual_financial": {
+        "days": 59,
+        "comparable_all_dates": false,
+        "no_buy_dates": 1,
+        "buy_labels": 170,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": null,
+        "equal_day_h5_excess_pp": null
+      },
+      "changed_buy_dates": 59,
+      "financial_missing_ticker_days": {
+        "returned_filing_not_available_at_decision": 222,
+        "ambiguous_accounts": 118,
+        "missing_accounts": 62
+      },
+      "zero_buy_dates_blocked_rank_slots": {
+        "coverage": 3,
+        "crash": 6
+      },
+      "minimum_financial_names": 188
+    },
+    "2026q2early-v5": {
+      "price_only": {
+        "days": 40,
+        "comparable_all_dates": true,
+        "no_buy_dates": 0,
+        "buy_labels": 218,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": 4.450336208333333,
+        "equal_day_h5_excess_pp": 3.9595318908948194
+      },
+      "annual_financial": {
+        "days": 40,
+        "comparable_all_dates": false,
+        "no_buy_dates": 24,
+        "buy_labels": 16,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": null,
+        "equal_day_h5_excess_pp": null
+      },
+      "changed_buy_dates": 40,
+      "financial_missing_ticker_days": {
+        "returned_filing_not_available_at_decision": 773,
+        "ambiguous_accounts": 80,
+        "missing_accounts": 40
+      },
+      "zero_buy_dates_blocked_rank_slots": {
+        "coverage": 142,
+        "trend": 28,
+        "crash": 2
+      },
+      "minimum_financial_names": 171
+    },
+    "2026jun-expanded-v5": {
+      "price_only": {
+        "days": 21,
+        "comparable_all_dates": true,
+        "no_buy_dates": 0,
+        "buy_labels": 103,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": -1.458580952380952,
+        "equal_day_h5_excess_pp": 0.34415237256614056
+      },
+      "annual_financial": {
+        "days": 21,
+        "comparable_all_dates": false,
+        "no_buy_dates": 15,
+        "buy_labels": 6,
+        "missing_selected_outcomes": 0,
+        "equal_day_h5_mean_net_pct": null,
+        "equal_day_h5_excess_pp": null
+      },
+      "changed_buy_dates": 21,
+      "financial_missing_ticker_days": {
+        "returned_filing_not_available_at_decision": 248,
+        "ambiguous_accounts": 42,
+        "missing_accounts": 21
+      },
+      "zero_buy_dates_blocked_rank_slots": {
+        "coverage": 79,
+        "trend": 39,
+        "crash": 10
+      },
+      "minimum_financial_names": 178
+    }
+  }
+}
