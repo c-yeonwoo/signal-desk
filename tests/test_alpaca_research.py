@@ -61,6 +61,15 @@ def test_explicit_null_empty_quotes_preserve_raw_without_inventing_a_fill(monkey
     assert base64.b64decode(result["raw_b64"]) == raw
 
 
+def test_unknown_historical_conditions_are_visible_without_relabeling_source(monkeypatch):
+    raw,_ = _setup(monkeypatch,{"symbol":"AAPL","quotes":[
+        {"t":"2023-02-03T14:31:30Z","bp":100,"ap":101,"bs":1,"as":1,"c":["?"]}],"next_page_token":None})
+    result=source.quote_window("AAPL",START,END)
+    assert result["status"]=="observed" and result["unknown_condition_rows"]==1
+    assert result["execution_condition_status"]=="historical_condition_unverified"
+    assert result["condition_counts"]=={"?":1} and base64.b64decode(result["raw_b64"])==raw
+
+
 def test_missing_or_rejected_credentials_do_not_trigger_iex_fallback_or_leak_body(monkeypatch):
     _, calls = _setup(monkeypatch)
     monkeypatch.delenv("APCA_API_KEY_ID")
@@ -78,6 +87,8 @@ def test_missing_or_rejected_credentials_do_not_trigger_iex_fallback_or_leak_bod
 @pytest.mark.parametrize("body", [{"symbol": "MSFT", "quotes": []},
     {"symbol": "AAPL", "quotes": [{"t": "2026-10-17T14:31:30Z"}]},
     {"symbol": "AAPL", "quotes": [{"t": "2023-02-03T14:31:35.000000001Z"}]},
+    {"symbol": "AAPL", "quotes": [{"t": START, "c": None}]},
+    {"symbol": "AAPL", "quotes": [{"t": START, "c": [7]}]},
     {"symbol": "AAPL", "quotes": [], "echo": "private-alpaca-secret"}])
 def test_mismatched_future_or_secret_echo_is_not_returned(monkeypatch, body):
     _setup(monkeypatch, body)

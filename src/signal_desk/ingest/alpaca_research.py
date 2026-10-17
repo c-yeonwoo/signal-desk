@@ -12,6 +12,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections import Counter
 from zoneinfo import ZoneInfo
 
 SYMBOLS = frozenset({"AAPL", "MSFT", "GOOGL", "AMZN", "META", "FB", "NVDA", "JPM", "XOM", "SPY"})
@@ -98,17 +99,24 @@ def quote_window(symbol: str, start: str, end: str) -> dict:
         if (not isinstance(rows, list) or body.get("symbol") != symbol or len(rows) > 1000):
             raise ValueError("symbol/schema mismatch")
         bounds = [clock_ns(params[name]) for name in ("start", "end")]
-        clocks = []
+        clocks, conditions, unknown = [], Counter(), 0
         for row in rows:
             clock = clock_ns(row["t"])
             if not bounds[0] <= clock <= bounds[1]:
                 raise ValueError("quote outside requested historical window")
             clocks.append(clock)
+            flags = row.get("c", [])
+            if not isinstance(flags, list) or any(not isinstance(flag, str) for flag in flags):
+                raise ValueError("invalid quote condition schema")
+            conditions[",".join(flags)] += 1
+            unknown += int(not flags or "?" in flags)
         if clocks != sorted(clocks):
             raise ValueError("quotes not ascending")
     except (ValueError, TypeError, KeyError, AttributeError):
         return {**result, "status": "invalid_source_response"}
     return {**result, "status": "observed" if rows else "empty", "quote_count": len(rows),
+            "condition_counts": dict(conditions), "unknown_condition_rows": unknown,
+            "execution_condition_status": "historical_condition_unverified" if unknown else "no_unknown_condition_observed",
             "has_next_page": bool(body.get("next_page_token")), "raw_sha256": hashlib.sha256(raw).hexdigest(),
             "raw_bytes": len(raw), "raw_b64": base64.b64encode(raw).decode("ascii")}
 

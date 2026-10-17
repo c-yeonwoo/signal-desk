@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import math
 import re
@@ -16,6 +17,7 @@ from signal_desk.ingest.alpaca_research import clock_ns
 
 PLAN = Path(__file__).resolve().parents[2] / "docs/EARNINGS-GUIDANCE-VALIDATION-2026-10-17.md"
 YEARS = ("2020", "2021")
+COHORT_SHA256 = "03de79a02f49ce3436622038e4a6cf452c877883d2a537e9ce5c7d3d8da6a21e"
 PANEL = old.PANEL
 SECOND = old.SECOND
 NUM = r"(\d+(?:\.\d+)?)"
@@ -116,7 +118,8 @@ def input_events(frozen, sources):
         for item in articles.values():
             a = item["article"]
             headline = a["headline"]
-            if not aliases.intersection(a["symbols"]) or len(set(a["symbols"]) & set(PANEL)) > 1:
+            issuers = {{"FB":"META","GOOG":"GOOGL"}.get(s,s) for s in a["symbols"]} & set(PANEL)
+            if not aliases.intersection(a["symbols"]) or len(issuers) > 1:
                 continue
             first, changed = clock_ns(a["created_at"]), clock_ns(a["updated_at"])
             if changed < first or any(old.as_dt(t).astimezone(old.NY).date().isoformat() != day for t in (first,changed)):
@@ -188,10 +191,39 @@ def choices(inputs, year, policy, delay=0, excluded=None):
     return list(selected.values())
 
 
-def simulate(inputs,index,year,policy,fee=10,fill=1,delay=0,scale=100,excluded=None):
+def cached_lookup(index):
+    cache = {}
+    def lookup(symbol,ns,side="ap",quantity=1):
+        key=(symbol,ns,side,quantity)
+        if key not in cache:
+            cache[key]=old.quote_or_need(index,old.query(symbol,ns),ns,side,quantity)
+        return cache[key]
+    return lookup
+
+
+def source_quality(index):
+    by_year={}
+    unverified=[]
+    for key,source in sorted(index.items()):
+        if source["body"] is None:
+            continue
+        counts=Counter(",".join(r.get("c",[])) for r in source["body"]["quotes"] or [])
+        year=key[1][:4]
+        by_year.setdefault(year,Counter()).update(counts)
+        if any(not flag or "?" in flag.split(",") for flag in counts):
+            unverified.append({"symbol":key[0],"start":key[1],"end":key[2],
+                               "source_sha256":source["raw_sha256"],"condition_counts":dict(counts)})
+    return {"status":"blocked_historical_condition_unverified" if unverified else "no_unknown_condition_observed",
+            "blocked":bool(unverified),"response_row_conditions_including_overlap":{y:dict(v) for y,v in by_year.items()},
+            "unverified_windows":unverified,"accepted_execution_conditions":["R"],
+            "provider_explanation_url":"https://forum.alpaca.markets/t/where-can-i-find-trade-conditions-meaning/5935/5"}
+
+
+def simulate(inputs,index,year,policy,fee=10,fill=1,delay=0,scale=100,excluded=None,lookup=None):
     if fee not in (10,25,50) or fill not in (0,.5,1) or scale not in (1,100) or excluded not in set(PANEL)|{None}:
         raise ValueError("outside frozen execution assumptions")
     cash, rows, needed, stopped = 10_000., [], {}, False
+    lookup=lookup or cached_lookup(index)
     for e in choices(inputs,year,policy,delay,excluded):
         row = {"id":e["id"],"issuer":e["symbol"],"decision_ns":e["decision_ns"],
                "quarter":(int(e["reported_date"][5:7])-1)//3+1}
@@ -203,7 +235,7 @@ def simulate(inputs,index,year,policy,fee=10,fill=1,delay=0,scale=100,excluded=N
             continue
         symbol = "SPY" if policy == "market" else e["symbol"]
         def quote(ns,side="ap",quantity=1):
-            q,need = old.quote_or_need(index,old.query(symbol,ns),ns,side,quantity)
+            q,need = lookup(symbol,ns,side,quantity)
             if need:
                 # Large sparse windows keep the same row/byte/time cap; a
                 # partial page is narrowed by old.quote_or_need, never skipped.
@@ -273,14 +305,18 @@ def simulate(inputs,index,year,policy,fee=10,fill=1,delay=0,scale=100,excluded=N
             "needed_requests":[r for _,r in sorted(needed.items())]}
 
 
-def report(inputs,index):
+def report(inputs,index,lookup=None):
     if inputs["cohort"]["plan_sha256"] != old.digest(PLAN):
         raise ValueError("frozen plan changed")
+    if hashlib.sha256(_json(inputs["cohort"])).hexdigest()!=COHORT_SHA256:
+        raise ValueError("frozen 64-report cohort changed")
+    quality=source_quality(index)
     scenarios = [("guidance",10,1,0),("eps",10,1,0),("market",10,1,0),("cash",10,1,0),
                  ("guidance",25,1,0),("guidance",50,1,0),("guidance",10,1,60),
                  ("guidance",10,.5,0),("guidance",10,0,0)]
-    results = [simulate(inputs,index,y,p,f,fill,d,scale) for scale in (100,1) for y in YEARS for p,f,fill,d in scenarios]
-    exclusions = [simulate(inputs,index,"2021","guidance",excluded=s) for s in PANEL]
+    lookup=lookup or cached_lookup(index)
+    results = [simulate(inputs,index,y,p,f,fill,d,scale,lookup=lookup) for scale in (100,1) for y in YEARS for p,f,fill,d in scenarios]
+    exclusions = [simulate(inputs,index,"2021","guidance",excluded=s,lookup=lookup) for s in PANEL]
     confirm = [r for r in results if r["year"]=="2021" and r["shares_per_raw_size_unit_assumed"]==100]
     base = confirm[0];controls=confirm[1:4]
     stress = [confirm[i] for i in (4,6,7)]
@@ -295,11 +331,18 @@ def report(inputs,index):
               "stress_positive":all(r["complete"] and r["conditional_account_return_pct"]>0 for r in stress),
               "positive_issuer_concentration_at_most_half":share is not None and share<=.5,
               "leave_one_issuer_out_nonnegative":all(r["complete"] and r["conditional_account_return_pct"]>=0 for r in exclusions)}
+    if quality["blocked"]:
+        # Unknown historical conditions are NOT normal firm quotes, a zero
+        # return, or evidence that a strategy failed its performance criteria.
+        checks={name:(False if name=="all_sources_complete" else None) for name in checks}
+    elif not base["complete"]:
+        checks={name:(checks[name] if name=="all_sources_complete" else None) for name in checks}
     needs = {old.key(q):q for r in results+exclusions for q in r["needed_requests"]}
     return {"schema":"earnings-guidance-report-v1","cohort":inputs["cohort"],"event_ledger":inputs["events"],
             "results":results,"leave_one_issuer_out":exclusions,"largest_positive_issuer_share":share,"checks":checks,
-            "verdict":"passed_conditional_reconstruction_only" if all(checks.values()) else
-                      ("incomplete_sources" if not checks["all_sources_complete"] else "rejected_performance"),
+            "source_quality":quality,"performance_gates_evaluated":base["complete"] and not quality["blocked"],
+            "verdict":"blocked_source_quality" if quality["blocked"] else ("passed_conditional_reconstruction_only" if all(checks.values()) else
+                      ("incomplete_sources" if not checks["all_sources_complete"] else "rejected_performance")),
             "adoption":"not_adopted","live_order_eligible":False,"strict_pit_eligible":False,
             "needed_requests":[r for _,r in sorted(needs.items())],
             "limitations":["historical_arrival_and_original_versions_unverified","actual_settlement_costs_unverified",
@@ -308,23 +351,28 @@ def report(inputs,index):
 
 
 def requests(inputs,index):
-    result=report(inputs,index)
+    if source_quality(index)["blocked"]:
+        return []  # Do not keep querying adjacent seconds for absent provenance.
+    lookup=cached_lookup(index)
+    result=report(inputs,index,lookup)
     needed={old.key(q):q for q in result["needed_requests"]}
+    candidates={}
     for year in YEARS:
         for policy,delay in (("eps",0),("guidance",0),("guidance",60),("market",0)):
             for excluded in (None,*PANEL):
                 for event in choices(inputs,year,policy,delay,excluded):
                     symbol="SPY" if policy=="market" else event["symbol"]
-                    ns=event["decision_ns"]
-                    for stage in range(3):
-                        found,need=old.quote_or_need(index,old.query(symbol,ns),ns,"bp" if stage==2 else "ap")
-                        if need:
-                            if clock_ns(need["end"])-clock_ns(need["start"])==5*SECOND:
-                                need=old.query(symbol,clock_ns(need["start"]),300)
-                            needed[old.key(need)]=need
-                        if found is None:
-                            break
-                        ns=((found["ns"]+2*SECOND-1)//SECOND)*SECOND if stage==0 else found["ns"]+3600*SECOND
+                    candidates[symbol,event["decision_ns"]]=(symbol,event["decision_ns"])
+    for symbol,ns in candidates.values():
+        for stage in range(3):
+            found,need=lookup(symbol,ns,"bp" if stage==2 else "ap")
+            if need:
+                if clock_ns(need["end"])-clock_ns(need["start"])==5*SECOND:
+                    need=old.query(symbol,clock_ns(need["start"]),300)
+                needed[old.key(need)]=need
+            if found is None:
+                break
+            ns=((found["ns"]+2*SECOND-1)//SECOND)*SECOND if stage==0 else found["ns"]+3600*SECOND
     return [r for _,r in sorted(needed.items())]
 
 
@@ -346,7 +394,7 @@ def main():
     else:
         inputs=json.loads(args.input.read_bytes())
         index=old.quote_index(old.observations(args.sources,"quote-window"))
-        result=({"schema":"earnings-guidance-requests-v1","requests":requests(inputs,index)}
+        result=({"schema":"earnings-guidance-requests-v1","requests":requests(inputs,index),"source_quality":source_quality(index)}
                 if args.command=="needs" else report(inputs,index))
     old.save(args.output, result)
     print(json.dumps({"output":str(args.output), "sha256":old.digest(args.output),
