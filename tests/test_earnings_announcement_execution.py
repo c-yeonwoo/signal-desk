@@ -64,6 +64,7 @@ def test_next_open_is_same_day_for_premarket_and_next_session_for_aftermarket():
     assert replay.decision(before, "opening", 0) == replay.clock_ns("2023-02-03T14:31:00Z")
     assert replay.decision(event(), "opening", 0) == replay.clock_ns("2023-02-03T14:31:00Z")
     assert replay.decision(event(), "opening", 60) == replay.clock_ns("2023-02-03T14:32:00Z")
+    assert replay.query("META", replay.clock_ns("2022-04-27T20:06:00Z"))["symbol"] == "FB"
 
 
 def test_chronological_selection_not_later_alphabetic_issuer():

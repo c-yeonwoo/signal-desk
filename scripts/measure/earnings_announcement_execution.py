@@ -169,6 +169,8 @@ def choices(inputs: dict, path: str, policy: str, delay: int = 0) -> list[dict]:
 
 
 def query(symbol: str, ns: int) -> dict:
+    if symbol == "META" and as_dt(ns).astimezone(NY).date().isoformat() < "2022-06-09":
+        symbol = "FB"  # Historical trading symbol, not a backfilled rename.
     first = as_dt(ns).isoformat()
     end = (as_dt(ns) + dt.timedelta(seconds=5)).isoformat()
     params = parameters(symbol, first, end)
@@ -183,6 +185,9 @@ def quote_index(sources: list[dict]) -> dict:
     out = {}
     for source in sources:
         request = {"symbol": source["symbol"], **source["request"]}
+        expected = parameters(request["symbol"], request["start"], request["end"])
+        if any(request.get(k) != v for k, v in expected.items()):
+            raise ValueError("quote request differs from fixed SIP contract")
         k = key(request)
         if k in out and out[k].get("raw_sha256") != source.get("raw_sha256"):
             raise ValueError("conflicting quote source versions")
