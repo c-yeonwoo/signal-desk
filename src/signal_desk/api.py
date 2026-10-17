@@ -5122,6 +5122,21 @@ def alpaca_research_quotes_get(request: Request, symbol: str = "", start: str = 
     return alpaca_research.quote_window(symbol, start, end)
 
 
+@app.get("/api/admin/research/alpaca-news")
+def alpaca_research_news_get(request: Request, symbol: str, session: str, page_token: str = ""):
+    """보호 전 고정 실적 패널의 기사 시각·수정 시각 확인. 주문/현재 뉴스 접근 없음."""
+    _admin_or_403(request)
+    from signal_desk.ingest import alpaca_research
+    try:
+        alpaca_research.news_parameters(symbol, session, page_token)
+    except (ValueError, TypeError):
+        raise HTTPException(422, "고정 연구 종목의 2022/2023년 하루 기사만 조회합니다.") from None
+    if not db.lease_claim("alpaca_historical_quotes_global", uuid.uuid4().hex,
+                          now=int(time.time()), lease_sec=1):
+        raise HTTPException(429, "과거 원문은 초당 한 구간만 조회합니다.")
+    return alpaca_research.news_day(symbol, session, page_token)
+
+
 @app.get("/api/admin/research/intraday-minute-probe")
 def intraday_minute_probe_get(request: Request, ticker: str, session: str):
     """운영 KIS의 보호 전 개발구간 과거 분봉을 한 페이지만 점검한다. 저장·집계 없음."""
