@@ -12,6 +12,14 @@
 
 `.venv/bin/python -m scripts.measure.research_daytrade_batch --output data/research/<새 이름>.json`은 공식 KRX ZIP 13개의 해시·날짜를 검사하고 개발 7창·별도 2025년 4블록을 같은 초기자본으로 계산한다. 전일 자료의 세 후보와 현행 가격 전용·대형주·현금 대조군, 45/75/120bp·전량/절반/미체결을 비교한다. 주문 수량은 다음 날 시가를 보기 전에 고정하며 당일 청산 관측이 없으면 해당 경로의 수익을 보류한다. 결과와 원문은 로컬 연구 자료다. [고정 규칙과 첫 결과](../../docs/DAYTRADE-BENCHMARK-2026-10-17.md)에서 세 후보는 모두 **기각·종료**했다. 같은 확인 구간을 재튜닝의 최종 시험으로 재사용하지 않는다. 운영 엔진과 등록 연구를 실행하거나 변경하지 않는다.
 
+## 2026-10-17 종료한 계약 공시 반응 전략
+
+공식 KIND 공개 시각→완료된 5분 가격·거래량→지연 진입→60분 뒤 관측을 한 정책으로 재생한다. 1,268개 공시에서 **가격 조회 전 45개 사건**을 동결했고 5월 개발·6/7월 확인으로 나눴다. [조건과 결과](../../docs/CONTRACT-EVENT-BACKTEST-2026-10-17.md) 및 [보존 요약](../../docs/contract-event-backtest-2026-10-17.json)에서 **기각·종료**했다. 확인 두 월의 평균 계좌 순수익 −0.3135%(왕복 75bp), 시장 대조 +0.0813%이며 일부 즉시 진입 대조는 청산 분봉 결손으로 null이다. 이 전략은 운영 점수·주문에 연결되지 않는다.
+
+원문 수집은 `python -m scripts.measure.contract_event_sources filings --output <새 ZIP>`, 분봉은 `minutes --event-archive <동결 공시 ZIP> --output <새 ZIP>`으로 분리한다. `--reuse-source <같은 종류의 기존 ZIP>`은 검증된 원문 바이트/관측 시각을 유지하며 실패한 조회만 새 파일에 재시도한다. 과거 공시는 공개 인덱스를 다시 조회하므로 새 모집단을 기존 확인 결과와 섞지 않는다. 분봉은 기존 KIS 키로 프로세스 내 실환경 **GET 조회만** 하며 `.env`·운영·계좌 주문을 변경하지 않는다. 키를 출력하지 않는다.
+
+보존 ZIP과 KOSPI 식별 대조용 기존 두 KRX ZIP이 있으면 `.venv/bin/python -m scripts.measure.contract_event_backtest --event-archive data/research/contract-event-filings-2026-10-17-v4.zip --minute-archive data/research/contract-event-minutes-2026-10-17-v2.zip --output data/research/<새 이름>.json`으로 네트워크 없이 재현한다. 해시·공개 시각·회사 귀속·금액·날짜를 먼저 대조한다. 가격 구멍을 보간하지 않고 불완전 계좌 수익을 null로 유지한다. 당시 공급자 버전/호가/실체결·KOSDAQ 독립 과거 계보는 인증하지 않았으므로 등록 판정이나 실전 적격 증거가 아니다.
+
 ## 2026-10-11 일봉 판단 재생 기반
 
 `.venv/bin/python -m scripts.measure.research_daily_foundation --window 2026q2early-v5 --horizon 5`는 보존된 KRX 원문과 가격 전용 판단 기록을 연구용 판단·현금 재생에 연결한다. `--window`는 이미 열람한 2024년 세 구간과 2025~2026년 네 구간, `--horizon`은 5·20만 받는다. 각 조합에서 기존 `holding_horizon_portfolio_lab`의 체결 순서·가격·수량과 비용 후 결과가 일치하는지 `legacy_replay_parity`로 보고한다. 당시 순위와 공급자 도착 시각이 없는 입력은 가정으로 표시한다. 이 보고서는 등록 판정·운영 주문·새 전략 수익 증거가 아니다. 세부 계약과 남은 조건은 [엔진 재설계](../../docs/ENGINE-REBUILD-BLUEPRINT-2026-10-11.md)에 있다.

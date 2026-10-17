@@ -1,0 +1,1890 @@
+{
+  "schema": "contract-event-backtest-summary-v1",
+  "phase": "historical_reconstruction",
+  "registered_verdict": false,
+  "strict_pit_eligible": false,
+  "live_order_eligible": false,
+  "adoption": {
+    "adoption": "rejected",
+    "evidence_status": "fixed_screen_failed_with_incomplete_paths",
+    "checks": {
+      "all_required_paths_complete": false,
+      "at_least_12_source_days": true,
+      "at_least_8_trades_and_3_per_month": true,
+      "both_months_net_positive_75bp": false,
+      "120bp_full_delay0_mean_positive": false,
+      "75bp_full_delay2_mean_positive": false,
+      "mean_excess_over_immediate": null,
+      "mean_excess_over_market_control": false,
+      "improvement_not_concentrated_in_one_ticker": null
+    },
+    "largest_absolute_improvement_ticker_share": null,
+    "live_order_eligible": false
+  },
+  "census": {
+    "minute_bars": 10340,
+    "events": 45,
+    "distinct_dates": 45,
+    "distinct_issuers": 37
+  },
+  "source_archives_sha256": {
+    "data/research/contract-event-filings-2026-10-17-v4.zip": "7df331ed1d5a406ab989c34be8e50a02c862680012c0c303d236a34904d3260a",
+    "data/research/contract-event-minutes-2026-10-17-v2.zip": "8943c37cfca1a99cfc887d4eb67d1d567f47c6f9c7f111963446e2ef2e0de4ff"
+  },
+  "identity_sources_sha256": {
+    "krx-daily-2026-01-05-v1.zip": "cc413764abe56573d93c1bf8fce62b38deaceb45b0f354bd914afc1bd7603ef6",
+    "krx-daily-2026-06-07-v1.zip": "ce595d2bf8b7b43dbe3266fdb19615987b8945e517ccaba500db46c76a31c15d"
+  },
+  "plan_sha256": "c77beec78cd4595ea28724e0cdd38d5b0cb1f1fc18980e1ec3d14c3cf6a7667b",
+  "code_sha256": {
+    "src/signal_desk/signals/contract_event.py": "338e330abc5da43d1e4213bcf38ce1506ca230ea528d9d27bf3c7b41f98c2abe",
+    "scripts/measure/contract_event_sources.py": "af342e1ff0d1e32c4734e59e7163469ed5e0e4b94097a2c7d3456074d91ed6b2",
+    "scripts/measure/contract_event_backtest.py": "82ebd000a503d881ade87bcdb0804cdeb3928ff653e043326b48753a475eb88d"
+  },
+  "limitations": [
+    "Filing publication is minute precision; earlier press/publication is unverified.",
+    "Historical sources were observed now, not their original served vintages.",
+    "Auction/VI, bid/ask, actual fills and historical fee schedules are not certified.",
+    "Full/half/zero fills and costs are declared models, not execution guarantees.",
+    "Market control is KODEX200, not a sector/risk-matched control.",
+    "Same-issuer events and overlapping market regimes are not independent trials."
+  ],
+  "full_result": {
+    "path": "data/research/contract-event-backtest-2026-10-17-v4.json",
+    "sha256": "2f35f83d5039ec6fb5802e719a7dd741b3fe4fbf8cd591935a9856fef433413b",
+    "bytes": 1154683
+  },
+  "scenarios": {
+    "2026-05": {
+      "45bp_full_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 13,
+          "trade_count": 4,
+          "net_return_pct": -1.0145302250000099,
+          "end_cash": 9898546.9775,
+          "max_close_drawdown_pct": -1.063607696604385,
+          "gross_pnl": -78890,
+          "net_pnl": -101453.02250000043,
+          "distinct_traded_tickers": 4,
+          "positive_trades": 1,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 7,
+            "pre_event_window_missing": 1,
+            "known_five_minute_window_missing": 1
+          }
+        }
+      },
+      "75bp_full_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 13,
+          "trade_count": 4,
+          "net_return_pct": -1.1599550000000014,
+          "end_cash": 9884004.5,
+          "max_close_drawdown_pct": -1.1599550000000014,
+          "gross_pnl": -78620,
+          "net_pnl": -115995.49999999977,
+          "distinct_traded_tickers": 4,
+          "positive_trades": 1,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 7,
+            "pre_event_window_missing": 1,
+            "known_five_minute_window_missing": 1
+          }
+        },
+        "immediate": {
+          "state": "complete",
+          "events": 13,
+          "trade_count": 10,
+          "net_return_pct": -1.43458837499999,
+          "end_cash": 9856541.162500001,
+          "max_close_drawdown_pct": -1.4575262297975677,
+          "gross_pnl": -54270,
+          "net_pnl": -143458.83749999967,
+          "distinct_traded_tickers": 8,
+          "positive_trades": 3,
+          "skips": {
+            "known_five_minute_window_missing": 3
+          }
+        },
+        "market_control": {
+          "state": "complete",
+          "events": 13,
+          "trade_count": 4,
+          "net_return_pct": 0.18635768750001613,
+          "end_cash": 10018635.76875,
+          "max_close_drawdown_pct": -0.12077052827532686,
+          "gross_pnl": 54773,
+          "net_pnl": 18635.76875000028,
+          "distinct_traded_tickers": 4,
+          "positive_trades": 2,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 7,
+            "pre_event_window_missing": 1,
+            "known_five_minute_window_missing": 1
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 13,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {}
+        }
+      },
+      "75bp_full_delay2": {
+        "confirmed": {
+          "state": "complete",
+          "events": 13,
+          "trade_count": 4,
+          "net_return_pct": -1.305221624999997,
+          "end_cash": 9869477.8375,
+          "max_close_drawdown_pct": -1.305221624999997,
+          "gross_pnl": -93150,
+          "net_pnl": -130522.16249999963,
+          "distinct_traded_tickers": 4,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 7,
+            "pre_event_window_missing": 1,
+            "known_five_minute_window_missing": 1
+          }
+        }
+      },
+      "75bp_half_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 13,
+          "trade_count": 4,
+          "net_return_pct": -0.5557163749999927,
+          "end_cash": 9944428.3625,
+          "max_close_drawdown_pct": -0.5557163749999927,
+          "gross_pnl": -37430,
+          "net_pnl": -55571.63749999984,
+          "distinct_traded_tickers": 4,
+          "positive_trades": 1,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 7,
+            "pre_event_window_missing": 1,
+            "known_five_minute_window_missing": 1
+          }
+        }
+      },
+      "75bp_none_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 13,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "quantity_or_fill_assumption_zero": 4,
+            "fixed_reaction_conditions_not_met": 7,
+            "pre_event_window_missing": 1,
+            "known_five_minute_window_missing": 1
+          }
+        }
+      },
+      "120bp_full_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 13,
+          "trade_count": 4,
+          "net_return_pct": -1.3842079999999868,
+          "end_cash": 9861579.200000001,
+          "max_close_drawdown_pct": -1.3842079999999868,
+          "gross_pnl": -78620,
+          "net_pnl": -138420.80000000028,
+          "distinct_traded_tickers": 4,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 7,
+            "pre_event_window_missing": 1,
+            "known_five_minute_window_missing": 1
+          }
+        }
+      }
+    },
+    "2026-06": {
+      "45bp_full_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 6,
+          "net_return_pct": -0.8673483749999988,
+          "end_cash": 9913265.1625,
+          "max_close_drawdown_pct": -0.8673483749999988,
+          "gross_pnl": -59730,
+          "net_pnl": -86734.8375000002,
+          "distinct_traded_tickers": 6,
+          "positive_trades": 1,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 3,
+            "known_five_minute_window_missing": 5,
+            "pre_event_window_missing": 2
+          }
+        }
+      },
+      "75bp_full_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 6,
+          "net_return_pct": -1.045820875000003,
+          "end_cash": 9895417.9125,
+          "max_close_drawdown_pct": -1.045820875000003,
+          "gross_pnl": -59650,
+          "net_pnl": -104582.0874999999,
+          "distinct_traded_tickers": 6,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 3,
+            "known_five_minute_window_missing": 5,
+            "pre_event_window_missing": 2
+          }
+        },
+        "immediate": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 8,
+          "net_return_pct": -1.1036723750000088,
+          "end_cash": 9889632.7625,
+          "max_close_drawdown_pct": -1.1036723750000088,
+          "gross_pnl": -43190,
+          "net_pnl": -110367.2374999997,
+          "distinct_traded_tickers": 8,
+          "positive_trades": 2,
+          "skips": {
+            "known_five_minute_window_missing": 8
+          }
+        },
+        "market_control": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 6,
+          "net_return_pct": -0.3367543375000004,
+          "end_cash": 9966324.56625,
+          "max_close_drawdown_pct": -0.3367543375000004,
+          "gross_pnl": 20657,
+          "net_pnl": -33675.43374999985,
+          "distinct_traded_tickers": 6,
+          "positive_trades": 1,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 3,
+            "known_five_minute_window_missing": 5,
+            "pre_event_window_missing": 2
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {}
+        }
+      },
+      "75bp_full_delay2": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 6,
+          "net_return_pct": -1.0151921250000084,
+          "end_cash": 9898480.7875,
+          "max_close_drawdown_pct": -1.0151921250000084,
+          "gross_pnl": -56670,
+          "net_pnl": -101519.21250000002,
+          "distinct_traded_tickers": 6,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 3,
+            "known_five_minute_window_missing": 5,
+            "pre_event_window_missing": 2
+          }
+        }
+      },
+      "75bp_half_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 6,
+          "net_return_pct": -0.5129121249999868,
+          "end_cash": 9948708.787500001,
+          "max_close_drawdown_pct": -0.5129121249999868,
+          "gross_pnl": -29470,
+          "net_pnl": -51291.212499999965,
+          "distinct_traded_tickers": 6,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 3,
+            "known_five_minute_window_missing": 5,
+            "pre_event_window_missing": 2
+          }
+        }
+      },
+      "75bp_none_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "quantity_or_fill_assumption_zero": 6,
+            "fixed_reaction_conditions_not_met": 3,
+            "known_five_minute_window_missing": 5,
+            "pre_event_window_missing": 2
+          }
+        }
+      },
+      "120bp_full_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 6,
+          "net_return_pct": -1.3154133999999762,
+          "end_cash": 9868458.660000002,
+          "max_close_drawdown_pct": -1.3154133999999762,
+          "gross_pnl": -59650,
+          "net_pnl": -131541.3399999999,
+          "distinct_traded_tickers": 6,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 3,
+            "known_five_minute_window_missing": 5,
+            "pre_event_window_missing": 2
+          }
+        }
+      }
+    },
+    "2026-07": {
+      "45bp_full_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 3,
+          "net_return_pct": 0.4998105749999926,
+          "end_cash": 10049981.0575,
+          "max_close_drawdown_pct": -0.045204472492865744,
+          "gross_pnl": 62130,
+          "net_pnl": 49981.05749999979,
+          "distinct_traded_tickers": 3,
+          "positive_trades": 2,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 6,
+            "pre_event_window_missing": 3,
+            "known_five_minute_window_missing": 4
+          }
+        }
+      },
+      "75bp_full_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 3,
+          "net_return_pct": 0.41881762500000086,
+          "end_cash": 10041881.7625,
+          "max_close_drawdown_pct": -0.050625681902682906,
+          "gross_pnl": 62130,
+          "net_pnl": 41881.76250000001,
+          "distinct_traded_tickers": 3,
+          "positive_trades": 2,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 6,
+            "pre_event_window_missing": 3,
+            "known_five_minute_window_missing": 4
+          }
+        },
+        "immediate": {
+          "state": "incomplete_exit",
+          "receipt": "20260729000255",
+          "net_return_pct": null
+        },
+        "market_control": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 3,
+          "net_return_pct": 0.49945091249998796,
+          "end_cash": 10049945.091249999,
+          "max_close_drawdown_pct": -0.3874898065262533,
+          "gross_pnl": 77961,
+          "net_pnl": 49945.09125000029,
+          "distinct_traded_tickers": 3,
+          "positive_trades": 2,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 6,
+            "pre_event_window_missing": 3,
+            "known_five_minute_window_missing": 4
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {}
+        }
+      },
+      "75bp_full_delay2": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 3,
+          "net_return_pct": 0.4335650000000024,
+          "end_cash": 10043356.5,
+          "max_close_drawdown_pct": -0.04826495972164446,
+          "gross_pnl": 63620,
+          "net_pnl": 43356.5,
+          "distinct_traded_tickers": 3,
+          "positive_trades": 2,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 6,
+            "pre_event_window_missing": 3,
+            "known_five_minute_window_missing": 4
+          }
+        }
+      },
+      "75bp_half_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 3,
+          "net_return_pct": 0.2067716250000018,
+          "end_cash": 10020677.1625,
+          "max_close_drawdown_pct": -0.025342180525689262,
+          "gross_pnl": 30690,
+          "net_pnl": 20677.162500000006,
+          "distinct_traded_tickers": 3,
+          "positive_trades": 2,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 6,
+            "pre_event_window_missing": 3,
+            "known_five_minute_window_missing": 4
+          }
+        }
+      },
+      "75bp_none_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 6,
+            "quantity_or_fill_assumption_zero": 3,
+            "pre_event_window_missing": 3,
+            "known_five_minute_window_missing": 4
+          }
+        }
+      },
+      "120bp_full_delay0": {
+        "confirmed": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 3,
+          "net_return_pct": 0.29732819999999105,
+          "end_cash": 10029732.819999998,
+          "max_close_drawdown_pct": -0.05876526515683489,
+          "gross_pnl": 62130,
+          "net_pnl": 29732.820000000298,
+          "distinct_traded_tickers": 3,
+          "positive_trades": 2,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 6,
+            "pre_event_window_missing": 3,
+            "known_five_minute_window_missing": 4
+          }
+        }
+      }
+    }
+  },
+  "events": [
+    {
+      "receipt": "20260504000202",
+      "issuer": "AP위성",
+      "ticker": "211270",
+      "session": "2026-05-04",
+      "published_at": "2026-05-04T09:19:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/04/000202/20260504000278/70370.htm",
+      "source_sha256": "01219802732dd7b7629ad4f8546d053c2a706f4d9902b583fffa2010d568419f",
+      "source_error": null,
+      "stock_bar_count": 110,
+      "control_bar_count": 110
+    },
+    {
+      "receipt": "20260506000218",
+      "issuer": "씨케이솔루션",
+      "ticker": "480370",
+      "session": "2026-05-06",
+      "published_at": "2026-05-06T10:41:00+09:00",
+      "market_segment": "kospi",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/06/000218/20260506000436/91370.htm",
+      "source_sha256": "d907359727bd9dbd447aa98146339b66b9b00e3bf7e837599a91ef59522737b7",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260507000124",
+      "issuer": "에쓰씨엔지니어링",
+      "ticker": "023960",
+      "session": "2026-05-07",
+      "published_at": "2026-05-07T09:18:00+09:00",
+      "market_segment": "kospi",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/07/000124/20260506001127/91370.htm",
+      "source_sha256": "ea4e555c00056b8d64dd05c5e4b3a8b1e85f2e157a18e1b6b2fd5e4b31b056e0",
+      "source_error": null,
+      "stock_bar_count": 100,
+      "control_bar_count": 109
+    },
+    {
+      "receipt": "20260508000180",
+      "issuer": "HD현대중공업",
+      "ticker": "329180",
+      "session": "2026-05-08",
+      "published_at": "2026-05-08T10:26:00+09:00",
+      "market_segment": "kospi",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/08/000180/20260507000357/91370.htm",
+      "source_sha256": "bed43b60e41e6231c20bfb0953c58dae18bc50a6838c10b7564ca5a9e7650e47",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260512000186",
+      "issuer": "유니테스트",
+      "ticker": "086390",
+      "session": "2026-05-12",
+      "published_at": "2026-05-12T10:16:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/12/000186/20260429001874/70370.htm",
+      "source_sha256": "f47856e9b1d991fb6d0c9448b9bd3d9c0d4d864751fb61f7686caaf2278ab9b4",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260513000169",
+      "issuer": "쎄크",
+      "ticker": "081180",
+      "session": "2026-05-13",
+      "published_at": "2026-05-13T09:42:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/13/000169/20260512001603/70370.htm",
+      "source_sha256": "6609afd345e7e9a168f421c2f9a99b0205a7a152826af0beb68e5827babb8d42",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260518000299",
+      "issuer": "우리기술",
+      "ticker": "032820",
+      "session": "2026-05-18",
+      "published_at": "2026-05-18T10:12:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/18/000299/20260515000345/70370.htm",
+      "source_sha256": "240f47491c2e03e7cf3322b023c54d2527e6786ca1971e526f1aabc0b0ece6a3",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260520000186",
+      "issuer": "베노티앤알",
+      "ticker": "206400",
+      "session": "2026-05-20",
+      "published_at": "2026-05-20T11:37:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/20/000186/20260520000620/70370.htm",
+      "source_sha256": "936ca7e5c933d00bcad68a52d9a3f78002d0d4dc200469a2bb806299bb7634a3",
+      "source_error": null,
+      "stock_bar_count": 74,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260522000209",
+      "issuer": "파두",
+      "ticker": "440110",
+      "session": "2026-05-22",
+      "published_at": "2026-05-22T10:59:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/22/000209/20260521001203/70370.htm",
+      "source_sha256": "46be222feefc1c3eebb35d8d26389fd66ca5e3d92c7d79b9bad3d2c5681f04d0",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260526000207",
+      "issuer": "아이빔테크놀로지",
+      "ticker": "460470",
+      "session": "2026-05-26",
+      "published_at": "2026-05-26T11:04:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/26/000207/20260526000422/70370.htm",
+      "source_sha256": "dd1a64e5a40b1da17e061fbc9927510d33f20624fe6ba8def6dbb857716dac85",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260527000129",
+      "issuer": "네오셈",
+      "ticker": "253590",
+      "session": "2026-05-27",
+      "published_at": "2026-05-27T09:24:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/27/000129/20260526000438/70370.htm",
+      "source_sha256": "ef31d9759cab5401b3207b933979322776c2696feb621a7050097c3341073af1",
+      "source_error": null,
+      "stock_bar_count": 115,
+      "control_bar_count": 115
+    },
+    {
+      "receipt": "20260528000230",
+      "issuer": "파두",
+      "ticker": "440110",
+      "session": "2026-05-28",
+      "published_at": "2026-05-28T10:34:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/28/000230/20260526000002/70370.htm",
+      "source_sha256": "cf69720476613d83f72ed9998fcad0851596456831b58e08925dcfb69b8a151e",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260529000216",
+      "issuer": "파두",
+      "ticker": "440110",
+      "session": "2026-05-29",
+      "published_at": "2026-05-29T10:11:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/05/29/000216/20260528001160/70370.htm",
+      "source_sha256": "ee1a29197f85d695a9aac812a76f0c30bccb2df3c69b824f3c832c7a1c69c571",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260601000291",
+      "issuer": "이노메트리",
+      "ticker": "302430",
+      "session": "2026-06-01",
+      "published_at": "2026-06-01T10:34:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/01/000291/20260601000153/70370.htm",
+      "source_sha256": "2bc24b4d0217e1d9a652c2de6dc27b62f33c6e125a1a1caa4a8fe858a21d44af",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260602000254",
+      "issuer": "삼성중공업",
+      "ticker": "010140",
+      "session": "2026-06-02",
+      "published_at": "2026-06-02T11:51:00+09:00",
+      "market_segment": "kospi",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/02/000254/20260529001695/91370.htm",
+      "source_sha256": "fc363c37718ed6fae62bffbceb70b4aae29262e184aa47607d29c928431d5602",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260604000134",
+      "issuer": "플라즈맵",
+      "ticker": "405000",
+      "session": "2026-06-04",
+      "published_at": "2026-06-04T10:02:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/04/000134/20260601001510/70370.htm",
+      "source_sha256": "62deefe8597d9f4a9aab9329bfc4b9f6435584eaf97048d024f81a37fbcc7634",
+      "source_error": null,
+      "stock_bar_count": 70,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260605000108",
+      "issuer": "카티스",
+      "ticker": "140430",
+      "session": "2026-06-05",
+      "published_at": "2026-06-05T09:36:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/05/000108/20260601000468/70370.htm",
+      "source_sha256": "89df0c42cf73299a5faffa9a3fae76abf556b1538a61692c4585b55661e1b0ae",
+      "source_error": null,
+      "stock_bar_count": 112,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260608000257",
+      "issuer": "에이텍모빌리티",
+      "ticker": "224110",
+      "session": "2026-06-08",
+      "published_at": "2026-06-08T10:17:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/08/000257/20260604001446/70370.htm",
+      "source_sha256": "03669afd3668ed8824cd82a8c27e26c138f0aef2527f037192c4034230641e7a",
+      "source_error": null,
+      "stock_bar_count": 98,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260609000185",
+      "issuer": "자이에스앤디",
+      "ticker": "317400",
+      "session": "2026-06-09",
+      "published_at": "2026-06-09T09:56:00+09:00",
+      "market_segment": "kospi",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/09/000185/20260609000336/91370.htm",
+      "source_sha256": "98884db51777b9262988623f4b556a313b644520a03ebfcaff9bfe510303e3f6",
+      "source_error": null,
+      "stock_bar_count": 96,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260610000130",
+      "issuer": "원일티엔아이",
+      "ticker": "136150",
+      "session": "2026-06-10",
+      "published_at": "2026-06-10T09:37:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/10/000130/20260529000591/70370.htm",
+      "source_sha256": "915af2f8308cb29b5d5faf1d93ac8d879299c89c450848e7a1b2623a2d3bc7ca",
+      "source_error": null,
+      "stock_bar_count": 86,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260611000165",
+      "issuer": "가온칩스",
+      "ticker": "399720",
+      "session": "2026-06-11",
+      "published_at": "2026-06-11T10:00:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/11/000165/20260521000473/70370.htm",
+      "source_sha256": "56c9aa4afe7572b2341179f49838b61b72db921d95f88628fb481d48ec25e57a",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260612000170",
+      "issuer": "HD현대마린엔진",
+      "ticker": "071970",
+      "session": "2026-06-12",
+      "published_at": "2026-06-12T09:18:00+09:00",
+      "market_segment": "kospi",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/12/000170/20260611000143/91370.htm",
+      "source_sha256": "210c76dc7f9ea676c554da008b8413513da33e4ac81fe10c62f6f359d214526c",
+      "source_error": null,
+      "stock_bar_count": 109,
+      "control_bar_count": 109
+    },
+    {
+      "receipt": "20260615000184",
+      "issuer": "씨메스로보틱스",
+      "ticker": "475400",
+      "session": "2026-06-15",
+      "published_at": "2026-06-15T10:23:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/15/000184/20260612000404/70370.htm",
+      "source_sha256": "bf2289e20b6da473777f852c4c44d652a6e8caaf4c953a0f29d0cbc0cc2c1736",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260616000207",
+      "issuer": "유바이오로직스",
+      "ticker": "206650",
+      "session": "2026-06-16",
+      "published_at": "2026-06-16T10:02:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/16/000207/20260616000237/70370.htm",
+      "source_sha256": "6b8b80d4e8f3de187912d346399c09a2697b16c4480f160caef55dcc4db19b12",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260622000239",
+      "issuer": "이노에이엑스",
+      "ticker": "296640",
+      "session": "2026-06-22",
+      "published_at": "2026-06-22T10:47:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/22/000239/20260619000468/70370.htm",
+      "source_sha256": "c9865567c02706b772c5cf6cfd12e5dcf54d406293ccfaf2cebdf6d772497f5f",
+      "source_error": null,
+      "stock_bar_count": 77,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260623000188",
+      "issuer": "브이엠",
+      "ticker": "089970",
+      "session": "2026-06-23",
+      "published_at": "2026-06-23T11:09:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/23/000188/20260623000229/70370.htm",
+      "source_sha256": "00ea50cb32ad6a3bb86dfa0cd2156af3b6cbb9ecc522221535d60eb9877c8bd7",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260624000397",
+      "issuer": "씨메스로보틱스",
+      "ticker": "475400",
+      "session": "2026-06-24",
+      "published_at": "2026-06-24T13:29:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/24/000397/20260623000635/70370.htm",
+      "source_sha256": "4b7d36c9edc9c9db374e7400504b0cbaed0da99631c402ae2d0c81c68a57cc6d",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260625000143",
+      "issuer": "동성화인텍",
+      "ticker": "033500",
+      "session": "2026-06-25",
+      "published_at": "2026-06-25T10:01:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/25/000143/20260622000956/70370.htm",
+      "source_sha256": "04cd658d96954ad58e2904bbca453f0320962ce241eb1e818070c411f33a8112",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260629000280",
+      "issuer": "DMS",
+      "ticker": "068790",
+      "session": "2026-06-29",
+      "published_at": "2026-06-29T10:06:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/06/29/000280/20260624000561/70370.htm",
+      "source_sha256": "ca90f0fd21fe7ddf3b2efaa82c9df8e988aa49785bc7fe954b4b8421a45a1a16",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260701000220",
+      "issuer": "동신건설",
+      "ticker": "025950",
+      "session": "2026-07-01",
+      "published_at": "2026-07-01T11:15:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/01/000220/20260701000179/70370.htm",
+      "source_sha256": "add0c12bb375d2c09bdee0dfffbb03e97b78e82cf4cfb7a232c57ae91edad5c2",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260702000096",
+      "issuer": "에스티아이",
+      "ticker": "039440",
+      "session": "2026-07-02",
+      "published_at": "2026-07-02T09:23:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/02/000096/20260701001537/70370.htm",
+      "source_sha256": "f5c9d9cb94abd23f600f67b49be81e4032c19c33799c0ca03e18f24ad728b34d",
+      "source_error": null,
+      "stock_bar_count": 114,
+      "control_bar_count": 114
+    },
+    {
+      "receipt": "20260706000205",
+      "issuer": "DMS",
+      "ticker": "068790",
+      "session": "2026-07-06",
+      "published_at": "2026-07-06T09:59:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/06/000205/20260423000480/70370.htm",
+      "source_sha256": "47b26394dddad56e0c4fc69e370c64fa02fbadda16aba6b8e11aa454c648a79f",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260707000182",
+      "issuer": "다원넥스뷰",
+      "ticker": "323350",
+      "session": "2026-07-07",
+      "published_at": "2026-07-07T10:57:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/07/000182/20260630001200/70370.htm",
+      "source_sha256": "a2ad97f7554e7b32018b330688353b1c6426ae16ea6385fe6cdae20e4dc4b79d",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260708000160",
+      "issuer": "네오셈",
+      "ticker": "253590",
+      "session": "2026-07-08",
+      "published_at": "2026-07-08T09:56:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/08/000160/20260707001736/70370.htm",
+      "source_sha256": "a991ca2bfa1111c21f6c9bd8d6d5cdbe5eb431ca89dee843694bb225f5ef74e4",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260710000182",
+      "issuer": "엑시콘",
+      "ticker": "092870",
+      "session": "2026-07-10",
+      "published_at": "2026-07-10T10:01:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/10/000182/20260630000167/70370.htm",
+      "source_sha256": "9de9f29c4255b1c5a22cef1272eabc2b7eb454393be223a0e03c9f2652eb3a1a",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260713000131",
+      "issuer": "코세스",
+      "ticker": "089890",
+      "session": "2026-07-13",
+      "published_at": "2026-07-13T09:53:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/13/000131/20260713000113/70370.htm",
+      "source_sha256": "7d80197836527d9399f4a1599ea8f4e920c07d0a8207330d6535ba8ffc0d1d17",
+      "source_error": null,
+      "stock_bar_count": 101,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260714000199",
+      "issuer": "씨메스로보틱스",
+      "ticker": "475400",
+      "session": "2026-07-14",
+      "published_at": "2026-07-14T10:36:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/14/000199/20260713000665/70370.htm",
+      "source_sha256": "fd7133f4a973935ab3e8cef9256b0b65a902780175e1804452d1650710b1eab7",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260715000077",
+      "issuer": "지엔씨에너지",
+      "ticker": "119850",
+      "session": "2026-07-15",
+      "published_at": "2026-07-15T09:19:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/15/000077/20260713000366/70370.htm",
+      "source_sha256": "3d2f62de48a3b44705b0b1d2a5582c2cb3ee912a24e4589efdc6a3eb99aa091a",
+      "source_error": null,
+      "stock_bar_count": 110,
+      "control_bar_count": 110
+    },
+    {
+      "receipt": "20260720000129",
+      "issuer": "비트플래닛",
+      "ticker": "049470",
+      "session": "2026-07-20",
+      "published_at": "2026-07-20T10:33:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/20/000129/20260715001354/70370.htm",
+      "source_sha256": "790bd94cafa685111f53f875c04b97c251f9c8bb685519676429ec5cf80d4d89",
+      "source_error": null,
+      "stock_bar_count": 81,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260724000079",
+      "issuer": "파인텍",
+      "ticker": "131760",
+      "session": "2026-07-24",
+      "published_at": "2026-07-24T10:21:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/24/000079/20260720001811/70370.htm",
+      "source_sha256": "6ec99d70b81696b7c6a700a8338c3277dba91148d24a0083c3d6cae3f22a3ea9",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260727000160",
+      "issuer": "피앤에스로보틱스",
+      "ticker": "460940",
+      "session": "2026-07-27",
+      "published_at": "2026-07-27T11:05:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/27/000160/20260703002041/70370.htm",
+      "source_sha256": "c660417a266d095acdee337270cc3a49dd49f8bfcc38e16f5ab663b5693a82b6",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260728000210",
+      "issuer": "아이티아이즈",
+      "ticker": "372800",
+      "session": "2026-07-28",
+      "published_at": "2026-07-28T10:22:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/28/000210/20260728000378/70370.htm",
+      "source_sha256": "1ddca58d39c19c52f4512c40135bab15bdd8cb70ff3bc65f26843e7b811bb678",
+      "source_error": null,
+      "stock_bar_count": 60,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260729000255",
+      "issuer": "기가비스",
+      "ticker": "420770",
+      "session": "2026-07-29",
+      "published_at": "2026-07-29T11:27:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/29/000255/20260728001353/70370.htm",
+      "source_sha256": "3bde7bfdc4e4e6d5a5d6d4cbd24c275cc8850b6bb89c8c6cff336314e39ac51a",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260730000136",
+      "issuer": "파두",
+      "ticker": "440110",
+      "session": "2026-07-30",
+      "published_at": "2026-07-30T09:30:00+09:00",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/30/000136/20260722001916/70370.htm",
+      "source_sha256": "48d630b1b8cf57071b3b404a8c5592528e3b399a93dd495cf9ffa3da638cec35",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    },
+    {
+      "receipt": "20260731000210",
+      "issuer": "HD현대마린엔진",
+      "ticker": "071970",
+      "session": "2026-07-31",
+      "published_at": "2026-07-31T09:55:00+09:00",
+      "market_segment": "kospi",
+      "original_url": "https://kind.krx.co.kr/external/2026/07/31/000210/20260730000882/91370.htm",
+      "source_sha256": "448c0a3cc423785f67557059749c8ebd1c7df0e82a26f3c522b0a7e486afcace",
+      "source_error": null,
+      "stock_bar_count": 120,
+      "control_bar_count": 120
+    }
+  ],
+  "primary_outcomes": {
+    "2026-05": [
+      {
+        "receipt": "20260504000202",
+        "ticker": "211270",
+        "session": "2026-05-04",
+        "net_pnl": -7361.137499999953,
+        "state": "filled",
+        "requested_shares": 73,
+        "shares": 73,
+        "entry_label": 1777854480,
+        "exit_label": 1777858080,
+        "entry_open": 17430,
+        "exit_close": 17460,
+        "gross_pnl": 2190,
+        "trade_net_pct": -0.5763670229753659,
+        "entry_exposure": 0.127239,
+        "cash_after": 9992638.8625,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1777854360,
+          "reaction_move_pct": 2.2927689594356204,
+          "local_volume_ratio": 7.294066695539194
+        }
+      },
+      {
+        "receipt": "20260506000218",
+        "ticker": "480370",
+        "session": "2026-05-06",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1778032080,
+          "reaction_move_pct": 17.092337917485256,
+          "local_volume_ratio": 3155.827906976744
+        }
+      },
+      {
+        "receipt": "20260507000124",
+        "ticker": "023960",
+        "session": "2026-05-07",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "pre_event_window_missing",
+          "decision_at": 1778113500
+        }
+      },
+      {
+        "receipt": "20260508000180",
+        "ticker": "329180",
+        "session": "2026-05-08",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1778203980,
+          "reaction_move_pct": -0.3062787136294043,
+          "local_volume_ratio": 1.870913190529876
+        }
+      },
+      {
+        "receipt": "20260512000186",
+        "ticker": "086390",
+        "session": "2026-05-12",
+        "net_pnl": 4580.287500000093,
+        "state": "filled",
+        "requested_shares": 67,
+        "shares": 67,
+        "entry_label": 1778549100,
+        "exit_label": 1778552700,
+        "entry_open": 18780,
+        "exit_close": 18990,
+        "gross_pnl": 14070,
+        "trade_net_pct": 0.3626576058630038,
+        "entry_exposure": 0.1259186904794439,
+        "cash_after": 9997219.15,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1778548980,
+          "reaction_move_pct": 2.902519167579398,
+          "local_volume_ratio": 47.79430475613451
+        }
+      },
+      {
+        "receipt": "20260513000169",
+        "ticker": "081180",
+        "session": "2026-05-13",
+        "net_pnl": -60197.39999999991,
+        "state": "filled",
+        "requested_shares": 106,
+        "shares": 106,
+        "entry_label": 1778633460,
+        "exit_label": 1778637060,
+        "entry_open": 11960,
+        "exit_close": 11480,
+        "gross_pnl": -50880,
+        "trade_net_pct": -4.730588053994833,
+        "entry_exposure": 0.12681126431043577,
+        "cash_after": 9937021.75,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1778633340,
+          "reaction_move_pct": 0.929054054054057,
+          "local_volume_ratio": 4.359220709901255
+        }
+      },
+      {
+        "receipt": "20260518000299",
+        "ticker": "032820",
+        "session": "2026-05-18",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1779067140,
+          "reaction_move_pct": -0.05980861244019309,
+          "local_volume_ratio": 1.468999084218024
+        }
+      },
+      {
+        "receipt": "20260520000186",
+        "ticker": "206400",
+        "session": "2026-05-20",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1779245040
+        }
+      },
+      {
+        "receipt": "20260522000209",
+        "ticker": "440110",
+        "session": "2026-05-22",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1779415560,
+          "reaction_move_pct": -1.1382113821138184,
+          "local_volume_ratio": 2.555352202596297
+        }
+      },
+      {
+        "receipt": "20260526000207",
+        "ticker": "460470",
+        "session": "2026-05-26",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1779761460,
+          "reaction_move_pct": -0.43859649122807154,
+          "local_volume_ratio": 1.6684272300469483
+        }
+      },
+      {
+        "receipt": "20260527000129",
+        "ticker": "253590",
+        "session": "2026-05-27",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1779841860,
+          "reaction_move_pct": 1.9547953573610277,
+          "local_volume_ratio": 1.2555653484206635
+        }
+      },
+      {
+        "receipt": "20260528000230",
+        "ticker": "440110",
+        "session": "2026-05-28",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1779932460,
+          "reaction_move_pct": -0.2739726027397249,
+          "local_volume_ratio": 9.134422110552764
+        }
+      },
+      {
+        "receipt": "20260529000216",
+        "ticker": "440110",
+        "session": "2026-05-29",
+        "net_pnl": -53017.25,
+        "state": "filled",
+        "requested_shares": 11,
+        "shares": 11,
+        "entry_label": 1780017600,
+        "exit_label": 1780021200,
+        "entry_open": 111300,
+        "exit_close": 107300,
+        "gross_pnl": -44000,
+        "trade_net_pct": -4.314234916457716,
+        "entry_exposure": 0.12320592938221153,
+        "cash_after": 9884004.5,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1780017480,
+          "reaction_move_pct": 2.894491129785237,
+          "local_volume_ratio": 5.56970509383378
+        }
+      }
+    ],
+    "2026-06": [
+      {
+        "receipt": "20260601000291",
+        "ticker": "302430",
+        "session": "2026-06-01",
+        "net_pnl": -6146.887499999953,
+        "state": "filled",
+        "requested_shares": 39,
+        "shares": 39,
+        "entry_label": 1780278180,
+        "exit_label": 1780281780,
+        "entry_open": 9060,
+        "exit_close": 8970,
+        "gross_pnl": -3510,
+        "trade_net_pct": -1.733152994152709,
+        "entry_exposure": 0.035334,
+        "cash_after": 9993853.1125,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1780278060,
+          "reaction_move_pct": 2.436323366555926,
+          "local_volume_ratio": 3.1497241922773838
+        }
+      },
+      {
+        "receipt": "20260602000254",
+        "ticker": "010140",
+        "session": "2026-06-02",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1780369080,
+          "reaction_move_pct": 3.435114503816794,
+          "local_volume_ratio": 38.35576123704484
+        }
+      },
+      {
+        "receipt": "20260604000134",
+        "ticker": "405000",
+        "session": "2026-06-04",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1780535340
+        }
+      },
+      {
+        "receipt": "20260605000108",
+        "ticker": "140430",
+        "session": "2026-06-05",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1780620180,
+          "reaction_move_pct": -0.19157088122605526,
+          "local_volume_ratio": 2.85456595264938
+        }
+      },
+      {
+        "receipt": "20260608000257",
+        "ticker": "224110",
+        "session": "2026-06-08",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1780881840
+        }
+      },
+      {
+        "receipt": "20260609000185",
+        "ticker": "317400",
+        "session": "2026-06-09",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1780966980
+        }
+      },
+      {
+        "receipt": "20260610000130",
+        "ticker": "136150",
+        "session": "2026-06-10",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1781052240
+        }
+      },
+      {
+        "receipt": "20260611000165",
+        "ticker": "399720",
+        "session": "2026-06-11",
+        "net_pnl": -29506.25,
+        "state": "filled",
+        "requested_shares": 25,
+        "shares": 25,
+        "entry_label": 1781140140,
+        "exit_label": 1781143740,
+        "entry_open": 51100,
+        "exit_close": 50300,
+        "gross_pnl": -20000,
+        "trade_net_pct": -2.3010579212493276,
+        "entry_exposure": 0.12782857478685,
+        "cash_after": 9964346.8625,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1781140020,
+          "reaction_move_pct": 0.7968127490039834,
+          "local_volume_ratio": 11.129014396456258
+        }
+      },
+      {
+        "receipt": "20260612000170",
+        "ticker": "071970",
+        "session": "2026-06-12",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1781223900,
+          "reaction_move_pct": 1.8750000000000044,
+          "local_volume_ratio": 1.0060203766594629
+        }
+      },
+      {
+        "receipt": "20260615000184",
+        "ticker": "475400",
+        "session": "2026-06-15",
+        "net_pnl": -8994.75,
+        "state": "filled",
+        "requested_shares": 24,
+        "shares": 24,
+        "entry_label": 1781487120,
+        "exit_label": 1781490720,
+        "entry_open": 26725,
+        "exit_close": 26550,
+        "gross_pnl": -4200,
+        "trade_net_pct": -1.3971228100423172,
+        "entry_exposure": 0.0643694974543546,
+        "cash_after": 9955352.1125,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1781487000,
+          "reaction_move_pct": 2.49520153550864,
+          "local_volume_ratio": 3.396914446002805
+        }
+      },
+      {
+        "receipt": "20260616000207",
+        "ticker": "206650",
+        "session": "2026-06-16",
+        "net_pnl": -19340.899999999907,
+        "state": "filled",
+        "requested_shares": 124,
+        "shares": 124,
+        "entry_label": 1781572260,
+        "exit_label": 1781575860,
+        "entry_open": 10170,
+        "exit_close": 10090,
+        "gross_pnl": -9920,
+        "trade_net_pct": -1.5279476789962887,
+        "entry_exposure": 0.12667357073353339,
+        "cash_after": 9936011.2125,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1781572140,
+          "reaction_move_pct": 1.2922465208747624,
+          "local_volume_ratio": 2.661629279811098
+        }
+      },
+      {
+        "receipt": "20260622000239",
+        "ticker": "296640",
+        "session": "2026-06-22",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "pre_event_window_missing",
+          "decision_at": 1782093240
+        }
+      },
+      {
+        "receipt": "20260623000188",
+        "ticker": "089970",
+        "session": "2026-06-23",
+        "net_pnl": -1433.25,
+        "state": "filled",
+        "requested_shares": 13,
+        "shares": 13,
+        "entry_label": 1782181080,
+        "exit_label": 1782184680,
+        "entry_open": 94400,
+        "exit_close": 95000,
+        "gross_pnl": 7800,
+        "trade_net_pct": -0.11635392701099256,
+        "entry_exposure": 0.12351032761075399,
+        "cash_after": 9934577.9625,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1782180960,
+          "reaction_move_pct": 2.711496746203901,
+          "local_volume_ratio": 2.2869835628609505
+        }
+      },
+      {
+        "receipt": "20260624000397",
+        "ticker": "475400",
+        "session": "2026-06-24",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1782275760
+        }
+      },
+      {
+        "receipt": "20260625000143",
+        "ticker": "033500",
+        "session": "2026-06-25",
+        "net_pnl": -39160.05000000005,
+        "state": "filled",
+        "requested_shares": 71,
+        "shares": 71,
+        "entry_label": 1782349800,
+        "exit_label": 1782353400,
+        "entry_open": 17750,
+        "exit_close": 17330,
+        "gross_pnl": -29820,
+        "trade_net_pct": -3.0957150123656074,
+        "entry_exposure": 0.12685491067230628,
+        "cash_after": 9895417.9125,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1782349680,
+          "reaction_move_pct": 0.6235827664399007,
+          "local_volume_ratio": 2.121418553396113
+        }
+      },
+      {
+        "receipt": "20260629000280",
+        "ticker": "068790",
+        "session": "2026-06-29",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "pre_event_window_missing",
+          "decision_at": 1782695580
+        }
+      }
+    ],
+    "2026-07": [
+      {
+        "receipt": "20260701000220",
+        "ticker": "025950",
+        "session": "2026-07-01",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1782872520,
+          "reaction_move_pct": 7.14285714285714,
+          "local_volume_ratio": 12.649632052330336
+        }
+      },
+      {
+        "receipt": "20260702000096",
+        "ticker": "039440",
+        "session": "2026-07-02",
+        "net_pnl": 22679.8125,
+        "state": "filled",
+        "requested_shares": 43,
+        "shares": 43,
+        "entry_label": 1782952320,
+        "exit_label": 1782955920,
+        "entry_open": 29300,
+        "exit_close": 30050,
+        "gross_pnl": 32250,
+        "trade_net_pct": 1.7934027261251595,
+        "entry_exposure": 0.12599,
+        "cash_after": 10022679.8125,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1782952200,
+          "reaction_move_pct": 2.8021015761821255,
+          "local_volume_ratio": 3.078048780487805
+        }
+      },
+      {
+        "receipt": "20260706000205",
+        "ticker": "068790",
+        "session": "2026-07-06",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "pre_event_window_missing",
+          "decision_at": 1783299960
+        }
+      },
+      {
+        "receipt": "20260707000182",
+        "ticker": "323350",
+        "session": "2026-07-07",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "pre_event_window_missing",
+          "decision_at": 1783389840
+        }
+      },
+      {
+        "receipt": "20260708000160",
+        "ticker": "253590",
+        "session": "2026-07-08",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1783472580,
+          "reaction_move_pct": 3.0674846625766916,
+          "local_volume_ratio": 35.51345755693582
+        }
+      },
+      {
+        "receipt": "20260710000182",
+        "ticker": "092870",
+        "session": "2026-07-10",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1783645680,
+          "reaction_move_pct": 10.344827586206895,
+          "local_volume_ratio": 30.265592016887354
+        }
+      },
+      {
+        "receipt": "20260713000131",
+        "ticker": "089890",
+        "session": "2026-07-13",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1783904400
+        }
+      },
+      {
+        "receipt": "20260714000199",
+        "ticker": "475400",
+        "session": "2026-07-14",
+        "net_pnl": -5074.049999999988,
+        "state": "filled",
+        "requested_shares": 12,
+        "shares": 12,
+        "entry_label": 1783993500,
+        "exit_label": 1783997100,
+        "entry_open": 15200,
+        "exit_close": 14890,
+        "gross_pnl": -3720,
+        "trade_net_pct": -2.7714327849511666,
+        "entry_exposure": 0.018198725631493877,
+        "cash_after": 10017605.7625,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1783993380,
+          "reaction_move_pct": 2.673796791443861,
+          "local_volume_ratio": 4.8320610687022905
+        }
+      },
+      {
+        "receipt": "20260715000077",
+        "ticker": "119850",
+        "session": "2026-07-15",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1784075160,
+          "reaction_move_pct": 4.89864864864864,
+          "local_volume_ratio": 2.9141975308641976
+        }
+      },
+      {
+        "receipt": "20260720000129",
+        "ticker": "049470",
+        "session": "2026-07-20",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1784511600
+        }
+      },
+      {
+        "receipt": "20260724000079",
+        "ticker": "131760",
+        "session": "2026-07-24",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1784856480
+        }
+      },
+      {
+        "receipt": "20260727000160",
+        "ticker": "460940",
+        "session": "2026-07-27",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "pre_event_window_missing",
+          "decision_at": 1785118320
+        }
+      },
+      {
+        "receipt": "20260728000210",
+        "ticker": "372800",
+        "session": "2026-07-28",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "known_five_minute_window_missing",
+          "decision_at": 1785202140
+        }
+      },
+      {
+        "receipt": "20260729000255",
+        "ticker": "420770",
+        "session": "2026-07-29",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1785292440,
+          "reaction_move_pct": 0.68415051311288,
+          "local_volume_ratio": 0.5987717502558854
+        }
+      },
+      {
+        "receipt": "20260730000136",
+        "ticker": "440110",
+        "session": "2026-07-30",
+        "net_pnl": 24276,
+        "state": "filled",
+        "requested_shares": 24,
+        "shares": 24,
+        "entry_label": 1785371940,
+        "exit_label": 1785375540,
+        "entry_open": 51100,
+        "exit_close": 52500,
+        "gross_pnl": 33600,
+        "trade_net_pct": 1.97205684163837,
+        "entry_exposure": 0.12242446239908117,
+        "cash_after": 10041881.7625,
+        "decision": {
+          "state": "planned",
+          "reason": "verified_contract_and_confirmed_reaction",
+          "decision_at": 1785371820,
+          "reaction_move_pct": 3.0000000000000027,
+          "local_volume_ratio": 2.6491094147582697
+        }
+      },
+      {
+        "receipt": "20260731000210",
+        "ticker": "071970",
+        "session": "2026-07-31",
+        "net_pnl": 0,
+        "state": "abstain",
+        "decision": {
+          "state": "abstain",
+          "reason": "fixed_reaction_conditions_not_met",
+          "decision_at": 1785459720,
+          "reaction_move_pct": -1.4880952380952328,
+          "local_volume_ratio": 13.379647218453188
+        }
+      }
+    ]
+  },
+  "filing_census": {
+    "census_count": 1268,
+    "live_order_eligible": false,
+    "observed_at": "2026-10-17T03:36:02.042318+00:00",
+    "parent_source_sha256": "c2a0522b3e04acbf95f0928a06c25454339e5de67b82396a745a9ce638ca3bfc",
+    "period": [
+      "2026-05-01",
+      "2026-07-31"
+    ],
+    "request_count": 22,
+    "reused_source_files": 301,
+    "schema": "contract-event-filings-v1",
+    "selected_by_month": {
+      "2026-05": 13,
+      "2026-06": 16,
+      "2026-07": 16
+    },
+    "strict_pit_eligible": false,
+    "selection_counts": {
+      "selected_before_prices": 45,
+      "later_same_day_event": 113,
+      "not_initial_direct_contract": 723,
+      "outside_fixed_time_window": 319,
+      "foreign_company_identifier_requires_stock_mapping": 3,
+      "below_fixed_materiality": 45,
+      "source_review_failed:contract counterparty unspecified": 5,
+      "outside_kospi_kosdaq": 3,
+      "source_review_failed:contract numeric unit ambiguous": 2,
+      "source_review_failed:earlier related disclosure exists": 6,
+      "monthly_sample_cap": 4
+    }
+  }
+}
