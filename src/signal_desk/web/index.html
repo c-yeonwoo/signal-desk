@@ -5109,15 +5109,20 @@ const _GATE_SHORT = {
 function scoreBeside(item){
   if (!item) return '';
   const fs = item.factor_scores || {};
+  const contributions = item.score_contributions || {};
+  const hasContributions = Object.keys(contributions).length > 0;
+  const basis = hasContributions ? contributions : fs;
   const keys = Object.keys(fs);
   const missing = item.missing_factors || [];
   const gates = item.gates || [];
   if (!keys.length && !missing.length && !gates.length) return '';
-  const up = _FACTOR_ORDER.filter(k => fs[k] != null && fs[k] > 0.05)
-    .sort((a, b) => fs[b] - fs[a]).slice(0, 3)
+  const up = _FACTOR_ORDER.filter(k => basis[k] != null && basis[k] > (hasContributions ? 0 : 0.05))
+    .sort((a, b) => basis[b] - basis[a]).slice(0, 3)
     .map(k => (_FACTOR_META[k] && _FACTOR_META[k].ko) || k);
   const miss = missing.map(k => (_FACTOR_META[k] && _FACTOR_META[k].ko) || k);
-  const bits = [up.length ? `올린 관점 ${up.join(' · ')}` : '점수를 올린 관점 없음'];
+  const bits = [hasContributions
+    ? (up.length ? `점수를 올린 관점 ${up.join(' · ')}` : '점수를 올린 관점 없음')
+    : (up.length ? `값이 양수인 관점 ${up.join(' · ')} · 실제 기여 미확인` : '실제 점수 기여 미확인')];
   if (miss.length) bits.push(`빠진 관점 ${miss.join(' · ')}`);
   if (gates.length && (item.kind === 'HOLD' || item.gate_blocked)) {
     const name = gates.map(k => _GATE_SHORT[k] || k).filter((v, i, a) => a.indexOf(v) === i);
@@ -5408,16 +5413,20 @@ function renderFactors(item){
     const pos = v >= 0;
     const col = v > 0.05 ? 'var(--sig-buy)' : v < -0.05 ? 'var(--sig-sell)' : 'var(--dim-2)';
     const m = _FACTOR_META[k];
-    return `<div class="fct-row" title="${esc(m.desc)}">
+    const contribution = item.score_contributions && item.score_contributions[k];
+    const suppressed = (item.factor_suppressed || {})[k];
+    const applied = contribution == null ? '실제 점수 기여 미확인'
+      : `점수 기여 ${contribution > 0 ? '+' : ''}${fmtNum(contribution, 2)}`;
+    return `<div class="fct-row" title="${esc(m.desc + ' · ' + applied + (suppressed ? ' · ' + suppressed : ''))}">
       <span class="fct-label">${m.ko}</span>
       <span class="fct-track">
         <span class="fct-mid"></span>
         <span class="fct-fill" style="${pos ? 'left:50%' : 'right:50%'};width:${pct}%;background:${col}"></span>
       </span>
-      <span class="fct-val" style="color:${col}">${v > 0 ? '+' : ''}${fmtNum(v, 2)}</span>
+      <span class="fct-val" style="color:${suppressed ? 'var(--dim-2)' : col}">${suppressed ? '미반영' : (v > 0 ? '+' : '') + fmtNum(v, 2)}</span>
     </div>`;
   };
-  el.innerHTML = `<div class="fct-title"><span class="layer-badge sig">신호</span> 팩터 강약 <span style="color:var(--dim-2);font-weight:600">· 종합점수를 만든 요인별 방향·강도(−1~+1)</span></div>`
+  el.innerHTML = `<div class="fct-title"><span class="layer-badge sig">신호</span> 관점별 계산값 <span style="color:var(--dim-2);font-weight:600">· 원값 −1~+1, 실제 점수 기여와는 다릅니다</span></div>`
     + keys.map(bar).join('');
   setDetailHas('signal-factors', true);
 }

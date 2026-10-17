@@ -2692,6 +2692,9 @@ def _list_row_from_signal(r, *, name: str, sector: str | None, price, change_pct
         "signal_policy_id": getattr(r, "signal_policy_id", None),
         **_signal_price_fields(r),
         "factor_scores": factors,
+        "score_contributions": {k: finite_or_none(v) for k, v in
+                                (getattr(r, "score_contributions", None) or {}).items()},
+        "factor_suppressed": dict(getattr(r, "factor_suppressed", None) or {}),
         "event_risk": buy_blocked,
         "decision_buy_blocked": buy_blocked,
         "earnings_soon": bool(getattr(r, "earnings_soon", False)),

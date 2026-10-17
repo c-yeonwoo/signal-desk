@@ -177,6 +177,8 @@ class SignalResult:
     reasons: list[str] = field(default_factory=list)
     narrative: str = ""
     factor_scores: dict[str, float] = field(default_factory=dict)  # 팩터별 방향·강도 [-1,1] — 시각화용
+    score_contributions: dict[str, float] = field(default_factory=dict)  # 실제 분모·유효 가중치로 계산한 점수 기여
+    factor_suppressed: dict[str, str] = field(default_factory=dict)  # 양의 원값이 점수에 반영되지 않은 이유
 
     def __post_init__(self) -> None:
         # 테스트·수동 조립: decision 미지정 시 레거시 event_* 에서 복원
@@ -971,6 +973,20 @@ def evaluate(
             (sh_norm, sh_weight, sh_reasons),        # 공매도 거래비중(KR) — 하방 리스크 감점
         ]
         combined = combine(components, config)
+        # Raw factor values are not score contributions: zero-weight indicators
+        # and trend-suppressed positives must not be described as raising score.
+        names = ("technical", "fundamental", "valuation", "reversion",
+                 "flow", "quality", "momentum", "short")
+        denominator = sum(weight for _, weight, _ in components)
+        contributions = {key: (3 * norm * weight / denominator if denominator else 0.0)
+                         for key, (norm, weight, _) in zip(names, components)}
+        suppressed = {}
+        for key, (_, weight, _) in zip(names, components):
+            if factor_scores.get(key, 0) > 0 and weight == 0:
+                suppressed[key] = ("하락추세로 매수 기여 제외"
+                                   if key in ("valuation", "reversion")
+                                   and getattr(config, "weight_" + key) > 0
+                                   else "설정 가중치 0")
         # 커버리지는 `has_*` 플래그를 아는 여기서 센다 — `combine`은 컴포넌트 이름을 모른다.
         cov = data_coverage({"technical": True, "fundamental": fund.has_data,
                             "valuation": has_valuation, "reversion": has_reversion,
@@ -1010,6 +1026,8 @@ def evaluate(
             missing_factors=cov["missing"],
             reasons=combined["reasons"],
             factor_scores=factor_scores,
+            score_contributions=contributions,
+            factor_suppressed=suppressed,
         )
         results.append(result)
 

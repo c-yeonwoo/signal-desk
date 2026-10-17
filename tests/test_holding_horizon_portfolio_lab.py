@@ -42,6 +42,29 @@ def test_missing_exit_open_prevents_return_claim():
     assert "net_return_pct" not in result
 
 
+def test_risk_observed_at_close_executes_next_open_not_stop_price():
+    from signal_desk.signals.risk import RiskConfig
+    panel = _panel([{"005930": p} for p in (100, 100, 90, 80, 100, 100)])
+    candidates = {panel.sessions[0]: [{"ticker": "005930", "score": 1}]}
+    base = replay_portfolio(panel, candidates, start=panel.sessions[0], end=panel.sessions[0], horizon=4)
+    result = replay_portfolio(panel, candidates, start=panel.sessions[0], end=panel.sessions[0], horizon=4,
+                              risk_config=RiskConfig())
+    assert base["fills"][-1]["day"] == panel.sessions[5]
+    assert result["fills"][-1]["day"] == panel.sessions[3]
+    assert result["fills"][-1]["price"] == 80
+    assert result["risk_exits"] == {"STOP_LOSS": 1}
+    assert result["net_return_pct"] < base["net_return_pct"]  # rebound opportunity is not hidden
+
+
+def test_risk_exit_does_not_hide_a_missing_next_open():
+    from signal_desk.signals.risk import RiskConfig
+    panel = _panel([{"005930": p} for p in (100, 100, 90, 80, 100, 100)], zero_open={(3, "005930")})
+    result = replay_portfolio(panel, {panel.sessions[0]: [{"ticker": "005930", "score": 1}]},
+                              start=panel.sessions[0], end=panel.sessions[0], horizon=4,
+                              risk_config=RiskConfig())
+    assert result["state"] == "incomplete_exit_open" and "net_return_pct" not in result
+
+
 def test_same_day_close_does_not_determine_whether_open_order_fills():
     panel = _panel([{"005930": 100}] * 5)
     entry_day = panel.sessions[1]
@@ -75,6 +98,32 @@ def test_cash_and_slots_are_not_exceeded():
     assert result["buy_fills"] == 6
     assert result["skips"]["full_slots"] == 4
     assert result["cash_end"] < 10_000_000
+
+
+def test_reviewed_cancellation_changes_issuer_count_not_holder_quantity():
+    import datetime as dt
+    from dataclasses import replace
+    from signal_desk.signals.research_action_coverage import ReviewedShareCountChange
+    panel = _panel([{"005930": 100}] * 5)
+    days = panel.sessions
+    shares = {(day, "005930"): 1000 if day < days[2] else 900 for day in days}
+    fact = ReviewedShareCountChange(
+        ticker="005930", security_id="KR7005930003", share_class="ordinary_common",
+        kind="treasury_cancellation", effective_on=days[1], listing_session=days[2],
+        previous_session=days[1], listed_shares_before=1000, listed_shares_after=900,
+        source_url="https://kind.krx.co.kr/external/synthetic-test", source_sha256="a" * 64,
+        source_filing_date=days[1], source_observed_at=dt.datetime(2024, 2, 1, tzinfo=dt.timezone.utc),
+        source_span="synthetic cancellation")
+    kwargs = dict(start=days[0], end=days[0], horizon=2, share_counts=shares)
+    candidates = {days[0]: [{"ticker": "005930", "score": 1}]}
+    result = replay_portfolio(panel, candidates, **kwargs, reviewed_share_changes={(days[2], "005930"): fact})
+    assert result["state"] == "complete"
+    assert result["fills"][0]["shares"] == result["fills"][-1]["shares"]
+    assert result["action_coverage"] == "partial" and result["verified_total_return"] is False
+    assert len(result["applied_reviewed_share_facts"]) == 1
+    wrong = replace(fact, listed_shares_after=899)
+    blocked = replay_portfolio(panel, candidates, **kwargs, reviewed_share_changes={(days[2], "005930"): wrong})
+    assert blocked["state"] == "incomplete_share_history" and "net_return_pct" not in blocked
 
 
 def test_first_buy_requires_contiguous_prior_nonbuy_and_protected_dates_rejected():

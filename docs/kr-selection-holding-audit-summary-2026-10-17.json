@@ -1,0 +1,3734 @@
+{
+  "schema": "kr-selection-holding-audit-summary-v1",
+  "market": "kr",
+  "registered_verdict": false,
+  "strict_pit_eligible": false,
+  "live_order_eligible": false,
+  "adoption": "not_adopted_development_only",
+  "sources": [
+    {
+      "archive": "krx-daily-2023-q1-v1.zip",
+      "sha256": "e9bfadf172c80a91f1eca853037350db007f28d9b850f1b00d9774646ab1a8d0",
+      "sessions": 62
+    },
+    {
+      "archive": "krx-daily-2023-q2-v1.zip",
+      "sha256": "a6f83ef305e8c5d7f277444af69af3030224633cd0c70da58096906909eb30e7",
+      "sessions": 61
+    },
+    {
+      "archive": "krx-daily-2023-q3-v1.zip",
+      "sha256": "bc708b3ce35d2c28542f1b8c6423e3c771b5ea81b534e85c23dc506ae357788d",
+      "sessions": 62
+    },
+    {
+      "archive": "krx-daily-2023-q4-v1.zip",
+      "sha256": "d0fdfdef45ccf488833f2b63a97d5503a4297f53a4918b3c5ab641adc852d5b1",
+      "sessions": 60
+    },
+    {
+      "archive": "krx-daily-2024-q1-v1.zip",
+      "sha256": "f579892c94e216cde45eeaef9135d65ce9964fc878464cdf19af489dca473de3",
+      "sessions": 61
+    },
+    {
+      "archive": "krx-daily-2024-q2-v1.zip",
+      "sha256": "ee7d94c0524165a07c4907e5ccf967632d2071e26329c29938b69f2f9173b4df",
+      "sessions": 60
+    },
+    {
+      "archive": "krx-daily-2024-q3-v1.zip",
+      "sha256": "894466cf70e9ef64bcc7caedeeb3d24c498755f3d4cd13ecc86df9432e7cbf9e",
+      "sessions": 62
+    },
+    {
+      "archive": "krx-daily-2024-10-12-v1.zip",
+      "sha256": "e48e8e8601ab7c9de23b5de6f9b331cff6784600b0e3694e8cf4d6a4b69afd02",
+      "sessions": 61
+    },
+    {
+      "archive": "krx-daily-2025-01-04-v1.zip",
+      "sha256": "0f8ba69f3d8cecc3cd3a85e59925dc76920380cf1b565bfb96d6f1ab823cf419",
+      "sessions": 80
+    },
+    {
+      "archive": "krx-daily-2025-05-08-v1.zip",
+      "sha256": "57dd14660cdf87b2ff1cf1f454b6c79f41e6654b6a83ad4d1bc75f77563557da",
+      "sessions": 81
+    },
+    {
+      "archive": "krx-daily-2025-09-12-v1.zip",
+      "sha256": "e21a3df2065aa43853b827a3f72281d59bcad5d22b28d7a6066658bbd6a77f01",
+      "sessions": 81
+    },
+    {
+      "archive": "krx-daily-2026-01-05-v1.zip",
+      "sha256": "cc413764abe56573d93c1bf8fce62b38deaceb45b0f354bd914afc1bd7603ef6",
+      "sessions": 99
+    },
+    {
+      "archive": "krx-daily-2026-06-07-v1.zip",
+      "sha256": "ce595d2bf8b7b43dbe3266fdb19615987b8945e517ccaba500db46c76a31c15d",
+      "sessions": 43
+    }
+  ],
+  "plan_sha256": "ff5cd4ff8bb137bf1129e56ee413c1ae374bf7c6684e9580b1bcf67c3fbe4687",
+  "code_sha256": {
+    "scripts/measure/kr_selection_holding_audit.py": "2b3b3bdcf02a3fddd58f6d64aabbf66c7d28f3696503675f5d1061a286f6dbd5",
+    "scripts/measure/holding_horizon_portfolio_lab.py": "e983c0be4e7059d3a516463e31487c5ed683cde6d2be951867312d49943c1c13",
+    "scripts/measure/research_reviewed_share_changes.py": "794e2e2cb1ff5a16ad07f3b8971f753cd7100b6728ace5024f5e58804e0651ec",
+    "src/signal_desk/signals/engine.py": "1d5ecfd102d5dc89c3635e91da0a45bc3ac772d89612cbc5deaf6288fa569447",
+    "src/signal_desk/signals/risk.py": "225f00c52096a9c9a3f91e0578d550022675d2629463d49bd0517c24ef06223d"
+  },
+  "limits": [
+    "Previously inspected development data, not independent OOS",
+    "Price-only selection is not the production eight-factor engine",
+    "Repeated labels and horizons overlap; row means are not account returns",
+    "Close-observed risk executes next open, not intraday stop-limit fills",
+    "Share discontinuity blocks return; unchanged shares do not verify all actions/dividends",
+    "Costs are assumptions, not historical account costs"
+  ],
+  "reviewed_share_sources": {
+    "source_queue_sha256": "1d1b75dca321215ac0be4dbb4a076dff1d533bc5d87168efb3933246cc9541f4",
+    "archives_sha256": {
+      "kind-final-held-change-2026-10-12-v1.zip": "4ee0bb01484224b74b97432fe8b1a47b2dd976a59f9f67795b07155c72fbfb79",
+      "kind-held-change-followup-2026-10-12-v1.zip": "29c95e11e733a5cb67e76eca505e16b38cfb0077959c315f04700b6cb6f9a2ba",
+      "kind-held-change-review-2026-10-12-v1.zip": "e343d6a41f869f1a23fc51f51759439255ff1ae568f10d3c92adc0e6540d0f2e",
+      "kind-sksquare-change-2026-10-12-v1.zip": "d4a91cb60d52f9493446b76db5a1650bab5fab0deeac1c5cd43c5eb38561d5c1"
+    },
+    "distinct_issuer_sessions": 7,
+    "coverage_state": "partial"
+  },
+  "full_report_path": "data/research/kr-selection-holding-audit-2026-10-17-v3.json",
+  "full_report_sha256": "8b98fbf085b9b610ffe23afaf5ba84faa0da1d6de223ec42021c8eba923705f6",
+  "counts": {
+    "decision_days": 293,
+    "top200_candidate_slots": 58600,
+    "unscored_candidate_slots": 1683,
+    "days_highest_h5_name_not_buy": 289,
+    "scored_ticker_days": 56917,
+    "buy_label_days": 1574,
+    "buy_recent_down_midterm_up": 491,
+    "buy_downtrend_gate_relaxed": 6,
+    "buy_h5_negative": 758,
+    "buy_h5_below_same_day_cohort": 795,
+    "h5_ge3_label_days": 15526,
+    "h5_ge3_not_buy_label_days": 14986
+  },
+  "h5_matured_label_counts": {
+    "all": 56756,
+    "all_negative": 30258,
+    "buy": 1572,
+    "buy_negative": 758
+  },
+  "unique_scored_tickers": 256,
+  "unique_major_tickers": 33,
+  "windows": {
+    "2024-apr-may": {
+      "counts": {
+        "decision_days": 41,
+        "top200_candidate_slots": 8200,
+        "unscored_candidate_slots": 263,
+        "days_highest_h5_name_not_buy": 41,
+        "scored_ticker_days": 7937,
+        "buy_label_days": 232,
+        "buy_recent_down_midterm_up": 115,
+        "buy_downtrend_gate_relaxed": 0,
+        "buy_h5_negative": 110,
+        "buy_h5_below_same_day_cohort": 112,
+        "h5_ge3_label_days": 1757,
+        "h5_ge3_not_buy_label_days": 1682
+      },
+      "unique_scored_tickers": 199,
+      "missing_outcomes": {},
+      "label_day_mean_net_pct": {
+        "nonbuy": 0.07773,
+        "buy": 0.51339,
+        "buy_conflict": 1.6458,
+        "buy_no_conflict": -0.59966
+      },
+      "major_tickers_frozen_at_first_decision": [
+        {
+          "ticker": "005930",
+          "name": "삼성전자",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -1.61203,
+          "h5_all_label_mean_net_pct": -1.61203
+        },
+        {
+          "ticker": "000660",
+          "name": "SK하이닉스",
+          "scored_days": 41,
+          "buy_label_days": 41,
+          "h5_buy_matured_labels": 41,
+          "h5_buy_mean_net_pct": 0.41441,
+          "h5_nonbuy_matured_labels": 0,
+          "h5_nonbuy_mean_net_pct": null,
+          "h5_all_label_mean_net_pct": 0.41441
+        },
+        {
+          "ticker": "373220",
+          "name": "LG에너지솔루션",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -1.40129,
+          "h5_all_label_mean_net_pct": -1.40129
+        },
+        {
+          "ticker": "207940",
+          "name": "삼성바이오로직스",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -1.26895,
+          "h5_all_label_mean_net_pct": -1.26895
+        },
+        {
+          "ticker": "005380",
+          "name": "현대차",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": 1.92685,
+          "h5_all_label_mean_net_pct": 1.92685
+        },
+        {
+          "ticker": "000270",
+          "name": "기아",
+          "scored_days": 41,
+          "buy_label_days": 12,
+          "h5_buy_matured_labels": 12,
+          "h5_buy_mean_net_pct": 3.28755,
+          "h5_nonbuy_matured_labels": 29,
+          "h5_nonbuy_mean_net_pct": 0.61121,
+          "h5_all_label_mean_net_pct": 1.39453
+        },
+        {
+          "ticker": "068270",
+          "name": "셀트리온",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": 0.20138,
+          "h5_all_label_mean_net_pct": 0.20138
+        },
+        {
+          "ticker": "005490",
+          "name": "POSCO홀딩스",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -0.94148,
+          "h5_all_label_mean_net_pct": -0.94148
+        },
+        {
+          "ticker": "035420",
+          "name": "NAVER",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -1.43279,
+          "h5_all_label_mean_net_pct": -1.43279
+        },
+        {
+          "ticker": "006400",
+          "name": "삼성SDI",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -1.58146,
+          "h5_all_label_mean_net_pct": -1.58146
+        },
+        {
+          "ticker": "051910",
+          "name": "LG화학",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -1.38982,
+          "h5_all_label_mean_net_pct": -1.38982
+        },
+        {
+          "ticker": "028260",
+          "name": "삼성물산",
+          "scored_days": 41,
+          "buy_label_days": 9,
+          "h5_buy_matured_labels": 9,
+          "h5_buy_mean_net_pct": -2.85312,
+          "h5_nonbuy_matured_labels": 32,
+          "h5_nonbuy_mean_net_pct": -0.99704,
+          "h5_all_label_mean_net_pct": -1.40447
+        },
+        {
+          "ticker": "105560",
+          "name": "KB금융",
+          "scored_days": 41,
+          "buy_label_days": 12,
+          "h5_buy_matured_labels": 12,
+          "h5_buy_mean_net_pct": 4.91095,
+          "h5_nonbuy_matured_labels": 29,
+          "h5_nonbuy_mean_net_pct": 0.71103,
+          "h5_all_label_mean_net_pct": 1.94027
+        },
+        {
+          "ticker": "035720",
+          "name": "카카오",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -1.82447,
+          "h5_all_label_mean_net_pct": -1.82447
+        },
+        {
+          "ticker": "012330",
+          "name": "현대모비스",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -1.26789,
+          "h5_all_label_mean_net_pct": -1.26789
+        },
+        {
+          "ticker": "055550",
+          "name": "신한지주",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": 0.31971,
+          "h5_all_label_mean_net_pct": 0.31971
+        },
+        {
+          "ticker": "003670",
+          "name": "포스코퓨처엠",
+          "scored_days": 41,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -0.46035,
+          "h5_all_label_mean_net_pct": -0.46035
+        },
+        {
+          "ticker": "032830",
+          "name": "삼성생명",
+          "scored_days": 41,
+          "buy_label_days": 10,
+          "h5_buy_matured_labels": 10,
+          "h5_buy_mean_net_pct": -5.04703,
+          "h5_nonbuy_matured_labels": 31,
+          "h5_nonbuy_mean_net_pct": 0.05607,
+          "h5_all_label_mean_net_pct": -1.18859
+        },
+        {
+          "ticker": "138040",
+          "name": "메리츠금융지주",
+          "scored_days": 41,
+          "buy_label_days": 31,
+          "h5_buy_matured_labels": 31,
+          "h5_buy_mean_net_pct": -1.25016,
+          "h5_nonbuy_matured_labels": 10,
+          "h5_nonbuy_mean_net_pct": -0.39022,
+          "h5_all_label_mean_net_pct": -1.04042
+        },
+        {
+          "ticker": "086790",
+          "name": "하나금융지주",
+          "scored_days": 41,
+          "buy_label_days": 8,
+          "h5_buy_matured_labels": 8,
+          "h5_buy_mean_net_pct": 5.34501,
+          "h5_nonbuy_matured_labels": 33,
+          "h5_nonbuy_mean_net_pct": -0.31899,
+          "h5_all_label_mean_net_pct": 0.78618
+        }
+      ],
+      "holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.6362,
+            "max_drawdown_pct": -1.5472,
+            "buy_fills": 1
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.2264,
+            "max_drawdown_pct": -1.2833,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.5747,
+            "max_drawdown_pct": -1.4079,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.6362,
+            "max_drawdown_pct": -1.5472,
+            "buy_fills": 1,
+            "risk_exits": {}
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.5585,
+            "max_drawdown_pct": -1.5478,
+            "buy_fills": 1
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.0791,
+            "max_drawdown_pct": -1.3548,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.4241,
+            "max_drawdown_pct": -1.4792,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.5585,
+            "max_drawdown_pct": -1.5478,
+            "buy_fills": 1,
+            "risk_exits": {}
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.4886,
+            "max_drawdown_pct": -1.5483,
+            "buy_fills": 1
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.5927,
+            "max_drawdown_pct": -1.4193,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.2885,
+            "max_drawdown_pct": -1.5434,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.4886,
+            "max_drawdown_pct": -1.5483,
+            "buy_fills": 1,
+            "risk_exits": {}
+          }
+        }
+      },
+      "reviewed_fact_holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.6362,
+            "max_drawdown_pct": -1.5472,
+            "buy_fills": 1,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.2264,
+            "max_drawdown_pct": -1.2833,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.5747,
+            "max_drawdown_pct": -1.4079,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.6362,
+            "max_drawdown_pct": -1.5472,
+            "buy_fills": 1,
+            "risk_exits": {},
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.5585,
+            "max_drawdown_pct": -1.5478,
+            "buy_fills": 1,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.0791,
+            "max_drawdown_pct": -1.3548,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.4241,
+            "max_drawdown_pct": -1.4792,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.5585,
+            "max_drawdown_pct": -1.5478,
+            "buy_fills": 1,
+            "risk_exits": {},
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.4886,
+            "max_drawdown_pct": -1.5483,
+            "buy_fills": 1,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.5927,
+            "max_drawdown_pct": -1.4193,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.2885,
+            "max_drawdown_pct": -1.5434,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TAKE_PROFIT": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.4886,
+            "max_drawdown_pct": -1.5483,
+            "buy_fills": 1,
+            "risk_exits": {},
+            "applied_reviewed_share_facts": []
+          }
+        }
+      }
+    },
+    "2024-jun-jul": {
+      "counts": {
+        "decision_days": 42,
+        "top200_candidate_slots": 8400,
+        "unscored_candidate_slots": 304,
+        "days_highest_h5_name_not_buy": 42,
+        "scored_ticker_days": 8096,
+        "buy_label_days": 232,
+        "buy_recent_down_midterm_up": 52,
+        "buy_downtrend_gate_relaxed": 0,
+        "h5_ge3_label_days": 1667,
+        "h5_ge3_not_buy_label_days": 1603,
+        "buy_h5_negative": 127,
+        "buy_h5_below_same_day_cohort": 117
+      },
+      "unique_scored_tickers": 204,
+      "missing_outcomes": {
+        "20:price_gap": 7,
+        "1:missing_entry_open": 43,
+        "5:missing_entry_open": 43,
+        "20:missing_entry_open": 43
+      },
+      "label_day_mean_net_pct": {
+        "nonbuy": -0.82304,
+        "buy": -0.35104,
+        "buy_no_conflict": -0.02708,
+        "buy_conflict": -1.47243
+      },
+      "major_tickers_frozen_at_first_decision": [
+        {
+          "ticker": "005930",
+          "name": "삼성전자",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -0.32844,
+          "h5_all_label_mean_net_pct": -0.32844
+        },
+        {
+          "ticker": "000660",
+          "name": "SK하이닉스",
+          "scored_days": 42,
+          "buy_label_days": 36,
+          "h5_buy_matured_labels": 36,
+          "h5_buy_mean_net_pct": -0.95537,
+          "h5_nonbuy_matured_labels": 6,
+          "h5_nonbuy_mean_net_pct": -4.07468,
+          "h5_all_label_mean_net_pct": -1.40098
+        },
+        {
+          "ticker": "373220",
+          "name": "LG에너지솔루션",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -0.82071,
+          "h5_all_label_mean_net_pct": -0.82071
+        },
+        {
+          "ticker": "005380",
+          "name": "현대차",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -1.40145,
+          "h5_all_label_mean_net_pct": -1.40145
+        },
+        {
+          "ticker": "207940",
+          "name": "삼성바이오로직스",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": 2.30072,
+          "h5_all_label_mean_net_pct": 2.30072
+        },
+        {
+          "ticker": "000270",
+          "name": "기아",
+          "scored_days": 42,
+          "buy_label_days": 2,
+          "h5_buy_matured_labels": 2,
+          "h5_buy_mean_net_pct": -4.17685,
+          "h5_nonbuy_matured_labels": 40,
+          "h5_nonbuy_mean_net_pct": -1.96145,
+          "h5_all_label_mean_net_pct": -2.06694
+        },
+        {
+          "ticker": "068270",
+          "name": "셀트리온",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -0.05203,
+          "h5_all_label_mean_net_pct": -0.05203
+        },
+        {
+          "ticker": "105560",
+          "name": "KB금융",
+          "scored_days": 42,
+          "buy_label_days": 40,
+          "h5_buy_matured_labels": 40,
+          "h5_buy_mean_net_pct": 0.20339,
+          "h5_nonbuy_matured_labels": 2,
+          "h5_nonbuy_mean_net_pct": 2.0473,
+          "h5_all_label_mean_net_pct": 0.2912
+        },
+        {
+          "ticker": "005490",
+          "name": "POSCO홀딩스",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -1.52817,
+          "h5_all_label_mean_net_pct": -1.52817
+        },
+        {
+          "ticker": "035420",
+          "name": "NAVER",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -0.86685,
+          "h5_all_label_mean_net_pct": -0.86685
+        },
+        {
+          "ticker": "006400",
+          "name": "삼성SDI",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -2.3533,
+          "h5_all_label_mean_net_pct": -2.3533
+        },
+        {
+          "ticker": "051910",
+          "name": "LG화학",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -2.80491,
+          "h5_all_label_mean_net_pct": -2.80491
+        },
+        {
+          "ticker": "028260",
+          "name": "삼성물산",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": 0.3703,
+          "h5_all_label_mean_net_pct": 0.3703
+        },
+        {
+          "ticker": "055550",
+          "name": "신한지주",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": 2.21245,
+          "h5_all_label_mean_net_pct": 2.21245
+        },
+        {
+          "ticker": "012330",
+          "name": "현대모비스",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -0.55185,
+          "h5_all_label_mean_net_pct": -0.55185
+        },
+        {
+          "ticker": "003670",
+          "name": "포스코퓨처엠",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -2.77728,
+          "h5_all_label_mean_net_pct": -2.77728
+        },
+        {
+          "ticker": "035720",
+          "name": "카카오",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": -1.66304,
+          "h5_all_label_mean_net_pct": -1.66304
+        },
+        {
+          "ticker": "086790",
+          "name": "하나금융지주",
+          "scored_days": 42,
+          "buy_label_days": 27,
+          "h5_buy_matured_labels": 27,
+          "h5_buy_mean_net_pct": -0.21016,
+          "h5_nonbuy_matured_labels": 15,
+          "h5_nonbuy_mean_net_pct": -0.28862,
+          "h5_all_label_mean_net_pct": -0.23818
+        },
+        {
+          "ticker": "032830",
+          "name": "삼성생명",
+          "scored_days": 42,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 42,
+          "h5_nonbuy_mean_net_pct": 0.36736,
+          "h5_all_label_mean_net_pct": 0.36736
+        },
+        {
+          "ticker": "000810",
+          "name": "삼성화재",
+          "scored_days": 42,
+          "buy_label_days": 23,
+          "h5_buy_matured_labels": 23,
+          "h5_buy_mean_net_pct": 0.33233,
+          "h5_nonbuy_matured_labels": 19,
+          "h5_nonbuy_mean_net_pct": -0.30616,
+          "h5_all_label_mean_net_pct": 0.04349
+        }
+      ],
+      "holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -4.3935,
+            "max_drawdown_pct": -8.4403,
+            "buy_fills": 5
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -3.9932,
+            "max_drawdown_pct": -6.8673,
+            "buy_fills": 8,
+            "risk_exits": {
+              "TRAILING": 3,
+              "STOP_LOSS": 5
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.6304,
+            "max_drawdown_pct": -8.501,
+            "buy_fills": 6,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 4
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.0806,
+            "max_drawdown_pct": -8.6514,
+            "buy_fills": 5,
+            "risk_exits": {
+              "STOP_LOSS": 3
+            }
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -4.7605,
+            "max_drawdown_pct": -8.6304,
+            "buy_fills": 5
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -4.5151,
+            "max_drawdown_pct": -7.1763,
+            "buy_fills": 8,
+            "risk_exits": {
+              "TRAILING": 3,
+              "STOP_LOSS": 5
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -6.5844,
+            "max_drawdown_pct": -9.2994,
+            "buy_fills": 6,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 5
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.4459,
+            "max_drawdown_pct": -8.8411,
+            "buy_fills": 5,
+            "risk_exits": {
+              "STOP_LOSS": 3
+            }
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.0907,
+            "max_drawdown_pct": -8.8018,
+            "buy_fills": 5
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.0431,
+            "max_drawdown_pct": -7.5127,
+            "buy_fills": 8,
+            "risk_exits": {
+              "TRAILING": 3,
+              "STOP_LOSS": 5
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -6.7673,
+            "max_drawdown_pct": -9.3572,
+            "buy_fills": 7,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 6
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.544,
+            "max_drawdown_pct": -8.1582,
+            "buy_fills": 5,
+            "risk_exits": {
+              "STOP_LOSS": 3
+            }
+          }
+        }
+      },
+      "reviewed_fact_holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -4.3935,
+            "max_drawdown_pct": -8.4403,
+            "buy_fills": 5,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -3.9932,
+            "max_drawdown_pct": -6.8673,
+            "buy_fills": 8,
+            "risk_exits": {
+              "TRAILING": 3,
+              "STOP_LOSS": 5
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.6304,
+            "max_drawdown_pct": -8.501,
+            "buy_fills": 6,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 4
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.0806,
+            "max_drawdown_pct": -8.6514,
+            "buy_fills": 5,
+            "risk_exits": {
+              "STOP_LOSS": 3
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -4.7605,
+            "max_drawdown_pct": -8.6304,
+            "buy_fills": 5,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -4.5151,
+            "max_drawdown_pct": -7.1763,
+            "buy_fills": 8,
+            "risk_exits": {
+              "TRAILING": 3,
+              "STOP_LOSS": 5
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -6.5844,
+            "max_drawdown_pct": -9.2994,
+            "buy_fills": 6,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 5
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.4459,
+            "max_drawdown_pct": -8.8411,
+            "buy_fills": 5,
+            "risk_exits": {
+              "STOP_LOSS": 3
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.0907,
+            "max_drawdown_pct": -8.8018,
+            "buy_fills": 5,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.0431,
+            "max_drawdown_pct": -7.5127,
+            "buy_fills": 8,
+            "risk_exits": {
+              "TRAILING": 3,
+              "STOP_LOSS": 5
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -6.7673,
+            "max_drawdown_pct": -9.3572,
+            "buy_fills": 7,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 6
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 9,
+            "net_return_pct": -5.544,
+            "max_drawdown_pct": -8.1582,
+            "buy_fills": 5,
+            "risk_exits": {
+              "STOP_LOSS": 3
+            },
+            "applied_reviewed_share_facts": []
+          }
+        }
+      }
+    },
+    "2024-aug-sep": {
+      "counts": {
+        "decision_days": 39,
+        "top200_candidate_slots": 7800,
+        "unscored_candidate_slots": 341,
+        "days_highest_h5_name_not_buy": 39,
+        "scored_ticker_days": 7459,
+        "buy_label_days": 194,
+        "buy_recent_down_midterm_up": 102,
+        "buy_downtrend_gate_relaxed": 0,
+        "buy_h5_negative": 103,
+        "buy_h5_below_same_day_cohort": 94,
+        "h5_ge3_label_days": 1946,
+        "h5_ge3_not_buy_label_days": 1889
+      },
+      "unique_scored_tickers": 204,
+      "missing_outcomes": {
+        "1:missing_entry_open": 60,
+        "5:missing_entry_open": 60,
+        "20:missing_entry_open": 60
+      },
+      "label_day_mean_net_pct": {
+        "nonbuy": 0.15238,
+        "buy": -0.07255,
+        "buy_conflict": 0.19701,
+        "buy_no_conflict": -0.37804
+      },
+      "major_tickers_frozen_at_first_decision": [
+        {
+          "ticker": "005930",
+          "name": "삼성전자",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": -2.99191,
+          "h5_all_label_mean_net_pct": -2.99191
+        },
+        {
+          "ticker": "000660",
+          "name": "SK하이닉스",
+          "scored_days": 39,
+          "buy_label_days": 10,
+          "h5_buy_matured_labels": 10,
+          "h5_buy_mean_net_pct": -6.94306,
+          "h5_nonbuy_matured_labels": 29,
+          "h5_nonbuy_mean_net_pct": 3.18639,
+          "h5_all_label_mean_net_pct": 0.5891
+        },
+        {
+          "ticker": "373220",
+          "name": "LG에너지솔루션",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": 2.6389,
+          "h5_all_label_mean_net_pct": 2.6389
+        },
+        {
+          "ticker": "207940",
+          "name": "삼성바이오로직스",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": 0.65706,
+          "h5_all_label_mean_net_pct": 0.65706
+        },
+        {
+          "ticker": "005380",
+          "name": "현대차",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": -0.0199,
+          "h5_all_label_mean_net_pct": -0.0199
+        },
+        {
+          "ticker": "000270",
+          "name": "기아",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": -0.78854,
+          "h5_all_label_mean_net_pct": -0.78854
+        },
+        {
+          "ticker": "068270",
+          "name": "셀트리온",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": -0.16785,
+          "h5_all_label_mean_net_pct": -0.16785
+        },
+        {
+          "ticker": "105560",
+          "name": "KB금융",
+          "scored_days": 39,
+          "buy_label_days": 33,
+          "h5_buy_matured_labels": 33,
+          "h5_buy_mean_net_pct": -0.16458,
+          "h5_nonbuy_matured_labels": 6,
+          "h5_nonbuy_mean_net_pct": 2.50555,
+          "h5_all_label_mean_net_pct": 0.24621
+        },
+        {
+          "ticker": "055550",
+          "name": "신한지주",
+          "scored_days": 39,
+          "buy_label_days": 32,
+          "h5_buy_matured_labels": 32,
+          "h5_buy_mean_net_pct": -1.00937,
+          "h5_nonbuy_matured_labels": 7,
+          "h5_nonbuy_mean_net_pct": 3.51806,
+          "h5_all_label_mean_net_pct": -0.19675
+        },
+        {
+          "ticker": "005490",
+          "name": "POSCO홀딩스",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": 1.24323,
+          "h5_all_label_mean_net_pct": 1.24323
+        },
+        {
+          "ticker": "035420",
+          "name": "NAVER",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": -0.00039,
+          "h5_all_label_mean_net_pct": -0.00039
+        },
+        {
+          "ticker": "028260",
+          "name": "삼성물산",
+          "scored_days": 39,
+          "buy_label_days": 2,
+          "h5_buy_matured_labels": 2,
+          "h5_buy_mean_net_pct": -0.26265,
+          "h5_nonbuy_matured_labels": 37,
+          "h5_nonbuy_mean_net_pct": -1.07599,
+          "h5_all_label_mean_net_pct": -1.03428
+        },
+        {
+          "ticker": "006400",
+          "name": "삼성SDI",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": 1.51472,
+          "h5_all_label_mean_net_pct": 1.51472
+        },
+        {
+          "ticker": "051910",
+          "name": "LG화학",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": 1.91825,
+          "h5_all_label_mean_net_pct": 1.91825
+        },
+        {
+          "ticker": "012330",
+          "name": "현대모비스",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": -0.17331,
+          "h5_all_label_mean_net_pct": -0.17331
+        },
+        {
+          "ticker": "329180",
+          "name": "HD현대중공업",
+          "scored_days": 39,
+          "buy_label_days": 20,
+          "h5_buy_matured_labels": 20,
+          "h5_buy_mean_net_pct": -0.62325,
+          "h5_nonbuy_matured_labels": 19,
+          "h5_nonbuy_mean_net_pct": -2.53718,
+          "h5_all_label_mean_net_pct": -1.55568
+        },
+        {
+          "ticker": "086790",
+          "name": "하나금융지주",
+          "scored_days": 39,
+          "buy_label_days": 32,
+          "h5_buy_matured_labels": 32,
+          "h5_buy_mean_net_pct": 0.05205,
+          "h5_nonbuy_matured_labels": 7,
+          "h5_nonbuy_mean_net_pct": -0.72529,
+          "h5_all_label_mean_net_pct": -0.08747
+        },
+        {
+          "ticker": "032830",
+          "name": "삼성생명",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": 0.60053,
+          "h5_all_label_mean_net_pct": 0.60053
+        },
+        {
+          "ticker": "000810",
+          "name": "삼성화재",
+          "scored_days": 39,
+          "buy_label_days": 7,
+          "h5_buy_matured_labels": 7,
+          "h5_buy_mean_net_pct": -0.53276,
+          "h5_nonbuy_matured_labels": 32,
+          "h5_nonbuy_mean_net_pct": -0.86857,
+          "h5_all_label_mean_net_pct": -0.8083
+        },
+        {
+          "ticker": "035720",
+          "name": "카카오",
+          "scored_days": 39,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": -0.90808,
+          "h5_all_label_mean_net_pct": -0.90808
+        }
+      ],
+      "holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.8296,
+            "max_drawdown_pct": -3.6286,
+            "buy_fills": 4
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.5519,
+            "max_drawdown_pct": -2.5495,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 2,
+              "TAKE_PROFIT": 1
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.4868,
+            "max_drawdown_pct": -2.5495,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 2,
+              "STOP_LOSS": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.7864,
+            "max_drawdown_pct": -2.6199,
+            "buy_fills": 4,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            }
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.5207,
+            "max_drawdown_pct": -3.7451,
+            "buy_fills": 4
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.2438,
+            "max_drawdown_pct": -2.7,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 2,
+              "TAKE_PROFIT": 1
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.1762,
+            "max_drawdown_pct": -2.7,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 2,
+              "STOP_LOSS": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.4751,
+            "max_drawdown_pct": -2.6954,
+            "buy_fills": 4,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            }
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.2427,
+            "max_drawdown_pct": -3.8501,
+            "buy_fills": 4
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": -2.7651,
+            "max_drawdown_pct": -3.7911,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 3
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.9564,
+            "max_drawdown_pct": -2.7764,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 2,
+              "STOP_LOSS": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.195,
+            "max_drawdown_pct": -2.7634,
+            "buy_fills": 4,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            }
+          }
+        }
+      },
+      "reviewed_fact_holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.8296,
+            "max_drawdown_pct": -3.6286,
+            "buy_fills": 4,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.5519,
+            "max_drawdown_pct": -2.5495,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 2,
+              "TAKE_PROFIT": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.4868,
+            "max_drawdown_pct": -2.5495,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 2,
+              "STOP_LOSS": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.7864,
+            "max_drawdown_pct": -2.6199,
+            "buy_fills": 4,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.5207,
+            "max_drawdown_pct": -3.7451,
+            "buy_fills": 4,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.2438,
+            "max_drawdown_pct": -2.7,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 2,
+              "TAKE_PROFIT": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.1762,
+            "max_drawdown_pct": -2.7,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 2,
+              "STOP_LOSS": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.4751,
+            "max_drawdown_pct": -2.6954,
+            "buy_fills": 4,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.2427,
+            "max_drawdown_pct": -3.8501,
+            "buy_fills": 4,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": -2.7651,
+            "max_drawdown_pct": -3.7911,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 3
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 0.9564,
+            "max_drawdown_pct": -2.7764,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 2,
+              "STOP_LOSS": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 6,
+            "net_return_pct": 1.195,
+            "max_drawdown_pct": -2.7634,
+            "buy_fills": 4,
+            "risk_exits": {
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        }
+      }
+    },
+    "2025q4-v5": {
+      "counts": {
+        "decision_days": 51,
+        "top200_candidate_slots": 10200,
+        "unscored_candidate_slots": 267,
+        "days_highest_h5_name_not_buy": 50,
+        "scored_ticker_days": 9933,
+        "buy_label_days": 273,
+        "buy_recent_down_midterm_up": 89,
+        "buy_downtrend_gate_relaxed": 0,
+        "h5_ge3_label_days": 2363,
+        "h5_ge3_not_buy_label_days": 2282,
+        "buy_h5_negative": 139,
+        "buy_h5_below_same_day_cohort": 154
+      },
+      "unique_scored_tickers": 207,
+      "missing_outcomes": {
+        "1:missing_entry_open": 33,
+        "5:missing_entry_open": 33,
+        "20:missing_entry_open": 33,
+        "20:price_gap": 8
+      },
+      "label_day_mean_net_pct": {
+        "nonbuy": -0.00152,
+        "buy": 0.1539,
+        "buy_no_conflict": 0.65611,
+        "buy_conflict": -0.88437
+      },
+      "major_tickers_frozen_at_first_decision": [
+        {
+          "ticker": "005930",
+          "name": "삼성전자",
+          "scored_days": 51,
+          "buy_label_days": 37,
+          "h5_buy_matured_labels": 37,
+          "h5_buy_mean_net_pct": 3.54384,
+          "h5_nonbuy_matured_labels": 14,
+          "h5_nonbuy_mean_net_pct": 1.17266,
+          "h5_all_label_mean_net_pct": 2.89293
+        },
+        {
+          "ticker": "000660",
+          "name": "SK하이닉스",
+          "scored_days": 51,
+          "buy_label_days": 36,
+          "h5_buy_matured_labels": 36,
+          "h5_buy_mean_net_pct": 2.92079,
+          "h5_nonbuy_matured_labels": 15,
+          "h5_nonbuy_mean_net_pct": 6.39329,
+          "h5_all_label_mean_net_pct": 3.94211
+        },
+        {
+          "ticker": "373220",
+          "name": "LG에너지솔루션",
+          "scored_days": 51,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 51,
+          "h5_nonbuy_mean_net_pct": -2.19185,
+          "h5_all_label_mean_net_pct": -2.19185
+        },
+        {
+          "ticker": "207940",
+          "name": "삼성바이오로직스",
+          "scored_days": 51,
+          "buy_label_days": 5,
+          "h5_buy_matured_labels": 5,
+          "h5_buy_mean_net_pct": 3.09586,
+          "h5_nonbuy_matured_labels": 29,
+          "h5_nonbuy_mean_net_pct": 0.09372,
+          "h5_all_label_mean_net_pct": 0.53521
+        },
+        {
+          "ticker": "034020",
+          "name": "두산에너빌리티",
+          "scored_days": 51,
+          "buy_label_days": 46,
+          "h5_buy_matured_labels": 46,
+          "h5_buy_mean_net_pct": -0.85261,
+          "h5_nonbuy_matured_labels": 5,
+          "h5_nonbuy_mean_net_pct": 8.51682,
+          "h5_all_label_mean_net_pct": 0.06596
+        },
+        {
+          "ticker": "005380",
+          "name": "현대차",
+          "scored_days": 51,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 51,
+          "h5_nonbuy_mean_net_pct": 1.77871,
+          "h5_all_label_mean_net_pct": 1.77871
+        },
+        {
+          "ticker": "012450",
+          "name": "한화에어로스페이스",
+          "scored_days": 51,
+          "buy_label_days": 34,
+          "h5_buy_matured_labels": 34,
+          "h5_buy_mean_net_pct": -2.45516,
+          "h5_nonbuy_matured_labels": 17,
+          "h5_nonbuy_mean_net_pct": 3.60345,
+          "h5_all_label_mean_net_pct": -0.43562
+        },
+        {
+          "ticker": "329180",
+          "name": "HD현대중공업",
+          "scored_days": 51,
+          "buy_label_days": 41,
+          "h5_buy_matured_labels": 41,
+          "h5_buy_mean_net_pct": -1.29454,
+          "h5_nonbuy_matured_labels": 10,
+          "h5_nonbuy_mean_net_pct": 1.06815,
+          "h5_all_label_mean_net_pct": -0.83127
+        },
+        {
+          "ticker": "000270",
+          "name": "기아",
+          "scored_days": 51,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 51,
+          "h5_nonbuy_mean_net_pct": 0.22268,
+          "h5_all_label_mean_net_pct": 0.22268
+        },
+        {
+          "ticker": "105560",
+          "name": "KB금융",
+          "scored_days": 51,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 51,
+          "h5_nonbuy_mean_net_pct": 0.31958,
+          "h5_all_label_mean_net_pct": 0.31958
+        },
+        {
+          "ticker": "068270",
+          "name": "셀트리온",
+          "scored_days": 51,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 51,
+          "h5_nonbuy_mean_net_pct": 1.17212,
+          "h5_all_label_mean_net_pct": 1.17212
+        },
+        {
+          "ticker": "035420",
+          "name": "NAVER",
+          "scored_days": 51,
+          "buy_label_days": 4,
+          "h5_buy_matured_labels": 4,
+          "h5_buy_mean_net_pct": -2.44283,
+          "h5_nonbuy_matured_labels": 47,
+          "h5_nonbuy_mean_net_pct": -0.2289,
+          "h5_all_label_mean_net_pct": -0.40255
+        },
+        {
+          "ticker": "055550",
+          "name": "신한지주",
+          "scored_days": 51,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 51,
+          "h5_nonbuy_mean_net_pct": 0.2029,
+          "h5_all_label_mean_net_pct": 0.2029
+        },
+        {
+          "ticker": "028260",
+          "name": "삼성물산",
+          "scored_days": 51,
+          "buy_label_days": 15,
+          "h5_buy_matured_labels": 15,
+          "h5_buy_mean_net_pct": -1.03341,
+          "h5_nonbuy_matured_labels": 36,
+          "h5_nonbuy_mean_net_pct": 2.86951,
+          "h5_all_label_mean_net_pct": 1.72159
+        },
+        {
+          "ticker": "042660",
+          "name": "한화오션",
+          "scored_days": 51,
+          "buy_label_days": 13,
+          "h5_buy_matured_labels": 13,
+          "h5_buy_mean_net_pct": -1.84929,
+          "h5_nonbuy_matured_labels": 38,
+          "h5_nonbuy_mean_net_pct": -0.96823,
+          "h5_all_label_mean_net_pct": -1.19282
+        },
+        {
+          "ticker": "402340",
+          "name": "SK스퀘어",
+          "scored_days": 51,
+          "buy_label_days": 23,
+          "h5_buy_matured_labels": 23,
+          "h5_buy_mean_net_pct": 2.36783,
+          "h5_nonbuy_matured_labels": 28,
+          "h5_nonbuy_mean_net_pct": 6.71198,
+          "h5_all_label_mean_net_pct": 4.75285
+        },
+        {
+          "ticker": "032830",
+          "name": "삼성생명",
+          "scored_days": 51,
+          "buy_label_days": 6,
+          "h5_buy_matured_labels": 6,
+          "h5_buy_mean_net_pct": -2.15243,
+          "h5_nonbuy_matured_labels": 45,
+          "h5_nonbuy_mean_net_pct": -0.04669,
+          "h5_all_label_mean_net_pct": -0.29442
+        },
+        {
+          "ticker": "009540",
+          "name": "HD한국조선해양",
+          "scored_days": 51,
+          "buy_label_days": 10,
+          "h5_buy_matured_labels": 10,
+          "h5_buy_mean_net_pct": -2.71467,
+          "h5_nonbuy_matured_labels": 41,
+          "h5_nonbuy_mean_net_pct": -0.6107,
+          "h5_all_label_mean_net_pct": -1.02324
+        },
+        {
+          "ticker": "012330",
+          "name": "현대모비스",
+          "scored_days": 51,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 51,
+          "h5_nonbuy_mean_net_pct": 1.68914,
+          "h5_all_label_mean_net_pct": 1.68914
+        },
+        {
+          "ticker": "015760",
+          "name": "한국전력",
+          "scored_days": 51,
+          "buy_label_days": 1,
+          "h5_buy_matured_labels": 1,
+          "h5_buy_mean_net_pct": 3.5475,
+          "h5_nonbuy_matured_labels": 50,
+          "h5_nonbuy_mean_net_pct": 0.81881,
+          "h5_all_label_mean_net_pct": 0.87232
+        }
+      ],
+      "holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.0277,
+            "max_drawdown_pct": -3.4315,
+            "buy_fills": 2
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.1795,
+            "max_drawdown_pct": -2.7218,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 2
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.1383,
+            "max_drawdown_pct": -2.5283,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.6677,
+            "max_drawdown_pct": -2.8077,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 1
+            }
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.8631,
+            "max_drawdown_pct": -3.5116,
+            "buy_fills": 2
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": -0.0415,
+            "max_drawdown_pct": -2.8279,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 2
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.9149,
+            "max_drawdown_pct": -2.5968,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.4431,
+            "max_drawdown_pct": -2.946,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 1
+            }
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.7149,
+            "max_drawdown_pct": -3.5838,
+            "buy_fills": 2
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": -0.2403,
+            "max_drawdown_pct": -2.9235,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 2
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.7139,
+            "max_drawdown_pct": -2.6585,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.241,
+            "max_drawdown_pct": -3.0706,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 1
+            }
+          }
+        }
+      },
+      "reviewed_fact_holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.0277,
+            "max_drawdown_pct": -3.4315,
+            "buy_fills": 2,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.1795,
+            "max_drawdown_pct": -2.7218,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.1383,
+            "max_drawdown_pct": -2.5283,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.6677,
+            "max_drawdown_pct": -2.8077,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.8631,
+            "max_drawdown_pct": -3.5116,
+            "buy_fills": 2,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": -0.0415,
+            "max_drawdown_pct": -2.8279,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.9149,
+            "max_drawdown_pct": -2.5968,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.4431,
+            "max_drawdown_pct": -2.946,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.7149,
+            "max_drawdown_pct": -3.5838,
+            "buy_fills": 2,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": -0.2403,
+            "max_drawdown_pct": -2.9235,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 0.7139,
+            "max_drawdown_pct": -2.6585,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 4,
+            "net_return_pct": 1.241,
+            "max_drawdown_pct": -3.0706,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        }
+      }
+    },
+    "2026q1-v5": {
+      "counts": {
+        "decision_days": 59,
+        "top200_candidate_slots": 11800,
+        "unscored_candidate_slots": 282,
+        "days_highest_h5_name_not_buy": 59,
+        "scored_ticker_days": 11518,
+        "buy_label_days": 322,
+        "buy_recent_down_midterm_up": 60,
+        "buy_downtrend_gate_relaxed": 5,
+        "h5_ge3_label_days": 4038,
+        "h5_ge3_not_buy_label_days": 3913,
+        "buy_h5_negative": 134,
+        "buy_h5_below_same_day_cohort": 171
+      },
+      "unique_scored_tickers": 212,
+      "missing_outcomes": {
+        "1:missing_entry_open": 16,
+        "5:missing_entry_open": 16,
+        "20:missing_entry_open": 16
+      },
+      "label_day_mean_net_pct": {
+        "nonbuy": 1.04378,
+        "buy": 1.52309,
+        "buy_no_conflict": 1.93785,
+        "buy_conflict": -0.28801
+      },
+      "major_tickers_frozen_at_first_decision": [
+        {
+          "ticker": "005930",
+          "name": "삼성전자",
+          "scored_days": 59,
+          "buy_label_days": 44,
+          "h5_buy_matured_labels": 44,
+          "h5_buy_mean_net_pct": 3.80274,
+          "h5_nonbuy_matured_labels": 15,
+          "h5_nonbuy_mean_net_pct": -0.87313,
+          "h5_all_label_mean_net_pct": 2.61396
+        },
+        {
+          "ticker": "000660",
+          "name": "SK하이닉스",
+          "scored_days": 59,
+          "buy_label_days": 42,
+          "h5_buy_matured_labels": 42,
+          "h5_buy_mean_net_pct": 2.887,
+          "h5_nonbuy_matured_labels": 17,
+          "h5_nonbuy_mean_net_pct": -0.84777,
+          "h5_all_label_mean_net_pct": 1.81088
+        },
+        {
+          "ticker": "373220",
+          "name": "LG에너지솔루션",
+          "scored_days": 59,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 59,
+          "h5_nonbuy_mean_net_pct": 0.40796,
+          "h5_all_label_mean_net_pct": 0.40796
+        },
+        {
+          "ticker": "207940",
+          "name": "삼성바이오로직스",
+          "scored_days": 59,
+          "buy_label_days": 39,
+          "h5_buy_matured_labels": 39,
+          "h5_buy_mean_net_pct": -1.08504,
+          "h5_nonbuy_matured_labels": 20,
+          "h5_nonbuy_mean_net_pct": -1.81042,
+          "h5_all_label_mean_net_pct": -1.33093
+        },
+        {
+          "ticker": "005380",
+          "name": "현대차",
+          "scored_days": 59,
+          "buy_label_days": 29,
+          "h5_buy_matured_labels": 29,
+          "h5_buy_mean_net_pct": 1.49046,
+          "h5_nonbuy_matured_labels": 30,
+          "h5_nonbuy_mean_net_pct": 4.91579,
+          "h5_all_label_mean_net_pct": 3.23215
+        },
+        {
+          "ticker": "329180",
+          "name": "HD현대중공업",
+          "scored_days": 59,
+          "buy_label_days": 24,
+          "h5_buy_matured_labels": 24,
+          "h5_buy_mean_net_pct": -2.51315,
+          "h5_nonbuy_matured_labels": 35,
+          "h5_nonbuy_mean_net_pct": -0.53208,
+          "h5_all_label_mean_net_pct": -1.33794
+        },
+        {
+          "ticker": "402340",
+          "name": "SK스퀘어",
+          "scored_days": 59,
+          "buy_label_days": 38,
+          "h5_buy_matured_labels": 38,
+          "h5_buy_mean_net_pct": 2.21458,
+          "h5_nonbuy_matured_labels": 21,
+          "h5_nonbuy_mean_net_pct": 0.38739,
+          "h5_all_label_mean_net_pct": 1.56422
+        },
+        {
+          "ticker": "012450",
+          "name": "한화에어로스페이스",
+          "scored_days": 59,
+          "buy_label_days": 41,
+          "h5_buy_matured_labels": 41,
+          "h5_buy_mean_net_pct": 1.84941,
+          "h5_nonbuy_matured_labels": 18,
+          "h5_nonbuy_mean_net_pct": 2.08626,
+          "h5_all_label_mean_net_pct": 1.92167
+        },
+        {
+          "ticker": "034020",
+          "name": "두산에너빌리티",
+          "scored_days": 59,
+          "buy_label_days": 32,
+          "h5_buy_matured_labels": 32,
+          "h5_buy_mean_net_pct": 0.3989,
+          "h5_nonbuy_matured_labels": 27,
+          "h5_nonbuy_mean_net_pct": 0.72766,
+          "h5_all_label_mean_net_pct": 0.54935
+        },
+        {
+          "ticker": "000270",
+          "name": "기아",
+          "scored_days": 59,
+          "buy_label_days": 5,
+          "h5_buy_matured_labels": 5,
+          "h5_buy_mean_net_pct": 9.81122,
+          "h5_nonbuy_matured_labels": 54,
+          "h5_nonbuy_mean_net_pct": 1.35571,
+          "h5_all_label_mean_net_pct": 2.07228
+        },
+        {
+          "ticker": "105560",
+          "name": "KB금융",
+          "scored_days": 59,
+          "buy_label_days": 6,
+          "h5_buy_matured_labels": 6,
+          "h5_buy_mean_net_pct": -2.17847,
+          "h5_nonbuy_matured_labels": 53,
+          "h5_nonbuy_mean_net_pct": 1.60428,
+          "h5_all_label_mean_net_pct": 1.21959
+        },
+        {
+          "ticker": "068270",
+          "name": "셀트리온",
+          "scored_days": 59,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 59,
+          "h5_nonbuy_mean_net_pct": -0.65295,
+          "h5_all_label_mean_net_pct": -0.65295
+        },
+        {
+          "ticker": "028260",
+          "name": "삼성물산",
+          "scored_days": 59,
+          "buy_label_days": 14,
+          "h5_buy_matured_labels": 14,
+          "h5_buy_mean_net_pct": 0.6075,
+          "h5_nonbuy_matured_labels": 45,
+          "h5_nonbuy_mean_net_pct": 0.28573,
+          "h5_all_label_mean_net_pct": 0.36208
+        },
+        {
+          "ticker": "035420",
+          "name": "NAVER",
+          "scored_days": 59,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 59,
+          "h5_nonbuy_mean_net_pct": -2.17755,
+          "h5_all_label_mean_net_pct": -2.17755
+        },
+        {
+          "ticker": "055550",
+          "name": "신한지주",
+          "scored_days": 59,
+          "buy_label_days": 5,
+          "h5_buy_matured_labels": 5,
+          "h5_buy_mean_net_pct": 1.69222,
+          "h5_nonbuy_matured_labels": 54,
+          "h5_nonbuy_mean_net_pct": 0.96313,
+          "h5_all_label_mean_net_pct": 1.02491
+        },
+        {
+          "ticker": "042660",
+          "name": "한화오션",
+          "scored_days": 59,
+          "buy_label_days": 1,
+          "h5_buy_matured_labels": 1,
+          "h5_buy_mean_net_pct": 8.4778,
+          "h5_nonbuy_matured_labels": 58,
+          "h5_nonbuy_mean_net_pct": -0.15333,
+          "h5_all_label_mean_net_pct": -0.00704
+        },
+        {
+          "ticker": "012330",
+          "name": "현대모비스",
+          "scored_days": 59,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 59,
+          "h5_nonbuy_mean_net_pct": 0.48678,
+          "h5_all_label_mean_net_pct": 0.48678
+        },
+        {
+          "ticker": "032830",
+          "name": "삼성생명",
+          "scored_days": 59,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 59,
+          "h5_nonbuy_mean_net_pct": 2.09526,
+          "h5_all_label_mean_net_pct": 2.09526
+        },
+        {
+          "ticker": "015760",
+          "name": "한국전력",
+          "scored_days": 59,
+          "buy_label_days": 2,
+          "h5_buy_matured_labels": 2,
+          "h5_buy_mean_net_pct": 13.5482,
+          "h5_nonbuy_matured_labels": 57,
+          "h5_nonbuy_mean_net_pct": -2.04471,
+          "h5_all_label_mean_net_pct": -1.51614
+        },
+        {
+          "ticker": "267260",
+          "name": "HD현대일렉트릭",
+          "scored_days": 59,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 59,
+          "h5_nonbuy_mean_net_pct": 0.42814,
+          "h5_all_label_mean_net_pct": 0.42814
+        }
+      ],
+      "holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 2.7548,
+            "max_drawdown_pct": -5.6559,
+            "buy_fills": 3
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.2384,
+            "max_drawdown_pct": -1.0523,
+            "buy_fills": 5,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 2,
+              "TAKE_PROFIT": 2
+            }
+          },
+          "balanced": {
+            "state": "incomplete_share_history",
+            "day": "2026-02-23",
+            "ticker": "000660"
+          },
+          "aggressive": {
+            "state": "incomplete_share_history",
+            "day": "2026-02-23",
+            "ticker": "000660"
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 2.5443,
+            "max_drawdown_pct": -5.6839,
+            "buy_fills": 3
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 2.0167,
+            "max_drawdown_pct": -1.4791,
+            "buy_fills": 5,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 2,
+              "TAKE_PROFIT": 2
+            }
+          },
+          "balanced": {
+            "state": "incomplete_share_history",
+            "day": "2026-02-23",
+            "ticker": "000660"
+          },
+          "aggressive": {
+            "state": "incomplete_share_history",
+            "day": "2026-02-23",
+            "ticker": "000660"
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 2.3549,
+            "max_drawdown_pct": -5.7091,
+            "buy_fills": 3
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.7311,
+            "max_drawdown_pct": -0.9718,
+            "buy_fills": 5,
+            "risk_exits": {
+              "TAKE_PROFIT": 2,
+              "STOP_LOSS": 3
+            }
+          },
+          "balanced": {
+            "state": "incomplete_share_history",
+            "day": "2026-02-23",
+            "ticker": "000660"
+          },
+          "aggressive": {
+            "state": "incomplete_share_history",
+            "day": "2026-02-23",
+            "ticker": "000660"
+          }
+        }
+      },
+      "reviewed_fact_holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 2.7548,
+            "max_drawdown_pct": -5.6559,
+            "buy_fills": 3,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.2384,
+            "max_drawdown_pct": -1.0523,
+            "buy_fills": 5,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 2,
+              "TAKE_PROFIT": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 7.1732,
+            "max_drawdown_pct": -1.1433,
+            "buy_fills": 5,
+            "risk_exits": {
+              "TAKE_PROFIT": 3,
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": [
+              {
+                "day": "2026-02-23",
+                "ticker": "000660",
+                "source_sha256": "8d5010e83a7cd8ad5822ed8cafc23395677c682386a2f449f9a710ae22faedcf",
+                "holder_quantity_effect": "unchanged"
+              }
+            ]
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.4817,
+            "max_drawdown_pct": -6.1625,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 4
+            },
+            "applied_reviewed_share_facts": [
+              {
+                "day": "2026-02-23",
+                "ticker": "000660",
+                "source_sha256": "8d5010e83a7cd8ad5822ed8cafc23395677c682386a2f449f9a710ae22faedcf",
+                "holder_quantity_effect": "unchanged"
+              }
+            ]
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 2.5443,
+            "max_drawdown_pct": -5.6839,
+            "buy_fills": 3,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 2.0167,
+            "max_drawdown_pct": -1.4791,
+            "buy_fills": 5,
+            "risk_exits": {
+              "TRAILING": 1,
+              "STOP_LOSS": 2,
+              "TAKE_PROFIT": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 7.1187,
+            "max_drawdown_pct": -1.2354,
+            "buy_fills": 5,
+            "risk_exits": {
+              "TAKE_PROFIT": 3,
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": [
+              {
+                "day": "2026-02-23",
+                "ticker": "000660",
+                "source_sha256": "8d5010e83a7cd8ad5822ed8cafc23395677c682386a2f449f9a710ae22faedcf",
+                "holder_quantity_effect": "unchanged"
+              }
+            ]
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.2252,
+            "max_drawdown_pct": -6.2509,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 4
+            },
+            "applied_reviewed_share_facts": [
+              {
+                "day": "2026-02-23",
+                "ticker": "000660",
+                "source_sha256": "8d5010e83a7cd8ad5822ed8cafc23395677c682386a2f449f9a710ae22faedcf",
+                "holder_quantity_effect": "unchanged"
+              }
+            ]
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 2.3549,
+            "max_drawdown_pct": -5.7091,
+            "buy_fills": 3,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.7311,
+            "max_drawdown_pct": -0.9718,
+            "buy_fills": 5,
+            "risk_exits": {
+              "TAKE_PROFIT": 2,
+              "STOP_LOSS": 3
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 6.836,
+            "max_drawdown_pct": -1.2786,
+            "buy_fills": 5,
+            "risk_exits": {
+              "TAKE_PROFIT": 3,
+              "STOP_LOSS": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": [
+              {
+                "day": "2026-02-23",
+                "ticker": "000660",
+                "source_sha256": "8d5010e83a7cd8ad5822ed8cafc23395677c682386a2f449f9a710ae22faedcf",
+                "holder_quantity_effect": "unchanged"
+              }
+            ]
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 2.9943,
+            "max_drawdown_pct": -6.3308,
+            "buy_fills": 4,
+            "risk_exits": {
+              "TRAILING": 4
+            },
+            "applied_reviewed_share_facts": [
+              {
+                "day": "2026-02-23",
+                "ticker": "000660",
+                "source_sha256": "8d5010e83a7cd8ad5822ed8cafc23395677c682386a2f449f9a710ae22faedcf",
+                "holder_quantity_effect": "unchanged"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "2026q2early-v5": {
+      "counts": {
+        "decision_days": 40,
+        "top200_candidate_slots": 8000,
+        "unscored_candidate_slots": 160,
+        "days_highest_h5_name_not_buy": 39,
+        "scored_ticker_days": 7840,
+        "buy_label_days": 218,
+        "buy_recent_down_midterm_up": 43,
+        "buy_downtrend_gate_relaxed": 0,
+        "h5_ge3_label_days": 2454,
+        "h5_ge3_not_buy_label_days": 2345,
+        "buy_h5_negative": 76,
+        "buy_h5_below_same_day_cohort": 90
+      },
+      "unique_scored_tickers": 209,
+      "missing_outcomes": {
+        "1:missing_entry_open": 5,
+        "5:missing_entry_open": 5,
+        "20:missing_entry_open": 5
+      },
+      "label_day_mean_net_pct": {
+        "nonbuy": 0.37783,
+        "buy": 4.43383,
+        "buy_no_conflict": 4.93869,
+        "buy_conflict": 2.37914
+      },
+      "major_tickers_frozen_at_first_decision": [
+        {
+          "ticker": "005930",
+          "name": "삼성전자",
+          "scored_days": 40,
+          "buy_label_days": 32,
+          "h5_buy_matured_labels": 32,
+          "h5_buy_mean_net_pct": 6.89912,
+          "h5_nonbuy_matured_labels": 8,
+          "h5_nonbuy_mean_net_pct": 2.73968,
+          "h5_all_label_mean_net_pct": 6.06723
+        },
+        {
+          "ticker": "000660",
+          "name": "SK하이닉스",
+          "scored_days": 40,
+          "buy_label_days": 28,
+          "h5_buy_matured_labels": 28,
+          "h5_buy_mean_net_pct": 11.99636,
+          "h5_nonbuy_matured_labels": 12,
+          "h5_nonbuy_mean_net_pct": 7.35407,
+          "h5_all_label_mean_net_pct": 10.60368
+        },
+        {
+          "ticker": "005380",
+          "name": "현대차",
+          "scored_days": 40,
+          "buy_label_days": 31,
+          "h5_buy_matured_labels": 31,
+          "h5_buy_mean_net_pct": 4.49819,
+          "h5_nonbuy_matured_labels": 9,
+          "h5_nonbuy_mean_net_pct": -0.04107,
+          "h5_all_label_mean_net_pct": 3.47686
+        },
+        {
+          "ticker": "373220",
+          "name": "LG에너지솔루션",
+          "scored_days": 40,
+          "buy_label_days": 3,
+          "h5_buy_matured_labels": 3,
+          "h5_buy_mean_net_pct": -4.79237,
+          "h5_nonbuy_matured_labels": 37,
+          "h5_nonbuy_mean_net_pct": -0.16547,
+          "h5_all_label_mean_net_pct": -0.51249
+        },
+        {
+          "ticker": "207940",
+          "name": "삼성바이오로직스",
+          "scored_days": 40,
+          "buy_label_days": 4,
+          "h5_buy_matured_labels": 4,
+          "h5_buy_mean_net_pct": -3.20413,
+          "h5_nonbuy_matured_labels": 36,
+          "h5_nonbuy_mean_net_pct": -2.58205,
+          "h5_all_label_mean_net_pct": -2.64426
+        },
+        {
+          "ticker": "012450",
+          "name": "한화에어로스페이스",
+          "scored_days": 40,
+          "buy_label_days": 29,
+          "h5_buy_matured_labels": 29,
+          "h5_buy_mean_net_pct": -3.21178,
+          "h5_nonbuy_matured_labels": 11,
+          "h5_nonbuy_mean_net_pct": -8.05505,
+          "h5_all_label_mean_net_pct": -4.54368
+        },
+        {
+          "ticker": "402340",
+          "name": "SK스퀘어",
+          "scored_days": 40,
+          "buy_label_days": 28,
+          "h5_buy_matured_labels": 28,
+          "h5_buy_mean_net_pct": 11.24727,
+          "h5_nonbuy_matured_labels": 12,
+          "h5_nonbuy_mean_net_pct": 9.76102,
+          "h5_all_label_mean_net_pct": 10.80139
+        },
+        {
+          "ticker": "034020",
+          "name": "두산에너빌리티",
+          "scored_days": 40,
+          "buy_label_days": 24,
+          "h5_buy_matured_labels": 24,
+          "h5_buy_mean_net_pct": -2.2015,
+          "h5_nonbuy_matured_labels": 16,
+          "h5_nonbuy_mean_net_pct": 1.06319,
+          "h5_all_label_mean_net_pct": -0.89563
+        },
+        {
+          "ticker": "000270",
+          "name": "기아",
+          "scored_days": 40,
+          "buy_label_days": 11,
+          "h5_buy_matured_labels": 11,
+          "h5_buy_mean_net_pct": -1.00691,
+          "h5_nonbuy_matured_labels": 29,
+          "h5_nonbuy_mean_net_pct": 0.02809,
+          "h5_all_label_mean_net_pct": -0.25654
+        },
+        {
+          "ticker": "105560",
+          "name": "KB금융",
+          "scored_days": 40,
+          "buy_label_days": 10,
+          "h5_buy_matured_labels": 10,
+          "h5_buy_mean_net_pct": -1.96515,
+          "h5_nonbuy_matured_labels": 30,
+          "h5_nonbuy_mean_net_pct": 0.69477,
+          "h5_all_label_mean_net_pct": 0.02979
+        },
+        {
+          "ticker": "068270",
+          "name": "셀트리온",
+          "scored_days": 40,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 40,
+          "h5_nonbuy_mean_net_pct": -2.097,
+          "h5_all_label_mean_net_pct": -2.097
+        },
+        {
+          "ticker": "329180",
+          "name": "HD현대중공업",
+          "scored_days": 40,
+          "buy_label_days": 3,
+          "h5_buy_matured_labels": 3,
+          "h5_buy_mean_net_pct": -10.39157,
+          "h5_nonbuy_matured_labels": 37,
+          "h5_nonbuy_mean_net_pct": 5.16559,
+          "h5_all_label_mean_net_pct": 3.9988
+        },
+        {
+          "ticker": "032830",
+          "name": "삼성생명",
+          "scored_days": 40,
+          "buy_label_days": 5,
+          "h5_buy_matured_labels": 5,
+          "h5_buy_mean_net_pct": 6.5531,
+          "h5_nonbuy_matured_labels": 35,
+          "h5_nonbuy_mean_net_pct": 7.02023,
+          "h5_all_label_mean_net_pct": 6.96184
+        },
+        {
+          "ticker": "055550",
+          "name": "신한지주",
+          "scored_days": 40,
+          "buy_label_days": 1,
+          "h5_buy_matured_labels": 1,
+          "h5_buy_mean_net_pct": -2.1134,
+          "h5_nonbuy_matured_labels": 39,
+          "h5_nonbuy_mean_net_pct": 0.06285,
+          "h5_all_label_mean_net_pct": 0.00844
+        },
+        {
+          "ticker": "028260",
+          "name": "삼성물산",
+          "scored_days": 40,
+          "buy_label_days": 2,
+          "h5_buy_matured_labels": 2,
+          "h5_buy_mean_net_pct": 3.85505,
+          "h5_nonbuy_matured_labels": 38,
+          "h5_nonbuy_mean_net_pct": 5.83589,
+          "h5_all_label_mean_net_pct": 5.73685
+        },
+        {
+          "ticker": "042660",
+          "name": "한화오션",
+          "scored_days": 40,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 40,
+          "h5_nonbuy_mean_net_pct": -1.83696,
+          "h5_all_label_mean_net_pct": -1.83696
+        },
+        {
+          "ticker": "012330",
+          "name": "현대모비스",
+          "scored_days": 40,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 40,
+          "h5_nonbuy_mean_net_pct": 6.33337,
+          "h5_all_label_mean_net_pct": 6.33337
+        },
+        {
+          "ticker": "006800",
+          "name": "미래에셋증권",
+          "scored_days": 40,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 40,
+          "h5_nonbuy_mean_net_pct": -2.54227,
+          "h5_all_label_mean_net_pct": -2.54227
+        },
+        {
+          "ticker": "006400",
+          "name": "삼성SDI",
+          "scored_days": 40,
+          "buy_label_days": 2,
+          "h5_buy_matured_labels": 2,
+          "h5_buy_mean_net_pct": -8.29695,
+          "h5_nonbuy_matured_labels": 38,
+          "h5_nonbuy_mean_net_pct": 3.66601,
+          "h5_all_label_mean_net_pct": 3.06786
+        },
+        {
+          "ticker": "009150",
+          "name": "삼성전기",
+          "scored_days": 40,
+          "buy_label_days": 5,
+          "h5_buy_matured_labels": 5,
+          "h5_buy_mean_net_pct": 33.76832,
+          "h5_nonbuy_matured_labels": 35,
+          "h5_nonbuy_mean_net_pct": 15.92779,
+          "h5_all_label_mean_net_pct": 18.15786
+        }
+      ],
+      "holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 11.3842,
+            "max_drawdown_pct": -4.8761,
+            "buy_fills": 2
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 6.7664,
+            "max_drawdown_pct": -0.5799,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 3
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.4529,
+            "max_drawdown_pct": -1.0896,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.4342,
+            "max_drawdown_pct": -1.7107,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            }
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 11.2127,
+            "max_drawdown_pct": -4.8793,
+            "buy_fills": 2
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.6674,
+            "max_drawdown_pct": -0.6371,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 2
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.2987,
+            "max_drawdown_pct": -1.0908,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.2826,
+            "max_drawdown_pct": -1.7509,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            }
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 11.0583,
+            "max_drawdown_pct": -4.8821,
+            "buy_fills": 2
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.5278,
+            "max_drawdown_pct": -0.7014,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 2
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.16,
+            "max_drawdown_pct": -1.112,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.1461,
+            "max_drawdown_pct": -1.7872,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            }
+          }
+        }
+      },
+      "reviewed_fact_holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 11.3842,
+            "max_drawdown_pct": -4.8761,
+            "buy_fills": 2,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 6.7664,
+            "max_drawdown_pct": -0.5799,
+            "buy_fills": 3,
+            "risk_exits": {
+              "TAKE_PROFIT": 3
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.4529,
+            "max_drawdown_pct": -1.0896,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.4342,
+            "max_drawdown_pct": -1.7107,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 11.2127,
+            "max_drawdown_pct": -4.8793,
+            "buy_fills": 2,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.6674,
+            "max_drawdown_pct": -0.6371,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.2987,
+            "max_drawdown_pct": -1.0908,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.2826,
+            "max_drawdown_pct": -1.7509,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 11.0583,
+            "max_drawdown_pct": -4.8821,
+            "buy_fills": 2,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.5278,
+            "max_drawdown_pct": -0.7014,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 4.16,
+            "max_drawdown_pct": -1.112,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": 3.1461,
+            "max_drawdown_pct": -1.7872,
+            "buy_fills": 2,
+            "risk_exits": {
+              "TAKE_PROFIT": 1,
+              "TRAILING": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        }
+      }
+    },
+    "2026jun-expanded-v5": {
+      "counts": {
+        "decision_days": 21,
+        "top200_candidate_slots": 4200,
+        "unscored_candidate_slots": 66,
+        "days_highest_h5_name_not_buy": 19,
+        "scored_ticker_days": 4134,
+        "buy_label_days": 103,
+        "buy_recent_down_midterm_up": 30,
+        "buy_downtrend_gate_relaxed": 1,
+        "h5_ge3_label_days": 1301,
+        "h5_ge3_not_buy_label_days": 1272,
+        "buy_h5_negative": 69,
+        "buy_h5_below_same_day_cohort": 57
+      },
+      "unique_scored_tickers": 208,
+      "missing_outcomes": {
+        "20:price_gap": 6,
+        "1:missing_entry_open": 4,
+        "5:missing_entry_open": 4,
+        "20:missing_entry_open": 4
+      },
+      "label_day_mean_net_pct": {
+        "nonbuy": -1.79562,
+        "buy": -2.07846,
+        "buy_no_conflict": -0.35546,
+        "buy_conflict": -6.27107
+      },
+      "major_tickers_frozen_at_first_decision": [
+        {
+          "ticker": "005930",
+          "name": "삼성전자",
+          "scored_days": 21,
+          "buy_label_days": 16,
+          "h5_buy_matured_labels": 16,
+          "h5_buy_mean_net_pct": -1.12136,
+          "h5_nonbuy_matured_labels": 5,
+          "h5_nonbuy_mean_net_pct": -4.10382,
+          "h5_all_label_mean_net_pct": -1.83147
+        },
+        {
+          "ticker": "000660",
+          "name": "SK하이닉스",
+          "scored_days": 21,
+          "buy_label_days": 12,
+          "h5_buy_matured_labels": 12,
+          "h5_buy_mean_net_pct": 4.13828,
+          "h5_nonbuy_matured_labels": 9,
+          "h5_nonbuy_mean_net_pct": -1.23984,
+          "h5_all_label_mean_net_pct": 1.83337
+        },
+        {
+          "ticker": "402340",
+          "name": "SK스퀘어",
+          "scored_days": 21,
+          "buy_label_days": 11,
+          "h5_buy_matured_labels": 11,
+          "h5_buy_mean_net_pct": 15.32639,
+          "h5_nonbuy_matured_labels": 10,
+          "h5_nonbuy_mean_net_pct": -6.26905,
+          "h5_all_label_mean_net_pct": 5.04285
+        },
+        {
+          "ticker": "005380",
+          "name": "현대차",
+          "scored_days": 21,
+          "buy_label_days": 14,
+          "h5_buy_matured_labels": 14,
+          "h5_buy_mean_net_pct": -10.74938,
+          "h5_nonbuy_matured_labels": 7,
+          "h5_nonbuy_mean_net_pct": -2.71073,
+          "h5_all_label_mean_net_pct": -8.06983
+        },
+        {
+          "ticker": "009150",
+          "name": "삼성전기",
+          "scored_days": 21,
+          "buy_label_days": 13,
+          "h5_buy_matured_labels": 13,
+          "h5_buy_mean_net_pct": 1.14297,
+          "h5_nonbuy_matured_labels": 8,
+          "h5_nonbuy_mean_net_pct": 3.74733,
+          "h5_all_label_mean_net_pct": 2.1351
+        },
+        {
+          "ticker": "373220",
+          "name": "LG에너지솔루션",
+          "scored_days": 21,
+          "buy_label_days": 9,
+          "h5_buy_matured_labels": 9,
+          "h5_buy_mean_net_pct": -6.84362,
+          "h5_nonbuy_matured_labels": 12,
+          "h5_nonbuy_mean_net_pct": -2.92647,
+          "h5_all_label_mean_net_pct": -4.60525
+        },
+        {
+          "ticker": "032830",
+          "name": "삼성생명",
+          "scored_days": 21,
+          "buy_label_days": 8,
+          "h5_buy_matured_labels": 8,
+          "h5_buy_mean_net_pct": -5.76929,
+          "h5_nonbuy_matured_labels": 13,
+          "h5_nonbuy_mean_net_pct": 2.28568,
+          "h5_all_label_mean_net_pct": -0.78288
+        },
+        {
+          "ticker": "028260",
+          "name": "삼성물산",
+          "scored_days": 21,
+          "buy_label_days": 7,
+          "h5_buy_matured_labels": 7,
+          "h5_buy_mean_net_pct": -10.9071,
+          "h5_nonbuy_matured_labels": 14,
+          "h5_nonbuy_mean_net_pct": 1.8722,
+          "h5_all_label_mean_net_pct": -2.38757
+        },
+        {
+          "ticker": "329180",
+          "name": "HD현대중공업",
+          "scored_days": 21,
+          "buy_label_days": 5,
+          "h5_buy_matured_labels": 5,
+          "h5_buy_mean_net_pct": -3.25886,
+          "h5_nonbuy_matured_labels": 16,
+          "h5_nonbuy_mean_net_pct": -3.16158,
+          "h5_all_label_mean_net_pct": -3.18474
+        },
+        {
+          "ticker": "012330",
+          "name": "현대모비스",
+          "scored_days": 21,
+          "buy_label_days": 1,
+          "h5_buy_matured_labels": 1,
+          "h5_buy_mean_net_pct": -19.0313,
+          "h5_nonbuy_matured_labels": 20,
+          "h5_nonbuy_mean_net_pct": -6.68331,
+          "h5_all_label_mean_net_pct": -7.27131
+        },
+        {
+          "ticker": "034020",
+          "name": "두산에너빌리티",
+          "scored_days": 21,
+          "buy_label_days": 3,
+          "h5_buy_matured_labels": 3,
+          "h5_buy_mean_net_pct": -12.0718,
+          "h5_nonbuy_matured_labels": 18,
+          "h5_nonbuy_mean_net_pct": -2.06229,
+          "h5_all_label_mean_net_pct": -3.49222
+        },
+        {
+          "ticker": "000270",
+          "name": "기아",
+          "scored_days": 21,
+          "buy_label_days": 3,
+          "h5_buy_matured_labels": 3,
+          "h5_buy_mean_net_pct": -7.06937,
+          "h5_nonbuy_matured_labels": 18,
+          "h5_nonbuy_mean_net_pct": -0.88055,
+          "h5_all_label_mean_net_pct": -1.76467
+        },
+        {
+          "ticker": "207940",
+          "name": "삼성바이오로직스",
+          "scored_days": 21,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 21,
+          "h5_nonbuy_mean_net_pct": 0.80781,
+          "h5_all_label_mean_net_pct": 0.80781
+        },
+        {
+          "ticker": "066570",
+          "name": "LG전자",
+          "scored_days": 21,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 21,
+          "h5_nonbuy_mean_net_pct": -11.5501,
+          "h5_all_label_mean_net_pct": -11.5501
+        },
+        {
+          "ticker": "012450",
+          "name": "한화에어로스페이스",
+          "scored_days": 21,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 21,
+          "h5_nonbuy_mean_net_pct": 1.00383,
+          "h5_all_label_mean_net_pct": 1.00383
+        },
+        {
+          "ticker": "105560",
+          "name": "KB금융",
+          "scored_days": 21,
+          "buy_label_days": 1,
+          "h5_buy_matured_labels": 1,
+          "h5_buy_mean_net_pct": -1.9103,
+          "h5_nonbuy_matured_labels": 20,
+          "h5_nonbuy_mean_net_pct": 0.45178,
+          "h5_all_label_mean_net_pct": 0.3393
+        },
+        {
+          "ticker": "006400",
+          "name": "삼성SDI",
+          "scored_days": 21,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 21,
+          "h5_nonbuy_mean_net_pct": -5.38061,
+          "h5_all_label_mean_net_pct": -5.38061
+        },
+        {
+          "ticker": "034730",
+          "name": "SK",
+          "scored_days": 21,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 21,
+          "h5_nonbuy_mean_net_pct": 1.97335,
+          "h5_all_label_mean_net_pct": 1.97335
+        },
+        {
+          "ticker": "055550",
+          "name": "신한지주",
+          "scored_days": 21,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 21,
+          "h5_nonbuy_mean_net_pct": 0.57985,
+          "h5_all_label_mean_net_pct": 0.57985
+        },
+        {
+          "ticker": "035420",
+          "name": "NAVER",
+          "scored_days": 21,
+          "buy_label_days": 0,
+          "h5_buy_matured_labels": 0,
+          "h5_buy_mean_net_pct": null,
+          "h5_nonbuy_matured_labels": 21,
+          "h5_nonbuy_mean_net_pct": -6.94774,
+          "h5_all_label_mean_net_pct": -6.94774
+        }
+      ],
+      "holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.3486,
+            "max_drawdown_pct": -3.4761,
+            "buy_fills": 1
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.607,
+            "max_drawdown_pct": -2.7795,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.607,
+            "max_drawdown_pct": -2.7795,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7082,
+            "max_drawdown_pct": -3.267,
+            "buy_fills": 1,
+            "risk_exits": {
+              "STOP_LOSS": 1
+            }
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.4258,
+            "max_drawdown_pct": -3.4776,
+            "buy_fills": 1
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7609,
+            "max_drawdown_pct": -2.8987,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7609,
+            "max_drawdown_pct": -2.8987,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7845,
+            "max_drawdown_pct": -3.2683,
+            "buy_fills": 1,
+            "risk_exits": {
+              "STOP_LOSS": 1
+            }
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.2458,
+            "max_drawdown_pct": -3.132,
+            "buy_fills": 1
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7791,
+            "max_drawdown_pct": -2.8855,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            }
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7791,
+            "max_drawdown_pct": -2.8855,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            }
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.5679,
+            "max_drawdown_pct": -2.9435,
+            "buy_fills": 1,
+            "risk_exits": {
+              "STOP_LOSS": 1
+            }
+          }
+        }
+      },
+      "reviewed_fact_holding_policies": {
+        "25": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.3486,
+            "max_drawdown_pct": -3.4761,
+            "buy_fills": 1,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.607,
+            "max_drawdown_pct": -2.7795,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.607,
+            "max_drawdown_pct": -2.7795,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7082,
+            "max_drawdown_pct": -3.267,
+            "buy_fills": 1,
+            "risk_exits": {
+              "STOP_LOSS": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "75": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.4258,
+            "max_drawdown_pct": -3.4776,
+            "buy_fills": 1,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7609,
+            "max_drawdown_pct": -2.8987,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7609,
+            "max_drawdown_pct": -2.8987,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7845,
+            "max_drawdown_pct": -3.2683,
+            "buy_fills": 1,
+            "risk_exits": {
+              "STOP_LOSS": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        },
+        "120": {
+          "hold20": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.2458,
+            "max_drawdown_pct": -3.132,
+            "buy_fills": 1,
+            "applied_reviewed_share_facts": []
+          },
+          "conservative": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7791,
+            "max_drawdown_pct": -2.8855,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "balanced": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.7791,
+            "max_drawdown_pct": -2.8855,
+            "buy_fills": 2,
+            "risk_exits": {
+              "STOP_LOSS": 2
+            },
+            "applied_reviewed_share_facts": []
+          },
+          "aggressive": {
+            "state": "complete",
+            "entry_candidates": 5,
+            "net_return_pct": -2.5679,
+            "max_drawdown_pct": -2.9435,
+            "buy_fills": 1,
+            "risk_exits": {
+              "STOP_LOSS": 1
+            },
+            "applied_reviewed_share_facts": []
+          }
+        }
+      }
+    }
+  },
+  "source_coverage": "KOSPI cap-top200 ordinary shares; not KOSDAQ or all listed shares",
+  "score_parity": {
+    "baseline_ref": "92ece30",
+    "baseline_engine_sha256": "5e173089d779b817777cdc8e2c5476431f87ddd7a078f541da0193660f734bef",
+    "cross_sections": 7,
+    "ticker_time_pairs": 1359,
+    "all_existing_fields_identical": true,
+    "method": "Same last253 valid closes and first-date daily cap universe, old engine module versus new; not a full historical eight-factor test"
+  }
+}

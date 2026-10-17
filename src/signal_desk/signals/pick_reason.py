@@ -48,6 +48,8 @@ def from_signal(s: Any) -> dict:
         "gate_blocked": bool(getattr(s, "gate_blocked", False)),
         "event_risk": bool(getattr(s, "event_risk", False)),
         "factors": factors,
+        "score_contributions": dict(getattr(s, "score_contributions", None) or {}),
+        "factor_suppressed": dict(getattr(s, "factor_suppressed", None) or {}),
         "reasons": reasons,
         "decision": dec.to_dict() if dec is not None and hasattr(dec, "to_dict") else None,
     }
