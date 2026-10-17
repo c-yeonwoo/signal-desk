@@ -155,4 +155,4 @@ def test_wide_preserved_interval_can_supply_first_quote_without_skipping_partial
     value["has_next_page"] = True
     # Earlier partial data does not certify the unseen time after its last quote.
     _, need = replay.quote_or_need(index, replay.query("AAPL", ns + 95 * replay.SECOND), ns + 95 * replay.SECOND)
-    assert need is not None
+    assert need is not None and replay.clock_ns(need["end"]) - replay.clock_ns(need["start"]) == replay.SECOND

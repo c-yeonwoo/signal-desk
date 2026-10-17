@@ -267,6 +267,13 @@ def _observed_window(index: dict, request: dict, lower_ns: int, side: str, quant
             if not wide.get("has_next_page") or (clocks and max(clocks) >= end):
                 return None, None, True
             # A partial wide page cannot certify its unseen suffix.
+            if end - start > SECOND:
+                for ns in range(start, end, SECOND):
+                    result = _observed_window(index, query(request["symbol"], ns, 1), lower_ns, side, quantity)
+                    if result[0] is not None or result[1] is not None or not result[2]:
+                        return result
+                return None, None, True
+            return None, request, False
     if source is None or source["body"] is None:
         return None, request, False
     found = _window_quote(index, request, lower_ns, side, quantity)
