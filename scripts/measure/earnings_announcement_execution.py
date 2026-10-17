@@ -190,11 +190,11 @@ def choices(inputs: dict, path: str, policy: str, delay: int = 0) -> list[dict]:
     return list(selected.values())
 
 
-def query(symbol: str, ns: int) -> dict:
+def query(symbol: str, ns: int, seconds: int = 5) -> dict:
     if symbol == "META" and as_dt(ns).astimezone(NY).date().isoformat() < "2022-06-09":
         symbol = "FB"  # Historical trading symbol, not a backfilled rename.
     first = as_dt(ns).isoformat()
-    end = (as_dt(ns) + dt.timedelta(seconds=5)).isoformat()
+    end = (as_dt(ns) + dt.timedelta(seconds=seconds)).isoformat()
     params = parameters(symbol, first, end)
     return {"symbol": symbol, "start": params["start"], "end": params["end"]}
 
@@ -211,13 +211,18 @@ def quote_index(sources: list[dict]) -> dict:
         if any(request.get(k) != v for k, v in expected.items()):
             raise ValueError("quote request differs from fixed SIP contract")
         k = key(request)
+        if k in out and source["body"] is None:
+            continue  # Keep failed attempts in the artifact, not over a successful observation.
+        if k in out and out[k]["body"] is None:
+            out[k] = source
+            continue
         if k in out and out[k].get("raw_sha256") != source.get("raw_sha256"):
             raise ValueError("conflicting quote source versions")
         out[k] = source
     return out
 
 
-def first_quote(index: dict, request: dict, lower_ns: int, side: str = "ap", quantity: int = 1) -> dict | None:
+def _window_quote(index: dict, request: dict, lower_ns: int, side: str, quantity: int) -> dict | None:
     source = index.get(key(request))
     if not source or source["body"] is None:
         return None
@@ -226,6 +231,8 @@ def first_quote(index: dict, request: dict, lower_ns: int, side: str = "ap", qua
     clocks = [clock_ns(r["t"]) for r in rows]
     if source["body"].get("symbol") != request["symbol"] or clocks != sorted(clocks):
         raise ValueError("quote identity/order mismatch")
+    if any(not first <= stamp <= last for stamp in clocks):
+        raise ValueError("quote beyond requested bound")
     for r, stamp in zip(rows, clocks):
         if not first <= stamp <= last:
             raise ValueError("quote beyond requested bound")
@@ -242,6 +249,59 @@ def first_quote(index: dict, request: dict, lower_ns: int, side: str = "ap", qua
         except (ValueError, TypeError, KeyError):
             continue
     return None  # Unknown if page is partial; never treat as verified no-fill.
+
+
+def _observed_window(index: dict, request: dict, lower_ns: int, side: str, quantity: int):
+    source = index.get(key(request))
+    if source is None or source["body"] is None:
+        start, end = (clock_ns(request[k]) for k in ("start", "end"))
+        covering = [(k, s) for k, s in index.items() if k[0] == request["symbol"] and s["body"] is not None
+                    and clock_ns(k[1]) <= start and clock_ns(k[2]) >= end]
+        if covering:
+            k, wide = max(covering, key=lambda item: item[0][1])
+            wide_request = {"symbol": k[0], "start": k[1], "end": k[2]}
+            found = _window_quote(index, wide_request, max(lower_ns, start), side, quantity)
+            if found:
+                return found, None, True
+            clocks = [clock_ns(r["t"]) for r in wide["body"]["quotes"] or []]
+            if not wide.get("has_next_page") or (clocks and max(clocks) >= end):
+                return None, None, True
+            # A partial wide page cannot certify its unseen suffix.
+            if end - start > SECOND:
+                for ns in range(start, end, SECOND):
+                    result = _observed_window(index, query(request["symbol"], ns, 1), lower_ns, side, quantity)
+                    if result[0] is not None or result[1] is not None or not result[2]:
+                        return result
+                return None, None, True
+            return None, request, False
+    if source is None or source["body"] is None:
+        return None, request, False
+    found = _window_quote(index, request, lower_ns, side, quantity)
+    if found:
+        return found, None, True
+    if source.get("has_next_page"):
+        first, last = (clock_ns(request[k]) for k in ("start", "end"))
+        if last - first <= SECOND:
+            return None, None, False  # Unseen subsecond page is still a real gap.
+        for ns in range(first, last, SECOND):
+            result = _observed_window(index, query(request["symbol"], ns, 1), lower_ns, side, quantity)
+            if result[0] is not None or result[1] is not None or not result[2]:
+                return result
+    return None, None, True
+
+
+def quote_or_need(index: dict, request: dict, lower_ns: int, side: str = "ap", quantity: int = 1):
+    """Only cross complete windows, narrowing partial pages instead of skipping them."""
+    for _ in range(180):
+        found, need, complete = _observed_window(index, request, lower_ns, side, quantity)
+        if found is not None or need is not None or not complete:
+            return found, need
+        request = query(request["symbol"], clock_ns(request["end"]))
+    return None, None  # 15min acquisition cap is missing data, NEVER a no-fill/0%.
+
+
+def first_quote(index: dict, request: dict, lower_ns: int, side: str = "ap", quantity: int = 1) -> dict | None:
+    return quote_or_need(index, request, lower_ns, side, quantity)[0]
 
 
 def stages(inputs: dict, index: dict, stage: str) -> list[dict]:
@@ -266,6 +326,43 @@ def stages(inputs: dict, index: dict, stage: str) -> list[dict]:
                         request = query(symbol, entry["ns"] + 3600 * SECOND)
                 requests[key(request)] = request
     return [r for k, r in sorted(requests.items()) if k not in index]
+
+
+def gaps(inputs: dict, index: dict) -> list[dict]:
+    requests = {}
+    for path in ("immediate", "opening"):
+        for policy, delay in (("eps", 0), ("all_reports", 0), ("eps", 60), ("market", 0)):
+            for event in choices(inputs, path, policy, delay):
+                symbol = "SPY" if policy == "market" else event["symbol"]
+                ref, need = quote_or_need(index, query(symbol, event["decision_ns"]), event["decision_ns"])
+                if need:
+                    requests[key(need)] = need
+                if not ref:
+                    continue
+                executable_ns = ((ref["ns"] + 2 * SECOND - 1) // SECOND) * SECOND
+                entry, need = quote_or_need(index, query(symbol, executable_ns), executable_ns)
+                if need:
+                    requests[key(need)] = need
+                if not entry:
+                    continue
+                exit_ns = entry["ns"] + 3600 * SECOND
+                _, need = quote_or_need(index, query(symbol, exit_ns), exit_ns, "bp")
+                if need:
+                    requests[key(need)] = need
+        for year in ("2022", "2023"):
+            for policy, fee, fill, delay in (("eps",10,1,0),("all_reports",10,1,0),("market",10,1,0),
+                ("eps",25,1,0),("eps",50,1,0),("eps",10,.5,0),("eps",10,1,60)):
+                result = simulate(inputs, index, year, path, policy, fee, fill, delay)
+                for row in result["rows"]:
+                    if row["status"] == "exit_missing_position_unresolved":
+                        symbol = "SPY" if policy == "market" else row["issuer"]
+                        ns = row["entry_ns"] + 3600 * SECOND
+                        _, need = quote_or_need(index, query(symbol, ns), ns, "bp", row["quantity"])
+                        if need:
+                            requests[key(need)] = need
+    return [query(r["symbol"], clock_ns(r["start"]), 300)
+            if clock_ns(r["end"]) - clock_ns(r["start"]) == 5 * SECOND else r
+            for _, r in sorted(requests.items())]
 
 
 def simulate(inputs: dict, index: dict, year: str, path: str, policy: str,
@@ -320,18 +417,26 @@ def simulate(inputs: dict, index: dict, year: str, path: str, policy: str,
             continue
         proceeds = quantity * float(exit_quote["bp"]) * (1 - rate)
         gross = quantity * (float(exit_quote["bp"]) - float(entry["ap"]))
+        mid_pnl = quantity * ((float(exit_quote["bp"]) + float(exit_quote["ap"])) -
+                              (float(entry["bp"]) + float(entry["ap"]))) / 2
+        spread_drag = quantity * ((float(entry["ap"]) - float(entry["bp"])) +
+                                  (float(exit_quote["ap"]) - float(exit_quote["bp"]))) / 2
         fees = quantity * (float(entry["ap"]) + float(exit_quote["bp"])) * rate
         pnl = proceeds - cost
-        if abs(pnl - (gross - fees)) > 1e-8:
+        if abs(pnl - (gross - fees)) > 1e-8 or abs(gross - (mid_pnl - spread_drag)) > 1e-8:
             raise ValueError("cash/PnL reconciliation failed")
         cash += pnl
         peak = max(peak, cash)
         drawdown = min(drawdown, cash / peak - 1)
         rows.append({**row, "symbol": symbol, "status": "closed", "quantity": quantity,
                      "entry_ns": entry["ns"], "exit_ns": exit_quote["ns"],
+                     "reference_lag_seconds": (ref["ns"] - event["decision_ns"]) / SECOND,
+                     "entry_after_reference_seconds": (entry["ns"] - ref["ns"]) / SECOND,
+                     "exit_after_target_seconds": (exit_quote["ns"] - exit_ns) / SECOND,
                      "entry_ask": entry["ap"], "exit_bid": exit_quote["bp"],
                      "reference_sha256": ref["source_sha256"], "entry_sha256": entry["source_sha256"],
                      "exit_sha256": exit_quote["source_sha256"], "gross_pnl": gross, "fees": fees,
+                     "mid_price_pnl": mid_pnl, "spread_drag": spread_drag,
                      "net_pnl": pnl, "trade_net_return_pct": pnl / (quantity * float(entry["ap"])) * 100})
     missing_events = [e["id"] for e in inputs["events"] if e["reported_date"].startswith(year) and e["status"] != "ready"]
     unresolved = [r["id"] for r in rows if r["net_pnl"] is None]
@@ -348,6 +453,9 @@ def simulate(inputs: dict, index: dict, year: str, path: str, policy: str,
             "conditional_account_return_pct": (cash / 10_000 - 1) * 100 if complete else None,
             "actual_historical_net_return_pct": None,
             "closed_subset_gross_pnl": sum(r["gross_pnl"] for r in trades),
+            "closed_subset_mid_price_pnl": sum(r["mid_price_pnl"] for r in trades),
+            "closed_subset_spread_drag": sum(r["spread_drag"] for r in trades),
+            "closed_subset_entry_notional": sum(r["quantity"] * float(r["entry_ask"]) for r in trades),
             "closed_subset_assumed_fees": sum(r["fees"] for r in trades),
             "closed_subset_pnl": sum(r["net_pnl"] for r in trades),
             "closed_subset_positive_fraction": sum(r["net_pnl"] > 0 for r in trades) / len(trades) if trades else None,
@@ -394,7 +502,7 @@ def report(inputs: dict, index: dict) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(__doc__)
-    parser.add_argument("command", choices=("cohort", "inputs", "reference", "entry", "exit", "report"))
+    parser.add_argument("command", choices=("cohort", "inputs", "reference", "entry", "exit", "gaps", "report"))
     parser.add_argument("--source", type=Path)
     parser.add_argument("--input", type=Path)
     parser.add_argument("--sources", nargs="*", type=Path, default=[])
@@ -409,6 +517,8 @@ def main():
         index = quote_index(observations(args.sources, "quote-window"))
         if args.command == "report":
             result = report(inputs, index)
+        elif args.command == "gaps":
+            result = {"stage": "gaps", "requests": gaps(inputs, index)}
         else:
             result = {"stage": args.command, "requests": stages(inputs, index, args.command)}
     save(args.output, result)
