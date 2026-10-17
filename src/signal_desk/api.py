@@ -2546,8 +2546,8 @@ def _signals():
         result.signal_policy_id = policy_id
     execution_gate.apply_from_store(results, market="kospi", today=_kst_today(),
                                     price_bundle=(prices, price_dates))
-    _sync_episode_state(results, market="kospi")
     _stamp_signal_price_context(results, prices, price_dates, quote_snapshot)
+    _sync_episode_state(results, market="kospi")
     return results
 
 
@@ -3021,23 +3021,21 @@ def _annotate_priced_in(items: list[dict], *, market: str = "kospi") -> list[dic
 
 
 def _sync_episode_state(results, *, market: str) -> None:
-    """시그널 재계산 직후 kind 전이만 kv에 기록(실패해도 본계산은 유지)."""
+    """장중 현재가로 계산한 kind 전이만 기록(실패해도 본계산은 유지)."""
     if not results:
         return
     if not market_clock.is_open("us" if market == "us" else "kr"):
         # 휴장 중 캐시 재계산을 장중 첫 발동으로 기록하지 않는다.
         return
-    try:
-        if market == "us":
-            qmap = store.load_us_quotes()
-        else:
-            qmap = _quotes()
-    except Exception:
-        qmap = {}
     rows = []
     for r in results:
-        q = qmap.get(r.ticker) or {}
-        px = q.get("price") if isinstance(q, dict) else None
+        # 별도로 재조회한 시세는 evaluate에 사용한 관측과 다를 수 있다. 종가 폴백도
+        # 장중 새 발동으로 기록하지 않는다. 가격·판정은 같은 캡처에서만 가져온다.
+        if getattr(r, "signal_price_basis", None) != "intraday_quote":
+            continue
+        px = getattr(r, "signal_input_price", None)
+        if px is None:
+            continue
         dec = _decision_payload(r)
         buy_blocked = bool(dec.get("buy_blocked"))
         rows.append({
@@ -3047,6 +3045,8 @@ def _sync_episode_state(results, *, market: str) -> None:
             "decision_buy_blocked": buy_blocked,
             "reasons": list(getattr(r, "reasons", None) or []),
         })
+    if not rows:
+        return
     try:
         day = _signal_session_day(market)
         if day is None:
@@ -7230,8 +7230,8 @@ def _us_signals():
     gate_capture: dict = {}
     execution_gate.apply_from_store(results, market="us", today=us_day,
                                     price_bundle=(prices, price_dates), capture=gate_capture)
-    _sync_episode_state(results, market="us")
     _stamp_signal_price_context(results, prices, price_dates, quote_snapshot)
+    _sync_episode_state(results, market="us")
     decision_capture = {
         "engine_inputs": {"universe": universe, "fundamentals": fundamentals,
                           "sentiment": sentiment, "earnings_dates": earnings_dates,
