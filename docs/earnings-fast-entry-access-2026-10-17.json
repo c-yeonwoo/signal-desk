@@ -1,0 +1,152 @@
+{
+  "schema": "earnings-fast-entry-access-v1",
+  "archive_sha256": "39f521f7de031f4c27a4e00a64c333e750c0d62ab2d574d227f0f1d3ab2ffb0b",
+  "archived_observation_count": 30,
+  "bar_access": [
+    {
+      "status": "historical_bars_observed",
+      "rows": 120,
+      "start": "2023-02-03T23:01:00+09:00",
+      "end": "2023-02-04T01:00:00+09:00",
+      "window": "regular_opening_hour",
+      "timestamp_semantics": "bar_end",
+      "quote_execution_eligible": false
+    },
+    {
+      "status": "historical_bars_observed",
+      "rows": 120,
+      "start": "2025-01-31T23:01:00+09:00",
+      "end": "2025-02-01T01:00:00+09:00",
+      "window": "regular_opening_hour",
+      "timestamp_semantics": "bar_end",
+      "quote_execution_eligible": false
+    },
+    {
+      "status": "historical_bars_observed",
+      "rows": 120,
+      "start": "2023-02-03T05:41:00+09:00",
+      "end": "2023-02-03T07:40:00+09:00",
+      "window": "after_hours_access_probe",
+      "timestamp_semantics": "bar_end",
+      "quote_execution_eligible": false
+    },
+    {
+      "status": "historical_bars_observed",
+      "rows": 120,
+      "start": "2025-01-31T05:41:00+09:00",
+      "end": "2025-01-31T07:40:00+09:00",
+      "window": "after_hours_access_probe",
+      "timestamp_semantics": "bar_end",
+      "quote_execution_eligible": false
+    }
+  ],
+  "execution_cost_access": [
+    {
+      "status": "partial_execution_costs_observed",
+      "accepted_rows": 20,
+      "invalid_rows": 0,
+      "has_next": true,
+      "settled_rows": 0,
+      "sides": [
+        "BUY"
+      ],
+      "date_span": [
+        "2023-08-25",
+        "2023-09-22"
+      ],
+      "commission_bps_range": [
+        8.8574218153162,
+        9.021249055982668
+      ],
+      "full_period_costs_verified": false
+    }
+  ],
+  "missing": [
+    "historical_bid_ask_and_sizes",
+    "matched_release_clock_and_feature_vintage",
+    "full_period_buy_sell_cost_evidence",
+    "extended_session_execution_permission"
+  ],
+  "backtest_state": "not_run_missing_execution_sources",
+  "net_return_pct": null,
+  "verdict": "blocked_missing_execution_sources",
+  "strategy_adoption": "undecided",
+  "registered_verdict": false,
+  "strict_pit_eligible": false,
+  "live_order_eligible": false,
+  "collector_sha256": "095ac70b07e2bf5273c848abc46ac0e807ade6c913ccee55d89ad99901441978",
+  "current_commission_observations": [
+    {
+      "current_rates": [
+        {
+          "commissionRate": "0.00015",
+          "endDate": "9999-12-31",
+          "marketCountry": "KR",
+          "startDate": "2021-01-01"
+        },
+        {
+          "commissionRate": "0.001",
+          "endDate": "2026-10-18",
+          "marketCountry": "US",
+          "startDate": null
+        }
+      ],
+      "historical_costs_verified": false,
+      "http_status": 200,
+      "observed_at": "2026-10-17T04:49:05.857926+00:00"
+    }
+  ],
+  "source_diagnostics": [
+    {
+      "http_status": 500,
+      "provider_code": "EGW02004",
+      "provider_message": "실전투자 도메인은 모의투자 앱키로 호출하실 수 없습니다.",
+      "source_file": "raw/diagnostic-minute-20230203.json",
+      "status": "provider_failed",
+      "target_date": "20230203"
+    },
+    {
+      "http_status": 500,
+      "provider_code": "EGW02004",
+      "provider_message": "실전투자 도메인은 모의투자 앱키로 호출하실 수 없습니다.",
+      "source_file": "raw/diagnostic-minute-20250131.json",
+      "status": "provider_failed",
+      "target_date": "20250131"
+    },
+    {
+      "http_status": 200,
+      "provider_code": "MCA00000",
+      "provider_message": "정상처리 되었습니다.",
+      "source_file": "raw/diagnostic-daily-control.json",
+      "status": "response_observed"
+    },
+    {
+      "environment": "demo",
+      "http_status": 200,
+      "provider_code": "MCA00000",
+      "provider_message": "정상처리 되었습니다.",
+      "rows": 0,
+      "source_file": "raw/diagnostic-demo-minute-20230203.json",
+      "status": "no_bars",
+      "target_date": "20230203"
+    },
+    {
+      "environment": "demo",
+      "http_status": 200,
+      "provider_code": "MCA00000",
+      "provider_message": "정상처리 되었습니다.",
+      "rows": 0,
+      "source_file": "raw/diagnostic-demo-minute-20250131.json",
+      "status": "no_bars",
+      "target_date": "20250131"
+    },
+    {
+      "environment": "demo",
+      "http_status": 200,
+      "provider_code": "MCA00000",
+      "provider_message": "정상처리 되었습니다.",
+      "source_file": "raw/diagnostic-demo-daily-control.json",
+      "status": "response_observed"
+    }
+  ]
+}
