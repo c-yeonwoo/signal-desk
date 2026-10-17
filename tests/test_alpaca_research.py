@@ -16,6 +16,7 @@ START, END = "2023-02-03T14:31:30Z", "2023-02-03T14:31:35Z"
 def test_window_is_fixed_panel_timezone_aware_and_outside_protected_data():
     params = source.parameters("AAPL", START, END)
     assert params["feed"] == "sip" and params["asof"] == "2023-02-03"
+    assert source.parameters("FB", "2022-06-09T00:01:00Z", "2022-06-09T00:01:05Z")["asof"] == "2022-06-08"
     for symbol, start, end in (("AAPL/../../orders", START, END), ("AAPL", START, "2023-02-03T14:32:30Z"),
                               ("AAPL", "2026-10-17T14:31:30Z", "2026-10-17T14:31:35Z"),
                               ("AAPL", "2023-02-03T14:31:30", END)):

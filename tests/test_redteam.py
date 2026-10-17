@@ -1727,6 +1727,9 @@ _ROUTES_WITHOUT_UI = {
     "/api/execution-audit": "레퍼런스 체결 재생 감사 — 운영 관측용 API",
     "/api/notification-health": "알림 outbox 상태 — 운영 경보용 API",
     "/api/portfolio-risk": "레퍼런스 장부 집중도 shadow — OOS 관측용 API",
+    "/api/admin/research/alpaca-quotes": (
+        "Railway 키 비노출 과거 SIP 원문 수집 — 관리자 연구 클라이언트 전용. "
+        "2022~2025 고정 패널·5초 구간만 허용하며 사용자 시그널/주문 화면에는 연결하지 않는다"),
 
 }
 

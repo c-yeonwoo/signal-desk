@@ -12,6 +12,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from zoneinfo import ZoneInfo
 
 SYMBOLS = frozenset({"AAPL", "MSFT", "GOOGL", "AMZN", "META", "FB", "NVDA", "JPM", "XOM", "SPY"})
 MAX_BYTES = 512_000
@@ -59,7 +60,7 @@ def parameters(symbol: str, start: str, end: str) -> dict:
     except (ValueError, TypeError, AttributeError):
         raise ValueError("valid timezone-aware 2022–2025 window of at most five seconds required") from None
     return {"start": first.isoformat(), "end": last.isoformat(), "feed": "sip", "currency": "USD",
-            "asof": first.date().isoformat(), "limit": "1000", "sort": "asc"}
+            "asof": first.astimezone(ZoneInfo("America/New_York")).date().isoformat(), "limit": "1000", "sort": "asc"}
 
 
 def quote_window(symbol: str, start: str, end: str) -> dict:
