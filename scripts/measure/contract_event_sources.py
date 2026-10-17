@@ -73,7 +73,7 @@ def parse_index(source: str) -> tuple[int, list[dict]]:
         receipt = re.search(r"openDisclsViewer\('([0-9]{14})'", raw)
         if not receipt:
             continue
-        code = re.search(r"companysummary_open\('([0-9]{5})'", raw)
+        code = re.search(r"companysummary_open\('([0-9A-Z]{5})'", raw)
         cells = [_text(cell) for cell in re.findall(r"<td\b[^>]*>(.*?)</td>", raw, re.S | re.I)]
         if not code or len(cells) < 5:
             raise ValueError("KIND index issuer missing")
@@ -82,6 +82,7 @@ def parse_index(source: str) -> tuple[int, list[dict]]:
                 or not receipt[1].startswith(published.strftime("%Y%m%d"))):
             raise ValueError("KIND returned a filing outside the requested period")
         events.append({"receipt": receipt[1], "ticker": code[1] + "0", "issuer": cells[2],
+                       "kind_company_code": code[1],
                        "market_segment": "kospi" if re.search(r"alt=['\"]유가증권['\"]", raw)
                        else "kosdaq" if re.search(r"alt=['\"]코스닥['\"]", raw) else "other",
                        "title": cells[3], "published_at": published.isoformat(),
@@ -169,9 +170,9 @@ def collect_events(output: Path) -> dict:
 
     def get(url, name, data=None):
         nonlocal requests
+        if requests >= 600:
+            raise RuntimeError("contract source request budget exceeded")
         requests += 1
-        if requests > 600:
-            raise ValueError("contract source request budget exceeded")
         req = urllib.request.Request(url, data, headers={"Referer": SEARCH,
                                                         "User-Agent": "signal-desk-research/1.0"})
         with opener.open(req, timeout=20) as response:
@@ -209,6 +210,8 @@ def collect_events(output: Path) -> dict:
         clock = event["published_at"][11:16]
         if event["market_segment"] not in ("kospi", "kosdaq"):
             reason = "outside_kospi_kosdaq"
+        elif not event["kind_company_code"][0].isdigit():
+            reason = "foreign_company_identifier_requires_stock_mapping"
         elif any(marker in title for marker in ("정정", "해지", "자회사")) or "체결" not in title:
             reason = "not_initial_direct_contract"
         elif not market_clock.is_session("kr", session):

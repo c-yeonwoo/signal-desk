@@ -38,6 +38,8 @@ def test_index_clock_is_official_minute_and_future_correction_badge_is_not_title
     assert total == 1 and rows[0]["ticker"] == "005930"
     assert rows[0]["published_at"] == "2026-06-03T10:15:00+09:00"
     assert "정정" not in rows[0]["title"]
+    assert parse_index(source.replace("00593", "0011T"))[1][0]["kind_company_code"] == "0011T"
+    assert parse_index(source.replace("00593", "CYM06"))[1][0]["kind_company_code"] == "CYM06"
     with pytest.raises(ValueError, match="outside the requested"):
         parse_index(source.replace("2026-06-03 10:15", "2026-08-06 10:15"))
 
