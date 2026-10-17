@@ -87,6 +87,14 @@ def test_captured_price_context_overrides_newer_detail_quote():
     assert inconsistent["signal"]["decision"] == "UNAVAILABLE"
 
 
+def test_latest_completed_close_is_not_described_as_live_price():
+    review = _review(signal_price_status="current_close")
+    assert review["price_status"] == "current"
+    assert review["signal"]["decision"] == "STRONG_BUY"
+    assert "마지막 확정 종가" in review["claims"][0]["text"]
+    assert "다음 거래일 장중 가격" in review["next_checks"][0]
+
+
 def test_blocked_buy_is_not_shown_as_positive_candidate_claim():
     review = _review(item={"kind": "STRONG_BUY", "decision": {"buy_blocked": True}})
     assert review["signal"]["decision"] == "STRONG_BUY"
@@ -206,6 +214,8 @@ ctx._paintSignalReview('005930',{ticker:'005930',price_status:'current',price_ba
 assert.match(el.innerHTML,/&lt;img/);
 assert.match(el.innerHTML,/기사 제목 ·/);
 assert.match(el.innerHTML,/기사 내용의 사실 여부는 검증하지 않았어요/);
+assert.match(el.innerHTML,/마지막 종가의 판정/);
+assert.doesNotMatch(el.innerHTML,/현재 가격 조건/);
 assert.doesNotMatch(el.innerHTML,/확인된 기업 소식/);
 assert.doesNotMatch(el.innerHTML,/href="javascript:/);
 ctx._paintSignalReview('005930',{ticker:'005930',market:'kr',portfolio_relation:'held',price_status:'current',price_basis:'confirmed_close',
