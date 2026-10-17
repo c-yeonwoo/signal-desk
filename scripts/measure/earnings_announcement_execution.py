@@ -25,7 +25,11 @@ NY = ZoneInfo("America/New_York")
 SECOND = 1_000_000_000
 PLAN = Path(__file__).resolve().parents[2] / "docs/EARNINGS-ANNOUNCEMENT-EXECUTION-2026-10-17.md"
 NUMBER = r"(-?\d+(?:\.\d+)?)"
-EPS = re.compile(r"\bEPS\s*\$?" + NUMBER + r"\s+(?:Beats|Misses|In-Line With|In Line With|Inline With)\s+\$?" + NUMBER + r"\s+Estimat", re.I)
+EPS = re.compile(r"\bEPS(?: Excluding Significant Items)?\s*\$?" + NUMBER +
+    r"\s+(?:Beats|Misses|vs\.?|In-Line With|In Line With|Inline With)\s+\$?" + NUMBER + r"\s+Est(?:imat)?", re.I)
+ISSUER_TITLES = {"AAPL": r"Apple", "AMZN": r"Amazon(?:\.com)?", "GOOGL": r"Alphabet",
+    "JPM": r"(?:JP Morgan|JPMorgan Chase)", "META": r"(?:Meta|Facebook)",
+    "MSFT": r"Microsoft", "NVDA": r"NVIDIA", "XOM": r"(?:ExxonMobil|Exxon Mobil)"}
 
 
 def digest(path: Path) -> str:
@@ -96,12 +100,13 @@ def input_events(frozen: dict, sources: list[dict]) -> dict:
         if "" not in tokens or any(p["body"].get("next_page_token") not in tokens | {None, ""} for p in pages):
             events.append({**row, "status": "news_pagination_incomplete"})
             continue
-        candidates = {}
+        candidates, reports = {}, {}
         for page in pages:
             for article in page["body"]["news"]:
                 headline = article["headline"]
                 match = EPS.search(headline)
-                if (not match or re.search(r"\b(?:Sees|Expects|Preview|Why|Recap|Yesterday|Last Week)\b", headline, re.I)
+                marker = re.match(ISSUER_TITLES[symbol] + r"\s+Q[1-4]\s+(?:EPS\b|Adj\b|Earnings Highlights\b)", headline, re.I)
+                if ((not match and not marker) or re.search(r"\b(?:Sees|Expects|Preview|Why|Recap|Yesterday|Last Week)\b", headline, re.I)
                         or not aliases.intersection(article["symbols"])):
                     continue
                 # A direct single-issuer EPS headline, not a market roundup.
@@ -112,13 +117,22 @@ def input_events(frozen: dict, sources: list[dict]) -> dict:
                 if (changed < first or as_dt(ready).astimezone(NY).date().isoformat() != day
                         or as_dt(first).astimezone(NY).date().isoformat() != day):
                     continue
-                actual, expected = map(float, match.groups())
-                candidates[article["id"]] = {"news_id": article["id"], "url": article["url"],
+                observation = {"news_id": article["id"], "url": article["url"],
                     "source_sha256": page["raw_sha256"], "created_at": article["created_at"],
-                    "updated_at": article["updated_at"], "ready_ns": ready + 30 * SECOND,
+                    "updated_at": article["updated_at"], "ready_ns": ready + 30 * SECOND}
+                reports[article["id"]] = observation
+                if not match:
+                    continue
+                actual, expected = map(float, match.groups())
+                candidates[article["id"]] = {**observation,
                     "actual_eps": actual, "expected_eps": expected,
-                    "eps_basis": "adjusted" if re.search(r"Adj\.?|Adjusted", headline, re.I) else "unspecified"}
+                    "eps_basis": "adjusted" if re.search(r"Adj\.?|Adjusted|Excluding Significant Items", headline, re.I) else "unspecified"}
         pairs = {(r["actual_eps"], r["expected_eps"]) for r in candidates.values()}
+        if not pairs and reports:
+            selected = min(reports.values(), key=lambda r: (r["ready_ns"], r["news_id"]))
+            events.append({**row, **selected, "status": "ready", "eligible": False,
+                           "eligibility_reason": "comparison_unavailable_abstain"})
+            continue
         if len(pairs) != 1:
             events.append({**row, "status": "eps_headline_conflict" if pairs else "eps_headline_missing"})
             continue
@@ -126,6 +140,7 @@ def input_events(frozen: dict, sources: list[dict]) -> dict:
         actual, expected = selected["actual_eps"], selected["expected_eps"]
         surprise = (actual / expected - 1) * 100 if expected > 0 else None
         events.append({**row, **selected, "status": "ready", "surprise_pct": surprise,
+                       "eligibility_reason": "direct_headline_comparison",
                        "eligible": bool(actual > 0 and expected > 0 and surprise >= 5 - 1e-10)})
     return {"schema": "earnings-announcement-inputs-v1", "cohort": frozen, "events": events,
             "strict_pit_eligible": False, "live_order_eligible": False}

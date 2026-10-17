@@ -86,6 +86,12 @@ def test_revision_not_creation_is_feature_time_and_conflicts_abstain():
     assert replay.input_events(frozen, [page])["events"][0]["status"] == "eps_headline_conflict"
     page["body"]["news"] = [{**article, "updated_at": "2023-02-03T21:02:00Z"}]
     assert replay.input_events(frozen, [page])["events"][0]["status"] == "eps_headline_missing"
+    page["body"]["news"] = [{**article, "headline": "Apple Q1 EPS $2.00 vs $1.80 Est."}]
+    assert replay.input_events(frozen, [page])["events"][0]["eligible"]
+    page["body"]["news"] = [{**article, "headline": "Apple Q1 EPS $2.00 May Not Compare To $1.80 Est."}]
+    abstention = replay.input_events(frozen, [page])["events"][0]
+    assert abstention["status"] == "ready" and not abstention["eligible"]
+    assert abstention["eligibility_reason"] == "comparison_unavailable_abstain"
 
 
 def test_source_hash_tamper_partial_pages_and_conflicting_quote_versions(tmp_path):
