@@ -175,6 +175,25 @@ def test_market_card_has_one_endpoint_and_defers_source_requests():
     assert "loadIndustryPulse();" not in start
 
 
+def test_mobile_market_figure_precedes_buy_count_and_uses_short_copy():
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    brief = html.split('<section id="market-ribbon"', 1)[1].split('<details id="market-brief-sources"', 1)[0]
+    assert brief.index('id="mb-state"') < brief.index('id="mb-figure"') < brief.index('id="mb-selection"')
+    assert 'grid-template-areas:"copy" "figure" "post"' in html
+    assert "실제 등락을 그렸고, 확인된 소식만 함께 표시해요" not in html
+
+
+def test_shared_market_image_keeps_non_recommendation_label_visible():
+    prices, dates = _bars(last="2026-10-08")
+    dates[-2] = "2026-10-07"
+    card = market_brief.build(
+        "kr", prices={"A": prices}, dates={"A": dates}, tickers=["A"],
+        expected="2026-10-08", previous="2026-10-07",
+    )
+    svg = market_brief_image.render(card)
+    assert "등락 폭 큰 종목 · 매수 추천 아님" in svg
+
+
 def test_market_brief_api_reuses_current_decisions_without_llm(monkeypatch):
     prices, dates = _bars()
     monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, now: "2026-10-02")

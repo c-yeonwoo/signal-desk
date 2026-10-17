@@ -132,8 +132,11 @@
     width:calc(100% - 28px); max-width:1400px; margin:0 auto 12px; }
   .today-links-label { color:var(--dim); font-size:13px; }
   .mb-top, .mb-main, .mb-source-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-  .mb-layout { display:grid; grid-template-columns:minmax(0,.85fr) minmax(360px,1.15fr); align-items:start; gap:clamp(24px,3.5vw,48px); }
-  .mb-copy { min-width:0; }
+  .mb-layout { display:grid; grid-template-columns:minmax(0,.85fr) minmax(360px,1.15fr);
+    grid-template-areas:"copy figure" "post figure"; grid-template-rows:min-content 1fr;
+    align-items:start; column-gap:clamp(24px,3.5vw,48px); }
+  .mb-copy { grid-area:copy; min-width:0; }
+  .mb-post { grid-area:post; min-width:0; }
   .mb-eyebrow { color:var(--accent); font-size:13px; font-weight:700; letter-spacing:.04em; }
   .mb-asof { color:var(--dim); font-size:14px; font-variant-numeric:tabular-nums; }
   .mb-main { align-items:flex-start; flex-direction:column; margin-top:20px; }
@@ -141,7 +144,8 @@
   .mb-state { font-size:clamp(25px,2.5vw,34px); line-height:1.3; margin:6px 0 14px; letter-spacing:-.035em; }
   .mb-basis { color:var(--dim); font-size:16px; line-height:1.55; margin:0; }
   .mb-selection { flex:0 0 auto; background:var(--bg); border:1px solid var(--line);
-    border-radius:var(--r-md); padding:12px 16px; min-width:142px; text-align:left; margin-top:22px; }
+    border-radius:var(--r-md); padding:12px 16px; min-width:142px; width:fit-content;
+    max-width:100%; text-align:left; margin-top:22px; }
   .mb-selection b { display:block; font-size:17px; line-height:1.2; font-variant-numeric:tabular-nums; }
   .mb-selection small { display:block; color:var(--dim); font-size:13px; margin-top:7px; }
   .mb-facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-top:16px; }
@@ -158,7 +162,7 @@
   #macro-detail .pcard { margin:0; }
   .mb-source-head b { font-size:15px; }
   .mb-source-foot { color:var(--dim-2); font-size:13px; line-height:1.55; margin:0; }
-  .mb-figure { margin:0; min-width:0; }
+  .mb-figure { grid-area:figure; margin:0; min-width:0; }
   .mb-visual { position:relative; width:100%; aspect-ratio:12/7; overflow:hidden;
     border:1px solid var(--line); border-radius:14px; background:var(--bg); }
   .mb-figure img { display:block; width:100%; height:100%; object-fit:contain; }
@@ -700,13 +704,14 @@
   #data-health table.dtable th:nth-child(2), #data-health table.dtable td:nth-child(2) { width:16%; }
   @media (max-width:640px){
     .market-brief { margin:12px 14px 0; padding:20px 16px; }
-    .mb-layout { grid-template-columns:1fr; gap:22px; }
-    .mb-figure { grid-row:2; }
+    .mb-layout { grid-template-columns:1fr; grid-template-areas:"copy" "figure" "post";
+      grid-template-rows:auto; gap:22px; }
     /* 정사각형 cover는 포스터 하단의 원문·기준일을 잘라 숨긴다. */
     .mb-state { font-size:24px; word-break:keep-all; }
     .mb-visual { aspect-ratio:12/7; }
     .mb-figure img { object-fit:contain; }
-    .mb-selection { min-width:0; }
+    .mb-selection { min-width:0; margin-top:0; }
+    .mb-unknown { margin-top:16px; }
     .today-links { margin:0 auto 10px; }
     .mb-facts { grid-template-columns:1fr; }
     header { padding:10px 14px; gap:8px 6px; align-items:center; }
@@ -999,9 +1004,7 @@
       <div class="mb-top"><span class="mb-eyebrow">지금 시장 · 관찰 종목 기준</span><span id="mb-asof" class="mb-asof">종가 확인 중…</span></div>
       <div class="mb-main"><div><div id="mb-market" class="mb-market">국내 시장</div>
         <h2 id="mb-state" class="mb-state">시장 자료를 확인하고 있습니다</h2>
-        <p id="mb-basis" class="mb-basis">저장된 종가를 확인한 뒤 표시합니다.</p></div>
-        <div id="mb-selection" class="mb-selection"></div></div>
-      <p id="mb-unknown" class="mb-unknown"></p>
+        <p id="mb-basis" class="mb-basis">저장된 종가를 확인한 뒤 표시합니다.</p></div></div>
     </div>
     <figure id="mb-figure" class="mb-figure">
       <div class="mb-visual">
@@ -1013,6 +1016,10 @@
         <button type="button" onclick="downloadMarketBriefPng()">공유 이미지 저장</button></figcaption>
       <a id="mb-news-link" class="mb-news-link" href="#" target="_blank" rel="noopener noreferrer" hidden></a>
     </figure>
+    <div class="mb-post">
+      <div id="mb-selection" class="mb-selection"></div>
+      <p id="mb-unknown" class="mb-unknown"></p>
+    </div>
   </div>
   <details id="market-brief-sources" class="mb-sources" ontoggle="onMarketBriefSourcesToggle()">
     <summary>기준과 근거 자세히 보기</summary>
@@ -3498,8 +3505,8 @@ async function loadRegime(){
     const best = (d.sector_summary || [])[0];
     document.getElementById('mb-basis').textContent = fresh
       ? (best && d.scene?.direction !== 'unknown'
-          ? `${best.sector} 종목이 ${best.median_change_pct > 0 ? '상대적으로 강했어요' : '상대적으로 덜 내렸어요'}. 실제 등락을 그렸고, 확인된 소식만 함께 표시해요.`
-          : '확인된 종가를 기준으로, 오늘 움직임을 짧게 정리했습니다.')
+          ? `${best.sector} 종목이 ${best.median_change_pct > 0 ? '상대적으로 강했어요' : '상대적으로 덜 내렸어요'}.`
+          : '확인된 종가로 움직임을 정리했어요.')
       : '오래된 가격으로 최근 거래일의 시장 흐름을 판단하지 않아요.';
     document.getElementById('mb-source-basis').textContent = fresh
       ? `${d.state_basis || '저장된 종가 기준'} · ${d.price_count}/${d.universe_count}종목 날짜 확인. 해당일 등락·최근 평균 위 여부·20거래일 변화는 서로 다른 기간의 관측치이며, 어느 것도 다음 거래일에 오를 확률은 아닙니다.`
@@ -3533,7 +3540,7 @@ async function loadRegime(){
     unknown.textContent = !fresh ? (d.unknown || [])[0] || '가격을 다시 확인해야 합니다.'
       : d.status === 'partial' ? '일부 종가가 빠져 매수 판정 건수를 보여주지 않습니다.'
       : d.brief_news_error ? d.brief_news_error
-      : '종목이 움직인 이유는 이 카드만으로 확정할 수 없습니다.';
+      : '등락 이유는 이 정보만으로 단정할 수 없어요.';
     unknown.classList.toggle('is-warning', !fresh);
     const policy = d.selection_policy || {}, ad = d.adaptive || {};
     if (fresh) {
