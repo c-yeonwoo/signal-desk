@@ -2,7 +2,7 @@
 
 import pytest
 
-from scripts.measure.contract_event_sources import parse_contract, parse_index
+from scripts.measure.contract_event_sources import original_document, parse_contract, parse_index
 
 
 def _contract(amount="100,000,000", sales="1,000,000,000", ratio="10.00", related="-"):
@@ -40,3 +40,11 @@ def test_index_clock_is_official_minute_and_future_correction_badge_is_not_title
     assert "정정" not in rows[0]["title"]
     with pytest.raises(ValueError, match="outside the requested"):
         parse_index(source.replace("2026-06-03 10:15", "2026-08-06 10:15"))
+
+
+def test_document_number_date_is_not_the_publication_date():
+    shell = """<option value='20260428000985|Y'selected='selected'>
+    단일판매ㆍ공급계약체결 (2026.05.04)</option>"""
+    assert original_document(shell, {"session": "2026-05-04"}) == "20260428000985"
+    with pytest.raises(ValueError, match="missing or ambiguous"):
+        original_document(shell, {"session": "2026-04-28"})

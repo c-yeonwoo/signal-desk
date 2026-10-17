@@ -119,6 +119,20 @@ def parse_contract(source: str) -> dict:
             "amount_basis": "filing_issuer_direct_contract", "issuer_role": "seller_or_supplier"}
 
 
+def original_document(shell: str, event: dict) -> str:
+    # KIND document numbers can predate public submission (a prepared document).
+    # The index publication clock and the option's displayed filing date bind it;
+    # a numeric document ID is never treated as the public timestamp.
+    options = re.findall(r"<option\s+value=['\"]([0-9]{14})\|[YN]['\"][^>]*>(.*?)</option>", shell, re.S)
+    display_date = event["session"].replace("-", ".")
+    matches = [doc for doc, label in options if display_date in _text(label)
+               and "체결" in _text(label)
+               and not any(marker in _text(label) for marker in ("정정", "해지"))]
+    if len(matches) != 1:
+        raise ValueError("original filing document missing or ambiguous")
+    return matches[0]
+
+
 def _save(path: Path, files: dict[str, bytes], manifest: dict) -> None:
     manifest = {**manifest, "observed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
                 "entries": {name: {"sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)}
@@ -209,13 +223,7 @@ def collect_events(output: Path) -> dict:
                 expected_title = f"[{event['issuer']}]"
                 if expected_title not in shell:
                     raise ValueError("viewer issuer does not match index issuer")
-                options = re.findall(r"<option\s+value=['\"]([0-9]{14})\|[YN]['\"][^>]*>(.*?)</option>", shell, re.S)
-                matches = [(doc, _text(label)) for doc, label in options
-                           if doc[:8] == receipt[:8] and "체결" in _text(label)
-                           and not any(marker in _text(label) for marker in ("정정", "해지"))]
-                if len(matches) != 1:
-                    raise ValueError("original filing document missing or ambiguous")
-                doc = matches[0][0]
+                doc = original_document(shell, event)
                 resolver = get(HOST + "/common/disclsviewer.do?method=searchContents&docNo=" + doc,
                                f"raw/{receipt}-resolver.htm")
                 urls = re.findall(r"https://kind\.krx\.co\.kr/external/[0-9/]+/[0-9]+\.htm", resolver)
