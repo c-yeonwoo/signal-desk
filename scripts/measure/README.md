@@ -8,6 +8,14 @@
 .venv/bin/python scripts/measure/<script>.py       # 리포 루트에서
 ```
 
+## 2026-10-17 단일 Ridge 후보 학습·평가
+
+[조건](../../docs/KR-RIDGE-SELECTION-PLAN-2026-10-17.md)을 첫 학습 전 커밋하고 [결과](../../docs/KR-RIDGE-SELECTION-RESULT-2026-10-17.md)를 분리했다. 학습116일·21,884행의 모델 하나를 고정해2024년4분기61일·5위상·6실행조건·5대조를 재생한다. 주 비용 평균은 양수지만 손실 위상·낙폭·비용/체결 스트레스 때문에 **미채택**이며, GS리테일 분할 거래정지의 대조2경로가 남아 전체 형식 판정은 보류다. 결과 보고 문턱이나 학습 기간을 바꾸지 않는다.
+
+`.venv/bin/python -m scripts.measure.kr_ridge_selection_lab --model data/research/kr-ridge-r3-model-2026-10-17-v1.json --listing-archive data/research/kr-ridge-r3-listing-originals-2026-10-17-v1.zip --output data/research/<새 이름>.json`으로 보존 자료를 오프라인 재생한다. 기존 모델 파일은 학습 입력 해시를 대조해 재사용하며 재학습하지 않는다. 처음 실행 시에만 학습 모델을 새 파일로 저장하고 평가를 시작한다. 기존 원문·결과 파일을 덮어쓰지 않는다. 얕은 복제본은 계획 커밋 `c2a0b3ee14ee8e3bca63782fbc41ec4611a61113`을 먼저 fetch해야 한다.
+
+원문 획득은 `kr_ridge_action_sources --result <기존 결손 결과> --output <새 ZIP>`으로 분리한다. KOSPI·해당 날짜 전14일·최대100요청의 공식 KIND 검색/뷰어/원문을 보존한다. 재조회 ZIP은 관측시각과 버전이 달라질 수 있어 고정 해시의 연구 입력을 자동 교체하지 않는다. 소각·옵션/CB 발행의 선별 사실은 보통주 보유수량 불변만 확인하며 기업행사 전수 인증이 아니다. 연구 코드는 운영 계산·주문·보호 구간을 건드리지 않는다.
+
 ## 2026-10-17 종료한 당일 매매 비교
 
 `.venv/bin/python -m scripts.measure.research_daytrade_batch --output data/research/<새 이름>.json`은 공식 KRX ZIP 13개의 해시·날짜를 검사하고 개발 7창·별도 2025년 4블록을 같은 초기자본으로 계산한다. 전일 자료의 세 후보와 현행 가격 전용·대형주·현금 대조군, 45/75/120bp·전량/절반/미체결을 비교한다. 주문 수량은 다음 날 시가를 보기 전에 고정하며 당일 청산 관측이 없으면 해당 경로의 수익을 보류한다. 결과와 원문은 로컬 연구 자료다. [고정 규칙과 첫 결과](../../docs/DAYTRADE-BENCHMARK-2026-10-17.md)에서 세 후보는 모두 **기각·종료**했다. 같은 확인 구간을 재튜닝의 최종 시험으로 재사용하지 않는다. 운영 엔진과 등록 연구를 실행하거나 변경하지 않는다.

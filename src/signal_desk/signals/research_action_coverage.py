@@ -34,7 +34,7 @@ class ReviewedShareCountChange:
     ticker: str
     security_id: str
     share_class: Literal["ordinary_common"]
-    kind: Literal["treasury_cancellation", "option_exercise_issuance"]
+    kind: Literal["treasury_cancellation", "option_exercise_issuance", "convertible_bond_issuance"]
     effective_on: str
     listing_session: str
     previous_session: str
@@ -52,7 +52,7 @@ class ReviewedShareCountChange:
         if (not re.fullmatch(r"[0-9A-Z]{6}", self.ticker)
                 or not re.fullmatch(r"KR[0-9A-Z]{10}", self.security_id)
                 or self.share_class != "ordinary_common"
-                or self.kind not in ("treasury_cancellation", "option_exercise_issuance")
+                or self.kind not in ("treasury_cancellation", "option_exercise_issuance", "convertible_bond_issuance")
                 or not market_clock.is_session("kr", self.listing_session)
                 or not market_clock.is_session("kr", self.previous_session)
                 or self.previous_session >= self.listing_session
