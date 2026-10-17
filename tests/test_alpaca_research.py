@@ -98,3 +98,36 @@ def test_admin_auth_and_bounds_precede_network_and_global_throttle(monkeypatch):
     with pytest.raises(api.HTTPException) as throttled:
         api.alpaca_research_quotes_get(object(), "AAPL", START, END)
     assert throttled.value.status_code == 429
+
+
+def test_historical_news_keeps_revision_clock_and_exact_bytes(monkeypatch):
+    body = {"news": [{"id": 123, "symbols": ["META"], "headline": "Meta Q1 EPS",
+        "url": "https://example.com/original", "created_at": "2023-04-26T20:09:00Z",
+        "updated_at": "2023-04-26T20:11:00Z"}], "next_page_token": "more"}
+    raw, calls = _setup(monkeypatch, body)
+    result = source.news_day("META", "2023-04-26")
+    assert result["status"] == "observed" and result["news_count"] == 1 and result["has_next_page"]
+    assert base64.b64decode(result["raw_b64"]) == raw
+    assert calls[0].full_url.startswith("https://data.alpaca.markets/v1beta1/news?")
+    assert "include_content=false" in calls[0].full_url and not result["strict_pit_eligible"]
+    for symbol, session, token in (("TSLA", "2023-01-01", ""), ("META", "2026-10-17", ""),
+                                   ("META", "2023-04-26", "x&symbols=TSLA")):
+        with pytest.raises(ValueError):
+            source.news_parameters(symbol, session, token)
+
+
+def test_news_auth_bounds_and_shared_throttle(monkeypatch):
+    from signal_desk import api
+    monkeypatch.setattr(api, "_admin_or_403", lambda request: (_ for _ in ()).throw(api.HTTPException(403)))
+    with pytest.raises(api.HTTPException) as denied:
+        api.alpaca_research_news_get(object(), "META", "2023-04-26")
+    assert denied.value.status_code == 403
+    monkeypatch.setattr(api, "_admin_or_403", lambda request: None)
+    monkeypatch.setattr(api.db, "lease_claim", lambda *a, **k: pytest.fail("invalid must not lease"))
+    with pytest.raises(api.HTTPException) as invalid:
+        api.alpaca_research_news_get(object(), "META", "2026-10-17")
+    assert invalid.value.status_code == 422
+    monkeypatch.setattr(api.db, "lease_claim", lambda *a, **k: False)
+    with pytest.raises(api.HTTPException) as throttled:
+        api.alpaca_research_news_get(object(), "META", "2023-04-26")
+    assert throttled.value.status_code == 429
