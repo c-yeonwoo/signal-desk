@@ -121,6 +121,9 @@ def test_historical_news_keeps_revision_clock_and_exact_bytes(monkeypatch):
     assert calls[0].full_url.startswith("https://data.alpaca.markets/v1beta1/news?")
     assert "include_content=false" in calls[0].full_url and not result["strict_pit_eligible"]
     assert source.news_parameters("FB", "2020-01-29")["start"].startswith("2020-01-29")
+    assert source.news_parameters("GOOG", "2020-10-29")["symbols"] == "GOOG"
+    with pytest.raises(ValueError):
+        source.parameters("GOOG", START, END)  # Class C must not replace GOOGL fills.
     for symbol, session, token in (("TSLA", "2023-01-01", ""), ("META", "2026-10-17", ""),
                                    ("FB", "2019-12-31", ""),
                                    ("META", "2023-04-26", "x&symbols=TSLA")):

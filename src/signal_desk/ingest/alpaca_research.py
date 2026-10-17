@@ -15,6 +15,7 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 SYMBOLS = frozenset({"AAPL", "MSFT", "GOOGL", "AMZN", "META", "FB", "NVDA", "JPM", "XOM", "SPY"})
+NEWS_SYMBOLS = (SYMBOLS - {"SPY"}) | {"GOOG"}  # Same issuer news, NOT interchangeable quote prices.
 MAX_BYTES = 512_000
 MAX_WINDOW_SECONDS = 300  # Same 1,000-row/byte/time cap for sparse historical intervals.
 
@@ -114,7 +115,7 @@ def quote_window(symbol: str, start: str, end: str) -> dict:
 
 def news_parameters(symbol: str, session: str, page_token: str = "") -> dict:
     """One fixed issuer/day of development news, never current/protected news."""
-    if symbol not in SYMBOLS - {"SPY"}:
+    if symbol not in NEWS_SYMBOLS:
         raise ValueError("fixed issuer panel only")
     day = dt.date.fromisoformat(session)
     if session != day.isoformat() or not "2020-01-01" <= session <= "2023-12-31":
