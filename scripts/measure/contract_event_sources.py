@@ -92,24 +92,45 @@ def parse_index(source: str) -> tuple[int, list[dict]]:
 
 def parse_contract(source: str) -> dict:
     rows = _rows(source)
-    def field(marker):
-        matches = [row[-1] for row in rows if len(row) >= 2
+    normalized = [" ".join(row).replace(" ", "") for row in rows]
+    if any(("종속회사인" in row or "자회사인" in row) and "주요경영" in row for row in normalized):
+        raise ValueError("subsidiary contract is not the direct issuer contract")
+    starts = [i for i, row in enumerate(normalized) if row.startswith("2.계약내역")]
+    ends = [i for i, row in enumerate(normalized) if row.startswith("3.계약상대")]
+    if len(starts) != 1 or len(ends) != 1 or starts[0] >= ends[0]:
+        raise ValueError("issuer contract section missing or ambiguous")
+    issuer_rows = rows[starts[0]:ends[0]]
+
+    def field(marker, scope=None):
+        matches = [row[-1] for row in (rows if scope is None else scope) if len(row) >= 2
                    and any(marker in re.sub(r"\s+", "", cell) for cell in row[:-1])]
         if len(matches) != 1:
             raise ValueError("contract field missing or ambiguous: " + marker)
         return matches[0]
 
     def number(marker):
-        value = field(marker).replace(",", "").strip()
+        value = field(marker, issuer_rows).replace(",", "").strip()
         if not re.fullmatch(r"\d+(?:\.\d+)?", value):
             raise ValueError("contract numeric unit ambiguous")
         return float(value)
 
-    amount, sales, ratio = (number(marker) for marker in (
-        "계약금액(원)", "최근매출액(원)", "매출액대비(%)"))
+    if any("계약금액총액(원)" in "".join(row).replace(" ", "") for row in issuer_rows):
+        conditional = field("조건부계약금액", issuer_rows).replace(",", "")
+        if conditional not in ("-", "0", "0.0", "0.00"):
+            raise ValueError("conditional amount is not a confirmed positive contract")
+        amount = number("계약금액총액(원)")
+        if abs(amount - number("확정계약금액")) > 0.5:
+            raise ValueError("confirmed and total contract amounts differ")
+    else:
+        amount = number("계약금액(원)")
+    sales, ratio = (number(marker) for marker in ("최근매출액(원)", "매출액대비(%)"))
     if amount <= 0 or sales <= 0 or ratio <= 0 or not all(math.isfinite(v) for v in (amount, sales, ratio)):
         raise ValueError("nonpositive contract amount")
-    if abs(amount / sales * 100 - ratio) > 0.020000001:
+    written_ratio = field("매출액대비(%)", issuer_rows)
+    decimals = len(written_ratio.split(".")[1]) if "." in written_ratio else 0
+    tolerance = max(0.02, 0.5 * 10**(-decimals))
+    computed_ratio = amount / sales * 100
+    if abs(computed_ratio - ratio) > tolerance + 1e-8:
         raise ValueError("amount/revenue and reported ratio differ")
     counterparty = field("계약상대")
     if not counterparty or counterparty in ("-", "없음"):
@@ -118,7 +139,8 @@ def parse_contract(source: str) -> dict:
     if related not in ("-", "없음", "해당사항없음", "해당사항 없음"):
         raise ValueError("earlier related disclosure exists")
     return {"amount_krw": amount, "recent_revenue_krw": sales,
-            "revenue_ratio_pct": ratio, "counterparty": counterparty,
+            "revenue_ratio_pct": ratio, "computed_revenue_ratio_pct": computed_ratio,
+            "ratio_rounding_tolerance_pct_points": tolerance, "counterparty": counterparty,
             "amount_basis": "filing_issuer_direct_contract", "issuer_role": "seller_or_supplier"}
 
 
@@ -164,12 +186,19 @@ def load_archive(path: Path, schema: str) -> tuple[dict, dict[str, bytes]]:
     return manifest, files
 
 
-def collect_events(output: Path) -> dict:
+def collect_events(output: Path, reuse_source: Path | None = None) -> dict:
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-    files, requests = {}, 0
+    files, requests, reused = {}, 0, 0
+    cached = {}
+    if reuse_source:
+        _, cached = load_archive(reuse_source, "contract-event-filings-v1")
 
     def get(url, name, data=None):
-        nonlocal requests
+        nonlocal requests, reused
+        if name in cached and not name.startswith("raw/index-") and name != "raw/search-form.htm":
+            files[name] = cached[name]
+            reused += 1
+            return cached[name].decode("utf-8")
         if requests >= 600:
             raise RuntimeError("contract source request budget exceeded")
         requests += 1
@@ -238,7 +267,7 @@ def collect_events(output: Path) -> dict:
                     raise ValueError("original content path not resolved")
                 body = get(urls[0], f"raw/{receipt}-original.htm")
                 facts = parse_contract(body)
-                if facts["revenue_ratio_pct"] < 10:
+                if facts["computed_revenue_ratio_pct"] < 10:
                     reason = "below_fixed_materiality"
                 else:
                     selected.append({**event, **facts, "original_url": urls[0],
@@ -253,6 +282,8 @@ def collect_events(output: Path) -> dict:
         ledger.append({**event, "selection_reason": reason})
     manifest = {"schema": "contract-event-filings-v1", "events": selected, "ledger": ledger,
                 "request_count": requests, "census_count": expected, "selected_by_month": dict(months),
+                "reused_source_files": reused,
+                "parent_source_sha256": hashlib.sha256(reuse_source.read_bytes()).hexdigest() if reuse_source else None,
                 "period": [START, END], "strict_pit_eligible": False, "live_order_eligible": False}
     _save(output, files, manifest)
     return {key: manifest[key] for key in ("request_count", "census_count", "selected_by_month")}
@@ -295,13 +326,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("phase", choices=("filings", "minutes"))
     parser.add_argument("--event-archive", type=Path)
+    parser.add_argument("--reuse-source", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.output.exists():
         parser.error("existing source archives cannot be overwritten")
     if args.phase == "minutes" and not args.event_archive:
         parser.error("a frozen event archive is required")
-    result = collect_events(args.output) if args.phase == "filings" else collect_minutes(args.event_archive, args.output)
+    result = collect_events(args.output, args.reuse_source) if args.phase == "filings" else collect_minutes(args.event_archive, args.output)
     print(json.dumps({"output": str(args.output), **result}, ensure_ascii=False))
 
 

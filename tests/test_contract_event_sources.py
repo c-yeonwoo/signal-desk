@@ -50,3 +50,26 @@ def test_document_number_date_is_not_the_publication_date():
     assert original_document(shell, {"session": "2026-05-04"}) == "20260428000985"
     with pytest.raises(ValueError, match="missing or ambiguous"):
         original_document(shell, {"session": "2026-04-28"})
+
+
+def test_kosdaq_uses_confirmed_amount_and_issuer_revenue_not_customer_revenue():
+    source = """<table><tr><td>2. 계약내역</td><td>조건부 계약여부</td><td>미해당</td></tr>
+    <tr><td>확정 계약금액</td><td>131,200,000</td></tr>
+    <tr><td>조건부 계약금액</td><td>-</td></tr>
+    <tr><td>계약금액 총액(원)</td><td>131,200,000</td></tr>
+    <tr><td>최근 매출액(원)</td><td>1,000,000,000</td></tr>
+    <tr><td>매출액 대비(%)</td><td>13</td></tr>
+    <tr><td>3. 계약상대방</td><td>구매 회사</td></tr>
+    <tr><td>- 최근 매출액(원)</td><td>999,999,999,999</td></tr>
+    <tr><td>※ 관련공시</td><td>-</td></tr></table>"""
+    facts = parse_contract(source)
+    assert facts["recent_revenue_krw"] == 1_000_000_000
+    assert facts["computed_revenue_ratio_pct"] == pytest.approx(13.12)
+    with pytest.raises(ValueError, match="conditional amount"):
+        parse_contract(source.replace("계약금액</td><td>-", "계약금액</td><td>10000000"))
+
+
+def test_subsidiary_header_does_not_get_reported_as_issuer_direct_contract():
+    source = "<table><tr><td>종속회사인 다른 회사의 주요경영사항신고</td></tr></table>" + _contract()
+    with pytest.raises(ValueError, match="subsidiary"):
+        parse_contract(source)

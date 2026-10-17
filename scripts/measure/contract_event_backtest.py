@@ -40,7 +40,7 @@ def verified_events(path: Path) -> list[dict]:
         if hashlib.sha256(body).hexdigest() != event["source_sha256"]:
             raise ValueError("selected original hash mismatch")
         facts = parse_contract(body.decode())
-        if any(event[key] != value for key, value in facts.items()) or facts["revenue_ratio_pct"] < 10:
+        if any(event[key] != value for key, value in facts.items()) or facts["computed_revenue_ratio_pct"] < 10:
             raise ValueError("event facts differ from original contract")
     return events
 
