@@ -22,7 +22,7 @@ def _price_bundle(ticker):
 
 
 def _quiet_gate_sources(monkeypatch):
-    monkeypatch.setattr(store, "load_signal_history", lambda: [])
+    monkeypatch.setattr(store, "load_signal_history", lambda _market: [])
     monkeypatch.setattr(db, "kb_events_active", lambda: [])
 
 

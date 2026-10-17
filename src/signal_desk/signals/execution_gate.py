@@ -141,7 +141,10 @@ def apply_from_store(
         return results
     try:
         from signal_desk import db, store
-        hist_by = entry_quality.history_kinds_by_ticker(store.load_signal_history())
+        # PIT는 시장별로 분리돼 있다. 기본값(국내)을 미국 게이트에 재사용하면
+        # 미국의 오래된 매수권도 매번 새 발동으로 간주해 추격 차단이 비활성화된다.
+        hist_by = entry_quality.history_kinds_by_ticker(
+            store.load_signal_history("us" if market == "us" else "kr"))
         if price_bundle is not None:
             closes_by, dates_by = price_bundle
         elif market == "us":

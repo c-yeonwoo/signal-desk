@@ -2949,14 +2949,28 @@ def _remain_upside(tgt: dict | None) -> float | None:
     return min(pos) if pos else None
 
 
+def _signal_session_day(market: str, now: datetime.datetime | None = None) -> str | None:
+    """표시·장중 전이의 거래소 거래일. 휴장 중 가상의 발동일을 만들지 않는다."""
+    clock_market = "us" if market == "us" else "kr"
+    zone = "America/New_York" if market == "us" else "Asia/Seoul"
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    if market_clock.is_open(clock_market, now):
+        return now.astimezone(ZoneInfo(zone)).date().isoformat()
+    return market_clock.latest_completed_session(clock_market, now)
+
+
 def _annotate_entry(items: list[dict], *, market: str = "kospi") -> list[dict]:
     """매수권 행에 진입 품질(에피소드 발동가·추격도). kind는 건드리지 않는다."""
     if not items:
         return items
-    today = _kst_today()
+    today = _signal_session_day(market)
+    if today is None:
+        for item in items:
+            item["entry"] = None
+        return items
     try:
-        # US는 아직 일별 PIT 스냅샷이 없어 hist가 비고, 당일 발동(신선)만 잡힌다.
-        hist_by = entry_quality.history_kinds_by_ticker(store.load_signal_history())
+        hist_by = entry_quality.history_kinds_by_ticker(
+            store.load_signal_history("us" if market == "us" else "kr"))
     except Exception:
         hist_by = {}
     if market == "us":
@@ -2967,6 +2981,11 @@ def _annotate_entry(items: list[dict], *, market: str = "kospi") -> list[dict]:
         dates_by = store.load_dates_by_ticker()
     items = entry_quality.annotate_rows(
         items, hist_by=hist_by, dates_by=dates_by, closes_by=closes_by, today=today)
+    if market == "us":
+        # 미국 PIT가 없는 종목은 현재 BUY만으로 과거 첫 발동을 만들 수 없다.
+        for item in items:
+            if not hist_by.get(item.get("ticker")):
+                item["entry"] = None
     # **발동 전** 사전 상승 — `entry_quality` 는 발동일부터를 재서 발동 당일 항상 0이다.
     # 반대 방향(우리가 보기 전에 이미 얼마나 올랐나)을 재는 별개 축이고, 관측만 한다.
     # `entry.fire_date` 를 쓰므로 `entry_quality` **뒤에** 와야 한다.
@@ -3001,6 +3020,9 @@ def _sync_episode_state(results, *, market: str) -> None:
     """시그널 재계산 직후 kind 전이만 kv에 기록(실패해도 본계산은 유지)."""
     if not results:
         return
+    if not market_clock.is_open("us" if market == "us" else "kr"):
+        # 휴장 중 캐시 재계산을 장중 첫 발동으로 기록하지 않는다.
+        return
     try:
         if market == "us":
             qmap = store.load_us_quotes()
@@ -3022,7 +3044,10 @@ def _sync_episode_state(results, *, market: str) -> None:
             "reasons": list(getattr(r, "reasons", None) or []),
         })
     try:
-        episode_state.observe_rows(rows, market=market, today=_kst_today())
+        day = _signal_session_day(market)
+        if day is None:
+            return
+        episode_state.observe_rows(rows, market=market, today=day)
     except Exception as e:
         log.warning("시그널 전이 로그 실패: %s", type(e).__name__)
 
@@ -3031,7 +3056,12 @@ def _annotate_episode(items: list[dict], *, market: str = "kospi") -> list[dict]
     """장중 전이(first_buy/demote)를 행에 붙이고 당일 진입가 보정."""
     if not items:
         return items
-    return episode_state.annotate_rows(items, market=market, today=_kst_today())
+    day = _signal_session_day(market)
+    if day is None:
+        for item in items:
+            item["episode"] = None
+        return items
+    return episode_state.annotate_rows(items, market=market, today=day)
 
 
 def _annotate_trader_layers(items: list[dict], *, market: str = "kospi") -> list[dict]:
@@ -7183,7 +7213,9 @@ def _us_signals():
     store.attach_us_quality(fundamentals)
     sentiment = kb.sentiment_map()
     earnings_dates = store.load_us_earnings_calendar()
-    engine_today = datetime.date.today()  # evaluate 기본 날짜의 실제 값을 함께 캡처한다.
+    us_day = _signal_session_day("us") or datetime.datetime.now(
+        ZoneInfo("America/New_York")).date().isoformat()
+    engine_today = datetime.date.fromisoformat(us_day)
     results = evaluate(universe, prices,
                        fundamentals=fundamentals, sentiment=sentiment,
                        earnings_dates=earnings_dates, today=engine_today,
@@ -7192,7 +7224,7 @@ def _us_signals():
     for result in results:
         result.signal_policy_id = policy_id
     gate_capture: dict = {}
-    execution_gate.apply_from_store(results, market="us", today=_kst_today(),
+    execution_gate.apply_from_store(results, market="us", today=us_day,
                                     price_bundle=(prices, price_dates), capture=gate_capture)
     _sync_episode_state(results, market="us")
     _stamp_signal_price_context(results, prices, price_dates, quote_snapshot)
