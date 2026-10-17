@@ -253,9 +253,9 @@ def acquire_dart_actions(corp_code: str, start: str, end: str, *,
                else sorted(receipts))
     if selected_receipts is not None and not set(selected_receipts) <= receipts:
         raise SourceError("DART actions: selected receipt absent from complete list")
-    for index, receipt in enumerate(targets):
-        if index:
-            time.sleep(gap_seconds)
+    for receipt in targets:
+        # The first document follows a list request too; pace across endpoints.
+        time.sleep(gap_seconds)
         raw = _fetch_dart_document(receipt, key)
         path = f"raw/doc/{receipt}.zip"
         files[path] = raw
