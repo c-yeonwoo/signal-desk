@@ -183,6 +183,17 @@ def test_mobile_market_figure_precedes_buy_count_and_uses_short_copy():
     assert "실제 등락을 그렸고, 확인된 소식만 함께 표시해요" not in html
 
 
+def test_shared_market_image_keeps_non_recommendation_label_visible():
+    prices, dates = _bars(last="2026-10-08")
+    dates[-2] = "2026-10-07"
+    card = market_brief.build(
+        "kr", prices={"A": prices}, dates={"A": dates}, tickers=["A"],
+        expected="2026-10-08", previous="2026-10-07",
+    )
+    svg = market_brief_image.render(card)
+    assert "등락 폭 큰 종목 · 매수 추천 아님" in svg
+
+
 def test_market_brief_api_reuses_current_decisions_without_llm(monkeypatch):
     prices, dates = _bars()
     monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, now: "2026-10-02")

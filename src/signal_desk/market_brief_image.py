@@ -143,7 +143,7 @@ def render(card: dict, *, include_copy: bool = True) -> str:
         ])
     else:
         svg.extend([
-            _text(75, 175, "이날 크게 움직인 종목", size=34, color="#263630", weight=800),
+            _text(75, 175, "등락 폭 큰 종목 · 매수 추천 아님", size=28, color="#263630", weight=800),
             _text(1127, 175, f"비교 {compared}/{universe}개  ·  상승 {up}  하락 {down}",
                   size=25, color="#52615B", extra='text-anchor="end"'),
         ])
