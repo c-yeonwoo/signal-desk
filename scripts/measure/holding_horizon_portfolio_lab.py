@@ -15,6 +15,7 @@ from pathlib import Path
 
 from scripts.measure.krx_price_replay_pilot import ROOT, _number, load_krx_archives, run_pilot
 from scripts.measure.price_challenger_lab import HOLDOUT_ARCHIVES, HOLDOUT_WINDOWS, PricePanel
+from signal_desk.signals.research_action_coverage import ReviewedShareCountChange
 
 START_CASH = 10_000_000.0
 MAX_POSITIONS = 6
@@ -60,7 +61,9 @@ def first_buy_decisions(pilot: dict, panel: PricePanel) -> dict[str, list[dict]]
 
 def replay_portfolio(panel: PricePanel, candidates: dict[str, list[dict]], *,
                      start: str, end: str, horizon: int, side_cost: float = SIDE_COST,
-                     share_counts: dict[tuple[str, str], int | None] | None = None) -> dict:
+                     share_counts: dict[tuple[str, str], int | None] | None = None,
+                     risk_config=None,
+                     reviewed_share_changes: dict[tuple[str, str], ReviewedShareCountChange] | None = None) -> dict:
     """Six equal equity slots, integer shares, fixed open-to-open holding period.
 
     If an owned bar is missing, the path is incomplete: never invent valuation
@@ -78,10 +81,30 @@ def replay_portfolio(panel: PricePanel, candidates: dict[str, list[dict]], *,
     skips: dict[str, int] = defaultdict(int)
     equity_curve: list[dict] = []
     final_decision_index = panel.index[end]
+    risk_exits: dict[str, int] = defaultdict(int)
+    applied_share_facts = []
+    if reviewed_share_changes is not None:
+        if share_counts is None:
+            raise ValueError("reviewed facts require observed daily share counts")
+        for key, fact in reviewed_share_changes.items():
+            if not isinstance(fact, ReviewedShareCountChange) or key != (fact.listing_session, fact.ticker):
+                raise ValueError("reviewed share fact key mismatch")
     for index in range(panel.index[start], len(panel.sessions)):
         day = panel.sessions[index]
         # Close-based decisions from the previous session are executed only now.
         for ticker, position in list(positions.items()):
+            current_shares = share_counts.get((day, ticker)) if share_counts is not None else None
+            if (share_counts is not None and current_shares != position["entry_shares_outstanding"]):
+                fact = (reviewed_share_changes or {}).get((day, ticker))
+                previous = panel.sessions[index - 1] if index else None
+                if (fact is not None and fact.previous_session == previous
+                        and position["entry_shares_outstanding"] == fact.listed_shares_before
+                        and share_counts.get((previous, ticker)) == fact.listed_shares_before
+                        and current_shares == fact.listed_shares_after):
+                    position["entry_shares_outstanding"] = current_shares
+                    applied_share_facts.append({"day": day, "ticker": ticker,
+                                                "source_sha256": fact.source_sha256,
+                                                "holder_quantity_effect": "unchanged"})
             if (share_counts is not None
                     and (position["entry_shares_outstanding"] is None
                          or share_counts.get((day, ticker)) != position["entry_shares_outstanding"])):
@@ -96,6 +119,8 @@ def replay_portfolio(panel: PricePanel, candidates: dict[str, list[dict]], *,
             cash += position["shares"] * opened * (1 - side_cost)
             fills.append({"side": "sell", "day": day, "ticker": ticker,
                           "price": opened, "shares": position["shares"]})
+            if position.get("risk_reason"):
+                risk_exits[position["risk_reason"]] += 1
             del positions[ticker]
         for order in pending:
             ticker = order["ticker"]
@@ -125,6 +150,7 @@ def replay_portfolio(panel: PricePanel, candidates: dict[str, list[dict]], *,
             cash -= shares * opened * (1 + side_cost)
             positions[ticker] = {"shares": shares, "entry_index": index,
                                  "exit_index": index + horizon,
+                                 "entry_price": opened * (1 + side_cost), "peak": opened,
                                  "entry_shares_outstanding": (
                                      share_counts.get((day, ticker)) if share_counts is not None else None)}
             fills.append({"side": "buy", "day": day, "ticker": ticker,
@@ -145,6 +171,16 @@ def replay_portfolio(panel: PricePanel, candidates: dict[str, list[dict]], *,
                 return {"state": "incomplete_held_close", "day": day, "ticker": ticker,
                         "horizon": horizon, "fills": len(fills), "skips": dict(skips)}
             equity += position["shares"] * bar[1]
+            if risk_config is not None and position["exit_index"] > index + 1:
+                from signal_desk.signals import execution_twin
+                step = execution_twin.evaluate_quote(position["entry_price"], bar[1],
+                                                       position["peak"], risk_config)
+                position["peak"] = step.peak
+                if step.reason:
+                    # Observing a threshold at the close cannot fill at that
+                    # threshold or this session's already elapsed open.
+                    position["exit_index"] = index + 1
+                    position["risk_reason"] = step.reason
         equity_curve.append({"day": day, "equity": equity})
         if index > final_decision_index and not positions and not pending:
             break
@@ -165,7 +201,12 @@ def replay_portfolio(panel: PricePanel, candidates: dict[str, list[dict]], *,
             "buy_fills": len(buys), "sell_fills": len(fills) - len(buys),
             "distinct_tickers_bought": len({fill["ticker"] for fill in buys}),
             "gross_buy_notional": round(sum(fill["price"] * fill["shares"] for fill in buys), 2),
-            "skips": dict(sorted(skips.items())), "fills": fills}
+            "skips": dict(sorted(skips.items())), "fills": fills,
+            **({"risk_exits": dict(risk_exits), "risk_observation": "close_next_open"}
+               if risk_config is not None else {}),
+            **({"applied_reviewed_share_facts": applied_share_facts,
+                "action_coverage": "partial", "verified_total_return": False}
+               if reviewed_share_changes is not None else {})}
 
 
 def run_holdout(data_dir: Path) -> dict:

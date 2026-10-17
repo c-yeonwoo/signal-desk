@@ -62,6 +62,84 @@ def test_no_price_data(tmp_path, monkeypatch):
     assert out["ok"] is False and "시세 데이터" in out["reason"]
 
 
+def test_unpriced_holding_is_reported_without_an_invented_sell(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "005930", "name": "삼성전자"}], {"005930": [100.]}, [])
+    _seed(0., {"005380": {"name": "현대차", "qty": 10, "avg_price": 100.}})
+    out = bot.run_once(UID, sells_only=True)
+    assert out["sells"] == [] and out["buys"] == []
+    assert out["unchecked_holdings"][0]["ticker"] == "005380"
+    assert out["unchecked_holdings"][0]["risk_checked"] is False
+    events = db.execution_events_for_uid(UID, "kr")
+    assert any(e["event_type"] == "holding_check_unavailable" for e in events)
+    assert paper.balance(UID)["holdings"][0]["qty"] == 10
+
+
+def test_missing_entire_market_still_reports_unchecked_holdings(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [], {}, [])
+    _seed(0., {"267250": {"name": "HD현대", "qty": 2, "avg_price": 100.}})
+    out = bot.run_once(UID, sells_only=True)
+    assert not out["ok"]
+    assert out["unchecked_holdings"][0]["ticker"] == "267250"
+
+
+def test_unchecked_holdings_alert_is_deduplicated_for_all_names(tmp_path, monkeypatch):
+    from signal_desk import bot_alerts
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(bot.market_clock, "is_open", lambda *a: True)
+    monkeypatch.setattr(bot_alerts, "selected", lambda *a: True)
+    holdings = [{"ticker": ticker, "name": ticker} for ticker in
+                ("005930", "000660", "005380", "035420", "267250")]
+    prices = {"005930": [100.], "000660": [], "005380": [float("nan")],
+              "035420": [0.], "267250": [float("inf")]}
+    for _ in range(2):
+        missing = bot._unchecked_holdings(UID, holdings, prices, "kr", dry_run=False)
+        assert len(missing) == 4
+    outbox = db.notification_outbox_due(now=int(time.time()) + 1)
+    assert len(outbox) == 4
+    assert all(row["priority"] == "critical" and "점검 불가" in row["text"] for row in outbox)
+    assert all("매도 조건을 확인하지 못했습니다" in row["text"] for row in outbox)
+    assert len(db.execution_events_for_uid(UID, "kr")) == 4
+
+
+def test_unchecked_holdings_dryrun_has_no_alert_or_audit_write(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    def forbidden(*a, **k):
+        raise AssertionError("dry run must not write")
+    monkeypatch.setattr(db, "execution_event_add", forbidden)
+    monkeypatch.setattr(bot.notify, "enqueue", forbidden)
+    result = bot._unchecked_holdings(UID, [{"ticker": "005930"}], {}, "kr", dry_run=True)
+    assert len(result) == 1 and result[0]["order_submitted"] is False
+
+
+def test_unpriced_holding_cannot_be_rotated_using_its_average_cost(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "WEAK", "name": "약"}, {"ticker": "STRONG", "name": "강"}],
+           {"STRONG": [50., 50.]},
+           [_sig("WEAK", "약", "HOLD", .2), _sig("STRONG", "강", "BUY", 2.)],
+           max_positions=1, min_buy_score=1.)
+    _seed(0., {"WEAK": {"name": "약", "qty": 100, "avg_price": 100.}})
+    db.bot_position_upsert(UID, "WEAK", "약", 100, 100., 100., "2020-01-01")
+    def rotate(*args, **kwargs):
+        assert args[4] == []  # No unchecked position may reach the average-cost fallback.
+        return args[6]
+    monkeypatch.setattr(bot, "_conviction_rotate", rotate)
+    out = bot.run_once(UID)
+    assert out["unchecked_holdings"][0]["ticker"] == "WEAK"
+    assert not out["sells"] and not out["buys"]
+
+
+def test_unpriced_buy_holding_reports_why_additional_purchase_is_skipped(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "005380", "name": "현대차"}], {"005930": [100.]},
+           [_sig("005380", "현대차", "BUY", 2.5)], min_buy_score=1.)
+    _seed(1_000_000., {"005380": {"name": "현대차", "qty": 1, "avg_price": 100.}})
+    out = bot.run_once(UID)
+    assert out["buys"] == []
+    assert any("가격 자료가 없어" in reason for reason in out["skipped_tranche"])
+
+
 def test_dry_run_places_no_orders(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0]},

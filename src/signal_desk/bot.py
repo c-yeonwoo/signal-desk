@@ -18,7 +18,7 @@ import time
 import uuid
 from zoneinfo import ZoneInfo
 
-from signal_desk import config, db, kb, llm, market_clock, signalcfg, store, strategy
+from signal_desk import config, db, kb, llm, market_clock, notify, signalcfg, store, strategy
 from signal_desk.broker import execution, paper
 from signal_desk.reference import cycle, us_ko
 from signal_desk.signals import (
@@ -778,6 +778,45 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
     return cash
 
 
+def _unchecked_holdings(uid: int, holdings: list[dict], prices: dict, market: str,
+                        *, dry_run: bool) -> list[dict]:
+    """A missing held price is an unperformed risk check, not a HOLD verdict."""
+    missing = []
+    for holding in holdings:
+        ticker = holding["ticker"]
+        closes = prices.get(ticker) or []
+        try:
+            valid = (bool(closes) and not isinstance(closes[-1], bool)
+                     and math.isfinite(float(closes[-1])) and float(closes[-1]) > 0)
+        except (ValueError, TypeError, OverflowError):
+            valid = False
+        if valid:
+            continue
+        row = {"ticker": ticker, "name": holding.get("name") or ticker,
+               "status": "holding_check_unavailable", "reason": "missing_or_invalid_price_history",
+               "risk_checked": False, "order_submitted": False}
+        missing.append(row)
+        if dry_run:
+            continue
+        at = int(time.time())
+        key = f"holding-check-unavailable:{market}:{_today(market)}:{uid}:{ticker}"
+        db.execution_event_add(key, uid=uid, market=market, ticker=ticker,
+                               event_type="holding_check_unavailable", price=None, ts=at, payload=row)
+        if not market_clock.is_open(market, datetime.datetime.now(datetime.timezone.utc)):
+            continue
+        text = (f"⚠️ 보유 위험 점검 불가 · {row['name']}({ticker}) · {market.upper()}\n"
+                "유효한 가격 자료가 없어 손절·익절·매도 조건을 확인하지 못했습니다. "
+                "보유가 안전하다는 판정이 아닙니다. 주문하지 않았으며 다음 실행에서 다시 확인합니다.")
+        from signal_desk import bot_alerts
+        if bot_alerts.selected(uid, REFERENCE_BOTS):
+            notify.enqueue(text, dedupe_key=key, priority="critical", expires_at=at + 12 * 3600, now=at)
+        elif db.telegram_link_get(uid):
+            notify.enqueue_user(uid, text, dedupe_key=key, market=market,
+                                alert_type="paper_fill", priority="critical",
+                                expires_at=at + 12 * 3600, now=at)
+    return missing
+
+
 def run_once(uid: int, dry_run: bool = False, market: str = "kr",
              sells_only: bool = False) -> dict:
     """유저 한 사이클 실행(시장별 페이퍼 계좌) — 공용 시그널로 매매. market: 'kr'|'us'.
@@ -806,8 +845,11 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
 
     mr = _market_read_for(market)
     universe, prices, signals, name_by_ticker, price_dates, quote_snapshot = _market_signals(market, mr)
+    unchecked = _unchecked_holdings(uid, bal["holdings"], prices, market, dry_run=dry_run)
+    unchecked_tickers = {row["ticker"] for row in unchecked}
     if not universe or not prices:
-        return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요"}
+        return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요",
+                "unchecked_holdings": unchecked}
 
     def _price_evidence(ticker: str, price: float) -> dict:
         return _execution_price_evidence(market, ticker, price, dates_by_ticker=price_dates,
@@ -851,8 +893,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     for h in bal["holdings"]:
         ticker, qty, avg_price = h["ticker"], h["qty"], h["avg_price"]
         closes = prices.get(ticker)
-        if not closes:
-            continue  # 유니버스 밖 종목 — 봇 판단 대상 아님
+        if ticker in unchecked_tickers:
+            continue  # Explicitly reported as unperformed; never invent a price or exit.
         current_price = _live_price(ticker, closes[-1])
         price_evidence = _price_evidence(ticker, current_price)
         # **종목별** 청산 폭. 종가 시계열로만 잰다(장중 오버레이가 섞이면 폭이 매 틱 흔들린다).
@@ -1166,7 +1208,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     rp = strategy.rotation_params(cfg["trading_style"])
     want_rotation = available_slots == 0 or (rp["when_slots_free"] and cash < tranche_alloc)
     if not (block_new_buys or sells_only) and want_rotation:
-        cash = _conviction_rotate(uid, market, signals, signal_by_ticker, bal2["holdings"], held_after,
+        checked_holdings = [h for h in bal2["holdings"] if h["ticker"] not in unchecked_tickers]
+        cash = _conviction_rotate(uid, market, signals, signal_by_ticker, checked_holdings, held_after,
                                   cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
                                   sells, buys, rotated_out, dry_run, rp, exposure,
                                   signal_policy_id, execution_policy_id,
@@ -1180,6 +1223,9 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         t = h["ticker"]
         if t in rotated_out:
             continue  # 방금 로테이션으로 청산 → 재매수 금지
+        if t in unchecked_tickers:
+            skipped_tranche.append(f"{h['name']}: 가격 자료가 없어 보유 위험 점검 불가")
+            continue
         sig = signal_by_ticker.get(t)
         if not (sig and engine.is_buy(sig.kind)) or sig.event_risk:
             continue
@@ -1295,6 +1341,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         # 화면에도 안 뜬다 — 이 리포의 "0에는 반드시 이유를 붙인다" 규칙.
         "skipped_tranche": skipped_tranche,
         "sells": sells, "buys": buys,
+        "unchecked_holdings": unchecked,
         "cash": final_bal["cash"], "total_eval": final_bal["total_eval"],
         "holdings": len(final_bal["holdings"]),
     }
