@@ -17,7 +17,7 @@ def _captured_bundle(monkeypatch):
     monkeypatch.setattr(store, "load_universe", lambda: [{"ticker": "005930", "name": "삼성전자"}])
     monkeypatch.setattr(store, "load_fundamentals", lambda: {})
     monkeypatch.setattr(store, "kr_engine_inputs", lambda: {})
-    monkeypatch.setattr(store, "load_signal_history", lambda: [])
+    monkeypatch.setattr(store, "load_signal_history", lambda _market: [])
     monkeypatch.setattr(db, "kb_events_active", lambda: [])
     read = {"eff_cfg": engine.SignalConfig(), "_price_bundle": bundle}
     bot._market_signals("kr", read)
@@ -55,7 +55,7 @@ def test_us_pilot_replays_the_cached_api_batch(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "load_us_earnings_calendar", lambda: {})
     monkeypatch.setattr(api.kb, "sentiment_map", lambda: {})
     monkeypatch.setattr(api, "_sync_episode_state", lambda results, **kwargs: None)
-    monkeypatch.setattr(store, "load_signal_history", lambda: [])
+    monkeypatch.setattr(store, "load_signal_history", lambda _market: [])
     monkeypatch.setattr(db, "kb_events_active", lambda: [])
     monkeypatch.setattr(pilot.shutil, "disk_usage", lambda path: SimpleNamespace(
         total=1024 * pilot._MIB, free=500 * pilot._MIB))

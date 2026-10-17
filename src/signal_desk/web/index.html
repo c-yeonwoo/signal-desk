@@ -5023,7 +5023,7 @@ function entryTip(r){
     ? ('$' + fmtNum(e.fire_price, e.fire_price < 100 ? 2 : 0))
     : (fmtNum(e.fire_price, 0) + '원'));
   const up = (e.run_up_pct > 0 ? '+' : '') + fmtNum(e.run_up_pct, 1) + '%';
-  const age = e.age_days === 0 ? '오늘 첫 발동' : `매수권 기록 ${Number(e.age_days) + 1}회`;
+  const age = e.age_days === 0 ? '기록상 이번 거래일 발동' : `매수권 기록 ${Number(e.age_days) + 1}회`;
   const status = Number(e.run_up_pct) < 0 ? '첫 매수권 뒤 하락' : `진입 ${e.quality_ko}`;
   let s = ` · ${status}(${age}`;
   if (px) s += ` · ${px}→지금 ${up}`;
@@ -5577,7 +5577,7 @@ function _paintSignalDetail(ticker, item){
       const ru = Number(ent.run_up_pct);
       const ruCls = ru < 0 ? 'hero-runup down' : 'hero-runup';
       const ruTxt = (ru > 0 ? '+' : '') + fmtNum(ru, 1) + '%';
-      const age = ent.age_days === 0 ? '오늘 첫 발동' : `매수권 기록 ${Number(ent.age_days) + 1}회`;
+      const age = ent.age_days === 0 ? '기록상 이번 거래일 발동' : `매수권 기록 ${Number(ent.age_days) + 1}회`;
       const fireDate = ent.fire_date ? ` · 첫 발동 ${esc(ent.fire_date)}` : '';
       const firePx = ent.fire_price == null ? '' : (isUS
         ? ('$' + fmtNum(ent.fire_price, ent.fire_price < 100 ? 2 : 0))

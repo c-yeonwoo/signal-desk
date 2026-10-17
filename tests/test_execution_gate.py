@@ -1,5 +1,6 @@
 """실행 게이트 — late·선반영이면 BUY→HOLD (점수 유지)."""
 
+import pandas as pd
 import pytest
 
 from signal_desk import db, store
@@ -114,7 +115,7 @@ def test_gate_uses_evaluated_price_bundle_without_reloading(market, monkeypatch)
     def unexpected_reload():
         raise AssertionError("gate must not reread the evaluated prices")
 
-    monkeypatch.setattr(store, "load_signal_history", lambda: [])
+    monkeypatch.setattr(store, "load_signal_history", lambda _market: [])
     monkeypatch.setattr(db, "kb_events_active", lambda: [])
     monkeypatch.setattr(store, "load_price_series", unexpected_reload)
     monkeypatch.setattr(store, "load_us_price_series", unexpected_reload)
@@ -138,7 +139,7 @@ def test_gate_uses_evaluated_price_bundle_without_reloading(market, monkeypatch)
 
 
 def test_gate_capture_records_actual_inputs_and_failure_status(monkeypatch):
-    monkeypatch.setattr(store, "load_signal_history", lambda: object())
+    monkeypatch.setattr(store, "load_signal_history", lambda _market: object())
     monkeypatch.setattr(eg.entry_quality, "history_kinds_by_ticker",
                         lambda _history: {"T": [("2026-10-06", "BUY")]})
     monkeypatch.setattr(db, "kb_events_active", lambda: [{"ticker": "T", "direction": "positive"}])
@@ -169,3 +170,27 @@ def test_empty_gate_capture_has_explicit_day_and_price_bundle():
                                capture=captured) == []
     assert captured["status"] == "empty" and captured["today"] == "2026-10-07"
     assert captured["closes_by"] is prices and captured["dates_by"] is dates
+
+
+def test_us_gate_uses_us_pit_history_for_late_buy(monkeypatch):
+    seen = []
+
+    def history(market):
+        seen.append(market)
+        if market == "us":
+            return pd.DataFrame([
+                {"ticker": "T", "date": day, "kind": "BUY"}
+                for day in ("2026-10-12", "2026-10-13", "2026-10-14")
+            ])
+        return pd.DataFrame()
+
+    monkeypatch.setattr(store, "load_signal_history", history)
+    monkeypatch.setattr(db, "kb_events_active", lambda: [])
+    row = _buy()
+    eg.apply_from_store(
+        [row], market="us", today="2026-10-16",
+        price_bundle=({"T": [100.0, 105.0, 110.0, 140.0]},
+                      {"T": ["2026-10-12", "2026-10-13", "2026-10-14", "2026-10-16"]}),
+    )
+    assert seen == ["us"]
+    assert row.kind == "HOLD" and "execution_late" in row.gates
