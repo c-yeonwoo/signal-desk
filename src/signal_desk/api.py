@@ -5115,7 +5115,7 @@ def alpaca_research_quotes_get(request: Request, symbol: str = "", start: str = 
     try:
         alpaca_research.parameters(symbol, start, end)
     except ValueError:
-        raise HTTPException(422, "고정 연구 종목과 2022~2025년의 시간대가 있는 5분 이하 구간만 조회합니다.") from None
+        raise HTTPException(422, "고정 연구 종목과 2020~2025년의 시간대가 있는 5분 이하 구간만 조회합니다.") from None
     if not db.lease_claim("alpaca_historical_quotes_global", uuid.uuid4().hex,
                           now=int(time.time()), lease_sec=1):
         raise HTTPException(429, "과거 호가는 초당 한 구간만 조회합니다.")
@@ -5130,7 +5130,7 @@ def alpaca_research_news_get(request: Request, symbol: str, session: str, page_t
     try:
         alpaca_research.news_parameters(symbol, session, page_token)
     except (ValueError, TypeError):
-        raise HTTPException(422, "고정 연구 종목의 2022/2023년 하루 기사만 조회합니다.") from None
+        raise HTTPException(422, "고정 연구 종목의 2020~2023년 하루 기사만 조회합니다.") from None
     if not db.lease_claim("alpaca_historical_quotes_global", uuid.uuid4().hex,
                           now=int(time.time()), lease_sec=1):
         raise HTTPException(429, "과거 원문은 초당 한 구간만 조회합니다.")

@@ -53,13 +53,13 @@ def parameters(symbol: str, start: str, end: str) -> dict:
         if first.utcoffset() is None or last.utcoffset() is None:
             raise ValueError("explicit timezone required")
         first, last = (t.astimezone(dt.timezone.utc) for t in (first, last))
-        if not (dt.datetime(2022, 1, 1, tzinfo=dt.timezone.utc) <= first < last
+        if not (dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc) <= first < last
                 < dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)):
-            raise ValueError("only 2022–2025 historical research dates")
+            raise ValueError("only 2020–2025 historical research dates")
         if last - first > dt.timedelta(seconds=MAX_WINDOW_SECONDS):
             raise ValueError("one historical window must be at most five minutes")
     except (ValueError, TypeError, AttributeError):
-        raise ValueError("valid timezone-aware 2022–2025 window of at most five minutes required") from None
+        raise ValueError("valid timezone-aware 2020–2025 window of at most five minutes required") from None
     return {"start": first.isoformat(), "end": last.isoformat(), "feed": "sip", "currency": "USD",
             "asof": first.astimezone(ZoneInfo("America/New_York")).date().isoformat(), "limit": "1000", "sort": "asc"}
 
@@ -117,8 +117,8 @@ def news_parameters(symbol: str, session: str, page_token: str = "") -> dict:
     if symbol not in SYMBOLS - {"SPY"}:
         raise ValueError("fixed issuer panel only")
     day = dt.date.fromisoformat(session)
-    if session != day.isoformat() or not "2022-01-01" <= session <= "2023-12-31":
-        raise ValueError("2022/2023 development reports only")
+    if session != day.isoformat() or not "2020-01-01" <= session <= "2023-12-31":
+        raise ValueError("2020–2023 fixed-panel research reports only")
     if not re.fullmatch(r"[A-Za-z0-9_+=/.-]{0,1024}", page_token):
         raise ValueError("invalid pagination token")
     first = dt.datetime.combine(day, dt.time(), ZoneInfo("America/New_York"))
