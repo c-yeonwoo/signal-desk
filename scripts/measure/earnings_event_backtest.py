@@ -78,7 +78,10 @@ def verdict(months: dict) -> dict:
     primary = [months[month]["75bp_full_delay0"]["fundamental"] for month in VALIDATION]
     checks = {"all_primary_paths_complete": all(path["state"] == "complete" for path in primary)}
     if not checks["all_primary_paths_complete"]:
-        return {"adoption": "rejected", "reason": "insufficient_or_incomplete_validation",
+        incomplete = any(path["state"] not in ("complete", "no_eligible_events") for path in primary)
+        return {"adoption": "rejected", "reason": "incomplete_validation_prices" if incomplete else "insufficient_validation_events",
+                "validation_event_count": sum(path.get("events", 0) for path in primary),
+                "validation_trade_count": sum(path.get("trade_count", 0) for path in primary),
                 "checks": checks, "live_order_eligible": False}
     trades = [trade for path in primary for trade in path["trades"]]
     checks.update(at_least_12_event_days=sum(path["events"] for path in primary) >= 12,

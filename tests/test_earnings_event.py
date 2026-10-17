@@ -130,5 +130,19 @@ def test_absent_validation_is_not_zero_return_or_permission_to_trade():
     months = {month: {"75bp_full_delay0": {"fundamental": {"state": "no_eligible_events"}}} for month in VALIDATION}
     result = verdict(months)
     assert result["adoption"] == "rejected"
-    assert result["reason"] == "insufficient_or_incomplete_validation"
+    assert result["reason"] == "insufficient_validation_events"
+    assert result["validation_event_count"] == result["validation_trade_count"] == 0
     assert result["live_order_eligible"] is False
+
+
+def test_company_guidance_gate_has_a_profitable_positive_control():
+    months = {}
+    for month in VALIDATION:
+        positive = {"state": "complete", "events": 4, "trade_count": 4, "net_return_pct": 1,
+                    "trades": [{"ticker": month+str(i), "net_pnl": 10} for i in range(4)]}
+        months[month] = {key: {"fundamental": positive, "reaction": {**positive, "net_return_pct": .5},
+                              "market": {**positive, "net_return_pct": .5}, "cash": {**positive, "net_return_pct": 0}}
+                         for key in ("75bp_full_delay0", "120bp_full_delay0", "75bp_full_delay2")}
+    result = verdict(months)
+    assert all(result["checks"].values())
+    assert result["adoption"] == "shadow_candidate" and result["live_order_eligible"] is False

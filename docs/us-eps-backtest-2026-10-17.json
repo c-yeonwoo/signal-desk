@@ -1,0 +1,2427 @@
+{
+  "schema": "us-eps-backtest-summary-v1",
+  "phase": "historical_reconstruction",
+  "events": [
+    {
+      "symbol": "JPM",
+      "reported_date": "2024-01-12",
+      "fiscal_end": "2023-12-31",
+      "actual_eps": 3.04,
+      "expected_eps": 3.6,
+      "surprise_pct": -15.555555555555555,
+      "eligible": false,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "GOOGL",
+      "reported_date": "2024-01-30",
+      "fiscal_end": "2023-12-31",
+      "actual_eps": 1.64,
+      "expected_eps": 1.59,
+      "surprise_pct": 3.1446540880503138,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "MSFT",
+      "reported_date": "2024-01-30",
+      "fiscal_end": "2023-12-31",
+      "actual_eps": 2.93,
+      "expected_eps": 2.78,
+      "surprise_pct": 5.395683453237421,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AAPL",
+      "reported_date": "2024-02-01",
+      "fiscal_end": "2023-12-31",
+      "actual_eps": 2.18,
+      "expected_eps": 2.11,
+      "surprise_pct": 3.31753554502372,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AMZN",
+      "reported_date": "2024-02-01",
+      "fiscal_end": "2023-12-31",
+      "actual_eps": 1,
+      "expected_eps": 0.8,
+      "surprise_pct": 25,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "META",
+      "reported_date": "2024-02-01",
+      "fiscal_end": "2023-12-31",
+      "actual_eps": 5.33,
+      "expected_eps": 4.96,
+      "surprise_pct": 7.459677419354849,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "XOM",
+      "reported_date": "2024-02-02",
+      "fiscal_end": "2023-12-31",
+      "actual_eps": 2.48,
+      "expected_eps": 2.19,
+      "surprise_pct": 13.242009132420085,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "NVDA",
+      "reported_date": "2024-02-21",
+      "fiscal_end": "2024-01-31",
+      "actual_eps": 0.516,
+      "expected_eps": 0.461,
+      "surprise_pct": 11.930585683297167,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "JPM",
+      "reported_date": "2024-04-12",
+      "fiscal_end": "2024-03-31",
+      "actual_eps": 4.44,
+      "expected_eps": 4.13,
+      "surprise_pct": 7.506053268765145,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "META",
+      "reported_date": "2024-04-24",
+      "fiscal_end": "2024-03-31",
+      "actual_eps": 4.71,
+      "expected_eps": 4.32,
+      "surprise_pct": 9.027777777777768,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "GOOGL",
+      "reported_date": "2024-04-25",
+      "fiscal_end": "2024-03-31",
+      "actual_eps": 1.89,
+      "expected_eps": 1.51,
+      "surprise_pct": 25.16556291390728,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "MSFT",
+      "reported_date": "2024-04-25",
+      "fiscal_end": "2024-03-31",
+      "actual_eps": 2.94,
+      "expected_eps": 2.84,
+      "surprise_pct": 3.5211267605633756,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "XOM",
+      "reported_date": "2024-04-26",
+      "fiscal_end": "2024-03-31",
+      "actual_eps": 2.06,
+      "expected_eps": 2.04,
+      "surprise_pct": 0.9803921568627416,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AMZN",
+      "reported_date": "2024-04-30",
+      "fiscal_end": "2024-03-31",
+      "actual_eps": 0.98,
+      "expected_eps": 0.82,
+      "surprise_pct": 19.512195121951216,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AAPL",
+      "reported_date": "2024-05-02",
+      "fiscal_end": "2024-03-31",
+      "actual_eps": 1.53,
+      "expected_eps": 1.5,
+      "surprise_pct": 2.0000000000000018,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "NVDA",
+      "reported_date": "2024-05-22",
+      "fiscal_end": "2024-04-30",
+      "actual_eps": 0.612,
+      "expected_eps": 0.559,
+      "surprise_pct": 9.481216457960628,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "JPM",
+      "reported_date": "2024-07-12",
+      "fiscal_end": "2024-06-30",
+      "actual_eps": 6.12,
+      "expected_eps": 5.09,
+      "surprise_pct": 20.23575638506876,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "GOOGL",
+      "reported_date": "2024-07-23",
+      "fiscal_end": "2024-06-30",
+      "actual_eps": 1.89,
+      "expected_eps": 1.85,
+      "surprise_pct": 2.1621621621621623,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "MSFT",
+      "reported_date": "2024-07-30",
+      "fiscal_end": "2024-06-30",
+      "actual_eps": 2.95,
+      "expected_eps": 2.94,
+      "surprise_pct": 0.3401360544217802,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "META",
+      "reported_date": "2024-07-31",
+      "fiscal_end": "2024-06-30",
+      "actual_eps": 5.16,
+      "expected_eps": 4.76,
+      "surprise_pct": 8.40336134453783,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AAPL",
+      "reported_date": "2024-08-01",
+      "fiscal_end": "2024-06-30",
+      "actual_eps": 1.4,
+      "expected_eps": 1.34,
+      "surprise_pct": 4.477611940298498,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AMZN",
+      "reported_date": "2024-08-01",
+      "fiscal_end": "2024-06-30",
+      "actual_eps": 1.26,
+      "expected_eps": 1.02,
+      "surprise_pct": 23.529411764705888,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "XOM",
+      "reported_date": "2024-08-02",
+      "fiscal_end": "2024-06-30",
+      "actual_eps": 2.14,
+      "expected_eps": 2.01,
+      "surprise_pct": 6.467661691542315,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "NVDA",
+      "reported_date": "2024-08-28",
+      "fiscal_end": "2024-07-31",
+      "actual_eps": 0.68,
+      "expected_eps": 0.63,
+      "surprise_pct": 7.936507936507953,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "JPM",
+      "reported_date": "2024-10-11",
+      "fiscal_end": "2024-09-30",
+      "actual_eps": 4.37,
+      "expected_eps": 3.99,
+      "surprise_pct": 9.523809523809511,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "GOOGL",
+      "reported_date": "2024-10-29",
+      "fiscal_end": "2024-09-30",
+      "actual_eps": 2.12,
+      "expected_eps": 1.85,
+      "surprise_pct": 14.5945945945946,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "META",
+      "reported_date": "2024-10-30",
+      "fiscal_end": "2024-09-30",
+      "actual_eps": 6.03,
+      "expected_eps": 5.3,
+      "surprise_pct": 13.773584905660385,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "MSFT",
+      "reported_date": "2024-10-30",
+      "fiscal_end": "2024-09-30",
+      "actual_eps": 3.3,
+      "expected_eps": 3.11,
+      "surprise_pct": 6.109324758842449,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AAPL",
+      "reported_date": "2024-10-31",
+      "fiscal_end": "2024-09-30",
+      "actual_eps": 0.97,
+      "expected_eps": 0.95,
+      "surprise_pct": 2.1052631578947434,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AMZN",
+      "reported_date": "2024-10-31",
+      "fiscal_end": "2024-09-30",
+      "actual_eps": 1.43,
+      "expected_eps": 1.14,
+      "surprise_pct": 25.438596491228083,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "XOM",
+      "reported_date": "2024-11-01",
+      "fiscal_end": "2024-09-30",
+      "actual_eps": 1.92,
+      "expected_eps": 1.87,
+      "surprise_pct": 2.6737967914438387,
+      "eligible": false,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "NVDA",
+      "reported_date": "2024-11-20",
+      "fiscal_end": "2024-10-31",
+      "actual_eps": 0.81,
+      "expected_eps": 0.75,
+      "surprise_pct": 8.000000000000007,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "JPM",
+      "reported_date": "2025-01-15",
+      "fiscal_end": "2024-12-31",
+      "actual_eps": 4.81,
+      "expected_eps": 4.04,
+      "surprise_pct": 19.059405940594054,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "META",
+      "reported_date": "2025-01-29",
+      "fiscal_end": "2024-12-31",
+      "actual_eps": 8.02,
+      "expected_eps": 6.68,
+      "surprise_pct": 20.059880239520965,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "MSFT",
+      "reported_date": "2025-01-29",
+      "fiscal_end": "2024-12-31",
+      "actual_eps": 3.23,
+      "expected_eps": 3.12,
+      "surprise_pct": 3.525641025641013,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AAPL",
+      "reported_date": "2025-01-30",
+      "fiscal_end": "2024-12-31",
+      "actual_eps": 2.4,
+      "expected_eps": 2.34,
+      "surprise_pct": 2.564102564102577,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "XOM",
+      "reported_date": "2025-01-31",
+      "fiscal_end": "2024-12-31",
+      "actual_eps": 1.67,
+      "expected_eps": 1.55,
+      "surprise_pct": 7.741935483870965,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "GOOGL",
+      "reported_date": "2025-02-04",
+      "fiscal_end": "2024-12-31",
+      "actual_eps": 2.15,
+      "expected_eps": 2.13,
+      "surprise_pct": 0.9389671361502261,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AMZN",
+      "reported_date": "2025-02-06",
+      "fiscal_end": "2024-12-31",
+      "actual_eps": 1.86,
+      "expected_eps": 1.4837,
+      "surprise_pct": 25.36227000067399,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "NVDA",
+      "reported_date": "2025-02-26",
+      "fiscal_end": "2025-01-31",
+      "actual_eps": 0.89,
+      "expected_eps": 0.85,
+      "surprise_pct": 4.705882352941182,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "JPM",
+      "reported_date": "2025-04-11",
+      "fiscal_end": "2025-03-31",
+      "actual_eps": 5.07,
+      "expected_eps": 4.64,
+      "surprise_pct": 9.267241379310365,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "GOOGL",
+      "reported_date": "2025-04-24",
+      "fiscal_end": "2025-03-31",
+      "actual_eps": 2.81,
+      "expected_eps": 2.01,
+      "surprise_pct": 39.80099502487564,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "META",
+      "reported_date": "2025-04-30",
+      "fiscal_end": "2025-03-31",
+      "actual_eps": 6.43,
+      "expected_eps": 5.21,
+      "surprise_pct": 23.416506717850293,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "MSFT",
+      "reported_date": "2025-04-30",
+      "fiscal_end": "2025-03-31",
+      "actual_eps": 3.46,
+      "expected_eps": 3.22,
+      "surprise_pct": 7.453416149068315,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AAPL",
+      "reported_date": "2025-05-01",
+      "fiscal_end": "2025-03-31",
+      "actual_eps": 1.65,
+      "expected_eps": 1.62,
+      "surprise_pct": 1.8518518518518379,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AMZN",
+      "reported_date": "2025-05-01",
+      "fiscal_end": "2025-03-31",
+      "actual_eps": 1.59,
+      "expected_eps": 1.36,
+      "surprise_pct": 16.91176470588236,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "XOM",
+      "reported_date": "2025-05-02",
+      "fiscal_end": "2025-03-31",
+      "actual_eps": 1.76,
+      "expected_eps": 1.74,
+      "surprise_pct": 1.1494252873563315,
+      "eligible": false,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "NVDA",
+      "reported_date": "2025-05-28",
+      "fiscal_end": "2025-04-30",
+      "actual_eps": 0.81,
+      "expected_eps": 0.75,
+      "surprise_pct": 8.000000000000007,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "JPM",
+      "reported_date": "2025-07-15",
+      "fiscal_end": "2025-06-30",
+      "actual_eps": 4.96,
+      "expected_eps": 4.48,
+      "surprise_pct": 10.714285714285698,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "GOOGL",
+      "reported_date": "2025-07-23",
+      "fiscal_end": "2025-06-30",
+      "actual_eps": 2.31,
+      "expected_eps": 2.19,
+      "surprise_pct": 5.47945205479452,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "META",
+      "reported_date": "2025-07-30",
+      "fiscal_end": "2025-06-30",
+      "actual_eps": 7.14,
+      "expected_eps": 5.86,
+      "surprise_pct": 21.843003412969274,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "MSFT",
+      "reported_date": "2025-07-30",
+      "fiscal_end": "2025-06-30",
+      "actual_eps": 3.65,
+      "expected_eps": 3.38,
+      "surprise_pct": 7.98816568047338,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AAPL",
+      "reported_date": "2025-07-31",
+      "fiscal_end": "2025-06-30",
+      "actual_eps": 1.57,
+      "expected_eps": 1.43,
+      "surprise_pct": 9.790209790209792,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AMZN",
+      "reported_date": "2025-07-31",
+      "fiscal_end": "2025-06-30",
+      "actual_eps": 1.68,
+      "expected_eps": 1.32,
+      "surprise_pct": 27.27272727272727,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "XOM",
+      "reported_date": "2025-08-01",
+      "fiscal_end": "2025-06-30",
+      "actual_eps": 1.64,
+      "expected_eps": 1.56,
+      "surprise_pct": 5.12820512820511,
+      "eligible": true,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "NVDA",
+      "reported_date": "2025-08-27",
+      "fiscal_end": "2025-07-31",
+      "actual_eps": 1.05,
+      "expected_eps": 1.01,
+      "surprise_pct": 3.960396039603964,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "JPM",
+      "reported_date": "2025-10-14",
+      "fiscal_end": "2025-09-30",
+      "actual_eps": 5.07,
+      "expected_eps": 4.87,
+      "surprise_pct": 4.106776180698146,
+      "eligible": false,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "GOOGL",
+      "reported_date": "2025-10-29",
+      "fiscal_end": "2025-09-30",
+      "actual_eps": 2.87,
+      "expected_eps": 2.32,
+      "surprise_pct": 23.706896551724157,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "META",
+      "reported_date": "2025-10-29",
+      "fiscal_end": "2025-09-30",
+      "actual_eps": 7.25,
+      "expected_eps": 6.71,
+      "surprise_pct": 8.04769001490313,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "MSFT",
+      "reported_date": "2025-10-29",
+      "fiscal_end": "2025-09-30",
+      "actual_eps": 3.72,
+      "expected_eps": 3.66,
+      "surprise_pct": 1.6393442622950838,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AAPL",
+      "reported_date": "2025-10-30",
+      "fiscal_end": "2025-09-30",
+      "actual_eps": 1.85,
+      "expected_eps": 1.77,
+      "surprise_pct": 4.519774011299438,
+      "eligible": false,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "AMZN",
+      "reported_date": "2025-10-30",
+      "fiscal_end": "2025-09-30",
+      "actual_eps": 1.95,
+      "expected_eps": 1.56,
+      "surprise_pct": 25,
+      "eligible": true,
+      "report_time_category": "post-market"
+    },
+    {
+      "symbol": "XOM",
+      "reported_date": "2025-10-31",
+      "fiscal_end": "2025-09-30",
+      "actual_eps": 1.88,
+      "expected_eps": 1.82,
+      "surprise_pct": 3.296703296703285,
+      "eligible": false,
+      "report_time_category": "pre-market"
+    },
+    {
+      "symbol": "NVDA",
+      "reported_date": "2025-11-19",
+      "fiscal_end": "2025-10-31",
+      "actual_eps": 1.3,
+      "expected_eps": 1.26,
+      "surprise_pct": 3.1746031746031855,
+      "eligible": false,
+      "report_time_category": "post-market"
+    }
+  ],
+  "adoption": {
+    "adoption": "rejected",
+    "checks": {
+      "at_least_12_trades_and_days": true,
+      "at_least_6_issuers": true,
+      "two_trades_every_quarter": true,
+      "positive_year_and_all_quarters": false,
+      "excess_over_all_reports": true,
+      "excess_over_market": true,
+      "positive_120bp": false,
+      "positive_extra_session_delay": false,
+      "positive_pnl_not_concentrated": true
+    },
+    "reason": "fixed_screen_failed",
+    "live_order_eligible": false
+  },
+  "source_complete": true,
+  "source_archives_sha256": {
+    "data/research/us-eps-sources-2026-10-17-v1.zip": "1593c6a1934c68a307a510126b988c1be91f39435d0d810422717ec1be884701",
+    "data/research/us-eps-prices-2026-10-17-v1.zip": "914c787e97cc6b7eabfe126bb118abf4080ca51bc192d008d81544b432f39f6a"
+  },
+  "plan_sha256": "afbe1085d78a6e797813f82b210c904d19691159ecf475dd665fde6505104b9b",
+  "code_sha256": "088a85bae2b53faa72fd69bc494f410d6af88bcbb1d96997e0f88039e8bb0e0f",
+  "strict_pit_eligible": false,
+  "registered_verdict": false,
+  "live_order_eligible": false,
+  "limitations": [
+    "Fixed surviving eight-name panel, not historical market-wide constituents.",
+    "Historical estimate vintage/GAAP basis and exact first public timestamp unverified.",
+    "Delayed daily execution, not immediate intraday earnings reaction.",
+    "Costs/fills are assumptions; no overnight positions or certified total returns."
+  ],
+  "full_result": {
+    "path": "data/research/us-eps-backtest-2026-10-17-v1.json",
+    "sha256": "38acea3d43f90f9073ca31695835fcb4da512be3c1434e18322d351172d3abac",
+    "bytes": 1629514
+  },
+  "years": {
+    "2024": {
+      "45bp_full_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 19,
+          "net_return_pct": -0.8403638099999777,
+          "net_pnl": -84.03638099999807,
+          "gross_pnl": 12.684000000000296,
+          "end_cash": 9915.963619000002,
+          "quarter_pnl": {
+            "1": -30.85869749999995,
+            "2": -6.680233500000099,
+            "3": 36.76577999999972,
+            "4": -83.26323000000093
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 25,
+          "trade_count": 25,
+          "net_return_pct": -1.8389915625000142,
+          "net_pnl": -183.8991562500014,
+          "gross_pnl": -55.96500000000019,
+          "end_cash": 9816.100843749999,
+          "quarter_pnl": {
+            "1": -55.96519500000056,
+            "2": -29.20014750000007,
+            "3": -18.34603875000039,
+            "4": -80.38777500000128
+          },
+          "quarter_trades": {
+            "1": 5,
+            "2": 7,
+            "3": 7,
+            "4": 6
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 19,
+          "net_return_pct": -0.8191015000000301,
+          "net_pnl": -81.91015000000334,
+          "gross_pnl": 9.199999999999818,
+          "end_cash": 9918.089849999997,
+          "quarter_pnl": {
+            "1": -12.911127499999907,
+            "2": -17.113650000000234,
+            "3": -2.8104675000004136,
+            "4": -49.074905000000626
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "75bp_full_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 19,
+          "net_return_pct": -1.4851663499999779,
+          "net_pnl": -148.51663499999813,
+          "gross_pnl": 12.684000000000296,
+          "end_cash": 9851.483365000002,
+          "quarter_pnl": {
+            "1": -44.131162499999505,
+            "2": -23.129722499999502,
+            "3": 19.3563000000006,
+            "4": -100.61204999999973
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 25,
+          "trade_count": 25,
+          "net_return_pct": -2.6804130624999534,
+          "net_pnl": -268.0413062499956,
+          "gross_pnl": -55.67500000000018,
+          "end_cash": 9731.958693750004,
+          "quarter_pnl": {
+            "1": -72.75532499999952,
+            "2": -52.486912499998994,
+            "3": -41.69944374999932,
+            "4": -101.09962499999983
+          },
+          "quarter_trades": {
+            "1": 5,
+            "2": 7,
+            "3": 7,
+            "4": 6
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 19,
+          "net_return_pct": -1.426502499999971,
+          "net_pnl": -142.65024999999696,
+          "gross_pnl": 9.199999999999818,
+          "end_cash": 9857.349750000003,
+          "quarter_pnl": {
+            "1": -24.805212499999584,
+            "2": -32.442749999999705,
+            "3": -18.98411249999981,
+            "4": -66.41817499999956
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "75bp_full_delay1": {
+        "eps": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 19,
+          "net_return_pct": -1.8651435249999904,
+          "net_pnl": -186.5143524999985,
+          "gross_pnl": -27.394000000000105,
+          "end_cash": 9813.485647500002,
+          "quarter_pnl": {
+            "1": -19.101612499999987,
+            "2": -52.296139999999696,
+            "3": -53.36816250000038,
+            "4": -61.74843749999991
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 25,
+          "trade_count": 25,
+          "net_return_pct": -2.6102543374999954,
+          "net_pnl": -261.02543374999914,
+          "gross_pnl": -48.86900000000047,
+          "end_cash": 9738.97456625,
+          "quarter_pnl": {
+            "1": -3.526475000000005,
+            "2": -98.11438999999928,
+            "3": -75.17200000000025,
+            "4": -84.21256874999995
+          },
+          "quarter_trades": {
+            "1": 5,
+            "2": 7,
+            "3": 7,
+            "4": 6
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 19,
+          "net_return_pct": -1.8042797499999819,
+          "net_pnl": -180.4279749999987,
+          "gross_pnl": -28.659999999999968,
+          "end_cash": 9819.572025000001,
+          "quarter_pnl": {
+            "1": -20.531349999999634,
+            "2": -63.27864999999986,
+            "3": -62.87357499999939,
+            "4": -33.744399999999814
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "75bp_half_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 17,
+          "net_return_pct": -0.6470754625000019,
+          "net_pnl": -64.70754624999972,
+          "gross_pnl": 2.9810000000001224,
+          "end_cash": 9935.29245375,
+          "quarter_pnl": {
+            "1": -8.088974999999834,
+            "2": -16.877189999999757,
+            "3": 7.43785000000031,
+            "4": -47.17923124999987
+          },
+          "quarter_trades": {
+            "1": 3,
+            "2": 4,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 25,
+          "trade_count": 23,
+          "net_return_pct": -1.1892337249999718,
+          "net_pnl": -118.92337249999764,
+          "gross_pnl": -27.446000000000097,
+          "end_cash": 9881.076627500002,
+          "quarter_pnl": {
+            "1": -21.756824999999992,
+            "2": -31.555784999999503,
+            "3": -18.508368749999704,
+            "4": -47.102393749999976
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 6,
+            "3": 7,
+            "4": 6
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 19,
+          "net_return_pct": -0.7132512500000354,
+          "net_pnl": -71.32512500000303,
+          "gross_pnl": 4.599999999999909,
+          "end_cash": 9928.674874999997,
+          "quarter_pnl": {
+            "1": -12.402606249999792,
+            "2": -16.221374999999853,
+            "3": -9.492056249999905,
+            "4": -33.20908749999978
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "75bp_none_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 25,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "120bp_full_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 19,
+          "net_return_pct": -2.4631529600000035,
+          "net_pnl": -246.31529600000067,
+          "gross_pnl": 9.064000000000291,
+          "end_cash": 9753.684704,
+          "quarter_pnl": {
+            "1": -64.03985999999998,
+            "2": -47.80395599999997,
+            "3": -7.83620000000019,
+            "4": -126.6352800000002
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 25,
+          "trade_count": 25,
+          "net_return_pct": -3.895135800000027,
+          "net_pnl": -389.51358000000255,
+          "gross_pnl": -59.49000000000018,
+          "end_cash": 9610.486419999997,
+          "quarter_pnl": {
+            "1": -97.94051999999999,
+            "2": -89.09363999999982,
+            "3": -70.31202000000019,
+            "4": -132.1674000000005
+          },
+          "quarter_trades": {
+            "1": 5,
+            "2": 7,
+            "3": 7,
+            "4": 6
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 19,
+          "net_return_pct": -2.3376040000000153,
+          "net_pnl": -233.76040000000103,
+          "gross_pnl": 9.199999999999818,
+          "end_cash": 9766.239599999999,
+          "quarter_pnl": {
+            "1": -42.646339999999896,
+            "2": -55.43640000000016,
+            "3": -43.24458000000027,
+            "4": -92.43308000000025
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 19,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      }
+    },
+    "2025": {
+      "45bp_full_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 16,
+          "net_return_pct": -0.41959404999999395,
+          "net_pnl": -41.959404999999606,
+          "gross_pnl": 39.13999999999989,
+          "end_cash": 9958.040595,
+          "quarter_pnl": {
+            "1": 52.6010550000002,
+            "2": -59.907747500000596,
+            "3": -8.962812500000382,
+            "4": -25.689900000000307
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 2
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 24,
+          "trade_count": 24,
+          "net_return_pct": -0.8947479875000108,
+          "net_pnl": -89.47479875000136,
+          "gross_pnl": 34.82499999999959,
+          "end_cash": 9910.525201249999,
+          "quarter_pnl": {
+            "1": 108.53755499999977,
+            "2": -80.39320250000083,
+            "3": -42.02138000000036,
+            "4": -75.5977712500005
+          },
+          "quarter_trades": {
+            "1": 7,
+            "2": 6,
+            "3": 6,
+            "4": 5
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 16,
+          "net_return_pct": -0.8012281499999663,
+          "net_pnl": -80.12281499999699,
+          "gross_pnl": 1.2600000000004457,
+          "end_cash": 9919.877185000003,
+          "quarter_pnl": {
+            "1": -22.23557500000038,
+            "2": -23.619367500000408,
+            "3": -22.80162499999983,
+            "4": -11.466247500000122
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 2
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "75bp_full_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 16,
+          "net_return_pct": -0.9602567499999881,
+          "net_pnl": -96.02567499999896,
+          "gross_pnl": 39.13999999999989,
+          "end_cash": 9903.974325000001,
+          "quarter_pnl": {
+            "1": 39.628425000000675,
+            "2": -77.41291249999995,
+            "3": -25.344687499999964,
+            "4": -32.89650000000006
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 2
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 24,
+          "trade_count": 24,
+          "net_return_pct": -1.6863589999999928,
+          "net_pnl": -168.6358999999993,
+          "gross_pnl": 37.17999999999961,
+          "end_cash": 9831.3641,
+          "quarter_pnl": {
+            "1": 85.05592500000068,
+            "2": -101.91533749999985,
+            "3": -62.102300000000014,
+            "4": -89.67418749999979
+          },
+          "quarter_trades": {
+            "1": 7,
+            "2": 6,
+            "3": 6,
+            "4": 5
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 16,
+          "net_return_pct": -1.3161731250000086,
+          "net_pnl": -131.61731250000048,
+          "gross_pnl": -0.7499999999995453,
+          "end_cash": 9868.3826875,
+          "quarter_pnl": {
+            "1": -36.6726249999997,
+            "2": -40.46561249999968,
+            "3": -38.908662499999764,
+            "4": -15.570412499999975
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 2
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "75bp_full_delay1": {
+        "eps": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 16,
+          "net_return_pct": -0.7340087499999592,
+          "net_pnl": -73.40087499999572,
+          "gross_pnl": 58.03999999999988,
+          "end_cash": 9926.599125000004,
+          "quarter_pnl": {
+            "1": 8.36128750000023,
+            "2": -20.87650624999992,
+            "3": -46.84173124999995,
+            "4": -14.043924999999945
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 2
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 24,
+          "trade_count": 24,
+          "net_return_pct": -2.2660063749999293,
+          "net_pnl": -226.60063749999244,
+          "gross_pnl": -23.950000000000074,
+          "end_cash": 9773.399362500008,
+          "quarter_pnl": {
+            "1": -118.65230000000008,
+            "2": -36.31915624999965,
+            "3": -50.327206249999904,
+            "4": -21.30197499999963
+          },
+          "quarter_trades": {
+            "1": 7,
+            "2": 6,
+            "3": 6,
+            "4": 5
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 16,
+          "net_return_pct": -0.8709572500000262,
+          "net_pnl": -87.09572500000286,
+          "gross_pnl": 43.58000000000072,
+          "end_cash": 9912.904274999997,
+          "quarter_pnl": {
+            "1": -8.411599999999908,
+            "2": -29.578874999999698,
+            "3": -35.703899999999635,
+            "4": -13.401349999999866
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 2
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "75bp_half_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 14,
+          "net_return_pct": -0.3130814999999898,
+          "net_pnl": -31.308149999998932,
+          "gross_pnl": 25.259999999999977,
+          "end_cash": 9968.691850000001,
+          "quarter_pnl": {
+            "1": 20.115143750000186,
+            "2": -32.52249999999998,
+            "3": -4.087593749999996,
+            "4": -14.813199999999881
+          },
+          "quarter_trades": {
+            "1": 3,
+            "2": 5,
+            "3": 4,
+            "4": 2
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 24,
+          "trade_count": 22,
+          "net_return_pct": -0.6472741875000021,
+          "net_pnl": -64.72741875000065,
+          "gross_pnl": 26.17499999999984,
+          "end_cash": 9935.27258125,
+          "quarter_pnl": {
+            "1": 44.67764375000024,
+            "2": -44.77371249999993,
+            "3": -19.84085625,
+            "4": -44.79049374999988
+          },
+          "quarter_trades": {
+            "1": 6,
+            "2": 6,
+            "3": 5,
+            "4": 5
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 14,
+          "net_return_pct": -0.5940380624999797,
+          "net_pnl": -59.403806249998524,
+          "gross_pnl": 3.2850000000001955,
+          "end_cash": 9940.596193750001,
+          "quarter_pnl": {
+            "1": -18.33631249999985,
+            "2": -20.23280624999984,
+            "3": -20.83468749999986,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 0
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "75bp_none_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 24,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      },
+      "120bp_full_delay0": {
+        "eps": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 16,
+          "net_return_pct": -1.7712507999999794,
+          "net_pnl": -177.12507999999798,
+          "gross_pnl": 39.13999999999989,
+          "end_cash": 9822.874920000002,
+          "quarter_pnl": {
+            "1": 20.169480000000362,
+            "2": -103.67066,
+            "3": -49.91750000000059,
+            "4": -43.70640000000026
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 2
+          }
+        },
+        "all_reports": {
+          "state": "complete",
+          "events": 24,
+          "trade_count": 24,
+          "net_return_pct": -2.854765799999992,
+          "net_pnl": -285.47657999999865,
+          "gross_pnl": 40.34999999999961,
+          "end_cash": 9714.523420000001,
+          "quarter_pnl": {
+            "1": 49.833479999999895,
+            "2": -134.1985400000001,
+            "3": -86.17994000000056,
+            "4": -114.93158000000017
+          },
+          "quarter_trades": {
+            "1": 7,
+            "2": 6,
+            "3": 6,
+            "4": 5
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 16,
+          "net_return_pct": -1.8669101999999826,
+          "net_pnl": -186.6910199999984,
+          "gross_pnl": 7.650000000000318,
+          "end_cash": 9813.308980000002,
+          "quarter_pnl": {
+            "1": -58.328199999999924,
+            "2": -65.73498000000018,
+            "3": -40.90117999999984,
+            "4": -21.726659999999924
+          },
+          "quarter_trades": {
+            "1": 4,
+            "2": 5,
+            "3": 5,
+            "4": 2
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 16,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "net_pnl": 0,
+          "gross_pnl": 0,
+          "end_cash": 10000,
+          "quarter_pnl": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          },
+          "quarter_trades": {
+            "1": 0,
+            "2": 0,
+            "3": 0,
+            "4": 0
+          }
+        }
+      }
+    }
+  },
+  "primary_trades": {
+    "2024": [
+      {
+        "symbol": "MSFT",
+        "reported_date": "2024-01-30",
+        "fiscal_end": "2023-12-31",
+        "actual_eps": 2.93,
+        "expected_eps": 2.78,
+        "surprise_pct": 5.395683453237421,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-02-01",
+        "net_pnl": -3.2131125000000793,
+        "state": "filled",
+        "traded_symbol": "MSFT",
+        "shares": 3,
+        "entry_open": 401.83,
+        "exit_close": 403.78,
+        "reference_close": 397.58,
+        "gross_pnl": 5.849999999999966,
+        "cash_after": 9996.7868875
+      },
+      {
+        "symbol": "AMZN",
+        "reported_date": "2024-02-01",
+        "fiscal_end": "2023-12-31",
+        "actual_eps": 1,
+        "expected_eps": 0.8,
+        "surprise_pct": 25,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-02-05",
+        "net_pnl": -8.168387499999653,
+        "state": "filled",
+        "traded_symbol": "AMZN",
+        "shares": 7,
+        "entry_open": 170.2,
+        "exit_close": 170.31,
+        "reference_close": 171.81,
+        "gross_pnl": 0.7700000000000955,
+        "cash_after": 9988.6185
+      },
+      {
+        "symbol": "XOM",
+        "reported_date": "2024-02-02",
+        "fiscal_end": "2023-12-31",
+        "actual_eps": 2.48,
+        "expected_eps": 2.19,
+        "surprise_pct": 13.242009132420085,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2024-02-06",
+        "net_pnl": -7.034399999999778,
+        "state": "filled",
+        "traded_symbol": "XOM",
+        "shares": 12,
+        "entry_open": 102.07,
+        "exit_close": 102.25,
+        "reference_close": 101.55,
+        "gross_pnl": 2.160000000000082,
+        "cash_after": 9981.5841
+      },
+      {
+        "symbol": "NVDA",
+        "reported_date": "2024-02-21",
+        "fiscal_end": "2024-01-31",
+        "actual_eps": 0.516,
+        "expected_eps": 0.461,
+        "surprise_pct": 11.930585683297167,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-02-23",
+        "net_pnl": -25.715262499999994,
+        "state": "filled",
+        "traded_symbol": "NVDA",
+        "shares": 1,
+        "entry_open": 807.9,
+        "exit_close": 788.17,
+        "reference_close": 785.38,
+        "gross_pnl": -19.730000000000018,
+        "cash_after": 9955.8688375
+      },
+      {
+        "symbol": "JPM",
+        "reported_date": "2024-04-12",
+        "fiscal_end": "2024-03-31",
+        "actual_eps": 4.44,
+        "expected_eps": 4.13,
+        "surprise_pct": 7.506053268765145,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2024-04-16",
+        "net_pnl": -20.783249999999725,
+        "state": "filled",
+        "traded_symbol": "JPM",
+        "shares": 6,
+        "entry_open": 182.9,
+        "exit_close": 180.8,
+        "reference_close": 182.89,
+        "gross_pnl": -12.599999999999966,
+        "cash_after": 9935.0855875
+      },
+      {
+        "symbol": "META",
+        "reported_date": "2024-04-24",
+        "fiscal_end": "2024-03-31",
+        "actual_eps": 4.71,
+        "expected_eps": 4.32,
+        "surprise_pct": 9.027777777777768,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-04-26",
+        "net_pnl": -2.9756249999999227,
+        "state": "filled",
+        "traded_symbol": "META",
+        "shares": 2,
+        "entry_open": 441.46,
+        "exit_close": 443.29,
+        "reference_close": 441.38,
+        "gross_pnl": 3.660000000000082,
+        "cash_after": 9932.1099625
+      },
+      {
+        "symbol": "GOOGL",
+        "reported_date": "2024-04-25",
+        "fiscal_end": "2024-03-31",
+        "actual_eps": 1.89,
+        "expected_eps": 1.51,
+        "surprise_pct": 25.16556291390728,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-04-29",
+        "net_pnl": -29.155209999999897,
+        "state": "filled",
+        "traded_symbol": "GOOGL",
+        "shares": 7,
+        "entry_open": 169.058,
+        "exit_close": 166.15,
+        "reference_close": 171.95,
+        "gross_pnl": -20.35599999999991,
+        "cash_after": 9902.954752500002
+      },
+      {
+        "symbol": "AMZN",
+        "reported_date": "2024-04-30",
+        "fiscal_end": "2024-03-31",
+        "actual_eps": 0.98,
+        "expected_eps": 0.82,
+        "surprise_pct": 19.512195121951216,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-05-02",
+        "net_pnl": 17.493787500000053,
+        "state": "filled",
+        "traded_symbol": "AMZN",
+        "shares": 7,
+        "entry_open": 180.85,
+        "exit_close": 184.72,
+        "reference_close": 179,
+        "gross_pnl": 27.090000000000032,
+        "cash_after": 9920.448540000001
+      },
+      {
+        "symbol": "NVDA",
+        "reported_date": "2024-05-22",
+        "fiscal_end": "2024-04-30",
+        "actual_eps": 0.612,
+        "expected_eps": 0.559,
+        "surprise_pct": 9.481216457960628,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-05-24",
+        "net_pnl": 12.29057499999999,
+        "state": "filled",
+        "traded_symbol": "NVDA",
+        "shares": 1,
+        "entry_open": 1044.49,
+        "exit_close": 1064.69,
+        "reference_close": 1037.99,
+        "gross_pnl": 20.200000000000045,
+        "cash_after": 9932.739115
+      },
+      {
+        "symbol": "JPM",
+        "reported_date": "2024-07-12",
+        "fiscal_end": "2024-06-30",
+        "actual_eps": 6.12,
+        "expected_eps": 5.09,
+        "surprise_pct": 20.23575638506876,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2024-07-16",
+        "net_pnl": 12.188550000000077,
+        "state": "filled",
+        "traded_symbol": "JPM",
+        "shares": 6,
+        "entry_open": 210,
+        "exit_close": 213.62,
+        "reference_close": 210.05,
+        "gross_pnl": 21.720000000000027,
+        "cash_after": 9944.927665000001
+      },
+      {
+        "symbol": "META",
+        "reported_date": "2024-07-31",
+        "fiscal_end": "2024-06-30",
+        "actual_eps": 5.16,
+        "expected_eps": 4.76,
+        "surprise_pct": 8.40336134453783,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-08-02",
+        "net_pnl": -9.048549999999977,
+        "state": "filled",
+        "traded_symbol": "META",
+        "shares": 2,
+        "entry_open": 489,
+        "exit_close": 488.14,
+        "reference_close": 497.74,
+        "gross_pnl": -1.7200000000000273,
+        "cash_after": 9935.879115000002
+      },
+      {
+        "symbol": "AMZN",
+        "reported_date": "2024-08-01",
+        "fiscal_end": "2024-06-30",
+        "actual_eps": 1.26,
+        "expected_eps": 1.02,
+        "surprise_pct": 23.529411764705888,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-08-05",
+        "net_pnl": 39.39521250000007,
+        "state": "filled",
+        "traded_symbol": "AMZN",
+        "shares": 7,
+        "entry_open": 154.21,
+        "exit_close": 161.02,
+        "reference_close": 167.9,
+        "gross_pnl": 47.670000000000016,
+        "cash_after": 9975.274327500001
+      },
+      {
+        "symbol": "XOM",
+        "reported_date": "2024-08-02",
+        "fiscal_end": "2024-06-30",
+        "actual_eps": 2.14,
+        "expected_eps": 2.01,
+        "surprise_pct": 6.467661691542315,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2024-08-06",
+        "net_pnl": -12.620162499999878,
+        "state": "filled",
+        "traded_symbol": "XOM",
+        "shares": 11,
+        "entry_open": 114.45,
+        "exit_close": 114.16,
+        "reference_close": 114.77,
+        "gross_pnl": -3.190000000000069,
+        "cash_after": 9962.654165000002
+      },
+      {
+        "symbol": "NVDA",
+        "reported_date": "2024-08-28",
+        "fiscal_end": "2024-07-31",
+        "actual_eps": 0.68,
+        "expected_eps": 0.63,
+        "surprise_pct": 7.936507936507953,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-08-30",
+        "net_pnl": -10.55874999999969,
+        "state": "filled",
+        "traded_symbol": "NVDA",
+        "shares": 10,
+        "entry_open": 119.53,
+        "exit_close": 119.37,
+        "reference_close": 117.59,
+        "gross_pnl": -1.599999999999966,
+        "cash_after": 9952.095415000002
+      },
+      {
+        "symbol": "JPM",
+        "reported_date": "2024-10-11",
+        "fiscal_end": "2024-09-30",
+        "actual_eps": 4.37,
+        "expected_eps": 3.99,
+        "surprise_pct": 9.523809523809511,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2024-10-15",
+        "net_pnl": -14.713437500000055,
+        "state": "filled",
+        "traded_symbol": "JPM",
+        "shares": 5,
+        "entry_open": 223.66,
+        "exit_close": 222.39,
+        "reference_close": 221.48,
+        "gross_pnl": -6.350000000000051,
+        "cash_after": 9937.381977500001
+      },
+      {
+        "symbol": "GOOGL",
+        "reported_date": "2024-10-29",
+        "fiscal_end": "2024-09-30",
+        "actual_eps": 2.12,
+        "expected_eps": 1.85,
+        "surprise_pct": 14.5945945945946,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-10-31",
+        "net_pnl": -23.176299999999856,
+        "state": "filled",
+        "traded_symbol": "GOOGL",
+        "shares": 7,
+        "entry_open": 173.13,
+        "exit_close": 171.11,
+        "reference_close": 174.46,
+        "gross_pnl": -14.139999999999873,
+        "cash_after": 9914.205677500002
+      },
+      {
+        "symbol": "META",
+        "reported_date": "2024-10-30",
+        "fiscal_end": "2024-09-30",
+        "actual_eps": 6.03,
+        "expected_eps": 5.3,
+        "surprise_pct": 13.773584905660385,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-11-01",
+        "net_pnl": -9.400737499999877,
+        "state": "filled",
+        "traded_symbol": "META",
+        "shares": 2,
+        "entry_open": 567.605,
+        "exit_close": 567.16,
+        "reference_close": 567.58,
+        "gross_pnl": -0.8900000000001,
+        "cash_after": 9904.804940000002
+      },
+      {
+        "symbol": "AMZN",
+        "reported_date": "2024-10-31",
+        "fiscal_end": "2024-09-30",
+        "actual_eps": 1.43,
+        "expected_eps": 1.14,
+        "surprise_pct": 25.438596491228083,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-11-04",
+        "net_pnl": -12.8451749999997,
+        "state": "filled",
+        "traded_symbol": "AMZN",
+        "shares": 6,
+        "entry_open": 196.45,
+        "exit_close": 195.78,
+        "reference_close": 197.93,
+        "gross_pnl": -4.019999999999925,
+        "cash_after": 9891.959765000001
+      },
+      {
+        "symbol": "NVDA",
+        "reported_date": "2024-11-20",
+        "fiscal_end": "2024-10-31",
+        "actual_eps": 0.81,
+        "expected_eps": 0.75,
+        "surprise_pct": 8.000000000000007,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2024-11-22",
+        "net_pnl": -40.47640000000024,
+        "state": "filled",
+        "traded_symbol": "NVDA",
+        "shares": 8,
+        "entry_open": 145.93,
+        "exit_close": 141.95,
+        "reference_close": 146.67,
+        "gross_pnl": -31.840000000000146,
+        "cash_after": 9851.483365000002
+      }
+    ],
+    "2025": [
+      {
+        "symbol": "JPM",
+        "reported_date": "2025-01-15",
+        "fiscal_end": "2024-12-31",
+        "actual_eps": 4.81,
+        "expected_eps": 4.04,
+        "surprise_pct": 19.059405940594054,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2025-01-17",
+        "net_pnl": 15.475625000000491,
+        "state": "filled",
+        "traded_symbol": "JPM",
+        "shares": 5,
+        "entry_open": 254.14,
+        "exit_close": 259.16,
+        "reference_close": 254.27,
+        "gross_pnl": 25.100000000000193,
+        "cash_after": 10015.475625000001
+      },
+      {
+        "symbol": "META",
+        "reported_date": "2025-01-29",
+        "fiscal_end": "2024-12-31",
+        "actual_eps": 8.02,
+        "expected_eps": 6.68,
+        "surprise_pct": 20.059880239520965,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-01-31",
+        "net_pnl": -6.995675000000006,
+        "state": "filled",
+        "traded_symbol": "META",
+        "shares": 1,
+        "entry_open": 691,
+        "exit_close": 689.18,
+        "reference_close": 687,
+        "gross_pnl": -1.82000000000005,
+        "cash_after": 10008.47995
+      },
+      {
+        "symbol": "XOM",
+        "reported_date": "2025-01-31",
+        "fiscal_end": "2024-12-31",
+        "actual_eps": 1.67,
+        "expected_eps": 1.55,
+        "surprise_pct": 7.741935483870965,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2025-02-04",
+        "net_pnl": 26.867568750000146,
+        "state": "filled",
+        "traded_symbol": "XOM",
+        "shares": 11,
+        "entry_open": 106.705,
+        "exit_close": 109.96,
+        "reference_close": 107.09,
+        "gross_pnl": 35.80499999999995,
+        "cash_after": 10035.34751875
+      },
+      {
+        "symbol": "AMZN",
+        "reported_date": "2025-02-06",
+        "fiscal_end": "2024-12-31",
+        "actual_eps": 1.86,
+        "expected_eps": 1.4837,
+        "surprise_pct": 25.36227000067399,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2025-02-10",
+        "net_pnl": 4.280906250000044,
+        "state": "filled",
+        "traded_symbol": "AMZN",
+        "shares": 5,
+        "entry_open": 230.545,
+        "exit_close": 233.14,
+        "reference_close": 229.15,
+        "gross_pnl": 12.974999999999994,
+        "cash_after": 10039.628425
+      },
+      {
+        "symbol": "JPM",
+        "reported_date": "2025-04-11",
+        "fiscal_end": "2025-03-31",
+        "actual_eps": 5.07,
+        "expected_eps": 4.64,
+        "surprise_pct": 9.267241379310365,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2025-04-15",
+        "net_pnl": -23.648062499999924,
+        "state": "filled",
+        "traded_symbol": "JPM",
+        "shares": 5,
+        "entry_open": 236.1,
+        "exit_close": 233.13,
+        "reference_close": 234.72,
+        "gross_pnl": -14.849999999999994,
+        "cash_after": 10015.9803625
+      },
+      {
+        "symbol": "GOOGL",
+        "reported_date": "2025-04-24",
+        "fiscal_end": "2025-03-31",
+        "actual_eps": 2.81,
+        "expected_eps": 2.01,
+        "surprise_pct": 39.80099502487564,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-04-28",
+        "net_pnl": -21.184668750000128,
+        "state": "filled",
+        "traded_symbol": "GOOGL",
+        "shares": 7,
+        "entry_open": 162.425,
+        "exit_close": 160.61,
+        "reference_close": 161.96,
+        "gross_pnl": -12.704999999999984,
+        "cash_after": 9994.79569375
+      },
+      {
+        "symbol": "META",
+        "reported_date": "2025-04-30",
+        "fiscal_end": "2025-03-31",
+        "actual_eps": 6.43,
+        "expected_eps": 5.21,
+        "surprise_pct": 23.416506717850293,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-05-02",
+        "net_pnl": 18.27643749999993,
+        "state": "filled",
+        "traded_symbol": "META",
+        "shares": 2,
+        "entry_open": 583.455,
+        "exit_close": 597.02,
+        "reference_close": 572.21,
+        "gross_pnl": 27.12999999999988,
+        "cash_after": 10013.07213125
+      },
+      {
+        "symbol": "AMZN",
+        "reported_date": "2025-05-01",
+        "fiscal_end": "2025-03-31",
+        "actual_eps": 1.59,
+        "expected_eps": 1.36,
+        "surprise_pct": 16.91176470588236,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-05-05",
+        "net_pnl": -9.349349999999959,
+        "state": "filled",
+        "traded_symbol": "AMZN",
+        "shares": 6,
+        "entry_open": 186.51,
+        "exit_close": 186.35,
+        "reference_close": 189.98,
+        "gross_pnl": -0.9599999999999795,
+        "cash_after": 10003.72278125
+      },
+      {
+        "symbol": "NVDA",
+        "reported_date": "2025-05-28",
+        "fiscal_end": "2025-04-30",
+        "actual_eps": 0.81,
+        "expected_eps": 0.75,
+        "surprise_pct": 8.000000000000007,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-05-30",
+        "net_pnl": -41.50726874999987,
+        "state": "filled",
+        "traded_symbol": "NVDA",
+        "shares": 9,
+        "entry_open": 138.715,
+        "exit_close": 135.13,
+        "reference_close": 139.19,
+        "gross_pnl": -32.26500000000007,
+        "cash_after": 9962.2155125
+      },
+      {
+        "symbol": "JPM",
+        "reported_date": "2025-07-15",
+        "fiscal_end": "2025-06-30",
+        "actual_eps": 4.96,
+        "expected_eps": 4.48,
+        "surprise_pct": 10.714285714285698,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2025-07-17",
+        "net_pnl": 17.239900000000034,
+        "state": "filled",
+        "traded_symbol": "JPM",
+        "shares": 4,
+        "entry_open": 283.44,
+        "exit_close": 289.9,
+        "reference_close": 285.82,
+        "gross_pnl": 25.839999999999918,
+        "cash_after": 9979.455412500001
+      },
+      {
+        "symbol": "GOOGL",
+        "reported_date": "2025-07-23",
+        "fiscal_end": "2025-06-30",
+        "actual_eps": 2.31,
+        "expected_eps": 2.19,
+        "surprise_pct": 5.47945205479452,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-07-25",
+        "net_pnl": -1.4660999999998694,
+        "state": "filled",
+        "traded_symbol": "GOOGL",
+        "shares": 6,
+        "entry_open": 191.98,
+        "exit_close": 193.18,
+        "reference_close": 192.17,
+        "gross_pnl": 7.200000000000102,
+        "cash_after": 9977.989312500002
+      },
+      {
+        "symbol": "META",
+        "reported_date": "2025-07-30",
+        "fiscal_end": "2025-06-30",
+        "actual_eps": 7.14,
+        "expected_eps": 5.86,
+        "surprise_pct": 21.843003412969274,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-08-01",
+        "net_pnl": -16.385275000000092,
+        "state": "filled",
+        "traded_symbol": "META",
+        "shares": 1,
+        "entry_open": 760.73,
+        "exit_close": 750.01,
+        "reference_close": 773.44,
+        "gross_pnl": -10.720000000000027,
+        "cash_after": 9961.604037500001
+      },
+      {
+        "symbol": "AAPL",
+        "reported_date": "2025-07-31",
+        "fiscal_end": "2025-06-30",
+        "actual_eps": 1.57,
+        "expected_eps": 1.43,
+        "surprise_pct": 9.790209790209792,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-08-04",
+        "net_pnl": -16.10673750000001,
+        "state": "filled",
+        "traded_symbol": "AAPL",
+        "shares": 6,
+        "entry_open": 204.505,
+        "exit_close": 203.35,
+        "reference_close": 202.38,
+        "gross_pnl": -6.930000000000007,
+        "cash_after": 9945.4973
+      },
+      {
+        "symbol": "XOM",
+        "reported_date": "2025-08-01",
+        "fiscal_end": "2025-06-30",
+        "actual_eps": 1.64,
+        "expected_eps": 1.56,
+        "surprise_pct": 5.12820512820511,
+        "eligible": true,
+        "report_time_category": "pre-market",
+        "execution_session": "2025-08-05",
+        "net_pnl": -8.626475000000028,
+        "state": "filled",
+        "traded_symbol": "XOM",
+        "shares": 11,
+        "entry_open": 107.22,
+        "exit_close": 107.24,
+        "reference_close": 107.37,
+        "gross_pnl": 0.21999999999995623,
+        "cash_after": 9936.870825000002
+      },
+      {
+        "symbol": "GOOGL",
+        "reported_date": "2025-10-29",
+        "fiscal_end": "2025-09-30",
+        "actual_eps": 2.87,
+        "expected_eps": 2.32,
+        "surprise_pct": 23.706896551724157,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-10-31",
+        "net_pnl": -16.54599999999982,
+        "state": "filled",
+        "traded_symbol": "GOOGL",
+        "shares": 4,
+        "entry_open": 283.21,
+        "exit_close": 281.19,
+        "reference_close": 281.48,
+        "gross_pnl": -8.079999999999927,
+        "cash_after": 9920.324825000002
+      },
+      {
+        "symbol": "AMZN",
+        "reported_date": "2025-10-30",
+        "fiscal_end": "2025-09-30",
+        "actual_eps": 1.95,
+        "expected_eps": 1.56,
+        "surprise_pct": 25,
+        "eligible": true,
+        "report_time_category": "post-market",
+        "execution_session": "2025-11-03",
+        "net_pnl": -16.35050000000024,
+        "state": "filled",
+        "traded_symbol": "AMZN",
+        "shares": 5,
+        "entry_open": 255.36,
+        "exit_close": 254,
+        "reference_close": 244.22,
+        "gross_pnl": -6.800000000000068,
+        "cash_after": 9903.974325000001
+      }
+    ]
+  }
+}

@@ -1,0 +1,1462 @@
+{
+  "schema": "earnings-guidance-backtest-summary-v1",
+  "phase": "historical_reconstruction",
+  "census": {
+    "source_census": {
+      "baseline_guidance": 123,
+      "earnings": 1467,
+      "guidance": 99
+    },
+    "original_statuses": {
+      "original_preserved": 407,
+      "outside_direct_domestic_issuer": 81,
+      "no_guidance_in_fixed_census": 1199,
+      "source_failed:as-published document version ambiguous": 2
+    },
+    "parse_errors": {
+      "no numeric revenue guidance": 15,
+      "guidance range/period attribution ambiguous": 8,
+      "changing or management-adjusted reporting perimeter": 7,
+      "current earnings column missing": 14,
+      "actual earnings cannot be a forecast range": 18,
+      "financial unit ambiguous": 1,
+      "current period and quarter header conflict": 1
+    },
+    "parsed_filings": 343,
+    "selection_reasons": {
+      "baseline_only_not_an_event": 123,
+      "no_same_period_prior_company_guidance": 262,
+      "no_guidance_in_fixed_census": 1158,
+      "no numeric revenue guidance": 10,
+      "current earnings column missing": 14,
+      "outside_direct_domestic_issuer": 76,
+      "actual earnings cannot be a forecast range": 18,
+      "financial unit ambiguous": 1,
+      "actual_operating_profit_not_positive": 1,
+      "below_fixed_five_percent_upgrade": 13,
+      "source_failed:as-published document version ambiguous": 2,
+      "changing or management-adjusted reporting perimeter": 5,
+      "current period and quarter header conflict": 1,
+      "selected_before_prices": 1,
+      "guidance range/period attribution ambiguous": 3,
+      "latest_guidance_not_at_least_one_day_old": 1
+    },
+    "selected_by_month": {
+      "2026-02": 1
+    }
+  },
+  "events": [
+    {
+      "issuer": "서울바이오시스",
+      "kind": "earnings",
+      "market_segment": "kosdaq",
+      "original_url": "https://kind.krx.co.kr/external/2026/02/11/000805/20260210003513/70956.htm",
+      "published_at": "2026-02-11T15:22:00+09:00",
+      "receipt": "20260211000805",
+      "session": "2026-02-11",
+      "source_file": "raw/20260211000805-original.htm",
+      "source_group": "earnings",
+      "source_sha256": "c05bb9af6dbd1d70a2707baf7606d6587b00a48c61caa81afc612930d134395b",
+      "status": "original_preserved",
+      "ticker": "092190",
+      "title": "[정정] 연결재무제표 기준 영업(잠정)실적(공정공시)",
+      "financials": {
+        "scope": "consolidated",
+        "start": "2025-10-01",
+        "end": "2025-12-31",
+        "revenue_low_krw": 220339000000,
+        "revenue_high_krw": 220339000000,
+        "operating_profit_krw": 18613000000,
+        "source_unit": "백만원"
+      },
+      "prior_guidance": {
+        "scope": "consolidated",
+        "start": "2025-10-01",
+        "end": "2025-12-31",
+        "revenue_low_krw": 180000000000,
+        "revenue_high_krw": 190000000000,
+        "source_unit": "억원"
+      },
+      "prior_receipt": "20251114001076",
+      "prior_published_at": "2025-11-14T14:36:00+09:00",
+      "prior_source_sha256": "87f7212d343aa258f0885b76f78c2c4e1e99e13727a9a16e9db30e9206732469",
+      "improvement_pct": 15.967894736842103,
+      "expectation_basis": "issuer_prior_guidance",
+      "execution_session": "2026-02-12",
+      "trade_anchor_at": "2026-02-12T09:08:00+09:00",
+      "execution_timing": "next_regular_opening_window",
+      "source_error": null,
+      "stock_bars": 79,
+      "control_bars": 99
+    }
+  ],
+  "adoption": {
+    "adoption": "rejected",
+    "reason": "insufficient_validation_events",
+    "validation_event_count": 0,
+    "validation_trade_count": 0,
+    "checks": {
+      "all_primary_paths_complete": false
+    },
+    "live_order_eligible": false
+  },
+  "source_archives_sha256": {
+    "data/research/earnings-guidance-originals-2026-10-17-v3.zip": "add69e24b9fa12929eb3a354969edf22e350de7aa90a49e18314d295ea61df81",
+    "data/research/earnings-guidance-events-2026-10-17-v1.zip": "670d21d83726afb15c2c7653caac607c58b4611b3a979c26db59cf5f763a09b9",
+    "data/research/earnings-guidance-minutes-2026-10-17-v1.zip": "f6d5c0dbaca5cb7bd85b49ac2041853c13ed1b73124e0b7679609e96b7f5d8c1"
+  },
+  "identity_sources_sha256": {
+    "krx-daily-2026-01-05-v1.zip": "cc413764abe56573d93c1bf8fce62b38deaceb45b0f354bd914afc1bd7603ef6",
+    "krx-daily-2026-06-07-v1.zip": "ce595d2bf8b7b43dbe3266fdb19615987b8945e517ccaba500db46c76a31c15d"
+  },
+  "plan_sha256": "cb0a6b653b79b99a21e3a3ff0146e8d3b3a2272249b8db46d6ca8996b06be0bc",
+  "code_sha256": {
+    "scripts/measure/earnings_event_sources.py": "cefba27723ee84b288328fd942ca07b854ad83a031aa8930a43680dc734d7a1a",
+    "scripts/measure/earnings_event_backtest.py": "1b357eef4f6c730956a9243a7dc8136a65d407411ef51a20422447926143bdda",
+    "scripts/measure/contract_event_sources.py": "57ab6d645fcd1b8432fad75ac54c733397f8577ace28cc5937e292a303f8ebab",
+    "src/signal_desk/signals/contract_event.py": "338e330abc5da43d1e4213bcf38ce1506ca230ea528d9d27bf3c7b41f98c2abe",
+    "src/signal_desk/signals/earnings_event.py": "a19ff820ec6f023652dee5f0d9cb3e912a723f13d047239f1be1d47e3466dfb6"
+  },
+  "strict_pit_eligible": false,
+  "registered_verdict": false,
+  "live_order_eligible": false,
+  "limitations": [
+    "Issuer guidance is not analyst consensus or a calibrated price expectation.",
+    "Historical provider vintages, first press release, order book/VI/fills are unverified.",
+    "Unsupported periods/units and intervening unknown guidance are retained as missing.",
+    "Contemporaneous independent KOSDAQ security lineage is not fully certified.",
+    "Previously inspected market periods are not a pristine historical holdout."
+  ],
+  "full_result": {
+    "path": "data/research/earnings-guidance-backtest-2026-10-17-v2.json",
+    "sha256": "2c78093775f1c788f81bb33e257dbdb1fc4764fe4c3e0519de3283305f13856a",
+    "bytes": 100569
+  },
+  "months": {
+    "2026-01": {
+      "45bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay2": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_half_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_none_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "120bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      }
+    },
+    "2026-02": {
+      "45bp_full_delay0": {
+        "fundamental": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": 0.02220881249999085,
+          "end_cash": 10002220.88125,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 3675,
+          "net_pnl": 2220.8812499999767,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 1,
+          "skips": {}
+        },
+        "reaction": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 1
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": 0.11409548000000935,
+          "end_cash": 10011409.548,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 17168,
+          "net_pnl": 11409.547999999952,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 1,
+          "skips": {}
+        },
+        "cash": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {}
+        }
+      },
+      "75bp_full_delay0": {
+        "fundamental": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": 0.01251468750000928,
+          "end_cash": 10001251.46875,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 3675,
+          "net_pnl": 1251.46875,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 1,
+          "skips": {}
+        },
+        "reaction": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 1
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": 0.07570580000000326,
+          "end_cash": 10007570.58,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 17168,
+          "net_pnl": 7570.5800000000745,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 1,
+          "skips": {}
+        },
+        "cash": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {}
+        }
+      },
+      "75bp_full_delay2": {
+        "fundamental": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": 0.033554062500007475,
+          "end_cash": 10003355.40625,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 5775,
+          "net_pnl": 3355.40625,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 1,
+          "skips": {}
+        },
+        "reaction": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 1
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": 0.03659739999999356,
+          "end_cash": 10003659.74,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 13264,
+          "net_pnl": 3659.7399999999907,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 1,
+          "skips": {}
+        },
+        "cash": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {}
+        }
+      },
+      "75bp_half_delay0": {
+        "fundamental": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": 0.006197750000014324,
+          "end_cash": 10000619.775,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 1820,
+          "net_pnl": 619.7750000000233,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 1,
+          "skips": {}
+        },
+        "reaction": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 1
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": 0.03785290000000163,
+          "end_cash": 10003785.29,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 8584,
+          "net_pnl": 3785.2900000000373,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 1,
+          "skips": {}
+        },
+        "cash": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {}
+        }
+      },
+      "75bp_none_delay0": {
+        "fundamental": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "quantity_or_fill_assumption_zero": 1
+          }
+        },
+        "reaction": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 1
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "quantity_or_fill_assumption_zero": 1
+          }
+        },
+        "cash": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {}
+        }
+      },
+      "120bp_full_delay0": {
+        "fundamental": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": -0.0020265000000074807,
+          "end_cash": 9999797.35,
+          "max_close_drawdown_pct": -0.0020265000000074807,
+          "gross_pnl": 3675,
+          "net_pnl": -202.64999999996508,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 0,
+          "skips": {}
+        },
+        "reaction": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {
+            "fixed_reaction_conditions_not_met": 1
+          }
+        },
+        "market": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 1,
+          "net_return_pct": 0.018121280000005235,
+          "end_cash": 10001812.128,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 17168,
+          "net_pnl": 1812.128000000026,
+          "distinct_traded_tickers": 1,
+          "positive_trades": 1,
+          "skips": {}
+        },
+        "cash": {
+          "state": "complete",
+          "events": 1,
+          "trade_count": 0,
+          "net_return_pct": 0,
+          "end_cash": 10000000,
+          "max_close_drawdown_pct": 0,
+          "gross_pnl": 0,
+          "net_pnl": 0,
+          "distinct_traded_tickers": 0,
+          "positive_trades": 0,
+          "skips": {}
+        }
+      }
+    },
+    "2026-03": {
+      "45bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay2": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_half_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_none_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "120bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      }
+    },
+    "2026-04": {
+      "45bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay2": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_half_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_none_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "120bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      }
+    },
+    "2026-05": {
+      "45bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay2": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_half_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_none_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "120bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      }
+    },
+    "2026-06": {
+      "45bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay2": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_half_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_none_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "120bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      }
+    },
+    "2026-07": {
+      "45bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_full_delay2": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_half_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "75bp_none_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      },
+      "120bp_full_delay0": {
+        "fundamental": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "reaction": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "market": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        },
+        "cash": {
+          "state": "no_eligible_events",
+          "events": 0,
+          "trade_count": 0,
+          "net_return_pct": null
+        }
+      }
+    }
+  },
+  "primary_outcomes": {
+    "2026-01": [],
+    "2026-02": [
+      {
+        "receipt": "20260211000805",
+        "ticker": "092190",
+        "session": "2026-02-12",
+        "proposal": {
+          "state": "planned",
+          "reason": "filing_immediate",
+          "decision_at": 1770855000,
+          "entry_label": 1770855120,
+          "reference_price": 3080,
+          "known_five_minute_volume": 10523
+        },
+        "net_pnl": 1251.46875,
+        "state": "filled",
+        "requested_shares": 105,
+        "shares": 105,
+        "entry_label": 1770855120,
+        "exit_label": 1770858720,
+        "entry_open": 3060,
+        "exit_close": 3095,
+        "gross_pnl": 3675,
+        "trade_net_pct": 0.38804645976282526,
+        "entry_exposure": 0.03213,
+        "cash_after": 10001251.46875
+      }
+    ],
+    "2026-03": [],
+    "2026-04": [],
+    "2026-05": [],
+    "2026-06": [],
+    "2026-07": []
+  }
+}

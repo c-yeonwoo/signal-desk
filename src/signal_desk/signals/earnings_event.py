@@ -24,6 +24,7 @@ def amount(value: str) -> tuple[float, float]:
 
 
 def facts(rows: list[list[str]], kind: str) -> list[dict]:
+    rows = [row for row in rows if row]
     normalized = ["".join(row).replace(" ", "") for row in rows]
     if any(word in " ".join(normalized) for word in ("관리연결", "인적분할", "물적분할", "합병전", "합병후")):
         raise ValueError("changing or management-adjusted reporting perimeter")
@@ -140,7 +141,7 @@ def facts(rows: list[list[str]], kind: str) -> list[dict]:
 
     revenue = current_value("매출액")
     operating = current_value("영업이익")
-    if not revenue or revenue[0] != revenue[1] or operating and operating[0] != operating[1]:
+    if not revenue or revenue[0] != revenue[1] or (operating and operating[0] != operating[1]):
         raise ValueError("actual earnings cannot be a forecast range")
     return [{"scope": scope, "start": begin.isoformat(), "end": end.isoformat(),
              "revenue_low_krw": revenue[0]*multiplier, "revenue_high_krw": revenue[1]*multiplier,

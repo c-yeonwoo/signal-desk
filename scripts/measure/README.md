@@ -20,6 +20,14 @@
 
 보존 ZIP과 KOSPI 식별 대조용 기존 두 KRX ZIP이 있으면 `.venv/bin/python -m scripts.measure.contract_event_backtest --event-archive data/research/contract-event-filings-2026-10-17-v4.zip --minute-archive data/research/contract-event-minutes-2026-10-17-v2.zip --output data/research/<새 이름>.json`으로 네트워크 없이 재현한다. 해시·공개 시각·회사 귀속·금액·날짜를 먼저 대조한다. 가격 구멍을 보간하지 않고 불완전 계좌 수익을 null로 유지한다. 당시 공급자 버전/호가/실체결·KOSDAQ 독립 과거 계보는 인증하지 않았으므로 등록 판정이나 실전 적격 증거가 아니다.
 
+## 2026-10-17 종료한 실적·가이던스 연구
+
+두 시장은 모집단과 실행 시각을 분리했다. [국내 회사 전망 대비 상향](../../docs/EARNINGS-GUIDANCE-BACKTEST-2026-10-17.md)은 2025년 선행 전망까지 원문으로 대조했지만 적격 개발 1건/확인 0건이라 **표본 부족으로 채택 거부**다. [미국 EPS 예상 대비 실적](../../docs/US-EARNINGS-SURPRISE-BACKTEST-2026-10-17.md)은 8개 고정 회사 64개 발표에서 2025년 16거래·75bp 계좌 수익 **−0.9603%**로 **성능 실패 기각**이다. 구현과 백테스트는 완료했으며, 추가 관측 대기 전략이나 운영 매수 필터로 남기지 않는다.
+
+국내 원문 수집은 `python -m scripts.measure.earnings_event_sources --output <새 ZIP>`, `--reuse-source <기존 ZIP>`으로 재사용한다. 2025년 전망은 2026년 회사의 선행 기준으로만 쓴다. `earnings_event_backtest freeze --source-archive <원문 ZIP> --output <새 사건 ZIP>`에서 비교 가능한 기간·단위·회사 기준으로 표본을 고정한 뒤 `minutes --event-archive <사건 ZIP> --output <새 분봉 ZIP>`으로 읽기 전용 KIS 조회를 한다. `run --source-archive ... --event-archive ... --minute-archive ... --output <새 JSON>`은 원문에서 표본을 재계산해 같은지 확인한 후 오프라인 재생한다. [보존 요약](../../docs/earnings-guidance-backtest-2026-10-17.json)에 해시와 결과가 있다.
+
+미국은 `python -m scripts.measure.us_earnings_backtest eps --output <새 EPS ZIP>` → `prices --eps-archive <EPS ZIP> --output <새 일봉 ZIP>` → `run --eps-archive <EPS ZIP> --price-archive <일봉 ZIP> --output <새 JSON>` 순서다. EPS 원천과 표본을 먼저 동결하고 `MODP=0`·과거 기준일만 조회한다. 키는 기존 환경에서 읽고 기록하지 않는다. [보존 요약](../../docs/us-eps-backtest-2026-10-17.json)과 문서의 파일명으로 재현하며 재조회는 새 관측이다. 예상치의 당시 공급 버전·정확한 최초 공개 시각·실체결을 인증한 것이 아니므로 등록 판정·실주문은 항상 false다. 현재 분기 예상치나 실제 시가로 과거 EPS/주문 수량을 채우지 않는다.
+
 ## 2026-10-11 일봉 판단 재생 기반
 
 `.venv/bin/python -m scripts.measure.research_daily_foundation --window 2026q2early-v5 --horizon 5`는 보존된 KRX 원문과 가격 전용 판단 기록을 연구용 판단·현금 재생에 연결한다. `--window`는 이미 열람한 2024년 세 구간과 2025~2026년 네 구간, `--horizon`은 5·20만 받는다. 각 조합에서 기존 `holding_horizon_portfolio_lab`의 체결 순서·가격·수량과 비용 후 결과가 일치하는지 `legacy_replay_parity`로 보고한다. 당시 순위와 공급자 도착 시각이 없는 입력은 가정으로 표시한다. 이 보고서는 등록 판정·운영 주문·새 전략 수익 증거가 아니다. 세부 계약과 남은 조건은 [엔진 재설계](../../docs/ENGINE-REBUILD-BLUEPRINT-2026-10-11.md)에 있다.
