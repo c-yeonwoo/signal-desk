@@ -2996,7 +2996,11 @@ def _annotate_priced_in(items: list[dict], *, market: str = "kospi") -> list[dic
     """호재 이벤트 전 사전 상승 → 선반영 의심(관측). kind·점수는 건드리지 않는다."""
     if not items:
         return items
-    today = _kst_today()
+    today = _signal_session_day(market)
+    if today is None:
+        for item in items:
+            item["priced_in"] = None
+        return items
     try:
         events = db.kb_events_active()
     except Exception:

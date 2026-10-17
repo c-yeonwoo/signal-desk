@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pandas as pd
 
-from signal_desk import api, store
+from signal_desk import api, db, store
 
 
 def test_us_session_day_stays_friday_after_kst_midnight():
@@ -64,3 +64,20 @@ def test_episode_only_records_open_market_in_exchange_date(monkeypatch):
     monkeypatch.setattr(api.market_clock, "is_open", lambda market: False)
     api._sync_episode_state([result], market="us")
     assert seen == []
+
+
+def test_us_priced_in_ages_event_by_us_session_not_kst(monkeypatch):
+    dates = ["2026-10-01", "2026-10-02", "2026-10-05", "2026-10-06",
+             "2026-10-07", "2026-10-08", "2026-10-16"]
+    closes = [100.0, 102.0, 104.0, 106.0, 108.0, 112.0, 115.0]
+    monkeypatch.setattr(api, "_signal_session_day", lambda market: "2026-10-16")
+    monkeypatch.setattr(api, "_kst_today", lambda: "2026-10-17")
+    monkeypatch.setattr(store, "load_us_price_series", lambda: {"AAPL": closes})
+    monkeypatch.setattr(store, "load_us_dates_by_ticker", lambda: {"AAPL": dates})
+    monkeypatch.setattr(db, "kb_events_active", lambda: [{
+        "ticker": "AAPL", "direction": "positive", "effective_at": "2026-10-09",
+        "summary": "공식 발표",
+    }])
+    rows = [{"ticker": "AAPL"}]
+    api._annotate_priced_in(rows, market="us")
+    assert rows[0]["priced_in"]["event_date"] == "2026-10-09"
