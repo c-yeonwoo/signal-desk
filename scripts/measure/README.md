@@ -8,6 +8,10 @@
 .venv/bin/python scripts/measure/<script>.py       # 리포 루트에서
 ```
 
+## 2026-10-17 종료한 당일 매매 비교
+
+`.venv/bin/python -m scripts.measure.research_daytrade_batch --output data/research/<새 이름>.json`은 공식 KRX ZIP 13개의 해시·날짜를 검사하고 개발 7창·별도 2025년 4블록을 같은 초기자본으로 계산한다. 전일 자료의 세 후보와 현행 가격 전용·대형주·현금 대조군, 45/75/120bp·전량/절반/미체결을 비교한다. 주문 수량은 다음 날 시가를 보기 전에 고정하며 당일 청산 관측이 없으면 해당 경로의 수익을 보류한다. 결과와 원문은 로컬 연구 자료다. [고정 규칙과 첫 결과](../../docs/DAYTRADE-BENCHMARK-2026-10-17.md)에서 세 후보는 모두 **기각·종료**했다. 같은 확인 구간을 재튜닝의 최종 시험으로 재사용하지 않는다. 운영 엔진과 등록 연구를 실행하거나 변경하지 않는다.
+
 ## 2026-10-11 일봉 판단 재생 기반
 
 `.venv/bin/python -m scripts.measure.research_daily_foundation --window 2026q2early-v5 --horizon 5`는 보존된 KRX 원문과 가격 전용 판단 기록을 연구용 판단·현금 재생에 연결한다. `--window`는 이미 열람한 2024년 세 구간과 2025~2026년 네 구간, `--horizon`은 5·20만 받는다. 각 조합에서 기존 `holding_horizon_portfolio_lab`의 체결 순서·가격·수량과 비용 후 결과가 일치하는지 `legacy_replay_parity`로 보고한다. 당시 순위와 공급자 도착 시각이 없는 입력은 가정으로 표시한다. 이 보고서는 등록 판정·운영 주문·새 전략 수익 증거가 아니다. 세부 계약과 남은 조건은 [엔진 재설계](../../docs/ENGINE-REBUILD-BLUEPRINT-2026-10-11.md)에 있다.

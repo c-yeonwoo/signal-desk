@@ -8,7 +8,7 @@ import pytest
 from scripts.measure import research_daytrade_batch as batch
 from signal_desk import market_clock
 from signal_desk.signals.research_daytrade import (
-    Features, execute_day, grade_validation, plan_orders, select,
+    Features, execute_day, grade_validation, plan_orders, replay, select,
 )
 
 
@@ -57,6 +57,30 @@ def test_legacy_rejected_slot_is_not_backfilled_and_thin_day_abstains():
                               legacy_buy=index != 0) for index in range(160))
     assert [row.ticker for row in select(features, "legacy_price")] == ["1", "2", "3", "4", "5"]
     assert select(features[:159], "trend_leader") == ()
+
+
+def test_two_day_cash_reinvestment_is_flat_overnight_and_missing_exit_blocks_total():
+    days = [
+        {"decision_session": "2025-01-02", "entry_session": "2025-01-03",
+         "selected": {"trend_leader": (_feature(close=100_000),)},
+         "feature_tickers": ("005930",),
+         "next_bars": {"005930": {"open": 120_000, "close": 110_000,
+                                    "high": 125_000, "low": 105_000, "volume": 100_000}}},
+        {"decision_session": "2025-01-03", "entry_session": "2025-01-06",
+         "selected": {"trend_leader": (_feature(close=110_000),)},
+         "feature_tickers": ("005930",),
+         "next_bars": {"005930": {"open": 100_000, "close": 105_000,
+                                    "high": 110_000, "low": 95_000, "volume": 100_000}}},
+    ]
+    result = replay(days, "trend_leader", cost_bps=75, fill_fraction=1)
+    assert [fill["shares"] for fill in result["fills"]] == [12, 11]
+    assert result["net_return_pct"] == pytest.approx(-0.8380625)
+    days[1]["next_bars"]["005930"]["close"] = None
+    result = replay(days, "trend_leader", cost_bps=75, fill_fraction=1)
+    assert result["state"] == "incomplete_exit" and result["net_return_pct"] is None
+    days[0].update(decision_session="2026-08-04", entry_session="2026-08-05")
+    with pytest.raises(ValueError, match="protected"):
+        replay(days[:1], "trend_leader", cost_bps=75, fill_fraction=1)
 
 
 def test_fixed_verdict_rejects_bad_block_and_preserves_missing_data():
