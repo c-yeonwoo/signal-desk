@@ -175,11 +175,13 @@ def test_market_card_has_one_endpoint_and_defers_source_requests():
     assert "loadIndustryPulse();" not in start
 
 
-def test_mobile_market_figure_precedes_buy_count_and_uses_short_copy():
+def test_market_summary_links_to_stocks_before_optional_share_image():
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     brief = html.split('<section id="market-ribbon"', 1)[1].split('<details id="market-brief-sources"', 1)[0]
-    assert brief.index('id="mb-state"') < brief.index('id="mb-figure"') < brief.index('id="mb-selection"')
-    assert 'grid-template-areas:"copy" "figure" "post"' in html
+    assert brief.index('id="mb-state"') < brief.index('id="mb-selection"') < brief.index('id="mb-figure"')
+    assert brief.index('id="mb-movers"') < brief.index('id="mb-figure"')
+    assert '<details class="mb-share"><summary>공유용 이미지 보기</summary>' in brief
+    assert 'grid-template-areas:"copy" "post" "related"' in html
     assert "실제 등락을 그렸고, 확인된 소식만 함께 표시해요" not in html
 
 
