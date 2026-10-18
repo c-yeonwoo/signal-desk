@@ -38,7 +38,7 @@ def collect(output, packet):
     def get(name, data=None):
         nonlocal previous, new_requests
         for cached in reversed(journal):
-            if cached["member"] == name and cached.get("response_path"):
+            if cached.get("member") == name and cached.get("response_path"):
                 target = (DEST/cached["response_path"]).resolve()
                 if not target.is_relative_to(DEST.resolve()):
                     raise ValueError("cached response path outside journal")
