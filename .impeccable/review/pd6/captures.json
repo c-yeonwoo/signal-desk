@@ -1,0 +1,13 @@
+{
+  "kind":"isolated-actual-app-synthetic-api",
+  "sourceMain":"ddcb920ee38986611f8a615c655ab816659c13e1",
+  "renderer":"src/signal_desk/web/index.html",
+  "realOrdersOrAccountWrites":false,
+  "captureTool":"CUA Chrome, sips PNG conversion without content edits",
+  "captures":[
+    {"file":"desktop-keyboard.png","url":"http://127.0.0.1:8767/#signal","viewportWidth":1386,"pixelWidth":1371,"pixelHeight":777,"sha256":"9cc6ea9d6cbfecb48b657474ca4a15bd6cb21c0517ce396891cdec2191c538df","state":"Selected chart mode has white inner keyboard outline"},
+    {"file":"mobile-stock.png","url":"http://127.0.0.1:8767/#signal","viewportWidth":390,"viewportHeight":844,"fullPage":true,"pixelWidth":375,"pixelHeight":2179,"sha256":"d8c9bfbba0b8a46e7c044c03db7ef31625b82cd9b7b82abf552a32e5fbcdd39b"},
+    {"file":"mobile-investment.png","url":"http://127.0.0.1:8768/#trading/rebal","viewportWidth":390,"viewportHeight":844,"fullPage":true,"pixelWidth":375,"pixelHeight":2448,"sha256":"fbce28aa050f1ec340dd3661af1db0d83c985bdf579f417ee887cb9b1eb98f23"}
+  ],
+  "limitations":["Synthetic visual examples, not verified securities prices","Desktop viewport emulation is not phone hardware or touch certification","Owner acceptance not inferred","Final chart screenshot uses the fixture first row KCC, matching its fixed chart-price panel; long-name HD현대에너지솔루션 was separately inspected for wrapping, not price accuracy"]
+}
