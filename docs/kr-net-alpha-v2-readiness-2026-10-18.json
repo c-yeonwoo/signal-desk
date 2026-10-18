@@ -1,0 +1,31 @@
+{
+  "schema": "kr-net-alpha-v2-readiness-summary-v1",
+  "candidate_id": "kr-separated-net-alpha-h5-v2",
+  "report": "docs/KR-NET-ALPHA-V2-IMPLEMENTATION-2026-10-18.md",
+  "state": "blocked_data",
+  "adoption": "not_evaluable_data_gate",
+  "audit_artifact": "data/research/kr-net-alpha-v2-readiness-2026-10-18-v5.json.gz",
+  "audit_sha256": "dcc3bbd766a949fcad4aec2db35373329f9895a3c543b7d2e8b6b9d1ca98a4f1",
+  "reviewed_certificates": 0,
+  "reviewed_individual_facts": 1,
+  "train": {"decision_dates": 239, "complete_label_dates": 0, "required_dates": 180},
+  "calibration": {"decision_dates": 111, "complete_label_dates": 0, "required_dates": 80},
+  "evaluation": {"decision_dates": 370, "input_ready_dates": 0, "min_decision_sessions": 300},
+  "known_halt_case": {
+    "ticker": "020560",
+    "security_id": "KR7020560009",
+    "receipt": "20210526000293",
+    "document_number": "20210526000995",
+    "published_at": "2021-05-26T15:29:00+09:00",
+    "publication_precision": "minute",
+    "decision_state": "excluded_known_halt"
+  },
+  "bulk_dividend_probe": {"month": "2021-03", "rows": 98, "securities": 98, "requests": 1, "contains_ex_dates": false},
+  "cumulative_requests": {"price_metadata": 808, "actions": 12},
+  "fit_executed": false,
+  "backtest_implemented": false,
+  "backtest_executed": false,
+  "strict_pit_eligible": false,
+  "live_order_eligible": false,
+  "integrated_progress": 40
+}
