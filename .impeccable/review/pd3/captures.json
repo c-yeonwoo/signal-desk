@@ -1,0 +1,21 @@
+{
+  "capturedAtKST": "2026-10-18T21:22:00+09:00",
+  "surface": "actual Signal Desk investment UI with isolated synthetic APIs",
+  "fixture": "owner runtime missions/product-design-2026-10-18/pd3/fixture_server.py",
+  "origin": "http://127.0.0.1:8768/",
+  "privateProductionData": false,
+  "serviceImportsCredentialsAndOrders": false,
+  "sourceSha256": {
+    "src/signal_desk/web/index.html": "089d92455c6ae3ab4df1ca4cb3707b7a55c70c6fd66b45234917cec72c982ad2",
+    "src/signal_desk/web/investment.js": "6f7baf8771de4ae167547c9cea5ae66e940155794d5668ffb662ffa54fcb734e",
+    "src/signal_desk/web/investment.css": "18dc46ab9bff85a21eaf5ef4e0442382396fd7dfe0ade659d606050d19c3b08c"
+  },
+  "files": [
+    {"path":"desktop.png","viewport":[1440,1100],"pixels":[1425,1089],"sha256":"dda0b3c612c7d01ef3e9fe4903504b3c6fd13daf990f395a345c8d8bf2338516","state":"normal"},
+    {"path":"mobile.png","viewport":[390,844],"pixels":[375,812],"sha256":"3a740606742aea9042dc0f2635e634abe8a704b3cc406f73a55e2cd66d149702","state":"normal"},
+    {"path":"mobile-error.png","viewport":[390,844],"pixels":[375,812],"sha256":"212b16a18feecbcf56a464ac87cd961fbdb01fccef20aa7206fa2af49a1913e0","state":"broker read failed; not an empty account"},
+    {"path":"mobile-inputs.png","viewport":[390,844],"pixels":[375,812],"sha256":"35db0934d4cd6445046b0802776c48cf74de8d69b3b6af23c8fb0f9153e9f2cf","state":"analysis input editor open"}
+  ],
+  "processing": "Browser viewport screenshots were normalized to PNG with sips; no image content editing. Returned pixels differ from viewport overrides and both are recorded.",
+  "limits": "Not operational prices, live account evidence, return evidence, or a global accessibility/performance certification. Timestamp is a shared capture-minute label, not a claim of exact per-file capture seconds."
+}
