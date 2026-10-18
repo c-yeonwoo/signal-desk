@@ -44,6 +44,20 @@ def source_storage_bytes():
             + sum(p.stat().st_size for p in (ROOT/"data/research").glob("kr-net-alpha-*.zip")))
 
 
+def price_request_inventory(directory=DEST):
+    """Count supplementary raw-price probes without rewriting the pinned ledger."""
+    original = json.loads((directory/"requests.json").read_bytes())
+    extra_path = directory/"v2-price-requests.json"
+    raw = extra_path.read_bytes() if extra_path.exists() else b"[]"
+    extra = json.loads(raw)
+    if not isinstance(original, list) or not isinstance(extra, list):
+        raise ValueError("price request journal malformed")
+    return {"price_metadata_attempts": len(original)+len(extra),
+            "original_price_metadata_attempts": len(original),
+            "supplementary_price_metadata_attempts": len(extra),
+            "supplementary_price_journal_sha256": digest(raw)}
+
+
 def evidence(path, base=ROOT/"data/research"):
     """Load a source-audited packet. Nothing creates complete scopes implicitly."""
     if path is None:
@@ -174,7 +188,7 @@ def run(output, packet=None, fit_output=None):
         "identity_journal_sha256": JOURNAL_SHA,
         "evidence_packet_sha256": digest(Path(packet).read_bytes()) if packet else None,
         "reviewed_certificates": len(reviewed.certificates), "reviewed_facts": len(reviewed.facts),
-        "source_acquisition": {"price_metadata_attempts": len(json.loads((DEST/"requests.json").read_text())),
+        "source_acquisition": {**price_request_inventory(),
             "action_attempts": spec["amendment"]["source_scope"]["previous_action_requests"]+len(action_journal),
             "action_journal_sha256": digest(action_journal_raw),
             "initial_unpreserved_response_attempts": [i for i, r in enumerate(action_journal, 1)
