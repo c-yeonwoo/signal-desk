@@ -43,6 +43,16 @@
 
 **새 후보 순수량 실행부:** [구현과 남은 경계](../../docs/KR-NET-ALPHA-EXECUTION-2026-10-18.md). `research_net_alpha_execution`의 `portfolio_plan`·`ExecutionBook`은 기존 고정6정책의 목표와 현금/잔량/부분체결을 처리한다. `path_grid`의210개 키 생성이나 합성 비용 대사는 실제210경로 성과 실행을 뜻하지 않는다. 원천 인증·기업행사/권리 연동·최종 채점 없이 가격 진단을 총수익으로 표시하지 않는다.
 
+**권리·달력 계좌 재생:** [연결 범위와 실제 차단 결과](../../docs/KR-NET-ALPHA-ACCOUNT-REPLAY-2026-10-18.md). 다음은 기존 v10의 준비 관문을 원문/구현 해시와 행별 표본으로 재검증한다. 현재 학습0/180·보정0/80이라 실제 경로는0개이며 수익 비교를 생성하지 않는다. 새 원천/코드에는 새 준비 보고서·출력 이름을 사용한다. `--model`은 자료 충족 후 기존 준비 보고서에 해시가 묶인 1회 학습 산출물만 허용한다. 자료 충족 시 원천을 전부 다시 검수한 뒤 210계좌를 반복하지만, 별도 통계·귀속·채택 관문은 아직 남는다.
+
+```bash
+.venv/bin/python -m scripts.measure.kr_net_alpha_replay \
+  --readiness data/research/kr-net-alpha-v2-readiness-2026-10-18-v10.json.gz \
+  --readiness-sha256 8812b6952941451e01c931399da30ed80f3b16a25286c7740f3ffcd1b847f87f \
+  --evidence data/research/kr-net-alpha-action-clock-packet-2026-10-18-v2.json \
+  --output data/research/kr-net-alpha-account-replay-2026-10-18-v2.json.gz
+```
+
 ## 2026-10-17 단일 Ridge 후보 학습·평가
 
 [조건](../../docs/KR-RIDGE-SELECTION-PLAN-2026-10-17.md)을 첫 학습 전 커밋하고 [결과](../../docs/KR-RIDGE-SELECTION-RESULT-2026-10-17.md)를 분리했다. 학습116일·21,884행의 모델 하나를 고정해2024년4분기61일·5위상·6실행조건·5대조를 재생한다. 주 비용 평균은 양수지만 손실 위상·낙폭·비용/체결 스트레스 때문에 **미채택**이며, GS리테일 분할 거래정지의 대조2경로가 남아 전체 형식 판정은 보류다. 결과 보고 문턱이나 학습 기간을 바꾸지 않는다.

@@ -216,6 +216,38 @@ class ExecutionBook:
             raise ValueError("execution cash or quantity conservation failed")
         return deepcopy(filled)
 
+    def submit_exits(self, day, tickers, closes, volumes, *, input_id):
+        """Independent known exits/terminal liquidation; no guessed NAV or buys."""
+        self._day(day)
+        if (not input_id or self.last_decision is not None and day <= self.last_decision
+                or self.last_open is not None and day < self.last_open):
+            raise ValueError("duplicate or out-of-order exit decision")
+        orders = []
+        for ticker in sorted(set(tickers) & set(self.holdings)):
+            price, volume = closes.get(ticker), volumes.get(ticker)
+            if (type(price) not in (int, float) or not math.isfinite(price) or price <= 0
+                    or type(volume) not in (int, float) or not math.isfinite(volume) or volume < 0):
+                continue
+            quantity = min(self.holdings[ticker], math.floor(volume*self.spec["prior_volume_participation"]))
+            if quantity > 0:
+                delay = 2 if self.scenario.endswith("delay1") else 1
+                orders.append({"ticker": ticker, "side": "sell", "shares": quantity,
+                    "remaining": quantity, "attempts": 0, "limit": None, "basis_close": price,
+                    "decision_on": day, "due_on": market_clock.next_sessions("kr", day, delay)[-1],
+                    "input_id": input_id, "budget": 1, "priority": 0})
+        if orders:
+            names = {o["ticker"] for o in orders}
+            keep = []
+            for old in self.pending:
+                if old["ticker"] in names:
+                    self.events.append({"state": "replaced_by_valid_exit", "on": day,
+                        "ticker": old["ticker"], "remaining": old["remaining"], "input_id": old["input_id"]})
+                else:
+                    keep.append(old)
+            self.pending = keep+orders
+            self.last_decision = day
+        return deepcopy(orders)
+
     def price_nav(self, closes):
         """Price-only diagnostic. Rights/action completeness must be checked outside."""
         if any(type(closes.get(t)) not in (int, float) or not math.isfinite(closes[t]) or closes[t] <= 0
