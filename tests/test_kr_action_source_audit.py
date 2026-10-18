@@ -158,3 +158,95 @@ def test_kis_probe_preserves_raw_mode_and_counts_before_io(tmp_path, monkeypatch
     assert json.loads(raw)["output2"][0]["flng_cls_code"] == "00"
     assert c.kis_flags("035720", "2021-04-01", "2021-04-30")[0] == raw
     assert len(json.loads((tmp_path/"v2-price-requests.json").read_text())) == 1
+
+
+def test_fsc_key_is_transmitted_only_to_fixed_api_and_never_journaled(tmp_path, monkeypatch):
+    import urllib.parse
+    c = collector(tmp_path, monkeypatch)
+    secret = "SYNTHETIC-KEY+/="
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", urllib.parse.quote(secret, safe=""))
+    monkeypatch.setattr(audit.config, "load_env", lambda: None)
+
+    class Opener:
+        def open(self, request, timeout):
+            assert request.full_url.startswith(audit.FSC_RIGHTS+"?")
+            assert urllib.parse.parse_qs(urllib.parse.urlsplit(request.full_url).query)["serviceKey"] == [secret]
+            assert secret not in c.path.read_text()
+            response = io.BytesIO(b'{"response":{"header":{"resultCode":"00"}}}')
+            response.code, response.headers = 200, {}
+            return response
+    monkeypatch.setattr(audit.urllib.request, "build_opener", lambda *args: Opener())
+    c.fsc_rights("2021-04-15")
+    assert secret not in c.path.read_text() and "serviceKey=" not in c.path.read_text()
+    with pytest.raises(ValueError, match="destination"):
+        c.get("https://kind.krx.co.kr/test", _service_key=secret)
+    assert len(c.journal) == 1
+
+
+def test_fsc_credential_echo_is_not_saved_and_failure_counts(tmp_path, monkeypatch):
+    c = collector(tmp_path, monkeypatch)
+    secret = "SYNTHETIC-DO-NOT-SAVE"
+    class Opener:
+        def open(self, request, timeout):
+            response = io.BytesIO(secret.encode()); response.code, response.headers = 200, {}
+            return response
+    monkeypatch.setattr(audit.urllib.request, "build_opener", lambda *args: Opener())
+    with pytest.raises(ValueError, match="credential echoed"):
+        c.get(audit.FSC_RIGHTS+"?basDt=20210415", _service_key=secret)
+    assert c.journal[0]["state"] == "credential_echo_not_saved"
+    assert not c.journal[0].get("response_path") and secret not in c.path.read_text()
+
+
+def test_fsc_historical_page_is_not_an_economic_certificate():
+    from scripts.measure.kr_net_alpha_fsc_rights import parse_response
+    body = {"response": {"header": {"resultCode": "00"}, "body": {"pageNo": 1,
+        "numOfRows": 100, "totalCount": 101, "items": {"item": [{"basDt": "20210415"}]}}}}
+    result = parse_response(json.dumps(body).encode(), "2021-04-15")
+    assert result["state"] == "page_received"
+    assert not result["economic_scope_certified"] and not result["all_pages_received"]
+    body["response"]["body"]["items"]["item"][0]["basDt"] = "20231228"
+    with pytest.raises(ValueError, match="basis date"):
+        parse_response(json.dumps(body).encode(), "2021-04-15")
+
+
+def test_fsc_empty_and_rejected_responses_are_distinct():
+    from scripts.measure.kr_net_alpha_fsc_rights import parse_response
+    body = {"response": {"header": {"resultCode": "00"}, "body": {"pageNo": 1,
+        "numOfRows": 100, "totalCount": 0, "items": ""}}}
+    assert parse_response(json.dumps(body).encode(), "2021-04-15")["state"] == "empty_not_action_free"
+    raw = b'<OpenAPI_ServiceResponse><cmmMsgHeader><returnReasonCode>30</returnReasonCode></cmmMsgHeader></OpenAPI_ServiceResponse>'
+    assert parse_response(raw, "2021-04-15")["state"] == "api_rejected"
+
+
+def test_fsc_exact_issuer_match_preserves_distinct_date_roles_and_face_variants():
+    from scripts.measure.kr_net_alpha_fsc_rights import issuer_roles
+    row = {"stckIssuCmpyNm": "카카오", "scrsIssuMnbdCd": "03572", "stckIssuRcd": "split",
+        "rgtExertRcd": "ex", "stckIssuRcdNm": "액면분할", "rgtExertRcdNm": "권리락일",
+        "rgtExertSttgDt": "20210413", "rgtExertEdDt": "20210413", "stckParPrc": "100"}
+    result = issuer_roles([row, dict(row, stckParPrc="500"),
+        dict(row, stckIssuCmpyNm="카카오뱅크"), dict(row, scrsIssuMnbdCd="other")], "카카오", "03572")
+    assert result["selected_rows"] == 2
+    assert len(result["roles"]) == 1 and len(result["roles"][0]["observations"]) == 2
+    assert result["roles"][0]["observations"][0]["start_on"] == "20210413"
+    assert not result["share_class_verified"] and not result["economic_scope_certified"]
+    assert not result["payment_completed_verified"]
+
+
+def test_fsc_pagination_rejects_changing_counts_and_incomplete_pages():
+    from scripts.measure.kr_net_alpha_fsc_rights import schedule_pages
+    class Pages:
+        def __init__(self, totals, sizes):
+            self.totals, self.sizes = totals, sizes
+        def fsc_rights(self, day, page, issuer):
+            rows = [{"basDt": "20210415", "id": f"{page}-{i}"} for i in range(self.sizes[page-1])]
+            return json.dumps({"response": {"header": {"resultCode": "00"}, "body": {
+                "pageNo": page, "numOfRows": 100, "totalCount": self.totals[page-1],
+                "items": {"item": rows}}}}).encode(), {"http_status": 200}
+    report, _ = schedule_pages(Pages([101], [100]), "2021-04-15", max_pages=1)
+    assert not report["complete_query"] and not report["economic_scope_certified"]
+    with pytest.raises(ValueError, match="count changed"):
+        schedule_pages(Pages([101, 102], [100, 2]), "2021-04-15")
+    with pytest.raises(ValueError, match="page incomplete"):
+        schedule_pages(Pages([101], [1]), "2021-04-15")
+    report, _ = schedule_pages(Pages([101, 101], [100, 1]), "2021-04-15")
+    assert report["complete_query"] and not report["economic_scope_certified"]

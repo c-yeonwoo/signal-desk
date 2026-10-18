@@ -1,0 +1,21 @@
+{
+  "schema": "kr-net-alpha-fsc-rights-audit-index-v1",
+  "candidate_id": "kr-separated-net-alpha-h5-v2",
+  "as_of": "2026-10-18",
+  "authentication_verified": true,
+  "artifacts": [
+    {"path": "data/research/kr-net-alpha-fsc-rights-probe-2026-10-18-v1.zip", "sha256": "5225a36a65d008f6534a122285f988d0ed099fa36bf6018c060f9936951656ba", "state": "initial_timeout"},
+    {"path": "data/research/kr-net-alpha-fsc-rights-probe-2026-10-18-v2.zip", "sha256": "21f360e230cb784db9bb47f12da947896214835dbb4a235ddc459c79146e5bb3", "state": "historical_records_received_scope_unverified"},
+    {"path": "data/research/kr-net-alpha-fsc-rights-crosscheck-2026-10-18-v1.zip", "sha256": "66e391c77e7ce63c6b2a947ae64676100a0fcd69deaac3449c5bc94acaa1f734", "state": "six_bounded_queries_complete"},
+    {"path": "data/research/kr-net-alpha-fsc-rights-role-review-2026-10-18-v2.json", "sha256": "99cbee4fdea455e12bb9d89e16798da819fdba29fb7d15afd78c1e61cafa90a8", "state": "issuer_and_roles_reviewed"}
+  ],
+  "cumulative_action_requests": 170,
+  "cumulative_price_metadata_requests": 810,
+  "economic_scope_certified": false,
+  "historical_publication_revisions_verified": false,
+  "independent_of_kis_ksd_schedule": false,
+  "new_fit_executed": false,
+  "new_210_path_backtest_executed": false,
+  "adoption": "not_evaluable_data_gate",
+  "integrated_progress": 40
+}
