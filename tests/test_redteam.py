@@ -2953,9 +2953,16 @@ def test_market_bar_copy_is_in_plain_words():
     text = _visible_static_text()
     for gone in ("시장 ZONE 체온계", "MA60 상회"):
         assert gone not in text, f"{gone} 이 카피에 남아 있다"
-    assert "지금 시장" in text
     html = __import__("pathlib").Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    # 브리핑과 화면이 같은 말을 써야 한다 — 한쪽만 바꾸면 용어가 갈라진다.
+    # 화면은 국내/해외를 구분하고 관찰 표본을 시장 전체·장기 경기 사이클로 오인하지 않게 한다.
+    assert 'id="mb-market" class="mb-market">국내 시장</span>' in html
+    regime = html.split("async function loadRegime(){", 1)[1].split("// ③ 신뢰 스트립", 1)[0]
+    assert "market === 'us' ? '해외 시장' : '국내 시장'" in regime
+    coverage = regime.split("document.getElementById('mb-coverage').textContent = fresh", 1)[1].split(";", 1)[0]
+    assert "관찰 대상 ${d.universe_count}종목" in coverage
+    assert "기준일 종가 ${d.price_count}종목 확인" in coverage
+    assert "시장 전체를 대표하는 지수는 아닙니다." in coverage
+    # 브리핑의 '지금 시장'도 단기 시장 상태를 뜻한다 — 장기 경기 사이클과 구분한다.
     digest = __import__("pathlib").Path("src/signal_desk/digest.py").read_text(encoding="utf-8")
     assert "지금 시장" in digest, "화면만 바꾸고 브리핑은 옛 용어를 쓴다"
     assert "시장 ZONE" not in digest.replace("# ", "")[:0] + digest.split('"""')[0] or True
