@@ -14,6 +14,7 @@ from zipfile import ZipFile
 from scripts.measure.kr_net_alpha_sources import ROOT, DEST, digest, plan, price_inventory, read_bundle
 from scripts.measure.kr_net_alpha_readiness import action_sources
 from signal_desk.signals import research_net_alpha as core, research_net_alpha_v2 as v2
+from signal_desk.signals import research_action_clocks as clocks
 from signal_desk.signals.research_action_coverage import SourceWindow, CoverageCertificate, OfficialKindScope
 
 COMMIT = "c135516c7e879a94c1507f1cfe5426ca71584928"
@@ -22,6 +23,10 @@ JOURNAL_SHA = "0a3d872e4598b0171e873a007d1a47640e4ab7ea4fe93b26495d3d44cffca869"
 AMENDMENT = "docs/kr-net-alpha-tradability-2026-10-18.json"
 PINS = {AMENDMENT: "08e5c689178849b19c5fd8e96b5047287e27f92b881d29e57bcf1c1d1fd996fe",
     "docs/KR-NET-ALPHA-TRADABILITY-2026-10-18.md": "a2ef1cd62648caef3afc5895343893027aabf9fcea7ffcfa09e4b985b5ae2fc1"}
+CLOCK_COMMIT = "29bc1e0f38a56163916759799e61ccc243059c6c"
+CLOCK_MANIFEST = "docs/kr-net-alpha-action-clocks-2026-10-18.json"
+CLOCK_PINS = {CLOCK_MANIFEST: "8aa34d33a6aca9be1a0938a3a84cce5a69f9bc503f5d8810712355fffa89e2ca",
+    "docs/KR-NET-ALPHA-ACTION-CLOCKS-2026-10-18.md": "4adec6487a5775454334f84565742cf99bb88271611fa8b1046434b9ea62eb20"}
 
 
 def contract():
@@ -34,8 +39,13 @@ def contract():
     amendment = json.loads((ROOT/AMENDMENT).read_text())
     if amendment["parent_candidate_id"] != parent["candidate_id"]:
         raise ValueError("v2 parent candidate differs")
+    for name, sha in CLOCK_PINS.items():
+        if (digest((ROOT/name).read_bytes()) != sha or digest(subprocess.check_output(
+                ["git", "show", f"{CLOCK_COMMIT}:{name}"], cwd=ROOT)) != sha):
+            raise ValueError("precommitted action clock contract differs")
     return {**parent, "candidate_id": amendment["candidate_id"], "amendment": amendment,
-        "contract_hashes": {**PINS, amendment["parent_document"]: amendment["parent_document_sha256"],
+        "action_clock_contract": json.loads((ROOT/CLOCK_MANIFEST).read_text()),
+        "contract_hashes": {**PINS, **CLOCK_PINS, amendment["parent_document"]: amendment["parent_document_sha256"],
                             amendment["parent_manifest"]: amendment["parent_manifest_sha256"]}}
 
 
@@ -63,9 +73,9 @@ def evidence(path, base=ROOT/"data/research"):
     if path is None:
         return v2.Evidence()
     body = json.loads(Path(path).read_text())
-    if body.get("schema") != "net-alpha-reviewed-evidence-v1":
+    if body.get("schema") not in ("net-alpha-reviewed-evidence-v1", "net-alpha-action-components-v1"):
         raise ValueError("not a reviewed v2 source packet")
-    documents = {}
+    documents, snapshot_dates = {}, {}
     base = base.resolve()
     for row in body["documents"]:
         original = (base/row["path"]).resolve()
@@ -78,11 +88,31 @@ def evidence(path, base=ROOT/"data/research"):
                 if archive.getinfo(row["member"]).file_size > 10_000_000:
                     raise ValueError("oversized original member")
                 raw = archive.read(row["member"])
+                if "manifest.json" in archive.namelist():
+                    source_manifest = json.loads(archive.read("manifest.json"))
+                    if source_manifest.get("endpoint") == "sto/stk_isu_base_info":
+                        snapshot_dates[row["sha256"]] = source_manifest["start"]
         else:
             raw = original.read_bytes()
         if digest(raw) != row["sha256"] or row["sha256"] in documents:
             raise ValueError("original hash differs or duplicate reference")
         documents[row["sha256"]] = raw
+    if body.get("schema") == "net-alpha-action-components-v1":
+        bindings = {}
+        for binding in body.get("identity_bindings", []):
+            sha = binding["source_sha256"]
+            if sha not in documents or snapshot_dates.get(sha) != binding["snapshot_on"]:
+                raise ValueError("action identity snapshot not bound to original")
+            matches = [r for r in json.loads(documents[sha])["OutBlock_1"]
+                if r["ISU_SRT_CD"] == binding["ticker"] and r["ISU_CD"] == binding["security_id"]
+                and r["KIND_STKCERT_TP_NM"] == "보통주"]
+            if len(matches) != 1 or binding["share_class"] != "ordinary" or binding["security_id"] in bindings:
+                raise ValueError("action ordinary share identity differs or duplicated")
+            bindings[binding["security_id"]] = binding
+        for assertion in body.get("assertions", []):
+            binding = bindings.get(assertion["security_id"])
+            if binding is None or binding["snapshot_on"] >= assertion["published_on"]:
+                raise ValueError("action lacks prior official identity binding")
     certs = []
     for row in body.get("certificates", []):
         windows = tuple(SourceWindow(**{**w, "event_kinds": frozenset(w["event_kinds"]),
@@ -96,7 +126,7 @@ def evidence(path, base=ROOT/"data/research"):
         certs.append(CoverageCertificate(row["market"], row["security_id"], row["start"], row["end"],
             frozenset(row["required_kinds"]), windows, row.get("reconciliation_sha256"),
             tuple(row.get("unresolved_event_ids", [])), scopes))
-    return v2.Evidence(documents, certs, body.get("facts", []))
+    return v2.Evidence(documents, certs, body.get("facts", []), body.get("assertions", []))
 
 
 def identities(days, directory=DEST):
@@ -180,14 +210,16 @@ def run(output, packet=None, fit_output=None):
         audit.append({"date": day, "snapshot": snapshot, "labels": labels,
                       "sample": v2.sample(snapshot, labels)})
     status = v2.readiness(audit, spec)
-    result = {"schema": "kr-net-alpha-v2-readiness-v1", "candidate_id": spec["candidate_id"],
+    result = {"schema": "kr-net-alpha-v2-readiness-v2", "candidate_id": spec["candidate_id"],
         "contract_commit": COMMIT, "contract_hashes": spec["contract_hashes"],
+        "action_clock_contract_commit": CLOCK_COMMIT,
         "implementation_sha256": {str(Path(p).relative_to(ROOT)): digest(Path(p).read_bytes())
-            for p in (__file__, v2.__file__, core.__file__)},
+            for p in (__file__, v2.__file__, core.__file__, clocks.__file__)},
         "roster_sha256": digest(original), "price_sources": sources,
         "identity_journal_sha256": JOURNAL_SHA,
         "evidence_packet_sha256": digest(Path(packet).read_bytes()) if packet else None,
         "reviewed_certificates": len(reviewed.certificates), "reviewed_facts": len(reviewed.facts),
+        "reviewed_action_assertions": len(reviewed.actions.assertions),
         "source_acquisition": {**price_request_inventory(),
             "action_attempts": spec["amendment"]["source_scope"]["previous_action_requests"]+len(action_journal),
             "action_journal_sha256": digest(action_journal_raw),

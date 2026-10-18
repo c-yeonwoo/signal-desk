@@ -20,7 +20,7 @@ from scripts.measure.kr_net_alpha_v2 import save
 from signal_desk import config
 
 HOSTS = frozenset({"kind.krx.co.kr", "seibro.or.kr", "www.seibro.or.kr", "api.seibro.or.kr",
-                  "global.krx.co.kr", "open.krx.co.kr", "law.krx.co.kr", "www.samsung.com"})
+                  "global.krx.co.kr", "open.krx.co.kr", "law.krx.co.kr", "www.samsung.com", "www.data.go.kr"})
 
 
 def write_journal(path, rows):
