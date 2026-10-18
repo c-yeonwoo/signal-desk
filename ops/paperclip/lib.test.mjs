@@ -33,6 +33,11 @@ test("finite role roster and execution ceilings are explicit", () => {
     { runtimeDirectory: ".local/share/paperclip-companies/after" },
   ]) assert.throws(() => validateSpec({ ...spec, ...change }));
 });
+test("daily calls may be unlimited explicitly, never via zero or malformed limits", () => {
+  for (const limit of [null, 4, 6]) assert.equal(validateSpec({ ...spec, limits: { ...spec.limits, maxDailyRuns: limit } }).limits.maxDailyRuns, limit);
+  for (const limit of [undefined, 0, -1, 1.5, "unlimited", NaN, Infinity])
+    assert.throws(() => validateSpec({ ...spec, limits: { ...spec.limits, maxDailyRuns: limit } }));
+});
 test("role write areas do not include service or another company", () => {
   const config = { spec, planning: "/tmp/signal-company/planning", repo: "/tmp/service", command: "/tmp/codex" };
   const paths = new Set();

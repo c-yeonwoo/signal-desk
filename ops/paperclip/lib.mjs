@@ -22,7 +22,8 @@ export function validateSpec(spec) {
   assert.equal(spec.limits.maxConcurrentRuns, 2);
   assert.equal(spec.limits.maxRebuttalRounds, 1);
   assert(spec.limits.maxRunsPerRound >= 6 && spec.limits.maxRunsPerRound <= 7);
-  assert(spec.limits.maxDailyRuns > 0 && spec.limits.maxDailyRuns <= 4);
+  assert(spec.limits.maxDailyRuns === null ||
+    (Number.isSafeInteger(spec.limits.maxDailyRuns) && spec.limits.maxDailyRuns > 0));
   assert(spec.limits.timeoutSec > 0 && spec.limits.timeoutSec <= 600);
   for (const r of spec.agents) assert(r.name && r.role && r.title && r.mission && r.deliverable);
   return spec;

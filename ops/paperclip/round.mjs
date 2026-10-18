@@ -100,7 +100,8 @@ export async function runRound({ config, api, installation, goal, resumePath }) 
   const limits = config.spec.limits;
   const maxConcurrent = limits.maxConcurrentRuns;
   assert(maxConcurrent >= 1 && maxConcurrent <= 2 && limits.maxRunsPerRound >= STAGES.length && limits.maxRunsPerRound <= 7
-    && limits.maxDailyRuns >= 1 && limits.maxDailyRuns <= 4 && limits.timeoutSec >= 1 && limits.timeoutSec <= 600
+    && (limits.maxDailyRuns === null || (Number.isSafeInteger(limits.maxDailyRuns) && limits.maxDailyRuns >= 1))
+    && limits.timeoutSec >= 1 && limits.timeoutSec <= 600
     && limits.maxRebuttalRounds === 1, 'Unsafe or incompatible council limits');
   const release = await acquireLock(path.join(roundDir, 'company.lock'), statePath, state, Boolean(resumePath));
   let writes = Promise.resolve();
@@ -239,7 +240,8 @@ export async function runRound({ config, api, installation, goal, resumePath }) 
       }
       const permitted = ready.filter((stage) => {
         const agentId = installation.agents[stage.role]; const count = counts.get(agentId) ?? 0;
-        if (count >= limits.maxDailyRuns) return false; counts.set(agentId, count + 1); return true;
+        if (limits.maxDailyRuns !== null && count >= limits.maxDailyRuns) return false;
+        counts.set(agentId, count + 1); return true;
       });
       if (!permitted.length) {
         state.status = 'paused_budget'; state.reason = 'Per-agent daily run limit; explicit --resume after the UTC day boundary'; await save();

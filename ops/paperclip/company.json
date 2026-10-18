@@ -9,7 +9,7 @@
   "limits": {
     "maxRunsPerRound": 7,
     "maxConcurrentRuns": 2,
-    "maxDailyRuns": 4,
+    "maxDailyRuns": null,
     "timeoutSec": 600,
     "maxRebuttalRounds": 1
   },
