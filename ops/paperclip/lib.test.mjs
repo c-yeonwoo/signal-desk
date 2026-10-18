@@ -1,9 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { adapterConfig, assertAdapter, activateInstallation, otherCompanyDrift, Paperclip, ROLE_KEYS, validateSpec } from "./lib.mjs";
+import { readFile, mkdtemp, mkdir, realpath, symlink, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { adapterConfig, assertAdapter, activateInstallation, canonicalRuntimeRoot, otherCompanyDrift, Paperclip, ROLE_KEYS, validateSpec } from "./lib.mjs";
 
 const spec = JSON.parse(await readFile(new URL("./company.json", import.meta.url), "utf8"));
+test("an existing runtime alias resolves to the physical sandbox root", async () => {
+  const temp = await mkdtemp(join(tmpdir(), "signal-runtime-"));
+  try {
+    const target = join(temp, "actual"), alias = join(temp, "alias");
+    await mkdir(target); await symlink(target, alias);
+    assert.equal(await canonicalRuntimeRoot(alias), await realpath(target));
+    const absent = join(temp, "not-provisioned");
+    assert.equal(await canonicalRuntimeRoot(absent), absent);
+  } finally { await rm(temp, { recursive: true, force: true }); }
+});
 test("external company drift is reported without mutation or false ownership claims", () => {
   const previous = [{ id: "a", name: "After" }, { id: "b", name: "Archive" }];
   const snapshot = structuredClone(previous);
