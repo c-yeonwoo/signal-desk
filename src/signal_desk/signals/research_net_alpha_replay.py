@@ -65,9 +65,11 @@ def run_path(spec, scenario, arm, phase, *, snapshots, bars, identities, evidenc
                 if not observation.get("source_id") or number(observation.get("price")) is None:
                     gaps.append({"on":day, "ticker":order["ticker"], "reason":"opening_observation_missing"})
         open_prices = {t:o["price"] for t,o in opens.items() if o.get("open_tradable") is True}
-        if ledger.valuation(day, open_prices, clocks.session_time(day, "open"))["value"] is None:
+        opening_nav = ledger.valuation(day, open_prices, clocks.session_time(day, "open"))["value"]
+        if opening_nav is None:
             ledger.cancel_orders(None, day, "buys_frozen_for_unvalued_account", buys_only=True)
-        book.open_session(day, opens)
+        extra = max(0, opening_nav-book.price_nav(open_prices)) if opening_nav is not None else 0
+        book.open_session(day, opens, noncash_nav=extra)
         ledger.record(day, clocks.session_time(day, "open"))
         ledger.advance(day, "close")
         close_at = clocks.session_time(day)

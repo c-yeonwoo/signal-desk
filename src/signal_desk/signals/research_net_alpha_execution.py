@@ -124,13 +124,15 @@ class ExecutionBook:
         self.last_decision = day
         return deepcopy(new)
 
-    def open_session(self, day, opens):
+    def open_session(self, day, opens, *, noncash_nav=0):
         """Open observations never determine a larger quantity or volume limit.
 
         ``opens[ticker]`` requires price, an explicit open-tradable flag and a
         source ID. Daily full-session volume is deliberately not consumed here.
         """
         self._day(day)
+        if type(noncash_nav) not in (int, float) or not math.isfinite(noncash_nav) or noncash_nav < 0:
+            raise ValueError("invalid as-of noncash economic value")
         if self.last_open is not None and not market_clock.consecutive_sessions("kr", self.last_open, day):
             raise ValueError("missing or repeated execution session")
         if self.last_open is None and self.last_decision is not None and market_clock.next_sessions("kr", self.last_decision, 1) != [day]:
@@ -177,7 +179,9 @@ class ExecutionBook:
                             quantity, reason = 0, "held_open_mark_unavailable"
                         else:
                             invested = sum(q*opens[t]["price"] for t,q in self.holdings.items())
-                            nav = self.buying_power+invested
+                            # Confirmed receivables count in economic NAV but
+                            # never in buying_power or settlement cash.
+                            nav = self.buying_power+invested+noncash_nav
                             b = order["budget"]
                             # Paying the buy fee also lowers NAV; do not spend
                             # the full-session volume or assume old sells filled.
