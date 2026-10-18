@@ -485,7 +485,16 @@ def source_supplement_module():
     return module
 
 
-def prepare(root, contract, modules, budget, supplement_archive=None):
+def event_supplement_module():
+    path = Path(__file__).with_name("kr_ridge_event_source_supplement.py")
+    spec = importlib.util.spec_from_file_location("hold_event_supplement", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def prepare(root, contract, modules, budget, supplement_archive=None, event_supplement=False):
     lab, ridge, clock = modules["lab"], modules["ridge"], modules["clock"]
     for bound in (lab.FINANCIAL, lab.SCOPE):
         if not Path(bound).resolve().is_relative_to(root):
@@ -504,6 +513,10 @@ def prepare(root, contract, modules, budget, supplement_archive=None):
         from signal_desk.signals.research_action_coverage import ReviewedShareCountChange
         reviewed = source_supplement_module().merge_archive(
             supplement_archive, reviewed, by_day, panel, ReviewedShareCountChange)
+    if event_supplement:
+        if supplement_archive is None:
+            raise ValueError("event_requires_existing_hyundai_supplement")
+        reviewed = event_supplement_module().merge(root, reviewed, by_day, panel, ReviewedShareCountChange)
     financials = lab.load_financials(lab.FINANCIAL)["records"]
     roster = {r["ISU_CD"] for r in lab.top200(days[contract["inputs"]["financial"]["rosterAsOf"]])}
     expected = {(r["date"], r["ticker"]): r["predicted_gross"] for r in old_result["predictions"]}
@@ -591,7 +604,8 @@ def gates(paths):
             "adoptionClaim": False, "historicalResearchAdoption": False, "livePromotion": False}
 
 
-def diagnose(root, commit=CONTRACT_COMMIT, *, supplement_spec=None, supplement_archive=None, supplement_commit=None):
+def diagnose(root, commit=CONTRACT_COMMIT, *, supplement_spec=None, supplement_archive=None, supplement_commit=None,
+             event_supplement=None, event_supplement_commit=None):
     budget = Budget()
     # Preallocate every trading path, including unexecuted/null paths.
     paths = [{"period": p, "cost": c, "phase": phase,
@@ -614,6 +628,9 @@ def diagnose(root, commit=CONTRACT_COMMIT, *, supplement_spec=None, supplement_a
         supplied = (supplement_spec is not None, supplement_archive is not None, supplement_commit is not None)
         if any(supplied) and not all(supplied):
             raise ValueError("supplement_requires_spec_archive_and_precommit")
+        event_supplied = (event_supplement is not None, event_supplement_commit is not None)
+        if any(event_supplied) and (not all(event_supplied) or not all(supplied)):
+            raise ValueError("event_requires_spec_precommit_and_hyundai")
         contract, hashes = checked_contract(root, commit, budget)
         out["input_sha256"] = hashes
         if supplement_spec is not None:
@@ -623,11 +640,19 @@ def diagnose(root, commit=CONTRACT_COMMIT, *, supplement_spec=None, supplement_a
             out["source_supplement"] = audit
             out["code_sha256"]["supplement_helper"] = digest(
                 Path(__file__).with_name("kr_ridge_hold_source_supplement.py"))
+        if event_supplement is not None:
+            _, audit = event_supplement_module().checked_spec(
+                root, event_supplement, event_supplement_commit,
+                CONTRACT_COMMIT, CONTRACT_SHA, hashes, budget)
+            out["event_supplement"] = audit
+            out["code_sha256"]["event_helper"] = digest(
+                Path(__file__).with_name("kr_ridge_event_source_supplement.py"))
         modules = dependencies(root)
         if supplement_archive is None:
             prepared = prepare(root, contract, modules, budget)
         else:
-            prepared = prepare(root, contract, modules, budget, supplement_archive)
+            prepared = prepare(root, contract, modules, budget, supplement_archive,
+                               event_supplement=event_supplement is not None)
         selections, predictions, gaps, by_day, panel, reviewed, sources = prepared
         out.update({"predictions": predictions, "sources": sources, "reviewed_facts": [
             {**asdict(f), "source_observed_at": f.source_observed_at.isoformat()} for f in reviewed.values()],
@@ -669,16 +694,22 @@ def main():
     parser.add_argument("--source-supplement", type=Path)
     parser.add_argument("--source-supplement-archive", type=Path)
     parser.add_argument("--supplement-commit")
+    parser.add_argument("--event-supplement", type=Path)
+    parser.add_argument("--event-supplement-commit")
     args = parser.parse_args()
     supplied = (args.source_supplement is not None, args.source_supplement_archive is not None,
                 args.supplement_commit is not None)
     if any(supplied) and not all(supplied):
         parser.error("supplement requires --source-supplement, --source-supplement-archive and --supplement-commit")
+    event_supplied = (args.event_supplement is not None, args.event_supplement_commit is not None)
+    if any(event_supplied) and (not all(event_supplied) or not all(supplied)):
+        parser.error("event supplement requires both event options and all Hyundai options")
     # Reserve the new file before any actual history is processed.
     with args.output.open("x", encoding="utf-8") as stream:
         result = diagnose(args.repo.resolve(), args.contract_commit,
             supplement_spec=args.source_supplement, supplement_archive=args.source_supplement_archive,
-            supplement_commit=args.supplement_commit)
+            supplement_commit=args.supplement_commit, event_supplement=args.event_supplement,
+            event_supplement_commit=args.event_supplement_commit)
         json.dump(result, stream, ensure_ascii=False, allow_nan=False, indent=2)
     print(json.dumps({"state": result["state"], "elapsed_seconds": result["elapsed_seconds"]}))
     return 0 if result["state"] == "price_diagnostic_finished" else 2

@@ -1,0 +1,53 @@
+{
+  "schema": "celltrion-adjacent-treasury-cancellation-review-v1",
+  "ticker": "068270",
+  "security_id": "KR7068270008",
+  "share_class": "ordinary_common",
+  "kind": "treasury_cancellation",
+  "effective_on": "2024-01-04",
+  "listing_session": "2024-01-15",
+  "previous_session": "2024-01-12",
+  "listed_shares_before": 220290520,
+  "listed_shares_after": 217980707,
+  "cancelled_shares": 2309813,
+  "holder_quantity_effect": "unchanged",
+  "holder_quantity_multiplier": 1,
+  "price_unit_multiplier": 1,
+  "coverage_state": "partial",
+  "observation_mode": "retrospective",
+  "historical_capture_verified": false,
+  "source_review_by": "controller; independent QA required before activation",
+  "decision": {
+    "source_url": "https://kind.krx.co.kr/external/2023/10/23/000128/20231012001477/61131.htm",
+    "receipt_id": "20231023000128",
+    "body_id": "20231012001477",
+    "publication_at_displayed_KST": "2023-10-23T12:07:00+09:00",
+    "observed_at": "2026-10-18T08:59:30.798842+00:00",
+    "path": "04-original.htm",
+    "sha256": "a1d8d2b79c015d377aba6d72f7ac31b1999111feb27a1690091cdc612b97b4a1",
+    "treasury_acquisition": "기취득 자기주식",
+    "condition": "셀트리온-셀트리온헬스케어 합병 효력 발생을 조건으로 함; 2023-12-28 발행실적+2024-01-12 실제 추가상장으로 완료대조",
+    "capital_reduction": false,
+    "book_value_KRW": 359880414465
+  },
+  "listing": {
+    "source_url": "https://kind.krx.co.kr/external/2024/01/10/000096/20240110000239/68155.htm",
+    "receipt_id": "20240110000096",
+    "body_id": "20240110000239",
+    "publication_at_displayed_KST": "2024-01-10T17:02:00+09:00",
+    "path": "12-cell-cancel-original.bin",
+    "sha256": "1d6af7eade90e559506204de7f937ff1beff3fe244dcab69af95371ce676b204"
+  },
+  "limitations": [
+    "이번 소각만 기존 외부 보통주 수량·가격단위 불변으로 해석; 별도 배당/권리 없음 인증 아님",
+    "당시 PIT/원문 바이트 보존·전 정정 완전성 미인증",
+    "다른 날짜/회사의 소각 또는 합병에 일반화하지 않음"
+  ],
+  "collection": {
+    "previous_action_requests": 305,
+    "new_requests": 4,
+    "cumulative_action_requests": 309,
+    "joint_case_requests": 28,
+    "joint_case_request_limit": 30
+  }
+}
