@@ -44,7 +44,9 @@
     "impute_missing_returns": false,
     "train_fact_cutoff": "2021-12-30_regular_close",
     "calibration_fact_cutoff": "2022-06-30_regular_close",
-    "evaluation_fact_cutoff": "2024-01-31_regular_close",
+    "evaluation_price_and_trading_end": "2024-01-31_regular_close",
+    "evaluation_outcome_fact_cutoff": "2026-10-18T00:00:00+09:00",
+    "expost_fact_changes_historical_orders": false,
     "incomplete_train_calibration_date": "exclude_whole_date_preserve_audit"
   },
   "evaluation": {
@@ -53,6 +55,7 @@
     "calendar": "all_parent_fixed_sessions",
     "unknown_input_abstention_counts_as_verified_safety": false,
     "unknown_intermediate_nav": "null_nav_and_mdd_no_adoption",
+    "expost_entitlement_revaluation": "allowed_for_existing_rights_keep_decision_nav_separate",
     "acceptance_threshold_changes": false
   },
   "holdings_and_orders": {
