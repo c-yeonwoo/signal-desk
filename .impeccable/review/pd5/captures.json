@@ -1,0 +1,15 @@
+{
+  "kind":"isolated-actual-app-synthetic-health",
+  "sourceMain":"7b8fee69f478535e8b6a349e62c93a0fa24d886a",
+  "renderer":"src/signal_desk/web/index.html",
+  "url":"http://127.0.0.1:8770/?fixture=issue#admin/ops",
+  "serviceOrEnvironmentLoaded":false,
+  "ordersOrAccountWrites":false,
+  "captureTool":"CUA Chrome; sips PNG conversion without content edits",
+  "captures":[
+    {"file":"desktop.png","viewportWidth":1386,"pixelWidth":1371,"pixelHeight":777,"sha256":"f6a57411fc2c6fe28b2be07e9ec29cb0ad515c5c938730f3bf43da2dfa1d68c3"},
+    {"file":"mobile.png","viewportWidth":390,"viewportHeight":844,"fullPage":true,"pixelWidth":375,"pixelHeight":1877,"sha256":"a804a6697bc2bcc1abe34d3e31e3370605c138f2f88af1945e06037ce61961b7"},
+    {"file":"mobile-error.png","viewportWidth":390,"viewportHeight":844,"fullPage":true,"pixelWidth":375,"pixelHeight":1276,"sha256":"7f0123e7ef8f762351a38739624a764898d0f7bf24556b87f196888e72dfe4e6"}
+  ],
+  "limitations":["Synthetic health, not an operating incident report","Owner acceptance not inferred","No global accessibility or speed certification"]
+}

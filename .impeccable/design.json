@@ -1,0 +1,18 @@
+{
+  "schemaVersion":2,
+  "generatedAt":"2026-10-18T13:10:00Z",
+  "title":"Signal Desk — 디자인 시스템",
+  "extensions":{
+    "colorMeta":{"primary":{"role":"primary","displayName":"현재 선택과 행동","canonical":"#243CDB"}},
+    "shadows":[{"name":"shadow-sm","value":"0 1px 1px rgba(21,26,34,.03)","purpose":"기존 셸/약한 경계"},{"name":"shadow","value":"0 6px 18px rgba(21,26,34,.07)","purpose":"기존 떠 있는 면"}],
+    "motion":[{"name":"button-state","value":"background .12s,border-color .12s,color .12s","purpose":"기존 버튼 상태 피드백"}],
+    "breakpoints":[{"name":"workspace","value":"900px"},{"name":"compact","value":"640px"}]
+  },
+  "components":[
+    {"name":"Primary button","kind":"button","refersTo":"button-primary","description":"기존 주요 행동","html":"<button class=\"ds-primary\">설정 저장</button>","css":".ds-primary{background:var(--accent);color:var(--accent-ink);border:1px solid var(--accent);border-radius:var(--r-sm);padding:8px 14px;font:600 16px Pretendard,sans-serif}.ds-primary:hover{background:var(--accent-hover)}.ds-primary:disabled{opacity:.55;cursor:not-allowed}"},
+    {"name":"Secondary button","kind":"button","description":"기존 보조 행동","html":"<button class=\"ds-button\">다시 확인</button>","css":".ds-button{background:var(--panel);color:var(--txt);border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:8px 14px;font:600 16px Pretendard,sans-serif}.ds-button:hover{color:var(--accent);border-color:var(--accent)}"},
+    {"name":"Text input","kind":"input","description":"기존 종목 검색","html":"<input class=\"ds-input\" aria-label=\"종목 검색\" placeholder=\"종목명·코드 검색\">","css":".ds-input{font:16px Pretendard,sans-serif;padding:9px 12px;border:1px solid var(--line-strong);border-radius:var(--r-sm);background:var(--panel);color:var(--txt)}.ds-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--ring)}"},
+    {"name":"Market navigation","kind":"nav","description":"기존 선택 묶음","html":"<nav class=\"ds-nav\" aria-label=\"종목 목록\"><button class=\"on\">국내</button><button>해외</button></nav>","css":".ds-nav{display:inline-flex;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}.ds-nav button{padding:8px 16px;border:0;background:var(--panel);color:var(--dim);font:600 13px Pretendard,sans-serif}.ds-nav button.on{background:var(--accent);color:var(--accent-ink)}"},
+    {"name":"Data panel","kind":"card","description":"기존 정보 패널","html":"<section class=\"ds-panel\"><p>기준일과 확인한 종목 수를 함께 표시합니다.</p></section>","css":".ds-panel{padding:22px 24px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--panel);color:var(--txt);font:16px/1.6 Pretendard,sans-serif}.ds-panel p{margin:0;color:var(--dim)}"}
+  ]
+}
