@@ -10,6 +10,8 @@
 
 ## 2026-10-18 비용·시장·선정 분리 후보
 
+**대체 원천·비용 검수:** [무료 공개 표본과 구매 전 조건](../../docs/KR-NET-ALPHA-VENDOR-SOURCES-2026-10-18.md). `kr_net_alpha_vendor_sample --output <새 ZIP> --report <새 JSON>`은 정확히 허용한 공개 문서와 무료 CSV만 기존 누적 수집 예산으로 보존한다. 기존 유니버스 해시·ISIN을 대조하지만 인증/학습 자료는 만들지 않는다. 현재 샘플6,702행·한국 상장84행·기존 종목 일치0, 동일 사건 복수 버전0이다. 유료 API/가입/키 전송/구매는 지원하지 않는다. Databento 기본 `pit=False`의 최신본이나 EDI와의 같은 상류를 전수/독립 인증으로 바꾸지 않는다.
+
 [고정 조건](../../docs/KR-NET-ALPHA-PLAN-2026-10-17.md)과 [실제 원천/중단 보고서](../../docs/KR-NET-ALPHA-READINESS-2026-10-18.md)를 먼저 확인한다. `kr_net_alpha_sources prices`는2020~2022 KRX 원시 응답을 재개 가능한 로컬 장부로 보존하고, `identities`는 기존2023/2024년1월 원문과 과거 공식 주식종류·ISIN을 연결한다. 새 가격/기본정보 요청은 총1,200회 한도이며 실패·중단도 센다. 계획 커밋 `8c6d837a91f856ade03b75bdaec672abd51e051d`와 문서/JSON 해시가 다르면 실행하지 않는다. 얕은 복제본은 해당 객체를 먼저 fetch한다.
 
 `.venv/bin/python -m scripts.measure.kr_net_alpha_readiness --output <새 JSON>`은 수익률 없이 전체 날짜·종목의 원시 가격쌍·행사 범위·주식수 변경 대기열을 재현한다. 검증 라벨 묶음이 없고 v1 U의2021년 원시 시가쌍이91일이라 `blocked_data`다. 당일 무거래 제외 가정의188일은 자료 진단만이며 실제 학습에 적용하지 않았다. `research_net_alpha.py`는 회귀·보정·비용 목적함수의 핵심 수치 구현이다. 실제 모델 학습/210경로 체결 백테스트 실행기로 부르지 않는다.

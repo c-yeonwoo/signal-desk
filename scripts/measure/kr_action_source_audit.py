@@ -24,6 +24,22 @@ HOSTS = frozenset({"kind.krx.co.kr", "seibro.or.kr", "www.seibro.or.kr", "api.se
                   "m.seibro.or.kr",
                   "global.krx.co.kr", "open.krx.co.kr", "law.krx.co.kr", "www.samsung.com", "www.data.go.kr",
                   "apis.data.go.kr"})
+# Exact public documents only: adding a vendor must not authorize its paid API,
+# authenticated downloads, account actions, or arbitrary same-host endpoints.
+VENDOR_DOCUMENTS = frozenset({
+    "https://databento.com/corporate-actions",
+    "https://databento.com/blog/corporate-actions",
+    "https://databento.com/docs/venues-and-datasets/corporate-actions",
+    "https://databento.com/docs/schemas-and-data-formats/corporate-actions",
+    "https://databento.com/docs/api-reference-reference",
+    "https://sample-pcaps-dl.databento.com/reference/databento-corporate-actions-global-20200825.csv",
+    "https://help-dataguide.fnguide.com/ko/articles/" +
+    "%EC%9D%B4%EC%9A%A9-%EB%B0%8F-%EC%9A%94%EA%B8%88-%EC%95%88%EB%82%B4-48b18a4b",
+    "https://developer.exchange-data.com/product/worldwide-corporate-actions",
+    "https://developer.exchange-data.com/api-documentation/world_corporate_actions/GetHistoricalCorporateActions",
+    "https://datamall.koscom.co.kr/kor/main.do",
+    "https://developers.lseg.com/en/article-catalog/article/workspace-corporate-actions-content-set-guide",
+})
 FSC_RIGHTS = "https://apis.data.go.kr/1160100/GetStocRighScheService_V2/getRighExerReasSche_V2"
 FSC_ISSUANCE = "https://apis.data.go.kr/1160100/GetStocIssuInfoService_V3/getStocIssuInfo_V3"
 SEIBRO_CALENDAR = "https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp"
@@ -153,7 +169,8 @@ class Collector:
     def get(self, url, data=None, *, _service_key=None, _refresh=False):
         parsed = urllib.parse.urlsplit(url)
         seibro_query = seibro_calendar_query(data, self.spec) if url == SEIBRO_CALENDAR and data is not None else None
-        if (parsed.scheme != "https" or parsed.hostname not in HOSTS or parsed.username or parsed.password
+        vendor_document = url in VENDOR_DOCUMENTS and data is None and _service_key is None
+        if (parsed.scheme != "https" or (parsed.hostname not in HOSTS and not vendor_document) or parsed.username or parsed.password
                 or any(word in k.lower() for k, _ in urllib.parse.parse_qsl(parsed.query)
                        for word in ("token", "secret", "servicekey", "auth_key"))
                 or (data is not None and seibro_query is None and not (parsed.hostname == "kind.krx.co.kr"
