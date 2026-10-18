@@ -1,0 +1,43 @@
+{
+  "schema": "kr-net-alpha-action-clock-implementation-summary-v1",
+  "candidate_id": "kr-separated-net-alpha-h5-v2",
+  "report": "docs/KR-NET-ALPHA-ACTION-CLOCK-IMPLEMENTATION-2026-10-18.md",
+  "contract_commit": "29bc1e0f38a56163916759799e61ccc243059c6c",
+  "state": "blocked_data",
+  "implementation": "action_clocks_universe_labels_and_purpose_scope_audit",
+  "adoption": "not_evaluable_data_gate",
+  "artifacts": [
+    {"path": "data/research/kr-net-alpha-action-clock-packet-2026-10-18-v2.json", "sha256": "f502a04eacabedd6815ed8b9468660ffe35b97c8d0297326dfedefd44320a8ac"},
+    {"path": "data/research/kr-net-alpha-v2-readiness-2026-10-18-v10.json.gz", "sha256": "8812b6952941451e01c931399da30ed80f3b16a25286c7740f3ffcd1b847f87f"},
+    {"path": "data/research/kr-net-alpha-action-clock-scope-2026-10-18-v4.json.gz", "sha256": "de5035745af5c6f244b61dd0a5768982c11f3f47504730a6e7d448fe90bca6d7"},
+    {"path": "data/research/kr-net-alpha-action-source-policy-2026-10-18-v1.zip", "sha256": "6d96c32f918b3c1e782bc47caf222b46fc1be0456161b72ddc698ef935ebe9c7"}
+  ],
+  "reviewed_assertions": 9,
+  "reviewed_issuers": 5,
+  "retained_legacy_halt_facts": 1,
+  "reviewed_scope_certificates": 0,
+  "dependency_scopes": {"total": 1688, "input": 699, "outcome": 989, "securities": 285, "train": 585, "calibration": 459, "evaluation": 644},
+  "scope_unavailable_meaning": "required_scope_proof_not_available_in_packet_not_all_sites_unreachable",
+  "phases": {
+    "train": {"decision_dates": 239, "input_ready_dates": 0, "complete_label_dates": 0, "required_dates": 180},
+    "calibration": {"decision_dates": 111, "input_ready_dates": 0, "complete_label_dates": 0, "required_dates": 80},
+    "evaluation": {"decision_dates": 370, "input_ready_dates": 0, "complete_label_dates": 0, "required_dates": 300}
+  },
+  "source_gap_rows": 140447,
+  "other_history_input_gap_rows": 4,
+  "cumulative_requests": {"price_metadata": 810, "price_metadata_limit": 1200, "actions": 160, "actions_limit": 400},
+  "budget_exhausted": false,
+  "wait_for_future_sessions_required": false,
+  "local_credential_check": "no_value_in_seven_named_service_key_variables",
+  "railway_credentials_checked": false,
+  "required_boundary_tests_passed": 66,
+  "fit_executed": false,
+  "calibration_executed": false,
+  "backtest_executed": false,
+  "stateful_210_path_runner_implemented": false,
+  "strict_pit_eligible": false,
+  "live_order_eligible": false,
+  "next_task": "official_historical_rights_and_issuance_scope_access_and_review",
+  "next_model": "Sol high",
+  "integrated_progress": 40
+}

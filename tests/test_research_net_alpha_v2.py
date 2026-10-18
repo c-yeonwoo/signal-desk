@@ -30,12 +30,26 @@ def fact(kind, effective, published="2021-01-01", **terms):
 
 def reviewed(facts=(), securities=(ISIN, OTHER)):
     """Never used by a real-data command or promoted to empirical certification."""
-    documents, bound = {}, []
+    documents, bound, assertions = {}, [], []
     for row in facts:
         raw = json.dumps({**row, "fixture": "SYNTHETIC TEST ONLY"}).encode()
         sha = hashlib.sha256(raw).hexdigest()
         documents[sha] = raw
-        bound.append({**row, "source_sha256": sha})
+        if row["kind"] == "halt":
+            bound.append({**row, "source_sha256": sha})
+        else:
+            role = "conversion_boundary" if row["kind"] in ("split", "merger_exchange", "spin_off", "cash_exchange") else "entitlement_boundary"
+            terms = {k: v for k, v in row.items() if k not in (
+                "kind", "effective_at", "published_on", "fact_id", "event_id", "security_id", "source_span")}
+            terms[role] = row["effective_at"]
+            assertions.append({"assertion_id": row["fact_id"], "event_id": row["event_id"],
+                "component_id": "fixture-entitlement", "security_id": row["security_id"],
+                "share_class": "ordinary", "action_kind": row["kind"], "component_kind": "entitlement",
+                "supersedes_assertion_ids": [], "status": "confirmed", "availability_mode": "reconstructed_public",
+                "observed_at": "2026-10-18T00:00:00+09:00", "published_on": row["published_on"],
+                "publication_precision": "date", "publication_proof": {"source_sha256": sha, "source_span": row["published_on"]},
+                "changes": {k: {"value": v, "precision": "second" if k == role else "date" if k in lab.clocks.DATE_ROLES else "value",
+                    "source_sha256": sha, "source_span": v if k == role else "SYNTHETIC TEST ONLY"} for k, v in terms.items()}})
     certificates = []
     for isin in securities:
         windows = []
@@ -48,12 +62,13 @@ def reviewed(facts=(), securities=(ISIN, OTHER)):
         reconciliation = {"schema": "net-alpha-reconciliation-v1", "security_id": isin,
             "start": "2020-01-01", "end": "2024-01-31", "required_kinds": sorted(lab.LABEL_KINDS),
             "page_hashes": sorted(w.page_hashes[0] for w in windows), "unresolved_event_ids": [],
-            "fact_ids": sorted(f["fact_id"] for f in bound if f["security_id"] == isin)}
+            "fact_ids": sorted(f["fact_id"] for f in bound if f["security_id"] == isin),
+            "assertion_ids": sorted(a["assertion_id"] for a in assertions if a["security_id"] == isin)}
         raw = json.dumps(reconciliation).encode()
         sha = hashlib.sha256(raw).hexdigest(); documents[sha] = raw
         certificates.append(CoverageCertificate("kr", isin, "2020-01-01", "2024-01-31",
             lab.LABEL_KINDS, tuple(windows), sha))
-    return lab.Evidence(documents, certificates, bound)
+    return lab.Evidence(documents, certificates, bound, assertions)
 
 
 def panel():
