@@ -1,0 +1,12 @@
+{
+  "source": "http://127.0.0.1:8766/pd1-stock-desk.html",
+  "method": "Chrome CUA browser screenshot",
+  "syntheticData": true,
+  "aiGeneratedRaster": false,
+  "productionScreenshot": false,
+  "captures": [
+    {"file": "desktop.png", "capturedAt": "2026-10-18T20:01:06+09:00", "viewportCssPx": [1440, 1000], "fullPage": true, "sha256": "d1918befeaa12f0f94594f5fe3bcc01755c34502c1b8bbb741cebcdbae57f48e"},
+    {"file": "mobile-list.png", "capturedAt": "2026-10-18T20:01:06+09:00", "viewportCssPx": [390, 844], "fullPage": false, "sha256": "f72c5a438145f95980f9d647d8cc39e421a4a3e4f9598b5e52590dbbb8c15a07"},
+    {"file": "mobile-detail.png", "capturedAt": "2026-10-18T20:01:42+09:00", "viewportCssPx": [390, 844], "fullPage": false, "sha256": "93c2befb9a5e11edbc717ee7691fa2033de02274c7c29bf123baba261f8dee1e"}
+  ]
+}
