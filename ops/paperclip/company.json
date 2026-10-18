@@ -4,7 +4,7 @@
   "marker": "signal-desk-harness-v1",
   "runtimeDirectory": ".local/share/paperclip-companies/signal-desk",
   "command": ".local/share/after-harness/codex-runtime/node_modules/.bin/codex",
-  "model": "gpt-6-sol",
+  "model": "gpt-6.1-sol",
   "reasoning": "high",
   "limits": {
     "maxRunsPerRound": 7,

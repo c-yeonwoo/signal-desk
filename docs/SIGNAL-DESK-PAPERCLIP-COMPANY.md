@@ -26,7 +26,8 @@
 - 회사 전용 런타임: `~/.local/share/paperclip-companies/signal-desk`.
 - [회사 대시보드](http://127.0.0.1:3100/SIG/dashboard), 회사 ID `ced4682b-73fd-4c8f-bd84-15d4b2652019`.
 - Codex 실행 파일: `~/.local/share/after-harness/codex-runtime/node_modules/.bin/codex`.
-- 모델: `gpt-6-sol`, `high`. 기존 After 회사·공용 하네스 설정은 변경하지 않고 실행 파일만 재사용한다.
+- 모델: `gpt-6.1-sol`, `high`로 고정. 이 채팅 모델과 독립적이다. 첫 토론6회는 변경 전 `gpt-6-sol/high` 실행으로 보존한다. 기존 After 회사·공용 하네스 설정은 변경하지 않고 실행 파일만 재사용한다.
+- 공용 폴더가 별칭 링크로 옮겨지면 실제 경로를 작업 폴더로 사용한다. 현재 실제 위치는 `~/.local/share/paperlink-harness/companies/signal-desk`다. 이전 별칭을 Codex의 쓰기 경로로 넘기면 도구 실행이 거부되므로 설치 기록·역할·프로젝트 작업 경로를 함께 맞춘다.
 - 로컬 Mac과 기존 Paperclip 서버가 켜져 있어야 한다. 무인24/7·정기 시장 분석을 시작한 것은 아니다.
 
 ## 운영 명령

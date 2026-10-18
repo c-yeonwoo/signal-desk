@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -28,12 +28,22 @@ export function validateSpec(spec) {
   return spec;
 }
 
+export async function canonicalRuntimeRoot(runtimeRoot) {
+  try { return await realpath(runtimeRoot); }
+  catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    // Provisioning can create a new root, but existing aliases must resolve to
+    // the physical directory accepted by Codex workspace-write sandboxes.
+    return runtimeRoot;
+  }
+}
+
 export async function loadConfig() {
   const raw = await readFile(join(SOURCE, "company.json"), "utf8");
   const spec = validateSpec(JSON.parse(raw));
   const policy = await readFile(join(SOURCE, "POLICY.md"), "utf8");
   const repo = resolve(SOURCE, "../..");
-  const runtimeRoot = resolve(homedir(), spec.runtimeDirectory);
+  const runtimeRoot = await canonicalRuntimeRoot(resolve(homedir(), spec.runtimeDirectory));
   const command = resolve(homedir(), spec.command);
   await access(command, constants.X_OK);
   const configHash = createHash("sha256").update(raw).update("\0").update(policy).digest("hex");
