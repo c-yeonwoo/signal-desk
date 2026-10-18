@@ -23,6 +23,7 @@ HOSTS = frozenset({"kind.krx.co.kr", "seibro.or.kr", "www.seibro.or.kr", "api.se
                   "global.krx.co.kr", "open.krx.co.kr", "law.krx.co.kr", "www.samsung.com", "www.data.go.kr",
                   "apis.data.go.kr"})
 FSC_RIGHTS = "https://apis.data.go.kr/1160100/GetStocRighScheService_V2/getRighExerReasSche_V2"
+FSC_ISSUANCE = "https://apis.data.go.kr/1160100/GetStocIssuInfoService_V3/getStocIssuInfo_V3"
 
 
 def write_journal(path, rows):
@@ -96,7 +97,7 @@ class Collector:
         finally:
             write_journal(path, journal)
 
-    def get(self, url, data=None, *, _service_key=None):
+    def get(self, url, data=None, *, _service_key=None, _refresh=False):
         parsed = urllib.parse.urlsplit(url)
         if (parsed.scheme != "https" or parsed.hostname not in HOSTS or parsed.username or parsed.password
                 or any(word in k.lower() for k, _ in urllib.parse.parse_qsl(parsed.query)
@@ -104,15 +105,17 @@ class Collector:
                 or (data is not None and not (parsed.hostname == "kind.krx.co.kr"
                                              and parsed.path in ("/disclosure/details.do", "/disclosureinfo/dividendinfo.do")))):
             raise ValueError("URL outside read-only public-source scope")
-        if _service_key is not None and (url.split("?", 1)[0] != FSC_RIGHTS or data is not None):
+        if _service_key is not None and (url.split("?", 1)[0] not in (FSC_RIGHTS, FSC_ISSUANCE) or data is not None):
             raise ValueError("service key destination outside approved FSC operation")
+        if _refresh and _service_key is None:
+            raise ValueError("explicit recheck only supported for approved FSC authentication")
         key_material = url.encode()+b"\0"+(data or b"")
         if _service_key is not None:
             if not _service_key:
                 raise ValueError("empty service key")
             key_material += b"\0"+_service_key.encode()
         key = hashlib.sha256(key_material).hexdigest()
-        for row in reversed(self.journal):
+        for row in (() if _refresh else reversed(self.journal)):
             if row.get("request_key") == key and row.get("response_path"):
                 path = (DEST/row["response_path"]).resolve()
                 if not path.is_relative_to(DEST.resolve()):
@@ -176,6 +179,12 @@ class Collector:
             self.save()
 
     def fsc_rights(self, day, page=1, page_size=100, issuer=None):
+        return self._fsc_schedule(FSC_RIGHTS, day, page, page_size, issuer)
+
+    def fsc_issuance(self, day, page=1, page_size=100, issuer=None, *, recheck=False):
+        return self._fsc_schedule(FSC_ISSUANCE, day, page, page_size, issuer, recheck=recheck)
+
+    def _fsc_schedule(self, endpoint, day, page, page_size, issuer, *, recheck=False):
         """One official operation; credentials never enter source journals."""
         if (dt.date.fromisoformat(day).isoformat() != day or
                 not self.spec["warmup_from"] <= day <= self.spec["liquidation_through"]
@@ -192,7 +201,7 @@ class Collector:
         if issuer is not None:
             params["stckIssuCmpyNm"] = issuer
         try:
-            return self.get(FSC_RIGHTS+"?"+urllib.parse.urlencode(params), _service_key=secret)
+            return self.get(endpoint+"?"+urllib.parse.urlencode(params), _service_key=secret, _refresh=recheck)
         except Exception as exc:
             raise ValueError(f"FSC source request failed ({type(exc).__name__}); see redacted journal") from None
 
@@ -224,7 +233,7 @@ def listing(source, start, end):
 def census(collector, form, start, end, max_pages=20, term=""):
     spec = collector.spec
     if (not spec["warmup_from"] <= start <= end <= spec["liquidation_through"]
-            or not 1 <= max_pages <= 30 or term not in ("", "주식분할", "배당")):
+            or not 1 <= max_pages <= 30 or term not in ("", "주식분할", "배당", "변경상장", "추가상장", "재상장", "매매거래정지")):
         raise ValueError("action census outside fixed source scope")
     fields = {**form, "method": "searchDetailsSub", "forward": "details_sub",
         "currentPageSize": "100", "fromDate": start, "toDate": end, "marketType": "1",

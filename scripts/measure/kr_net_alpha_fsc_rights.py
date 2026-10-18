@@ -45,6 +45,10 @@ def parse_response(raw, day, page=1, page_size=100):
                 "result_code": code, "rows": [], "total_count": None}
     if not isinstance(body, dict):
         raise ValueError("FSC JSON root is not an object")
+    gateway = body.get("OpenAPI_ServiceResponse", {}).get("cmmMsgHeader", {})
+    if gateway.get("returnReasonCode"):
+        return {"state": "api_rejected", "result_code": str(gateway["returnReasonCode"]),
+                "rows": [], "total_count": None}
     response = body.get("response", body)
     if not isinstance(response, dict):
         raise ValueError("FSC response is not an object")

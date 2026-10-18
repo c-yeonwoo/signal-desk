@@ -216,6 +216,49 @@ def test_fsc_empty_and_rejected_responses_are_distinct():
     assert parse_response(json.dumps(body).encode(), "2021-04-15")["state"] == "empty_not_action_free"
     raw = b'<OpenAPI_ServiceResponse><cmmMsgHeader><returnReasonCode>30</returnReasonCode></cmmMsgHeader></OpenAPI_ServiceResponse>'
     assert parse_response(raw, "2021-04-15")["state"] == "api_rejected"
+    raw = json.dumps({"OpenAPI_ServiceResponse": {"cmmMsgHeader": {
+        "errMsg": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR", "returnReasonCode": "30"}}}).encode()
+    result = parse_response(raw, "2021-04-14")
+    assert result["state"] == "api_rejected" and result["result_code"] == "30"
+
+
+def test_fsc_issuance_endpoint_remains_bounded_and_uses_same_redacted_transport(tmp_path, monkeypatch):
+    c = collector(tmp_path, monkeypatch)
+    monkeypatch.setenv("DATA_GO_KR_SERVICE_KEY", "SYNTHETIC-ISSUANCE")
+    monkeypatch.setattr(audit.config, "load_env", lambda: None)
+    calls = []
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        return b"fixture", {}
+    monkeypatch.setattr(c, "get", get)
+    c.fsc_issuance("2021-04-14", issuer="카카오")
+    assert calls[0][0].startswith(audit.FSC_ISSUANCE+"?")
+    assert "SYNTHETIC" not in calls[0][0]
+    assert calls[0][1]["_service_key"] == "SYNTHETIC-ISSUANCE"
+    with pytest.raises(ValueError, match="fixed research scope"):
+        c.fsc_issuance("2025-04-14", issuer="카카오")
+    assert len(calls) == 1
+
+
+def test_fsc_explicit_recheck_preserves_rejection_and_counts_new_attempt(tmp_path, monkeypatch):
+    c = collector(tmp_path, monkeypatch)
+    calls = []
+    class Opener:
+        def open(self, request, timeout):
+            calls.append(request.full_url)
+            response = io.BytesIO(b"rejected" if len(calls) == 1 else b"accepted")
+            response.code, response.headers = (403 if len(calls) == 1 else 200), {}
+            return response
+    monkeypatch.setattr(audit.urllib.request, "build_opener", lambda *args: Opener())
+    url = audit.FSC_ISSUANCE+"?basDt=20210414"
+    first, first_meta = c.get(url, _service_key="SYNTHETIC")
+    assert c.get(url, _service_key="SYNTHETIC")[0] == first and len(calls) == 1
+    assert c.get(url, _service_key="SYNTHETIC", _refresh=True)[0] == b"accepted"
+    assert len(c.journal) == 2 and len(calls) == 2
+    assert (tmp_path/first_meta["response_path"]).read_bytes() == b"rejected"
+    assert c.get(url, _service_key="SYNTHETIC")[0] == b"accepted" and len(calls) == 2
+    with pytest.raises(ValueError, match="explicit recheck"):
+        c.get("https://kind.krx.co.kr/test", _refresh=True)
 
 
 def test_fsc_exact_issuer_match_preserves_distinct_date_roles_and_face_variants():
