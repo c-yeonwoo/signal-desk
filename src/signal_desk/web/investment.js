@@ -103,5 +103,15 @@
       ${cards.length > 3 ? detail(`함께 확인할 내용 ${cards.length - 3}개 더 보기`, cards.slice(3).join('')) : ''}
       ${d.allocation?.ready ? '<p class="invest-muted">아래 비중 조정은 입력한 한도에 맞춘 계산 예시이며, 주문으로 이어지지 않아요.</p>' : ''}</section>`;
   }
-  window.InvestmentGuide = {review, renderReview, renderCosts, explain, renderPortfolio, detail};
+  function renderHoldingInputs(holdings, market) {
+    const currency = market === 'us' ? 'USD' : 'KRW';
+    const rows = holdings.map(h => {
+      const name = h.label || h.name;
+      return `<tr><td><b>${esc(name || h.ticker)}</b>${name && name !== h.ticker ? `<div class="portfolio-source">${esc(h.ticker)}</div>` : ''}</td>
+        <td class="num">${num(h.qty, Number.isInteger(h.qty) ? 0 : 4)}</td><td class="num">${money(h.avg_price,currency)}</td>
+        <td><button type="button" class="linkish" data-remove-holding="${esc(h.ticker)}" onclick="removeHolding(this.dataset.removeHolding)" aria-label="${esc(name || h.ticker)} 분석용 입력 삭제">삭제</button></td></tr>`;
+    }).join('');
+    return `<div class="tscroll" tabindex="0" role="region" aria-label="분석용 종목·수량·평균 매입가"><table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평균 매입가 (${currency === 'USD' ? '달러' : '원'})</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+  window.InvestmentGuide = {review, renderReview, renderCosts, explain, renderPortfolio, detail, renderHoldingInputs};
 })();

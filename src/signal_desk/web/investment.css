@@ -31,7 +31,29 @@
 #trading-rebal .pf-advanced>summary {cursor:pointer;padding:15px 18px;font-size:14px;font-weight:700;line-height:1.5}
 #trading-rebal .pf-advanced[open] {padding:0 16px 4px}
 #trading-rebal .pf-advanced[open]>summary {margin:0 -16px 16px;border-bottom:1px solid var(--line)}
+/* PD3: current account, analysis input, diagnosis, then past records. */
+#trading-rebal .portfolio-heading {margin:8px 0 24px}
+#trading-rebal .portfolio-heading h2 {font-size:24px;line-height:1.4;margin:0 0 10px}
+#trading-rebal .portfolio-heading p {color:var(--dim);line-height:1.65;max-width:72ch;margin:0}
+#trading-rebal .portfolio-section-head {display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+#manual-holdings-card>h3,#portfolio-intelligence-card>.row>h3,#trading-rebal .portfolio-section-head h3 {font-size:20px;line-height:1.4;margin:0 0 10px}
+#trading-rebal .portfolio-section-head h3 {margin:0}
+#manual-mkt-label {font-size:14px;font-weight:normal;color:var(--dim)}
+#trading-rebal .portfolio-source {font-size:14px;line-height:1.6;color:var(--dim);margin:8px 0 14px}
+#holdings-summary {line-height:1.65;margin:16px 0}
+#trading-rebal .portfolio-holding-form {align-items:flex-end;gap:12px;flex-wrap:wrap;margin:16px 0}
+#trading-rebal .portfolio-holding-form label {display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--dim)}
+#trading-rebal .tscroll {max-width:100%;overflow:auto}
+#real-holdings-body .dtable {min-width:560px}
+#holdings-body .dtable {min-width:420px}
+#trading-rebal .dtable td:first-child {white-space:normal;overflow-wrap:anywhere;min-width:130px;text-align:left}
+#trading-rebal .dtable .num {white-space:nowrap}
+#trading-rebal .tscroll:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
+#trading-rebal #pf-history .home-desk {border:0;padding:0;margin:0}
 @media(max-width:640px) {
+  #trading-rebal .portfolio-heading h2 {font-size:22px}
+  #trading-rebal .ctrl {font-size:16px}
+  #trading-rebal .portfolio-holding-form {gap:12px}
   .invest-hero,.invest-review {padding:18px}.invest-breakdown {grid-template-columns:1fr;gap:8px;margin:14px 0}
   .invest-breakdown>div {display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px}
   .invest-breakdown span {margin:0}.invest-breakdown strong {font-size:20px}.invest-plan {grid-template-columns:1fr;gap:0}
