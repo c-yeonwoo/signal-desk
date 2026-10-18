@@ -11,7 +11,7 @@ from signal_desk import market_clock
 from signal_desk.signals import research_net_alpha as core
 from signal_desk.signals import research_net_alpha_replay as replay
 from signal_desk.signals.research_net_alpha_execution import ExecutionBook
-from test_research_net_alpha_v2 import ISIN, OTHER, reviewed
+from test_research_net_alpha_v2 import ISIN, OTHER, fact, reviewed
 
 
 def world():
@@ -107,3 +107,15 @@ def test_independent_exit_needs_no_guessed_nav_and_does_not_reset_other_sell_ret
     saved = copy.deepcopy(b.state())
     assert b.submit_exits("2022-07-05", ["C"], {}, {}, input_id="unpriced") == []
     assert b.state() == saved
+
+
+def test_late_reported_opening_halt_cannot_turn_noon_first_trade_into_open_fill():
+    cfg, kwargs = world()
+    late = fact("halt", "2022-07-04T09:00:00+09:00", published="2022-07-05",
+                end_at="2022-07-04T12:00:00+09:00")
+    kwargs["evidence"] = reviewed([late])
+    original = json.dumps(kwargs["snapshots"], default=lambda a:a.tolist(), sort_keys=True)
+    result = replay.run_path(cfg, "75bp_full", "cap", 0, **kwargs)
+    assert not any(f["ticker"] == "A" and f["on"] == "2022-07-04" for f in result["execution"]["fills"])
+    assert any(e["ticker"] == "A" and e["on"] == "2022-07-04" for e in result["execution"]["events"])
+    assert json.dumps(kwargs["snapshots"], default=lambda a:a.tolist(), sort_keys=True) == original

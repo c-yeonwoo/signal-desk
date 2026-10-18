@@ -144,6 +144,8 @@ class AccountLedger:
             self.cancel_orders(ticker, day, "cancelled_for_share_delivery")
             self.book.holdings[ticker] = self.book.holdings.get(ticker, 0)+int(self.rights.deliver(
                 event["event_id"], claim["security_id"], "share_receivable"))
+            if self.book.holdings[ticker]:
+                self.position_identity[ticker] = claim["security_id"]
             if not self.book.holdings[ticker]:
                 del self.book.holdings[ticker]
             claim["delivered"] = True
@@ -256,6 +258,7 @@ class AccountLedger:
         return deepcopy({"on": day, "at": at.isoformat(), "base_value": value,
             "claims": list(self.claims.values()), "reasons": reasons,
             "tracked_securities": list(self.tracked), "conversions": self.conversions,
+            "held_securities": list(self.position_identity.values()),
             "history_from": self.history[0]["at"].isoformat() if self.history else at.isoformat()})
 
     def mark(self, frame, *, final_at=None):
@@ -263,6 +266,8 @@ class AccountLedger:
         value, reasons = frame["base_value"], list(frame["reasons"])
         at = clocks.timestamp(frame["at"])
         if final_at is not None:
+            if any(self.evidence.halted(security, at, final_at) is not False for security in frame["held_securities"]):
+                reasons.append("held_mark_halt_truth_unverified_or_nontradable")
             # A later disclosure may expose a previously unrecorded economic
             # event. Do not silently report a price-only historical NAV then.
             for security in frame["tracked_securities"]:

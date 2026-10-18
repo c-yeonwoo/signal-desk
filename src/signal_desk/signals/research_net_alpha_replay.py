@@ -50,11 +50,22 @@ def run_path(spec, scenario, arm, phase, *, snapshots, bars, identities, evidenc
         raise ValueError("replay market calendar or identity inventory incomplete")
     book = ExecutionBook(spec, scenario)
     ledger = AccountLedger(book, evidence, identities, f"{scenario}/{arm}/{phase}")
+    final_at = clocks.timestamp(spec["amendment"]["labels"]["evaluation_outcome_fact_cutoff"])
     frames, decisions, gaps = [], [], []
     for day in dates:
         row = bars[day]
         ledger.advance(day, "before_open")
         opens = ledger.gate_opens(day, row["opens"])
+        # Execution truth is not prediction information. A halt disclosed later
+        # may establish that the daily 'open' was a noon resumption trade. Keep
+        # the precommitted order, but never pretend it filled at the 09:00 open.
+        for ticker, observation in opens.items():
+            security = identities[day].get(ticker)
+            truth = evidence.halted(security, clocks.session_time(day, "open"), final_at) if security else None
+            if truth is not False:
+                observation["open_tradable"] = False
+            if truth is None and any(o["ticker"] == ticker and o["due_on"] <= day for o in book.pending):
+                gaps.append({"on":day, "ticker":ticker, "reason":"opening_halt_truth_unverified"})
         for order in book.pending:
             if order["due_on"] <= day:
                 security = identities[day].get(order["ticker"])
@@ -122,7 +133,6 @@ def run_path(spec, scenario, arm, phase, *, snapshots, bars, identities, evidenc
             decisions.append({"on": day, "state": reason or "submitted", "input_id": input_ids[day]})
         ledger.advance(day, "after_close")
         frames.append(ledger.frame(day, row["closes"], close_at+dt.timedelta(microseconds=1)))
-    final_at = clocks.timestamp(spec["amendment"]["labels"]["evaluation_outcome_fact_cutoff"])
     marks = [{"on":f["on"], **ledger.mark(f, final_at=final_at)} for f in frames]
     reasons = {r for m in marks for r in m["reasons"]}
     if any(m["value"] is None or m["value"] <= 0 for m in marks):
