@@ -54,6 +54,11 @@
   .tab:hover { background:var(--brand-50); color:var(--accent); }
   .tab.on { color:var(--accent); background:var(--accent-weak); border-color:var(--ring); }
   .right { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .right > .btn { font-family:inherit; line-height:1.6; min-height:44px; }
+  button:focus-visible, a:focus-visible, summary:focus-visible, [tabindex="0"]:focus-visible {
+    outline:2px solid var(--accent); outline-offset:3px; }
+  .seg-toggle button:focus-visible { outline-offset:-3px; }
+  .seg-toggle button.on:focus-visible { outline-color:var(--accent-ink); }
   .btn { padding:8px 14px; border:1px solid var(--line-strong); border-radius:var(--r-sm); background:var(--panel);
          color:var(--txt); cursor:pointer; font-size:var(--fs-base); font-weight:600;
          transition:background .12s,border-color .12s,color .12s; }
@@ -1055,9 +1060,9 @@
     <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
   </div>
   <div class="right">
-    <span id="alertBell" class="btn" onclick="openAlerts()" style="cursor:pointer;position:relative" title="관심종목 시그널 변동 알림" aria-label="알림"><span class="alert-bell-ico" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5"/><path d="M9 17a3 3 0 0 0 6 0"/></svg></span><span id="alert-badge" style="display:none"></span></span>
-    <span id="myPageLabel" class="btn" onclick="switchTab('mypage')" style="cursor:pointer"></span>
-    <span class="btn btn-logout" onclick="logout()" style="cursor:pointer" title="로그아웃"><span class="logout-full">로그아웃</span><span class="logout-short">나가기</span></span>
+    <button type="button" id="alertBell" class="btn" onclick="openAlerts()" style="position:relative" title="관심종목 시그널 변동 알림" aria-label="알림"><span class="alert-bell-ico" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5"/><path d="M9 17a3 3 0 0 0 6 0"/></svg></span><span id="alert-badge" style="display:none"></span></button>
+    <button type="button" id="myPageLabel" class="btn" onclick="switchTab('mypage')" aria-label="내 계정 설정"></button>
+    <button type="button" class="btn btn-logout" onclick="logout()" title="로그아웃"><span class="logout-full">로그아웃</span><span class="logout-short">나가기</span></button>
   </div>
 </header>
 

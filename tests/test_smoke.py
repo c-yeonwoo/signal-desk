@@ -76,6 +76,20 @@ def test_signup_login_profile_flow(tmp_path, monkeypatch):
     assert r.json()["items"] == []
 
 
+def test_header_actions_are_native_keyboard_buttons():
+    import re
+    from pathlib import Path
+
+    html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    for ident in ("alertBell", "myPageLabel"):
+        match = re.search(r'<button\b[^>]*\bid="' + ident + r'"[^>]*>', html)
+        assert match and 'type="button"' in match.group()
+    assert re.search(r'<button\b[^>]*class="btn btn-logout"', html)
+    assert 'aria-label="내 계정 설정"' in html
+    assert "button:focus-visible" in html and ".seg-toggle button:focus-visible" in html
+    assert ".seg-toggle button.on:focus-visible { outline-color:var(--accent-ink); }" in html
+
+
 def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     client = _fresh_client(tmp_path, monkeypatch)
     html = client.get("/").text
