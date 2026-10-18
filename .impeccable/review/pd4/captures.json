@@ -1,0 +1,15 @@
+{
+  "kind": "isolated-actual-app-synthetic-api",
+  "sourceMain": "e3e5c8ca34dc5fd0fe3bb4420812b568cd04b880",
+  "renderer": "src/signal_desk/web/index.html",
+  "url": "http://127.0.0.1:8769/#today",
+  "engineOrServiceLoaded": false,
+  "realOrdersOrAccountWrites": false,
+  "captureTool": "CUA Chrome; sips normalizes returned JPEG bytes to PNG without content edits",
+  "captures": [
+    {"file":"desktop.png","viewportWidth":1386,"pixelWidth":1371,"pixelHeight":777,"sha256":"bcbce919d07b260eb15b47a2e680ad2b6561439547b8164bbe1c9789ead63a63"},
+    {"file":"mobile.png","viewportWidth":390,"viewportHeight":844,"fullPage":true,"pixelWidth":375,"pixelHeight":1453,"sha256":"7a23d644eae39b59d5a270e15864b67a9c21a80e47f2fc4e17cbed70e82f1437"},
+    {"file":"mobile-error.png","viewportWidth":390,"viewportHeight":844,"fullPage":true,"pixelWidth":375,"pixelHeight":1237,"sha256":"fd217c7f62e956274242103ac820f0ead1fb770b50de9f3bffccdc7322779208"}
+  ],
+  "limitations": ["Synthetic fixture, not live investment data", "Owner acceptance not inferred", "No global performance or accessibility certification"]
+}
