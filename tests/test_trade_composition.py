@@ -142,10 +142,16 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     assert 'id="investment-home"' in rebal
     block = src.split("목표가 가정은 아래 가격·지표", 1)[1].split("else heroEl.style.display", 1)[0]
     assert "hero-upside" not in block  # 손실 경고 앞에 목표 여력을 내지 않는다
-    assert "lossHtml" in block
+    assert "episodeLoss ? ' buy-with-loss'" in block
     inner = block.split("heroEl.innerHTML = ", 1)[1]
-    assert inner.index("${lossHtml}") < inner.index("hero-reason") < inner.index("${after}")
+    assert inner.index("hero-reason") < inner.index("${after}")
     assert inner.index("${after}") < inner.index("hero-tech") < inner.index("hero-metrics")
+    hero = src.split("function _paintSignalDetail(", 1)[1].split("const qEl =", 1)[0]
+    assert "ru < 0 ? 'hero-runup down'" in hero
+    assert "첫 매수권 뒤 가격" in hero and "실제 매입 손익 아님" in hero
+    assert "실제 체결 손익이 아니며" in hero
+    assert "새 매수 후보 평가입니다. 이미 보유한 주식의 추가매수·매도 지시는 아닙니다." in hero
+    assert "hero-upside" not in hero and "참고 목표가" not in hero
     assert "당시 메모" in src and "연구 순서 · 주문에 연결되어 있지 않습니다" in src
     perf_fn = src.split("function loadBotPerformance", 1)[1].split("\nfunction ", 1)[0]
     assert "ex != null && (d.excluded_non_sessions" in perf_fn

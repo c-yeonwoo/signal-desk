@@ -948,6 +948,70 @@
   .watch-thesis-history-item time{display:block;margin-bottom:3px;color:var(--dim-2);font-size:12px}
   @media(max-width:600px){#subnav-cycle-ref{gap:6px}.watch-thesis-card{padding:10px}.watch-thesis-card .btn{min-height:40px}}
 </style>
+<style>
+  /* SIG-26: 기존 시각 체계 안에서 목록/상세 읽기 순서만 정리한다. */
+  #view-signal .sig-workspace { gap:0; border:1px solid var(--line); border-radius:12px; background:var(--panel); overflow:visible; }
+  #view-signal .sig-list { flex:0 0 340px; min-width:0; border:0; border-right:1px solid var(--line); border-radius:0; box-shadow:none; }
+  #view-signal .sig-chart-pane { border:0; border-radius:0; box-shadow:none; padding:28px 30px; }
+  #view-signal .sig-toolbar { flex-direction:column; align-items:stretch; padding:20px; gap:10px; }
+  #view-signal .sig-toolbar #sig-sort { order:2; width:100%; max-width:none; }
+  #view-signal .sig-toolbar #sig-search { order:1; flex:auto; width:100%; }
+  .stock-list { list-style:none; margin:0; padding:0; }
+  .stock-row { display:grid; grid-template-columns:36px minmax(0,1fr); border-top:1px solid var(--line); }
+  .stock-row.selected-row { background:var(--accent-weak); }
+  .stock-open { border:0; background:none; color:var(--txt); text-align:left; padding:16px 18px 16px 4px; cursor:pointer; font:inherit; min-width:0; }
+  .stock-open:hover { background:var(--bg); }
+  .stock-open:focus-visible, .stock-row .fav-star:focus-visible { outline:2px solid var(--accent); outline-offset:-3px; }
+  .stock-row .fav-star { align-self:start; margin-top:17px; padding:4px; min-height:36px; width:36px; border:0; background:none; }
+  .stock-line { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+  .stock-name { min-width:0; overflow-wrap:anywhere; font-size:15px; font-weight:700; }
+  .stock-price { white-space:nowrap; font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .stock-meta, .stock-state { display:flex; justify-content:space-between; gap:10px; margin-top:6px; font-size:13px; color:var(--dim); }
+  .stock-meta > :first-child { min-width:0; overflow-wrap:anywhere; }
+  .stock-change { flex-shrink:0; font-variant-numeric:tabular-nums; }
+  #view-signal .stock-state .sig-pill { padding:0; border:0; border-radius:0; background:none; font-size:13px; }
+  #view-signal .stock-state .sig-pill.BUY, #view-signal .stock-state .sig-pill.STRONG_BUY { color:var(--sig-buy); }
+  #view-signal .stock-state .sig-pill.SELL, #view-signal .stock-state .sig-pill.STRONG_SELL { color:var(--sig-sell); }
+  #view-signal .stock-state .sig-pill.price-unverified { color:var(--dim); }
+  .stock-row .signal-price-note { margin:0; text-align:right; font-size:13px; }
+  .stock-row .live-quote-price { font-size:13px; margin-top:6px; color:var(--dim); }
+  #view-signal .hero-card { padding:0 0 22px; margin:0 0 22px; border:0; border-bottom:1px solid var(--line); border-radius:0; background:none; }
+  #view-signal .hero-top { display:block; }
+  #view-signal .hero-price { font-size:32px; }
+  #view-signal .hero-signal { display:inline-block; margin-top:20px; background:none; border:0; padding:0; color:var(--txt); }
+  #view-signal .hero-price-note { margin:8px 0 0; padding:0; background:none; color:var(--dim); font-size:14px; font-weight:normal; }
+  #view-signal .hero-price-note.is-stale { color:var(--sig-sell); font-weight:600; }
+  #view-signal .hero-reason { margin-top:8px; font-weight:normal; }
+  #view-signal .hero-loss-note { background:none; padding:0; color:var(--sig-watch); font-weight:normal; }
+  #view-signal .hero-after { margin-top:12px; }
+  #view-signal .hero-tech { margin-top:16px; padding-top:14px; }
+  #view-signal .pane-title-block #signal-chart-title { font-size:24px; outline:none; }
+  #view-signal .pane-title-block #signal-chart-title:focus-visible { outline:2px solid var(--accent); }
+  #view-signal .sig-about.is-on { display:block; }
+  #view-signal .sig-about summary { cursor:pointer; color:var(--dim); font-size:14px; }
+  #view-signal .sig-about p { margin:8px 0 0; max-width:70ch; }
+  #view-signal .company-review { background:none; border:0; border-top:1px solid var(--line); border-radius:0; margin-top:24px; padding:24px 0 0; }
+  #view-signal .company-review-part { border:0; padding:0; }
+  #view-signal .company-review h3 { margin-bottom:12px; }
+  .stock-back { display:none; margin-bottom:20px; }
+  .stock-chart-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin:0 0 12px; }
+  .stock-chart-head h3 { font-size:17px; margin:0; }
+  #view-signal #chart-mode-seg { margin:0; }
+  .stock-load-error { padding:24px 18px; color:var(--dim); font-size:15px; }
+  .stock-load-error button { display:block; margin-top:12px; }
+  #view-signal [hidden] { display:none !important; }
+  @media(max-width:900px) {
+    #view-signal .sig-workspace { flex-direction:column; overflow:visible; }
+    #view-signal .sig-list { flex:auto; width:100%; border-right:0; }
+    #view-signal .sig-chart-pane { padding:20px 16px; display:none; }
+    #view-signal .sig-workspace.detail-open .sig-list { display:none; }
+    #view-signal .sig-workspace.detail-open .sig-chart-pane { display:flex; }
+    #view-signal .stock-back { display:inline-flex; align-self:flex-start; }
+    #view-signal .sig-toolbar input, #view-signal .sig-toolbar select { font-size:16px; }
+    #view-signal .stock-name { font-size:16px; }
+    #view-signal .pane-title-block #signal-chart-title { font-size:22px; }
+  }
+</style>
 </head>
 <body>
 
@@ -1091,6 +1155,7 @@
             <option value="volume">거래량순</option>
           </select>
         </div>
+        <p id="signal-list-notice" role="status" hidden style="padding:0 20px;color:var(--sig-sell);font-size:14px"></p>
         <details id="sig-explore" class="sig-explore" ontoggle="if(this.open) openSignalExplore()">
           <summary>상세 탐색 <span id="screen-count" style="color:var(--dim);font-weight:600"></span></summary>
           <div class="sig-explore-body">
@@ -1187,25 +1252,27 @@
         </details>
         <div id="signal-body" class="placeholder" style="padding:32px 0">불러오는 중…</div>
       </div>
-      <div class="sig-chart-pane card is-empty">
+      <div class="sig-chart-pane card is-empty" aria-label="종목 상세">
+        <button type="button" class="btn stock-back" onclick="backToSignalList()">목록으로</button>
         <div class="pane-head">
           <div class="pane-title-block">
-            <span id="signal-chart-title">종목을 선택하세요</span>
-            <div id="chart-asof" class="chart-asof" title="차트 가격 데이터 기준·갱신 시각"></div>
+            <h2 id="signal-chart-title" tabindex="-1" style="margin:0">종목을 선택하세요</h2>
             <div id="signal-about" class="sig-about"></div>
           </div>
-          <span id="chart-mode-seg" class="seg-toggle">
+        </div>
+        <div id="signal-selection-empty" role="status">목록에서 종목을 선택하세요.</div>
+        <div id="signal-hero" style="display:none"></div>
+        <div class="stock-chart-head"><h3>가격과 시그널 흐름</h3><span id="chart-mode-seg" class="seg-toggle">
             <button type="button" data-cm="simple" onclick="setChartMode('simple')">간단</button>
             <button type="button" data-cm="trend" onclick="setChartMode('trend')">추세</button>
             <button type="button" data-cm="detail" onclick="setChartMode('detail')">자세히</button>
           </span>
         </div>
-        <div id="signal-selection-empty" role="status">목록에서 종목을 선택하세요.</div>
-        <div id="signal-hero" style="display:none"></div>
-        <section id="signal-company-review" class="company-review" aria-label="가격과 기업 근거 함께 보기" style="display:none"></section>
+        <div id="chart-asof" class="chart-asof" title="차트와 판정·별도 현재가의 기준 시각"></div>
         <p id="chart-mode-hint" class="page-desc" style="display:none;margin:0 0 8px;font-size:13px"></p>
         <div id="signal-chart"></div>
         <div id="signal-legend" style="display:none;font-size:12px;color:var(--dim);margin:4px 0;line-height:1.55"></div>
+        <section id="signal-company-review" class="company-review" aria-label="가격과 기업 근거 함께 보기" style="display:none"></section>
         <!-- 왜 지금 — **근거**(신호)다. 점수를 실제로 만든 입력의 변화이므로 맥락 탭이 아니라
              차트 바로 아래에 둔다. 매수·매도 종목만 노출한다(관망은 대부분이라 매일 보면 안 읽힌다). -->
         <div id="signal-whynow" style="display:none;font-size:13px;line-height:1.55;margin:6px 0;
@@ -2672,13 +2739,10 @@ window.addEventListener('resize', () => {
   // 가로로 돌릴 때 섹터 열이 접힌 채(또는 펴진 채) 남는다. 리스너를 따로 두지 않고 여기 붙인다.
   clearTimeout(_resizeT);
   _resizeT = setTimeout(() => {
-    document.querySelectorAll('table.sig-table').forEach(t => {
-      try { applySigColWidths(t); } catch (e) {}
-    });
     // 어제와 달라진 것도 폭에 따라 행 수가 달라진다 — 안 다시 그리면 세로로 열었다가
     // 가로로 돌릴 때 2행으로 접힌 채 남는다. 리스너를 새로 만들지 않고 여기 붙인다.
     if (document.getElementById('sig-today')?.open) try { loadDailyChange(); } catch (e) {}
-    try { _drillSync(); } catch (e) {}          // 경로 ② — 위 `_drillSync` 주석 참고
+    syncSignalLayout();
   }, 120);
 });
 
@@ -4023,7 +4087,6 @@ async function loadSiaIndustryPulse(){
 
 let _signalItems = {}, _favorites = new Set(), _backtestByKind = {};
 let _signalRows = null, _indexReady = false, _selectedTicker = null, _sigMarket = 'kospi', _sigLoadSeq = 0;
-let _signalFilterContext = null;
 let _liveQuotePrices = {}, _liveQuoteTimes = {}, _liveQuoteMeta = {}, _liveQuoteUpdated = null;
 let _liveQuoteSeen = false;
 let _livePriceSource = null, _livePriceAgeTimer = null;
@@ -4076,8 +4139,8 @@ function paintLiveQuoteStatus(){
   el.textContent = `${recent === count ? '🟢' : '⚠️'} 현재가 서버 수신 ${new Date(_liveQuoteUpdated * 1000).toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'})} · ${recent}/${count}종목 10분 이내 · ${sourceTime}`;
 }
 function paintLiveQuotePrices(){
-  document.querySelectorAll('#signal-body tr.clickable-row[data-ticker]').forEach(tr => {
-    const ticker = tr.dataset.ticker, td = tr.children[1];
+  document.querySelectorAll('#signal-body .stock-row[data-ticker]').forEach(tr => {
+    const ticker = tr.dataset.ticker, td = tr.querySelector('.stock-open');
     if (!td) return;
     let el = td.querySelector('.live-quote-price');
     const price = Number(_liveQuotePrices[ticker]);
@@ -4085,12 +4148,11 @@ function paintLiveQuotePrices(){
     if (!el) {
       el = document.createElement('div');
       el.className = 'sig-metric live-quote-price';
-      const metric = td.querySelector('.sig-metric');
-      if (metric) metric.insertAdjacentElement('afterend', el); else td.prepend(el);
+      td.appendChild(el);
     }
     const fresh = liveQuoteFresh(ticker);
     el.textContent = fresh
-      ? `현재가 ${_sigMarket === 'us' ? '$' + fmtNum(price, 2) : fmtNum(price, 0) + '원'}`
+      ? `별도 현재가 ${_sigMarket === 'us' ? '$' + fmtNum(price, 2) : fmtNum(price, 0) + '원'}`
       : '현재가 갱신 지연';
     el.style.color = fresh ? '' : 'var(--sig-sell)';
   });
@@ -4220,10 +4282,14 @@ let _backtestCache = null, _backtestRequest = null;
 
 // 시그널 응답 메타 — 「오늘」카드가 precision·편중·데스크를 한곳에 씀
 let _sigTodayMeta = { crowding: null, desk_report: null, selection: null };
+let _appliedSignalSnapshot = null;
 
 // 시그널 응답(d)·백테스트(bt)를 화면에 반영. 선택 종목은 가능하면 유지(재검증 시 차트 깜빡임 방지).
 function applySignalData(d, bt){
   const el = document.getElementById('signal-body');
+  const previousSelected = _selectedTicker && _signalItems[_selectedTicker];
+  const sameSnapshot = d === _appliedSignalSnapshot;
+  _appliedSignalSnapshot = d;
   _backtestByKind = {};
   if (bt && bt.ready) (bt.by_signal || []).forEach(r => { _backtestByKind[r.kind] = r; });
   _sigTodayMeta = {
@@ -4250,8 +4316,13 @@ function applySignalData(d, bt){
   // 선택 우선순위: 밸류체인 딥링크 > 기존 선택(현 시장에 존재) > 1위. 기존 선택이 그대로면 재선택 생략(차트 재로딩 방지).
   const pending = (_pendingSignalTicker && _signalItems[_pendingSignalTicker]) ? _pendingSignalTicker : null;
   if (pending) { _pendingSignalTicker = null; selectSignalRow(pending); }
-  else if (_selectedTicker && _signalItems[_selectedTicker]) { /* 유지 — 리스트가 이미 하이라이트 */ }
-  else if (firstVisibleTicker) selectSignalRow(firstVisibleTicker);
+  else if (_selectedTicker && _signalItems[_selectedTicker]) {
+    if (sameSnapshot && previousSelected) {
+      _signalItems[_selectedTicker] = previousSelected;
+      _paintSignalDetail(_selectedTicker, previousSelected);
+    } else showSignalChart(_selectedTicker, _signalItems[_selectedTicker]);
+  }
+  else if (firstVisibleTicker && !_sigStacked()) selectSignalRow(firstVisibleTicker);
 }
 
 async function loadSignals(opts){
@@ -4260,6 +4331,7 @@ async function loadSignals(opts){
   const market = _sigMarket, isUS = market === 'us';
   const el = document.getElementById('signal-body');
   const cached = _sigCache[market];
+  const seq = ++_sigLoadSeq;
   // 캐시 히트 → 즉시 렌더(전환 지연 제거). 신선하면 종료, 오래됐거나 force면 백그라운드 재검증.
   if (cached && !opts.force) {
     applySignalData(cached.d, isUS ? null : _backtestCache);
@@ -4267,19 +4339,25 @@ async function loadSignals(opts){
   } else {
     el.textContent = '불러오는 중…';
   }
-  const seq = ++_sigLoadSeq;  // 시장 전환 레이스 방지 — 최신 요청만 렌더
   try {
     const [d, fav] = await Promise.all([
-      fetch('/api/signals?market=' + market).then(r => r.json()),
-      fetch('/api/favorites').then(r => r.json()),
+      fetch('/api/signals?market=' + market).then(r => { if (r.ok === false) throw new Error('signals unavailable'); return r.json(); }),
+      fetch('/api/favorites').then(r => { if (r.ok === false) throw new Error('favorites unavailable'); return r.json(); }),
     ]);
     if (seq !== _sigLoadSeq || _sigMarket !== market) return;  // 더 최신 로드/시장전환 → 폐기
     _favorites = new Set((fav.favorites || []).filter(f => f.kind === 'ticker').map(f => f.key));
     _sigCache[market] = { d, ts: Date.now() };
     applySignalData(d, isUS ? null : _backtestCache);
+    const notice = document.getElementById('signal-list-notice');
+    if (notice) notice.hidden = true;
   } catch (e) {
-    if (!cached) {
-      el.textContent = '불러오지 못했습니다.';  // 캐시로 이미 표시 중이면 조용히 실패
+    if (seq !== _sigLoadSeq || _sigMarket !== market) return;
+    if (cached) {
+      applySignalData(cached.d,isUS ? null : _backtestCache);
+      const notice = document.getElementById('signal-list-notice');
+      if (notice) { notice.textContent = '목록 갱신에 실패해 마지막 저장 자료를 표시합니다. 가격 기준을 확인해 주세요.'; notice.hidden = false; }
+    } else {
+      el.innerHTML = '<div class="stock-load-error" role="status">종목 목록을 불러오지 못했습니다.<button type="button" class="btn" onclick="loadSignals({force:true})">다시 불러오기</button></div>';
       clearSignalSelection('종목 목록을 불러오지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
     }
   }
@@ -4520,15 +4598,20 @@ function signalPriceView(item){
   return { status:'unknown', warning:true, stale:true,
     label:'가격 기준 미확인', message:'판정에 쓴 가격의 날짜나 시각을 확인하지 못했습니다. 현재 매수·매도 판단으로 쓰지 마세요.' };
 }
+function hasSignalPrice(item){
+  return item?.price != null && Number.isFinite(Number(item.price)) && Number(item.price) > 0;
+}
+function signalPriceText(item){
+  if (!hasSignalPrice(item)) return '–';
+  return (_sigMarket === 'us' ? '$' + fmtNum(Number(item.price),2) : fmtNum(Number(item.price),0) + '원');
+}
 function renderSignalList(){
   const el = document.getElementById('signal-body');
   if (!_signalRows) return;
-  // **표를 다시 그리기 전에 차트 카드를 먼저 빼낸다.** 모바일 드릴다운은 카드를 표의
-  // `<tr>` 안으로 옮겨 두는데, 그 상태로 `innerHTML` 을 덮으면 카드가 **DOM에서 통째로
-  // 사라진다**(실측 2026-08-17: `.sig-chart-pane` 도 `#signal-chart` 도 없어져 차트가
-  // 영영 안 돌아왔다 — 새로고침해야 복구됐다). 순서가 반대면 아래 `_drillSync` 가
-  // 되살릴 대상 자체를 잃는다.
-  try { _drillRestore(); } catch (e) {}
+  // 상세는 목록 밖의 고정 DOM에 둔다. 목록 재렌더로 차트 인스턴스가 제거되지 않는다.
+  const focused = document.activeElement;
+  const restoreTicker = focused?.closest('[data-ticker]')?.dataset.ticker;
+  const restoreFav = focused?.matches('[data-fav]');
   el.style.padding = '0';  // 로딩 플레이스홀더용 상하 패딩 제거(리스트 위 빈공간 제거)
   const q = (document.getElementById('sig-search').value || '').trim().toLowerCase();
   const sort = document.getElementById('sig-sort').value;
@@ -4551,15 +4634,12 @@ function renderSignalList(){
   if (sort === 'mktcap') rows = [...rows].sort((a, b) => nn(capKrw(b)) - nn(capKrw(a)));
   else if (sort === 'volume') rows = [...rows].sort((a, b) => nn(b.vol_avg) - nn(a.vol_avg));
   else rows = sortSignalRows(rows, sort);
-  const filterContext = `${_sigMarket}|${q}`;
-  const filterChanged = _signalFilterContext !== null && _signalFilterContext !== filterContext;
-  _signalFilterContext = filterContext;
-  if (filterChanged && _selectedTicker && !rows.some(r => r.ticker === _selectedTicker))
+  if (_selectedTicker && !rows.some(r => r.ticker === _selectedTicker))
     clearSignalSelection(q ? '검색 결과에서 종목을 선택하세요.' : '목록에서 종목을 선택하세요.');
   const metric = (r) => sort === 'mktcap' ? fmtCap(r)
     : sort === 'volume' ? '평균 ' + fmtVol(r.vol_avg)
     : '점수 ' + (r.score > 0 ? '+' : '') + fmtNum(r.score, 2);
-  const star = (t) => `<span class="fav-star${_favorites.has(t) ? ' on' : ''}" data-fav="${esc(t)}" title="관심종목">${_favorites.has(t) ? '★' : '☆'}</span>`;
+  const star = (r) => `<button type="button" class="fav-star${_favorites.has(r.ticker) ? ' on' : ''}" data-fav="${esc(r.ticker)}" aria-label="${esc(r.name)} 관심 ${_favorites.has(r.ticker) ? '해제' : '추가'}" aria-pressed="${_favorites.has(r.ticker)}"><svg width="18" height="18" viewBox="0 0 24 24" fill="${_favorites.has(r.ticker) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m12 3 2.8 5.7 6.3.9-4.5 4.4 1.1 6.2L12 17.3l-5.7 3 1.1-6.3L3 9.6l6.2-.9Z"/></svg></button>`;
   // 기회 뱃지: 필터 중이거나 매수권일 때만 최대 1개 — 전 행 나열은 스캔을 죽인다
   const badges = (r) => {
     const showOpp = _oppFilter || _isBuy(r.kind);
@@ -4641,25 +4721,19 @@ function renderSignalList(){
   };
   const body = rows.map(r => {
     const priceView = signalPriceView(r);
+    const hasPrice = hasSignalPrice(r);
     const priceNote = priceView.label ? `<span class="signal-price-note${priceView.stale ? ' is-stale' : priceView.warning ? ' is-warning' : ''}" title="${esc(priceView.message)}">${esc(priceView.label)}</span>` : '';
-    return `<tr class="clickable-row" data-ticker="${esc(r.ticker)}" title="${r.sector ? esc(r.sector) : ''}">
-      <td>${star(r.ticker)}</td>
-      <td>${esc(r.name)}<div class="sig-metric">${esc(r.ticker)} · ${metric(r)}${sort === 'signal' || sort === 'score' ? covBadge(r) : ''}</div>${badges(r)}</td>
-      <td style="font-size:13px;color:var(--dim)">${r.sector ? esc(r.sector) : '–'}</td>
-      <td class="sig-cell"><div class="sig-pills"><span class="sig-pill ${r.kind}${priceView.warning ? ' price-unverified' : ''}" title="${esc(sigPillTitle(r))}">${priceView.stale ? '지난 ' : ''}${kindLabel(r.kind)}</span>${holdNote(r)}${priceNote}</div></td>
-    </tr>`;
+    const change = hasPrice && r.change_pct != null && Number.isFinite(Number(r.change_pct)) ? Number(r.change_pct) : null;
+    return `<li class="stock-row" data-ticker="${esc(r.ticker)}">
+      ${star(r)}<button type="button" class="stock-open" data-stock-open="${esc(r.ticker)}" aria-pressed="${r.ticker === _selectedTicker}">
+        <span class="stock-line"><span class="stock-name">${esc(r.name)}</span><span class="stock-price">${signalPriceText(r)}</span></span>
+        <span class="stock-meta"><span>${esc(r.ticker)}${r.sector ? ' · ' + esc(r.sector) : ''}</span><span class="stock-change" style="color:${change > 0 ? 'var(--sig-buy)' : change < 0 ? 'var(--sig-sell)' : 'var(--dim)'}">${change == null ? '–' : (change > 0 ? '+' : '') + fmtNum(change,2) + '%'}</span></span>
+        <span class="stock-state"><span class="sig-pill ${r.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(r)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${!hasPrice ? '현재 판정 보류' : (priceView.stale ? '지난 ' : '') + kindLabel(r.kind)}</span>${hasPrice ? priceNote : '<span>가격 확인 필요</span>'}</span>
+        ${(sort !== 'signal' || r.low_coverage) ? `<span class="sig-metric">${esc(metric(r))}${covBadge(r)}</span>` : ''}${holdNote(r)}${badges(r)}
+      </button></li>`;
   }).join('');
     el.innerHTML = rows.length
-    ? `<table class="dtable sig-table"><colgroup>
-         <col class="col-star"><col class="col-name"><col class="col-sector"><col class="col-sig">
-       </colgroup>
-       <thead><tr>
-         <th></th>
-         <th data-col="name">종목<span class="col-resizer" data-edge="name" title="드래그로 너비 조절"></span></th>
-         <th data-col="sector">섹터<span class="col-resizer" data-edge="sector" title="드래그로 너비 조절"></span></th>
-         <th data-col="sig">시그널</th>
-       </tr></thead>
-       <tbody>${body}</tbody></table>`
+    ? `<ul class="stock-list" aria-label="종목 목록">${body}</ul>`
     : (() => {
         if (baseCount > 0 && ['event', 'entry'].some(k => _lensModes[_sigMarket][k] === 'require'))
           return `<div class="placeholder sig-empty"><div class="se-title">관점 조건 충족 · 0건</div>
@@ -4688,114 +4762,24 @@ function renderSignalList(){
         return `<div class="placeholder sig-empty"><div class="se-title">조건에 맞는 종목 없음</div>
           <div class="se-body">스크리너·관심종목 필터를 낮춰 보세요.</div></div>`;
       })();
-  el.querySelectorAll('tr.clickable-row').forEach(tr => {
-    tr.addEventListener('click', () => selectSignalRow(tr.dataset.ticker));
+  el.querySelectorAll('.stock-row').forEach(tr => {
+    tr.querySelector('.stock-open').addEventListener('click', () => selectSignalRow(tr.dataset.ticker));
     tr.classList.toggle('selected-row', tr.dataset.ticker === _selectedTicker);
   });
   el.querySelectorAll('.fav-star').forEach(s => {
     s.addEventListener('click', (ev) => { ev.stopPropagation(); toggleFav(s.dataset.fav, s); });
   });
-  const tbl = el.querySelector('table.sig-table');
-  if (tbl) { applySigColWidths(tbl); bindSigColResize(tbl); }
-  // 경로 ③ — 목록을 다시 그리면 드릴 행도 같이 날아간다. 선택된 종목이 있으면 다시 끼운다.
-  try { _drillSync(); } catch (e) {}
+  if (restoreTicker) {
+    const row = el.querySelector(`.stock-row[data-ticker="${CSS.escape(restoreTicker)}"]`);
+    (row?.querySelector(restoreFav ? '[data-fav]' : '.stock-open') || document.getElementById('sig-search')).focus({preventScroll:true});
+  }
+  syncSignalLayout();
   paintLiveQuotePrices();
   return rows[0]?.ticker;
 }
 
-// 시그널 표 열 너비 — 별 열 고정, 종목·섹터·시그널 % 합 100. 드래그로 조절·localStorage 유지.
-const _SIG_COL_KEY = 'sigdesk.sigCols.v1';
-const _SIG_COL_DEFAULT = { name: 36, sector: 30, sig: 34 };
-function _loadSigCols(){
-  try {
-    const raw = JSON.parse(localStorage.getItem(_SIG_COL_KEY) || 'null');
-    if (!raw || typeof raw !== 'object') return { ..._SIG_COL_DEFAULT };
-    const name = Math.max(18, Math.min(60, Number(raw.name) || _SIG_COL_DEFAULT.name));
-    const sector = Math.max(14, Math.min(50, Number(raw.sector) || _SIG_COL_DEFAULT.sector));
-    const sig = Math.max(18, Math.min(55, Number(raw.sig) || _SIG_COL_DEFAULT.sig));
-    const s = name + sector + sig;
-    return { name: name / s * 100, sector: sector / s * 100, sig: sig / s * 100 };
-  } catch (e) { return { ..._SIG_COL_DEFAULT }; }
-}
-function _saveSigCols(w){
-  try { localStorage.setItem(_SIG_COL_KEY, JSON.stringify(w)); } catch (e) {}
-}
-// 섹터 열을 접는 폭 — CSS 미디어쿼리(max-width:640px)와 **같은 값**이어야 한다.
-// 다르면 열은 숨겼는데 폭은 남거나 그 반대가 되고, 그 차이는 화면에서만 보인다.
+// 좁은 카드의 보조 표에도 쓰는 브레이크포인트.
 const _SIG_NARROW_PX = 640;
-
-function applySigColWidths(table){
-  // 별 열 36px 고정 — 나머지를 %로 나눠 100%+36px 오버플로를 막는다.
-  //
-  // **좁은 폭에서는 섹터 열의 몫을 0으로 돌리고 나머지에 재분배한다.** 미디어쿼리가
-  // `th/td:nth-child(3)`을 `display:none` 하지만 `<col>`의 **인라인 width는 그대로 남아**
-  // 보이지 않는 열이 폭을 계속 예약했다 — 인라인 스타일은 미디어쿼리가 못 이긴다.
-  // 실측(375px): 테이블 345px인데 보이는 셀 합계가 242px로, 103px(30%)이 죽은 공간이었다.
-  // 그래서 종목명 칸이 103px로 좁아져 `HD한국조선해` + `양`으로 쪼개지고 배지도 줄바꿈됐다.
-  const w = _loadSigCols();
-  const narrow = window.innerWidth <= _SIG_NARROW_PX;
-  const share = narrow
-    ? { name: w.name / (w.name + w.sig) * 100, sector: 0, sig: w.sig / (w.name + w.sig) * 100 }
-    : w;
-  const set = (cls, v) => { const c = table.querySelector('col.' + cls); if (c) c.style.width = v; };
-  const rem = (pct) => `calc((100% - 36px) * ${ (pct / 100).toFixed(4) })`;
-  set('col-star', '36px');
-  set('col-name', rem(share.name));
-  set('col-sig', rem(share.sig));
-  // **열을 없앨 때는 `display:none`이다 — 폭 0으로 두면 안 된다.** 실측(375px):
-  //   col-sector width:0   → 배지 셀 폭 0  (fixed 레이아웃이 4번째 열 몫을 0폭 열에 먹인다)
-  //   col-sector display:none → 배지 셀 폭 148  ✓
-  // 폭 0으로 뒀을 때 `매수권밖`이 한 글자씩 세로로 쪼개졌다(`overflow-wrap:anywhere` 때문에
-  // 에러가 아니라 그냥 이상한 모양으로 렌더된다 — 미정의 CSS 변수가 무색인 것과 같은 종류).
-  const sector = table.querySelector('col.col-sector');
-  if (sector) {
-    sector.style.display = narrow ? 'none' : '';
-    sector.style.width = narrow ? '' : rem(share.sector);
-  }
-}
-
-function bindSigColResize(table){
-  table.querySelectorAll('.col-resizer').forEach(handle => {
-    handle.addEventListener('pointerdown', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      const edge = handle.dataset.edge;  // name | sector
-      const startX = e.clientX;
-      const w0 = _loadSigCols();
-      const tableW = table.getBoundingClientRect().width || 1;
-      handle.classList.add('dragging');
-      document.body.classList.add('col-resizing');
-      const onMove = (ev) => {
-        const dxPct = (ev.clientX - startX) / tableW * 100;
-        let name = w0.name, sector = w0.sector, sig = w0.sig;
-        if (edge === 'name') {
-          name = Math.max(18, Math.min(60, w0.name + dxPct));
-          const rest = 100 - name;
-          const ratio = (w0.sector + w0.sig) || 1;
-          sector = rest * (w0.sector / ratio);
-          sig = rest * (w0.sig / ratio);
-        } else {
-          sector = Math.max(14, Math.min(50, w0.sector + dxPct));
-          // name 고정, sector↑이면 sig↓
-          const maxSector = 100 - w0.name - 18;
-          sector = Math.min(sector, maxSector);
-          sig = 100 - w0.name - sector;
-          name = w0.name;
-        }
-        const next = { name, sector, sig };
-        _saveSigCols(next);
-        applySigColWidths(table);
-      };
-      const onUp = () => {
-        handle.classList.remove('dragging');
-        document.body.classList.remove('col-resizing');
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-      };
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-    });
-  });
-}
 
 // #14 기회 유형 필터 칩 — 현재 시장 시그널 기준 유형별 건수 표시
 function renderOppFilters(){
@@ -4867,73 +4851,34 @@ async function fetchNarrativeV2(ticker, el){
 // 그대로 살아 있다. 복제하면 두 개가 갈라지고, 이 리포가 이미 겪은 "같은 것을 두 곳에서
 // 조립하지 않는다"를 화면에서 반복하는 것이다.
 //
-// 브레이크포인트는 **900**이다(`_SIG_NARROW_PX`=640이 아니다) — 세로로 쌓이는 지점이
-// `@media (max-width:900px)` 이므로 640을 쓰면 태블릿(640~900)에서 목록 뒤에 그대로 남는다.
-const _SIG_STACKED_PX = 900;          // CSS `@media (max-width:900px)` 와 같은 값(레드팀 대조)
-let _drillHome = null;                // 원래 자리 — 되돌릴 때 쓴다
-
+// 목록과 상세는 같은 DOM을 유지하고 모바일에서 화면만 전환한다.
+const _SIG_STACKED_PX = 900;
 const _sigStackMQ = window.matchMedia(`(max-width:${_SIG_STACKED_PX}px)`);
+let _signalListScroll = 0;
 function _sigStacked(){ return _sigStackMQ.matches; }
-
-// **브레이크포인트 전환은 `resize` 가 아니라 `matchMedia` 로 잡는다.** 실측(2026-08-17):
-// 뷰포트를 375 → 1280으로 바꿨는데 `resize` 는 **0회**였고 미디어쿼리는 재평가됐다
-// (레이아웃은 이미 2열인데 차트 카드만 표 안에 낀 채 남았다). `resize` 에 기대면 그 경로를
-// 놓친다 — `matchMedia` 는 넘나드는 그 순간에만, 반드시 온다.
-_sigStackMQ.addEventListener('change', _drillSync);
-
-// **경로를 셋 둔다.** 이벤트 하나에 기대면 그 이벤트가 안 오는 환경에서 차트 카드가 표 안에
-// 낀 채로 남고 2열 레이아웃이 깨진다. 실측(2026-08-17): 브라우저 하네스에서 뷰포트를
-// 375→1280으로 바꿨을 때 `resize` **0회** · `matchMedia change` **0회**였다(미디어쿼리는
-// 재평가돼 레이아웃만 2열로 바뀌었다). 실기기 회전에서는 둘 다 오지만, **안 오는 환경이
-// 실제로 있다**는 것을 봤으므로 이벤트에 안 기대는 경로를 하나 더 둔다:
-//   ① matchMedia change  ② resize 디바운스  ③ 목록을 다시 그릴 때(renderSignalList)
-// 셋 다 같은 함수를 부른다 — 로직이 갈라지면 한쪽만 고쳐진다.
-function _drillSync(){
-  if (!_sigStacked()) { _drillRestore(); return; }
-  if (_selectedTicker && !document.querySelector('tr.drill-row')) _drillInsert(_selectedTicker);
-}
-
-function _drillRestore(){
-  const pane = document.querySelector('.sig-chart-pane');
-  if (!pane || !_drillHome) return;
-  // 원래 부모의 원래 위치로. `nextSibling` 을 기억해 두는 이유: 뒤에 다른 카드가 붙어도
-  // 순서가 안 밀린다.
-  _drillHome.parent.insertBefore(pane, _drillHome.next);
-  document.querySelectorAll('tr.drill-row').forEach(tr => tr.remove());
-  _drillHome = null;
+function syncSignalLayout(){
   _resizeWhenLaidOut(_signalChart, document.getElementById('signal-chart'));
 }
-
-function _drillInsert(ticker){
-  const pane = document.querySelector('.sig-chart-pane');
-  const row = document.querySelector(`#signal-body tr.clickable-row[data-ticker="${CSS.escape(ticker)}"]`);
-  if (!pane || !row) return;
-  if (!_drillHome) _drillHome = { parent: pane.parentNode, next: pane.nextSibling };
-  document.querySelectorAll('tr.drill-row').forEach(tr => tr.remove());
-  const tr = document.createElement('tr');
-  tr.className = 'drill-row';
-  const td = document.createElement('td');
-  // 숨긴 열(모바일에서 섹터 열은 `display:none`)까지 포함해 헤더 수를 그대로 쓴다 —
-  // colspan 은 숨김 여부와 무관하게 선언된 열 수여야 한다.
-  td.colSpan = row.cells.length;
-  td.appendChild(pane);
-  tr.appendChild(td);
-  row.parentNode.insertBefore(tr, row.nextSibling);
-  // **옮긴 뒤 반드시 리사이즈한다.** 0폭에서 init 된 차트를 되살릴 경로가 없다는 이력이
-  // 있어, 폭이 잡힌 다음 프레임에 맞춘다(`_resizeWhenLaidOut`).
-  _resizeWhenLaidOut(_signalChart, document.getElementById('signal-chart'));
-  // 누른 행이 화면에 남아 있어야 "이 종목의 차트"라는 게 읽힌다.
-  requestAnimationFrame(() => row.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+_sigStackMQ.addEventListener('change', syncSignalLayout);
+function backToSignalList(){
+  document.querySelector('.sig-workspace').classList.remove('detail-open');
+  const button = _selectedTicker && document.querySelector(`[data-stock-open="${CSS.escape(_selectedTicker)}"]`);
+  (button || document.getElementById('sig-search')).focus({preventScroll:true});
+  if (_sigStacked()) window.scrollTo({top:_signalListScroll,behavior:'instant'});
 }
-
 function clearSignalSelection(message='목록에서 종목을 선택하세요.'){
+  const pane = document.querySelector('.sig-chart-pane');
+  const focusInDetail = pane?.contains(document.activeElement);
   _selectedTicker = null;
-  document.querySelectorAll('#signal-body tr.clickable-row.selected-row').forEach(row => row.classList.remove('selected-row'));
+  ++_signalDetailSeq;
+  document.querySelector('.sig-workspace')?.classList.remove('detail-open');
+  document.querySelectorAll('#signal-body .stock-row').forEach(row => {
+    row.classList.remove('selected-row');
+    row.querySelector('.stock-open')?.setAttribute('aria-pressed','false');
+  });
   if (_chartAbort) { try { _chartAbort.abort(); } catch (e) {} }
   _chartCache = null;
   _disposeSignalChart();
-  _drillRestore();
-  const pane = document.querySelector('.sig-chart-pane');
   if (pane) pane.classList.add('is-empty');
   document.getElementById('signal-chart-title').textContent = '종목을 선택하세요';
   document.getElementById('chart-asof').textContent = '';
@@ -4941,29 +4886,39 @@ function clearSignalSelection(message='목록에서 종목을 선택하세요.')
   about.classList.remove('is-on'); about.textContent = '';
   const empty = document.getElementById('signal-selection-empty');
   empty.textContent = message; empty.hidden = false;
-  const hero = document.getElementById('signal-hero');
-  hero.style.display = 'none'; hero.replaceChildren();
-  const review = document.getElementById('signal-company-review');
-  review.style.display = 'none'; review.replaceChildren();
+  for (const id of ['signal-hero','signal-company-review']) {
+    const el = document.getElementById(id); el.style.display = 'none'; el.replaceChildren();
+  }
   const chart = document.getElementById('signal-chart');
   chart.classList.remove('is-loading'); chart.replaceChildren();
   renderSelectedLensDetail(null);
+  if (focusInDetail) document.getElementById('sig-search').focus({preventScroll:true});
 }
 function selectSignalRow(ticker){
-  // 같은 행을 다시 누르면 접는다(모바일만) — 목록으로 빨리 돌아갈 경로가 필요하다.
-  if (_sigStacked() && _selectedTicker === ticker && document.querySelector('tr.drill-row')) {
-    _drillRestore();
-    return;
-  }
+  if (_sigStacked() && !document.querySelector('.sig-workspace').classList.contains('detail-open'))
+    _signalListScroll = window.scrollY;
   _selectedTicker = ticker;
+  document.querySelector('.sig-workspace').classList.add('detail-open');
   document.querySelector('.sig-chart-pane')?.classList.remove('is-empty');
   document.getElementById('signal-selection-empty').hidden = true;
   renderSelectedLensDetail(ticker);
-  document.querySelectorAll('#signal-body tr.clickable-row').forEach(tr => {
-    tr.classList.toggle('selected-row', tr.dataset.ticker === ticker);
+  document.querySelectorAll('#signal-body .stock-row').forEach(row => {
+    const selected = row.dataset.ticker === ticker;
+    row.classList.toggle('selected-row',selected);
+    row.querySelector('.stock-open')?.setAttribute('aria-pressed',String(selected));
   });
   showSignalChart(ticker, _signalItems[ticker]);
-  if (_sigStacked()) _drillInsert(ticker); else _drillRestore();
+  syncSignalLayout();
+  if (_sigStacked()) {
+    document.getElementById('signal-chart-title').focus({preventScroll:true});
+    document.querySelector('.sig-chart-pane').scrollIntoView({block:'start',behavior:'instant'});
+  }
+}
+function retrySignalDetail(){
+  if (_selectedTicker) {
+    document.getElementById('signal-chart-title').focus({preventScroll:true});
+    showSignalChart(_selectedTicker,_signalItems[_selectedTicker]);
+  }
 }
 
 // 배지 색을 **한 곳에서만** 정한다. 예전엔 `.sig-pill.*` CSS와 이 객체가 각각 정해서
@@ -5577,13 +5532,14 @@ function _paintSignalDetail(ticker, item){
     const isUS = _sigMarket === 'us';
     const chg = item.change_pct;
     const chgC = chg > 0 ? 'var(--sig-buy)' : chg < 0 ? 'var(--sig-sell)' : 'var(--dim)';
-    const priceStr = item.price != null ? (isUS ? '$' + fmtNum(item.price, 2) : fmtNum(item.price, 0) + '원') : '';
+    const hasPrice = hasSignalPrice(item);
+    const priceStr = hasPrice ? signalPriceText(item) : '가격 확인 필요';
     const scoreC = item.score > 0 ? 'var(--sig-buy)' : item.score < 0 ? 'var(--sig-sell)' : 'var(--txt)';
     // Buy+만: 연속 매수권 에피소드 발동가 대비 현재 수익률(entry.run_up_pct)
     let runUpHtml = '';
-    let lossHtml = '';
+    let episodeLoss = false;
     const ent = item.entry;
-    if (_isBuy(item.kind) && ent && ent.run_up_pct != null) {
+    if (hasPrice && _isBuy(item.kind) && ent && ent.run_up_pct != null) {
       const ru = Number(ent.run_up_pct);
       const ruCls = ru < 0 ? 'hero-runup down' : 'hero-runup';
       const ruTxt = (ru > 0 ? '+' : '') + fmtNum(ru, 1) + '%';
@@ -5593,39 +5549,33 @@ function _paintSignalDetail(ticker, item){
         ? ('$' + fmtNum(ent.fire_price, ent.fire_price < 100 ? 2 : 0))
         : (fmtNum(ent.fire_price, 0) + '원'));
       const tip = '매수권 기록의 첫 가격과 현재 가격의 차이입니다. 실제 체결 손익이 아니며, 기록이 없는 날의 판정은 확인할 수 없습니다.';
-      runUpHtml = `<span class="${ruCls}" title="${esc(tip)}">발동 후 <b>${ruTxt}</b>`
+      runUpHtml = `<span class="${ruCls}" title="${esc(tip)}">첫 매수권 뒤 가격 <b>${ruTxt}</b> · 실제 매입 손익 아님`
         + (firePx ? ` <span style="font-weight:600;color:var(--dim)">(${esc(firePx)}→)</span>` : '')
         + ` <span style="font-weight:600;color:var(--dim)">${fireDate} · ${esc(age)}</span></span>`;
-      if (ru < 0) lossHtml = `<div class="hero-loss-note" role="note">첫 매수권 이후 ${fmtNum(Math.abs(ru), 1)}% 내렸습니다. 지금 등급은 새 매수 후보 평가일 뿐, 이미 산 주식을 더 사거나 팔라는 뜻은 아닙니다.</div>`;
+      episodeLoss = ru < 0;
     }
     // 목표가 가정은 아래 가격·지표 상세에 둔다. 발동 뒤 하락한 종목의 첫 카드에서
     // 현재가 대비 목표 여력을 크게 띄우면 손실 경고와 반대 메시지가 된다.
     heroEl.style.display = '';
     const beside = scoreBeside(item) ? `<span class="hero-score-why">${esc(scoreBeside(item))}</span>` : '';
     const after = runUpHtml ? `<div class="hero-after">${runUpHtml}</div>` : '';
-    const plainReason = priceView.stale
-      ? '마지막 계산 결과입니다. 가격을 다시 확인할 때까지 지금의 매매 근거로 삼지 마세요.'
-      : priceView.status === 'close_only'
-        ? '직전 종가의 판정입니다. 장중 가격을 확인한 뒤 판단하세요.'
-        : priceView.status === 'current_close'
-          ? '마지막 종가의 판정입니다. 다음 장중 가격을 확인한 뒤 판단하세요.'
-        : _isBuy(item.kind)
-          ? '새 매수 후보입니다. 아래에서 가격 조건과 기업 소식을 함께 확인하세요.'
-          : _isSell(item.kind) ? '매도 판정입니다. 보유 중이라면 근거를 확인하세요.' : heroReason(item);
+    const plainReason = !hasPrice ? '저장된 가격이 확인될 때까지 현재 판정을 보류합니다.'
+      : priceView.stale ? '아래 차트와 근거는 저장된 기록입니다.'
+      : _isBuy(item.kind) ? '새 매수 후보 평가입니다. 이미 보유한 주식의 추가매수·매도 지시는 아닙니다.'
+      : _isSell(item.kind) ? '매도 쪽으로 평가했습니다. 보유 중이라면 아래 근거를 확인하세요.' : heroReason(item);
     const indicators = !_isBuy(item.kind) && !_isSell(item.kind) ? '' : heroReason(item);
-    heroEl.innerHTML = `<div class="hero-card ${item.kind}${lossHtml ? ' buy-with-loss' : ''}${priceView.warning ? ' price-unverified' : ''}">
+    heroEl.innerHTML = `<div class="hero-card ${item.kind}${episodeLoss ? ' buy-with-loss' : ''}${priceView.warning ? ' price-unverified' : ''}">
         <div class="hero-top">
           <div class="hero-value">
             ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
-            ${chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
+            ${hasPrice && chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
           </div>
-          <span class="sig-pill hero-signal ${item.kind}${priceView.warning ? ' price-unverified' : ''}" title="${esc(sigPillTitle(item))}">${priceView.stale ? '지난 ' : ''}${kindLabel(item.kind)}</span>
+          <span class="sig-pill hero-signal ${item.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(item)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${!hasPrice ? '현재 판정 보류' : (priceView.stale ? '지난 ' : '') + kindLabel(item.kind)}</span>
         </div>
-        ${priceView.message ? `<div class="hero-price-note${priceView.stale ? ' is-stale' : ''}" role="note">${esc(priceView.message)}</div>` : ''}
-        ${lossHtml}
+        ${hasPrice && priceView.message ? `<div class="hero-price-note${priceView.stale ? ' is-stale' : ''}" role="note">${esc(priceView.message)}${item.signal_close_date ? ' · 종가 ' + esc(item.signal_close_date) : ''}</div>` : ''}
         <div class="hero-reason">${esc(plainReason)}</div>
         ${after}
-        <details class="hero-tech"><summary>점수·기술지표 자세히</summary>
+        <details class="hero-tech" ${!hasPrice ? 'hidden' : ''}><summary>점수·기술지표 자세히</summary>
           <div class="hero-metrics">
             <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
             + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b>`
@@ -5638,7 +5588,7 @@ function _paintSignalDetail(ticker, item){
       </div>`;
   } else heroEl.style.display = 'none';
   const qEl = document.getElementById('signal-quote');
-  if (item && item.price != null) {
+  if (hasSignalPrice(item)) {
     const chg = item.change_pct;
     const chgColor = chg > 0 ? 'var(--sig-buy)' : chg < 0 ? 'var(--sig-sell)' : 'var(--dim)';
     const isUS = _sigMarket === 'us';
@@ -5664,7 +5614,7 @@ function _paintSignalDetail(ticker, item){
   if (aboutEl) {
     if (item && item.about) {
       aboutEl.classList.add('is-on');
-      aboutEl.innerHTML = `<span class="sa-label">종목 개요</span><span class="sa-text">${esc(item.about)}</span>`;
+      aboutEl.innerHTML = `<details><summary>회사 개요</summary><p class="sa-text">${esc(item.about)}</p></details>`;
     } else {
       aboutEl.classList.remove('is-on');
       aboutEl.innerHTML = '';
@@ -5839,15 +5789,15 @@ function _paintSignalReview(ticker, review){
   const market = review.market === 'us' ? 'us' : 'kr';
   const currency = market === 'us' ? 'USD' : 'KRW';
   const holdingDetail = held ? `<div class="company-review-holding"><b>내 보유 입력과는 따로 보기</b>
+    <p>신규 후보 평가와 보유 판단은 다릅니다.</p>
     <p>${esc(review.holding_text || '')}</p>`
     + (hasChange ? `<p>입력 평단 ${esc(_piMoney(holding.average_price,currency))} → ${esc(holding.close_date)} 종가 ${esc(_piMoney(holding.confirmed_close,currency))} · 단순 가격 변화 <b style="display:inline;color:${change < 0 ? 'var(--sig-sell)' : 'var(--sig-buy)'}">${change > 0 ? '+' : ''}${fmtNum(change,2)}%</b></p>
       <p>배당·수수료·실제 체결은 제외한 비교입니다. 입력한 평단·수량과 실계좌가 같은지는 확인하지 않았어요.</p>` : '')
     + `<button type="button" class="btn" onclick="_openHoldingReview('${market}')">내 보유 진단에서 비중 확인</button></div>` : '';
-  el.innerHTML = `<h3>가격과 기업 소식, 함께 보기</h3><p class="company-review-lead">${esc(lead)}</p>`
-    + `<div class="company-review-grid">`
-    + `<div class="company-review-part"><b>${stale ? '가격 기준 확인 필요' : closeBasis ? '마지막 종가의 판정' : '현재 가격 조건'}</b>${lines(groups.supports.concat(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:'))), groups.context.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:')))), '가격 판정을 확인하지 못했어요.')}</div>`
-    + `<div class="company-review-part"><b>회사 관련 공시·기사</b>${lines(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))).concat(groups.context.filter(c => !(c.evidence_ids || []).some(id => id.startsWith('price:')))), '연결할 최근 원문이 없어요.')}</div>`
-    + `</div><p class="company-review-foot">${esc(basis + ((review.as_of || {}).prices_through || '미확인'))}</p>`
+  el.innerHTML = `<h3>판정 근거와 기업 소식</h3>`
+    + (stale || hasOfficialRisk || review.buy_blocked ? `<p class="company-review-lead">${esc(lead)}</p>` : '')
+    + `<div class="company-review-part">${lines(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))).concat(groups.context.filter(c => !(c.evidence_ids || []).some(id => id.startsWith('price:')))), '연결할 최근 원문이 없습니다. 새 소식이나 악재가 없다는 뜻은 아닙니다.')}</div>`
+    + `<details><summary>가격 판정 근거 보기</summary>${lines(groups.supports.concat(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:'))), groups.context.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:')))), '가격 판정을 확인하지 못했어요.')}<p class="company-review-foot">${esc(basis + ((review.as_of || {}).prices_through || '미확인'))}</p></details>`
     + (holdingDetail || `<p class="company-review-foot">${esc(review.holding_text || '내 보유 정보는 확인하지 못했어요.')}</p>`)
     + (next ? `<p class="company-review-foot"><b>다음 확인</b> · ${esc(next)}</p>` : '')
     + (unknowns.length ? `<details><summary>아직 모르는 점 ${unknowns.length}개</summary><ul>${unknowns.map(s => `<li>${esc(s)}</li>`).join('')}</ul></details>` : '')
@@ -5913,7 +5863,9 @@ function setChartMode(mode){
 _syncChartModeButtons();
 
 let _chartAbort = null;  // 빠른 종목 전환 시 이전 /chart·/detail 응답을 버린다
+let _signalDetailSeq = 0;
 async function showSignalChart(ticker, item){
+  const seq = ++_signalDetailSeq;
   // 리스트는 요약만 — 차트 먼저 그리고 상세(/detail)는 뒤에서 보강(느린 쪽이 차트 페인트을 막지 않게).
   _paintSignalDetail(ticker, item);
   _paintSignalReview(ticker, null);
@@ -5924,8 +5876,10 @@ async function showSignalChart(ticker, item){
   const holder = document.getElementById('signal-chart');
   // 이미 그린 차트를 textContent로 지우면 ECharts가 죽고 '불러오는 중'만 보여 체감이 더 느리다.
   // 캐시된 차트가 있으면 흐리게만 두고, 없을 때만 플레이스홀더.
-  if (_signalChart && _chartCache) holder.classList.add('is-loading');
-  else holder.textContent = '차트 불러오는 중…';
+  _disposeSignalChart();
+  _chartCache = null;
+  holder.textContent = '가격과 시그널 차트 불러오는 중…';
+  document.getElementById('signal-whynow').style.display = 'none';
   if (_chartAbort) try { _chartAbort.abort(); } catch (e) {}
   _chartAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   const signal = _chartAbort ? _chartAbort.signal : undefined;
@@ -5934,12 +5888,15 @@ async function showSignalChart(ticker, item){
   const detailUrl = ticker === INDEX_TICKER ? null
     : `/api/signals/${encodeURIComponent(ticker)}/detail?market=${mkt}`;
   const detailP = detailUrl
-    ? fetch(detailUrl, signal ? { signal } : undefined).then(r => r.json()).catch(() => null)
+    ? fetch(detailUrl, signal ? { signal } : undefined).then(r => {
+        if (!r.ok) throw new Error('detail unavailable'); return r.json();
+      }).catch(() => null)
     : Promise.resolve(null);
   try {
-    const d = await (await fetch(_chartUrl(ticker, { withFlow: wantFlow }),
-                                 signal ? { signal } : undefined)).json();
-    if (_selectedTicker !== ticker) return;  // 빠른 클릭 레이스
+    const response = await fetch(_chartUrl(ticker, { withFlow: wantFlow }), signal ? { signal } : undefined);
+    if (!response.ok) throw new Error('chart unavailable');
+    const d = await response.json();
+    if (_selectedTicker !== ticker || seq !== _signalDetailSeq) return;
     holder.classList.remove('is-loading');
     if (!d.ready) {
       _disposeSignalChart();
@@ -5954,17 +5911,17 @@ async function showSignalChart(ticker, item){
     }
   } catch (e) {
     if (e && e.name === 'AbortError') return;
-    if (_selectedTicker !== ticker) return;
+    if (_selectedTicker !== ticker || seq !== _signalDetailSeq) return;
     holder.classList.remove('is-loading');
     _disposeSignalChart();
     _chartCache = null;
     _paintChartAsof(null);
-    holder.textContent = '차트를 불러오지 못했습니다.';
+    holder.innerHTML = '<div class="stock-load-error" role="status">가격과 시그널 차트를 불러오지 못했습니다.<button type="button" class="btn" onclick="retrySignalDetail()">다시 불러오기</button></div>';
   }
   // 상세·해설은 차트와 분리 — 지연돼도 차트는 이미 그려진 상태
   try {
     const detail = await detailP;
-    if (_selectedTicker !== ticker) return;
+    if (_selectedTicker !== ticker || seq !== _signalDetailSeq) return;
     if (detail && detail.ready && detail.item) {
       item = Object.assign({}, item || {}, detail.item);
       if (detail.pit) item._pit = detail.pit;
@@ -5974,7 +5931,7 @@ async function showSignalChart(ticker, item){
       _paintSignalReview(ticker, detail.review);
     } else {
       const reviewEl = document.getElementById('signal-company-review');
-      if (reviewEl && ticker !== INDEX_TICKER) reviewEl.textContent = '기업 근거를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.';
+      if (reviewEl && ticker !== INDEX_TICKER) reviewEl.innerHTML = '<div role="status">기업 근거를 불러오지 못했습니다. 근거가 없다는 뜻은 아닙니다.<button type="button" class="btn" onclick="retrySignalDetail()">다시 불러오기</button></div>';
     }
     if (ticker !== INDEX_TICKER && item && item.kind && item.kind !== 'HOLD') {
       // LLM 해설은 사용자가 해설 탭을 열 때만 요청한다. 기본 차트의 로딩과
@@ -12394,16 +12351,25 @@ async function loadWatchlistBriefs(){
 }
 async function toggleFav(ticker, el){
   const on = _favorites.has(ticker);
-  if (on) {
-    await fetch('/api/favorites?kind=ticker&key=' + encodeURIComponent(ticker), {method: 'DELETE'});
-    _favorites.delete(ticker);
-  } else {
-    await fetch('/api/favorites', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({kind: 'ticker', key: ticker, label: ''})});
-    _favorites.add(ticker);
+  const notice = document.getElementById('signal-list-notice');
+  el.disabled = true;
+  if (notice) notice.hidden = true;
+  try {
+    const response = on
+      ? await fetch('/api/favorites?kind=ticker&key=' + encodeURIComponent(ticker), {method:'DELETE'})
+      : await fetch('/api/favorites', {method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({kind:'ticker',key:ticker,label:''})});
+    if (!response.ok) throw new Error('favorite unavailable');
+    if (on) _favorites.delete(ticker); else _favorites.add(ticker);
+    const restoreFocus = document.activeElement === document.body || document.activeElement === el;
+    renderSignalList();
+    if (restoreFocus) (document.querySelector(`[data-fav="${CSS.escape(ticker)}"]`) || document.getElementById('sig-search')).focus({preventScroll:true});
+  } catch (e) {
+    if (notice) { notice.textContent = '관심종목을 저장하지 못했습니다. 다시 눌러 주세요.'; notice.hidden = false; }
+  } finally {
+    el.disabled = false;
+    if (el.isConnected && document.activeElement === document.body) el.focus({preventScroll:true});
   }
-  el.classList.toggle('on', !on);
-  el.textContent = on ? '☆' : '★';
 }
 
 // ===== 부팅 =====

@@ -2105,31 +2105,58 @@ def test_mobile_breakpoint_matches_between_css_and_js():
 
 
 def test_hidden_table_column_uses_display_none_not_zero_width():
-    """`<col>`을 폭 0으로 두면 fixed 레이아웃이 다음 열 몫을 그 0폭 열에 먹인다.
-
-    실측: col-sector `width:0` → 배지 셀 폭 **0** / `display:none` → **148** ✓.
-    폭 0일 때 `매수권밖`이 한 글자씩 세로로 쪼개졌다 — 에러가 아니라 이상한 모양으로만 렌더된다.
-    """
+    """새 목록은 별·본문 두 트랙만 예약한다. 숨은 섹터 열의 폭을 남기지 않는다."""
+    import re
     from pathlib import Path
 
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    fn = html.split("function applySigColWidths(", 1)[1].split("\n}", 1)[0]
-    assert "sector.style.display = narrow ? 'none' : ''" in fn, "섹터 열을 display로 접지 않는다"
-    # 폭 0으로 되돌아가는 회귀를 막는다.
-    assert "set('col-sector', narrow ? '0'" not in html
-    # 좁은 폭에서 남는 두 열이 100%를 나눠 가져야 한다(안 하면 30%가 죽은 공간으로 남는다).
-    assert "w.name / (w.name + w.sig) * 100" in fn
+    render = html.split("function renderSignalList(", 1)[1].split("// 좁은 카드의 보조 표", 1)[0]
+    assert '<ul class="stock-list"' in render and '<li class="stock-row"' in render
+    assert not re.search(r"<(?:table|colgroup|col|td|th)\b", render)
+    # 섹터는 본문 안 메타데이터이며 별도의 고정 폭 트랙이 아니다.
+    assert '<span class="stock-meta"><span>${esc(r.ticker)}${r.sector' in render
+    row = re.search(r"\.stock-row\s*\{([^}]+)\}", html).group(1)
+    assert "display:grid" in row and "grid-template-columns:36px minmax(0,1fr)" in row
+    name = re.search(r"\.stock-name\s*\{([^}]+)\}", html).group(1)
+    assert "min-width:0" in name and "overflow-wrap:anywhere" in name
+    price = re.search(r"\.stock-price\s*\{([^}]+)\}", html).group(1)
+    assert "white-space:nowrap" in price
 
 
 def test_signal_column_widths_recompute_on_resize():
-    """회전·창 크기 변경에 다시 계산하지 않으면 세로→가로 전환 후 깨진 채 남는다."""
+    """폭 전환은 기존 차트만 재측정한다. 선택·차트·요청 상태를 재생성하지 않는다."""
+    import shutil
+    import subprocess
     from pathlib import Path
 
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    # 리스너를 **하나만** 둔다 — 같은 일을 두 곳에서 시키면 하나를 고칠 때 다른 쪽이 남는다.
     assert html.count("window.addEventListener('resize'") == 1
-    blk = html.split("window.addEventListener('resize'", 1)[1][:900]
-    assert "applySigColWidths" in blk
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the stock workspace")
+    result = subprocess.run(["node", "-e", r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+const chart={resize(){calls.direct++;}},holder={},cache={ticker:'AAA'},item={kind:'BUY'};
+const calls={direct:0,laidOut:0},handlers={},mq={matches:true,addEventListener(k,fn){handlers.media=fn;}};
+const ctx=vm.createContext({window:{matchMedia:()=>mq,addEventListener(k,fn){handlers[k]=fn;}},
+  document:{getElementById:id=>id==='signal-chart'?holder:null},
+  _signalChart:chart,_selectedTicker:'AAA',_chartCache:cache,_signalItems:{AAA:item},
+  _botChart:null,_cycleChart:null,_gpChart:null,_heatCharts:{},_resizeT:null,
+  clearTimeout(){},setTimeout(fn){fn();return 1;},
+  _resizeWhenLaidOut(c,h){assert.equal(c,chart);assert.equal(h,holder);calls.laidOut++;}});
+let start=html.indexOf('const _SIG_STACKED_PX =');
+vm.runInContext(html.slice(start,html.indexOf('function backToSignalList(',start)),ctx);
+start=html.indexOf("window.addEventListener('resize'");
+vm.runInContext(html.slice(start,html.indexOf('\n});',start)+4),ctx);
+assert.equal(typeof handlers.media,'function');assert.equal(typeof handlers.resize,'function');
+for(const narrow of [false,true,false]){
+  mq.matches=narrow;handlers.media();handlers.resize();
+  assert.equal(ctx._selectedTicker,'AAA');assert.equal(ctx._signalChart,chart);
+  assert.equal(ctx._chartCache,cache);assert.equal(ctx._signalItems.AAA,item);
+}
+assert.equal(calls.direct,3);assert.equal(calls.laidOut,6);
+"""], text=True, capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
 
 
 def test_label_value_pairs_do_not_break_across_lines():

@@ -1,0 +1,16 @@
+{
+  "source": "http://127.0.0.1:8767/?fixture=closed#signal",
+  "method": "Chrome CUA browser screenshot",
+  "renderedSource": "src/signal_desk/web/index.html",
+  "syntheticApi": true,
+  "productionScreenshot": false,
+  "aiGeneratedRaster": false,
+  "capturedSourceSha256": "f66f4995913839fb7b06cb3c533f5d48bca6bf3efce73d1ba7750bc4d63bb853",
+  "reviewedSourceSha256": "f66f4995913839fb7b06cb3c533f5d48bca6bf3efce73d1ba7750bc4d63bb853",
+  "note": "Actual app UI with isolated synthetic API. No environment file, account credentials, live source collection or orders loaded. Captures refreshed after CI required the incumbent 24/22px title scale.",
+  "captures": [
+    {"file":"desktop.png","capturedAt":"2026-10-18T20:48:39+09:00","viewportCssPx":[1440,1000],"fullPage":false,"sha256":"87581970b6ead2c6fbdef83a6460dd59fbce70bf394fde2d77d354a6dab965a8"},
+    {"file":"mobile-list.png","capturedAt":"2026-10-18T20:48:40+09:00","viewportCssPx":[390,844],"fullPage":false,"sha256":"6cd81d8f220b80882e4d558d8d7b4329e680df6177fc1068b215ffcb5a0bf338"},
+    {"file":"mobile-detail.png","capturedAt":"2026-10-18T20:48:40+09:00","viewportCssPx":[390,844],"fullPage":false,"sha256":"395a80eb13e6ea546667b6f545339e375709979ac193e350c8e525f0eb0c6b20"}
+  ]
+}
