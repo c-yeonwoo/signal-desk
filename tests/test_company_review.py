@@ -214,7 +214,9 @@ ctx._paintSignalReview('005930',{ticker:'005930',price_status:'current',price_ba
 assert.match(el.innerHTML,/&lt;img/);
 assert.match(el.innerHTML,/기사 제목 ·/);
 assert.match(el.innerHTML,/기사 내용의 사실 여부는 검증하지 않았어요/);
-assert.match(el.innerHTML,/마지막 종가의 판정/);
+assert.match(el.innerHTML,/<h3>판정 근거와 기업 소식<\/h3>/);
+assert.match(el.innerHTML,/<details><summary>가격 판정 근거 보기<\/summary>/);
+assert.match(el.innerHTML,/확정 종가 2026-10-06/);
 assert.doesNotMatch(el.innerHTML,/현재 가격 조건/);
 assert.doesNotMatch(el.innerHTML,/확인된 기업 소식/);
 assert.doesNotMatch(el.innerHTML,/href="javascript:/);
@@ -222,16 +224,22 @@ ctx._paintSignalReview('005930',{ticker:'005930',market:'kr',portfolio_relation:
   as_of:{prices_through:'2026-10-06'},signal:{decision:'STRONG_BUY'},claims:[],evidence:[],
   holding_text:'분석용 보유 입력',holding_context:{source:'manual_analysis',average_price:100,confirmed_close:76,close_date:'2026-10-06',price_change_pct:-24},
   unknowns:[]});
-assert.match(el.innerHTML,/새 매수 후보권과 내 보유 판단은 달라요/);
+assert.match(el.innerHTML,/신규 후보 평가와 보유 판단은 다릅니다/);
 assert.match(el.innerHTML,/단순 가격 변화/);
 assert.match(el.innerHTML,/-24%/);
+assert.match(el.innerHTML,/입력 평단 100원 → 2026-10-06 종가 76원/);
+assert.match(el.innerHTML,/배당·수수료·실제 체결은 제외한 비교/);
 assert.match(el.innerHTML,/내 보유 진단에서 비중 확인/);
 ctx._paintSignalReview('005930',{ticker:'005930',market:'kr',price_status:'close_only',price_basis:'confirmed_close',
   as_of:{prices_through:'2026-10-06'},signal:{decision:'UNAVAILABLE'},claims:[],evidence:[],
   holding_text:'분석용 보유 입력에는 없음',unknowns:['장중 현재가가 판정에 반영되지 않음']});
 assert.match(el.innerHTML,/직전 종가 기준입니다/);
-assert.match(el.innerHTML,/가격 기준 확인 필요/);
+assert.match(el.innerHTML,/<p class="company-review-lead">[^<]*장중 현재가는 아직 판정에 반영되지 않았어요/);
+assert.ok(el.innerHTML.indexOf('class="company-review-lead"') < el.innerHTML.indexOf('<details>'));
 assert.doesNotMatch(el.innerHTML,/현재 가격 조건/);
+ctx._paintSignalReview('005930',{ticker:'005930',market:'kr',price_status:'stale',
+  signal:{decision:'UNAVAILABLE'},claims:[],evidence:[],unknowns:[]});
+assert.match(el.innerHTML,/<p class="company-review-lead">[^<]*시세 기준을 확인할 수 없어 현재 판정을 재확인할 수 없어요/);
 ctx._paintSignalReview('AAPL',null);
 assert.equal(el.textContent,'기업 근거와 내 보유를 함께 확인하는 중…');
 """

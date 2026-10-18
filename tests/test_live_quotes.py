@@ -226,8 +226,8 @@ const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
 const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
 const code=html.slice(html.indexOf('function liveQuoteFresh('),html.indexOf('// 조회 전용 비교 상태',html.indexOf('function liveQuoteFresh(')));
 const el={textContent:'',style:{}};
-const td={children:[],querySelector:()=>el};
-const tr={dataset:{ticker:'AAA'},children:[null,td]};
+const button={querySelector:()=>el};
+const tr={dataset:{ticker:'AAA'},querySelector:selector=>selector==='.stock-open'?button:null};
 const ctx=vm.createContext({Date,Number,Object,document:{querySelectorAll:()=>[tr],getElementById:()=>null},
   _liveQuoteTimes:{AAA:Date.now()/1000-901},_liveQuotePrices:{AAA:121},_sigMarket:'kospi',
   _chartCache:null,_selectedTicker:null,fmtNum:v=>String(v)});
@@ -236,7 +236,7 @@ ctx.paintLiveQuotePrices();
 assert.equal(el.textContent,'현재가 갱신 지연');
 ctx._liveQuoteTimes.AAA=Date.now()/1000-60;
 ctx.paintLiveQuotePrices();
-assert.equal(el.textContent,'현재가 121원');
+assert.equal(el.textContent,'별도 현재가 121원');
 """
     result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
                             text=True, capture_output=True, check=False)

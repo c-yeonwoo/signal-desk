@@ -21,8 +21,9 @@ def test_index_served(tmp_path, monkeypatch):
 
 def test_buy_detail_does_not_disguise_post_signal_loss(tmp_path, monkeypatch):
     html = _fresh_client(tmp_path, monkeypatch).get("/").text
-    assert "첫 매수권 이후" in html
-    assert "이미 산 주식을 더 사거나 팔라는 뜻은 아닙니다" in html
+    assert "첫 매수권 뒤 가격" in html
+    assert "새 매수 후보 평가입니다" in html
+    assert "이미 보유한 주식의 추가매수·매도 지시는 아닙니다" in html
     assert "실제 체결 손익이 아니며" in html
     assert "매수권 기록" in html
     assert "참고 목표가 여력 <b>" not in html
@@ -106,7 +107,7 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "margin-top:auto" in html  # footer
     # 종목 상세: 개요는 종목명과 같은 왼쪽 블록(pane-title-block), 최근 행보는 지표 패널
     assert 'pane-title-block' in html and 'id="signal-about"' in html and "sig-about.is-on" in html
-    assert "종목 개요" in html and "최근 행보" in html
+    assert "<summary>회사 개요</summary>" in html and "최근 행보" in html
     # 연습장 카피는 제거 — 개인 모의계좌가 없으므로 그런 장부도 없다
     assert "모의투자 연습장" not in html and "가상 돈으로 연습해보기" not in html
     assert "gotoPaperFromSignal" not in html and "페이퍼에서 같은 규칙으로 추적" not in html
@@ -239,7 +240,9 @@ def test_index_has_trust_and_onboard_ui(tmp_path, monkeypatch):
     assert "횡단면" in html and "Newey-West" in html
     assert "적중률 공개" not in html  # 공개 적중률 카피 폐기
     assert "Strong Buy" in html and "kindHint" in html  # 순위 의미를 드러내는 라벨·힌트
-    assert "hero-runup" in html and "발동 후" in html  # Buy+ 히어로: 발동가 대비 수익률
+    # 첫 매수권 가격과의 차이는 남기되 실제 매입 손익으로 오해하지 않게 한다.
+    assert "hero-runup" in html and "첫 매수권 뒤 가격" in html
+    assert "실제 매입 손익 아님" in html
     assert "hero-card.BUY" in html and "rgba(14,122,79" in html  # Buy+ 은은한 배경
     assert 'id="ob-step-desk"' in html  # 온보딩 3스텝: 데스크 용어 안내
     assert "obFinish('paper')" in html or 'obFinish("paper")' in html

@@ -1,0 +1,16 @@
+{
+  "source": "http://127.0.0.1:8767/?fixture=closed#signal",
+  "method": "Chrome CUA browser screenshot",
+  "renderedSource": "src/signal_desk/web/index.html",
+  "syntheticApi": true,
+  "productionScreenshot": false,
+  "aiGeneratedRaster": false,
+  "capturedSourceSha256": "ae512bb3bf6319052a97f1e0c989249e165956d8cecf8630095fc40114f3bc5d",
+  "reviewedSourceSha256": "79253c20384e090e027a07cb4a6511e84665d4dd34b54ad88d3191fa3e0ef8ac",
+  "note": "Actual app UI with isolated synthetic API. No environment file, account credentials, live source collection or orders loaded. Final overflow:hidden to visible and warnings for stale/held contexts do not change the captured normal/unheld layout.",
+  "captures": [
+    {"file":"desktop.png","capturedAt":"2026-10-18T20:35:39+09:00","viewportCssPx":[1440,1000],"fullPage":false,"sha256":"cc05aa7970284d47ea47f8b8f3249538475b91e63a344ad10cfa2224fd9587c1"},
+    {"file":"mobile-list.png","capturedAt":"2026-10-18T20:35:36+09:00","viewportCssPx":[390,844],"fullPage":false,"sha256":"3f055180bd34288569d69678be9b124ce80a7906d0bc95fd36b296ef4ca97f39"},
+    {"file":"mobile-detail.png","capturedAt":"2026-10-18T20:35:37+09:00","viewportCssPx":[390,844],"fullPage":false,"sha256":"0945f96b8afdcff185704af02c1480d2add7ab0236e1753c9624b8463b96dba5"}
+  ]
+}

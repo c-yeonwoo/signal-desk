@@ -1,126 +1,136 @@
-"""모바일 드릴다운 — 누른 행 바로 아래에 차트를 끼운다(2026-08-17).
+"""종목 목록·상세 전환: 차트 DOM을 표 안으로 옮기지 않고 선택·포커스를 보존한다."""
 
-세로로 쌓이면(≤900px) 차트 카드가 종목 목록 **전체 뒤**에 온다. 200종목을 지나쳐야 차트가
-나오므로 모바일에서는 사실상 안 보인다. 그래서 누른 행 다음에 `<tr>` 을 만들어 카드를 **옮긴다**.
+from pathlib import Path
+import re
+import shutil
+import subprocess
 
-## 카드를 복제하지 않고 옮긴다
+import pytest
 
-같은 문서 안의 이동이라 ECharts 캔버스·상태·핸들러가 그대로 살아 있다. 복제하면 두 개가
-갈라지고, 이 리포가 이미 겪은 *"같은 것을 두 곳에서 조립하지 않는다"* 를 화면에서 반복한다.
 
-## 브레이크포인트는 640이 아니라 900이다
+_ROOT = Path(__file__).resolve().parents[1]
+_HTML = _ROOT / "src/signal_desk/web/index.html"
 
-세로로 쌓이는 지점이 `@media (max-width:900px)` 다. `_SIG_NARROW_PX`(640)를 쓰면
-태블릿(640~900)에서 카드가 목록 뒤에 그대로 남는다 — 열은 접혔는데 드릴은 안 되는 상태.
 
-## 만들면서 잡은 두 결함 (둘 다 브라우저로 렌더해서 잡았다)
+def _node(script):
+    if not shutil.which("node"):
+        pytest.skip("Node is needed for the stock workspace")
+    result = subprocess.run(["node", "-e", script], cwd=_ROOT, text=True,
+                            capture_output=True, check=False)
+    assert result.returncode == 0, result.stderr
 
-1. **재렌더가 카드를 파괴했다.** 카드가 표 안에 있는 상태로 `innerHTML` 을 덮으면
-   `.sig-chart-pane` 도 `#signal-chart` 도 **DOM에서 사라져** 차트가 영영 안 돌아왔다
-   (새로고침해야 복구). `renderSignalList` **맨 앞**에서 먼저 빼내야 한다.
-2. **`resize` 하나에 기댈 수 없다.** 뷰포트를 375→1280으로 바꿨을 때 `resize` 0회 ·
-   `matchMedia change` 0회였고(미디어쿼리는 재평가돼 레이아웃만 2열), 카드가 표 안에 낀 채
-   남아 2열 레이아웃이 깨졌다. 그래서 경로를 셋 둔다.
+
+_WORKSPACE = r"""
+const assert=require('node:assert/strict'),fs=require('fs'),vm=require('vm');
+const html=fs.readFileSync('src/signal_desk/web/index.html','utf8');
+function node(){
+  const classes=new Set();
+  return {style:{},textContent:'',hidden:false,attrs:{},
+    classList:{add:c=>classes.add(c),remove:c=>classes.delete(c),contains:c=>classes.has(c),
+      toggle(c,yes){if(yes) classes.add(c);else classes.delete(c);}},
+    setAttribute(k,v){this.attrs[k]=v;},
+    focus(){doc.activeElement=this;},scrollIntoView(){this.scrolled=true;},
+    replaceChildren(){this.cleared=true;}};
+}
+const doc={activeElement:null},ids={},workspace=node(),pane=node();
+for(const id of ['sig-search','signal-chart-title','chart-asof','signal-about',
+  'signal-selection-empty','signal-hero','signal-company-review','signal-chart']) ids[id]=node();
+pane.contains=el=>el===ids['signal-chart-title'];
+const rows=['AAA','BBB'].map(ticker=>{
+  const row=node();row.dataset={ticker};row.button=node();
+  row.querySelector=()=>row.button;return row;
+});
+doc.getElementById=id=>ids[id];
+doc.querySelector=selector=> selector==='.sig-workspace'?workspace:selector==='.sig-chart-pane'?pane
+  :rows.find(row=>selector.includes(`"${row.dataset.ticker}"`))?.button;
+doc.querySelectorAll=()=>rows;
+const mq={matches:true,addEventListener(type,fn){this.listener=fn;}};
+const calls={shown:[],resized:0,disposed:0,abort:0,scroll:[]};
+const chartIdentity={};
+const ctx=vm.createContext({document:doc,window:{scrollY:375,matchMedia:()=>mq,
+  scrollTo:options=>calls.scroll.push(options)},CSS:{escape:v=>v},
+  _selectedTicker:null,_signalItems:{AAA:{kind:'BUY'},BBB:{kind:'HOLD'}},
+  _signalChart:chartIdentity,_chartCache:{ticker:'AAA'},_signalDetailSeq:0,
+  _chartAbort:{abort(){calls.abort++;}},
+  _resizeWhenLaidOut:chart=>{assert.equal(chart,chartIdentity);calls.resized++;},
+  _disposeSignalChart:()=>calls.disposed++,
+  renderSelectedLensDetail:ticker=>calls.lens=ticker,
+  showSignalChart:(ticker,item)=>calls.shown.push({ticker,item})});
+const start=html.indexOf('const _SIG_STACKED_PX =');
+vm.runInContext(html.slice(start,html.indexOf('// 배지 색을',start)),ctx);
 """
 
-from __future__ import annotations
 
-import re
-from pathlib import Path
-
-_HTML = Path(__file__).resolve().parents[1] / "src" / "signal_desk" / "web" / "index.html"
-
-
-def _src() -> str:
-    return _HTML.read_text(encoding="utf-8")
-
-
-def _code() -> str:
-    """`//` 줄 주석을 지운 본문 — 설명에 적힌 식별자가 오탐이 된다."""
-    return re.sub(r"^\s*//.*$", "", _src(), flags=re.M)
-
-
-def test_breakpoint_matches_the_css_that_stacks_the_layout():
-    """**640이 아니라 900이다.** 다르면 태블릿에서 열은 접히고 드릴은 안 되는 상태가 남는다."""
-    code = _code()
-    px = int(re.search(r"_SIG_STACKED_PX\s*=\s*(\d+)", code).group(1))
-    stacking = re.search(r"@media\s*\(max-width:\s*(\d+)px\s*\)\s*\{[^}]*?\.sig-workspace\s*\{"
-                         r"[^}]*flex-direction:\s*column", _src(), re.S)
-    assert stacking, "세로로 쌓는 미디어쿼리를 못 찾았다 — 상수를 대조할 대상이 없다"
-    assert px == int(stacking.group(1)), (
-        f"JS {px}px vs CSS {stacking.group(1)}px — 브레이크포인트가 갈라졌다")
-
-
-def test_the_pane_is_moved_not_cloned():
-    """복제하면 두 개가 갈라진다 — ECharts 상태도 하나만 살아난다."""
-    code = _code()
-    i = code.index("function _drillInsert(")
-    blk = code[i:i + 1400]
-    assert "appendChild(pane)" in blk, "카드를 옮기지 않는다"
-    for banned in ("cloneNode", "outerHTML", "innerHTML = pane"):
-        assert banned not in blk, f"카드를 복제한다({banned})"
+def test_mobile_selection_back_and_reopen_keep_single_chart_and_focus():
+    _node(_WORKSPACE + r"""
+ctx.selectSignalRow('AAA');
+assert.equal(ctx._selectedTicker,'AAA');
+assert.equal(workspace.classList.contains('detail-open'),true);
+assert.equal(ids['signal-selection-empty'].hidden,true);
+assert.equal(doc.activeElement,ids['signal-chart-title']);
+assert.equal(pane.scrolled,true);
+assert.equal(rows[0].button.attrs['aria-pressed'],'true');
+assert.equal(rows[1].button.attrs['aria-pressed'],'false');
+ctx.backToSignalList();
+assert.equal(workspace.classList.contains('detail-open'),false);
+assert.equal(doc.activeElement,rows[0].button);
+assert.equal(calls.scroll.at(-1).top,375);
+assert.equal(ctx._selectedTicker,'AAA');
+assert.equal(calls.disposed,0);
+// 같은 종목을 다시 눌러도 접기 동작으로 오해하지 않고 상세를 연다.
+ctx.selectSignalRow('AAA');
+assert.equal(workspace.classList.contains('detail-open'),true);
+ctx.selectSignalRow('BBB');
+assert.equal(rows[0].button.attrs['aria-pressed'],'false');
+assert.equal(rows[1].button.attrs['aria-pressed'],'true');
+assert.equal(calls.shown.at(-1).ticker,'BBB');
+mq.matches=false;mq.listener();
+assert.ok(calls.resized>0);
+assert.equal(ctx._signalChart,chartIdentity);
+""")
 
 
-def test_render_extracts_the_pane_before_overwriting_the_table():
-    """**이게 그 파괴 버그다.** 순서가 반대면 카드가 DOM에서 통째로 사라진다."""
-    code = _code()
-    i = code.index("function renderSignalList(){")
-    head = code[i:i + 700]
-    assert "_drillRestore()" in head, "표를 덮기 전에 카드를 빼내지 않는다"
-    # `innerHTML` 대입보다 **앞**이어야 한다
-    restore_at = head.index("_drillRestore()")
-    write = re.search(r"el\.innerHTML\s*=", code[i:])
-    if write:
-        assert restore_at < write.start(), "카드를 빼내기 전에 표를 덮는다 — 카드가 사라진다"
+def test_desktop_selection_does_not_steal_focus_or_scroll():
+    _node(_WORKSPACE + r"""
+mq.matches=false;rows[0].button.focus();
+ctx.selectSignalRow('AAA');
+assert.equal(doc.activeElement,rows[0].button);
+assert.equal(pane.scrolled,undefined);
+assert.equal(calls.scroll.length,0);
+ctx.syncSignalLayout();
+assert.equal(ctx._signalChart,chartIdentity);
+assert.equal(calls.disposed,0);
+""")
 
 
-def test_three_independent_sync_paths_exist():
-    """이벤트 하나에 기대면 그 이벤트가 안 오는 환경에서 카드가 표 안에 낀 채 남는다.
-
-    실측: 뷰포트 변경에서 `resize` 0회 · `matchMedia change` 0회였다.
-    """
-    code = _code()
-    assert "_sigStackMQ.addEventListener('change', _drillSync)" in code, "경로① matchMedia 없음"
-    assert code.count("_drillSync()") >= 2, "경로②③(resize 디바운스·재렌더) 중 하나가 없다"
-    # 셋이 **같은 함수**를 불러야 한다 — 로직이 갈라지면 한쪽만 고쳐진다
-    assert code.count("function _drillSync(") == 1
-
-
-def test_resize_uses_the_single_existing_listener():
-    """리스너를 새로 만들지 않는다 — 같은 일을 두 곳에서 시키면 한쪽이 남는다."""
-    assert _code().count("addEventListener('resize'") == 1
-
-
-def test_chart_is_resized_after_the_move():
-    """0폭에서 init 된 차트를 되살릴 경로가 없다 — 옮긴 뒤 폭이 잡히면 맞춰야 한다."""
-    code = _code()
-    for fn in ("_drillInsert", "_drillRestore"):
-        i = code.index(f"function {fn}(")
-        assert "_resizeWhenLaidOut" in code[i:i + 1400], f"{fn} 이 리사이즈를 안 부른다"
+def test_hidden_selection_clears_price_chart_and_invalidates_inflight_request():
+    _node(_WORKSPACE + r"""
+ctx.selectSignalRow('AAA');
+ctx.clearSignalSelection('검색 결과에서 종목을 선택하세요.');
+assert.equal(ctx._selectedTicker,null);
+assert.equal(ctx._signalDetailSeq,1);
+assert.equal(ctx._chartCache,null);
+assert.equal(calls.abort,1);
+assert.equal(calls.disposed,1);
+assert.equal(workspace.classList.contains('detail-open'),false);
+assert.equal(ids['signal-chart'].cleared,true);
+assert.equal(ids['signal-hero'].style.display,'none');
+assert.equal(ids['signal-company-review'].style.display,'none');
+assert.equal(ids['signal-selection-empty'].hidden,false);
+assert.equal(doc.activeElement,ids['sig-search']);
+assert.ok(rows.every(row=>row.button.attrs['aria-pressed']==='false'));
+// 선택 행이 필터에서 사라진 경우 뒤로 가기는 검색으로 돌아간다.
+ctx._selectedTicker='REMOVED';ctx.backToSignalList();
+assert.equal(doc.activeElement,ids['sig-search']);
+""")
 
 
-def test_same_row_collapses_only_when_stacked():
-    """데스크톱에서 접기까지 하면 2열 레이아웃에서 차트가 사라진다."""
-    code = _code()
-    i = code.index("function selectSignalRow(")
-    blk = code[i:i + 800]
-    assert "_sigStacked()" in blk and "_drillRestore()" in blk
-    assert "_selectedTicker === ticker" in blk, "같은 행 재클릭 접기 경로가 없다"
-
-
-def test_drill_row_styles_are_scoped_to_the_list():
-    """`.drill-row` 스타일이 전역이면 다른 표에 새어 나간다."""
-    src = _src()
-    for rule in (".sig-list table.dtable tr.drill-row > td",
-                 ".sig-list table.dtable tr.drill-row .sig-chart-pane"):
-        assert rule in src, f"드릴 행 스타일이 목록 안으로 한정되지 않았다: {rule}"
-
-
-def test_mobile_padding_is_reduced_only_inside_the_drill():
-    """카드 기본 패딩(24px)은 데스크톱 값이라 375px에서 48px(14%)을 먹는다 — 실측 295→319px.
-
-    카드 자체를 건드리면 데스크톱까지 좁아지므로 드릴 안에서만 줄인다.
-    """
-    src = _src()
-    i = src.index(".sig-list table.dtable tr.drill-row .sig-chart-pane")
-    assert re.search(r"padding:\s*12px", src[i:i + 200]), "드릴 안 패딩을 줄이지 않았다"
+def test_mobile_visibility_breakpoint_matches_javascript():
+    src = _HTML.read_text(encoding="utf-8")
+    px = int(re.search(r"_SIG_STACKED_PX\s*=\s*(\d+)", src).group(1))
+    # CSS의 실제 모바일 전환 규칙을 대조한다. 차트를 목록 행 안에 삽입하는 계약은 폐기했다.
+    mobile = re.search(r"@media\s*\(max-width:(\d+)px\)\s*\{\s*#view-signal \.sig-workspace", src)
+    assert mobile and int(mobile.group(1)) == px
+    mobile = src[mobile.start():]
+    assert ".sig-workspace.detail-open .sig-list { display:none; }" in mobile
+    assert ".sig-workspace.detail-open .sig-chart-pane { display:flex; }" in mobile
