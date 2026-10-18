@@ -1747,7 +1747,9 @@ def test_every_api_route_has_a_caller_or_a_stated_reason():
     from pathlib import Path
 
     api = Path("src/signal_desk/api.py").read_text(encoding="utf-8")
-    callers = (Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
+    from test_dead_frontend_code import _loaded_web_source
+
+    callers = (_loaded_web_source(Path("src/signal_desk/web/index.html"))
                + Path("src/signal_desk/cli.py").read_text(encoding="utf-8"))
     routes = {p for _, p in re.findall(r'@app\.(get|post|delete)\("([^"]+)"', api)}
     orphans = sorted(p for p in routes

@@ -19,7 +19,9 @@
 from __future__ import annotations
 
 import re
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 _HTML = Path(__file__).resolve().parents[1] / "src" / "signal_desk" / "web" / "index.html"
 
@@ -31,6 +33,30 @@ _ALLOWED = {
 _MAX_ALLOWED = 6
 
 
+def _loaded_web_source(index: Path) -> str:
+    """Entry HTML plus only its local script elements (not comments or unlinked JS)."""
+    html = index.read_text(encoding="utf-8")
+    root = index.parent.resolve()
+    scripts = []
+
+    class ScriptSources(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            if tag != "script":
+                return
+            src = dict(attrs).get("src")
+            if not src:
+                return
+            url = urlsplit(src)
+            if url.scheme or url.netloc:
+                return
+            path = (root / unquote(url.path).lstrip("/")).resolve()
+            assert path.is_relative_to(root), f"Web script escapes its root: {src}"
+            scripts.append(path.read_text(encoding="utf-8"))
+
+    ScriptSources().feed(html)
+    return "\n".join([html, *scripts])
+
+
 def _body() -> str:
     """`//` 줄 주석만 지운 본문 — 설명에 적힌 함수명이 오탐이 되기 때문이다.
 
@@ -39,7 +65,7 @@ def _body() -> str:
     죽은 것으로 잡혔다). 남은 CSS 주석은 함수명을 거의 안 담으므로 오탐 위험이 훨씬 작다 —
     **검사가 조용히 느슨해지는 쪽보다 조금 시끄러운 쪽**을 고른다.
     """
-    src = _HTML.read_text(encoding="utf-8")
+    src = _loaded_web_source(_HTML)
     return re.sub(r"^\s*//.*$", "", src, flags=re.M)
 
 
@@ -65,6 +91,12 @@ def _dead() -> list[str]:
         esc = re.escape(name)
         # 호출: `name(` 이 정의 말고 또 있는가. 전달: `map(name)`·`onclick="name(...)"`·리스너
         calls = len(re.findall(rf"(?<![\w$.]){esc}\s*\(", body))
+        # 로컬 script가 window namespace로 내보낸 함수는 실제 namespace 호출도 대조한다.
+        # 같은 이름의 무관한 object.method()나 export만으로는 통과시키지 않는다.
+        for export in re.finditer(r"\bwindow\.([A-Za-z_$][\w$]*)\s*=\s*\{([^{}]*)\}", body):
+            if re.search(rf"(?:^|,)\s*{esc}\s*(?:,|$)", export.group(2)):
+                namespace = re.escape(export.group(1))
+                calls += len(re.findall(rf"(?<![\w$.])(?:window\.)?{namespace}\.{esc}\s*\(", body))
         passed = len(re.findall(rf"[(,]\s*{esc}\s*[,)]|['\"]{esc}\b", body))
         if calls <= 1 and passed == 0:
             out.append(name)
@@ -107,3 +139,31 @@ def test_it_would_have_caught_the_regression():
     calls = len(re.findall(r"(?<![\w$.])__zzz_probe_never_called\s*\(", body))
     passed = len(re.findall(r"[(,]\s*__zzz_probe_never_called\s*[,)]|['\"]__zzz_probe_never_called\b", body))
     assert calls == 1 and passed == 0, "탐지 규칙이 정의 1회·전달 0회를 못 센다"
+
+
+def test_only_entry_linked_local_scripts_count_as_callers(tmp_path, monkeypatch):
+    index = tmp_path / "index.html"
+    index.write_text("""<script>function probe(){}</script>
+        <!-- <script src="commented.js"></script> -->
+        <script src="https://example.invalid/remote.js"></script>
+        <script src="//example.invalid/remote.js"></script>
+        <script defer src='./linked.js?v=1'></script>""", encoding="utf-8")
+    linked = tmp_path / "linked.js"
+    linked.write_text("probe(); fetch('/api/linked');", encoding="utf-8")
+    (tmp_path / "unlinked.js").write_text("probe(); fetch('/api/unlinked');", encoding="utf-8")
+    monkeypatch.setitem(globals(), "_HTML", index)
+    assert "probe" not in _dead(), "A linked script's real call must count"
+    assert "fetch('/api/linked')" in _loaded_web_source(index)
+    assert "fetch('/api/unlinked')" not in _loaded_web_source(index)
+    linked.write_text("fetch('/api/linked');", encoding="utf-8")
+    assert "probe" in _dead(), "An unlinked script must not hide an unreachable function"
+
+
+def test_namespace_export_requires_its_actual_caller(tmp_path, monkeypatch):
+    index = tmp_path / "index.html"
+    monkeypatch.setitem(globals(), "_HTML", index)
+    source = "<script>function probe(){} window.Desk = {probe};"
+    index.write_text(source + "Other.probe();</script>", encoding="utf-8")
+    assert "probe" in _dead(), "An export or unrelated same-name method is not a caller"
+    index.write_text(source + "Desk.probe();</script>", encoding="utf-8")
+    assert "probe" not in _dead()
