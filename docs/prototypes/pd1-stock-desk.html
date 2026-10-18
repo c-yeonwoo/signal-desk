@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>종목 목록·상세 시안 · Signal Desk</title>
+  <link rel="stylesheet" href="./pd1-stock-desk.css">
+  <script defer src="./pd1-stock-desk.js"></script>
+</head>
+<body data-detail-open="false">
+  <a class="skip-link" href="#workspace">종목 화면으로 바로 가기</a>
+  <div class="preview-bar">
+    <p><strong>디자인 시안</strong><span>가격·판정·차트는 예시이며, 실제 계좌와 연결되지 않습니다.</span></p>
+    <label for="data-state">상태 보기
+      <select id="data-state">
+        <option value="closed">종가 확인됨</option><option value="stale">갱신 지연</option>
+        <option value="missing">가격 없음</option><option value="loading">조회 중</option><option value="error">조회 실패</option>
+      </select>
+    </label>
+  </div>
+  <header class="app-header">
+    <a class="wordmark" href="#workspace"><span>Signal</span> Desk</a>
+    <nav aria-label="서비스 메뉴">
+      <span class="inactive-nav">오늘</span><a class="active-nav" aria-current="page" href="#workspace">종목</a>
+      <span class="inactive-nav">내 투자</span><span class="inactive-nav admin-nav">관리자</span>
+    </nav>
+    <a class="preview-help" href="#demo-notes">시안 안내</a>
+  </header>
+  <main id="workspace" tabindex="-1">
+    <div class="page-heading"><div><h1>종목</h1><p>가격과 근거를 함께 살펴보세요.</p></div>
+      <details class="validation"><summary>시그널 검증 · 기록 쌓는 중</summary>
+        <p>이 문구는 화면 배치 예시입니다. 운영 검증 결과를 조회하지 않습니다. 후보 등급은 수익 확률이 아닙니다.</p>
+      </details>
+    </div>
+    <div class="market-tabs" role="group" aria-label="종목 범위">
+      <button type="button" data-market="kr" aria-pressed="true">국내</button>
+      <button type="button" data-market="us" aria-pressed="false">해외</button>
+      <button type="button" data-market="watch" aria-pressed="false">관심종목 <span id="watch-count">2</span></button>
+    </div>
+    <div class="desk">
+      <section class="catalog" aria-label="종목 목록">
+        <div class="catalog-tools">
+          <label class="search-label" for="stock-search">종목 찾기</label>
+          <div class="search-wrap"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4.5 4.5"/></svg><input id="stock-search" type="search" placeholder="종목명 또는 코드" autocomplete="off"></div>
+          <div class="list-meta"><span id="result-count"></span><label for="stock-sort" class="sr-only">목록 정렬</label><select id="stock-sort"><option value="signal">판정 우선</option><option value="score">점수순 · 참고</option><option value="name">종목명순</option></select></div>
+        </div>
+        <div id="list-status" role="status" aria-live="polite"></div>
+        <ul id="stock-list" class="stock-list"></ul>
+        <p class="catalog-note">현재 화면의 예시 종목만 표시합니다.<br>관심 변경도 이 시안 안에서만 반영됩니다.</p>
+      </section>
+      <section id="stock-detail" class="detail" aria-label="선택한 종목"></section>
+    </div>
+    <p id="interaction-status" class="sr-only" role="status" aria-live="polite"></p>
+    <footer id="demo-notes" class="demo-notes"><strong>시안에서 확인할 수 있는 것</strong><p>국내·해외·관심 전환, 검색, 정렬, 관심 추가·해제, 종목 상세와 가격 상태를 살펴볼 수 있습니다. 운영 데이터·실제 원문·계좌 조회·주문 기능은 연결하지 않았습니다.</p><p>‘오늘’과 ‘내 투자’는 메뉴 위치를 보여주는 글자입니다. 실제 동작은 종목 목록·상세 범위에 한정합니다.</p></footer>
+  </main>
+</body>
+</html>
