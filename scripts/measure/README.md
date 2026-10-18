@@ -50,7 +50,7 @@
   --readiness data/research/kr-net-alpha-v2-readiness-2026-10-18-v10.json.gz \
   --readiness-sha256 8812b6952941451e01c931399da30ed80f3b16a25286c7740f3ffcd1b847f87f \
   --evidence data/research/kr-net-alpha-action-clock-packet-2026-10-18-v2.json \
-  --output data/research/kr-net-alpha-account-replay-2026-10-18-v4.json.gz
+  --output data/research/kr-net-alpha-account-replay-2026-10-18-v5.json.gz
 ```
 
 ## 2026-10-17 단일 Ridge 후보 학습·평가

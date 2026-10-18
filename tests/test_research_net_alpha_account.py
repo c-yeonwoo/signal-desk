@@ -196,3 +196,16 @@ def test_final_stock_ratio_revalues_only_the_recorded_receivable_not_old_trades(
     assert ledger.mark(frame)["value"] == 101000
     assert ledger.mark(frame, final_at=clocks.session_time("2022-07-07"))["value"] == 102000
     assert b.state() == before and b.holdings == {"A":100}
+
+
+def test_final_split_revision_after_trading_tail_cannot_certify_old_quantity():
+    original = assertion("split", {"conversion_boundary":{"on":"2022-07-04", "phase":"before_open"},
+        "share_ratio":5, "price_basis_from_session":"2022-07-04", "tradable_from_session":"2022-07-04"})
+    revised = assertion("late-revision", {"share_ratio":4}, published="2025-01-02", previous=("split",))
+    b, ledger = setup(source(original, revised))
+    ledger.advance("2022-07-04", "before_open")
+    frame = ledger.frame("2022-07-04", {"A":20}, clocks.session_time("2022-07-04"))
+    assert ledger.mark(frame)["value"] == 100000
+    result = ledger.mark(frame, final_at=clocks.timestamp("2026-10-18T00:00:00+09:00"))
+    assert result["value"] is None and b.holdings == {"A":500}
+    assert "final_applied_conversion_revision_unreconciled" in result["reasons"]

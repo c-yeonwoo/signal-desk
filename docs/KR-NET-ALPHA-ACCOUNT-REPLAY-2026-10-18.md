@@ -31,7 +31,7 @@
 
 원문 패킷 SHA256: `f502a04eacabedd6815ed8b9468660ffe35b97c8d0297326dfedefd44320a8ac`.
 
-이번 실행 결과: `data/research/kr-net-alpha-account-replay-2026-10-18-v4.json.gz`, SHA256 `360c2fabe2c0a75ead2c4d48a6da6ee108211954c668551adc5caf067690c9cd`. `state=blocked_data`, 인증서0, `paths_executed=0`, `backtest_executed=false`, `adoption=not_evaluable_data_gate`. 연결부 경계 수정 전 v1~v3 출력도 덮어쓰지 않았다. 이 버전들을 서로 다른 원천 확보나 새 성과 표본으로 세지 않는다.
+이번 실행 결과: `data/research/kr-net-alpha-account-replay-2026-10-18-v5.json.gz`, SHA256 `0d003f132a521da74f7d0bd11690defb8aae904030959daa3a4e1de99a5786d0`. `state=blocked_data`, 인증서0, `paths_executed=0`, `backtest_executed=false`, `adoption=not_evaluable_data_gate`. 연결부 경계 수정 전 v1~v4 출력도 덮어쓰지 않았다. 이 버전들을 서로 다른 원천 확보나 새 성과 표본으로 세지 않는다.
 
 새 API 요청 없이 기존 인증 원문의 내용·생성 코드가 동일함을 확인한 **차단 관문 재검사**다. 새 원천을 얻었다거나 전체 입력을 새로 측정한 것으로 세지 않는다. 실제 행사225/400·가격810/1,200요청 장부는 그대로다. 210개 키 또는 합성 경로를 210개의 실제 시장 결과로 세지 않는다.
 

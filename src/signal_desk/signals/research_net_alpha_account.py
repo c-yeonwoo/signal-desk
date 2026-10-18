@@ -268,6 +268,13 @@ class AccountLedger:
         if final_at is not None:
             if any(self.evidence.halted(security, at, final_at) is not False for security in frame["held_securities"]):
                 reasons.append("held_mark_halt_truth_unverified_or_nontradable")
+            for applied in frame["conversions"].values():
+                final_events = {e["event_id"]:e for e in self.evidence.actions.events(applied["security_id"], final_at, "outcome")}
+                event = final_events.get(applied["event_id"])
+                boundary = clocks.event_boundary(event) if event else None
+                if (not event or event["conflicts"] or clocks.value(event, "share_ratio") != applied["ratio"]
+                        or (boundary.isoformat() if boundary else None) != applied["boundary"]):
+                    reasons.append("final_applied_conversion_revision_unreconciled")
             # A later disclosure may expose a previously unrecorded economic
             # event. Do not silently report a price-only historical NAV then.
             for security in frame["tracked_securities"]:
@@ -287,7 +294,8 @@ class AccountLedger:
                     events = {e["event_id"]: e for e in self.evidence.actions.events(claim["security_id"], final_at, "outcome")}
                     event = events.get(claim["event_id"])
                     per_share = number(clocks.value(event, "cash_per_share")) if event else None
-                    if event and clocks.event_boundary(event) and clocks.event_boundary(event).isoformat() != claim["event_boundary"]:
+                    boundary = clocks.event_boundary(event) if event else None
+                    if (boundary.isoformat() if boundary else None) != claim["event_boundary"]:
                         reasons.append("final_entitlement_boundary_differs")
                     if (event and not event["conflicts"] and per_share is not None and per_share >= 0
                             and clocks.value(event, "amount_status") == "final" and clocks.value(event, "currency") == "KRW"):
@@ -296,7 +304,7 @@ class AccountLedger:
                     reasons.append("cash_right_unpriced")
                 elif value is not None:
                     value += amount-claim["paid"]
-            elif not claim["delivered"]:
+            else:
                 events = {e["event_id"]: e for e in self.evidence.actions.events(claim["security_id"], final_at or at, "outcome" if final_at else "account")}
                 event = events.get(claim["event_id"])
                 mark = number(clocks.value(event, "receivable_value_per_right")) if event else None
@@ -304,9 +312,13 @@ class AccountLedger:
                 if final_at is not None:
                     ratio = number(clocks.value(event, "additional_share_ratio")) if event else None
                     quantity = whole_shares(claim["owners"], ratio) if ratio is not None and ratio >= 0 else None
-                if (event and clocks.event_boundary(event)
-                        and clocks.event_boundary(event).isoformat() != claim["event_boundary"]):
+                boundary = clocks.event_boundary(event) if event else None
+                if (boundary.isoformat() if boundary else None) != claim["event_boundary"]:
                     reasons.append("final_entitlement_boundary_differs")
+                if claim["delivered"]:
+                    if not event or event["conflicts"] or quantity != claim.get("quantity"):
+                        reasons.append("final_delivered_stock_revision_unreconciled")
+                    continue
                 if (mark is None or mark < 0 or not event or event["conflicts"]
                         or clocks.value(event, "currency") != "KRW" or quantity is None):
                     reasons.append("stock_right_unpriced")
