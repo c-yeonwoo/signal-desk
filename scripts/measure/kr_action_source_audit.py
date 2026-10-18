@@ -20,7 +20,9 @@ from scripts.measure.kr_net_alpha_v2 import save
 from signal_desk import config
 
 HOSTS = frozenset({"kind.krx.co.kr", "seibro.or.kr", "www.seibro.or.kr", "api.seibro.or.kr",
-                  "global.krx.co.kr", "open.krx.co.kr", "law.krx.co.kr", "www.samsung.com", "www.data.go.kr"})
+                  "global.krx.co.kr", "open.krx.co.kr", "law.krx.co.kr", "www.samsung.com", "www.data.go.kr",
+                  "apis.data.go.kr"})
+FSC_RIGHTS = "https://apis.data.go.kr/1160100/GetStocRighScheService_V2/getRighExerReasSche_V2"
 
 
 def write_journal(path, rows):
@@ -94,7 +96,7 @@ class Collector:
         finally:
             write_journal(path, journal)
 
-    def get(self, url, data=None):
+    def get(self, url, data=None, *, _service_key=None):
         parsed = urllib.parse.urlsplit(url)
         if (parsed.scheme != "https" or parsed.hostname not in HOSTS or parsed.username or parsed.password
                 or any(word in k.lower() for k, _ in urllib.parse.parse_qsl(parsed.query)
@@ -102,7 +104,14 @@ class Collector:
                 or (data is not None and not (parsed.hostname == "kind.krx.co.kr"
                                              and parsed.path in ("/disclosure/details.do", "/disclosureinfo/dividendinfo.do")))):
             raise ValueError("URL outside read-only public-source scope")
-        key = hashlib.sha256(url.encode()+b"\0"+(data or b"")).hexdigest()
+        if _service_key is not None and (url.split("?", 1)[0] != FSC_RIGHTS or data is not None):
+            raise ValueError("service key destination outside approved FSC operation")
+        key_material = url.encode()+b"\0"+(data or b"")
+        if _service_key is not None:
+            if not _service_key:
+                raise ValueError("empty service key")
+            key_material += b"\0"+_service_key.encode()
+        key = hashlib.sha256(key_material).hexdigest()
         for row in reversed(self.journal):
             if row.get("request_key") == key and row.get("response_path"):
                 path = (DEST/row["response_path"]).resolve()
@@ -111,7 +120,7 @@ class Collector:
                 raw = path.read_bytes()
                 if hashlib.sha256(raw).hexdigest() != row["sha256"]:
                     raise ValueError("saved source response differs")
-                if row["state"] != "response_saved":
+                if row["state"] != "response_saved" and _service_key is None:
                     raise ValueError(f"preserved source unavailable: {row.get('http_status', row['state'])}")
                 return raw, row
         used = self.spec["amendment"]["source_scope"]["previous_action_requests"]+len(self.journal)
@@ -123,15 +132,18 @@ class Collector:
         row = {"source": parsed.hostname, "url": url, "request_key": key,
                "method": "POST" if data is not None else "GET", "state": "reserved",
                "observed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+        if _service_key is not None:
+            row["authentication_variable"] = "DATA_GO_KR_SERVICE_KEY"
         if data is not None:
             row["request_form"] = urllib.parse.parse_qs(data.decode(), keep_blank_values=True)
         self.journal.append(row); self.save(); self.previous = time.monotonic()
         try:
-            req = urllib.request.Request(url, data, headers={"User-Agent": "signal-desk-research/1.0",
+            request_url = url if _service_key is None else url+("&" if parsed.query else "?")+urllib.parse.urlencode({"serviceKey": _service_key})
+            req = urllib.request.Request(request_url, data, headers={"User-Agent": "signal-desk-research/1.0",
                 "Referer": f"https://{parsed.hostname}/"})
             opener = urllib.request.build_opener(_NoRedirect())
             try:
-                response = opener.open(req, timeout=20)
+                response = opener.open(req, timeout=45 if _service_key is not None else 20)
             except urllib.error.HTTPError as exc:
                 response = exc
             with response:
@@ -139,9 +151,13 @@ class Collector:
                 row["http_status"] = response.code
                 row["content_type"] = response.headers.get("Content-Type", "")
                 if response.headers.get("Location"):
-                    row["location"] = response.headers["Location"]
+                    row["location"] = response.headers["Location"] if _service_key is None else "redacted_authenticated_redirect"
             if len(raw) > 5_000_000 or source_storage_bytes()+len(raw) > self.spec["max_new_archive_bytes"]:
                 raise ValueError("source byte cap reached")
+            if _service_key is not None and any(secret.encode() in raw for secret in (
+                    _service_key, urllib.parse.quote(_service_key, safe=""))):
+                row.update(state="credential_echo_not_saved", bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+                raise ValueError("credential echoed by provider; response not saved")
             path = DEST/"effective-source-responses"/f"{len(self.journal):04d}.bin"
             path.parent.mkdir(exist_ok=True)
             if path.exists():
@@ -150,7 +166,7 @@ class Collector:
             row.update(state="response_saved" if 200 <= row["http_status"] < 300 else "http_error",
                        bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest(),
                        response_path=str(path.relative_to(DEST)))
-            if row["state"] != "response_saved":
+            if row["state"] != "response_saved" and _service_key is None:
                 raise ValueError(f"source HTTP {row['http_status']}")
             return raw, row
         except BaseException as exc:
@@ -158,6 +174,27 @@ class Collector:
             raise
         finally:
             self.save()
+
+    def fsc_rights(self, day, page=1, page_size=100, issuer=None):
+        """One official operation; credentials never enter source journals."""
+        if (dt.date.fromisoformat(day).isoformat() != day or
+                not self.spec["warmup_from"] <= day <= self.spec["liquidation_through"]
+                or type(page) is not int or type(page_size) is not int
+                or not 1 <= page <= 30 or not 1 <= page_size <= 100
+                or (issuer is not None and (not isinstance(issuer, str) or not 1 <= len(issuer) <= 80))):
+            raise ValueError("FSC query outside fixed research scope")
+        import os
+        config.load_env()
+        secret = urllib.parse.unquote(os.environ.get("DATA_GO_KR_SERVICE_KEY", "").strip())
+        if not secret:
+            raise ValueError("DATA_GO_KR_SERVICE_KEY missing")
+        params = {"basDt": day.replace("-", ""), "pageNo": page, "numOfRows": page_size, "resultType": "json"}
+        if issuer is not None:
+            params["stckIssuCmpyNm"] = issuer
+        try:
+            return self.get(FSC_RIGHTS+"?"+urllib.parse.urlencode(params), _service_key=secret)
+        except Exception as exc:
+            raise ValueError(f"FSC source request failed ({type(exc).__name__}); see redacted journal") from None
 
 
 def listing(source, start, end):
