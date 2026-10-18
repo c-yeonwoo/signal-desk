@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, field
 import datetime as dt
 import hashlib
 import importlib
+import importlib.util
 import json
 import math
 from pathlib import Path
@@ -475,7 +476,16 @@ def feature_history_issue(day, prices, by_day, panel, reviewed, budget):
     return None
 
 
-def prepare(root, contract, modules, budget):
+def source_supplement_module():
+    # Always use the executing runner's sibling, including during staged tests.
+    path = Path(__file__).with_name("kr_ridge_hold_source_supplement.py")
+    spec = importlib.util.spec_from_file_location("hold_source_supplement", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def prepare(root, contract, modules, budget, supplement_archive=None):
     lab, ridge, clock = modules["lab"], modules["ridge"], modules["clock"]
     for bound in (lab.FINANCIAL, lab.SCOPE):
         if not Path(bound).resolve().is_relative_to(root):
@@ -490,6 +500,10 @@ def prepare(root, contract, modules, budget):
     panel = modules["panel"].PricePanel(days)
     by_day = {d: {r["ISU_CD"]: r for r in rows} for d, rows in days.items()}
     reviewed = modules["old"].checked_reviewed(root, old_result, by_day, panel)
+    if supplement_archive is not None:
+        from signal_desk.signals.research_action_coverage import ReviewedShareCountChange
+        reviewed = source_supplement_module().merge_archive(
+            supplement_archive, reviewed, by_day, panel, ReviewedShareCountChange)
     financials = lab.load_financials(lab.FINANCIAL)["records"]
     roster = {r["ISU_CD"] for r in lab.top200(days[contract["inputs"]["financial"]["rosterAsOf"]])}
     expected = {(r["date"], r["ticker"]): r["predicted_gross"] for r in old_result["predictions"]}
@@ -577,7 +591,7 @@ def gates(paths):
             "adoptionClaim": False, "historicalResearchAdoption": False, "livePromotion": False}
 
 
-def diagnose(root, commit=CONTRACT_COMMIT):
+def diagnose(root, commit=CONTRACT_COMMIT, *, supplement_spec=None, supplement_archive=None, supplement_commit=None):
     budget = Budget()
     # Preallocate every trading path, including unexecuted/null paths.
     paths = [{"period": p, "cost": c, "phase": phase,
@@ -597,10 +611,24 @@ def diagnose(root, commit=CONTRACT_COMMIT):
                Path(__file__).resolve().parents[2] / "tests/test_kr_ridge_hold_renewal_diagnostic.py")}, "actual_collection": 0,
            "fit_calls": 0, "pristineOOS": False, "certifiedTotalReturn": None}
     try:
+        supplied = (supplement_spec is not None, supplement_archive is not None, supplement_commit is not None)
+        if any(supplied) and not all(supplied):
+            raise ValueError("supplement_requires_spec_archive_and_precommit")
         contract, hashes = checked_contract(root, commit, budget)
         out["input_sha256"] = hashes
+        if supplement_spec is not None:
+            _, audit = source_supplement_module().checked_spec(
+                root, supplement_spec, supplement_archive, supplement_commit,
+                CONTRACT_COMMIT, CONTRACT_SHA, hashes, budget)
+            out["source_supplement"] = audit
+            out["code_sha256"]["supplement_helper"] = digest(
+                Path(__file__).with_name("kr_ridge_hold_source_supplement.py"))
         modules = dependencies(root)
-        selections, predictions, gaps, by_day, panel, reviewed, sources = prepare(root, contract, modules, budget)
+        if supplement_archive is None:
+            prepared = prepare(root, contract, modules, budget)
+        else:
+            prepared = prepare(root, contract, modules, budget, supplement_archive)
+        selections, predictions, gaps, by_day, panel, reviewed, sources = prepared
         out.update({"predictions": predictions, "sources": sources, "reviewed_facts": [
             {**asdict(f), "source_observed_at": f.source_observed_at.isoformat()} for f in reviewed.values()],
             "Q4_reproduction": "all_prediction_rows_selection_rank_matched"})
@@ -638,10 +666,19 @@ def main():
     parser.add_argument("--repo", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--contract-commit", default=CONTRACT_COMMIT)
+    parser.add_argument("--source-supplement", type=Path)
+    parser.add_argument("--source-supplement-archive", type=Path)
+    parser.add_argument("--supplement-commit")
     args = parser.parse_args()
+    supplied = (args.source_supplement is not None, args.source_supplement_archive is not None,
+                args.supplement_commit is not None)
+    if any(supplied) and not all(supplied):
+        parser.error("supplement requires --source-supplement, --source-supplement-archive and --supplement-commit")
     # Reserve the new file before any actual history is processed.
     with args.output.open("x", encoding="utf-8") as stream:
-        result = diagnose(args.repo.resolve(), args.contract_commit)
+        result = diagnose(args.repo.resolve(), args.contract_commit,
+            supplement_spec=args.source_supplement, supplement_archive=args.source_supplement_archive,
+            supplement_commit=args.supplement_commit)
         json.dump(result, stream, ensure_ascii=False, allow_nan=False, indent=2)
     print(json.dumps({"state": result["state"], "elapsed_seconds": result["elapsed_seconds"]}))
     return 0 if result["state"] == "price_diagnostic_finished" else 2
