@@ -143,6 +143,22 @@ def test_first_open_cannot_skip_missing_sessions_to_get_a_later_buy_price():
         submit(b, {"A": .1}, day="2024-01-02")
 
 
+def test_receivable_counts_in_exposure_nav_but_cannot_finance_a_buy():
+    b = book()
+    b.submit(DAY, {"A":.2}, {"A":100}, {"A":100000}, 110000,
+        priority={"A":1}, input_id="known-receivable", budget=.2)
+    day = market_clock.next_sessions("kr", DAY, 1)[0]
+    fills = b.open_session(day, {"A":observed()}, noncash_nav=10000)
+    assert fills[0]["shares"] == 216  # Fixed close quantity, not a price-only NAV cap.
+    assert b.buying_power == pytest.approx(100000-21600-b.fees)
+    assert 21600 <= .2*(b.price_nav({"A":100})+10000)
+    b = book(); b.settled_cash = 0
+    b.submit(DAY, {"A":.1}, {"A":100}, {"A":100000}, 100000,
+        priority={"A":1}, input_id="right-not-cash", budget=1)
+    assert b.open_session(day, {"A":observed()}, noncash_nav=100000) == []
+    assert b.holdings == {} and b.buying_power == 0
+
+
 def test_frozen_grid_and_six_arm_targets_ignore_outcomes_and_do_not_retrain():
     import numpy as np
     from signal_desk.signals import research_net_alpha_execution as execution
