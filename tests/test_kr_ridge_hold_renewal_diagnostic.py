@@ -377,5 +377,163 @@ class SupplementBoundaries(unittest.TestCase):
                 check()
 
 
+
+class EventSupplementBoundaries(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.h = m.event_supplement_module()
+        # Real preserved evidence is available in the declared dependency repo.
+        # No local absolute paths and no network fallback.
+        missing = [n for n in cls.h.ARCHIVES if not (REPO/n).is_file()]
+        if missing:
+            raise unittest.SkipTest('preserved event archives unavailable: '+str(missing))
+        cls.facts, cls.adjacent, cls.originals = cls.h.read_evidence(REPO)
+        contract, _ = m.checked_contract(REPO, m.CONTRACT_COMMIT, m.Budget())
+        archives = [REPO/contract['inputs']['priceArchivesUnder']/n
+                    for n in contract['inputs']['priceArchiveSHA256']]
+        days, _ = D['lab'].load_krx_archives(archives)
+        cls.panel = D['panel'].PricePanel(days)
+        cls.rows = {d: {r['ISU_CD']:r for r in rows} for d,rows in days.items()}
+        from signal_desk.signals.research_action_coverage import ReviewedShareCountChange
+        cls.fact_type = ReviewedShareCountChange
+        old_result = json.loads((REPO/D['old'].RESULT).read_text())
+        cls.base = D['old'].checked_reviewed(REPO, old_result, cls.rows, cls.panel)
+        cls.hyundai = m.source_supplement_module().merge_archive(
+            REPO/'data/research/kr-r3-hyundai-source-supplement-2026-10-18-v3.zip',
+            cls.base, cls.rows, cls.panel, cls.fact_type)
+
+    def test_21_real_three_keys_shared_consumers_and_unchanged_raw_inputs(self):
+        h, rows, panel = self.h, self.rows, self.panel
+        self.assertEqual(Path(h.__file__).resolve(), STAGED.with_name('kr_ridge_event_source_supplement.py'))
+        self.assertEqual(len(self.base), 8)
+        self.assertEqual(len(self.hyundai), 9)
+        before = deepcopy((rows, panel.bars))
+        reviewed = h.merge(REPO, self.hyundai, rows, panel, self.fact_type)
+        self.assertEqual(len(reviewed), 12)
+        self.assertTrue(all(reviewed[k] is v for k,v in self.hyundai.items()))
+        for f in (self.facts[0], self.adjacent, self.facts[1]):
+            day, ticker = f['listing_session'], f['ticker']
+            with self.assertRaises(m.SourceStop):
+                m.unit_check(day, ticker, rows, panel, self.hyundai)
+            m.unit_check(day, ticker, rows, panel, reviewed)
+            # Restrict the window to the pinned event; later unrelated changes remain guarded.
+            i = panel.index[day]
+            narrow = SimpleNamespace(sessions=panel.sessions[i-20:i+1],
+                index={d:j for j,d in enumerate(panel.sessions[i-20:i+1])}, bars=panel.bars)
+            self.assertIsNone(m.feature_history_issue(day, {ticker:[]}, rows, narrow, reviewed, m.Budget()))
+            trend = m.trend_at(day, ticker, narrow, rows, reviewed)
+            self.assertEqual(trend['ma20'], sum(panel.bars[d,ticker][1] for d in narrow.sessions[-20:])/20)
+        self.assertEqual(reviewed['2024-01-12','068270'].kind, 'merger_survivor_issuance')
+        self.assertEqual(before, (rows, panel.bars))
+        from dataclasses import asdict, FrozenInstanceError
+        fact = reviewed['2024-01-12','068270']
+        self.assertEqual(asdict(fact)['holder_quantity_effect'], 'unchanged')
+        with self.assertRaises(FrozenInstanceError):
+            fact.kind = 'option_exercise_issuance'
+
+    def test_22_duplicate_mapping_other_date_and_unrelated_key_fail_closed(self):
+        h = self.h
+        reviewed = h.merge(REPO, self.hyundai, self.rows, self.panel, self.fact_type)
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            h.merge(REPO, reviewed, self.rows, self.panel, self.fact_type)
+        for value in ('220290519', '220290520.0', True):
+            rows = deepcopy(self.rows)
+            rows['2024-01-12']['068270']['LIST_SHRS'] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, 'KRX'):
+                h.merge(REPO, self.hyundai, rows, self.panel, self.fact_type)
+        sessions = list(self.panel.sessions)
+        sessions[self.panel.index['2024-01-15']-1] = '2024-01-11'
+        with self.assertRaisesRegex(ValueError, 'previous_session'):
+            h.merge(REPO, self.hyundai, self.rows, SimpleNamespace(sessions=sessions,index=self.panel.index), self.fact_type)
+        rows = deepcopy(self.rows)
+        rows['2024-01-16']['068270']['LIST_SHRS'] = '217980706'
+        with self.assertRaises(m.SourceStop):
+            m.unit_check('2024-01-16', '068270', rows, self.panel, reviewed)
+
+    def test_23_source_tamper_duplicate_zip_and_body_ratio_confusion(self):
+        h = self.h
+        raw_read = h.local_file
+        archive = next(iter(h.ARCHIVES))
+        with patch.object(h, 'local_file', side_effect=lambda root,n,limit:
+                          raw_read(root,n,limit)+b' ' if n==archive else raw_read(root,n,limit)):
+            with self.assertRaisesRegex(ValueError, 'archive_hash'):
+                h.read_evidence(REPO)
+        from io import BytesIO
+        buffer = BytesIO()
+        with ZipFile(buffer, 'w') as z:
+            z.writestr('manifest.json', '{}')
+            z.writestr('manifest.json', '{}')
+        raw = buffer.getvalue()
+        pins = dict(h.ARCHIVES, **{archive:(h.sha(raw),2)})
+        with patch.object(h, 'ARCHIVES', pins), patch.object(h,'local_file',side_effect=lambda root,n,limit:
+                           raw if n==archive else raw_read(root,n,limit)):
+            with self.assertRaisesRegex(ValueError, 'members'):
+                h.read_evidence(REPO)
+        for name, old, new in (('11-cell-listing-original.bin', b'73,887,750', b'73,887,751'),
+                               ('24-cell-decision-original.bin', b'0.4492620', b'1.0000000'),
+                               ('12-cell-cancel-original.bin', b'217,980,707', b'217,980,706')):
+            bad = dict(self.originals, **{name:self.originals[name].replace(old,new)})
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                h.validate_bodies(bad)
+        from dataclasses import asdict
+        valid = h.merge(REPO, self.hyundai, self.rows, self.panel, self.fact_type)['2024-01-12','068270']
+        for key,value in (('kind','option_exercise_issuance'),('listed_shares_after',73887750),
+                          ('listing_session','2024-01-15'),('holder_quantity_effect','split')):
+            with self.subTest(field=key), self.assertRaises(ValueError):
+                h.MergerSurvivorIssuance(**{**asdict(valid),key:value})
+
+    def test_24_prepare_keeps_existing_nine_before_event_merge(self):
+        contract, _ = m.checked_contract(REPO, m.CONTRACT_COMMIT, m.Budget())
+        captured = {}
+        original = self.h.merge
+        def observed(root, reviewed, rows, panel, cls):
+            captured['before'] = len(reviewed)
+            result = original(root, reviewed, rows, panel, cls)
+            captured['after'] = len(result)
+            return result
+        class StopBeforeFeatureEvaluation(Exception):
+            pass
+        with patch.object(m, 'event_supplement_module', return_value=self.h), patch.object(
+                self.h, 'merge', side_effect=observed), patch.object(
+                D['lab'], 'load_financials', side_effect=StopBeforeFeatureEvaluation):
+            with self.assertRaises(StopBeforeFeatureEvaluation):
+                m.prepare(REPO, contract, D, m.Budget(),
+                    REPO/'data/research/kr-r3-hyundai-source-supplement-2026-10-18-v3.zip',
+                    event_supplement=True)
+        self.assertEqual(captured, {'before':9, 'after':12})
+
+    def test_25_precommit_four_executing_codes_and_provenance(self):
+        h = self.h
+        contract, hashes = m.checked_contract(REPO, m.CONTRACT_COMMIT, m.Budget())
+        spec = {'schema':'kr-r3-event-source-supplement-v1','contract_commit':m.CONTRACT_COMMIT,
+            'contract_sha256':m.CONTRACT_SHA,'input_sha256':hashes,
+            'archive_sha256':{n:v[0] for n,v in h.ARCHIVES.items()},'manifest_sha256':h.MANIFEST_SHA,
+            'facts_sha256':h.FACTS_SHA,'proposal_path':h.PROPOSAL_PATH,'proposal_sha256':h.PROPOSAL_SHA,
+            'source_sha256':h.SOURCE_SHA,'maximum_seconds':600,'new_collection':0,
+            'code_sha256':{n:h.sha((STAGED.parents[2]/n).read_bytes()) for n in h.CODE_FILES}}
+        # Git-show is simulated only; production requires the controller's real precommit.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); (root/'docs').mkdir()
+            path = root/'docs/spec.json'; path.write_text(json.dumps(spec))
+            with patch.object(h.subprocess,'check_output',return_value=path.read_bytes()), patch.object(
+                    h,'read_evidence',return_value=(self.facts,self.adjacent,self.originals)):
+                _, audit = h.checked_spec(root,path,'a'*40,m.CONTRACT_COMMIT,m.CONTRACT_SHA,hashes,m.Budget())
+                self.assertEqual(audit['spec_commit'],'a'*40)
+                self.assertEqual(len(audit['code_sha256']),4)
+                for field,value in (('new_collection',1),('source_sha256',{}),('input_sha256',{}),
+                                    ('code_sha256',{n:'0'*64 for n in h.CODE_FILES})):
+                    path.write_text(json.dumps({**spec,field:value}))
+                    with patch.object(h.subprocess,'check_output',return_value=path.read_bytes()):
+                        with self.subTest(field=field), self.assertRaises(ValueError):
+                            h.checked_spec(root,path,'a'*40,m.CONTRACT_COMMIT,m.CONTRACT_SHA,hashes,m.Budget())
+                path.write_text(json.dumps(spec)+' ')
+                with self.assertRaisesRegex(ValueError, 'not_precommitted'):
+                    h.checked_spec(root,path,'a'*40,m.CONTRACT_COMMIT,m.CONTRACT_SHA,hashes,m.Budget())
+        with patch.object(m, 'checked_contract', side_effect=AssertionError('must reject before inputs')):
+            result=m.diagnose(REPO,event_supplement=Path('missing.json'))
+            self.assertEqual(result['state'],'implementation_failure')
+            self.assertEqual(result['reason'],'event_requires_spec_precommit_and_hyundai')
+
+
 if __name__ == "__main__":
     unittest.main()
