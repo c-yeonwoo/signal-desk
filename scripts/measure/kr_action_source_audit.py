@@ -11,6 +11,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 
 from scripts.measure.kr_net_alpha_sources import ROOT, DEST, _NoRedirect
 from scripts.measure.kr_net_alpha_v2 import contract, source_storage_bytes, price_request_inventory, JOURNAL_SHA
@@ -20,10 +21,62 @@ from scripts.measure.kr_net_alpha_v2 import save
 from signal_desk import config
 
 HOSTS = frozenset({"kind.krx.co.kr", "seibro.or.kr", "www.seibro.or.kr", "api.seibro.or.kr",
+                  "m.seibro.or.kr",
                   "global.krx.co.kr", "open.krx.co.kr", "law.krx.co.kr", "www.samsung.com", "www.data.go.kr",
                   "apis.data.go.kr"})
 FSC_RIGHTS = "https://apis.data.go.kr/1160100/GetStocRighScheService_V2/getRighExerReasSche_V2"
 FSC_ISSUANCE = "https://apis.data.go.kr/1160100/GetStocIssuInfoService_V3/getStocIssuInfo_V3"
+SEIBRO_CALENDAR = "https://seibro.or.kr/websquare/engine/proworks/callServletService.jsp"
+SEIBRO_TASK = "ksd.safe.bip.cnts.Company.process.EntrSkedulPTask"
+SEIBRO_ACTION = "termByImptSkedulList"
+SEIBRO_DETAILS = {
+    "divSkedulView": {"103"}, "issuDetailsList2": {"103"}, "payDetailsList1": {"103"},
+    "faceDiviMergBasicInfoListEL1": {"201", "202"},
+    "issuDetailsList3": {"201", "202"}, "payDetailsList2": {"201", "202"}}
+
+
+def seibro_calendar_query(data, spec):
+    """Only observed public calendar/detail reads, respecting UI range caps."""
+    if not isinstance(data, bytes) or len(data) > 4096 or b"<!" in data:
+        raise ValueError("unapproved SEIBro calendar XML")
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        raise ValueError("unapproved SEIBro calendar XML") from None
+    action = root.get("action")
+    names = ({"ISSUCO_CUSTNO", "RGT_STD_DT", "RGT_RACD"} if action in SEIBRO_DETAILS else
+        {"ISSUCO_CUSTNO", "DT_TPCD", "FROMDATE", "TODATE", "LIST_TPCD", "RGT_RACD"})
+    if (root.tag != "reqParam" or root.attrib != {"action":action, "task":SEIBRO_TASK}
+            or action not in {SEIBRO_ACTION, *SEIBRO_DETAILS}
+            or len(root) != len(names) or {n.tag for n in root} != names
+            or any(set(n.attrib) != {"value"} or len(n) or (n.text or "").strip() for n in root)):
+        raise ValueError("unapproved SEIBro calendar operation")
+    params = {n.tag:n.attrib["value"] for n in root}
+    if action in SEIBRO_DETAILS:
+        try:
+            date = dt.datetime.strptime(params["RGT_STD_DT"], "%Y%m%d").date()
+        except ValueError:
+            raise ValueError("invalid SEIBro detail date") from None
+        if (date.strftime("%Y%m%d") != params["RGT_STD_DT"]
+                or not spec["warmup_from"] <= date.isoformat() <= spec["liquidation_through"]
+                or not re.fullmatch(r"[0-9]{1,8}", params["ISSUCO_CUSTNO"])
+                or params["RGT_RACD"] not in SEIBRO_DETAILS[action]):
+            raise ValueError("SEIBro detail query outside public research bounds")
+        return {"action":action, **params}
+    try:
+        dates = [dt.datetime.strptime(params[k], "%Y%m%d").date() for k in ("FROMDATE", "TODATE")]
+    except ValueError:
+        raise ValueError("invalid SEIBro calendar range") from None
+    issuer = params["ISSUCO_CUSTNO"]
+    if (any(d.strftime("%Y%m%d") != params[k] for d,k in zip(dates, ("FROMDATE", "TODATE")))
+            or not spec["warmup_from"] <= dates[0].isoformat() <= dates[1].isoformat() <= spec["liquidation_through"]
+            or (dates[1]-dates[0]).days > (364 if issuer else 6)
+            or (issuer and not re.fullmatch(r"[0-9]{1,8}", issuer))
+            or params["LIST_TPCD"] != "11"
+            or params["DT_TPCD"] not in {"", "01", "03", "07", "08", "09", "10", "12", "14", "24", "31"}
+            or (params["RGT_RACD"] and not re.fullmatch(r"[0-9]{3}", params["RGT_RACD"]))):
+        raise ValueError("SEIBro calendar query outside public research bounds")
+    return params
 
 
 def write_journal(path, rows):
@@ -99,10 +152,11 @@ class Collector:
 
     def get(self, url, data=None, *, _service_key=None, _refresh=False):
         parsed = urllib.parse.urlsplit(url)
+        seibro_query = seibro_calendar_query(data, self.spec) if url == SEIBRO_CALENDAR and data is not None else None
         if (parsed.scheme != "https" or parsed.hostname not in HOSTS or parsed.username or parsed.password
                 or any(word in k.lower() for k, _ in urllib.parse.parse_qsl(parsed.query)
                        for word in ("token", "secret", "servicekey", "auth_key"))
-                or (data is not None and not (parsed.hostname == "kind.krx.co.kr"
+                or (data is not None and seibro_query is None and not (parsed.hostname == "kind.krx.co.kr"
                                              and parsed.path in ("/disclosure/details.do", "/disclosureinfo/dividendinfo.do")))):
             raise ValueError("URL outside read-only public-source scope")
         if _service_key is not None and (url.split("?", 1)[0] not in (FSC_RIGHTS, FSC_ISSUANCE) or data is not None):
@@ -137,13 +191,17 @@ class Collector:
                "observed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
         if _service_key is not None:
             row["authentication_variable"] = "DATA_GO_KR_SERVICE_KEY"
-        if data is not None:
+        if seibro_query is not None:
+            row.update(request_xml_sha256=hashlib.sha256(data).hexdigest(), calendar_query=seibro_query)
+        elif data is not None:
             row["request_form"] = urllib.parse.parse_qs(data.decode(), keep_blank_values=True)
         self.journal.append(row); self.save(); self.previous = time.monotonic()
         try:
             request_url = url if _service_key is None else url+("&" if parsed.query else "?")+urllib.parse.urlencode({"serviceKey": _service_key})
-            req = urllib.request.Request(request_url, data, headers={"User-Agent": "signal-desk-research/1.0",
-                "Referer": f"https://{parsed.hostname}/"})
+            headers = {"User-Agent": "signal-desk-research/1.0", "Referer": f"https://{parsed.hostname}/"}
+            if seibro_query is not None:
+                headers["Content-Type"] = "application/xml; charset=UTF-8"
+            req = urllib.request.Request(request_url, data, headers=headers)
             opener = urllib.request.build_opener(_NoRedirect())
             try:
                 response = opener.open(req, timeout=45 if _service_key is not None else 20)
@@ -180,6 +238,22 @@ class Collector:
 
     def fsc_rights(self, day, page=1, page_size=100, issuer=None):
         return self._fsc_schedule(FSC_RIGHTS, day, page, page_size, issuer)
+
+    def seibro_calendar(self, start, end, *, date_role="03", reason="", issuer=""):
+        root = ET.Element("reqParam", {"action":SEIBRO_ACTION, "task":SEIBRO_TASK})
+        for key,value in {"ISSUCO_CUSTNO":issuer, "DT_TPCD":date_role,
+                "FROMDATE":dt.date.fromisoformat(start).strftime("%Y%m%d"),
+                "TODATE":dt.date.fromisoformat(end).strftime("%Y%m%d"),
+                "LIST_TPCD":"11", "RGT_RACD":reason}.items():
+            ET.SubElement(root, key, {"value":value})
+        return self.get(SEIBRO_CALENDAR, ET.tostring(root, encoding="utf-8"))
+
+    def seibro_detail(self, action, issuer, record_on, reason):
+        root = ET.Element("reqParam", {"action":action, "task":SEIBRO_TASK})
+        for key,value in {"ISSUCO_CUSTNO":issuer, "RGT_STD_DT":dt.date.fromisoformat(record_on).strftime("%Y%m%d"),
+                          "RGT_RACD":reason}.items():
+            ET.SubElement(root, key, {"value":value})
+        return self.get(SEIBRO_CALENDAR, ET.tostring(root, encoding="utf-8"))
 
     def fsc_issuance(self, day, page=1, page_size=100, issuer=None, *, recheck=False):
         return self._fsc_schedule(FSC_ISSUANCE, day, page, page_size, issuer, recheck=recheck)
