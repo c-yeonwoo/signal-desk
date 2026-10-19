@@ -1,0 +1,70 @@
+{
+  "schema": "kr-score-tie-result-summary-v1",
+  "candidate_id": "kr-rounded-score-tie-ret20-v1",
+  "decision": "not_supported_do_not_apply",
+  "reason": "같은 점수 안에서 최근20일 수익률을 우선하는 단일 규칙은 기존보다 일관되게 나빴다. 바뀐3개 기간은 모두 악화했고 나머지4개는 매수 집합이 같았다. 운영 점수·정렬·주문은 바꾸지 않는다.",
+  "plan_commit": "b165b2b",
+  "plan_path": "docs/kr-score-tie-plan-2026-10-19.json",
+  "plan_sha256": "34d67115299c5c68252f6fa45f2c1978c9b785cf4c178595ae683ad8f1b1de40",
+  "artifact": {
+    "path": "data/research/kr-score-tie-ablation-2026-10-19-v1.json",
+    "sha256": "9e38ed4ea7bbb52fd93bc61a36b35d15b20d2667cbfe844c97d99221e2da4def",
+    "code_sha256": "4da9bc9c3cacb9128885e6ef1405342ff659bb03fbfd0823047eb17b5e3548ba"
+  },
+  "execution": {
+    "paperclip_used": false,
+    "additional_trading_llm_api_calls": 0,
+    "new_market_data_requests": 0,
+    "candidate_variants": 1,
+    "historical_runs": 1,
+    "legacy_reproduced_dates": 293,
+    "reproduction": ".venv/bin/python -m scripts.measure.kr_score_tie_ablation --output data/research/<new-result>.json"
+  },
+  "scope": {
+    "windows": 7,
+    "decision_dates": 293,
+    "boundary_tie_dates": 52,
+    "ceiling_score_3_ticker_days": 668,
+    "changed_buy_dates": 8,
+    "changed_kind_dates": 28,
+    "added_or_removed_labels": 14,
+    "changed_distinct_tickers": 6,
+    "legacy_missing_selected_price_dates": 0,
+    "candidate_missing_selected_price_dates": 0,
+    "simple_momentum_missing_dates": 16,
+    "predeclared_simple_comparable_dates": 277
+  },
+  "metric": "각 판단일6자리 고정배분의 다음 시가→5번째 종가 가격 라벨. 날짜 동일가중 뒤7개 기간 동일가중. 공석은 현금0이며 거래분만 비용을 차감한다. 실제 계좌/NAV·총수익·독립 거래 성적이 아니다.",
+  "cost_results_pct": {
+    "25bp": {"legacy_all293": 0.015753614288657566, "candidate_all293": 0.001357940382415367, "candidate_minus_legacy_pp": -0.014395673906242199, "improved_windows": 0, "candidate_minus_simple_paired277_pp": -0.007646956458801789},
+    "50bp": {"legacy_all293": -0.08737456985352944, "candidate_all293": -0.1017185064198987, "candidate_minus_legacy_pp": -0.01434393656636926, "improved_windows": 0, "candidate_minus_simple_paired277_pp": 0.13714324999446936},
+    "75bp": {"legacy_all293": -0.1905027539957164, "candidate_all293": -0.20479495322221275, "candidate_minus_legacy_pp": -0.01429219922649635, "improved_windows": 0, "candidate_minus_simple_paired277_pp": 0.2819334564477404}
+  },
+  "window_delta_pp_at_25bp": {
+    "2024-apr-may": 0,
+    "2024-jun-jul": 0,
+    "2024-aug-sep": -0.07340213675213676,
+    "2025q4-v5": -0.01074215686274509,
+    "2026q1-v5": -0.016625423728813545,
+    "2026q2early-v5": 0,
+    "2026jun-expanded-v5": 0
+  },
+  "examples": [
+    {"date": "2024-08-12", "removed": {"ticker": "005830", "name": "DB손해보험", "score": 2.25, "h5_net_pct_25bp": 19.928}, "added": {"ticker": "185750", "name": "종근당", "score": 2.25, "h5_net_pct_25bp": 0.6047}, "interpretation": "최근 흐름을 우선하면 이후 크게 반등한 기존 후보를 놓친 사례"},
+    {"date": "2025-12-15", "removed": {"ticker": "009540", "name": "HD한국조선해양", "score": 2.6, "h5_net_pct_25bp": -4.2638}, "added": {"ticker": "005440", "name": "현대지에프홀딩스", "score": 2.6, "h5_net_pct_25bp": 0.3341}, "interpretation": "변경이 유리했던 사례도 보존. 이 사례 하나를 골라 전체 개선이라고 하지 않는다."}
+  ],
+  "interpretation": [
+    "동점은 실제 존재하지만 6자리 매수 집합에 영향을 준 것은293일 중8일이었다. 상한과 동점의 존재 자체가 전체 오선정의 주원인이라는 증거는 아니다.",
+    "매수/강력매수 등급이 바뀐28일과 매수 집합이 바뀐8일을 구분한다. 성향별 실제 봇·기존 보유·보유비중을 반영한 계좌 비교는 아니다.",
+    "기본25bp에서277일 짝 비교의 단순20일 모멘텀보다도 나빴다. 고비용에서 단순 기준선보다 낫더라도 기존보다 나쁘고 순성과가 음수라 채택 근거가 아니다.",
+    "기존/후보는293일 모두 가격 라벨이 있어 이번 기각은 기업행사 검수를 기다리거나 후보 가격이 빠져서 내린 결론이 아니다.",
+    "동점 규칙 하나만 시험했고 소수자리 수·수익률 기간·가중치·매수권 크기·게이트를 탐색하지 않았다. 결과에 맞춰 규칙을 바꾸거나 다른 가설을 자동 실행하지 않는다."
+  ],
+  "production_engine_changed": false,
+  "registered_thresholds_weights_samples_changed": false,
+  "development_supported": false,
+  "verified_total_return": false,
+  "live_order_eligible": false,
+  "next_candidate_authorized_by_this_result": false,
+  "integrated_roadmap_percent": 40
+}
