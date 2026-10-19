@@ -29,6 +29,7 @@
     "changed_kind_dates": 28,
     "added_or_removed_labels": 14,
     "changed_distinct_tickers": 6,
+    "added_or_removed_labels_at_score_ceiling": 0,
     "legacy_missing_selected_price_dates": 0,
     "candidate_missing_selected_price_dates": 0,
     "simple_momentum_missing_dates": 16,
@@ -55,6 +56,7 @@
   ],
   "interpretation": [
     "동점은 실제 존재하지만 6자리 매수 집합에 영향을 준 것은293일 중8일이었다. 상한과 동점의 존재 자체가 전체 오선정의 주원인이라는 증거는 아니다.",
+    "바뀐14개 추가/탈락 라벨의 점수는 모두3.0 미만이다. 상한 구간의 실제 매수 집합은 이 규칙으로 바뀌지 않았다. 팩터 포화 함수를 제거하거나 가중치를 조정한 실험으로 읽지 않는다.",
     "매수/강력매수 등급이 바뀐28일과 매수 집합이 바뀐8일을 구분한다. 성향별 실제 봇·기존 보유·보유비중을 반영한 계좌 비교는 아니다.",
     "기본25bp에서277일 짝 비교의 단순20일 모멘텀보다도 나빴다. 고비용에서 단순 기준선보다 낫더라도 기존보다 나쁘고 순성과가 음수라 채택 근거가 아니다.",
     "기존/후보는293일 모두 가격 라벨이 있어 이번 기각은 기업행사 검수를 기다리거나 후보 가격이 빠져서 내린 결론이 아니다.",
