@@ -1,0 +1,48 @@
+{
+  "schema": "kr-relative-downtrend-plan-v1",
+  "candidate_id": "kr-confirmed-downtrend-abstain-v1",
+  "owner_request": "Paperlink 없이 기존 오선정 원인 하나를 보존 데이터와 단순 기준 전략으로 비교하고 효과 있는 변경만 반영",
+  "hypothesis": "확인된 하락추세인데 시장보다 덜 하락했다는 이유로 허용된 신규 매수를 보류하면 비용 후 선정 성과가 개선된다.",
+  "inputs": {
+    "scope": {"path": "data/research/kr-selection-holding-audit-2026-10-17-v3.json", "sha256": "8b98fbf085b9b610ffe23afaf5ba84faa0da1d6de223ec42021c8eba923705f6"},
+    "selection": {"path": "data/research/kr-original-financial-sensitivity-2026-10-17-v3.json", "sha256": "579cf23032a4c8fe12be91ab797fa85c040253fd93c402c3ad3fc34df25a0ab6"},
+    "engine": {"path": "src/signal_desk/signals/engine.py", "sha256": "1d5ecfd102d5dc89c3635e91da0a45bc3ac772d89612cbc5deaf6288fa569447"}
+  },
+  "windows": ["2024-apr-may", "2024-jun-jul", "2024-aug-sep", "2025q4-v5", "2026q1-v5", "2026q2early-v5", "2026jun-expanded-v5"],
+  "decision_dates": 293,
+  "protected_start": "2026-08-05",
+  "arms": {
+    "legacy": "동결한 접수일 제한 연간재무 엔진의 매수 집합. 실제 과거 8팩터 운영 판단이 아니다.",
+    "candidate": "legacy에서 downtrend_confirmed=true AND downtrend_blocking=false인 종목만 보류. 점수·순위·선정 문턱·청산을 바꾸거나 빈자리를 채우지 않는다.",
+    "simple_momentum": "같은 날 동결된 계산 가능 후보군에서 최근20일 수익률 내림차순 상위6. 동점은 ticker 오름차순. 미래성과로 필터하지 않는다.",
+    "cash": "거래 없음·수익0·비용0"
+  },
+  "comparison": {
+    "capacity": 6,
+    "horizon": "다음 정규장 시가부터 5번째 정규장 종가까지의 동결 h5 가격 라벨",
+    "cost_bps": [25, 50, 75],
+    "cost_application": "동결 라벨은 왕복25bp 차감 값. 거래한 종목에만 추가 비용 차감. 보류/공석은 현금0.",
+    "primary": "각 날짜의 6자리 동일 자금배분 h5 손익 프록시를 날짜 동일가중. 선택된 가격 결손이 있으면 그 날짜·창의 전체 평균은 null. 실제 계좌 수익률로 부르지 않는다.",
+    "phase_check": "각 창의 정렬된 판단일을 5개 고정 위상으로 나눠 날짜 평균을 비교. 중첩과 독립성 한계가 남으므로 유의확률·복리 NAV로 발표하지 않는다.",
+    "secondary": ["실제 보류된 종목·날짜·손익", "회피한 손실과 놓친 이익", "종목별 기여 집중", "누락·기권·거래 노출", "창별/비용별/위상별 차이"],
+    "development_support_requires": [
+      "293일 전체에서 모든 거래 arm의 선택 가격과 매수 게이트 입력이 확인됨",
+      "보류 매수 라벨40건 이상·서로 다른10종목 이상·3개 창 이상",
+      "모든 비용에서 candidate의 7창 동일가중 평균 > 0이며 legacy와 simple_momentum 각각보다 큼",
+      "모든 비용에서 legacy 대비 7창 중5창 이상 개선",
+      "모든 비용에서 candidate의 최악 창 평균이 legacy와 simple_momentum 각각의 최악 창 평균 이상",
+      "각 비용의 5개 고정 위상 각각에서 7창 동일가중 candidate-legacy > 0",
+      "legacy 대비 변화의 종목별 절대기여 최대 비중 <= 0.35"
+    ]
+  },
+  "stop": "단일 후보 한 번. 실패하면 기각/자료 한계로 종료하며 문턱·기간·지평·기준선을 바꾸거나 다른 후보로 갈아타지 않는다.",
+  "limits": [
+    "이미 여러 번 열람한 개발 자료이며 독립 OOS가 아니다.",
+    "보존 재무·가격 경로이며 수급·공매도·당시 정성사건을 포함한 과거 운영 엔진 복원이 아니다.",
+    "기업행사 추가 수집·검수와 중단된 정산 백테스트를 재개하지 않는다. 현재 자료는 검증된 총수익이나 실제 체결을 보장하지 않는다.",
+    "개발 지지는 운영 승격/등록 검증 완료가 아니다. 한정 자료의 개선만으로 운영 매매·가중치·문턱·보호 표본을 자동 변경하지 않는다."
+  ],
+  "paperclip_used": false,
+  "new_network_data_requests": 0,
+  "integrated_progress": 40
+}

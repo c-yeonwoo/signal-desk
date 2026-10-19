@@ -152,6 +152,8 @@ def test_detail_review_is_private_and_uses_only_own_manual_holdings(tmp_path, mo
     monkeypatch.setattr(api.store, "load_price_series", lambda: {"005930": [100]})
     monkeypatch.setattr(api.store, "load_signal_history", lambda: pd.DataFrame())
     monkeypatch.setattr(api.market_clock, "latest_completed_session", lambda market, now: "2026-10-06")
+    # 확정 종가 보유 진단을 검사한다. 실제 실행 시각이 장중이면 close_only가 된다.
+    monkeypatch.setattr(api.market_clock, "is_open", lambda market, now: False)
     monkeypatch.setattr(kb, "digest_checks", lambda: {"005930": {
         "status": "ok", "checked_at": int(dt.datetime.now(dt.timezone.utc).timestamp())}})
     db.kb_entry_add_many("005930", [{"title": "삼성전자, 실적 발표", "url": "https://news.example/earnings",
