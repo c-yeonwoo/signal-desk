@@ -2,6 +2,7 @@ import copy
 
 import pytest
 
+from scripts.measure import kr_relative_downtrend_ablation as lab
 from scripts.measure.kr_relative_downtrend_ablation import (
     ARMS, compare_daily, evaluate, select, slot_result, summarize, support_checks,
 )
@@ -141,3 +142,11 @@ def test_concentration_aggregates_signed_contributions_before_absolute_value():
                 for ticker, net in (("A", 6), ("A", -6), ("B", 1))]
     _, summary = support_checks(windows, affected, [25])
     assert summary["25"]["largest_ticker_absolute_impact_share"] == 1
+
+
+def test_contract_tampering_is_rejected_without_git_history(tmp_path, monkeypatch):
+    changed = tmp_path / "plan.json"
+    changed.write_text('{"changed":true}')
+    monkeypatch.setattr(lab, "PLAN", changed)
+    with pytest.raises(ValueError, match="frozen development contract"):
+        lab.run()

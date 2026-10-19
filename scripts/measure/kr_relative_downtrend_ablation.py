@@ -13,12 +13,12 @@ import json
 import math
 from pathlib import Path
 from statistics import mean
-import subprocess
 
 from scripts.measure.krx_price_replay_pilot import ROOT
 
 PLAN = ROOT / "docs/kr-relative-downtrend-plan-2026-10-19.json"
 PLAN_COMMIT = "fe97476"
+PLAN_SHA256 = "baadc14c3a0b75f963de619c9504fa793f542142975fcb505a8ee501b507fd08"
 ARMS = ("legacy", "candidate", "simple_momentum", "cash")
 CAPACITY = 6
 
@@ -191,9 +191,10 @@ def evaluate(scope, selection, plan):
 
 def run():
     raw = PLAN.read_bytes()
-    committed = subprocess.check_output(["git", "show", f"{PLAN_COMMIT}:{PLAN.relative_to(ROOT)}"], cwd=ROOT)
-    if raw != committed:
-        raise ValueError("plan differs from preregistered development commit")
+    # Squash merges do not retain the preregistration commit in a fresh clone.
+    # Keep that ID as provenance, but validate its frozen content directly.
+    if hashlib.sha256(raw).hexdigest() != PLAN_SHA256:
+        raise ValueError("plan differs from frozen development contract")
     plan = json.loads(raw)
     loaded = {}
     for key, declared in plan["inputs"].items():
