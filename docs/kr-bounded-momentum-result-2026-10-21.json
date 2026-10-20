@@ -1,0 +1,84 @@
+{
+  "schema": "kr-bounded-momentum-result-summary-v1",
+  "candidate_id": "kr-bounded-momentum-ranking-v1",
+  "decision": "not_supported_do_not_apply",
+  "rejection_class": "observed_consistency_failure_even_if_missing_window_improves",
+  "reason": "초과 강도를 압축해 극단값 영향을 제한해도 기존보다 일관되게 좋은 선정을 하지 못했다. 모든 비용에서 가격 완결6기간 중2개 개선·4개 악화. 미계산1기간이 좋아도 최대3/7로 사전5/7 조건 미달이므로 추가 자료나 다른 변환식 탐색 없이 종료한다.",
+  "plan_commit": "89e4c1e",
+  "implementation_commit_before_historical_run": "2d91a41",
+  "plan_path": "docs/kr-bounded-momentum-plan-2026-10-20.json",
+  "plan_sha256": "e1524872bd8b11df07faec6060b93cbc778b3d09cd5c1e2deea35df376ccb355",
+  "artifact": {
+    "path": "data/research/kr-bounded-momentum-ablation-2026-10-21-v1.json",
+    "sha256": "75f3c910d6590c9ff47b3b3404a8a1969ac1d63bd36d9a2839b3749f0d4a518f",
+    "candidate_code_sha256": "a7ce4682cbad7acb0c6c9b202cf9f34827034852df23a0da8ba6427b183dfb72",
+    "replay_code_sha256": "5da986dc24460210952f24084499bd2a9c6b81c8a6a3389b687526fea588a033"
+  },
+  "execution": {
+    "paperclip_used": false,
+    "additional_trading_llm_api_calls": 0,
+    "new_market_data_requests": 0,
+    "candidate_variants": 1,
+    "historical_runs": 1,
+    "legacy_reproduced_dates": 293,
+    "reproduction": ".venv/bin/python -m scripts.measure.kr_bounded_momentum_ablation --output data/research/<new-result>.json"
+  },
+  "formula": "x=round(momentum_ret/0.5,3); e=max(abs(x)-1,0); 기존 score + sign(x)*e/(1+e)*(실제 momentum 기여/기존 포화값). 기존 상한 안은 불변. 순위 보조값에만 적용.",
+  "bound_audit": {
+    "maximum_abs_bounded_increment": 0.9666499916624979,
+    "maximum_abs_added_contribution": 2.77676910484411,
+    "maximum_research_rank_value": 5.77676910484411,
+    "additional_contribution_within_each_actual_coefficient": true,
+    "explanation": "기여 계수는 각 종목의 실제 발동 분모에 따라 다르다. 최대 보조값은 표시 점수·확률이 아니며 매수 문턱이나 위험 게이트를 우회하지 않는다. 전체 순위 모멘텀 영향이 원래와 같다는 뜻도 아니다."
+  },
+  "scope": {
+    "windows": 7,
+    "decision_dates": 293,
+    "saturated_ticker_days": 20282,
+    "positive_saturated_ticker_days": 19869,
+    "negative_saturated_ticker_days": 413,
+    "saturation_count_is_not_independent_companies": true,
+    "rank_value_changed_ticker_days": 20281,
+    "changed_buy_dates": 251,
+    "changed_distinct_tickers": 36,
+    "added_or_removed_labels": 610,
+    "legacy_missing_selected_price_dates": 0,
+    "candidate_missing_selected_price_dates": 18,
+    "candidate_price_complete_dates": 275,
+    "simple_fixed_pair_calendar_dates": 277,
+    "simple_candidate_comparable_price_dates": 259,
+    "whole293_candidate_mean": null,
+    "whole277_paired_simple_delta": null
+  },
+  "metric": "판단일6자리 고정배분의 다음 정규장 시가→5번째 종가 라벨. 거래한 종목에만25/50/75bp 비용, 공석 현금0. 날짜 동일가중 뒤7기간 동일가중. 계좌 NAV·복리 성과·독립 거래 수익률이 아니다.",
+  "window_results_at_25bp": [
+    {"window": "2024-apr-may", "legacy_pct": -0.10530731707317073, "candidate_pct": 0.4223723577235772, "delta_pp": 0.5276796747967479, "paired_simple_delta_pp": -0.7539796747967481},
+    {"window": "2024-jun-jul", "legacy_pct": 0.3813611111111111, "candidate_pct": 0.14282142857142857, "delta_pp": -0.23853968253968255, "paired_simple_delta_pp": 1.7673220588235294},
+    {"window": "2024-aug-sep", "legacy_pct": -0.17639871794871798, "candidate_pct": null, "delta_pp": null, "paired_simple_delta_pp": null},
+    {"window": "2025q4-v5", "legacy_pct": -0.5054915032679739, "candidate_pct": -0.5486767973856209, "delta_pp": -0.043185294117647106, "paired_simple_delta_pp": -1.0670477124183007},
+    {"window": "2026q1-v5", "legacy_pct": 0.8061988700564973, "candidate_pct": 0.5528076271186441, "delta_pp": -0.25339124293785315, "paired_simple_delta_pp": -0.5272759887005649},
+    {"window": "2026q2early-v5", "legacy_pct": 0.014869999999999993, "candidate_pct": 0.167315, "delta_pp": 0.152445, "paired_simple_delta_pp": -6.182884210526316},
+    {"window": "2026jun-expanded-v5", "legacy_pct": -0.3049571428571428, "candidate_pct": -0.9617833333333333, "delta_pp": -0.6568261904761905, "paired_simple_delta_pp": 5.094590476190477}
+  ],
+  "consistency_bound_for_each_cost_bps": {
+    "25": {"improved": 2, "worsened": 4, "unresolved": 1, "maximum_possible_improved": 3, "required_improved": 5},
+    "50": {"improved": 2, "worsened": 4, "unresolved": 1, "maximum_possible_improved": 3, "required_improved": 5},
+    "75": {"improved": 2, "worsened": 4, "unresolved": 1, "maximum_possible_improved": 3, "required_improved": 5}
+  },
+  "simple_comparison_at_25bp": {"better_windows": 2, "worse_windows": 4, "unresolved_windows": 1, "whole_fixed_pair_mean_pp": null},
+  "unresolved_source": {"window": "2024-aug-sep", "ticker": "012450", "dates": 18, "state": "missing_entry_open", "filled_or_interpolated": false, "source_collection_restarted": false},
+  "interpretation": [
+    "압축식은 정한 한도를 지켰고 매수 집합도251일·36종목에서 달라졌다. 하지만 수학적 경계와 선정 변화는 수익성 개선의 증거가 아니다.",
+    "완결6기간에서 관측한 일관성 실패만으로 이번 후보를 종료할 수 있다. 결손18일이 있어 전체 수익 수준과 전체 단순 기준선 우위는 알 수 없으며, 미계산을0이나 손실로 간주하지 않았다.",
+    "같은 자료를 반복 사용한 개발 비교다. 원래 포화·무제한 복원·제한 복원 중 어디가 독립 표본에서 최적인지를 증명하지 않으며 이미 실패한 식을 조합하거나 자동 탐색하지 않는다.",
+    "다른 팩터 포화·당시 수급/공매도/정성·기업행사 가격 단위·실제 보유/체결은 이번 검증 범위가 아니다. 손실의 원인이 점수 포화 하나였다고 결론 내리지 않는다.",
+    "성과가 확인되지 않은 순위 변경을 배포하지 않는다. 연구 도구와 결과만 보존하고 운영 엔진·매수매도·주문·등록 경로는 유지한다."
+  ],
+  "production_engine_changed": false,
+  "registered_thresholds_weights_samples_changed": false,
+  "development_supported": false,
+  "verified_total_return": false,
+  "live_order_eligible": false,
+  "next_candidate_authorized_by_this_result": false,
+  "integrated_roadmap_percent": 40
+}
