@@ -1,0 +1,60 @@
+{
+  "schema": "kr-bounded-momentum-plan-v1",
+  "candidate_id": "kr-bounded-momentum-ranking-v1",
+  "owner_request": "극단값 영향은 제한하면서 강도 차이를 보존하는 후보 하나를 기존 자료·단순 기준선과 비교, 효과 있는 변경만 반영하고 CI 뒤 머지",
+  "hypothesis": "기존 모멘텀 포화 초과분을 e/(1+e)로 압축하면 강도 차이를 일부 보존하면서 무제한 복원의 극단값 지배를 줄여 선정을 개선할 수 있다.",
+  "inputs": {
+    "scope": {"path": "data/research/kr-selection-holding-audit-2026-10-17-v3.json", "sha256": "8b98fbf085b9b610ffe23afaf5ba84faa0da1d6de223ec42021c8eba923705f6"},
+    "legacy": {"path": "data/research/kr-original-financial-sensitivity-2026-10-17-v3.json", "sha256": "579cf23032a4c8fe12be91ab797fa85c040253fd93c402c3ad3fc34df25a0ab6"},
+    "financial": {"path": "data/research/kr-receipt-financial-inputs-2026-10-17-v1.zip", "sha256": "bdab1956d2f1055a31a012fc8c3e5ecbb442de21c95c574beeb37aaf7c7d085c"},
+    "versions": {"path": "data/research/kr-original-financial-versions-2026-10-17-v1.zip", "sha256": "eec040523329401b48859727808bc1e6d9fa5d837cb6d590f6fcab55b9576979"},
+    "engine": {"path": "src/signal_desk/signals/engine.py", "sha256": "1d5ecfd102d5dc89c3635e91da0a45bc3ac772d89612cbc5deaf6288fa569447"},
+    "comparison_library": {"path": "scripts/measure/kr_relative_downtrend_ablation.py", "sha256": "9a00482c6fcc61964b979d0998ad7fdc2cbd1aa0e310c30d397b0f89ebfe150b"},
+    "replay_library": {"path": "scripts/measure/kr_score_tie_ablation.py", "sha256": "5da986dc24460210952f24084499bd2a9c6b81c8a6a3389b687526fea588a033"},
+    "momentum": {"path": "src/signal_desk/signals/momentum.py", "sha256": "d6660a4d44333b14b416db1d1fe5fd0e44983faa3c0046529ee07c3d5c71dd97"}
+  },
+  "windows": ["2024-apr-may", "2024-jun-jul", "2024-aug-sep", "2025q4-v5", "2026q1-v5", "2026q2early-v5", "2026jun-expanded-v5"],
+  "decision_dates": 293,
+  "protected_start": "2026-08-05",
+  "candidate_rule": {
+    "raw_norm": "x=round(기존 momentum_ret / 기존 momentum_scale,3). momentum_ret 소수4자리와 기존 scale=0.5 유지.",
+    "only_saturated": "has_momentum=true이고 반올림 전 abs(momentum_ret/scale)>1인 경우만 보정. 그 밖의 순위용 값은 기존 score와 정확히 같음.",
+    "bounded_increment": "e=max(abs(x)-1,0), increment=sign(x)*e/(1+e). 압축한 값을 다시 반올림하지 않음. 정확 산술에서는 엄격 단조·크기<1, 부동소수 극단 꼬리에서는 크기<=1이며 미세 차이는 정밀도 한계로 같아질 수 있음.",
+    "rank_value": "기존 score + increment * coefficient. coefficient=기존 momentum score_contribution / 기존 포화 factor_scores(+/-1). 실제 발동 분모를 사용. 추가 영향의 절댓값은 coefficient 이내로 제한.",
+    "ranking": "보조 rank_value 내림차순 안정정렬. 동점은 기존 순서. 최근20일 동점 해소나 다른 기각 후보를 결합하지 않음.",
+    "eligibility": "기존 score·매수 문턱·커버리지·위험 게이트·6자리·공석 유지. 보조값으로 낮은 원점수를 매수 문턱에 올리지 않음. 보조값은 표시 점수나 확률이 아님.",
+    "unchanged": "다른 팩터·가중치·매도·보유·주문·등록 경로·PIT·보호 표본 불변. 운영 자동 승격 없음."
+  },
+  "arms": ["legacy", "candidate", "simple_momentum", "cash"],
+  "comparison": {
+    "capacity": 6,
+    "cost_bps": [25, 50, 75],
+    "horizon": "다음 정규장 시가→5번째 정규장 종가의 보존 가격 라벨. 거래 종목에만25/50/75bp 비용, 공석 현금0.",
+    "primary": "293일 날짜별6자리 고정배분을 날짜 동일가중 뒤7기간 동일가중. 선택 가격 결손은null. 결손일을 유리하게 제외하지 않음.",
+    "simple_baseline": "동일 계산 가능 종목의 최근20일 수익률 상위6. 동점 ticker 오름차순. 아래 사전 고정16일 외277일의 동일 날짜끼리 비교. 신규 후보 결손은 제외하지 않음.",
+    "known_simple_unresolved_dates": ["2024-07-22", "2024-07-23", "2024-07-24", "2024-07-25", "2024-07-26", "2024-07-29", "2024-07-30", "2024-07-31", "2024-08-01", "2024-08-02", "2024-08-05", "2024-08-06", "2024-08-07", "2024-08-08", "2026-05-06", "2026-05-08"],
+    "phase": "各 기간 원 판단일 순번%5. 제외 뒤 번호를 다시 매기지 않음.",
+    "support_requires": [
+      "기존293일 선정·h5 완전 재현, 기존/후보 선택 가격293일 완결",
+      "고정 단순 짝 비교 달력 커버리지 전체90% 이상·각 기간80% 이상",
+      "매수 집합 변경40일 이상·추가/탈락 합집합10종목 이상·변경3기간 이상",
+      "모든 비용에서 후보 주지표>0이며 기존보다 큼",
+      "모든 비용에서 고정277일 후보-단순 짝 차이의 기간별 동일가중 평균>0",
+      "모든 비용에서7기간 중5기간 이상 개선, 최악 기간도 기존 이상",
+      "모든 비용에서5위상 각각의 후보-기존 기간별 동일가중 평균>0",
+      "부호 있는 종목별 변화 기여를 기간/날짜/6자리 가중 후 합산한 절대기여 최대 비중<=35%"
+    ]
+  },
+  "stop": "식·압축 규모·기간·비용·문턱을 고정한 단일 후보 한 번. 결과를 본 뒤 계수/다른 식을 탐색하지 않음. 실패하면 미채택 종료. 새 외부 수집·기업행사 연구·Paperclip 재개 없음.",
+  "limits": [
+    "이미 열람한7개 개발 기간. 반복 사용 자료이므로 지지가 나와도 독립 OOS나 실제8팩터 전체 재현으로 주장하지 않음.",
+    "접수일 제한 연간재무·가격만 복원. 당시 수급/공매도/정성·기업행사 가격 단위·실제 체결·총수익을 인증하지 않음.",
+    "가중치 숫자는 그대로지만 순위에서 모멘텀의 영향은 제한적으로 증가한다. 위험 영향까지 같다고 주장하지 않음.",
+    "중첩 h5 고정배분 라벨은 계좌 NAV·복리 성과·독립 거래가 아님. 결손 집계는null로 유지하며 알려진 기간만 골라 전체 성과라고 하지 않음.",
+    "단순 전략은 기존 관측 후보군에 조건부이며 당시 전체 시장 최선 전략과 비교하는 것이 아님.",
+    "개발 지지는 운영 승격과 별개. 효과가 확인되지 않으면 운영 엔진을 바꾸지 않으며 등록 조건·실주문은 자동 변경하지 않음."
+  ],
+  "paperclip_used": false,
+  "new_market_data_requests": 0,
+  "integrated_roadmap_percent": 40
+}
