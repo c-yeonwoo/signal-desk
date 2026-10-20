@@ -100,7 +100,7 @@ def assess(windows, changes, costs):
     return checks, summary
 
 
-def replay_day(day, rows, days, panel, financials, versions):
+def replay_day(day, rows, days, panel, financials, versions, *, ranker=tie_rank):
     """Same preserved input path as the frozen annual-financial sensitivity."""
     if day >= "2026-08-05":
         raise ValueError("protected date")
@@ -123,12 +123,13 @@ def replay_day(day, rows, days, panel, financials, versions):
     recent = {t: (v[-1] / v[-21] - 1) * 100 for t, v in prices.items()}
     if any(abs(recent[r["ticker"]] - r["recent20_pct"]) > 1e-8 for r in rows):
         raise ValueError("frozen recent returns differ")
-    return signals, tie_rank(signals, recent, cfg), recent
+    return signals, ranker(signals, recent, cfg), recent
 
 
-def run():
-    plan_raw = PLAN.read_bytes()
-    if hashlib.sha256(plan_raw).hexdigest() != PLAN_SHA:
+def run(*, plan_path=None, plan_sha=PLAN_SHA, plan_commit=PLAN_COMMIT,
+        ranker=tie_rank, schema="kr-score-tie-ablation-v1"):
+    plan_raw = (plan_path or PLAN).read_bytes()
+    if hashlib.sha256(plan_raw).hexdigest() != plan_sha:
         raise ValueError("frozen tie contract differs")
     plan = json.loads(plan_raw)
     for key, declared in plan["inputs"].items():
@@ -164,7 +165,7 @@ def run():
         for day_record in frozen_days:
             day = day_record["date"]
             rows = grouped[day]
-            signals, candidate, recent = replay_day(day, rows, days, panel, financials, versions)
+            signals, candidate, recent = replay_day(day, rows, days, panel, financials, versions, ranker=ranker)
             if daily_outcome(signals, rows) != day_record["annual_financial"]:
                 raise ValueError("legacy does not reproduce frozen selection/outcomes")
             legacy = [r.ticker for r in signals if engine.is_buy(r.kind)]
@@ -179,8 +180,11 @@ def run():
             boundary_ties += len(signals) > CAPACITY and signals[CAPACITY - 1].score == signals[CAPACITY].score
             for side, tickers in (("added", set(new) - set(legacy)), ("removed", set(legacy) - set(new))):
                 for ticker in sorted(tickers):
+                    rank_value = next(r for r in candidate if r.ticker == ticker)
                     changes.append({"window": name, "date": day, "ticker": ticker, "name": by_ticker[ticker]["name"],
                                     "side": side, "score": by_signal[ticker].score, "recent20_pct": recent[ticker],
+                                    "research_rank_value": getattr(rank_value, "research_rank_value", rank_value.score),
+                                    "momentum_ret": by_signal[ticker].momentum_ret,
                                     "h5": by_ticker[ticker]["horizons"]["5"]})
             for cost in costs:
                 record = {"date": day, "tickers": arms,
@@ -199,13 +203,13 @@ def run():
     if len(all_dates) != plan["decision_dates"] or observed_excluded != excluded:
         raise ValueError("fixed decision/baseline missing-date scope differs")
     checks, summary = assess(windows, changes, costs)
-    return {"schema": "kr-score-tie-ablation-v1", "candidate_id": plan["candidate_id"],
+    return {"schema": schema, "candidate_id": plan["candidate_id"],
             "decision": "development_support_only" if all(checks.values()) else "not_supported_do_not_apply",
             "development_supported": all(checks.values()), "failed_checks": [k for k, v in checks.items() if not v],
             "checks": checks, "summary": summary, "windows": windows, "changes": changes,
             "registered_verdict": False, "strict_pit_eligible": False, "live_order_eligible": False,
             "verified_total_return": False, "production_changed": False,
-            "decision_dates": len(all_dates), "plan_sha256": PLAN_SHA, "plan_commit": PLAN_COMMIT,
+            "decision_dates": len(all_dates), "plan_sha256": plan_sha, "plan_commit": plan_commit,
             "input_sha256": {k: v["sha256"] for k, v in plan["inputs"].items()},
             "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             "limits": plan["limits"], "paperclip_used": False, "new_market_data_requests": 0}
