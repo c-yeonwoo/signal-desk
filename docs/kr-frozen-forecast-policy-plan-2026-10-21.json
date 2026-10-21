@@ -1,0 +1,145 @@
+{
+  "schema": "kr-frozen-forecast-policy-plan-v1",
+  "candidate_id": "kr-frozen-forecast-cost-aware-v1",
+  "status": "scope_fixed_implementation_not_started",
+  "base_commit": "b7eea48c0bc56038c63da19a7421a574b1555cf8",
+  "question": "고정된 예측을 전제로 비용을 고려한 매수·보유·교체가 무조건 목표비중 교체보다 비용 후 가격 성과를 개선하는가",
+  "experiment_type": "conditional_execution_policy_development_comparison",
+  "candidate_variants": 1,
+  "fit_calls": 0,
+  "forecast_reconstruction_calls": 0,
+  "new_market_data_requests": 0,
+  "inputs": {
+    "forecast_archive": {
+      "path": "data/research/kr-ridge-hold-renewal-diagnostic-2026-10-18-celltrion-kia-v1.json",
+      "sha256": "50b3400dd7e8a3d25224b03d53bef893e8de2bf43b509443285148dc0f6e7299"
+    },
+    "q4_legacy_and_prediction_crosscheck": {
+      "path": "data/research/kr-ridge-r3-result-2026-10-17-v4.json",
+      "sha256": "2cf98e96eff44d415c0264bd1ec1b6f2b036804b9e2bbeb28476dc807994abfd"
+    },
+    "raw_archives": "forecast_archive.sources의 9개 로컬 ZIP과 SHA256을 그대로 사용; 새 ZIP 추가 금지",
+    "reviewed_unit_facts": "forecast_archive.reviewed_facts의 기존 12건만 정확한 날짜·종목·전후 주식수에 연결; 전 기간 행사 없음으로 확장 금지",
+    "forecast_quality": "given_counterfactual_forecasts_not_certified_historical_pit"
+  },
+  "periods": [
+    {
+      "id": "bounded_dev_2024q4",
+      "source_prediction_key": "dev_2024q4",
+      "role": "conditional_development_comparison_not_pristine_oos",
+      "decision_start": "2024-10-02",
+      "decision_end": "2024-12-11",
+      "tail_through": "2024-12-31",
+      "expected_decision_dates": 49,
+      "expected_prediction_rows": 9347,
+      "arms": ["candidate", "ridge_net", "legacy_selection", "cap6"]
+    }
+  ],
+  "scope_availability": {
+    "basis": "모든 신규 성과 계산 전, 가격/단위 보존 범위로 고정한 제한 달력. 전체 분기·독립 평가로 확대하지 않음",
+    "forecast_distinct_tickers": 204,
+    "potential_entry_name_superset": 39,
+    "new_entry_superset_rule": "그날까지 등장한 예측 상위6 중 p>0.0125, legacy 선정, 예측 집합 안 시총 상위6의 합집합을 누적; 미래 수익으로 종목을 고르지 않음",
+    "static_unit_price_check_through": "2024-12-20",
+    "observed_unit_changes_reviewed": 4,
+    "observed_unit_changes_unreviewed": 0,
+    "missing_positive_open_close_or_unit": 0,
+    "missing_decision_volume": 0,
+    "latest_terminal_close": "2024-12-18",
+    "latest_first_terminal_fill_delay1": "2024-12-20",
+    "known_outside_unit_gap": "GS리테일 2024-12-23. 매도 미완결로 실제 노출이 이 날짜까지 남으면 기존 규칙대로 공통 중단하며 무시하지 않음"
+  },
+  "schedule": {
+    "phases": [0, 1, 2, 3, 4],
+    "decision_every_sessions": 5,
+    "clock": "판단일 t의 확정 종가로 주문 수량을 고정하고 다음 정규장 이후 처리",
+    "terminal": "각 위상 마지막 판단 L 이후 새 매수 의도 없음; L+5 정규장 종가에 목표0을 1회 제출; 이후 기존 매도 재시도·결제만 처리",
+    "tail_incomplete": "꼬리 끝에 보유·대기주문·미결제가 남으면 최종 손익과 전체 차이는 null"
+  },
+  "portfolio": {
+    "initial_cash_krw": 10000000,
+    "max_positions": 6,
+    "slot_weight": 0.16666666666666666,
+    "keep_name_weight_cap": 0.16666666666666666,
+    "budget": 1.0,
+    "min_forecast_names": 160,
+    "sizing_nav": "각 팔 자신의 현재 비용 후 가격 NAV로 정규화·목표수량 계산; 다른 팔의 NAV를 사용하지 않음",
+    "empty_slots": "현금; 차순위 충원 없음"
+  },
+  "candidate": {
+    "reuse": "signal_desk.signals.research_net_alpha.choose",
+    "alpha_and_mu": "모두 같은 보존 predicted_gross; 재보정·재학습 없음",
+    "new_candidate_count": 6,
+    "pool": "당일 예측 상위6과 현재 보유의 합집합; 최대12개; 신규 매수는 상위6만 허용",
+    "new_entry_min_gross": 0.0125,
+    "return_buffer": 0.005,
+    "decision_one_way_cost": 0.006,
+    "risk_aversion": 0.0,
+    "covariance": "0 행렬; 통계적 위험 모형·국면 예측을 이번 후보에 추가하지 않음",
+    "objective": "sum(mu*w)-0.005*sum(w)-0.006*(sum(abs(w-w0))+sum(w))",
+    "objective_tie_tolerance": 1e-12,
+    "tie_break": "교체량 최소, 보유 유지안, 종목코드순",
+    "held_forecast_missing": "입력 결손으로 공통 중단; 예측0이나 매도 신호로 대체하지 않음"
+  },
+  "controls": {
+    "ridge_net": "같은 예측 상위6 중 predicted_gross>0.0125만 각1/6 목표로 차액 주문; 미달 자리는 현금",
+    "legacy_selection": "같은 날짜의 보존 selected.legacy 종목을 각1/6 목표로 공통 실행부에서 차액 주문; 실제 운영 봇 체결 재현으로 부르지 않음",
+    "cap6": "같은 날 보존 예측 집합 안의 시총 상위6, 각1/6; 동률 종목코드순",
+    "cash": "기간별 초기자금 상수선 1개, 이자0; 거래 경로 수에서 제외"
+  },
+  "execution": {
+    "reuse": "research_net_alpha_execution.ExecutionBook 및 research_net_alpha.orders",
+    "scenarios": ["75bp_full", "120bp_full", "75bp_half", "75bp_delay1"],
+    "cost_interpretation": "왕복 비용 모형; 매수·매도 체결원금에 절반씩 적용; 세금·수수료·슬리피지를 별도로 더해 중복 차감하지 않음",
+    "buy_limit_above_close": 0.01,
+    "prior_volume_participation": 0.01,
+    "sell_residual_attempts": 5,
+    "settlement": "기존 T+2 signed settlement credit 모형; 인출 가능 현금과 구분",
+    "quantity_buffer": "core.orders의 기존 편도60bp 수량 버퍼 유지; 실제 비용과 구분",
+    "full_fill_caveat": "일봉 시가 대용 체결; 과거 bid/ask·경매 우선순위·장중 체결 보장 없음",
+    "common_execution": "모든 팔에 같은 개장 가격·주문 한도·참여율·체결 지연·비용·청산 꼬리 적용"
+  },
+  "data_policy": {
+    "rebuild_253_session_features": false,
+    "rationale": "이번 별도 실험의 입력은 고정 예측 행이다. 기존 학습·특성 재구성의 인증 관문을 통과시켰다는 뜻이 아니다",
+    "consume": "당일 예측, 목표/실보유/미결제, 판단 종가·거래량·시총, 체결/평가 가격, 투자 경로 중 주식수 전후값",
+    "holding_or_pending_unit_change": "기존 검수 사실이 외부 보유수량 불변임을 정확히 뒷받침할 때만 지속; 그 외 해당 기간·위상·시나리오의 모든 팔을 공통 중단",
+    "unit_check_before_fill": "전일 보유와 대기 주문을 포함한 모든 투자 경로의 당일 단위 적합성을 후행 감사; 문제가 있으면 당일 이후 NAV는 계산하지 않고 수량을 추정 보정하지 않음. 이를 전일 주문을 바꾸는 정보로 사용하지 않음",
+    "missing_execution_or_mark": "확인된 무체결은 미체결로 기록, 결손을0원 체결·직전가 체결로 대체하지 않음. 보유 가치를 산출할 수 없으면 해당 공통 경로의 최종 성과 null",
+    "forecast_under_160": "같은 경로에서 모든 팔 공통 중단; 보유를0으로 만들지 않음",
+    "no_future_screening": "달력 범위는 기존 결손 위치와 보존 범위로 성과 계산 전에 명시적으로 제한. 그 범위 안은 미래 가격·행사·수익으로 종목/날짜를 제외하지 않음; 모든49일과5위상 고정",
+    "dividend_rights": "미검수 배당·권리를 포함한 경제적 총수익을 주장하지 않음; 주식수 불변도 무행사 인증이 아님"
+  },
+  "decision": {
+    "primary_period": "bounded_dev_2024q4",
+    "primary_metric": "완전 청산·결제한 가격 NAV의 비용 후 손익; 계좌별 낙폭·회전·비용·노출·미체결 동반",
+    "conditional_support": "75bp_full·120bp_full에서 각5위상 모두 완결, 후보 수익이 각 위상에서 ridge_net·legacy_selection·cap6·현금보다 큼, 각 위상 가격 MDD>=-10%; 75bp_half·75bp_delay1도 각5위상 완결, 후보 위상평균 수익>0 및 세 거래 대조보다 큼, 각 위상 가격 MDD>=-10%",
+    "observed_rejection": "완결된 경로가 위 고정 필요조건을 위반하면 그 관측 근거로 이 후보 종료; 나머지 결손의 결과를 지어내지 않음",
+    "inconclusive": "관측된 필요조건 위반이 없더라도 필수 경로 미완결이면 판정 불가로 종료; 일부 완결 경로만 골라 합격하지 않음",
+    "cost_saving_alone": "지지 근거 아님; 비용 전 손익과 보유 노출 변화로 함께 분해",
+    "statistical_claim": "5위상은 중첩 계좌이며 독립 시장 표본5개가 아님; 통계적 유의성·미래 일반화·독립 OOS를 주장하지 않음",
+    "on_finish": "조건부 지지·관측 기각·자료 제약 중 하나로 종료; 같은 입력 재실행·문턱 조정·후보 자동 생성·행사 조사 재개 없음"
+  },
+  "implementation_scope": {
+    "new_runner": "scripts/measure/kr_frozen_forecast_policy.py",
+    "focused_tests": "tests/test_kr_frozen_forecast_policy.py",
+    "result_summary": "docs/kr-frozen-forecast-policy-result-2026-10-21.json",
+    "result_explanation": "docs/KR-FROZEN-FORECAST-POLICY-RESULT-2026-10-21.md",
+    "local_raw_result": "data/research/kr-frozen-forecast-policy-2026-10-21-v1.json",
+    "required_code_hashes": {
+      "src/signal_desk/signals/research_net_alpha.py": "d0398de4c200ca2e59a1eb1e165c2805e94696314306e7d5532137fead67e70a",
+      "src/signal_desk/signals/research_net_alpha_execution.py": "3d6c941185f7a8c35b77527dd49da240357751d1a2241ff4de48cf5957960625"
+    },
+    "max_trading_paths": 80,
+    "shared_cash_paths": 1,
+    "historical_runs": 1,
+    "max_wall_seconds": 600,
+    "precommit_required": "명세와 구현을 결과 계산 전에 각각 커밋; 입력·계획·실행 코드 해시를 결과에 보존"
+  },
+  "strict_pit_eligible": false,
+  "verified_total_return": false,
+  "live_order_eligible": false,
+  "production_change_authorized_by_support": false,
+  "registered_contract_changed": false,
+  "integrated_roadmap_percent": 40
+}
