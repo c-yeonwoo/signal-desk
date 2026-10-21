@@ -343,8 +343,9 @@ def metrics(book, curve, initial, stop):
     return result
 
 
-def replay_group(inputs, spec, scenario, phase, budget):
-    """Common source stops across all four arms, including the liquidation tail."""
+def replay_group(inputs, spec, scenario, phase, budget, *, target_selector=None,
+                 decision_contract_sha=None, forecast_required_arms=("candidate",)):
+    """Common source stops across declared arms, including the liquidation tail."""
     period = spec["periods"][0]
     dates = sorted(inputs.forecasts)
     scheduled = set(dates[phase::spec["schedule"]["decision_every_sessions"]])
@@ -399,9 +400,10 @@ def replay_group(inputs, spec, scenario, phase, budget):
             if not terminal_day and len(forecasts) < spec["portfolio"]["min_forecast_names"]:
                 raise DataGap(day, "*", "forecast_count_below_160")
             if not terminal_day:
-                for t in books["candidate"].holdings:
-                    if t not in forecasts:
-                        raise DataGap(day, t, "held_forecast_missing")
+                for arm in forecast_required_arms:
+                    for t in books[arm].holdings:
+                        if t not in forecasts:
+                            raise DataGap(day, t, "held_forecast_missing")
                 caps = {t: field(inputs, day, t, "MKTCAP") for t in forecasts}
                 ranked = sorted(forecasts, key=lambda t: (-forecasts[t], t))
                 newcomers = {t for t in ranked[:6] if forecasts[t] > spec["candidate"]["new_entry_min_gross"]}
@@ -417,14 +419,14 @@ def replay_group(inputs, spec, scenario, phase, budget):
             plans = {}
             for arm, book in books.items():
                 nav = book.price_nav(closes)
-                weights, priority, choice = ({}, {}, None) if terminal_day else targets(
+                weights, priority, choice = ({}, {}, None) if terminal_day else (target_selector or targets)(
                     arm, forecasts, caps, inputs.legacy[day], book.holdings, closes, nav, spec)
                 core.orders(weights, book.holdings, closes, volumes, nav, book.spec)
                 plans[arm] = {"weights": weights, "priority": priority,
                               "sizing_nav": nav, "choice": choice}
             input_id = encoded_sha({"date": day, "forecasts": forecasts,
                 "legacy": inputs.legacy.get(day, []), "closes": closes, "volumes": volumes,
-                "caps": caps, "plan_sha256": PLAN_SHA, "terminal": terminal_day})
+                "caps": caps, "plan_sha256": decision_contract_sha or PLAN_SHA, "terminal": terminal_day})
             for arm, book in books.items():
                 plan = plans[arm]
                 plan["orders"] = book.submit(day, plan["weights"], closes, volumes,

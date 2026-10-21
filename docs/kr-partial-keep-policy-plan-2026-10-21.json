@@ -1,0 +1,67 @@
+{
+  "schema": "kr-partial-keep-policy-plan-v1",
+  "candidate_id": "kr-frozen-forecast-partial-keep-v1",
+  "base_commit": "87247f5578df6467600d70e6ad4eeef02e7fe6e0",
+  "scope": "기존 고정 예측의 보유 선택지만 확장하는 개발 비교",
+  "parent_plan": {
+    "path": "docs/kr-frozen-forecast-policy-plan-2026-10-21.json",
+    "sha256": "a5f9ab2763763d589b180626621a6eab1d2d6f5ee4d682c14c799e8a201a8454"
+  },
+  "parent_result": {
+    "path": "data/research/kr-frozen-forecast-policy-2026-10-21-v1.json",
+    "sha256": "a0d0b43ba6c05147376228772f3ad0034458ffc840e2508c69257803f4d7eb7a"
+  },
+  "rationale_diagnostic": {
+    "path": "data/research/kr-holding-intent-diagnostic-2026-10-21-v1.json",
+    "sha256": "0f9e77224c060bcb461550eb187424d6c48e79b945dc06d28bc5a8f7e1bc11ad"
+  },
+  "candidate_variants": 1,
+  "selector": {
+    "baseline": "부모 research_net_alpha.choose가 반환한 기존 최선안",
+    "addition": "현재 보유 비중을 기존 상한1/6·예산으로 제한한 keep 벡터의 모든 부분집합. 유지하는 좌표의 비중을 늘리지 않음. 최대2^6=64개",
+    "objective": "부모와 동일: sum(mu*w)-0.005*sum(w)-0.006*(sum(abs(w-w0))+sum(w)); 위험 항0",
+    "tie_tolerance": 1e-12,
+    "tie_break": "교체량 최소, 원래 keep 우선, 양의 비중 종목코드순. 동일 키는 먼저 비교한 부모 최선안 유지",
+    "new_entry": "부모 선택안에만 가능; 부분 유지안은 이미 보유한 종목만 포함",
+    "original_winner_comparison": "원래 전체 메뉴의 동점 규칙을 다시 바꾸지 않고, 부모가 반환한 최선안과 새 부분 유지안들을 비교",
+    "no_other_change": "예측·문턱·가중치·비용·종목수·판단 주기·실행 규칙·기간 변경 없음"
+  },
+  "comparison": {
+    "arms": ["candidate", "prior_cost_aware", "ridge_net", "legacy_selection", "cap6"],
+    "scenarios": ["75bp_full", "120bp_full", "75bp_half", "75bp_delay1"],
+    "phases": [0, 1, 2, 3, 4],
+    "trading_paths": 100,
+    "shared_cash_return_pct": 0,
+    "period": "부모의2024-10-02~12-11·49판단일·9,347예측, 청산/결제 꼬리12-31까지를 그대로 재사용",
+    "common_source_stops": "새 후보를 포함한 다섯 방식 공통 중단. 최종 성과 null·미완결 경로의 부분 평균 합격 금지",
+    "parent_80_path_crosscheck": "prior_cost_aware와 세 기존 대조의 완결 경제 경로·수량·가격·비용·판단일·일별 잔고를 부모80경로와 일치 검수. 새 계획 ID만 다를 수 있음. 미완결이면 확인된 접두 체결/잔고만 대조하고 미확인 전 경로 정합성을 주장하지 않음"
+  },
+  "decision": {
+    "overall": "부모의 모든 채택 조건 그대로 유지. 추가로75/120bp에서 위상평균이 prior_cost_aware보다 엄격히 높고, 절반/지연 평균은 prior_cost_aware 이상이어야 함. 모두 통과해도 이미 열람한 개발 구간의 조건부 지지일 뿐 실전 승격 아님",
+    "incremental_only": "별도 기술 통계: 모든100경로 완결·기존80경로 정합,75/120bp 평균이 이전 후보보다 엄격히 높고 절반/지연 평균은 이전 후보 이상이며 조건별 최악 위상 MDD가 이전 후보보다 나빠지지 않으면 incremental_support. 전체 조건 위반을 무효화하거나 실전 채택으로 세지 않음",
+    "observed_rejection": "완결된 필요조건 위반은 관측 기각. 자료 결손을 기다리며 기존 반례를 없애지 않음",
+    "incomplete": "필수 경로 미완결이면 판정 불가. 원천/기간을 바꿔 합격을 만들지 않음",
+    "implementation_error": "완결 대조가 보존 부모와 다르면 연구 도구 결함으로 실패 기록, 전략 효과라고 해석하지 않음",
+    "on_finish": "한 번 실행 후 종료. 문턱·후보·기간 자동 수정/재실행 금지. 기존 기각 후보 결과는 보존"
+  },
+  "implementation": {
+    "runner": "scripts/measure/kr_partial_keep_policy.py",
+    "tests": "tests/test_kr_partial_keep_policy.py",
+    "shared_replay_change": "kr_frozen_forecast_policy.replay_group에 선택기·판단계약해시·예측이 필요한 계좌 목록의 명시적 선택 인수만 추가. 기본 동작은 유지. 코어 choose/orders/ExecutionBook은 수정하지 않음",
+    "precommit": "성과 계산 전 계획과 구현을 각각 커밋하고 해시를 결과에 보존",
+    "runs": 1,
+    "wall_seconds": 600,
+    "local_result": "data/research/kr-partial-keep-policy-2026-10-21-v1.json",
+    "result_summary": "docs/kr-partial-keep-policy-result-2026-10-21.json",
+    "result_explanation": "docs/KR-PARTIAL-KEEP-POLICY-RESULT-2026-10-21.md"
+  },
+  "fit_calls": 0,
+  "forecast_reconstruction_calls": 0,
+  "new_market_data_requests": 0,
+  "production_engine_changed": false,
+  "live_order_eligible": false,
+  "pristine_oos": false,
+  "verified_total_return": false,
+  "registered_contract_changed": false,
+  "integrated_roadmap_percent": 40
+}
