@@ -257,6 +257,35 @@
     "diagnostic_code_sha256": "33324cc3dafa3d448d601382df873d95b6c002da376c047349a0767cf4b4dd0e"
   },
   "schema": "kr-holding-intent-diagnostic-summary-v1",
+  "original_target_alignment_check": {
+    "method": "separate read-only check of the original next-open to open+5 target; not new strategy execution or whole-model calibration",
+    "definition_source": {
+      "docs/kr-ridge-selection-plan-2026-10-17.json": "5bf03e849b6503332b3eb9468e69be5b3d3691f21c6c50819f44c71e5d50417f",
+      "scripts/measure/kr_ridge_selection_lab.py": "4ab9e7e6d1c89c79ae861e59755d5180297317246c76e2f9b1740d9415eb3ba0"
+    },
+    "cases": [
+      {
+        "decision_on": "2024-11-14",
+        "ticker": "012450",
+        "entry_open_on": "2024-11-15",
+        "exit_open_on": "2024-11-22",
+        "entry_open": 408000,
+        "exit_open": 361000,
+        "gross_open_to_open_return_pct": -11.519607843137258,
+        "listed_shares_constant_on_all_6_sessions": true
+      },
+      {
+        "decision_on": "2024-11-21",
+        "ticker": "012450",
+        "entry_open_on": "2024-11-22",
+        "exit_open_on": "2024-11-29",
+        "entry_open": 361000,
+        "exit_open": 328000,
+        "gross_open_to_open_return_pct": -9.141274238227147,
+        "listed_shares_constant_on_all_6_sessions": true
+      }
+    ]
+  },
   "implementation_commit": "bbc1cdb126ba43ca348dc2e2e03f1899eee4ea09",
   "raw_result": {
     "path": "data/research/kr-holding-intent-diagnostic-2026-10-21-v1.json",
