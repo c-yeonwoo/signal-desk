@@ -1,0 +1,62 @@
+{
+  "schema": "kr-forecast-error-attribution-plan-v1",
+  "base_commit": "f83e783bd6cdb3cef5578d1ca1005e3156a88f56",
+  "kind": "read_only_error_attribution_not_new_strategy",
+  "parent_plan": {
+    "path": "docs/kr-frozen-forecast-policy-plan-2026-10-21.json",
+    "sha256": "a5f9ab2763763d589b180626621a6eab1d2d6f5ee4d682c14c799e8a201a8454"
+  },
+  "period": {"start": "2024-10-02", "end": "2024-12-11", "dates": 49, "forecasts": 9347},
+  "inputs": "부모 계획에 고정한 두 예측 원장·9개 KRX ZIP·기존12개 검수 사실만 사용",
+  "availability_before_return_analysis": {
+    "known_labels": 9232,
+    "unknown_unit_labels": 101,
+    "missing_endpoint_open_labels": 14,
+    "fully_known_universe_dates": 5,
+    "top6_known_labels": 294
+  },
+  "label": {
+    "clock": "원래 Ridge 목표와 같은 다음 정규장 시가→그로부터5세션 뒤 시가",
+    "unit": "6세션의 주식수 양수·진입 이후 전환 검사. 변동은 기존 정확한 보유수량 불변 사실과 일치할 때만 허용. 새 원문 조사·비율 추정 없음",
+    "missing": "null·이유 보존. 단위 문제가 있어도 종목/날짜를 지우거나 재순위하지 않음",
+    "uncertified": "보존 가상 예측의 후행 가격 진단. 특성253일·PIT·경제적 총수익·실제 체결 인증 아님"
+  },
+  "comparisons": {
+    "forecast_top6": "원래 전체 예측의 점수 내림차순·종목코드순 상위6을 고정. 결손을 보고 차순위로 교체하지 않음",
+    "cap6": "같은 전체 예측 집합 안의 시가총액 상위6·종목코드순. 후행가격 대조일 뿐 계좌 재투자/체결/비용 수익 아님",
+    "market_proxy": "같은 날 전체 예측 집합의 실제5세션 등락 중간값. KOSPI 지수나 거래 가능한 포트폴리오 수익으로 부르지 않음",
+    "missing_market_proxy": "누락 k개를 임의 값으로 채우지 않고, 모든 누락이 알려진 값보다 작거나 큰 경우의 순서통계로 전체 중간값의 하한/상한을 산출. 중앙 순서가 알려진 범위를 벗어나면 해당 경계 null",
+    "relative_rank": "상위6 각각과 나머지 종목의 수익 비교쌍 중 앞선 비율. 동률0.5, 누락쌍은 모두실패/모두성공의 하한/상한. 재순위·결손 삭제 금지. 상승확률/독립 시행 수로 부르지 않음"
+  },
+  "attribution": {
+    "identity": "상위6예측평균-실제평균 = (전체예측중간값-전체실제중간값) + [(상위6예측평균-전체예측중간값)-(상위6실제평균-전체실제중간값)]",
+    "meaning": "중간값 기준의 공통 방향 격차와 상대선정 격차의 기술적 분해. 학습한 별도시장예측·인과·베타중립 팩터 분해 아님",
+    "bounds": "누락을 포함한 실제중간값 경계로 두 오차의 범위를 계산. 두 범위는 반대로 움직이며 독립 신뢰구간이 아님. 각 같은 경계에서 합이 원래 전체오차와 일치해야 함",
+    "negative_top6_day_categories": "시장중간값 상한<0·상대성과 하한>=0: 시장약세에도 상대우위; 시장하한>0: 관찰시장상승중 선정손실; 시장상한<0·상대성과상한<0: 동반약세; 나머지: 분리불가/경계",
+    "aggregation": "49일 동일가중의 주집계. 완전한 값의 평균만 전체 평균으로 보고. 미확인 경계는 null. 날짜별·고정월별도 보존하며 겹치는5일 목표를 독립 표본으로 세지 않음"
+  },
+  "cohorts": {
+    "forecast_bins": [0.0, 0.005, 0.0125, 0.017],
+    "basis": "기존 부호·보유·진입 기준을 재사용. 새 임계값 탐색 없음. 예측은 기대수익이지 상승 확률이 아님",
+    "incomplete_bin_mean": "전체 평균은 null, 알려진 값만의 평균은 별도 known_only로 명시. 하락 비율은 결손을 포함한 최선/최악 범위로 보존",
+    "examples": "상위6·예측>0.017·하락 사례 중 예측오차 큰5개를 사후 설명용으로 보존. 성과 평균이나 학습 표본 선별에 쓰지 않음"
+  },
+  "implementation": {
+    "runner": "scripts/measure/kr_forecast_error_attribution.py",
+    "tests": "tests/test_kr_forecast_error_attribution.py",
+    "local_result": "data/research/kr-forecast-error-attribution-2026-10-22-v1.json",
+    "summary": "docs/kr-forecast-error-attribution-2026-10-22.json",
+    "explanation": "docs/KR-FORECAST-ERROR-ATTRIBUTION-2026-10-22.md",
+    "precommit": "진단 수치 실행 전 계획·구현을 각각 커밋하고 입력·코드 해시 보존",
+    "runs": 1,
+    "max_seconds": 600
+  },
+  "strategy_paths": 0,
+  "fit_calls": 0,
+  "new_market_data_requests": 0,
+  "production_engine_changed": false,
+  "live_order_eligible": false,
+  "adoption_test": false,
+  "on_finish": "새 전략·재학습·문턱·기간 변경으로 자동 진행하지 않음. 기존 기각과 잠금 보존",
+  "integrated_roadmap_percent": 40
+}
