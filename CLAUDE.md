@@ -1,7 +1,8 @@
 # CLAUDE.md — signal-desk
 
-개인 R&D용 시스템 트레이딩 랩. 시그널 판별력(IC·shadow·harness + 이유 재생)을
-1순위로 두고, 페이퍼 봇으로 타이밍을 검증하며 알고리즘을 디벨롭한다.
+개인 R&D용 시스템 트레이딩 랩. 수익성 개선 연구는 **비용 후 계좌 성과와 손실 위험**을
+목표로 삼고, 시그널 판별력(IC·shadow·harness + 이유 재생)으로 선정의 기여를 진단한다.
+순위 개선만으로 비용 후 성과가 악화한 후보를 채택하지 않는다.
 외부 소비자 성장이 1순위가 아니다 —
 [docs/north-star-selection.md](docs/north-star-selection.md).
 자매 [Signal APT](https://github.com/c-yeonwoo/apt-signal) 아키텍처를 주식으로 재해석.
@@ -44,12 +45,19 @@ python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 ## 현재 상태
 
-**R&D 랩 (시그널 판별력 = A)**
+**R&D 랩 (수익성 연구와 등록 판별력 검증을 구분)**
 - [x] 8팩터 엔진 + 게이트 + PIT 실측 + harness/shadow/redteam
 - [x] 시그널 판별력 `GET /api/proof` · 픽 이유 `GET /api/pick-reason` · PIT reasons/gate
-- [x] 페이퍼 레퍼런스 봇(시그널·타이밍 증명용, PnL은 종속 지표)
+- [x] 페이퍼 레퍼런스 봇(시그널·타이밍 관측용, 실제 계좌 성과와 구분)
 - [ ] A 유의 개선 후에만 가중·매수권 재확정 · qualitative priority 승격
 - 동결: 온보딩/D7/숏폼 성장 — [BACKLOG.md](BACKLOG.md)
+
+2026-10-21 수익성 후속의 입력 확인은 완료했다. 기존 분리 후보는 최신 보존 검사에서도
+학습0/180일·보정0/80일이며 보유 갱신 비교도 첫 체결 전에 중단됐다. 사용자가 중단한
+기업행사 조사·Paperclip을 다음 작업으로 재개하지 않는다. 같은 입력으로 학습·재생을
+반복하거나 이미 끝난 팩터/회전 분석을 다시 제안하지 않는다. 현재 상태·실제 파일 해시는
+[통합 로드맵](docs/SIGNAL-DESK-UNIFIED-ROADMAP-2026-10-10.md#현재-후속-상태--2026-10-21)에 있다.
+이는 기존 등록 실험의 문턱·표본·가중치·일정이나 운영 매매 규칙을 바꾸는 지시가 아니다.
 
 다음에 붙일 기능의 상세 우선순위·범위·의존관계는 [BACKLOG.md](BACKLOG.md) 참고.
 
