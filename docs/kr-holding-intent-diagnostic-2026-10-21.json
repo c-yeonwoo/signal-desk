@@ -1,0 +1,868 @@
+{
+  "scenario_summary": {
+    "75bp_full": {
+      "all_held_decisions": {
+        "rows": 160,
+        "known_h5": 160,
+        "missing_h5": 0,
+        "negative_h5": 71,
+        "mean_h5_price_return_pct": 1.7544431814285255
+      },
+      "retained": {
+        "rows": 148,
+        "known_h5": 148,
+        "missing_h5": 0,
+        "negative_h5": 66,
+        "mean_h5_price_return_pct": 1.671730280245782
+      },
+      "exit_intents": {
+        "rows": 12,
+        "known_h5": 12,
+        "missing_h5": 0,
+        "negative_h5": 5,
+        "mean_h5_price_return_pct": 2.774568962682362
+      },
+      "retained_outside_top6": {
+        "rows": 67,
+        "known_h5": 67,
+        "missing_h5": 0,
+        "negative_h5": 27,
+        "mean_h5_price_return_pct": 2.4423404868394885
+      },
+      "retained_below_new_cost_hurdle": {
+        "rows": 69,
+        "known_h5": 69,
+        "missing_h5": 0,
+        "negative_h5": 34,
+        "mean_h5_price_return_pct": 1.8417344100375983
+      },
+      "retained_below_hold_cash_boundary": {
+        "rows": 1,
+        "known_h5": 1,
+        "missing_h5": 0,
+        "negative_h5": 1,
+        "mean_h5_price_return_pct": -4.832713754646845
+      },
+      "retained_forecast_declined_since_latest_buy": {
+        "rows": 100,
+        "known_h5": 100,
+        "missing_h5": 0,
+        "negative_h5": 43,
+        "mean_h5_price_return_pct": 2.2347610750227282
+      },
+      "removal_improves_objective": {
+        "rows": 1,
+        "known_h5": 1,
+        "missing_h5": 0,
+        "negative_h5": 1,
+        "mean_h5_price_return_pct": -4.832713754646845
+      }
+    },
+    "120bp_full": {
+      "all_held_decisions": {
+        "rows": 160,
+        "known_h5": 160,
+        "missing_h5": 0,
+        "negative_h5": 71,
+        "mean_h5_price_return_pct": 1.7544431814285255
+      },
+      "retained": {
+        "rows": 148,
+        "known_h5": 148,
+        "missing_h5": 0,
+        "negative_h5": 66,
+        "mean_h5_price_return_pct": 1.671730280245782
+      },
+      "exit_intents": {
+        "rows": 12,
+        "known_h5": 12,
+        "missing_h5": 0,
+        "negative_h5": 5,
+        "mean_h5_price_return_pct": 2.774568962682362
+      },
+      "retained_outside_top6": {
+        "rows": 67,
+        "known_h5": 67,
+        "missing_h5": 0,
+        "negative_h5": 27,
+        "mean_h5_price_return_pct": 2.4423404868394885
+      },
+      "retained_below_new_cost_hurdle": {
+        "rows": 69,
+        "known_h5": 69,
+        "missing_h5": 0,
+        "negative_h5": 34,
+        "mean_h5_price_return_pct": 1.8417344100375983
+      },
+      "retained_below_hold_cash_boundary": {
+        "rows": 1,
+        "known_h5": 1,
+        "missing_h5": 0,
+        "negative_h5": 1,
+        "mean_h5_price_return_pct": -4.832713754646845
+      },
+      "retained_forecast_declined_since_latest_buy": {
+        "rows": 100,
+        "known_h5": 100,
+        "missing_h5": 0,
+        "negative_h5": 43,
+        "mean_h5_price_return_pct": 2.2347610750227282
+      },
+      "removal_improves_objective": {
+        "rows": 1,
+        "known_h5": 1,
+        "missing_h5": 0,
+        "negative_h5": 1,
+        "mean_h5_price_return_pct": -4.832713754646845
+      }
+    },
+    "75bp_half": {
+      "all_held_decisions": {
+        "rows": 159,
+        "known_h5": 159,
+        "missing_h5": 0,
+        "negative_h5": 72,
+        "mean_h5_price_return_pct": 1.5928373803328972
+      },
+      "retained": {
+        "rows": 145,
+        "known_h5": 145,
+        "missing_h5": 0,
+        "negative_h5": 68,
+        "mean_h5_price_return_pct": 1.323903474242135
+      },
+      "exit_intents": {
+        "rows": 14,
+        "known_h5": 14,
+        "missing_h5": 0,
+        "negative_h5": 4,
+        "mean_h5_price_return_pct": 4.378224264844364
+      },
+      "retained_outside_top6": {
+        "rows": 66,
+        "known_h5": 66,
+        "missing_h5": 0,
+        "negative_h5": 30,
+        "mean_h5_price_return_pct": 1.6026486756332268
+      },
+      "retained_below_new_cost_hurdle": {
+        "rows": 70,
+        "known_h5": 70,
+        "missing_h5": 0,
+        "negative_h5": 37,
+        "mean_h5_price_return_pct": 1.4515057679025105
+      },
+      "retained_below_hold_cash_boundary": {
+        "rows": 3,
+        "known_h5": 3,
+        "missing_h5": 0,
+        "negative_h5": 2,
+        "mean_h5_price_return_pct": 1.4398825425734416
+      },
+      "retained_forecast_declined_since_latest_buy": {
+        "rows": 103,
+        "known_h5": 103,
+        "missing_h5": 0,
+        "negative_h5": 49,
+        "mean_h5_price_return_pct": 1.4458130638412123
+      },
+      "removal_improves_objective": {
+        "rows": 3,
+        "known_h5": 3,
+        "missing_h5": 0,
+        "negative_h5": 2,
+        "mean_h5_price_return_pct": 1.4398825425734416
+      }
+    },
+    "75bp_delay1": {
+      "all_held_decisions": {
+        "rows": 158,
+        "known_h5": 158,
+        "missing_h5": 0,
+        "negative_h5": 66,
+        "mean_h5_price_return_pct": 2.027184495435193
+      },
+      "retained": {
+        "rows": 146,
+        "known_h5": 146,
+        "missing_h5": 0,
+        "negative_h5": 62,
+        "mean_h5_price_return_pct": 1.8707125836277898
+      },
+      "exit_intents": {
+        "rows": 12,
+        "known_h5": 12,
+        "missing_h5": 0,
+        "negative_h5": 4,
+        "mean_h5_price_return_pct": 3.9309260890919315
+      },
+      "retained_outside_top6": {
+        "rows": 72,
+        "known_h5": 72,
+        "missing_h5": 0,
+        "negative_h5": 28,
+        "mean_h5_price_return_pct": 2.3076008635265506
+      },
+      "retained_below_new_cost_hurdle": {
+        "rows": 68,
+        "known_h5": 68,
+        "missing_h5": 0,
+        "negative_h5": 32,
+        "mean_h5_price_return_pct": 2.070364000436755
+      },
+      "retained_below_hold_cash_boundary": {
+        "rows": 1,
+        "known_h5": 1,
+        "missing_h5": 0,
+        "negative_h5": 1,
+        "mean_h5_price_return_pct": -2.733964248159837
+      },
+      "retained_forecast_declined_since_latest_buy": {
+        "rows": 98,
+        "known_h5": 98,
+        "missing_h5": 0,
+        "negative_h5": 39,
+        "mean_h5_price_return_pct": 2.603225426018093
+      },
+      "removal_improves_objective": {
+        "rows": 1,
+        "known_h5": 1,
+        "missing_h5": 0,
+        "negative_h5": 1,
+        "mean_h5_price_return_pct": -2.733964248159837
+      }
+    }
+  },
+  "off_schedule_counts": {
+    "above_or_equal_hold_boundary": 2637,
+    "below_hold_boundary": 120
+  },
+  "new_backtest_paths": 0,
+  "fit_calls": 0,
+  "production_engine_changed": false,
+  "posthoc_diagnostic_not_adoption_test": true,
+  "observation_unit": "scenario/phase/session/ticker; overlapping accounts, not independent events",
+  "cohorts_overlap": true,
+  "forward_label_is_not_sell_profit": true,
+  "integrated_roadmap_percent": 40,
+  "provenance": {
+    "parent_result_sha256": "a0d0b43ba6c05147376228772f3ad0034458ffc840e2508c69257803f4d7eb7a",
+    "plan_sha256": "a5f9ab2763763d589b180626621a6eab1d2d6f5ee4d682c14c799e8a201a8454",
+    "forecast_archive_sha256": "50b3400dd7e8a3d25224b03d53bef893e8de2bf43b509443285148dc0f6e7299",
+    "raw_archive": {
+      "archive": "krx-daily-2024-10-12-v1.zip",
+      "sha256": "e48e8e8601ab7c9de23b5de6f9b331cff6784600b0e3694e8cf4d6a4b69afd02",
+      "sessions": 61
+    },
+    "diagnostic_code_sha256": "33324cc3dafa3d448d601382df873d95b6c002da376c047349a0767cf4b4dd0e"
+  },
+  "schema": "kr-holding-intent-diagnostic-summary-v1",
+  "original_target_alignment_check": {
+    "method": "separate read-only check of the original next-open to open+5 target; not new strategy execution or whole-model calibration",
+    "definition_source": {
+      "docs/kr-ridge-selection-plan-2026-10-17.json": "5bf03e849b6503332b3eb9468e69be5b3d3691f21c6c50819f44c71e5d50417f",
+      "scripts/measure/kr_ridge_selection_lab.py": "4ab9e7e6d1c89c79ae861e59755d5180297317246c76e2f9b1740d9415eb3ba0"
+    },
+    "cases": [
+      {
+        "decision_on": "2024-11-14",
+        "ticker": "012450",
+        "entry_open_on": "2024-11-15",
+        "exit_open_on": "2024-11-22",
+        "entry_open": 408000,
+        "exit_open": 361000,
+        "gross_open_to_open_return_pct": -11.519607843137258,
+        "listed_shares_constant_on_all_6_sessions": true
+      },
+      {
+        "decision_on": "2024-11-21",
+        "ticker": "012450",
+        "entry_open_on": "2024-11-22",
+        "exit_open_on": "2024-11-29",
+        "entry_open": 361000,
+        "exit_open": 328000,
+        "gross_open_to_open_return_pct": -9.141274238227147,
+        "listed_shares_constant_on_all_6_sessions": true
+      }
+    ]
+  },
+  "implementation_commit": "bbc1cdb126ba43ca348dc2e2e03f1899eee4ea09",
+  "raw_result": {
+    "path": "data/research/kr-holding-intent-diagnostic-2026-10-21-v1.json",
+    "sha256": "0f9e77224c060bcb461550eb187424d6c48e79b945dc06d28bc5a8f7e1bc11ad",
+    "bytes": 1026808,
+    "git_tracked": false
+  },
+  "scope": {
+    "parent_trading_paths": 80,
+    "candidate_scenario_phase_groups": 20,
+    "candidate_decision_contexts": 196,
+    "scheduled_held_observations": 637,
+    "unique_session_ticker_pairs": 181,
+    "off_schedule_held_observations": 2757,
+    "forward_label_missing": 0
+  },
+  "objective_only_removal_gaps": [
+    {
+      "session": "2024-12-03",
+      "ticker": "180640",
+      "shares": 22,
+      "close": 80700,
+      "forecast_gross": 0.004641042150351941,
+      "forecast_rank": 53,
+      "previous_weight": 0.16078988397291732,
+      "target_weight": 0.16078988397291732,
+      "retained": true,
+      "outside_top6": true,
+      "below_new_cost_hurdle": true,
+      "below_hold_cash_boundary": true,
+      "remove_target_utility_delta": 0.00005771679099608046,
+      "removal_improves_objective": true,
+      "latest_buy": {
+        "filled_on": "2024-11-20",
+        "decision_on": "2024-11-19",
+        "forecast_gross": 0.024753660966730956
+      },
+      "forecast_change_since_latest_buy_decision": -0.020112618816379015,
+      "submitted_sell_shares": 0,
+      "scenario": "75bp_full",
+      "phase": 2,
+      "h5": {
+        "through": "2024-12-10",
+        "price_return_pct": -4.832713754646845,
+        "missing_reason": null
+      }
+    },
+    {
+      "session": "2024-12-03",
+      "ticker": "180640",
+      "shares": 22,
+      "close": 80700,
+      "forecast_gross": 0.004641042150351941,
+      "forecast_rank": 53,
+      "previous_weight": 0.16142557318605463,
+      "target_weight": 0.16142557318605463,
+      "retained": true,
+      "outside_top6": true,
+      "below_new_cost_hurdle": true,
+      "below_hold_cash_boundary": true,
+      "remove_target_utility_delta": 0.00005794497662907176,
+      "removal_improves_objective": true,
+      "latest_buy": {
+        "filled_on": "2024-11-20",
+        "decision_on": "2024-11-19",
+        "forecast_gross": 0.024753660966730956
+      },
+      "forecast_change_since_latest_buy_decision": -0.020112618816379015,
+      "submitted_sell_shares": 0,
+      "scenario": "120bp_full",
+      "phase": 2,
+      "h5": {
+        "through": "2024-12-10",
+        "price_return_pct": -4.832713754646845,
+        "missing_reason": null
+      }
+    },
+    {
+      "session": "2024-11-25",
+      "ticker": "007660",
+      "shares": 54,
+      "close": 23400,
+      "forecast_gross": 0.003425409234591309,
+      "forecast_rank": 143,
+      "previous_weight": 0.12431553957969041,
+      "target_weight": 0.12431553957969041,
+      "retained": true,
+      "outside_top6": true,
+      "below_new_cost_hurdle": true,
+      "below_hold_cash_boundary": true,
+      "remove_target_utility_delta": 0.00019574610061897854,
+      "removal_improves_objective": true,
+      "latest_buy": {
+        "filled_on": "2024-11-19",
+        "decision_on": "2024-11-18",
+        "forecast_gross": 0.0266402442497436
+      },
+      "forecast_change_since_latest_buy_decision": -0.023214835015152292,
+      "submitted_sell_shares": 0,
+      "scenario": "75bp_half",
+      "phase": 1,
+      "h5": {
+        "through": "2024-12-02",
+        "price_return_pct": -9.829059829059828,
+        "missing_reason": null
+      }
+    },
+    {
+      "session": "2024-12-11",
+      "ticker": "323410",
+      "shares": 70,
+      "close": 24150,
+      "forecast_gross": 0.0039551678745960595,
+      "forecast_rank": 18,
+      "previous_weight": 0.16652545197929314,
+      "target_weight": 0.16652545197929314,
+      "retained": true,
+      "outside_top6": true,
+      "below_new_cost_hurdle": true,
+      "below_hold_cash_boundary": true,
+      "remove_target_utility_delta": 0.00017399114192537734,
+      "removal_improves_objective": true,
+      "latest_buy": {
+        "filled_on": "2024-12-05",
+        "decision_on": "2024-12-04",
+        "forecast_gross": 0.015258579760878927
+      },
+      "forecast_change_since_latest_buy_decision": -0.011303411886282868,
+      "submitted_sell_shares": 0,
+      "scenario": "75bp_half",
+      "phase": 3,
+      "h5": {
+        "through": "2024-12-18",
+        "price_return_pct": -1.65631469979296,
+        "missing_reason": null
+      }
+    },
+    {
+      "session": "2024-11-07",
+      "ticker": "042660",
+      "shares": 30,
+      "close": 33850,
+      "forecast_gross": -0.002130916632046266,
+      "forecast_rank": 181,
+      "previous_weight": 0.09729590534709409,
+      "target_weight": 0.09729590534709409,
+      "retained": true,
+      "outside_top6": true,
+      "below_new_cost_hurdle": true,
+      "below_hold_cash_boundary": true,
+      "remove_target_utility_delta": 0.0006938089896695921,
+      "removal_improves_objective": true,
+      "latest_buy": {
+        "filled_on": "2024-11-01",
+        "decision_on": "2024-10-31",
+        "forecast_gross": 0.02006213686140798
+      },
+      "forecast_change_since_latest_buy_decision": -0.022193053493454247,
+      "submitted_sell_shares": 0,
+      "scenario": "75bp_half",
+      "phase": 4,
+      "h5": {
+        "through": "2024-11-14",
+        "price_return_pct": 15.805022156573113,
+        "missing_reason": null
+      }
+    },
+    {
+      "session": "2024-12-03",
+      "ticker": "006260",
+      "shares": 18,
+      "close": 95100,
+      "forecast_gross": 0.004021490587916043,
+      "forecast_rank": 67,
+      "previous_weight": 0.16113814371095295,
+      "target_weight": 0.16113814371095295,
+      "retained": true,
+      "outside_top6": true,
+      "below_new_cost_hurdle": true,
+      "below_hold_cash_boundary": true,
+      "remove_target_utility_delta": 0.000157675190266905,
+      "removal_improves_objective": true,
+      "latest_buy": {
+        "filled_on": "2024-11-21",
+        "decision_on": "2024-11-19",
+        "forecast_gross": 0.022985857427175654
+      },
+      "forecast_change_since_latest_buy_decision": -0.01896436683925961,
+      "submitted_sell_shares": 0,
+      "scenario": "75bp_delay1",
+      "phase": 2,
+      "h5": {
+        "through": "2024-12-10",
+        "price_return_pct": -2.733964248159837,
+        "missing_reason": null
+      }
+    }
+  ],
+  "unique_gap_session_tickers": [
+    [
+      "2024-11-07",
+      "042660"
+    ],
+    [
+      "2024-11-25",
+      "007660"
+    ],
+    [
+      "2024-12-03",
+      "006260"
+    ],
+    [
+      "2024-12-03",
+      "180640"
+    ],
+    [
+      "2024-12-11",
+      "323410"
+    ]
+  ],
+  "fixed_failure_case_012450": {
+    "75bp_full_phase4": [
+      {
+        "session": "2024-11-07",
+        "ticker": "012450",
+        "shares": 4,
+        "close": 405000,
+        "forecast_gross": 0.01324099672053098,
+        "forecast_rank": 6,
+        "previous_weight": 0.1475123168615877,
+        "target_weight": 0.16666666666666666,
+        "retained": true,
+        "outside_top6": false,
+        "below_new_cost_hurdle": true,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.0011436472557608823,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-11-01",
+          "decision_on": "2024-10-31",
+          "forecast_gross": 0.02234630267934796
+        },
+        "forecast_change_since_latest_buy_decision": -0.009105305958816978,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_full",
+        "phase": 4,
+        "h5": {
+          "through": "2024-11-14",
+          "price_return_pct": -0.37037037037036535,
+          "missing_reason": null
+        }
+      },
+      {
+        "session": "2024-11-14",
+        "ticker": "012450",
+        "shares": 4,
+        "close": 403500,
+        "forecast_gross": 0.030565622009662927,
+        "forecast_rank": 7,
+        "previous_weight": 0.14839387139678095,
+        "target_weight": 0.16666666666666666,
+        "retained": true,
+        "outside_top6": true,
+        "below_new_cost_hurdle": false,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.004041663458371855,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-11-01",
+          "decision_on": "2024-10-31",
+          "forecast_gross": 0.02234630267934796
+        },
+        "forecast_change_since_latest_buy_decision": 0.008219319330314969,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_full",
+        "phase": 4,
+        "h5": {
+          "through": "2024-11-21",
+          "price_return_pct": -11.648079306071867,
+          "missing_reason": null
+        }
+      },
+      {
+        "session": "2024-11-21",
+        "ticker": "012450",
+        "shares": 4,
+        "close": 356500,
+        "forecast_gross": 0.026742377897752745,
+        "forecast_rank": 1,
+        "previous_weight": 0.13332060500201043,
+        "target_weight": 0.16666666666666666,
+        "retained": true,
+        "outside_top6": false,
+        "below_new_cost_hurdle": false,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.003223576909649581,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-11-01",
+          "decision_on": "2024-10-31",
+          "forecast_gross": 0.02234630267934796
+        },
+        "forecast_change_since_latest_buy_decision": 0.004396075218404787,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_full",
+        "phase": 4,
+        "h5": {
+          "through": "2024-11-28",
+          "price_return_pct": -8.835904628330994,
+          "missing_reason": null
+        }
+      },
+      {
+        "session": "2024-11-28",
+        "ticker": "012450",
+        "shares": 4,
+        "close": 325000,
+        "forecast_gross": 0.016220696532615854,
+        "forecast_rank": 2,
+        "previous_weight": 0.12369755043073011,
+        "target_weight": 0.12369755043073011,
+        "retained": true,
+        "outside_top6": false,
+        "below_new_cost_hurdle": true,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.0013879726752111677,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-11-01",
+          "decision_on": "2024-10-31",
+          "forecast_gross": 0.02234630267934796
+        },
+        "forecast_change_since_latest_buy_decision": -0.006125606146732104,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_full",
+        "phase": 4,
+        "h5": {
+          "through": "2024-12-05",
+          "price_return_pct": -5.230769230769228,
+          "missing_reason": null
+        }
+      },
+      {
+        "session": "2024-12-05",
+        "ticker": "012450",
+        "shares": 4,
+        "close": 308000,
+        "forecast_gross": 0.03045364056199313,
+        "forecast_rank": 1,
+        "previous_weight": 0.1156536890927957,
+        "target_weight": 0.16666666666666666,
+        "retained": true,
+        "outside_top6": false,
+        "below_new_cost_hurdle": false,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.0036301176961124025,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-11-01",
+          "decision_on": "2024-10-31",
+          "forecast_gross": 0.02234630267934796
+        },
+        "forecast_change_since_latest_buy_decision": 0.008107337882645171,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_full",
+        "phase": 4,
+        "h5": {
+          "through": "2024-12-12",
+          "price_return_pct": 1.1363636363636465,
+          "missing_reason": null
+        }
+      }
+    ],
+    "75bp_delay1_phase2": [
+      {
+        "session": "2024-11-05",
+        "ticker": "012450",
+        "shares": 4,
+        "close": 362000,
+        "forecast_gross": 0.020355367604077364,
+        "forecast_rank": 1,
+        "previous_weight": 0.14172631211191491,
+        "target_weight": 0.16666666666666666,
+        "retained": true,
+        "outside_top6": false,
+        "below_new_cost_hurdle": false,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.0022599436793558714,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-10-31",
+          "decision_on": "2024-10-29",
+          "forecast_gross": 0.01865085653310909
+        },
+        "forecast_change_since_latest_buy_decision": 0.0017045110709682752,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_delay1",
+        "phase": 2,
+        "h5": {
+          "through": "2024-11-12",
+          "price_return_pct": 14.226519337016574,
+          "missing_reason": null
+        }
+      },
+      {
+        "session": "2024-11-12",
+        "ticker": "012450",
+        "shares": 4,
+        "close": 413500,
+        "forecast_gross": 0.027123160085186983,
+        "forecast_rank": 7,
+        "previous_weight": 0.15208580092866206,
+        "target_weight": 0.16666666666666666,
+        "retained": true,
+        "outside_top6": true,
+        "below_new_cost_hurdle": false,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.0035122229586751017,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-10-31",
+          "decision_on": "2024-10-29",
+          "forecast_gross": 0.01865085653310909
+        },
+        "forecast_change_since_latest_buy_decision": 0.008472303552077894,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_delay1",
+        "phase": 2,
+        "h5": {
+          "through": "2024-11-19",
+          "price_return_pct": -7.859733978234584,
+          "missing_reason": null
+        }
+      },
+      {
+        "session": "2024-11-19",
+        "ticker": "012450",
+        "shares": 4,
+        "close": 381000,
+        "forecast_gross": 0.025872904442080128,
+        "forecast_rank": 1,
+        "previous_weight": 0.1463077018482106,
+        "target_weight": 0.16666666666666666,
+        "retained": true,
+        "outside_top6": false,
+        "below_new_cost_hurdle": false,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.0032345098291918783,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-10-31",
+          "decision_on": "2024-10-29",
+          "forecast_gross": 0.01865085653310909
+        },
+        "forecast_change_since_latest_buy_decision": 0.00722204790897104,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_delay1",
+        "phase": 2,
+        "h5": {
+          "through": "2024-11-26",
+          "price_return_pct": -16.14173228346457,
+          "missing_reason": null
+        }
+      },
+      {
+        "session": "2024-11-26",
+        "ticker": "012450",
+        "shares": 4,
+        "close": 319500,
+        "forecast_gross": 0.023823526936147303,
+        "forecast_rank": 1,
+        "previous_weight": 0.12486907410711892,
+        "target_weight": 0.16666666666666666,
+        "retained": true,
+        "outside_top6": false,
+        "below_new_cost_hurdle": false,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.0026356833786433083,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-10-31",
+          "decision_on": "2024-10-29",
+          "forecast_gross": 0.01865085653310909
+        },
+        "forecast_change_since_latest_buy_decision": 0.005172670403038215,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_delay1",
+        "phase": 2,
+        "h5": {
+          "through": "2024-12-03",
+          "price_return_pct": 5.946791862284817,
+          "missing_reason": null
+        }
+      },
+      {
+        "session": "2024-12-03",
+        "ticker": "012450",
+        "shares": 5,
+        "close": 338500,
+        "forecast_gross": 0.012792949798152115,
+        "forecast_rank": 3,
+        "previous_weight": 0.15932136244350267,
+        "target_weight": 0.15932136244350267,
+        "retained": true,
+        "outside_top6": false,
+        "below_new_cost_hurdle": true,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.0012415833792954137,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-11-28",
+          "decision_on": "2024-11-26",
+          "forecast_gross": 0.023823526936147303
+        },
+        "forecast_change_since_latest_buy_decision": -0.011030577137995188,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_delay1",
+        "phase": 2,
+        "h5": {
+          "through": "2024-12-10",
+          "price_return_pct": -14.032496307237817,
+          "missing_reason": null
+        }
+      },
+      {
+        "session": "2024-12-10",
+        "ticker": "012450",
+        "shares": 5,
+        "close": 291000,
+        "forecast_gross": 0.020895872301444778,
+        "forecast_rank": 1,
+        "previous_weight": 0.1378106146401303,
+        "target_weight": 0.16666666666666666,
+        "retained": true,
+        "outside_top6": false,
+        "below_new_cost_hurdle": false,
+        "below_hold_cash_boundary": false,
+        "remove_target_utility_delta": -0.002303039425922358,
+        "removal_improves_objective": false,
+        "latest_buy": {
+          "filled_on": "2024-11-28",
+          "decision_on": "2024-11-26",
+          "forecast_gross": 0.023823526936147303
+        },
+        "forecast_change_since_latest_buy_decision": -0.002927654634702525,
+        "submitted_sell_shares": 0,
+        "scenario": "75bp_delay1",
+        "phase": 2,
+        "h5": {
+          "through": "2024-12-17",
+          "price_return_pct": 4.982817869415812,
+          "missing_reason": null
+        }
+      }
+    ]
+  },
+  "off_schedule_by_scenario": {
+    "75bp_full": {
+      "observations": 700,
+      "below_hold_boundary": 29
+    },
+    "120bp_full": {
+      "observations": 700,
+      "below_hold_boundary": 29
+    },
+    "75bp_half": {
+      "observations": 696,
+      "below_hold_boundary": 32
+    },
+    "75bp_delay1": {
+      "observations": 661,
+      "below_hold_boundary": 30
+    }
+  },
+  "derived_objective_boundaries": {
+    "existing_weight_keep_minus_cash_per_weight": "mu - 0.005",
+    "new_weight_enter_minus_cash_per_weight": "mu - 0.017",
+    "meaning": "single-coordinate comparison before menu/capital constraints; not a new exit rule or fitted threshold"
+  }
+}
