@@ -1,0 +1,3135 @@
+{
+  "schema": "kr-forecast-error-attribution-result-v1",
+  "state": "diagnostic_complete_with_explicit_label_gaps",
+  "provenance": {
+    "plan_commit": "3b7a8e498b4fcdce917a99fcc33a8613ac8f9ecc",
+    "plan_sha256": "a5f9ab2763763d589b180626621a6eab1d2d6f5ee4d682c14c799e8a201a8454",
+    "implementation_commit": "d25ba1038749fccbc98846dcd5a7f112a32abc81",
+    "code_sha256": {
+      "scripts/measure/kr_frozen_forecast_policy.py": "9ab06de5a3b11a2fbe279844feee9bf6ffa86fb389f300366895e139b5a0c180",
+      "tests/test_kr_frozen_forecast_policy.py": "b12caf8e2574a2d1199fd90bba939999e6a32f9eba9447698ed0a8dbc64af5c0",
+      "src/signal_desk/signals/research_net_alpha.py": "d0398de4c200ca2e59a1eb1e165c2805e94696314306e7d5532137fead67e70a",
+      "src/signal_desk/signals/research_net_alpha_execution.py": "3d6c941185f7a8c35b77527dd49da240357751d1a2241ff4de48cf5957960625",
+      "src/signal_desk/market_clock.py": "0ad001d935b0252529e1b882de8afc1eaa2482220ded44580aad57136704f727",
+      "scripts/measure/krx_price_replay_pilot.py": "3f0e62787a94f3c9f0b2c8c8cb2743106e2a80e44d3dded4b7449ca626b735d7",
+      "scripts/measure/kr_forecast_error_attribution.py": "1c4cffbb12d2c70da7af27b4d48045f29c247faf18e6b7ee3762d801f53aea75",
+      "tests/test_kr_forecast_error_attribution.py": "313cadab4e35772902e1a21b54778043e123dd05e80cdccbd433c17f1bc00b44"
+    },
+    "input_sha256": {
+      "data/research/kr-ridge-hold-renewal-diagnostic-2026-10-18-celltrion-kia-v1.json": "50b3400dd7e8a3d25224b03d53bef893e8de2bf43b509443285148dc0f6e7299",
+      "data/research/kr-ridge-r3-result-2026-10-17-v4.json": "2cf98e96eff44d415c0264bd1ec1b6f2b036804b9e2bbeb28476dc807994abfd"
+    },
+    "raw_sources": [
+      {
+        "archive": "krx-daily-2023-q1-v1.zip",
+        "sha256": "e9bfadf172c80a91f1eca853037350db007f28d9b850f1b00d9774646ab1a8d0",
+        "sessions": 62
+      },
+      {
+        "archive": "krx-daily-2023-q2-v1.zip",
+        "sha256": "a6f83ef305e8c5d7f277444af69af3030224633cd0c70da58096906909eb30e7",
+        "sessions": 61
+      },
+      {
+        "archive": "krx-daily-2023-q3-v1.zip",
+        "sha256": "bc708b3ce35d2c28542f1b8c6423e3c771b5ea81b534e85c23dc506ae357788d",
+        "sessions": 62
+      },
+      {
+        "archive": "krx-daily-2023-q4-v1.zip",
+        "sha256": "d0fdfdef45ccf488833f2b63a97d5503a4297f53a4918b3c5ab641adc852d5b1",
+        "sessions": 60
+      },
+      {
+        "archive": "krx-daily-2024-q1-v1.zip",
+        "sha256": "f579892c94e216cde45eeaef9135d65ce9964fc878464cdf19af489dca473de3",
+        "sessions": 61
+      },
+      {
+        "archive": "krx-daily-2024-q2-v1.zip",
+        "sha256": "ee7d94c0524165a07c4907e5ccf967632d2071e26329c29938b69f2f9173b4df",
+        "sessions": 60
+      },
+      {
+        "archive": "krx-daily-2024-q3-v1.zip",
+        "sha256": "894466cf70e9ef64bcc7caedeeb3d24c498755f3d4cd13ecc86df9432e7cbf9e",
+        "sessions": 62
+      },
+      {
+        "archive": "krx-daily-2024-10-12-v1.zip",
+        "sha256": "e48e8e8601ab7c9de23b5de6f9b331cff6784600b0e3694e8cf4d6a4b69afd02",
+        "sessions": 61
+      },
+      {
+        "archive": "krx-daily-2025-01-04-v1.zip",
+        "sha256": "0f8ba69f3d8cecc3cd3a85e59925dc76920380cf1b565bfb96d6f1ab823cf419",
+        "sessions": 80
+      }
+    ],
+    "full_q4_forecasts_crosschecked": 11644,
+    "used_forecast_dates": 49,
+    "used_forecast_rows": 9347,
+    "reviewed_unit_facts": 12,
+    "diagnostic_plan": {
+      "path": "docs/kr-forecast-error-attribution-plan-2026-10-22.json",
+      "sha256": "2d0fe27872c93ef387f54d9c2ae023e40bf86114a5b48ab064b490645aed6feb",
+      "commit": "38cdef1a1b61be3867cb8c59afa3efe77986fdcb"
+    }
+  },
+  "summary": {
+    "dates": 49,
+    "fully_known_universe_dates": 5,
+    "top6_forecast_mean": 0.01660313246880444,
+    "top6_return_mean": 0.004130649399482479,
+    "cap6_return_mean": -0.007332384114952587,
+    "forecast_center_mean": 0.006599148165232804,
+    "realized_center_mean_bounds": [
+      -0.005991927894722127,
+      -0.004663463685832446
+    ],
+    "top6_relative_return_mean_bounds": [
+      0.008794113085314924,
+      0.010122577294204608
+    ],
+    "pairwise_date_equal_mean_bounds": [
+      0.5110683227277758,
+      0.5237608234335247
+    ],
+    "total_error_mean": 0.01247248306932196,
+    "center_error_mean_bounds": [
+      0.01126261185106525,
+      0.012591076059954931
+    ],
+    "relative_error_mean_bounds": [
+      -0.0001185929906329716,
+      0.0012098712182567104
+    ],
+    "day_categories": {
+      "nonnegative_top6": 23,
+      "ambiguous_negative": 1,
+      "proxy_and_selection_weak": 16,
+      "negative_proxy_but_relative_outperformance": 7,
+      "selection_loss_in_positive_proxy": 2
+    }
+  },
+  "months": {
+    "2024-10": {
+      "dates": 20,
+      "fully_known_universe_dates": 0,
+      "top6_forecast_mean": 0.010164443323115828,
+      "top6_return_mean": 0.0056026714722603975,
+      "cap6_return_mean": -0.0066359332179937594,
+      "forecast_center_mean": 0.000949655950912016,
+      "realized_center_mean_bounds": [
+        -0.004324483326401757,
+        -0.002992020725963557
+      ],
+      "top6_relative_return_mean_bounds": [
+        0.008594692198223954,
+        0.009927154798662154
+      ],
+      "pairwise_date_equal_mean_bounds": [
+        0.5022983052933131,
+        0.5150570499608133
+      ],
+      "total_error_mean": 0.00456177185085543,
+      "center_error_mean_bounds": [
+        0.003941676676875573,
+        0.005274139277313773
+      ],
+      "relative_error_mean_bounds": [
+        -0.0007123674264583429,
+        0.0006200951739798571
+      ],
+      "day_categories": {
+        "nonnegative_top6": 10,
+        "ambiguous_negative": 1,
+        "proxy_and_selection_weak": 7,
+        "negative_proxy_but_relative_outperformance": 2
+      }
+    },
+    "2024-11": {
+      "dates": 21,
+      "fully_known_universe_dates": 2,
+      "top6_forecast_mean": 0.02102989369230034,
+      "top6_return_mean": 0.002436364253930959,
+      "cap6_return_mean": -0.016218404911972607,
+      "forecast_center_mean": 0.010389036183107244,
+      "realized_center_mean_bounds": [
+        -0.012485109225757613,
+        -0.010862081178979315
+      ],
+      "top6_relative_return_mean_bounds": [
+        0.013298445432910274,
+        0.014921473479688573
+      ],
+      "pairwise_date_equal_mean_bounds": [
+        0.5327383283905023,
+        0.5470973879108522
+      ],
+      "total_error_mean": 0.01859352943836938,
+      "center_error_mean_bounds": [
+        0.02125111736208656,
+        0.022874145408864857
+      ],
+      "relative_error_mean_bounds": [
+        -0.004280615970495475,
+        -0.0026575879237171777
+      ],
+      "day_categories": {
+        "nonnegative_top6": 9,
+        "negative_proxy_but_relative_outperformance": 5,
+        "proxy_and_selection_weak": 5,
+        "selection_loss_in_positive_proxy": 2
+      }
+    },
+    "2024-12": {
+      "dates": 8,
+      "fully_known_universe_dates": 3,
+      "top6_forecast_mean": 0.02107960712134923,
+      "top6_return_mean": 0.004898092724610425,
+      "cap6_return_mean": 0.014252293234827894,
+      "forecast_center_mean": 0.01077442265411437,
+      "realized_center_mean_bounds": [
+        0.006884061678445096,
+        0.007429299834005865
+      ],
+      "top6_relative_return_mean_bounds": [
+        -0.0025312071093954395,
+        -0.0019859689538346704
+      ],
+      "pairwise_date_equal_mean_bounds": [
+        0.4761096014492754,
+        0.48426177536231885
+      ],
+      "total_error_mean": 0.016181514396738806,
+      "center_error_mean_bounds": [
+        0.003345122820108506,
+        0.0038903609756692752
+      ],
+      "relative_error_mean_bounds": [
+        0.01229115342106953,
+        0.0128363915766303
+      ],
+      "day_categories": {
+        "proxy_and_selection_weak": 4,
+        "nonnegative_top6": 4
+      }
+    }
+  },
+  "row_summary": {
+    "rows": 9347,
+    "known": 9232,
+    "unknown": 115,
+    "negative_known": 4899,
+    "negative_fraction_bounds": [
+      0.5241253878249705,
+      0.5364288006847117
+    ],
+    "full_mean_gross_return": null,
+    "known_only_mean_gross_return": -0.004248484559490578,
+    "known_only_mean_error": 0.010758291269557825
+  },
+  "top6_row_summary": {
+    "rows": 294,
+    "known": 294,
+    "unknown": 0,
+    "negative_known": 154,
+    "negative_fraction_bounds": [
+      0.5238095238095238,
+      0.5238095238095238
+    ],
+    "full_mean_gross_return": 0.00413064939948248,
+    "known_only_mean_gross_return": 0.00413064939948248,
+    "known_only_mean_error": 0.012472483069321959
+  },
+  "positive_forecast_summary": {
+    "rows": 7120,
+    "known": 7041,
+    "unknown": 79,
+    "negative_known": 3550,
+    "negative_fraction_bounds": [
+      0.49859550561797755,
+      0.5096910112359551
+    ],
+    "full_mean_gross_return": null,
+    "known_only_mean_gross_return": -0.001502941173178574,
+    "known_only_mean_error": 0.011702004841700163
+  },
+  "forecast_bin_thresholds": [
+    0,
+    0.005,
+    0.0125,
+    0.017
+  ],
+  "forecast_bins": {
+    "0": {
+      "rows": 2227,
+      "known": 2191,
+      "unknown": 36,
+      "negative_known": 1349,
+      "negative_fraction_bounds": [
+        0.6057476425684778,
+        0.6219128872923215
+      ],
+      "full_mean_gross_return": null,
+      "known_only_mean_gross_return": -0.013071565793184244,
+      "known_only_mean_error": 0.0077255723003865785
+    },
+    "1": {
+      "rows": 2021,
+      "known": 1993,
+      "unknown": 28,
+      "negative_known": 1253,
+      "negative_fraction_bounds": [
+        0.6199901039089559,
+        0.6338446313706086
+      ],
+      "full_mean_gross_return": null,
+      "known_only_mean_gross_return": -0.015404765607611578,
+      "known_only_mean_error": 0.018054240882451864
+    },
+    "2": {
+      "rows": 2806,
+      "known": 2782,
+      "unknown": 24,
+      "negative_known": 1489,
+      "negative_fraction_bounds": [
+        0.5306486101211689,
+        0.5392017106200998
+      ],
+      "full_mean_gross_return": null,
+      "known_only_mean_gross_return": -0.006551854787507734,
+      "known_only_mean_error": 0.014948062943751915
+    },
+    "3": {
+      "rows": 918,
+      "known": 911,
+      "unknown": 7,
+      "negative_known": 363,
+      "negative_fraction_bounds": [
+        0.3954248366013072,
+        0.40305010893246185
+      ],
+      "full_mean_gross_return": null,
+      "known_only_mean_gross_return": 0.01013604433251045,
+      "known_only_mean_error": 0.004496393604804105
+    },
+    "4": {
+      "rows": 1375,
+      "known": 1355,
+      "unknown": 20,
+      "negative_known": 445,
+      "negative_fraction_bounds": [
+        0.3236363636363636,
+        0.3381818181818182
+      ],
+      "full_mean_gross_return": null,
+      "known_only_mean_gross_return": 0.021485470618117366,
+      "known_only_mean_error": 0.0005387367735718973
+    }
+  },
+  "missing_reason_counts": {
+    "unreviewed_investment_unit_change": 101,
+    "TDD_OPNPRC": 14
+  },
+  "days": [
+    {
+      "session": "2024-10-02",
+      "universe": 188,
+      "known": 187,
+      "unknown": 1,
+      "top6": [
+        "395400",
+        "003230",
+        "294870",
+        "323410",
+        "267260",
+        "001450"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.005654396571532513,
+      "realized_center_bounds": [
+        0.003466154258360943,
+        0.004020783373301362
+      ],
+      "top6_forecast_mean": 0.014416066270751822,
+      "top6_return_mean": 0.02154919293086105,
+      "cap6_return_mean": 0.03561129888514212,
+      "top6_relative_return_bounds": [
+        0.017528409557559688,
+        0.018083038672500107
+      ],
+      "pairwise": {
+        "pairs": 1092,
+        "unknown_pairs": 6,
+        "ties": 2,
+        "bounds": [
+          0.6144688644688645,
+          0.61996336996337
+        ]
+      },
+      "error": {
+        "total_error": -0.007133126660109228,
+        "center_error_bounds": [
+          0.001633613198231151,
+          0.0021882423131715702
+        ],
+        "relative_error_bounds": [
+          -0.009321368973280798,
+          -0.008766739858340379
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-10-04",
+      "universe": 188,
+      "known": 186,
+      "unknown": 2,
+      "top6": [
+        "395400",
+        "294870",
+        "323410",
+        "003230",
+        "139130",
+        "000720"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.005022891081191481,
+      "realized_center_bounds": [
+        0.00973372781065085,
+        0.01044440217445719
+      ],
+      "top6_forecast_mean": 0.013761631324928258,
+      "top6_return_mean": 0.041119107564732284,
+      "cap6_return_mean": 0.022706487848721684,
+      "top6_relative_return_bounds": [
+        0.030674705390275094,
+        0.031385379754081434
+      ],
+      "pairwise": {
+        "pairs": 1092,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.6923076923076923,
+          0.7032967032967034
+        ]
+      },
+      "error": {
+        "total_error": -0.027357476239804026,
+        "center_error_bounds": [
+          -0.005421511093265709,
+          -0.004710836729459368
+        ],
+        "relative_error_bounds": [
+          -0.02264663951034466,
+          -0.021935965146538318
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-10-07",
+      "universe": 189,
+      "known": 187,
+      "unknown": 2,
+      "top6": [
+        "395400",
+        "012510",
+        "294870",
+        "323410",
+        "329180",
+        "010140"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.000914762833106673,
+      "realized_center_bounds": [
+        -0.0036014405762304635,
+        -0.0028409090909090606
+      ],
+      "top6_forecast_mean": 0.010477228297549159,
+      "top6_return_mean": 0.031992909532164084,
+      "cap6_return_mean": 0.02002015984166459,
+      "top6_relative_return_bounds": [
+        0.034833818623073144,
+        0.03559435010839455
+      ],
+      "pairwise": {
+        "pairs": 1098,
+        "unknown_pairs": 12,
+        "ties": 2,
+        "bounds": [
+          0.7468123861566485,
+          0.7577413479052824
+        ]
+      },
+      "error": {
+        "total_error": -0.021515681234614926,
+        "center_error_bounds": [
+          0.0037556719240157336,
+          0.004516203409337137
+        ],
+        "relative_error_bounds": [
+          -0.026031884643952063,
+          -0.02527135315863066
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-10-08",
+      "universe": 189,
+      "known": 187,
+      "unknown": 2,
+      "top6": [
+        "395400",
+        "267260",
+        "012510",
+        "323410",
+        "007340",
+        "003230"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.004664269301843899,
+      "realized_center_bounds": [
+        0.004784688995215225,
+        0.0059880239520957446
+      ],
+      "top6_forecast_mean": 0.013800660019554182,
+      "top6_return_mean": 0.013924593384999259,
+      "cap6_return_mean": -0.001396213946818455,
+      "top6_relative_return_bounds": [
+        0.007936569432903514,
+        0.009139904389784034
+      ],
+      "pairwise": {
+        "pairs": 1098,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.5774134790528234,
+          0.5883424408014571
+        ]
+      },
+      "error": {
+        "total_error": -0.00012393336544507666,
+        "center_error_bounds": [
+          -0.0013237546502518453,
+          -0.00012041969337132571
+        ],
+        "relative_error_bounds": [
+          -0.0000035136720737509453,
+          0.0011998212848067687
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-10-10",
+      "universe": 190,
+      "known": 188,
+      "unknown": 2,
+      "top6": [
+        "395400",
+        "267260",
+        "012510",
+        "323410",
+        "003230",
+        "024110"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": -0.004950782222655473,
+      "realized_center_bounds": [
+        0.002893029916985146,
+        0.0037646629464430648
+      ],
+      "top6_forecast_mean": 0.0030977723093728437,
+      "top6_return_mean": 0.01592254268708974,
+      "cap6_return_mean": -0.011250987649654523,
+      "top6_relative_return_bounds": [
+        0.012157879740646676,
+        0.013029512770104595
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.5769927536231884,
+          0.5878623188405797
+        ]
+      },
+      "error": {
+        "total_error": -0.012824770377716897,
+        "center_error_bounds": [
+          -0.008715445169098538,
+          -0.007843812139640619
+        ],
+        "relative_error_bounds": [
+          -0.004980958238076278,
+          -0.004109325208618359
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-10-11",
+      "universe": 190,
+      "known": 187,
+      "unknown": 3,
+      "top6": [
+        "395400",
+        "267260",
+        "323410",
+        "010140",
+        "000720",
+        "042660"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": -0.002581085679824946,
+      "realized_center_bounds": [
+        0.00419503785713049,
+        0.007268691119904025
+      ],
+      "top6_forecast_mean": 0.006242713089041629,
+      "top6_return_mean": 0.009412496234625478,
+      "cap6_return_mean": -0.01776697776988817,
+      "top6_relative_return_bounds": [
+        0.002143805114721453,
+        0.005217458377494988
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.5217391304347826,
+          0.5380434782608695
+        ]
+      },
+      "error": {
+        "total_error": -0.0031697831455838495,
+        "center_error_bounds": [
+          -0.009849776799728972,
+          -0.006776123536955436
+        ],
+        "relative_error_bounds": [
+          0.0036063403913715866,
+          0.006679993654145122
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-10-14",
+      "universe": 190,
+      "known": 187,
+      "unknown": 3,
+      "top6": [
+        "267260",
+        "395400",
+        "323410",
+        "042660",
+        "010140",
+        "012510"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": -0.008400874108693598,
+      "realized_center_bounds": [
+        -0.011922786195381174,
+        -0.009739095384451224
+      ],
+      "top6_forecast_mean": -0.00019662016131837036,
+      "top6_return_mean": -0.010454989081365143,
+      "cap6_return_mean": -0.016706843664757554,
+      "top6_relative_return_bounds": [
+        -0.0007158936969139194,
+        0.0014677971140160308
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 18,
+        "ties": 1,
+        "bounds": [
+          0.4805253623188406,
+          0.49682971014492755
+        ]
+      },
+      "error": {
+        "total_error": 0.010258368920046773,
+        "center_error_bounds": [
+          0.0013382212757576256,
+          0.003521912086687576
+        ],
+        "relative_error_bounds": [
+          0.006736456833359198,
+          0.008920147644289148
+        ]
+      },
+      "negative_day_category": "ambiguous_negative"
+    },
+    {
+      "session": "2024-10-15",
+      "universe": 190,
+      "known": 186,
+      "unknown": 4,
+      "top6": [
+        "267260",
+        "395400",
+        "323410",
+        "139130",
+        "003670",
+        "000720"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": -0.009085518683082489,
+      "realized_center_bounds": [
+        -0.0051249220263304696,
+        -0.0036764211987551088
+      ],
+      "top6_forecast_mean": -0.0006298475457963001,
+      "top6_return_mean": -0.006008142475182425,
+      "cap6_return_mean": -0.03148121893711218,
+      "top6_relative_return_bounds": [
+        -0.002331721276427316,
+        -0.0008832204488519553
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 24,
+        "ties": 1,
+        "bounds": [
+          0.41530797101449274,
+          0.4370471014492754
+        ]
+      },
+      "error": {
+        "total_error": 0.005378294929386125,
+        "center_error_bounds": [
+          -0.00540909748432738,
+          -0.003960596656752019
+        ],
+        "relative_error_bounds": [
+          0.009338891586138143,
+          0.010787392413713504
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-10-16",
+      "universe": 190,
+      "known": 186,
+      "unknown": 4,
+      "top6": [
+        "267260",
+        "395400",
+        "006260",
+        "323410",
+        "000720",
+        "010120"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": -0.004444672568832431,
+      "realized_center_bounds": [
+        -0.016004037320597686,
+        -0.014310785021003136
+      ],
+      "top6_forecast_mean": 0.004281235376716767,
+      "top6_return_mean": -0.016038394933465556,
+      "cap6_return_mean": -0.008584249296313814,
+      "top6_relative_return_bounds": [
+        -0.0017276099124624196,
+        -0.000034357612867869786
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 24,
+        "ties": 0,
+        "bounds": [
+          0.3976449275362319,
+          0.41938405797101447
+        ]
+      },
+      "error": {
+        "total_error": 0.020319630310182323,
+        "center_error_bounds": [
+          0.009866112452170705,
+          0.011559364751765255
+        ],
+        "relative_error_bounds": [
+          0.008760265558417068,
+          0.010453517858011617
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-10-17",
+      "universe": 190,
+      "known": 186,
+      "unknown": 4,
+      "top6": [
+        "267260",
+        "395400",
+        "323410",
+        "280360",
+        "042660",
+        "003230"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": -0.009062596873914268,
+      "realized_center_bounds": [
+        -0.016133229247983383,
+        -0.014318760797634
+      ],
+      "top6_forecast_mean": -0.0006984834792420335,
+      "top6_return_mean": -0.005883505798524462,
+      "cap6_return_mean": -0.006580093777541003,
+      "top6_relative_return_bounds": [
+        0.008435254999109538,
+        0.01024972344945892
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 24,
+        "ties": 0,
+        "bounds": [
+          0.4266304347826087,
+          0.4483695652173913
+        ]
+      },
+      "error": {
+        "total_error": 0.005185022319282428,
+        "center_error_bounds": [
+          0.005256163923719732,
+          0.0070706323740691145
+        ],
+        "relative_error_bounds": [
+          -0.0018856100547866867,
+          -0.00007114160443730429
+        ]
+      },
+      "negative_day_category": "negative_proxy_but_relative_outperformance"
+    },
+    {
+      "session": "2024-10-18",
+      "universe": 191,
+      "known": 188,
+      "unknown": 3,
+      "top6": [
+        "267260",
+        "395400",
+        "042660",
+        "323410",
+        "003230",
+        "280360"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": -0.003446203970277203,
+      "realized_center_bounds": [
+        -0.020187454938716654,
+        -0.018237082066869248
+      ],
+      "top6_forecast_mean": 0.0052404954006570695,
+      "top6_return_mean": -0.004142814447584742,
+      "cap6_return_mean": -0.00005554859185234277,
+      "top6_relative_return_bounds": [
+        0.014094267619284506,
+        0.016044640491131912
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.4981981981981982,
+          0.5144144144144144
+        ]
+      },
+      "error": {
+        "total_error": 0.009383309848241811,
+        "center_error_bounds": [
+          0.014790878096592045,
+          0.01674125096843945
+        ],
+        "relative_error_bounds": [
+          -0.007357941120197638,
+          -0.005407568248350234
+        ]
+      },
+      "negative_day_category": "negative_proxy_but_relative_outperformance"
+    },
+    {
+      "session": "2024-10-21",
+      "universe": 191,
+      "known": 188,
+      "unknown": 3,
+      "top6": [
+        "267260",
+        "395400",
+        "006260",
+        "323410",
+        "280360",
+        "003230"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": -0.0002067533843143751,
+      "realized_center_bounds": [
+        -0.004796163069544335,
+        -0.0038659793814432852
+      ],
+      "top6_forecast_mean": 0.00904404451962452,
+      "top6_return_mean": -0.016519041190485917,
+      "cap6_return_mean": -0.0056005649408946145,
+      "top6_relative_return_bounds": [
+        -0.012653061809042632,
+        -0.011722878120941582
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.4117117117117117,
+          0.42792792792792794
+        ]
+      },
+      "error": {
+        "total_error": 0.025563085710110435,
+        "center_error_bounds": [
+          0.00365922599712891,
+          0.00458940968522996
+        ],
+        "relative_error_bounds": [
+          0.020973676024880476,
+          0.021903859712981526
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-10-22",
+      "universe": 191,
+      "known": 190,
+      "unknown": 1,
+      "top6": [
+        "395400",
+        "323410",
+        "267260",
+        "003670",
+        "006260",
+        "042660"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.004025392260587417,
+      "realized_center_bounds": [
+        -0.005102040816326481,
+        -0.004424778761061954
+      ],
+      "top6_forecast_mean": 0.012974969932364477,
+      "top6_return_mean": -0.006292470984211281,
+      "cap6_return_mean": 0.002785081428591629,
+      "top6_relative_return_bounds": [
+        -0.001867692223149327,
+        -0.0011904301678848
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 6,
+        "ties": 0,
+        "bounds": [
+          0.43423423423423424,
+          0.43963963963963965
+        ]
+      },
+      "error": {
+        "total_error": 0.019267440916575757,
+        "center_error_bounds": [
+          0.008450171021649371,
+          0.009127433076913898
+        ],
+        "relative_error_bounds": [
+          0.010140007839661859,
+          0.010817269894926386
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-10-23",
+      "universe": 191,
+      "known": 189,
+      "unknown": 2,
+      "top6": [
+        "323410",
+        "395400",
+        "006260",
+        "003230",
+        "267260",
+        "000720"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.0019588446655798794,
+      "realized_center_bounds": [
+        -0.007299270072992692,
+        -0.006157635467980316
+      ],
+      "top6_forecast_mean": 0.010636751214006734,
+      "top6_return_mean": -0.027051127228789773,
+      "cap6_return_mean": -0.021642533118127433,
+      "top6_relative_return_bounds": [
+        -0.020893491760809457,
+        -0.01975185715579708
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.3324324324324324,
+          0.34324324324324323
+        ]
+      },
+      "error": {
+        "total_error": 0.03768787844279651,
+        "center_error_bounds": [
+          0.008116480133560195,
+          0.00925811473857257
+        ],
+        "relative_error_bounds": [
+          0.02842976370422394,
+          0.029571398309236316
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-10-24",
+      "universe": 191,
+      "known": 189,
+      "unknown": 2,
+      "top6": [
+        "267260",
+        "006260",
+        "323410",
+        "395400",
+        "042660",
+        "003230"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.0011881375715228368,
+      "realized_center_bounds": [
+        -0.007122507122507171,
+        -0.005470459518599591
+      ],
+      "top6_forecast_mean": 0.010553517809038048,
+      "top6_return_mean": -0.057888307983097076,
+      "cap6_return_mean": -0.03515739579492846,
+      "top6_relative_return_bounds": [
+        -0.052417848464497485,
+        -0.050765800860589905
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.2,
+          0.21081081081081082
+        ]
+      },
+      "error": {
+        "total_error": 0.06844182579213512,
+        "center_error_bounds": [
+          0.006658597090122427,
+          0.008310644694030008
+        ],
+        "relative_error_bounds": [
+          0.06013118109810511,
+          0.061783228702012694
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-10-25",
+      "universe": 191,
+      "known": 189,
+      "unknown": 2,
+      "top6": [
+        "267260",
+        "395400",
+        "003230",
+        "006260",
+        "323410",
+        "042660"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.009602032682286632,
+      "realized_center_bounds": [
+        -0.007117437722419906,
+        -0.006561679790026198
+      ],
+      "top6_forecast_mean": 0.019116725264177716,
+      "top6_return_mean": -0.048804723306876206,
+      "cap6_return_mean": -0.024097048547706335,
+      "top6_relative_return_bounds": [
+        -0.04224304351685001,
+        -0.0416872855844563
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.24864864864864866,
+          0.2594594594594595
+        ]
+      },
+      "error": {
+        "total_error": 0.06792144857105392,
+        "center_error_bounds": [
+          0.01616371247231283,
+          0.01671947040470654
+        ],
+        "relative_error_bounds": [
+          0.05120197816634738,
+          0.05175773609874109
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-10-28",
+      "universe": 191,
+      "known": 188,
+      "unknown": 3,
+      "top6": [
+        "267260",
+        "003230",
+        "395400",
+        "012450",
+        "006260",
+        "294870"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.0023569873504020954,
+      "realized_center_bounds": [
+        -0.011210762331838597,
+        -0.008653846153846123
+      ],
+      "top6_forecast_mean": 0.012506666639284222,
+      "top6_return_mean": 0.0027003627542961928,
+      "cap6_return_mean": -0.015512069323042369,
+      "top6_relative_return_bounds": [
+        0.011354208908142316,
+        0.01391112508613479
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.46126126126126127,
+          0.4774774774774775
+        ]
+      },
+      "error": {
+        "total_error": 0.00980630388498803,
+        "center_error_bounds": [
+          0.011010833504248219,
+          0.013567749682240693
+        ],
+        "relative_error_bounds": [
+          -0.0037614457972526636,
+          -0.0012045296192601893
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-10-29",
+      "universe": 190,
+      "known": 188,
+      "unknown": 2,
+      "top6": [
+        "042660",
+        "395400",
+        "003230",
+        "012450",
+        "267260",
+        "006260"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.009006546419890162,
+      "realized_center_bounds": [
+        -0.004784798534798518,
+        -0.0035294166497116253
+      ],
+      "top6_forecast_mean": 0.018839084759179985,
+      "top6_return_mean": 0.013073681511187651,
+      "cap6_return_mean": -0.003244451631308672,
+      "top6_relative_return_bounds": [
+        0.016603098160899277,
+        0.01785848004598617
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.46467391304347827,
+          0.47554347826086957
+        ]
+      },
+      "error": {
+        "total_error": 0.005765403247992334,
+        "center_error_bounds": [
+          0.012535963069601787,
+          0.01379134495468868
+        ],
+        "relative_error_bounds": [
+          -0.008025941706696346,
+          -0.006770559821609453
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-10-30",
+      "universe": 191,
+      "known": 190,
+      "unknown": 1,
+      "top6": [
+        "042660",
+        "267260",
+        "003230",
+        "395400",
+        "012450",
+        "323410"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.009022966541519599,
+      "realized_center_bounds": [
+        0,
+        0.0009746588693957392
+      ],
+      "top6_forecast_mean": 0.019935542353392333,
+      "top6_return_mean": 0.039667704892405765,
+      "cap6_return_mean": -0.02415006982710725,
+      "top6_relative_return_bounds": [
+        0.038693046023010026,
+        0.039667704892405765
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 6,
+        "ties": 0,
+        "bounds": [
+          0.6963963963963964,
+          0.7018018018018019
+        ]
+      },
+      "error": {
+        "total_error": -0.019732162539013432,
+        "center_error_bounds": [
+          0.00804830767212386,
+          0.009022966541519599
+        ],
+        "relative_error_bounds": [
+          -0.02875512908053303,
+          -0.02778047021113729
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-10-31",
+      "universe": 192,
+      "known": 191,
+      "unknown": 1,
+      "top6": [
+        "012450",
+        "267260",
+        "042660",
+        "395400",
+        "323410",
+        "003230"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.007754379230371917,
+      "realized_center_bounds": [
+        0.00884454460928974,
+        0.00948521232742261
+      ],
+      "top6_forecast_mean": 0.01988871306903349,
+      "top6_return_mean": 0.12177435538242902,
+      "cap6_return_mean": 0.009384574453057959,
+      "top6_relative_return_bounds": [
+        0.11228914305500641,
+        0.11292981077313928
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 6,
+        "ties": 0,
+        "bounds": [
+          0.8485663082437276,
+          0.8539426523297491
+        ]
+      },
+      "error": {
+        "total_error": -0.10188564231339553,
+        "center_error_bounds": [
+          -0.0017308330970506923,
+          -0.0010901653789178222
+        ],
+        "relative_error_bounds": [
+          -0.10079547693447771,
+          -0.10015480921634484
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-01",
+      "universe": 192,
+      "known": 191,
+      "unknown": 1,
+      "top6": [
+        "267260",
+        "003230",
+        "012450",
+        "395400",
+        "042660",
+        "323410"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.00617918779839775,
+      "realized_center_bounds": [
+        -0.008176678747377208,
+        -0.007446715632394352
+      ],
+      "top6_forecast_mean": 0.01726996396842645,
+      "top6_return_mean": 0.11471106319767799,
+      "cap6_return_mean": 0.0044776642458247045,
+      "top6_relative_return_bounds": [
+        0.12215777883007234,
+        0.1228877419450552
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 6,
+        "ties": 3,
+        "bounds": [
+          0.7943548387096774,
+          0.7997311827956989
+        ]
+      },
+      "error": {
+        "total_error": -0.09744109922925154,
+        "center_error_bounds": [
+          0.013625903430792102,
+          0.014355866545774958
+        ],
+        "relative_error_bounds": [
+          -0.1117969657750265,
+          -0.11106700266004364
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-04",
+      "universe": 192,
+      "known": 191,
+      "unknown": 1,
+      "top6": [
+        "012450",
+        "267260",
+        "395400",
+        "280360",
+        "042660",
+        "180640"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.0020352297612722227,
+      "realized_center_bounds": [
+        -0.022949778480032212,
+        -0.02287684540342333
+      ],
+      "top6_forecast_mean": 0.01334300277868242,
+      "top6_return_mean": 0.09624043307290348,
+      "cap6_return_mean": -0.02650548617662026,
+      "top6_relative_return_bounds": [
+        0.1191172784763268,
+        0.11919021155293569
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 6,
+        "ties": 0,
+        "bounds": [
+          0.6612903225806451,
+          0.6666666666666666
+        ]
+      },
+      "error": {
+        "total_error": -0.08289743029422106,
+        "center_error_bounds": [
+          0.02491207516469555,
+          0.024985008241304434
+        ],
+        "relative_error_bounds": [
+          -0.1078824385355255,
+          -0.10780950545891661
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-05",
+      "universe": 192,
+      "known": 190,
+      "unknown": 2,
+      "top6": [
+        "012450",
+        "267260",
+        "395400",
+        "329180",
+        "180640",
+        "323410"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.006316863026474611,
+      "realized_center_bounds": [
+        -0.05050965899801918,
+        -0.050067089843933765
+      ],
+      "top6_forecast_mean": 0.016904835072346486,
+      "top6_return_mean": 0.025591447830113967,
+      "cap6_return_mean": -0.05803950722948411,
+      "top6_relative_return_bounds": [
+        0.07565853767404773,
+        0.07610110682813315
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.6290322580645161,
+          0.6397849462365591
+        ]
+      },
+      "error": {
+        "total_error": -0.00868661275776748,
+        "center_error_bounds": [
+          0.05638395287040838,
+          0.05682652202449379
+        ],
+        "relative_error_bounds": [
+          -0.06551313478226127,
+          -0.06507056562817586
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-06",
+      "universe": 192,
+      "known": 190,
+      "unknown": 2,
+      "top6": [
+        "267260",
+        "395400",
+        "180640",
+        "323410",
+        "012450",
+        "007660"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.0015570825534760887,
+      "realized_center_bounds": [
+        -0.05201361350784345,
+        -0.048127192111706685
+      ],
+      "top6_forecast_mean": 0.011994104881584939,
+      "top6_return_mean": -0.04320207244524662,
+      "cap6_return_mean": -0.047156533259756495,
+      "top6_relative_return_bounds": [
+        0.004925119666460066,
+        0.00881154106259683
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.578853046594982,
+          0.589605734767025
+        ]
+      },
+      "error": {
+        "total_error": 0.05519617732683156,
+        "center_error_bounds": [
+          0.04968427466518277,
+          0.053570696061319534
+        ],
+        "relative_error_bounds": [
+          0.001625481265512027,
+          0.00551190266164879
+        ]
+      },
+      "negative_day_category": "negative_proxy_but_relative_outperformance"
+    },
+    {
+      "session": "2024-11-07",
+      "universe": 192,
+      "known": 190,
+      "unknown": 2,
+      "top6": [
+        "267260",
+        "395400",
+        "323410",
+        "180640",
+        "039490",
+        "012450"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.004845248999918775,
+      "realized_center_bounds": [
+        -0.0541143319985854,
+        -0.053414692947817366
+      ],
+      "top6_forecast_mean": 0.014223480828676362,
+      "top6_return_mean": -0.014767330975931655,
+      "cap6_return_mean": -0.06937799837468951,
+      "top6_relative_return_bounds": [
+        0.03864736197188571,
+        0.03934700102265374
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.6944444444444444,
+          0.7051971326164874
+        ]
+      },
+      "error": {
+        "total_error": 0.028990811804608017,
+        "center_error_bounds": [
+          0.05825994194773614,
+          0.05895958099850417
+        ],
+        "relative_error_bounds": [
+          -0.029968769193896155,
+          -0.029269130143128125
+        ]
+      },
+      "negative_day_category": "negative_proxy_but_relative_outperformance"
+    },
+    {
+      "session": "2024-11-08",
+      "universe": 192,
+      "known": 190,
+      "unknown": 2,
+      "top6": [
+        "395400",
+        "323410",
+        "180640",
+        "012450",
+        "267260",
+        "112610"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.007999186011333821,
+      "realized_center_bounds": [
+        -0.04822507186924646,
+        -0.04663417571877859
+      ],
+      "top6_forecast_mean": 0.01756817853850208,
+      "top6_return_mean": -0.041735723241466904,
+      "cap6_return_mean": -0.06927899684908474,
+      "top6_relative_return_bounds": [
+        0.004898452477311688,
+        0.0064893486277795565
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.5770609318996416,
+          0.5878136200716846
+        ]
+      },
+      "error": {
+        "total_error": 0.059303901779968984,
+        "center_error_bounds": [
+          0.05463336173011241,
+          0.05622425788058028
+        ],
+        "relative_error_bounds": [
+          0.0030796438993887024,
+          0.004670540049856571
+        ]
+      },
+      "negative_day_category": "negative_proxy_but_relative_outperformance"
+    },
+    {
+      "session": "2024-11-11",
+      "universe": 192,
+      "known": 189,
+      "unknown": 3,
+      "top6": [
+        "007660",
+        "395400",
+        "323410",
+        "180640",
+        "003230",
+        "280360"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.014589812140458566,
+      "realized_center_bounds": [
+        -0.017633356292809876,
+        -0.016038249712521935
+      ],
+      "top6_forecast_mean": 0.025205439517863942,
+      "top6_return_mean": -0.033532163998758045,
+      "cap6_return_mean": -0.035611885594950175,
+      "top6_relative_return_bounds": [
+        -0.01749391428623611,
+        -0.01589880770594817
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.46415770609318996,
+          0.48028673835125446
+        ]
+      },
+      "error": {
+        "total_error": 0.05873760351662199,
+        "center_error_bounds": [
+          0.0306280618529805,
+          0.032223168433268445
+        ],
+        "relative_error_bounds": [
+          0.026514435083353542,
+          0.028109541663641487
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-11-12",
+      "universe": 192,
+      "known": 189,
+      "unknown": 3,
+      "top6": [
+        "395400",
+        "323410",
+        "180640",
+        "003230",
+        "267260",
+        "326030"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.019699583879911227,
+      "realized_center_bounds": [
+        -0.003160700685453155,
+        -0.0016020114415412623
+      ],
+      "top6_forecast_mean": 0.02945481320813051,
+      "top6_return_mean": -0.0038247611266447046,
+      "cap6_return_mean": -0.001083710097877481,
+      "top6_relative_return_bounds": [
+        -0.0022227496851034423,
+        -0.0006640604411915496
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.47043010752688175,
+          0.48655913978494625
+        ]
+      },
+      "error": {
+        "total_error": 0.033279574334775214,
+        "center_error_bounds": [
+          0.02130159532145249,
+          0.022860284565364382
+        ],
+        "relative_error_bounds": [
+          0.010419289769410832,
+          0.011977979013322725
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-11-13",
+      "universe": 192,
+      "known": 188,
+      "unknown": 4,
+      "top6": [
+        "323410",
+        "267260",
+        "326030",
+        "180640",
+        "112610",
+        "010120"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.023287486779176796,
+      "realized_center_bounds": [
+        0.013672103146893932,
+        0.014856844305120132
+      ],
+      "top6_forecast_mean": 0.03257066328210566,
+      "top6_return_mean": -0.015080271591605113,
+      "cap6_return_mean": 0.018874752339832823,
+      "top6_relative_return_bounds": [
+        -0.029937115896725243,
+        -0.028752374738499044
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 24,
+        "ties": 0,
+        "bounds": [
+          0.3172043010752688,
+          0.3387096774193548
+        ]
+      },
+      "error": {
+        "total_error": 0.04765093487371077,
+        "center_error_bounds": [
+          0.008430642474056664,
+          0.009615383632282863
+        ],
+        "relative_error_bounds": [
+          0.038035551241427906,
+          0.039220292399654105
+        ]
+      },
+      "negative_day_category": "selection_loss_in_positive_proxy"
+    },
+    {
+      "session": "2024-11-14",
+      "universe": 192,
+      "known": 189,
+      "unknown": 3,
+      "top6": [
+        "323410",
+        "003230",
+        "180640",
+        "326030",
+        "280360",
+        "395400"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.022268729634507968,
+      "realized_center_bounds": [
+        0.02320691138282638,
+        0.024284931968490686
+      ],
+      "top6_forecast_mean": 0.03154230981198765,
+      "top6_return_mean": 0.01099254863921593,
+      "cap6_return_mean": 0.04199295779739217,
+      "top6_relative_return_bounds": [
+        -0.013292383329274756,
+        -0.012214362743610449
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.4543010752688172,
+          0.47043010752688175
+        ]
+      },
+      "error": {
+        "total_error": 0.02054976117277172,
+        "center_error_bounds": [
+          -0.002016202333982718,
+          -0.0009381817483184104
+        ],
+        "relative_error_bounds": [
+          0.02148794292109013,
+          0.02256596350675444
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-15",
+      "universe": 192,
+      "known": 187,
+      "unknown": 5,
+      "top6": [
+        "006260",
+        "003670",
+        "323410",
+        "267260",
+        "395400",
+        "007660"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.021688413051334145,
+      "realized_center_bounds": [
+        0.03350672192648452,
+        0.03772676598763558
+      ],
+      "top6_forecast_mean": 0.03199872210713126,
+      "top6_return_mean": 0.040926561271412976,
+      "cap6_return_mean": 0.04454179274363831,
+      "top6_relative_return_bounds": [
+        0.0031997952837773957,
+        0.007419839344928458
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 30,
+        "ties": 0,
+        "bounds": [
+          0.5116487455197133,
+          0.5385304659498208
+        ]
+      },
+      "error": {
+        "total_error": -0.008927839164281713,
+        "center_error_bounds": [
+          -0.016038352936301434,
+          -0.011818308875150372
+        ],
+        "relative_error_bounds": [
+          0.0028904697108686588,
+          0.007110513772019721
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-18",
+      "universe": 192,
+      "known": 188,
+      "unknown": 4,
+      "top6": [
+        "006260",
+        "180640",
+        "012450",
+        "267260",
+        "326030",
+        "010120"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.017259524410326993,
+      "realized_center_bounds": [
+        0.01086672629695884,
+        0.012576751785384865
+      ],
+      "top6_forecast_mean": 0.028770432922426627,
+      "top6_return_mean": 0.03754380576753619,
+      "cap6_return_mean": 0.030714119724340867,
+      "top6_relative_return_bounds": [
+        0.02496705398215132,
+        0.026677079470577347
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 24,
+        "ties": 0,
+        "bounds": [
+          0.6370967741935484,
+          0.6586021505376344
+        ]
+      },
+      "error": {
+        "total_error": -0.00877337284510956,
+        "center_error_bounds": [
+          0.0046827726249421275,
+          0.006392798113368153
+        ],
+        "relative_error_bounds": [
+          -0.015166170958477714,
+          -0.013456145470051688
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-19",
+      "universe": 192,
+      "known": 189,
+      "unknown": 3,
+      "top6": [
+        "012450",
+        "326030",
+        "180640",
+        "323410",
+        "267260",
+        "005070"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.014039514415262305,
+      "realized_center_bounds": [
+        0.018259143706044534,
+        0.01988668052527509
+      ],
+      "top6_forecast_mean": 0.024229269726483524,
+      "top6_return_mean": 0.00021996272126543573,
+      "cap6_return_mean": 0.015733838778253646,
+      "top6_relative_return_bounds": [
+        -0.019666717804009654,
+        -0.018039180984779097
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.48655913978494625,
+          0.5026881720430108
+        ]
+      },
+      "error": {
+        "total_error": 0.024009307005218087,
+        "center_error_bounds": [
+          -0.005847166110012786,
+          -0.004219629290782229
+        ],
+        "relative_error_bounds": [
+          0.028228936296000318,
+          0.029856473115230875
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-20",
+      "universe": 192,
+      "known": 187,
+      "unknown": 5,
+      "top6": [
+        "012450",
+        "267260",
+        "326030",
+        "006260",
+        "323410",
+        "005070"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.013507208721785827,
+      "realized_center_bounds": [
+        0.010766514808727035,
+        0.013986207590858668
+      ],
+      "top6_forecast_mean": 0.02344057057602805,
+      "top6_return_mean": 0.00009664639131782653,
+      "cap6_return_mean": 0.0005708535782090925,
+      "top6_relative_return_bounds": [
+        -0.013889561199540842,
+        -0.010669868417409209
+      ],
+      "pairwise": {
+        "pairs": 1116,
+        "unknown_pairs": 30,
+        "ties": 0,
+        "bounds": [
+          0.5152329749103942,
+          0.5421146953405018
+        ]
+      },
+      "error": {
+        "total_error": 0.02334392418471022,
+        "center_error_bounds": [
+          -0.00047899886907284105,
+          0.0027406939130587924
+        ],
+        "relative_error_bounds": [
+          0.02060323027165143,
+          0.023822923053783064
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-21",
+      "universe": 191,
+      "known": 186,
+      "unknown": 5,
+      "top6": [
+        "012450",
+        "267260",
+        "003230",
+        "079550",
+        "010120",
+        "326030"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.011917651885823501,
+      "realized_center_bounds": [
+        0.01109057301293892,
+        0.01340033500837512
+      ],
+      "top6_forecast_mean": 0.02316919276878846,
+      "top6_return_mean": -0.010866414830682883,
+      "cap6_return_mean": -0.010952200743953403,
+      "top6_relative_return_bounds": [
+        -0.024266749839058,
+        -0.0219569878436218
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 30,
+        "ties": 0,
+        "bounds": [
+          0.40540540540540543,
+          0.43243243243243246
+        ]
+      },
+      "error": {
+        "total_error": 0.03403560759947134,
+        "center_error_bounds": [
+          -0.0014826831225516184,
+          0.0008270788728845808
+        ],
+        "relative_error_bounds": [
+          0.033208528726586764,
+          0.03551829072202296
+        ]
+      },
+      "negative_day_category": "selection_loss_in_positive_proxy"
+    },
+    {
+      "session": "2024-11-22",
+      "universe": 191,
+      "known": 188,
+      "unknown": 3,
+      "top6": [
+        "298040",
+        "267260",
+        "326030",
+        "323410",
+        "012450",
+        "010120"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.006562779011289014,
+      "realized_center_bounds": [
+        -0.005382131324004336,
+        -0.0010214504596527396
+      ],
+      "top6_forecast_mean": 0.016786464442775234,
+      "top6_return_mean": -0.009998666723426216,
+      "cap6_return_mean": -0.027711916939910836,
+      "top6_relative_return_bounds": [
+        -0.008977216263773477,
+        -0.004616535399421881
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.5126126126126126,
+          0.5288288288288289
+        ]
+      },
+      "error": {
+        "total_error": 0.026785131166201452,
+        "center_error_bounds": [
+          0.007584229470941754,
+          0.01194491033529335
+        ],
+        "relative_error_bounds": [
+          0.014840220830908102,
+          0.019200901695259696
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-11-25",
+      "universe": 191,
+      "known": 188,
+      "unknown": 3,
+      "top6": [
+        "012450",
+        "000720",
+        "298040",
+        "064350",
+        "003230",
+        "079550"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.006111231442972821,
+      "realized_center_bounds": [
+        -0.006217616580310836,
+        -0.002971768202080227
+      ],
+      "top6_forecast_mean": 0.017360208092291125,
+      "top6_return_mean": -0.04144280813797616,
+      "cap6_return_mean": -0.033495183575454356,
+      "top6_relative_return_bounds": [
+        -0.038471039935895936,
+        -0.03522519155766533
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.3387387387387387,
+          0.35495495495495494
+        ]
+      },
+      "error": {
+        "total_error": 0.05880301623026729,
+        "center_error_bounds": [
+          0.009082999645053047,
+          0.012328848023283656
+        ],
+        "relative_error_bounds": [
+          0.046474168206983635,
+          0.049720016585214244
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-11-26",
+      "universe": 191,
+      "known": 188,
+      "unknown": 3,
+      "top6": [
+        "012450",
+        "064350",
+        "267260",
+        "079550",
+        "298040",
+        "047810"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "000270"
+      ],
+      "forecast_center": 0.006330103354151672,
+      "realized_center_bounds": [
+        -0.0037735849056603765,
+        -0.0035017508754376925
+      ],
+      "top6_forecast_mean": 0.019249456789188817,
+      "top6_return_mean": -0.001607033145876698,
+      "cap6_return_mean": -0.04003291862014289,
+      "top6_relative_return_bounds": [
+        0.0018947177295609945,
+        0.0021665517597836787
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.536036036036036,
+          0.5522522522522523
+        ]
+      },
+      "error": {
+        "total_error": 0.020856489935065513,
+        "center_error_bounds": [
+          0.009831854229589364,
+          0.010103688259812048
+        ],
+        "relative_error_bounds": [
+          0.010752801675253465,
+          0.01102463570547615
+        ]
+      },
+      "negative_day_category": "negative_proxy_but_relative_outperformance"
+    },
+    {
+      "session": "2024-11-27",
+      "universe": 191,
+      "known": 189,
+      "unknown": 2,
+      "top6": [
+        "012450",
+        "267260",
+        "079550",
+        "064350",
+        "003230",
+        "395400"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "105560"
+      ],
+      "forecast_center": 0.004805415072719092,
+      "realized_center_bounds": [
+        -0.018957345971563955,
+        -0.01867816091954022
+      ],
+      "top6_forecast_mean": 0.015899695501395614,
+      "top6_return_mean": 0.028868969796126225,
+      "cap6_return_mean": -0.026579344329400807,
+      "top6_relative_return_bounds": [
+        0.04754713071566645,
+        0.04782631576769018
+      ],
+      "pairwise": {
+        "pairs": 1110,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.7063063063063063,
+          0.7171171171171171
+        ]
+      },
+      "error": {
+        "total_error": -0.01296927429473061,
+        "center_error_bounds": [
+          0.023483575992259312,
+          0.023762761044283046
+        ],
+        "relative_error_bounds": [
+          -0.03673203533901366,
+          -0.03645285028698993
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-11-28",
+      "universe": 190,
+      "known": 190,
+      "unknown": 0,
+      "top6": [
+        "267260",
+        "012450",
+        "395400",
+        "298040",
+        "064350",
+        "079550"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.0014244952562285059,
+      "realized_center_bounds": [
+        -0.042269108280254764,
+        -0.042269108280254764
+      ],
+      "top6_forecast_mean": 0.013815868062922655,
+      "top6_return_mean": -0.014247042367856733,
+      "cap6_return_mean": -0.01920314233357053,
+      "top6_relative_return_bounds": [
+        0.02802206591239803,
+        0.02802206591239803
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 0,
+        "ties": 0,
+        "bounds": [
+          0.5543478260869565,
+          0.5543478260869565
+        ]
+      },
+      "error": {
+        "total_error": 0.028062910430779388,
+        "center_error_bounds": [
+          0.04369360353648327,
+          0.04369360353648327
+        ],
+        "relative_error_bounds": [
+          -0.015630693105703884,
+          -0.015630693105703884
+        ]
+      },
+      "negative_day_category": "negative_proxy_but_relative_outperformance"
+    },
+    {
+      "session": "2024-11-29",
+      "universe": 190,
+      "known": 190,
+      "unknown": 0,
+      "top6": [
+        "012450",
+        "267260",
+        "064350",
+        "079550",
+        "395400",
+        "047810"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.005745012638430412,
+      "realized_center_bounds": [
+        -0.05017301038062283,
+        -0.05017301038062283
+      ],
+      "top6_forecast_mean": 0.016831094660569285,
+      "top6_return_mean": -0.07372350076954813,
+      "cap6_return_mean": -0.032463658234020774,
+      "top6_relative_return_bounds": [
+        -0.023550490388925302,
+        -0.023550490388925302
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 0,
+        "ties": 0,
+        "bounds": [
+          0.3423913043478261,
+          0.3423913043478261
+        ]
+      },
+      "error": {
+        "total_error": 0.09055459543011742,
+        "center_error_bounds": [
+          0.05591802301905324,
+          0.05591802301905324
+        ],
+        "relative_error_bounds": [
+          0.03463657241106417,
+          0.03463657241106417
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-12-02",
+      "universe": 190,
+      "known": 190,
+      "unknown": 0,
+      "top6": [
+        "267260",
+        "012450",
+        "010140",
+        "395400",
+        "064350",
+        "079550"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.009607619258767922,
+      "realized_center_bounds": [
+        -0.059946410870937605,
+        -0.059946410870937605
+      ],
+      "top6_forecast_mean": 0.020578517483763756,
+      "top6_return_mean": -0.08558015338226414,
+      "cap6_return_mean": -0.0073604800952155975,
+      "top6_relative_return_bounds": [
+        -0.025633742511326538,
+        -0.025633742511326538
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 0,
+        "ties": 0,
+        "bounds": [
+          0.3351449275362319,
+          0.3351449275362319
+        ]
+      },
+      "error": {
+        "total_error": 0.1061586708660279,
+        "center_error_bounds": [
+          0.06955403012970553,
+          0.06955403012970553
+        ],
+        "relative_error_bounds": [
+          0.03660464073632237,
+          0.03660464073632237
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-12-03",
+      "universe": 190,
+      "known": 190,
+      "unknown": 0,
+      "top6": [
+        "395400",
+        "267260",
+        "012450",
+        "010140",
+        "079550",
+        "047810"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.002584936174175013,
+      "realized_center_bounds": [
+        -0.031345968549608194,
+        -0.031345968549608194
+      ],
+      "top6_forecast_mean": 0.012177525320970474,
+      "top6_return_mean": -0.05246993120944136,
+      "cap6_return_mean": 0.010194055389271131,
+      "top6_relative_return_bounds": [
+        -0.021123962659833163,
+        -0.021123962659833163
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 0,
+        "ties": 0,
+        "bounds": [
+          0.3795289855072464,
+          0.3795289855072464
+        ]
+      },
+      "error": {
+        "total_error": 0.06464745653041183,
+        "center_error_bounds": [
+          0.033930904723783205,
+          0.033930904723783205
+        ],
+        "relative_error_bounds": [
+          0.030716551806628627,
+          0.030716551806628627
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-12-04",
+      "universe": 190,
+      "known": 190,
+      "unknown": 0,
+      "top6": [
+        "036460",
+        "267260",
+        "395400",
+        "052690",
+        "015760",
+        "012450"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.01052406643534623,
+      "realized_center_bounds": [
+        -0.0030245938342218226,
+        -0.0030245938342218226
+      ],
+      "top6_forecast_mean": 0.020875040759000565,
+      "top6_return_mean": -0.043247224418736054,
+      "cap6_return_mean": 0.006763936932813093,
+      "top6_relative_return_bounds": [
+        -0.04022263058451423,
+        -0.04022263058451423
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 0,
+        "ties": 0,
+        "bounds": [
+          0.3007246376811594,
+          0.3007246376811594
+        ]
+      },
+      "error": {
+        "total_error": 0.06412226517773661,
+        "center_error_bounds": [
+          0.013548660269568052,
+          0.013548660269568052
+        ],
+        "relative_error_bounds": [
+          0.05057360490816856,
+          0.05057360490816856
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    },
+    {
+      "session": "2024-12-05",
+      "universe": 190,
+      "known": 189,
+      "unknown": 1,
+      "top6": [
+        "012450",
+        "395400",
+        "105560",
+        "064350",
+        "010140",
+        "047810"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "010130"
+      ],
+      "forecast_center": 0.016988591543655902,
+      "realized_center_bounds": [
+        0.01608144159214353,
+        0.016213477915605568
+      ],
+      "top6_forecast_mean": 0.02679628416158128,
+      "top6_return_mean": 0.01570115543531932,
+      "cap6_return_mean": -0.04365860843140092,
+      "top6_relative_return_bounds": [
+        -0.0005123224802862474,
+        -0.0003802861568242104
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 6,
+        "ties": 0,
+        "bounds": [
+          0.5081521739130435,
+          0.5135869565217391
+        ]
+      },
+      "error": {
+        "total_error": 0.01109512872626196,
+        "center_error_bounds": [
+          0.0007751136280503348,
+          0.0009071499515123718
+        ],
+        "relative_error_bounds": [
+          0.010187978774749588,
+          0.010320015098211625
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-12-06",
+      "universe": 190,
+      "known": 188,
+      "unknown": 2,
+      "top6": [
+        "012450",
+        "395400",
+        "267260",
+        "010140",
+        "047810",
+        "012510"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.016034263451697228,
+      "realized_center_bounds": [
+        0.052369097661510766,
+        0.05291985605356697
+      ],
+      "top6_forecast_mean": 0.02641327278198924,
+      "top6_return_mean": 0.09912282705827465,
+      "cap6_return_mean": 0.06849165455607072,
+      "top6_relative_return_bounds": [
+        0.046202971004707674,
+        0.04675372939676388
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 12,
+        "ties": 0,
+        "bounds": [
+          0.7273550724637681,
+          0.7382246376811594
+        ]
+      },
+      "error": {
+        "total_error": -0.0727095542762854,
+        "center_error_bounds": [
+          -0.03688559260186974,
+          -0.03633483420981354
+        ],
+        "relative_error_bounds": [
+          -0.03637472006647187,
+          -0.035823961674415664
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-12-09",
+      "universe": 190,
+      "known": 187,
+      "unknown": 3,
+      "top6": [
+        "012450",
+        "395400",
+        "079550",
+        "010140",
+        "047810",
+        "042660"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.02398840643559832,
+      "realized_center_bounds": [
+        0.06510104529616723,
+        0.06681804491741128
+      ],
+      "top6_forecast_mean": 0.03438498946145524,
+      "top6_return_mean": 0.09107395924411817,
+      "cap6_return_mean": 0.04606911722980089,
+      "top6_relative_return_bounds": [
+        0.024255914326706887,
+        0.02597291394795094
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.6494565217391305,
+          0.6657608695652174
+        ]
+      },
+      "error": {
+        "total_error": -0.056688969782662926,
+        "center_error_bounds": [
+          -0.042829638481812954,
+          -0.0411126388605689
+        ],
+        "relative_error_bounds": [
+          -0.015576330922094025,
+          -0.013859331300849972
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-12-10",
+      "universe": 190,
+      "known": 187,
+      "unknown": 3,
+      "top6": [
+        "012450",
+        "395400",
+        "454910",
+        "267260",
+        "012510",
+        "047810"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": 0.008114623540382575,
+      "realized_center_bounds": [
+        0.025419046727221617,
+        0.026728666126919265
+      ],
+      "top6_forecast_mean": 0.01903003741518245,
+      "top6_return_mean": 0.03619259236558706,
+      "cap6_return_mean": 0.029538995450316,
+      "top6_relative_return_bounds": [
+        0.009463926238667798,
+        0.010773545638365446
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.5217391304347826,
+          0.5380434782608695
+        ]
+      },
+      "error": {
+        "total_error": -0.017162554950404613,
+        "center_error_bounds": [
+          -0.01861404258653669,
+          -0.017304423186839044
+        ],
+        "relative_error_bounds": [
+          0.00014186823643443092,
+          0.0014514876361320789
+        ]
+      },
+      "negative_day_category": "nonnegative_top6"
+    },
+    {
+      "session": "2024-12-11",
+      "universe": 190,
+      "known": 187,
+      "unknown": 3,
+      "top6": [
+        "395400",
+        "267260",
+        "012450",
+        "454910",
+        "316140",
+        "012510"
+      ],
+      "cap6": [
+        "005930",
+        "000660",
+        "373220",
+        "207940",
+        "005380",
+        "068270"
+      ],
+      "forecast_center": -0.001647125606708225,
+      "realized_center_bounds": [
+        -0.009581164594714753,
+        -0.008928673086688543
+      ],
+      "top6_forecast_mean": 0.008381189586850846,
+      "top6_return_mean": -0.02160848329597424,
+      "cap6_return_mean": 0.003979674846967836,
+      "top6_relative_return_bounds": [
+        -0.012679810209285696,
+        -0.012027318701259487
+      ],
+      "pairwise": {
+        "pairs": 1104,
+        "unknown_pairs": 18,
+        "ties": 0,
+        "bounds": [
+          0.3867753623188406,
+          0.40307971014492755
+        ]
+      },
+      "error": {
+        "total_error": 0.029989672882825086,
+        "center_error_bounds": [
+          0.007281547479980319,
+          0.007934038988006528
+        ],
+        "relative_error_bounds": [
+          0.022055633894818558,
+          0.022708125402844767
+        ]
+      },
+      "negative_day_category": "proxy_and_selection_weak"
+    }
+  ],
+  "worst_top6_positive_examples": [
+    {
+      "session": "2024-11-19",
+      "ticker": "012450",
+      "name": "한화에어로스페이스",
+      "forecast": 0.025872904442080128,
+      "rank": 1,
+      "top6": true,
+      "label": {
+        "gross_return": -0.16492146596858637,
+        "entry_on": "2024-11-20",
+        "exit_on": "2024-11-27",
+        "entry_open": 382000,
+        "exit_open": 319000,
+        "missing": null
+      }
+    },
+    {
+      "session": "2024-12-02",
+      "ticker": "012450",
+      "name": "한화에어로스페이스",
+      "forecast": 0.02223027914224935,
+      "rank": 2,
+      "top6": true,
+      "label": {
+        "gross_return": -0.1532625189681336,
+        "entry_on": "2024-12-03",
+        "exit_on": "2024-12-10",
+        "entry_open": 329500,
+        "exit_open": 279000,
+        "missing": null
+      }
+    },
+    {
+      "session": "2024-11-11",
+      "ticker": "007660",
+      "name": "이수페타시스",
+      "forecast": 0.028017316341048915,
+      "rank": 1,
+      "top6": true,
+      "label": {
+        "gross_return": -0.13469387755102036,
+        "entry_on": "2024-11-12",
+        "exit_on": "2024-11-19",
+        "entry_open": 24500,
+        "exit_open": 21200,
+        "missing": null
+      }
+    },
+    {
+      "session": "2024-11-20",
+      "ticker": "012450",
+      "name": "한화에어로스페이스",
+      "forecast": 0.02574599522126867,
+      "rank": 1,
+      "top6": true,
+      "label": {
+        "gross_return": -0.13654618473895586,
+        "entry_on": "2024-11-21",
+        "exit_on": "2024-11-28",
+        "entry_open": 373500,
+        "exit_open": 322500,
+        "missing": null
+      }
+    },
+    {
+      "session": "2024-11-25",
+      "ticker": "064350",
+      "name": "현대로템",
+      "forecast": 0.017261762089972578,
+      "rank": 4,
+      "top6": true,
+      "label": {
+        "gross_return": -0.14189189189189189,
+        "entry_on": "2024-11-26",
+        "exit_on": "2024-12-03",
+        "entry_open": 59200,
+        "exit_open": 50800,
+        "missing": null
+      }
+    }
+  ],
+  "interpretation": "missing-data bounds, not confidence intervals; proxy median, not KOSPI index; overlapping h5 observations, not strategy returns",
+  "runs": 1,
+  "wall_seconds": 2.0837272090138867,
+  "strategy_paths": 0,
+  "fit_calls": 0,
+  "new_market_data_requests": 0,
+  "production_engine_changed": false,
+  "live_order_eligible": false,
+  "adoption_test": false,
+  "strict_pit_eligible": false,
+  "verified_total_return": false,
+  "pristine_oos": false,
+  "integrated_roadmap_percent": 40,
+  "raw_artifact": {
+    "path": "data/research/kr-forecast-error-attribution-2026-10-22-v1.json",
+    "bytes": 2823218,
+    "sha256": "f73648f2418b054a3b89bc80dc56d92581833c515c230c2d598f8d984f50e775",
+    "detailed_rows": 9347,
+    "detailed_rows_omitted_from_published_summary": true
+  }
+}
