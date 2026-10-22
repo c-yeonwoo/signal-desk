@@ -1,0 +1,19 @@
+{
+  "schema": "kr-within-date-ridge-plan-v1",
+  "base_commit": "932254e967c52568303182c14cbd1512e0d64aee",
+  "candidate_id": "kr-within-date-ridge-h5-v1",
+  "parent_result": {"path":"data/research/kr-integer-risk-budget-2026-10-23-v1.json","sha256":"22c1f5b55ead4cfe5ad922b6e3ca6071682307afa43674d728f98ac5a948c861"},
+  "label_archive": {"path":"data/research/kr-forecast-error-attribution-2026-10-22-v1.json","sha256":"f73648f2418b054a3b89bc80dc56d92581833c515c230c2d598f8d984f50e775"},
+  "training": {"start":"2024-04-01","end":"2024-09-20","fit_through":"2024-09-30","rows":21884,"dates":116,"rows_sha256":"0a028a5c3eb67371829f5916f06d91a2eb61b753c1c9da80eac36f26d66b1a9a","original_plan":"docs/kr-ridge-selection-plan-2026-10-17.json","feature_reconstruction":"원래 9개 KRX 원천·재무 원천·253종가·원래 14개 특성·결손 지시자·라벨 및 제외 규칙 그대로. 기존 모델에 저장된 학습 전용 중앙값/표준화/clip 사용. 원모델 재학습하지 않고 행 해시·9,347개 예측을 대조한다."},
+  "diagnostic": "원계수와 행별 design*coefficient의 합을 예측과 대조. 전체/상위6/최근5일하락 상위6 기여, 월별 학습일·시장20일수익·후행5일평균·상관을 기록. 계수 기여는 인과 원인이 아니며 동일날짜 시장값 200개는 독립 시장표본 200개가 아니다. 학습 116일의 라벨도 중첩된다.",
+  "hypothesis": "풀링된 절대수익 Ridge가 공통 시장 반등과 종목 선택을 함께 학습한다. 같은 날짜의 공통 성분을 제거해 종목 간 선택 관계만 새로 학습하면 하락장 반등의 과대평가와 오선정이 줄 수 있다. 시장 반등을 삭제하면 맞는 반등도 놓칠 수 있어 수익 비교로 반증한다.",
+  "model": {"fit_calls":1,"alpha":0.1,"fit":"원 transform에서 절편을 제외한 28열 X. 같은 학습일의 유효 라벨 행 내 X와 y 각각 평균을 빼고 날짜 동일 가중 Ridge(beta=(Xc'WXc+0.1I)^-1Xc'Wyc). 결손 지시자도 같이 중심화. 절편은 학습일별 y평균의 단순 평균으로 고정한다.","predict":"각 예측일 전체 적격 특성 행의 X 평균을 그날 빼고 mu=train_mean_y+(X-X_today_mean)*beta. 예측일 결과/미래/보유 상태는 읽지 않는다. market20처럼 날짜 내 상수인 열은 학습기여0. 신규 순위와 보유 예측 모두 새 mu 사용.","bias":"정책의 기존 고정 b=0.00456177185085543 그대로. 새 b fitting/최근 보정 없음. b가 새 모델에 최적이라고 주장하지 않으며 한 번의 구조 변경만 분리한다.","no_search":"특성 제거/alpha/학습길이/공통 평균 추정/보정값/종목목록/평가구간 후보 탐색 없음."},
+  "evaluation": {"diagnostic_start":"2024-10-02","diagnostic_end":"2024-12-11","diagnostic_rows":9347,"policy_start":"2024-11-11","policy_end":"2024-12-11","policy_dates":23,"policy_rows":4391,"tail_through":"2024-12-31","pristine_oos":false},
+  "arms":["candidate","prior_integer","matched_ridge","matched_cap6","ridge_net","legacy_selection","cap6"],
+  "paths":140,
+  "execution":"#813 정수 목적함수·슬롯·새 top6+보유·off-top6 추가금지·비용·체결·T+2·5일/5위상 그대로. 새 모델 top6만 추가 시세 검증 집합에 포함하는 선택적 replay 인자. 기존 단순 기준은 원예측을 유지한다. 80개 부모 경로의 일별 계좌·체결·경제결과 일치, 새 원천 결손은 모든 팔 공동 중단하고 보간하지 않는다.",
+  "acceptance":"#814의 동일 관문 재사용: 75/120bp 부모 대비 평균 엄격 개선, half/delay 비악화, 4조건 최악 MDD 비악화. 같은 사전 하방위험 상한의 Ridge·시총6 기준 각각 75/120 모든 위상 초과, stress 평균 초과, MDD 비악화, 위험 사용률80%이상. 기본·고비용 모든 위상 현금 초과. 전체예산 기준도 별도 보고. 반례 기각, 미완결 미평가, 낮은 위험 사용률 불충분. 반복 열람 개발자료이므로 모두 통과해도 운영 채택을 자동 허가하지 않는다.",
+  "limitations":"기업행사/정정 원천 전면 인증 미완료, 가격 기반 결과이며 총수익 인증 아님. 학습 제외356행 단위 미확인·19행 시가 결손을 없던 일로 처리하지 않는다. 기존 확보자료만 사용하며 새 수집·기업행사 조사·Paperclip·운영 주문·가중치 변경 없음.",
+  "implementation":{"runner":"scripts/measure/kr_within_date_ridge.py","tests":"tests/test_kr_within_date_ridge.py","raw":"data/research/kr-within-date-ridge-2026-10-23-v1.json","report":"docs/KR-WITHIN-DATE-RIDGE-RESULT-2026-10-23.md","historical_runs":1,"precommit":"이 명세 커밋 후 구현·경계검증·독립 검수·구현 커밋, 그 다음 새 모델 fit 1회와 140경로 1회"},
+  "integrated_roadmap_percent":40
+}
