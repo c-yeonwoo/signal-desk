@@ -1,0 +1,116 @@
+{
+  "schema": "kr-stock-downside-action-plan-v1",
+  "candidate_id": "kr-calibrated-stock-downside-action-v1",
+  "date": "2026-10-23",
+  "base_commit": "643326bb2c10ee609207b4edd97d5f1882cd7bc0",
+  "question": "종목별 최근 하방 변동을 비중의 한계 비용으로 반영하고 신규/추가 진입과 유지/축소의 거래비용을 분리하면 기존 낙관 예측 아래 계좌 손익과 낙폭이 개선되는가",
+  "parent_plan": {
+    "path": "docs/kr-frozen-bias-calibration-plan-2026-10-22.json",
+    "sha256": "3ac2fc720b5221e08a10fd9cc6ec205d007e8952560cb73d3cda1487a4bba9c9"
+  },
+  "parent_result": {
+    "path": "data/research/kr-frozen-bias-calibration-2026-10-22-v1.json",
+    "sha256": "a44bd4eb35ef0d081853053c00f8bbd8cf55722a2042fc7970031eca42e5758c"
+  },
+  "design_review": {
+    "lessons": [
+      "#811 시장 약세 AND 종목 약세 veto는 시장 반등 중 개별 하락을 놓쳤고 진입 차단 후 재진입 비용 때문에 반등 노출도 잃었다.",
+      "#808 부분 보유 선택지 확장은 일부 이익과 손실이 함께 있어 기각됐다. 선택지 개선을 하락위험의 효과로 오인하지 않게 위험 항목 0인 구조 대조를 둔다.",
+      "이번 후보는 예측을 새 확률로 해석하지 않는다. 개별 하방 변동은 관측된 위험 대리량이며 악재 원인·미래 하락확률·신뢰하한이 아니다."
+    ],
+    "references": [
+      {
+        "url": "https://helmterminal.dev/blog/chatgpt-stock-analysis",
+        "use": "확인 가능한 원천과 보유 논리 반증, 보유 상태에 맞춘 판단. 자동수익 또는 단타 정확도 근거로 쓰지 않음. 현재 사실/뉴스를 과거 입력으로 되메우지 않음."
+      },
+      {
+        "url": "https://openai.com/ko-KR/index/introducing-chatgpt-financial-services/",
+        "use": "원천의 기간·단위·출처를 보존하는 분석 구조. 모델/금융 데이터 접근성 소개이며 이 후보 수익성 증거 아님."
+      },
+      {
+        "url": "https://stanford.edu/~boyd/papers/portfolio.html",
+        "use": "거래비용과 위험을 같은 목적함수에서 비교하는 원리. 아래 대리량/계수는 이 논문의 검증된 공식을 그대로 복제한 것이 아닌 고정 연구 가설."
+      },
+      {
+        "url": "https://www.cambridge.org/core/journals/journal-of-financial-and-quantitative-analysis/article/abs/multiple-risky-assets-transaction-costs-and-return-predictability-allocation-rules-and-implications-for-us-investors/A571DCCBABD9748D6A4E0B819666D6CC",
+        "use": "비례 거래비용 아래 무거래 구간과 그 경계로의 조정 원리."
+      }
+    ],
+    "plugin_status": "Stock Analysis 도구/로컬 SKILL 현재 세션에서 확인되지 않음. 플러그인 실행이나 자료 확보를 주장하지 않음."
+  },
+  "inputs": "부모 두 고정 예측 원장·9개 KRX ZIP·12개 검수 사실·고정 b=0.00456177185085543만 사용. 재학습/새 수집 없음.",
+  "risk": {
+    "sessions": 5,
+    "closes": 6,
+    "definition": "판단일 t까지 연속6종가의 일수익 r_j에서 d_i=sqrt(sum(min(r_j,0)^2)), j=1..5. 상승 관측은 0 기여. 모든 종가/주식수 양수, 창 내부 전환은 기존 unit_audit만 허용.",
+    "meaning": "5일 관측 하방 변동 크기. 기대손실·하락확률·VaR·추정 신뢰구간이 아님. 5일은 기존 판단/목표 지평과 일치하며 결과로 기간을 탐색하지 않음.",
+    "penalty": "R_i(w)=0.5*d_i*w^2/cap, cap=1/6. cap에서 한계 위험비용=d_i. 계수1을 사전 고정. 모델 위험예측을 학습했다거나 최적 계수라는 주장 없음.",
+    "missing": "당일 top6 또는 실제 보유의 필요한 d가 null이면 7팔 공통 자료 중단. 나머지 종목 null은 보존, 0 또는 안전으로 대체하지 않음.",
+    "no_market_gate": true
+  },
+  "policy": {
+    "forecast": "원 예측에서 부모 b만 감산. 순위 보존. raw/calibrated mu와 d를 각각 기록.",
+    "pool": "당일 보정 예측 top6와 실제 보유 합집합(최대12). 신규/추가는 top6에만 허용. 상위6 미만 빈자리 차순위 충원 없음.",
+    "objective": "U=sum_i[(mu_i-0.005)*w_i-0.006*(abs(w_i-w0_i)+w_i)-0.5*d_i*w_i^2/cap]. 과거 매수가/매몰손실은 목적함수에 넣지 않는다.",
+    "bounds": "0<=w_i<=1/6, 양수 좌표 최대6, 합<=1. top6 밖 보유는 추가 금지로 상한 min(w0_i,1/6). w0=각 계좌 현재 실제 보유수량*판단종가/자기 비용후NAV.",
+    "solve": "각 좌표의 0,상한,clip(w0),두 구간 도함수 0점을 비교해 최선 양수 w와 0의 utility를 계산. 최대6좌표 조합을 열거해 합 목적 최대. 동점1e-12 내 최소 회전,그다음 종목코드순. 공분산·섹터 재분배 없음.",
+    "entry_hold": "증분 매수 한계 = mu-0.017-d*w/cap; 보유 축소 구간 한계 = mu-0.005-d*w/cap. 그 사이 현재 비중을 유지하는 구간이 생김. 신규/추가에는 매수+미래매도비용,보유와 청산에는 이미 보유한 상태의 매도비용 비교가 반영됨.",
+    "recovery": "5세션마다 현재 관측으로 재계산, sticky나 대기 없음. 위험 감소 후 비중 복귀도 비용 허들을 넘을 때만. 장중/일일 손절 아님.",
+    "controls": "action_only는 같은 연속 비중·추가자격·최대6 선택 구조에서 d=0만 적용한 기여 대조. 위험 후보 실패 후 action_only를 사후 채택하지 않음."
+  },
+  "evaluation": {
+    "start": "2024-11-11",
+    "end": "2024-12-11",
+    "dates": 23,
+    "forecast_rows": 4391,
+    "tail_through": "2024-12-31",
+    "role": "반복 열람한 개발 구간. 새 후보 사전 고정도 독립 OOS를 만들지 않음."
+  },
+  "comparison": {
+    "arms": [
+      "candidate",
+      "action_only",
+      "prior_calibrated",
+      "prior_cost_aware",
+      "ridge_net",
+      "legacy_selection",
+      "cap6"
+    ],
+    "trading_paths": 140,
+    "scenarios": [
+      "75bp_full",
+      "120bp_full",
+      "75bp_half",
+      "75bp_delay1"
+    ],
+    "shared": "부모 초기1천만원,5위상,5세션 판단,다음 시가 대용,매수한도/참여율,비용,실제 계좌 상태,T+2,청산꼬리 동일.",
+    "parent_crosscheck": "prior_calibrated/prior_cost_aware/ridge_net/legacy_selection/cap6 100경로를 부모와 경제적으로 동일 검증. 새 ID만 제외.",
+    "source_failure": "필수 위험/예측/가격/체결 결손은7팔 공통 중단. 미래 결과로 종목이나 기간 삭제 금지."
+  },
+  "decision": {
+    "overall": "부모 전체 관문 동일:75/120bp 각5위상이 각3단순기준/현금 초과,half/delay 평균 초과,모든 후보MDD>=-10%.",
+    "incremental": "prior_calibrated와 action_only 각각 대비75/120 평균 엄격 증가,half/delay 평균 비악화,네 조건 각각 최악위상MDD 비악화. 두 비교가 모두 충족돼야 종목 위험의 증분 지지.",
+    "adoption": "전체와 두 증분 관문 모두 충족하면 개발 후보 지지,하나라도 관측 위반이면 기각. 미완결은 합격으로 대체하지 않음. 개발 지지도 현재 운영 승격 증거는 아님.",
+    "diagnostics": "각 위상 수익/낙폭,노출/비용,신규/추가/유지/축소/청산 의도와 실제 체결,종목별 회피손실/놓친상승. 보유수량·체결가격은 실제장부로 대조.",
+    "no_tuning": "실제140경로1회. 이후 계수/기간/제약/예측/평가기준 변경이나 후보 추가 없음."
+  },
+  "implementation": {
+    "runner": "scripts/measure/kr_stock_downside_action.py",
+    "tests": "tests/test_kr_stock_downside_action.py",
+    "local_result": "data/research/kr-stock-downside-action-2026-10-23-v1.json",
+    "summary": "docs/kr-stock-downside-action-result-2026-10-23.json",
+    "explanation": "docs/KR-STOCK-DOWNSIDE-ACTION-RESULT-2026-10-23.md",
+    "shared_replay": "#811 opt-in context 재사용; 운영/기존core 변경없음.",
+    "precommit": "명세와 구현 각각 실제 후보 성과 계산 전 커밋",
+    "max_seconds": 600,
+    "historical_runs": 1
+  },
+  "fit_calls": 0,
+  "new_market_data_requests": 0,
+  "production_engine_changed": false,
+  "live_order_eligible": false,
+  "strict_pit_eligible": false,
+  "verified_total_return": false,
+  "pristine_oos": false,
+  "integrated_roadmap_percent": 40
+}
