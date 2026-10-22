@@ -344,7 +344,8 @@ def metrics(book, curve, initial, stop):
 
 
 def replay_group(inputs, spec, scenario, phase, budget, *, target_selector=None,
-                 decision_contract_sha=None, forecast_required_arms=("candidate",)):
+                 decision_contract_sha=None, forecast_required_arms=("candidate",),
+                 decision_context_factory=None):
     """Common source stops across declared arms, including the liquidation tail."""
     period = spec["periods"][0]
     dates = sorted(inputs.forecasts)
@@ -416,17 +417,27 @@ def replay_group(inputs, spec, scenario, phase, budget, *, target_selector=None,
             volumes = {t: field(inputs, day, t, "ACC_TRDVOL", allow_zero=True) for t in order_names}
             for t in order_names:
                 field(inputs, day, t, "LIST_SHRS")
+            context = (decision_context_factory(day, forecasts)
+                       if decision_context_factory is not None and not terminal_day else None)
             plans = {}
             for arm, book in books.items():
                 nav = book.price_nav(closes)
-                weights, priority, choice = ({}, {}, None) if terminal_day else (target_selector or targets)(
-                    arm, forecasts, caps, inputs.legacy[day], book.holdings, closes, nav, spec)
+                if terminal_day:
+                    weights, priority, choice = {}, {}, None
+                else:
+                    args = (arm, forecasts, caps, inputs.legacy[day], book.holdings, closes, nav, spec)
+                    select = target_selector or targets
+                    weights, priority, choice = (select(*args, context=context)
+                        if decision_context_factory is not None else select(*args))
                 core.orders(weights, book.holdings, closes, volumes, nav, book.spec)
                 plans[arm] = {"weights": weights, "priority": priority,
                               "sizing_nav": nav, "choice": choice}
-            input_id = encoded_sha({"date": day, "forecasts": forecasts,
+            decision_input = {"date": day, "forecasts": forecasts,
                 "legacy": inputs.legacy.get(day, []), "closes": closes, "volumes": volumes,
-                "caps": caps, "plan_sha256": decision_contract_sha or PLAN_SHA, "terminal": terminal_day})
+                "caps": caps, "plan_sha256": decision_contract_sha or PLAN_SHA, "terminal": terminal_day}
+            if decision_context_factory is not None:
+                decision_input["decision_context"] = context
+            input_id = encoded_sha(decision_input)
             for arm, book in books.items():
                 plan = plans[arm]
                 plan["orders"] = book.submit(day, plan["weights"], closes, volumes,
@@ -434,6 +445,8 @@ def replay_group(inputs, spec, scenario, phase, budget, *, target_selector=None,
                     budget=spec["portfolio"]["budget"])
             row["decision"] = {"input_id": input_id, "terminal": terminal_day,
                                "plans": plans}
+            if decision_context_factory is not None:
+                row["decision"]["context"] = context
         except DataGap as exc:
             stop = exc.detail
             break
