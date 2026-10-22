@@ -1,0 +1,4903 @@
+{
+  "schema": "kr-frozen-bias-calibration-result-v1",
+  "candidate_id": "kr-frozen-top6-intercept-calibration-v1",
+  "state": "comparison_complete",
+  "provenance": {
+    "plan_commit": "3b7a8e498b4fcdce917a99fcc33a8613ac8f9ecc",
+    "plan_sha256": "a5f9ab2763763d589b180626621a6eab1d2d6f5ee4d682c14c799e8a201a8454",
+    "implementation_commit": "2c6300c77a110d822aeac22067298aa0afa867f1",
+    "code_sha256": {
+      "scripts/measure/kr_frozen_forecast_policy.py": "9ab06de5a3b11a2fbe279844feee9bf6ffa86fb389f300366895e139b5a0c180",
+      "tests/test_kr_frozen_forecast_policy.py": "b12caf8e2574a2d1199fd90bba939999e6a32f9eba9447698ed0a8dbc64af5c0",
+      "src/signal_desk/signals/research_net_alpha.py": "d0398de4c200ca2e59a1eb1e165c2805e94696314306e7d5532137fead67e70a",
+      "src/signal_desk/signals/research_net_alpha_execution.py": "3d6c941185f7a8c35b77527dd49da240357751d1a2241ff4de48cf5957960625",
+      "src/signal_desk/market_clock.py": "0ad001d935b0252529e1b882de8afc1eaa2482220ded44580aad57136704f727",
+      "scripts/measure/krx_price_replay_pilot.py": "3f0e62787a94f3c9f0b2c8c8cb2743106e2a80e44d3dded4b7449ca626b735d7",
+      "scripts/measure/kr_frozen_bias_calibration.py": "32999805fadd841da0a1d659b6b628e831f331300de77b109e4715164dd95160",
+      "tests/test_kr_frozen_bias_calibration.py": "d76505a5e8e6eed8455c27c4c2bad76f39affb34cc8c7a20cf2040ba2b7ac3af",
+      "scripts/measure/kr_forecast_error_attribution.py": "1c4cffbb12d2c70da7af27b4d48045f29c247faf18e6b7ee3762d801f53aea75",
+      "tests/test_kr_forecast_error_attribution.py": "313cadab4e35772902e1a21b54778043e123dd05e80cdccbd433c17f1bc00b44"
+    },
+    "input_sha256": {
+      "data/research/kr-ridge-hold-renewal-diagnostic-2026-10-18-celltrion-kia-v1.json": "50b3400dd7e8a3d25224b03d53bef893e8de2bf43b509443285148dc0f6e7299",
+      "data/research/kr-ridge-r3-result-2026-10-17-v4.json": "2cf98e96eff44d415c0264bd1ec1b6f2b036804b9e2bbeb28476dc807994abfd"
+    },
+    "raw_sources": [
+      {
+        "archive": "krx-daily-2023-q1-v1.zip",
+        "sha256": "e9bfadf172c80a91f1eca853037350db007f28d9b850f1b00d9774646ab1a8d0",
+        "sessions": 62
+      },
+      {
+        "archive": "krx-daily-2023-q2-v1.zip",
+        "sha256": "a6f83ef305e8c5d7f277444af69af3030224633cd0c70da58096906909eb30e7",
+        "sessions": 61
+      },
+      {
+        "archive": "krx-daily-2023-q3-v1.zip",
+        "sha256": "bc708b3ce35d2c28542f1b8c6423e3c771b5ea81b534e85c23dc506ae357788d",
+        "sessions": 62
+      },
+      {
+        "archive": "krx-daily-2023-q4-v1.zip",
+        "sha256": "d0fdfdef45ccf488833f2b63a97d5503a4297f53a4918b3c5ab641adc852d5b1",
+        "sessions": 60
+      },
+      {
+        "archive": "krx-daily-2024-q1-v1.zip",
+        "sha256": "f579892c94e216cde45eeaef9135d65ce9964fc878464cdf19af489dca473de3",
+        "sessions": 61
+      },
+      {
+        "archive": "krx-daily-2024-q2-v1.zip",
+        "sha256": "ee7d94c0524165a07c4907e5ccf967632d2071e26329c29938b69f2f9173b4df",
+        "sessions": 60
+      },
+      {
+        "archive": "krx-daily-2024-q3-v1.zip",
+        "sha256": "894466cf70e9ef64bcc7caedeeb3d24c498755f3d4cd13ecc86df9432e7cbf9e",
+        "sessions": 62
+      },
+      {
+        "archive": "krx-daily-2024-10-12-v1.zip",
+        "sha256": "e48e8e8601ab7c9de23b5de6f9b331cff6784600b0e3694e8cf4d6a4b69afd02",
+        "sessions": 61
+      },
+      {
+        "archive": "krx-daily-2025-01-04-v1.zip",
+        "sha256": "0f8ba69f3d8cecc3cd3a85e59925dc76920380cf1b565bfb96d6f1ab823cf419",
+        "sessions": 80
+      }
+    ],
+    "full_q4_forecasts_crosschecked": 11644,
+    "used_forecast_dates": 49,
+    "used_forecast_rows": 9347,
+    "reviewed_unit_facts": 12,
+    "calibration_plan": {
+      "path": "docs/kr-frozen-bias-calibration-plan-2026-10-22.json",
+      "sha256": "3ac2fc720b5221e08a10fd9cc6ec205d007e8952560cb73d3cda1487a4bba9c9",
+      "commit": "b3c61b4dc5097feeac7568bdefa6ac6f6d246435"
+    }
+  },
+  "calibration": {
+    "bias": 0.00456177185085543,
+    "unconstrained_mean_error": 0.00456177185085543,
+    "dates": 20,
+    "stock_date_labels": 120,
+    "latest_target_maturity": "2024-11-08",
+    "fit_calls": 1,
+    "records": [
+      {
+        "session": "2024-10-02",
+        "tickers": [
+          "395400",
+          "003230",
+          "294870",
+          "323410",
+          "267260",
+          "001450"
+        ],
+        "matures_on": "2024-10-14",
+        "forecast_mean": 0.014416066270751822,
+        "actual_mean": 0.02154919293086105,
+        "error": -0.007133126660109228
+      },
+      {
+        "session": "2024-10-04",
+        "tickers": [
+          "395400",
+          "294870",
+          "323410",
+          "003230",
+          "139130",
+          "000720"
+        ],
+        "matures_on": "2024-10-15",
+        "forecast_mean": 0.013761631324928258,
+        "actual_mean": 0.041119107564732284,
+        "error": -0.027357476239804026
+      },
+      {
+        "session": "2024-10-07",
+        "tickers": [
+          "395400",
+          "012510",
+          "294870",
+          "323410",
+          "329180",
+          "010140"
+        ],
+        "matures_on": "2024-10-16",
+        "forecast_mean": 0.010477228297549159,
+        "actual_mean": 0.031992909532164084,
+        "error": -0.021515681234614926
+      },
+      {
+        "session": "2024-10-08",
+        "tickers": [
+          "395400",
+          "267260",
+          "012510",
+          "323410",
+          "007340",
+          "003230"
+        ],
+        "matures_on": "2024-10-17",
+        "forecast_mean": 0.013800660019554182,
+        "actual_mean": 0.013924593384999259,
+        "error": -0.00012393336544507666
+      },
+      {
+        "session": "2024-10-10",
+        "tickers": [
+          "395400",
+          "267260",
+          "012510",
+          "323410",
+          "003230",
+          "024110"
+        ],
+        "matures_on": "2024-10-18",
+        "forecast_mean": 0.0030977723093728437,
+        "actual_mean": 0.01592254268708974,
+        "error": -0.012824770377716897
+      },
+      {
+        "session": "2024-10-11",
+        "tickers": [
+          "395400",
+          "267260",
+          "323410",
+          "010140",
+          "000720",
+          "042660"
+        ],
+        "matures_on": "2024-10-21",
+        "forecast_mean": 0.006242713089041629,
+        "actual_mean": 0.009412496234625478,
+        "error": -0.0031697831455838495
+      },
+      {
+        "session": "2024-10-14",
+        "tickers": [
+          "267260",
+          "395400",
+          "323410",
+          "042660",
+          "010140",
+          "012510"
+        ],
+        "matures_on": "2024-10-22",
+        "forecast_mean": -0.00019662016131837036,
+        "actual_mean": -0.010454989081365143,
+        "error": 0.010258368920046773
+      },
+      {
+        "session": "2024-10-15",
+        "tickers": [
+          "267260",
+          "395400",
+          "323410",
+          "139130",
+          "003670",
+          "000720"
+        ],
+        "matures_on": "2024-10-23",
+        "forecast_mean": -0.0006298475457963001,
+        "actual_mean": -0.006008142475182425,
+        "error": 0.005378294929386125
+      },
+      {
+        "session": "2024-10-16",
+        "tickers": [
+          "267260",
+          "395400",
+          "006260",
+          "323410",
+          "000720",
+          "010120"
+        ],
+        "matures_on": "2024-10-24",
+        "forecast_mean": 0.004281235376716767,
+        "actual_mean": -0.016038394933465556,
+        "error": 0.020319630310182323
+      },
+      {
+        "session": "2024-10-17",
+        "tickers": [
+          "267260",
+          "395400",
+          "323410",
+          "280360",
+          "042660",
+          "003230"
+        ],
+        "matures_on": "2024-10-25",
+        "forecast_mean": -0.0006984834792420335,
+        "actual_mean": -0.005883505798524462,
+        "error": 0.005185022319282428
+      },
+      {
+        "session": "2024-10-18",
+        "tickers": [
+          "267260",
+          "395400",
+          "042660",
+          "323410",
+          "003230",
+          "280360"
+        ],
+        "matures_on": "2024-10-28",
+        "forecast_mean": 0.0052404954006570695,
+        "actual_mean": -0.004142814447584742,
+        "error": 0.009383309848241811
+      },
+      {
+        "session": "2024-10-21",
+        "tickers": [
+          "267260",
+          "395400",
+          "006260",
+          "323410",
+          "280360",
+          "003230"
+        ],
+        "matures_on": "2024-10-29",
+        "forecast_mean": 0.00904404451962452,
+        "actual_mean": -0.016519041190485917,
+        "error": 0.025563085710110435
+      },
+      {
+        "session": "2024-10-22",
+        "tickers": [
+          "395400",
+          "323410",
+          "267260",
+          "003670",
+          "006260",
+          "042660"
+        ],
+        "matures_on": "2024-10-30",
+        "forecast_mean": 0.012974969932364477,
+        "actual_mean": -0.006292470984211281,
+        "error": 0.019267440916575757
+      },
+      {
+        "session": "2024-10-23",
+        "tickers": [
+          "323410",
+          "395400",
+          "006260",
+          "003230",
+          "267260",
+          "000720"
+        ],
+        "matures_on": "2024-10-31",
+        "forecast_mean": 0.010636751214006734,
+        "actual_mean": -0.027051127228789773,
+        "error": 0.03768787844279651
+      },
+      {
+        "session": "2024-10-24",
+        "tickers": [
+          "267260",
+          "006260",
+          "323410",
+          "395400",
+          "042660",
+          "003230"
+        ],
+        "matures_on": "2024-11-01",
+        "forecast_mean": 0.010553517809038048,
+        "actual_mean": -0.057888307983097076,
+        "error": 0.06844182579213512
+      },
+      {
+        "session": "2024-10-25",
+        "tickers": [
+          "267260",
+          "395400",
+          "003230",
+          "006260",
+          "323410",
+          "042660"
+        ],
+        "matures_on": "2024-11-04",
+        "forecast_mean": 0.019116725264177716,
+        "actual_mean": -0.048804723306876206,
+        "error": 0.06792144857105392
+      },
+      {
+        "session": "2024-10-28",
+        "tickers": [
+          "267260",
+          "003230",
+          "395400",
+          "012450",
+          "006260",
+          "294870"
+        ],
+        "matures_on": "2024-11-05",
+        "forecast_mean": 0.012506666639284222,
+        "actual_mean": 0.0027003627542961928,
+        "error": 0.00980630388498803
+      },
+      {
+        "session": "2024-10-29",
+        "tickers": [
+          "042660",
+          "395400",
+          "003230",
+          "012450",
+          "267260",
+          "006260"
+        ],
+        "matures_on": "2024-11-06",
+        "forecast_mean": 0.018839084759179985,
+        "actual_mean": 0.013073681511187651,
+        "error": 0.005765403247992334
+      },
+      {
+        "session": "2024-10-30",
+        "tickers": [
+          "042660",
+          "267260",
+          "003230",
+          "395400",
+          "012450",
+          "323410"
+        ],
+        "matures_on": "2024-11-07",
+        "forecast_mean": 0.019935542353392333,
+        "actual_mean": 0.039667704892405765,
+        "error": -0.019732162539013432
+      },
+      {
+        "session": "2024-10-31",
+        "tickers": [
+          "012450",
+          "267260",
+          "042660",
+          "395400",
+          "323410",
+          "003230"
+        ],
+        "matures_on": "2024-11-08",
+        "forecast_mean": 0.01988871306903349,
+        "actual_mean": 0.12177435538242902,
+        "error": -0.10188564231339553
+      }
+    ],
+    "target_and_rank_unchanged": true,
+    "evaluation_labels_used": 0
+  },
+  "decision_contract_sha256": "a03f78bcb3c8999875a934aea3bb6eb79c4a57b5e9416304ead769941dfcfe5b",
+  "evaluation": {
+    "start_rule": "모든 학습 목표의 최종 시가 날짜보다 엄격히 뒤인 첫 부모 판단일. 첫20일 이후 미성숙 목표 구간은 학습/거래 평가에 사용하지 않음",
+    "start": "2024-11-11",
+    "end": "2024-12-11",
+    "dates": 23,
+    "forecast_rows": 4391,
+    "tail_through": "2024-12-31",
+    "role": "시간순·목표 성숙 후 고정 보정 평가. 이미 열람한 가격 전용 개발 구간이며 pristine OOS/독립 최종 평가 아님",
+    "availability_before_fit": "예측/시총/보존 선정의 신규 편입 상위집합38종목.11-11~12-20 양의 시가·종가·주식수, 판단일 거래량, 단위 근거 검사 결손0. 수익으로 정한 표본이 아님. 실제 노출이 미검수12-23까지 남으면 공통 중단"
+  },
+  "prediction_diagnostic": {
+    "dates": 23,
+    "unknown_dates": 0,
+    "units": "return_fraction_not_probability",
+    "raw": {
+      "mean_error": 0.024584803684760823,
+      "mae": 0.03999624414680211,
+      "rmse": 0.04792707234971257
+    },
+    "calibrated": {
+      "mean_error": 0.020023031833905393,
+      "mae": 0.03781452717465387,
+      "rmse": 0.04575492864837561
+    },
+    "records": [
+      {
+        "session": "2024-11-11",
+        "tickers": [
+          "007660",
+          "395400",
+          "323410",
+          "180640",
+          "003230",
+          "280360"
+        ],
+        "matures_on": "2024-11-19",
+        "forecast_mean": 0.025205439517863942,
+        "actual_mean": -0.033532163998758045,
+        "error": 0.05873760351662199
+      },
+      {
+        "session": "2024-11-12",
+        "tickers": [
+          "395400",
+          "323410",
+          "180640",
+          "003230",
+          "267260",
+          "326030"
+        ],
+        "matures_on": "2024-11-20",
+        "forecast_mean": 0.02945481320813051,
+        "actual_mean": -0.0038247611266447046,
+        "error": 0.033279574334775214
+      },
+      {
+        "session": "2024-11-13",
+        "tickers": [
+          "323410",
+          "267260",
+          "326030",
+          "180640",
+          "112610",
+          "010120"
+        ],
+        "matures_on": "2024-11-21",
+        "forecast_mean": 0.03257066328210566,
+        "actual_mean": -0.015080271591605113,
+        "error": 0.04765093487371077
+      },
+      {
+        "session": "2024-11-14",
+        "tickers": [
+          "323410",
+          "003230",
+          "180640",
+          "326030",
+          "280360",
+          "395400"
+        ],
+        "matures_on": "2024-11-22",
+        "forecast_mean": 0.03154230981198765,
+        "actual_mean": 0.01099254863921593,
+        "error": 0.02054976117277172
+      },
+      {
+        "session": "2024-11-15",
+        "tickers": [
+          "006260",
+          "003670",
+          "323410",
+          "267260",
+          "395400",
+          "007660"
+        ],
+        "matures_on": "2024-11-25",
+        "forecast_mean": 0.03199872210713126,
+        "actual_mean": 0.040926561271412976,
+        "error": -0.008927839164281713
+      },
+      {
+        "session": "2024-11-18",
+        "tickers": [
+          "006260",
+          "180640",
+          "012450",
+          "267260",
+          "326030",
+          "010120"
+        ],
+        "matures_on": "2024-11-26",
+        "forecast_mean": 0.028770432922426627,
+        "actual_mean": 0.03754380576753619,
+        "error": -0.00877337284510956
+      },
+      {
+        "session": "2024-11-19",
+        "tickers": [
+          "012450",
+          "326030",
+          "180640",
+          "323410",
+          "267260",
+          "005070"
+        ],
+        "matures_on": "2024-11-27",
+        "forecast_mean": 0.024229269726483524,
+        "actual_mean": 0.00021996272126543573,
+        "error": 0.024009307005218087
+      },
+      {
+        "session": "2024-11-20",
+        "tickers": [
+          "012450",
+          "267260",
+          "326030",
+          "006260",
+          "323410",
+          "005070"
+        ],
+        "matures_on": "2024-11-28",
+        "forecast_mean": 0.02344057057602805,
+        "actual_mean": 0.00009664639131782653,
+        "error": 0.02334392418471022
+      },
+      {
+        "session": "2024-11-21",
+        "tickers": [
+          "012450",
+          "267260",
+          "003230",
+          "079550",
+          "010120",
+          "326030"
+        ],
+        "matures_on": "2024-11-29",
+        "forecast_mean": 0.02316919276878846,
+        "actual_mean": -0.010866414830682883,
+        "error": 0.03403560759947134
+      },
+      {
+        "session": "2024-11-22",
+        "tickers": [
+          "298040",
+          "267260",
+          "326030",
+          "323410",
+          "012450",
+          "010120"
+        ],
+        "matures_on": "2024-12-02",
+        "forecast_mean": 0.016786464442775234,
+        "actual_mean": -0.009998666723426216,
+        "error": 0.026785131166201452
+      },
+      {
+        "session": "2024-11-25",
+        "tickers": [
+          "012450",
+          "000720",
+          "298040",
+          "064350",
+          "003230",
+          "079550"
+        ],
+        "matures_on": "2024-12-03",
+        "forecast_mean": 0.017360208092291125,
+        "actual_mean": -0.04144280813797616,
+        "error": 0.05880301623026729
+      },
+      {
+        "session": "2024-11-26",
+        "tickers": [
+          "012450",
+          "064350",
+          "267260",
+          "079550",
+          "298040",
+          "047810"
+        ],
+        "matures_on": "2024-12-04",
+        "forecast_mean": 0.019249456789188817,
+        "actual_mean": -0.001607033145876698,
+        "error": 0.020856489935065513
+      },
+      {
+        "session": "2024-11-27",
+        "tickers": [
+          "012450",
+          "267260",
+          "079550",
+          "064350",
+          "003230",
+          "395400"
+        ],
+        "matures_on": "2024-12-05",
+        "forecast_mean": 0.015899695501395614,
+        "actual_mean": 0.028868969796126225,
+        "error": -0.01296927429473061
+      },
+      {
+        "session": "2024-11-28",
+        "tickers": [
+          "267260",
+          "012450",
+          "395400",
+          "298040",
+          "064350",
+          "079550"
+        ],
+        "matures_on": "2024-12-06",
+        "forecast_mean": 0.013815868062922655,
+        "actual_mean": -0.014247042367856733,
+        "error": 0.028062910430779388
+      },
+      {
+        "session": "2024-11-29",
+        "tickers": [
+          "012450",
+          "267260",
+          "064350",
+          "079550",
+          "395400",
+          "047810"
+        ],
+        "matures_on": "2024-12-09",
+        "forecast_mean": 0.016831094660569285,
+        "actual_mean": -0.07372350076954813,
+        "error": 0.09055459543011742
+      },
+      {
+        "session": "2024-12-02",
+        "tickers": [
+          "267260",
+          "012450",
+          "010140",
+          "395400",
+          "064350",
+          "079550"
+        ],
+        "matures_on": "2024-12-10",
+        "forecast_mean": 0.020578517483763756,
+        "actual_mean": -0.08558015338226414,
+        "error": 0.1061586708660279
+      },
+      {
+        "session": "2024-12-03",
+        "tickers": [
+          "395400",
+          "267260",
+          "012450",
+          "010140",
+          "079550",
+          "047810"
+        ],
+        "matures_on": "2024-12-11",
+        "forecast_mean": 0.012177525320970474,
+        "actual_mean": -0.05246993120944136,
+        "error": 0.06464745653041183
+      },
+      {
+        "session": "2024-12-04",
+        "tickers": [
+          "036460",
+          "267260",
+          "395400",
+          "052690",
+          "015760",
+          "012450"
+        ],
+        "matures_on": "2024-12-12",
+        "forecast_mean": 0.020875040759000565,
+        "actual_mean": -0.043247224418736054,
+        "error": 0.06412226517773661
+      },
+      {
+        "session": "2024-12-05",
+        "tickers": [
+          "012450",
+          "395400",
+          "105560",
+          "064350",
+          "010140",
+          "047810"
+        ],
+        "matures_on": "2024-12-13",
+        "forecast_mean": 0.02679628416158128,
+        "actual_mean": 0.01570115543531932,
+        "error": 0.01109512872626196
+      },
+      {
+        "session": "2024-12-06",
+        "tickers": [
+          "012450",
+          "395400",
+          "267260",
+          "010140",
+          "047810",
+          "012510"
+        ],
+        "matures_on": "2024-12-16",
+        "forecast_mean": 0.02641327278198924,
+        "actual_mean": 0.09912282705827465,
+        "error": -0.0727095542762854
+      },
+      {
+        "session": "2024-12-09",
+        "tickers": [
+          "012450",
+          "395400",
+          "079550",
+          "010140",
+          "047810",
+          "042660"
+        ],
+        "matures_on": "2024-12-17",
+        "forecast_mean": 0.03438498946145524,
+        "actual_mean": 0.09107395924411817,
+        "error": -0.056688969782662926
+      },
+      {
+        "session": "2024-12-10",
+        "tickers": [
+          "012450",
+          "395400",
+          "454910",
+          "267260",
+          "012510",
+          "047810"
+        ],
+        "matures_on": "2024-12-18",
+        "forecast_mean": 0.01903003741518245,
+        "actual_mean": 0.03619259236558706,
+        "error": -0.017162554950404613
+      },
+      {
+        "session": "2024-12-11",
+        "tickers": [
+          "395400",
+          "267260",
+          "012450",
+          "454910",
+          "316140",
+          "012510"
+        ],
+        "matures_on": "2024-12-19",
+        "forecast_mean": 0.008381189586850846,
+        "actual_mean": -0.02160848329597424,
+        "error": 0.029989672882825086
+      }
+    ],
+    "overlapping_h5_not_independent": true
+  },
+  "path_count": 100,
+  "completed_paths": 100,
+  "verdict": {
+    "decision": "observed_rejection",
+    "violations": [
+      "75bp_full/phase2:candidate_does_not_beat_cash",
+      "75bp_full/phase2:candidate_does_not_beat_legacy_selection",
+      "75bp_full/phase2:candidate_does_not_beat_cap6",
+      "120bp_full/phase2:candidate_does_not_beat_cash",
+      "120bp_full/phase2:candidate_does_not_beat_legacy_selection",
+      "120bp_full/phase2:candidate_does_not_beat_cap6"
+    ],
+    "incomplete_paths": [],
+    "scenario_mean_price_return_pct": {
+      "75bp_full": {
+        "candidate": 5.462927262500005,
+        "prior_cost_aware": 4.890669537499998,
+        "ridge_net": -1.2526454875000081,
+        "legacy_selection": -0.8583076750000007,
+        "cap6": 1.3844109999999987
+      },
+      "120bp_full": {
+        "candidate": 4.932089260000008,
+        "prior_cost_aware": 4.179608379999998,
+        "ridge_net": -2.2950131399999973,
+        "legacy_selection": -0.8986802800000016,
+        "cap6": 0.8164592000000015
+      },
+      "75bp_half": {
+        "candidate": 2.886373574999998,
+        "prior_cost_aware": 2.808608287500003,
+        "ridge_net": -0.17237147499999725,
+        "legacy_selection": -0.4219180500000008,
+        "cap6": 0.5190034999999993
+      },
+      "75bp_delay1": {
+        "candidate": 6.141262724999996,
+        "prior_cost_aware": 5.473379399999994,
+        "ridge_net": 1.2479711000000004,
+        "legacy_selection": -0.5589898250000003,
+        "cap6": 1.0411570000000037
+      }
+    },
+    "production_change_authorized": false,
+    "incremental_assessment": {
+      "decision": "incremental_support",
+      "violations": [],
+      "production_change_authorized": false
+    }
+  },
+  "cash": {
+    "initial_krw": 10000000,
+    "net_return_pct": 0
+  },
+  "historical_runs": 1,
+  "calibration_fit_calls": 1,
+  "base_model_fit_calls": 0,
+  "new_market_data_requests": 0,
+  "forecast_reconstruction_calls": 0,
+  "wall_seconds": 3.030294999945909,
+  "production_engine_changed": false,
+  "live_order_eligible": false,
+  "verified_total_return": false,
+  "strict_pit_eligible": false,
+  "pristine_oos": false,
+  "price_only_conditional_forecasts": true,
+  "integrated_roadmap_percent": 40,
+  "scenario_comparison": {
+    "75bp_full": {
+      "arms": {
+        "candidate": {
+          "worst_phase_mdd_pct": -5.202051829379128,
+          "mean_close_exposure": 0.45664941081886723,
+          "mean_fees_krw": 88332.27375000001
+        },
+        "prior_cost_aware": {
+          "worst_phase_mdd_pct": -7.214673360820257,
+          "mean_close_exposure": 0.5326438901344173,
+          "mean_fees_krw": 88768.04625
+        }
+      },
+      "mean_delta_vs_prior_krw": {
+        "net_pnl_krw": 57225.77250000052,
+        "before_cost_price_pnl_krw": 56790.00000000054,
+        "fees_krw": -435.7725000000035
+      }
+    },
+    "120bp_full": {
+      "arms": {
+        "candidate": {
+          "worst_phase_mdd_pct": -5.300208965627851,
+          "mean_close_exposure": 0.4576194831037371,
+          "mean_fees_krw": 141298.07400000002
+        },
+        "prior_cost_aware": {
+          "worst_phase_mdd_pct": -7.268139441628307,
+          "mean_close_exposure": 0.5319596754426092,
+          "mean_fees_krw": 141498.162
+        }
+      },
+      "mean_delta_vs_prior_krw": {
+        "net_pnl_krw": 75248.08800000139,
+        "before_cost_price_pnl_krw": 75048.00000000138,
+        "fees_krw": -200.0880000000092
+      }
+    },
+    "75bp_half": {
+      "arms": {
+        "candidate": {
+          "worst_phase_mdd_pct": -4.7440259938759555,
+          "mean_close_exposure": 0.2825285560205367,
+          "mean_fees_krw": 56134.6425
+        },
+        "prior_cost_aware": {
+          "worst_phase_mdd_pct": -5.452604378412207,
+          "mean_close_exposure": 0.3424991903890935,
+          "mean_fees_krw": 64808.17125000001
+        }
+      },
+      "mean_delta_vs_prior_krw": {
+        "net_pnl_krw": 7776.528749999777,
+        "before_cost_price_pnl_krw": -897.0000000002125,
+        "fees_krw": -8673.528750000003
+      }
+    },
+    "75bp_delay1": {
+      "arms": {
+        "candidate": {
+          "worst_phase_mdd_pct": -6.3860050539531255,
+          "mean_close_exposure": 0.4366883674141144,
+          "mean_fees_krw": 84075.7275
+        },
+        "prior_cost_aware": {
+          "worst_phase_mdd_pct": -6.3860050539531255,
+          "mean_close_exposure": 0.5019028104926648,
+          "mean_fees_krw": 81078.06
+        }
+      },
+      "mean_delta_vs_prior_krw": {
+        "net_pnl_krw": 66788.3325000003,
+        "before_cost_price_pnl_krw": 69786.00000000028,
+        "fees_krw": 2997.6674999999987
+      }
+    }
+  },
+  "all_paths_closed_cash_only": true,
+  "raw_artifact": {
+    "path": "data/research/kr-frozen-bias-calibration-2026-10-22-v1.json",
+    "sha256": "a44bd4eb35ef0d081853053c00f8bbd8cf55722a2042fc7970031eca42e5758c",
+    "bytes": 3898866,
+    "trace_fills_events_prefix_and_per_stock_labels_omitted": true
+  },
+  "groups": [
+    {
+      "scenario": "75bp_full",
+      "phase": 0,
+      "terminal": "2024-12-16",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 7.426647499999994,
+          "price_mdd_pct": -3.79325964616406,
+          "net_pnl_krw": 742664.75,
+          "before_cost_price_pnl_krw": 833060,
+          "fees_krw": 90395.25,
+          "end_state": {
+            "settled_cash": 10742664.75,
+            "buying_power": 10742664.75,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 90395.25,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.41054,
+          "mean_close_exposure": 0.6272982071912454,
+          "buy_fills": 13,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "180640": -11799.375,
+            "280360": -12445.125,
+            "323410": 214477.5,
+            "395400": 32895.06250000023,
+            "007660": -69896.4375,
+            "003230": 413098.75,
+            "012450": 176334.375
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 5.988049250000005,
+          "price_mdd_pct": -4.87577301959824,
+          "net_pnl_krw": 598804.9250000007,
+          "before_cost_price_pnl_krw": 701600.0000000007,
+          "fees_krw": 102795.07500000001,
+          "end_state": {
+            "settled_cash": 10598804.925,
+            "buying_power": 10598804.925,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 102795.07500000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.741202,
+          "mean_close_exposure": 0.6457781071999463,
+          "buy_fills": 14,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "180640": -11799.375,
+            "280360": -25907,
+            "323410": 214178.625,
+            "395400": 33309.48750000005,
+            "007660": -69896.4375,
+            "003230": 413098.75,
+            "012450": -130813.125,
+            "079550": 176634
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -7.065588062500005,
+          "price_mdd_pct": -13.385432757558602,
+          "net_pnl_krw": -706558.8062500004,
+          "before_cost_price_pnl_krw": -486145.00000000035,
+          "fees_krw": 220413.80625,
+          "end_state": {
+            "settled_cash": 9293441.19375,
+            "buying_power": 9293441.19375,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 220413.80625,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 5.8777015,
+          "mean_close_exposure": 0.6263016495100538,
+          "buy_fills": 22,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 17,
+          "pnl_by_ticker": {
+            "180640": -64102.5,
+            "267260": 86907.5,
+            "280360": -16143.75,
+            "298040": -31655,
+            "323410": -35083.125,
+            "326030": -15868.125,
+            "395400": 28076.21875,
+            "007660": -229110.75,
+            "003230": 57667.5,
+            "006260": 122951.25,
+            "012450": -279368.125,
+            "010120": 170901.5,
+            "000720": -18113,
+            "064350": -399330,
+            "079550": -168307.375,
+            "010140": 19313.47499999986,
+            "047810": 64705.5
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -2.422558124999996,
+          "price_mdd_pct": -2.745676687048959,
+          "net_pnl_krw": -242255.8125,
+          "before_cost_price_pnl_krw": -230850,
+          "fees_krw": 11405.8125,
+          "end_state": {
+            "settled_cash": 9757744.1875,
+            "buying_power": 9757744.1875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 11405.8125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0.304155,
+          "mean_close_exposure": 0.022258458561927884,
+          "buy_fills": 1,
+          "entry_sessions": 1,
+          "distinct_bought_tickers": 1,
+          "pnl_by_ticker": {
+            "294870": -242255.8125
+          }
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.5136600000000047,
+          "price_mdd_pct": -5.3806852527249145,
+          "net_pnl_krw": -51366,
+          "before_cost_price_pnl_krw": 34200,
+          "fees_krw": 85566,
+          "end_state": {
+            "settled_cash": 9948634,
+            "buying_power": 9948634,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 85566,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.28176,
+          "mean_close_exposure": 0.6285037773034388,
+          "buy_fills": 14,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": -11492.5,
+            "373220": -36161.25,
+            "005930": -5997.375,
+            "000660": -68417.25,
+            "005380": -32103.75,
+            "000270": 6828.125,
+            "068270": 95978
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 1449223.5562500004,
+          "before_cost_price_pnl_krw": 1319205.0000000005,
+          "fees_krw": -130018.55625
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 984920.5625,
+          "before_cost_price_pnl_krw": 1063910,
+          "fees_krw": 78989.4375
+        },
+        "cap6": {
+          "net_pnl_krw": 794030.75,
+          "before_cost_price_pnl_krw": 798860,
+          "fees_krw": 4829.25
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 143859.82499999925,
+          "before_cost_price_pnl_krw": 131459.9999999993,
+          "fees_krw": -12399.825000000012
+        }
+      }
+    },
+    {
+      "scenario": "75bp_full",
+      "phase": 1,
+      "terminal": "2024-12-17",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 2.823741000000024,
+          "price_mdd_pct": -4.867922187732732,
+          "net_pnl_krw": 282374.1000000015,
+          "before_cost_price_pnl_krw": 371220.0000000015,
+          "fees_krw": 88845.90000000001,
+          "end_state": {
+            "settled_cash": 10282374.100000001,
+            "buying_power": 10282374.100000001,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 88845.90000000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.369224,
+          "mean_close_exposure": 0.543563268445352,
+          "buy_fills": 12,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "180640": 64917.5,
+            "267260": 28570,
+            "323410": 217206.5625,
+            "326030": -92489.25,
+            "395400": 41458.03749999986,
+            "003230": 104411.25,
+            "012450": -81700
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 6.36179349999999,
+          "price_mdd_pct": -5.64880649064704,
+          "net_pnl_krw": 636179.3499999996,
+          "before_cost_price_pnl_krw": 740019.9999999997,
+          "fees_krw": 103840.65000000001,
+          "end_state": {
+            "settled_cash": 10636179.35,
+            "buying_power": 10636179.35,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 103840.65000000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.769084,
+          "mean_close_exposure": 0.681481181526429,
+          "buy_fills": 15,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "180640": 64917.5,
+            "267260": 28570,
+            "323410": 228240,
+            "326030": -20126.5,
+            "395400": 41810.59999999986,
+            "454910": 13024,
+            "003230": 361443.75,
+            "012450": -81700
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.1794887500000018,
+          "price_mdd_pct": -5.5510787387334055,
+          "net_pnl_krw": -117948.875,
+          "before_cost_price_pnl_krw": 54100,
+          "fees_krw": 172048.875,
+          "end_state": {
+            "settled_cash": 9882051.125,
+            "buying_power": 9882051.125,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 172048.875,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 4.58797,
+          "mean_close_exposure": 0.5601828320592942,
+          "buy_fills": 19,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 12,
+          "pnl_by_ticker": {
+            "180640": 64917.5,
+            "267260": 28570,
+            "323410": 105975.25,
+            "326030": -162888.75,
+            "395400": 102076.625,
+            "454910": 12210,
+            "003230": -30082.5,
+            "012450": -299468.125,
+            "005070": 50556,
+            "064350": -2801.625,
+            "079550": -15376.375,
+            "047810": 28363.125
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.8689802500000074,
+          "price_mdd_pct": -2.890777499999997,
+          "net_pnl_krw": -186898.02500000037,
+          "before_cost_price_pnl_krw": -164660.00000000038,
+          "fees_krw": 22238.025,
+          "end_state": {
+            "settled_cash": 9813101.975,
+            "buying_power": 9813101.975,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 22238.025,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0.593014,
+          "mean_close_exposure": 0.04216644350273008,
+          "buy_fills": 2,
+          "entry_sessions": 1,
+          "distinct_bought_tickers": 2,
+          "pnl_by_ticker": {
+            "294870": -172464.8999999999,
+            "005380": -14433.125
+          }
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.5937850000000022,
+          "price_mdd_pct": -5.15345721065229,
+          "net_pnl_krw": 59378.5,
+          "before_cost_price_pnl_krw": 140200,
+          "fees_krw": 80821.5,
+          "end_state": {
+            "settled_cash": 10059378.5,
+            "buying_power": 10059378.5,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 80821.5,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.15524,
+          "mean_close_exposure": 0.6218884840081625,
+          "buy_fills": 12,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": -7335,
+            "373220": -133977.5,
+            "005930": 54758.375,
+            "000660": -18151.875,
+            "005380": -354.375,
+            "000270": 76402.25,
+            "068270": 88036.625
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 400322.9750000015,
+          "before_cost_price_pnl_krw": 317120.0000000015,
+          "fees_krw": -83202.97499999999
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 469272.12500000186,
+          "before_cost_price_pnl_krw": 535880.0000000019,
+          "fees_krw": 66607.875
+        },
+        "cap6": {
+          "net_pnl_krw": 222995.6000000015,
+          "before_cost_price_pnl_krw": 231020.0000000015,
+          "fees_krw": 8024.400000000009
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": -353805.24999999814,
+          "before_cost_price_pnl_krw": -368799.99999999814,
+          "fees_krw": -14994.75
+        }
+      }
+    },
+    {
+      "scenario": "75bp_full",
+      "phase": 2,
+      "terminal": "2024-12-18",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.679474999999996,
+          "price_mdd_pct": -5.202051829379128,
+          "net_pnl_krw": -67947.5,
+          "before_cost_price_pnl_krw": 6700,
+          "fees_krw": 74647.5,
+          "end_state": {
+            "settled_cash": 9932052.5,
+            "buying_power": 9932052.5,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 74647.5,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.9906,
+          "mean_close_exposure": 0.4083433428167408,
+          "buy_fills": 9,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "112610": 21632.5,
+            "267260": -9032.5,
+            "323410": 272404.5,
+            "326030": -87281.25,
+            "010120": 63266.125,
+            "012450": -328936.875
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.05980749999999757,
+          "price_mdd_pct": -6.352586913476809,
+          "net_pnl_krw": -5980.75,
+          "before_cost_price_pnl_krw": 68900,
+          "fees_krw": 74880.75,
+          "end_state": {
+            "settled_cash": 9994019.25,
+            "buying_power": 9994019.25,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 74880.75,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.99682,
+          "mean_close_exposure": 0.49862840301954225,
+          "buy_fills": 9,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "112610": 21632.5,
+            "267260": -18995,
+            "323410": 272404.5,
+            "326030": -87281.25,
+            "010120": 147648.5,
+            "012450": -341390
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.7321917500000117,
+          "price_mdd_pct": -5.037320580717264,
+          "net_pnl_krw": -173219.17500000075,
+          "before_cost_price_pnl_krw": -15390.000000000728,
+          "fees_krw": 157829.17500000002,
+          "end_state": {
+            "settled_cash": 9826780.825,
+            "buying_power": 9826780.825,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 157829.17500000002,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 4.208778,
+          "mean_close_exposure": 0.4502040425265711,
+          "buy_fills": 16,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 13,
+          "pnl_by_ticker": {
+            "112610": -40135,
+            "267260": -9032.5,
+            "323410": 154348.875,
+            "326030": -82499.25,
+            "395400": -77130.80000000005,
+            "010120": -98313.875,
+            "012450": -294068.125,
+            "006260": 70704,
+            "005070": 32981.25,
+            "079550": 15775,
+            "064350": -44598.75,
+            "003230": 233400,
+            "015760": -34650
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.1442425000000025,
+          "price_mdd_pct": -6.7187029186128955,
+          "net_pnl_krw": 14424.25,
+          "before_cost_price_pnl_krw": 107800,
+          "fees_krw": 93375.75,
+          "end_state": {
+            "settled_cash": 10014424.25,
+            "buying_power": 10014424.25,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 93375.75,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.49002,
+          "mean_close_exposure": 0.6059977880488856,
+          "buy_fills": 10,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "105560": -102257.125,
+            "207940": 6815,
+            "373220": -113587.5,
+            "005930": 96343.5,
+            "000660": -77755.125,
+            "005380": 93074.375,
+            "000270": 41531.125,
+            "068270": 70260
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 105271.67500000075,
+          "before_cost_price_pnl_krw": 22090.000000000728,
+          "fees_krw": -83181.67500000002
+        },
+        "legacy_selection": {
+          "net_pnl_krw": -67947.5,
+          "before_cost_price_pnl_krw": 6700,
+          "fees_krw": 74647.5
+        },
+        "cap6": {
+          "net_pnl_krw": -82371.75,
+          "before_cost_price_pnl_krw": -101100,
+          "fees_krw": -18728.25
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": -61966.75,
+          "before_cost_price_pnl_krw": -62200,
+          "fees_krw": -233.25
+        }
+      }
+    },
+    {
+      "scenario": "75bp_full",
+      "phase": 3,
+      "terminal": "2024-12-12",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 5.421865812499993,
+          "price_mdd_pct": -3.8087748889905293,
+          "net_pnl_krw": 542186.5812499989,
+          "before_cost_price_pnl_krw": 630484.9999999988,
+          "fees_krw": 88298.41875,
+          "end_state": {
+            "settled_cash": 10542186.581249999,
+            "buying_power": 10542186.581249999,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 88298.41875,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.3546245,
+          "mean_close_exposure": 0.3870006467708271,
+          "buy_fills": 11,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "105560": 10616.25,
+            "267260": 39012.5,
+            "280360": 153031.5,
+            "323410": 256098.8125,
+            "326030": 14443.5,
+            "395400": -396.9187499997206,
+            "064350": 69380.9375
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 4.98309643749999,
+          "price_mdd_pct": -3.53220008240136,
+          "net_pnl_krw": 498309.6437499989,
+          "before_cost_price_pnl_krw": 573834.9999999988,
+          "fees_krw": 75525.35625,
+          "end_state": {
+            "settled_cash": 10498309.643749999,
+            "buying_power": 10498309.643749999,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 75525.35625,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.0140095,
+          "mean_close_exposure": 0.4095239717551426,
+          "buy_fills": 10,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "105560": 10616.25,
+            "267260": 39012.5,
+            "280360": 153031.5,
+            "323410": 256098.8125,
+            "326030": 39947.5,
+            "395400": -396.9187499997206
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 1.989618624999978,
+          "price_mdd_pct": -8.435302655201504,
+          "net_pnl_krw": 198961.86249999888,
+          "before_cost_price_pnl_krw": 370209.99999999884,
+          "fees_krw": 171248.13749999998,
+          "end_state": {
+            "settled_cash": 10198961.862499999,
+            "buying_power": 10198961.862499999,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 171248.13749999998,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 4.566617,
+          "mean_close_exposure": 0.4070963722664486,
+          "buy_fills": 16,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 13,
+          "pnl_by_ticker": {
+            "105560": 10616.25,
+            "267260": 5140,
+            "280360": 140478.75,
+            "298040": 155490,
+            "323410": 80559.5625,
+            "326030": 14443.5,
+            "395400": -13922.550000000047,
+            "003230": 12277.5,
+            "079550": -161721.875,
+            "012450": -72075,
+            "064350": 67398.625,
+            "010140": 22437.100000000093,
+            "047810": -62160
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 1.8601050000000008,
+          "price_mdd_pct": -5.679473292660065,
+          "net_pnl_krw": 186010.5,
+          "before_cost_price_pnl_krw": 269400,
+          "fees_krw": 83389.5,
+          "end_state": {
+            "settled_cash": 10186010.5,
+            "buying_power": 10186010.5,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 83389.5,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.22372,
+          "mean_close_exposure": 0.47721189447580564,
+          "buy_fills": 11,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": -4181.25,
+            "373220": -40486.875,
+            "005930": 165155.125,
+            "000660": 4090.875,
+            "005380": 94566.875,
+            "000270": 34189.125,
+            "068270": -67323.375
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 343224.71875,
+          "before_cost_price_pnl_krw": 260275,
+          "fees_krw": -82949.71874999999
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 542186.5812499989,
+          "before_cost_price_pnl_krw": 630484.9999999988,
+          "fees_krw": 88298.41875
+        },
+        "cap6": {
+          "net_pnl_krw": 356176.0812499989,
+          "before_cost_price_pnl_krw": 361084.99999999884,
+          "fees_krw": 4908.918749999997
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 43876.9375,
+          "before_cost_price_pnl_krw": 56650,
+          "fees_krw": 12773.0625
+        }
+      }
+    },
+    {
+      "scenario": "75bp_full",
+      "phase": 4,
+      "terminal": "2024-12-13",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 12.321857000000014,
+          "price_mdd_pct": -3.412541536075875,
+          "net_pnl_krw": 1232185.7000000011,
+          "before_cost_price_pnl_krw": 1331660.0000000012,
+          "fees_krw": 99474.3,
+          "end_state": {
+            "settled_cash": 11232185.700000001,
+            "buying_power": 11232185.700000001,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 99474.3,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.652648,
+          "mean_close_exposure": 0.31704158887017103,
+          "buy_fills": 9,
+          "entry_sessions": 2,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "267260": 121155,
+            "323410": 367609.5625,
+            "395400": 39907.34999999986,
+            "006260": 138588.875,
+            "003670": 118697.625,
+            "007660": 42362.8125,
+            "012450": 233450,
+            "010140": 170414.4750000001
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 7.180216000000006,
+          "price_mdd_pct": -7.214673360820257,
+          "net_pnl_krw": 718021.5999999996,
+          "before_cost_price_pnl_krw": 804819.9999999997,
+          "fees_krw": 86798.40000000001,
+          "end_state": {
+            "settled_cash": 10718021.6,
+            "buying_power": 10718021.6,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 86798.40000000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.314624,
+          "mean_close_exposure": 0.4278077871710261,
+          "buy_fills": 9,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "267260": 95057.5,
+            "323410": 365118.9375,
+            "395400": 38851.59999999986,
+            "006260": 131580,
+            "003670": 7901.875,
+            "007660": 1642.9375,
+            "012450": 77868.75
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 1.7244225000000002,
+          "price_mdd_pct": -11.517417969011923,
+          "net_pnl_krw": 172442.25,
+          "before_cost_price_pnl_krw": 317100,
+          "fees_krw": 144657.75,
+          "end_state": {
+            "settled_cash": 10172442.25,
+            "buying_power": 10172442.25,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 144657.75,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 3.85754,
+          "mean_close_exposure": 0.40622391935602564,
+          "buy_fills": 14,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 12,
+          "pnl_by_ticker": {
+            "267260": 95057.5,
+            "323410": 183402.9375,
+            "395400": -26585.399999999907,
+            "006260": 7845.75,
+            "003670": 118697.625,
+            "007660": 42362.8125,
+            "012450": -173068.75,
+            "064350": -174732,
+            "079550": -145614,
+            "047810": -61782,
+            "010140": 157712.7749999999,
+            "012510": 149145
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 4.837582499999993,
+          "price_mdd_pct": -3.001997239244225,
+          "net_pnl_krw": 483758.25,
+          "before_cost_price_pnl_krw": 564000,
+          "fees_krw": 80241.75,
+          "end_state": {
+            "settled_cash": 10483758.25,
+            "buying_power": 10483758.25,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 80241.75,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.13978,
+          "mean_close_exposure": 0.36481284773619677,
+          "buy_fills": 8,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": 74830,
+            "373220": 42232.5,
+            "000660": 20547,
+            "005380": 68373.75,
+            "000270": 35806.25,
+            "005930": 47557.5,
+            "068270": 194411.25
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 1059743.4500000011,
+          "before_cost_price_pnl_krw": 1014560.0000000012,
+          "fees_krw": -45183.45
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 1232185.7000000011,
+          "before_cost_price_pnl_krw": 1331660.0000000012,
+          "fees_krw": 99474.3
+        },
+        "cap6": {
+          "net_pnl_krw": 748427.4500000011,
+          "before_cost_price_pnl_krw": 767660.0000000012,
+          "fees_krw": 19232.550000000003
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 514164.1000000015,
+          "before_cost_price_pnl_krw": 526840.0000000015,
+          "fees_krw": 12675.899999999994
+        }
+      }
+    },
+    {
+      "scenario": "120bp_full",
+      "phase": 0,
+      "terminal": "2024-12-16",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 6.884887300000009,
+          "price_mdd_pct": -3.949589000000009,
+          "net_pnl_krw": 688488.7300000004,
+          "before_cost_price_pnl_krw": 833065.0000000005,
+          "fees_krw": 144576.27,
+          "end_state": {
+            "settled_cash": 10688488.73,
+            "buying_power": 10688488.73,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 144576.27,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.4096045,
+          "mean_close_exposure": 0.6286896546475489,
+          "buy_fills": 13,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "180640": -19419.000000000233,
+            "280360": -20092.200000000186,
+            "323410": 206724,
+            "395400": 24787.22999999998,
+            "007660": -77904.30000000005,
+            "003230": 404758,
+            "012450": 169635
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 5.3718900999999875,
+          "price_mdd_pct": -4.889798302478998,
+          "net_pnl_krw": 537189.0099999979,
+          "before_cost_price_pnl_krw": 701604.9999999979,
+          "fees_krw": 164415.99000000002,
+          "end_state": {
+            "settled_cash": 10537189.009999998,
+            "buying_power": 10537189.009999998,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 164415.99000000002,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.7402665,
+          "mean_close_exposure": 0.6474465451652135,
+          "buy_fills": 14,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "180640": -19419.000000000233,
+            "280360": -33051.200000000186,
+            "323410": 206425.80000000005,
+            "395400": 25366.310000000056,
+            "007660": -77904.30000000005,
+            "003230": 404758,
+            "012450": -138201,
+            "079550": 169214.3999999999
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -8.38526970000001,
+          "price_mdd_pct": -14.390585099999997,
+          "net_pnl_krw": -838526.9700000007,
+          "before_cost_price_pnl_krw": -486165.0000000006,
+          "fees_krw": 352361.9700000001,
+          "end_state": {
+            "settled_cash": 9161473.03,
+            "buying_power": 9161473.03,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 352361.9700000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 5.8726995,
+          "mean_close_exposure": 0.6305404979403857,
+          "buy_fills": 22,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 17,
+          "pnl_by_ticker": {
+            "180640": -71604,
+            "267260": 80252,
+            "280360": -23310,
+            "298040": -38648,
+            "323410": -42273,
+            "326030": -22689,
+            "395400": 14008.229999999749,
+            "007660": -235897.19999999995,
+            "003230": 45468,
+            "006260": 115722,
+            "012450": -287089,
+            "010120": 163882.3999999999,
+            "000720": -25440.800000000047,
+            "064350": -405648,
+            "079550": -175631.80000000005,
+            "010140": 12202.40000000014,
+            "047810": 58168.80000000005
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -2.490993000000008,
+          "price_mdd_pct": -2.7499969880217523,
+          "net_pnl_krw": -249099.30000000075,
+          "before_cost_price_pnl_krw": -230850.00000000076,
+          "fees_krw": 18249.300000000003,
+          "end_state": {
+            "settled_cash": 9750900.7,
+            "buying_power": 9750900.7,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 18249.300000000003,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0.304155,
+          "mean_close_exposure": 0.022266734805863726,
+          "buy_fills": 1,
+          "entry_sessions": 1,
+          "distinct_bought_tickers": 1,
+          "pnl_by_ticker": {
+            "294870": -249099.30000000005
+          }
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.1966880000000124,
+          "price_mdd_pct": -5.486922256036442,
+          "net_pnl_krw": -119668.80000000075,
+          "before_cost_price_pnl_krw": 14999.999999999243,
+          "fees_krw": 134668.8,
+          "end_state": {
+            "settled_cash": 9880331.2,
+            "buying_power": 9880331.2,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 134668.8,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.24448,
+          "mean_close_exposure": 0.6274875847212193,
+          "buy_fills": 13,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": -15988,
+            "373220": -45258,
+            "005930": -13375.800000000047,
+            "000660": -76707.59999999986,
+            "005380": -38766,
+            "000270": -895,
+            "068270": 71321.6000000001
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 1527015.7000000011,
+          "before_cost_price_pnl_krw": 1319230.000000001,
+          "fees_krw": -207785.7000000001
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 937588.0300000012,
+          "before_cost_price_pnl_krw": 1063915.0000000012,
+          "fees_krw": 126326.96999999999
+        },
+        "cap6": {
+          "net_pnl_krw": 808157.5300000012,
+          "before_cost_price_pnl_krw": 818065.0000000012,
+          "fees_krw": 9907.470000000001
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 151299.72000000253,
+          "before_cost_price_pnl_krw": 131460.00000000256,
+          "fees_krw": -19839.72000000003
+        }
+      }
+    },
+    {
+      "scenario": "120bp_full",
+      "phase": 1,
+      "terminal": "2024-12-17",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 2.2938464000000103,
+          "price_mdd_pct": -4.995411434546848,
+          "net_pnl_krw": 229384.6400000006,
+          "before_cost_price_pnl_krw": 371540.0000000006,
+          "fees_krw": 142155.36000000002,
+          "end_state": {
+            "settled_cash": 10229384.64,
+            "buying_power": 10229384.64,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 142155.36000000002,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.369256,
+          "mean_close_exposure": 0.5448666023311287,
+          "buy_fills": 12,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "180640": 56948,
+            "267260": 21712,
+            "323410": 209380.5,
+            "326030": -100462.80000000005,
+            "395400": 33668.939999999944,
+            "003230": 96858,
+            "012450": -88720
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 4.8585828,
+          "price_mdd_pct": -5.67543862954516,
+          "net_pnl_krw": 485858.27999999933,
+          "before_cost_price_pnl_krw": 649799.9999999993,
+          "fees_krw": 163941.72000000003,
+          "end_state": {
+            "settled_cash": 10485858.28,
+            "buying_power": 10485858.28,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 163941.72000000003,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.732362,
+          "mean_close_exposure": 0.6742873217773855,
+          "buy_fills": 13,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "180640": 56948,
+            "267260": 21712,
+            "323410": 220413.8999999999,
+            "326030": -32075.59999999986,
+            "395400": 34275.580000000075,
+            "454910": 5478.399999999907,
+            "003230": 267826,
+            "012450": -88720
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -2.2135766,
+          "price_mdd_pct": -5.972816753306653,
+          "net_pnl_krw": -221357.66000000015,
+          "before_cost_price_pnl_krw": 53109.99999999988,
+          "fees_krw": 274467.66000000003,
+          "end_state": {
+            "settled_cash": 9778642.34,
+            "buying_power": 9778642.34,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 274467.66000000003,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 4.574461,
+          "mean_close_exposure": 0.5620708852349685,
+          "buy_fills": 18,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 12,
+          "pnl_by_ticker": {
+            "180640": 56948,
+            "267260": 21712,
+            "323410": 98400.40000000014,
+            "326030": -170262,
+            "395400": 87535.73999999999,
+            "454910": 5136,
+            "003230": -37332,
+            "012450": -308449,
+            "005070": 43449.60000000009,
+            "064350": -10062.59999999986,
+            "079550": -21662.199999999953,
+            "047810": 13228.40000000014
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -2.0024083999999998,
+          "price_mdd_pct": -2.959344000000008,
+          "net_pnl_krw": -200240.83999999985,
+          "before_cost_price_pnl_krw": -164659.99999999985,
+          "fees_krw": 35580.840000000004,
+          "end_state": {
+            "settled_cash": 9799759.16,
+            "buying_power": 9799759.16,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 35580.840000000004,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0.593014,
+          "mean_close_exposure": 0.04219581788560336,
+          "buy_fills": 2,
+          "entry_sessions": 1,
+          "distinct_bought_tickers": 2,
+          "pnl_by_ticker": {
+            "294870": -179247.83999999985,
+            "005380": -20993
+          }
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.020903999999988265,
+          "price_mdd_pct": -5.304758220629823,
+          "net_pnl_krw": -2090.39999999851,
+          "before_cost_price_pnl_krw": 123000.0000000015,
+          "fees_krw": 125090.40000000001,
+          "end_state": {
+            "settled_cash": 9997909.600000001,
+            "buying_power": 9997909.600000001,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 125090.40000000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.08484,
+          "mean_close_exposure": 0.618380205096497,
+          "buy_fills": 10,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": -11736,
+            "373220": -141164,
+            "005930": 47353.39999999991,
+            "000660": -30470.80000000028,
+            "005380": -6867,
+            "000270": 69203.6000000001,
+            "068270": 71590.3999999999
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 450742.30000000075,
+          "before_cost_price_pnl_krw": 318430.0000000007,
+          "fees_krw": -132312.30000000002
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 429625.48000000045,
+          "before_cost_price_pnl_krw": 536200.0000000005,
+          "fees_krw": 106574.52000000002
+        },
+        "cap6": {
+          "net_pnl_krw": 231475.0399999991,
+          "before_cost_price_pnl_krw": 248539.99999999907,
+          "fees_krw": 17064.960000000006
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": -256473.63999999873,
+          "before_cost_price_pnl_krw": -278259.9999999987,
+          "fees_krw": -21786.360000000015
+        }
+      }
+    },
+    {
+      "scenario": "120bp_full",
+      "phase": 2,
+      "terminal": "2024-12-18",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.1273599999999995,
+          "price_mdd_pct": -5.300208965627851,
+          "net_pnl_krw": -112736,
+          "before_cost_price_pnl_krw": 6700.000000000015,
+          "fees_krw": 119436.00000000001,
+          "end_state": {
+            "settled_cash": 9887264,
+            "buying_power": 9887264,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 119436.00000000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.9906,
+          "mean_close_exposure": 0.4093409633603692,
+          "buy_fills": 9,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "112610": 14212,
+            "267260": -15652,
+            "323410": 264307.19999999995,
+            "326030": -94650,
+            "010120": 55445.80000000005,
+            "012450": -336399
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.5090919999999888,
+          "price_mdd_pct": -6.370909698908767,
+          "net_pnl_krw": -50909.199999999255,
+          "before_cost_price_pnl_krw": 68900.00000000076,
+          "fees_krw": 119809.20000000001,
+          "end_state": {
+            "settled_cash": 9949090.8,
+            "buying_power": 9949090.8,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 119809.20000000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.99682,
+          "mean_close_exposure": 0.4998501531100344,
+          "buy_fills": 9,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "112610": 14212,
+            "267260": -25592,
+            "323410": 264307.19999999995,
+            "326030": -94650,
+            "010120": 139637.6000000001,
+            "012450": -348824
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -2.6838841,
+          "price_mdd_pct": -5.32725862320328,
+          "net_pnl_krw": -268388.41000000015,
+          "before_cost_price_pnl_krw": -18475.000000000146,
+          "fees_krw": 249913.41,
+          "end_state": {
+            "settled_cash": 9731611.59,
+            "buying_power": 9731611.59,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 249913.41,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 4.1652235,
+          "mean_close_exposure": 0.4491539900397276,
+          "buy_fills": 16,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 13,
+          "pnl_by_ticker": {
+            "112610": -47416,
+            "267260": -15652,
+            "323410": 146518.19999999995,
+            "326030": -89878.80000000005,
+            "395400": -84132.01000000001,
+            "010120": -105162.19999999995,
+            "012450": -301609,
+            "006260": 63446.40000000014,
+            "005070": 25770,
+            "079550": 7385,
+            "064350": -51558,
+            "003230": 225840,
+            "015760": -41940
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.41601200000001004,
+          "price_mdd_pct": -6.872866141576772,
+          "net_pnl_krw": -41601.20000000112,
+          "before_cost_price_pnl_krw": 107799.99999999886,
+          "fees_krw": 149401.19999999998,
+          "end_state": {
+            "settled_cash": 9958398.799999999,
+            "buying_power": 9958398.799999999,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 149401.19999999998,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.49002,
+          "mean_close_exposure": 0.607699130810596,
+          "buy_fills": 10,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "105560": -109551.3999999999,
+            "207940": 2504,
+            "373220": -120540,
+            "005930": 88629.6000000001,
+            "000660": -85708.20000000019,
+            "005380": 85619,
+            "000270": 33989.799999999814,
+            "068270": 63456
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 155652.41000000015,
+          "before_cost_price_pnl_krw": 25175.00000000016,
+          "fees_krw": -130477.40999999999
+        },
+        "legacy_selection": {
+          "net_pnl_krw": -112736,
+          "before_cost_price_pnl_krw": 6700.000000000015,
+          "fees_krw": 119436.00000000001
+        },
+        "cap6": {
+          "net_pnl_krw": -71134.79999999888,
+          "before_cost_price_pnl_krw": -101099.99999999885,
+          "fees_krw": -29965.199999999968
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": -61826.800000000745,
+          "before_cost_price_pnl_krw": -62200.00000000074,
+          "fees_krw": -373.1999999999971
+        }
+      }
+    },
+    {
+      "scenario": "120bp_full",
+      "phase": 3,
+      "terminal": "2024-12-12",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 4.890874600000017,
+          "price_mdd_pct": -3.8902707927286118,
+          "net_pnl_krw": 489087.4600000009,
+          "before_cost_price_pnl_krw": 630310.0000000009,
+          "fees_krw": 141222.54,
+          "end_state": {
+            "settled_cash": 10489087.46,
+            "buying_power": 10489087.46,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 141222.54,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.353709,
+          "mean_close_exposure": 0.3877539320204339,
+          "buy_fills": 10,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "105560": 3306,
+            "267260": 32420,
+            "280360": 145490.40000000014,
+            "323410": 248148.1000000001,
+            "326030": 6549.600000000093,
+            "395400": -8486.139999999898,
+            "064350": 61659.5
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 4.528743599999996,
+          "price_mdd_pct": -3.5755779260850717,
+          "net_pnl_krw": 452874.3599999994,
+          "before_cost_price_pnl_krw": 573659.9999999994,
+          "fees_krw": 120785.64000000001,
+          "end_state": {
+            "settled_cash": 10452874.36,
+            "buying_power": 10452874.36,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 120785.64000000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.013094,
+          "mean_close_exposure": 0.4102193860803572,
+          "buy_fills": 9,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "105560": 3306,
+            "267260": 32420,
+            "280360": 145490.40000000014,
+            "323410": 248148.1000000001,
+            "326030": 31996,
+            "395400": -8486.139999999898
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.961714300000005,
+          "price_mdd_pct": -8.877354700772244,
+          "net_pnl_krw": 96171.4299999997,
+          "before_cost_price_pnl_krw": 369924.9999999997,
+          "fees_krw": 273753.57,
+          "end_state": {
+            "settled_cash": 10096171.43,
+            "buying_power": 10096171.43,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 273753.57,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 4.5625595,
+          "mean_close_exposure": 0.40884022413038995,
+          "buy_fills": 16,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 13,
+          "pnl_by_ticker": {
+            "105560": 3306,
+            "267260": -1376,
+            "280360": 132966,
+            "298040": 147984,
+            "323410": 73005.30000000005,
+            "326030": 6549.600000000093,
+            "395400": -29239.450000000186,
+            "003230": 5244,
+            "079550": -168455,
+            "012450": -79320,
+            "064350": 59897.80000000005,
+            "010140": 14825.179999999935,
+            "047810": -69216
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 1.3597680000000167,
+          "price_mdd_pct": -5.8077795946329,
+          "net_pnl_krw": 135976.80000000075,
+          "before_cost_price_pnl_krw": 269400.00000000076,
+          "fees_krw": 133423.2,
+          "end_state": {
+            "settled_cash": 10135976.8,
+            "buying_power": 10135976.8,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 133423.2,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.22372,
+          "mean_close_exposure": 0.4783902524966761,
+          "buy_fills": 11,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": -8490,
+            "373220": -47679,
+            "005930": 157268.19999999995,
+            "000660": -3714.600000000093,
+            "005380": 86207,
+            "000270": 27162.600000000093,
+            "068270": -74777.3999999999
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 392916.0300000012,
+          "before_cost_price_pnl_krw": 260385.00000000122,
+          "fees_krw": -132531.03
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 489087.4600000009,
+          "before_cost_price_pnl_krw": 630310.0000000009,
+          "fees_krw": 141222.54
+        },
+        "cap6": {
+          "net_pnl_krw": 353110.66000000015,
+          "before_cost_price_pnl_krw": 360910.0000000002,
+          "fees_krw": 7799.3399999999965
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 36213.10000000149,
+          "before_cost_price_pnl_krw": 56650.00000000151,
+          "fees_krw": 20436.899999999994
+        }
+      }
+    },
+    {
+      "scenario": "120bp_full",
+      "phase": 4,
+      "terminal": "2024-12-13",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 11.718198000000001,
+          "price_mdd_pct": -3.5503360810114737,
+          "net_pnl_krw": 1171819.8000000007,
+          "before_cost_price_pnl_krw": 1330920.0000000007,
+          "fees_krw": 159100.2,
+          "end_state": {
+            "settled_cash": 11171819.8,
+            "buying_power": 11171819.8,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 159100.2,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.65167,
+          "mean_close_exposure": 0.3174462631592049,
+          "buy_fills": 9,
+          "entry_sessions": 2,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "267260": 114648,
+            "323410": 358828.90000000014,
+            "395400": 32014.840000000084,
+            "006260": 130722.19999999995,
+            "003670": 111616.20000000019,
+            "007660": 34930.5,
+            "012450": 226520,
+            "010140": 162539.15999999992
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 6.647917399999992,
+          "price_mdd_pct": -7.268139441628307,
+          "net_pnl_krw": 664791.7399999984,
+          "before_cost_price_pnl_krw": 803329.9999999984,
+          "fees_krw": 138538.26,
+          "end_state": {
+            "settled_cash": 10664791.739999998,
+            "buying_power": 10664791.739999998,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 138538.26,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.308971,
+          "mean_close_exposure": 0.4279949710800554,
+          "buy_fills": 8,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "267260": 88492,
+            "323410": 355051.69999999995,
+            "395400": 31165.639999999898,
+            "006260": 124128,
+            "003670": 343,
+            "007660": -4978.600000000093,
+            "012450": 70590
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.8459504000000173,
+          "price_mdd_pct": -11.697156863728198,
+          "net_pnl_krw": 84595.04000000097,
+          "before_cost_price_pnl_krw": 315860.000000001,
+          "fees_krw": 231264.96000000002,
+          "end_state": {
+            "settled_cash": 10084595.040000001,
+            "buying_power": 10084595.040000001,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 231264.96000000002,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 3.854416,
+          "mean_close_exposure": 0.4077325063288828,
+          "buy_fills": 14,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 12,
+          "pnl_by_ticker": {
+            "267260": 88492,
+            "323410": 175634.69999999995,
+            "395400": -34083.64000000013,
+            "006260": 673.1999999999534,
+            "003670": 111616.20000000019,
+            "007660": 34930.5,
+            "012450": -180910,
+            "064350": -181651.19999999995,
+            "079550": -152342.3999999999,
+            "047810": -69331.19999999995,
+            "010140": 149414.88000000012,
+            "012510": 142152
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 4.3561320000000014,
+          "price_mdd_pct": -3.1493965209099084,
+          "net_pnl_krw": 435613.19999999925,
+          "before_cost_price_pnl_krw": 563999.9999999993,
+          "fees_krw": 128386.80000000002,
+          "end_state": {
+            "settled_cash": 10435613.2,
+            "buying_power": 10435613.2,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 128386.80000000002,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.13978,
+          "mean_close_exposure": 0.36549851356955915,
+          "buy_fills": 8,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": 70528,
+            "373220": 35172,
+            "000660": 13435.199999999953,
+            "005380": 60798,
+            "000270": 28730,
+            "005930": 40092,
+            "068270": 186858
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 1087224.7599999998,
+          "before_cost_price_pnl_krw": 1015059.9999999998,
+          "fees_krw": -72164.76000000001
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 1171819.8000000007,
+          "before_cost_price_pnl_krw": 1330920.0000000007,
+          "fees_krw": 159100.2
+        },
+        "cap6": {
+          "net_pnl_krw": 736206.6000000015,
+          "before_cost_price_pnl_krw": 766920.0000000014,
+          "fees_krw": 30713.399999999994
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 507028.0600000024,
+          "before_cost_price_pnl_krw": 527590.0000000023,
+          "fees_krw": 20561.940000000002
+        }
+      }
+    },
+    {
+      "scenario": "75bp_half",
+      "phase": 0,
+      "terminal": "2024-12-16",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 3.854558562499988,
+          "price_mdd_pct": -4.058909380591224,
+          "net_pnl_krw": 385455.85624999925,
+          "before_cost_price_pnl_krw": 451024.99999999924,
+          "fees_krw": 65569.14375,
+          "end_state": {
+            "settled_cash": 10385455.85625,
+            "buying_power": 10385455.85625,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 65569.14375,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.7485105,
+          "mean_close_exposure": 0.39358668804016606,
+          "buy_fills": 14,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 9,
+          "pnl_by_ticker": {
+            "180640": 22036.625,
+            "280360": -8071.875,
+            "323410": 170278.5,
+            "395400": 25736.356250000186,
+            "007660": -2229.75,
+            "003230": 32646.25,
+            "006260": -3978,
+            "012450": 70533.75,
+            "079550": 78504
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 3.6108993750000096,
+          "price_mdd_pct": -2.8884885673865046,
+          "net_pnl_krw": 361089.9375,
+          "before_cost_price_pnl_krw": 433710,
+          "fees_krw": 72620.06250000001,
+          "end_state": {
+            "settled_cash": 10361089.9375,
+            "buying_power": 10361089.9375,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 72620.06250000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.936535,
+          "mean_close_exposure": 0.38643403939329196,
+          "buy_fills": 16,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 10,
+          "pnl_by_ticker": {
+            "180640": 22313.75,
+            "280360": -8071.875,
+            "323410": 170278.5,
+            "395400": 7856.0625,
+            "007660": -15679.125,
+            "003230": -12185,
+            "006260": 37266.75,
+            "010140": 10273.125,
+            "012450": 70533.75,
+            "079550": 78504
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -3.4319666874999877,
+          "price_mdd_pct": -8.019828594268585,
+          "net_pnl_krw": -343196.66874999925,
+          "before_cost_price_pnl_krw": -222354.99999999924,
+          "fees_krw": 120841.66875000001,
+          "end_state": {
+            "settled_cash": 9656803.33125,
+            "buying_power": 9656803.33125,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 120841.66875000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 3.2224445,
+          "mean_close_exposure": 0.33781063371363507,
+          "buy_fills": 25,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 17,
+          "pnl_by_ticker": {
+            "180640": -16982,
+            "267260": 43453.75,
+            "280360": -8071.875,
+            "298040": -15827.5,
+            "323410": -17313.75,
+            "326030": -7405.125,
+            "395400": 23270.88124999986,
+            "007660": -114555.375,
+            "003230": 11840,
+            "006260": 61475.625,
+            "012450": -163570.625,
+            "010120": 93219,
+            "000720": -9210,
+            "064350": -192270,
+            "079550": -74662.875,
+            "010140": 9862.20000000007,
+            "047810": 33551
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.196324999999998,
+          "price_mdd_pct": -1.3579671232165413,
+          "net_pnl_krw": -119632.5,
+          "before_cost_price_pnl_krw": -114000,
+          "fees_krw": 5632.5,
+          "end_state": {
+            "settled_cash": 9880367.5,
+            "buying_power": 9880367.5,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 5632.5,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0.1502,
+          "mean_close_exposure": 0.010938802879357926,
+          "buy_fills": 1,
+          "entry_sessions": 1,
+          "distinct_bought_tickers": 1,
+          "pnl_by_ticker": {
+            "294870": -119632.5
+          }
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.041748750000003554,
+          "price_mdd_pct": -4.078296059408748,
+          "net_pnl_krw": 4174.875,
+          "before_cost_price_pnl_krw": 63300,
+          "fees_krw": 59125.125,
+          "end_state": {
+            "settled_cash": 10004174.875,
+            "buying_power": 10004174.875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 59125.125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.57667,
+          "mean_close_exposure": 0.38812067991677346,
+          "buy_fills": 19,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "373220": -9468.125,
+            "005930": -27136.75,
+            "000660": 7890.5,
+            "005380": -40566.25,
+            "000270": -1236.5,
+            "068270": 74692
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 728652.5249999985,
+          "before_cost_price_pnl_krw": 673379.9999999985,
+          "fees_krw": -55272.52500000001
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 505088.35624999925,
+          "before_cost_price_pnl_krw": 565024.9999999993,
+          "fees_krw": 59936.64375
+        },
+        "cap6": {
+          "net_pnl_krw": 381280.98124999925,
+          "before_cost_price_pnl_krw": 387724.99999999924,
+          "fees_krw": 6444.018750000003
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 24365.918749999255,
+          "before_cost_price_pnl_krw": 17314.999999999243,
+          "fees_krw": -7050.918750000012
+        }
+      }
+    },
+    {
+      "scenario": "75bp_half",
+      "phase": 1,
+      "terminal": "2024-12-17",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.25480112500000374,
+          "price_mdd_pct": -1.4944684499595073,
+          "net_pnl_krw": 25480.112500000745,
+          "before_cost_price_pnl_krw": 78370.00000000074,
+          "fees_krw": 52889.8875,
+          "end_state": {
+            "settled_cash": 10025480.1125,
+            "buying_power": 10025480.1125,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 52889.8875,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.410397,
+          "mean_close_exposure": 0.2840403717946513,
+          "buy_fills": 12,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "180640": 115853.5,
+            "267260": -65415,
+            "323410": 149157.5625,
+            "326030": -34705,
+            "395400": -17054.699999999953,
+            "003230": -10027.5,
+            "012450": -112328.75
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.6405268750000026,
+          "price_mdd_pct": -5.452604378412207,
+          "net_pnl_krw": 64052.6875,
+          "before_cost_price_pnl_krw": 138130,
+          "fees_krw": 74077.3125,
+          "end_state": {
+            "settled_cash": 10064052.6875,
+            "buying_power": 10064052.6875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 74077.3125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.975395,
+          "mean_close_exposure": 0.45979157544042715,
+          "buy_fills": 22,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "180640": 66439.5,
+            "267260": 39996.875,
+            "323410": 169393.4375,
+            "326030": 31709.125,
+            "395400": -26064.375,
+            "003230": -10027.5,
+            "012450": -163727.5,
+            "064350": -43666.875
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.042466625000003866,
+          "price_mdd_pct": -3.2747956020348856,
+          "net_pnl_krw": 4246.6624999996275,
+          "before_cost_price_pnl_krw": 104389.99999999962,
+          "fees_krw": 100143.3375,
+          "end_state": {
+            "settled_cash": 10004246.6625,
+            "buying_power": 10004246.6625,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 100143.3375,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.670489,
+          "mean_close_exposure": 0.31787135505487535,
+          "buy_fills": 21,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 12,
+          "pnl_by_ticker": {
+            "180640": 66439.5,
+            "267260": 51540,
+            "323410": 63928.375,
+            "326030": -80731.75,
+            "395400": 41430.91250000009,
+            "454910": 6105,
+            "003230": -10027.5,
+            "012450": -163727.5,
+            "005070": 25278,
+            "064350": -1355.625,
+            "079550": -8786.5,
+            "047810": 14153.75
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.913265250000006,
+          "price_mdd_pct": -1.3893524999999962,
+          "net_pnl_krw": -91326.52500000037,
+          "before_cost_price_pnl_krw": -81060.00000000038,
+          "fees_krw": 10266.525,
+          "end_state": {
+            "settled_cash": 9908673.475,
+            "buying_power": 9908673.475,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 10266.525,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0.273774,
+          "mean_close_exposure": 0.019304574643516835,
+          "buy_fills": 2,
+          "entry_sessions": 1,
+          "distinct_bought_tickers": 2,
+          "pnl_by_ticker": {
+            "294870": -85140.90000000002,
+            "005380": -6185.625
+          }
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.22916749999999375,
+          "price_mdd_pct": -3.8542416388787526,
+          "net_pnl_krw": 22916.75,
+          "before_cost_price_pnl_krw": 81800,
+          "fees_krw": 58883.25,
+          "end_state": {
+            "settled_cash": 10022916.75,
+            "buying_power": 10022916.75,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 58883.25,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.57022,
+          "mean_close_exposure": 0.3830729030380426,
+          "buy_fills": 20,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "373220": -80408.125,
+            "005930": 81.75,
+            "000660": 33662.875,
+            "005380": -28408.75,
+            "000270": 39431.75,
+            "068270": 58557.25
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 21233.450000001118,
+          "before_cost_price_pnl_krw": -26019.99999999888,
+          "fees_krw": -47253.45
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 116806.63750000112,
+          "before_cost_price_pnl_krw": 159430.0000000011,
+          "fees_krw": 42623.362499999996
+        },
+        "cap6": {
+          "net_pnl_krw": 2563.362500000745,
+          "before_cost_price_pnl_krw": -3429.999999999258,
+          "fees_krw": -5993.362500000003
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": -38572.574999999255,
+          "before_cost_price_pnl_krw": -59759.99999999926,
+          "fees_krw": -21187.425000000003
+        }
+      }
+    },
+    {
+      "scenario": "75bp_half",
+      "phase": 2,
+      "terminal": "2024-12-18",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 1.1999562500000005,
+          "price_mdd_pct": -4.7440259938759555,
+          "net_pnl_krw": 119995.625,
+          "before_cost_price_pnl_krw": 166700,
+          "fees_krw": 46704.375,
+          "end_state": {
+            "settled_cash": 10119995.625,
+            "buying_power": 10119995.625,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 46704.375,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.24545,
+          "mean_close_exposure": 0.3078644165029046,
+          "buy_fills": 10,
+          "entry_sessions": 2,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "112610": -3648.125,
+            "267260": -4516.25,
+            "323410": 196223.75,
+            "326030": -38061.375,
+            "010120": 122048.875,
+            "012450": -152051.25
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.02483250000000492,
+          "price_mdd_pct": -3.8205142739014097,
+          "net_pnl_krw": -2483.25,
+          "before_cost_price_pnl_krw": 55200,
+          "fees_krw": 57683.25,
+          "end_state": {
+            "settled_cash": 9997516.75,
+            "buying_power": 9997516.75,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 57683.25,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.53822,
+          "mean_close_exposure": 0.37013199351801523,
+          "buy_fills": 14,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "112610": 18767.5,
+            "267260": -9497.5,
+            "323410": 119347.125,
+            "326030": -8536.875,
+            "395400": -49302,
+            "010120": 123642.875,
+            "012450": -196904.375
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.1984044375000003,
+          "price_mdd_pct": -3.5013441440447046,
+          "net_pnl_krw": -119840.44374999963,
+          "before_cost_price_pnl_krw": -32064.99999999962,
+          "fees_krw": 87775.44375,
+          "end_state": {
+            "settled_cash": 9880159.55625,
+            "buying_power": 9880159.55625,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 87775.44375,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.3406785,
+          "mean_close_exposure": 0.24931693201663135,
+          "buy_fills": 18,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 13,
+          "pnl_by_ticker": {
+            "112610": -20067.5,
+            "267260": 2761.25,
+            "323410": 100882.625,
+            "326030": -34773.75,
+            "395400": -44546.44375000009,
+            "010120": -44688.125,
+            "012450": -176885.625,
+            "006260": 35352,
+            "005070": 15831,
+            "079550": 7887.5,
+            "064350": -22299.375,
+            "003230": 77800,
+            "015760": -17094
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.43485125000000124,
+          "price_mdd_pct": -4.54262381540973,
+          "net_pnl_krw": -43485.125,
+          "before_cost_price_pnl_krw": 18700,
+          "fees_krw": 62185.125,
+          "end_state": {
+            "settled_cash": 9956514.875,
+            "buying_power": 9956514.875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 62185.125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.65827,
+          "mean_close_exposure": 0.3786798860242678,
+          "buy_fills": 18,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "105560": -48121,
+            "373220": -86194.375,
+            "005930": 24097.25,
+            "000660": -24487.125,
+            "005380": 39096.875,
+            "000270": 1235,
+            "068270": 50888.25
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 239836.06874999963,
+          "before_cost_price_pnl_krw": 198764.99999999962,
+          "fees_krw": -41071.068750000006
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 119995.625,
+          "before_cost_price_pnl_krw": 166700,
+          "fees_krw": 46704.375
+        },
+        "cap6": {
+          "net_pnl_krw": 163480.75,
+          "before_cost_price_pnl_krw": 148000,
+          "fees_krw": -15480.75
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 122478.875,
+          "before_cost_price_pnl_krw": 111500,
+          "fees_krw": -10978.875
+        }
+      }
+    },
+    {
+      "scenario": "75bp_half",
+      "phase": 3,
+      "terminal": "2024-12-12",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 4.0678586875000144,
+          "price_mdd_pct": -2.7029608031712615,
+          "net_pnl_krw": 406785.8687500004,
+          "before_cost_price_pnl_krw": 464065.00000000035,
+          "fees_krw": 57279.131250000006,
+          "end_state": {
+            "settled_cash": 10406785.86875,
+            "buying_power": 10406785.86875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 57279.131250000006,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.5274435,
+          "mean_close_exposure": 0.27351290690595753,
+          "buy_fills": 14,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "105560": 5028.75,
+            "267260": 25244.375,
+            "280360": 65556.75,
+            "323410": 174813.4375,
+            "326030": 49438.125,
+            "395400": -5058.068750000093,
+            "003230": 91762.5
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 4.0678586875000144,
+          "price_mdd_pct": -2.7029608031712615,
+          "net_pnl_krw": 406785.8687500004,
+          "before_cost_price_pnl_krw": 464065.00000000035,
+          "fees_krw": 57279.131250000006,
+          "end_state": {
+            "settled_cash": 10406785.86875,
+            "buying_power": 10406785.86875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 57279.131250000006,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.5274435,
+          "mean_close_exposure": 0.27351290690595753,
+          "buy_fills": 14,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "105560": 5028.75,
+            "267260": 25244.375,
+            "280360": 65556.75,
+            "323410": 174813.4375,
+            "326030": 49438.125,
+            "395400": -5058.068750000093,
+            "003230": 91762.5
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 1.5836512499999955,
+          "price_mdd_pct": -3.776035717483206,
+          "net_pnl_krw": 158365.125,
+          "before_cost_price_pnl_krw": 247470,
+          "fees_krw": 89104.875,
+          "end_state": {
+            "settled_cash": 10158365.125,
+            "buying_power": 10158365.125,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 89104.875,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.37613,
+          "mean_close_exposure": 0.20680138381316537,
+          "buy_fills": 17,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 13,
+          "pnl_by_ticker": {
+            "105560": 5028.75,
+            "267260": 16903.75,
+            "280360": 65556.75,
+            "298040": 77745,
+            "323410": 39782.5,
+            "326030": 29284.375,
+            "395400": 4273.012499999953,
+            "003230": 4092.5,
+            "079550": -69309.375,
+            "012450": -28830,
+            "064350": 33699.3125,
+            "010140": 11218.550000000047,
+            "047810": -31080
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.8659287500000001,
+          "price_mdd_pct": -3.8753104222563617,
+          "net_pnl_krw": 86592.875,
+          "before_cost_price_pnl_krw": 142100,
+          "fees_krw": 55507.125,
+          "end_state": {
+            "settled_cash": 10086592.875,
+            "buying_power": 10086592.875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 55507.125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.48019,
+          "mean_close_exposure": 0.28141006255655404,
+          "buy_fills": 17,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "373220": -27479.375,
+            "005930": 82032.25,
+            "000660": 35407.375,
+            "005380": 34540.625,
+            "000270": -7986.5,
+            "068270": -29921.5
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 248420.74375000037,
+          "before_cost_price_pnl_krw": 216595.00000000035,
+          "fees_krw": -31825.743749999994
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 406785.8687500004,
+          "before_cost_price_pnl_krw": 464065.00000000035,
+          "fees_krw": 57279.131250000006
+        },
+        "cap6": {
+          "net_pnl_krw": 320192.9937500004,
+          "before_cost_price_pnl_krw": 321965.00000000035,
+          "fees_krw": 1772.0062500000058
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0
+        }
+      }
+    },
+    {
+      "scenario": "75bp_half",
+      "phase": 4,
+      "terminal": "2024-12-13",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 5.054693249999986,
+          "price_mdd_pct": -1.719875301489715,
+          "net_pnl_krw": 505469.32499999925,
+          "before_cost_price_pnl_krw": 563699.9999999993,
+          "fees_krw": 58230.674999999996,
+          "end_state": {
+            "settled_cash": 10505469.325,
+            "buying_power": 10505469.325,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 58230.674999999996,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.552818,
+          "mean_close_exposure": 0.15363839685900404,
+          "buy_fills": 10,
+          "entry_sessions": 2,
+          "distinct_bought_tickers": 10,
+          "pnl_by_ticker": {
+            "267260": 60577.5,
+            "323410": 91602.5,
+            "395400": 19214.650000000023,
+            "006260": 5716.125,
+            "003670": 22867,
+            "007660": 1165.5,
+            "012450": 93380,
+            "010140": 82561.05000000005,
+            "047810": 53812.5,
+            "012510": 74572.5
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 5.748588999999993,
+          "price_mdd_pct": -3.1992811375678,
+          "net_pnl_krw": 574858.9000000004,
+          "before_cost_price_pnl_krw": 637240.0000000003,
+          "fees_krw": 62381.1,
+          "end_state": {
+            "settled_cash": 10574858.9,
+            "buying_power": 10574858.9,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 62381.1,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.663496,
+          "mean_close_exposure": 0.2226254366877755,
+          "buy_fills": 13,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 9,
+          "pnl_by_ticker": {
+            "267260": 77817.5,
+            "323410": 242727.75,
+            "395400": 19320.224999999977,
+            "006260": -3250.125,
+            "003670": 22867,
+            "007660": 1165.5,
+            "012450": 77837.5,
+            "010140": 82561.05000000005,
+            "047810": 53812.5
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 2.1423958750000027,
+          "price_mdd_pct": -6.398296907382262,
+          "net_pnl_krw": 214239.58750000037,
+          "before_cost_price_pnl_krw": 300910.00000000035,
+          "fees_krw": 86670.4125,
+          "end_state": {
+            "settled_cash": 10214239.5875,
+            "buying_power": 10214239.5875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 86670.4125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.311211,
+          "mean_close_exposure": 0.23173771333273596,
+          "buy_fills": 18,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 12,
+          "pnl_by_ticker": {
+            "267260": 77817.5,
+            "323410": 108413.9375,
+            "395400": -3715.850000000093,
+            "006260": 3922.875,
+            "003670": 52754.5,
+            "007660": 20891.25,
+            "012450": -32057.5,
+            "064350": -87366,
+            "079550": -72807,
+            "047810": -7572.25,
+            "010140": 79385.625,
+            "012510": 74572.5
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 1.8930237500000002,
+          "price_mdd_pct": -2.4258450698604106,
+          "net_pnl_krw": 189302.375,
+          "before_cost_price_pnl_krw": 238700,
+          "fees_krw": 49397.625,
+          "end_state": {
+            "settled_cash": 10189302.375,
+            "buying_power": 10189302.375,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 49397.625,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.31727,
+          "mean_close_exposure": 0.19735743306546885,
+          "buy_fills": 13,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "373220": 21116.25,
+            "000660": 21300.875,
+            "005380": 20806.25,
+            "000270": -822.5,
+            "005930": 40496.5,
+            "068270": 86405
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 291229.7374999989,
+          "before_cost_price_pnl_krw": 262789.99999999895,
+          "fees_krw": -28439.73750000001
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 505469.32499999925,
+          "before_cost_price_pnl_krw": 563699.9999999993,
+          "fees_krw": 58230.674999999996
+        },
+        "cap6": {
+          "net_pnl_krw": 316166.94999999925,
+          "before_cost_price_pnl_krw": 324999.9999999993,
+          "fees_krw": 8833.049999999996
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": -69389.57500000112,
+          "before_cost_price_pnl_krw": -73540.00000000105,
+          "fees_krw": -4150.425000000003
+        }
+      }
+    },
+    {
+      "scenario": "75bp_delay1",
+      "phase": 0,
+      "terminal": "2024-12-16",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 6.784809749999998,
+          "price_mdd_pct": -3.808474552292096,
+          "net_pnl_krw": 678480.9749999996,
+          "before_cost_price_pnl_krw": 753839.9999999997,
+          "fees_krw": 75359.02500000001,
+          "end_state": {
+            "settled_cash": 10678480.975,
+            "buying_power": 10678480.975,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 75359.02500000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.009574,
+          "mean_close_exposure": 0.6049881201115312,
+          "buy_fills": 10,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "180640": -3489.75,
+            "280360": 24556,
+            "323410": 226764.9375,
+            "395400": 38974.53749999986,
+            "007660": -97333.5,
+            "003230": 489008.75
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 6.11726225,
+          "price_mdd_pct": -4.822828299065652,
+          "net_pnl_krw": 611726.2249999996,
+          "before_cost_price_pnl_krw": 696439.9999999997,
+          "fees_krw": 84713.77500000001,
+          "end_state": {
+            "settled_cash": 10611726.225,
+            "buying_power": 10611726.225,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 84713.77500000001,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.259034,
+          "mean_close_exposure": 0.6142700653472094,
+          "buy_fills": 11,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "180640": -3489.75,
+            "280360": 23161.25,
+            "323410": 226764.9375,
+            "395400": 38974.53749999986,
+            "007660": -97333.5,
+            "003230": 489008.75,
+            "012450": -65360
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.732083750000002,
+          "price_mdd_pct": -9.65344490509107,
+          "net_pnl_krw": -173208.375,
+          "before_cost_price_pnl_krw": -11580,
+          "fees_krw": 161628.375,
+          "end_state": {
+            "settled_cash": 9826791.625,
+            "buying_power": 9826791.625,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 161628.375,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 4.31009,
+          "mean_close_exposure": 0.49427380796774095,
+          "buy_fills": 16,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 12,
+          "pnl_by_ticker": {
+            "180640": 57879.25,
+            "280360": 21766.5,
+            "323410": 49645.75,
+            "326030": -21360,
+            "395400": 99933.3374999999,
+            "007660": -80895.375,
+            "003230": 159637.5,
+            "012450": -318305,
+            "000720": -27341.25,
+            "064350": -166522.5,
+            "079550": 21385.625,
+            "010140": 30967.787500000093
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.7683110000000002,
+          "price_mdd_pct": -2.3695537499999975,
+          "net_pnl_krw": -176831.09999999963,
+          "before_cost_price_pnl_krw": -165239.99999999962,
+          "fees_krw": 11591.099999999999,
+          "end_state": {
+            "settled_cash": 9823168.9,
+            "buying_power": 9823168.9,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 11591.099999999999,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0.309096,
+          "mean_close_exposure": 0.021771986403978427,
+          "buy_fills": 1,
+          "entry_sessions": 1,
+          "distinct_bought_tickers": 1,
+          "pnl_by_ticker": {
+            "294870": -176831.1000000001
+          }
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.6521387500000086,
+          "price_mdd_pct": -5.01474026335651,
+          "net_pnl_krw": 65213.875,
+          "before_cost_price_pnl_krw": 142900,
+          "fees_krw": 77686.125,
+          "end_state": {
+            "settled_cash": 10065213.875,
+            "buying_power": 10065213.875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 77686.125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.07163,
+          "mean_close_exposure": 0.5741439360874984,
+          "buy_fills": 9,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": -7335,
+            "373220": -109887.5,
+            "005930": 51063.75,
+            "000660": -23019.25,
+            "005380": -354.375,
+            "000270": 76402.25,
+            "068270": 78344
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 851689.3499999996,
+          "before_cost_price_pnl_krw": 765419.9999999997,
+          "fees_krw": -86269.34999999999
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 855312.0749999993,
+          "before_cost_price_pnl_krw": 919079.9999999993,
+          "fees_krw": 63767.92500000001
+        },
+        "cap6": {
+          "net_pnl_krw": 613267.0999999996,
+          "before_cost_price_pnl_krw": 610939.9999999997,
+          "fees_krw": -2327.0999999999913
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 66754.75,
+          "before_cost_price_pnl_krw": 57400,
+          "fees_krw": -9354.75
+        }
+      }
+    },
+    {
+      "scenario": "75bp_delay1",
+      "phase": 1,
+      "terminal": "2024-12-17",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.5916931250000035,
+          "price_mdd_pct": -3.828207914721826,
+          "net_pnl_krw": 59169.3125,
+          "before_cost_price_pnl_krw": 132650,
+          "fees_krw": 73480.6875,
+          "end_state": {
+            "settled_cash": 10059169.3125,
+            "buying_power": 10059169.3125,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 73480.6875,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.959485,
+          "mean_close_exposure": 0.46283132616527406,
+          "buy_fills": 7,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "180640": 53887.25,
+            "267260": -927.5,
+            "323410": 228772.6875,
+            "326030": -29756.25,
+            "003230": 161130,
+            "012450": -353936.875
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.8122756249999918,
+          "price_mdd_pct": -5.996605008768585,
+          "net_pnl_krw": 81227.5625,
+          "before_cost_price_pnl_krw": 155450,
+          "fees_krw": 74222.4375,
+          "end_state": {
+            "settled_cash": 10081227.5625,
+            "buying_power": 10081227.5625,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 74222.4375,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.979265,
+          "mean_close_exposure": 0.6204610903968969,
+          "buy_fills": 8,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "180640": -39760.25,
+            "267260": -927.5,
+            "323410": 185734.6875,
+            "326030": -40966.875,
+            "003230": 318537.5,
+            "012450": -341390
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -2.8093428749999982,
+          "price_mdd_pct": -4.604529337266483,
+          "net_pnl_krw": -280934.2874999996,
+          "before_cost_price_pnl_krw": -138509.99999999962,
+          "fees_krw": 142424.2875,
+          "end_state": {
+            "settled_cash": 9719065.7125,
+            "buying_power": 9719065.7125,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 142424.2875,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 3.797981,
+          "mean_close_exposure": 0.5036880679924143,
+          "buy_fills": 13,
+          "entry_sessions": 5,
+          "distinct_bought_tickers": 12,
+          "pnl_by_ticker": {
+            "180640": 75804.75,
+            "267260": -927.5,
+            "323410": 155050.1875,
+            "326030": -83553.75,
+            "395400": -96960.6000000001,
+            "454910": -17610,
+            "003230": -39116.25,
+            "012450": -304030.625,
+            "005070": 31662,
+            "064350": -46085.375,
+            "079550": 13803.125,
+            "047810": 31029.75
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.0266381250000012,
+          "price_mdd_pct": -2.5690756249999946,
+          "net_pnl_krw": -102663.8125,
+          "before_cost_price_pnl_krw": -80350,
+          "fees_krw": 22313.8125,
+          "end_state": {
+            "settled_cash": 9897336.1875,
+            "buying_power": 9897336.1875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 22313.8125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0.595035,
+          "mean_close_exposure": 0.0418621387568411,
+          "buy_fills": 2,
+          "entry_sessions": 1,
+          "distinct_bought_tickers": 2,
+          "pnl_by_ticker": {
+            "294870": -102151.9375,
+            "005380": -511.875
+          }
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0.6527975000000019,
+          "price_mdd_pct": -5.070460818950262,
+          "net_pnl_krw": 65279.75,
+          "before_cost_price_pnl_krw": 143000,
+          "fees_krw": 77720.25,
+          "end_state": {
+            "settled_cash": 10065279.75,
+            "buying_power": 10065279.75,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 77720.25,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.07254,
+          "mean_close_exposure": 0.6064109889354897,
+          "buy_fills": 10,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": 6815,
+            "373220": -182344.375,
+            "005930": 89026.375,
+            "000660": -78286.875,
+            "005380": 76645.625,
+            "000270": 83164,
+            "068270": 70260
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 340103.5999999996,
+          "before_cost_price_pnl_krw": 271159.99999999965,
+          "fees_krw": -68943.6
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 161833.125,
+          "before_cost_price_pnl_krw": 213000,
+          "fees_krw": 51166.875
+        },
+        "cap6": {
+          "net_pnl_krw": -6110.4375,
+          "before_cost_price_pnl_krw": -10350,
+          "fees_krw": -4239.5625
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": -22058.25,
+          "before_cost_price_pnl_krw": -22800,
+          "fees_krw": -741.75
+        }
+      }
+    },
+    {
+      "scenario": "75bp_delay1",
+      "phase": 2,
+      "terminal": "2024-12-18",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 2.7232162500000046,
+          "price_mdd_pct": -6.3860050539531255,
+          "net_pnl_krw": 272321.625,
+          "before_cost_price_pnl_krw": 346500,
+          "fees_krw": 74178.375,
+          "end_state": {
+            "settled_cash": 10272321.625,
+            "buying_power": 10272321.625,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 74178.375,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.97809,
+          "mean_close_exposure": 0.42243705878651006,
+          "buy_fills": 9,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "112610": 70362.3125,
+            "267260": 39012.5,
+            "323410": 248925.8125,
+            "326030": 34403.875,
+            "012450": -191019.375,
+            "006260": 70636.5
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 2.1752787500000093,
+          "price_mdd_pct": -6.3860050539531255,
+          "net_pnl_krw": 217527.875,
+          "before_cost_price_pnl_krw": 291500,
+          "fees_krw": 73972.125,
+          "end_state": {
+            "settled_cash": 10217527.875,
+            "buying_power": 10217527.875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 73972.125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.97259,
+          "mean_close_exposure": 0.4650880905768154,
+          "buy_fills": 9,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "112610": 70362.3125,
+            "267260": 19087.5,
+            "323410": 248925.8125,
+            "326030": 34403.875,
+            "012450": -225888.125,
+            "006260": 70636.5
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -1.9441708750000064,
+          "price_mdd_pct": -8.078609737389685,
+          "net_pnl_krw": -194417.08750000037,
+          "before_cost_price_pnl_krw": -75160.00000000038,
+          "fees_krw": 119257.0875,
+          "end_state": {
+            "settled_cash": 9805582.9125,
+            "buying_power": 9805582.9125,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 119257.0875,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 3.180189,
+          "mean_close_exposure": 0.37187673615487526,
+          "buy_fills": 12,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 10,
+          "pnl_by_ticker": {
+            "112610": -58007.5,
+            "267260": 39012.5,
+            "323410": 181579.3125,
+            "326030": 8899.875,
+            "395400": -46968.77499999991,
+            "012450": -190155,
+            "006260": 59877,
+            "005070": 42831.25,
+            "052690": -185045,
+            "015760": -46440.75
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": -0.8000725000000042,
+          "price_mdd_pct": -7.663594315944378,
+          "net_pnl_krw": -80007.25,
+          "before_cost_price_pnl_krw": 14600,
+          "fees_krw": 94607.25,
+          "end_state": {
+            "settled_cash": 9919992.75,
+            "buying_power": 9919992.75,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 94607.25,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.52286,
+          "mean_close_exposure": 0.6264074892439458,
+          "buy_fills": 11,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 8,
+          "pnl_by_ticker": {
+            "105560": -200232.375,
+            "207940": -16136.25,
+            "373220": -124171.875,
+            "005930": 70118.625,
+            "000660": -8034.25,
+            "005380": 84106.25,
+            "000270": 41480.375,
+            "068270": 72862.25
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 466738.7125000004,
+          "before_cost_price_pnl_krw": 421660.00000000035,
+          "fees_krw": -45078.712499999994
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 272321.625,
+          "before_cost_price_pnl_krw": 346500,
+          "fees_krw": 74178.375
+        },
+        "cap6": {
+          "net_pnl_krw": 352328.875,
+          "before_cost_price_pnl_krw": 331900,
+          "fees_krw": -20428.875
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 54793.75,
+          "before_cost_price_pnl_krw": 55000,
+          "fees_krw": 206.25
+        }
+      }
+    },
+    {
+      "scenario": "75bp_delay1",
+      "phase": 3,
+      "terminal": "2024-12-12",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 12.155731749999998,
+          "price_mdd_pct": -3.09664865780247,
+          "net_pnl_krw": 1215573.1750000007,
+          "before_cost_price_pnl_krw": 1329220.0000000007,
+          "fees_krw": 113646.825,
+          "end_state": {
+            "settled_cash": 11215573.175,
+            "buying_power": 11215573.175,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 113646.825,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 3.030582,
+          "mean_close_exposure": 0.411425753097037,
+          "buy_fills": 13,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 9,
+          "pnl_by_ticker": {
+            "105560": 22158.75,
+            "180640": 126267.75,
+            "280360": 78998.875,
+            "323410": 374334.25,
+            "326030": 31343.125,
+            "395400": 18011.449999999953,
+            "012450": 233450,
+            "064350": 165886.875,
+            "010140": 165122.1000000001
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 8.334327749999982,
+          "price_mdd_pct": -4.143116079471342,
+          "net_pnl_krw": 833432.7749999985,
+          "before_cost_price_pnl_krw": 921419.9999999985,
+          "fees_krw": 87987.22499999999,
+          "end_state": {
+            "settled_cash": 10833432.774999999,
+            "buying_power": 10833432.774999999,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 87987.22499999999,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.346326,
+          "mean_close_exposure": 0.45871789825813536,
+          "buy_fills": 11,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "105560": 22158.75,
+            "180640": 40490.625,
+            "280360": 78998.875,
+            "323410": 374334.25,
+            "326030": 66411.125,
+            "395400": 17589.15000000014,
+            "012450": 233450
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 8.627334999999992,
+          "price_mdd_pct": -5.144237321346079,
+          "net_pnl_krw": 862733.5,
+          "before_cost_price_pnl_krw": 999940,
+          "fees_krw": 137206.5,
+          "end_state": {
+            "settled_cash": 10862733.5,
+            "buying_power": 10862733.5,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 137206.5,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 3.65884,
+          "mean_close_exposure": 0.31680873334335,
+          "buy_fills": 13,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 10,
+          "pnl_by_ticker": {
+            "105560": 22158.75,
+            "180640": 63504,
+            "280360": 97130.625,
+            "323410": 100764,
+            "326030": 31343.125,
+            "395400": 37034.72500000009,
+            "012450": 77868.75,
+            "064350": 165886.875,
+            "010140": 163005.1499999999,
+            "047810": 104037.5
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 2.2907325000000034,
+          "price_mdd_pct": -3.9028789692406862,
+          "net_pnl_krw": 229073.25,
+          "before_cost_price_pnl_krw": 298200,
+          "fees_krw": 69126.75,
+          "end_state": {
+            "settled_cash": 10229073.25,
+            "buying_power": 10229073.25,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 69126.75,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 1.84338,
+          "mean_close_exposure": 0.35823249856759787,
+          "buy_fills": 10,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 6,
+          "pnl_by_ticker": {
+            "207940": 74830,
+            "373220": 72345,
+            "000660": 24212.125,
+            "000270": 35806.25,
+            "005930": 48360.5,
+            "005380": -26480.625
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 352839.67500000075,
+          "before_cost_price_pnl_krw": 329280.0000000007,
+          "fees_krw": -23559.675000000003
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 1215573.1750000007,
+          "before_cost_price_pnl_krw": 1329220.0000000007,
+          "fees_krw": 113646.825
+        },
+        "cap6": {
+          "net_pnl_krw": 986499.9250000007,
+          "before_cost_price_pnl_krw": 1031020.0000000007,
+          "fees_krw": 44520.075
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": 382140.40000000224,
+          "before_cost_price_pnl_krw": 407800.0000000022,
+          "fees_krw": 25659.600000000006
+        }
+      }
+    },
+    {
+      "scenario": "75bp_delay1",
+      "phase": 4,
+      "terminal": "2024-12-13",
+      "source_stop": null,
+      "metrics": {
+        "candidate": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 8.450862749999978,
+          "price_mdd_pct": -2.9216402622078363,
+          "net_pnl_krw": 845086.2749999985,
+          "before_cost_price_pnl_krw": 928799.9999999985,
+          "fees_krw": 83713.72499999999,
+          "end_state": {
+            "settled_cash": 10845086.274999999,
+            "buying_power": 10845086.274999999,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 83713.72499999999,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.232366,
+          "mean_close_exposure": 0.2817595789102194,
+          "buy_fills": 7,
+          "entry_sessions": 2,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "267260": 61005,
+            "395400": 40960.69999999995,
+            "006260": 194681.25,
+            "007660": 144754.4375,
+            "012450": 176334.375,
+            "010140": 155455.51249999995,
+            "047810": 71895
+          }
+        },
+        "prior_cost_aware": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 9.927752624999986,
+          "price_mdd_pct": -4.383440934019845,
+          "net_pnl_krw": 992775.2624999993,
+          "before_cost_price_pnl_krw": 1077269.9999999993,
+          "fees_krw": 84494.7375,
+          "end_state": {
+            "settled_cash": 10992775.2625,
+            "buying_power": 10992775.2625,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 84494.7375,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.253193,
+          "mean_close_exposure": 0.3509769078842672,
+          "buy_fills": 7,
+          "entry_sessions": 3,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "267260": 61005,
+            "298040": 235340,
+            "395400": 41405.92500000005,
+            "006260": 194681.25,
+            "007660": 126572.875,
+            "012450": 176334.375,
+            "010140": 157435.83750000014
+          }
+        },
+        "ridge_net": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 4.098118000000017,
+          "price_mdd_pct": -6.53335494592191,
+          "net_pnl_krw": 409811.80000000075,
+          "before_cost_price_pnl_krw": 542380.0000000007,
+          "fees_krw": 132568.2,
+          "end_state": {
+            "settled_cash": 10409811.8,
+            "buying_power": 10409811.8,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 132568.2,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 3.535152,
+          "mean_close_exposure": 0.36718297634035657,
+          "buy_fills": 13,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 11,
+          "pnl_by_ticker": {
+            "267260": 61005,
+            "298040": -31655,
+            "323410": 150608.25,
+            "395400": -52391.62500000023,
+            "006260": 122951.25,
+            "007660": 144754.4375,
+            "012450": -130813.125,
+            "064350": -203472,
+            "010140": 151494.86250000005,
+            "047810": 69498.5,
+            "012510": 127831.25
+          }
+        },
+        "legacy_selection": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 0,
+          "price_mdd_pct": 0,
+          "net_pnl_krw": 0,
+          "before_cost_price_pnl_krw": 0,
+          "fees_krw": 0,
+          "end_state": {
+            "settled_cash": 10000000,
+            "buying_power": 10000000,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 0,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 0,
+          "mean_close_exposure": 0,
+          "buy_fills": 0,
+          "entry_sessions": 0,
+          "distinct_bought_tickers": 0,
+          "pnl_by_ticker": {}
+        },
+        "cap6": {
+          "complete": true,
+          "reason": null,
+          "net_return_pct": 2.4101887500000085,
+          "price_mdd_pct": -3.034472213677508,
+          "net_pnl_krw": 241018.875,
+          "before_cost_price_pnl_krw": 322500,
+          "fees_krw": 81481.125,
+          "end_state": {
+            "settled_cash": 10241018.875,
+            "buying_power": 10241018.875,
+            "settlements": [],
+            "holdings": {},
+            "pending": [],
+            "fees": 81481.125,
+            "return_basis": "execution_kernel_only_not_certified_total_return",
+            "strict_pit_eligible": false,
+            "live_order_eligible": false
+          },
+          "turnover_notional_over_initial": 2.17283,
+          "mean_close_exposure": 0.34622219961575385,
+          "buy_fills": 11,
+          "entry_sessions": 4,
+          "distinct_bought_tickers": 7,
+          "pnl_by_ticker": {
+            "207940": 72822.5,
+            "373220": 14142.5,
+            "000660": 109045.75,
+            "005380": -64293.125,
+            "000270": -21144,
+            "005930": 34467.25,
+            "068270": 95978
+          }
+        }
+      },
+      "deltas": {
+        "ridge_net": {
+          "net_pnl_krw": 435274.47499999776,
+          "before_cost_price_pnl_krw": 386419.9999999978,
+          "fees_krw": -48854.47500000002
+        },
+        "legacy_selection": {
+          "net_pnl_krw": 845086.2749999985,
+          "before_cost_price_pnl_krw": 928799.9999999985,
+          "fees_krw": 83713.72499999999
+        },
+        "cap6": {
+          "net_pnl_krw": 604067.3999999985,
+          "before_cost_price_pnl_krw": 606299.9999999985,
+          "fees_krw": 2232.5999999999913
+        },
+        "prior_cost_aware": {
+          "net_pnl_krw": -147688.98750000075,
+          "before_cost_price_pnl_krw": -148470.00000000081,
+          "fees_krw": -781.0125000000116
+        }
+      }
+    }
+  ]
+}
