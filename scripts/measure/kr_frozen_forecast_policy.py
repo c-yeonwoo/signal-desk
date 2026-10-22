@@ -345,7 +345,7 @@ def metrics(book, curve, initial, stop):
 
 def replay_group(inputs, spec, scenario, phase, budget, *, target_selector=None,
                  decision_contract_sha=None, forecast_required_arms=("candidate",),
-                 decision_context_factory=None):
+                 decision_context_factory=None, additional_quote_names=None):
     """Common source stops across declared arms, including the liquidation tail."""
     period = spec["periods"][0]
     dates = sorted(inputs.forecasts)
@@ -410,6 +410,11 @@ def replay_group(inputs, spec, scenario, phase, budget, *, target_selector=None,
                 newcomers = {t for t in ranked[:6] if forecasts[t] > spec["candidate"]["new_entry_min_gross"]}
                 newcomers |= set(inputs.legacy[day])
                 newcomers |= set(sorted(forecasts, key=lambda t: (-caps[t], t))[:6])
+                if additional_quote_names is not None:
+                    extra = set(additional_quote_names(day, forecasts))
+                    if not extra <= set(forecasts):
+                        raise DataGap(day, "*", "additional_quote_outside_forecast_universe")
+                    newcomers |= extra
             else:
                 caps, newcomers = {}, set()
             order_names = owned | newcomers
