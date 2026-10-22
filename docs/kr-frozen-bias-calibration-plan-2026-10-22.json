@@ -1,0 +1,68 @@
+{
+  "schema": "kr-frozen-bias-calibration-plan-v1",
+  "candidate_id": "kr-frozen-top6-intercept-calibration-v1",
+  "base_commit": "630985034d48568283e392cb50d4bb1a7614e297",
+  "parent_plan": {"path": "docs/kr-frozen-forecast-policy-plan-2026-10-21.json", "sha256": "a5f9ab2763763d589b180626621a6eab1d2d6f5ee4d682c14c799e8a201a8454"},
+  "kind": "single_frozen_intercept_temporal_development_comparison",
+  "rationale": "#809에서 공통 낙관 오차와12월 상대 선정 악화를 함께 확인했다. 순위는 유지하고 양의 과대예측 보정만 추가해, 매수·보유·현금 노출에 쓰는 절대 예측의 영향을 분리한다. 결과를 본 뒤 다른 보정/국면/문턱 후보로 변형하지 않는다.",
+  "inputs": "부모에 고정한 두 예측 원장·9개 로컬 KRX ZIP·기존12개 단위 검수 근거만 사용. 새 원천 조사·예측 재구성·기초 모형 학습 없음",
+  "calibration": {
+    "training_rule": "부모49일 중 시간순 첫20판단일. 날짜별 원래 예측 상위6 고정. 평가 날짜/종목의 후행 결과로 선별하지 않음",
+    "start": "2024-10-02",
+    "end": "2024-10-31",
+    "dates": 20,
+    "stock_date_labels": 120,
+    "label": "다음 정규장 시가→그로부터5세션 뒤 시가. 진입 이후 단위 변동은 기존 정확한 보유수량 불변 근거만 허용. 한 건이라도 미확인이면 학습 중단, 확인분만 학습 금지",
+    "latest_target_maturity": "2024-11-08",
+    "fit": "e_d=상위6의 평균 예측-평균 실제 목표. b=max(0,20날짜 e_d의 산술평균). 양의 과대예측만 보정하는 제약 절편 최소제곱1개; 절편 외 학습 계수/하이퍼파라미터/상한/재학습 없음",
+    "apply": "모든 평가일의 candidate만 mu'_t=mu_t-b. 종목 순위·동률 규칙 유지. 동일 b를 신규·보유 종목 모두에 적용. 기존 choose의 alpha와 mu 모두 같은 보정값 사용",
+    "zero_bias": "b=0이면 동일 후보 그대로 비교. 다른 후보를 생성하지 않음",
+    "selection_domain_caveat": "학습 대상은 날짜별 상위6이며 전체 종목의 조건부 기대수익·상승확률 보정을 인증하지 않음",
+    "fit_calls": 1
+  },
+  "evaluation": {
+    "start_rule": "모든 학습 목표의 최종 시가 날짜보다 엄격히 뒤인 첫 부모 판단일. 첫20일 이후 미성숙 목표 구간은 학습/거래 평가에 사용하지 않음",
+    "start": "2024-11-11",
+    "end": "2024-12-11",
+    "dates": 23,
+    "forecast_rows": 4391,
+    "tail_through": "2024-12-31",
+    "role": "시간순·목표 성숙 후 고정 보정 평가. 이미 열람한 가격 전용 개발 구간이며 pristine OOS/독립 최종 평가 아님",
+    "availability_before_fit": "예측/시총/보존 선정의 신규 편입 상위집합38종목.11-11~12-20 양의 시가·종가·주식수, 판단일 거래량, 단위 근거 검사 결손0. 수익으로 정한 표본이 아님. 실제 노출이 미검수12-23까지 남으면 공통 중단"
+  },
+  "comparison": {
+    "arms": ["candidate", "prior_cost_aware", "ridge_net", "legacy_selection", "cap6"],
+    "candidate": "기존 비용/보유 choose에 고정 b만 추가. 부분 유지 선택지 보완·국면 필터·손절·재진입 규칙 추가 없음",
+    "prior_cost_aware": "부모 원래 candidate와 같은 비용/보유 choose, 원래 예측. 새 부분 유지 후보가 아님",
+    "controls": "원래 예측 차액주문·보존 기존 선정·같은 예측군 시총6을 부모와 동일 의미로 사용",
+    "shared": "5방식 모두 평가 시작일 초기 현금1천만원·같은23판단일·5시작위상·5세션주기·청산 꼬리·시가대용/비용/미체결/T+2·자기NAV 수량 계산",
+    "scenarios": ["75bp_full", "120bp_full", "75bp_half", "75bp_delay1"],
+    "trading_paths": 100,
+    "cash": "거래 경로 밖0% 상수선",
+    "inherit": "부모의 문턱1.25%·보유 버퍼0.5%·의사결정 편도0.6%·위험계수0·포트폴리오/체결/결손 계약 그대로. 보정은 b>=0이므로 신규 편입은 부모 원래 허용 집합의 부분집합"
+  },
+  "decision": {
+    "overall": "부모 전체 관문 그대로:75/120bp 각5위상 후보가 ridge_net·legacy·cap6·현금을 각각 이기고, 스트레스 두 조건은5위상 평균이 대조/현금보다 높아야 함. 후보 모든 위상 MDD>=-10%. 완결이 없으면 미완결 처리",
+    "incremental": "prior_cost_aware 대비75/120bp 평균이 엄격히 증가, half/delay 평균 비악화, 네 조건 모두 최악 위상 MDD 비악화. 하나의 완결 반례면 증분 기각. 비교 필요 경로 결손 시 전체 평균을 확인분 평균으로 대신하지 않음",
+    "prediction_diagnostic": "평가23일의 고정 상위6 날짜평균 예측오차·MAE·RMSE를 raw/보정으로 동반 보고. 이 지표 개선만으로 비용 후 성과나 전략 채택을 주장하지 않음",
+    "deployment": "전체·증분이 모두 지지여도 이미 열람한 조건부 개발 결과일 뿐 운영 변경·실주문 승인 아님. 관측 기각이면 종료하고 다른 절편/기간/문턱으로 재시도 금지"
+  },
+  "implementation": {
+    "runner": "scripts/measure/kr_frozen_bias_calibration.py",
+    "tests": "tests/test_kr_frozen_bias_calibration.py",
+    "local_result": "data/research/kr-frozen-bias-calibration-2026-10-22-v1.json",
+    "summary": "docs/kr-frozen-bias-calibration-result-2026-10-22.json",
+    "explanation": "docs/KR-FROZEN-BIAS-CALIBRATION-RESULT-2026-10-22.md",
+    "precommit": "보정 적합·실제 경로 계산 전에 명세와 구현을 각각 커밋. 학습 날짜/원문·예측·코드·계수·주문 계약 해시 보존",
+    "historical_runs": 1,
+    "max_seconds": 600
+  },
+  "production_engine_changed": false,
+  "live_order_eligible": false,
+  "strict_pit_eligible": false,
+  "verified_total_return": false,
+  "pristine_oos": false,
+  "new_market_data_requests": 0,
+  "forecast_reconstruction_calls": 0,
+  "integrated_roadmap_percent": 40
+}
