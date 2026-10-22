@@ -1,0 +1,17 @@
+{
+  "schema":"kr-temporal-selection-plan-v1",
+  "base_commit":"ad228b9a95af2661af7f368965218ceacb173730",
+  "question":"14特성 원 Ridge가 학습기간 내부의 시간순 검증에서 단순 모멘텀보다 종목 선정에 도움이 되는가",
+  "folds":[["2024-06-03","2024-06-28"],["2024-07-01","2024-07-31"],["2024-08-01","2024-08-30"],["2024-09-02","2024-09-20"]],
+  "training":"각 fold마다 2024-04-01부터 평가 첫날 전까지 판단한 행 중 label exit_date<평가첫날인 행만 사용. 마지막 판단일과 마지막 label을 기록. expanding 4회 fit, alpha0.1·14특성·missing mask·clip8 고정. 전처리 중앙값/평균/scale도 fold 학습자료에서 다시 적합. 전체기간 원모델 전처리 재사용 금지.",
+  "sources":"기존 원R3 9개 KRX zip·재무 원천/2024-04-01명부·253종가·날짜시총상위200·기존features_at/label_at 재사용. 전체 원학습21884행 해시 재현. 라벨 없는 평가행도 순위선정에 포함. 자료 추가·기업행사 조사 없음.",
+  "arms":["ridge14","momentum12_skip21"],
+  "selection":"매 평가일 각 팔 상위6(동점 ticker오름차순), 동일 적격특성집합. 보정/진입문턱 없이 종목선정력을 직접 비교. momentum은 feature[4]의 과거12개월·최근21세션 제외 수익. 예측평균오차는 채택관문 아님.",
+  "backtest":"월별 별도 top6 동일금액 코호트. 다음시가→5세션후시가; phase별 평가일[phase::5]라 fold 안 비중첩. 시작자금이나 정수주식 주문 계좌의 수익으로 표시하지 않음. 각 종목 net=(1+gross)*(1-side_cost)/(1+side_cost)-1, side_cost=전체비용/2. 코호트6평균을 복리연결. 75bp/120bp×4fold×2팔×5위상=80경로. 각 fold 끝 코호트의 후행 관측은 허용하되 다음 fold 학습엔 당시 성숙한 값만 허용. fold 사이 계좌연결 금지.",
+  "missing":"선정 전 후행라벨로 유니버스 거르지 않음. 두 팔 중 하나라도 선정라벨 미확인이면 그 날짜 두 팔 코호트 모두 unknown. 해당 위상 두팔 경로수익 null. 기권 날짜를 삭제하거나 손실0으로 채우지 않음. known-only 선정수익은 분모/미확인건수와 함께 기술통계로만 보고.",
+  "acceptance":"모든80경로완결 필수. 비용별 각fold의5위상평균 초과>0, 비용별 전체최악위상초과>=0, 각fold 원gross top6평균 차이>0. 두 팔이 같은 날 같은 모집단이므로 시장대비 lift 차이는 (ridge-market)-(momentum-market)=ridge-momentum: 전체시장라벨 결손이 있어도 양쪽top6완전하면 이 차이는 정확하다. 전체시장평균 자체는 결손시null. 반례는rejected, 반례없어도선정라벨결손은not_evaluable. 모두통과해도research_selection_support이며운영채택아님: 반복열람·사후선택자료/비정수코호트/미인증기업행사 한계. 운영은효과가검증된별도계좌비교전무변경.",
+  "pre_execution_amendment":"성과실행/신규fit 전에 동일 모집단 시장평균이 차이에서 상쇄됨을 확인해 불필요한 전체시장 완전성 관문을 제거. 선정라벨 공동결손 규칙과 나머지 관문 유지. 결과 열람에 따른 완화 아님.",
+  "no_search":"4fold·14특성·단일모멘텀·6종목·비용·관문을 결과 후 수정하지 않음. 하이퍼파라미터 탐색/추가 후보/기존10~12월 재평가 없음. 새역사실험1회,synthetic 경계검사·독립리뷰·구현사전커밋후실행.",
+  "raw":"data/research/kr-temporal-selection-2026-10-23-v1.json",
+  "integrated_roadmap_percent":40
+}

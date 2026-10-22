@@ -1,0 +1,13 @@
+{
+  "schema":"kr-temporal-selection-public-result-v1",
+  "decision":"rejected",
+  "raw":{"path":"data/research/kr-temporal-selection-2026-10-23-v1.json","bytes":78453,"sha256":"bb6d864f61a463c92a5fde19e127ab0c9882d9f5c210144e2c9f6adcd5e43dbb"},
+  "plan_commit":"6520da6bcca2a6b20ba126c2bde3216d4347806a",
+  "implementation_commit":"e5e5ee894ef854732a5bb06538cc068392702cc6",
+  "paths":80,"completed":28,"unavailable":52,"fit_calls":4,"historical_runs":1,
+  "june_mean_net_cohort_return_pct":{"75bp":{"ridge14":-3.175076111428947,"momentum":-1.0653724370332696},"120bp":{"ridge14":-4.818689392660593,"momentum":-2.743625333144495}},
+  "june_daily_mean_top6_gross":{"ridge14":0.000002227034149553547,"momentum":0.005784831177046075},
+  "fold_completed_paths":[20,8,0,0],
+  "account_returns":false,"pristine_oos":false,"verified_total_return":false,
+  "production_engine_changed":false,"new_market_data_requests":0,"integrated_roadmap_percent":40
+}
