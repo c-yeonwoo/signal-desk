@@ -1,0 +1,2952 @@
+{
+  "schema": "kr-integer-risk-budget-result-v1",
+  "candidate_id": "kr-integer-downside-action-v1",
+  "state": "comparison_complete",
+  "provenance": {
+    "plan_commit": "3b7a8e498b4fcdce917a99fcc33a8613ac8f9ecc",
+    "plan_sha256": "a5f9ab2763763d589b180626621a6eab1d2d6f5ee4d682c14c799e8a201a8454",
+    "implementation_commit": "4b679422574d4c6a5b1afb1afe12ad70c3083346",
+    "code_sha256": {
+      "scripts/measure/kr_frozen_forecast_policy.py": "690ae466972df05d291a8b05b2d30399c7569e068fdc5881f505438e6f86b2ab",
+      "tests/test_kr_frozen_forecast_policy.py": "b12caf8e2574a2d1199fd90bba939999e6a32f9eba9447698ed0a8dbc64af5c0",
+      "src/signal_desk/signals/research_net_alpha.py": "d0398de4c200ca2e59a1eb1e165c2805e94696314306e7d5532137fead67e70a",
+      "src/signal_desk/signals/research_net_alpha_execution.py": "3d6c941185f7a8c35b77527dd49da240357751d1a2241ff4de48cf5957960625",
+      "src/signal_desk/market_clock.py": "0ad001d935b0252529e1b882de8afc1eaa2482220ded44580aad57136704f727",
+      "scripts/measure/krx_price_replay_pilot.py": "3f0e62787a94f3c9f0b2c8c8cb2743106e2a80e44d3dded4b7449ca626b735d7",
+      "scripts/measure/kr_frozen_bias_calibration.py": "32999805fadd841da0a1d659b6b628e831f331300de77b109e4715164dd95160",
+      "tests/test_kr_frozen_bias_calibration.py": "d76505a5e8e6eed8455c27c4c2bad76f39affb34cc8c7a20cf2040ba2b7ac3af",
+      "scripts/measure/kr_forecast_error_attribution.py": "1c4cffbb12d2c70da7af27b4d48045f29c247faf18e6b7ee3762d801f53aea75",
+      "tests/test_kr_forecast_error_attribution.py": "313cadab4e35772902e1a21b54778043e123dd05e80cdccbd433c17f1bc00b44",
+      "scripts/measure/kr_stock_downside_action.py": "425c1e576cb7974eb74e8a542f8bbdc34f7e46bc125d48edd6630072f8bf5aa1",
+      "tests/test_kr_stock_downside_action.py": "cd20db47c0fb06f037665a930ea131d5f82564ddb6c20c34639a85146146dc91",
+      "scripts/measure/kr_joint_weakness_regime.py": "b63d6cd42632168b843830174227d9b612ba029163cf7e93bba77206fab9f78b",
+      "tests/test_kr_joint_weakness_regime.py": "491634e04ef212c5e53f718f8df0b4a275d3c174253a18930f6f3e6cbefe78ea",
+      "scripts/measure/kr_integer_risk_budget.py": "e10c2c3e74ce48e8b098cda760fd16bd99c299327eb0f7392e3c0b7d707416c3",
+      "tests/test_kr_integer_risk_budget.py": "2b28752a685429edd849b3b102c67a0aad99b2b15bc441418dd9abba6b54aac7"
+    },
+    "input_sha256": {
+      "data/research/kr-ridge-hold-renewal-diagnostic-2026-10-18-celltrion-kia-v1.json": "50b3400dd7e8a3d25224b03d53bef893e8de2bf43b509443285148dc0f6e7299",
+      "data/research/kr-ridge-r3-result-2026-10-17-v4.json": "2cf98e96eff44d415c0264bd1ec1b6f2b036804b9e2bbeb28476dc807994abfd"
+    },
+    "raw_sources": [
+      {
+        "archive": "krx-daily-2023-q1-v1.zip",
+        "sha256": "e9bfadf172c80a91f1eca853037350db007f28d9b850f1b00d9774646ab1a8d0",
+        "sessions": 62
+      },
+      {
+        "archive": "krx-daily-2023-q2-v1.zip",
+        "sha256": "a6f83ef305e8c5d7f277444af69af3030224633cd0c70da58096906909eb30e7",
+        "sessions": 61
+      },
+      {
+        "archive": "krx-daily-2023-q3-v1.zip",
+        "sha256": "bc708b3ce35d2c28542f1b8c6423e3c771b5ea81b534e85c23dc506ae357788d",
+        "sessions": 62
+      },
+      {
+        "archive": "krx-daily-2023-q4-v1.zip",
+        "sha256": "d0fdfdef45ccf488833f2b63a97d5503a4297f53a4918b3c5ab641adc852d5b1",
+        "sessions": 60
+      },
+      {
+        "archive": "krx-daily-2024-q1-v1.zip",
+        "sha256": "f579892c94e216cde45eeaef9135d65ce9964fc878464cdf19af489dca473de3",
+        "sessions": 61
+      },
+      {
+        "archive": "krx-daily-2024-q2-v1.zip",
+        "sha256": "ee7d94c0524165a07c4907e5ccf967632d2071e26329c29938b69f2f9173b4df",
+        "sessions": 60
+      },
+      {
+        "archive": "krx-daily-2024-q3-v1.zip",
+        "sha256": "894466cf70e9ef64bcc7caedeeb3d24c498755f3d4cd13ecc86df9432e7cbf9e",
+        "sessions": 62
+      },
+      {
+        "archive": "krx-daily-2024-10-12-v1.zip",
+        "sha256": "e48e8e8601ab7c9de23b5de6f9b331cff6784600b0e3694e8cf4d6a4b69afd02",
+        "sessions": 61
+      },
+      {
+        "archive": "krx-daily-2025-01-04-v1.zip",
+        "sha256": "0f8ba69f3d8cecc3cd3a85e59925dc76920380cf1b565bfb96d6f1ab823cf419",
+        "sessions": 80
+      }
+    ],
+    "full_q4_forecasts_crosschecked": 11644,
+    "used_forecast_dates": 49,
+    "used_forecast_rows": 9347,
+    "reviewed_unit_facts": 12,
+    "calibration_plan": {
+      "path": "docs/kr-frozen-bias-calibration-plan-2026-10-22.json",
+      "sha256": "3ac2fc720b5221e08a10fd9cc6ec205d007e8952560cb73d3cda1487a4bba9c9",
+      "commit": "b3c61b4dc5097feeac7568bdefa6ac6f6d246435"
+    },
+    "action_plan": {
+      "path": "docs/kr-stock-downside-action-plan-2026-10-23.json",
+      "sha256": "c2b59c9543b77b8afd38b42989950824c8a65d96be2266ea28d0153110eb973d",
+      "commit": "cf66a6691e3957ee0b31fa967b2700025e4adfc8"
+    },
+    "parent_calibration_result": {
+      "path": "data/research/kr-frozen-bias-calibration-2026-10-22-v1.json",
+      "sha256": "a44bd4eb35ef0d081853053c00f8bbd8cf55722a2042fc7970031eca42e5758c"
+    },
+    "integer_plan": {
+      "path": "docs/kr-integer-risk-budget-plan-2026-10-23.json",
+      "sha256": "3b83a3d0ef33842e295f9e9b5fbc19e01630cf9d46fb1100a896fac912dfa289",
+      "commit": "01529e3b6f996656a123f03cd328e78e366623c0"
+    },
+    "parent_downside_result": {
+      "path": "data/research/kr-stock-downside-action-2026-10-23-v1.json",
+      "sha256": "d038d841a8d96bd13927ee20a2c861384a5ac2b776bc0737432d55d16964ebb3"
+    }
+  },
+  "evaluation": {
+    "start": "2024-11-11",
+    "end": "2024-12-11",
+    "dates": 23,
+    "forecast_rows": 4391,
+    "tail_through": "2024-12-31",
+    "role": "부모와 동일 반복열람 개발 구간;독립OOS/PIT/총수익/현재운영정확도 증거 아님."
+  },
+  "bias_reused": 0.00456177185085543,
+  "path_count": 200,
+  "completed_paths": 200,
+  "parent_complete_matches": 140,
+  "verdict": {
+    "legacy_full_budget": {
+      "decision": "observed_rejection",
+      "violations": [
+        "75bp_full/phase0:candidate_does_not_beat_cash",
+        "75bp_full/phase1:candidate_does_not_beat_cap6",
+        "75bp_full/phase3:candidate_does_not_beat_ridge_net",
+        "75bp_full/phase3:candidate_does_not_beat_cap6",
+        "75bp_full/phase4:candidate_does_not_beat_ridge_net",
+        "75bp_full/phase4:candidate_does_not_beat_cap6",
+        "120bp_full/phase0:candidate_does_not_beat_cash",
+        "120bp_full/phase3:candidate_does_not_beat_ridge_net",
+        "120bp_full/phase3:candidate_does_not_beat_cap6",
+        "120bp_full/phase4:candidate_does_not_beat_cap6",
+        "75bp_half:candidate_mean_does_not_beat_cap6",
+        "75bp_delay1:candidate_mean_does_not_beat_ridge_net",
+        "75bp_delay1:candidate_mean_does_not_beat_cap6"
+      ],
+      "incomplete_paths": [],
+      "scenario_mean_price_return_pct": {
+        "75bp_full": {
+          "candidate": 0.552689312500001,
+          "matched_ridge": 0.24308809999999736,
+          "matched_cap6": 0.5199662500000013,
+          "prior_downside": 0.6429753624999934,
+          "action_only": 4.913749600000004,
+          "prior_calibrated": 5.462927262500005,
+          "prior_cost_aware": 4.890669537499998,
+          "ridge_net": -1.2526454875000081,
+          "legacy_selection": -0.8583076750000007,
+          "cap6": 1.3844109999999987
+        },
+        "120bp_full": {
+          "candidate": 0.48926890000000167,
+          "matched_ridge": 0.13343696000000183,
+          "matched_cap6": 0.40726599999999724,
+          "prior_downside": 0.5952065800000028,
+          "action_only": 4.384270900000002,
+          "prior_calibrated": 4.932089260000008,
+          "prior_cost_aware": 4.179608379999998,
+          "ridge_net": -2.2950131399999973,
+          "legacy_selection": -0.8986802800000016,
+          "cap6": 0.8164592000000015
+        },
+        "75bp_half": {
+          "candidate": 0.3596905125000083,
+          "matched_ridge": 0.15371808750000104,
+          "matched_cap6": 0.2907039999999972,
+          "prior_downside": 0.33479869999999856,
+          "action_only": 1.7175410625000034,
+          "prior_calibrated": 2.886373574999998,
+          "prior_cost_aware": 2.808608287500003,
+          "ridge_net": -0.17237147499999725,
+          "legacy_selection": -0.4219180500000008,
+          "cap6": 0.5190034999999993
+        },
+        "75bp_delay1": {
+          "candidate": 0.7204092624999991,
+          "matched_ridge": 0.5353544250000031,
+          "matched_cap6": 0.4140272499999975,
+          "prior_downside": 0.6253578375000002,
+          "action_only": 5.6041570749999945,
+          "prior_calibrated": 6.141262724999996,
+          "prior_cost_aware": 5.473379399999994,
+          "ridge_net": 1.2479711000000004,
+          "legacy_selection": -0.5589898250000003,
+          "cap6": 1.0411570000000037
+        }
+      },
+      "production_change_authorized": false,
+      "incremental_assessments": {
+        "prior_calibrated": {
+          "decision": "incremental_rejection",
+          "violations": [
+            "75bp_full:mean_not_improved",
+            "120bp_full:mean_not_improved",
+            "75bp_half:mean_regression",
+            "75bp_delay1:mean_regression"
+          ]
+        },
+        "action_only": {
+          "decision": "incremental_rejection",
+          "violations": [
+            "75bp_full:mean_not_improved",
+            "120bp_full:mean_not_improved",
+            "75bp_half:mean_regression",
+            "75bp_delay1:mean_regression"
+          ]
+        }
+      },
+      "adoption": "rejected"
+    },
+    "violations": [
+      "75bp_full:integer_mean_not_improved",
+      "75bp_full:worst_mdd_worse_than_prior_downside",
+      "75bp_full/phase0:not_above_matched_ridge",
+      "75bp_full/phase1:not_above_matched_ridge",
+      "75bp_full/phase0:not_above_matched_cap6",
+      "75bp_full/phase3:not_above_matched_cap6",
+      "75bp_full:not_above_cash_every_phase",
+      "120bp_full:integer_mean_not_improved",
+      "120bp_full:worst_mdd_worse_than_prior_downside",
+      "120bp_full/phase0:not_above_matched_ridge",
+      "120bp_full/phase1:not_above_matched_ridge",
+      "120bp_full/phase0:not_above_matched_cap6",
+      "120bp_full:not_above_cash_every_phase",
+      "75bp_half:worst_mdd_worse_than_prior_downside",
+      "75bp_delay1:worst_mdd_worse_than_prior_downside"
+    ],
+    "risk_matching": [
+      {
+        "scenario": "75bp_full",
+        "arm": "matched_ridge",
+        "positive_budget_decisions": 22,
+        "zero_budget_decisions": 1,
+        "ceiling_sum": 0.009312278678779028,
+        "planned_charge_sum": 0.00852599953807215,
+        "utilization": 0.9155653339178237
+      },
+      {
+        "scenario": "75bp_full",
+        "arm": "matched_cap6",
+        "positive_budget_decisions": 22,
+        "zero_budget_decisions": 1,
+        "ceiling_sum": 0.009312278678779028,
+        "planned_charge_sum": 0.008163262044827176,
+        "utilization": 0.8766127310418395
+      },
+      {
+        "scenario": "120bp_full",
+        "arm": "matched_ridge",
+        "positive_budget_decisions": 22,
+        "zero_budget_decisions": 1,
+        "ceiling_sum": 0.009315462287769874,
+        "planned_charge_sum": 0.008531709175638957,
+        "utilization": 0.9158653550495401
+      },
+      {
+        "scenario": "120bp_full",
+        "arm": "matched_cap6",
+        "positive_budget_decisions": 22,
+        "zero_budget_decisions": 1,
+        "ceiling_sum": 0.009315462287769874,
+        "planned_charge_sum": 0.0081681431017019,
+        "utilization": 0.8768371176195655
+      },
+      {
+        "scenario": "75bp_half",
+        "arm": "matched_ridge",
+        "positive_budget_decisions": 22,
+        "zero_budget_decisions": 1,
+        "ceiling_sum": 0.006610921762137494,
+        "planned_charge_sum": 0.00589947645029074,
+        "utilization": 0.8923833411671289
+      },
+      {
+        "scenario": "75bp_half",
+        "arm": "matched_cap6",
+        "positive_budget_decisions": 22,
+        "zero_budget_decisions": 1,
+        "ceiling_sum": 0.006610921762137494,
+        "planned_charge_sum": 0.005669662238693879,
+        "utilization": 0.857620532005921
+      },
+      {
+        "scenario": "75bp_delay1",
+        "arm": "matched_ridge",
+        "positive_budget_decisions": 20,
+        "zero_budget_decisions": 3,
+        "ceiling_sum": 0.009365287900960808,
+        "planned_charge_sum": 0.008579742320095882,
+        "utilization": 0.9161215769155014
+      },
+      {
+        "scenario": "75bp_delay1",
+        "arm": "matched_cap6",
+        "positive_budget_decisions": 20,
+        "zero_budget_decisions": 3,
+        "ceiling_sum": 0.009365287900960808,
+        "planned_charge_sum": 0.008139325032130619,
+        "utilization": 0.8690950153593875
+      }
+    ],
+    "comparability_failures": [],
+    "incomplete_paths": [],
+    "decision": "rejected",
+    "production_change_authorized": false
+  },
+  "wall_seconds": 4.211088875075802,
+  "historical_runs": 1,
+  "fit_calls": 0,
+  "new_market_data_requests": 0,
+  "production_engine_changed": false,
+  "live_order_eligible": false,
+  "strict_pit_eligible": false,
+  "verified_total_return": false,
+  "pristine_oos": false,
+  "integrated_roadmap_percent": 40,
+  "raw_artifact": {
+    "path": "data/research/kr-integer-risk-budget-2026-10-23-v1.json",
+    "sha256": "22c1f5b55ead4cfe5ad922b6e3ca6071682307afa43674d728f98ac5a948c861",
+    "bytes": 12120577
+  },
+  "all_books_fully_closed": true,
+  "scenario_metrics": {
+    "75bp_full": {
+      "candidate": {
+        "mean": {
+          "net_return_pct": 0.552689312500001,
+          "price_mdd_pct": -0.5694107955071126,
+          "mean_close_exposure": 0.05681565868078712,
+          "fees_krw": 10570.06875,
+          "net_pnl_krw": 55268.93125000037,
+          "before_cost_price_pnl_krw": 65839.00000000038,
+          "buy_fills": 6.6
+        },
+        "worst_mdd_pct": -1.1016560233983563,
+        "phases": [
+          {
+            "net_return_pct": -0.44933631249999273,
+            "price_mdd_pct": -1.1016560233983563,
+            "mean_close_exposure": 0.07085654204767791,
+            "fees_krw": 11128.63125,
+            "net_pnl_krw": -44933.63124999963,
+            "before_cost_price_pnl_krw": -33804.99999999963,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 0.2101860000000011,
+            "price_mdd_pct": -0.44397601022123645,
+            "mean_close_exposure": 0.07152848804953534,
+            "fees_krw": 11021.4,
+            "net_pnl_krw": 21018.599999999627,
+            "before_cost_price_pnl_krw": 32039.99999999963,
+            "buy_fills": 5
+          },
+          {
+            "net_return_pct": 0.6047606249999893,
+            "price_mdd_pct": -0.25950491594964875,
+            "mean_close_exposure": 0.035930872866009655,
+            "fees_krw": 6573.9375,
+            "net_pnl_krw": 60476.0625,
+            "before_cost_price_pnl_krw": 67050,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.8882702500000006,
+            "price_mdd_pct": -0.5946941387737881,
+            "mean_close_exposure": 0.062065070390102645,
+            "fees_krw": 11982.975,
+            "net_pnl_krw": 88827.02500000037,
+            "before_cost_price_pnl_krw": 100810.00000000038,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 1.5095660000000066,
+            "price_mdd_pct": -0.4472228891925334,
+            "mean_close_exposure": 0.04369732005061005,
+            "fees_krw": 12143.4,
+            "net_pnl_krw": 150956.6000000015,
+            "before_cost_price_pnl_krw": 163100.00000000148,
+            "buy_fills": 8
+          }
+        ]
+      },
+      "matched_ridge": {
+        "mean": {
+          "net_return_pct": 0.24308809999999736,
+          "price_mdd_pct": -0.7345196851103086,
+          "mean_close_exposure": 0.043829610316612276,
+          "fees_krw": 18275.19,
+          "net_pnl_krw": 24308.81000000015,
+          "before_cost_price_pnl_krw": 42584.000000000146,
+          "buy_fills": 11.8
+        },
+        "worst_mdd_pct": -1.5687283186350265,
+        "phases": [
+          {
+            "net_return_pct": -0.2735946875000006,
+            "price_mdd_pct": -1.5687283186350265,
+            "mean_close_exposure": 0.05875036668735121,
+            "fees_krw": 22284.46875,
+            "net_pnl_krw": -27359.46875,
+            "before_cost_price_pnl_krw": -5075,
+            "buy_fills": 17
+          },
+          {
+            "net_return_pct": 0.43654487500000005,
+            "price_mdd_pct": -0.24016827399455654,
+            "mean_close_exposure": 0.04996186838369198,
+            "fees_krw": 19115.5125,
+            "net_pnl_krw": 43654.487500000745,
+            "before_cost_price_pnl_krw": 62770.00000000074,
+            "buy_fills": 12
+          },
+          {
+            "net_return_pct": -0.18854668749999082,
+            "price_mdd_pct": -0.321096249999997,
+            "mean_close_exposure": 0.026028231849198613,
+            "fees_krw": 11209.66875,
+            "net_pnl_krw": -18854.668749999255,
+            "before_cost_price_pnl_krw": -7644.999999999254,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 0.1870468749999965,
+            "price_mdd_pct": -1.1326507609842107,
+            "mean_close_exposure": 0.051419604441600444,
+            "fees_krw": 23695.3125,
+            "net_pnl_krw": 18704.6875,
+            "before_cost_price_pnl_krw": 42400,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 1.0539901249999817,
+            "price_mdd_pct": -0.40995482193775246,
+            "mean_close_exposure": 0.03298798022121912,
+            "fees_krw": 15070.9875,
+            "net_pnl_krw": 105399.01249999925,
+            "before_cost_price_pnl_krw": 120469.99999999926,
+            "buy_fills": 11
+          }
+        ]
+      },
+      "matched_cap6": {
+        "mean": {
+          "net_return_pct": 0.5199662500000013,
+          "price_mdd_pct": -0.7362935657110281,
+          "mean_close_exposure": 0.06212945081080473,
+          "fees_krw": 18783.375,
+          "net_pnl_krw": 51996.625,
+          "before_cost_price_pnl_krw": 70780,
+          "buy_fills": 9.2
+        },
+        "worst_mdd_pct": -1.2717511060798325,
+        "phases": [
+          {
+            "net_return_pct": -0.10585499999999914,
+            "price_mdd_pct": -1.2717511060798325,
+            "mean_close_exposure": 0.09099609362434313,
+            "fees_krw": 20785.5,
+            "net_pnl_krw": -10585.5,
+            "before_cost_price_pnl_krw": 10200,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 0.15229000000001047,
+            "price_mdd_pct": -0.8327901753034328,
+            "mean_close_exposure": 0.06765417080153648,
+            "fees_krw": 13971,
+            "net_pnl_krw": 15229,
+            "before_cost_price_pnl_krw": 29200,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 0.47727749999999514,
+            "price_mdd_pct": -0.4044663381796765,
+            "mean_close_exposure": 0.03928350027855924,
+            "fees_krw": 12872.25,
+            "net_pnl_krw": 47727.75,
+            "before_cost_price_pnl_krw": 60600,
+            "buy_fills": 6
+          },
+          {
+            "net_return_pct": 0.9036162499999945,
+            "price_mdd_pct": -0.9180692793678391,
+            "mean_close_exposure": 0.06982640960274715,
+            "fees_krw": 26538.375,
+            "net_pnl_krw": 90361.625,
+            "before_cost_price_pnl_krw": 116900,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 1.1725025000000056,
+            "price_mdd_pct": -0.2543909296243596,
+            "mean_close_exposure": 0.04288707974683765,
+            "fees_krw": 19749.75,
+            "net_pnl_krw": 117250.25,
+            "before_cost_price_pnl_krw": 137000,
+            "buy_fills": 9
+          }
+        ]
+      },
+      "prior_downside": {
+        "mean": {
+          "net_return_pct": 0.6429753624999934,
+          "price_mdd_pct": -0.32957631532720244,
+          "mean_close_exposure": 0.04459493662416377,
+          "fees_krw": 7961.46375,
+          "net_pnl_krw": 64297.5362499997,
+          "before_cost_price_pnl_krw": 72258.99999999971,
+          "buy_fills": 5.4
+        },
+        "worst_mdd_pct": -0.46729201779497354,
+        "phases": [
+          {
+            "net_return_pct": 0.3794785625000019,
+            "price_mdd_pct": -0.31397526518840424,
+            "mean_close_exposure": 0.04697503610582683,
+            "fees_krw": 8377.14375,
+            "net_pnl_krw": 37947.856249999255,
+            "before_cost_price_pnl_krw": 46324.99999999926,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 0.5074563749999816,
+            "price_mdd_pct": -0.2561574597771399,
+            "mean_close_exposure": 0.05442309877600037,
+            "fees_krw": 8084.3625,
+            "net_pnl_krw": 50745.637499999255,
+            "before_cost_price_pnl_krw": 58829.99999999926,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.5630287500000053,
+            "price_mdd_pct": -0.2451858330506651,
+            "mean_close_exposure": 0.033511951682552416,
+            "fees_krw": 6097.125,
+            "net_pnl_krw": 56302.875,
+            "before_cost_price_pnl_krw": 62400,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.8643747499999854,
+            "price_mdd_pct": -0.46729201779497354,
+            "mean_close_exposure": 0.05809643501146976,
+            "fees_krw": 10392.525,
+            "net_pnl_krw": 86437.47499999963,
+            "before_cost_price_pnl_krw": 96829.99999999962,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 0.9005383749999929,
+            "price_mdd_pct": -0.36527100082482944,
+            "mean_close_exposure": 0.029968161544969472,
+            "fees_krw": 6856.1625,
+            "net_pnl_krw": 90053.83750000037,
+            "before_cost_price_pnl_krw": 96910.00000000038,
+            "buy_fills": 5
+          }
+        ]
+      },
+      "action_only": {
+        "mean": {
+          "net_return_pct": 4.913749600000004,
+          "price_mdd_pct": -4.1042824184054165,
+          "mean_close_exposure": 0.45872503572930035,
+          "fees_krw": 87701.04,
+          "net_pnl_krw": 491374.9599999998,
+          "before_cost_price_pnl_krw": 579075.9999999998,
+          "buy_fills": 8.4
+        },
+        "worst_mdd_pct": -4.785503648265266,
+        "phases": [
+          {
+            "net_return_pct": 5.494935625000008,
+            "price_mdd_pct": -3.795542649523187,
+            "mean_close_exposure": 0.6134326560938071,
+            "fees_krw": 95096.4375,
+            "net_pnl_krw": 549493.5625,
+            "before_cost_price_pnl_krw": 644590,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 2.838739499999998,
+            "price_mdd_pct": -4.785503648265266,
+            "mean_close_exposure": 0.5385024208868456,
+            "fees_krw": 87106.05,
+            "net_pnl_krw": 283873.94999999925,
+            "before_cost_price_pnl_krw": 370979.99999999924,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": -0.656166250000001,
+            "price_mdd_pct": -4.741571970012959,
+            "mean_close_exposure": 0.41903960878386476,
+            "fees_krw": 71216.625,
+            "net_pnl_krw": -65616.625,
+            "before_cost_price_pnl_krw": 5600,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 5.331669125000005,
+            "price_mdd_pct": -3.802377951279734,
+            "mean_close_exposure": 0.38377917089581604,
+            "fees_krw": 86743.0875,
+            "net_pnl_krw": 533166.9124999996,
+            "before_cost_price_pnl_krw": 619909.9999999997,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 11.559570000000008,
+            "price_mdd_pct": -3.396415872945935,
+            "mean_close_exposure": 0.33887132198616815,
+            "fees_krw": 98343,
+            "net_pnl_krw": 1155957,
+            "before_cost_price_pnl_krw": 1254300,
+            "buy_fills": 8
+          }
+        ]
+      },
+      "prior_calibrated": {
+        "mean": {
+          "net_return_pct": 5.462927262500006,
+          "price_mdd_pct": -4.216910017668464,
+          "mean_close_exposure": 0.45664941081886723,
+          "fees_krw": 88332.27375000001,
+          "net_pnl_krw": 546292.7262500003,
+          "before_cost_price_pnl_krw": 634625.0000000003,
+          "buy_fills": 10.8
+        },
+        "worst_mdd_pct": -5.202051829379128,
+        "phases": [
+          {
+            "net_return_pct": 7.426647499999994,
+            "price_mdd_pct": -3.79325964616406,
+            "mean_close_exposure": 0.6272982071912454,
+            "fees_krw": 90395.25,
+            "net_pnl_krw": 742664.75,
+            "before_cost_price_pnl_krw": 833060,
+            "buy_fills": 13
+          },
+          {
+            "net_return_pct": 2.823741000000024,
+            "price_mdd_pct": -4.867922187732732,
+            "mean_close_exposure": 0.543563268445352,
+            "fees_krw": 88845.90000000001,
+            "net_pnl_krw": 282374.1000000015,
+            "before_cost_price_pnl_krw": 371220.0000000015,
+            "buy_fills": 12
+          },
+          {
+            "net_return_pct": -0.679474999999996,
+            "price_mdd_pct": -5.202051829379128,
+            "mean_close_exposure": 0.4083433428167408,
+            "fees_krw": 74647.5,
+            "net_pnl_krw": -67947.5,
+            "before_cost_price_pnl_krw": 6700,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 5.421865812499993,
+            "price_mdd_pct": -3.8087748889905293,
+            "mean_close_exposure": 0.3870006467708271,
+            "fees_krw": 88298.41875,
+            "net_pnl_krw": 542186.5812499989,
+            "before_cost_price_pnl_krw": 630484.9999999988,
+            "buy_fills": 11
+          },
+          {
+            "net_return_pct": 12.321857000000014,
+            "price_mdd_pct": -3.412541536075875,
+            "mean_close_exposure": 0.31704158887017103,
+            "fees_krw": 99474.3,
+            "net_pnl_krw": 1232185.7000000011,
+            "before_cost_price_pnl_krw": 1331660.0000000012,
+            "buy_fills": 9
+          }
+        ]
+      },
+      "prior_cost_aware": {
+        "mean": {
+          "net_return_pct": 4.890669537499999,
+          "price_mdd_pct": -5.524807973388741,
+          "mean_close_exposure": 0.5326438901344173,
+          "fees_krw": 88768.04625,
+          "net_pnl_krw": 489066.95374999975,
+          "before_cost_price_pnl_krw": 577834.9999999998,
+          "buy_fills": 11.4
+        },
+        "worst_mdd_pct": -7.214673360820257,
+        "phases": [
+          {
+            "net_return_pct": 5.988049250000005,
+            "price_mdd_pct": -4.87577301959824,
+            "mean_close_exposure": 0.6457781071999463,
+            "fees_krw": 102795.07500000001,
+            "net_pnl_krw": 598804.9250000007,
+            "before_cost_price_pnl_krw": 701600.0000000007,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 6.36179349999999,
+            "price_mdd_pct": -5.64880649064704,
+            "mean_close_exposure": 0.681481181526429,
+            "fees_krw": 103840.65000000001,
+            "net_pnl_krw": 636179.3499999996,
+            "before_cost_price_pnl_krw": 740019.9999999997,
+            "buy_fills": 15
+          },
+          {
+            "net_return_pct": -0.05980749999999757,
+            "price_mdd_pct": -6.352586913476809,
+            "mean_close_exposure": 0.49862840301954225,
+            "fees_krw": 74880.75,
+            "net_pnl_krw": -5980.75,
+            "before_cost_price_pnl_krw": 68900,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 4.98309643749999,
+            "price_mdd_pct": -3.53220008240136,
+            "mean_close_exposure": 0.4095239717551426,
+            "fees_krw": 75525.35625,
+            "net_pnl_krw": 498309.6437499989,
+            "before_cost_price_pnl_krw": 573834.9999999988,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 7.180216000000006,
+            "price_mdd_pct": -7.214673360820257,
+            "mean_close_exposure": 0.4278077871710261,
+            "fees_krw": 86798.40000000001,
+            "net_pnl_krw": 718021.5999999996,
+            "before_cost_price_pnl_krw": 804819.9999999997,
+            "buy_fills": 9
+          }
+        ]
+      },
+      "ridge_net": {
+        "mean": {
+          "net_return_pct": -1.2526454875000081,
+          "price_mdd_pct": -8.78531054024454,
+          "mean_close_exposure": 0.49000176314367866,
+          "fees_krw": 173239.54875,
+          "net_pnl_krw": -125264.54875000045,
+          "before_cost_price_pnl_krw": 47974.99999999955,
+          "buy_fills": 17.4
+        },
+        "worst_mdd_pct": -13.385432757558602,
+        "phases": [
+          {
+            "net_return_pct": -7.065588062500005,
+            "price_mdd_pct": -13.385432757558602,
+            "mean_close_exposure": 0.6263016495100538,
+            "fees_krw": 220413.80625,
+            "net_pnl_krw": -706558.8062500004,
+            "before_cost_price_pnl_krw": -486145.00000000035,
+            "buy_fills": 22
+          },
+          {
+            "net_return_pct": -1.1794887500000018,
+            "price_mdd_pct": -5.5510787387334055,
+            "mean_close_exposure": 0.5601828320592942,
+            "fees_krw": 172048.875,
+            "net_pnl_krw": -117948.875,
+            "before_cost_price_pnl_krw": 54100,
+            "buy_fills": 19
+          },
+          {
+            "net_return_pct": -1.7321917500000117,
+            "price_mdd_pct": -5.037320580717264,
+            "mean_close_exposure": 0.4502040425265711,
+            "fees_krw": 157829.17500000002,
+            "net_pnl_krw": -173219.17500000075,
+            "before_cost_price_pnl_krw": -15390.000000000728,
+            "buy_fills": 16
+          },
+          {
+            "net_return_pct": 1.989618624999978,
+            "price_mdd_pct": -8.435302655201504,
+            "mean_close_exposure": 0.4070963722664486,
+            "fees_krw": 171248.13749999998,
+            "net_pnl_krw": 198961.86249999888,
+            "before_cost_price_pnl_krw": 370209.99999999884,
+            "buy_fills": 16
+          },
+          {
+            "net_return_pct": 1.7244225000000002,
+            "price_mdd_pct": -11.517417969011923,
+            "mean_close_exposure": 0.40622391935602564,
+            "fees_krw": 144657.75,
+            "net_pnl_krw": 172442.25,
+            "before_cost_price_pnl_krw": 317100,
+            "buy_fills": 14
+          }
+        ]
+      },
+      "legacy_selection": {
+        "mean": {
+          "net_return_pct": -0.8583076750000007,
+          "price_mdd_pct": -1.1272908374097912,
+          "mean_close_exposure": 0.012884980412931592,
+          "fees_krw": 6728.7675,
+          "net_pnl_krw": -85830.76750000007,
+          "before_cost_price_pnl_krw": -79102.00000000007,
+          "buy_fills": 0.6
+        },
+        "worst_mdd_pct": -2.890777499999997,
+        "phases": [
+          {
+            "net_return_pct": -2.422558124999996,
+            "price_mdd_pct": -2.745676687048959,
+            "mean_close_exposure": 0.022258458561927884,
+            "fees_krw": 11405.8125,
+            "net_pnl_krw": -242255.8125,
+            "before_cost_price_pnl_krw": -230850,
+            "buy_fills": 1
+          },
+          {
+            "net_return_pct": -1.8689802500000074,
+            "price_mdd_pct": -2.890777499999997,
+            "mean_close_exposure": 0.04216644350273008,
+            "fees_krw": 22238.025,
+            "net_pnl_krw": -186898.02500000037,
+            "before_cost_price_pnl_krw": -164660.00000000038,
+            "buy_fills": 2
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          }
+        ]
+      },
+      "cap6": {
+        "mean": {
+          "net_return_pct": 1.3844109999999987,
+          "price_mdd_pct": -5.186863182778878,
+          "mean_close_exposure": 0.5396829583144979,
+          "fees_krw": 84678.9,
+          "net_pnl_krw": 138441.1,
+          "before_cost_price_pnl_krw": 223120,
+          "buy_fills": 11
+        },
+        "worst_mdd_pct": -6.7187029186128955,
+        "phases": [
+          {
+            "net_return_pct": -0.5136600000000047,
+            "price_mdd_pct": -5.3806852527249145,
+            "mean_close_exposure": 0.6285037773034388,
+            "fees_krw": 85566,
+            "net_pnl_krw": -51366,
+            "before_cost_price_pnl_krw": 34200,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 0.5937850000000022,
+            "price_mdd_pct": -5.15345721065229,
+            "mean_close_exposure": 0.6218884840081625,
+            "fees_krw": 80821.5,
+            "net_pnl_krw": 59378.5,
+            "before_cost_price_pnl_krw": 140200,
+            "buy_fills": 12
+          },
+          {
+            "net_return_pct": 0.1442425000000025,
+            "price_mdd_pct": -6.7187029186128955,
+            "mean_close_exposure": 0.6059977880488856,
+            "fees_krw": 93375.75,
+            "net_pnl_krw": 14424.25,
+            "before_cost_price_pnl_krw": 107800,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 1.8601050000000008,
+            "price_mdd_pct": -5.679473292660065,
+            "mean_close_exposure": 0.47721189447580564,
+            "fees_krw": 83389.5,
+            "net_pnl_krw": 186010.5,
+            "before_cost_price_pnl_krw": 269400,
+            "buy_fills": 11
+          },
+          {
+            "net_return_pct": 4.837582499999993,
+            "price_mdd_pct": -3.001997239244225,
+            "mean_close_exposure": 0.36481284773619677,
+            "fees_krw": 80241.75,
+            "net_pnl_krw": 483758.25,
+            "before_cost_price_pnl_krw": 564000,
+            "buy_fills": 8
+          }
+        ]
+      }
+    },
+    "120bp_full": {
+      "candidate": {
+        "mean": {
+          "net_return_pct": 0.48926890000000167,
+          "price_mdd_pct": -0.5806066280135158,
+          "mean_close_exposure": 0.056833518827868315,
+          "fees_krw": 16912.11,
+          "net_pnl_krw": 48926.889999999854,
+          "before_cost_price_pnl_krw": 65838.99999999985,
+          "buy_fills": 6.6
+        },
+        "worst_mdd_pct": -1.104668218072491,
+        "phases": [
+          {
+            "net_return_pct": -0.5161081000000012,
+            "price_mdd_pct": -1.104668218072491,
+            "mean_close_exposure": 0.07087685882238308,
+            "fees_krw": 17805.81,
+            "net_pnl_krw": -51610.81000000052,
+            "before_cost_price_pnl_krw": -33805.000000000524,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 0.14405760000002488,
+            "price_mdd_pct": -0.46853151511155877,
+            "mean_close_exposure": 0.07155558197898203,
+            "fees_krw": 17634.239999999998,
+            "net_pnl_krw": 14405.76000000164,
+            "before_cost_price_pnl_krw": 32040.000000001637,
+            "buy_fills": 5
+          },
+          {
+            "net_return_pct": 0.5653169999999985,
+            "price_mdd_pct": -0.25958136964420175,
+            "mean_close_exposure": 0.03593894198372621,
+            "fees_krw": 10518.3,
+            "net_pnl_krw": 56531.699999999255,
+            "before_cost_price_pnl_krw": 67049.99999999926,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.8163723999999872,
+            "price_mdd_pct": -0.6024006118073522,
+            "mean_close_exposure": 0.062086544391673486,
+            "fees_krw": 19172.76,
+            "net_pnl_krw": 81637.23999999836,
+            "before_cost_price_pnl_krw": 100809.99999999836,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 1.436705599999999,
+            "price_mdd_pct": -0.46785142543197544,
+            "mean_close_exposure": 0.04370966696257676,
+            "fees_krw": 19429.440000000002,
+            "net_pnl_krw": 143670.56000000052,
+            "before_cost_price_pnl_krw": 163100.00000000052,
+            "buy_fills": 8
+          }
+        ]
+      },
+      "matched_ridge": {
+        "mean": {
+          "net_return_pct": 0.13343696000000183,
+          "price_mdd_pct": -0.7764722752076181,
+          "mean_close_exposure": 0.043855426805657696,
+          "fees_krw": 29240.304,
+          "net_pnl_krw": 13343.696000000462,
+          "before_cost_price_pnl_krw": 42584.000000000466,
+          "buy_fills": 11.8
+        },
+        "worst_mdd_pct": -1.6187552171722852,
+        "phases": [
+          {
+            "net_return_pct": -0.4073015000000013,
+            "price_mdd_pct": -1.6187552171722852,
+            "mean_close_exposure": 0.058792095472435475,
+            "fees_krw": 35655.15,
+            "net_pnl_krw": -40730.15000000037,
+            "before_cost_price_pnl_krw": -5075.000000000371,
+            "buy_fills": 17
+          },
+          {
+            "net_return_pct": 0.3218517999999948,
+            "price_mdd_pct": -0.2552762062225655,
+            "mean_close_exposure": 0.04998856587039364,
+            "fees_krw": 30584.82,
+            "net_pnl_krw": 32185.179999999702,
+            "before_cost_price_pnl_krw": 62769.9999999997,
+            "buy_fills": 12
+          },
+          {
+            "net_return_pct": -0.2558046999999841,
+            "price_mdd_pct": -0.3673539999999864,
+            "mean_close_exposure": 0.02603759700322703,
+            "fees_krw": 17935.469999999998,
+            "net_pnl_krw": -25580.469999998808,
+            "before_cost_price_pnl_krw": -7644.99999999881,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 0.04487500000001088,
+            "price_mdd_pct": -1.2098534394808014,
+            "mean_close_exposure": 0.05145653612161605,
+            "fees_krw": 37912.5,
+            "net_pnl_krw": 4487.500000001863,
+            "before_cost_price_pnl_krw": 42400.00000000186,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 0.9635641999999889,
+            "price_mdd_pct": -0.43112251316245187,
+            "mean_close_exposure": 0.033002339560616274,
+            "fees_krw": 24113.58,
+            "net_pnl_krw": 96356.41999999993,
+            "before_cost_price_pnl_krw": 120469.99999999993,
+            "buy_fills": 11
+          }
+        ]
+      },
+      "matched_cap6": {
+        "mean": {
+          "net_return_pct": 0.40726599999999724,
+          "price_mdd_pct": -0.7734360951898256,
+          "mean_close_exposure": 0.06216346692205952,
+          "fees_krw": 30053.399999999998,
+          "net_pnl_krw": 40726.6,
+          "before_cost_price_pnl_krw": 70780,
+          "buy_fills": 9.2
+        },
+        "worst_mdd_pct": -1.3193680000000096,
+        "phases": [
+          {
+            "net_return_pct": -0.23056800000000877,
+            "price_mdd_pct": -1.3193680000000096,
+            "mean_close_exposure": 0.09104803327253837,
+            "fees_krw": 33256.8,
+            "net_pnl_krw": -23056.800000000745,
+            "before_cost_price_pnl_krw": 10199.999999999258,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 0.06846400000002362,
+            "price_mdd_pct": -0.8369341320353607,
+            "mean_close_exposure": 0.0676785079431718,
+            "fees_krw": 22353.6,
+            "net_pnl_krw": 6846.400000002235,
+            "before_cost_price_pnl_krw": 29200.000000002234,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 0.4000439999999772,
+            "price_mdd_pct": -0.42550561163186007,
+            "mean_close_exposure": 0.03930100457747564,
+            "fees_krw": 20595.600000000002,
+            "net_pnl_krw": 40004.39999999851,
+            "before_cost_price_pnl_krw": 60599.999999998516,
+            "buy_fills": 6
+          },
+          {
+            "net_return_pct": 0.7443859999999969,
+            "price_mdd_pct": -0.9742060284899878,
+            "mean_close_exposure": 0.06987898951104317,
+            "fees_krw": 42461.399999999994,
+            "net_pnl_krw": 74438.59999999963,
+            "before_cost_price_pnl_krw": 116899.99999999962,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 1.0540039999999973,
+            "price_mdd_pct": -0.3111667037919097,
+            "mean_close_exposure": 0.042910799306068614,
+            "fees_krw": 31599.6,
+            "net_pnl_krw": 105400.40000000037,
+            "before_cost_price_pnl_krw": 137000.00000000038,
+            "buy_fills": 9
+          }
+        ]
+      },
+      "prior_downside": {
+        "mean": {
+          "net_return_pct": 0.5952065800000028,
+          "price_mdd_pct": -0.33476609859311335,
+          "mean_close_exposure": 0.04460600508690424,
+          "fees_krw": 12738.342,
+          "net_pnl_krw": 59520.65800000019,
+          "before_cost_price_pnl_krw": 72259.00000000019,
+          "buy_fills": 5.4
+        },
+        "worst_mdd_pct": -0.47041386292245857,
+        "phases": [
+          {
+            "net_return_pct": 0.3292156999999962,
+            "price_mdd_pct": -0.3140405545210334,
+            "mean_close_exposure": 0.046984820437532236,
+            "fees_krw": 13403.43,
+            "net_pnl_krw": 32921.5700000003,
+            "before_cost_price_pnl_krw": 46325.0000000003,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 0.45895020000001896,
+            "price_mdd_pct": -0.2670889160200085,
+            "mean_close_exposure": 0.054438348072328384,
+            "fees_krw": 12934.98,
+            "net_pnl_krw": 45895.020000001416,
+            "before_cost_price_pnl_krw": 58830.00000000141,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.5264460000000026,
+            "price_mdd_pct": -0.24525244739804775,
+            "mean_close_exposure": 0.03351892748409453,
+            "fees_krw": 9755.400000000001,
+            "net_pnl_krw": 52644.59999999963,
+            "before_cost_price_pnl_krw": 62399.99999999963,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.8020196000000146,
+            "price_mdd_pct": -0.47041386292245857,
+            "mean_close_exposure": 0.05811529305429701,
+            "fees_krw": 16628.04,
+            "net_pnl_krw": 80201.9600000009,
+            "before_cost_price_pnl_krw": 96830.0000000009,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 0.8594013999999817,
+            "price_mdd_pct": -0.3770347121040185,
+            "mean_close_exposure": 0.029972636386269024,
+            "fees_krw": 10969.86,
+            "net_pnl_krw": 85940.13999999873,
+            "before_cost_price_pnl_krw": 96909.99999999873,
+            "buy_fills": 5
+          }
+        ]
+      },
+      "action_only": {
+        "mean": {
+          "net_return_pct": 4.384270900000002,
+          "price_mdd_pct": -4.21733026404207,
+          "mean_close_exposure": 0.45941998334381756,
+          "fees_krw": 140297.91,
+          "net_pnl_krw": 438427.08999999985,
+          "before_cost_price_pnl_krw": 578724.9999999999,
+          "buy_fills": 8.4
+        },
+        "worst_mdd_pct": -4.908036250811987,
+        "phases": [
+          {
+            "net_return_pct": 4.922667199999986,
+            "price_mdd_pct": -3.949589000000009,
+            "mean_close_exposure": 0.6140585299041841,
+            "fees_krw": 152153.28,
+            "net_pnl_krw": 492266.7199999988,
+            "before_cost_price_pnl_krw": 644419.9999999988,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 2.319283999999988,
+            "price_mdd_pct": -4.908036250811987,
+            "mean_close_exposure": 0.5397736554293137,
+            "fees_krw": 139371.6,
+            "net_pnl_krw": 231928.3999999985,
+            "before_cost_price_pnl_krw": 371299.9999999985,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": -1.0899269999999905,
+            "price_mdd_pct": -4.820729155581816,
+            "mean_close_exposure": 0.41972442323827114,
+            "fees_krw": 113942.7,
+            "net_pnl_krw": -108992.69999999925,
+            "before_cost_price_pnl_krw": 4950.000000000742,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 4.800667500000011,
+            "price_mdd_pct": -3.872320310838606,
+            "mean_close_exposure": 0.3839414023058693,
+            "fees_krw": 138728.25,
+            "net_pnl_krw": 480066.75,
+            "before_cost_price_pnl_krw": 618795,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 10.968662800000018,
+            "price_mdd_pct": -3.5359766029779305,
+            "mean_close_exposure": 0.3396019058414496,
+            "fees_krw": 157293.72,
+            "net_pnl_krw": 1096866.2800000012,
+            "before_cost_price_pnl_krw": 1254160.0000000012,
+            "buy_fills": 8
+          }
+        ]
+      },
+      "prior_calibrated": {
+        "mean": {
+          "net_return_pct": 4.932089260000008,
+          "price_mdd_pct": -4.337163254782959,
+          "mean_close_exposure": 0.4576194831037371,
+          "fees_krw": 141298.07400000002,
+          "net_pnl_krw": 493208.92600000056,
+          "before_cost_price_pnl_krw": 634507.0000000006,
+          "buy_fills": 10.6
+        },
+        "worst_mdd_pct": -5.300208965627851,
+        "phases": [
+          {
+            "net_return_pct": 6.884887300000009,
+            "price_mdd_pct": -3.949589000000009,
+            "mean_close_exposure": 0.6286896546475489,
+            "fees_krw": 144576.27,
+            "net_pnl_krw": 688488.7300000004,
+            "before_cost_price_pnl_krw": 833065.0000000005,
+            "buy_fills": 13
+          },
+          {
+            "net_return_pct": 2.2938464000000103,
+            "price_mdd_pct": -4.995411434546848,
+            "mean_close_exposure": 0.5448666023311287,
+            "fees_krw": 142155.36000000002,
+            "net_pnl_krw": 229384.6400000006,
+            "before_cost_price_pnl_krw": 371540.0000000006,
+            "buy_fills": 12
+          },
+          {
+            "net_return_pct": -1.1273599999999995,
+            "price_mdd_pct": -5.300208965627851,
+            "mean_close_exposure": 0.4093409633603692,
+            "fees_krw": 119436.00000000001,
+            "net_pnl_krw": -112736,
+            "before_cost_price_pnl_krw": 6700.000000000015,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 4.890874600000017,
+            "price_mdd_pct": -3.8902707927286118,
+            "mean_close_exposure": 0.3877539320204339,
+            "fees_krw": 141222.54,
+            "net_pnl_krw": 489087.4600000009,
+            "before_cost_price_pnl_krw": 630310.0000000009,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 11.718198000000001,
+            "price_mdd_pct": -3.5503360810114737,
+            "mean_close_exposure": 0.3174462631592049,
+            "fees_krw": 159100.2,
+            "net_pnl_krw": 1171819.8000000007,
+            "before_cost_price_pnl_krw": 1330920.0000000007,
+            "buy_fills": 9
+          }
+        ]
+      },
+      "prior_cost_aware": {
+        "mean": {
+          "net_return_pct": 4.179608379999998,
+          "price_mdd_pct": -5.55597279972926,
+          "mean_close_exposure": 0.5319596754426092,
+          "fees_krw": 141498.162,
+          "net_pnl_krw": 417960.8379999992,
+          "before_cost_price_pnl_krw": 559458.9999999992,
+          "buy_fills": 10.6
+        },
+        "worst_mdd_pct": -7.268139441628307,
+        "phases": [
+          {
+            "net_return_pct": 5.3718900999999875,
+            "price_mdd_pct": -4.889798302478998,
+            "mean_close_exposure": 0.6474465451652135,
+            "fees_krw": 164415.99000000002,
+            "net_pnl_krw": 537189.0099999979,
+            "before_cost_price_pnl_krw": 701604.9999999979,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 4.8585828,
+            "price_mdd_pct": -5.67543862954516,
+            "mean_close_exposure": 0.6742873217773855,
+            "fees_krw": 163941.72000000003,
+            "net_pnl_krw": 485858.27999999933,
+            "before_cost_price_pnl_krw": 649799.9999999993,
+            "buy_fills": 13
+          },
+          {
+            "net_return_pct": -0.5090919999999888,
+            "price_mdd_pct": -6.370909698908767,
+            "mean_close_exposure": 0.4998501531100344,
+            "fees_krw": 119809.20000000001,
+            "net_pnl_krw": -50909.199999999255,
+            "before_cost_price_pnl_krw": 68900.00000000076,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 4.528743599999996,
+            "price_mdd_pct": -3.5755779260850717,
+            "mean_close_exposure": 0.4102193860803572,
+            "fees_krw": 120785.64000000001,
+            "net_pnl_krw": 452874.3599999994,
+            "before_cost_price_pnl_krw": 573659.9999999994,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 6.647917399999992,
+            "price_mdd_pct": -7.268139441628307,
+            "mean_close_exposure": 0.4279949710800554,
+            "fees_krw": 138538.26,
+            "net_pnl_krw": 664791.7399999984,
+            "before_cost_price_pnl_krw": 803329.9999999984,
+            "buy_fills": 8
+          }
+        ]
+      },
+      "ridge_net": {
+        "mean": {
+          "net_return_pct": -2.2950131399999973,
+          "price_mdd_pct": -9.253034408202074,
+          "mean_close_exposure": 0.4916676207348709,
+          "fees_krw": 276352.314,
+          "net_pnl_krw": -229501.31400000007,
+          "before_cost_price_pnl_krw": 46850.99999999997,
+          "buy_fills": 17.2
+        },
+        "worst_mdd_pct": -14.390585099999997,
+        "phases": [
+          {
+            "net_return_pct": -8.38526970000001,
+            "price_mdd_pct": -14.390585099999997,
+            "mean_close_exposure": 0.6305404979403857,
+            "fees_krw": 352361.9700000001,
+            "net_pnl_krw": -838526.9700000007,
+            "before_cost_price_pnl_krw": -486165.0000000006,
+            "buy_fills": 22
+          },
+          {
+            "net_return_pct": -2.2135766,
+            "price_mdd_pct": -5.972816753306653,
+            "mean_close_exposure": 0.5620708852349685,
+            "fees_krw": 274467.66000000003,
+            "net_pnl_krw": -221357.66000000015,
+            "before_cost_price_pnl_krw": 53109.99999999988,
+            "buy_fills": 18
+          },
+          {
+            "net_return_pct": -2.6838841,
+            "price_mdd_pct": -5.32725862320328,
+            "mean_close_exposure": 0.4491539900397276,
+            "fees_krw": 249913.41,
+            "net_pnl_krw": -268388.41000000015,
+            "before_cost_price_pnl_krw": -18475.000000000146,
+            "buy_fills": 16
+          },
+          {
+            "net_return_pct": 0.961714300000005,
+            "price_mdd_pct": -8.877354700772244,
+            "mean_close_exposure": 0.40884022413038995,
+            "fees_krw": 273753.57,
+            "net_pnl_krw": 96171.4299999997,
+            "before_cost_price_pnl_krw": 369924.9999999997,
+            "buy_fills": 16
+          },
+          {
+            "net_return_pct": 0.8459504000000173,
+            "price_mdd_pct": -11.697156863728198,
+            "mean_close_exposure": 0.4077325063288828,
+            "fees_krw": 231264.96000000002,
+            "net_pnl_krw": 84595.04000000097,
+            "before_cost_price_pnl_krw": 315860.000000001,
+            "buy_fills": 14
+          }
+        ]
+      },
+      "legacy_selection": {
+        "mean": {
+          "net_return_pct": -0.8986802800000016,
+          "price_mdd_pct": -1.141868197604352,
+          "mean_close_exposure": 0.012892510538293416,
+          "fees_krw": 10766.028000000002,
+          "net_pnl_krw": -89868.02800000012,
+          "before_cost_price_pnl_krw": -79102.00000000012,
+          "buy_fills": 0.6
+        },
+        "worst_mdd_pct": -2.959344000000008,
+        "phases": [
+          {
+            "net_return_pct": -2.490993000000008,
+            "price_mdd_pct": -2.7499969880217523,
+            "mean_close_exposure": 0.022266734805863726,
+            "fees_krw": 18249.300000000003,
+            "net_pnl_krw": -249099.30000000075,
+            "before_cost_price_pnl_krw": -230850.00000000076,
+            "buy_fills": 1
+          },
+          {
+            "net_return_pct": -2.0024083999999998,
+            "price_mdd_pct": -2.959344000000008,
+            "mean_close_exposure": 0.04219581788560336,
+            "fees_krw": 35580.840000000004,
+            "net_pnl_krw": -200240.83999999985,
+            "before_cost_price_pnl_krw": -164659.99999999985,
+            "buy_fills": 2
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          }
+        ]
+      },
+      "cap6": {
+        "mean": {
+          "net_return_pct": 0.8164592000000015,
+          "price_mdd_pct": -5.324344546757169,
+          "mean_close_exposure": 0.5394911373389095,
+          "fees_krw": 134194.08000000002,
+          "net_pnl_krw": 81645.91999999993,
+          "before_cost_price_pnl_krw": 215839.99999999994,
+          "buy_fills": 10.4
+        },
+        "worst_mdd_pct": -6.872866141576772,
+        "phases": [
+          {
+            "net_return_pct": -1.1966880000000124,
+            "price_mdd_pct": -5.486922256036442,
+            "mean_close_exposure": 0.6274875847212193,
+            "fees_krw": 134668.8,
+            "net_pnl_krw": -119668.80000000075,
+            "before_cost_price_pnl_krw": 14999.999999999243,
+            "buy_fills": 13
+          },
+          {
+            "net_return_pct": -0.020903999999988265,
+            "price_mdd_pct": -5.304758220629823,
+            "mean_close_exposure": 0.618380205096497,
+            "fees_krw": 125090.40000000001,
+            "net_pnl_krw": -2090.39999999851,
+            "before_cost_price_pnl_krw": 123000.0000000015,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": -0.41601200000001004,
+            "price_mdd_pct": -6.872866141576772,
+            "mean_close_exposure": 0.607699130810596,
+            "fees_krw": 149401.19999999998,
+            "net_pnl_krw": -41601.20000000112,
+            "before_cost_price_pnl_krw": 107799.99999999886,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 1.3597680000000167,
+            "price_mdd_pct": -5.8077795946329,
+            "mean_close_exposure": 0.4783902524966761,
+            "fees_krw": 133423.2,
+            "net_pnl_krw": 135976.80000000075,
+            "before_cost_price_pnl_krw": 269400.00000000076,
+            "buy_fills": 11
+          },
+          {
+            "net_return_pct": 4.3561320000000014,
+            "price_mdd_pct": -3.1493965209099084,
+            "mean_close_exposure": 0.36549851356955915,
+            "fees_krw": 128386.80000000002,
+            "net_pnl_krw": 435613.19999999925,
+            "before_cost_price_pnl_krw": 563999.9999999993,
+            "buy_fills": 8
+          }
+        ]
+      }
+    },
+    "75bp_half": {
+      "candidate": {
+        "mean": {
+          "net_return_pct": 0.3596905125000083,
+          "price_mdd_pct": -0.2100085807201224,
+          "mean_close_exposure": 0.02502997338444084,
+          "fees_krw": 4377.94875,
+          "net_pnl_krw": 35969.05125000067,
+          "before_cost_price_pnl_krw": 40347.00000000067,
+          "buy_fills": 5.4
+        },
+        "worst_mdd_pct": -0.30349220112161346,
+        "phases": [
+          {
+            "net_return_pct": 0.23375075000000578,
+            "price_mdd_pct": -0.27100242794615426,
+            "mean_close_exposure": 0.03413811114347231,
+            "fees_krw": 5384.925,
+            "net_pnl_krw": 23375.075000001118,
+            "before_cost_price_pnl_krw": 28760.000000001117,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 0.33683925000000947,
+            "price_mdd_pct": -0.11574010259640666,
+            "mean_close_exposure": 0.02708571765573714,
+            "fees_krw": 3936.075,
+            "net_pnl_krw": 33683.925000000745,
+            "before_cost_price_pnl_krw": 37620.00000000074,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.276619375000009,
+            "price_mdd_pct": -0.13015858913973943,
+            "mean_close_exposure": 0.015399616482925458,
+            "fees_krw": 2588.0625,
+            "net_pnl_krw": 27661.9375,
+            "before_cost_price_pnl_krw": 30250,
+            "buy_fills": 3
+          },
+          {
+            "net_return_pct": 0.419359437500022,
+            "price_mdd_pct": -0.30349220112161346,
+            "mean_close_exposure": 0.030175193368299175,
+            "fees_krw": 5889.05625,
+            "net_pnl_krw": 41935.94375000149,
+            "before_cost_price_pnl_krw": 47825.00000000149,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 0.5318837499999951,
+            "price_mdd_pct": -0.22964958279669823,
+            "mean_close_exposure": 0.018351228271770114,
+            "fees_krw": 4091.625,
+            "net_pnl_krw": 53188.375,
+            "before_cost_price_pnl_krw": 57280,
+            "buy_fills": 6
+          }
+        ]
+      },
+      "matched_ridge": {
+        "mean": {
+          "net_return_pct": 0.15371808750000104,
+          "price_mdd_pct": -0.1640081379836933,
+          "mean_close_exposure": 0.014509889551439661,
+          "fees_krw": 6333.19125,
+          "net_pnl_krw": 15371.808750000224,
+          "before_cost_price_pnl_krw": 21705.000000000222,
+          "buy_fills": 8.2
+        },
+        "worst_mdd_pct": -0.37913123792049364,
+        "phases": [
+          {
+            "net_return_pct": 0.09233856250001615,
+            "price_mdd_pct": -0.10434392744984589,
+            "mean_close_exposure": 0.012441451749081787,
+            "fees_krw": 5851.143749999999,
+            "net_pnl_krw": 9233.856250001118,
+            "before_cost_price_pnl_krw": 15085.000000001117,
+            "buy_fills": 11
+          },
+          {
+            "net_return_pct": 0.09449637499998609,
+            "price_mdd_pct": -0.06381903540289002,
+            "mean_close_exposure": 0.016058278563645896,
+            "fees_krw": 5480.3625,
+            "net_pnl_krw": 9449.637499999255,
+            "before_cost_price_pnl_krw": 14929.999999999254,
+            "buy_fills": 6
+          },
+          {
+            "net_return_pct": -0.10691712500000561,
+            "price_mdd_pct": -0.15087124999999535,
+            "mean_close_exposure": 0.00924293818179774,
+            "fees_krw": 4071.7125,
+            "net_pnl_krw": -10691.712500000373,
+            "before_cost_price_pnl_krw": -6620.000000000373,
+            "buy_fills": 6
+          },
+          {
+            "net_return_pct": 0.19281774999999612,
+            "price_mdd_pct": -0.37913123792049364,
+            "mean_close_exposure": 0.021231807295115698,
+            "fees_krw": 9918.225,
+            "net_pnl_krw": 19281.775000000373,
+            "before_cost_price_pnl_krw": 29200.00000000037,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 0.49585487500001246,
+            "price_mdd_pct": -0.12187523914524157,
+            "mean_close_exposure": 0.013574971967557184,
+            "fees_krw": 6344.5125,
+            "net_pnl_krw": 49585.487500000745,
+            "before_cost_price_pnl_krw": 55930.00000000074,
+            "buy_fills": 8
+          }
+        ]
+      },
+      "matched_cap6": {
+        "mean": {
+          "net_return_pct": 0.2907039999999972,
+          "price_mdd_pct": -0.18074454779634985,
+          "mean_close_exposure": 0.017402718921805716,
+          "fees_krw": 5769.6,
+          "net_pnl_krw": 29070.4,
+          "before_cost_price_pnl_krw": 34840,
+          "buy_fills": 4.6
+        },
+        "worst_mdd_pct": -0.3759931695413221,
+        "phases": [
+          {
+            "net_return_pct": 0.256119999999993,
+            "price_mdd_pct": -0.17543144934002441,
+            "mean_close_exposure": 0.019287144468600845,
+            "fees_krw": 5388,
+            "net_pnl_krw": 25612,
+            "before_cost_price_pnl_krw": 31000,
+            "buy_fills": 6
+          },
+          {
+            "net_return_pct": 0.16286624999999333,
+            "price_mdd_pct": -0.13380419971728008,
+            "mean_close_exposure": 0.014787681227112312,
+            "fees_krw": 2613.375,
+            "net_pnl_krw": 16286.625,
+            "before_cost_price_pnl_krw": 18900,
+            "buy_fills": 2
+          },
+          {
+            "net_return_pct": 0.2572599999999925,
+            "price_mdd_pct": -0.13541449873761824,
+            "mean_close_exposure": 0.015821661654747483,
+            "fees_krw": 5874,
+            "net_pnl_krw": 25726,
+            "before_cost_price_pnl_krw": 31600,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.32660749999999794,
+            "price_mdd_pct": -0.3759931695413221,
+            "mean_close_exposure": 0.023115454124838564,
+            "fees_krw": 8339.25,
+            "net_pnl_krw": 32660.75,
+            "before_cost_price_pnl_krw": 41000,
+            "buy_fills": 6
+          },
+          {
+            "net_return_pct": 0.45066625000000915,
+            "price_mdd_pct": -0.08307942164550441,
+            "mean_close_exposure": 0.01400165313372937,
+            "fees_krw": 6633.375,
+            "net_pnl_krw": 45066.625,
+            "before_cost_price_pnl_krw": 51700,
+            "buy_fills": 5
+          }
+        ]
+      },
+      "prior_downside": {
+        "mean": {
+          "net_return_pct": 0.33479869999999856,
+          "price_mdd_pct": -0.14914937701342001,
+          "mean_close_exposure": 0.020628369940365925,
+          "fees_krw": 3764.1299999999997,
+          "net_pnl_krw": 33479.86999999955,
+          "before_cost_price_pnl_krw": 37243.999999999556,
+          "buy_fills": 4.4
+        },
+        "worst_mdd_pct": -0.20093888127350468,
+        "phases": [
+          {
+            "net_return_pct": 0.2861238124999943,
+            "price_mdd_pct": -0.15619923182095263,
+            "mean_close_exposure": 0.02264156006970023,
+            "fees_krw": 4632.61875,
+            "net_pnl_krw": 28612.381249999627,
+            "before_cost_price_pnl_krw": 33244.99999999963,
+            "buy_fills": 5
+          },
+          {
+            "net_return_pct": 0.3080034999999981,
+            "price_mdd_pct": -0.11062756368172,
+            "mean_close_exposure": 0.025836978013917055,
+            "fees_krw": 3739.65,
+            "net_pnl_krw": 30800.349999999627,
+            "before_cost_price_pnl_krw": 34539.99999999963,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.2685893750000057,
+            "price_mdd_pct": -0.13016901436583295,
+            "mean_close_exposure": 0.015104722523900176,
+            "fees_krw": 2591.0625,
+            "net_pnl_krw": 26858.9375,
+            "before_cost_price_pnl_krw": 29450,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.38942381250000047,
+            "price_mdd_pct": -0.20093888127350468,
+            "mean_close_exposure": 0.027198611112106738,
+            "fees_krw": 4902.61875,
+            "net_pnl_krw": 38942.38124999963,
+            "before_cost_price_pnl_krw": 43844.99999999963,
+            "buy_fills": 5
+          },
+          {
+            "net_return_pct": 0.42185299999999426,
+            "price_mdd_pct": -0.14781219392508982,
+            "mean_close_exposure": 0.012359977982205419,
+            "fees_krw": 2954.7,
+            "net_pnl_krw": 42185.29999999888,
+            "before_cost_price_pnl_krw": 45139.99999999888,
+            "buy_fills": 4
+          }
+        ]
+      },
+      "action_only": {
+        "mean": {
+          "net_return_pct": 1.7175410625000032,
+          "price_mdd_pct": -2.580351083970136,
+          "mean_close_exposure": 0.2546981275291738,
+          "fees_krw": 51916.89375,
+          "net_pnl_krw": 171754.10625000036,
+          "before_cost_price_pnl_krw": 223671.00000000038,
+          "buy_fills": 10
+        },
+        "worst_mdd_pct": -3.6959987707237185,
+        "phases": [
+          {
+            "net_return_pct": -0.633816499999984,
+            "price_mdd_pct": -3.6959987707237185,
+            "mean_close_exposure": 0.3591457393129485,
+            "fees_krw": 70501.65000000001,
+            "net_pnl_krw": -63381.64999999851,
+            "before_cost_price_pnl_krw": 7120.000000001499,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 0.7728591250000028,
+            "price_mdd_pct": -2.7355064094679693,
+            "mean_close_exposure": 0.30839578080473723,
+            "fees_krw": 51004.0875,
+            "net_pnl_krw": 77285.91249999963,
+            "before_cost_price_pnl_krw": 128289.99999999962,
+            "buy_fills": 11
+          },
+          {
+            "net_return_pct": 0.3048675000000056,
+            "price_mdd_pct": -2.74211540191186,
+            "mean_close_exposure": 0.23877352195351054,
+            "fees_krw": 40313.25,
+            "net_pnl_krw": 30486.75,
+            "before_cost_price_pnl_krw": 70800,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 2.728870437499986,
+            "price_mdd_pct": -2.0175812598474008,
+            "mean_close_exposure": 0.19771606137714834,
+            "fees_krw": 44877.956249999996,
+            "net_pnl_krw": 272887.04374999925,
+            "before_cost_price_pnl_krw": 317764.99999999924,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 5.414924750000005,
+            "price_mdd_pct": -1.7105535778997316,
+            "mean_close_exposure": 0.16945953419752455,
+            "fees_krw": 52887.525,
+            "net_pnl_krw": 541492.4750000015,
+            "before_cost_price_pnl_krw": 594380.0000000015,
+            "buy_fills": 9
+          }
+        ]
+      },
+      "prior_calibrated": {
+        "mean": {
+          "net_return_pct": 2.8863735749999986,
+          "price_mdd_pct": -2.944047985817533,
+          "mean_close_exposure": 0.2825285560205367,
+          "fees_krw": 56134.6425,
+          "net_pnl_krw": 288637.3574999999,
+          "before_cost_price_pnl_krw": 344771.99999999994,
+          "buy_fills": 12
+        },
+        "worst_mdd_pct": -4.7440259938759555,
+        "phases": [
+          {
+            "net_return_pct": 3.854558562499988,
+            "price_mdd_pct": -4.058909380591224,
+            "mean_close_exposure": 0.39358668804016606,
+            "fees_krw": 65569.14375,
+            "net_pnl_krw": 385455.85624999925,
+            "before_cost_price_pnl_krw": 451024.99999999924,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 0.25480112500000374,
+            "price_mdd_pct": -1.4944684499595073,
+            "mean_close_exposure": 0.2840403717946513,
+            "fees_krw": 52889.8875,
+            "net_pnl_krw": 25480.112500000745,
+            "before_cost_price_pnl_krw": 78370.00000000074,
+            "buy_fills": 12
+          },
+          {
+            "net_return_pct": 1.1999562500000005,
+            "price_mdd_pct": -4.7440259938759555,
+            "mean_close_exposure": 0.3078644165029046,
+            "fees_krw": 46704.375,
+            "net_pnl_krw": 119995.625,
+            "before_cost_price_pnl_krw": 166700,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 4.0678586875000144,
+            "price_mdd_pct": -2.7029608031712615,
+            "mean_close_exposure": 0.27351290690595753,
+            "fees_krw": 57279.131250000006,
+            "net_pnl_krw": 406785.8687500004,
+            "before_cost_price_pnl_krw": 464065.00000000035,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 5.054693249999986,
+            "price_mdd_pct": -1.719875301489715,
+            "mean_close_exposure": 0.15363839685900404,
+            "fees_krw": 58230.674999999996,
+            "net_pnl_krw": 505469.32499999925,
+            "before_cost_price_pnl_krw": 563699.9999999993,
+            "buy_fills": 10
+          }
+        ]
+      },
+      "prior_cost_aware": {
+        "mean": {
+          "net_return_pct": 2.808608287500003,
+          "price_mdd_pct": -3.6127698320878365,
+          "mean_close_exposure": 0.3424991903890935,
+          "fees_krw": 64808.17125000001,
+          "net_pnl_krw": 280860.82875000016,
+          "before_cost_price_pnl_krw": 345669.0000000001,
+          "buy_fills": 15.8
+        },
+        "worst_mdd_pct": -5.452604378412207,
+        "phases": [
+          {
+            "net_return_pct": 3.6108993750000096,
+            "price_mdd_pct": -2.8884885673865046,
+            "mean_close_exposure": 0.38643403939329196,
+            "fees_krw": 72620.06250000001,
+            "net_pnl_krw": 361089.9375,
+            "before_cost_price_pnl_krw": 433710,
+            "buy_fills": 16
+          },
+          {
+            "net_return_pct": 0.6405268750000026,
+            "price_mdd_pct": -5.452604378412207,
+            "mean_close_exposure": 0.45979157544042715,
+            "fees_krw": 74077.3125,
+            "net_pnl_krw": 64052.6875,
+            "before_cost_price_pnl_krw": 138130,
+            "buy_fills": 22
+          },
+          {
+            "net_return_pct": -0.02483250000000492,
+            "price_mdd_pct": -3.8205142739014097,
+            "mean_close_exposure": 0.37013199351801523,
+            "fees_krw": 57683.25,
+            "net_pnl_krw": -2483.25,
+            "before_cost_price_pnl_krw": 55200,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 4.0678586875000144,
+            "price_mdd_pct": -2.7029608031712615,
+            "mean_close_exposure": 0.27351290690595753,
+            "fees_krw": 57279.131250000006,
+            "net_pnl_krw": 406785.8687500004,
+            "before_cost_price_pnl_krw": 464065.00000000035,
+            "buy_fills": 14
+          },
+          {
+            "net_return_pct": 5.748588999999993,
+            "price_mdd_pct": -3.1992811375678,
+            "mean_close_exposure": 0.2226254366877755,
+            "fees_krw": 62381.1,
+            "net_pnl_krw": 574858.9000000004,
+            "before_cost_price_pnl_krw": 637240.0000000003,
+            "buy_fills": 13
+          }
+        ]
+      },
+      "ridge_net": {
+        "mean": {
+          "net_return_pct": -0.17237147499999717,
+          "price_mdd_pct": -4.994060193042729,
+          "mean_close_exposure": 0.2687076035862086,
+          "fees_krw": 96907.1475,
+          "net_pnl_krw": -17237.147499999777,
+          "before_cost_price_pnl_krw": 79670.00000000022,
+          "buy_fills": 19.8
+        },
+        "worst_mdd_pct": -8.019828594268585,
+        "phases": [
+          {
+            "net_return_pct": -3.4319666874999877,
+            "price_mdd_pct": -8.019828594268585,
+            "mean_close_exposure": 0.33781063371363507,
+            "fees_krw": 120841.66875000001,
+            "net_pnl_krw": -343196.66874999925,
+            "before_cost_price_pnl_krw": -222354.99999999924,
+            "buy_fills": 25
+          },
+          {
+            "net_return_pct": 0.042466625000003866,
+            "price_mdd_pct": -3.2747956020348856,
+            "mean_close_exposure": 0.31787135505487535,
+            "fees_krw": 100143.3375,
+            "net_pnl_krw": 4246.6624999996275,
+            "before_cost_price_pnl_krw": 104389.99999999962,
+            "buy_fills": 21
+          },
+          {
+            "net_return_pct": -1.1984044375000003,
+            "price_mdd_pct": -3.5013441440447046,
+            "mean_close_exposure": 0.24931693201663135,
+            "fees_krw": 87775.44375,
+            "net_pnl_krw": -119840.44374999963,
+            "before_cost_price_pnl_krw": -32064.99999999962,
+            "buy_fills": 18
+          },
+          {
+            "net_return_pct": 1.5836512499999955,
+            "price_mdd_pct": -3.776035717483206,
+            "mean_close_exposure": 0.20680138381316537,
+            "fees_krw": 89104.875,
+            "net_pnl_krw": 158365.125,
+            "before_cost_price_pnl_krw": 247470,
+            "buy_fills": 17
+          },
+          {
+            "net_return_pct": 2.1423958750000027,
+            "price_mdd_pct": -6.398296907382262,
+            "mean_close_exposure": 0.23173771333273596,
+            "fees_krw": 86670.4125,
+            "net_pnl_krw": 214239.58750000037,
+            "before_cost_price_pnl_krw": 300910.00000000035,
+            "buy_fills": 18
+          }
+        ]
+      },
+      "legacy_selection": {
+        "mean": {
+          "net_return_pct": -0.4219180500000008,
+          "price_mdd_pct": -0.5494639246433075,
+          "mean_close_exposure": 0.006048675504574952,
+          "fees_krw": 3179.805,
+          "net_pnl_krw": -42191.80500000007,
+          "before_cost_price_pnl_krw": -39012.00000000007,
+          "buy_fills": 0.6
+        },
+        "worst_mdd_pct": -1.3893524999999962,
+        "phases": [
+          {
+            "net_return_pct": -1.196324999999998,
+            "price_mdd_pct": -1.3579671232165413,
+            "mean_close_exposure": 0.010938802879357926,
+            "fees_krw": 5632.5,
+            "net_pnl_krw": -119632.5,
+            "before_cost_price_pnl_krw": -114000,
+            "buy_fills": 1
+          },
+          {
+            "net_return_pct": -0.913265250000006,
+            "price_mdd_pct": -1.3893524999999962,
+            "mean_close_exposure": 0.019304574643516835,
+            "fees_krw": 10266.525,
+            "net_pnl_krw": -91326.52500000037,
+            "before_cost_price_pnl_krw": -81060.00000000038,
+            "buy_fills": 2
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          }
+        ]
+      },
+      "cap6": {
+        "mean": {
+          "net_return_pct": 0.5190034999999993,
+          "price_mdd_pct": -3.7552634011628006,
+          "mean_close_exposure": 0.32572819292022137,
+          "fees_krw": 57019.65,
+          "net_pnl_krw": 51900.35,
+          "before_cost_price_pnl_krw": 108920,
+          "buy_fills": 17.4
+        },
+        "worst_mdd_pct": -4.54262381540973,
+        "phases": [
+          {
+            "net_return_pct": 0.041748750000003554,
+            "price_mdd_pct": -4.078296059408748,
+            "mean_close_exposure": 0.38812067991677346,
+            "fees_krw": 59125.125,
+            "net_pnl_krw": 4174.875,
+            "before_cost_price_pnl_krw": 63300,
+            "buy_fills": 19
+          },
+          {
+            "net_return_pct": 0.22916749999999375,
+            "price_mdd_pct": -3.8542416388787526,
+            "mean_close_exposure": 0.3830729030380426,
+            "fees_krw": 58883.25,
+            "net_pnl_krw": 22916.75,
+            "before_cost_price_pnl_krw": 81800,
+            "buy_fills": 20
+          },
+          {
+            "net_return_pct": -0.43485125000000124,
+            "price_mdd_pct": -4.54262381540973,
+            "mean_close_exposure": 0.3786798860242678,
+            "fees_krw": 62185.125,
+            "net_pnl_krw": -43485.125,
+            "before_cost_price_pnl_krw": 18700,
+            "buy_fills": 18
+          },
+          {
+            "net_return_pct": 0.8659287500000001,
+            "price_mdd_pct": -3.8753104222563617,
+            "mean_close_exposure": 0.28141006255655404,
+            "fees_krw": 55507.125,
+            "net_pnl_krw": 86592.875,
+            "before_cost_price_pnl_krw": 142100,
+            "buy_fills": 17
+          },
+          {
+            "net_return_pct": 1.8930237500000002,
+            "price_mdd_pct": -2.4258450698604106,
+            "mean_close_exposure": 0.19735743306546885,
+            "fees_krw": 49397.625,
+            "net_pnl_krw": 189302.375,
+            "before_cost_price_pnl_krw": 238700,
+            "buy_fills": 13
+          }
+        ]
+      }
+    },
+    "75bp_delay1": {
+      "candidate": {
+        "mean": {
+          "net_return_pct": 0.7204092624999991,
+          "price_mdd_pct": -0.5294633508910529,
+          "mean_close_exposure": 0.05102071048998932,
+          "fees_krw": 9866.07375,
+          "net_pnl_krw": 72040.92624999993,
+          "before_cost_price_pnl_krw": 81906.99999999993,
+          "buy_fills": 6
+        },
+        "worst_mdd_pct": -1.0215408938186399,
+        "phases": [
+          {
+            "net_return_pct": -0.44802750000000335,
+            "price_mdd_pct": -1.0215408938186399,
+            "mean_close_exposure": 0.06252955544865169,
+            "fees_krw": 7602.75,
+            "net_pnl_krw": -44802.75,
+            "before_cost_price_pnl_krw": -37200,
+            "buy_fills": 6
+          },
+          {
+            "net_return_pct": 0.4992612499999938,
+            "price_mdd_pct": -0.28082246403823286,
+            "mean_close_exposure": 0.0426762315464629,
+            "fees_krw": 8173.875,
+            "net_pnl_krw": 49926.125,
+            "before_cost_price_pnl_krw": 58100,
+            "buy_fills": 4
+          },
+          {
+            "net_return_pct": 0.6376174999999984,
+            "price_mdd_pct": -0.25909689766085986,
+            "mean_close_exposure": 0.0320827489368495,
+            "fees_krw": 5438.25,
+            "net_pnl_krw": 63761.75,
+            "before_cost_price_pnl_krw": 69200,
+            "buy_fills": 3
+          },
+          {
+            "net_return_pct": 1.9773245624999936,
+            "price_mdd_pct": -0.5075160465493722,
+            "mean_close_exposure": 0.07620918050252742,
+            "fees_krw": 17202.54375,
+            "net_pnl_krw": 197732.45624999888,
+            "before_cost_price_pnl_krw": 214934.9999999989,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 0.9358705000000134,
+            "price_mdd_pct": -0.5783404523881597,
+            "mean_close_exposure": 0.04160583601545506,
+            "fees_krw": 10912.949999999999,
+            "net_pnl_krw": 93587.05000000075,
+            "before_cost_price_pnl_krw": 104500.00000000074,
+            "buy_fills": 7
+          }
+        ]
+      },
+      "matched_ridge": {
+        "mean": {
+          "net_return_pct": 0.5353544250000031,
+          "price_mdd_pct": -0.4614694886169768,
+          "mean_close_exposure": 0.03692958947379201,
+          "fees_krw": 14858.5575,
+          "net_pnl_krw": 53535.44250000008,
+          "before_cost_price_pnl_krw": 68394.00000000007,
+          "buy_fills": 9
+        },
+        "worst_mdd_pct": -1.034441657274332,
+        "phases": [
+          {
+            "net_return_pct": -0.048512249999999035,
+            "price_mdd_pct": -1.034441657274332,
+            "mean_close_exposure": 0.044604983824557166,
+            "fees_krw": 14871.225,
+            "net_pnl_krw": -4851.2249999996275,
+            "before_cost_price_pnl_krw": 10020.000000000373,
+            "buy_fills": 12
+          },
+          {
+            "net_return_pct": 0.37391812500000565,
+            "price_mdd_pct": -0.293375625000003,
+            "mean_close_exposure": 0.03192434053287249,
+            "fees_krw": 10758.1875,
+            "net_pnl_krw": 37391.8125,
+            "before_cost_price_pnl_krw": 48150,
+            "buy_fills": 6
+          },
+          {
+            "net_return_pct": 0.024116812500007967,
+            "price_mdd_pct": -0.1997224900940231,
+            "mean_close_exposure": 0.022078543293842123,
+            "fees_krw": 9123.31875,
+            "net_pnl_krw": 2411.6812500003725,
+            "before_cost_price_pnl_krw": 11535.000000000373,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 1.3672237500000017,
+            "price_mdd_pct": -0.4110850270152122,
+            "mean_close_exposure": 0.055166696632412145,
+            "fees_krw": 24827.625,
+            "net_pnl_krw": 136722.375,
+            "before_cost_price_pnl_krw": 161550,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 0.9600256874999991,
+            "price_mdd_pct": -0.3687226437013136,
+            "mean_close_exposure": 0.030873383085276134,
+            "fees_krw": 14712.43125,
+            "net_pnl_krw": 96002.56874999963,
+            "before_cost_price_pnl_krw": 110714.99999999962,
+            "buy_fills": 9
+          }
+        ]
+      },
+      "matched_cap6": {
+        "mean": {
+          "net_return_pct": 0.4140272499999975,
+          "price_mdd_pct": -0.7064411665055093,
+          "mean_close_exposure": 0.056004669584367665,
+          "fees_krw": 16177.275,
+          "net_pnl_krw": 41402.725,
+          "before_cost_price_pnl_krw": 57580,
+          "buy_fills": 8.4
+        },
+        "worst_mdd_pct": -1.225620264476579,
+        "phases": [
+          {
+            "net_return_pct": -0.2576387499999999,
+            "price_mdd_pct": -1.225620264476579,
+            "mean_close_exposure": 0.09232468397128833,
+            "fees_krw": 22663.875,
+            "net_pnl_krw": -25763.875,
+            "before_cost_price_pnl_krw": -3100,
+            "buy_fills": 15
+          },
+          {
+            "net_return_pct": 0.3282012499999931,
+            "price_mdd_pct": -0.838843598638539,
+            "mean_close_exposure": 0.05241613226660595,
+            "fees_krw": 9679.875,
+            "net_pnl_krw": 32820.125,
+            "before_cost_price_pnl_krw": 42500,
+            "buy_fills": 5
+          },
+          {
+            "net_return_pct": 0.5797337499999999,
+            "price_mdd_pct": -0.5104710757941167,
+            "mean_close_exposure": 0.03467542727197953,
+            "fees_krw": 12326.625,
+            "net_pnl_krw": 57973.375,
+            "before_cost_price_pnl_krw": 70300,
+            "buy_fills": 5
+          },
+          {
+            "net_return_pct": 0.8910012499999898,
+            "price_mdd_pct": -0.5168582127465404,
+            "mean_close_exposure": 0.05122739031273144,
+            "fees_krw": 20599.875,
+            "net_pnl_krw": 89100.125,
+            "before_cost_price_pnl_krw": 109700,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 0.5288387500000047,
+            "price_mdd_pct": -0.4404126808717712,
+            "mean_close_exposure": 0.049379714099233085,
+            "fees_krw": 15616.125,
+            "net_pnl_krw": 52883.875,
+            "before_cost_price_pnl_krw": 68500,
+            "buy_fills": 9
+          }
+        ]
+      },
+      "prior_downside": {
+        "mean": {
+          "net_return_pct": 0.6253578375000002,
+          "price_mdd_pct": -0.25656691946176924,
+          "mean_close_exposure": 0.035269918114411616,
+          "fees_krw": 6629.21625,
+          "net_pnl_krw": 62535.78375000022,
+          "before_cost_price_pnl_krw": 69165.00000000022,
+          "buy_fills": 5
+        },
+        "worst_mdd_pct": -0.4058186539978581,
+        "phases": [
+          {
+            "net_return_pct": 0.365943000000013,
+            "price_mdd_pct": -0.31340426877285443,
+            "mean_close_exposure": 0.04165453694287056,
+            "fees_krw": 5525.7,
+            "net_pnl_krw": 36594.300000000745,
+            "before_cost_price_pnl_krw": 42120.00000000074,
+            "buy_fills": 6
+          },
+          {
+            "net_return_pct": 0.5016193749999953,
+            "price_mdd_pct": -0.22490062500000185,
+            "mean_close_exposure": 0.026279272908041093,
+            "fees_krw": 5288.0625,
+            "net_pnl_krw": 50161.9375,
+            "before_cost_price_pnl_krw": 55450,
+            "buy_fills": 3
+          },
+          {
+            "net_return_pct": 0.5883762499999889,
+            "price_mdd_pct": -0.2448353901958189,
+            "mean_close_exposure": 0.02965370062615709,
+            "fees_krw": 4962.375,
+            "net_pnl_krw": 58837.625,
+            "before_cost_price_pnl_krw": 63800,
+            "buy_fills": 3
+          },
+          {
+            "net_return_pct": 1.3275893125000104,
+            "price_mdd_pct": -0.4058186539978581,
+            "mean_close_exposure": 0.06587621349574502,
+            "fees_krw": 12736.06875,
+            "net_pnl_krw": 132758.93125000037,
+            "before_cost_price_pnl_krw": 145495.00000000038,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 0.3432612499999932,
+            "price_mdd_pct": -0.0938756593423129,
+            "mean_close_exposure": 0.012885866599244336,
+            "fees_krw": 4633.875,
+            "net_pnl_krw": 34326.125,
+            "before_cost_price_pnl_krw": 38960,
+            "buy_fills": 5
+          }
+        ]
+      },
+      "action_only": {
+        "mean": {
+          "net_return_pct": 5.604157074999994,
+          "price_mdd_pct": -3.931427253828077,
+          "mean_close_exposure": 0.4317973298244358,
+          "fees_krw": 82086.2925,
+          "net_pnl_krw": 560415.7074999996,
+          "before_cost_price_pnl_krw": 642501.9999999995,
+          "buy_fills": 7.6
+        },
+        "worst_mdd_pct": -6.0332892479222355,
+        "phases": [
+          {
+            "net_return_pct": 4.310015249999988,
+            "price_mdd_pct": -3.804958444372697,
+            "mean_close_exposure": 0.5636353554552266,
+            "fees_krw": 69758.47499999999,
+            "net_pnl_krw": 431001.5249999985,
+            "before_cost_price_pnl_krw": 500759.9999999985,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 0.7171618749999942,
+            "price_mdd_pct": -3.811819706091568,
+            "mean_close_exposure": 0.4673513632273546,
+            "fees_krw": 73433.8125,
+            "net_pnl_krw": 71716.1875,
+            "before_cost_price_pnl_krw": 145150,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 2.504186875000003,
+            "price_mdd_pct": -6.0332892479222355,
+            "mean_close_exposure": 0.4384365393431798,
+            "fees_krw": 71431.3125,
+            "net_pnl_krw": 250418.6875,
+            "before_cost_price_pnl_krw": 321850,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 12.038558625000007,
+            "price_mdd_pct": -3.085428608546048,
+            "mean_close_exposure": 0.40780381218619866,
+            "fees_krw": 112094.1375,
+            "net_pnl_krw": 1203855.8625000007,
+            "before_cost_price_pnl_krw": 1315950.0000000007,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 8.450862749999978,
+            "price_mdd_pct": -2.9216402622078363,
+            "mean_close_exposure": 0.2817595789102194,
+            "fees_krw": 83713.72499999999,
+            "net_pnl_krw": 845086.2749999985,
+            "before_cost_price_pnl_krw": 928799.9999999985,
+            "buy_fills": 7
+          }
+        ]
+      },
+      "prior_calibrated": {
+        "mean": {
+          "net_return_pct": 6.141262724999996,
+          "price_mdd_pct": -4.008195288195471,
+          "mean_close_exposure": 0.4366883674141144,
+          "fees_krw": 84075.7275,
+          "net_pnl_krw": 614126.2724999997,
+          "before_cost_price_pnl_krw": 698201.9999999998,
+          "buy_fills": 9.2
+        },
+        "worst_mdd_pct": -6.3860050539531255,
+        "phases": [
+          {
+            "net_return_pct": 6.784809749999998,
+            "price_mdd_pct": -3.808474552292096,
+            "mean_close_exposure": 0.6049881201115312,
+            "fees_krw": 75359.02500000001,
+            "net_pnl_krw": 678480.9749999996,
+            "before_cost_price_pnl_krw": 753839.9999999997,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 0.5916931250000035,
+            "price_mdd_pct": -3.828207914721826,
+            "mean_close_exposure": 0.46283132616527406,
+            "fees_krw": 73480.6875,
+            "net_pnl_krw": 59169.3125,
+            "before_cost_price_pnl_krw": 132650,
+            "buy_fills": 7
+          },
+          {
+            "net_return_pct": 2.7232162500000046,
+            "price_mdd_pct": -6.3860050539531255,
+            "mean_close_exposure": 0.42243705878651006,
+            "fees_krw": 74178.375,
+            "net_pnl_krw": 272321.625,
+            "before_cost_price_pnl_krw": 346500,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 12.155731749999998,
+            "price_mdd_pct": -3.09664865780247,
+            "mean_close_exposure": 0.411425753097037,
+            "fees_krw": 113646.825,
+            "net_pnl_krw": 1215573.1750000007,
+            "before_cost_price_pnl_krw": 1329220.0000000007,
+            "buy_fills": 13
+          },
+          {
+            "net_return_pct": 8.450862749999978,
+            "price_mdd_pct": -2.9216402622078363,
+            "mean_close_exposure": 0.2817595789102194,
+            "fees_krw": 83713.72499999999,
+            "net_pnl_krw": 845086.2749999985,
+            "before_cost_price_pnl_krw": 928799.9999999985,
+            "buy_fills": 7
+          }
+        ]
+      },
+      "prior_cost_aware": {
+        "mean": {
+          "net_return_pct": 5.473379399999994,
+          "price_mdd_pct": -5.14639907505571,
+          "mean_close_exposure": 0.5019028104926648,
+          "fees_krw": 81078.06,
+          "net_pnl_krw": 547337.9399999995,
+          "before_cost_price_pnl_krw": 628415.9999999995,
+          "buy_fills": 9.2
+        },
+        "worst_mdd_pct": -6.3860050539531255,
+        "phases": [
+          {
+            "net_return_pct": 6.11726225,
+            "price_mdd_pct": -4.822828299065652,
+            "mean_close_exposure": 0.6142700653472094,
+            "fees_krw": 84713.77500000001,
+            "net_pnl_krw": 611726.2249999996,
+            "before_cost_price_pnl_krw": 696439.9999999997,
+            "buy_fills": 11
+          },
+          {
+            "net_return_pct": 0.8122756249999918,
+            "price_mdd_pct": -5.996605008768585,
+            "mean_close_exposure": 0.6204610903968969,
+            "fees_krw": 74222.4375,
+            "net_pnl_krw": 81227.5625,
+            "before_cost_price_pnl_krw": 155450,
+            "buy_fills": 8
+          },
+          {
+            "net_return_pct": 2.1752787500000093,
+            "price_mdd_pct": -6.3860050539531255,
+            "mean_close_exposure": 0.4650880905768154,
+            "fees_krw": 73972.125,
+            "net_pnl_krw": 217527.875,
+            "before_cost_price_pnl_krw": 291500,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 8.334327749999982,
+            "price_mdd_pct": -4.143116079471342,
+            "mean_close_exposure": 0.45871789825813536,
+            "fees_krw": 87987.22499999999,
+            "net_pnl_krw": 833432.7749999985,
+            "before_cost_price_pnl_krw": 921419.9999999985,
+            "buy_fills": 11
+          },
+          {
+            "net_return_pct": 9.927752624999986,
+            "price_mdd_pct": -4.383440934019845,
+            "mean_close_exposure": 0.3509769078842672,
+            "fees_krw": 84494.7375,
+            "net_pnl_krw": 992775.2624999993,
+            "before_cost_price_pnl_krw": 1077269.9999999993,
+            "buy_fills": 7
+          }
+        ]
+      },
+      "ridge_net": {
+        "mean": {
+          "net_return_pct": 1.2479711000000004,
+          "price_mdd_pct": -6.802835249403045,
+          "mean_close_exposure": 0.41076606435974744,
+          "fees_krw": 138616.89,
+          "net_pnl_krw": 124797.11000000015,
+          "before_cost_price_pnl_krw": 263414.0000000001,
+          "buy_fills": 13.4
+        },
+        "worst_mdd_pct": -9.65344490509107,
+        "phases": [
+          {
+            "net_return_pct": -1.732083750000002,
+            "price_mdd_pct": -9.65344490509107,
+            "mean_close_exposure": 0.49427380796774095,
+            "fees_krw": 161628.375,
+            "net_pnl_krw": -173208.375,
+            "before_cost_price_pnl_krw": -11580,
+            "buy_fills": 16
+          },
+          {
+            "net_return_pct": -2.8093428749999982,
+            "price_mdd_pct": -4.604529337266483,
+            "mean_close_exposure": 0.5036880679924143,
+            "fees_krw": 142424.2875,
+            "net_pnl_krw": -280934.2874999996,
+            "before_cost_price_pnl_krw": -138509.99999999962,
+            "buy_fills": 13
+          },
+          {
+            "net_return_pct": -1.9441708750000064,
+            "price_mdd_pct": -8.078609737389685,
+            "mean_close_exposure": 0.37187673615487526,
+            "fees_krw": 119257.0875,
+            "net_pnl_krw": -194417.08750000037,
+            "before_cost_price_pnl_krw": -75160.00000000038,
+            "buy_fills": 12
+          },
+          {
+            "net_return_pct": 8.627334999999992,
+            "price_mdd_pct": -5.144237321346079,
+            "mean_close_exposure": 0.31680873334335,
+            "fees_krw": 137206.5,
+            "net_pnl_krw": 862733.5,
+            "before_cost_price_pnl_krw": 999940,
+            "buy_fills": 13
+          },
+          {
+            "net_return_pct": 4.098118000000017,
+            "price_mdd_pct": -6.53335494592191,
+            "mean_close_exposure": 0.36718297634035657,
+            "fees_krw": 132568.2,
+            "net_pnl_krw": 409811.80000000075,
+            "before_cost_price_pnl_krw": 542380.0000000007,
+            "buy_fills": 13
+          }
+        ]
+      },
+      "legacy_selection": {
+        "mean": {
+          "net_return_pct": -0.5589898250000003,
+          "price_mdd_pct": -0.9877258749999984,
+          "mean_close_exposure": 0.012726825032163904,
+          "fees_krw": 6780.9825,
+          "net_pnl_krw": -55898.982499999925,
+          "before_cost_price_pnl_krw": -49117.99999999993,
+          "buy_fills": 0.6
+        },
+        "worst_mdd_pct": -2.5690756249999946,
+        "phases": [
+          {
+            "net_return_pct": -1.7683110000000002,
+            "price_mdd_pct": -2.3695537499999975,
+            "mean_close_exposure": 0.021771986403978427,
+            "fees_krw": 11591.099999999999,
+            "net_pnl_krw": -176831.09999999963,
+            "before_cost_price_pnl_krw": -165239.99999999962,
+            "buy_fills": 1
+          },
+          {
+            "net_return_pct": -1.0266381250000012,
+            "price_mdd_pct": -2.5690756249999946,
+            "mean_close_exposure": 0.0418621387568411,
+            "fees_krw": 22313.8125,
+            "net_pnl_krw": -102663.8125,
+            "before_cost_price_pnl_krw": -80350,
+            "buy_fills": 2
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          },
+          {
+            "net_return_pct": 0,
+            "price_mdd_pct": 0,
+            "mean_close_exposure": 0,
+            "fees_krw": 0,
+            "net_pnl_krw": 0,
+            "before_cost_price_pnl_krw": 0,
+            "buy_fills": 0
+          }
+        ]
+      },
+      "cap6": {
+        "mean": {
+          "net_return_pct": 1.0411570000000037,
+          "price_mdd_pct": -4.937229316233869,
+          "mean_close_exposure": 0.5022834224900571,
+          "fees_krw": 80124.3,
+          "net_pnl_krw": 104115.7,
+          "before_cost_price_pnl_krw": 184240,
+          "buy_fills": 10.2
+        },
+        "worst_mdd_pct": -7.663594315944378,
+        "phases": [
+          {
+            "net_return_pct": 0.6521387500000086,
+            "price_mdd_pct": -5.01474026335651,
+            "mean_close_exposure": 0.5741439360874984,
+            "fees_krw": 77686.125,
+            "net_pnl_krw": 65213.875,
+            "before_cost_price_pnl_krw": 142900,
+            "buy_fills": 9
+          },
+          {
+            "net_return_pct": 0.6527975000000019,
+            "price_mdd_pct": -5.070460818950262,
+            "mean_close_exposure": 0.6064109889354897,
+            "fees_krw": 77720.25,
+            "net_pnl_krw": 65279.75,
+            "before_cost_price_pnl_krw": 143000,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": -0.8000725000000042,
+            "price_mdd_pct": -7.663594315944378,
+            "mean_close_exposure": 0.6264074892439458,
+            "fees_krw": 94607.25,
+            "net_pnl_krw": -80007.25,
+            "before_cost_price_pnl_krw": 14600,
+            "buy_fills": 11
+          },
+          {
+            "net_return_pct": 2.2907325000000034,
+            "price_mdd_pct": -3.9028789692406862,
+            "mean_close_exposure": 0.35823249856759787,
+            "fees_krw": 69126.75,
+            "net_pnl_krw": 229073.25,
+            "before_cost_price_pnl_krw": 298200,
+            "buy_fills": 10
+          },
+          {
+            "net_return_pct": 2.4101887500000085,
+            "price_mdd_pct": -3.034472213677508,
+            "mean_close_exposure": 0.34622219961575385,
+            "fees_krw": 81481.125,
+            "net_pnl_krw": 241018.875,
+            "before_cost_price_pnl_krw": 322500,
+            "buy_fills": 11
+          }
+        ]
+      }
+    }
+  },
+  "baseline75_mean_pnl_delta_by_ticker_krw": {
+    "105560": 111.75,
+    "112610": 108.1625,
+    "180640": -1124.2,
+    "267260": -6541.5,
+    "280360": 0,
+    "323410": 1751.7125,
+    "326030": 211.575,
+    "395400": -0.3549999999930158,
+    "012450": -6393.75,
+    "010120": 0,
+    "010140": 0,
+    "006260": 38.625,
+    "007660": 278.5625,
+    "064350": 396.4625,
+    "047810": 991,
+    "003670": 1143.35
+  },
+  "baseline75_execution": {
+    "candidate": {
+      "orders": 77,
+      "intended_buy_shares": 637,
+      "fills": 68,
+      "filled_buy_shares": 494
+    },
+    "prior_downside": {
+      "orders": 59,
+      "intended_buy_shares": 609,
+      "fills": 54,
+      "filled_buy_shares": 475
+    },
+    "matched_ridge": {
+      "orders": 130,
+      "intended_buy_shares": 839,
+      "fills": 119,
+      "filled_buy_shares": 746
+    },
+    "matched_cap6": {
+      "orders": 101,
+      "intended_buy_shares": 125,
+      "fills": 95,
+      "filled_buy_shares": 108
+    }
+  },
+  "new_arm_order_roundtrip_count": 276,
+  "cases": [
+    {
+      "phase": 0,
+      "ticker": "012450",
+      "net_pnl_krw": -78658.75,
+      "fills": [
+        {
+          "on": "2024-11-19",
+          "ticker": "012450",
+          "side": "buy",
+          "shares": 1,
+          "price": 392500,
+          "fee": 1471.875,
+          "source_id": "preserved-raw:2024-11-19:012450",
+          "decision_on": "2024-11-18",
+          "input_id": "61f1f283103a609196c8078c8be16be6a95774222f2bacc3b18fe868b929c73f"
+        },
+        {
+          "on": "2024-12-17",
+          "ticker": "012450",
+          "side": "sell",
+          "shares": 1,
+          "price": 316500,
+          "fee": 1186.875,
+          "source_id": "preserved-raw:2024-12-17:012450",
+          "decision_on": "2024-12-16",
+          "input_id": "a0fc9b00fbea86d8a1df57ce7776a20cde36b0f2136baecfe5de06c8f9780363"
+        }
+      ],
+      "decisions": [
+        {
+          "session": "2024-11-18",
+          "price": 392500,
+          "downside": 0.04559427176733895,
+          "held": 0,
+          "quantity": 1,
+          "mu": 0.024498925625793772,
+          "utility": 0.00008347812301120623,
+          "zero_utility": 0
+        },
+        {
+          "session": "2024-11-25",
+          "price": 359000,
+          "downside": 0.08722258879844554,
+          "held": 1,
+          "quantity": 1,
+          "mu": 0.015073704349574477,
+          "utility": -0.0001912232066849292,
+          "zero_utility": -0.00021549341909084363
+        },
+        {
+          "session": "2024-12-02",
+          "price": 321000,
+          "downside": 0.11655650496837444,
+          "held": 1,
+          "quantity": 1,
+          "mu": 0.01766850729139392,
+          "utility": -0.00014832202358502236,
+          "zero_utility": -0.00019338786215040074
+        },
+        {
+          "session": "2024-12-09",
+          "price": 279000,
+          "downside": 0.10826847085998212,
+          "held": 1,
+          "quantity": 1,
+          "mu": 0.03349151988521002,
+          "utility": 0.0003759656611105639,
+          "zero_utility": -0.00016920439567548335
+        }
+      ]
+    },
+    {
+      "phase": 1,
+      "ticker": "267260",
+      "net_pnl_krw": -32707.5,
+      "fills": [
+        {
+          "on": "2024-11-13",
+          "ticker": "267260",
+          "side": "buy",
+          "shares": 1,
+          "price": 376000,
+          "fee": 1410,
+          "source_id": "preserved-raw:2024-11-13:267260",
+          "decision_on": "2024-11-12",
+          "input_id": "88769ea9f8390461abf6d12a730c73d34384d22dd7eca28235dfb56b8cbd6bf4"
+        },
+        {
+          "on": "2024-12-04",
+          "ticker": "267260",
+          "side": "sell",
+          "shares": 1,
+          "price": 346000,
+          "fee": 1297.5,
+          "source_id": "preserved-raw:2024-12-04:267260",
+          "decision_on": "2024-12-03",
+          "input_id": "6cea2174f5454da3589dc8202d6551c4e0a153840f5111b0588b5e41af3d5a9b"
+        }
+      ],
+      "decisions": [
+        {
+          "session": "2024-11-12",
+          "price": 381500,
+          "downside": 0.026353276353276393,
+          "held": 0,
+          "quantity": 1,
+          "mu": 0.022918699743435092,
+          "utility": 0.00011073294115221941,
+          "zero_utility": 0
+        },
+        {
+          "session": "2024-11-19",
+          "price": 369500,
+          "downside": 0.08656400150330514,
+          "held": 1,
+          "quantity": 1,
+          "mu": 0.01854371723527289,
+          "utility": -0.00007547702288648671,
+          "zero_utility": -0.00022152434503965512
+        },
+        {
+          "session": "2024-11-26",
+          "price": 365000,
+          "downside": 0.060127835513123874,
+          "held": 1,
+          "quantity": 1,
+          "mu": 0.014506064234792514,
+          "utility": -0.00011068726874317893,
+          "zero_utility": -0.00021796750156804104
+        },
+        {
+          "session": "2024-12-03",
+          "price": 355000,
+          "downside": 0.05849833165981386,
+          "held": 1,
+          "quantity": 0,
+          "mu": 0.00968041274430572,
+          "utility": -0.00021185462913305507,
+          "zero_utility": -0.00021185462913305507
+        },
+        {
+          "session": "2024-12-10",
+          "price": 359000,
+          "downside": 0.04536795647274505,
+          "held": 0,
+          "quantity": 0,
+          "mu": 0.013606371796252553,
+          "utility": 0,
+          "zero_utility": 0
+        }
+      ]
+    },
+    {
+      "phase": 4,
+      "ticker": "012450",
+      "net_pnl_krw": 46690,
+      "fills": [
+        {
+          "on": "2024-12-09",
+          "ticker": "012450",
+          "side": "buy",
+          "shares": 1,
+          "price": 283500,
+          "fee": 1063.125,
+          "source_id": "preserved-raw:2024-12-09:012450",
+          "decision_on": "2024-12-06",
+          "input_id": "9761842be72a65d8e1ba56e0cf4e7f110ec07f92808caee0ac0524da3071305d"
+        },
+        {
+          "on": "2024-12-16",
+          "ticker": "012450",
+          "side": "sell",
+          "shares": 1,
+          "price": 332500,
+          "fee": 1246.875,
+          "source_id": "preserved-raw:2024-12-16:012450",
+          "decision_on": "2024-12-13",
+          "input_id": "824709482043d4419978c82de647d8555e2ec034fc870f0c49a4109501881158"
+        }
+      ],
+      "decisions": [
+        {
+          "session": "2024-11-22",
+          "price": 379500,
+          "downside": 0.07719480294916194,
+          "held": 0,
+          "quantity": 0,
+          "mu": 0.011113807211864175,
+          "utility": 0,
+          "zero_utility": 0
+        },
+        {
+          "session": "2024-11-29",
+          "price": 312500,
+          "downside": 0.12846560351134573,
+          "held": 0,
+          "quantity": 0,
+          "mu": 0.01602432887384467,
+          "utility": 0,
+          "zero_utility": 0
+        },
+        {
+          "session": "2024-12-06",
+          "price": 298000,
+          "downside": 0.08750388323444055,
+          "held": 0,
+          "quantity": 1,
+          "mu": 0.025458824630718944,
+          "utility": 0.000020285521801427194,
+          "zero_utility": 0
+        }
+      ]
+    }
+  ]
+}
