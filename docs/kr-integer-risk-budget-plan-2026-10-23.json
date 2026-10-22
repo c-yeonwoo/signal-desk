@@ -1,0 +1,90 @@
+{
+  "schema": "kr-integer-risk-budget-plan-v1",
+  "candidate_id": "kr-integer-downside-action-v1",
+  "date": "2026-10-23",
+  "base_commit": "417d3cba93b36c6863352d5acb604ac1d50cccc7",
+  "question": "연속 비중 뒤 버림하는 대신 실제 생성 가능한 정수 주식수를 먼저 최적화하면 비용 후 성과가 좋아지고, 같은 사전 하방위험 상한의 단순 전략보다도 우수한가",
+  "parent_plan": {
+    "path": "docs/kr-stock-downside-action-plan-2026-10-23.json",
+    "sha256": "c2b59c9543b77b8afd38b42989950824c8a65d96be2266ea28d0153110eb973d"
+  },
+  "parent_result": {
+    "path": "data/research/kr-stock-downside-action-2026-10-23-v1.json",
+    "sha256": "d038d841a8d96bd13927ee20a2c861384a5ac2b776bc0737432d55d16964ebb3"
+  },
+  "lessons": [
+    "#812 양수 비중이1주에 못 미친 주문 미생성은 연속 해와 실행가능 해의 차이였다. 강제1주 올림을 개선으로 가정하지 않는다.",
+    "현금95%의 낙폭 감소를 판별력 향상으로 읽지 않는다. 비교 전략도 판단 당시 같은 위험비용 상한을 받도록 한다.",
+    "사후 실현 낙폭/변동성/평균 노출을 맞춰 수익을 배율 환산하지 않는다. 불완전 위험 일치는 판정에 남긴다."
+  ],
+  "fixed": "부모 예측·b·6종가/5일 하방변동d·위험계수1·목적함수·원천·유니버스·5세션판단·체결모형·초기1천만원·5위상·4시나리오 그대로. 신규 학습/수집/기업행사조사/운영변경 없음.",
+  "integer": {
+    "objective": "부모 U 그대로, 단 w=q*판단종가/자기NAV. q는 실제 주문 전량 체결 가정의 정수 보유수량. 기대수익/위험은 이 경제 비중으로 계산한다.",
+    "feasible": "당일 원예측 top6와 보유 합집합. 최대6양수 보유,종목별경제비중<=1/6. top6밖 보유는 추가금지. 매수수량 한도는 현재 보유평가액+증분*(종가*1.01*1.006)가 NAV/6을 넘지 않게 한다. 매도/매수 증분은 판단일 거래량1% 이하. 불가피한 최소 잔여보유도 최적화에 포함.",
+    "solve": "각 좌표의 정수 하한/상한·현재수량·부모 목적함수 각구간 정지점의 floor/ceil을 비교. 필수 잔여보유 좌표를 포함한 최대6조합을 열거해 목적 최대;동점1e-12 내 회전 최소,종목코드순. 0주도 실제 대안.",
+    "encode": "경제 비중과 core.orders 입력 비중을 구분. 기존 주문 함수가 정확히 의도한 정수 증분을 내는 비중 구간 안 값을 만들어 전좌표 주문→수량 왕복 검증. 매수예약금/편도버퍼를 경제비중으로 잘못 읽지 않음. 부동소수점 경계 보정만1e-12 허용.",
+    "execution": "기존 core/ExecutionBook은 수정하지 않음. 지정수량은 최대 의도이지 체결 보장 아님. 시가갭/반체결/지연/현금·슬롯한도는 기존실행부가 처리하고 차이를 보고.",
+    "infeasible": "가격·필수위험 결손이면 공통 자료중단. 거래량 제한 등 알려진 제약으로 feasible 집합이 없으면 공통 constraint_infeasible로 종료하고 결손/손익0/채택으로 바꾸지 않음."
+  },
+  "matched": {
+    "measure": "R(w)=0.5*sum(d_i*w_i^2/(1/6)), 부모 목적함수의 하방 위험비용 대리량. 실제 변동성/MDD/VaR/하락확률 아님.",
+    "ceiling": "같은 판단일·위상·시나리오의 candidate가 자기 상태로 먼저 고정한 정수 목표의 R를 두 기준 전략의 상한으로 전달. 현재까지 입력만 사용,향후 체결/실현수익을 읽지 않음. 각 기준은 자기 NAV/보유/가격을 사용.",
+    "arms": {
+      "matched_ridge": "원래 ridge_net:같은 예측 top6중 raw_mu>0.0125 각각1/6의 모양",
+      "matched_cap6": "같은 예측집합에서 시총top6 각각1/6의 모양"
+    },
+    "scaling": "기준 모양에 공통 s∈[0,1]을 곱한 뒤 floor(s*w*NAV/close)를 실행가능 정수구간으로 제한. R<=상한·최대6개를 만족하는 가장 큰 s를 단조 이분60회로 구한다. 미청산 보유의 최소 잔여를 포함. 위험상한을 맞추려고 예측순위나 기준종목을 변경하지 않는다.",
+    "dependency": "명세 arm 순서에서candidate를 먼저 처리하고 그 판단의 위험예산을 context에 결합해 input_id에 보존. context는 계좌그룹/판단마다 새로 만들고 과거그룹예산 재사용 금지.",
+    "comparability": "동일 사전 상한이며 동일 실현위험을 보장하지 않음. 각 scenario/기준별 양수 예산 판단의 sum(계획R)/sum(상한)>=0.80을 요구. 20%이상 적게쓴 기준을 같은 위험수준이라 부르지 않음. 0예산 판단 별도기록. 기준쪽 불가피 잔여 위험이상한초과면공통 infeasible.",
+    "tolerance": 0.8,
+    "consequence": "성능 반례는 기각. 성능 반례가 없더라도 위험사용률 미달/양수예산없음이면 risk_match_insufficient,승격하지 않음."
+  },
+  "evaluation": {
+    "start": "2024-11-11",
+    "end": "2024-12-11",
+    "dates": 23,
+    "forecast_rows": 4391,
+    "tail_through": "2024-12-31",
+    "role": "부모와 동일 반복열람 개발 구간;독립OOS/PIT/총수익/현재운영정확도 증거 아님."
+  },
+  "comparison": {
+    "arms": [
+      "candidate",
+      "matched_ridge",
+      "matched_cap6",
+      "prior_downside",
+      "action_only",
+      "prior_calibrated",
+      "prior_cost_aware",
+      "ridge_net",
+      "legacy_selection",
+      "cap6"
+    ],
+    "trading_paths": 200,
+    "parent_crosscheck": "prior_downside는 부모candidate,그외부모6팔도 동일. 기존7팔140경로의 모든 체결·일별장부·경제지표가 동일해야함. ID만제외.",
+    "shared": "모든팔 같은원천/기간/위상/시가/비용/실행/청산/T+2 및공통중단."
+  },
+  "decision": {
+    "legacy_full_budget": "부모 전체관문을 그대로 별도보고. 위험축소기준과 비교한 결과로 기존 전체관문을 통과했다고 바꾸지 않음.",
+    "integer_effect": "prior_downside대비75/120 평균 엄격개선,half/delay 평균비악화,네조건 최악MDD비악화.",
+    "risk_matched": "75/120각5위상에서 candidate가 matched_ridge,matched_cap6,현금 각각초과. half/delay각5위상평균도 각각초과. 네조건 최악MDD가각matched기준보다나쁘지않아야함.",
+    "adoption": "새후보의integer_effect·risk_matched·비교가능성 모두통과하면 conditional_risk_budget_support;어떤확인된성능반례면기각. 결손/제약불가능/위험매칭부족이면 해당사유로미채택. 전체예산관문도별도명시. 조건부지지는라이브승격권한아님.",
+    "diagnostics": "연속해보다정수목적이높은반올림/0주선택,실제생성수량일치,의도대비체결,비용/노출/MDD/종목손익,계획R상한/활용률/0예산/매칭오차 모두기록.",
+    "limit": "단일후보·200경로1회. 수익조회뒤위험계수/기간/매칭허용률/조건튜닝금지. 승격안된논문/플러그인점수로수익성대신평가금지."
+  },
+  "implementation": {
+    "runner": "scripts/measure/kr_integer_risk_budget.py",
+    "tests": "tests/test_kr_integer_risk_budget.py",
+    "raw": "data/research/kr-integer-risk-budget-2026-10-23-v1.json",
+    "summary": "docs/kr-integer-risk-budget-result-2026-10-23.json",
+    "report": "docs/KR-INTEGER-RISK-BUDGET-RESULT-2026-10-23.md",
+    "precommit": "명세/구현 각각 실제경로성과계산전 커밋",
+    "max_seconds": 600
+  },
+  "historical_runs": 1,
+  "fit_calls": 0,
+  "new_market_data_requests": 0,
+  "production_engine_changed": false,
+  "live_order_eligible": false,
+  "integrated_roadmap_percent": 40
+}
