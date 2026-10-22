@@ -1,0 +1,30 @@
+{
+  "schema": "kr-entry-maturity-plan-v1",
+  "base_commit": "75ccd0a80c47e244f6df40136d178881d05a2066",
+  "candidate_id": "kr-entry-only-matured-20date-bias-v1",
+  "parent_result": {"path": "data/research/kr-integer-risk-budget-2026-10-23-v1.json", "sha256": "22c1f5b55ead4cfe5ad922b6e3ca6071682307afa43674d728f98ac5a948c861"},
+  "label_archive": {"path": "data/research/kr-forecast-error-attribution-2026-10-22-v1.json", "sha256": "f73648f2418b054a3b89bc80dc56d92581833c515c230c2d598f8d984f50e775"},
+  "diagnostic": {
+    "universe": "부모75bp 5위상의 정규 판단23일에 전체 예측4391행·201종목. 판단 직전 실제 보유 여부로 held/top6_unheld/other_unheld를 상호배타 분리. 선택된 양수수량·과거5일 하락 여부도 기술적 분해. 58개 후행 라벨 결손과 과거위험 결손을 제외하지 않고 별도 집계.",
+    "initial_findings_before_design": "보유65개 보정예측+1.231% 실제+1.373%;미보유top6 118개 +1.799% 대 -0.379%. 보유갱신중하락24개는오차+0.723%p지만보유전체과대는아님. 역할집단은기존정책에의존하며인과효과/일반모집단을뜻하지않음.",
+    "coverage": "거래종목만이아닌전체후보;전체KRX상장종목은아님. 표본겹침·반복열람개발자료 명시. 숫자는라벨gross수익이며전략net수익과구분."
+  },
+  "hypothesis": "고정10월편향으로11~12월신규선정오차를따라가지못했을가능성. 매도규칙을일괄강화하지않고 신규진입에만 최근 확정 상위6예측오차를 반영한다.",
+  "calibration": {
+    "window_dates": 20,
+    "maturity": "각원예측일의다음정규장시가부터5세션후시가가판단일종료까지관측가능할때만사용(exit_on<=decision_day). 미래결과조회로선정금지.",
+    "selection": "최근성숙한20개예측일·각일raw상위6개. 120라벨 모두확인필수. 결손이면공통중단;과거완전한날로치환금지. 동일날짜동일가중 평균(raw_mu-gross_y).",
+    "bias": "entry_b=max(parent_fixed_b, rolling20_mean_error). parent_fixed_b=0.00456177185085543. 기존보정보다낙관적으로증가시키지않음. 보유수량>0이면 parent_fixed_b만사용하며축소/보유/추가모두기존동일. 0주로끝난종목재진입은entry_b.",
+    "availability": "초기20일과성숙마감은기존보정과동일. 23개판단일각각당시성숙자료만사용. 다음일라벨을검증통과용으로미리읽지않음.20은기존보정기간재사용,후보위험계수/문턱최적화없음."
+  },
+  "fixed": "원raw상위6신규풀+보유합집합·순위·정수최적화목적함수·수량상한·5거래일간격·5위상·4비용체결조건·1천만원·기존원천·학습예측고정. off-top6보유추가금지. parent #813의 core와 실행부무수정.",
+  "evaluation": {"start":"2024-11-11","end":"2024-12-11","dates":23,"forecast_rows":4391,"tail_through":"2024-12-31","pristine_oos":false},
+  "arms": ["candidate","prior_integer","matched_ridge","matched_cap6","ridge_net","legacy_selection","cap6"],
+  "paths": 140,
+  "parent_crosscheck": "prior_integer=부모candidate와3기존전체예산단순기준의80경로경제결과·체결·일별책동일. 매칭2팔은새candidate의당시R상한이라부모값과같을필요없음.",
+  "risk_matching": "#813와같은 R, scale,80%사용률·0예산/불가피잔여 처리. 새candidate계좌당시예산으로자기계좌두단순기준비교.실현낙폭을사후매칭하지않음.",
+  "acceptance": "기존전체예산3기준 frozen.verdict도별도보고. 추가편향효과:prior_integer대비75/120평균엄격개선·half/delay비악화·4조건최악MDD비악화. 위험상한비교:75/120각5위상두기준과현금초과·half/delay평균초과·4조건각기준최악MDD비악화·각사용률80%이상. 확인반례기각,미완결미평가,위험미달불충분. 모두통과해도반복개발구간조건부지지일뿐실주문승격아님.",
+  "implementation": {"runner":"scripts/measure/kr_entry_maturity.py","tests":"tests/test_kr_entry_maturity.py","raw":"data/research/kr-entry-maturity-2026-10-23-v1.json","report":"docs/KR-ENTRY-MATURITY-RESULT-2026-10-23.md","precommit":"명세와구현각각전략계산전커밋","historical_runs":1},
+  "no_tuning": "성과열람뒤20일길이/역할/최솟값/평가시점/관문재설정금지. 원천수집·기업행사조사·유료구매·운영변경없음.",
+  "integrated_roadmap_percent":40
+}
