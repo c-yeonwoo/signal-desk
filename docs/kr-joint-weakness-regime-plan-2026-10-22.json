@@ -1,0 +1,62 @@
+{
+  "schema": "kr-joint-weakness-regime-plan-v1",
+  "candidate_id": "kr-calibrated-joint-negative-h5-veto-v1",
+  "base_commit": "736ff691255f6f403b0d06425b5336333e73b2cf",
+  "question": "고정 보정 후에도 남는 낙관 예측에 대해, 시장 대리 지표와 종목의 동반 약세를 확인할 때 신규·보유·추가매수를 중단하면 비용 후 성과와 위험이 개선되는가",
+  "parent_plan": {"path": "docs/kr-frozen-bias-calibration-plan-2026-10-22.json", "sha256": "3ac2fc720b5221e08a10fd9cc6ec205d007e8952560cb73d3cda1487a4bba9c9"},
+  "parent_result": {"path": "data/research/kr-frozen-bias-calibration-2026-10-22-v1.json", "sha256": "a44bd4eb35ef0d081853053c00f8bbd8cf55722a2042fc7970031eca42e5758c"},
+  "inputs": "부모에 고정한 두 예측 원장·9개 KRX ZIP·기존12개 단위 검수 근거와 부모 보정 계수만 재사용. 새 수집·기업행사 원천 조사·기초/보정 재학습 없음",
+  "baseline": {
+    "bias": "부모 결과의 b=0.00456177185085543를 그대로 재사용.10월20판단일120목표가11-08 성숙한 뒤 고정된 값이며 이번에는 다시 적합하지 않음",
+    "selector": "부모의 보정 candidate와 같은 원래 비용/보유 선택기. 부분 유지 선택지 보완·새 순위/가중치·손절률·추격·재진입 대기 추가 없음"
+  },
+  "regime": {
+    "lookback_sessions": 5,
+    "history": "판단일 t를 포함한 연속6정규장 종가. r5=close_t/close_(t-5)-1. 각 종가·주식수는 양수, 창 내부5전환은 기존 정확한 보유수량 불변 사실만 허용. 첫 종가 이전의 변동은 이 수익 단위에 포함하지 않음",
+    "market_universe": "그날 원래 보존 예측의 모든 종목. 시장지수나 과거 전체시장 구성 복원이 아님. 결손을 보고 종목을 제거하지 않음",
+    "market_center": "같은 종목군 r5의 중간값. 미검수/가격 결손은 null로 남겨 전체 분모 유지, 기존 순서통계로 가능한 중간값 하한/상한 계산. 신뢰구간이 아님",
+    "market_state": "상한<0이면 weak,하한>=0이면 not_weak,그 외 finite 경계는 ambiguous. 양끝 중 하나라도 무한/미확인일 정도로 자료가 없으면 모든 팔 공통 자료 중단",
+    "ambiguous": "시장 약세가 입증되지 않았으므로 veto를 발동하지 않음. 회복/매수 안전 판정으로 표시하지 않음",
+    "stock_weak": "해당 종목 r5<0. 등호0은 약세 아님",
+    "joint_veto": "market_state=weak AND stock_weak인 좌표만 보정 기준 선택기의 양수 목표에서 제거해0으로 만듦. 기존 보유도 청산 의도, 신규/추가매수도 금지. 차순위 충원·다른 종목 확대·강제 시장 전체 현금화 없음",
+    "missing_relevant_stock": "약세 시장에서 기준 선택기가 양수 목표로 둔 종목의 r5가 미확인이면 공통 자료 중단. 확인되지 않은 값을0/안전/자동매도로 바꾸지 않음",
+    "recovery": "별도 sticky/대기 규칙 없음. 다음 기존 정기 판단에서 동반 약세가 아니면 원래 선택기로 재평가하며 비용/재진입 영향을 함께 측정",
+    "timing": "기존5세션 판단일 종가까지의 정보로 다음 장 이후 주문. 장중·일일 감시나 갭 손실 방지 보장 아님",
+    "rationale": "기간5는 기존 예측/판단 지평,문턱0은 하락 부호. 이번 결과로 기간·부호 문턱을 탐색하지 않음. 기존293일 신규 매수의 상대강도 예외 제거 실험을 재실행하는 것이 아님"
+  },
+  "evaluation": {
+    "start": "2024-11-11", "end": "2024-12-11", "dates": 23, "forecast_rows": 4391,
+    "tail_through": "2024-12-31",
+    "role": "부모와 동일한 이미 열람한 가격 전용 개발 비교. 이번 후보의 결과는 계산 전 고정하되 pristine OOS/독립 최종 평가라고 부르지 않음",
+    "availability_before_performance": "23일4391행의6종가 이력 중 단위 미검수46행. 가능한 신규/보유 상위집합38종목의23일 이력 결손0. 미검수46행을 종목군에서 제외하지 않고 중간값 경계에 포함. 이 조사에서 새 수익/국면/경로 성과를 계산하지 않음"
+  },
+  "comparison": {
+    "arms": ["candidate", "prior_calibrated", "prior_cost_aware", "ridge_net", "legacy_selection", "cap6"],
+    "direct_baseline": "prior_calibrated는 부모 보정 candidate,prior_cost_aware는 원래 예측 비용/보유 정책,나머지 세 단순 대조도 부모 의미 그대로",
+    "shared": "초기1천만원·자기 비용 후NAV·5위상·5세션주기·4비용/체결조건·청산/결제 꼬리·부모 주문/체결/장부/자료 중단을 모든 팔에 동일 적용",
+    "scenarios": ["75bp_full", "120bp_full", "75bp_half", "75bp_delay1"],
+    "trading_paths": 120,
+    "parent_economic_crosscheck": "기존5팔100경로의 체결·일별 장부·경제 지표가 부모와 동일해야 함. 새 계약ID만 제거해 대조. 새 공통 결손이면 확인 가능한 prefix만 일치 확인하고 완결이라고 표시하지 않음",
+    "source_failure": "새 국면/선택/가격/체결 입력의 필요한 결손은6팔 공통 중단. 후보에 유리하게 날짜·종목을 사후 제외하지 않음"
+  },
+  "decision": {
+    "overall": "부모의 전체 관문 유지:75/120bp 각5위상 후보가 ridge_net·legacy·cap6·현금을 각각 초과,두 스트레스5위상 평균도 대조/현금 초과,모든 후보 가격 MDD>=-10%. 확인된 완결 반례는 기각,필수 결손만 있으면 판정불가",
+    "incremental": "직접 대조 prior_calibrated 대비75/120bp 평균 엄격 증가,half/delay 평균 비악화,네 조건 최악 위상 MDD 비악화. 전체와 증분 판정을 분리. 확인분 평균으로 완결 평균 대체 금지",
+    "diagnostics": "국면별 판단일 수/결손 경계·veto 신규/기보유/추가매수 의도·빈자리/노출/회전/비용·각 위상/종목 손익 차이·회피 손실과 놓친 상승을 양쪽 보존. 일부 종목의 이득이나 낮은 노출만으로 수익성 주장하지 않음",
+    "finish": "단일 후보·실제120경로1회. 실패 뒤 기간/문턱/대상/시장 조건 변경·재튜닝 금지. 개발 지지여도 별도 증거 없이 운영 승격·등록 변경·실주문 승인 아님"
+  },
+  "implementation": {
+    "runner": "scripts/measure/kr_joint_weakness_regime.py",
+    "tests": "tests/test_kr_joint_weakness_regime.py",
+    "shared_replay": "기존 replay_group에 opt-in decision_context_factory만 추가. 현재 판단일과 그날 예측으로 국면을 계산해 selector와 판단ID에 전달. 옵션 없는 원래 호출은 변경 없음. 전역 monkeypatch나 미래 라벨 전달 금지",
+    "local_result": "data/research/kr-joint-weakness-regime-2026-10-22-v1.json",
+    "summary": "docs/kr-joint-weakness-regime-result-2026-10-22.json",
+    "explanation": "docs/KR-JOINT-WEAKNESS-REGIME-RESULT-2026-10-22.md",
+    "precommit": "명세·구현을 실제 국면/경로 성과 계산 전에 각각 커밋. 입력·이력·계수·코드·판단 문맥 해시 보존",
+    "max_seconds": 600, "historical_runs": 1
+  },
+  "new_market_data_requests": 0, "fit_calls": 0, "forecast_reconstruction_calls": 0,
+  "production_engine_changed": false, "live_order_eligible": false,
+  "strict_pit_eligible": false, "verified_total_return": false, "pristine_oos": false,
+  "registered_contract_changed": false, "integrated_roadmap_percent": 40
+}
