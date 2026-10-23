@@ -82,6 +82,8 @@ def selection_gate(folds):
 def run(root, commit):
     if root != old.ROOT.resolve():
         raise ValueError('wrong_repository')
+    if Path(__file__).resolve() != root/CODE[0]:
+        raise ValueError('wrong_runner')
     started = time.monotonic()
     provenance = {}
     for name, revision in [(PLAN, PLAN_COMMIT), (PROSE, PLAN_COMMIT), *[(n, commit) for n in CODE]]:
