@@ -1,0 +1,2 @@
+# Local/offline experiment only; never part of the production Docker install.
+scikit-learn==1.7.2

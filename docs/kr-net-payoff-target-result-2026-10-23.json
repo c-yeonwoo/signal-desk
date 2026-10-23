@@ -1,0 +1,23 @@
+{
+  "schema": "kr-net-payoff-target-result-summary-v1",
+  "candidate": "kr-net-payoff-two-head-h5-v1",
+  "adopted": false,
+  "machine_verdict": "inconclusive_data",
+  "implementation_precommit": "580ff4f",
+  "fit_calls": 20,
+  "historical_runs": 1,
+  "new_data_requests": 0,
+  "cohort_paths": 160,
+  "complete_cohort_paths": 90,
+  "account_paths": 100,
+  "complete_account_paths": 20,
+  "june_75bp_mean_cohort_pct": {"two_head_net": -7.915789238375998, "single_net_tree": -6.211911808449638, "ridge14": -3.175076111428947, "momentum12_skip21": -1.0653724370332696},
+  "complete_phase": 4,
+  "phase4_candidate_returns_pct": {"75bp_full": -1.752736875000005, "120bp_full": -2.588850999999992, "75bp_half": -0.894410000000001, "75bp_delay1": 7.335527499999994},
+  "source_stop": {"day": "2024-10-23", "ticker": "259960", "reason": "unreviewed_investment_unit_change", "phases": [0, 1, 2, 3]},
+  "raw": "data/research/kr-net-payoff-target-2026-10-23-v1.json",
+  "raw_sha256": "53c42030457f603f4c87ca1435d08c1bb55ee16d238ff016a78a84dc4889aa8d",
+  "production_changes": false,
+  "independent_profitability_proof": false,
+  "integrated_roadmap_percent": 40
+}
