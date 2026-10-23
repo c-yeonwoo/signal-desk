@@ -94,3 +94,14 @@ def test_rejection_and_incomplete_are_distinct():
         for m in g["metrics"].values():
             m.update(complete=False, net_return_pct=None, price_mdd_pct=None)
     assert lab.verdict(groups)["decision"] == "inconclusive_data"
+
+
+def test_known_drawdown_counterexample_rejects_even_with_other_candidate_gaps():
+    groups = [{"scenario": sc, "phase": phase, "metrics": {
+        a: {"complete": a != "legacy_h5" or phase == 0,
+            "net_return_pct": 2. if a != "legacy_h5" or phase == 0 else None,
+            "price_mdd_pct": (-8. if a == "legacy_h5" else -5.) if a != "legacy_h5" or phase == 0 else None}
+        for a in lab.ARMS}} for sc in lab.SCENARIOS for phase in range(5)]
+    v = lab.verdict(groups)
+    assert v["decision"] == "rejected"
+    assert "75bp_full:worst_mdd_worse_than_legacy_h20" in v["violations"]

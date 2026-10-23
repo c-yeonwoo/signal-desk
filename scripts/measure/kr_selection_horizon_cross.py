@@ -210,7 +210,7 @@ def verdict(groups):
                         violations.append(sc+f"/phase{g['phase']}:below_"+control)
             cdds = [g["metrics"]["legacy_h5"]["price_mdd_pct"] for g in gs if g["metrics"]["legacy_h5"]["complete"]]
             bdds = [g["metrics"]["legacy_h20"]["price_mdd_pct"] for g in gs if g["metrics"]["legacy_h20"]["complete"]]
-            if len(cdds) == len(bdds) == 5 and min(cdds) < min(bdds):
+            if cdds and len(bdds) == 5 and min(cdds) < min(bdds):
                 violations.append(sc+":worst_mdd_worse_than_legacy_h20")
     return {"decision": "rejected" if violations else "inconclusive_data" if complete != 80
             else "conditional_development_support", "violations": violations,
