@@ -1,0 +1,32 @@
+{
+  "candidate": "kr-risk-peer-momentum-h5-v1",
+  "implementation_commit": "9ec5997",
+  "decision": "inconclusive_selection",
+  "adopted": false,
+  "historical_runs": 1,
+  "fit_calls": 0,
+  "new_source_requests": 0,
+  "cohort_paths": 160,
+  "complete_cohort_paths": 104,
+  "account_paths_executed": 0,
+  "account_status": "not_run_selection_gate",
+  "raw_path": "data/research/kr-risk-peer-momentum-2026-10-23-v1.json",
+  "raw_bytes": 1276184,
+  "raw_sha256": "e1aa184c42bf7d39b814b5a9319207d9f0e5b1fd6a283ba7793a5d86c86acdab",
+  "june_75bp_mean_pct": {
+    "risk_peer_momentum": 5.0300328996709665,
+    "momentum12_skip21": -1.0653724370332696,
+    "low_volatility": null,
+    "risk_peer_cap": 3.879740441508477
+  },
+  "july_75bp_mean_pct": {
+    "risk_peer_momentum": -14.833495003909889,
+    "momentum12_skip21": -17.353250241498912,
+    "low_volatility": -3.650474842896125,
+    "risk_peer_cap": -16.083278101472054
+  },
+  "pristine_oos": false,
+  "verified_total_return": false,
+  "production_changed": false,
+  "integrated_roadmap_percent": 40
+}
