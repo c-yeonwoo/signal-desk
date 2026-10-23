@@ -1,0 +1,29 @@
+{
+  "candidate": "kr-risk-peer-current-momentum-h5-v1",
+  "decision": "rejected_mechanism",
+  "adopted": false,
+  "implementation_commit": "5b7b8e8",
+  "plan_commit": "eed50bf",
+  "result_file": "data/research/kr-current-momentum-2026-10-23-v1.json",
+  "result_sha256": "3b6b6b71a85b1f408b83d469f46f680e80fce385564f51e1ee0814e9eb1a10d7",
+  "result_bytes": 570864,
+  "historical_runs": 1,
+  "cohort_paths": 40,
+  "complete_cohort_paths": 22,
+  "incomplete_cohort_paths": 18,
+  "reused_control_paths": 160,
+  "account_paths_executed": 0,
+  "fit_calls": 0,
+  "new_source_requests": 0,
+  "elapsed_seconds": 7.249371083918959,
+  "candidate_means_pct": {
+    "2024-06": {"75": 3.480160587196486, "120": 1.719878116790523},
+    "2024-07": {"75": -14.183751925616077, "120": -15.93468458206756},
+    "2024-08": {"75": null, "120": null},
+    "2024-09": {"75": null, "120": null}
+  },
+  "production_changed": false,
+  "pristine_oos": false,
+  "verified_total_return": false,
+  "integrated_roadmap_percent": 40
+}
