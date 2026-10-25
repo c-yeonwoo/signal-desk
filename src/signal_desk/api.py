@@ -5139,6 +5139,25 @@ def alpaca_research_quotes_get(request: Request, symbol: str = "", start: str = 
     return alpaca_research.quote_window(symbol, start, end)
 
 
+@app.get("/api/admin/research/alpaca-bars")
+def alpaca_research_bars_get(request: Request, symbol: str = "", start: str = "", end: str = ""):
+    """고정 연구 패널의 과거 raw 1분봉 한 페이지. 자동 수집·주문·빈 봉 보간 없음."""
+    _admin_or_403(request)
+    from signal_desk.ingest import alpaca_research
+    if not any((symbol, start, end)):
+        return {**alpaca_research.availability(), "timeframe": "1Min", "adjustment": "raw",
+                "max_window_seconds": alpaca_research.MAX_BAR_WINDOW_SECONDS,
+                "coverage_status": "session_and_continuity_unverified"}
+    try:
+        alpaca_research.bar_parameters(symbol, start, end)
+    except ValueError:
+        raise HTTPException(422, "고정 연구 종목과 2020~2025년의 같은 뉴욕 날짜·7시간 이하 구간만 조회합니다.") from None
+    if not db.lease_claim("alpaca_historical_quotes_global", uuid.uuid4().hex,
+                          now=int(time.time()), lease_sec=1):
+        raise HTTPException(429, "과거 원문은 초당 한 구간만 조회합니다.")
+    return alpaca_research.bar_window(symbol, start, end)
+
+
 @app.get("/api/admin/research/alpaca-news")
 def alpaca_research_news_get(request: Request, symbol: str, session: str, page_token: str = ""):
     """보호 전 고정 실적 패널의 기사 시각·수정 시각 확인. 주문/현재 뉴스 접근 없음."""
@@ -5189,7 +5208,12 @@ def _archive_pilot_minute_day(ticker: str, session: str, result: dict) -> dict:
     if (ticker, session) not in _INTRADAY_MINUTE_PILOT:
         return {"status": "outside_fixed_pilot_not_archived"}
     try:
-        return db.intraday_research_day_put(result)
+        # v1 identity/revision checks cover only the legacy close/volume bars.
+        # Keep the new OHLC diagnostic sidecar out of this immutable archive.
+        diagnostic_fields = {"venue", "ohlc_bars", "ohlc_bars_sha256", "ohlc_complete_rows",
+                             "ohlc_missing_rows", "ohlc_invalid_rows"}
+        legacy = {key: value for key, value in result.items() if key not in diagnostic_fields}
+        return db.intraday_research_day_put(legacy)
     except (ValueError, RuntimeError, sqlite3.DatabaseError) as exc:
         return {"status": "archive_failed", "reason": type(exc).__name__}
 
