@@ -333,6 +333,32 @@ def domestic_rank_watchlist(creds: dict | None = None) -> dict:
             "source_time_verified": False, "research_only": True}
 
 
+def _historical_minute_ohlc(row: dict, close: float) -> dict:
+    """Keep close-only legacy samples, but never manufacture a range from the close."""
+    fields = {"open": "stck_oprc", "high": "stck_hgpr", "low": "stck_lwpr"}
+    values = {}
+    status = "complete"
+    for name, source_key in fields.items():
+        raw = row.get(source_key)
+        if raw is None or raw == "":
+            values[name] = None
+            if status != "invalid":
+                status = "missing"
+            continue
+        try:
+            value = float(raw)
+            if isinstance(raw, bool) or not math.isfinite(value) or value <= 0:
+                raise ValueError("invalid OHLC price")
+            values[name] = value
+        except (ValueError, TypeError, OverflowError):
+            values[name] = None
+            status = "invalid"
+    if status == "complete" and not values["low"] <= min(values["open"], close) <= max(values["open"], close) <= values["high"]:
+        values = dict.fromkeys(fields)
+        status = "invalid"
+    return {**values, "close": close, "ohlc_status": status}
+
+
 def domestic_historical_minute_probe(ticker: str, session: str,
                                      creds: dict | None = None, *, end_hour: str = "153000") -> dict:
     """과거 1분봉 최대 120행을 읽는다. 보호 구간 수익 계산·원장 역기입은 하지 않는다."""
@@ -351,14 +377,16 @@ def domestic_historical_minute_probe(ticker: str, session: str,
     creds = creds or config.kis_credentials()
     if not creds or creds.get("env") != "real":
         return {"status": "unavailable", "bars": []}
+    venue = "J"  # Preserve the requested venue; do not relabel it as consolidated KRX/NXT.
     body = _request("/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
                     "FHKST03010230", creds,
-                    {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": ticker,
+                    {"FID_COND_MRKT_DIV_CODE": venue, "FID_INPUT_ISCD": ticker,
                      "FID_INPUT_HOUR_1": end_hour, "FID_INPUT_DATE_1": day.strftime("%Y%m%d"),
                      "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": ""})
     if not body or body.get("rt_cd") != "0" or not isinstance(body.get("output2"), list):
         return {"status": "provider_error", "bars": []}
     bars = []
+    ohlc_bars = []
     invalid = 0
     source_dates = set()
     invalid_reasons: dict[str, int] = {}
@@ -402,9 +430,14 @@ def domestic_historical_minute_probe(ticker: str, session: str,
         if not math.isfinite(price) or price <= 0 or volume < 0:
             reject("invalid_price_or_volume")
             continue
+        # This v1 projection and its hash identify already-preserved close-only
+        # research days. OHLC enrichment must not look like a price revision.
         bars.append({"time": stamp.strftime("%H:%M:%S"), "price": price, "volume": volume,
                      "date_reported": reported_date is not None})
+        ohlc_bars.append({"time": stamp.strftime("%H:%M:%S"), "volume": volume, "venue": venue,
+                          **_historical_minute_ohlc(row, price)})
     bars = sorted({bar["time"]: bar for bar in bars}.values(), key=lambda bar: bar["time"])
+    ohlc_bars = sorted({bar["time"]: bar for bar in ohlc_bars}.values(), key=lambda bar: bar["time"])
     return {"status": "observed" if bars else "empty_or_invalid", "ticker": ticker,
             "session": session, "bars": bars, "raw_rows": len(body["output2"]),
             "invalid_rows": invalid, "invalid_row_reasons": invalid_reasons,
@@ -422,7 +455,12 @@ def domestic_historical_minute_probe(ticker: str, session: str,
             "first_time": bars[0]["time"] if bars else None,
             "last_time": bars[-1]["time"] if bars else None,
             "requested_end_hour": end_hour, "first_page_only": end_hour == "153000",
-            "source_time_verified": False,
+            "source_time_verified": False, "venue": venue, "ohlc_bars": ohlc_bars,
+            "ohlc_bars_sha256": hashlib.sha256(json.dumps(ohlc_bars, sort_keys=True,
+                separators=(",", ":")).encode()).hexdigest(),
+            "ohlc_complete_rows": sum(bar["ohlc_status"] == "complete" for bar in ohlc_bars),
+            "ohlc_missing_rows": sum(bar["ohlc_status"] == "missing" for bar in ohlc_bars),
+            "ohlc_invalid_rows": sum(bar["ohlc_status"] == "invalid" for bar in ohlc_bars),
             "source": "kis:inquire-time-dailychartprice", "research_only": True}
 
 
@@ -431,6 +469,7 @@ def domestic_historical_minute_day(ticker: str, session: str,
     """관리자 연구용 하루 분봉 범위 점검. 최대 5페이지, 원장/주문 경로와 분리."""
     pages = []
     bars = []
+    ohlc_bars = []
     cursor = "153000"
     previous_first = None
     seen = set()
@@ -475,14 +514,23 @@ def domestic_historical_minute_day(ticker: str, session: str,
                       "earlier_date_rows_excluded": page["invalid_rows"] if boundary else 0,
                       "bars_sha256": page["bars_sha256"]})
         bars.extend(batch)
+        ohlc_bars.extend(page.get("ohlc_bars", []))
         seen.update(bar["time"] for bar in batch)
         first = batch[0]["time"]
         if first == "09:00:00":
             ordered = sorted(bars, key=lambda bar: bar["time"])
+            ordered_ohlc = sorted(ohlc_bars, key=lambda bar: bar["time"])
             return {"status": "observed_day", "ticker": ticker, "session": session,
                     "pages": pages, "bars": ordered, "bar_count": len(ordered),
                     "first_time": ordered[0]["time"], "last_time": ordered[-1]["time"],
                     "date_attested_by_rows": True, "missing_minutes_not_filled": True,
+                    "venue": "J", "ohlc_bars": ordered_ohlc,
+                    "ohlc_bars_sha256": hashlib.sha256(json.dumps(ordered_ohlc, sort_keys=True,
+                        separators=(",", ":")).encode()).hexdigest(),
+                    "ohlc_complete_rows": sum(bar.get("ohlc_status") == "complete" for bar in ordered_ohlc),
+                    "ohlc_missing_rows": len(ordered) - len(ordered_ohlc) + sum(
+                        bar.get("ohlc_status", "missing") == "missing" for bar in ordered_ohlc),
+                    "ohlc_invalid_rows": sum(bar.get("ohlc_status") == "invalid" for bar in ordered_ohlc),
                     "earlier_date_rows_excluded": sum(page["earlier_date_rows_excluded"] for page in pages),
                     "bars_sha256": hashlib.sha256(json.dumps(ordered, sort_keys=True,
                         separators=(",", ":")).encode()).hexdigest(),

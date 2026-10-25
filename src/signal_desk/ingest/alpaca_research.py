@@ -1,4 +1,4 @@
-"""Bounded historical SIP quotes for isolated research. No broker/order access."""
+"""Bounded historical SIP sources for isolated research. No broker/order access."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import calendar
 import datetime as dt
 import hashlib
 import json
+import math
 import os
 import re
 import urllib.error
@@ -19,6 +20,7 @@ SYMBOLS = frozenset({"AAPL", "MSFT", "GOOGL", "AMZN", "META", "FB", "NVDA", "JPM
 NEWS_SYMBOLS = (SYMBOLS - {"SPY"}) | {"GOOG"}  # Same issuer news, NOT interchangeable quote prices.
 MAX_BYTES = 512_000
 MAX_WINDOW_SECONDS = 300  # Same 1,000-row/byte/time cap for sparse historical intervals.
+MAX_BAR_WINDOW_SECONDS = 7 * 60 * 60
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -119,6 +121,106 @@ def quote_window(symbol: str, start: str, end: str) -> dict:
             "execution_condition_status": "historical_condition_unverified" if unknown else "no_unknown_condition_observed",
             "has_next_page": bool(body.get("next_page_token")), "raw_sha256": hashlib.sha256(raw).hexdigest(),
             "raw_bytes": len(raw), "raw_b64": base64.b64encode(raw).decode("ascii")}
+
+
+def bar_parameters(symbol: str, start: str, end: str) -> dict:
+    """One NY-date interval [start, end), not a certified regular session.
+
+    The provider's end is inclusive. Subtract one second from our exclusive end;
+    minute timestamps are subsequently required to lie inside the original window.
+    Calendar/early-close and continuous coverage checks belong to the caller.
+    """
+    if symbol not in SYMBOLS:
+        raise ValueError("fixed research panel only")
+    try:
+        clock_ns(start), clock_ns(end)
+        if "." in start or "." in end:
+            raise ValueError("request windows use whole seconds")
+        first, last = (dt.datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(dt.timezone.utc)
+                       for value in (start, end))
+        if not (dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc) <= first < last
+                < dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc)):
+            raise ValueError("only 2020–2025 historical research dates")
+        ny = ZoneInfo("America/New_York")
+        if first.astimezone(ny).date() != last.astimezone(ny).date():
+            raise ValueError("one New York date only")
+        if last - first > dt.timedelta(seconds=MAX_BAR_WINDOW_SECONDS):
+            raise ValueError("one historical window must be at most seven hours")
+    except (ValueError, TypeError, AttributeError, OverflowError):
+        raise ValueError("valid timezone-aware 2020–2025 same-NY-date window of at most seven hours required") from None
+    return {"start": first.isoformat(), "end": (last - dt.timedelta(seconds=1)).isoformat(),
+            "feed": "sip", "currency": "USD", "timeframe": "1Min", "adjustment": "raw",
+            "asof": first.astimezone(ny).date().isoformat(), "limit": "1000", "sort": "asc"}
+
+
+def bar_window(symbol: str, start: str, end: str) -> dict:
+    """Read one bounded OHLCV page, preserving source bytes rather than filling gaps."""
+    params = bar_parameters(symbol, start, end)
+    bounds = (clock_ns(params["start"]), clock_ns(params["end"]) + 1_000_000_000)
+    result = {"schema": "alpaca-historical-bar-window-v1", "symbol": symbol, "request": params,
+              "window": {"start": params["start"], "end": dt.datetime.fromisoformat(end.replace("Z", "+00:00"))
+                         .astimezone(dt.timezone.utc).isoformat(), "end_exclusive": True},
+              "bar_interval_seconds": 60, "live_order_eligible": False, "strict_pit_eligible": False,
+              "coverage_status": "session_and_continuity_unverified"}
+    if not availability()["configured"]:
+        return {**result, "status": "credentials_missing"}
+    request = urllib.request.Request("https://data.alpaca.markets/v2/stocks/" + symbol + "/bars?" +
+        urllib.parse.urlencode(params), headers={"APCA-API-KEY-ID": os.environ["APCA_API_KEY_ID"].strip(),
+            "APCA-API-SECRET-KEY": os.environ["APCA_API_SECRET_KEY"].strip()})
+    result["requested_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    try:
+        with _open(request, timeout=15) as response:
+            status, raw = response.status, response.read(MAX_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        return {**result, "status": "provider_rejected", "http_status": exc.code,
+                "observed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+    except OSError:
+        return {**result, "status": "transport_failed", "http_status": None,
+                "observed_at": dt.datetime.now(dt.timezone.utc).isoformat()}
+    result.update(http_status=status, observed_at=dt.datetime.now(dt.timezone.utc).isoformat())
+    if len(raw) > MAX_BYTES:
+        return {**result, "status": "response_size_limit"}
+    if any(os.environ[name].strip().encode() in raw for name in ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY")):
+        return {**result, "status": "invalid_source_response"}
+    try:
+        body = json.loads(raw)
+        rows = body.get("bars") if isinstance(body, dict) else None
+        if isinstance(body, dict) and "bars" in body and rows is None and not body.get("next_page_token"):
+            rows = []
+        if not isinstance(rows, list) or body.get("symbol") != symbol or len(rows) > 1000:
+            raise ValueError("symbol/schema mismatch")
+        token = body.get("next_page_token")
+        if token is not None and (not isinstance(token, str) or not token):
+            raise ValueError("invalid pagination schema")
+        clocks, bars = [], []
+        for row in rows:
+            clock = clock_ns(row["t"])
+            if not bounds[0] <= clock < bounds[1] or clock % 60_000_000_000:
+                raise ValueError("bar outside requested window or not minute-aligned")
+            prices = [row[key] for key in ("o", "h", "l", "c")]
+            if any(isinstance(value, bool) or not isinstance(value, (int, float))
+                   or not math.isfinite(value) or value <= 0 for value in prices):
+                raise ValueError("invalid OHLC")
+            opening, high, low, close = prices
+            if not low <= min(opening, close) <= max(opening, close) <= high:
+                raise ValueError("inconsistent OHLC")
+            volume = row["v"]
+            # JSON Schema integer includes 1.0; reject fractions, not its wire spelling.
+            if (isinstance(volume, bool) or not isinstance(volume, (int, float))
+                    or not math.isfinite(volume) or volume < 0 or int(volume) != volume):
+                raise ValueError("invalid volume")
+            clocks.append(clock)
+            bars.append({"t": row["t"], "open": opening, "high": high, "low": low,
+                         "close": close, "volume": int(volume)})
+        if clocks != sorted(clocks) or len(clocks) != len(set(clocks)):
+            raise ValueError("bars duplicated or not ascending")
+    except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+        return {**result, "status": "invalid_source_response"}
+    # A finished provider page is not a complete session or execution-quality data.
+    return {**result, "status": "observed" if rows else "empty", "bar_count": len(rows), "bars": bars,
+            "has_next_page": bool(token), "response_complete": not bool(token),
+            "raw_sha256": hashlib.sha256(raw).hexdigest(), "raw_bytes": len(raw),
+            "raw_b64": base64.b64encode(raw).decode("ascii")}
 
 
 def news_parameters(symbol: str, session: str, page_token: str = "") -> dict:
