@@ -144,6 +144,27 @@ def test_closed_account_books_ask_bid_fees_and_risk_budget(panel):
     assert result["days"][0]["time_weighted_entry_notional_pct"] > 0
 
 
+def test_round_lot_sensitivity_keeps_original_limits_and_allows_no_adoption(panel):
+    sources, frozen = panel
+    quotes = {}
+    day = frozen["evaluation_sessions"][0]
+    for c in orb.opening_candidates(sources, frozen["sessions"], day, "rvol"):
+        intent = orb.entry_intent(c, sources[(c["symbol"], day)]["bars"])
+        entry = quote(intent["ready"], size=1)
+        quotes.update(indexed_quote(c["symbol"], intent["ready"], entry))
+        exit_at = orb.exit_clock(intent, {**entry, "ns": intent["ready"]}, sources[(c["symbol"], day)]["bars"])["at"]
+        quotes.update(indexed_quote(c["symbol"], exit_at, quote(exit_at, 102.9, 102.92, size=1)))
+    primary = orb.replay(sources, quotes, frozen, "rvol")
+    sensitivity = orb.replay(sources, quotes, frozen, "rvol", size_scale=100)
+    assert primary["quote_size_scale_assumed"] == 1 and sensitivity["quote_size_scale_assumed"] == 100
+    assert all(t["quantity"] == 1 for t in primary["trades"])
+    assert all(1 < t["quantity"] < 100 and t["planned_stop_loss"] <= 25
+               and t["entry_notional"] < 2000 for t in sensitivity["trades"])
+    assert not any(frozen["source_attestations"].values())
+    with pytest.raises(ValueError, match="size interpretation"):
+        orb.replay(sources, quotes, frozen, "rvol", size_scale=10)
+
+
 def test_quote_loader_rejects_forged_complete_flag(tmp_path):
     at = orb.session_clocks("2024-01-02")[0] + 6 * orb.MINUTE
     request = orb.request_window("AAPL", at)
@@ -186,11 +207,12 @@ def test_positive_reconstruction_cannot_override_missing_source_attestations(mon
                        for day in plan["evaluation_sessions"] for symbol in ("AAPL", "MSFT")]}
 
     monkeypatch.setattr(orb, "replay", synthetic_path)
-    result = orb.compare({}, {}, frozen)
-    assert all(result["sealed_checks"].values())
-    assert result["conditional_reconstruction_verdict"] == "passed_frozen_checks"
-    assert result["verdict"] == "not_adopted_source_incomplete"
-    assert not result["live_order_eligible"] and len(result["source_blockers"]) == 4
+    for scale in (1, 100):
+        result = orb.compare({}, {}, frozen, size_scale=scale)
+        assert all(result["sealed_checks"].values())
+        assert result["conditional_reconstruction_verdict"] == "passed_frozen_checks"
+        assert result["verdict"] == "not_adopted_source_incomplete"
+        assert not result["live_order_eligible"] and len(result["source_blockers"]) == 4
 
 
 def test_bar_source_requires_full_session_and_exact_bytes(tmp_path):

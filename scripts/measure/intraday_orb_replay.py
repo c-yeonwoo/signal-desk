@@ -278,9 +278,11 @@ def quote_plan(sources: dict, quotes: dict, frozen: dict) -> dict:
 
 
 def replay(sources: dict, quotes: dict, frozen: dict, ranking: str, *, bps: int = 27,
-           delay: int = 0, liquidity_fraction: float = 1) -> dict:
+           delay: int = 0, liquidity_fraction: float = 1, size_scale: int = 1) -> dict:
     if liquidity_fraction not in (1, .5):
         raise ValueError("unregistered liquidity scenario")
+    if isinstance(size_scale, bool) or size_scale not in (1, 100):
+        raise ValueError("unregistered historical size interpretation")
     nav, peak, mdd, days, trades, needs = float(frozen["initial_nav_usd"]), float(frozen["initial_nav_usd"]), 0., [], [], {}
     for day in frozen["evaluation_sessions"]:
         day_start, day_trades, day_complete = nav, [], True
@@ -307,7 +309,7 @@ def replay(sources: dict, quotes: dict, frozen: dict, ranking: str, *, bps: int 
             unit_risk = intent["limit"] - intent["initial_stop"] + intent["limit"] * 2 * bps / 10000
             qty = math.floor(min(.0025 * day_start / unit_risk,
                                  .2 * day_start / (intent["limit"] * (1 + bps / 10000)),
-                                 entry["as"] * liquidity_fraction))
+                                 entry["as"] * size_scale * liquidity_fraction))
             if qty < 1:
                 continue
             exit_plan = exit_clock(intent, entry, sources[(intent["symbol"], day)]["bars"])
@@ -315,7 +317,7 @@ def replay(sources: dict, quotes: dict, frozen: dict, ranking: str, *, bps: int 
             if need:
                 needs[tuple(need.values())], day_complete = need, False
                 continue
-            if exit_quote is None or exit_quote["bs"] * liquidity_fraction < qty:
+            if exit_quote is None or exit_quote["bs"] * size_scale * liquidity_fraction < qty:
                 # A position already exists: missing liquidation is not a no-trade.
                 day_complete = False
                 continue
@@ -347,20 +349,21 @@ def replay(sources: dict, quotes: dict, frozen: dict, ranking: str, *, bps: int 
         trades.extend(day_trades)
     return {"complete": True, "ranking": ranking, "non_spread_bps_each_side_assumed": bps,
             "delay_seconds": delay, "liquidity_fraction": liquidity_fraction,
+            "quote_size_scale_assumed": size_scale,
             "net_return_pct": (nav / frozen["initial_nav_usd"] - 1) * 100,
             "daily_mdd_pct": mdd * 100,
             "mean_time_weighted_entry_notional_pct": mean(d["time_weighted_entry_notional_pct"] for d in days),
             "days": days, "trades": trades, "needs": []}
 
 
-def compare(sources: dict, quotes: dict, frozen: dict) -> dict:
+def compare(sources: dict, quotes: dict, frozen: dict, *, size_scale: int = 1) -> dict:
     if frozen != plan():
         raise ValueError("frozen source/policy plan differs")
-    paths = {"rvol": replay(sources, quotes, frozen, "rvol"),
-             "turnover": replay(sources, quotes, frozen, "turnover"),
-             "double_cost": replay(sources, quotes, frozen, "rvol", bps=54),
-             "delay_60s": replay(sources, quotes, frozen, "rvol", delay=60),
-             "half_size": replay(sources, quotes, frozen, "rvol", liquidity_fraction=.5)}
+    paths = {"rvol": replay(sources, quotes, frozen, "rvol", size_scale=size_scale),
+             "turnover": replay(sources, quotes, frozen, "turnover", size_scale=size_scale),
+             "double_cost": replay(sources, quotes, frozen, "rvol", bps=54, size_scale=size_scale),
+             "delay_60s": replay(sources, quotes, frozen, "rvol", delay=60, size_scale=size_scale),
+             "half_size": replay(sources, quotes, frozen, "rvol", liquidity_fraction=.5, size_scale=size_scale)}
     all_complete = all(p["complete"] for p in paths.values())
     missing = [key for key, verified in frozen["source_attestations"].items() if not verified]
     verdict = "not_adopted_source_incomplete" if missing else "not_adopted_requires_sealed_inference"
@@ -393,6 +396,8 @@ def compare(sources: dict, quotes: dict, frozen: dict) -> dict:
         if not missing and not all(checks.values()):
             verdict = "rejected_in_reconstruction"
     return {"schema": "intraday-orb-reconstruction-comparison-v1", "policy": POLICY,
+            "quote_size_scale_assumed": size_scale,
+            "interpretation": "primary_conservative" if size_scale == 1 else "round_lot_sensitivity_only",
             "plan_sha256": hashlib.sha256(json_bytes(frozen)).hexdigest(),
             "paths": paths, "cash_control_return_pct": 0, "verdict": verdict,
             "conditional_reconstruction_verdict": reconstruction_verdict,
@@ -438,6 +443,8 @@ def main() -> None:
     parser.add_argument("--plan", type=Path, required=True)
     parser.add_argument("--sources", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--size-scale", type=int, choices=(1, 100), default=1,
+                        help="100 is a separately reported historical round-lot sensitivity, not an adoption path")
     args = parser.parse_args()
     if args.command == "freeze":
         write_new(args.plan, plan())
@@ -449,7 +456,7 @@ def main() -> None:
     if args.command == "needs":
         report = quote_plan(load_bars(args.sources), load_quotes(args.sources), frozen)
     else:
-        report = compare(load_bars(args.sources), load_quotes(args.sources), frozen)
+        report = compare(load_bars(args.sources), load_quotes(args.sources), frozen, size_scale=args.size_scale)
     write_new(args.output, report)
     print(json.dumps({"output": str(args.output), "verdict": report.get("verdict"),
                       "quote_windows": len(report.get("windows", []))}))

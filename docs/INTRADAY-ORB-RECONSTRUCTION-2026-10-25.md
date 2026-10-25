@@ -57,7 +57,10 @@ SHA-256은 `4420ea9d2783fa9222022fae3dad20aada9d619cb87c86b75be28b8e7e71e5d5`다
 3. **과거 수량 단위 미인증.** [Alpaca 공지](https://docs.alpaca.markets/us/v1.1/changelog/marketdata-bid-and-ask-size-display-change)는
    2025-11-03 전 round-lot, 이후 shares 표시 전환을 설명한다. 현재 재조회한2024년 원문을
    소급 변환했는지는 별도 인증하지 않았다. 기본 경로는 원시 표시수량1을1주로 제한한다.
-   보수적 한도 가정이지 정확한 과거 유동성 인증이 아니며 수량100배를 보고 승자를 고르지 않는다.
+   보수적 한도 가정이지 정확한 과거 유동성 인증이 아니다. **첫 손익 계산 전**, 공식 round-lot
+   설명에 따른 `--size-scale 100` 해석도 별도로 고정했다. 같은 두 선정·세 스트레스를 모두
+   공개하고 원래1배 경로를 대체하지 않는다. 둘 중 유리한 값을 골라 채택하지 않으며,
+   100배도 당시 단위/수신/체결의 인증이나 실전 승격 경로가 아니다.
 4. **당시 계좌 비용 아님.** 현재 [한국투자증권 미국 온라인 표준 수수료](https://securities.koreainvestment.com/main/bond/research/_static/TF03ca050000.jsp)
    25bp에 추가2bp를 둔 가정이다. 실제 계좌의 과거 매수·매도 수수료/세금/체결 보존을 대신하지 않는다.
 5. **분봉 청산.** tick-level stop/target 체결이 아니다. 같은 봉에서 둘 다 닿으면 손절 우선,
@@ -93,6 +96,9 @@ bootstrap 단측97.5% 하한>0, 더 나쁘지 않은 일별 변동성/낙폭, �
 # 새로 결정된 청산 needs를 같은 방식으로 수집한 뒤:
 .venv/bin/python -m scripts.measure.intraday_orb_replay compare --plan data/research/<계획>.json \
   --sources data/research/<원천 폴더> --output data/research/<새 비교 결과>.json
+# 같은 조건의 round-lot 단위 해석. 기본 결과를 덮어쓰거나 승자를 선택하지 않는다.
+.venv/bin/python -m scripts.measure.intraday_orb_replay compare --plan data/research/<계획>.json \
+  --sources data/research/<원천 폴더> --size-scale 100 --output data/research/<새 단위 감도 결과>.json
 ```
 
 ## 실제 결과
