@@ -21,6 +21,7 @@ from __future__ import annotations
 import datetime
 import json
 import logging
+from itertools import zip_longest
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -44,6 +45,8 @@ MIN_SAMPLES = 20
 _REF_STYLE = {900001: "conservative", 900002: "balanced", 900003: "aggressive"}
 _STYLES = ("conservative", "balanced", "aggressive")
 _HARNESS_KEY = "advisor_harness"
+# 원래 선택 기록은 보존하고, 부분 기권의 현금 슬롯까지 재채점한 측정 규약을 식별한다.
+PAIRING_VERSION = "rank-slots-with-cash-v2"
 _SUMMARY_CACHE: tuple[str, dict[str, Any]] | None = None
 _DEFAULT_HARNESS = {
     "kill_enabled": True,       # paired 유의 패배 시 LLM 선별 OFF
@@ -94,7 +97,8 @@ def cached_summary(
     """같은 날 gate/요약 재계산을 피한다(레퍼런스 3봇 × closes 로드 비용)."""
     global _SUMMARY_CACHE
     today = _kst_today()
-    if _SUMMARY_CACHE and _SUMMARY_CACHE[0] == today:
+    if (_SUMMARY_CACHE and _SUMMARY_CACHE[0] == today
+            and _SUMMARY_CACHE[1].get("pairing_version") == PAIRING_VERSION):
         return _SUMMARY_CACHE[1]
     if closes_by_ticker is None:
         from signal_desk import store
@@ -308,6 +312,20 @@ def _rank_map(pool: list[dict]) -> dict[str, int]:
     return out
 
 
+def _ranked_slot_pairs(rec: dict) -> list[tuple[str | None, str | None]]:
+    """수익 관측 여부와 무관하게 교체 자리를 먼저 고정한다. None은 실제 빈 현금 자리다."""
+    outcome = rec.get("outcome") or ("picked" if rec.get("advisor_used") else "unavailable")
+    if outcome in ("unavailable", "killed"):
+        return []
+    lo = [] if outcome == "abstained" else list(rec.get("llm_only") or [])
+    bo = list(rec.get("base_only") or [])
+    rank = _rank_map(rec.get("pool") or [])
+    # pool이 비어 있으면(구형 기록) 원래 리스트 순서를 순위로 본다.
+    lo_s = sorted(lo, key=lambda t: rank.get(t, 10_000))
+    bo_s = sorted(bo, key=lambda t: rank.get(t, 10_000))
+    return list(zip_longest(lo_s, bo_s))
+
+
 def _pair_diffs(
     rec: dict,
     date: str,
@@ -315,24 +333,14 @@ def _pair_diffs(
 ) -> list[float]:
     """회차 안 순위 매칭 교체 쌍의 (ret_llm − ret_base) 목록.
 
-    base_only·llm_only를 pool 순위 오름차순으로 정렬해 zip한다 — 같은 '자리'끼리 맞춘다.
-    기권은 LLM=현금 0%로, 성숙한 base_only마다 0−base 쌍을 만든다.
+    base_only·llm_only를 pool 순위로 맞추고, 선택하지 않은 자리는 현금 0%로 비교한다.
+    전체·부분 기권에 같은 규약을 적용한다. 선택한 종목의 미성숙·누락 수익은 현금이
+    아니므로 그 쌍을 보류한다. 관측된 다음 종목으로 짝을 당겨 맞추지 않는다.
     """
-    outcome = rec.get("outcome") or ("picked" if rec.get("advisor_used") else "unavailable")
-    lo = list(rec.get("llm_only") or [])
-    bo = list(rec.get("base_only") or [])
-    if not bo and not lo:
-        return []
-    if outcome == "abstained":
-        return [0.0 - r for r in rets_for(bo, date)]
-    rank = _rank_map(rec.get("pool") or [])
-    # pool이 비어 있으면(구형 기록) 원래 리스트 순서를 순위로 본다
-    lo_s = sorted(lo, key=lambda t: rank.get(t, 10_000))
-    bo_s = sorted(bo, key=lambda t: rank.get(t, 10_000))
-    n = min(len(lo_s), len(bo_s))
     diffs: list[float] = []
-    for i in range(n):
-        lr, br = rets_for([lo_s[i]], date), rets_for([bo_s[i]], date)
+    for lt, bt in _ranked_slot_pairs(rec):
+        lr = [0.0] if lt is None else rets_for([lt], date)
+        br = [0.0] if bt is None else rets_for([bt], date)
         if lr and br:
             diffs.append(lr[0] - br[0])
     return diffs
@@ -384,7 +392,8 @@ def summary(
     """
     blob = _load()
     if not blob:
-        return {"ready": False, "days": [], "message": "advisor shadow 기록 없음(봇 회차마다 누적)",
+        return {"ready": False, "days": [], "pairing_version": PAIRING_VERSION,
+                "message": "advisor shadow 기록 없음(봇 회차마다 누적)",
                 "harness": harness_config(), "gate": gate(summary={}),
                 "gate_by_style": decision_status_by_style({})}
 
@@ -423,13 +432,16 @@ def summary(
                 divergent += 1
                 day_div += 1
             base_scored = _rets_for(bo, date)
+            lo_scored = [] if outcome == "abstained" else _rets_for(lo, date)
             if outcome == "abstained":
                 abstained += 1
-                # 기권은 "현금 보유"다. LLM 쪽을 비워두면 기권이 채점에서 사라져 delta가
-                # 폴백에 유리하게 기운다 → 갈린 종목 수만큼 0% 수익으로 채운다.
-                lo_scored = [0.0] * len(base_scored)
-            else:
-                lo_scored = _rets_for(lo, date)
+            # 진단용 unpaired 집계도 실제 빈 자리를 현금으로 남긴다. 선택한 종목의
+            # 누락된 수익을 0으로 채우는 것은 금지한다.
+            for lt, bt in _ranked_slot_pairs(rec):
+                if lt is None:
+                    lo_scored += [0.0] * len(_rets_for([bt], date))
+                elif bt is None:
+                    base_scored += [0.0] * len(_rets_for([lt], date))
             llm_only_rets += lo_scored
             base_only_rets += base_scored
             llm_all_rets += _rets_for(rec.get("llm") or [], date)
@@ -487,6 +499,7 @@ def summary(
     }
     return {
         "ready": matured > 0 or paired["paired_n"] > 0,
+        "pairing_version": PAIRING_VERSION,
         "horizon": horizon,
         "runs": runs,
         "advisor_used_runs": used,
