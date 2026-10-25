@@ -205,11 +205,13 @@ def bar_window(symbol: str, start: str, end: str) -> dict:
             if not low <= min(opening, close) <= max(opening, close) <= high:
                 raise ValueError("inconsistent OHLC")
             volume = row["v"]
-            if isinstance(volume, bool) or not isinstance(volume, int) or volume < 0:
+            # JSON Schema integer includes 1.0; reject fractions, not its wire spelling.
+            if (isinstance(volume, bool) or not isinstance(volume, (int, float))
+                    or not math.isfinite(volume) or volume < 0 or int(volume) != volume):
                 raise ValueError("invalid volume")
             clocks.append(clock)
             bars.append({"t": row["t"], "open": opening, "high": high, "low": low,
-                         "close": close, "volume": volume})
+                         "close": close, "volume": int(volume)})
         if clocks != sorted(clocks) or len(clocks) != len(set(clocks)):
             raise ValueError("bars duplicated or not ascending")
     except (ValueError, TypeError, KeyError, AttributeError, OverflowError):

@@ -62,6 +62,14 @@ def test_bar_window_preserves_raw_ohlcv_and_exclusive_end_without_session_claim(
     assert result["raw_sha256"] == hashlib.sha256(raw).hexdigest()
 
 
+def test_integer_valued_volume_wire_number_preserves_raw_bytes(monkeypatch):
+    raw, _ = _alpaca(monkeypatch, [_bar(v=100.0)])
+    result = source.bar_window("AAPL", START, END)
+    assert result["status"] == "observed"
+    assert type(result["bars"][0]["volume"]) is int and result["bars"][0]["volume"] == 100
+    assert base64.b64decode(result["raw_b64"]) == raw
+
+
 def test_bar_bounds_keep_fixed_panel_dates_and_one_ny_day():
     params = source.bar_parameters("AAPL", "2024-06-03T09:30:00-04:00", "2024-06-03T16:00:00-04:00")
     assert params["asof"] == "2024-06-03" and params["end"] == "2024-06-03T19:59:59+00:00"
@@ -96,6 +104,7 @@ def test_provider_pagination_and_sparse_rows_are_not_completed_session(monkeypat
     [_bar(), _bar()], [_bar(t="2024-06-03T13:31:00Z"), _bar()],
     [_bar(o=None)], [_bar(h=191)], [_bar(l=193)], [_bar(c=float("nan"))],
     [_bar(o=True)], [_bar(v=-1)], [_bar(v=1.5)], [_bar(v=True)], [_bar(v="100")],
+    [_bar(v=float("nan"))], [_bar(v=float("inf"))],
 ])
 def test_invalid_or_inconsistent_bars_are_rejected_without_raw_reflection(monkeypatch, rows):
     _alpaca(monkeypatch, rows)
