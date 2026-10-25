@@ -359,6 +359,30 @@ def test_pyramid_adds_to_under_target_holding(tmp_path, monkeypatch):
     assert adds[0]["ok"] is True and adds[0]["order_no"] and adds[0]["fill_price"] > 0
 
 
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_exit_intent_cannot_be_reversed_by_additional_buy(tmp_path, monkeypatch, dry_run):
+    """A rejected stop order (or a preview) leaves holdings in place, not permission to add."""
+    monkeypatch.chdir(tmp_path)
+    _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [90.]},
+           [_sig("AAA", "가", "BUY", 2.)], min_buy_score=0.)
+    _seed(10_000., {"AAA": {"name": "가", "qty": 2, "avg_price": 100.}})
+    monkeypatch.setattr(bot.config, "sigma_scaled_exits", lambda: False)
+    actual_order = paper.place_order
+    attempts = []
+
+    def reject_sell(uid, ticker, side, *args, **kwargs):
+        attempts.append(side)
+        return None if side == "sell" else actual_order(uid, ticker, side, *args, **kwargs)
+
+    monkeypatch.setattr(paper, "place_order", reject_sell)
+    out = bot.run_once(UID, dry_run=dry_run)
+    assert out["sells"][0]["reason"] == "STOP_LOSS"
+    assert not out["buys"]
+    assert attempts == ([] if dry_run else ["sell"])
+    assert paper.balance(UID)["holdings"][0]["qty"] == 2
+    assert any("청산" in why for why in out["skipped_tranche"])
+
+
 def test_sells_only_cannot_add_to_existing_position(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0]},

@@ -1219,8 +1219,14 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     # **막힌 이유를 모아 결과에 싣는다.** 안 그러면 "왜 추가가 안 됐나"가 어느 화면에도 안 뜬다
     # (이 리포의 "0에는 반드시 이유를 붙인다" 규칙).
     skipped_tranche: list[str] = []
+    # A deferred/rejected exit leaves the position in bal2. Its BUY score must
+    # not reverse this run's exit intent, including in dry-run previews.
+    exit_intents = {s["ticker"] for s in sells}
     for h in ([] if (block_new_buys or sells_only) else bal2["holdings"]):
         t = h["ticker"]
+        if t in exit_intents:
+            skipped_tranche.append(f"{h['name']}: 이번 실행에서 청산 판단 — 추가매수 보류")
+            continue
         if t in rotated_out:
             continue  # 방금 로테이션으로 청산 → 재매수 금지
         if t in unchecked_tickers:
