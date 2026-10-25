@@ -7,6 +7,7 @@ import datetime as dt
 import io
 import json
 import subprocess
+import sys
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -37,12 +38,15 @@ def recorded_inventory(path):
     if signals.duplicated(["date", "ticker"]).any():
         raise ValueError("duplicate_recorded_signal")
     valid = signals[signals["date"].map(lambda d: f.market_clock.is_session("kr", str(d)))]
+    optional = ("observed_at", "bar_asof", "fundamental", "valuation", "flow", "quality", "momentum", "short")
+    present = lambda k: int(valid[k].notna().sum()) if k in valid else 0
     return {"archive_sha256": f.sha(path.read_bytes()), "manifest": manifest,
         "regular_session_rows": len(valid), "regular_session_dates": valid["date"].nunique(),
         "non_session_rows": len(signals)-len(valid),
-        "observed_at_present": int(valid["observed_at"].notna().sum()),
-        "bar_asof_present": int(valid["bar_asof"].notna().sum()),
-        "factor_output_present": {k: int(valid[k].notna().sum()) for k in
+        "missing_columns": [k for k in optional if k not in valid],
+        "observed_at_present": present("observed_at"),
+        "bar_asof_present": present("bar_asof"),
+        "factor_output_present": {k: present(k) for k in
             ("fundamental", "valuation", "flow", "quality", "momentum", "short")},
         "raw_factor_inputs_verified": False, "protected_performance_aggregates": False}
 
@@ -54,6 +58,23 @@ def run(root, commit, recorded_zip):
     if body != subprocess.check_output(["git", "show", f"{commit}:{code_path}"], cwd=root):
         raise ValueError("audit_code_not_precommitted")
     inputs.provenance["code_sha256"][code_path] = f.sha(body)
+    test_path = "tests/test_kr_selection_source_audit.py"
+    test_body = (root / test_path).read_bytes()
+    if test_body != subprocess.check_output(["git", "show", f"{commit}:{test_path}"], cwd=root):
+        raise ValueError("audit_tests_not_precommitted")
+    inputs.provenance["code_sha256"][test_path] = f.sha(test_body)
+    for module in {r3.__name__, r3.PricePanel.__module__, r3.metrics_asof.__module__,
+                   r3.load_financials.__module__, "scripts.measure.kr_original_financial_sources"}:
+        source = Path(sys.modules[module].__file__).resolve()
+        path = module.replace(".", "/")+".py"
+        if module.startswith("signal_desk."):
+            path = "src/"+path
+        if source != root / path:
+            raise ValueError("audit_module_outside_repository:"+module)
+        raw = source.read_bytes()
+        if raw != subprocess.check_output(["git", "show", f"{commit}:{path}"], cwd=root):
+            raise ValueError("audit_dependency_not_precommitted:"+module)
+        inputs.provenance["code_sha256"][path] = f.sha(raw)
     original = json.loads(f.fixed_bytes(root / "data/research/kr-ridge-r3-result-2026-10-17-v4.json",
         "2cf98e96eff44d415c0264bd1ec1b6f2b036804b9e2bbeb28476dc807994abfd"))
     # Explain exactly the saved engine, rather than silently changing its code.
