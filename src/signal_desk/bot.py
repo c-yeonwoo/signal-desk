@@ -55,6 +55,15 @@ def _cfg(uid: int) -> dict:
     return {**u, **strategy.bot_params(u["trading_style"])}
 
 
+_BUY_PAUSE_REASON = "매수 보류(BOT_BUY_PAUSED) — 신규·추가·교체·예약 매수 보류, 보유 청산 유지"
+
+
+def buy_control_status() -> dict:
+    """키 유효성과 독립적인 운영 매수 보류 상태. 실행 결과와 상태 API가 공유한다."""
+    paused = config.bot_buy_paused()
+    return {"buy_paused": paused, "buy_pause_reason": _BUY_PAUSE_REASON if paused else None}
+
+
 def _daily_loss_breached(uid: int, bal: dict, dry_run: bool, market: str = "kr") -> bool:
     """유저의 당일 시작 평가액 대비 손실 한도 초과 여부(시장별). 초과면 신규 매수 중단(리스크 청산은 유지)."""
     total = bal.get("total_eval")
@@ -83,6 +92,8 @@ def _authorized_buy_qty(uid: int, market: str, ticker: str, price: float,
     요청 수량은 상한이다. 현금·노출·종목 목표비중에 비용까지 넣어 가능한 정수주로 자른다.
     과거의 예약/후보 선정은 현재 주문 허가를 대신하지 않는다.
     """
+    if config.bot_buy_paused():
+        return 0, _BUY_PAUSE_REASON
     if blocked:
         return 0, "매수 중단 모드"
     if not dry_run and config.bot_kill_switch():
@@ -125,7 +136,8 @@ def _applied_policy_ids(market: str, cfg: dict, market_read: dict) -> tuple[str,
     execution_id = policy_contract.execution_policy_id(
         market, cfg["trading_style"], exposure=exposure, signal_id=signal_id,
         risk_limits={"max_positions": cfg["max_positions"], "position_pct": cfg["position_pct"],
-                     "max_new_buys_per_run": cfg["max_new_buys_per_run"]})
+                     "max_new_buys_per_run": cfg["max_new_buys_per_run"],
+                     "buy_paused": config.bot_buy_paused()})
     return signal_id, execution_id
 
 
@@ -541,6 +553,7 @@ def _state(uid: int, market: str = "kr") -> dict:
                         "trailing_from_peak_pct": strategy.preset(cfg["trading_style"])["trailing_from_peak_pct"],
                         "nontrend_take_profit_pct": strategy.preset(cfg["trading_style"])["harvest_take_profit_pct"]},
         "kill_switch": config.bot_kill_switch(),
+        **buy_control_status(),
         "daily_loss_limit_pct": config.bot_daily_loss_limit_pct(),
     }
 
@@ -653,6 +666,8 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
                        price_dates=None, quote_snapshot=None, run_id=None):
     """약한 보유 → 더 강한 후보 교체. rp=성향별 로테이션 정책. 갱신된 cash 반환.
     sells/buys/held_after/rotated_out 갱신."""
+    if config.bot_buy_paused():
+        return cash  # 교체를 위한 매도도 보류한다. 위험 청산은 run_once의 앞 단계에서 유지.
     warned = store.load_warned_tickers() if market == "kr" else set()
     recent_sold = recent_sold_tickers(uid, market, cfg["trading_style"])
     cand = sorted([s for s in signals if engine.is_buy(s.kind) and s.ticker not in held_after
@@ -862,14 +877,16 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
 
     즉 "봇을 더 자주 돌린다"를 통째로 하면 유료 부분이 배수로 늘어난다. 나누면 실익만 가져간다.
     """
+    buy_control = buy_control_status()
     if not dry_run and config.bot_kill_switch():
-        return {"ok": False, "reason": "긴급정지(BOT_KILL_SWITCH) 활성 — 주문을 내지 않습니다."}
+        return {"ok": False, "reason": "긴급정지(BOT_KILL_SWITCH) 활성 — 주문을 내지 않습니다.",
+                **buy_control}
     unit = "$" if market == "us" else "원"
 
     bal = paper.balance(uid, market)
     if not dry_run:
         reconcile_positions(uid, bal, market)  # bot_positions(peak·entry) 미러를 paper 실측과 일치(stale 정리)
-    block_new_buys = _daily_loss_breached(uid, bal, dry_run, market)
+    block_new_buys = _daily_loss_breached(uid, bal, dry_run, market) or buy_control["buy_paused"]
 
     mr = _market_read_for(market)
     universe, prices, signals, name_by_ticker, price_dates, quote_snapshot = _market_signals(market, mr)
@@ -877,7 +894,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     unchecked_tickers = {row["ticker"] for row in unchecked}
     if not universe or not prices:
         return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요",
-                "unchecked_holdings": unchecked}
+                "unchecked_holdings": unchecked, **buy_control}
 
     def _price_evidence(ticker: str, price: float) -> dict:
         return _execution_price_evidence(market, ticker, price, dates_by_ticker=price_dates,
@@ -1371,6 +1388,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             log.warning("봇 실행 출처 기록 실패 (%s): %s", market, type(exc).__name__)
     return {
         "ok": True, "dry_run": dry_run, "skipped_weak_buys": skipped_weak,
+        **buy_control,
         "run_id": run_id,
         "signal_policy_id": signal_policy_id, "execution_policy_id": execution_policy_id,
         "score_semantics": policy_contract.SCORE_SEMANTICS,
@@ -1589,13 +1607,19 @@ def reference_performance(market: str = "kr") -> dict:
 
 def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
     """예약은 과거 승인권이 아니다. 실행 직전에 시그널·계좌·위험 한도를 재검사한다."""
+    buy_control = buy_control_status()
     unit = "$" if market == "us" else "원"
     pending = db.bot_reservations_pending(uid, market)
     if not pending:
-        return {"ok": True, "market": market, "executed": [], "note": "대기 중인 예약 없음"}
+        return {"ok": True, "market": market, "executed": [], "note": "대기 중인 예약 없음",
+                **buy_control}
 
     if not dry_run and config.bot_kill_switch():
-        return {"ok": False, "market": market, "executed": [], "reason": "긴급정지"}
+        return {"ok": False, "market": market, "executed": [], "reason": "긴급정지", **buy_control}
+    if buy_control["buy_paused"]:
+        # 만료/시그널 재검사보다 먼저 보류하여 기존 예약을 pending 그대로 보존한다.
+        return {"ok": True, "dry_run": dry_run, "market": market, "executed": [],
+                "reason": buy_control["buy_pause_reason"], **buy_control}
     mr = _market_read_for(market)
     _, prices, signals, _, price_dates, quote_snapshot = _market_signals(market, mr)
     signal_by_ticker = {s.ticker: s for s in signals}
@@ -1648,6 +1672,9 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
         qty, why = _authorized_buy_qty(uid, market, r["ticker"], price, requested,
                                         cfg, exposure, balance=bal, dry_run=dry_run)
         if qty < 1:
+            if why == _BUY_PAUSE_REASON:
+                buy_control = {"buy_paused": True, "buy_pause_reason": why}
+                break  # 최종 검사에서 보류를 관측해도 예약을 종료하지 않는다.
             reject("skipped_policy", why or "현재 계좌 한도 초과")
             continue
         note = f"예약 실행 — {r['reason']} · 현재가 {int(price):,}{unit} × {qty}주"
@@ -1705,7 +1732,7 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
                 capture={"status": "not_requested", "reason": "reservation"})
         except Exception as exc:  # noqa: BLE001 — 감사 기록 실패가 이미 완료된 주문을 뒤집지 않는다
             log.warning("예약 실행 출처 기록 실패 (%s): %s", market, type(exc).__name__)
-    return {"ok": True, "dry_run": dry_run, "market": market, "executed": executed,
+    return {"ok": True, "dry_run": dry_run, "market": market, "executed": executed, **buy_control,
             "run_id": run_id,
             "signal_policy_id": signal_policy_id, "execution_policy_id": execution_policy_id,
             "score_semantics": policy_contract.SCORE_SEMANTICS}

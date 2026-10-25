@@ -1159,11 +1159,22 @@ def _refresh_sec_evidence_daily(now: datetime.datetime) -> None:
     _record_official_evidence_ops("sec", now, result)
 
 
+def _prune_expired_advisor_cache() -> None:
+    """Expire reusable prompt responses even when the LLM cannot create new ones."""
+    try:
+        now = int(time.time())
+        deleted = db.advisor_prompt_cache_prune(now=now)
+        db.kv_set("advisor_prompt_cache_cleanup_last", {"at": now, "expired_rows_deleted": deleted})
+    except Exception as exc:  # cleanup must not interrupt price collection or exits
+        log.warning("만료 자문 캐시 정리 실패: %s", type(exc).__name__)
+
+
 def _daily_maintenance(enabled: list[str]) -> None:
     """하루 1회(평일 마감 후): 시세·수급 갱신 + 공용 KB 갱신 + 유저별 종가 스냅샷.
 
     봇 사용자(enabled) 유무와 무관하게 돈다 — 데이터 신선도가 봇 활성화에 딸려 있으면 안 된다.
     단계별로 try를 나눠 한 소스가 죽어도 나머지는 갱신된다."""
+    _prune_expired_advisor_cache()
     price_failure = None
     try:   # 일봉 이력 갱신 — 이게 없으면 멈춘 가격으로 시그널만 계속 쌓인다(점수 동결)
         store.fetch_prices(store.prices_universe(), full=False)
@@ -1488,6 +1499,7 @@ async def _lifespan(app: FastAPI):
         store.mark_boot()
     except Exception as e:
         log.warning("부팅 기록 실패: %s", type(e).__name__)
+    _prune_expired_advisor_cache()
     try:
         # 소스로 바꾼 미검증 변경을 설정 이력에 1회 남긴다 — 관리자 미검증 배너가 읽는다.
         # 게이트를 우회한 변경일수록 기록이 남아야 한다("재무제표에 기록한다").
@@ -4734,6 +4746,8 @@ def data_health_get():
         "stall_line": digest.stall_line(stall),
         # 저장소가 배포를 넘어 살아남는지 — 리셋 불가 장부의 전제. 볼륨 미마운트를 증상으로 잡는다.
         "storage": storage,
+        "storage_cache_cleanup": db.kv_get("advisor_prompt_cache_cleanup_last") or {},
+        "bot_buy_control": {**bot.buy_control_status(), "all_orders_paused": config.bot_kill_switch()},
         # 자동 갱신이 거부된 소스 — 이름과 이유. 비어 있으면 전부 정상이다.
         "auto_refresh_blocked": auto_refresh,
         **store.price_sanity(allow_network=False), "freshness": fresh, "signal_drift": store.signal_drift(),

@@ -331,7 +331,7 @@ CREATE TABLE IF NOT EXISTS intraday_quotes(market TEXT NOT NULL, ticker TEXT NOT
     source_timestamp_field TEXT, source_time_verified INTEGER NOT NULL DEFAULT 0,
     provider TEXT, price_kind TEXT NOT NULL DEFAULT 'last', currency TEXT,
     PRIMARY KEY(market, ticker, ts));
-CREATE INDEX IF NOT EXISTS idx_intraday_quotes_lookup ON intraday_quotes(market, ticker, ts);
+-- PRIMARY KEY의 자동 인덱스가 같은 조회를 지원한다. 별도 중복 인덱스는 만들지 않는다.
 -- 장중 탐색은 기존 매매 판단과 분리된 관찰 원장이다. 누적 거래량은 KIS가 실제 응답한 값만 쓴다.
 CREATE TABLE IF NOT EXISTS intraday_opportunity_volumes(
     market TEXT NOT NULL, ticker TEXT NOT NULL, ts INTEGER NOT NULL,
@@ -600,6 +600,47 @@ def conn() -> sqlite3.Connection:
     return c
 
 
+def _intraday_quote_lookup_index(c: sqlite3.Connection) -> dict:
+    """Verify the named legacy index against the actual PK, never infer from its name."""
+    indexes = list(c.execute("PRAGMA index_list(intraday_quotes)"))
+    legacy = next((row for row in indexes if row[1] == "idx_intraday_quotes_lookup"), None)
+    primary = [row for row in indexes if row[3] == "pk"]
+    columns = list(c.execute("PRAGMA table_info(intraday_quotes)"))
+    pk_columns = sorted((row[5], row[1]) for row in columns if row[5])
+    expected = [(1, "market"), (2, "ticker"), (3, "ts")]
+    primary_info = (list(c.execute("SELECT * FROM pragma_index_xinfo(?)", (primary[0][1],)))
+                    if len(primary) == 1 else [])
+    primary_keys = [(row[2], row[3], row[4]) for row in primary_info if row[5]]
+    primary_valid = bool(pk_columns == expected and len(primary) == 1
+                         and primary[0][2] == 1 and primary[0][4] == 0
+                         and primary_keys == [(name, 0, "BINARY") for _, name in expected])
+    duplicate = False
+    if legacy is not None and primary_valid and legacy[2:5] == (0, "c", 0):
+        legacy_info = list(c.execute("SELECT * FROM pragma_index_xinfo(?)", (legacy[1],)))
+        # Include auxiliary columns, collation, sort direction and expressions.
+        # A modified/partial/covering index is not this migration's target.
+        duplicate = legacy_info == primary_info
+    return {"present": legacy is not None, "duplicate_of_primary_key": duplicate,
+            "primary_key_lookup_available": primary_valid}
+
+
+def _drop_duplicate_intraday_quote_index(c: sqlite3.Connection) -> bool:
+    """Release only the redundant index pages; quote rows and the PK remain untouched."""
+    # Keep validation and DROP in one transaction. A concurrent schema change
+    # must fail the write, not change which definition the check authorized.
+    c.execute("SAVEPOINT duplicate_quote_index_cleanup")
+    try:
+        removed = _intraday_quote_lookup_index(c)["duplicate_of_primary_key"]
+        if removed:
+            c.execute("DROP INDEX idx_intraday_quotes_lookup")
+        c.execute("RELEASE duplicate_quote_index_cleanup")
+        return removed
+    except sqlite3.Error:
+        c.execute("ROLLBACK TO duplicate_quote_index_cleanup")
+        c.execute("RELEASE duplicate_quote_index_cleanup")
+        raise
+
+
 def storage_breakdown(max_objects: int = 12) -> dict:
     """Read-only SQLite page inventory for explicit admin diagnosis, never cleanup."""
     if not DB.is_file():
@@ -615,6 +656,15 @@ def storage_breakdown(max_objects: int = 12) -> dict:
                 "SELECT name, SUM(pgsize) FROM dbstat GROUP BY name "
                 "ORDER BY SUM(pgsize) DESC LIMIT ?", (max(1, min(max_objects, 30)),)
             ).fetchall()
+            quote_index = _intraday_quote_lookup_index(c)
+            cache = None
+            if c.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                         "AND name='advisor_prompt_cache'").fetchone():
+                now = int(time.time())
+                expired, active = c.execute(
+                    "SELECT COALESCE(SUM(expires<=?),0), COALESCE(SUM(expires>?),0) "
+                    "FROM advisor_prompt_cache", (now, now)).fetchone()
+                cache = {"expired_rows": int(expired), "active_rows": int(active)}
         finally:
             c.close()
     except sqlite3.Error as exc:
@@ -622,6 +672,7 @@ def storage_breakdown(max_objects: int = 12) -> dict:
     return {"available": True, "db_bytes": DB.stat().st_size,
             "page_bytes": page_size, "allocated_pages": page_count,
             "free_page_bytes": free_pages * page_size,
+            "intraday_quote_lookup_index": quote_index, "advisor_prompt_cache": cache,
             "objects": [{"name": name, "bytes": int(size)} for name, size in rows]}
 
 
@@ -671,6 +722,7 @@ def _migrate(c: sqlite3.Connection) -> None:
                      ("currency", "TEXT")):
         if qcols and col not in qcols:
             c.execute(f"ALTER TABLE intraday_quotes ADD COLUMN {col} {ddl}")
+    _drop_duplicate_intraday_quote_index(c)
     # 구 버전의 개인 관심종목 알림은 공용 채팅으로 발송되면 안 된다.
     c.execute("UPDATE notification_outbox SET status='expired' WHERE dedupe_key LIKE 'signal:%' "
               "AND recipient_uid IS NULL AND status IN ('pending','sending')")
@@ -4997,6 +5049,22 @@ def advisor_prompt_put(input_hash: str, payload: dict, *, now: int, expires: int
               (input_hash, json.dumps(payload, ensure_ascii=False, separators=(",", ":")), now, expires))
     c.commit()
     c.close()
+
+
+def advisor_prompt_cache_prune(*, now: int | None = None) -> int:
+    """Delete expired disposable responses even when no new LLM response is stored.
+
+    Active responses and advisor_prompt_events are preserved. SQLite can reuse the
+    freed pages; this deliberately does not VACUUM or claim physical disk recovery.
+    """
+    cutoff = int(time.time()) if now is None else int(now)
+    c = conn()
+    try:
+        count = c.execute("DELETE FROM advisor_prompt_cache WHERE expires<=?", (cutoff,)).rowcount
+        c.commit()
+        return count
+    finally:
+        c.close()
 
 
 def advisor_prompt_event_add(*, uid: int, market: str, style: str, stage: str,

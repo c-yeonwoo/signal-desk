@@ -81,6 +81,41 @@ def test_data_health_includes_freshness(tmp_path, monkeypatch):
     assert out["evidence_activity"]["sources"]["dart"]["failed_pct"] is None
 
 
+def test_data_health_reports_buy_pause_separately_from_all_order_stop(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    from signal_desk import api, db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    monkeypatch.setenv("BOT_BUY_PAUSED", "true")
+    monkeypatch.setenv("BOT_KILL_SWITCH", "false")
+    state = api.data_health_get()["bot_buy_control"]
+    assert state["buy_paused"] is True
+    assert state["buy_pause_reason"]
+    assert state["all_orders_paused"] is False
+
+
+def test_expired_advisor_cache_cleanup_does_not_need_a_working_llm(tmp_path, monkeypatch):
+    from signal_desk import api, db
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    monkeypatch.setattr(api.time, "time", lambda: 100)
+    c = db.conn()
+    c.executemany("INSERT INTO advisor_prompt_cache VALUES(?,?,?,?)",
+                  [("expired", "{}", 0, 100), ("active", "{}", 0, 101)])
+    c.commit()
+    c.close()
+    api._prune_expired_advisor_cache()
+    assert db.kv_get("advisor_prompt_cache_cleanup_last") == {
+        "at": 100, "expired_rows_deleted": 1}
+    assert db.advisor_prompt_get("active", now=100) == {}
+
+
+def test_cache_cleanup_failure_does_not_interrupt_maintenance(monkeypatch):
+    from signal_desk import api, db
+    def fail(**kwargs):
+        raise RuntimeError("offline fixture")
+    monkeypatch.setattr(db, "advisor_prompt_cache_prune", fail)
+    api._prune_expired_advisor_cache()
+
+
 def test_factor_source_status_does_not_treat_legacy_cache_as_fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "FLOWS_FILE", tmp_path / "flows.json")
     monkeypatch.setattr(store, "SHORT_FILE", tmp_path / "short.json")
