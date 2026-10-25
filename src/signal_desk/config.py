@@ -279,6 +279,15 @@ def bot_kill_switch() -> bool:
     return (os.environ.get("BOT_KILL_SWITCH", "") or "").strip().lower() in ("1", "true", "on", "yes")
 
 
+def bot_buy_paused() -> bool:
+    """매수 보류(기본 켬), 보유 위험 청산은 유지한다.
+
+    키 복구로 자동 재개하지 않는다. 운영자가 BOT_BUY_PAUSED를 명시적으로
+    0/false/no/off로 설정해야 재개하며, 공백·오타·미설정은 보류를 유지한다.
+    """
+    return os.environ.get("BOT_BUY_PAUSED", "").strip().lower() not in ("0", "false", "no", "off")
+
+
 def bot_daily_loss_limit_pct() -> float:
     """장중 일일 손실 한도(양수 비율). 당일 시작 평가액 대비 이 % 넘게 하락하면 신규 매수를 멈춘다
     (리스크 청산 매도는 계속). BOT_DAILY_LOSS_LIMIT_PCT(.env), 기본 8%."""
