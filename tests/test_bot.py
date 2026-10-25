@@ -151,6 +151,91 @@ def test_dry_run_places_no_orders(tmp_path, monkeypatch):
     assert out["run_id"] is None
 
 
+@pytest.mark.parametrize("market", ["kr", "us"])
+@pytest.mark.parametrize("uncompleted_candle", [False, True])
+def test_live_drop_cannot_widen_daily_sigma_stop(tmp_path, monkeypatch, market, uncompleted_candle):
+    """A -3% live move must hit the completed-history -2.78% stop, not widen it to -3.24%."""
+    monkeypatch.chdir(tmp_path)
+    completed = [100. if i % 2 == 0 else 101. for i in range(21)]
+    dates = [f"2026-10-{i:02d}" for i in range(1, 22)]
+    observations = completed + ([98.] if uncompleted_candle else []) + [97.]
+    if uncompleted_candle:
+        dates += ["2026-10-22"]
+    universe = [{"ticker": "AAA", "name": "가"}]
+    prices = {"AAA": observations}
+    _setup(monkeypatch, universe, prices, [])
+    monkeypatch.setattr(bot.store, "load_us_price_series", lambda: prices)
+    monkeypatch.setattr(bot.config, "sigma_scaled_exits", lambda: True)
+    seen_markets = []
+    def latest_completed(market, _now):
+        seen_markets.append(market)
+        return "2026-10-21"
+    monkeypatch.setattr(bot.market_clock, "latest_completed_session", latest_completed)
+    monkeypatch.setattr(bot, "_market_read_for", lambda market: {
+        "eff_cfg": SignalConfig(), "context": {"regime": "강세", "exposure": 1.}})
+    monkeypatch.setattr(bot, "_market_signals", lambda market, read: (
+        universe, prices, [], {"AAA": "가"}, {"AAA": dates}, {}))
+    db.kv_set(paper._key(UID, market), json.dumps({
+        "cash": 10_000., "positions": {"AAA": {"name": "가", "qty": 2, "avg_price": 100.}}}))
+
+    out = bot.run_once(UID, market=market, dry_run=True, sells_only=True)
+
+    assert seen_markets == [market]
+    assert out["sells"][0]["reason"] == "STOP_LOSS"
+    assert out["sells"][0]["price"] == 97.
+    assert prices["AAA"] == observations
+
+
+@pytest.mark.parametrize("completed_session", [None, "2026-07-20"])
+def test_missing_completed_history_retains_fixed_stop_fallback(tmp_path, monkeypatch, completed_session):
+    monkeypatch.chdir(tmp_path)
+    prices = {"AAA": [100., 101.] * 10 + [100., 97.]}
+    universe = [{"ticker": "AAA", "name": "가"}]
+    _setup(monkeypatch, universe, prices, [])
+    monkeypatch.setattr(bot.config, "sigma_scaled_exits", lambda: True)
+    monkeypatch.setattr(bot.market_clock, "latest_completed_session", lambda *args: completed_session)
+    _seed(10_000., {"AAA": {"name": "가", "qty": 2, "avg_price": 100.}})
+
+    out = bot.run_once(UID, dry_run=True, sells_only=True)
+
+    # An unknown session or only 20 completed prices cannot provide 20 daily returns.
+    assert out["sells"] == []  # Missing sigma uses the existing -7% fixed stop.
+
+
+def test_buys_size_and_record_risk_from_completed_history(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    completed = [100. if i % 2 == 0 else 101. for i in range(21)]
+    dates = [f"2026-10-{i:02d}" for i in range(1, 22)]
+    prices = {"AAA": completed + [90.], "BBB": completed + [100.]}
+    universe = [{"ticker": t, "name": t} for t in prices]
+    signals = [_sig("AAA", "AAA", "BUY", 2.), _sig("BBB", "BBB", "BUY", 1.9)]
+    _setup(monkeypatch, universe, prices, signals, min_buy_score=0.)
+    _, _, snapshot = bot.store.load_engine_price_bundle("kr")
+    monkeypatch.setattr(bot.store, "load_engine_price_bundle", lambda market: (
+        prices, {t: dates for t in prices}, snapshot))
+    monkeypatch.setattr(bot.market_clock, "latest_completed_session", lambda *args: "2026-10-21")
+    monkeypatch.setattr(bot.config, "sigma_scaled_exits", lambda: True)
+    _seed(100_000.)
+    expected_risk = bot.strategy.risk_config(
+        "balanced", "중립", sigma=bot.vol_sizing.realized_vol(completed)).effective().__dict__
+    captured = []
+    actual_order = paper.place_order
+    def capture_order(*args, **kwargs):
+        captured.append(kwargs["event_payload"]["risk"])
+        return actual_order(*args, **kwargs)
+    monkeypatch.setattr(paper, "place_order", capture_order)
+
+    out = bot.run_once(UID)
+
+    # The two stocks have the same daily volatility despite different current moves.
+    assert [(b["ticker"], b["qty"]) for b in out["buys"]] == [("AAA", 29), ("BBB", 26)]
+    assert captured == [expected_risk, expected_risk]
+    events = db.execution_events_for_uid(UID, "kr")
+    buys = [e for e in events if e["event_type"] == "filled_buy"]
+    assert len(buys) == 2
+    assert all(e["payload"]["risk"] == expected_risk for e in buys)
+
+
 def test_bot_run_id_links_fill_to_explicit_capture_state(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _setup(monkeypatch, [{"ticker": "AAA", "name": "가"}], {"AAA": [100.0]},

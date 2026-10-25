@@ -1,4 +1,7 @@
+import datetime
 import time
+
+import pytest
 
 from signal_desk import bot, store
 
@@ -142,3 +145,38 @@ def test_kr_regime_engine_and_gate_share_one_price_capture(monkeypatch):
     assert dates is price_bundle[1] and observed is price_bundle[2]
     assert read["_decision_capture"]["engine_inputs"]["universe"][0]["ticker"] == "005930"
     assert read["_decision_capture"]["engine_inputs"]["today"] is not None
+
+
+@pytest.mark.parametrize("closes,dates,expected", [
+    ([100., 101.], ["2026-10-06", "2026-10-07"], [100., 101.]),
+    ([100., 101., 97.], ["2026-10-06", "2026-10-07"], [100., 101.]),
+    # Even a dated cached candle is not a completed daily observation during its session.
+    ([100., 101., 97.], ["2026-10-06", "2026-10-07", "2026-10-08"], [100., 101.]),
+    ([100., 101., 98., 97.], ["2026-10-06", "2026-10-07", "2026-10-08"], [100., 101.]),
+    ([100., 101., 98., 97.], ["2026-10-06", "2026-10-07"], None),
+    ([100.], [], None),
+    ([100., 101.], ["2026-10-07", "2026-10-06"], None),
+    ([100., 101.], ["2026-10-07", "2026-10-07"], None),
+    ([100.], ["unknown"], None),
+    ([100., float("nan")], ["2026-10-06", "2026-10-07"], None),
+])
+def test_risk_history_requires_paired_completed_daily_prices(closes, dates, expected):
+    original = closes.copy()
+    result = bot._completed_risk_closes(
+        {"A": closes}, {"A": dates}, completed_session="2026-10-07")
+    assert result.get("A") == expected
+    assert closes == original  # Never mutate the captured signal/execution input.
+
+
+def test_unknown_completed_session_does_not_certify_dated_prices():
+    assert bot._completed_risk_closes(
+        {"A": [100.]}, {"A": ["2026-10-07"]}, completed_session=None) == {}
+
+
+def test_us_risk_history_uses_exchange_session_after_kst_midnight():
+    now = datetime.datetime.fromisoformat("2026-10-08T01:00:00+09:00")
+    completed_session = bot.market_clock.latest_completed_session("us", now)
+    assert completed_session == "2026-10-06"  # October 7 is still trading in New York.
+    assert bot._completed_risk_closes(
+        {"AAPL": [200., 190., 185.]}, {"AAPL": ["2026-10-06", "2026-10-07"]},
+        completed_session=completed_session) == {"AAPL": [200.]}

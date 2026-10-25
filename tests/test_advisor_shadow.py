@@ -9,6 +9,7 @@ from signal_desk.signals import advisor_shadow
 @pytest.fixture(autouse=True)
 def _cache(tmp_path, monkeypatch):
     monkeypatch.setattr(store, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(advisor_shadow, "_SUMMARY_CACHE", None)
     return tmp_path
 
 
@@ -186,3 +187,56 @@ def test_abstention_pairs_cash_against_baseline():
     assert out["paired_n"] == 1
     assert out["paired_delta_pct"] > 0   # 0 − (음수) = 양수
     assert out["paired_delta_pct"] == out["delta_pct"]
+
+
+def test_partial_abstention_scores_the_unselected_slot_as_cash():
+    pool = [{"ticker": "A", "score": 3.}, {"ticker": "B", "score": 2.}]
+    advisor_shadow.record(uid=1, market="kr", pool=pool, slots=2,
+                          picks=[{"ticker": "A"}], style="balanced", date="2026-01-01")
+    out = advisor_shadow.summary({"A": _closes(step=0.), "B": _closes(step=1.)}, horizon=5)
+
+    assert out["paired_n"] == 1
+    assert out["paired_delta_pct"] < 0
+    assert out["llm_only"] == {"n": 1, "avg_ret_pct": 0.}
+    assert out["paired_delta_pct"] == out["delta_pct"]
+    assert out["by_style"]["balanced"]["paired_n"] == 1
+    assert out["pairing_version"] == advisor_shadow.PAIRING_VERSION
+
+
+@pytest.mark.parametrize("llm_only,base_only,returns,expected", [
+    (["D"], ["A", "C"], {"A": .10, "C": .20, "D": .30}, [.20, -.20]),
+    # Matching is by pool rank, not the order of the model response or stored differences.
+    (["D"], ["C", "A"], {"A": .10, "C": .20, "D": .30}, [.20, -.20]),
+    (["E", "D"], ["A"], {"A": .10, "D": .30, "E": .40}, [.20, .40]),
+    # A missing selected return is not cash; the original pair stays unscored.
+    (["D"], ["A", "C"], {"A": .10, "C": .20}, [-.20]),
+    (["D"], ["A", "C"], {"C": .20, "D": .30}, [-.20]),
+    (["D"], ["A", "C"], {"A": .10, "D": .30}, [.20]),
+    ([], ["A"], {}, []),
+    (["D"], [], {}, []),
+    ([], [], {"A": .10}, []),
+])
+def test_slot_pairs_preserve_cash_missing_returns_and_rank(llm_only, base_only, returns, expected):
+    rec = {"outcome": "picked", "llm_only": llm_only, "base_only": base_only,
+           "pool": [{"t": t} for t in ("A", "B", "C", "D", "E")]}
+    def rets_for(tickers, date):
+        return [returns[t] for t in tickers if t in returns]
+    assert advisor_shadow._pair_diffs(rec, "2026-01-01", rets_for) == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("outcome", ["unavailable", "killed"])
+def test_non_model_decisions_do_not_create_cash_pairs(outcome):
+    rec = {"outcome": outcome, "llm_only": [], "base_only": ["A"]}
+    assert advisor_shadow._pair_diffs(rec, "2026-01-01", lambda *args: [.1]) == []
+
+
+def test_same_day_cache_from_old_pairing_rules_is_recomputed(monkeypatch):
+    old = {"paired_n": 0, "pairing_version": "rank-swaps-v1"}
+    monkeypatch.setattr(advisor_shadow, "_SUMMARY_CACHE", (advisor_shadow._kst_today(), old))
+    calls = []
+    current = {"paired_n": 1, "pairing_version": advisor_shadow.PAIRING_VERSION}
+    monkeypatch.setattr(advisor_shadow, "summary", lambda prices: calls.append(prices) or current)
+
+    assert advisor_shadow.cached_summary({}) is current
+    assert advisor_shadow.cached_summary({}) is current
+    assert calls == [{}]

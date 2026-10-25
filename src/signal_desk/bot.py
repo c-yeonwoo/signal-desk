@@ -162,6 +162,34 @@ def _live_price(ticker: str, fallback: float) -> float:
     return float(fallback)
 
 
+def _completed_risk_closes(prices: dict[str, list[float]], dates_by_ticker: dict[str, list[str]],
+                           *, completed_session: str | None) -> dict[str, list[float]]:
+    """같은 가격 캡처에서 완료된 날짜 봉만 분리한다. 현재가로 일간 σ를 바꾸지 않는다.
+
+    날짜 없는 마지막 한 점은 장중 잠정가다. 날짜가 붙은 봉도 아직 세션이 끝나지
+    않았으면 제외한다. 짝·순서·가격을 확인할 수 없으면 σ 미상으로 남겨 기존 고정폭
+    폴백을 사용하며, 다른 시점의 가격 파일을 다시 읽어 보충하지 않는다.
+    """
+    if not completed_session:
+        return {}
+    out = {}
+    for ticker, closes in prices.items():
+        dates = dates_by_ticker.get(ticker) or []
+        if not dates or len(closes) not in (len(dates), len(dates) + 1):
+            continue
+        try:
+            if dates != sorted(set(dates)) or any(datetime.date.fromisoformat(d).isoformat() != d
+                                                  for d in dates):
+                continue
+            completed = [price for day, price in zip(dates, closes) if day <= completed_session]
+            if not all(math.isfinite(price) and price > 0 for price in completed):
+                continue
+        except (TypeError, ValueError):
+            continue
+        out[ticker] = completed
+    return out
+
+
 def _execution_price_evidence(market: str, ticker: str, price: float, *,
                               dates_by_ticker: dict[str, list[str]], quote_snapshot: dict,
                               now: float | None = None) -> dict:
@@ -883,6 +911,10 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     # σ를 못 재는 종목은 고정 퍼센트를 그대로 쓴다("모르면 바꾸지 않는다").
     _sigma_exits = config.sigma_scaled_exits()
     _regime = mr["context"].get("regime")
+    risk_closes = _completed_risk_closes(
+        prices, price_dates,
+        completed_session=market_clock.latest_completed_session(
+            market, datetime.datetime.fromtimestamp(decision_at, datetime.timezone.utc)))
 
     def _risk_for(closes: list[float] | None) -> "risk.RiskConfig":
         sg = (vol_sizing.realized_vol(closes or []) if _sigma_exits else None)
@@ -898,7 +930,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         current_price = _live_price(ticker, closes[-1])
         price_evidence = _price_evidence(ticker, current_price)
         # **종목별** 청산 폭. 종가 시계열로만 잰다(장중 오버레이가 섞이면 폭이 매 틱 흔들린다).
-        pos_risk = _risk_for(closes)
+        pos_risk = _risk_for(risk_closes.get(ticker))
         pos = db.bot_position_get(uid, ticker)
         # 라이브와 사후 재생이 동일한 peak 갱신·청산 우선순위를 쓴다. 여기만 따로 구현하면
         # 장중 5분 청산의 수익률을 일봉 검증에서 복원할 수 없게 된다.
@@ -1098,14 +1130,14 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             except Exception as e:
                 log.warning("advisor shadow 기록 실패: %s", type(e).__name__)
 
-        ref_vol = vol_sizing.median_vol(prices, [c.ticker for c in candidates])
+        ref_vol = vol_sizing.median_vol(risk_closes, [c.ticker for c in candidates])
         for s in candidates:
             closes = prices.get(s.ticker)
             if not closes:
                 continue
             live = _live_price(s.ticker, closes[-1])
             price_evidence = _price_evidence(s.ticker, live)
-            vscale = vol_sizing.scale(vol_sizing.realized_vol(closes), ref_vol)
+            vscale = vol_sizing.scale(vol_sizing.realized_vol(risk_closes.get(s.ticker) or []), ref_vol)
             alloc = min(tranche_alloc * vscale, cash, room)  # ① 분할∩익스포저 · 고변동↓
             requested = int(alloc // live)
             check_bal = paper.balance(uid, market) if not dry_run else {**bal2, "cash": cash}
@@ -1133,7 +1165,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                     event_payload={"rank": s.rank, "confidence": s.confidence,
                                    "run_id": run_id,
                                    "style": cfg["trading_style"],
-                                   "risk": _risk_for(closes).effective().__dict__,
+                                   "risk": _risk_for(risk_closes.get(s.ticker)).effective().__dict__,
                                    "price_evidence": price_evidence},
                     risk_policy=_buy_risk_policy(cfg, exposure),
                     alert_style=REFERENCE_BOTS.get(uid), policy_id=execution_policy_id,
@@ -1160,7 +1192,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                  "price_evidence": price_evidence,
                                  # 해당 진입에 실제 적용한 폭을 동결한다. 나중에 config가 바뀌어도
                                  # 과거 실행을 새 규칙으로 재생하는 룩어헤드가 생기지 않는다.
-                                 "risk": _risk_for(closes).effective().__dict__},
+                                 "risk": _risk_for(risk_closes.get(s.ticker)).effective().__dict__},
                     )
                     db.bot_position_upsert(uid, s.ticker, name_by_ticker.get(s.ticker, s.name), qty, basis_per_share, live,
                                             _today(market), market=market,
@@ -1553,79 +1585,6 @@ def reference_performance(market: str = "kr") -> dict:
         roadmap = {"ok": False, "live_eligible": False, "reason": "연구 진척을 읽지 못했습니다"}
     return {"market": market, "currency": "USD" if market == "us" else "KRW",
             "bots": bots, "roadmap": roadmap}
-
-
-def generate_reservations(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
-    """유저: 종가·거시·KB를 종합해 '다음 개장 때 살' 예약을 만든다(LLM 자문 우선). 시장별(kr|us)."""
-    unit = "$" if market == "us" else "원"
-    mr = _market_read_for(market)
-    universe, prices, signals, name_by_ticker, _, _ = _market_signals(market, mr)
-    if not universe or not prices:
-        return {"ok": False, "reason": "시세 데이터 없음"}
-
-    bal = paper.balance(uid, market)
-    held = {h["ticker"] for h in bal["holdings"]}
-    cfg = _cfg(uid)
-    slots = min(max(0, cfg["max_positions"] - len(held)), cfg["max_new_buys_per_run"])
-    context = mr["context"]
-
-    warned = store.load_warned_tickers() if market == "kr" else set()  # 토스 경고 veto(국내)
-    # 호출처가 아직 없지만 **같은 선별 로직**이므로 게이트를 지금 붙인다 — 나중에 배선할 때
-    # 이 경로만 쿨다운이 없으면 그게 곧 세 번째 갈라짐이다.
-    cooled = recent_sold_tickers(uid, market, cfg["trading_style"])
-    strong = [s for s in signals if engine.is_buy(s.kind) and s.score >= cfg["min_buy_score"]
-              and s.ticker not in cooled
-              and s.ticker not in held and not s.event_risk and s.ticker not in warned]
-    pool = sorted(strong, key=lambda s: s.score, reverse=True)[:max(slots * 3, 6)]
-    pool_by = {s.ticker: s for s in pool}
-    if pool and slots > 0:
-        try:
-            g = advisor_shadow.gate(
-                style=cfg.get("trading_style"),
-                summary=advisor_shadow.cached_summary())
-        except Exception:
-            g = {"active": False, "fallback": "abstain", "source": "gate_error",
-                 "reason": "advisor 안전 게이트 계산 실패"}
-        signal_policy_id, execution_policy_id = _applied_policy_ids(market, cfg, mr)
-        advice = advisor.advise(
-            [{"ticker": s.ticker, "name": s.name, "score": s.score,
-              "confidence": s.confidence, "reasons": s.reasons} for s in pool],
-            context, {t: kb.advisor_digest(t) for t in pool_by},
-            advisor.build_lessons(), slots,
-            style=cfg.get("trading_style"), gate=g,
-            cache_scope={"uid": uid, "market": market, "style": cfg["trading_style"],
-                         "trade_date": _today(market), "signal_policy_id": signal_policy_id,
-                         "execution_policy_id": execution_policy_id,
-                         "cash": bal["cash"],
-                         "holdings": sorted((h["ticker"], h["qty"]) for h in bal["holdings"]),
-                         "candidate_prices": {s.ticker: (prices.get(s.ticker) or [None])[-1] for s in pool}},
-        )
-        picks = advice.picks
-    else:
-        picks = None
-
-    if picks:
-        chosen = [(pool_by[p["ticker"]], p["rationale"]) for p in picks if p["ticker"] in pool_by]
-    elif picks is None:
-        chosen = [(s, None) for s in pool[:slots]]   # 사용 불가·kill→score → 점수순 폴백
-    else:
-        chosen = []                                  # 기권·kill→abstain → 예약 0건
-
-    reservations = []
-    if not dry_run:
-        db.bot_reservations_clear_pending(uid, market)
-    for s, rationale in chosen:
-        closes = prices.get(s.ticker)
-        if not closes:
-            continue
-        target = closes[-1]
-        name = name_by_ticker.get(s.ticker, s.name)
-        reason = (f"[AI] {rationale}" if rationale else f"점수 {s.score:+.2f}") + \
-                 f" · 국면 {context.get('regime')}/거시 {context.get('macro_bias')} · 목표가 {int(target):,}{unit}(+{_MAX_CHASE_PCT*100:.0f}%까지 추격)"
-        reservations.append({"ticker": s.ticker, "name": name, "side": "buy", "target_price": target, "reason": reason})
-        if not dry_run:
-            db.bot_reservation_add(uid, s.ticker, name, "buy", target, _MAX_CHASE_PCT, reason, market=market)
-    return {"ok": True, "dry_run": dry_run, "market": market, "context": context, "reservations": reservations}
 
 
 def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") -> dict:
