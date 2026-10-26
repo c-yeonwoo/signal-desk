@@ -5079,6 +5079,14 @@ def _revision_ic_status() -> dict:
         return {"ready": False, "blocked_reason": type(e).__name__}
 
 
+@app.get("/api/admin/research/entry-timing")
+def entry_timing_get(request: Request):
+    """배포된 과거 연구 요약만 읽는다. 조회가 수집·평가·주문을 실행하지 않는다."""
+    _admin_or_403(request)
+    from signal_desk.entry_timing_monitor import snapshot
+    return JSONResponse(snapshot(), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/admin/research/intraday-opportunity")
 def intraday_opportunity_get(request: Request, market: str = "kr", days: int = 90,
                              limit: int = 200):
@@ -7818,6 +7826,18 @@ def home_styles():
 @app.get("/design-tokens.css")
 def design_tokens_styles():
     return FileResponse(WEB_DIR / "design-tokens.css", media_type="text/css",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/entry-timing.js")
+def entry_timing_script():
+    return FileResponse(WEB_DIR / "entry-timing.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/entry-timing.css")
+def entry_timing_styles():
+    return FileResponse(WEB_DIR / "entry-timing.css", media_type="text/css",
                         headers={"Cache-Control": "no-cache"})
 
 

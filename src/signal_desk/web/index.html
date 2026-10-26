@@ -26,6 +26,8 @@
 <script defer src="./home.js"></script>
 <link rel="stylesheet" href="./investment.css" />
 <script defer src="./investment.js"></script>
+<link rel="stylesheet" href="./entry-timing.css" />
+<script defer src="./entry-timing.js"></script>
 <style>
   * { box-sizing:border-box; }
   /* sticky footer 셸: body는 최소 뷰포트, 콘텐츠 길면 늘어남. height:100% 고정 금지(관리자 긴 문서에서 footer 깨짐). */
@@ -2228,6 +2230,14 @@
     </div><!-- /#admin-engine -->
 
     <div id="admin-verify" style="display:none">
+    <section class="card entry-timing" id="entry-timing-monitor" aria-labelledby="entry-timing-title">
+      <div class="entry-timing-head">
+        <div><h2 id="entry-timing-title">단타 진입 비교</h2><p>발표 직후와 첫 정규장, 같은 실적 발표를 두 시점에 샀다면?</p></div>
+        <button class="btn" id="entry-timing-refresh" type="button" onclick="loadEntryTiming()">결과 새로고침</button>
+      </div>
+      <p class="entry-timing-scope">과거 자료 검증 · 실시간 매매 아님 · 운영 주문과 분리</p>
+      <div id="entry-timing-body" aria-live="polite"><p>연구 결과를 불러옵니다.</p></div>
+    </section>
     <details class="card" style="margin-bottom:16px">
       <summary style="cursor:pointer;font-weight:700">과거 신호 점검 자료 받기 <span class="trust-badge sim">관리자 전용</span></summary>
       <p class="page-desc" style="margin:8px 0">저장된 신호와 가격 기록만 받습니다. 빈 날짜는 채우지 않으며 새 수집·매매·연구 판정은 실행하지 않습니다. 자료는 탐색용이고 현재 시그널의 검증 성적으로 볼 수 없습니다.</p>
@@ -9475,6 +9485,7 @@ function switchAdminSeg(seg, { pin = true } = {}){
     if (br && br.open) loadBrain();
   }
   if (seg === 'verify') {
+    window.loadEntryTiming?.();
     loadAccuracy();
     loadPickReasonDates();
     const obs = document.getElementById('verify-observe-details');
