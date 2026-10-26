@@ -1,4 +1,5 @@
 import copy
+import base64
 import hashlib
 
 import pytest
@@ -104,3 +105,30 @@ def test_shared_ledger_accepts_only_explicit_new_cost_model_and_preserves_old_de
     assert orb.costs(27)["commission_bps"] == 27
     with pytest.raises(ValueError):
         orb.costs(12)
+
+
+def test_no_price_evidence_is_pinned_and_requires_complete_odd_lot_only_trades(tmp_path, monkeypatch):
+    start = "2025-02-07T17:55:00Z"
+    rows = [{"t": start, "z": "A", "c": [" ", "I"]} for _ in range(95)]
+    def envelope():
+        raw = orb.json_bytes({"trades": {"JPM": rows}, "next_page_token": None})
+        return {"schema": "intraday-gap-trade-probe-v1", "http_status": 200,
+                "request": {"symbols": "JPM", "start": start, "end": "2025-02-07T17:55:59.999999999Z",
+                            "feed": "sip", "asof": "2025-02-07", "limit": "10000", "sort": "asc"},
+                "has_next_page": False, "rows": 95, "raw_bytes": len(raw),
+                "raw_sha256": hashlib.sha256(raw).hexdigest(), "raw_b64": base64.b64encode(raw).decode()}
+    path = tmp_path / "proof.json"
+    encoded = orb.json_bytes(envelope())
+    path.write_bytes(encoded)
+    with pytest.raises(ValueError, match="unreviewed"):
+        follow.verified_absence(path)
+    monkeypatch.setattr(follow, "NO_PRICE_EVIDENCE_SHA256", hashlib.sha256(encoded).hexdigest())
+    assert follow.verified_absence(path) == {("JPM", "2025-02-07", orb.clock(start))}
+    assert follow.verified_absence(None) == set()
+    # Even a reviewed fixture cannot claim a regular-price trade is absent OHLC.
+    rows[0]["c"] = [" "]
+    encoded = orb.json_bytes(envelope())
+    path.write_bytes(encoded)
+    monkeypatch.setattr(follow, "NO_PRICE_EVIDENCE_SHA256", hashlib.sha256(encoded).hexdigest())
+    with pytest.raises(ValueError, match="invalid"):
+        follow.verified_absence(path)

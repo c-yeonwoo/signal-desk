@@ -6,6 +6,7 @@ Uses the previous source validation, ask/bid ledger and account risk constraints
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +16,38 @@ from scripts.measure import intraday_orb_replay as orb
 from scripts.measure.intraday_orb_sources import _save_new
 
 POLICY = "largecap-orb-confirm-once-2025-v1"
+NO_PRICE_EVIDENCE_SHA256 = "521622a388512d9b179109114be9e8d5d241b46a03f81c659a33dd3a62fdbb05"
+
+
+def verified_absence(path: Path | None) -> set[tuple[str, str, int]]:
+    """One reviewed SIP odd-lot-only minute, pinned before any 2025 P&L was opened.
+
+    Alpaca emits no bar when all trades are ineligible for OHLC. This preserves
+    emitted-bar turnover as a proxy, not exact dollar volume, without filling prices.
+    """
+    if path is None:
+        return set()
+    encoded = path.read_bytes()
+    if hashlib.sha256(encoded).hexdigest() != NO_PRICE_EVIDENCE_SHA256:
+        raise ValueError("unreviewed no-price evidence")
+    env = json.loads(encoded)
+    raw = base64.b64decode(env["raw_b64"], validate=True)
+    request = {"symbols": "JPM", "start": "2025-02-07T17:55:00Z",
+               "end": "2025-02-07T17:55:59.999999999Z", "feed": "sip",
+               "asof": "2025-02-07", "limit": "10000", "sort": "asc"}
+    body = json.loads(raw)
+    rows = body.get("trades", {}).get("JPM") or []
+    start = orb.clock(request["start"])
+    if (env.get("schema") != "intraday-gap-trade-probe-v1" or env.get("http_status") != 200
+            or env.get("request") != request or env.get("has_next_page") is not False
+            or body.get("next_page_token") or env.get("raw_bytes") != len(raw)
+            or env.get("raw_sha256") != hashlib.sha256(raw).hexdigest()
+            or len(rows) != 95 or env.get("rows") != len(rows)
+            or any(r.get("z") != "A" or "I" not in r.get("c", [])
+                   or set(r["c"]) - {" ", "I", "4"}
+                   or not start <= orb.clock(r["t"]) < start + orb.MINUTE for r in rows)):
+        raise ValueError("invalid no-price evidence")
+    return {("JPM", "2025-02-07", start)}
 
 
 def plan() -> dict:
@@ -137,6 +170,7 @@ def compare(sources: dict, quotes: dict, frozen: dict) -> dict:
             "existing_operating_engine_comparable": False, "live_order_eligible": False,
             "limitations": ["fixed_survivor_panel", "round_lot_scale_100_assumed",
                             "costs_and_delivery_lag_assumed", "minute_exit_not_tick_stop",
+                            "emitted_bar_turnover_proxy_not_exact_trade_notional",
                             "2025_event_research_previously_seen_not_untouched_market_history",
                             "no_2026_operating_counterfactual"]}
 
@@ -165,6 +199,7 @@ def main():
     p.add_argument("--sources", type=Path)
     p.add_argument("--output", type=Path)
     p.add_argument("--implementation-commit")
+    p.add_argument("--no-price-evidence", type=Path)
     args = p.parse_args()
     if args.command == "freeze":
         digest = _save_new(args.plan, plan())
@@ -174,7 +209,12 @@ def main():
     if frozen != plan() or not args.sources or not args.output or not args.implementation_commit:
         p.error("exact frozen plan, sources, new output and precommitted code required")
     prov = provenance(args.implementation_commit, args.sources)
-    bars, quotes = orb.load_bars(args.sources), orb.load_quotes(args.sources)
+    absent = verified_absence(args.no_price_evidence)
+    if absent:
+        prov["no_price_evidence_sha256"] = NO_PRICE_EVIDENCE_SHA256
+        prov["absent_minutes_not_interpolated"] = [list(key) for key in sorted(absent)]
+    bars = orb.load_bars(args.sources, known_absent=absent)
+    quotes = orb.load_quotes(args.sources)
     expected = {(symbol, day) for symbol in orb.SYMBOLS for day in frozen["sessions"]}
     if set(bars) != expected:
         raise ValueError("source panel differs from frozen plan")

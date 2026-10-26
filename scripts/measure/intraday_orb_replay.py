@@ -92,7 +92,9 @@ def checked_source(path: Path, schema: str) -> tuple[dict, dict]:
     return envelope, body
 
 
-def load_bars(directory: Path) -> dict:
+def load_bars(directory: Path, *, known_absent: set[tuple[str, str, int]] | None = None) -> dict:
+    # Explicit, separately authenticated no-price evidence only; never synthesize OHLC.
+    absent, used = set(known_absent or ()), set()
     sources = {}
     for path in sorted((directory / "bars").rglob("*.json")):
         env, body = checked_source(path, "alpaca-historical-bar-window-v1")
@@ -119,12 +121,19 @@ def load_bars(directory: Path) -> dict:
             rows.append({"t": t, **{k: row[k] for k in ("o", "h", "l", "c", "v", "vw")}})
             previous = t
         expected_clocks = list(range(opening, closing, MINUTE))
+        omitted = {t for s, d, t in absent if (s, d) == (symbol, day)}
+        if any(t < opening + 121 * MINUTE or t >= closing - MINUTE or t % MINUTE for t in omitted):
+            raise ValueError("absence overlaps strategy price window")
+        used.update((symbol, day, t) for t in omitted)
+        expected_clocks = [t for t in expected_clocks if t not in omitted]
         if [row["t"] for row in rows] != expected_clocks:
             raise ValueError("missing minute bars: " + symbol + ":" + day)
         key = symbol, day
         if key in sources:
             raise ValueError("multiple source versions")
         sources[key] = {"bars": rows, "sha256": env["raw_sha256"]}
+    if used != absent:
+        raise ValueError("unused no-price evidence")
     return sources
 
 
