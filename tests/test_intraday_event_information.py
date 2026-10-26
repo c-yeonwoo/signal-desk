@@ -61,3 +61,33 @@ def test_source_cannot_be_replaced_with_a_different_event_day(tmp_path):
     news_page(tmp_path, reqs[0])
     with pytest.raises(ValueError, match="outside frozen"):
         audit.news_sources(tmp_path, frozen())
+
+
+def test_format_normalization_preserves_numbers_clocks_and_explicit_noncomparability():
+    article = {"id": 1, "symbols": ["META"], "headline":
+               "Meta Platforms Q4 2024 GAAP EPS $8.02 May Not Compare To $6.77 Estimate, Sales $48.39B Beat $47.03B Estimate",
+               "created_at": "2025-01-29T21:42:18Z", "updated_at": "2025-01-29T21:42:19Z"}
+    source = {"symbol": "META", "raw_sha256": "original", "body": {"news": [article]}}
+    normalized, changes = audit.normalized_sources([source])
+    derived = normalized[0]["body"]["news"][0]
+    assert derived["headline"] == article["headline"].replace("Meta Platforms", "Meta").replace(" 2024 GAAP", "")
+    assert {k: v for k, v in derived.items() if k != "headline"} == {k: v for k, v in article.items() if k != "headline"}
+    assert "Meta Platforms" in source["body"]["news"][0]["headline"]
+    assert changes[0]["gaap_label"]
+    assert audit.events.old.EPS.search(derived["headline"]) is None
+    # Revenue of an individual segment remains a segment, not issuer total.
+    article["headline"] = "Meta Platforms Q4 2024 Advertising Sales $10B Beat $9B Estimate"
+    normalized, _ = audit.normalized_sources([source])
+    assert "Advertising Sales" in normalized[0]["body"]["news"][0]["headline"]
+
+
+def test_reference_source_binding_rejects_modified_or_added_prices(tmp_path):
+    path = tmp_path / "bars" / "AAPL" / "one.json"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"original")
+    mapping = {"bars/AAPL/one.json": hashlib.sha256(b"original").hexdigest()}
+    reference = {"provenance": {"source_sha256": mapping}}
+    assert audit.checked_intraday(tmp_path, reference) == hashlib.sha256(orb.json_bytes(mapping)).hexdigest()
+    path.write_bytes(b"revision")
+    with pytest.raises(ValueError, match="sources differ"):
+        audit.checked_intraday(tmp_path, reference)

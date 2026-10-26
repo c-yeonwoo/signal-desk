@@ -12,6 +12,7 @@ import datetime as dt
 import hashlib
 import json
 from pathlib import Path
+import re
 
 from scripts.measure import earnings_guidance_validation as events
 from scripts.measure import intraday_confirmation as follow
@@ -110,11 +111,51 @@ def event_session(event: dict, sessions: list[str]) -> str | None:
     return None
 
 
+def normalized_sources(sources: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Normalize issuer/year/accounting labels, never numbers or source clocks.
+
+    Retains each original SHA; derived headline changes are separately recorded.
+    The frozen 2020/2021 parser and its archived results remain reproducible.
+    """
+    output, changes = [], []
+    for source in sources:
+        articles = []
+        for article in source["body"]["news"]:
+            original = article["headline"]
+            title = re.sub(r"^Meta Platforms(?=\s)", "Meta", original, flags=re.I)
+            issuer = events.old.ISSUER_TITLES[{"GOOG": "GOOGL"}.get(source["symbol"], source["symbol"])]
+            prefix = r"^(" + issuer + r"\s+Q[1-4])"
+            title = re.sub(prefix + r"\s+20\d{2}\s+", r"\1 ", title, flags=re.I)
+            title = re.sub(prefix + r"\s+GAAP\s+(?=EPS\b)", r"\1 ", title, flags=re.I)
+            if title != original:
+                changes.append({"news_id": article["id"], "source_sha256": source["raw_sha256"],
+                                "original_headline_sha256": hashlib.sha256(original.encode()).hexdigest(),
+                                "derived_headline": title,
+                                "gaap_label": bool(re.search(r"\bGAAP\s+EPS\b", original, re.I))})
+            articles.append({**article, "headline": title})
+        output.append({**source, "body": {**source["body"], "news": articles}})
+    return output, changes
+
+
+def checked_intraday(directory: Path, reference: dict) -> str:
+    files = {str(p.relative_to(directory)): hashlib.sha256(p.read_bytes()).hexdigest()
+             for kind in ("bars", "quotes") for p in sorted((directory / kind).rglob("*.json"))}
+    if not files or files != reference["provenance"]["source_sha256"]:
+        raise ValueError("intraday sources differ from preserved comparison")
+    return hashlib.sha256(orb.json_bytes(files)).hexdigest()
+
+
 def assess(frozen: dict, news: list[dict], bars: dict, quotes: dict, reference: dict) -> dict:
-    inputs = events.input_events(frozen, news)
+    normalized, changes = normalized_sources(news)
+    inputs = events.input_events(frozen, normalized)
+    gaap = {c["news_id"] for c in changes if c["gaap_label"]}
+    for event in inputs["events"]:
+        if event.get("eps") and event["eps"]["news_id"] in gaap:
+            event["eps"]["basis"] = "gaap"
     fr = follow.plan()
     if any(e["status"] != "ready" for e in inputs["events"]):
         return {"schema": "intraday-event-information-result-v1", "events": inputs["events"],
+                "headline_normalizations": changes,
                 "verdict": "blocked_event_inputs", "live_order_eligible": False}
     eligible = {(e["symbol"], event_session(e, fr["evaluation_sessions"]))
                 for e in inputs["events"] if e["eligible"]}
@@ -133,6 +174,7 @@ def assess(frozen: dict, news: list[dict], bars: dict, quotes: dict, reference: 
     return {"schema": "intraday-event-information-result-v1", "events": [
             {**e, "opening_session": event_session(e, fr["evaluation_sessions"])} for e in inputs["events"]],
             "path": path, "splits": splits, "reference_result_sha256": REFERENCE_SHA,
+            "headline_normalizations": changes,
             "verdict": ("blocked_execution_inputs" if not path["complete"] else
                         "no_executable_increment" if not path["trades"] else
                         "diagnostic_only_not_adopted"),
@@ -163,12 +205,15 @@ def main():
     raw = args.reference.read_bytes()
     if hashlib.sha256(raw).hexdigest() != REFERENCE_SHA:
         raise ValueError("comparison reference differs")
+    reference = json.loads(raw)
+    intraday_digest = checked_intraday(args.intraday, reference)
     news = news_sources(args.news, frozen)
     bars = orb.load_bars(args.intraday, known_absent=follow.verified_absence(args.no_price_evidence))
     if set(bars) != {(s, d) for s in orb.SYMBOLS for d in follow.plan()["sessions"]}:
         raise ValueError("intraday panel differs")
-    result = assess(frozen, news, bars, orb.load_quotes(args.intraday), json.loads(raw))
+    result = assess(frozen, news, bars, orb.load_quotes(args.intraday), reference)
     result["provenance"] = {"plan_sha256": hashlib.sha256(args.plan.read_bytes()).hexdigest(),
+        "intraday_source_map_sha256": intraday_digest,
         "code_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in
             (Path(__file__), Path(events.__file__), Path(follow.__file__), Path(orb.__file__))},
         "news_envelope_sha256": {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
