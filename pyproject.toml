@@ -43,7 +43,7 @@ where = ["src"]
 # 라우트는 있고 파일이 없었다. 디렉토리를 추가하면 여기도 같이 추가한다
 # (`test_packaging.py` 가 src 밑 비 .py 파일을 전부 훑어 대조한다).
 [tool.setuptools.package-data]
-signal_desk = ["web/*", "web/icons/*", "assets/fonts/*.ttf"]
+signal_desk = ["web/*", "web/icons/*", "assets/fonts/*.ttf", "research_reports/*.json"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

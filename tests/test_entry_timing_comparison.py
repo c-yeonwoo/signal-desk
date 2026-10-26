@@ -6,6 +6,12 @@ from scripts.measure import entry_timing_comparison as study
 from tests.test_earnings_announcement_execution import event, fixture_sources
 
 
+def panel():
+    return {"events": [event(id=f"JPM:2025-01-{day:02d}", symbol="JPM",
+        reported_date=f"2025-01-{day:02d}", opening_session=f"2025-01-{day:02d}",
+        ready_ns=study.ledger.clock_ns(f"2025-01-{day:02d}T12:00:00Z")) for day in (6, 7, 8, 10, 13, 14)]}
+
+
 def test_legacy_ledger_is_unchanged():
     inputs = {"events": [event()]}
     picks = study.ledger.choices(inputs, "immediate", "eps")
@@ -18,7 +24,7 @@ def test_legacy_ledger_is_unchanged():
 
 
 def test_same_six_events_and_clocks_are_fixed():
-    inputs = study.inputs()
+    inputs = panel()
     early = study.selected(inputs, "immediate")
     opening = study.selected(inputs, "opening")
     assert len(early) == len(opening) == 6
@@ -31,7 +37,7 @@ def test_same_six_events_and_clocks_are_fixed():
 
 
 def test_missing_quotes_not_zero_and_reports_are_read_only():
-    result = study.assess(study.inputs(), {})
+    result = study.assess(panel(), {})
     assert set(result["verdicts"].values()) == {"blocked_sources"}
     report = study.public_report(result)
     assert not report["live_order_eligible"] and report["research_only"]
@@ -40,7 +46,7 @@ def test_missing_quotes_not_zero_and_reports_are_read_only():
 
 
 def test_opening_cannot_precede_information():
-    inputs = copy.deepcopy(study.inputs())
+    inputs = copy.deepcopy(panel())
     eligible = next(e for e in inputs["events"] if e["eligible"])
     eligible["ready_ns"] = study.orb.session_clocks(eligible["opening_session"])[0] + 6 * study.orb.MINUTE
     with pytest.raises(ValueError, match="precedes"):
