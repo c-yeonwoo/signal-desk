@@ -372,6 +372,17 @@ def simulate(inputs: dict, index: dict, year: str, path: str, policy: str,
             or fee_bp not in (10, 25, 50) or fill not in (0, .5, 1) or delay not in (0, 60) or size_scale not in (1, 100)):
         raise ValueError("outside frozen experiment")
     selected = [e for e in choices(inputs, path, policy, delay) if e["reported_date"].startswith(year)]
+    return execute_selected(inputs, index, selected, year=year, path=path, policy=policy,
+                            fee_bp=fee_bp, fill=fill, delay=delay, size_scale=size_scale)
+
+
+def execute_selected(inputs: dict, index: dict, selected: list[dict], *, year: str, path: str,
+                     policy: str, fee_bp: int, fill: float, delay: int, size_scale: int) -> dict:
+    """Shared cash ledger; callers own and freeze their selection/parameter contract.
+
+    The original simulate() wrapper retains its historical experiment restrictions.
+    This helper does not select names or infer missing quotes from closing prices.
+    """
     cash, peak, drawdown, rate = 10_000., 10_000., 0., fee_bp / 10_000
     rows, stopped = [], False
     for event in selected:
