@@ -233,3 +233,14 @@ def test_bar_source_requires_full_session_and_exact_bytes(tmp_path):
     path.write_bytes(orb.json_bytes(envelope(rows[:10] + rows[11:])))
     with pytest.raises(ValueError, match="missing minute"):
         orb.load_bars(tmp_path)
+    with pytest.raises(ValueError, match="overlaps strategy"):
+        orb.load_bars(tmp_path, known_absent={("AAPL", "2024-01-02", opening + 10 * orb.MINUTE)})
+    absent = ("AAPL", "2024-01-02", opening + 205 * orb.MINUTE)
+    path.write_bytes(orb.json_bytes(envelope(rows[:205] + rows[206:])))
+    with pytest.raises(ValueError, match="missing minute"):
+        orb.load_bars(tmp_path)
+    loaded = orb.load_bars(tmp_path, known_absent={absent})
+    assert len(loaded[("AAPL", "2024-01-02")]["bars"]) == 389
+    assert absent[2] not in {r["t"] for r in loaded[("AAPL", "2024-01-02")]["bars"]}
+    with pytest.raises(ValueError, match="unused no-price"):
+        orb.load_bars(tmp_path, known_absent={absent, ("JPM", "2024-01-02", absent[2])})

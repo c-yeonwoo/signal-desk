@@ -92,7 +92,9 @@ def checked_source(path: Path, schema: str) -> tuple[dict, dict]:
     return envelope, body
 
 
-def load_bars(directory: Path) -> dict:
+def load_bars(directory: Path, *, known_absent: set[tuple[str, str, int]] | None = None) -> dict:
+    # Explicit, separately authenticated no-price evidence only; never synthesize OHLC.
+    absent, used = set(known_absent or ()), set()
     sources = {}
     for path in sorted((directory / "bars").rglob("*.json")):
         env, body = checked_source(path, "alpaca-historical-bar-window-v1")
@@ -119,12 +121,19 @@ def load_bars(directory: Path) -> dict:
             rows.append({"t": t, **{k: row[k] for k in ("o", "h", "l", "c", "v", "vw")}})
             previous = t
         expected_clocks = list(range(opening, closing, MINUTE))
+        omitted = {t for s, d, t in absent if (s, d) == (symbol, day)}
+        if any(t < opening + 121 * MINUTE or t >= closing - MINUTE or t % MINUTE for t in omitted):
+            raise ValueError("absence overlaps strategy price window")
+        used.update((symbol, day, t) for t in omitted)
+        expected_clocks = [t for t in expected_clocks if t not in omitted]
         if [row["t"] for row in rows] != expected_clocks:
             raise ValueError("missing minute bars: " + symbol + ":" + day)
         key = symbol, day
         if key in sources:
             raise ValueError("multiple source versions")
         sources[key] = {"bars": rows, "sha256": env["raw_sha256"]}
+    if used != absent:
+        raise ValueError("unused no-price evidence")
     return sources
 
 
@@ -278,7 +287,11 @@ def quote_plan(sources: dict, quotes: dict, frozen: dict) -> dict:
 
 
 def replay(sources: dict, quotes: dict, frozen: dict, ranking: str, *, bps: int = 27,
-           delay: int = 0, liquidity_fraction: float = 1, size_scale: int = 1) -> dict:
+           delay: int = 0, liquidity_fraction: float = 1, size_scale: int = 1,
+           entry_rule=None, cost_model=None) -> dict:
+    # Research-only injection keeps the original frozen comparison unchanged.
+    entry_rule = entry_rule or entry_intent
+    cost_model = cost_model or costs
     if liquidity_fraction not in (1, .5):
         raise ValueError("unregistered liquidity scenario")
     if isinstance(size_scale, bool) or size_scale not in (1, 100):
@@ -292,7 +305,7 @@ def replay(sources: dict, quotes: dict, frozen: dict, ranking: str, *, bps: int 
             return {"complete": False, "blocked_day": day, "reason": str(exc),
                     "ranking": ranking, "net_return_pct": None, "days": days,
                     "trades": trades, "needs": list(needs.values())}
-        intents = [i for c in candidates if (i := entry_intent(c, sources[(c["symbol"], day)]["bars"], delay))]
+        intents = [i for c in candidates if (i := entry_rule(c, sources[(c["symbol"], day)]["bars"], delay))]
         for intent in sorted(intents, key=lambda row: (row["ready"], row["symbol"])):
             realized_before = sum(t["pnl"] for t in day_trades if t["exit_ns"] <= intent["ready"])
             if realized_before <= -.0075 * day_start:
@@ -321,8 +334,8 @@ def replay(sources: dict, quotes: dict, frozen: dict, ranking: str, *, bps: int 
                 # A position already exists: missing liquidation is not a no-trade.
                 day_complete = False
                 continue
-            bought = execution.calculate(entry["ap"], qty, "buy", "us", assumptions=costs(bps))
-            sold = execution.calculate(exit_quote["bp"], qty, "sell", "us", assumptions=costs(bps))
+            bought = execution.calculate(entry["ap"], qty, "buy", "us", assumptions=cost_model(bps))
+            sold = execution.calculate(exit_quote["bp"], qty, "sell", "us", assumptions=cost_model(bps))
             trade = {"symbol": intent["symbol"], "day": day, "quantity": qty,
                      "entry_ns": entry["ns"], "exit_ns": exit_quote["ns"],
                      "entry_ask": entry["ap"], "exit_bid": exit_quote["bp"],
