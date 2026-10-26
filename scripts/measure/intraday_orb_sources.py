@@ -62,9 +62,9 @@ def _save_new(path: Path, value: dict) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _window(day: str) -> tuple[dt.datetime, dt.datetime]:
+def _window(day: str, first: str = FIRST, last: str = LAST) -> tuple[dt.datetime, dt.datetime]:
     parsed = dt.date.fromisoformat(day)
-    if day != parsed.isoformat() or not FIRST <= day <= LAST:
+    if day != parsed.isoformat() or not first <= day <= last:
         raise ValueError("research dates must be 2023-12-01 through 2024-12-31")
     window = market_clock.regular_window("us", dt.datetime.combine(parsed, dt.time(12), NY))
     if window is None:
@@ -74,6 +74,16 @@ def _window(day: str) -> tuple[dt.datetime, dt.datetime]:
 
 def requests_for_plan(plan: dict, *, quote: bool = False) -> list[dict]:
     schema = "intraday-orb-quote-plan-v1" if quote else "intraday-orb-source-plan-v1"
+    first_day, last_day, allowed_sessions = FIRST, LAST, None
+    followup_schema = "intraday-confirmation-quote-plan-v1" if quote else "intraday-confirmation-source-plan-v1"
+    if isinstance(plan, dict) and plan.get("schema") == followup_schema:
+        from scripts.measure.intraday_confirmation import plan as frozen_plan
+        frozen = frozen_plan()
+        if ((not quote and plan != frozen) or (quote and plan.get("plan_sha256") !=
+                hashlib.sha256(_json(frozen)).hexdigest())):
+            raise ValueError("confirmation plan differs from frozen contract")
+        schema, allowed_sessions = followup_schema, set(frozen["sessions"])
+        first_day, last_day = min(allowed_sessions), max(allowed_sessions)
     if not isinstance(plan, dict) or plan.get("schema") != schema or plan.get("market") != "us":
         raise ValueError("invalid fixed US research plan")
     requests = []
@@ -88,7 +98,9 @@ def requests_for_plan(plan: dict, *, quote: bool = False) -> list[dict]:
             params = source.parameters(symbol, start, end)
             first, last = (dt.datetime.fromisoformat(params[key]) for key in ("start", "end"))
             day = first.astimezone(NY).date().isoformat()
-            opening, closing = _window(day)
+            opening, closing = _window(day, first_day, last_day)
+            if allowed_sessions is not None and day not in allowed_sessions:
+                raise ValueError("session outside fixed confirmation plan")
             if not opening <= first < last <= closing:
                 raise ValueError("quote window must lie within one regular session")
             name = f"{first.strftime('%Y%m%dT%H%M%SZ')}_{last.strftime('%Y%m%dT%H%M%SZ')}.json"
@@ -105,7 +117,7 @@ def requests_for_plan(plan: dict, *, quote: bool = False) -> list[dict]:
                 or sessions != sorted(set(sessions))):
             raise ValueError("explicit sorted, unique session list required")
         for day in sessions:
-            opening, closing = _window(day)
+            opening, closing = _window(day, first_day, last_day)
             for symbol in SYMBOLS:
                 start, end = opening.isoformat(), closing.isoformat()
                 requests.append({"kind": "bars", "symbol": symbol, "session": day,
