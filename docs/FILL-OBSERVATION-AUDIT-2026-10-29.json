@@ -1,0 +1,30 @@
+{
+  "scope": "최근 모의 체결 참조가격을 실제 사용한 관측 ID의 가격과 대조",
+  "source_main": "aad933e72eb288af863c2ed7494083cfb8a8dab3",
+  "pre_change_observation": {
+    "window_since_ts": 1793027333,
+    "window_end_ts": 1793200133,
+    "source": "로그인된 Chrome 운영 GET /api/admin/paper-order-gates 및 세 성향 ledger/state",
+    "events_truncated": false,
+    "kr_fills": 0,
+    "us_fills": 5,
+    "us_checked_source_time_fills": 5,
+    "all_fills_before_838_merge": true,
+    "balanced": [{"id": 1129, "ticker": "TGT", "ts": 1793034450}, {"id": 1130, "ticker": "SOLV", "ts": 1793108221}, {"id": 1133, "ticker": "OKE", "ts": 1793194744}],
+    "conservative": [{"id": 1132, "ticker": "OXY", "ts": 1793112917}],
+    "aggressive": [{"id": 1131, "ticker": "TRV", "ts": 1793111260}],
+    "oke_case": {"execution_event_state": "matched", "decision_link_state": "run_linked_capture_unavailable", "capture_status": "already_claimed"}
+  },
+  "comparison": [
+    "기존 historical-paper-trades 조회의 거래와 체결 이벤트가 주문 키·계좌·시장·종목·수량·체결가·체결시각으로 정확히 연결된 경우만 대조",
+    "시장·종목과 최대 900초의 유효 수신 구간으로 장중 원장을 읽고 원래 observation_id로만 연결. 근처 가격이나 시각으로 추정하지 않음",
+    "체결시각의 가격 유효성과 원장 보존 여부를 별도로 검사. 확인된 601초 지연과 근거 누락을 구분",
+    "거래 장부 참조가·이벤트 참조가·관측가격과 공급자·원문 시각·인증 표시가 일치하는지 확인",
+    "슬리피지를 포함한 체결가는 원문 가격과 직접 같다고 요구하지 않음"
+  ],
+  "unknown": "이벤트 연결 불일치·관측 ID 미보존·중복 관측·필수 세션/시각 누락은 match=null. 명백한 가격 충돌·확인된 지연은 false",
+  "operational_change": "읽기 전용 검증 추가. 매매 알고리즘·가중치·문턱·실주문·시세 수집·수동 LLM·Railway 관리 변경 없음",
+  "profitability_verdict": "not_tested",
+  "status": "implemented_pending_production_observation_comparison",
+  "integrated_roadmap_percent": 40
+}
