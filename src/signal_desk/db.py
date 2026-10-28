@@ -2691,6 +2691,7 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
     if market not in ("kr", "us") or not ticker or start_ts >= end_ts or not 1 <= limit <= 100:
         raise ValueError("invalid paper trade audit scope")
     from signal_desk import bot_alerts
+    from signal_desk.signals import fill_observation_audit
 
     def _event_data(raw: str) -> dict:
         try:
@@ -2814,6 +2815,24 @@ def bot_trades_for_case(uid: int, market: str, ticker: str, start_ts: int,
             row["execution_event_state"] = "not_recorded"
             row["run_id"] = None
             row["decision_capture"] = None
+        proof = event_data.get("price_evidence") or {}
+        quotes = []
+        if row["execution_event_state"] == "matched" and isinstance(proof, dict):
+            try:
+                received = float(proof.get("price_received_at"))
+                # The existing lookup uses (market,ticker,ts)'s primary key.
+                # Cap to the fill's validity window and require the original ID.
+                if math.isfinite(received) and -300 <= int(row["ts"]) - received <= 600:
+                    quotes = intraday_quotes_list(market, ticker, after_ts=math.floor(received),
+                                                  before_ts=int(row["ts"]), include_metadata=True)
+            except (TypeError, ValueError, OverflowError, OSError):
+                pass
+        row["price_observation_audit"] = (fill_observation_audit.audit(
+            {"ts": row["ts"], "payload": event_data}, quotes, market=market,
+            ledger_reference_price=row["reference_price"])
+            if row["execution_event_state"] == "matched" else
+            {"state": "execution_event_unverified", "match": None,
+             "source_time_verified": False, "profitability_verified": False})
         run = row["decision_capture"]
         if row["execution_event_state"] != "matched":
             row["decision_link_state"] = "execution_event_unverified"
