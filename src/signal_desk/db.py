@@ -1507,7 +1507,7 @@ def bot_trade_audit_snapshot(uid: int, market: str, *, event_limit: int = 10_000
     try:
         c.execute("BEGIN")
         cols = ("id", "ticker", "side", "qty", "price", "reason", "ts",
-                "reference_price", "fees", "slippage_cost", "cash_change")
+                "reference_price", "fees", "slippage_cost", "cash_change", "order_no")
         rows = c.execute(
             f"SELECT {','.join(cols)} FROM bot_trades WHERE uid=? AND market=? ORDER BY id",
             (uid, market),

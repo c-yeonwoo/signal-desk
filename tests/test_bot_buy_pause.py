@@ -2,6 +2,7 @@
 
 import json
 import time
+import datetime
 
 import pytest
 
@@ -23,6 +24,8 @@ def _setup(monkeypatch, tmp_path, market, prices, signals, *, cash=100_000., pos
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BOT_KILL_SWITCH", "false")
     monkeypatch.setattr(paper.market_clock, "is_open", lambda *_args: True)
+    monkeypatch.setattr(paper.market_clock, "regular_window", lambda market, now:
+                        (now - datetime.timedelta(hours=1), now + datetime.timedelta(hours=1)))
     monkeypatch.setattr(bot.store, "load_price_series", lambda: prices if market == "kr" else {})
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: prices if market == "us" else {})
     monkeypatch.setattr(bot.store, "load_warned_tickers", lambda: set())
@@ -36,9 +39,12 @@ def _setup(monkeypatch, tmp_path, market, prices, signals, *, cash=100_000., pos
     universe = [{"ticker": t, "name": t} for t in prices]
     snapshot = {"quotes": {t: closes[-1] for t, closes in prices.items()},
                 "quote_updated": {t: time.time() for t in prices},
-                "quote_meta": {t: {"observation_id": f"test-{t}"} for t in prices}}
+                "quote_meta": {t: {"observation_id": f"test-{t}",
+                    "source_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()} for t in prices}}
+    dates = {t: [paper.market_clock.latest_completed_session(market, datetime.datetime.now(datetime.timezone.utc))]
+             for t in prices}
     monkeypatch.setattr(bot, "_market_signals", lambda *_args: (
-        universe, prices, signals, {t: t for t in prices}, {}, snapshot))
+        universe, prices, signals, {t: t for t in prices}, dates, snapshot))
     db.kv_set(paper._key(UID, market), json.dumps({"cash": cash, "positions": positions or {}}))
     return cfg, read
 

@@ -2,6 +2,7 @@
 
 import json
 import time
+import datetime
 from types import SimpleNamespace
 
 from signal_desk import bot, db
@@ -19,6 +20,8 @@ def _sig(t, n, kind, score=0.0):
 def _setup(monkeypatch, **cfg):
     # Account-isolation tests exercise an open US session regardless of CI wall time.
     monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: True)
+    monkeypatch.setattr(paper.market_clock, "regular_window", lambda market, now:
+                        (now - datetime.timedelta(hours=1), now + datetime.timedelta(hours=1)))
     us_uni = [{"ticker": "AAPL", "name": "Apple"}, {"ticker": "NVDA", "name": "Nvidia"}]
     monkeypatch.setattr(bot.store, "load_us_universe", lambda: us_uni)
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: {"AAPL": [200.0], "NVDA": [120.0]})
@@ -26,10 +29,12 @@ def _setup(monkeypatch, **cfg):
     monkeypatch.setattr(bot, "us_signal_batch", lambda: (
         us_uni, {"AAPL": [200.0], "NVDA": [120.0]},
         [_sig("AAPL", "Apple", "BUY", 2.0), _sig("NVDA", "Nvidia", "BUY", 1.8)],
-        {}, {"quotes": {"AAPL": 200.0, "NVDA": 120.0},
+        {t: [paper.market_clock.latest_completed_session("us", datetime.datetime.now(datetime.timezone.utc))]
+         for t in ("AAPL", "NVDA")}, {"quotes": {"AAPL": 200.0, "NVDA": 120.0},
              "quote_updated": {"AAPL": time.time(), "NVDA": time.time()},
-             "quote_meta": {"AAPL": {"observation_id": "test-AAPL"},
-                            "NVDA": {"observation_id": "test-NVDA"}}}))
+             "quote_meta": {t: {"observation_id": "test-" + t,
+                 "source_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+                 for t in ("AAPL", "NVDA")}}))
     monkeypatch.setattr(bot, "_cfg", lambda uid: {
         "enabled": True, "trading_style": "balanced", "seed_cash": 10_000_000, "seed_cash_us": 10_000,
         "max_positions": 10, "position_pct": 0.08, "min_buy_score": 1.0, "max_new_buys_per_run": 5, **cfg})

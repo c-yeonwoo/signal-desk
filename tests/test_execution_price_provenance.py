@@ -45,3 +45,29 @@ def test_no_fills_does_not_look_healthy():
     out = study.summarize([], filled_events_total=0)
     assert out["state"] == "no_fills"
     assert out["sampled_recent_fills"] == 0
+
+
+def test_trade_join_requires_exact_unique_order_and_source_evidence():
+    from test_price_validity import NOW, proof
+    trades = [{"id": i, "order_no": str(i), "ticker": "ABC", "side": "buy"} for i in range(1, 7)]
+    def event(i, evidence):
+        return {**_event("filled_buy", evidence, ts=NOW.timestamp()),
+                "event_key": f"trade:kr:7:{i}"}
+    events = [event(1, proof()), event(2, {**proof(), "price_source_timestamp": None}),
+              event(3, {"price_basis": "daily_close"}), event(4, "malformed"),
+              event(5, proof()), event(5, proof()), event(6, proof())]
+    events[-1]["ticker"] = "OTHER"
+    labels = study.classify_trades(trades, events, market="kr", uid=7)
+    assert labels == {1: "observed_uncertified", 2: "unverifiable", 3: "invalid_or_delayed",
+                      4: "unverifiable", 5: "unverifiable", 6: "unverifiable"}
+
+
+def test_missing_receipt_or_unreadable_source_is_unknown_not_proven_stale():
+    from test_price_validity import NOW, proof
+    for field in ("price_received_at", "price_observation_id", "price_session", "price_source_timestamp"):
+        evidence = {**proof(), field: None}
+        event = {**_event("filled_buy", evidence, ts=NOW.timestamp()), "event_key": "trade:kr:7:1"}
+        trades = [{"id": 1, "order_no": "1", "ticker": "ABC", "side": "buy"}]
+        assert study.classify_trades(trades, [event], market="kr", uid=7) == {1: "unverifiable"}
+    event["payload"]["price_evidence"]["price_source_timestamp"] = "not-a-timestamp"
+    assert study.classify_trades(trades, [event], market="kr", uid=7) == {1: "unverifiable"}

@@ -84,6 +84,8 @@ def build(
                         "current" if price_date == expected_date else "stale")
     price_basis = ("intraday_quote" if item.get("signal_price_basis") == "intraday_quote"
                    or provisional_at is not None else "confirmed_close")
+    if item.get("current_decision_status") == "deferred" and price_status == "current":
+        price_status = "unavailable"
     verdict = item.get("kind") if price_status == "current" else "UNAVAILABLE"
     if verdict not in BUY_KINDS | SELL_KINDS | {"HOLD"}:
         verdict = "UNAVAILABLE"
@@ -92,7 +94,9 @@ def build(
     evidence = []
     claims = []
     if price_status != "current":
-        if signal_price_status == "close_only":
+        if item.get("current_decision_status") == "deferred":
+            unknowns.append("가격의 원문 시각·거래 세션 또는 직전 종가 이력을 확인하지 못해 현재 판정을 보류했습니다.")
+        elif signal_price_status == "close_only":
             unknowns.append("직전 종가로 계산했으며 장중 현재가는 이 판정에 반영되지 않았습니다.")
         elif signal_price_status == "stale_quote":
             unknowns.append("판정에 사용한 장중 시세의 갱신 시각이 오래됐거나 확인되지 않았습니다.")

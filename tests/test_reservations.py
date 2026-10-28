@@ -2,6 +2,7 @@
 
 import json
 import time
+import datetime as dt
 
 from signal_desk import bot, db, store
 from signal_desk.broker import paper
@@ -14,6 +15,8 @@ def _setup(monkeypatch, tmp_path, prices):
     monkeypatch.chdir(tmp_path)
     # These cases test reservation semantics independently of wall-clock session hours.
     monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: True)
+    monkeypatch.setattr(paper.market_clock, "regular_window", lambda market, now:
+                        (now - dt.timedelta(hours=1), now + dt.timedelta(hours=1)))
     monkeypatch.setattr(store, "load_price_series", lambda: prices)
     monkeypatch.setattr(store, "load_engine_price_bundle", lambda market: (
         prices, {}, {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
@@ -22,13 +25,16 @@ def _setup(monkeypatch, tmp_path, prices):
     monkeypatch.setattr(bot, "_market_read", lambda _: {"eff_cfg": None, "context": {"exposure": 1.0}})
     def signals(market, mr):
         rows = store.load_us_price_series() if market == "us" else store.load_price_series()
+        now = dt.datetime.now(dt.timezone.utc)
+        dates = {t: [paper.market_clock.latest_completed_session(market, now)] for t in rows}
         snapshot = {"quotes": {t: closes[-1] for t, closes in rows.items() if closes},
                     "quote_updated": {t: time.time() for t in rows},
-                    "quote_meta": {t: {"observation_id": f"test-{t}"} for t in rows}}
+                    "quote_meta": {t: {"observation_id": f"test-{t}",
+                                      "source_timestamp": now.isoformat()} for t in rows}}
         sigs = [SignalResult(ticker=t, name=t, score=2.0, kind="BUY", confidence=0.5,
                              technical_score=0.0, fundamental_score=0.0,
                              has_fundamental=False, reasons=[]) for t in rows]
-        return [], rows, sigs, {}, {}, snapshot
+        return [], rows, sigs, {}, dates, snapshot
     monkeypatch.setattr(bot, "_market_signals", signals)
     db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 100_000.0, "positions": {}}))
 
@@ -56,7 +62,7 @@ def test_reservation_waits_for_fresh_quote_without_consuming_pending(tmp_path, m
     monkeypatch.setattr(bot, "_market_signals", without_quote)
 
     out = bot.execute_reservations(UID)
-    assert out["executed"][0]["status"] == "deferred_stale_quote"
+    assert out["executed"][0]["status"] == "deferred_price_decision"
     assert len(db.bot_reservations_pending(UID)) == 1
     assert db.bot_position_get(UID, "AAA") is None
     assert db.notification_outbox_due(now=int(time.time()))
@@ -72,7 +78,8 @@ def test_reservation_waits_if_session_closes_after_quote(tmp_path, monkeypatch):
 
     out = bot.execute_reservations(UID)
 
-    assert out["executed"][0]["status"] == "deferred_market_closed"
+    assert out["executed"][0]["status"] == "deferred_price_decision"
+    assert out["executed"][0]["price_validity"]["reason"] == "deferred_market_closed"
     assert len(db.bot_reservations_pending(UID)) == 1
     assert db.bot_position_get(UID, "AAA") is None
     assert "정규장이 닫혀" in db.notification_outbox_due(now=int(time.time()))[0]["text"]
@@ -91,7 +98,8 @@ def test_reservation_preserves_pending_when_fresh_response_contains_old_source_t
 
     out = bot.execute_reservations(UID)
 
-    assert out["executed"][0]["status"] == "deferred_source_time"
+    assert out["executed"][0]["status"] == "deferred_price_decision"
+    assert out["executed"][0]["price_validity"]["reason"] == "deferred_source_time"
     assert len(db.bot_reservations_pending(UID)) == 1
     assert db.bot_trades_recent(UID) == []
 
@@ -109,12 +117,33 @@ def test_kill_switch_blocks_pending_reservation(tmp_path, monkeypatch):
 def test_reservation_rechecks_current_signal(tmp_path, monkeypatch):
     _setup(monkeypatch, tmp_path, {"AAA": [100.0, 101.0]})
     db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
-    monkeypatch.setattr(bot, "_market_signals", lambda market, mr: (
-        [], {"AAA": [100.0, 101.0]}, [], {}, {},
-        {"quotes": {}, "quote_updated": {}, "quote_meta": {}}))
+    original = bot._market_signals
+    def no_signal(market, mr):
+        uni, prices, _, names, dates, snapshot = original(market, mr)
+        return uni, prices, [], names, dates, snapshot
+    monkeypatch.setattr(bot, "_market_signals", no_signal)
     out = bot.execute_reservations(UID)
     assert out["executed"][0]["status"] == "skipped_signal"
     assert db.bot_position_get(UID, "AAA") is None
+
+
+def test_reservation_missing_price_or_stale_signal_keeps_pending(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path, {})
+    db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
+    out = bot.execute_reservations(UID)
+    assert out["executed"][0]["status"] == "deferred_price_decision"
+    assert len(db.bot_reservations_pending(UID)) == 1
+
+
+def test_reservation_cannot_size_exposure_from_unpriced_holding(tmp_path, monkeypatch):
+    _setup(monkeypatch, tmp_path, {"AAA": [100., 101.]})
+    db.kv_set(f"paper_account:{UID}", json.dumps({"cash": 100_000., "positions": {
+        "BBB": {"name": "나", "qty": 10, "avg_price": 100.}}}))
+    db.bot_reservation_add(UID, "AAA", "가", "buy", 100.0, 0.02, "테스트")
+    out = bot.execute_reservations(UID)
+    assert out["executed"][0]["unchecked_holdings"] == ["BBB"]
+    assert len(db.bot_reservations_pending(UID)) == 1
+    assert db.bot_trades_recent(UID) == []
 
 
 def test_reservation_rechecks_exposure_cap(tmp_path, monkeypatch):

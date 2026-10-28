@@ -2,10 +2,22 @@
 
 import datetime as dt
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from signal_desk import api, db, store
+
+
+def _episode_price_fields(monkeypatch):
+    now = dt.datetime.now(dt.timezone.utc)
+    monkeypatch.setattr(api.market_clock, "regular_window", lambda market, at:
+                        (at - dt.timedelta(hours=1), at + dt.timedelta(hours=1)))
+    return {"signal_close_date": api.market_clock.latest_completed_session("us", now),
+            "signal_price_evidence": {"price_basis": "intraday_provisional",
+                "price_session": now.astimezone(ZoneInfo("America/New_York")).date().isoformat(),
+                "price_observation_id": "test", "price_received_at": now.timestamp(),
+                "price_source_timestamp": now.isoformat()}}
 
 
 def test_us_session_day_stays_friday_after_kst_midnight():
@@ -49,7 +61,7 @@ def test_us_entry_does_not_invent_first_fire_without_pit(monkeypatch):
 
 def test_episode_only_records_open_market_in_exchange_date(monkeypatch):
     seen = []
-    monkeypatch.setattr(api.market_clock, "is_open", lambda market: market == "us")
+    monkeypatch.setattr(api.market_clock, "is_open", lambda market, at=None: market == "us")
     monkeypatch.setattr(api, "_signal_session_day", lambda market: "2026-10-16")
     monkeypatch.setattr(store, "load_us_quotes", lambda: (_ for _ in ()).throw(
         AssertionError("발동가는 판정과 다른 시세를 재조회하면 안 됩니다")))
@@ -58,7 +70,8 @@ def test_episode_only_records_open_market_in_exchange_date(monkeypatch):
     monkeypatch.setattr(api, "_decision_payload", lambda result: {"buy_blocked": False})
     monkeypatch.setattr(api, "_hold_tag", lambda result, **kwargs: None)
     result = SimpleNamespace(ticker="AAPL", kind="BUY", reasons=[],
-                             signal_price_basis="intraday_quote", signal_input_price=105.0)
+                             signal_price_basis="intraday_quote", signal_input_price=105.0,
+                             **_episode_price_fields(monkeypatch))
     api._sync_episode_state([result], market="us")
     assert seen[0][1] == {"market": "us", "today": "2026-10-16"}
     assert seen[0][0][0]["price"] == 105.0
@@ -71,7 +84,7 @@ def test_episode_only_records_open_market_in_exchange_date(monkeypatch):
 
 def test_episode_does_not_invent_intraday_fire_from_previous_close(monkeypatch):
     seen = []
-    monkeypatch.setattr(api.market_clock, "is_open", lambda market: True)
+    monkeypatch.setattr(api.market_clock, "is_open", lambda market, at=None: True)
     monkeypatch.setattr(api.episode_state, "observe_rows",
                         lambda rows, **kwargs: seen.append(rows))
     monkeypatch.setattr(api, "_decision_payload", lambda result: {"buy_blocked": False})
@@ -79,6 +92,9 @@ def test_episode_does_not_invent_intraday_fire_from_previous_close(monkeypatch):
     rows = [SimpleNamespace(ticker="AAPL", kind="BUY", reasons=[],
                             signal_price_basis="stored_close", signal_input_price=100.0),
             SimpleNamespace(ticker="MSFT", kind="BUY", reasons=[],
+                            signal_price_basis="intraday_quote", signal_input_price=200.0,
+                            **_episode_price_fields(monkeypatch)),
+            SimpleNamespace(ticker="NVDA", kind="BUY", reasons=[],
                             signal_price_basis="intraday_quote", signal_input_price=200.0)]
     monkeypatch.setattr(api, "_signal_session_day", lambda market: "2026-10-16")
 

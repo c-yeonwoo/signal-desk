@@ -68,6 +68,11 @@ def test_signal_price_status_distinguishes_close_only_fresh_quote_and_delay(monk
     def item(basis, quote_at=None, close="2026-10-07"):
         return {"kind": "STRONG_BUY", "signal_price_basis": basis,
                 "signal_close_date": close, "signal_computed_at": now.isoformat(),
+                "signal_input_price": 100,
+                "signal_price_evidence": {"price_basis": "intraday_provisional" if basis == "intraday_quote" else "daily_close",
+                    "price_session": "2026-10-08", "price_observation_id": "test",
+                    "price_received_at": quote_at,
+                    "price_source_timestamp": (now - dt.timedelta(seconds=60)).isoformat()},
                 "signal_quote_received_at": quote_at}
 
     rows = [item("stored_close"), item("intraday_quote", now.timestamp() - 60),
@@ -77,7 +82,8 @@ def test_signal_price_status_distinguishes_close_only_fresh_quote_and_delay(monk
     api._annotate_signal_price_status(rows, "kr", now)
     assert [row["signal_price_status"] for row in rows] == [
         "close_only", "current_quote", "stale_quote", "stale_close", "stale_quote"]
-    assert all(row["kind"] == "STRONG_BUY" for row in rows)
+    assert [row["kind"] for row in rows] == ["DEFERRED", "STRONG_BUY", "DEFERRED", "DEFERRED", "DEFERRED"]
+    assert all(row["reference_kind"] == "STRONG_BUY" for row in rows)
     assert all(row["signal_expected_close_date"] == "2026-10-07" for row in rows)
 
 

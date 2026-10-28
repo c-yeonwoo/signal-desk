@@ -38,7 +38,8 @@ def _group(rows: list[dict], key: str) -> list[dict]:
     return sorted(result, key=lambda item: (item["price_only_pnl"], item["key"]))
 
 
-def analyze(trades: list[dict], *, seed_cash: float, account: dict) -> dict:
+def analyze(trades: list[dict], *, seed_cash: float, account: dict,
+            trade_evidence: dict | None = None) -> dict:
     """Rebuild each sell at paper's moving-average basis and compare the book.
 
     `cash_proxy_pnl` uses observed cash when present and fill price otherwise.
@@ -49,6 +50,7 @@ def analyze(trades: list[dict], *, seed_cash: float, account: dict) -> dict:
     gaps: dict[str, int] = defaultdict(int)
     blocked: set[str] = set()
     recorded_cash_rows = 0
+    from signal_desk.signals.execution_price_provenance import EVIDENCE_ORDER
     for trade in trades:
         ticker = str(trade.get("ticker") or "")
         side = str(trade.get("side") or "").lower()
@@ -63,6 +65,7 @@ def analyze(trades: list[dict], *, seed_cash: float, account: dict) -> dict:
             gaps["blocked_trade_rows"] += 1
             continue
         quantity = int(qty)
+        evidence = (trade_evidence or {}).get(trade.get("id"), "unverifiable")
         cash = _number(trade.get("cash_change"))
         cash_valid = cash is not None and (cash < 0 if side == "buy" else cash > 0)
         if cash_valid:
@@ -72,7 +75,8 @@ def analyze(trades: list[dict], *, seed_cash: float, account: dict) -> dict:
         if side == "buy":
             pos = positions.setdefault(ticker, {"qty": 0, "price_basis": 0.0,
                                                 "cash_basis": 0.0, "basis_complete": True,
-                                                "had_add": False})
+                                                "had_add": False, "price_evidence": evidence})
+            pos["price_evidence"] = max(pos["price_evidence"], evidence, key=EVIDENCE_ORDER.get)
             pos["had_add"] = pos["had_add"] or pos["qty"] > 0 or trade.get("reason") == "ADD"
             pos["price_basis"] += price * quantity
             pos["cash_basis"] += -cash if cash_valid else price * quantity
@@ -86,11 +90,14 @@ def analyze(trades: list[dict], *, seed_cash: float, account: dict) -> dict:
             blocked.add(ticker)
             continue
         fraction = quantity / pos["qty"]
+        # A fresh exit cannot sanitize a position opened/added with unknown prices.
+        pos["price_evidence"] = max(pos["price_evidence"], evidence, key=EVIDENCE_ORDER.get)
         price_basis = pos["price_basis"] * fraction
         cash_basis = pos["cash_basis"] * fraction
         proceeds = cash if cash_valid else price * quantity
         exact = pos["basis_complete"] and cash_valid
         rows.append({"trade_id": trade.get("id"), "ticker": ticker,
+                     "price_evidence": pos["price_evidence"],
                      "exit_reason": trade.get("reason") or "사유 미기록",
                      "entry_pattern": "추가매수 포함" if pos["had_add"] else "첫 매수만",
                      "qty": quantity,
@@ -133,4 +140,5 @@ def analyze(trades: list[dict], *, seed_cash: float, account: dict) -> dict:
             "by_exit_reason": _group(rows, "exit_reason"),
             "by_entry_pattern": _group(rows, "entry_pattern"),
             "by_ticker": _group(rows, "ticker"),
+            "by_price_evidence": _group(rows, "price_evidence"),
             "note": "가격 기준 손익은 과거 비용 누락분을 포함하지 않습니다. 추가매수·손절과 손익의 연관은 인과관계가 아닙니다."}

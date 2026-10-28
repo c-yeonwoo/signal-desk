@@ -1,0 +1,86 @@
+{
+  "schema": "price-validity-audit-v1",
+  "date": "2026-10-28",
+  "base_main": "71b051b",
+  "scope": "현재 판정의 가격 유효성 경계·과거 모의 장부 근거 분리·동일 세션 외부 가격 참고 대조",
+  "current_decision_contract": {
+    "max_age_seconds": 600,
+    "existing_clock_tolerance_seconds": 300,
+    "checks": [
+      "양수·유한 가격과 같은 입력 스냅샷의 관측 ID",
+      "서버 수신 및 시간대 포함 공급자 시각의 경과·미래 시각 검사",
+      "해당 시장 정규장·당일 세션·개장 이후 관측",
+      "점수 기반 판단은 직전 완료 거래일 종가 이력 필요"
+    ],
+    "observed_source_timestamp_is_not_certification": true,
+    "invalid_quote": "매수·추가매수·교체·점수 매도·손절/익절 판단 보류, 고점 갱신 금지, 보유 위험 미점검 알림",
+    "valid_quote_missing_history": "점수 판단 보류, 유효 현재가 기반 위험 청산은 유지",
+    "unpriced_holding": "그 계좌의 신규 노출 확대도 보류",
+    "reservation": "가격 검사 먼저 수행, 가격 결손을 취소 사유로 사용하지 않음",
+    "raw_engine_scores_ranks_weights": "unchanged",
+    "close_based_research": "unchanged",
+    "buy_pause_real_orders_settings": "unchanged"
+  },
+  "historical_performance": {
+    "endpoint": "/api/admin/research/paper-cash-replay",
+    "groups": ["source_time_marked_verified", "observed_uncertified", "unverifiable", "invalid_or_delayed"],
+    "join": "market + reference bot uid + exact order_no, unique event only",
+    "position_rule": "진입·추가매수·청산 근거 중 가장 취약한 분류를 잔여 포지션까지 유지",
+    "measure": "기록된 체결·현금 흐름으로 계산한 청산 손익; 비용 미기록은 미상, 미청산 보유는 제외",
+    "not_claimed": ["검증된 전략 수익률", "독립 거래 표본 수", "과거 손실의 데이터 원인 비율"]
+  },
+  "production_capture_inventory": {
+    "source": "로그인된 운영 관리자 storage-breakdown 읽기 전용 조회",
+    "kr_signal_output_count": 14,
+    "us_signal_output_count": 13,
+    "scope": "시장별 하루 첫 정규장 봇 입력 캡처; 장중 전체 연속 경로 아님",
+    "us_2026_10_26_signal_output_id": "37fd6027f31e645843ad3fd74154377f2f286ed40e973c171e9709d072ec45a8"
+  },
+  "same_session_reference_comparison": {
+    "session": "2026-10-26",
+    "selection": "보존된 해당 세션 baseline·정기 관측에 실제 가격이 있는 모든 행; SOLV 제외 후 기록 포함",
+    "symbols": ["ALL", "APA", "OXY", "SOLV"],
+    "source": "Alpaca SIP 1Min raw USD, asof 2026-10-26",
+    "documentation": "https://docs.alpaca.markets/us/reference/stockbars",
+    "source_http_status": 200,
+    "source_sha256": "ab5fd05fd1638ad798d168d2c07153ec7e63ae715e1210f56ddd65961342d0d0",
+    "retained_price_rows": 43,
+    "matched_prior_completed_minutes": 38,
+    "missing_minutes": 5,
+    "missing_by_symbol": {"ALL": 2, "SOLV": 3},
+    "max_absolute_difference_bps": 27.523,
+    "by_symbol": {
+      "ALL": {"matched": 9, "median_absolute_bps": 4.307, "max_absolute_bps": 7.628},
+      "APA": {"matched": 11, "median_absolute_bps": 3.874, "max_absolute_bps": 21.401},
+      "OXY": {"matched": 11, "median_absolute_bps": 3.123, "max_absolute_bps": 14.894},
+      "SOLV": {"matched": 7, "median_absolute_bps": 4.648, "max_absolute_bps": 27.523}
+    },
+    "raw_report_local": "data/research/receipt-price-audit-2026-10-28.json",
+    "reproducer": "scripts/measure/receipt_price_audit.py",
+    "limitations": [
+      "모니터는 종목별 수신 시각이 아닌 배치 공통 quote_received_at를 보존했다",
+      "표시 가격을 비교했으며 동일 엔진 입력값이라고 소급 인증하지 않는다",
+      "직전 완료 분봉만 사용; 수신 중인 분봉의 미래 종가·고가·저가를 사용하지 않는다",
+      "현재 제공되는 과거 분봉에 정정이 포함됐을 수 있다",
+      "5개 결손 분봉을 보간하거나 직전 값으로 채우지 않았다",
+      "이 4종목 표본의 작은 가격 차이가 전체 시장/이전 손실/엔진 신뢰도를 설명하지 않는다"
+    ]
+  },
+  "full_engine_counterfactual": {
+    "status": "blocked_incomplete_historical_decision_path",
+    "reason": "장중 전체 선정 시점의 동일 비가격 입력·개별 시세·후보/보유 상태·체결 호가/비용 경로가 없음",
+    "next_bounded_task": "보존된 첫 실행의 전체 입력만 별도 내보내 같은 시점 외부 가격으로 입력 민감도 비교. 이 결과도 전체 장중 수익률로 승격하지 않음",
+    "missing_history_is_not_recoverable_by_waiting": true,
+    "external_price_only_backtest_is_not_operational_reliability": true
+  },
+  "validation": {
+    "local_pytest": {"passed": 3184, "subtests_passed": 49, "warnings": 10},
+    "independent_code_review": "차단 결함 없음; 예약 선행 취소·불명확 보유 노출·순위 분모 변경을 발견하여 수정",
+    "independent_external_recalculation": "보존 원문·해시·43행 비교 결과 일치",
+    "ui": "실제 앱 HTML + 격리된 합성 API, 1100px/390px 목록·상세 보류 표시 및 차트 영역 확인",
+    "impeccable": "오류 상태 지침 적용, 전역 기존 스타일 경고는 범위 밖으로 유지",
+    "owner_acceptance": "not_claimed"
+  },
+  "profitability_improvement": "not_established",
+  "integrated_roadmap_percent": 40
+}
