@@ -1,0 +1,31 @@
+{
+  "id":"recorded-kr-selection-diagnosis-v1",
+  "source_main":"8db613440c46e6073d1d810dc89a38f13cddca9c",
+  "purpose":"Diagnose recorded selection, entry gap and assumed friction separately; not another model or an engine promotion test",
+  "workflow":["Verify current price lineage without LLM or changing buy pause","Run one frozen comparison on preserved non-protected records","Fix only reproducible implementation defects; do not retune failed strategies","Independent review, exact HEAD CI, merge and read-only deployment verification"],
+  "inputs":{
+    "signals_archive_sha256":"6c7fd297a3811ec92753b2484e7abaa2674af8000085b4539a9a24c55614117d",
+    "signals_member_sha256":"c875b0c627cf272e283a8774c71db1d5dc6c8340ab22ea631327a0bb8be0d49a",
+    "krx_archive":"data/research/krx-daily-2026-06-07-v1.zip",
+    "krx_archive_sha256":"ce595d2bf8b7b43dbe3266fdb19615987b8945e517ccaba500db46c76a31c15d"
+  },
+  "market":"kr",
+  "signal_from":"2026-07-16",
+  "signal_until":"2026-08-04",
+  "protected_start":"2026-08-05",
+  "price_until":"2026-07-31",
+  "population":"All archived rows on each scheduled session; no current universe, outcome-based filtering or exclusion of 012510",
+  "selection":"Archived BUY and STRONG_BUY labels only; not reconstructed current eight-factor inputs or executed bot picks",
+  "horizons":[1,5],
+  "entry":"next scheduled session raw open",
+  "exit":"h-th scheduled session raw close",
+  "controls":["Expected equal-weight K-name uniform selection from the same whole recorded date cohort","Expected equal-weight K-name nonselected control matched to selected counts in five trailing-volatility groups"],
+  "risk_groups":{"lookback_returns":20,"buckets":5,"tie_break":"ticker","unknown":"kept in population; risk-matched comparison unavailable if any population member lacks the exact warmup"},
+  "friction_roundtrip_pct":[0,0.25,0.75,1.2],
+  "missing":"Never drop missing future prices to improve control returns: incomplete whole cohort stays unknown; no interpolation or source-window extension",
+  "attribution":["Archived close vs independently preserved KRX close disagreement inventory","Next-open-to-exit selected return vs whole-population and volatility-group controls","Unexecutable decision-close reference vs next-open return difference, with overnight gap stated separately","Same fixed cohort friction sensitivity; not a new account simulation"],
+  "completion":"A finite diagnostic result or a named input blocker; no extra parameter sweeps, fits, new source calls or failed-candidate reruns",
+  "inference":"Report dates, unique selected tickers and overlapping horizons. No significance or independent verification claim from this short already-observed development interval",
+  "adoption":"Never auto-adopt a trading change from this C-level short diagnostic. Positive relative returns alone are not costed executable profit or proof of current-engine superiority",
+  "excluded":["LLM calls","Paperclip","Railway management","real orders","buy-pause changes","registered weights/thresholds/samples","protected outcome aggregates","corporate-action investigation restart","paid data","training"]
+}
