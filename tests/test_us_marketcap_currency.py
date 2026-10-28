@@ -74,10 +74,10 @@ def test_us_rows_carry_the_converted_marketcap(tmp_path, monkeypatch):
 
     monkeypatch.setattr(store, "load_macro", lambda: _macro(1400.0, str(datetime.date.today())))
     monkeypatch.setattr(api, "_us_signal_items",
-                        lambda: [{"ticker": "USB", "name": "U.S. Bancorp", "mktcap": 101_300_000_000,
+                        lambda: api._USSignalItems([{"ticker": "USB", "name": "U.S. Bancorp", "mktcap": 101_300_000_000,
                                   "kind": "HOLD", "score": 0.1},
                                  {"ticker": "NOCAP", "name": "없음", "mktcap": None,
-                                  "kind": "HOLD", "score": 0.0}])
+                                  "kind": "HOLD", "score": 0.0}]))
     monkeypatch.setattr(api, "_us_signals", lambda: {})
     for fn in ("_annotate_entry", "_annotate_priced_in", "_annotate_episode", "_annotate_trader_layers"):
         monkeypatch.setattr(api, fn, lambda items, market=None, **k: items)

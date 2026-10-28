@@ -2834,18 +2834,29 @@ def _price_checked_results(results, items):
     return views
 
 
+class _USSignalItems(list):
+    """List rows and summary inputs from one calculation, never a second cache read."""
+
+    def __init__(self, items, *, results=()):
+        super().__init__(items)
+        self.results = tuple(results)
+
+
 @generation_cache(store.live_quote_revision)
-def _us_signal_items() -> list[dict]:
+def _us_signal_items() -> _USSignalItems:
     """미국(S&P500) 시그널 **리스트 요약** — 스크리너·정렬에 필요한 필드만.
     about/moves/target/reasons/narrative는 `/detail`에서 클릭 시 로드(페이로드·OOM 완화)."""
     sig = _us_signals()
     if not sig:
-        return []
+        return _USSignalItems([])
+    # Do not let another caller's mutations or a later quote generation replace
+    # the summary's score/rank while the response still carries these old rows.
+    results = copy.deepcopy(list(sig.values()))
     sector_of = {u["ticker"]: u.get("sector") for u in store.load_us_universe()}
     hist, quotes = store.load_us_price_bundle()  # parquet 1회(시리즈+거래량)
     mcaps = store.us_marketcaps(hist)
     items = []
-    for r in sig.values():
+    for r in results:
         closes = hist.get(r.ticker) or []
         price = closes[-1] if closes else None
         prev = closes[-2] if len(closes) >= 2 else None
@@ -2860,7 +2871,7 @@ def _us_signal_items() -> list[dict]:
             mktcap=mc.get("mktcap"), vol=q.get("vol"), vol_avg=q.get("vol_avg"),
             per=mc.get("per"), pbr=mc.get("pbr")))
     items.sort(key=lambda x: x["score"], reverse=True)
-    return items
+    return _USSignalItems(items, results=results)
 
 
 _ACTIVE_SIGNAL_KINDS = frozenset({"STRONG_BUY", "BUY", "SELL", "STRONG_SELL"})
@@ -3314,7 +3325,7 @@ def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
         _annotate_signal_price_status(
             items, "us", datetime.datetime.fromtimestamp(observed_at, datetime.timezone.utc)
             if observed_at is not None else None)
-        us_sigs = _price_checked_results(list((_us_signals() or {}).values()), items)
+        us_sigs = _price_checked_results(raw.results, items)
         cfg = signalcfg.get_config()
         sel = selection_summary(us_sigs, cfg)
         crowd = crowding.assess(items)
