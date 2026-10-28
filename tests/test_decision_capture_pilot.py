@@ -143,6 +143,28 @@ def test_pilot_stops_at_artifact_budget(tmp_path, monkeypatch):
     assert result["estimated_stored_bytes"] > 1
 
 
+def test_expanded_budget_keeps_existing_evidence_and_volume_floor(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    bundle, capture = _captured_bundle(monkeypatch)
+    monkeypatch.setattr(pilot.shutil, "disk_usage", lambda path: SimpleNamespace(
+        total=1024 * pilot._MIB, free=500 * pilot._MIB))
+    monkeypatch.setattr(db, "decision_artifact_storage", lambda: [
+        {"stored_bytes": 32 * pilot._MIB}])
+    monkeypatch.setattr(pilot.decision_snapshot, "estimate_captured_decision",
+                        lambda *_args: {"raw_bytes": 12 * pilot._MIB,
+                                        "stored_bytes": 2 * pilot._MIB})
+
+    budget = pilot.storage_budget_status()
+    assert budget["artifact_cap_bytes"] == 64 * pilot._MIB
+    assert budget["artifact_stored_bytes"] == 32 * pilot._MIB
+    assert budget["can_capture"] is True
+    assert pilot._budget_reason("kr", bundle, capture)[0] is None
+
+    monkeypatch.setattr(pilot.shutil, "disk_usage", lambda path: SimpleNamespace(
+        total=1024 * pilot._MIB, free=205 * pilot._MIB))
+    assert pilot._budget_reason("kr", bundle, capture)[0] == "volume_free_low"
+
+
 def test_old_size_skip_gets_one_labelled_late_retry(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert db.decision_pilot_claim("us", "2026-10-07", "first", now=1000)

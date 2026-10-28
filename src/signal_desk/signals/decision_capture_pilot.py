@@ -14,7 +14,8 @@ log = logging.getLogger("signal_desk.decision_capture_pilot")
 
 _MIB = 1024 * 1024
 _MAX_RAW_INPUT = 64 * _MIB
-_MAX_STORED = 32 * _MIB
+# Owner-approved 2026-10-29 expansion; preserve prior evidence and the volume floor.
+_MAX_STORED = 64 * _MIB
 _MIN_FREE = 128 * _MIB
 
 
