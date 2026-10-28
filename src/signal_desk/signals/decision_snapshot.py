@@ -276,8 +276,6 @@ def persist_captured_decision(market: str, price_bundle: tuple[dict, dict, dict]
 
 def replay_signal_decision(market: str, signal_output_id: str) -> dict:
     """저장된 값으로 전체 횡단면·게이트를 다시 계산한다. 주문/연구 look은 실행하지 않는다."""
-    from signal_desk.signals import engine, execution_gate, reversion
-
     output = db.decision_artifact_get(signal_output_id)
     if not output or output["kind"] != "signal_output" or output["market"] != market:
         raise ValueError("signal output missing or market mismatch")
@@ -292,26 +290,7 @@ def replay_signal_decision(market: str, signal_output_id: str) -> dict:
         raise ValueError("engine input missing or market mismatch")
     saved = inputs["data"]
     prices, dates = load_price_inputs(market, saved["price_base_id"], saved["quote_delta_id"])
-    cfg_data = dict(saved["config"])
-    cfg_data["reversion"] = reversion.ReversionConfig(**cfg_data["reversion"])
-    cfg_data["backtest_horizons"] = tuple(cfg_data["backtest_horizons"])
-    cfg = engine.SignalConfig(**cfg_data)
-    results = engine.evaluate(
-        saved["universe"], prices, fundamentals=saved["fundamentals"], config=cfg,
-        sentiment=saved["sentiment"], flows=saved["flows"], shorts=saved["shorts"],
-        earnings_dates=saved["earnings_dates"], unavailable=tuple(saved["unavailable"]),
-        today=datetime.date.fromisoformat(saved["today"]),
-    )
-    for result in results:
-        result.signal_policy_id = saved.get("signal_policy_id")
-    gate_data = gate["data"]
-    if gate_data["status"] == "applied":
-        execution_gate.apply(
-            results, hist_by=gate_data["hist_by"], dates_by=dates, closes_by=prices,
-            events_by=gate_data["events_by"], today=gate_data["today"],
-            cfg=execution_gate.ExecutionGateConfig(**gate_data["config"]),
-        )
-    actual_rows = _plain([asdict(result) for result in results])
+    actual_rows = evaluate_preserved_inputs(saved, gate["data"], prices, dates)
     expected_rows = expected["rows"]
     mismatched = []
     for index in range(max(len(actual_rows), len(expected_rows))):
@@ -326,6 +305,31 @@ def replay_signal_decision(market: str, signal_output_id: str) -> dict:
             "replayed_rows": len(actual_rows), "mismatched_tickers": mismatched[:20],
             "price_structure_status": saved["price_structure_status"],
             "strict_pit_eligible": False}
+
+
+def evaluate_preserved_inputs(saved: dict, gate_data: dict, prices: dict, dates: dict) -> list:
+    """공용 입력만으로 기존 엔진과 게이트를 재생. DB·수집·주문·LLM 호출 없음."""
+    from signal_desk.signals import engine, execution_gate, reversion
+
+    cfg_data = dict(saved["config"])
+    cfg_data["reversion"] = reversion.ReversionConfig(**cfg_data["reversion"])
+    cfg_data["backtest_horizons"] = tuple(cfg_data["backtest_horizons"])
+    cfg = engine.SignalConfig(**cfg_data)
+    results = engine.evaluate(
+        saved["universe"], prices, fundamentals=saved["fundamentals"], config=cfg,
+        sentiment=saved["sentiment"], flows=saved["flows"], shorts=saved["shorts"],
+        earnings_dates=saved["earnings_dates"], unavailable=tuple(saved["unavailable"]),
+        today=datetime.date.fromisoformat(saved["today"]),
+    )
+    for result in results:
+        result.signal_policy_id = saved.get("signal_policy_id")
+    if gate_data["status"] == "applied":
+        execution_gate.apply(
+            results, hist_by=gate_data["hist_by"], dates_by=dates, closes_by=prices,
+            events_by=gate_data["events_by"], today=gate_data["today"],
+            cfg=execution_gate.ExecutionGateConfig(**gate_data["config"]),
+        )
+    return _plain([asdict(result) for result in results])
 
 
 def audit_replay_timing(market: str, signal_output_id: str) -> dict:

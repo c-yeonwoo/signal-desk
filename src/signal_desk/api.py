@@ -1601,6 +1601,7 @@ _ADMIN_PATHS = {
     "/api/data-health", "/api/egress-ip",
     "/api/admin/evidence-audit/dart", "/api/admin/evidence-ops", "/api/admin/storage-breakdown",
     "/api/admin/decision-replay",
+    "/api/admin/research/decision-price-bundle",
     "/api/admin/research/historical-inputs",
     "/api/admin/research/historical-cases",
     "/api/hypothesis/refresh",
@@ -4907,6 +4908,24 @@ def decision_replay_get(request: Request, market: str, signal_output_id: str):
         raise HTTPException(409, "판단 입력을 연결할 수 없습니다.") from None
     except (KeyError, TypeError, RuntimeError):
         raise HTTPException(409, "저장된 판단의 무결성을 확인할 수 없습니다.") from None
+
+
+@app.get("/api/admin/research/decision-price-bundle")
+def decision_price_bundle_get(request: Request, market: str, signal_output_id: str):
+    """한 공용 엔진 입력 묶음만 다운로드. 계좌·주문·원문 DB·새 수집은 제외."""
+    _admin_or_403(request)
+    if market not in ("kr", "us") or not re.fullmatch(r"[0-9a-f]{64}", signal_output_id):
+        raise HTTPException(400, "시장 또는 판단 ID가 올바르지 않습니다.")
+    import gzip
+    from signal_desk.signals import decision_price_sensitivity
+    try:
+        bundle = decision_price_sensitivity.export_bundle(market, signal_output_id)
+        raw = json.dumps(bundle, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+    except (ValueError, KeyError, TypeError, RuntimeError):
+        raise HTTPException(409, "보존 입력의 참조·무결성을 확인할 수 없습니다.") from None
+    return Response(gzip.compress(raw, mtime=0), media_type="application/gzip", headers={
+        "Content-Disposition": f'attachment; filename="decision-{market}-{signal_output_id}.json.gz"',
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @app.get("/api/admin/research/historical-inputs")
