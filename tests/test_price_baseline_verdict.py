@@ -51,7 +51,11 @@ def test_gate_api_reads_all_history_and_requires_admin(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ADMIN_EMAILS", "price-gate@example.com")
     monkeypatch.setattr(api, "_rl_hits", {})
+    # The first block matures on Oct 28. Keep that branch covered regardless
+    # of the CI wall clock, with the market present as in real snapshots.
+    monkeypatch.setattr(api.rotation_shadow, "score_completed_session", lambda *_args: "2026-10-28")
     for row in _rows(35):
+        row["market"] = "kr"
         assert db.price_baseline_add_once("kr", row["session"], row)
     assert len(db.price_baseline_all("kr", gate.START_SESSION)) == 35
     assert TestClient(api.app).get("/api/admin/research/price-baseline/verdict").status_code == 401

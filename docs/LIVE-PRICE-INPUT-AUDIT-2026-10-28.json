@@ -1,0 +1,45 @@
+{
+  "scope": "운영 GET 기록과 가격 입력 경로의 재현 가능한 경합 수정",
+  "source_main": "ad8420cb5eb2e906438ed9bc8e30e0b52fd0aeec",
+  "production_observations": {
+    "source": "로그인된 Chrome의 /api/live-status, /api/signals?market=us, /api/bot/decisions, /api/admin/storage-breakdown GET",
+    "signal_observed_at": "2026-10-28T14:37:01.725Z",
+    "signal_computed_at": "2026-10-28T14:36:39.716238+00:00",
+    "us_signal_rows": 503,
+    "us_intraday_input_rows": 503,
+    "us_current_price_eligible_rows": 503,
+    "us_deferred_rows": 0,
+    "us_buy_candidates": ["DAL", "TRV"],
+    "live_cached_rows": 505,
+    "live_receipt_fresh_rows": 505,
+    "source_timestamp_present_rows": 505,
+    "source_timestamp_missing_rows": 0,
+    "source_timestamp_unparseable_rows": 0,
+    "source_time_verified_rows": 0,
+    "full_us_refresh_requested": 504,
+    "full_us_refresh_received": 504,
+    "full_us_refresh_missing": 0,
+    "latest_full_refresh_attempt": 1793197979.405273,
+    "aggregate_source_age_max_seconds": 27691.7,
+    "aggregate_interpretation": "미국 신호 503개는 가격 검사 통과. 전체 캐시의 최댓값을 미국 전체 갱신 실패로 단정할 수 없음. source_time_verified=0은 시각 누락과 다름",
+    "today_us_first_capture": {"session": "2026-10-28", "status": "skipped", "reason": "generation_changed", "at": 1793194420},
+    "previous_us_first_capture": {"session": "2026-10-26", "signal_output_id": "37fd6027f31e645843ad3fd74154377f2f286ed40e973c171e9709d072ec45a8", "first_observed": 1793021415, "intraday_quotes": 0, "last_close_date": "2026-10-23", "baseline_match": true},
+    "decision_journal_limit": "최근 40행은 한·미 혼합이며 market 쿼리를 지원하지 않음. 이 행 목록의 공백을 미국 봇 정지로 해석하지 않음"
+  },
+  "conclusions": [
+    "현재 관측에서 미국 공급자 시각 누락 또는 전체 갱신 실패는 확인되지 않음",
+    "사후 미국 캡처가 캐시를 재조회해 가격 갱신 시 generation_changed로 실제 입력을 잃는 결함은 운영 기록과 코드에서 확인",
+    "부팅 시 시세 5초·봇 8초 대기는 완료 순서를 보장하지 않음. 10월 26일 정확한 HTTP 완료 시각은 미보존이므로 그날 0건의 원인을 이 하나로 확정하지 않음",
+    "lru_cache의 계산 도중 clear가 발생하면 이전 결과가 뒤늦게 저장될 수 있음. 새 가격 revision과 명시적 invalidation epoch를 키로 사용해 회귀 검증"
+  ],
+  "changes": [
+    "첫 시세 패스 완료 뒤 봇 시작. 실패도 대기 해제해 기존 가격 검사에서 보류 사유를 남김",
+    "국내·미국 신호와 미국 목록 캐시를 가격 revision/무효화 epoch에 연결. 갱신 중 계산은 1회 재시도",
+    "미국 봇의 실제 판단·가격·관측·보존 입력을 한 묶음으로 전달하고 사후 캐시 재조회 제거",
+    "live-status에 시장별 수신 최신·공급자 시각 누락·원천 지연 집계를 추가"
+  ],
+  "operational_constraints": "Railway 관리·수동 배포·수동 봇/LLM 실행·주문·키·가중치·문턱 변경 없음. 현재 가격 유효성 기준 유지",
+  "historical_records": "기존 캡처·누락·실패 상태를 변경하거나 성공으로 되메우지 않음",
+  "profitability_verdict": "not_tested",
+  "integrated_roadmap_percent": 40
+}
