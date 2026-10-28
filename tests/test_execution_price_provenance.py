@@ -60,3 +60,14 @@ def test_trade_join_requires_exact_unique_order_and_source_evidence():
     labels = study.classify_trades(trades, events, market="kr", uid=7)
     assert labels == {1: "observed_uncertified", 2: "unverifiable", 3: "invalid_or_delayed",
                       4: "unverifiable", 5: "unverifiable", 6: "unverifiable"}
+
+
+def test_missing_receipt_or_unreadable_source_is_unknown_not_proven_stale():
+    from test_price_validity import NOW, proof
+    for field in ("price_received_at", "price_observation_id", "price_session", "price_source_timestamp"):
+        evidence = {**proof(), field: None}
+        event = {**_event("filled_buy", evidence, ts=NOW.timestamp()), "event_key": "trade:kr:7:1"}
+        trades = [{"id": 1, "order_no": "1", "ticker": "ABC", "side": "buy"}]
+        assert study.classify_trades(trades, [event], market="kr", uid=7) == {1: "unverifiable"}
+    event["payload"]["price_evidence"]["price_source_timestamp"] = "not-a-timestamp"
+    assert study.classify_trades(trades, [event], market="kr", uid=7) == {1: "unverifiable"}

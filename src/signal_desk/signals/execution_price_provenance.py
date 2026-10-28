@@ -33,12 +33,17 @@ def classify_trades(trades: list[dict], events: list[dict], *, market: str, uid:
                   and evidence.get("price_basis") == "intraday_provisional"):
                 try:
                     at = dt.datetime.fromtimestamp(float(event["ts"]), dt.timezone.utc)
+                    received = float(evidence.get("price_received_at"))
+                    if (not math.isfinite(received) or received <= 0
+                            or not evidence.get("price_observation_id") or not evidence.get("price_session")):
+                        raise ValueError("receipt evidence incomplete")
                     check = price_validity.check(market, payload.get("reference_price"), evidence,
                                                  now=at, require_history=False)
                     if check["eligible"]:
                         label = ("source_time_marked_verified" if check["source_time_verified"]
                                  else "observed_uncertified")
-                    elif check["reason"] not in {"source_time_missing", "invalid_price"}:
+                    elif (check["reason"] not in {"source_time_missing", "invalid_price"}
+                          and check.get("quote_check", {}).get("source_time_state") != "unparseable"):
                         label = "invalid_or_delayed"
                 except (TypeError, ValueError, OverflowError, OSError):
                     pass
