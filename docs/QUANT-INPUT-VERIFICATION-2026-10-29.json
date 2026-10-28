@@ -1,0 +1,37 @@
+{
+  "source_main": "64d929502c3af54e3b5ebe3a91c6fe16eb89c178",
+  "sources": "Authenticated production GET storage-breakdown, decision-replay, live-status and signals; no bot, LLM or order triggered",
+  "observed_us_computed_at": "2026-10-28T15:54:16.081344+00:00",
+  "replay_checks": [
+    {"market":"kr","session":"2026-10-28","signal_output_id":"fa1fa0bfe8c3e7a840d5e325cfc69f8402ce63d1c8745b7c226d2224b1485854","rows":200,"match":true,"structural_timing_clear":true,"strict_pit_eligible":false},
+    {"market":"us","session":"2026-10-27","signal_output_id":"d9fc8c6bbf9cb150b16f632f0555c3bceef25de8924b93f712beaadfdc300c68","rows":503,"match":true,"structural_timing_clear":true,"strict_pit_eligible":false}
+  ],
+  "current_us_signal_check": {
+    "rows":503,"intraday_quote_rows":503,"current_decision_eligible":503,
+    "price_vs_input_mismatch":0,"missing_observation_ids":0,
+    "confirmed_close_date":"2026-10-27","source_time_verified_rows":0,
+    "quote_received_min":1793202594.609371,"quote_received_max":1793202842.324658
+  },
+  "current_quote_status": {
+    "us":{"requested":504,"received":504,"missing":0,"receipt_fresh":504,"source_stale_over_10m":0,"both_times_within_window":504},
+    "kr":{"market_open":false,"sample_count":1,"receipt_fresh_but_source_stale":1,"interpretation":"closed-market quote; not a US collection failure"}
+  },
+  "buy_control_observation":{"style":"balanced","market":"us","buy_paused":true,"kill_switch":false,"llm_enabled":true,"interpretation":"llm_enabled reports configuration presence, not API authentication or a successful call; no manual LLM probe performed"},
+  "capture_blocker": {
+    "stored_bytes":33122007,"old_cap_bytes":33554432,"remaining_bytes":432425,
+    "last_kr_capture_added_bytes":1513973,"last_us_capture_added_bytes":964872,
+    "volume_free_bytes":491446272,"volume_total_bytes":921432064,
+    "interpretation":"Remaining budget is below either recent full-capture size; the next actual payload may be refused even though the coarse precheck says can_capture",
+    "oct28_us_capture":"generation_changed before #838; immutable, not recreated or counted as a successful post-fix capture"
+  },
+  "owner_approved_change": {
+    "approval":"64MiB로 확대해 검증 계속",
+    "new_cap_bytes":67108864,
+    "preserved_guards":["64MiB raw-input cap","minimum free max(128MiB,20% of mounted volume) including expected write","first regular run once per market/session","failed/skipped evidence not rewritten"],
+    "deletion":false,"railway_management_change":false,"trading_rule_change":false,
+    "buy_pause_change":false,"manual_capture":false
+  },
+  "limits":["Exact replay is reproducibility, not predictive accuracy or profitability","Both historical full captures predate #838","Live price/input equality alone is not a preserved post-fix full decision replay","Provider time semantics remain unverified"],
+  "profitability_verified":false,
+  "integrated_roadmap_percent":40
+}
