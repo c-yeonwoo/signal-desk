@@ -10,15 +10,17 @@ from signal_desk import db
 from signal_desk.signals import decision_price_sensitivity as audit, decision_snapshot, engine, execution_gate
 
 
-def bundle(tmp_path, monkeypatch):
+def bundle(tmp_path, monkeypatch, *, extra_price=False):
     monkeypatch.chdir(tmp_path)
     days = [(dt.date(2025, 1, 1) + dt.timedelta(days=i)).isoformat() for i in range(260)]
     prices = {"AAA": [100. + i * .1 for i in range(260)] + [130.],
               "BBB": [100. + i * .08 for i in range(260)] + [125.]}
+    if extra_price:
+        prices["OLD"] = list(prices["AAA"])
     dates = {t: days for t in prices}
     today = dt.date(2026, 10, 26)
     stamp = dt.datetime(2026, 10, 26, 14, 40, 30, tzinfo=dt.timezone.utc).timestamp()
-    inputs = {"universe": [{"ticker": t, "name": t} for t in prices], "fundamentals": {},
+    inputs = {"universe": [{"ticker": t, "name": t} for t in ("AAA", "BBB")], "fundamentals": {},
               "config": engine.SignalConfig(), "today": today}
     gate = {"today": today.isoformat(), "hist_by": {}, "events_by": {}}
     results = engine.evaluate(inputs["universe"], prices, fundamentals={}, config=inputs["config"], today=today)
@@ -71,6 +73,15 @@ def test_missing_reference_keeps_full_universe_and_does_not_fill(tmp_path, monke
     r = audit.compare(b, external(b, {"AAA": 130.}))
     assert r["status"] == "partial_reference_sensitivity" and r["missing_symbols"] == ["BBB"]
     assert r["universe_size"] == 2 and r["replaced_quotes"] == 1
+
+
+def test_non_universe_price_history_is_preserved_not_requested(tmp_path, monkeypatch):
+    b = bundle(tmp_path, monkeypatch, extra_price=True)
+    r = audit.compare(b, external(b))
+    assert audit.reference_request(b)["symbols"] == "AAA,BBB"
+    assert r["universe_size"] == 2 and r["captured_quotes"] == 2
+    assert r["non_universe_quotes_unchanged"] == ["OLD"]
+    assert r["changes"] == [] and r["baseline_exact_match"]
 
 
 def test_source_and_artifact_tamper_fail_closed(tmp_path, monkeypatch):

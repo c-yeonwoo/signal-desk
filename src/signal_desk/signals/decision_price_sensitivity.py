@@ -83,15 +83,19 @@ def _restore(data):
     return prices, dates
 
 
+def _captured_quotes(data):
+    universe = {row["ticker"] for row in data["engine_input"]["universe"]}
+    return {ticker: quote for ticker, quote in data["quote_delta"]["quotes"].items() if ticker in universe}
+
+
 def reference_request(bundle: dict) -> dict:
     """Fixed recorded universe, not winners. Only received intraday tails are replaceable."""
     data = validate_bundle(bundle)
     if bundle["market"] != "us":
         raise ValueError("US SIP adapter only; KR requires a separate documented source")
     saved = data["engine_input"]
-    quotes = data["quote_delta"]["quotes"]
-    universe = {r["ticker"] for r in saved["universe"]}
-    if not quotes or len(quotes) > 600 or set(quotes) - universe:
+    quotes = _captured_quotes(data)
+    if not quotes or len(quotes) > 600:
         raise ValueError("no quotes or invalid quote universe")
     minutes = []
     for quote in quotes.values():
@@ -150,10 +154,11 @@ def compare(bundle: dict, external: dict) -> dict:
             len(dates[t]) > len(prices[t]) or any(day > saved["today"] for day in dates[t]) for t in prices):
         return {**report, "status": "blocked_input_structure"}
     bars_by = external["bars"]
-    if set(bars_by) - set(data["quote_delta"]["quotes"]):
+    quotes = _captured_quotes(data)
+    if set(bars_by) - set(quotes):
         raise ValueError("unexpected external symbols")
     altered, pairs, missing = copy.deepcopy(prices), [], []
-    for ticker, quote in sorted(data["quote_delta"]["quotes"].items()):
+    for ticker, quote in sorted(quotes.items()):
         minute = int(quote["received_at"] // 60) * 60 - 60
         matches = []
         for bar in bars_by.get(ticker, []):
@@ -172,7 +177,8 @@ def compare(bundle: dict, external: dict) -> dict:
         altered[ticker][-1] = px
         pairs.append({"ticker": ticker, "received_at": quote["received_at"], "external_minute": matches[0]["t"],
                       "original": original, "reference": px, "difference_bps": (original / px - 1) * 10000})
-    report.update(replaced_quotes=len(pairs), captured_quotes=len(data["quote_delta"]["quotes"]),
+    report.update(replaced_quotes=len(pairs), captured_quotes=len(quotes),
+                  non_universe_quotes_unchanged=sorted(set(data["quote_delta"]["quotes"]) - set(quotes)),
                   missing_symbols=missing, price_pairs=pairs)
     if not pairs:
         return {**report, "status": "blocked_no_aligned_reference"}
