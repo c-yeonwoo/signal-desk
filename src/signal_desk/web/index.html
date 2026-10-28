@@ -8830,7 +8830,8 @@ async function loadStorageBreakdown(){
       + (pilot.length ? pilot.map(row => `<div>${row.market === 'kr' ? '국내' : '미국'} ${esc(row.session)} · ${pilotLabel(row)}${row.late_retry ? ' · 첫 실행 이후 재검증' : ''}${row.reason ? ` (${esc(row.reason)})` : ''}${row.estimated_stored_bytes != null ? ` · 저장 예상 ${artifactSize(row.estimated_stored_bytes)}` : ''}${Number.isFinite(Number(row.elapsed_ms)) && row.elapsed_ms !== null ? ` · ${Number(row.elapsed_ms)} ms / 실제 +${artifactSize(row.artifact_bytes_added)}` : ''}</div>`).join('')
         : `<div>아직 자동 보존 기록이 없습니다.</div>`)
       + (recent.length ? `<div style="margin-top:5px">최근 판단 재생 검사: `
-        + recent.map(row => `<button type="button" class="btn" style="margin:3px" onclick="replayStoredDecision('${row.market}','${row.id}',this)">${row.market === 'kr' ? '국내' : '미국'} · ${esc(new Date(Number(row.first_observed) * 1000).toLocaleString('ko-KR'))}</button>`).join('')
+        + recent.map(row => `<div class="row" style="gap:8px;flex-wrap:wrap;margin-top:8px"><button type="button" class="btn" onclick="replayStoredDecision('${row.market}','${row.id}',this)">${row.market === 'kr' ? '국내' : '미국'} · ${esc(new Date(Number(row.first_observed) * 1000).toLocaleString('ko-KR'))}</button><a class="btn" href="/api/admin/research/decision-price-bundle?market=${row.market}&amp;signal_output_id=${row.id}" download aria-label="${row.market === 'kr' ? '국내' : '미국'} 판단 입력 다운로드">입력 다운로드</a></div>`).join('')
+        + `<div style="margin-top:8px">저장된 공용 판단 입력만 내려받습니다. 계좌·주문 내역은 포함하지 않으며 매매를 실행하지 않습니다.</div>`
         + `</div>` : '')
       + (data.available
         ? `<div style="margin-top:5px">DB 파일 ${mb(data.db_bytes)} MB · 재사용 가능한 빈 페이지 ${mb(data.free_page_bytes)} MB</div>`
