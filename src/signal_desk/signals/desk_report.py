@@ -126,10 +126,14 @@ def build(
     outside_note = _outside_note(outside)
 
     n_buy = len(buys)
+    n_deferred = sum(_g(r, "kind") == "DEFERRED" for r in rows)
     eligible = sel.get("eligible", n_buy)
     mode = sel.get("mode") or "absolute"
 
-    if n_buy == 0:
+    if n_deferred:
+        headline = f"가격 확인 필요 {n_deferred}종목 · 현재 매수 판정 {n_buy}"
+        stance = "price_check"
+    elif n_buy == 0:
         headline = "매수 0 · 정밀도 우선 · 고장 아님"
         stance = "wait"
     elif slots and eligible is not None and eligible < slots:

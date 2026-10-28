@@ -4223,7 +4223,15 @@ function expireSignalPriceContexts(){
   for (const row of _signalRows) {
     if (row.signal_price_status !== 'current_quote' || signalPriceView(row).status !== 'stale_quote') continue;
     row.signal_price_status = 'stale_quote';
-    if (_signalItems[row.ticker]) _signalItems[row.ticker].signal_price_status = 'stale_quote';
+    for (const item of [row, _signalItems[row.ticker]].filter(Boolean)) {
+      item.reference_kind = item.reference_kind || item.kind;
+      item.kind = 'DEFERRED';
+      item.current_decision_status = 'deferred';
+      item.current_decision_eligible = false;
+      item.rank_eligible = false;
+      item.decision_buy_blocked = true;
+      item.signal_price_status = 'stale_quote';
+    }
     changed = true;
   }
   if (!changed) return;
@@ -4687,8 +4695,12 @@ function signalPriceView(item){
   // 응답을 받은 뒤 시간이 지나도 옛 장중가를 현재 판정처럼 유지하지 않는다.
   if (status === 'current_quote') {
     const age = Date.now() / 1000 - Number(item.signal_quote_received_at);
-    if (!Number.isFinite(age) || age < -300 || age > 600) status = 'stale_quote';
+    if (!Number.isFinite(age) || age < -300 || age > 600
+        || (item.price_validity?.valid_until != null && Date.now()/1000 > item.price_validity.valid_until)) status = 'stale_quote';
   }
+  if (item.current_decision_status === 'deferred' && status !== 'stale_quote')
+    return { status, warning:true, stale:true, label:'가격 확인 필요',
+      message:'가격의 시각·거래 세션 또는 직전 종가를 확인하지 못했습니다. 매수·매도·보유 판단을 보류합니다. 아래 점수는 참고용입니다.' };
   if (status === 'current_close') return { status, warning:false, stale:false,
     label:'종가 기준', message:'마지막 확정 종가로 계산했습니다. 다음 장중 가격은 아직 반영되지 않았습니다.' };
   if (status === 'current_quote') return { status, warning:false, stale:false,
@@ -4832,7 +4844,7 @@ function renderSignalList(){
       ${star(r)}<button type="button" class="stock-open" data-stock-open="${esc(r.ticker)}" aria-pressed="${r.ticker === _selectedTicker}">
         <span class="stock-line"><span class="stock-name">${esc(r.name)}</span><span class="stock-price">${signalPriceText(r)}</span></span>
         <span class="stock-meta"><span>${esc(r.ticker)}${r.sector ? ' · ' + esc(r.sector) : ''}</span><span class="stock-change" style="color:${change > 0 ? 'var(--sig-buy)' : change < 0 ? 'var(--sig-sell)' : 'var(--dim)'}">${change == null ? '–' : (change > 0 ? '+' : '') + fmtNum(change,2) + '%'}</span></span>
-        <span class="stock-state"><span class="sig-pill ${r.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(r)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${!hasPrice ? '현재 판정 보류' : (priceView.stale ? '지난 ' : '') + kindLabel(r.kind)}</span>${hasPrice ? priceNote : '<span>가격 확인 필요</span>'}</span>
+        <span class="stock-state"><span class="sig-pill ${r.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(r)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${!hasPrice || r.kind === 'DEFERRED' ? '현재 판정 보류' : (priceView.stale ? '지난 ' : '') + kindLabel(r.kind)}</span>${hasPrice ? priceNote : '<span>가격 확인 필요</span>'}</span>
         ${(sort !== 'signal' || r.low_coverage) ? `<span class="sig-metric">${esc(metric(r))}${covBadge(r)}</span>` : ''}${holdNote(r)}${badges(r)}
       </button></li>`;
   }).join('');
@@ -5051,7 +5063,7 @@ const _ZONE_COLOR = new Proxy({}, { get: (_, k) => zoneColor(k) });
 // 뱃지 문구 = 지금 모드(순위)의 의미. STRONG_BUY는 절대 '강함'이 아니라 오늘 매수 후보 중 더 위.
 // 배지를 한국어로. `Hold`·`Buy`는 이 도메인을 아는 사람에게만 자연스럽다.
 // 렌더는 `kindLabel` 한 곳을 지나므로 여기만 바꾸면 목록·상세·히어로가 함께 바뀐다.
-const _KIND_LABEL = { STRONG_BUY: '강력매수', BUY: '매수', HOLD: '관망', SELL: '매도', STRONG_SELL: '강력매도' };
+const _KIND_LABEL = { STRONG_BUY: '강력매수', BUY: '매수', HOLD: '관망', SELL: '매도', STRONG_SELL: '강력매도', DEFERRED: '현재 판정 보류' };
 const _KIND_HINT = {
   STRONG_BUY: '오늘 매수권 안에서도 순위가 더 위(앞 1/3) — 점수가 아니라 상대 순위',
   BUY: '오늘 살 후보 — 점수 상위권. 점수가 높아도 안전장치가 걸리면 관망이 됩니다',
@@ -5230,6 +5242,7 @@ function renderTodayCard(){
   }
   const buyN = _signalRows.filter(r => _isBuy(r.kind)).length;
   const sellN = _signalRows.filter(r => _isSell(r.kind)).length;
+  const deferredN = _signalRows.filter(r => r.current_decision_status === 'deferred').length;
   const nearRows = _signalRows.filter(isNearBuy).slice()
     .sort((a, b) => (b.score || 0) - (a.score || 0));
   const nearN = nearRows.length;
@@ -5245,6 +5258,7 @@ function renderTodayCard(){
   // 전부 정상이라고 말했다. 변호가 고장 조사를 막는다.
   const zeroWhy = (() => {
     if (buyN !== 0) return '';
+    if (deferredN) return ` <span class="st-c">· 가격 확인 필요 ${deferredN}종목</span>`;
     const bits = [];
     const over = sel.over_threshold ?? (rep.selection && rep.selection.over_threshold);
     if (_dhCache && _dhCache.stall_line) bits.push('운영 점검 필요 — 데이터 상태를 먼저 확인하세요');
@@ -5267,6 +5281,7 @@ function renderTodayCard(){
     ? `<span class="st-n">매수 0</span>` + zeroWhy
     : `<span class="st-n">매수 후보 ${buyN}개</span>`
       + (sellN ? ` <span class="st-c">· 매도 신호 ${sellN}개</span>` : '');
+  if (buyN && deferredN) line += ` <span class="st-c">· 가격 확인 필요 ${deferredN}종목</span>`;
   lineEl.innerHTML = line;
 
   const chips = [];
@@ -5278,14 +5293,16 @@ function renderTodayCard(){
     ? `매수기준이 기본보다 <b>+${fmtNum(_adaptBump, 1)}</b> → <b>+${fmtNum(thr, 1)}</b>`
       + (_adaptReasons.length ? ` (${esc(_adaptReasons.slice(0, 2).join(', '))})` : '') + '.'
     : `매수기준 <b>+${fmtNum(thr, 1)}</b>.`;
-  const buys = (rep.buys || []).map(b =>
+  const buys = (rep.buys || []).filter(b => !_signalRows.some(r => r.ticker === b.ticker && r.current_decision_status === 'deferred')).map(b =>
     `${esc(b.name)} ${b.score > 0 ? '+' : ''}${fmtNum(b.score, 2)}`).join(' · ');
   // 백엔드 문구를 그대로 쓰면 `게이트·악재로 자리 공석`이 뜬다 — 번역하고 원문은 title에.
   const vac = (rep.vacancies || []).map(v =>
     `<div title="${esc(v.note)}">· ${esc(v.name)} (${v.rank}위) — ${plainNote(esc(v.note))}</div>`).join('');
   const why = (rep.reasons || []).map(r => `<div title="${esc(r)}">· ${plainNote(esc(r))}</div>`).join('');
   let detail = '';
-  if (buyN === 0) {
+  if (deferredN && buyN === 0) {
+    detail += '<div>가격을 확인하지 못한 종목은 매수·매도·보유 판단을 보류했습니다. 후보가 없다는 뜻이나 관망 권고가 아닙니다.</div>';
+  } else if (buyN === 0) {
     detail += `<div style="font-weight:700;color:var(--txt);margin-bottom:4px">오늘은 기다리는 날입니다</div>`
       + `<div>${whyThr} 점수가 모자라거나 안전장치가 막으면 자리가 빕니다.`
       + (nearN ? ` 가까운 종목 <b>${nearN}</b>개.` : ' 관심종목을 넣으면 대기 리스트가 채워집니다.')
@@ -5674,7 +5691,7 @@ function _paintSignalDetail(ticker, item){
             ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
             ${hasPrice && chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
           </div>
-          <span class="sig-pill hero-signal ${item.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(item)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${!hasPrice ? '현재 판정 보류' : (priceView.stale ? '지난 ' : '') + kindLabel(item.kind)}</span>
+          <span class="sig-pill hero-signal ${item.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(item)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${!hasPrice || item.kind === 'DEFERRED' ? '현재 판정 보류' : (priceView.stale ? '지난 ' : '') + kindLabel(item.kind)}</span>
         </div>
         ${hasPrice && priceView.message ? `<div class="hero-price-note${priceView.stale ? ' is-stale' : ''}" role="note">${esc(priceView.message)}${item.signal_close_date ? ' · 종가 ' + esc(item.signal_close_date) : ''}</div>` : ''}
         <div class="hero-reason">${esc(plainReason)}</div>
@@ -11409,6 +11426,15 @@ async function loadPaperCashReplay(){
     const d = await response.json();
     if (requestSeq !== paperCashReplayRequestSeq || d.style !== style || d.market !== market) return;
     const source = d.fill_price_provenance || {};
+    const evidenceLabels = {source_time_marked_verified:'원천 시각 인증 표시 있음',
+      observed_uncertified:'장중 관측 있음·원천 미인증', unverifiable:'가격 근거 부족',
+      invalid_or_delayed:'가격 지연·조건 불일치'};
+    const evidenceGroups = (source.performance_groups || []).map(g => {
+      const pnl = g.booked_net_rows ? fmtNum(g.booked_net_pnl, market === 'us' ? 2 : 0) + (market === 'us' ? '달러' : '원') : '계산 불가';
+      return `<li>${esc(evidenceLabels[g.key] || g.key)}: 매도 ${Number(g.sell_rows)}건 · 비용 기록이 있는 ${Number(g.booked_net_rows)}건의 장부 손익 ${pnl} · 비용 미확인 ${Number(g.cost_unknown_rows)}건</li>`;
+    }).join('');
+    const evidenceHtml = evidenceGroups ? '<details><summary>가격 근거별 과거 장부 손익</summary><ul>' + evidenceGroups
+      + '</ul><p class="page-desc">진입·추가매수·청산 중 가장 부족한 근거로 분류합니다. 장부 손익이지 검증된 전략 수익률이 아닙니다. 미청산 평가손익은 포함하지 않습니다.</p></details>' : '';
     const sourceLine = Number(source.filled_events_total || 0)
       ? `최근 체결 출처 ${Number(source.sampled_recent_fills || 0)}/${Number(source.filled_events_total || 0)}건 확인 · 장중 참조 ${Number(source.intraday_reference || 0)} · 일봉 참조 ${Number(source.daily_close_reference || 0)} · 출처 미기록 ${Number(source.missing_evidence || 0)} · 시각 미검증 ${Number(source.intraday_source_time_unverified || 0)}${Number(source.receipt_timing_anomalies || 0) ? ' · 수신시각 불일치 ' + Number(source.receipt_timing_anomalies) : ''}`
       : '체결 가격 출처 기록이 없습니다. 이전 거래는 확인할 수 없습니다.';
@@ -11426,6 +11452,7 @@ async function loadPaperCashReplay(){
         : reasons[d.reason] || d.reason || '원천 확인 필요';
       el.innerHTML = `<p class="page-desc">전체 경로 계산 보류 · ${esc(reason)}${d.ticker ? ' · ' + esc(d.ticker) : ''}</p>`
         + `<p class="page-desc">${esc(sourceLine)}</p>`
+        + evidenceHtml
         + '<p class="page-desc">출처 집계는 보존된 최근 체결 전체이며 개발 구간만의 결과가 아닙니다. 장중 참조도 실제 체결 가능 가격을 증명하지 않습니다.</p>';
       return;
     }
@@ -11435,6 +11462,7 @@ async function loadPaperCashReplay(){
     const arms = [['actual_schedule', '실제 주문 시각·수량'], ['no_add', '추가매수 없음'],
       ['hold5', '첫 매수 뒤 5거래일 종가'], ['hold20', '첫 매수 뒤 20거래일 종가'], ['cash', '아무것도 사지 않음']];
     el.innerHTML = `<p class="page-desc">첫 자본 ${money(d.seed_cash)} · 개발 구간 ${esc(d.first_session)}~${esc(d.as_of)} · ${Number(d.journal_rows_used)}건 재생</p>`
+      + evidenceHtml
       + `<p class="page-desc">${esc(sourceLine)} · 가격 기준과 실체결 가능성은 별도 검증이 필요합니다.</p>`
       + `<p class="page-desc" style="color:var(--warn)">${d.action_certified ? '기업행사 범위 인증됨 · 과거 시점의 실체결은 여전히 미검증' : '기업행사·가격 기준 미인증 · 아래는 가격 전용 가상 경로이며 검증된 총수익이 아닙니다'}</p>`
       + '<div style="overflow-x:auto"><table class="data-table" style="width:100%"><thead><tr><th>경로</th><th>평가자산</th><th>첫 자본 대비</th><th>남은 현금</th><th>가정 비용</th><th>종가 청산 대기</th><th>진입 건너뜀</th></tr></thead><tbody>'

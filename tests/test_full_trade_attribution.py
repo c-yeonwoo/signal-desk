@@ -27,6 +27,20 @@ def test_full_journal_uses_paper_average_cost_and_separates_unknown_costs():
     assert out["by_entry_pattern"][0]["key"] == "추가매수 포함"
 
 
+def test_fresh_exit_does_not_launder_unknown_entry_or_add():
+    trades = [_trade(1, "buy", 1, 100, -101), _trade(2, "sell", 1, 110, 109),
+              _trade(3, "buy", 1, 100, -101), _trade(4, "buy", 1, 100, -101),
+              _trade(5, "sell", 2, 110, 218)]
+    labels = {1: "unverifiable", 2: "observed_uncertified", 3: "observed_uncertified",
+              4: "invalid_or_delayed", 5: "observed_uncertified"}
+    out = audit.analyze(trades, seed_cash=1000, account={"cash": 1024, "positions": {}},
+                        trade_evidence=labels)
+    groups = {g["key"]: g for g in out["by_price_evidence"]}
+    assert groups["unverifiable"]["booked_net_pnl"] == 8
+    assert groups["invalid_or_delayed"]["booked_net_pnl"] == 16
+    assert "observed_uncertified" not in groups
+
+
 def test_old_price_only_trades_are_not_called_booked_net():
     out = audit.analyze([_trade(1, "buy", 2, 100),
                          _trade(2, "sell", 2, 90, reason="STOP_LOSS")],

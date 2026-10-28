@@ -2545,6 +2545,10 @@ def _stamp_signal_price_context(results, prices: dict, dates: dict, quote_snapsh
         result.signal_quote_received_at = observed.get(ticker) if provisional else None
         result.signal_input_price = input_prices[-1] if input_prices else None
         result.signal_previous_close = input_prices[-2] if len(input_prices) > 1 else None
+        market = "kr" if str(ticker).isdigit() else "us"
+        result.signal_price_evidence = bot._execution_price_evidence(
+            market, ticker, result.signal_input_price or 0,
+            dates_by_ticker=dates, quote_snapshot=quote_snapshot)
 
 
 @lru_cache(maxsize=1)
@@ -2744,12 +2748,14 @@ def _signal_price_fields(r) -> dict:
         "signal_close_date": getattr(r, "signal_close_date", None),
         "signal_quote_received_at": getattr(r, "signal_quote_received_at", None),
         "signal_confirmed_close": finite_or_none(confirmed),
+        "signal_input_price": finite_or_none(getattr(r, "signal_input_price", None)),
+        "signal_price_evidence": getattr(r, "signal_price_evidence", None),
     }
 
 
 def _annotate_signal_price_status(items: list[dict], market: str,
                                   now: datetime.datetime | None = None) -> None:
-    """현재 조회 시각에 캡처된 판정 가격이 얼마나 유효한지 표시한다(판정/주문은 불변).
+    """현재 조회 시각에 가격 유효성을 재검사하고 현재 판정과 참고 분석을 분리한다.
 
     새 현재가를 옛 점수에 붙이지 않는다. 시장별 마감 세션과 판정 입력에 고정된
     종가 날짜·장중가 수신시각만 대조한다. 캘린더를 모르면 최신이라고 추정하지 않는다.
@@ -2786,6 +2792,8 @@ def _annotate_signal_price_status(items: list[dict], market: str,
         item["signal_price_status"] = status
         item["signal_expected_close_date"] = expected
         item["signal_price_checked_at"] = now.isoformat()
+        from signal_desk.signals import price_validity
+        price_validity.annotate(item, market, now=now)
 
 
 def _signal_display_price(r, fallback_price=None, fallback_change=None) -> tuple:
@@ -2796,6 +2804,22 @@ def _signal_display_price(r, fallback_price=None, fallback_change=None) -> tuple
         return fallback_price, fallback_change
     change = round((price / previous - 1) * 100, 2) if previous and previous > 0 else None
     return price, change
+
+
+def _price_checked_results(results, items):
+    """Read-only views for summaries; never overwrite the cached research result."""
+    by_ticker = {item["ticker"]: item for item in items}
+    views = []
+    for original in results:
+        view = copy.copy(original)
+        item = by_ticker.get(original.ticker) or {}
+        view.kind = item.get("kind", "DEFERRED")
+        view.rank_eligible = item.get("rank_eligible", False)
+        if item.get("current_decision_status") == "deferred":
+            view.hold_tag = item.get("hold_tag")
+            view.decision_buy_blocked = True
+        views.append(view)
+    return views
 
 
 @lru_cache(maxsize=1)
@@ -3043,6 +3067,8 @@ def _sync_episode_state(results, *, market: str) -> None:
         # 휴장 중 캐시 재계산을 장중 첫 발동으로 기록하지 않는다.
         return
     rows = []
+    from .signals import price_validity
+    now = datetime.datetime.now(datetime.timezone.utc)
     for r in results:
         # 별도로 재조회한 시세는 evaluate에 사용한 관측과 다를 수 있다. 종가 폴백도
         # 장중 새 발동으로 기록하지 않는다. 가격·판정은 같은 캡처에서만 가져온다.
@@ -3050,6 +3076,9 @@ def _sync_episode_state(results, *, market: str) -> None:
             continue
         px = getattr(r, "signal_input_price", None)
         if px is None:
+            continue
+        if not price_validity.check(market, px, getattr(r, "signal_price_evidence", None),
+                                    close_date=getattr(r, "signal_close_date", None), now=now)["eligible"]:
             continue
         dec = _decision_payload(r)
         buy_blocked = bool(dec.get("buy_blocked"))
@@ -3273,7 +3302,7 @@ def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
         _annotate_signal_price_status(
             items, "us", datetime.datetime.fromtimestamp(observed_at, datetime.timezone.utc)
             if observed_at is not None else None)
-        us_sigs = list((_us_signals() or {}).values())
+        us_sigs = _price_checked_results(list((_us_signals() or {}).values()), items)
         cfg = signalcfg.get_config()
         sel = selection_summary(us_sigs, cfg)
         crowd = crowding.assess(items)
@@ -3321,6 +3350,7 @@ def _signal_response(market: str, *, observed_at: int | None = None) -> dict:
     _annotate_signal_price_status(
         items, "kr", datetime.datetime.fromtimestamp(observed_at, datetime.timezone.utc)
         if observed_at is not None else None)
+    sigs = _price_checked_results(sigs, items)
     cfg, adapt = signalcfg.effective_config(
         _regime(), _macro(), flow_result=store.load_market_flow())
     sel = selection_summary(sigs, cfg)
@@ -6009,8 +6039,15 @@ def paper_cash_replay_get(request: Request, style: str = "balanced", market: str
     journal = db.bot_trade_audit_snapshot(uid, market)
     provenance = execution_price_provenance.summarize(
         journal["events"], filled_events_total=journal["filled_event_total"])
+    evidence_labels = execution_price_provenance.classify_trades(
+        journal["trades"], journal["events"], market=market, uid=uid)
     book = full_trade_attribution.analyze(
-        journal["trades"], seed_cash=journal["seed_cash"], account=journal["account"])
+        journal["trades"], seed_cash=journal["seed_cash"], account=journal["account"],
+        trade_evidence=evidence_labels)
+    provenance["performance_groups"] = book["by_price_evidence"]
+    provenance["performance_scope"] = "recorded_paper_pnl_not_validated_strategy_return"
+    provenance["journal_rows"] = len(journal["trades"])
+    provenance["unmatched_sell_rows"] = book["coverage_gaps"].get("unmatched_sell_rows", 0)
     if not book["account_reconciled"]:
         return {"style": style, "market": market, "last_trade_id": journal["last_trade_id"],
                 "state": "blocked", "reason": "paper_account_not_reconciled",

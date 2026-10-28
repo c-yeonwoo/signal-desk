@@ -28,6 +28,7 @@ from signal_desk.signals import accuracy as accuracy_mod
 from signal_desk.signals import decision as decmod
 from signal_desk.signals import performance_evidence
 from signal_desk.signals import policy_contract
+from signal_desk.signals import price_validity
 
 log = logging.getLogger("signal_desk.bot")
 
@@ -822,7 +823,7 @@ def _conviction_rotate(uid, market, signals, signal_by_ticker, holdings, held_af
 
 
 def _unchecked_holdings(uid: int, holdings: list[dict], prices: dict, market: str,
-                        *, dry_run: bool) -> list[dict]:
+                        *, dry_run: bool, quote_checks: dict | None = None) -> list[dict]:
     """A missing held price is an unperformed risk check, not a HOLD verdict."""
     missing = []
     for holding in holdings:
@@ -833,11 +834,15 @@ def _unchecked_holdings(uid: int, holdings: list[dict], prices: dict, market: st
                      and math.isfinite(float(closes[-1])) and float(closes[-1]) > 0)
         except (ValueError, TypeError, OverflowError):
             valid = False
-        if valid:
+        quote_check = (quote_checks or {}).get(ticker)
+        if valid and (quote_checks is None or (quote_check or {}).get("eligible")):
             continue
         row = {"ticker": ticker, "name": holding.get("name") or ticker,
                "status": "holding_check_unavailable", "reason": "missing_or_invalid_price_history",
                "risk_checked": False, "order_submitted": False}
+        if valid and quote_checks is not None:
+            row["reason"] = (quote_check or {}).get("reason", "quote_evidence_missing")
+            row["price_validity"] = quote_check
         missing.append(row)
         if dry_run:
             continue
@@ -890,8 +895,23 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
 
     mr = _market_read_for(market)
     universe, prices, signals, name_by_ticker, price_dates, quote_snapshot = _market_signals(market, mr)
-    unchecked = _unchecked_holdings(uid, bal["holdings"], prices, market, dry_run=dry_run)
+    decision_now = datetime.datetime.now(datetime.timezone.utc)
+    quote_checks, decision_checks = {}, {}
+    for ticker in set(prices) | {h["ticker"] for h in bal["holdings"]}:
+        values = prices.get(ticker) or []
+        px = values[-1] if values else None
+        evidence = _execution_price_evidence(market, ticker, px or 0,
+                                             dates_by_ticker=price_dates, quote_snapshot=quote_snapshot)
+        quote_checks[ticker] = price_validity.check(
+            market, px, evidence, now=decision_now, require_history=False)
+        decision_checks[ticker] = price_validity.check(
+            market, px, evidence, close_date=(price_dates.get(ticker) or [None])[-1], now=decision_now)
+    unchecked = _unchecked_holdings(uid, bal["holdings"], prices, market, dry_run=dry_run,
+                                    quote_checks=quote_checks)
     unchecked_tickers = {row["ticker"] for row in unchecked}
+    # Unknown held valuations cannot safely size additional account exposure.
+    # Validly priced holdings may still be reduced below.
+    block_new_buys = block_new_buys or bool(unchecked)
     if not universe or not prices:
         return {"ok": False, "reason": "시세 데이터 없음 — /api/refresh 먼저 호출 필요",
                 "unchecked_holdings": unchecked, **buy_control}
@@ -902,7 +922,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
 
     signal_by_ticker = {s.ticker: s for s in signals}
     if not dry_run and market == "kr":
-        _update_decision_outcomes(prices)  # 과거 결정 사후수익 확정(공용 학습, 국내 기준)
+        _update_decision_outcomes({t: p for t, p in prices.items() if quote_checks[t]["eligible"]})
 
     cfg = _cfg(uid)
     signal_policy_id, execution_policy_id = _applied_policy_ids(market, cfg, mr)
@@ -970,7 +990,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             reason, sell_qty = "EVENT_TRIM", max(1, qty // 2)
         if not reason:
             reason = step.reason
-        if not reason and sig and engine.is_sell(sig.kind):
+        if (not reason and sig and engine.is_sell(sig.kind)
+                and decision_checks.get(ticker, {}).get("eligible")):
             reason = "SIGNAL"
 
         if reason:
@@ -1046,6 +1067,14 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
                                     peak, pos["entry_date"] if pos else _today(market), market=market)
 
     bal2 = paper.balance(uid, market) if not dry_run else bal
+    eng_cfg = mr["eff_cfg"] or signalcfg.get_config()
+    original_signal_count = len(signals)
+    if eng_cfg.selection_mode == "rank" and any(s.rank is None for s in signals):
+        engine.apply_cross_sectional(sorted(signals, key=lambda s: s.score, reverse=True), eng_cfg)
+    # Do not backfill rank vacancies: keep the original engine ranks and only
+    # remove invalid-price judgments before LLM selection, rotation, and adds.
+    signals = [s for s in signals if decision_checks.get(s.ticker, {}).get("eligible")]
+    signal_by_ticker = {s.ticker: s for s in signals}
     held_after = {h["ticker"] for h in bal2["holdings"]}
     available_slots = max(0, cfg["max_positions"] - len(held_after))
     # `sells_only` 면 매수 자리를 0으로 둔다. **분기를 새로 만들지 않고 slots=0으로 막는다** —
@@ -1065,7 +1094,6 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
 
     # 국면 = '얼마나 살까'. 총 투자금 상한을 국면 익스포저로 정한다(문턱 상향 대신 — 자격을 0으로
     # 만들면 그 국면에서 무엇이 통하는지 배울 수 없다). 하한이 있어 완전 정지는 없다.
-    eng_cfg = mr["eff_cfg"] or signalcfg.get_config()
     exposure = float((context or {}).get("exposure", 1.0))
     invest_cap = bal2["total_eval"] * exposure
     invested = max(0.0, bal2["total_eval"] - cash)
@@ -1074,10 +1102,6 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         slots = 0
     if slots > 0:
         warned = store.load_warned_tickers() if market == "kr" else set()  # 토스 경고 veto(국내)
-        if eng_cfg.selection_mode == "rank" and any(s.rank is None for s in signals):
-            # 엔진을 안 거쳐 들어온 시그널(외부 조립·테스트)도 같은 기준으로 순위를 매긴다
-            engine.apply_cross_sectional(
-                sorted(signals, key=lambda s: s.score, reverse=True), eng_cfg)
         # **방금 판 종목은 쿨다운 동안 안 산다.** 이 줄이 없어서 트레일링·손절로 팔고 같은
         # 분에 다시 사는 일이 실제로 벌어졌다(2026-08-21 LyondellBasell sell→buy @66.06,
         # 안정형 쿨다운 7일). 계산은 `recent_sold_tickers` 한 곳에서만 한다 — 로테이션
@@ -1089,7 +1113,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         if eng_cfg.selection_mode == "rank":
             # 분위 모드: 절대 점수 하한(min_buy_score) 대신 성향별로 매수권을 좁힌다.
             width = strategy.rank_top_pct(cfg["trading_style"], eng_cfg.rank_top_pct)
-            width_k = engine.rank_slots(len(signals), width)
+            width_k = engine.rank_slots(original_signal_count, width)
             strong = [s for s in eligible if s.rank is not None and s.rank <= width_k]
         else:
             strong = [s for s in eligible if s.score >= cfg["min_buy_score"]]
@@ -1235,7 +1259,12 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             buys.append(plan)
 
     # 매수 0건이어도 한 줄 저널 — 나중에 '왜 안 샀는지'·설정 버전 추적(공용, 유저 무관)
-    if slots > 0 and not buys and not dry_run:
+    deferred_reasons = {}
+    for check in decision_checks.values():
+        if not check["eligible"]:
+            reason = check["reason"]
+            deferred_reasons[reason] = deferred_reasons.get(reason, 0) + 1
+    if (slots > 0 or deferred_reasons) and not buys and not dry_run:
         n_buy = sum(1 for s in signals if engine.is_buy(s.kind))
         basis = (f"매수권 상위 {eng_cfg.rank_top_pct}%" if eng_cfg.selection_mode == "rank"
                  else f"유효문턱 {(context or {}).get('effective_buy_threshold')}")
@@ -1246,6 +1275,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             {**(context or {}), "advisor_used": advisor_used, "skipped_weak": skipped_weak,
              "buy_signals": n_buy, "slots": slots, "exposure": exposure, "room": round(room),
              "run_id": run_id,
+             "price_decision_deferrals": deferred_reasons,
+             "unpriced_holdings_block_new_buys": bool(unchecked),
              "signal_policy_id": signal_policy_id,
              "execution_policy_id": execution_policy_id},
             0.0,
@@ -1257,7 +1288,8 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
     rp = strategy.rotation_params(cfg["trading_style"])
     want_rotation = available_slots == 0 or (rp["when_slots_free"] and cash < tranche_alloc)
     if not (block_new_buys or sells_only) and want_rotation:
-        checked_holdings = [h for h in bal2["holdings"] if h["ticker"] not in unchecked_tickers]
+        checked_holdings = [h for h in bal2["holdings"]
+                            if decision_checks.get(h["ticker"], {}).get("eligible")]
         cash = _conviction_rotate(uid, market, signals, signal_by_ticker, checked_holdings, held_after,
                                   cash, tranche_alloc, tranches, cfg, name_by_ticker, prices, unit,
                                   sells, buys, rotated_out, dry_run, rp, exposure,
@@ -1398,6 +1430,7 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
         "skipped_tranche": skipped_tranche,
         "sells": sells, "buys": buys,
         "unchecked_holdings": unchecked,
+        "deferred_price_decisions": {t: c for t, c in decision_checks.items() if not c["eligible"]},
         "cash": final_bal["cash"], "total_eval": final_bal["total_eval"],
         "holdings": len(final_bal["holdings"]),
     }
@@ -1639,17 +1672,26 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
         if r["side"] != "buy" or time.time() - int(r["created"]) > 7 * 86400:
             reject("expired", "예약 종류 또는 유효기간(7일) 초과")
             continue
+        closes = prices.get(r["ticker"])
+        price = _live_price(r["ticker"], closes[-1]) if closes else 0
+        price_evidence = _execution_price_evidence(
+            market, r["ticker"], price, dates_by_ticker=price_dates, quote_snapshot=quote_snapshot)
+        validity = price_validity.check(market, price, price_evidence,
+            close_date=(price_dates.get(r["ticker"]) or [None])[-1])
+        if not validity["eligible"]:
+            if not dry_run:
+                paper.defer_bot_order(uid, r["ticker"], "buy", market=market,
+                                      reason="RESERVATION", price=price,
+                                      evidence=price_evidence, name=r["name"],
+                                      decision_check=validity)
+            executed.append({"ticker": r["ticker"], "name": r["name"],
+                             "status": "deferred_price_decision", "price_validity": validity,
+                             "note": "가격 기준 확인 후 예약을 다시 판단합니다."})
+            continue  # No reservation cancellation or price-based plan on invalid input.
         sig = signal_by_ticker.get(r["ticker"])
         if not sig or not engine.is_buy(sig.kind) or sig.event_risk:
             reject("skipped_signal", "현재 매수 판정이 없거나 사건 위험")
             continue
-        closes = prices.get(r["ticker"])
-        if not closes:
-            reject("no_data", "현재 가격 없음")
-            continue
-        price = _live_price(r["ticker"], closes[-1])
-        price_evidence = _execution_price_evidence(
-            market, r["ticker"], price, dates_by_ticker=price_dates, quote_snapshot=quote_snapshot)
         if not dry_run and not paper.bot_order_quote_ready(market, price_evidence):
             paper.defer_bot_order(uid, r["ticker"], "buy", market=market,
                                   reason="RESERVATION", price=price,
@@ -1665,6 +1707,20 @@ def execute_reservations(uid: int, dry_run: bool = False, market: str = "kr") ->
             reject("skipped_price", f"현재가 {int(price):,}{unit} > 상한 {int(ceiling):,}{unit} — 추격 안 함")
             continue
         bal = paper.balance(uid, market)
+        unchecked = []
+        for holding in bal["holdings"]:
+            t = holding["ticker"]
+            values = prices.get(t) or []
+            px = values[-1] if values else 0
+            proof = _execution_price_evidence(market, t, px, dates_by_ticker=price_dates,
+                                              quote_snapshot=quote_snapshot)
+            if not price_validity.check(market, px, proof, require_history=False)["eligible"]:
+                unchecked.append(t)
+        if unchecked:
+            executed.append({"ticker": r["ticker"], "name": r["name"],
+                             "status": "deferred_price_decision", "unchecked_holdings": unchecked,
+                             "note": "보유 종목의 현재 평가액 확인 전 신규 매수를 보류합니다."})
+            continue
         if any(h["ticker"] == r["ticker"] for h in bal["holdings"]):
             reject("skipped_held", "이미 보유 중인 종목의 신규 예약")
             continue

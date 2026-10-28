@@ -143,7 +143,8 @@ def bot_order_hold_status(market: str, evidence: dict | None = None) -> str:
 
 
 def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: str,
-                    price: float | None, evidence: dict | None, name: str = "") -> None:
+                    price: float | None, evidence: dict | None, name: str = "",
+                    decision_check: dict | None = None) -> None:
     """체결 없이 보류를 감사 기록과 재시도 가능한 Telegram 아웃박스에 남긴다."""
     checked_at = time.time()
     at = int(checked_at)
@@ -151,6 +152,8 @@ def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: st
     session = datetime.fromtimestamp(at, zone).date().isoformat()
     check = bot_order_quote_check(market, evidence or {}, now=checked_at)
     hold_status = check["status"]
+    if decision_check and not decision_check.get("eligible") and check["eligible"]:
+        hold_status = "deferred_price_decision"
     market_open = hold_status != "deferred_market_closed"
     key = f"paper-price-hold:{hold_status}:{market}:{session}:{uid}:{side}:{ticker}"
     alert_key = f"paper-price-hold:{hold_status}:{market}:{session}:{side}:{ticker}"
@@ -163,6 +166,8 @@ def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: st
                          "future": "가격 원문의 시각이 수신·주문 시각보다 앞서 있습니다",
                          "unparseable": "가격 원문의 시각이나 시간대를 읽을 수 없습니다"}
         cause = f"{source_reason[check['source_time_state']]}. 가상 체결을 보류했습니다."
+    if hold_status == "deferred_price_decision":
+        cause = "가격의 원문 시각·거래 세션 또는 직전 종가 이력을 확인하지 못해 판정을 보류했습니다."
     text = (f"⚠️ 가상 {action} 보류 · {name or ticker}({ticker}) · {market.upper()}\n"
             f"{cause} 사유: {reason}. "
             f"{'가격 수집 상태를 확인해 주세요. ' if market_open else '다음 정규장에 다시 확인해 주세요. '}"
@@ -179,6 +184,7 @@ def defer_bot_order(uid: int, ticker: str, side: str, *, market: str, reason: st
         price=price, ts=at,
         payload={"side": side, "reason": reason, "price_evidence": evidence or {},
                  "paper_quote_check": check,
+                 "price_decision_check": decision_check,
                  "detail": ("source_time_inconsistent" if hold_status == "deferred_source_time"
                             else "fresh_intraday_quote_required" if market_open else "market_session_closed")},
     )

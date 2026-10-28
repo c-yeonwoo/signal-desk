@@ -266,6 +266,11 @@ item.signal_quote_received_at=Date.now()/1000-601;
 assert.equal(ctx.signalPriceView(item).status,'stale_quote');
 item.signal_quote_received_at=Date.now()/1000-60;
 assert.equal(ctx.signalPriceView(item).status,'current_quote');
+item.price_validity={valid_until:Date.now()/1000-1};
+assert.equal(ctx.signalPriceView(item).status,'stale_quote');
+item.current_decision_status='deferred';
+item.price_validity.valid_until=Date.now()/1000+60;
+assert.match(ctx.signalPriceView(item).message,/보류/);
 """
     result = subprocess.run(["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
                             text=True, capture_output=True, check=False)

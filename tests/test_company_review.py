@@ -95,6 +95,15 @@ def test_latest_completed_close_is_not_described_as_live_price():
     assert "다음 거래일 장중 가격" in review["next_checks"][0]
 
 
+def test_source_invalid_does_not_become_current_evidence_on_fresh_receipt():
+    review = _review(item={"kind": "DEFERRED", "current_decision_status": "deferred"},
+                     signal_price_status="current_quote", provisional_at=NOW.timestamp() - 5)
+    assert review["price_status"] == "unavailable"
+    assert review["signal"]["decision"] == "UNAVAILABLE"
+    assert not review["claims"] and not review["evidence"]
+    assert any("원문 시각" in reason for reason in review["unknowns"])
+
+
 def test_blocked_buy_is_not_shown_as_positive_candidate_claim():
     review = _review(item={"kind": "STRONG_BUY", "decision": {"buy_blocked": True}})
     assert review["signal"]["decision"] == "STRONG_BUY"

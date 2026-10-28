@@ -30,16 +30,22 @@ def _setup(monkeypatch, universe, prices, signals, mode="absolute", exposure=1.0
     """mode: 매수권 선정 방식. 기존 테스트는 절대문턱(min_buy_score) 기준으로 쓰였으므로
     기본을 "absolute"로 두고, 횡단면 분위 동작은 아래 rank 전용 테스트에서 검증한다."""
     monkeypatch.setattr(paper.market_clock, "is_open", lambda market, now: True)
+    monkeypatch.setattr(paper.market_clock, "regular_window", lambda market, now:
+                        (now - datetime.timedelta(hours=1), now + datetime.timedelta(hours=1)))
+    expected_close = paper.market_clock.latest_completed_session("kr", datetime.datetime.now(datetime.timezone.utc))
     monkeypatch.setattr(bot.store, "load_universe", lambda: universe)
     monkeypatch.setattr(bot.store, "load_price_series", lambda: prices)
-    price_dates = {ticker: [(datetime.date(2026, 7, 1) + datetime.timedelta(days=i)).isoformat()
+    price_dates = {ticker: [(datetime.date.fromisoformat(expected_close)
+                            - datetime.timedelta(days=len(closes) - 1 - i)).isoformat()
                             for i in range(len(closes))]
                    for ticker, closes in prices.items()}
     monkeypatch.setattr(bot.store, "load_engine_price_bundle",
                         lambda market: (prices, price_dates,
                                         {"quotes": {t: closes[-1] for t, closes in prices.items() if closes},
                                          "quote_updated": {t: time.time() for t in prices},
-                                         "quote_meta": {t: {"observation_id": f"test-{t}"} for t in prices}}))
+                                         "quote_meta": {t: {"observation_id": f"test-{t}",
+                                             "source_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()}
+                                             for t in prices}}))
     monkeypatch.setattr(bot.store, "load_us_price_series", lambda: {})
     monkeypatch.setattr(bot.store, "load_fundamentals", lambda: {})
     monkeypatch.setattr(bot.engine, "evaluate", lambda *a, **k: signals)
@@ -137,7 +143,8 @@ def test_unpriced_buy_holding_reports_why_additional_purchase_is_skipped(tmp_pat
     _seed(1_000_000., {"005380": {"name": "현대차", "qty": 1, "avg_price": 100.}})
     out = bot.run_once(UID)
     assert out["buys"] == []
-    assert any("가격 자료가 없어" in reason for reason in out["skipped_tranche"])
+    assert out["unchecked_holdings"][0]["ticker"] == "005380"
+    assert out["unchecked_holdings"][0]["risk_checked"] is False
 
 
 def test_dry_run_places_no_orders(tmp_path, monkeypatch):
@@ -174,13 +181,14 @@ def test_live_drop_cannot_widen_daily_sigma_stop(tmp_path, monkeypatch, market, 
     monkeypatch.setattr(bot, "_market_read_for", lambda market: {
         "eff_cfg": SignalConfig(), "context": {"regime": "강세", "exposure": 1.}})
     monkeypatch.setattr(bot, "_market_signals", lambda market, read: (
-        universe, prices, [], {"AAA": "가"}, {"AAA": dates}, {}))
+        universe, prices, [], {"AAA": "가"}, {"AAA": dates},
+        bot.store.load_engine_price_bundle(market)[2]))
     db.kv_set(paper._key(UID, market), json.dumps({
         "cash": 10_000., "positions": {"AAA": {"name": "가", "qty": 2, "avg_price": 100.}}}))
 
     out = bot.run_once(UID, market=market, dry_run=True, sells_only=True)
 
-    assert seen_markets == [market]
+    assert seen_markets and set(seen_markets) == {market}
     assert out["sells"][0]["reason"] == "STOP_LOSS"
     assert out["sells"][0]["price"] == 97.
     assert prices["AAA"] == observations
@@ -553,6 +561,23 @@ def test_rank_mode_respects_min_score_floor_in_crash(tmp_path, monkeypatch):
     assert bot.run_once(UID)["buys"] == []
 
 
+def test_price_deferrals_preserve_original_rank_window(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    universe = [{"ticker": f"T{i}", "name": f"종목{i}"} for i in range(20)]
+    prices = {u["ticker"]: [100.] for u in universe}
+    signals = [_sig(f"T{i}", f"종목{i}", "HOLD", 1.20 + i * 0.02) for i in range(20)]
+    _setup(monkeypatch, universe, prices, signals, mode="rank", rank_top_pct=10.,
+           max_new_buys_per_run=10)
+    bundle = bot.store.load_engine_price_bundle("kr")
+    for i in range(10):
+        bundle[2]["quote_meta"][f"T{i}"]["source_timestamp"] = None
+    monkeypatch.setattr(bot.store, "load_engine_price_bundle", lambda market: bundle)
+    _seed(10_000_000.)
+    out = bot.run_once(UID)
+    assert [b["ticker"] for b in out["buys"]] == ["T19", "T18"]
+    assert len(out["deferred_price_decisions"]) == 10
+
+
 def test_exposure_caps_total_invested(tmp_path, monkeypatch):
     """국면 익스포저가 총 투자금 상한이다 — 문턱을 올려 자격을 0으로 만드는 대신 크기를 줄인다."""
     monkeypatch.chdir(tmp_path)
@@ -649,8 +674,7 @@ def test_rotation_keeps_holding_if_replacement_quote_is_missing(tmp_path, monkey
     assert not any(s["reason"] == "ROTATE_OUT" for s in out["sells"])
     assert not any(b["reason"] == "ROTATE_IN" for b in out["buys"])
     assert {p["ticker"] for p in db.bot_positions_all(UID, "kr")} == {"WEAK"}
-    assert any(e["event_type"] == "deferred_stale_quote"
-               for e in db.execution_events_for_uid(UID, "kr"))
+    assert out["deferred_price_decisions"]["STRONG"]["eligible"] is False
 
 
 def test_sells_only_cannot_rotate_position(tmp_path, monkeypatch):
