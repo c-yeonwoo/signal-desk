@@ -2237,6 +2237,12 @@ def live_quotes_snapshot() -> dict:
                 "quote_meta": {t: dict(meta) for t, meta in _LIVE_QUOTE_META.items()}}
 
 
+def live_quote_revision() -> int:
+    """Cheap input-generation key; an older in-flight calculation cannot reset it."""
+    with _LIVE_LOCK:
+        return _LIVE_REV
+
+
 def live_quote_updated(ticker: str) -> float | None:
     """한 종목의 잠정가 갱신 시각. 전역 성공 시각을 종목의 시각으로 대신하지 않는다."""
     with _LIVE_LOCK:
@@ -2271,9 +2277,14 @@ def _fresh_live_quote_tickers() -> set[str]:
 def _live_source_time_quality(metadata: dict[str, dict], received_at: dict[str, float], now: float) -> dict:
     """공급자 시각과 서버 수신 시각의 관측 차이를 요약한다. 신선도·체결 판정은 하지 않는다."""
     present = parseable = missing = unparseable = future_skew = 0
+    source_stale = fresh_receipt_old_source = receipt_fresh = observed_window = 0
     lags: list[float] = []
     ages: list[float] = []
     for ticker, meta in metadata.items():
+        received = received_at.get(ticker)
+        receipt_ready = (isinstance(received, (int, float)) and math.isfinite(received)
+                         and -300 <= now - received <= _LIVE_QUOTE_MAX_AGE_SECONDS)
+        receipt_fresh += int(receipt_ready)
         raw = meta.get("source_timestamp")
         if not raw:
             missing += 1
@@ -2293,6 +2304,11 @@ def _live_source_time_quality(metadata: dict[str, dict], received_at: dict[str, 
         lag = received - source_ts
         lags.append(lag)
         ages.append(now - source_ts)
+        old_source = now - source_ts > _LIVE_QUOTE_MAX_AGE_SECONDS
+        source_stale += int(old_source)
+        fresh_receipt_old_source += int(receipt_ready and old_source)
+        observed_window += int(receipt_ready and -300 <= now - source_ts <= _LIVE_QUOTE_MAX_AGE_SECONDS
+                               and lag >= -300)
         if lag < -300:
             future_skew += 1
 
@@ -2311,6 +2327,10 @@ def _live_source_time_quality(metadata: dict[str, dict], received_at: dict[str, 
     return {"sample_count": len(metadata), "timestamp_present_count": present,
             "timestamp_parseable_count": parseable, "timestamp_missing_count": missing,
             "timestamp_unparseable_count": unparseable, "future_skew_over_5m_count": future_skew,
+            "receipt_fresh_count": receipt_fresh,
+            "source_stale_over_10m_count": source_stale,
+            "receipt_fresh_but_source_stale_count": fresh_receipt_old_source,
+            "both_times_within_window_count": observed_window,
             "receive_lag_seconds": distribution(lags), "source_age_seconds": distribution(ages),
             "interpretation": "공급자 데이터 시각과 서버 수신 시각의 차이이며, 마지막 체결 시각 또는 신선도 인증을 뜻하지 않음"}
 
@@ -2323,11 +2343,17 @@ def live_status() -> dict:
         source_time_quality = _live_source_time_quality(
             {ticker: dict(meta) for ticker, meta in _LIVE_QUOTE_META.items()},
             dict(_LIVE_QUOTE_TS), now)
+        by_market = {}
+        for market in ("kr", "us"):
+            selected = {t: dict(m) for t, m in _LIVE_QUOTE_META.items()
+                        if ("kr" if len(t) == 6 and t[0].isdigit() else "us") == market}
+            by_market[market] = _live_source_time_quality(selected, dict(_LIVE_QUOTE_TS), now)
         return {"on": bool(_LIVE_QUOTES), "count": len(_LIVE_QUOTES), "updated": _LIVE_TS,
                 "fresh_count": fresh_count, "stale_count": max(0, len(_LIVE_QUOTES) - fresh_count),
                 "source_time_present": sum(bool(m.get("source_timestamp")) for m in _LIVE_QUOTE_META.values()),
                 "source_time_verified": sum(bool(m.get("source_time_verified")) for m in _LIVE_QUOTE_META.values()),
                 "source_time_quality": source_time_quality,
+                "source_time_quality_by_market": by_market,
                 "attempt_ts": _LIVE_ATTEMPT["ts"], "attempt_result": _LIVE_ATTEMPT["result"],
                 "attempt_markets": list(_LIVE_ATTEMPT["markets"]),
                 "coverage": {market: {**row, "missing_sample": list(row["missing_sample"])}

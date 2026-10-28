@@ -162,7 +162,8 @@ def us_signal_batch() -> tuple:
     if not isinstance(cached, api._USSignalSnapshot):
         raise RuntimeError("미국 시그널의 가격 입력을 확인할 수 없습니다")
     signals = sorted(cached.values(), key=lambda s: s.score, reverse=True)
-    return cached.universe, cached.prices, signals, cached.price_dates, cached.quote_snapshot
+    return (cached.universe, cached.prices, signals, cached.price_dates,
+            cached.quote_snapshot, cached.decision_capture)
 
 
 def _live_price(ticker: str, fallback: float) -> float:
@@ -578,7 +579,8 @@ _MAX_CHASE_PCT = 0.02  # 지정가 상한(종가 대비 +2%) — 표시·계획�
 def _market_signals(market: str, mr: dict):
     """(universe, prices, signals, names, raw_dates, quote_snapshot) — 시장별 입력."""
     if market == "us":
-        us_uni, prices, sigs, price_dates, quote_snapshot = us_signal_batch()
+        us_uni, prices, sigs, price_dates, quote_snapshot, capture = us_signal_batch()
+        mr["_decision_capture"] = capture
         names = {u["ticker"]: us_ko.name_ko(u["ticker"], u["name"]) for u in us_uni}
         return us_uni, prices, sigs, names, price_dates, quote_snapshot
     universe = store.load_universe()
@@ -1389,14 +1391,6 @@ def run_once(uid: int, dry_run: bool = False, market: str = "kr",
             if market_clock.is_open(market, datetime.datetime.now(datetime.timezone.utc)):
                 capture = mr.get("_decision_capture")
                 missing_reason = "capture_missing"
-                if market == "us":
-                    from signal_desk import api
-                    snapshot = api._us_signals()
-                    if (snapshot.prices is prices and snapshot.price_dates is price_dates
-                            and snapshot.quote_snapshot is quote_snapshot):
-                        capture = snapshot.decision_capture
-                    else:
-                        missing_reason = "generation_changed"
                 from signal_desk.signals import decision_capture_pilot
                 if capture:
                     capture_result = decision_capture_pilot.capture_once(

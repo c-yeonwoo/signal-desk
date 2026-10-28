@@ -3,7 +3,6 @@
 import json
 import time
 import datetime
-from types import SimpleNamespace
 
 from signal_desk import bot, db
 from signal_desk.broker import paper
@@ -34,7 +33,7 @@ def _setup(monkeypatch, **cfg):
              "quote_updated": {"AAPL": time.time(), "NVDA": time.time()},
              "quote_meta": {t: {"observation_id": "test-" + t,
                  "source_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat()}
-                 for t in ("AAPL", "NVDA")}}))
+                 for t in ("AAPL", "NVDA")}}, {}))
     monkeypatch.setattr(bot, "_cfg", lambda uid: {
         "enabled": True, "trading_style": "balanced", "seed_cash": 10_000_000, "seed_cash_us": 10_000,
         "max_positions": 10, "position_pct": 0.08, "min_buy_score": 1.0, "max_new_buys_per_run": 5, **cfg})
@@ -60,11 +59,10 @@ def test_pilot_capture_failure_does_not_change_us_paper_orders(tmp_path, monkeyp
 
     monkeypatch.chdir(tmp_path)
     _setup(monkeypatch)
-    batch = bot.us_signal_batch()
+    batch = (*bot.us_signal_batch()[:5], {"captured": True})
     monkeypatch.setattr(bot, "us_signal_batch", lambda: batch)
-    snapshot = SimpleNamespace(prices=batch[1], price_dates=batch[3],
-                               quote_snapshot=batch[4], decision_capture={"captured": True})
-    monkeypatch.setattr(api, "_us_signals", lambda: snapshot)
+    monkeypatch.setattr(api, "_us_signals", lambda: (_ for _ in ()).throw(
+        AssertionError("post-trade capture must not re-read the newer signal cache")))
     monkeypatch.setattr(bot.config, "is_prod", lambda: True)
     monkeypatch.setattr(bot.market_clock, "is_open", lambda *_args: True)
     attempted = []
@@ -79,7 +77,7 @@ def test_pilot_capture_failure_does_not_change_us_paper_orders(tmp_path, monkeyp
     assert out["ok"] and out["buys"]
     assert len(attempted) == 1 and attempted[0][0] == "us"
     assert attempted[0][2] == (batch[1], batch[3], batch[4])
-    assert attempted[0][3] is snapshot.decision_capture
+    assert attempted[0][3] is batch[5]
 
 
 def test_us_state_and_reset(tmp_path, monkeypatch):

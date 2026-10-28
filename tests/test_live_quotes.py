@@ -218,6 +218,32 @@ def test_live_source_time_quality_separates_missing_bad_and_future_times():
     assert summary["receive_lag_seconds"]["median_seconds"] == -30.0
 
 
+def test_health_separates_receipt_source_failure_and_market():
+    import datetime as dt
+
+    now = dt.datetime.now(dt.timezone.utc)
+    def observation(at):
+        return {"price": 100., "source_timestamp": at.isoformat(),
+                "source_timestamp_parsed_utc": at.isoformat()}
+
+    store.set_live_quotes({"005930": observation(now - dt.timedelta(minutes=20)),
+                           "AAPL": observation(now), "MSFT": {"price": 200.}})
+    try:
+        status = store.live_status()
+        assert status["fresh_count"] == 3  # Existing receipt-only meaning stays explicit.
+        kr = status["source_time_quality_by_market"]["kr"]
+        us = status["source_time_quality_by_market"]["us"]
+        assert kr["receipt_fresh_but_source_stale_count"] == 1
+        assert kr["source_stale_over_10m_count"] == 1
+        assert us["sample_count"] == 2 and us["timestamp_missing_count"] == 1
+        assert us["source_stale_over_10m_count"] == 0 and us["both_times_within_window_count"] == 1
+        store._LIVE_QUOTE_TS["AAPL"] -= 601
+        us = store.live_status()["source_time_quality_by_market"]["us"]
+        assert us["receipt_fresh_count"] == 1 and us["both_times_within_window_count"] == 0
+    finally:
+        store.clear_live_quotes()
+
+
 def test_browser_refuses_an_old_sse_quote():
     if not shutil.which("node"):
         pytest.skip("Node is needed for the live quote renderer")

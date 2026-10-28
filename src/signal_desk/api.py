@@ -24,6 +24,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from functools import lru_cache
+from signal_desk.generation_cache import generation_cache
 from pathlib import Path
 from typing import Callable
 from urllib.parse import urlparse
@@ -1372,7 +1373,7 @@ def _daily_maintenance(enabled: list[str]) -> None:
     db.kv_set("bot_daily_snap", _kst_today())
 
 
-async def _quote_loop():
+async def _quote_loop(first_pass: asyncio.Event | None = None):
     """전체 시세·매매 점검은 5분, 보유 종목 시세만 기본 1분 간격으로 분리한다."""
     interval = config.held_quote_refresh_interval_minutes() * 60
     full_interval = config.quote_refresh_interval_minutes() * 60
@@ -1384,7 +1385,13 @@ async def _quote_loop():
             if await asyncio.to_thread(_own_loop_tick):
                 now = time.monotonic()
                 if now >= next_full_tick:
-                    await asyncio.to_thread(_quote_loop_iteration)
+                    try:
+                        await asyncio.to_thread(_quote_loop_iteration)
+                    finally:
+                        # Failure also releases the bot: price-validity checks
+                        # then record deferrals rather than trading a close.
+                        if first_pass is not None:
+                            first_pass.set()
                     next_full_tick = time.monotonic() + full_interval
                 else:
                     await asyncio.to_thread(_refresh_held_live_quotes, _open_markets())
@@ -1457,14 +1464,17 @@ def _renew_loop_ownership() -> None:
     _own_loop_tick()
 
 
-async def _bot_loop():
+async def _bot_loop(first_pass: asyncio.Event | None = None):
     """봇·LLM 백그라운드 루프(기본 30분). 시그널은 공용, 계좌는 paper.
 
     실제 체결은 각 시장 장중에만 — KR 09:00~15:20, US KST 근사 22:30~06:00.
     시세 오버레이는 _quote_loop가 따로 돌린다. KB·종가 스냅샷은 하루 1회(kv 가드).
     본문은 동기 블로킹이라 to_thread로 돌려 헬스체크/API를 막지 않는다."""
     interval = config.bot_run_interval_minutes() * 60
-    await asyncio.sleep(8)  # 시세 루프가 먼저 한 틱 돌 여유
+    if first_pass is not None:
+        await first_pass.wait()
+    else:
+        await asyncio.sleep(8)  # Standalone/test callers retain the old delay.
     while True:
         try:
             # 느린 틱은 **갱신하지 않고 확인만** 한다 — 30분 간격으로 갱신하면 임대(15분)를
@@ -1523,8 +1533,9 @@ async def _lifespan(app: FastAPI):
     # **살아 있는 내내** 루프를 안 돈다 — 옛 주인이 죽어 임대가 만료돼도 다시 잡을 기회가 없다.
     # 실측: 재배포 직후 `attempt_ts=null` 로 루프가 통째로 멈춰 있었다. 루프는 **항상 띄우고**
     # 매 틱마다 소유권을 재판정한다(`_own_loop_tick`).
-    quote_task = asyncio.create_task(_quote_loop())
-    bot_task = asyncio.create_task(_bot_loop())
+    first_quote_pass = asyncio.Event()
+    quote_task = asyncio.create_task(_quote_loop(first_quote_pass))
+    bot_task = asyncio.create_task(_bot_loop(first_quote_pass))
     telegram_task = asyncio.create_task(_telegram_loop())
     yield
     quote_task.cancel()
@@ -2552,7 +2563,7 @@ def _stamp_signal_price_context(results, prices: dict, dates: dict, quote_snapsh
             dates_by_ticker=dates, quote_snapshot=quote_snapshot)
 
 
-@lru_cache(maxsize=1)
+@generation_cache(store.live_quote_revision)
 def _signals():
     cfg, _ = signalcfg.effective_config(_regime(), _macro(), flow_result=store.load_market_flow())  # 약세·비우호·외인기관 순매도면 매수 기준 상향
     prices, price_dates, quote_snapshot = store.load_engine_price_bundle("kr")
@@ -2823,7 +2834,7 @@ def _price_checked_results(results, items):
     return views
 
 
-@lru_cache(maxsize=1)
+@generation_cache(store.live_quote_revision)
 def _us_signal_items() -> list[dict]:
     """미국(S&P500) 시그널 **리스트 요약** — 스크리너·정렬에 필요한 필드만.
     about/moves/target/reasons/narrative는 `/detail`에서 클릭 시 로드(페이로드·OOM 완화)."""
@@ -7339,7 +7350,7 @@ class _USSignalSnapshot(dict):
         self.decision_capture = decision_capture
 
 
-@lru_cache(maxsize=1)
+@generation_cache(store.live_quote_revision)
 def _us_signals():
     """미국 종목 시그널 — US 유니버스 중 시세 있는 종목. EDGAR 재무(PER/PBR)가 있으면 저평가 팩터도
     반영, 없으면 자동 제외. KB 감성(미주은 등)은 정성 팩터. 반환: {ticker: SignalResult}."""
