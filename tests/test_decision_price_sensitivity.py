@@ -10,7 +10,7 @@ from signal_desk import db
 from signal_desk.signals import decision_price_sensitivity as audit, decision_snapshot, engine, execution_gate
 
 
-def bundle(tmp_path, monkeypatch, *, extra_price=False, close_only=False):
+def bundle(tmp_path, monkeypatch, *, extra_price=False, close_only=False, class_symbol=False):
     monkeypatch.chdir(tmp_path)
     days = [(dt.date(2025, 1, 1) + dt.timedelta(days=i)).isoformat() for i in range(260)]
     prices = {"AAA": [100. + i * .1 for i in range(260)] + [130.],
@@ -19,10 +19,13 @@ def bundle(tmp_path, monkeypatch, *, extra_price=False, close_only=False):
         prices["OLD"] = list(prices["AAA"])
     if close_only:
         prices = {t: p[:-1] for t, p in prices.items()}
+    first = "BRK-B" if class_symbol else "AAA"
+    if class_symbol:
+        prices[first] = prices.pop("AAA")
     dates = {t: days for t in prices}
     today = dt.date(2026, 10, 26)
     stamp = dt.datetime(2026, 10, 26, 14, 40, 30, tzinfo=dt.timezone.utc).timestamp()
-    inputs = {"universe": [{"ticker": t, "name": t} for t in ("AAA", "BBB")], "fundamentals": {},
+    inputs = {"universe": [{"ticker": t, "name": t} for t in (first, "BBB")], "fundamentals": {},
               "config": engine.SignalConfig(), "today": today}
     gate = {"today": today.isoformat(), "hist_by": {}, "events_by": {}}
     results = engine.evaluate(inputs["universe"], prices, fundamentals={}, config=inputs["config"], today=today)
@@ -159,6 +162,18 @@ def test_daily_mode_cannot_silently_replace_intraday_inputs(tmp_path, monkeypatc
         audit.reference_request(b, basis="recorded-close")
     with pytest.raises(ValueError, match="unsupported comparison basis"):
         audit.reference_request(b, basis="automatic")
+
+
+def test_class_share_provider_symbol_maps_back_without_changing_universe(tmp_path, monkeypatch):
+    b = bundle(tmp_path, monkeypatch, class_symbol=True)
+    e = external(b, {"BRK.B": 130., "BBB": 125.})
+    assert e["request"]["symbols"] == "BBB,BRK.B"
+    r = audit.compare(b, e)
+    assert r["changes"] == [] and r["replaced_prices"] == 2
+    assert r["provider_symbol_map"] == {"BRK-B": "BRK.B"}
+    assert {p["ticker"] for p in r["price_pairs"]} == {"BRK-B", "BBB"}
+    with pytest.raises(ValueError, match="ambiguous provider"):
+        audit._provider_symbols(["BRK-B", "BRK.B"])
 
 
 def test_baseline_mismatch_never_compares_candidate(tmp_path, monkeypatch):

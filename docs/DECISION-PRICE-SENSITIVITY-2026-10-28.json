@@ -12,6 +12,8 @@
   "limitations": ["과거 분봉은 이후 정정을 포함할 수 있음", "직전 분봉은 같은 시각 실행 가능한 호가가 아님", "당시 전체 장중 판단·LLM·보유·체결·비용 경로를 재현하지 않음", "가격 민감도는 수익성이나 데이터 오류의 인과 비율이 아님"],
   "operational_changes": "없음. 관리자 다운로드와 오프라인 비교만 추가",
   "adoption": "이 결과만으로 가중치·전략·매매 규칙 변경하지 않음",
-  "status": "implemented_pending_production_bundle",
+  "status": "blocked_no_recorded_intraday_quotes",
+  "production_findings": "고정 캡처 다운로드·로컬 재생 정확 일치. 장중 꼬리 0건이며 전체 503종목 마지막 일봉은 2026-10-23. 이후 장중 표시 가격을 이 첫 실행의 입력이라고 소급하지 않음",
+  "separate_daily_audit": "RECORDED-CLOSE-AUDIT-2026-10-28.json: 같은 503종목의 마지막 종가만 원천 대조. 장중 비교 완료로 세지 않음",
   "integrated_roadmap_percent": 40
 }

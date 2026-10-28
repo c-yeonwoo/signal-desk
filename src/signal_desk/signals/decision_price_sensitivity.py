@@ -16,6 +16,15 @@ KINDS = ("signal_output", "gate_input", "engine_input", "price_base", "quote_del
 MAX_BYTES = 64 * 1024 * 1024
 
 
+def _provider_symbols(tickers):
+    # Existing internal class-share IDs are not the provider's dot notation.
+    aliases = {"BRK-B": "BRK.B", "BF-B": "BF.B"}
+    mapped = {t: aliases.get(t, t) for t in tickers}
+    if len(set(mapped.values())) != len(mapped):
+        raise ValueError("ambiguous provider symbol mapping")
+    return mapped
+
+
 def export_bundle(market: str, output_id: str) -> dict:
     """Only the five public-engine artifacts reachable from one explicit output."""
     artifacts = {}
@@ -116,7 +125,7 @@ def reference_request(bundle: dict, *, basis: str = "intraday") -> dict:
         day = dt.date.fromisoformat(next(iter(targets.values()))["date"])
         start = dt.datetime.combine(day, dt.time(), ZoneInfo("America/New_York"))
         end = dt.datetime.combine(day + dt.timedelta(days=1), dt.time(), start.tzinfo)
-        return {"symbols": ",".join(sorted(targets)), "timeframe": "1Day",
+        return {"symbols": ",".join(sorted(_provider_symbols(targets).values())), "timeframe": "1Day",
                 "start": start.isoformat(), "end": (end - dt.timedelta(seconds=1)).isoformat(),
                 "adjustment": "raw", "asof": saved["today"], "feed": "sip", "currency": "USD",
                 "limit": 10000, "sort": "asc"}
@@ -137,7 +146,7 @@ def reference_request(bundle: dict, *, basis: str = "intraday") -> dict:
     if max(minutes) - min(minutes) > 3600:
         raise ValueError("receipt span exceeds finite capture budget")
     iso = lambda n: dt.datetime.fromtimestamp(n, dt.timezone.utc).isoformat()
-    return {"symbols": ",".join(sorted(quotes)), "timeframe": "1Min",
+    return {"symbols": ",".join(sorted(_provider_symbols(quotes).values())), "timeframe": "1Min",
             "start": iso(min(minutes)), "end": iso(max(minutes) + 60),
             "adjustment": "raw", "asof": saved["today"], "feed": "sip", "currency": "USD",
             "limit": 10000, "sort": "asc"}
@@ -185,13 +194,15 @@ def compare(bundle: dict, external: dict, *, basis: str = "intraday") -> dict:
         return {**report, "status": "blocked_input_structure"}
     bars_by = external["bars"]
     quotes = _close_targets(data) if basis == "recorded-close" else _captured_quotes(data)
-    if set(bars_by) - set(quotes):
+    symbol_map = _provider_symbols(quotes)
+    if set(bars_by) - set(symbol_map.values()):
         raise ValueError("unexpected external symbols")
+    report["provider_symbol_map"] = {t: s for t, s in symbol_map.items() if t != s}
     altered, pairs, missing = copy.deepcopy(prices), [], []
     for ticker, quote in sorted(quotes.items()):
         minute = int(quote["received_at"] // 60) * 60 - 60 if basis == "intraday" else None
         matches = []
-        for bar in bars_by.get(ticker, []):
+        for bar in bars_by.get(symbol_map[ticker], []):
             stamp = dt.datetime.fromisoformat(bar["t"].replace("Z", "+00:00"))
             if stamp.tzinfo is None:
                 raise ValueError("external timestamp needs timezone")
@@ -208,6 +219,7 @@ def compare(bundle: dict, external: dict, *, basis: str = "intraday") -> dict:
             raise ValueError("invalid reference price")
         altered[ticker][-1] = px
         pairs.append({"ticker": ticker, "received_at": quote.get("received_at"),
+                      "external_minute": matches[0]["t"] if basis == "intraday" else None,
                       "recorded_close_date": quote.get("date"), "external_bar": matches[0]["t"],
                       "original": original, "reference": px, "difference_bps": (original / px - 1) * 10000})
     report.update(replaced_prices=len(pairs), comparison_targets=len(quotes),
