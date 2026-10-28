@@ -10,13 +10,15 @@ from signal_desk import db
 from signal_desk.signals import decision_price_sensitivity as audit, decision_snapshot, engine, execution_gate
 
 
-def bundle(tmp_path, monkeypatch, *, extra_price=False):
+def bundle(tmp_path, monkeypatch, *, extra_price=False, close_only=False):
     monkeypatch.chdir(tmp_path)
     days = [(dt.date(2025, 1, 1) + dt.timedelta(days=i)).isoformat() for i in range(260)]
     prices = {"AAA": [100. + i * .1 for i in range(260)] + [130.],
               "BBB": [100. + i * .08 for i in range(260)] + [125.]}
     if extra_price:
         prices["OLD"] = list(prices["AAA"])
+    if close_only:
+        prices = {t: p[:-1] for t, p in prices.items()}
     dates = {t: days for t in prices}
     today = dt.date(2026, 10, 26)
     stamp = dt.datetime(2026, 10, 26, 14, 40, 30, tzinfo=dt.timezone.utc).timestamp()
@@ -27,7 +29,7 @@ def bundle(tmp_path, monkeypatch, *, extra_price=False):
     execution_gate.apply(results, hist_by={}, events_by={}, closes_by=prices, dates_by=dates, today=today.isoformat())
     refs = decision_snapshot.persist_signal_decision("us", prices=prices, dates=dates,
         engine_inputs=inputs, gate_inputs=gate, results=results,
-        quote_snapshot={"captured_at": stamp, "quotes": {t: p[-1] for t, p in prices.items()},
+        quote_snapshot={"captured_at": stamp, "quotes": {} if close_only else {t: p[-1] for t, p in prices.items()},
                         "quote_updated": {t: stamp for t in prices},
                         "quote_meta": {t: {"observation_id": t} for t in prices}})
     return audit.export_bundle("us", refs["signal_output_id"])
@@ -104,6 +106,59 @@ def test_current_minute_is_not_used(tmp_path, monkeypatch):
     e["pages"] = [{"raw": raw, "sha256": hashlib.sha256(raw.encode()).hexdigest()}]
     r = audit.compare(b, e)
     assert r["status"] == "blocked_no_aligned_reference"
+
+
+def test_close_only_capture_is_not_an_intraday_receipt(tmp_path, monkeypatch):
+    b = bundle(tmp_path, monkeypatch, close_only=True)
+    with pytest.raises(ValueError, match="no quotes"):
+        audit.reference_request(b)
+    request = audit.reference_request(b, basis="recorded-close")
+    assert request["timeframe"] == "1Day" and request["symbols"] == "AAA,BBB"
+    targets = audit._close_targets(audit.validate_bundle(b))
+    assert request["start"][:10] == targets["AAA"]["date"]
+
+
+def test_recorded_close_comparison_preserves_dates_and_other_inputs(tmp_path, monkeypatch):
+    b = bundle(tmp_path, monkeypatch, close_only=True, extra_price=True)
+    original = copy.deepcopy(b)
+    request = audit.reference_request(b, basis="recorded-close")
+    data = audit.validate_bundle(b)
+    prices, dates = audit._restore(data)
+    bars = {t: [{"t": request["start"], "c": prices[t][-1]}] for t in ("AAA", "BBB")}
+    raw = json.dumps({"bars": bars, "next_page_token": None})
+    e = {"request": request, "source_url": "https://data.alpaca.markets/v2/stocks/bars",
+         "status": "complete", "bars": bars,
+         "pages": [{"raw": raw, "sha256": hashlib.sha256(raw.encode()).hexdigest()}]}
+    calls = []
+    real = decision_snapshot.evaluate_preserved_inputs
+    def observed(*args):
+        calls.append(copy.deepcopy(args))
+        return real(*args)
+    monkeypatch.setattr(decision_snapshot, "evaluate_preserved_inputs", observed)
+    r = audit.compare(b, e, basis="recorded-close")
+    assert r["baseline_exact_match"] and r["changes"] == []
+    assert r["basis"] == "recorded-close" and r["captured_quotes"] == r["replaced_quotes"] == 0
+    assert r["replaced_prices"] == 2 and r["comparison_targets"] == 2
+    assert all(p["received_at"] is None for p in r["price_pairs"])
+    assert calls[0] == calls[1] and b == original
+    assert calls[1][2]["OLD"] == prices["OLD"] and calls[1][3] == dates
+    bars["AAA"][0]["c"] = 60.
+    bars.pop("BBB")
+    raw = json.dumps({"bars": bars, "next_page_token": None})
+    e["pages"] = [{"raw": raw, "sha256": hashlib.sha256(raw.encode()).hexdigest()}]
+    r = audit.compare(b, e, basis="recorded-close")
+    assert r["status"] == "partial_reference_sensitivity" and r["missing_symbols"] == ["BBB"]
+    assert calls[-1][2]["AAA"][-1] == 60. and calls[-1][2]["AAA"][:-1] == prices["AAA"][:-1]
+    assert calls[-1][2]["BBB"] == prices["BBB"] and calls[-1][3] == dates
+    assert calls[-1][:2] == calls[0][:2]
+
+
+def test_daily_mode_cannot_silently_replace_intraday_inputs(tmp_path, monkeypatch):
+    b = bundle(tmp_path, monkeypatch)
+    with pytest.raises(ValueError, match="close-only"):
+        audit.reference_request(b, basis="recorded-close")
+    with pytest.raises(ValueError, match="unsupported comparison basis"):
+        audit.reference_request(b, basis="automatic")
 
 
 def test_baseline_mismatch_never_compares_candidate(tmp_path, monkeypatch):

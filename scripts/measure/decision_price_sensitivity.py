@@ -63,6 +63,8 @@ def main():
     parser.add_argument("--external", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--fetch", action="store_true")
+    parser.add_argument("--basis", choices=("intraday", "recorded-close"), default="intraday",
+                        help="recorded-close is a separate daily source audit, not intraday receipt comparison")
     args = parser.parse_args()
     if args.output.exists() or (args.fetch and args.external.exists()):
         parser.error("output already exists; preserve prior evidence")
@@ -71,7 +73,7 @@ def main():
     if len(raw) > audit.MAX_BYTES:
         parser.error("bundle too large")
     bundle = json.loads(raw)
-    request = audit.reference_request(bundle)
+    request = audit.reference_request(bundle, basis=args.basis)
     # Baseline failure must stop BEFORE any external requests.
     data = audit.validate_bundle(bundle)
     prices, dates = audit._restore(data)
@@ -83,12 +85,12 @@ def main():
         args.external.write_text(json.dumps(external, ensure_ascii=False) + "\n")
     else:
         external = json.loads(args.external.read_bytes())
-    report = audit.compare(bundle, external)
+    report = audit.compare(bundle, external, basis=args.basis)
     report["bundle_file_sha256"] = hashlib.sha256(args.bundle.read_bytes()).hexdigest()
     report["external_file_sha256"] = hashlib.sha256(args.external.read_bytes()).hexdigest()
     args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
-    print(json.dumps({k: report.get(k) for k in ("status", "baseline_exact_match", "universe_size",
-        "captured_quotes", "replaced_quotes", "original_candidates", "reference_candidates", "profitability_verdict")}, ensure_ascii=False))
+    print(json.dumps({k: report.get(k) for k in ("status", "basis", "baseline_exact_match", "universe_size",
+        "captured_quotes", "replaced_prices", "original_candidates", "reference_candidates", "profitability_verdict")}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,20 @@
+{
+  "scope": "10월 26일 첫 미국 운영 캡처의 종가 원천 대조. 장중 수신 가격 비교와 별도",
+  "signal_output_id": "37fd6027f31e645843ad3fd74154377f2f286ed40e973c171e9709d072ec45a8",
+  "pre_fetch_evidence": {
+    "baseline_exact_match": true,
+    "universe_size": 503,
+    "captured_intraday_quotes": 0,
+    "last_close_date": "2026-10-23",
+    "last_close_count": 503,
+    "original_candidates": ["APA", "OXY", "ALL"]
+  },
+  "fixed_comparison": "503종목 전체의 마지막 10월 23일 종가만 같은 날짜 Alpaca SIP raw 일봉 종가로 교체. 길이·날짜·이전 종가·비가격 입력·정책 고정",
+  "missing": "빠진 종목의 기존 가격은 유지하고 부분 대조로 표시. 보간·유니버스 축소·후보 변경을 이유로 표본 교체 금지",
+  "network_budget": "기존 키의 읽기 전용 1Day 요청, 최대 4페이지·8MB. 유료 구독·주문·LLM 없음",
+  "interpretation": "당시 종가 값과 나중에 조회한 외부 종가의 일치 여부·민감도만 판단. 정정·조정 관례가 다를 수 있어 불일치만으로 오류 단정 금지. 수익성·장중 가격 사용·실제 주문을 증명하지 않음",
+  "code_path": "장중 오버레이가 없으면 원래 종가를 유지하며, 첫 정규 봇 실행 캡처는 호가 유무와 무관하게 저장된다. 별도 시세 루프와 봇 루프의 정확한 당시 선후·실패 이유는 보존 입력만으로 확정 불가",
+  "operational_change": "없음. #835의 현재 판정 보류 경계 유지",
+  "status": "fixed_before_external_fetch",
+  "integrated_roadmap_percent": 40
+}
