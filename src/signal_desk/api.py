@@ -4674,6 +4674,18 @@ def market_brief_get(market: str = "kr"):
                 card["brief_news_error"] = "기사 원문을 확인하지 못했습니다."
     if card["status"] == "ready":
         sigs = list(_signals()) if market == "kr" else list(_us_signals().values())
+        # Read-time validity is identical to the stock list. A cached BUY must
+        # not reappear in the headline after its provider quote has expired.
+        rows = [{"ticker": s.ticker, "kind": s.kind,
+                 "rank_eligible": getattr(s, "rank_eligible", False),
+                 **_signal_price_fields(s)} for s in sigs]
+        _annotate_signal_price_status(rows, market, now)
+        sigs = _price_checked_results(sigs, rows)
+        readable = [row for row in rows if row["current_decision_status"] != "deferred"]
+        deferred = len(rows) - len(readable)
+        card["selection_deferred_count"] = deferred
+        if deferred:
+            card["unknown"].append(f"{deferred}종목은 판단에 쓴 가격을 확인하지 못해 매수 건수에서 제외했습니다.")
         if market == "kr":
             cfg, adaptive = signalcfg.effective_config(_regime(), _macro(),
                                                         flow_result=store.load_market_flow())
@@ -4681,16 +4693,22 @@ def market_brief_get(market: str = "kr"):
         else:
             cfg = signalcfg.get_config()
         sel = selection_summary(sigs, cfg)
-        computed_at = max((s.computed_at for s in sigs if s.computed_at), default=None)
+        computed_at = max((row["signal_computed_at"] for row in readable
+                           if row["signal_computed_at"]), default=None)
         if computed_at:
+            reference_only = all(row["current_decision_status"] == "close_reference_only"
+                                 for row in readable)
             card["selection"] = {
                 "buy_count": sum(s.kind in {"BUY", "STRONG_BUY"} for s in sigs),
                 "strong_buy_count": sum(s.kind == "STRONG_BUY" for s in sigs),
                 "slots": sel["rank_slots"] if sel["mode"] == "rank" else None,
                 "computed_at": computed_at,
+                "price_basis": "stored_close" if reference_only else "intraday_quote",
+                "reference_only": reference_only,
+                "price_checked_at": now.isoformat(),
             }
         else:
-            card["unknown"].append("시그널 판정 시각을 확인하지 못해 매수 건수를 보류합니다.")
+            card["unknown"].append("판단 시각이나 유효한 가격을 확인하지 못해 매수 건수를 보류합니다.")
         card["selection_mode"] = sel["mode"]
         card["selection_policy"] = {"mode": sel["mode"], "cutoff_score": sel["cutoff_score"],
                                     "buy_threshold": sel["buy_threshold"],
