@@ -40,7 +40,9 @@ def test_buy_count_shows_the_price_date_beside_the_compute_time():
     """휴장일 재계산 시각을 그날 새 가격으로 읽지 않게 한다."""
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
     selection = html.split("const sel = d.selection;", 1)[1].split("unknown.textContent", 1)[0]
-    assert "판정 계산" in selection and "가격 기준 ${d.price_as_of} 종가" in selection
+    assert "판정 계산" in selection and "${selectionBasis}" in selection
+    assert "판단에 쓴 장중 가격 기준" in html
+    assert "종가 참고 · 지금 매매 판단 아님" in html
     assert 'id="mb-selection-timing"' in html  # 시각은 접힌 근거에 남긴다.
     assert "현재 판정" not in selection
 
@@ -203,7 +205,10 @@ def test_market_brief_api_reuses_current_decisions_without_llm(monkeypatch):
     monkeypatch.setattr(api.store, "load_portfolio_close_bundle", lambda market: ({"A": prices}, {"A": dates}))
     monkeypatch.setattr(api.store, "load_universe", lambda: [{"ticker": "A"}])
     monkeypatch.setattr(api.store, "load_market_flow", lambda: {})
-    monkeypatch.setattr(api, "_signals", lambda: [SimpleNamespace(kind="BUY", computed_at="2026-10-02T07:00:00+00:00")])
+    monkeypatch.setattr(api, "_signals", lambda: [SimpleNamespace(
+        ticker="A", kind="BUY", computed_at="2026-10-02T07:00:00+00:00",
+        signal_price_basis="stored_close", signal_input_price=160., signal_close_date="2026-10-02")])
+    monkeypatch.setattr(api.market_clock, "is_open", lambda *args: False)
     monkeypatch.setattr(api, "_regime", lambda: {})
     monkeypatch.setattr(api, "_macro", lambda: {})
     monkeypatch.setattr(api.signalcfg, "effective_config", lambda *args, **kwargs: (object(), {}))
@@ -270,6 +275,14 @@ def test_image_is_parseable_and_escapes_untrusted_text():
     assert "계약 &lt;원문&gt;" in out
     assert 'data-scene="up"' in out
     assert "매수 판정 1개" in out
+    reference = market_brief_image.render({
+        "status": "ready", "scene": {"direction": "up", "compared": 1,
+        "universe": 1, "up": 1, "down": 0, "flat": 0},
+        "selection": {"buy_count": 1, "computed_at": "2026-10-02T07:00:00+00:00",
+                      "reference_only": True},
+    })
+    assert "종가 참고 1개" in reference
+    assert "매수 판정 1개" not in reference
 
 
 def test_illustration_follows_verified_direction_and_withholds_us_sector():

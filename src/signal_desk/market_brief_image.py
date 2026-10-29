@@ -108,7 +108,8 @@ def render(card: dict, *, include_copy: bool = True) -> str:
              if direction != "unknown" else "시장 자료를 확인하고 있어요")
     selection = card.get("selection") if direction != "unknown" and card.get("status") == "ready" else None
     selection_time = _kst_time(selection.get("computed_at")) if isinstance(selection, dict) else None
-    selection_text = (f"매수 판정 {_count(selection.get('buy_count'))}개 · {selection_time}"
+    selection_label = "종가 참고" if isinstance(selection, dict) and selection.get("reference_only") else "매수 판정"
+    selection_text = (f"{selection_label} {_count(selection.get('buy_count'))}개 · {selection_time}"
                       if selection_time else "매수 판정 건수 보류 · 가격 또는 판정 시각 확인 전")
     svg = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" '

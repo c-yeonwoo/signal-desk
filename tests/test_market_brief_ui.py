@@ -24,7 +24,9 @@ const data={market:'kr',status:'ready',price_as_of:'2026-10-16',expected_as_of:'
   universe_count:200,price_count:200,daily_coverage:{available:195,analyzed:200},today_headline:'상승이 많았어요',
   summary:'오늘 오른 종목이 많지만 최근 평균 아래인 종목도 많아요.',
   movers:[{ticker:'005930',name:'삼성<전자>',change_pct:3.1,sector:'반도체'}],
-  selection:{buy_count:3,strong_buy_count:1,computed_at:'2026-10-16T08:00:00Z'},
+  selection:{buy_count:3,strong_buy_count:1,computed_at:'2026-10-16T08:00:00Z',
+    price_basis:'intraday_quote',reference_only:false,price_checked_at:'2026-10-16T08:00:05Z'},
+  selection_deferred_count:1,
   facts:[],unknown:[],brief_news:[{name:'삼성전자',title:'실적 발표',source:'DART',published:'2026-10-16',url:'https://dart.fss.or.kr/dsaf001/main.do?rcpNo=123'}]};
 const answer=(i,d,ok=true)=>pending[i].resolve({ok,json:async()=>d});
 (async()=>{
@@ -35,6 +37,9 @@ const answer=(i,d,ok=true)=>pending[i].resolve({ok,json:async()=>d});
  assert.match(el('mb-movers').innerHTML,/data-market="kr"/);
  assert.match(el('mb-news-note').textContent,/2026-10-16.*원인/);
  assert.equal(el('mb-retry').hidden,true);
+ assert.match(el('mb-selection').innerHTML,/장중 가격 기준.*가격 확인 전 1종목 제외/);
+ assert.doesNotMatch(el('mb-selection').innerHTML,/종가 기준/);
+ assert.match(el('mb-selection-timing').textContent,/가격 유효성 확인/);
  ctx.openMarketBriefStock({dataset:{ticker:'005930',market:'kr'}});
  ctx.openMarketBriefStock({dataset:{ticker:"');alert(1)",market:'kr'}});assert.equal(nav.length,1);
  // Old KR response may not paint US data. Starting a new read clears source/news.
@@ -50,6 +55,12 @@ const answer=(i,d,ok=true)=>pending[i].resolve({ok,json:async()=>d});
  assert.equal(el('mb-retry').hidden,false);
  const failed=ctx.loadRegime();answer(4,{},false);await failed;
  assert.match(el('mb-state').textContent,/불러오지 못/);assert.equal(el('mb-retry').hidden,false);
+ const closed=ctx.loadRegime();answer(5,{...data,market:'us',selection_deferred_count:0,
+   selection:{...data.selection,price_basis:'stored_close',reference_only:true}});await closed;
+ assert.match(el('mb-selection').innerHTML,/종가 참고 3개.*지금 매매 판단 아님/);
+ const deferred=ctx.loadRegime();answer(6,{...data,market:'us',selection:null});await deferred;
+ assert.match(el('mb-selection').innerHTML,/판정 건수 보류/);
+ assert.doesNotMatch(el('mb-selection').innerHTML,/매수 판정 3개/);
  // Raw URLs with credentials must not become source links.
  ctx.renderMarketBriefRelated({...data,brief_news:[{url:'https://user:secret@example.com/a'}]});
  assert.equal(el('mb-news-link').hidden,true);
