@@ -1,0 +1,13 @@
+{
+  "date": "2026-10-31",
+  "surface": "candidate list and investment workspace",
+  "source": "local actual HTML/CSS/JS with synthetic read-only responses",
+  "production_data": false,
+  "desktop": "1440x1000",
+  "mobile": "390x844, touch, reduced motion",
+  "cases": ["normal", "missing records", "delayed price and null close", "account lookup failure"],
+  "checks": ["no horizontal document overflow", "visible-only thumbnails", "thumbnail toggle", "price and signal chart preserved", "account and analysis visibility", "dividend visibility", "no import, order or diagnosis execution"],
+  "populated_equity": {"image": "stage2-populated-equity.png", "selected_style": "balanced", "points": 12},
+  "review": {"code": "approved after workspace resize and dividend fixes", "design": "ship after populated equity evidence update"},
+  "local_test_result": "3250 passed, 49 subtests passed"
+}

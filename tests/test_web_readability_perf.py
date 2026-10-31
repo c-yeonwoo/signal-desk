@@ -143,7 +143,7 @@ assert.equal(ctx.compareRealAndAnalysisHoldings(real,manual.filter(h=>h.ticker!=
 assert.equal(ctx.compareRealAndAnalysisHoldings(real,manual.map(h=>h.ticker==='005930'?{...h,qty:1}:h),'kr').same,false);
 assert.equal(ctx.compareRealAndAnalysisHoldings(real,manual.map(h=>h.ticker==='AAPL'?{...h,avg_price:190}:h),'us').same,false);
 assert.match(html, /id="real-holdings-compare" role="status"/);
-assert.match(html, /아래 진단은 분석용 입력 기준입니다/);
+assert.match(html, /보유 분석은 저장한 입력 기준입니다/);
 """
     out = subprocess.run([node, "-e", script], cwd=WEB.parents[3],
                          text=True, capture_output=True, check=False)
