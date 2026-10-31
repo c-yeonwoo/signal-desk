@@ -564,6 +564,10 @@ def _bot_loop_iteration() -> None:
     _maybe_refresh_decision_sources()
     _daily_kb_collect()  # 외부 소스(미주은·오건영·유튜브) 하루 1회 자동수집(공용)
     try:
+        _daily_company_research(_kst_today())
+    except Exception as exc:
+        log.warning("기업 근거 일일 점검 실패: %s", type(exc).__name__)
+    try:
         _morning_digest()  # 아침 정기 요약(텔레그램 채널) — 앱 안 열어도 오는 맥락
     except Exception as e:
         log.warning("아침 브리핑 실패(무시): %s", type(e).__name__)
@@ -1168,6 +1172,15 @@ def _prune_expired_advisor_cache() -> None:
         db.kv_set("advisor_prompt_cache_cleanup_last", {"at": now, "expired_rows_deleted": deleted})
     except Exception as exc:  # cleanup must not interrupt price collection or exits
         log.warning("만료 자문 캐시 정리 실패: %s", type(exc).__name__)
+
+
+def _daily_company_research(today: str) -> None:
+    """Review existing company evidence even when paid KB collection is off."""
+    if db.kv_get("company_research_check_date") == today:
+        return
+    report = kb.refresh_research_briefs(_kb_targets())
+    if not report["failed"]:
+        db.kv_set("company_research_check_date", today)
 
 
 def _daily_maintenance(enabled: list[str]) -> None:
@@ -3433,6 +3446,11 @@ def signal_detail_get(ticker: str, request: Request, response: Response, market:
         provisional_at=provisional_at, confirmed_close=item.get("signal_confirmed_close"),
         signal_price_status=item.get("signal_price_status"), now=read_at,
     )
+    review["research"] = kb.research_brief_get(ticker, now=read_at.timestamp())
+    if review["research"]["withheld_changed_sources"]:
+        # The legacy summary/moves must not contradict the retraction above it.
+        item["kb"], item["moves"] = None, None
+        item["kb_status"] = {"status": "source_changed", "current": False}
     pit = None
     if market != "us":
         try:
@@ -4829,6 +4847,7 @@ def data_health_get():
             "warnings_veto": store.warnings_status(), "kb_retrieval": _kb_retrieval_status(),
             # 종목 KB 수집이 멈췄는지 — 실패 종목 이름까지. 조용히 빠진 종목도 조용한 0이다.
             "kb_refresh": kb_refresh,
+            "company_research_refresh": db.kv_get("company_research_refresh_last") or {"status": "not_started"},
             # 장중 DART lite(공시→Decision만). 하루 1회 full refresh와 별개.
             "dart_lite": db.kv_get("kb_dart_lite_last") or {},
             # Read-only official financial evidence; never a trading input.
@@ -6844,9 +6863,13 @@ def kb_get(ticker: str):
     """현재 사용 가능한 요약과 지난 기록을 구분한다."""
     dg = db.kb_digest_get(ticker)
     state = kb.digest_freshness(dg, check=kb.digest_checks().get(ticker))
+    research = kb.research_brief_get(ticker)
+    if research["withheld_changed_sources"]:
+        state = {**state, "status": "source_changed", "current": False}
     return {"digest": dg if state["current"] else None,
             "archived_digest": dg if dg and not state["current"] else None,
-            "freshness": state, "entries": db.kb_entries_recent(ticker, 8)}
+            "freshness": state, "entries": db.kb_entries_recent(ticker, 8),
+            "research": research}
 
 
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------

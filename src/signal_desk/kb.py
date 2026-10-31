@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 import logging
 import math
 import re
@@ -1255,8 +1256,12 @@ def build_digest(name: str, items: list[dict]) -> dict:
     if not items:
         return {"sentiment": 0.0, "summary": "최근 수집된 뉴스·영상이 없습니다.", "points": []}
     if llm.available():
-        headlines = "\n".join(f"- [{it.get('source', '')}] {it.get('title', '')} :: {it.get('summary', '')[:120]}"
-                              for it in items[:12])
+        from signal_desk import research_brief
+        research_now = time.time()
+        research_sources = research_brief.sources(items, now=research_now)
+        headlines = (json.dumps(research_sources, ensure_ascii=False) if research_sources else
+                     "\n".join(f"- [{it.get('source', '')}] {it.get('title', '')} :: {it.get('summary', '')[:120]}"
+                               for it in items[:12]))
         system = (
             "너는 주식 데스크의 정성 분석가다. 헤드라인을 그대로 줄여 쓰지 말고, "
             "주가·실적·밸류에이션에 영향 가능한 경제적 함의만 추출한다. "
@@ -1264,20 +1269,24 @@ def build_digest(name: str, items: list[dict]) -> dict:
             "수급(외국인/기관)·이벤트리스크. "
             "헤드라인에 없는 숫자·전망은 지어내지 마라. 매수/매도 권유·수익률 보장 금지. "
             "잡음(인사·단순 시황 언급)은 무시하고 물질적 이슈만 남긴다. "
-            + PLAIN_KOREAN
+            + PLAIN_KOREAN + research_brief.PROMPT
         )
         user = (
             f"종목: {name}\n최근 헤드라인:\n{headlines}\n\n"
             "JSON으로만 답하라:\n"
             '{"sentiment": -1.0~1.0 (물질적 뉴스 기준 투자심리),\n'
             ' "summary": "짧은 한국어 한 문장 — 확인된 변화와 투자자가 볼 이유",\n'
-            ' "points": ["확인된 사실을 짧게, 최대 2개. 같은 말 반복 금지"]}'
+            ' "points": ["확인된 사실을 짧게, 최대 2개. 같은 말 반복 금지"],\n'
+            ' "research": {"supports": [{"source_id": "자료 ID", "quote": "원문 인용"}], '
+            '"risks": [], "next_checks": ["follow_up"]}}\n'
         )
-        out = llm.complete_json(system, user, max_tokens=500, model=llm.DIGEST_MODEL, purpose="kb")
+        out = llm.complete_json(system, user, max_tokens=800, model=llm.DIGEST_MODEL, purpose="kb")
         if out and isinstance(out.get("sentiment"), (int, float)):
             s = max(-1.0, min(1.0, float(out["sentiment"])))
             pts = [str(p) for p in (out.get("points") or [])][:2]
-            return {"sentiment": round(s, 2), "summary": str(out.get("summary", ""))[:280], "points": pts}
+            return {"sentiment": round(s, 2), "summary": str(out.get("summary", ""))[:280], "points": pts,
+                    "research": research_brief.capture(out.get("research"), research_sources,
+                                                        now=research_now, model=llm.DIGEST_MODEL)}
         log.info("LLM 다이제스트 파싱 실패 — 규칙기반 폴백")
     return _rule_digest(name, items)
 
@@ -1510,6 +1519,77 @@ def advisor_digest(ticker: str, *, now: float | None = None) -> dict | None:
     return dg if digest_freshness(dg, now=now, check=digest_checks().get(ticker))["current"] else None
 
 
+def research_brief_get(ticker: str, *, now: float | None = None) -> dict:
+    """Service-side research from existing, attributed sources; no network or LLM."""
+    from signal_desk import research_brief
+    now = time.time() if now is None else now
+    items = db.kb_entries_recent(ticker, 12, confirmed_only=True,
+                                  attribution_version=kb_attribution.POLICY_VERSION)
+    changed = _research_changed_urls(ticker, now=now)
+    result = research_brief.build(ticker=ticker, items=[r for r in items if r.get("url") not in changed],
+                                   check=digest_checks().get(ticker) or {},
+                                   cached=db.kv_get(f"company_research:{ticker}"), now=now)
+    if changed:
+        result["unknowns"].insert(0, "같은 주소의 원문 내용이 바뀌어 이전 발췌를 제외했습니다. 정정 내용을 확인하세요.")
+        if result["status"] == "no_recent_sources":
+            result["status"] = "source_changed"
+    result["withheld_changed_sources"] = bool(changed)
+    return result
+
+
+def _research_changed_urls(ticker: str, *, now: float) -> set[str]:
+    from signal_desk import research_brief
+    cached = db.kv_get(f"company_research_changes:{ticker}") or {}
+    return {url for url, observed in cached.items()
+            if isinstance(observed, (int, float)) and 0 <= now - observed <= research_brief.MAX_AGE}
+
+
+def _check_research_source_changes(ticker: str, items: list[dict], *, now: float,
+                                   verified_urls: set[str]) -> None:
+    """Same-URL edits must not re-certify immutable old KB text as current research."""
+    from signal_desk import research_brief
+    retained = db.kb_entries_recent(ticker, 12, confirmed_only=True,
+                                     attribution_version=kb_attribution.POLICY_VERSION)
+    old = {r["url"]: r["id"] for r in research_brief.sources(retained, now=now)}
+    prior = db.kv_get(f"company_research_changes:{ticker}") or {}
+    changed = {url: observed for url, observed in prior.items()
+               if url in old and isinstance(observed, (int, float))
+               and 0 <= now - observed <= research_brief.MAX_AGE}
+    for item in items:
+        url = item.get("url")
+        if url in old:
+            eligible = research_brief.sources([item], now=now)
+            if not eligible or eligible[0]["id"] != old[url]:
+                changed[url] = now
+            elif url in verified_urls:
+                changed.pop(url, None)
+    if changed != prior:
+        db.kv_set(f"company_research_changes:{ticker}", changed)
+
+
+def refresh_research_briefs(targets: list[dict]) -> dict:
+    """Daily cloud check. Bounded diagnostic replaces itself; no new source/model calls."""
+    now = time.time()
+    counts: dict[str, int] = {}
+    failed = []
+    seen = set()
+    for target in targets:
+        ticker = target.get("ticker")
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        try:
+            status = research_brief_get(ticker, now=now)["status"]
+            counts[status] = counts.get(status, 0) + 1
+        except Exception as exc:
+            failed.append({"ticker": ticker, "error": type(exc).__name__})
+    report = {"checked_at": now, "targets": len(seen), "counts": counts,
+              "failed": failed, "llm_calls": 0, "source_requests": 0,
+              "mode": "explanation_only"}
+    db.kv_set("company_research_refresh_last", report)
+    return report
+
+
 def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days: int) -> bool:
     """한 종목 수집·다이제스트 갱신. 수집물이 없으면 False.
 
@@ -1523,6 +1603,7 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
         # 뉴스 장애가 공식 공시의 기존 위험 차단까지 막아서는 안 된다.
         sync_disclosure_events(ticker, disc)
         raise
+    observed_items = disc + news_items  # Retractions also matter when new attribution fails.
     verified_news = []
     for item in news_items:
         verdict = kb_attribution.verify_news(name, item)
@@ -1530,6 +1611,8 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
             verified_news.append({**item, "attribution_version": kb_attribution.POLICY_VERSION})
     source_ok, _ = _source_allows(db.kb_source_get("naver_news"), "stock")
     news_items = verified_news if source_ok else []
+    _check_research_source_changes(ticker, observed_items, now=time.time(),
+                                   verified_urls={it.get("url") for it in disc + news_items})
     owners = db.kb_entry_url_owners([it.get("url") for it in disc + news_items])
     disc = [it for it in disc if not owners.get(it.get("url")) or owners[it["url"]] == ticker]
     news_items = [it for it in news_items if not owners.get(it.get("url")) or owners[it["url"]] == ticker]
@@ -1566,6 +1649,14 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
                 policy_version=existing.get("policy_version"),
             )
         return False  # LLM 비용 0 · 오래된 원문으로 오늘 요약을 만들지 않음
+    # Summarize the actual retained/attributed set, not a search response that the
+    # source registry may have rejected. The same set authenticates citations on read.
+    digest_items = _current_digest_items(db.kb_entries_recent(
+        ticker, 12, confirmed_only=True, attribution_version=kb_attribution.POLICY_VERSION))
+    changed_urls = _research_changed_urls(ticker, now=time.time())
+    digest_items = [r for r in digest_items if r.get("url") not in changed_urls]
+    if not digest_items:
+        return False
     digest = build_digest(name, digest_items)
     # 위험 알림은 확인된 공식 공시 이벤트에서만 나온다.
     event_flag, event_note = False, ""
@@ -1574,6 +1665,9 @@ def _refresh_one(ticker: str, name: str, codes: dict, news_n: int, lookback_days
         event_flag, event_note = True, active.get("summary") or event_note
     db.kb_digest_set(ticker, name, digest["sentiment"], digest["summary"], digest["points"],
                      len(digest_items), newest_ts=_newest_ts(digest_items), event_flag=event_flag, event_note=event_note)
+    # Keep research out of kb_digest/advisor/sentiment_map: it must not silently
+    # become a trading input. One replaceable, bounded sidecar per ticker.
+    db.kv_set(f"company_research:{ticker}", digest.get("research"))
     return True
 
 
