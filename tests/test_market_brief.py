@@ -146,14 +146,16 @@ def test_holiday_market_card_names_last_session_in_text_and_image():
     assert "오늘의 시장" not in svg and "오늘 비교" not in svg
 
 
-def test_today_route_reads_market_card_without_eager_signal_list():
+def test_today_route_reads_candidates_without_eager_detail_or_research():
     html = (Path(__file__).resolve().parents[1] / "src/signal_desk/web/index.html").read_text(encoding="utf-8")
     route = html.split("function switchTab(t){", 1)[1].split("const _SEGS =", 1)[0]
     assert 'id="view-today"' in html and 'id="subnav-today"' in html
     assert "routeFromHash() || switchTab('today')" in html
-    assert "if (t === 'today') loadRegime();" in route
-    assert "if (t === 'signal') { loadSignals(); loadScorecard(); }" in route
+    assert "if (t === 'today') { loadRegime(); if(window.TodayDesk) TodayDesk.load(_sigMarket); }" in route
+    assert "if (t === 'signal') loadSignals();" in route
     assert "if (t === 'today') { loadSignals()" not in route
+    assert "loadScorecard();" not in route
+    assert "showSignalChart(" not in route
 
 
 def test_market_card_has_one_endpoint_and_defers_source_requests():

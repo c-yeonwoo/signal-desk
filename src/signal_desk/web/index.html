@@ -28,6 +28,8 @@
 <script defer src="./investment.js"></script>
 <link rel="stylesheet" href="./entry-timing.css" />
 <script defer src="./entry-timing.js"></script>
+<link rel="stylesheet" href="./today-desk.css" />
+<script defer src="./today-desk.js"></script>
 <style>
   * { box-sizing:border-box; }
   /* sticky footer 셸: body는 최소 뷰포트, 콘텐츠 길면 늘어남. height:100% 고정 금지(관리자 긴 문서에서 footer 깨짐). */
@@ -1057,14 +1059,17 @@
   <h1><span class="wm-a">Signal</span> <span class="wm-b">Desk</span></h1>
   <div class="tabs">
     <button class="tab" data-tab="today" onclick="switchTab('today')">오늘</button>
-    <button class="tab" data-tab="signal" onclick="switchTab('signal')">종목</button>
     <button class="tab" data-tab="trading" onclick="switchTab('trading')" title="내 보유 · 계좌와 주문 · 모의투자">내 투자</button>
-    <button class="tab" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">관리자</button>
   </div>
   <div class="right">
+    <button type="button" class="btn desk-search" onclick="openStockSearch()">종목 찾기</button>
     <button type="button" id="alertBell" class="btn" onclick="openAlerts()" style="position:relative" title="관심종목 시그널 변동 알림" aria-label="알림"><span class="alert-bell-ico" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5"/><path d="M9 17a3 3 0 0 0 6 0"/></svg></span><span id="alert-badge" style="display:none"></span></button>
-    <button type="button" id="myPageLabel" class="btn" onclick="switchTab('mypage')" aria-label="내 계정 설정"></button>
-    <button type="button" class="btn btn-logout" onclick="logout()" title="로그아웃"><span class="logout-full">로그아웃</span><span class="logout-short">나가기</span></button>
+    <details class="desk-nav" id="desk-menu"><summary aria-label="설정과 서비스 상태">더 보기</summary><div class="desk-menu">
+      <button type="button" id="myPageLabel" onclick="switchTab('mypage')" aria-label="내 계정 설정"></button>
+      <button type="button" onclick="openSignalValidation()">판정 검증</button>
+      <button type="button" id="tab-admin" data-tab="admin" onclick="switchTab('admin')" style="display:none">서비스 상태</button>
+      <button type="button" class="btn btn-logout" onclick="logout()">로그아웃</button>
+    </div></details>
   </div>
 </header>
 
@@ -1085,6 +1090,7 @@
 <nav class="subnav" id="subnav-today" style="display:none" aria-label="오늘 시장">
   <button class="subtab on" data-mkt="kospi" onclick="switchTodayMarket('kospi')">국내</button>
   <button class="subtab" data-mkt="us" onclick="switchTodayMarket('us')">해외</button>
+  <button class="subtab" data-mkt="watchlist" onclick="switchTab('watchlist')">관심종목</button>
 </nav>
 <nav class="subnav" id="subnav-signal" style="display:none" aria-label="종목 목록">
   <button class="subtab on" data-mkt="kospi" onclick="switchSignalMarket('kospi')">국내</button>
@@ -1178,13 +1184,26 @@
 </section>
 <main>
   <div id="view-today" class="view-app" style="display:none">
+    <div class="today-desk">
+      <section id="today-status" class="today-status" aria-live="polite" aria-labelledby="today-status-title">
+        <h2 id="today-status-title" tabindex="-1">가격과 매수 운영 상태를 확인하고 있습니다</h2><p id="today-status-note">확인된 후보부터 보여드립니다.</p>
+      </section>
+      <section aria-labelledby="today-candidate-title"><div class="today-section-title"><h2 id="today-candidate-title">오늘 살펴볼 후보</h2><span id="today-candidate-count"></span></div>
+        <ul id="today-candidates" class="today-candidates"><li class="today-loading">후보를 확인하고 있습니다…</li></ul>
+        <div class="today-explore"><button type="button" class="btn" id="today-more" onclick="TodayDesk.showMore()" hidden>후보 모두 보기</button><button type="button" class="btn" onclick="openStockSearch()">전체 종목 보기</button><button type="button" class="btn" id="today-retry" onclick="TodayDesk.refresh()" hidden>다시 불러오기</button></div>
+      </section>
+      <section class="today-market-context" aria-labelledby="today-market-title"><h2 id="today-market-title">시장 흐름</h2><p id="today-market-line">시장 자료를 확인하고 있습니다.</p>
+        <details id="today-market-details"><summary>시장 근거와 지표 보기</summary><div id="today-market-slot"></div>
     <div class="today-links" aria-label="더 살펴보기"><span class="today-links-label">더 살펴보기</span>
       <button type="button" class="btn" onclick="openCycleContext('cycle')">몇 달 흐름</button>
       <button type="button" class="btn" onclick="openCycleContext('hypo')">최근 이슈</button>
     </div>
+        </details>
+      </section>
+    </div>
   </div>
   <div id="view-signal" class="view-app" style="display:none">
-    <details id="signal-trust" ontoggle="if(this.open) loadScorecard()"><summary id="signal-trust-sum">시그널 검증</summary><div class="trust-body" id="signal-trust-body"></div></details>
+    <div class="desk-stock-heading"><button type="button" class="btn" onclick="switchTab('today')">오늘의 후보로</button><h2>종목 살펴보기</h2></div>
     <div id="signal-explore-slot"></div>
     <div class="sig-workspace">
       <div class="sig-list card" style="padding:0">
@@ -1327,6 +1346,7 @@
         <div id="signal-whynow" style="display:none;font-size:13px;line-height:1.55;margin:6px 0;
           padding:8px 10px;border-left:3px solid var(--accent);background:var(--accent-weak);
           border-radius:var(--r-sm);text-align:left"></div>
+        <details class="stock-calculation"><summary>지표·기업자료 더 보기</summary>
         <div class="detail-tabs" id="detail-tabs" style="display:none"></div>
         <div class="detail-panels" id="detail-panels">
           <div id="signal-narrative" class="detail-panel placeholder" style="display:none;background:var(--accent-weak);
@@ -1345,6 +1365,7 @@
           </div>
           <div id="signal-events" class="detail-panel" style="display:none;font-size:13px"></div>
         </div>
+        </details>
       </div>
     </div>
   </div>
@@ -1738,7 +1759,7 @@
                 <div id="home-paper-chart" class="home-chart" aria-label="모의투자 계좌 금액 추이"></div>
                 <p id="home-chart-caption" class="home-small">기록된 순자산 경로 확인 중…</p>
                 <div class="home-result-row home-minor"><div><b>실계좌 보유주식</b><small>당일 변동 참고값 · 계좌 전체 수익률 아님</small></div><strong id="home-real-return">—</strong></div>
-                <div class="home-result-row home-minor"><div><b>시그널 실측</b><small>매수 판정의 사후 채점 · 계좌 수익률 아님</small></div><button type="button" class="linkish" onclick="switchTab('signal');const t=document.getElementById('signal-trust');if(t){t.open=true;t.scrollIntoView({behavior:'smooth'})}">시그널 판정 보기</button></div>
+                <div class="home-result-row home-minor"><div><b>시그널 실측</b><small>매수 판정의 사후 채점 · 계좌 수익률 아님</small></div><button type="button" class="linkish" onclick="openSignalValidation()">시그널 판정 보기</button></div>
                 <p id="home-performance-note" class="home-small">원화·달러는 합산하지 않습니다. 기준선이 없는 차트는 초과성과를 뜻하지 않습니다.</p>
               </div>
               <p id="home-change" class="home-change">시장 시그널 변화 확인 중…</p>
@@ -1874,6 +1895,7 @@
   </div>
 
   <div id="view-mypage" class="view-doc" style="display:none">
+    <details id="signal-trust" ontoggle="if(this.open) loadScorecard()"><summary id="signal-trust-sum">판정 검증</summary><div class="trust-body" id="signal-trust-body"></div></details>
     <h2 class="page-head">마이페이지</h2>
     <p class="page-desc" id="mp_email"></p>
     <div class="card" style="max-width:700px;margin:16px 0;padding:20px">
@@ -2732,8 +2754,10 @@ let _userEmail = '', _profile = {};
 function switchTab(t){
   if(!_ROUTES.includes(t)) t = 'today';
   if (t === 'admin' && !_isAdmin) t = 'signal';  // 관리자만 접근
-  const navTab = t === 'watchlist' ? 'signal' : t === 'cycle'
-    ? (_cycleSeg === 'cycle' || _cycleSeg === 'hypo' ? 'today' : 'signal') : t;
+  const navTab = ['signal','watchlist','cycle'].includes(t) ? 'today' : t;
+  document.body.dataset.surface = t;
+  const menu = document.getElementById('desk-menu'); if(menu) menu.open=false;
+  if (t !== 'today' && window.TodayDesk) TodayDesk.leave();
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === navTab));
   _ROUTES.forEach(v => { const el = document.getElementById('view-' + v); if (el) el.style.display = (v === t) ? '' : 'none'; });
   document.getElementById('subnav-trading').style.display = (t === 'trading') ? '' : 'none';  // 페이퍼 서브내비
@@ -2748,8 +2772,8 @@ function switchTab(t){
   if (t === 'today') applyMacroState();
   // 내 투자 홈은 `trading/rebal` 안에만 있다. 시그널 화면에서 계좌·성과 API를 미리
   // 부르면 보이지 않는 카드 때문에 첫 목록 요청과 경쟁한다.
-  if (t === 'today') loadRegime();
-  if (t === 'signal') { loadSignals(); loadScorecard(); }
+  if (t === 'today') { loadRegime(); if(window.TodayDesk) TodayDesk.load(_sigMarket); }
+  if (t === 'signal') loadSignals();
   if (t === 'watchlist') loadWatchlistBriefs();
   if (t === 'cycle') switchCycleSeg(_cycleSeg);
   if (t === 'trading') switchTradingSeg(_tradingSeg);
@@ -2761,6 +2785,16 @@ function switchTab(t){
   if (t === 'mypage') fillMyPage();
   // 서브내비 있는 탭은 해시를 sub-switcher가 '#tab/seg'로 씀 → 여기선 안 건드림(새로고침 시 서브탭 유지)
   if (!_SEGS[t] && location.hash.slice(1) !== t) history.replaceState(null, '', '#' + t);
+}
+
+function openStockSearch(){
+  switchTab('signal');
+  document.getElementById('sig-search').focus({preventScroll:true});
+}
+function openSignalValidation(){
+  switchTab('mypage');
+  const panel=document.getElementById('signal-trust'); panel.open=true;
+  panel.scrollIntoView({block:'start'});
 }
 
 const _SEGS = { trading: ['bot', 'rebal', 'live', 'dividend'], cycle: ['cycle', 'vc', 'hypo', 'learn', 'guru', 'etf'],
@@ -3652,6 +3686,8 @@ async function loadRegime(){
   document.getElementById('mb-market').textContent = market === 'us' ? '해외 시장' : '국내 시장';
   asof.textContent = '종가 확인 중…';
   state.textContent = '시장 자료를 확인하고 있습니다';
+  const compactMarket = document.getElementById('today-market-line');
+  if (compactMarket) compactMarket.textContent = '시장 자료를 확인하고 있습니다.';
   document.getElementById('mb-basis').textContent = '저장된 종가를 확인한 뒤 표시합니다.';
   document.getElementById('mb-selection').textContent = '판정 현황 확인 중…';
   document.getElementById('mb-source-basis').textContent = '';
@@ -3677,6 +3713,10 @@ async function loadRegime(){
     setMarketBriefImage(d);
     asof.textContent = d.price_as_of ? `${d.price_as_of} 종가${fresh ? '' : ' · 갱신 지연'}` : '종가 확인 불가';
     state.textContent = d.today_headline || d.headline || '시장 자료를 아직 요약할 수 없어요';
+    const marketLine = document.getElementById('today-market-line');
+    if (marketLine) marketLine.textContent = fresh
+      ? `${state.textContent} · 관찰 ${d.universe_count}종목 · ${d.price_as_of || '날짜 미확인'} 종가`
+      : '최신 종가가 부족해 시장 요약을 보류했습니다.';
     document.getElementById('mb-basis').textContent = fresh
       ? d.summary || '확인된 종가로 움직임을 정리했어요.'
       : '오래된 가격으로 최근 거래일의 시장 흐름을 판단하지 않아요.';
@@ -3731,6 +3771,7 @@ async function loadRegime(){
     if (seq !== _marketBriefSeq) return;
     asof.textContent = '자료 확인 실패'; state.textContent = '시장 요약을 불러오지 못했습니다';
     document.getElementById('mb-basis').textContent = '시그널 목록은 별도로 확인할 수 있습니다.';
+    if (compactMarket) compactMarket.textContent = '시장 요약을 불러오지 못했습니다. 시장 근거에서 다시 불러올 수 있습니다.';
     document.getElementById('mb-selection').innerHTML = '<b>요약 확인 불가</b><small>개별 시그널은 목록에서 확인</small>';
     renderMarketBriefRelated(null);
     document.getElementById('mb-retry').hidden = false;
@@ -4389,6 +4430,7 @@ function switchTodayMarket(m){
   clearSignalSelection('새 시장의 종목 목록에서 종목을 선택하세요.');
   _sigMarket = m;
   document.querySelectorAll('#subnav-today button').forEach(b => b.classList.toggle('on', b.dataset.mkt === m));
+  if(window.TodayDesk) TodayDesk.load(m);
   loadRegime();
   if (document.getElementById('market-brief-sources').open) loadMacroDetails();
 }
@@ -4725,7 +4767,16 @@ function hasSignalPrice(item){
 }
 function signalPriceText(item){
   if (!hasSignalPrice(item)) return '–';
-  return (_sigMarket === 'us' ? '$' + fmtNum(Number(item.price),2) : fmtNum(Number(item.price),0) + '원');
+  const us = _sigMarket === 'us';
+  const price = Number(item.price).toLocaleString('ko-KR', {minimumFractionDigits:us?2:0,maximumFractionDigits:us?2:0});
+  return us ? '$' + price : price + '원';
+}
+function signalDecisionLabel(item){
+  if (!hasSignalPrice(item) || item.kind === 'DEFERRED') return '현재 판정 보류';
+  const view=signalPriceView(item);
+  if(view.stale)return '지난 '+kindLabel(item.kind);
+  if(_isBuy(item.kind))return item.current_decision_status==='close_reference_only' ? '종가 참고 후보' : '매수 후보';
+  return kindLabel(item.kind);
 }
 function renderSignalList(){
   const el = document.getElementById('signal-body');
@@ -4850,7 +4901,7 @@ function renderSignalList(){
       ${star(r)}<button type="button" class="stock-open" data-stock-open="${esc(r.ticker)}" aria-pressed="${r.ticker === _selectedTicker}">
         <span class="stock-line"><span class="stock-name">${esc(r.name)}</span><span class="stock-price">${signalPriceText(r)}</span></span>
         <span class="stock-meta"><span>${esc(r.ticker)}${r.sector ? ' · ' + esc(r.sector) : ''}</span><span class="stock-change" style="color:${change > 0 ? 'var(--sig-buy)' : change < 0 ? 'var(--sig-sell)' : 'var(--dim)'}">${change == null ? '–' : (change > 0 ? '+' : '') + fmtNum(change,2) + '%'}</span></span>
-        <span class="stock-state"><span class="sig-pill ${r.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(r)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${!hasPrice || r.kind === 'DEFERRED' ? '현재 판정 보류' : (priceView.stale ? '지난 ' : '') + kindLabel(r.kind)}</span>${hasPrice ? priceNote : '<span>가격 확인 필요</span>'}</span>
+        <span class="stock-state"><span class="sig-pill ${r.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(r)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${esc(signalDecisionLabel(r))}</span>${hasPrice ? priceNote : '<span>가격 확인 필요</span>'}</span>
         ${(sort !== 'signal' || r.low_coverage) ? `<span class="sig-metric">${esc(metric(r))}${covBadge(r)}</span>` : ''}${holdNote(r)}${badges(r)}
       </button></li>`;
   }).join('');
@@ -5661,6 +5712,9 @@ function _paintSignalDetail(ticker, item){
     const chgC = chg > 0 ? 'var(--sig-buy)' : chg < 0 ? 'var(--sig-sell)' : 'var(--dim)';
     const hasPrice = hasSignalPrice(item);
     const priceStr = hasPrice ? signalPriceText(item) : '가격 확인 필요';
+    const priceNote = priceView.stale || priceView.warning ? priceView.message
+      : priceView.status === 'current_quote' ? '장중 잠정가 · 판정에 쓴 가격 기준'
+      : `${item.signal_close_date || '날짜 미확인'} 종가 · 다음 장중 가격은 아직 반영되지 않았습니다.`;
     const scoreC = item.score > 0 ? 'var(--sig-buy)' : item.score < 0 ? 'var(--sig-sell)' : 'var(--txt)';
     // Buy+만: 연속 매수권 에피소드 발동가 대비 현재 수익률(entry.run_up_pct)
     let runUpHtml = '';
@@ -5685,10 +5739,10 @@ function _paintSignalDetail(ticker, item){
     // 현재가 대비 목표 여력을 크게 띄우면 손실 경고와 반대 메시지가 된다.
     heroEl.style.display = '';
     const beside = scoreBeside(item) ? `<span class="hero-score-why">${esc(scoreBeside(item))}</span>` : '';
-    const after = runUpHtml ? `<div class="hero-after">${runUpHtml}</div>` : '';
+    const after = runUpHtml ? `<details class="hero-after"${episodeLoss ? ' open' : ''}><summary>이전 후보 기록 이후 가격</summary>${runUpHtml}</details>` : '';
     const plainReason = !hasPrice ? '저장된 가격이 확인될 때까지 현재 판정을 보류합니다.'
       : priceView.stale ? '아래 차트와 근거는 저장된 기록입니다.'
-      : _isBuy(item.kind) ? '새 매수 후보 평가입니다. 이미 보유한 주식의 추가매수·매도 지시는 아닙니다.'
+      : _isBuy(item.kind) ? (window.TodayDesk ? TodayDesk.describe(item).reason : '신규 진입 후보입니다. 선정 근거를 확인하세요.')
       : _isSell(item.kind) ? '매도 쪽으로 평가했습니다. 보유 중이라면 아래 근거를 확인하세요.' : heroReason(item);
     const indicators = !_isBuy(item.kind) && !_isSell(item.kind) ? '' : heroReason(item);
     heroEl.innerHTML = `<div class="hero-card ${item.kind}${episodeLoss ? ' buy-with-loss' : ''}${priceView.warning ? ' price-unverified' : ''}">
@@ -5697,13 +5751,15 @@ function _paintSignalDetail(ticker, item){
             ${priceStr ? `<span class="hero-price">${priceStr}</span>` : ''}
             ${hasPrice && chg != null ? `<span style="color:${chgC};font-weight:700">${chg > 0 ? '▲' : chg < 0 ? '▼' : ''}${fmtNum(Math.abs(chg), 2)}%</span>` : ''}
           </div>
-          <span class="sig-pill hero-signal ${item.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(item)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${!hasPrice || item.kind === 'DEFERRED' ? '현재 판정 보류' : (priceView.stale ? '지난 ' : '') + kindLabel(item.kind)}</span>
+          <span class="sig-pill hero-signal ${item.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(item)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${esc(signalDecisionLabel(item))}</span>
         </div>
-        ${hasPrice && priceView.message ? `<div class="hero-price-note${priceView.stale ? ' is-stale' : ''}" role="note">${esc(priceView.message)}${item.signal_close_date ? ' · 종가 ' + esc(item.signal_close_date) : ''}</div>` : ''}
+        ${hasPrice && priceNote ? `<div class="hero-price-note${priceView.stale ? ' is-stale' : ''}" role="note" title="${esc(priceView.message)}">${esc(priceNote)}</div>` : ''}
         <div class="hero-reason">${esc(plainReason)}</div>
+        ${hasPrice && !priceView.stale && _isBuy(item.kind) && window.TodayDesk ? `<p class="hero-price-note">주의 · ${esc(TodayDesk.describe(item).caution)}</p><p class="hero-price-note">신규 진입 평가 · <button type="button" class="linkish" onclick="switchTab('trading')">이미 보유 중이라면 내 투자에서 확인</button></p>` : ''}
         ${after}
-        <details class="hero-tech" ${!hasPrice ? 'hidden' : ''}><summary>점수·기술지표 자세히</summary>
+        <details class="hero-tech" ${!hasPrice ? 'hidden' : ''}><summary>등급과 점수</summary>
           <div class="hero-metrics">
+            <span>계산 등급(참고) ${esc(kindLabel(item.reference_kind || item.kind))}</span>
             <span class="hero-tk">${esc(ticker)}${item.sector ? ' · ' + esc(item.sector) : ''}`
             + ` · 점수 <b style="color:${scoreC}">${item.score > 0 ? '+' : ''}${fmtNum(item.score, 2)}</b>`
             + _heroCov(item) + `</span>`
@@ -12776,8 +12832,16 @@ if ('serviceWorker' in navigator) {
     if (!r.ok) { showAuthGate(); return; }
     const me = await r.json();
     // Head의 defer 스크립트(ECharts 포함)가 모두 준비된 뒤 앱 로직을 시작한다.
-    if (document.readyState === 'loading') {
-      await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, {once:true}));
+    if (document.readyState === 'loading' || (document.readyState === 'interactive' && !window.TodayDesk)) {
+      await new Promise(resolve => {
+        const ready = () => {
+          document.removeEventListener('DOMContentLoaded', ready);
+          window.removeEventListener('load', ready);
+          resolve();
+        };
+        document.addEventListener('DOMContentLoaded', ready, {once:true});
+        window.addEventListener('load', ready, {once:true});
+      });
     }
     _userEmail = me.email; _profile = me.profile || {}; applyAdmin(me.is_admin);
     await startApp();

@@ -150,7 +150,8 @@ def test_screen_shows_the_mix_and_the_order_without_a_research_return():
     assert "ru < 0 ? 'hero-runup down'" in hero
     assert "첫 매수권 뒤 가격" in hero and "실제 매입 손익 아님" in hero
     assert "실제 체결 손익이 아니며" in hero
-    assert "새 매수 후보 평가입니다. 이미 보유한 주식의 추가매수·매도 지시는 아닙니다." in hero
+    assert "신규 진입 평가" in hero
+    assert "이미 보유 중이라면 내 투자에서 확인" in hero
     assert "hero-upside" not in hero and "참고 목표가" not in hero
     assert "당시 메모" in src and "연구 순서 · 주문에 연결되어 있지 않습니다" in src
     perf_fn = src.split("function loadBotPerformance", 1)[1].split("\nfunction ", 1)[0]

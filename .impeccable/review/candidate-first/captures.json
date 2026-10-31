@@ -1,0 +1,86 @@
+{
+  "date": "2026-10-31",
+  "source_main": "3ca5ec34bedcfaaf4062aead85169c16cb776481",
+  "synthetic": true,
+  "external_api_proxy": false,
+  "credentials_loaded": false,
+  "production_validation": false,
+  "price_accuracy_or_profitability_evidence": false,
+  "desktop": {
+    "width": 1440,
+    "height": 1000,
+    "path": "desktop.png"
+  },
+  "mobile": {
+    "width": 390,
+    "height": 844,
+    "path": "mobile.png"
+  },
+  "additional": [
+    "detail-desktop.png",
+    "detail-mobile.png",
+    "paused.png",
+    "error.png"
+  ],
+  "chart": {
+    "browser_series": [
+      "가격",
+      "시그널 점수"
+    ],
+    "tooltip": "axis",
+    "saved_favorite_aria_pressed": "true",
+    "no_horizontal_overflow": true
+  },
+  "state_checks": [
+    {
+      "scenario": "closed",
+      "title": "지난 장 마감 기준입니다",
+      "heading": "지난 종가로 살펴볼 후보",
+      "candidates": 3,
+      "grade": "종가 참고 후보",
+      "retryVisible": false,
+      "overflow": false
+    },
+    {
+      "scenario": "paused",
+      "title": "봇의 새 매수는 보류 중입니다",
+      "heading": "오늘 살펴볼 후보",
+      "candidates": 3,
+      "grade": "엔진 후보 · 새 매수 보류",
+      "retryVisible": false,
+      "overflow": false
+    },
+    {
+      "scenario": "stale",
+      "title": "가격 확인을 기다리고 있습니다",
+      "heading": "오늘 살펴볼 후보",
+      "candidates": 0,
+      "retryVisible": false,
+      "overflow": false
+    },
+    {
+      "scenario": "empty",
+      "title": "현재 매수 조건을 통과한 후보가 없습니다",
+      "heading": "오늘 살펴볼 후보",
+      "candidates": 0,
+      "retryVisible": false,
+      "overflow": false
+    },
+    {
+      "scenario": "error",
+      "title": "새 자료를 불러오지 못했습니다",
+      "heading": "마지막으로 받은 후보 기록",
+      "candidates": 0,
+      "retryVisible": true,
+      "overflow": false
+    }
+  ],
+  "state_check_note": "가격 무효/운영 미확인에서도 재조회 버튼을 표시하는 최종 보완 전 관측입니다. 해당 버튼·포커스는 최종 JS 경계 검사로 별도 확인합니다.",
+  "fixture": "/private/tmp/signal-candidate-preview.py",
+  "source_type": "actual local app HTML/JS/CSS + synthetic read-only API",
+  "limits": [
+    "모바일 브라우저 에뮬레이션이며 실제 휴대폰 인증이 아닙니다.",
+    "상세 PC 캡처는 내부 스크롤 패널의 상단입니다.",
+    "실제 계좌·주문·LLM·수익성을 검증하지 않았습니다."
+  ]
+}

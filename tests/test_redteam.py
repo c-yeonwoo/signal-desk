@@ -4083,11 +4083,14 @@ def test_daily_card_stays_inside_collapsed_today_before_table():
     """어제의 변화는 오늘 상세 안에 두고, 펼치기 전에는 요청하지 않는다."""
     from pathlib import Path
     html = Path("src/signal_desk/web/index.html").read_text(encoding="utf-8")
-    i_verdict = html.index('id="signal-trust"')
     i_today = html.index('id="sig-today"')
     i_card = html.index('id="daily-change"')
     i_table = html.index('class="sig-toolbar"')
-    assert i_verdict < i_today < i_card < i_table
+    assert i_today < i_card < i_table
+    # Research verification moved to the account area; its entry must open that visible route.
+    account = html.split('id="view-mypage"', 1)[1]
+    assert 'id="signal-trust"' in account
+    assert 'onclick="openSignalValidation()"' in html
     assert 'if(this.open){loadBuyWait();loadDailyChange()}' in html
 
 
