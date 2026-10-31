@@ -5911,6 +5911,32 @@ function _openHoldingReview(market){
   switchTab('trading');
   document.getElementById('portfolio-intelligence-card')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
+function _companyResearchHtml(research){
+  if (!research) return '';
+  const sources = new Map((research.sources || []).map(s => [s.id, s]));
+  const link = s => s && typeof s.url === 'string' && /^https:\/\/[^\s]+$/i.test(s.url)
+    ? ` <a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">원문 ↗</a>` : '';
+  const extracts = (rows, label) => (rows || []).slice(0,1).map(row => {
+    const s = sources.get(row.source_id);
+    return s ? `<p><b>${label}</b>“${esc(row.quote)}”${link(s)}</p>` : '';
+  }).join('');
+  if (!sources.size) {
+    const message = research.status === 'source_failed'
+      ? '마지막 뉴스 수집이 실패했어요. 이전 분석은 현재 근거에서 제외했습니다.'
+      : research.status === 'source_changed'
+      ? '같은 주소의 원문 내용이 바뀌었어요. 이전 발췌는 제외했으니 정정 내용을 확인하세요.'
+      : '최근 원문과 수집 상태를 함께 확인하지 못했어요. 이전 분석은 현재 근거에서 제외했습니다.';
+    return `<p class="company-review-foot">${message}</p>`;
+  }
+  const quotes = extracts(research.supports, '긍정적으로 읽은 대목') + extracts(research.risks, '주의해서 읽을 대목');
+  const fallback = [...sources.values()].slice(0,2).map(s => `<p>${esc(s.title)}${link(s)}</p>`).join('');
+  const checked = Number(research.checked_at);
+  const stamp = ts => new Date(ts).toLocaleString('ko-KR', {timeZone:'Asia/Seoul', hour12:false});
+  return (quotes || fallback)
+    + `<p class="company-review-foot">${quotes ? 'AI가 원문에서 고른 대목입니다. 사실 여부와 매수·매도 결론은 별도 확인이 필요해요.' : '원문 목록입니다. AI 분석 결과는 아직 없습니다.'}</p>`
+    + `<details><summary>원문과 확인 시각</summary><p>수집 확인 ${Number.isFinite(checked) ? esc(stamp(checked * 1000)) : '미확인'}</p>${[...sources.values()].map(s => `<p>${esc(s.title)}${link(s)} · ${s.time_precision === 'date_only' ? '발행일 ' + esc(s.published.slice(0,10)) + ' (정확한 시각 미확인)' : esc(stamp(Date.parse(s.published)))}</p>`).join('')}</details>`;
+}
+
 function _paintSignalReview(ticker, review){
   const el = document.getElementById('signal-company-review');
   if (!el) return;
@@ -5962,8 +5988,9 @@ function _paintSignalReview(ticker, review){
       : groups.supports.length ? '가격은 매수 후보권이에요. 기업 근거는 별도로 확인하세요.'
       : groups.contradicts.length ? '현재 가격 조건은 매도 쪽이에요.'
       : '현재 가격 조건과 최근 기업 소식을 따로 확인하세요.';
-  const unknowns = (review.unknowns || []).slice(0,4);
-  const next = (review.next_checks || [])[0];
+  const research = review.research;
+  const unknowns = [...new Set([...(research?.unknowns || []), ...(review.unknowns || [])])].slice(0,4);
+  const next = (research?.sources?.length ? research.next_checks?.[0] : null) || (review.next_checks || [])[0];
   const basis = review.price_basis === 'intraday_quote'
     ? '장중 잠정가 포함 · 확정 종가 ' : '확정 종가 ';
   const holding = review.holding_context || {};
@@ -5979,7 +6006,10 @@ function _paintSignalReview(ticker, review){
     + `<button type="button" class="btn" onclick="_openHoldingReview('${market}')">내 보유 진단에서 비중 확인</button></div>` : '';
   el.innerHTML = `<h3>판정 근거와 기업 소식</h3>`
     + (stale || hasOfficialRisk || review.buy_blocked ? `<p class="company-review-lead">${esc(lead)}</p>` : '')
-    + `<div class="company-review-part">${lines(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))).concat(groups.context.filter(c => !(c.evidence_ids || []).some(id => id.startsWith('price:')))), '연결할 최근 원문이 없습니다. 새 소식이나 악재가 없다는 뜻은 아닙니다.')}</div>`
+    + `<div class="company-review-part">${research
+      ? (review.claims.some(c => (c.evidence_ids || []).some(id => id.startsWith('event:')))
+        ? lines(review.claims.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))), '') : '') + _companyResearchHtml(research)
+      : lines(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('event:'))).concat(groups.context.filter(c => !(c.evidence_ids || []).some(id => id.startsWith('price:')))), '연결할 최근 원문이 없습니다. 새 소식이나 악재가 없다는 뜻은 아닙니다.')}</div>`
     + `<details><summary>가격 판정 근거 보기</summary>${lines(groups.supports.concat(groups.contradicts.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:'))), groups.context.filter(c => (c.evidence_ids || []).some(id => id.startsWith('price:')))), '가격 판정을 확인하지 못했어요.')}<p class="company-review-foot">${esc(basis + ((review.as_of || {}).prices_through || '미확인'))}</p></details>`
     + (holdingDetail || `<p class="company-review-foot">${esc(review.holding_text || '내 보유 정보는 확인하지 못했어요.')}</p>`)
     + (next ? `<p class="company-review-foot"><b>다음 확인</b> · ${esc(next)}</p>` : '')
