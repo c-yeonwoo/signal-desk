@@ -137,13 +137,14 @@ def test_unreviewed_server_upgrade_is_not_silently_accepted(monkeypatch):
         alpaca_readonly.verify_install()
 
 
-def test_unexpected_tool_registration_fails_closed():
+@pytest.mark.parametrize("unexpected", ["place_stock_order", "get_crypto_bars", "get_market_movers"])
+def test_unexpected_tool_registration_fails_closed(unexpected):
     class Server:
         def enable(self, **kwargs):
             assert kwargs["only"] and kwargs["names"] == alpaca_readonly.ALLOWED
 
         async def list_tools(self):
-            return [SimpleNamespace(name=n) for n in alpaca_readonly.ALLOWED | {"place_stock_order"}]
+            return [SimpleNamespace(name=n) for n in alpaca_readonly.ALLOWED | {unexpected}]
 
     with pytest.raises(ValueError, match="inventory"):
         asyncio.run(alpaca_readonly.restrict(Server()))

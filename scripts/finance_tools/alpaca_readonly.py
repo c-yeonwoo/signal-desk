@@ -13,7 +13,7 @@ COMMIT = "d8dac43f3e17594e8879bac3b5b333196ea69aac"
 ALLOWED = frozenset({
     "get_stock_bars", "get_stock_quotes", "get_stock_trades",
     "get_stock_latest_bar", "get_stock_latest_quote", "get_stock_latest_trade",
-    "get_stock_snapshot", "get_market_movers", "get_most_active_stocks",
+    "get_stock_snapshot", "get_most_active_stocks",
 })
 KEYS = ("APCA_API_KEY_ID", "APCA_API_SECRET_KEY", "ALPACA_API_KEY", "ALPACA_SECRET_KEY")
 
