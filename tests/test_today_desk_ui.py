@@ -53,6 +53,11 @@ assert.deepEqual(Array.from(result.candidates,r=>r.ticker),['A','B']);
 assert.equal(JSON.stringify(rows),before);
 assert.match(desk.describe(rows[1]).reason,/중기 가격 흐름·재무 건전성/);
 assert.match(desk.describe(rows[1]).caution,/외국인·기관 수급/);
+for(const key of ['short','quality','momentum','flow']){
+  const caution=desk.describe(row('COPY',{score_contributions:{[key]:-.1}})).caution;
+  assert.match(caution,/ 항목이 점수를 낮췄습니다\.$/);
+  assert.doesNotMatch(caution,/공매도은/);
+}
 assert.equal(desk.model(data([rows[0],rows[3]]),{buy_paused:false}).candidates.length,0);
 """)
 

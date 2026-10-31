@@ -26,7 +26,7 @@ window.TodayDesk = (() => {
       : view.stale || row.current_decision_status === 'deferred' ? view.message
       : row.low_coverage ? '선정에 필요한 자료가 부족합니다.'
       : risk || (row.earnings_soon ? '실적 발표 일정의 영향을 확인하세요.'
-        : negative ? `${names[negative[0]]}은 점수를 낮춘 요인입니다.` : '뉴스·공시의 영향은 종목 근거에서 확인하세요.');
+        : negative ? `${names[negative[0]]} 항목이 점수를 낮췄습니다.` : '뉴스·공시의 영향은 종목 근거에서 확인하세요.');
     const live = hasSignalPrice(row) && view.status === 'current_quote' && !view.warning && row.current_decision_eligible === true;
     const reference = hasSignalPrice(row) && view.status === 'current_close' && !view.stale && row.current_decision_status === 'close_reference_only';
     return {reason,caution,live,reference,view};
