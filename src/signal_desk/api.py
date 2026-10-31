@@ -4103,13 +4103,26 @@ def _chart_freshness(dates: list[str], market: str = "kospi", ticker: str | None
 
 
 @app.get("/api/signals/{ticker}/chart")
-def signal_chart_get(ticker: str, market: str = "kospi", flow: bool = False):
+def signal_chart_get(ticker: str, market: str = "kospi", flow: bool = False, preview: bool = False):
     """종목 가격+지표 시계열(차트용) — 종가/MA20·60·120/RSI/MACD. market=us면 미국 시세.
     최근 _CHART_BARS만 보내고, 점수·zones는 한 패스로 계산(클릭 지연 완화).
     flow=1일 때만 네이버 수급을 붙인다(자세히 모드) — 기본 클릭 경로에서 HTTP를 빼 체감 지연을 줄인다."""
     history = store.load_us_price_history(ticker) if market == "us" else store.load_price_history(ticker)
     if not history:
         return {"ready": False, "dates": []}
+    if preview:
+        # List thumbnails read stored closes only; do not calculate indicators,
+        # historical scores, investor flow or fetch an external quote.
+        expected = market_clock.latest_completed_session(
+            "us" if market == "us" else "kr", datetime.datetime.now(datetime.timezone.utc))
+        history = [h for h in history if expected and h["date"] <= expected][-20:]
+        if not history:
+            return {"ready": False, "dates": []}
+        dates = [h["date"] for h in history]
+        return {"ready": True, "ticker": ticker, "dates": dates,
+                "close": [finite_or_none(h["close"]) for h in history],
+                "as_of": dates[-1], "expected_as_of": expected,
+                "reference_only": True, "basis": "stored_close"}
     if len(history) > _CHART_BARS:
         history = history[-_CHART_BARS:]
     closes = [h["close"] for h in history]
@@ -7975,6 +7988,18 @@ def investment_styles():
 @app.get("/today-desk.js")
 def today_desk_script():
     return FileResponse(WEB_DIR / "today-desk.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/mini-charts.js")
+def mini_charts_script():
+    return FileResponse(WEB_DIR / "mini-charts.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/mini-charts.css")
+def mini_charts_styles():
+    return FileResponse(WEB_DIR / "mini-charts.css", media_type="text/css",
                         headers={"Cache-Control": "no-cache"})
 
 

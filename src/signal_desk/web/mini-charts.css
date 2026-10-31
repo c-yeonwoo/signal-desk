@@ -1,0 +1,12 @@
+.mini-chart {display:block;width:140px;max-width:100%;color:var(--c-price);min-height:64px;font-variant-numeric:tabular-nums}
+.mini-chart svg {display:block;width:100%;height:46px;overflow:visible}
+.mini-chart-note {display:block;font-size:var(--fs-xs);line-height:1.45;color:var(--dim);white-space:normal}
+.mini-chart-unverified .mini-chart-note {color:var(--sig-watch)}
+.today-candidate-body {display:grid;grid-template-columns:minmax(0,1fr) 140px;gap:24px;align-items:center}
+.today-candidate-body .mini-chart {margin-top:18px;text-align:right}
+.today-candidate-body .mini-chart-note {font-size:var(--fs-xs)}
+.stock-open .mini-chart {width:100%;margin:8px 0}
+.stock-open .mini-chart svg {width:140px;max-width:100%}
+#sig-mini-toggle {font-size:var(--fs-sm);min-height:40px}
+#sig-mini-toggle[aria-pressed="true"] {background:var(--accent-weak);color:var(--accent);border-color:var(--accent)}
+@media(max-width:640px){.today-candidate-body{display:block}.today-candidate-body .mini-chart{margin-top:12px;width:140px;text-align:left}}

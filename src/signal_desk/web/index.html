@@ -28,6 +28,8 @@
 <script defer src="./investment.js"></script>
 <link rel="stylesheet" href="./entry-timing.css" />
 <script defer src="./entry-timing.js"></script>
+<link rel="stylesheet" href="./mini-charts.css" />
+<script defer src="./mini-charts.js"></script>
 <link rel="stylesheet" href="./today-desk.css" />
 <script defer src="./today-desk.js"></script>
 <style>
@@ -1222,6 +1224,7 @@
             <option value="mktcap">시총순</option>
             <option value="volume">거래량순</option>
           </select>
+          <button id="sig-mini-toggle" type="button" class="btn" aria-pressed="true" onclick="MiniCharts.toggle()">미니 차트</button>
         </div>
         <p id="signal-list-notice" role="status" hidden style="padding:0 20px;color:var(--sig-sell);font-size:14px"></p>
         <details id="sig-explore" class="sig-explore" ontoggle="if(this.open) openSignalExplore()">
@@ -1453,9 +1456,8 @@
   <div id="view-trading" class="view-app" style="display:none">
     <div id="trading-bot">
     <section class="invest-hero" aria-labelledby="bot-guide-title">
-      <div class="invest-kicker">투자 관리 / 봇 모의투자</div>
-      <h2 id="bot-guide-title">얼마나 벌었는지, 왜 잃었는지.</h2>
-      <p>가상자금으로 운용하는 세 가지 봇의 실제 기록입니다. 성향을 고르면 손익과 다음 점검 계획을 설명해 드려요. 내 실계좌와는 별개이며, 손실 기록도 그대로 남깁니다.</p>
+      <h2 id="bot-guide-title">모의투자 성과</h2>
+      <p>성향별 가상자금의 손익과 거래를 확인하세요. 내 실계좌와는 별개입니다.</p>
     </section>
     <div class="row" style="margin-bottom:12px;align-items:center;gap:10px">
       <div class="seg-toggle" id="bot-market-seg" style="margin-bottom:0">
@@ -1473,17 +1475,21 @@
     <div id="portfolio-bot">
       <section id="bot-review" class="invest-review" aria-live="polite" aria-label="손익 해설과 재점검 계획">선택한 봇의 손익을 확인하는 중…</section>
       <div id="bot-perf-summary" class="card" hidden></div>
+      <div class="card" id="bot-equity-panel">
+        <div class="row" style="align-items:baseline">
+          <b style="font-size:14px">날짜별 계좌 금액 <span style="color:var(--dim);font-weight:600;font-size:13px">· 하루 한 번 기록</span></b>
+        </div>
+        <div id="bot-equity-chart" style="height:260px;margin-top:8px"></div>
+      </div>
       <div class="card" style="margin-bottom:16px">
         <b style="font-size:14px">최근 거래내역</b>
         <div id="bot-trades-body" class="placeholder" style="padding:16px 0">불러오는 중…</div>
       </div>
-      <div class="card">
-        <div class="row" style="align-items:baseline">
-          <b style="font-size:var(--fs-md)">다른 성향과 비교하기</b>
-        </div>
+      <details class="card invest-detail">
+        <summary>다른 성향과 비교하기</summary>
         <!-- 아래 패딩 0 — 카드 자체 패딩(22px)과 겹쳐서 disclaimer 밑이 허옇게 비었다 -->
         <div id="reference-perf" class="placeholder" style="padding:12px 0 0">불러오는 중…</div>
-      </div>
+      </details>
       <div class="card-row">
         <div class="card"><div class="stat-label">현금</div><div class="stat-value" id="bot-cash">-</div></div>
         <div class="card"><div class="stat-label">총평가금액</div><div class="stat-value" id="bot-total">-</div></div>
@@ -1503,12 +1509,6 @@
           <b style="font-size:14px">포트폴리오</b>
           <div id="bot-allocation-chart" style="height:360px"></div>
         </div>
-      </div>
-      <div class="card">
-        <div class="row" style="align-items:baseline">
-          <b style="font-size:14px">날짜별 계좌 금액 <span style="color:var(--dim);font-weight:600;font-size:13px">· 하루 한 번 기록</span></b>
-        </div>
-        <div id="bot-equity-chart" style="height:260px;margin-top:8px"></div>
       </div>
     </div>
     </div><!-- /#bot-kospi -->
@@ -1638,7 +1638,12 @@
     </div>
 
     <div id="trading-rebal" style="display:none">
-    <div class="portfolio-heading"><h2>내 보유와 계좌</h2><p>실계좌를 확인하고, 진단에 쓸 보유내역을 살펴보세요. 조회와 진단만으로 주문되지는 않습니다.</p></div>
+    <div class="portfolio-heading"><h2>내 보유와 계좌</h2><p>계좌 잔고를 확인하거나, 저장한 보유내역을 분석하세요.</p></div>
+    <div class="seg-toggle investment-workspace-tabs" aria-label="내 투자 작업">
+      <button type="button" data-investment-view="account" aria-pressed="true" onclick="InvestmentGuide.showWorkspace('account',true)">계좌 보기</button>
+      <button type="button" data-investment-view="analysis" aria-pressed="false" onclick="InvestmentGuide.showWorkspace('analysis',true)">보유 분석</button>
+    </div>
+    <p id="investment-workspace-note" class="portfolio-source" role="status">토스증권에서 조회한 보유내역입니다. 주문 설정은 아래에서 별도로 확인합니다.</p>
     <div class="seg-toggle" id="pf-market-seg" style="margin-bottom:16px">
       <button class="on" data-pfm="kr" onclick="setPfMarket('kr')">국내주식</button>
       <button data-pfm="us" onclick="setPfMarket('us')">해외주식</button>
@@ -1654,7 +1659,7 @@
           <span id="real-holdings-sum" style="margin-left:auto;font-size:13px"></span>
           <span id="real-holdings-stamp" style="color:var(--dim);font-size:12px"></span>
         </div>
-        <div id="real-holdings-note" style="display:none" class="portfolio-source">진단에는 아래 분석용 입력을 씁니다. 실계좌에서 복사하면 국내·해외 입력 전체가 바뀝니다.</div>
+        <div id="real-holdings-note" style="display:none" class="portfolio-source">보유 분석은 별도로 저장한 입력을 씁니다. 실계좌에서 복사하면 국내·해외 입력 전체가 바뀝니다.</div>
         <div id="real-holdings-compare" role="status" style="display:none;margin:8px 0;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r-md);font-size:14px;line-height:1.5"></div>
         <div id="real-holdings-body" class="placeholder" style="padding:12px 0">불러오는 중…</div>
         <button id="real-holdings-import" class="btn" style="display:none;margin-top:10px" onclick="importRealHoldings()">국내·해외 분석용 보유 바꾸기</button>
@@ -1677,7 +1682,7 @@
         <div id="investment-account-mount"></div>
       </details>
       <div class="card" id="manual-holdings-card" style="margin-bottom:16px">
-        <h3>진단에 쓸 보유내역 <span id="manual-mkt-label">· 국내</span></h3>
+        <h3 id="investment-analysis-title" tabindex="-1">진단에 쓸 보유내역 <span id="manual-mkt-label">· 국내</span></h3>
         <p class="portfolio-source">직접 저장하거나 실계좌에서 복사한 분석용 입력입니다. 실계좌와 자동으로 맞춰지지 않습니다.</p>
         <div id="holdings-summary" role="status">저장된 입력을 확인하고 있습니다.</div>
         <details id="holdings-editor" class="pf-settings">
@@ -4779,6 +4784,7 @@ function signalDecisionLabel(item){
   return kindLabel(item.kind);
 }
 function renderSignalList(){
+  document.getElementById('sig-mini-toggle')?.setAttribute('aria-pressed',String(typeof MiniCharts!=='undefined' && MiniCharts.enabled()));
   const el = document.getElementById('signal-body');
   if (!_signalRows) return;
   // 상세는 목록 밖의 고정 DOM에 둔다. 목록 재렌더로 차트 인스턴스가 제거되지 않는다.
@@ -4901,6 +4907,7 @@ function renderSignalList(){
       ${star(r)}<button type="button" class="stock-open" data-stock-open="${esc(r.ticker)}" aria-pressed="${r.ticker === _selectedTicker}">
         <span class="stock-line"><span class="stock-name">${esc(r.name)}</span><span class="stock-price">${signalPriceText(r)}</span></span>
         <span class="stock-meta"><span>${esc(r.ticker)}${r.sector ? ' · ' + esc(r.sector) : ''}</span><span class="stock-change" style="color:${change > 0 ? 'var(--sig-buy)' : change < 0 ? 'var(--sig-sell)' : 'var(--dim)'}">${change == null ? '–' : (change > 0 ? '+' : '') + fmtNum(change,2) + '%'}</span></span>
+        ${typeof MiniCharts!=='undefined' && MiniCharts.enabled() ? MiniCharts.markup(r.ticker,_sigMarket,r.signal_close_date) : ''}
         <span class="stock-state"><span class="sig-pill ${r.kind}${priceView.warning || !hasPrice ? ' price-unverified' : ''}" title="${hasPrice ? esc(sigPillTitle(r)) : '가격 확인 전에는 현재 판정을 볼 수 없습니다.'}">${esc(signalDecisionLabel(r))}</span>${hasPrice ? priceNote : '<span>가격 확인 필요</span>'}</span>
         ${(sort !== 'signal' || r.low_coverage) ? `<span class="sig-metric">${esc(metric(r))}${covBadge(r)}</span>` : ''}${holdNote(r)}${badges(r)}
       </button></li>`;
@@ -4947,6 +4954,7 @@ function renderSignalList(){
     (row?.querySelector(restoreFav ? '[data-fav]' : '.stock-open') || document.getElementById('sig-search')).focus({preventScroll:true});
   }
   syncSignalLayout();
+  if(typeof MiniCharts!=='undefined')MiniCharts.scan(el);
   paintLiveQuotePrices();
   return rows[0]?.ticker;
 }
@@ -5909,6 +5917,7 @@ function _openHoldingReview(market){
   if (_pfMarket !== nextMarket) setPfMarket(nextMarket);
   _tradingSeg = 'rebal';
   switchTab('trading');
+  InvestmentGuide.showWorkspace('analysis');
   document.getElementById('portfolio-intelligence-card')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
 function _companyResearchHtml(research){
@@ -6926,6 +6935,7 @@ function onInvestmentDividendToggle(){
 }
 function switchTradingSeg(seg){
   mountInvestmentSections();
+  if(typeof InvestmentGuide!=='undefined')InvestmentGuide.showWorkspace(seg==='live'?'account':seg==='dividend'?'analysis':InvestmentGuide.workspaceView());
   _tradingSeg = seg;
   document.querySelectorAll('#subnav-trading .subtab').forEach(b => b.classList.toggle('on', b.dataset.seg === (seg === 'bot' ? 'bot' : 'rebal')));
   document.getElementById('trading-bot').style.display = seg === 'bot' ? '' : 'none';
@@ -7790,7 +7800,7 @@ async function loadRealHoldings(){
     const state = _realHoldingsImportDiff;
     compare.textContent = !state ? '분석용 입력 조회에 실패해 실계좌와 대조하지 못했습니다. 기존 입력은 바꾸지 않습니다.' : state.same
       ? '실계좌 조회와 분석용 입력이 같습니다. 지난 진단은 자동 갱신되지 않습니다.'
-      : `국내·해외 전체 기준: 실계좌 ${state.realCount}종목 · 분석용 입력 ${state.manualCount}종목. ${describeHoldingsDiff(state)} 아래 진단은 분석용 입력 기준입니다.`;
+      : `국내·해외 전체 기준: 실계좌 ${state.realCount}종목 · 분석용 입력 ${state.manualCount}종목. ${describeHoldingsDiff(state)} 보유 분석은 저장한 입력 기준입니다.`;
     compare.style.display = '';
   }
   const number = v => v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v);

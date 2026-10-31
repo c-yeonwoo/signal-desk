@@ -59,3 +59,8 @@
   .invest-breakdown span {margin:0}.invest-breakdown strong {font-size:20px}.invest-plan {grid-template-columns:1fr;gap:0}
   .invest-plan li {padding:14px 0}.invest-guidance {padding:14px}.invest-review h2 {font-size:22px}
 }
+/* Account reads and editable analysis inputs stay separate during async refreshes. */
+.investment-view-hidden { display:none !important; }
+.investment-workspace-tabs { margin-bottom:12px; }
+.investment-workspace-tabs button { min-height:44px; }
+#investment-workspace-note { margin:0 0 24px; max-width:70ch; }

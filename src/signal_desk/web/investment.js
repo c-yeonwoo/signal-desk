@@ -7,6 +7,32 @@
   const money = (v, currency) => valid(v) ? (currency === 'USD' ? '$' : '') + num(v, currency === 'USD' ? 2 : 0) + (currency === 'USD' ? '' : '원') : '확인 필요';
   const amount = (label, v, currency, signed = true) => `<div><span>${label}</span><strong class="${signed && v < 0 ? 'neg' : signed && v > 0 ? 'pos' : ''}">${money(v, currency)}</strong></div>`;
   const detail = (title, body) => `<details class="invest-detail"><summary>${title}</summary><div>${body}</div></details>`;
+  let currentWorkspace='account';
+  const workspaceView=()=>currentWorkspace;
+  function showWorkspace(view,focus=false) {
+    currentWorkspace=view==='analysis'?'analysis':'account';
+    const groups={account:['real-holdings-card','account-performance-card','investment-account-workspace'],
+      analysis:['manual-holdings-card','portfolio-intelligence-card','pf-history','pf-evidence','pf-tools','investment-dividend-workspace']};
+    Object.entries(groups).forEach(([group,ids])=>ids.forEach(id=>
+      document.getElementById(id)?.classList.toggle('investment-view-hidden',group!==currentWorkspace)));
+    document.querySelectorAll('[data-investment-view]').forEach(button=>{
+      const selected=button.dataset.investmentView===currentWorkspace;
+      button.setAttribute('aria-pressed',String(selected));button.classList.toggle('on',selected);
+    });
+    const note=document.getElementById('investment-workspace-note');
+    if(note)note.textContent=currentWorkspace==='analysis'
+      ?'저장한 분석용 보유를 사용합니다. 실계좌와 자동으로 맞춰지지 않습니다.'
+      :'토스증권에서 조회한 보유내역입니다. 주문 설정은 아래에서 별도로 확인합니다.';
+    if(focus && currentWorkspace==='analysis')document.getElementById('investment-analysis-title')?.focus({preventScroll:true});
+    // An outstanding read can finish while its workspace is hidden. Restore
+    // existing charts at their visible size without repeating a data request.
+    window.requestAnimationFrame?.(()=>{
+      document.querySelectorAll('#trading-rebal [id$="-chart"], #heatmap-body, #real-donut').forEach(holder=>{
+        const rect=holder.getBoundingClientRect();
+        if(rect.width>0 && rect.height>0)window.echarts?.getInstanceByDom(holder)?.resize();
+      });
+    });
+  }
 
   function review(d) {
     const total = d.total_eval, seed = d.seed_cash;
@@ -43,17 +69,18 @@
         ? '전체 손익·보유 손익·현금 비중이 어떻게 바뀌었는지 확인합니다. 개선안의 비용 후 성과와 최대 손실이 함께 좋아지는지 검증한 뒤 채택 여부를 판단합니다.'
         : '현재는 보유종목이 없습니다. 손실을 만회하려고 진입하지 않고, 새 매수 조건이 확인되는지 다음 거래일 마감 후 살펴봅니다.']];
     if (r.driver === 'unknown') steps.splice(1);
-    return `<div class="invest-kicker">${esc(d.label || '선택한 봇')} · ${currency === 'USD' ? '해외' : '국내'} 모의투자</div>
-      <h2>${titles[r.driver]}</h2>
+    return `<h2>${titles[r.driver]}</h2>
       <p class="invest-muted">처음 넣은 가상자금 ${money(d.seed_cash, currency)} → 현재 ${money(d.total_eval, currency)}</p>
       <div class="invest-breakdown">${amount('계좌 전체 손익' + (r.ready ? ' · ' + num(r.pnl / d.seed_cash * 100, 2) + '%' : ''), r.pnl, currency)}${amount('팔아서 확정된 손익', r.realized, currency)}${amount('아직 보유 중인 손익', r.open, currency)}</div>
+      <p class="invest-muted">모의투자 장부 기준입니다. 실계좌 잔고와는 다릅니다.</p>
+      <details class="invest-detail"><summary>손익 계산과 다음 점검 계획</summary><div>
       <p class="invest-muted">전체 손익 = 확정된 손익 + 보유 중인 손익. 장부에 반영된 거래비용을 다시 빼지 않습니다. 평가액은 장부 기준이며 실시간 증권사 잔고가 아닙니다.</p>
       <div id="bot-cost-review" class="invest-muted">거래비용 기록을 확인하는 중…</div>
       ${r.ready && r.pnl < 0 ? `<div class="invest-recovery"><b>초기자금까지 남은 거리</b><strong>${valid(r.recovery) ? '+' + num(r.recovery, 2) + '%' : '현재 자산으로 계산 불가'}</strong><span>입출금 없이 현재 총자산이 늘어나야 하는 비율입니다. 예상 수익률이나 회복 기한이 아닙니다.</span></div>` : ''}
       <h3>${r.ready && r.pnl < 0 ? '손실 회복을 위한 재점검 계획' : '다음 점검 계획'}</h3>
       <ol class="invest-plan">${steps.map(([title, text]) => `<li><b>${title}</b><p>${text}</p></li>`).join('')}</ol>
       ${detail('왜 공격형의 손실이 더 클 수 있나요?', '<p>같은 종목이 하락해도 더 큰 비중으로 샀다면 계좌 손실이 커집니다. 하지만 성향별 매수 시점·종목 교체·보유기간도 달라서 비중만으로 원인을 단정할 수 없습니다.</p><p>이 화면은 손익이 어디에 남아 있는지 설명합니다. 시장 하락, 진입 타이밍, 거래비용 중 무엇이 얼마나 기여했는지는 동일 기간의 시장 비교와 전체 체결 분석이 추가로 필요합니다.</p>')}
-      <p class="invest-muted">장부에 맞춰 자동으로 만든 검토 계획입니다. 봇 설정·실계좌 주문은 변경하지 않습니다.</p>`;
+      <p class="invest-muted">장부에 맞춰 자동으로 만든 검토 계획입니다. 봇 설정·실계좌 주문은 변경하지 않습니다.</p></div></details>`;
   }
 
   function renderCosts(d) {
@@ -113,5 +140,5 @@
     }).join('');
     return `<div class="tscroll" tabindex="0" role="region" aria-label="분석용 종목·수량·평균 매입가"><table class="dtable"><thead><tr><th>종목</th><th class="num">수량</th><th class="num">평균 매입가 (${currency === 'USD' ? '달러' : '원'})</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
   }
-  window.InvestmentGuide = {review, renderReview, renderCosts, explain, renderPortfolio, detail, renderHoldingInputs};
+  window.InvestmentGuide = {review, renderReview, renderCosts, explain, renderPortfolio, detail, renderHoldingInputs, showWorkspace, workspaceView};
 })();

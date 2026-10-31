@@ -79,7 +79,7 @@ window.TodayDesk = (() => {
       const grade=failed ? '지난 후보 기록' : d.reference ? '종가 참고 후보' : result.paused ? '엔진 후보 · 새 매수 보류' : !result.known ? '엔진 후보 · 운영 상태 미확인' : '매수 후보';
       return `<li class="today-candidate"><div class="today-candidate-main"><div><h3>${escape(row.name || row.ticker)}</h3><p class="today-stock-meta">${escape(row.ticker)}${row.sector ? ' · '+escape(row.sector) : ''}</p></div>
         <div class="today-candidate-price"><strong>${escape(signalPriceText(row))}</strong><span class="${change < 0 ? 'negative' : change > 0 ? 'positive' : ''}">${change == null ? '등락 미확인' : (change>0?'+':'')+change.toFixed(2)+'%'}</span></div></div>
-        <p class="today-candidate-grade">${escape(grade)}</p><dl class="today-reasons"><div><dt>이유</dt><dd>${escape(d.reason)}</dd></div><div><dt>주의</dt><dd>${escape(d.caution)}</dd></div></dl>
+        <div class="today-candidate-body"><div><p class="today-candidate-grade">${escape(grade)}</p><dl class="today-reasons"><div><dt>이유</dt><dd>${escape(d.reason)}</dd></div><div><dt>주의</dt><dd>${escape(d.caution)}</dd></div></dl></div>${typeof MiniCharts!=='undefined' ? MiniCharts.markup(row.ticker,market,row.signal_close_date) : ''}</div>
         <div class="today-candidate-foot"><span>${escape(d.reference ? (row.signal_close_date || '날짜 미확인')+' 종가' : stamp(row.signal_quote_received_at))}</span>
         <button type="button" class="linkish" data-today-stock="${escape(row.ticker)}">차트와 근거 보기 <span aria-hidden="true">→</span></button></div></li>`;
     }).join('');
@@ -96,6 +96,7 @@ window.TodayDesk = (() => {
       if(focusedTicker && button.dataset.todayStock===focusedTicker){button.focus({preventScroll:true});restored=true;}
     });
     if(focusedTicker && !restored)$('today-retry').hidden ? $('today-status-title').focus({preventScroll:true}) : $('today-retry').focus({preventScroll:true});
+    if(typeof MiniCharts!=='undefined')MiniCharts.scan($('today-candidates'));
   }
   async function load(nextMarket) {
     market=nextMarket; const seq=++sequence; expanded=false; state=null; control=null; failed=false;
