@@ -7947,3 +7947,15 @@ def investment_script():
 def investment_styles():
     return FileResponse(WEB_DIR / "investment.css", media_type="text/css",
                         headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/today-desk.js")
+def today_desk_script():
+    return FileResponse(WEB_DIR / "today-desk.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/today-desk.css")
+def today_desk_styles():
+    return FileResponse(WEB_DIR / "today-desk.css", media_type="text/css",
+                        headers={"Cache-Control": "no-cache"})
