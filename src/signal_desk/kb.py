@@ -1533,6 +1533,7 @@ def research_brief_get(ticker: str, *, now: float | None = None) -> dict:
         result["unknowns"].insert(0, "같은 주소의 원문 내용이 바뀌어 이전 발췌를 제외했습니다. 정정 내용을 확인하세요.")
         if result["status"] == "no_recent_sources":
             result["status"] = "source_changed"
+    result["withheld_changed_sources"] = bool(changed)
     return result
 
 

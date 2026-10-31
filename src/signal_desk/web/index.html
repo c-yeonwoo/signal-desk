@@ -5886,7 +5886,7 @@ function _paintSignalDetail(ticker, item){
             <span style="color:var(--dim)"> · 확인 중</span></div>`;
         }).join('')
     : '';
-  const kbUnavailable = item && item.kb_status && ['stale', 'undated', 'future', 'source_failed', 'unverified_legacy'].includes(item.kb_status.status);
+  const kbUnavailable = item && item.kb_status && ['stale', 'undated', 'future', 'source_failed', 'source_changed', 'unverified_legacy'].includes(item.kb_status.status);
   if (item && (item.kb || evWarn || att || kbUnavailable)) {
     let html = `<div style="margin-bottom:6px"><span class="layer-badge ctx">참고</span> <b>최근 기업 소식</b></div>` + evWarn + att;
     if (item.kb) {

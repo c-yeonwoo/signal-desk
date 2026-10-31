@@ -7,10 +7,12 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from signal_desk import api, db, kb, kb_attribution, research_brief as research
+from fastapi import Response
 
 NOW = dt.datetime(2026, 10, 31, 2, tzinfo=dt.timezone.utc).timestamp()
 
@@ -148,6 +150,8 @@ def test_existing_refresh_produces_brief_in_one_call_and_reads_without_a_key(tmp
     assert changed["status"] == "source_changed" and not changed["sources"]
     assert not changed["supports"] and not changed["risks"]
     assert len(calls) == 1
+    assert api.kb_get("005930")["digest"] is None
+    assert api.kb_get("005930")["archived_digest"]["summary"] == "분기 실적 발표"
     assert "정정" not in db.kb_entries_recent("005930")[0]["summary"]
     db.kv_set("company_research_changes:005930", {})
     item["title"] = "삼성전자 협력사, 분기 실적 발표"
@@ -174,6 +178,21 @@ def test_daily_cloud_hook_runs_once_without_a_model_or_external_fetch(tmp_path, 
     assert report["llm_calls"] == report["source_requests"] == 0
     monkeypatch.setattr(kb, "refresh_research_briefs", forbidden)
     api._daily_company_research("2026-10-31")
+
+
+def test_detail_does_not_show_legacy_positive_summary_below_a_retraction(tmp_path, monkeypatch):
+    monkeypatch.setattr(db, "DB", tmp_path / "app.db")
+    monkeypatch.setattr(api, "_kr_signal_detail", lambda ticker: {
+        "ticker": ticker, "kind": "HOLD", "kb": {"summary": "옛 긍정 요약"}, "moves": ["옛 사실"]})
+    monkeypatch.setattr(api, "_annotate_signal_price_status", lambda *a: None)
+    monkeypatch.setattr(api, "_uid", lambda request: None)
+    monkeypatch.setattr(api.store, "load_signal_history", lambda: SimpleNamespace(empty=True))
+    monkeypatch.setattr(kb, "research_brief_get", lambda *a, **k: {
+        "withheld_changed_sources": True, "status": "source_changed", "sources": []})
+    out = api.signal_detail_get("005930", object(), Response())
+    assert out["item"]["kb"] is out["item"]["moves"] is None
+    assert out["item"]["kb_status"] == {"status": "source_changed", "current": False}
+    assert out["item"]["kind"] == "HOLD"
 
 
 def test_research_ui_escapes_quotes_and_keeps_official_risk_and_price_state():

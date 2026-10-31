@@ -3447,6 +3447,10 @@ def signal_detail_get(ticker: str, request: Request, response: Response, market:
         signal_price_status=item.get("signal_price_status"), now=read_at,
     )
     review["research"] = kb.research_brief_get(ticker, now=read_at.timestamp())
+    if review["research"]["withheld_changed_sources"]:
+        # The legacy summary/moves must not contradict the retraction above it.
+        item["kb"], item["moves"] = None, None
+        item["kb_status"] = {"status": "source_changed", "current": False}
     pit = None
     if market != "us":
         try:
@@ -6859,10 +6863,13 @@ def kb_get(ticker: str):
     """현재 사용 가능한 요약과 지난 기록을 구분한다."""
     dg = db.kb_digest_get(ticker)
     state = kb.digest_freshness(dg, check=kb.digest_checks().get(ticker))
+    research = kb.research_brief_get(ticker)
+    if research["withheld_changed_sources"]:
+        state = {**state, "status": "source_changed", "current": False}
     return {"digest": dg if state["current"] else None,
             "archived_digest": dg if dg and not state["current"] else None,
             "freshness": state, "entries": db.kb_entries_recent(ticker, 8),
-            "research": kb.research_brief_get(ticker)}
+            "research": research}
 
 
 # ---------- 사이클 / 밸류체인 (큐레이션 + FRED 현재위치) ----------
